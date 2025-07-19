@@ -3,6 +3,7 @@ use wq::evaluator::Evaluator;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
+use std::time::Instant;
 
 use colored::Colorize;
 
@@ -52,6 +53,41 @@ fn main() {
                         println!("Variables cleared");
                         continue;
                     }
+                    cmd if cmd.starts_with("\\t") || cmd.starts_with("time ")=> {
+                        let src = if let Some(rest) = cmd.strip_prefix("\\t") {
+                            rest.trim()
+                        } else if let Some(rest) = cmd.strip_prefix("time ") {
+                            rest.trim()
+                        } else {
+                            panic!()
+                        };
+
+                        if src.is_empty() {
+                            println!(
+                                "{}",
+                                format!("No code provided for execution.").red()
+                            );
+                            continue;
+                        }
+
+                        let start = Instant::now();
+
+                        match evaluator.eval_string(src) {
+                            Ok(result) => {
+                                println!("{}", result);
+                            }
+                            Err(error) => {
+                                eprintln!("Error: {}", error);
+                            }
+                        }
+
+                        let duration = start.elapsed();
+                        println!(
+                            "{}",
+                            format!("time elapsed: {:?}", duration).cyan()
+                        );
+                        continue;
+                    }
                     cmd if cmd.starts_with("load ") || cmd.starts_with("\\l ") => {
                         let filename = if cmd.starts_with("load ") {
                             &cmd[5..]
@@ -94,11 +130,12 @@ fn show_help() {
   abs neg signum sqrt exp log
   floor ceiling count first last
   reverse sum max min avg
+  rand sin cos tan sinh cosh tanh
   til range type string
   take drop where distinct sort
   and or not
 //repl cmds:
-  help vars clear load quit"#
+  help vars clear load quit time"#
     );
 }
 
