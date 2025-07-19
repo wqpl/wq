@@ -60,6 +60,8 @@ impl Builtins {
         self.functions.insert("where".to_string(), where_func);
         self.functions.insert("distinct".to_string(), distinct);
         self.functions.insert("sort".to_string(), sort);
+        self.functions.insert("cat".to_string(), cat);
+        self.functions.insert("flatten".to_string(), flatten);
 
         // Logical functions
         self.functions.insert("and".to_string(), and);
@@ -741,6 +743,59 @@ fn sort(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError("sort only works on lists".to_string())),
     }
+}
+
+fn cat(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 2 {
+        return Err(WqError::FnArgCountMismatchError(
+            "cat expects 2 arguments".to_string(),
+        ));
+    }
+
+    let left = &args[0];
+    let right = &args[1];
+
+    match (left, right) {
+        (Value::List(a), Value::List(b)) => {
+            let mut res = a.clone();
+            res.extend(b.clone());
+            Ok(Value::List(res))
+        }
+        (Value::List(a), b) => {
+            let mut res = a.clone();
+            res.push(b.clone());
+            Ok(Value::List(res))
+        }
+        (a, Value::List(b)) => {
+            let mut res = vec![a.clone()];
+            res.extend(b.clone());
+            Ok(Value::List(res))
+        }
+        (a, b) => Ok(Value::List(vec![a.clone(), b.clone()])),
+    }
+}
+
+fn flatten(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(WqError::FnArgCountMismatchError(
+            "flatten expects 1 argument".to_string(),
+        ));
+    }
+
+    fn flatten_value(val: &Value, out: &mut Vec<Value>) {
+        match val {
+            Value::List(items) => {
+                for v in items {
+                    flatten_value(v, out);
+                }
+            }
+            other => out.push(other.clone()),
+        }
+    }
+
+    let mut result = Vec::new();
+    flatten_value(&args[0], &mut result);
+    Ok(Value::List(result))
 }
 
 // Logical functions

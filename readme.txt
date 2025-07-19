@@ -8,12 +8,17 @@ rlwrap cargo run
     y:(1;2;3);y[0]
     2*til 5            // (0;2;4;6;8)
     til 3+til 2        // (0;2;2)
+    (1;2),(3;4)        // cat. (1;2;3;4)
 
 //fn:
     f:{x+y}            // implicit params
     f[3;4;]            // call (trailing ;)
     g:{[a;b]a*b}       // explicit params
     g[5;6;]
+
+    //local variables inside functions
+    add7:{k:7;x+k}
+    a:{b:8;{b}[;]}
 
     //single arg functions can be called w/o brackets
     signum 10
@@ -31,6 +36,10 @@ rlwrap cargo run
     fib:{[n]fibtr[n;0;1;]}
     fib[10;]
 
+//primes:
+    isprime:{[x;i]$[i*i>x;1;$[x%i=0;0;isprime[x;i+1;]]]};
+    primes:{[n]res:();iter:{[i]$[i>n;res;$[isprime[i;2;];res:res,i;0];iter[i+1;]]};iter[2;]}
+
 //builtins:
     abs neg signum sqrt exp log floor ceiling
     count first last reverse sum max min avg
@@ -38,15 +47,16 @@ rlwrap cargo run
     til range
     type string
     take drop where distinct sort
-    and or not
+    cat flatten and or not
 
 //repl cmds:
     help
     vars
     clear              // clear all vars
-    quit
     load
-    \h \v \c \q \l
+    time
+    quit
+    \h \v \c \l \t \q
 
 //types:
     42                 // int

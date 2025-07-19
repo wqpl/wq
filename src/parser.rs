@@ -169,29 +169,63 @@ impl Parser {
     }
 
     fn parse_statement(&mut self) -> WqResult<AstNode> {
-        // Check for assignment
-        if let Some(token) = self.current_token() {
-            if let TokenType::Identifier(name) = &token.token_type {
-                if let Some(next_token) = self.peek_token() {
-                    if next_token.token_type == TokenType::Colon {
-                        let var_name = name.clone();
-                        self.advance(); // consume identifier
-                        self.advance(); // consume colon
-                        let value = self.parse_expression()?;
-                        return Ok(AstNode::Assignment {
-                            name: var_name,
-                            value: Box::new(value),
-                        });
-                    }
-                }
-            }
-        }
-
         self.parse_expression()
     }
 
     fn parse_expression(&mut self) -> WqResult<AstNode> {
-        self.parse_comma()
+        self.parse_assignment()
+    }
+
+    fn parse_assignment(&mut self) -> WqResult<AstNode> {
+        let mut expr = self.parse_comma()?;
+
+        while let Some(token) = self.current_token() {
+            if token.token_type == TokenType::Colon {
+                if let AstNode::Variable(name) = expr {
+                    self.advance();
+                    let value = self.parse_assignment()?;
+                    expr = AstNode::Assignment {
+                        name,
+                        value: Box::new(value),
+                    };
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_block(&mut self) -> WqResult<AstNode> {
+        let mut statements = Vec::new();
+
+        while let Some(token) = self.current_token() {
+            match token.token_type {
+                TokenType::RightBrace => break,
+                TokenType::Semicolon | TokenType::Newline => {
+                    self.advance();
+                    continue;
+                }
+                TokenType::Eof => {
+                    return Err(WqError::SyntaxError(
+                        "Unexpected end of input in block".to_string(),
+                    ));
+                }
+                _ => {
+                    let stmt = self.parse_statement()?;
+                    statements.push(stmt);
+                }
+            }
+        }
+
+        if statements.len() == 1 {
+            Ok(statements.into_iter().next().unwrap())
+        } else {
+            Ok(AstNode::Block(statements))
+        }
     }
 
     fn parse_comma(&mut self) -> WqResult<AstNode> {
@@ -213,22 +247,17 @@ impl Parser {
             }
         }
 
-        // No leading comma: parse normally
+        // No leading comma: parse normally, treating comma as concatenation
         let mut expr = self.parse_additive()?;
 
         while let Some(token) = self.current_token() {
             if token.token_type == TokenType::Comma {
                 self.advance(); // consume comma
                 let right = self.parse_additive()?;
-                match expr {
-                    AstNode::List(mut existing) => {
-                        existing.push(right);
-                        expr = AstNode::List(existing);
-                    }
-                    _ => {
-                        expr = AstNode::List(vec![expr, right]);
-                    }
-                }
+                expr = AstNode::Call {
+                    name: "cat".to_string(),
+                    args: vec![expr, right],
+                };
             } else {
                 break;
             }
@@ -644,10 +673,8 @@ impl Parser {
             }
         }
 
-        // Parse function body
-        // let body = self.parse_expression()?;
-
-        let body = self.parse_statement()?;
+        // Parse function body allowing multiple statements
+        let body = self.parse_block()?;
 
         // Expect closing brace
         self.consume(TokenType::RightBrace)?;
@@ -665,10 +692,10 @@ impl Parser {
         let condition = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
 
-        let true_branch = self.parse_expression()?;
+        let true_branch = self.parse_branch_sequence(TokenType::Semicolon)?;
         self.consume(TokenType::Semicolon)?;
 
-        let false_branch = self.parse_expression()?;
+        let false_branch = self.parse_branch_sequence(TokenType::RightBracket)?;
         self.consume(TokenType::RightBracket)?;
 
         Ok(AstNode::Conditional {
@@ -676,6 +703,47 @@ impl Parser {
             true_branch: Box::new(true_branch),
             false_branch: Box::new(false_branch),
         })
+    }
+
+    fn parse_branch_sequence(&mut self, end: TokenType) -> WqResult<AstNode> {
+        let mut statements = Vec::new();
+
+        loop {
+            let expr = self.parse_expression()?;
+            statements.push(expr);
+
+            if let Some(token) = self.current_token() {
+                if token.token_type == TokenType::Semicolon {
+                    if std::mem::discriminant(&end) == std::mem::discriminant(&TokenType::Semicolon)
+                    {
+                        // leave semicolon for caller
+                        break;
+                    } else {
+                        self.advance();
+                        continue;
+                    }
+                } else if std::mem::discriminant(&token.token_type) == std::mem::discriminant(&end)
+                {
+                    // leave end token for caller
+                    break;
+                } else {
+                    return Err(WqError::SyntaxError(format!(
+                        "Expected {:?} or ';', found {:?}",
+                        end, token.token_type
+                    )));
+                }
+            } else {
+                return Err(WqError::SyntaxError(
+                    "Unexpected end of input in conditional branch".to_string(),
+                ));
+            }
+        }
+
+        if statements.len() == 1 {
+            Ok(statements.remove(0))
+        } else {
+            Ok(AstNode::Block(statements))
+        }
     }
 }
 
@@ -747,6 +815,31 @@ mod tests {
                     left: Box::new(AstNode::Literal(Value::Int(2))),
                     operator: BinaryOperator::Multiply,
                     right: Box::new(AstNode::Literal(Value::Int(3))),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_function_with_assignment_block() {
+        let ast = parse_string("f:{x:1;x+1}").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::Assignment {
+                name: "f".into(),
+                value: Box::new(AstNode::Function {
+                    params: None,
+                    body: Box::new(AstNode::Block(vec![
+                        AstNode::Assignment {
+                            name: "x".into(),
+                            value: Box::new(AstNode::Literal(Value::Int(1))),
+                        },
+                        AstNode::BinaryOp {
+                            left: Box::new(AstNode::Variable("x".into())),
+                            operator: BinaryOperator::Add,
+                            right: Box::new(AstNode::Literal(Value::Int(1))),
+                        },
+                    ])),
                 }),
             }
         );

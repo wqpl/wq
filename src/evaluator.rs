@@ -42,12 +42,34 @@ impl CallStack {
         self.frames.pop()
     }
 
-    // fn current_frame_mut(&mut self) -> Option<&mut StackFrame> {
-    //     self.frames.last_mut()
-    // }
+    fn current_frame_mut(&mut self) -> Option<&mut StackFrame> {
+        self.frames.last_mut()
+    }
 
     fn current_frame(&self) -> Option<&StackFrame> {
         self.frames.last()
+    }
+
+    /// Look up a variable by searching from the most recent frame downward
+    fn lookup(&self, name: &str) -> Option<Value> {
+        for frame in self.frames.iter().rev() {
+            if let Some(val) = frame.variables.get(name) {
+                return Some(val.clone());
+            }
+        }
+        None
+    }
+
+    /// Assign a variable to the nearest existing frame containing it. Returns
+    /// true if an existing binding was updated.
+    fn assign(&mut self, name: &str, value: Value) -> bool {
+        for frame in self.frames.iter_mut().rev() {
+            if frame.variables.contains_key(name) {
+                frame.variables.insert(name.to_string(), value);
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -114,13 +136,9 @@ impl Evaluator {
             AstNode::Literal(value) => Ok(value.clone()),
 
             AstNode::Variable(name) => {
-                // Check call stack first; then global env
-                if let Some(frame) = self.call_stack.current_frame() {
-                    if let Some(value) = frame.variables.get(name) {
-                        return Ok(value.clone());
-                    }
+                if let Some(val) = self.call_stack.lookup(name) {
+                    return Ok(val);
                 }
-
                 if let Some(value) = self.environment.get(name) {
                     Ok(value.clone())
                 } else {
@@ -165,7 +183,13 @@ impl Evaluator {
 
             AstNode::Assignment { name, value } => {
                 let val = self.eval(value)?;
-                self.environment.set(name.clone(), val.clone());
+                if !self.call_stack.assign(name, val.clone()) {
+                    if let Some(frame) = self.call_stack.current_frame_mut() {
+                        frame.variables.insert(name.clone(), val.clone());
+                    } else {
+                        self.environment.set(name.clone(), val.clone());
+                    }
+                }
                 Ok(val)
             }
 
@@ -202,15 +226,10 @@ impl Evaluator {
                     Err(WqError::RuntimeError(msg)) => Err(WqError::RuntimeError(msg)),
                     Err(WqError::DomainError(_)) => {
                         // Check if it's a user-defined function in stack and global env
-                        let function = if let Some(frame) = self.call_stack.current_frame() {
-                            frame
-                                .variables
-                                .get(name)
-                                .cloned()
-                                .or_else(|| self.environment.get(name).cloned())
-                        } else {
-                            self.environment.get(name).cloned()
-                        };
+                        let function = self
+                            .call_stack
+                            .lookup(name)
+                            .or_else(|| self.environment.get(name).cloned());
 
                         match function {
                             Some(Value::Function { params, body }) => {
@@ -596,5 +615,38 @@ mod tests {
         assert_eq!(evaluator.eval_string("fib[4;]").unwrap(), Value::Int(3));
         assert_eq!(evaluator.eval_string("fib[5;]").unwrap(), Value::Int(5));
         assert_eq!(evaluator.eval_string("fib[6;]").unwrap(), Value::Int(8));
+    }
+
+    #[test]
+    fn test_assignment_inside_function() {
+        let mut evaluator = Evaluator::new();
+        evaluator.eval_string("add7:{k:7;x+k}").unwrap();
+        let result = evaluator.eval_string("add7[5;]").unwrap();
+        assert_eq!(result, Value::Int(12));
+
+        // variable k should not leak to global scope
+        let err = evaluator.eval_string("k");
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_prime_function() {
+        let mut evaluator = Evaluator::new();
+        evaluator
+            .eval_string("isprime:{[x;i]$[i*i>x;1;$[x%i=0;0;isprime[x;i+1;]]]}")
+            .unwrap();
+        evaluator.eval_string(
+            "primes:{[n]res:();iter:{[i]$[i>n;res;$[isprime[i;2;];res:res,i;0];iter[i+1;]]};iter[2;]}"
+        ).unwrap();
+        let result = evaluator.eval_string("primes[10;]").unwrap();
+        assert_eq!(
+            result,
+            Value::List(vec![
+                Value::Int(2),
+                Value::Int(3),
+                Value::Int(5),
+                Value::Int(7)
+            ])
+        );
     }
 }

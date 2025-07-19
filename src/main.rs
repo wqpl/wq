@@ -154,6 +154,7 @@ fn load_script(evaluator: &mut Evaluator, filename: &str) {
             }
 
             // Show newly introduced bindings
+            // fixme: overridden bindings are not shown properly
             let vars_after = evaluator.environment().variables();
             let mut new_bindings = Vec::new();
 
