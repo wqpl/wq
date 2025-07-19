@@ -119,8 +119,7 @@ fn main() {
 
 fn show_help() {
     println!(
-        "{}",
-        r#"//builtins:
+        "//builtins:
   abs neg signum sqrt exp log
   floor ceiling count first last
   reverse sum max min avg
@@ -129,7 +128,7 @@ fn show_help() {
   take drop where distinct sort
   and or not
 //repl cmds:
-  help vars clear load quit time"#
+  help vars clear load quit time"
     );
 }
 
