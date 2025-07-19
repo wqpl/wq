@@ -190,33 +190,9 @@ impl Parser {
         self.parse_expression()
     }
 
-    // fn parse_expression(&mut self) -> WqResult<AstNode> {
-    //     self.parse_additive()
-    // }
-
     fn parse_expression(&mut self) -> WqResult<AstNode> {
         self.parse_comma()
     }
-
-    // fn parse_comma(&mut self) -> WqResult<AstNode> {
-    //     let mut items = vec![self.parse_additive()?];
-
-    //     while let Some(token) = self.current_token() {
-    //         if token.token_type == TokenType::Comma {
-    //             self.advance(); // consume comma
-    //             let next_expr = self.parse_additive()?;
-    //             items.push(next_expr);
-    //         } else {
-    //             break;
-    //         }
-    //     }
-
-    //     if items.len() == 1 {
-    //         Ok(items.pop().unwrap())
-    //     } else {
-    //         Ok(AstNode::List(items))
-    //     }
-    // }
 
     fn parse_comma(&mut self) -> WqResult<AstNode> {
         let mut items = Vec::new();
@@ -601,32 +577,7 @@ impl Parser {
                         Ok(AstNode::List(elements))
                     }
                 }
-                // TokenType::Comma => {
-                //     self.advance(); // consume ','
-                //     let expr = self.parse_expression()?;
-                //     Ok(AstNode::List(vec![expr])) // Single-element list
-                // }
-                // TokenType::Comma => {
-                //     self.advance(); // consume initial ','
 
-                //     let mut elements = Vec::new();
-
-                //     loop {
-                //         let expr = self.parse_expression()?;
-                //         elements.push(expr);
-
-                //         // If the next token is another comma, keep going
-                //         if let Some(next_token) = self.current_token() {
-                //             if next_token.token_type == TokenType::Comma {
-                //                 self.advance(); // consume comma
-                //                 continue;
-                //             }
-                //         }
-                //         break;
-                //     }
-
-                //     Ok(AstNode::List(elements))
-                // }
                 _ => Err(WqError::SyntaxError(format!(
                     "Unexpected token: {:?}",
                     token.token_type
@@ -694,7 +645,9 @@ impl Parser {
         }
 
         // Parse function body
-        let body = self.parse_expression()?;
+        // let body = self.parse_expression()?;
+
+        let body = self.parse_statement()?;
 
         // Expect closing brace
         self.consume(TokenType::RightBrace)?;

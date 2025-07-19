@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::parser::AstNode;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Int(i64),
@@ -13,7 +15,7 @@ pub enum Value {
     Dict(HashMap<String, Value>),
     Function {
         params: Option<Vec<String>>,
-        body: Box<crate::parser::AstNode>,
+        body: Box<AstNode>,
     },
     Null,
 }
