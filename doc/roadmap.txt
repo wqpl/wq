@@ -1,0 +1,17 @@
+0.2.0:
+  matrix operations
+  builtin data types: date, time
+
+0.3.0:
+  table and sql
+
+    $ n:2;t:[[]x:til 2;y:sin til 2]
+  x|y
+  -|--------
+  0|...
+  1|...
+
+  select A by B from t where C
+  update
+
+=====

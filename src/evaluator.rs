@@ -458,9 +458,9 @@ impl Evaluator {
     /// Print current environment state
     pub fn show_environment(&self) {
         if self.environment.variables().is_empty() {
-            println!("No variables defined");
+            println!("no user-defined bindings");
         } else {
-            println!("Variables:");
+            println!("user-defined bindings:");
             for (name, value) in self.environment.variables() {
                 println!("  {} = {}", name, value);
             }
