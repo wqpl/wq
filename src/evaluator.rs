@@ -190,25 +190,45 @@ impl Evaluator {
                 }
 
                 // Try built-in functions first
-                if let Ok(result) = self.builtins.call(name, &arg_values) {
-                    Ok(result)
-                } else {
-                    // Check if it's a user-defined function in stack and global env
-                    let function = if let Some(frame) = self.call_stack.current_frame() {
-                        frame
-                            .variables
-                            .get(name)
-                            .cloned()
-                            .or_else(|| self.environment.get(name).cloned())
-                    } else {
-                        self.environment.get(name).cloned()
-                    };
+                match self.builtins.call(name, &arg_values) {
+                    Ok(result) => Ok(result),
+                    Err(WqError::DomainError(msg)) => Err(WqError::DomainError(msg)),
+                    Err(WqError::TypeError(msg)) => Err(WqError::TypeError(msg)),
+                    Err(_) => {
+                        // Check if it's a user-defined function in stack and global env
+                        let function = if let Some(frame) = self.call_stack.current_frame() {
+                            frame
+                                .variables
+                                .get(name)
+                                .cloned()
+                                .or_else(|| self.environment.get(name).cloned())
+                        } else {
+                            self.environment.get(name).cloned()
+                        };
 
-                    if let Some(Value::Function { params, body }) = function {
-                        self.call_user_function(params, &body, &arg_values)
-                    } else {
-                        self.eval_function_call(name, &arg_values)
+                        match function {
+                            Some(Value::Function { params, body }) => {
+                                self.call_user_function(params, &body, &arg_values)
+                            }
+                            _ => Err(WqError::DomainError(format!("Unknown function: {}", name))),
+                        }
                     }
+                }
+            }
+
+            AstNode::CallAnonymous { object, args } => {
+                let obj_val = self.eval(object)?;
+                let mut arg_values = Vec::new();
+                for arg in args {
+                    arg_values.push(self.eval(arg)?);
+                }
+
+                if let Value::Function { params, body } = obj_val {
+                    self.call_user_function(params, &body, &arg_values)
+                } else {
+                    Err(WqError::DomainError(format!(
+                        "Failed calling anonymous function"
+                    )))
                 }
             }
 
@@ -313,6 +333,7 @@ impl Evaluator {
             None => {
                 // Implicit parameters: x y
                 match args.len() {
+                    0 => {}
                     1 => {
                         frame.variables.insert("x".to_string(), args[0].clone());
                     }
@@ -322,7 +343,7 @@ impl Evaluator {
                     }
                     _ => {
                         return Err(WqError::DomainError(
-                            "Implicit function expects 1 or 2 arguments".to_string(),
+                            "Implicit function expects 0, 1 or 2 arguments".to_string(),
                         ));
                     }
                 }
@@ -335,112 +356,6 @@ impl Evaluator {
         self.call_stack.pop_frame();
 
         result
-    }
-
-    fn eval_function_call(&mut self, name: &str, args: &[Value]) -> WqResult<Value> {
-        match name {
-            "count" | "#" => {
-                if args.len() != 1 {
-                    return Err(WqError::DomainError("count expects 1 argument".to_string()));
-                }
-                Ok(Value::Int(args[0].len() as i64))
-            }
-
-            "first" => {
-                if args.len() != 1 {
-                    return Err(WqError::DomainError("first expects 1 argument".to_string()));
-                }
-                match &args[0] {
-                    Value::List(items) => {
-                        if items.is_empty() {
-                            Ok(Value::Null)
-                        } else {
-                            Ok(items[0].clone())
-                        }
-                    }
-                    _ => Err(WqError::TypeError("first only works on lists".to_string())),
-                }
-            }
-
-            "last" => {
-                if args.len() != 1 {
-                    return Err(WqError::DomainError("last expects 1 argument".to_string()));
-                }
-                match &args[0] {
-                    Value::List(items) => {
-                        if items.is_empty() {
-                            Ok(Value::Null)
-                        } else {
-                            Ok(items[items.len() - 1].clone())
-                        }
-                    }
-                    _ => Err(WqError::TypeError("last only works on lists".to_string())),
-                }
-            }
-
-            "reverse" => {
-                if args.len() != 1 {
-                    return Err(WqError::DomainError(
-                        "reverse expects 1 argument".to_string(),
-                    ));
-                }
-                match &args[0] {
-                    Value::List(items) => {
-                        let mut reversed = items.clone();
-                        reversed.reverse();
-                        Ok(Value::List(reversed))
-                    }
-                    _ => Err(WqError::TypeError(
-                        "reverse only works on lists".to_string(),
-                    )),
-                }
-            }
-
-            "sum" => {
-                if args.len() != 1 {
-                    return Err(WqError::DomainError("sum expects 1 argument".to_string()));
-                }
-                match &args[0] {
-                    Value::List(items) => {
-                        let mut result = Value::Int(0);
-                        for item in items {
-                            result = result.add(item).ok_or_else(|| {
-                                WqError::TypeError("Cannot sum these types".to_string())
-                            })?;
-                        }
-                        Ok(result)
-                    }
-                    _ => Ok(args[0].clone()),
-                }
-            }
-
-            "type" => {
-                if args.len() != 1 {
-                    return Err(WqError::DomainError("type expects 1 argument".to_string()));
-                }
-                Ok(Value::Symbol(args[0].type_name().to_string()))
-            }
-
-            "til" => {
-                if args.len() != 1 {
-                    return Err(WqError::DomainError("til expects 1 argument".to_string()));
-                }
-                match &args[0] {
-                    Value::Int(n) => {
-                        if *n < 0 {
-                            return Err(WqError::DomainError(
-                                "til expects non-negative integer".to_string(),
-                            ));
-                        }
-                        let items: Vec<Value> = (0..*n).map(Value::Int).collect();
-                        Ok(Value::List(items))
-                    }
-                    _ => Err(WqError::TypeError("til only works on integers".to_string())),
-                }
-            }
-
-            _ => Err(WqError::DomainError(format!("Unknown function: {}", name))),
-        }
     }
 
     /// Evaluate a string of wq code

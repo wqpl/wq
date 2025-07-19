@@ -68,7 +68,6 @@ fn main() {
                     _ => {}
                 }
 
-                // Evaluate K expression
                 match evaluator.eval_string(input) {
                     Ok(result) => {
                         println!("{}", result);

@@ -37,6 +37,11 @@ pub enum AstNode {
         args: Vec<AstNode>,
     },
 
+    CallAnonymous {
+        object: Box<AstNode>,
+        args: Vec<AstNode>,
+    },
+
     /// Index access
     Index {
         object: Box<AstNode>,
@@ -310,13 +315,79 @@ impl Parser {
         while let Some(token) = self.current_token() {
             match token.token_type {
                 TokenType::LeftBracket => {
-                    self.advance(); // consume '['
-                    let index = self.parse_expression()?;
-                    self.consume(TokenType::RightBracket)?;
-                    expr = AstNode::Index {
-                        object: Box::new(expr),
-                        index: Box::new(index),
-                    };
+                    // Look ahead to check for trailing semicolon which indicates a function call
+                    let mut lookahead_pos = self.current + 1;
+                    let mut bracket_depth = 1;
+                    let mut has_trailing_semicolon = false;
+
+                    while lookahead_pos < self.tokens.len() && bracket_depth > 0 {
+                        match &self.tokens[lookahead_pos].token_type {
+                            TokenType::LeftBracket => bracket_depth += 1,
+                            TokenType::RightBracket => {
+                                bracket_depth -= 1;
+                                if bracket_depth == 0 {
+                                    // Check if there's a semicolon right before the closing bracket
+                                    if lookahead_pos > self.current + 1 {
+                                        if let Some(prev_token) = self.tokens.get(lookahead_pos - 1)
+                                        {
+                                            if prev_token.token_type == TokenType::Semicolon {
+                                                has_trailing_semicolon = true;
+                                            }
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        lookahead_pos += 1;
+                    }
+
+                    if has_trailing_semicolon {
+                        self.advance(); // consume '['
+
+                        let mut args = Vec::new();
+
+                        // Parse arguments until final semicolon
+                        while let Some(token) = self.current_token() {
+                            match token.token_type {
+                                TokenType::Semicolon => {
+                                    self.advance();
+                                    // Check if this is the final semicolon before ']'
+                                    if let Some(next_token) = self.current_token() {
+                                        if next_token.token_type == TokenType::RightBracket {
+                                            break;
+                                        }
+                                    }
+                                }
+                                TokenType::RightBracket => {
+                                    return Err(WqError::SyntaxError(
+                                        "Function call must end with ';]'".to_string(),
+                                    ));
+                                }
+                                _ => {
+                                    let arg = self.parse_expression()?;
+                                    args.push(arg);
+                                }
+                            }
+                        }
+
+                        self.consume(TokenType::RightBracket)?;
+                        expr = AstNode::CallAnonymous {
+                            object: Box::new(expr),
+                            args: args,
+                        };
+                    }
+                    // If no trailing semicolon, let postfix parsing handle indexing
+                    else {
+                        self.advance(); // consume '['
+                        let index = self.parse_expression()?;
+                        self.consume(TokenType::RightBracket)?;
+                        expr = AstNode::Index {
+                            object: Box::new(expr),
+                            index: Box::new(index),
+                        };
+                    }
                 }
                 _ => break,
             }
