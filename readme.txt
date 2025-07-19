@@ -34,6 +34,7 @@ rlwrap cargo run
 //builtins:
     abs neg signum sqrt exp log floor ceiling
     count first last reverse sum max min avg
+    rand sin cos tan sinh cosh tanh
     til range
     type string
     take drop where distinct sort

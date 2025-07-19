@@ -28,6 +28,14 @@ impl Builtins {
         self.functions.insert("ceiling".to_string(), ceiling);
         self.functions.insert("rand".to_string(), rand);
 
+        // Math functions
+        self.functions.insert("sin".into(), sin);
+        self.functions.insert("cos".into(), cos);
+        self.functions.insert("tan".into(), tan);
+        self.functions.insert("sinh".into(), sinh);
+        self.functions.insert("cosh".into(), cosh);
+        self.functions.insert("tanh".into(), tanh);
+
         // List functions
         self.functions.insert("count".to_string(), count);
         self.functions.insert("first".to_string(), first);
@@ -261,6 +269,46 @@ fn ceiling(args: &[Value]) -> WqResult<Value> {
         )),
     }
 }
+
+// Math Functions
+macro_rules! bind_math {
+    ($name:ident, $func:path) => {
+        pub fn $name(args: &[Value]) -> WqResult<Value> {
+            if args.len() != 1 {
+                return Err(WqError::DomainError(
+                    stringify!($name).to_string() + " expects 1 argument"
+                ));
+            }
+            match &args[0] {
+                Value::Int(n) => {
+                    Ok(Value::Float($func(*n as f64)))
+                }
+                Value::Float(f) => {
+                    Ok(Value::Float($func(*f)))
+                }
+                Value::List(items) => {
+                    let result: WqResult<Vec<Value>> = items
+                        .iter()
+                        .map(|v| $name(&[v.clone()]))
+                        .collect();
+                    Ok(Value::List(result?))
+                }
+                other => Err(WqError::TypeError(
+                    stringify!($name).to_string() +
+                    " only works on numbers or lists of numbers, got " +
+                    other.type_name(),
+                )),
+            }
+        }
+    };
+}
+
+bind_math!(sin, f64::sin);
+bind_math!(cos, f64::cos);
+bind_math!(tan, f64::tan);
+bind_math!(sinh, f64::sinh);
+bind_math!(cosh, f64::cosh);
+bind_math!(tanh, f64::tanh);
 
 // List functions
 fn count(args: &[Value]) -> WqResult<Value> {
