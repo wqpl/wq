@@ -1,4 +1,4 @@
-// do: cargo run -- test1.wq
+// do: cargo run -- ./exa/test1.wq
 
 x:42
 y:til 5

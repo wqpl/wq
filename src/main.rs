@@ -186,20 +186,15 @@ fn execute_script(filename: &str) {
                     continue;
                 }
 
-                // Show line being executed
-                if line.starts_with("//") {
-                    println!("    {}", line);
-                } else {
-                    print!("{}> {} ", line_num + 1, line);
-                    io::stdout().flush().unwrap();
+                print!("{}", format!("({}) ", line_num + 1).blue());
+                io::stdout().flush().unwrap();
 
-                    match evaluator.eval_string(line) {
-                        Ok(result) => {
-                            println!(" => {}", result);
-                        }
-                        Err(error) => {
-                            println!(" => Error: {}", error);
-                        }
+                match evaluator.eval_string(line) {
+                    Ok(result) => {
+                        println!("{}", result);
+                    }
+                    Err(error) => {
+                        println!("{}", error);
                     }
                 }
             }

@@ -18,6 +18,7 @@ rlwrap cargo run
     //single arg functions can be called w/o brackets
     signum 10
     signum(-10)
+    max(1;2;3)
 
 //cond:
     $[true;42;99]      // if
@@ -41,7 +42,7 @@ rlwrap cargo run
 //repl cmds:
     help
     vars
-    clear           // clear all vars
+    clear              // clear all vars
     quit
     load
     \h \v \c \q \l
@@ -55,10 +56,3 @@ rlwrap cargo run
     (1;2;3)            // list
     ,42                // single element list
     ()                 // empty list
-
-//precedence:
-    1. unary -
-    2. * / %
-    3. = ~ < <= > >=
-    4. + -
-    5. assignment :

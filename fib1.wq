@@ -1,3 +1,0 @@
-fibtr:{[n;a;b]$[n=0;a;fibtr[n-1;b;a+b;]]}
-fib:{[n]fibtr[n;0;1;]}
-fib[10;]
