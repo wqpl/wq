@@ -53,7 +53,7 @@ fn main() {
                         println!("Variables cleared");
                         continue;
                     }
-                    cmd if cmd.starts_with("\\t") || cmd.starts_with("time ")=> {
+                    cmd if cmd.starts_with("\\t") || cmd.starts_with("time ") => {
                         let src = if let Some(rest) = cmd.strip_prefix("\\t") {
                             rest.trim()
                         } else if let Some(rest) = cmd.strip_prefix("time ") {
@@ -63,10 +63,7 @@ fn main() {
                         };
 
                         if src.is_empty() {
-                            println!(
-                                "{}",
-                                format!("No code provided for execution.").red()
-                            );
+                            println!("{}", "No code provided for execution.".red());
                             continue;
                         }
 
@@ -74,18 +71,15 @@ fn main() {
 
                         match evaluator.eval_string(src) {
                             Ok(result) => {
-                                println!("{}", result);
+                                println!("{result}");
                             }
                             Err(error) => {
-                                eprintln!("Error: {}", error);
+                                eprintln!("Error: {error}");
                             }
                         }
 
                         let duration = start.elapsed();
-                        println!(
-                            "{}",
-                            format!("time elapsed: {:?}", duration).cyan()
-                        );
+                        println!("{}", format!("time elapsed: {duration:?}").cyan());
                         continue;
                     }
                     cmd if cmd.starts_with("load ") || cmd.starts_with("\\l ") => {
@@ -106,17 +100,17 @@ fn main() {
 
                 match evaluator.eval_string(input) {
                     Ok(result) => {
-                        println!("{}", result);
+                        println!("{result}");
                     }
                     Err(error) => {
-                        eprintln!("Error: {}", error);
+                        eprintln!("Error: {error}");
                     }
                 }
 
                 line_number += 1;
             }
             Err(error) => {
-                eprintln!("Error reading input: {}", error);
+                eprintln!("Error reading input: {error}");
                 break;
             }
         }
@@ -154,7 +148,7 @@ fn load_script(evaluator: &mut Evaluator, filename: &str) {
                 match evaluator.eval_string(line) {
                     Ok(_) => {} // Silent execution
                     Err(error) => {
-                        eprintln!("Error in {}: {}", filename, error);
+                        eprintln!("Error in {filename}: {error}");
                         return;
                     }
                 }
@@ -175,12 +169,12 @@ fn load_script(evaluator: &mut Evaluator, filename: &str) {
             } else {
                 println!("new bindings:");
                 for (name, value) in new_bindings {
-                    println!("  {} = {}", name, value);
+                    println!("  {name} = {value}");
                 }
             }
         }
         Err(error) => {
-            eprintln!("Cannot load {}: {}", filename, error);
+            eprintln!("Cannot load {filename}: {error}");
         }
     }
 }
@@ -190,7 +184,7 @@ fn execute_script(filename: &str) {
 
     match fs::read_to_string(filename) {
         Ok(content) => {
-            println!("Executing script: {}", filename);
+            println!("Executing script: {filename}");
 
             for (line_num, line) in content.lines().enumerate() {
                 let line = line.trim();
@@ -203,16 +197,16 @@ fn execute_script(filename: &str) {
 
                 match evaluator.eval_string(line) {
                     Ok(result) => {
-                        println!("{}", result);
+                        println!("{result}");
                     }
                     Err(error) => {
-                        println!("{}", error);
+                        println!("{error}");
                     }
                 }
             }
         }
         Err(error) => {
-            eprintln!("Cannot read {}: {}", filename, error);
+            eprintln!("Cannot read {filename}: {error}");
             std::process::exit(1);
         }
     }

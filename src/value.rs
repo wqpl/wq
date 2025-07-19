@@ -408,8 +408,8 @@ impl fmt::Display for Value {
                     write!(f, "{}", fl)
                 }
             }
-            Value::Char(c) => write!(f, "\"{}\"", c),
-            Value::Symbol(s) => write!(f, "`{}", s),
+            Value::Char(c) => write!(f, "\"{c}\""),
+            Value::Symbol(s) => write!(f, "`{s}`"),
             Value::Bool(b) => write!(f, "{}", if *b { "true" } else { "false" }),
             Value::List(items) => {
                 if items.is_empty() {
@@ -427,7 +427,7 @@ impl fmt::Display for Value {
                 } else {
                     let mut pairs = Vec::new();
                     for (k, v) in map {
-                        pairs.push(format!("`{}:{}", k, v));
+                        pairs.push(format!("`{k}:{v}"));
                     }
                     write!(f, "({})", pairs.join(";"))
                 }
@@ -449,19 +449,21 @@ pub enum WqError {
     LengthError(String),
     SyntaxError(String),
     FnArgCountMismatchError(String),
+    RuntimeError(String),
 }
 
 impl fmt::Display for WqError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            WqError::TypeError(msg) => write!(f, "type error: {}", msg),
-            WqError::IndexError(msg) => write!(f, "index error: {}", msg),
-            WqError::DomainError(msg) => write!(f, "domain error: {}", msg),
-            WqError::LengthError(msg) => write!(f, "length error: {}", msg),
-            WqError::SyntaxError(msg) => write!(f, "syntax error: {}", msg),
+            WqError::TypeError(msg) => write!(f, "type error: {msg}"),
+            WqError::IndexError(msg) => write!(f, "index error: {msg}"),
+            WqError::DomainError(msg) => write!(f, "domain error: {msg}"),
+            WqError::LengthError(msg) => write!(f, "length error: {msg}"),
+            WqError::SyntaxError(msg) => write!(f, "syntax error: {msg}"),
             WqError::FnArgCountMismatchError(msg) => {
-                write!(f, "function argument count mismatch error: {}", msg)
+                write!(f, "function argument count mismatch error: {msg}")
             }
+            WqError::RuntimeError(msg) => write!(f, "runtime error: {msg}"),
         }
     }
 }

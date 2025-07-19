@@ -375,7 +375,7 @@ impl Parser {
                         self.consume(TokenType::RightBracket)?;
                         expr = AstNode::CallAnonymous {
                             object: Box::new(expr),
-                            args: args,
+                            args,
                         };
                     }
                     // If no trailing semicolon, let postfix parsing handle indexing

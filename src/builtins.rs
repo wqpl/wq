@@ -72,8 +72,7 @@ impl Builtins {
             func(args)
         } else {
             Err(WqError::DomainError(format!(
-                "Unknown builtin function: {}",
-                name
+                "Unknown builtin function: {name}",
             )))
         }
     }
@@ -591,16 +590,14 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                 if af < bf {
                     Ok(Value::Float(rng.gen_range(af..bf)))
                 } else {
-                    Err(WqError::DomainError(format!(
-                        "require a < b, got {} >= {}",
-                        af, bf
+                    Err(WqError::RuntimeError(format!(
+                        "require a < b, got {af} >= {bf}"
                     )))
                 }
             }
         },
         other => Err(WqError::FnArgCountMismatchError(format!(
-            "rand expects 0, 1 or 2 arguments, got {}",
-            other
+            "rand expects 0, 1 or 2 arguments, got {other}"
         ))),
     }
 }
