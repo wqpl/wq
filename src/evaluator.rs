@@ -192,7 +192,6 @@ impl Evaluator {
                 // Try built-in functions first
                 match self.builtins.call(name, &arg_values) {
                     Ok(result) => Ok(result),
-                    Err(WqError::DomainError(msg)) => Err(WqError::DomainError(msg)),
                     Err(WqError::TypeError(msg)) => Err(WqError::TypeError(msg)),
                     Err(_) => {
                         // Check if it's a user-defined function in stack and global env
@@ -210,7 +209,10 @@ impl Evaluator {
                             Some(Value::Function { params, body }) => {
                                 self.call_user_function(params, &body, &arg_values)
                             }
-                            _ => Err(WqError::DomainError(format!("Unknown function: {}", name))),
+                            _ => Err(WqError::DomainError(format!(
+                                "Unknown user-defined function: {}",
+                                name
+                            ))),
                         }
                     }
                 }

@@ -1,6 +1,6 @@
 use crate::value::{Value, WqError, WqResult};
-use std::collections::HashMap;
 use rand::Rng;
+use std::collections::HashMap;
 
 /// builtin functions
 pub struct Builtins {
@@ -71,7 +71,10 @@ impl Builtins {
         if let Some(func) = self.functions.get(name) {
             func(args)
         } else {
-            Err(WqError::DomainError(format!("Unknown function: {}", name)))
+            Err(WqError::DomainError(format!(
+                "Unknown builtin function: {}",
+                name
+            )))
         }
     }
 
@@ -276,27 +279,21 @@ macro_rules! bind_math {
         pub fn $name(args: &[Value]) -> WqResult<Value> {
             if args.len() != 1 {
                 return Err(WqError::DomainError(
-                    stringify!($name).to_string() + " expects 1 argument"
+                    stringify!($name).to_string() + " expects 1 argument",
                 ));
             }
             match &args[0] {
-                Value::Int(n) => {
-                    Ok(Value::Float($func(*n as f64)))
-                }
-                Value::Float(f) => {
-                    Ok(Value::Float($func(*f)))
-                }
+                Value::Int(n) => Ok(Value::Float($func(*n as f64))),
+                Value::Float(f) => Ok(Value::Float($func(*f))),
                 Value::List(items) => {
-                    let result: WqResult<Vec<Value>> = items
-                        .iter()
-                        .map(|v| $name(&[v.clone()]))
-                        .collect();
+                    let result: WqResult<Vec<Value>> =
+                        items.iter().map(|v| $name(&[v.clone()])).collect();
                     Ok(Value::List(result?))
                 }
                 other => Err(WqError::TypeError(
-                    stringify!($name).to_string() +
-                    " only works on numbers or lists of numbers, got " +
-                    other.type_name(),
+                    stringify!($name).to_string()
+                        + " only works on numbers or lists of numbers, got "
+                        + other.type_name(),
                 )),
             }
         }
@@ -541,28 +538,26 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
             ))),
         },
         2 => match (&args[0], &args[1]) {
-            (Value::Int(a), Value::Int(b)) if a < b => {
-                Ok(Value::Int(rng.gen_range(*a..*b)))
-            }
+            (Value::Int(a), Value::Int(b)) if a < b => Ok(Value::Int(rng.gen_range(*a..*b))),
             (a, b) => {
                 let af = match a {
-                    Value::Int(n)   => *n as f64,
+                    Value::Int(n) => *n as f64,
                     Value::Float(f) => *f,
                     _ => {
                         return Err(WqError::TypeError(format!(
                             "expected numbers, got {}",
                             a.type_name()
-                        )))
+                        )));
                     }
                 };
                 let bf = match b {
-                    Value::Int(n)   => *n as f64,
+                    Value::Int(n) => *n as f64,
                     Value::Float(f) => *f,
                     _ => {
                         return Err(WqError::TypeError(format!(
                             "expected numbers, got {}",
                             b.type_name()
-                        )))
+                        )));
                     }
                 };
                 if af < bf {
@@ -581,7 +576,6 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
         ))),
     }
 }
-
 
 // Type functions
 fn type_of(args: &[Value]) -> WqResult<Value> {
