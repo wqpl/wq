@@ -267,42 +267,39 @@ impl Parser {
 
     fn parse_unary(&mut self) -> WqResult<AstNode> {
         if let Some(token) = self.current_token() {
-            match token.token_type {
-                TokenType::Minus => {
-                    // look ahead to check if this is a negative number
-                    if let Some(next_token) = self.peek_token() {
-                        match next_token.token_type {
-                            TokenType::Integer(n) => {
-                                self.advance(); // consume minus
-                                self.advance(); // consume number
-                                return Ok(AstNode::Literal(Value::Int(-n)));
-                            }
-                            TokenType::Float(f) => {
-                                self.advance(); // consume minus
-                                self.advance(); // consume number
-                                return Ok(AstNode::Literal(Value::Float(-f)));
-                            }
-                            _ => {
-                                // It's a unary minus operation
-                                self.advance();
-                                let operand = self.parse_unary()?;
-                                return Ok(AstNode::UnaryOp {
-                                    operator: UnaryOperator::Negate,
-                                    operand: Box::new(operand),
-                                });
-                            }
+            if token.token_type == TokenType::Minus {
+                // look ahead to check if this is a negative number
+                if let Some(next_token) = self.peek_token() {
+                    match next_token.token_type {
+                        TokenType::Integer(n) => {
+                            self.advance(); // consume minus
+                            self.advance(); // consume number
+                            return Ok(AstNode::Literal(Value::Int(-n)));
                         }
-                    } else {
-                        // It's a unary minus operation
-                        self.advance();
-                        let operand = self.parse_unary()?;
-                        return Ok(AstNode::UnaryOp {
-                            operator: UnaryOperator::Negate,
-                            operand: Box::new(operand),
-                        });
+                        TokenType::Float(f) => {
+                            self.advance(); // consume minus
+                            self.advance(); // consume number
+                            return Ok(AstNode::Literal(Value::Float(-f)));
+                        }
+                        _ => {
+                            // It's a unary minus operation
+                            self.advance();
+                            let operand = self.parse_unary()?;
+                            return Ok(AstNode::UnaryOp {
+                                operator: UnaryOperator::Negate,
+                                operand: Box::new(operand),
+                            });
+                        }
                     }
+                } else {
+                    // It's a unary minus operation
+                    self.advance();
+                    let operand = self.parse_unary()?;
+                    return Ok(AstNode::UnaryOp {
+                        operator: UnaryOperator::Negate,
+                        operand: Box::new(operand),
+                    });
                 }
-                _ => {}
             }
         }
 

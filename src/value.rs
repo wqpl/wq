@@ -400,12 +400,12 @@ impl Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Int(n) => write!(f, "{}", n),
+            Value::Int(n) => write!(f, "{n}"),
             Value::Float(fl) => {
                 if fl.fract() == 0.0 {
-                    write!(f, "{:.0}", fl)
+                    write!(f, "{fl:.0}")
                 } else {
-                    write!(f, "{}", fl)
+                    write!(f, "{fl}")
                 }
             }
             Value::Char(c) => write!(f, "\"{c}\""),

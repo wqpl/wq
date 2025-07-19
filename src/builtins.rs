@@ -751,11 +751,7 @@ fn and(args: &[Value]) -> WqResult<Value> {
         ));
     }
     match (&args[0], &args[1]) {
-        (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(if *a != false && *b != false {
-            true
-        } else {
-            false
-        })),
+        (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a && *b)),
         _ => Err(WqError::TypeError("and only works on booleans".to_string())),
     }
 }
@@ -767,11 +763,7 @@ fn or(args: &[Value]) -> WqResult<Value> {
         ));
     }
     match (&args[0], &args[1]) {
-        (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(if *a != false || *b != false {
-            true
-        } else {
-            false
-        })),
+        (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a || *b)),
         _ => Err(WqError::TypeError("or only works on booleans".to_string())),
     }
 }
@@ -783,7 +775,7 @@ fn not(args: &[Value]) -> WqResult<Value> {
         ));
     }
     match &args[0] {
-        Value::Bool(n) => Ok(Value::Bool(if *n == false { true } else { false })),
+        Value::Bool(n) => Ok(Value::Bool(!(*n))),
         _ => Err(WqError::TypeError("not only works on booleans".to_string())),
     }
 }

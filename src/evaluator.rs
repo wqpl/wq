@@ -51,6 +51,12 @@ impl CallStack {
     }
 }
 
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Environment {
     pub fn new() -> Self {
         Environment {
@@ -119,8 +125,7 @@ impl Evaluator {
                     Ok(value.clone())
                 } else {
                     Err(WqError::DomainError(format!(
-                        "Undefined variable: {}",
-                        name
+                        "Undefined variable: {name}"
                     )))
                 }
             }
@@ -213,8 +218,7 @@ impl Evaluator {
                                 self.call_user_function(params, &body, &arg_values)
                             }
                             _ => Err(WqError::DomainError(format!(
-                                "Unknown user-defined function: {}",
-                                name
+                                "Unknown user-defined function: {name}"
                             ))),
                         }
                     }
@@ -231,9 +235,7 @@ impl Evaluator {
                 if let Value::Function { params, body } = obj_val {
                     self.call_user_function(params, &body, &arg_values)
                 } else {
-                    Err(WqError::DomainError(format!(
-                        "Failed calling anonymous function"
-                    )))
+                    Err(WqError::DomainError("Failed calling anonymous function".to_string()))
                 }
             }
 
@@ -382,7 +384,7 @@ impl Evaluator {
         } else {
             println!("user-defined bindings:");
             for (name, value) in self.environment.variables() {
-                println!("  {} = {}", name, value);
+                println!("  {name} = {value}");
             }
         }
     }
