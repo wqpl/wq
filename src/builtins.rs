@@ -1,5 +1,6 @@
 use crate::value::{Value, WqError, WqResult};
 use std::collections::HashMap;
+use rand::Rng;
 
 /// builtin functions
 pub struct Builtins {
@@ -25,6 +26,7 @@ impl Builtins {
         self.functions.insert("log".to_string(), log);
         self.functions.insert("floor".to_string(), floor);
         self.functions.insert("ceiling".to_string(), ceiling);
+        self.functions.insert("rand".to_string(), rand);
 
         // List functions
         self.functions.insert("count".to_string(), count);
@@ -477,6 +479,61 @@ fn range(args: &[Value]) -> WqResult<Value> {
         )),
     }
 }
+
+pub fn rand(args: &[Value]) -> WqResult<Value> {
+    let mut rng = rand::thread_rng();
+    match args.len() {
+        0 => Ok(Value::Float(rng.r#gen())),
+        1 => match &args[0] {
+            Value::Int(n) if *n > 0 => Ok(Value::Int(rng.gen_range(0..*n))),
+            Value::Float(f) if *f > 0.0 => Ok(Value::Float(rng.gen_range(0.0..*f))),
+            v => Err(WqError::DomainError(format!(
+                "expected positive int or float, got {}",
+                v.type_name()
+            ))),
+        },
+        2 => match (&args[0], &args[1]) {
+            (Value::Int(a), Value::Int(b)) if a < b => {
+                Ok(Value::Int(rng.gen_range(*a..*b)))
+            }
+            (a, b) => {
+                let af = match a {
+                    Value::Int(n)   => *n as f64,
+                    Value::Float(f) => *f,
+                    _ => {
+                        return Err(WqError::TypeError(format!(
+                            "expected numbers, got {}",
+                            a.type_name()
+                        )))
+                    }
+                };
+                let bf = match b {
+                    Value::Int(n)   => *n as f64,
+                    Value::Float(f) => *f,
+                    _ => {
+                        return Err(WqError::TypeError(format!(
+                            "expected numbers, got {}",
+                            b.type_name()
+                        )))
+                    }
+                };
+                if af < bf {
+                    Ok(Value::Float(rng.gen_range(af..bf)))
+                } else {
+                    Err(WqError::DomainError(format!(
+                        "require a < b, got {} >= {}",
+                        af, bf
+                    )))
+                }
+            }
+        },
+        other => Err(WqError::DomainError(format!(
+            "rand expects 0, 1 or 2 arguments, got {}",
+            other
+        ))),
+    }
+}
+
 
 // Type functions
 fn type_of(args: &[Value]) -> WqResult<Value> {
