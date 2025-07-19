@@ -306,6 +306,66 @@ impl Parser {
         self.parse_postfix()
     }
 
+    fn has_trailing_semicolon(&mut self) -> bool {
+        let mut lookahead_pos = self.current + 1;
+        let mut bracket_depth = 1;
+        let mut has_trailing_semicolon = false;
+
+        while lookahead_pos < self.tokens.len() && bracket_depth > 0 {
+            match &self.tokens[lookahead_pos].token_type {
+                TokenType::LeftBracket => bracket_depth += 1,
+                TokenType::RightBracket => {
+                    bracket_depth -= 1;
+                    if bracket_depth == 0 {
+                        // Check if there's a semicolon right before the closing bracket
+                        if lookahead_pos > self.current + 1 {
+                            if let Some(prev_token) = self.tokens.get(lookahead_pos - 1) {
+                                if prev_token.token_type == TokenType::Semicolon {
+                                    has_trailing_semicolon = true;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            lookahead_pos += 1;
+        }
+
+        has_trailing_semicolon
+    }
+
+    fn parse_fn_args(&mut self) -> WqResult<Vec<AstNode>> {
+        let mut args = Vec::new();
+
+        // Parse arguments until final semicolon
+        while let Some(token) = self.current_token() {
+            match token.token_type {
+                TokenType::Semicolon => {
+                    self.advance();
+                    // Check if this is the final semicolon before ']'
+                    if let Some(next_token) = self.current_token() {
+                        if next_token.token_type == TokenType::RightBracket {
+                            break;
+                        }
+                    }
+                }
+                TokenType::RightBracket => {
+                    return Err(WqError::SyntaxError(
+                        "Function call must end with ';]'".to_string(),
+                    ));
+                }
+                _ => {
+                    let arg = self.parse_expression()?;
+                    args.push(arg);
+                }
+            }
+        }
+        self.consume(TokenType::RightBracket)?;
+        Ok(args)
+    }
+
     fn parse_postfix(&mut self) -> WqResult<AstNode> {
         let mut expr = self.parse_primary()?;
 
@@ -313,66 +373,11 @@ impl Parser {
             match token.token_type {
                 TokenType::LeftBracket => {
                     // Look ahead to check for trailing semicolon which indicates a function call
-                    let mut lookahead_pos = self.current + 1;
-                    let mut bracket_depth = 1;
-                    let mut has_trailing_semicolon = false;
-
-                    while lookahead_pos < self.tokens.len() && bracket_depth > 0 {
-                        match &self.tokens[lookahead_pos].token_type {
-                            TokenType::LeftBracket => bracket_depth += 1,
-                            TokenType::RightBracket => {
-                                bracket_depth -= 1;
-                                if bracket_depth == 0 {
-                                    // Check if there's a semicolon right before the closing bracket
-                                    if lookahead_pos > self.current + 1 {
-                                        if let Some(prev_token) = self.tokens.get(lookahead_pos - 1)
-                                        {
-                                            if prev_token.token_type == TokenType::Semicolon {
-                                                has_trailing_semicolon = true;
-                                            }
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                            _ => {}
-                        }
-                        lookahead_pos += 1;
-                    }
-
-                    if has_trailing_semicolon {
+                    if self.has_trailing_semicolon() {
                         self.advance(); // consume '['
-
-                        let mut args = Vec::new();
-
-                        // Parse arguments until final semicolon
-                        while let Some(token) = self.current_token() {
-                            match token.token_type {
-                                TokenType::Semicolon => {
-                                    self.advance();
-                                    // Check if this is the final semicolon before ']'
-                                    if let Some(next_token) = self.current_token() {
-                                        if next_token.token_type == TokenType::RightBracket {
-                                            break;
-                                        }
-                                    }
-                                }
-                                TokenType::RightBracket => {
-                                    return Err(WqError::SyntaxError(
-                                        "Function call must end with ';]'".to_string(),
-                                    ));
-                                }
-                                _ => {
-                                    let arg = self.parse_expression()?;
-                                    args.push(arg);
-                                }
-                            }
-                        }
-
-                        self.consume(TokenType::RightBracket)?;
                         expr = AstNode::CallAnonymous {
                             object: Box::new(expr),
-                            args,
+                            args: self.parse_fn_args()?,
                         };
                     }
                     // If no trailing semicolon, let postfix parsing handle indexing
@@ -385,6 +390,19 @@ impl Parser {
                             index: Box::new(index),
                         };
                     }
+                }
+                TokenType::Integer(_)
+                | TokenType::Float(_)
+                | TokenType::Character(_)
+                | TokenType::Symbol(_)
+                | TokenType::Identifier(_)
+                | TokenType::LeftParen => {
+                    // allows `{x}2` or `{x}(1;2)`
+                    let arg = self.parse_unary()?;
+                    return Ok(AstNode::CallAnonymous {
+                        object: Box::new(expr),
+                        args: vec![arg],
+                    });
                 }
                 _ => break,
             }
@@ -436,70 +454,12 @@ impl Parser {
                     if let Some(next_token) = self.current_token() {
                         match next_token.token_type {
                             TokenType::LeftBracket => {
-                                // Look ahead to check for trailing semicolon which indicates a function call
-                                let mut lookahead_pos = self.current + 1;
-                                let mut bracket_depth = 1;
-                                let mut has_trailing_semicolon = false;
-
-                                while lookahead_pos < self.tokens.len() && bracket_depth > 0 {
-                                    match &self.tokens[lookahead_pos].token_type {
-                                        TokenType::LeftBracket => bracket_depth += 1,
-                                        TokenType::RightBracket => {
-                                            bracket_depth -= 1;
-                                            if bracket_depth == 0 {
-                                                // Check if there's a semicolon right before the closing bracket
-                                                if lookahead_pos > self.current + 1 {
-                                                    if let Some(prev_token) =
-                                                        self.tokens.get(lookahead_pos - 1)
-                                                    {
-                                                        if prev_token.token_type
-                                                            == TokenType::Semicolon
-                                                        {
-                                                            has_trailing_semicolon = true;
-                                                        }
-                                                    }
-                                                }
-                                                break;
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                    lookahead_pos += 1;
-                                }
-
-                                if has_trailing_semicolon {
+                                if self.has_trailing_semicolon() {
                                     self.advance(); // consume '['
-
-                                    let mut args = Vec::new();
-
-                                    // Parse arguments until final semicolon
-                                    while let Some(token) = self.current_token() {
-                                        match token.token_type {
-                                            TokenType::Semicolon => {
-                                                self.advance();
-                                                // Check if this is the final semicolon before ']'
-                                                if let Some(next_token) = self.current_token() {
-                                                    if next_token.token_type
-                                                        == TokenType::RightBracket
-                                                    {
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                            TokenType::RightBracket => {
-                                                return Err(WqError::SyntaxError(
-                                                    "Function call must end with ';]'".to_string(),
-                                                ));
-                                            }
-                                            _ => {
-                                                let arg = self.parse_expression()?;
-                                                args.push(arg);
-                                            }
-                                        }
-                                    }
-
-                                    self.consume(TokenType::RightBracket)?;
-                                    return Ok(AstNode::Call { name: val, args });
+                                    return Ok(AstNode::Call {
+                                        name: val,
+                                        args: self.parse_fn_args()?,
+                                    });
                                 }
                                 // If no trailing semicolon, let postfix parsing handle indexing
                             }
@@ -509,7 +469,7 @@ impl Parser {
                             | TokenType::Symbol(_)
                             | TokenType::Identifier(_)
                             | TokenType::LeftParen => {
-                                // allows `max lst` and the like
+                                // allows `f 2` or `f(1;2)`
                                 let arg = self.parse_unary()?;
                                 return Ok(AstNode::Call {
                                     name: val,
