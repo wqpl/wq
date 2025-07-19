@@ -6,8 +6,8 @@ rlwrap cargo run
 //basics:
     x:42
     y:(1;2;3);y[0]
-    2*til 5            //(0;2;4;6;8)
-    til 3+til 2        //(0;2;2)
+    2*til 5            // (0;2;4;6;8)
+    til 3+til 2        // (0;2;2)
 
 //fn:
     f:{x+y}            // implicit params
