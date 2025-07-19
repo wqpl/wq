@@ -5,13 +5,22 @@
 0.3.0:
   table and sql
 
-    $ n:2;t:[[]x:til 2;y:sin til 2]
-  x|y
-  -|--------
-  0|...
-  1|...
+    $ n:10;t:[[]x:til n;y:sin til n]
+  x y
+  - --------
+  0 ...
+  1 ...
+
+    $ t:[[s:(`a;`b;`c)]p:(1;2;3);q:(10;20;30)]
+  s | p q
+  - | - --
+  a | 1 10
+  b | 2 20
+  c | 3 30
 
   select A by B from t where C
-  update
+
+  update q+10 from t
+  update r:q*10 from t
 
 =====
