@@ -192,6 +192,9 @@ impl Evaluator {
                 // Try built-in functions first
                 match self.builtins.call(name, &arg_values) {
                     Ok(result) => Ok(result),
+                    Err(WqError::FnArgCountMismatchError(msg)) => {
+                        Err(WqError::FnArgCountMismatchError(msg))
+                    }
                     Err(WqError::TypeError(msg)) => Err(WqError::TypeError(msg)),
                     Err(_) => {
                         // Check if it's a user-defined function in stack and global env
@@ -322,7 +325,7 @@ impl Evaluator {
         match params {
             Some(param_names) => {
                 if args.len() != param_names.len() {
-                    return Err(WqError::DomainError(format!(
+                    return Err(WqError::FnArgCountMismatchError(format!(
                         "Function expects {} arguments, got {}",
                         param_names.len(),
                         args.len()
@@ -344,7 +347,7 @@ impl Evaluator {
                         frame.variables.insert("y".to_string(), args[1].clone());
                     }
                     _ => {
-                        return Err(WqError::DomainError(
+                        return Err(WqError::FnArgCountMismatchError(
                             "Implicit function expects 0, 1 or 2 arguments".to_string(),
                         ));
                     }

@@ -448,6 +448,7 @@ pub enum WqError {
     DomainError(String),
     LengthError(String),
     SyntaxError(String),
+    FnArgCountMismatchError(String),
 }
 
 impl fmt::Display for WqError {
@@ -458,6 +459,9 @@ impl fmt::Display for WqError {
             WqError::DomainError(msg) => write!(f, "domain error: {}", msg),
             WqError::LengthError(msg) => write!(f, "length error: {}", msg),
             WqError::SyntaxError(msg) => write!(f, "syntax error: {}", msg),
+            WqError::FnArgCountMismatchError(msg) => {
+                write!(f, "function argument count mismatch error: {}", msg)
+            }
         }
     }
 }

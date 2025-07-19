@@ -96,7 +96,9 @@ impl Default for Builtins {
 // Arithmetic functions
 fn abs(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("abs expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "abs expects 1 argument".to_string(),
+        ));
     }
 
     match &args[0] {
@@ -112,7 +114,9 @@ fn abs(args: &[Value]) -> WqResult<Value> {
 
 fn neg(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("neg expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "neg expects 1 argument".to_string(),
+        ));
     }
 
     match &args[0] {
@@ -128,7 +132,7 @@ fn neg(args: &[Value]) -> WqResult<Value> {
 
 fn signum(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError(
+        return Err(WqError::FnArgCountMismatchError(
             "signum expects 1 argument".to_string(),
         ));
     }
@@ -160,7 +164,9 @@ fn signum(args: &[Value]) -> WqResult<Value> {
 
 fn sqrt(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("sqrt expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "sqrt expects 1 argument".to_string(),
+        ));
     }
 
     match &args[0] {
@@ -188,7 +194,9 @@ fn sqrt(args: &[Value]) -> WqResult<Value> {
 
 fn exp(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("exp expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "exp expects 1 argument".to_string(),
+        ));
     }
 
     match &args[0] {
@@ -204,7 +212,9 @@ fn exp(args: &[Value]) -> WqResult<Value> {
 
 fn log(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("log expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "log expects 1 argument".to_string(),
+        ));
     }
 
     match &args[0] {
@@ -236,7 +246,9 @@ fn log(args: &[Value]) -> WqResult<Value> {
 
 fn floor(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("floor expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "floor expects 1 argument".to_string(),
+        ));
     }
 
     match &args[0] {
@@ -254,7 +266,7 @@ fn floor(args: &[Value]) -> WqResult<Value> {
 
 fn ceiling(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError(
+        return Err(WqError::FnArgCountMismatchError(
             "ceiling expects 1 argument".to_string(),
         ));
     }
@@ -278,7 +290,7 @@ macro_rules! bind_math {
     ($name:ident, $func:path) => {
         pub fn $name(args: &[Value]) -> WqResult<Value> {
             if args.len() != 1 {
-                return Err(WqError::DomainError(
+                return Err(WqError::FnArgCountMismatchError(
                     stringify!($name).to_string() + " expects 1 argument",
                 ));
             }
@@ -310,14 +322,18 @@ bind_math!(tanh, f64::tanh);
 // List functions
 fn count(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("count expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "count expects 1 argument".to_string(),
+        ));
     }
     Ok(Value::Int(args[0].len() as i64))
 }
 
 fn first(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("first expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "first expects 1 argument".to_string(),
+        ));
     }
     match &args[0] {
         Value::List(items) => {
@@ -333,7 +349,9 @@ fn first(args: &[Value]) -> WqResult<Value> {
 
 fn last(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("last expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "last expects 1 argument".to_string(),
+        ));
     }
     match &args[0] {
         Value::List(items) => {
@@ -349,7 +367,7 @@ fn last(args: &[Value]) -> WqResult<Value> {
 
 fn reverse(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError(
+        return Err(WqError::FnArgCountMismatchError(
             "reverse expects 1 argument".to_string(),
         ));
     }
@@ -367,7 +385,9 @@ fn reverse(args: &[Value]) -> WqResult<Value> {
 
 fn sum(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("sum expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "sum expects 1 argument".to_string(),
+        ));
     }
     match &args[0] {
         Value::List(items) => {
@@ -388,7 +408,9 @@ fn sum(args: &[Value]) -> WqResult<Value> {
 
 fn max(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("max expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "max expects 1 argument".to_string(),
+        ));
     }
     match &args[0] {
         Value::List(items) => {
@@ -429,7 +451,9 @@ fn max(args: &[Value]) -> WqResult<Value> {
 
 fn min(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("min expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "min expects 1 argument".to_string(),
+        ));
     }
     match &args[0] {
         Value::List(items) => {
@@ -470,7 +494,9 @@ fn min(args: &[Value]) -> WqResult<Value> {
 
 fn avg(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("avg expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "avg expects 1 argument".to_string(),
+        ));
     }
     match &args[0] {
         Value::List(items) => {
@@ -492,12 +518,14 @@ fn avg(args: &[Value]) -> WqResult<Value> {
 // Generation functions
 fn til(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("til expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "til expects 1 argument".to_string(),
+        ));
     }
     match &args[0] {
         Value::Int(n) => {
             if *n < 0 {
-                return Err(WqError::DomainError(
+                return Err(WqError::TypeError(
                     "til expects non-negative integer".to_string(),
                 ));
             }
@@ -510,7 +538,7 @@ fn til(args: &[Value]) -> WqResult<Value> {
 
 fn range(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::DomainError(
+        return Err(WqError::FnArgCountMismatchError(
             "range expects 2 arguments".to_string(),
         ));
     }
@@ -570,7 +598,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                 }
             }
         },
-        other => Err(WqError::DomainError(format!(
+        other => Err(WqError::FnArgCountMismatchError(format!(
             "rand expects 0, 1 or 2 arguments, got {}",
             other
         ))),
@@ -580,14 +608,16 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
 // Type functions
 fn type_of(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("type expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "type expects 1 argument".to_string(),
+        ));
     }
     Ok(Value::Symbol(args[0].type_name().to_string()))
 }
 
 fn to_string(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError(
+        return Err(WqError::FnArgCountMismatchError(
             "string expects 1 argument".to_string(),
         ));
     }
@@ -597,7 +627,9 @@ fn to_string(args: &[Value]) -> WqResult<Value> {
 // List manipulation
 fn take(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::DomainError("take expects 2 arguments".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "take expects 2 arguments".to_string(),
+        ));
     }
     match (&args[0], &args[1]) {
         (Value::Int(n), Value::List(items)) => {
@@ -616,7 +648,9 @@ fn take(args: &[Value]) -> WqResult<Value> {
 
 fn drop(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::DomainError("drop expects 2 arguments".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "drop expects 2 arguments".to_string(),
+        ));
     }
     match (&args[0], &args[1]) {
         (Value::Int(n), Value::List(items)) => {
@@ -635,7 +669,9 @@ fn drop(args: &[Value]) -> WqResult<Value> {
 
 fn where_func(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("where expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "where expects 1 argument".to_string(),
+        ));
     }
     match &args[0] {
         Value::List(items) => {
@@ -662,7 +698,7 @@ fn where_func(args: &[Value]) -> WqResult<Value> {
 
 fn distinct(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError(
+        return Err(WqError::FnArgCountMismatchError(
             "distinct expects 1 argument".to_string(),
         ));
     }
@@ -684,7 +720,9 @@ fn distinct(args: &[Value]) -> WqResult<Value> {
 
 fn sort(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("sort expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "sort expects 1 argument".to_string(),
+        ));
     }
     match &args[0] {
         Value::List(items) => {
@@ -711,7 +749,9 @@ fn sort(args: &[Value]) -> WqResult<Value> {
 // Logical functions
 fn and(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::DomainError("and expects 2 arguments".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "and expects 2 arguments".to_string(),
+        ));
     }
     match (&args[0], &args[1]) {
         (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(if *a != false && *b != false {
@@ -725,7 +765,9 @@ fn and(args: &[Value]) -> WqResult<Value> {
 
 fn or(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::DomainError("or expects 2 arguments".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "or expects 2 arguments".to_string(),
+        ));
     }
     match (&args[0], &args[1]) {
         (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(if *a != false || *b != false {
@@ -739,7 +781,9 @@ fn or(args: &[Value]) -> WqResult<Value> {
 
 fn not(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::DomainError("not expects 1 argument".to_string()));
+        return Err(WqError::FnArgCountMismatchError(
+            "not expects 1 argument".to_string(),
+        ));
     }
     match &args[0] {
         Value::Bool(n) => Ok(Value::Bool(if *n == false { true } else { false })),
