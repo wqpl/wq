@@ -124,9 +124,7 @@ impl Evaluator {
                 if let Some(value) = self.environment.get(name) {
                     Ok(value.clone())
                 } else {
-                    Err(WqError::DomainError(format!(
-                        "Undefined variable: {name}"
-                    )))
+                    Err(WqError::DomainError(format!("Undefined variable: {name}")))
                 }
             }
 
@@ -201,7 +199,8 @@ impl Evaluator {
                         Err(WqError::FnArgCountMismatchError(msg))
                     }
                     Err(WqError::TypeError(msg)) => Err(WqError::TypeError(msg)),
-                    Err(_) => {
+                    Err(WqError::RuntimeError(msg)) => Err(WqError::RuntimeError(msg)),
+                    Err(WqError::DomainError(_)) => {
                         // Check if it's a user-defined function in stack and global env
                         let function = if let Some(frame) = self.call_stack.current_frame() {
                             frame
@@ -222,6 +221,7 @@ impl Evaluator {
                             ))),
                         }
                     }
+                    _ => Err(WqError::DomainError("Unknown error in eval".to_string())),
                 }
             }
 
@@ -235,7 +235,9 @@ impl Evaluator {
                 if let Value::Function { params, body } = obj_val {
                     self.call_user_function(params, &body, &arg_values)
                 } else {
-                    Err(WqError::DomainError("Failed calling anonymous function".to_string()))
+                    Err(WqError::DomainError(
+                        "Failed calling anonymous function".to_string(),
+                    ))
                 }
             }
 
