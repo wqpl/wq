@@ -48,6 +48,13 @@ pub enum AstNode {
         index: Box<AstNode>,
     },
 
+    /// Index assignment like `a[1]:3`
+    IndexAssign {
+        object: Box<AstNode>,
+        index: Box<AstNode>,
+        value: Box<AstNode>,
+    },
+
     /// Function def
     Function {
         params: Option<Vec<String>>, // None for implicit params (x, y)
@@ -193,15 +200,25 @@ impl Parser {
 
         while let Some(token) = self.current_token() {
             if token.token_type == TokenType::Colon {
-                if let AstNode::Variable(name) = expr {
-                    self.advance();
-                    let value = self.parse_assignment()?;
-                    expr = AstNode::Assignment {
-                        name,
-                        value: Box::new(value),
-                    };
-                } else {
-                    break;
+                match expr {
+                    AstNode::Variable(name) => {
+                        self.advance();
+                        let value = self.parse_assignment()?;
+                        expr = AstNode::Assignment {
+                            name,
+                            value: Box::new(value),
+                        };
+                    }
+                    AstNode::Index { object, index } => {
+                        self.advance();
+                        let value = self.parse_assignment()?;
+                        expr = AstNode::IndexAssign {
+                            object,
+                            index,
+                            value: Box::new(value),
+                        };
+                    }
+                    _ => break,
                 }
             } else {
                 break;
@@ -854,6 +871,19 @@ mod tests {
             AstNode::Assignment {
                 name: "x".to_string(),
                 value: Box::new(AstNode::Literal(Value::Int(42))),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_index_assignment() {
+        let ast = parse_string("a[1]:3").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::IndexAssign {
+                object: Box::new(AstNode::Variable("a".into())),
+                index: Box::new(AstNode::Literal(Value::Int(1))),
+                value: Box::new(AstNode::Literal(Value::Int(3))),
             }
         );
     }

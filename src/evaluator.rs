@@ -265,6 +265,44 @@ impl Evaluator {
                 body: body.clone(),
             }),
 
+            AstNode::IndexAssign {
+                object,
+                index,
+                value,
+            } => {
+                // only simple variable targets are supported
+                if let AstNode::Variable(name) = &**object {
+                    let mut container = if let Some(val) = self.call_stack.lookup(name) {
+                        val
+                    } else if let Some(val) = self.environment.get(name).cloned() {
+                        val
+                    } else {
+                        return Err(WqError::DomainError(format!("Undefined variable: {name}",)));
+                    };
+
+                    let idx_val = self.eval(index)?;
+                    let new_val = self.eval(value)?;
+
+                    match container.set_index(&idx_val, new_val.clone()) {
+                        Some(()) => {
+                            if !self.call_stack.assign(name, container.clone()) {
+                                if let Some(frame) = self.call_stack.current_frame_mut() {
+                                    frame.variables.insert(name.clone(), container);
+                                } else {
+                                    self.environment.set(name.clone(), container);
+                                }
+                            }
+                            Ok(new_val)
+                        }
+                        None => Err(WqError::IndexError("Invalid index assignment".to_string())),
+                    }
+                } else {
+                    Err(WqError::DomainError(
+                        "Invalid index assignment target".to_string(),
+                    ))
+                }
+            }
+
             AstNode::Index { object, index } => {
                 let obj_val = self.eval(object)?;
                 let idx_val = self.eval(index)?;
@@ -363,14 +401,53 @@ impl Evaluator {
                 WqError::DomainError("Division by zero or invalid types".to_string())
             }),
             BinaryOperator::Modulo => match (left, right) {
+                // &Int, &Int -> Int
                 (Value::Int(a), Value::Int(b)) => {
-                    if *b == 0 {
+                    let a = *a;
+                    let b = *b;
+                    if b == 0 {
                         Err(WqError::DomainError("Modulo by zero".to_string()))
                     } else {
                         Ok(Value::Int(a % b))
                     }
                 }
-                _ => Err(WqError::TypeError("Modulo expects integers".to_string())),
+
+                // &Float, &Float -> Float
+                (Value::Float(a), Value::Float(b)) => {
+                    let a = *a;
+                    let b = *b;
+                    if b == 0.0 {
+                        Err(WqError::DomainError("Modulo by zero".to_string()))
+                    } else {
+                        Ok(Value::Float(a % b))
+                    }
+                }
+
+                // &Int, &Float -> Float
+                (Value::Int(a), Value::Float(b)) => {
+                    let a = *a as f64;
+                    let b = *b;
+                    if b == 0.0 {
+                        Err(WqError::DomainError("Modulo by zero".to_string()))
+                    } else {
+                        Ok(Value::Float(a % b))
+                    }
+                }
+
+                // &Float, &Int -> Float
+                (Value::Float(a), Value::Int(b)) => {
+                    let a = *a;
+                    let b = *b as f64;
+                    if b == 0.0 {
+                        Err(WqError::DomainError("Modulo by zero".to_string()))
+                    } else {
+                        Ok(Value::Float(a % b))
+                    }
+                }
+
+                _ => Err(WqError::TypeError(
+                    "Modulo expects numeric operands".to_string(),
+                )),
             },
             BinaryOperator::Equal => Ok(left.equals(right)),
             BinaryOperator::NotEqual => Ok(left.not_equals(right)),

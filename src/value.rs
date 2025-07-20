@@ -140,6 +140,37 @@ impl Value {
         }
     }
 
+    /// Mutate list or dictionary element by index/key. Returns `Some(())` on
+    /// success and `None` if the key does not exist or the types are
+    /// incompatible.
+    pub fn set_index(&mut self, key: &Value, value: Value) -> Option<()> {
+        match (self, key) {
+            (Value::List(items), Value::Int(i)) => {
+                let len = items.len() as i64;
+                let idx_i64 = if *i < 0 { len + *i } else { *i };
+                if idx_i64 < 0 || idx_i64 >= len {
+                    return None;
+                }
+                let idx = idx_i64 as usize;
+                if idx < items.len() {
+                    items[idx] = value;
+                    Some(())
+                } else {
+                    None
+                }
+            }
+            (Value::Dict(map), Value::Symbol(key_str)) => {
+                if map.contains_key(key_str) {
+                    map.insert(key_str.clone(), value);
+                    Some(())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Arithmetic operations
     pub fn add(&self, other: &Value) -> Option<Value> {
         match (self, other) {
@@ -680,6 +711,27 @@ mod tests {
         assert_eq!(list.len(), 3);
         assert_eq!(list.index(&Value::int(0)), Some(Value::int(1)));
         assert_eq!(list.index(&Value::int(-1)), Some(Value::int(3)));
+    }
+
+    #[test]
+    fn test_set_index() {
+        let mut list = Value::list(vec![Value::int(1), Value::int(2)]);
+        assert_eq!(list.set_index(&Value::int(1), Value::int(5)), Some(()));
+        assert_eq!(list.index(&Value::int(1)), Some(Value::int(5)));
+        assert_eq!(list.set_index(&Value::int(5), Value::int(0)), None);
+
+        let mut map = HashMap::new();
+        map.insert("a".to_string(), Value::int(1));
+        let mut dict = Value::dict(map);
+        assert_eq!(
+            dict.set_index(&Value::symbol("a".into()), Value::int(2)),
+            Some(())
+        );
+        assert_eq!(dict.index(&Value::symbol("a".into())), Some(Value::int(2)));
+        assert_eq!(
+            dict.set_index(&Value::symbol("b".into()), Value::int(3)),
+            None
+        );
     }
 
     #[test]
