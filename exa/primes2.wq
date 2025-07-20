@@ -1,2 +1,2 @@
 isprime:{[x;i]$[i*i>x;1;$[x%i=0;0;isprime[x;i+1;]]]};
-    primes:{[n]res:();iter:{[i]$[i>n;res;$[isprime[i;2;];res:res,i;0];iter[i+1;]]};iter[2;]}
+primes:{[n]res:();iter:{[i]$[i>n;res;$[isprime[i;2;];res:res,i;0];iter[i+1;]]};iter[2;]}
