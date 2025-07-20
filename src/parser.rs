@@ -108,11 +108,16 @@ pub enum UnaryOperator {
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
+    source: String,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens, current: 0 }
+    pub fn new(tokens: Vec<Token>, source: String) -> Self {
+        Parser {
+            tokens,
+            current: 0,
+            source,
+        }
     }
 
     fn current_token(&self) -> Option<&Token> {
@@ -121,6 +126,24 @@ impl Parser {
 
     fn peek_token(&self) -> Option<&Token> {
         self.tokens.get(self.current + 1)
+    }
+
+    fn syntax_error(&self, token: &Token, msg: &str) -> WqError {
+        let line = token.line;
+        let column = token.column;
+        let src_line = self
+            .source
+            .lines()
+            .nth(line.saturating_sub(1))
+            .unwrap_or("");
+        let pointer = " ".repeat(column.saturating_sub(1)) + "^";
+        WqError::SyntaxError(format!(
+            "{msg} at {line}:{column}\n{src_line}\n{pointer}"
+        ))
+    }
+
+    fn eof_error(&self, msg: &str) -> WqError {
+        WqError::SyntaxError(msg.to_string())
     }
 
     fn advance(&mut self) -> Option<&Token> {
@@ -149,13 +172,13 @@ impl Parser {
                 self.advance();
                 Ok(())
             } else {
-                Err(WqError::SyntaxError(format!(
-                    "Expected {:?}, found {:?}",
-                    expected, token.token_type
-                )))
+                Err(self.syntax_error(
+                    token,
+                    &format!("Expected {:?}, found {:?}", expected, token.token_type),
+                ))
             }
         } else {
-            Err(WqError::SyntaxError("Unexpected end of input".to_string()))
+            Err(self.eof_error("Unexpected end of input"))
         }
     }
 
@@ -239,9 +262,7 @@ impl Parser {
                     continue;
                 }
                 TokenType::Eof => {
-                    return Err(WqError::SyntaxError(
-                        "Unexpected end of input in block".to_string(),
-                    ));
+                    return Err(self.eof_error("Unexpected end of input in block"));
                 }
                 _ => {
                     let stmt = self.parse_statement()?;
@@ -453,9 +474,7 @@ impl Parser {
                     }
                 }
                 TokenType::RightBracket => {
-                    return Err(WqError::SyntaxError(
-                        "Function call must end with ';]'".to_string(),
-                    ));
+                    return Err(self.syntax_error(token, "Function call must end with ';]'"));
                 }
                 _ => {
                     let arg = self.parse_expression()?;
@@ -638,15 +657,14 @@ impl Parser {
                                     break;
                                 }
                                 _ => {
-                                    return Err(WqError::SyntaxError(
-                                        "Expected ';' or ')' in list".to_string(),
+                                    return Err(self.syntax_error(
+                                        token,
+                                        "Expected ';' or ')' in list",
                                     ));
                                 }
                             }
                         } else {
-                            return Err(WqError::SyntaxError(
-                                "Unexpected end of input in list".to_string(),
-                            ));
+                            return Err(self.eof_error("Unexpected end of input in list"));
                         }
                     }
 
@@ -658,13 +676,13 @@ impl Parser {
                     }
                 }
 
-                _ => Err(WqError::SyntaxError(format!(
-                    "Unexpected token: {:?}",
-                    token.token_type
-                ))),
+                _ => Err(self.syntax_error(
+                    token,
+                    &format!("Unexpected token: {:?}", token.token_type),
+                )),
             }
         } else {
-            Err(WqError::SyntaxError("Unexpected end of input".to_string()))
+            Err(self.eof_error("Unexpected end of input"))
         }
     }
 
@@ -698,24 +716,23 @@ impl Parser {
                                         break;
                                     }
                                     _ => {
-                                        return Err(WqError::SyntaxError(
-                                            "Expected ';' or ']' in parameter list".to_string(),
+                                        return Err(self.syntax_error(
+                                            token,
+                                            "Expected ';' or ']' in parameter list",
                                         ));
                                     }
                                 }
                             } else {
-                                return Err(WqError::SyntaxError(
-                                    "Unexpected end of input in parameter list".to_string(),
+                                return Err(self.eof_error(
+                                    "Unexpected end of input in parameter list",
                                 ));
                             }
                         } else {
-                            return Err(WqError::SyntaxError(
-                                "Expected parameter name".to_string(),
-                            ));
+                            return Err(self.syntax_error(token, "Expected parameter name"));
                         }
                     } else {
-                        return Err(WqError::SyntaxError(
-                            "Unexpected end of input in parameter list".to_string(),
+                        return Err(self.eof_error(
+                            "Unexpected end of input in parameter list",
                         ));
                     }
                 }
@@ -791,9 +808,7 @@ impl Parser {
                     break;
                 }
             } else {
-                return Err(WqError::SyntaxError(
-                    "Unexpected end of input in branch".to_string(),
-                ));
+                return Err(self.eof_error("Unexpected end of input in branch"));
             }
 
             let expr = self.parse_expression()?;
@@ -812,15 +827,13 @@ impl Parser {
                 {
                     break;
                 } else {
-                    return Err(WqError::SyntaxError(format!(
-                        "Expected {:?} or ';', found {:?}",
-                        end, token.token_type
-                    )));
+                    return Err(self.syntax_error(
+                        token,
+                        &format!("Expected {:?} or ';', found {:?}", end, token.token_type),
+                    ));
                 }
             } else {
-                return Err(WqError::SyntaxError(
-                    "Unexpected end of input in branch".to_string(),
-                ));
+                return Err(self.eof_error("Unexpected end of input in branch"));
             }
         }
 
@@ -840,7 +853,7 @@ mod tests {
     fn parse_string(input: &str) -> WqResult<AstNode> {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize();
-        let mut parser = Parser::new(tokens);
+        let mut parser = Parser::new(tokens, input.to_string());
         parser.parse()
     }
 

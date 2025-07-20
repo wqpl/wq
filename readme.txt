@@ -44,8 +44,7 @@ rlwrap cargo run
     abs neg signum sqrt exp log floor ceiling
     count first last reverse sum max min avg
     rand sin cos tan sinh cosh tanh
-    til range
-    type string
+    til range type string
     take drop where distinct sort
     cat flatten and or not xor echo
 
@@ -55,6 +54,7 @@ rlwrap cargo run
     clear              // clear all vars
     load
     time
+    debug on debug off // toggle ast printing
     quit
     \h \v \c \l \t \q
 

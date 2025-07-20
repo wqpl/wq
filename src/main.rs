@@ -53,17 +53,39 @@ fn main() {
                         println!("Variables cleared");
                         continue;
                     }
+                    cmd if cmd.starts_with("debug") || cmd.starts_with("\\d") => {
+                        let arg = if let Some(rest) = cmd.strip_prefix("debug") {
+                            rest.trim()
+                        } else if let Some(rest) = cmd.strip_prefix("\\d") {
+                            rest.trim()
+                        } else {
+                            ""
+                        };
+
+                        if arg.is_empty() {
+                            println!("debug {}", if evaluator.debug() { "on" } else { "off" });
+                        } else if arg == "1" || arg.eq_ignore_ascii_case("on") {
+                            evaluator.set_debug(true);
+                            println!("debug on");
+                        } else if arg == "0" || arg.eq_ignore_ascii_case("off") {
+                            evaluator.set_debug(false);
+                            println!("debug off");
+                        } else {
+                            println!("usage: debug [on|off|1|0]");
+                        }
+                        continue;
+                    }
                     cmd if cmd.starts_with("\\t") || cmd.starts_with("time ") => {
                         let src = if let Some(rest) = cmd.strip_prefix("\\t") {
                             rest.trim()
                         } else if let Some(rest) = cmd.strip_prefix("time ") {
                             rest.trim()
                         } else {
-                            panic!()
+                            ""
                         };
 
                         if src.is_empty() {
-                            println!("{}", "No code provided for execution.".red());
+                            println!("{}", "expected wq code".red());
                             continue;
                         }
 
@@ -120,15 +142,14 @@ fn main() {
 fn show_help() {
     println!(
         "//builtins:
-  abs neg signum sqrt exp log
-  floor ceiling count first last
-  reverse sum max min avg
+  abs neg signum sqrt exp log floor ceiling
+  count first last reverse sum max min avg
   rand sin cos tan sinh cosh tanh
   til range type string
   take drop where distinct sort
-  and or not
+  cat flatten and or not xor echo
 //repl cmds:
-  help vars clear load quit time"
+  help vars clear load time debug quit"
     );
 }
 

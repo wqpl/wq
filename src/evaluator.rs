@@ -111,6 +111,7 @@ pub struct Evaluator {
     environment: Environment,
     builtins: Builtins,
     call_stack: CallStack,
+    debug: bool,
 }
 
 impl Evaluator {
@@ -119,6 +120,7 @@ impl Evaluator {
             environment: Environment::new(),
             builtins: Builtins::new(),
             call_stack: CallStack::new(),
+            debug: false,
         }
     }
 
@@ -128,6 +130,14 @@ impl Evaluator {
 
     pub fn environment_mut(&mut self) -> &mut Environment {
         &mut self.environment
+    }
+
+    pub fn set_debug(&mut self, flag: bool) {
+        self.debug = flag;
+    }
+
+    pub fn debug(&self) -> bool {
+        self.debug
     }
 
     /// Evaluate an AST node
@@ -529,8 +539,11 @@ impl Evaluator {
 
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize();
-        let mut parser = Parser::new(tokens);
+        let mut parser = Parser::new(tokens, input.to_string());
         let ast = parser.parse()?;
+        if self.debug {
+            eprintln!("{:#?}", ast);
+        }
         self.eval(&ast)
     }
 
