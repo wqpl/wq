@@ -537,7 +537,7 @@ impl Evaluator {
         let mut parser = Parser::new(tokens, input.to_string());
         let ast = parser.parse()?;
         if self.debug {
-            eprintln!("{:#?}", ast);
+            eprintln!("{ast:#?}");
         }
         self.eval(&ast)
     }

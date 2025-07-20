@@ -619,7 +619,7 @@ impl fmt::Display for Value {
                             s.push(*c);
                         }
                     }
-                    write!(f, "\"{}\"", s)
+                    write!(f, "\"{s}\"")
                 } else if items.len() == 1 {
                     write!(f, ",{}", items[0])
                 } else {
