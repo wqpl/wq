@@ -32,17 +32,13 @@ rlwrap cargo run
     3<5
 
 //loops:
-    W[i<3;i:i+1;]      // while loop
-    N[3;echo n;]       // for loop with counter n
+    W[i<3;i:i+1;]      // while style loop
+    N[3;echo n;]       // for-i-in-range style loop. counter implicitly binds to n
 
 //your ordinary fib:
     fibtr:{[n;a;b]$[n=0;a;fibtr[n-1;b;a+b;]]}
     fib:{[n]fibtr[n;0;1;]}
     fib[10;]
-
-//primes:
-    isprime:{[x;i]$[i*i>x;1;$[x%i=0;0;isprime[x;i+1;]]]};
-    primes:{[n]res:();iter:{[i]$[i>n;res;$[isprime[i;2;];res:res,i;0];iter[i+1;]]};iter[2;]}
 
 //builtins:
     abs neg signum sqrt exp log floor ceiling

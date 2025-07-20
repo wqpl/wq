@@ -1,8 +1,0 @@
-// primality test
-isprime:{[x;i]$[i*i>x;1;$[x%i=0;0;isprime[x;i+1;]]]};
-
-// tail‐recursive helper: n=limit, acc=accumulator list, i=current candidate
-primesTR:{[n;acc;i]$[i>n;acc;$[isprime[i;2;];primesTR[n;(acc,i);i+1;];primesTR[n;acc;i+1;]]]};
-
-// public entry point: start with empty list and i=2
-primes:{[n]primesTR[n;();2;]};

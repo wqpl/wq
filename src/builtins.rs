@@ -840,5 +840,7 @@ fn echo(args: &[Value]) -> WqResult<Value> {
     for arg in args {
         println!("{arg}");
     }
+
+    //todo: further design needed
     Ok(Value::Null)
 }
