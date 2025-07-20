@@ -1,0 +1,1 @@
+primes:{[n] j:til(n+1); p:j>1; limit:floor sqrt n; i:2; W[i<=limit; start:i*i; rem:(j-start)/i; tmp:rem=floor rem; comp:and[p[i];and[tmp;j>=start;];]; p:and[p;not comp;]; i:i+1; ]; where p}
