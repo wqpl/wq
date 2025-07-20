@@ -326,16 +326,11 @@ impl Evaluator {
                 let mut result = Value::Null;
                 loop {
                     let cond_val = self.eval(condition)?;
-                    let is_true = match cond_val {
-                        Value::Bool(b) => b,
-                        Value::Int(n) => n != 0,
-                        Value::Float(f) => f != 0.0,
-                        _ => false,
+                    match cond_val {
+                        Value::Bool(true) => result = self.eval(body)?,
+                        Value::Bool(false) => break,
+                        _ => return Err(WqError::TypeError("expected boolean for W".to_string())),
                     };
-                    if !is_true {
-                        break;
-                    }
-                    result = self.eval(body)?;
                 }
                 Ok(result)
             }
