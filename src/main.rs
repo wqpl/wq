@@ -5,6 +5,9 @@ use std::fs;
 use std::io::{self, Write};
 use std::time::Instant;
 
+use wq::value::is_boxed;
+use wq::value::set_boxed;
+
 use colored::Colorize;
 
 fn main() {
@@ -51,6 +54,16 @@ fn main() {
                     "clear" | "\\c" => {
                         evaluator.environment_mut().clear();
                         println!("Variables cleared");
+                        continue;
+                    }
+                    "box" | "\\b" => {
+                        if is_boxed() {
+                            println!("{}", format!("Display mode: default").cyan());
+                            set_boxed(false)
+                        } else {
+                            println!("{}", format!("Display mode: boxed").cyan());
+                            set_boxed(true)
+                        }
                         continue;
                     }
                     cmd if cmd.starts_with("debug") || cmd.starts_with("\\d") => {
@@ -149,7 +162,7 @@ fn show_help() {
   take drop where distinct sort
   cat flatten and or not xor echo
 //repl cmds:
-  help vars clear load time debug quit"
+  help vars clear load time debug quit box"
     );
 }
 

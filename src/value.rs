@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::parser::AstNode;
 
@@ -595,6 +596,78 @@ impl Value {
     }
 }
 
+pub static BOXED: AtomicBool = AtomicBool::new(false);
+pub fn set_boxed(on: bool) { BOXED.store(on, Ordering::Relaxed); }
+pub fn is_boxed() -> bool { BOXED.load(Ordering::Relaxed) }
+
+fn repr(v: &Value) -> String {
+    match v {
+        Value::List(items) => {
+            let inner: Vec<String> = items.iter().map(|c| repr(c)).collect();
+            format!("({})", inner.join(" "))
+        }
+        other => other.to_string(),
+    }
+}
+
+fn format_table(rows: &[Value]) -> Option<String> {
+    if rows.is_empty() {
+        return None;
+    }
+
+    let has_nested = rows.iter().any(|row| {
+        if let Value::List(cells) = row {
+            cells.iter().any(|c| matches!(c, Value::List(_)))
+        } else {
+            false
+        }
+    });
+
+    if has_nested {
+        let lines = rows.iter().map(|row| {
+            if let Value::List(cells) = row {
+                cells.iter().map(|c| repr(c)).collect::<Vec<_>>().join(" ")
+            } else {
+                repr(row)
+            }
+        });
+        return Some(lines.collect::<Vec<_>>().join("\n"));
+    }
+
+    //actual alignment
+    let table: Vec<Vec<String>> = rows.iter().map(|row| {
+        if let Value::List(cells) = row {
+            cells.iter().map(|c| repr(c)).collect()
+        } else {
+            vec![repr(row)]
+        }
+    }).collect();
+
+    let ncols = table.iter().map(Vec::len).max().unwrap_or(0);
+    if ncols == 0 {
+        return None;
+    }
+
+    let mut widths = vec![0; ncols];
+    for row in &table {
+        for (j, cell) in row.iter().enumerate() {
+            widths[j] = widths[j].max(cell.len());
+        }
+    }
+
+    let mut lines = Vec::with_capacity(table.len());
+    for row in &table {
+        let mut parts = Vec::with_capacity(ncols);
+        for (j, &w) in widths.iter().enumerate() {
+            let text = row.get(j).map(String::as_str).unwrap_or("");
+            parts.push(format!("{:<width$}", text, width = w));
+        }
+        lines.push(parts.join(" ").trim_end().to_string());
+    }
+
+    Some(lines.join("\n"))
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -610,6 +683,11 @@ impl fmt::Display for Value {
             Value::Symbol(s) => write!(f, "`{s}`"),
             Value::Bool(b) => write!(f, "{}", if *b { "true" } else { "false" }),
             Value::List(items) => {
+                if is_boxed() && !items.is_empty() {
+                    if let Some(table) = format_table(items) {
+                        return write!(f, "{}", table);
+                    }
+                }
                 if items.is_empty() {
                     write!(f, "()")
                 } else if items.iter().all(|v| matches!(v, Value::Char(_))) {
