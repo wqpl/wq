@@ -62,6 +62,7 @@ rlwrap cargo run
     42                 // int
     3.14               // float
     "a"                // char
+    "abc"              // string (list of chars)
     `symbol            // symbol
     true false         // bool
     (1;2;3)            // list

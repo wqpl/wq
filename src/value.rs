@@ -327,17 +327,33 @@ impl Value {
         }
     }
 
+    fn compare_values(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
+        match (a, b) {
+            (Value::Int(x), Value::Int(y)) => Some(x.cmp(y)),
+            (Value::Float(x), Value::Float(y)) => x.partial_cmp(y),
+            (Value::Int(x), Value::Float(y)) => (*x as f64).partial_cmp(y),
+            (Value::Float(x), Value::Int(y)) => x.partial_cmp(&(*y as f64)),
+            (Value::Char(x), Value::Char(y)) => Some(x.cmp(y)),
+            (Value::List(a), Value::List(b)) => Value::compare_lists(a, b),
+            _ => None,
+        }
+    }
+
+    fn compare_lists(a: &[Value], b: &[Value]) -> Option<std::cmp::Ordering> {
+        let len = a.len().min(b.len());
+        for i in 0..len {
+            match Value::compare_values(&a[i], &b[i])? {
+                std::cmp::Ordering::Equal => continue,
+                ord => return Some(ord),
+            }
+        }
+        Some(a.len().cmp(&b.len()))
+    }
+
     /// Comparison operations
     pub fn equals(&self, other: &Value) -> Value {
-        let result = match (self, other) {
-            (Value::Int(a), Value::Int(b)) => *a == *b,
-            (Value::Float(a), Value::Float(b)) => (*a - *b).abs() < f64::EPSILON,
-            (Value::Int(a), Value::Float(b)) => (*a as f64 - *b).abs() < f64::EPSILON,
-            (Value::Float(a), Value::Int(b)) => (*a - *b as f64).abs() < f64::EPSILON,
-            (Value::Char(a), Value::Char(b)) => *a == *b,
-            (Value::Symbol(a), Value::Symbol(b)) => *a == *b,
-            (Value::Bool(a), Value::Bool(b)) => *a == *b,
-            (Value::Null, Value::Null) => true,
+        let result = match Value::compare_values(self, other) {
+            Some(std::cmp::Ordering::Equal) => true,
             _ => false,
         };
         Value::Bool(result)
@@ -351,48 +367,32 @@ impl Value {
     }
 
     pub fn less_than(&self, other: &Value) -> Value {
-        let result = match (self, other) {
-            (Value::Int(a), Value::Int(b)) => *a < *b,
-            (Value::Float(a), Value::Float(b)) => *a < *b,
-            (Value::Int(a), Value::Float(b)) => (*a as f64) < *b,
-            (Value::Float(a), Value::Int(b)) => *a < (*b as f64),
-            (Value::Char(a), Value::Char(b)) => *a < *b,
+        let result = match Value::compare_values(self, other) {
+            Some(std::cmp::Ordering::Less) => true,
             _ => false,
         };
         Value::Bool(result)
     }
 
     pub fn less_than_or_equal(&self, other: &Value) -> Value {
-        let result = match (self, other) {
-            (Value::Int(a), Value::Int(b)) => *a <= *b,
-            (Value::Float(a), Value::Float(b)) => *a <= *b,
-            (Value::Int(a), Value::Float(b)) => (*a as f64) <= *b,
-            (Value::Float(a), Value::Int(b)) => *a <= (*b as f64),
-            (Value::Char(a), Value::Char(b)) => *a <= *b,
+        let result = match Value::compare_values(self, other) {
+            Some(std::cmp::Ordering::Less) | Some(std::cmp::Ordering::Equal) => true,
             _ => false,
         };
         Value::Bool(result)
     }
 
     pub fn greater_than(&self, other: &Value) -> Value {
-        let result = match (self, other) {
-            (Value::Int(a), Value::Int(b)) => *a > *b,
-            (Value::Float(a), Value::Float(b)) => *a > *b,
-            (Value::Int(a), Value::Float(b)) => (*a as f64) > *b,
-            (Value::Float(a), Value::Int(b)) => *a > (*b as f64),
-            (Value::Char(a), Value::Char(b)) => *a > *b,
+        let result = match Value::compare_values(self, other) {
+            Some(std::cmp::Ordering::Greater) => true,
             _ => false,
         };
         Value::Bool(result)
     }
 
     pub fn greater_than_or_equal(&self, other: &Value) -> Value {
-        let result = match (self, other) {
-            (Value::Int(a), Value::Int(b)) => *a >= *b,
-            (Value::Float(a), Value::Float(b)) => *a >= *b,
-            (Value::Int(a), Value::Float(b)) => (*a as f64) >= *b,
-            (Value::Float(a), Value::Int(b)) => *a >= (*b as f64),
-            (Value::Char(a), Value::Char(b)) => *a >= *b,
+        let result = match Value::compare_values(self, other) {
+            Some(std::cmp::Ordering::Greater) | Some(std::cmp::Ordering::Equal) => true,
             _ => false,
         };
         Value::Bool(result)
@@ -416,6 +416,14 @@ impl fmt::Display for Value {
             Value::List(items) => {
                 if items.is_empty() {
                     write!(f, "()")
+                } else if items.iter().all(|v| matches!(v, Value::Char(_))) {
+                    let mut s = String::new();
+                    for v in items {
+                        if let Value::Char(c) = v {
+                            s.push(*c);
+                        }
+                    }
+                    write!(f, "\"{}\"", s)
                 } else if items.len() == 1 {
                     write!(f, ",{}", items[0])
                 } else {

@@ -465,6 +465,35 @@ mod tests {
     }
 
     #[test]
+    fn test_eval_strings() {
+        let mut evaluator = Evaluator::new();
+        assert_eq!(
+            evaluator.eval_string("\"ab\"").unwrap(),
+            Value::List(vec![Value::Char('a'), Value::Char('b')])
+        );
+        assert_eq!(
+            evaluator.eval_string("\"a\",\"bc\"").unwrap(),
+            Value::List(vec![Value::Char('a'), Value::Char('b'), Value::Char('c')])
+        );
+        assert_eq!(
+            evaluator.eval_string("first \"abc\"").unwrap(),
+            Value::Char('a')
+        );
+        assert_eq!(
+            evaluator.eval_string("drop[1;\"abc\";]").unwrap(),
+            Value::List(vec![Value::Char('b'), Value::Char('c')])
+        );
+        assert_eq!(
+            evaluator.eval_string("\"ab\"=\"ab\"").unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            evaluator.eval_string("\"abc\"<\"abd\"").unwrap(),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
     fn test_eval_functions() {
         let mut evaluator = Evaluator::new();
         evaluator.eval_string("nums:(1;2;3;4;5)").unwrap();

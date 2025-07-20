@@ -466,6 +466,7 @@ impl Parser {
                 TokenType::Integer(_)
                 | TokenType::Float(_)
                 | TokenType::Character(_)
+                | TokenType::String(_)
                 | TokenType::Symbol(_)
                 | TokenType::Identifier(_)
                 | TokenType::LeftParen => {
@@ -500,6 +501,12 @@ impl Parser {
                     let val = *c;
                     self.advance();
                     Ok(AstNode::Literal(Value::Char(val)))
+                }
+                TokenType::String(s) => {
+                    let val = s.clone();
+                    self.advance();
+                    let chars = val.chars().map(Value::Char).collect();
+                    Ok(AstNode::Literal(Value::List(chars)))
                 }
                 TokenType::Symbol(s) => {
                     let val = s.clone();
@@ -538,6 +545,7 @@ impl Parser {
                             TokenType::Integer(_)
                             | TokenType::Float(_)
                             | TokenType::Character(_)
+                            | TokenType::String(_)
                             | TokenType::Symbol(_)
                             | TokenType::Identifier(_)
                             | TokenType::LeftParen => {
@@ -800,6 +808,15 @@ mod tests {
                 AstNode::Literal(Value::Int(2)),
                 AstNode::Literal(Value::Int(3)),
             ])
+        );
+    }
+
+    #[test]
+    fn test_parse_string_literal() {
+        let ast = parse_string("\"ab\"").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::Literal(Value::List(vec![Value::Char('a'), Value::Char('b')]))
         );
     }
 

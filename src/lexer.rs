@@ -8,6 +8,7 @@ pub enum TokenType {
     Integer(i64),
     Float(f64),
     Character(char),
+    String(String),
     Symbol(String),
 
     // Operators
@@ -187,17 +188,25 @@ impl<'a> Lexer<'a> {
         TokenType::Symbol(symbol_name)
     }
 
-    fn read_character(&mut self) -> TokenType {
+    fn read_string_or_char(&mut self) -> TokenType {
         self.advance(); // Skip opening quote
-        let ch = self.current_char.unwrap_or('\0');
-        self.advance(); // Skip the character
+        let mut content = String::new();
 
-        // Optionally skip closing quote if present
-        if self.current_char == Some('"') {
-            self.advance();
+        while let Some(ch) = self.current_char {
+            if ch == '"' {
+                self.advance(); // consume closing quote
+                break;
+            } else {
+                content.push(ch);
+                self.advance();
+            }
         }
 
-        TokenType::Character(ch)
+        if content.len() == 1 {
+            TokenType::Character(content.chars().next().unwrap())
+        } else {
+            TokenType::String(content)
+        }
     }
 
     fn read_comment(&mut self) -> TokenType {
@@ -429,8 +438,8 @@ impl<'a> Lexer<'a> {
                 }
 
                 Some('"') => {
-                    let character = self.read_character();
-                    return Token::new(character, token_position, token_line, token_column);
+                    let string_or_char = self.read_string_or_char();
+                    return Token::new(string_or_char, token_position, token_line, token_column);
                 }
 
                 Some(ch) if ch.is_ascii_digit() => {
@@ -510,6 +519,20 @@ mod tests {
 
         assert_eq!(tokens[0].token_type, TokenType::Symbol("hello".to_string()));
         assert_eq!(tokens[1].token_type, TokenType::Symbol("world".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_string() {
+        let mut lexer = Lexer::new("\"ab\"");
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0].token_type, TokenType::String("ab".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_char() {
+        let mut lexer = Lexer::new("\"a\"");
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0].token_type, TokenType::Character('a'));
     }
 
     #[test]
