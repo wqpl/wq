@@ -274,6 +274,62 @@ impl Evaluator {
                     .ok_or_else(|| WqError::IndexError("Invalid index operation".to_string()))
             }
 
+            AstNode::WhileLoop { condition, body } => {
+                let mut result = Value::Null;
+                loop {
+                    let cond_val = self.eval(condition)?;
+                    let is_true = match cond_val {
+                        Value::Bool(b) => b,
+                        Value::Int(n) => n != 0,
+                        Value::Float(f) => f != 0.0,
+                        _ => false,
+                    };
+                    if !is_true {
+                        break;
+                    }
+                    result = self.eval(body)?;
+                }
+                Ok(result)
+            }
+
+            AstNode::ForLoop { count, body } => {
+                let count_val = self.eval(count)?;
+                let n = match count_val.to_int() {
+                    Some(v) if v >= 0 => v,
+                    _ => {
+                        return Err(WqError::TypeError(
+                            "N expects non-negative integer".to_string(),
+                        ))
+                    }
+                };
+                let mut result = Value::Null;
+                for i in 0..n {
+                    if self.call_stack.current_frame().is_some() {
+                        let old = {
+                            let frame = self.call_stack.current_frame_mut().unwrap();
+                            frame.variables.insert("n".to_string(), Value::Int(i))
+                        };
+                        result = self.eval(body)?;
+                        if let Some(frame) = self.call_stack.current_frame_mut() {
+                            if let Some(v) = old {
+                                frame.variables.insert("n".to_string(), v);
+                            } else {
+                                frame.variables.remove("n");
+                            }
+                        }
+                    } else {
+                        let old = self.environment.variables.insert("n".to_string(), Value::Int(i));
+                        result = self.eval(body)?;
+                        if let Some(v) = old {
+                            self.environment.variables.insert("n".to_string(), v);
+                        } else {
+                            self.environment.variables.remove("n");
+                        }
+                    }
+                }
+                Ok(result)
+            }
+
             AstNode::Block(statements) => {
                 let mut result = Value::Null;
                 for stmt in statements {
@@ -677,5 +733,26 @@ mod tests {
                 Value::Int(7)
             ])
         );
+    }
+
+    #[test]
+    fn test_while_loop() {
+        let mut evaluator = Evaluator::new();
+        let result = evaluator.eval_string("i:0;W[i<3;i:i+1;];i").unwrap();
+        assert_eq!(result, Value::Int(3));
+    }
+
+    #[test]
+    fn test_for_loop() {
+        let mut evaluator = Evaluator::new();
+        let result = evaluator.eval_string("sum:0;N[3;sum:sum+n;];sum").unwrap();
+        assert_eq!(result, Value::Int(3));
+    }
+
+    #[test]
+    fn test_echo() {
+        let mut evaluator = Evaluator::new();
+        let result = evaluator.eval_string("echo 1").unwrap();
+        assert_eq!(result, Value::Null);
     }
 }

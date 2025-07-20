@@ -27,6 +27,7 @@ impl Builtins {
         self.functions.insert("floor".to_string(), floor);
         self.functions.insert("ceiling".to_string(), ceiling);
         self.functions.insert("rand".to_string(), rand);
+        self.functions.insert("echo".to_string(), echo);
 
         // Math functions
         self.functions.insert("sin".into(), sin);
@@ -833,4 +834,11 @@ fn not(args: &[Value]) -> WqResult<Value> {
         Value::Bool(n) => Ok(Value::Bool(!(*n))),
         _ => Err(WqError::TypeError("not only works on booleans".to_string())),
     }
+}
+
+fn echo(args: &[Value]) -> WqResult<Value> {
+    for arg in args {
+        println!("{arg}");
+    }
+    Ok(Value::Null)
 }

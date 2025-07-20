@@ -61,6 +61,18 @@ pub enum AstNode {
         false_branch: Box<AstNode>,
     },
 
+    /// While loop
+    WhileLoop {
+        condition: Box<AstNode>,
+        body: Box<AstNode>,
+    },
+
+    /// Numeric for loop, exposes counter `n`
+    ForLoop {
+        count: Box<AstNode>,
+        body: Box<AstNode>,
+    },
+
     /// Block/sequence of statements
     Block(Vec<AstNode>),
 }
@@ -529,6 +541,16 @@ impl Parser {
                     let val = name.clone();
                     self.advance();
 
+                    if let Some(Token { token_type: TokenType::LeftBracket, .. }) = self.current_token() {
+                        if val == "W" {
+                            self.advance();
+                            return self.parse_while();
+                        } else if val == "N" {
+                            self.advance();
+                            return self.parse_for();
+                        }
+                    }
+
                     // Check for function calls or indexing
                     if let Some(next_token) = self.current_token() {
                         match next_token.token_type {
@@ -713,26 +735,61 @@ impl Parser {
         })
     }
 
+    fn parse_while(&mut self) -> WqResult<AstNode> {
+
+        let condition = self.parse_expression()?;
+        self.consume(TokenType::Semicolon)?;
+
+        let body = self.parse_branch_sequence(TokenType::RightBracket)?;
+        self.consume(TokenType::RightBracket)?;
+
+        Ok(AstNode::WhileLoop {
+            condition: Box::new(condition),
+            body: Box::new(body),
+        })
+    }
+
+    fn parse_for(&mut self) -> WqResult<AstNode> {
+        let count_expr = self.parse_expression()?;
+        self.consume(TokenType::Semicolon)?;
+
+        let body = self.parse_branch_sequence(TokenType::RightBracket)?;
+        self.consume(TokenType::RightBracket)?;
+
+        Ok(AstNode::ForLoop {
+            count: Box::new(count_expr),
+            body: Box::new(body),
+        })
+    }
+
     fn parse_branch_sequence(&mut self, end: TokenType) -> WqResult<AstNode> {
         let mut statements = Vec::new();
 
         loop {
+            if let Some(token) = self.current_token() {
+                if std::mem::discriminant(&token.token_type) == std::mem::discriminant(&end) {
+                    break;
+                }
+            } else {
+                return Err(WqError::SyntaxError(
+                    "Unexpected end of input in branch".to_string(),
+                ));
+            }
+
             let expr = self.parse_expression()?;
             statements.push(expr);
 
             if let Some(token) = self.current_token() {
                 if token.token_type == TokenType::Semicolon {
-                    if std::mem::discriminant(&end) == std::mem::discriminant(&TokenType::Semicolon)
+                    if std::mem::discriminant(&end)
+                        == std::mem::discriminant(&TokenType::Semicolon)
                     {
-                        // leave semicolon for caller
                         break;
                     } else {
                         self.advance();
                         continue;
                     }
-                } else if std::mem::discriminant(&token.token_type) == std::mem::discriminant(&end)
-                {
-                    // leave end token for caller
+                } else if std::mem::discriminant(&token.token_type) == std::mem::discriminant(&end) {
                     break;
                 } else {
                     return Err(WqError::SyntaxError(format!(
@@ -742,7 +799,7 @@ impl Parser {
                 }
             } else {
                 return Err(WqError::SyntaxError(
-                    "Unexpected end of input in conditional branch".to_string(),
+                    "Unexpected end of input in branch".to_string(),
                 ));
             }
         }
@@ -860,5 +917,17 @@ mod tests {
                 }),
             }
         );
+    }
+
+    #[test]
+    fn test_parse_while() {
+        let ast = parse_string("W[x<3;x:1]").unwrap();
+        assert!(matches!(ast, AstNode::WhileLoop { .. }));
+    }
+
+    #[test]
+    fn test_parse_for() {
+        let ast = parse_string("N[3;x:1]").unwrap();
+        assert!(matches!(ast, AstNode::ForLoop { .. }));
     }
 }

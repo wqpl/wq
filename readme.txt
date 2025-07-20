@@ -31,6 +31,10 @@ rlwrap cargo run
     5~3                // !=. true
     3<5
 
+//loops:
+    W[i<3;i:i+1;]      // while loop
+    N[3;echo n;]       // for loop with counter n
+
 //your ordinary fib:
     fibtr:{[n;a;b]$[n=0;a;fibtr[n-1;b;a+b;]]}
     fib:{[n]fibtr[n;0;1;]}
@@ -47,7 +51,7 @@ rlwrap cargo run
     til range
     type string
     take drop where distinct sort
-    cat flatten and or not
+    cat flatten and or not echo
 
 //repl cmds:
     help
