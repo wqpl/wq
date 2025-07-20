@@ -678,14 +678,19 @@ fn where_func(args: &[Value]) -> WqResult<Value> {
             let mut indices = Vec::new();
             for (i, item) in items.iter().enumerate() {
                 match item {
-                    Value::Int(n) => {
-                        if *n != 0 {
+                    // Value::Int(n) => {
+                    //     if *n != 0 {
+                    //         indices.push(Value::Int(i as i64));
+                    //     }
+                    // }
+                    Value::Bool(b) => {
+                        if *b {
                             indices.push(Value::Int(i as i64));
                         }
                     }
                     _ => {
                         return Err(WqError::TypeError(
-                            "where only works on integer lists".to_string(),
+                            "where only works on boolean lists".to_string(),
                         ));
                     }
                 }

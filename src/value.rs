@@ -76,6 +76,13 @@ impl Value {
         matches!(self, Value::Dict(_))
     }
 
+    pub fn is_string(&self) -> bool {
+        match self {
+            Value::List(items) => items.iter().all(|v| matches!(v, Value::Char(_))),
+            _ => false,
+        }
+    }
+
     /// Get the length of a value
     pub fn len(&self) -> usize {
         match self {
@@ -350,52 +357,93 @@ impl Value {
         Some(a.len().cmp(&b.len()))
     }
 
-    /// Comparison operations
-    pub fn equals(&self, other: &Value) -> Value {
-        let result = match Value::compare_values(self, other) {
-            Some(std::cmp::Ordering::Equal) => true,
-            _ => false,
-        };
-        Value::Bool(result)
-    }
-
-    pub fn not_equals(&self, other: &Value) -> Value {
-        match self.equals(other) {
-            Value::Bool(b) => Value::Bool(!b),
-            _ => Value::Bool(true), // Should not happen
+    /// Helper for vectorized comparisons
+    fn cmp_broadcast<F>(&self, other: &Value, cmp: F) -> Value
+    where
+        F: Fn(&Value, &Value) -> bool + Copy,
+    {
+        match (self, other) {
+            (Value::List(_), Value::List(_)) if self.is_string() && other.is_string() => {
+                Value::Bool(cmp(self, other))
+            }
+            (Value::List(a), Value::List(b)) => {
+                if a.is_empty() || b.is_empty() {
+                    Value::List(Vec::new())
+                } else if a.len() == b.len() {
+                    let result: Vec<Value> = a
+                        .iter()
+                        .zip(b.iter())
+                        .map(|(x, y)| Value::Bool(cmp(x, y)))
+                        .collect();
+                    Value::List(result)
+                } else {
+                    let max_len = a.len().max(b.len());
+                    let result: Vec<Value> = (0..max_len)
+                        .map(|i| {
+                            let left = &a[i % a.len()];
+                            let right = &b[i % b.len()];
+                            Value::Bool(cmp(left, right))
+                        })
+                        .collect();
+                    Value::List(result)
+                }
+            }
+            (Value::List(a), b) => {
+                let result: Vec<Value> = a.iter().map(|x| Value::Bool(cmp(x, b))).collect();
+                Value::List(result)
+            }
+            (a, Value::List(b)) => {
+                let result: Vec<Value> = b.iter().map(|y| Value::Bool(cmp(a, y))).collect();
+                Value::List(result)
+            }
+            (a, b) => Value::Bool(cmp(a, b)),
         }
     }
 
+    /// Comparison operations
+    pub fn equals(&self, other: &Value) -> Value {
+        self.cmp_broadcast(other, |a, b| {
+            matches!(Value::compare_values(a, b), Some(std::cmp::Ordering::Equal))
+        })
+    }
+
+    pub fn not_equals(&self, other: &Value) -> Value {
+        self.cmp_broadcast(other, |a, b| {
+            !matches!(Value::compare_values(a, b), Some(std::cmp::Ordering::Equal))
+        })
+    }
+
     pub fn less_than(&self, other: &Value) -> Value {
-        let result = match Value::compare_values(self, other) {
-            Some(std::cmp::Ordering::Less) => true,
-            _ => false,
-        };
-        Value::Bool(result)
+        self.cmp_broadcast(other, |a, b| {
+            matches!(Value::compare_values(a, b), Some(std::cmp::Ordering::Less))
+        })
     }
 
     pub fn less_than_or_equal(&self, other: &Value) -> Value {
-        let result = match Value::compare_values(self, other) {
-            Some(std::cmp::Ordering::Less) | Some(std::cmp::Ordering::Equal) => true,
-            _ => false,
-        };
-        Value::Bool(result)
+        self.cmp_broadcast(other, |a, b| {
+            matches!(
+                Value::compare_values(a, b),
+                Some(std::cmp::Ordering::Less) | Some(std::cmp::Ordering::Equal)
+            )
+        })
     }
 
     pub fn greater_than(&self, other: &Value) -> Value {
-        let result = match Value::compare_values(self, other) {
-            Some(std::cmp::Ordering::Greater) => true,
-            _ => false,
-        };
-        Value::Bool(result)
+        self.cmp_broadcast(other, |a, b| {
+            matches!(
+                Value::compare_values(a, b),
+                Some(std::cmp::Ordering::Greater)
+            )
+        })
     }
 
     pub fn greater_than_or_equal(&self, other: &Value) -> Value {
-        let result = match Value::compare_values(self, other) {
-            Some(std::cmp::Ordering::Greater) | Some(std::cmp::Ordering::Equal) => true,
-            _ => false,
-        };
-        Value::Bool(result)
+        self.cmp_broadcast(other, |a, b| {
+            matches!(
+                Value::compare_values(a, b),
+                Some(std::cmp::Ordering::Greater) | Some(std::cmp::Ordering::Equal)
+            )
+        })
     }
 }
 
@@ -515,5 +563,32 @@ mod tests {
         assert_eq!(list.len(), 3);
         assert_eq!(list.index(&Value::int(0)), Some(Value::int(1)));
         assert_eq!(list.index(&Value::int(-1)), Some(Value::int(3)));
+    }
+
+    #[test]
+    fn test_vectorized_comparisons() {
+        let scalar = Value::int(1);
+        let vec = Value::list(vec![Value::int(1), Value::int(1)]);
+        assert_eq!(
+            scalar.equals(&vec),
+            Value::List(vec![Value::Bool(true), Value::Bool(true)])
+        );
+
+        let a = Value::list(vec![Value::int(1)]);
+        let b = Value::list(vec![Value::int(1), Value::int(2)]);
+        assert_eq!(
+            a.equals(&b),
+            Value::List(vec![Value::Bool(true), Value::Bool(false)])
+        );
+
+        let list = Value::list(vec![Value::int(1), Value::int(2)]);
+        assert_eq!(
+            list.greater_than(&Value::int(1)),
+            Value::List(vec![Value::Bool(false), Value::Bool(true)])
+        );
+
+        let str_a = Value::list(vec![Value::Char('a'), Value::Char('b')]);
+        let str_b = Value::list(vec![Value::Char('a'), Value::Char('b')]);
+        assert_eq!(str_a.equals(&str_b), Value::Bool(true));
     }
 }
