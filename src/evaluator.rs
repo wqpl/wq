@@ -405,55 +405,9 @@ impl Evaluator {
             BinaryOperator::Divide => left.divide(right).ok_or_else(|| {
                 WqError::DomainError("Division by zero or invalid types".to_string())
             }),
-            BinaryOperator::Modulo => match (left, right) {
-                // &Int, &Int -> Int
-                (Value::Int(a), Value::Int(b)) => {
-                    let a = *a;
-                    let b = *b;
-                    if b == 0 {
-                        Err(WqError::DomainError("Modulo by zero".to_string()))
-                    } else {
-                        Ok(Value::Int(a % b))
-                    }
-                }
-
-                // &Float, &Float -> Float
-                (Value::Float(a), Value::Float(b)) => {
-                    let a = *a;
-                    let b = *b;
-                    if b == 0.0 {
-                        Err(WqError::DomainError("Modulo by zero".to_string()))
-                    } else {
-                        Ok(Value::Float(a % b))
-                    }
-                }
-
-                // &Int, &Float -> Float
-                (Value::Int(a), Value::Float(b)) => {
-                    let a = *a as f64;
-                    let b = *b;
-                    if b == 0.0 {
-                        Err(WqError::DomainError("Modulo by zero".to_string()))
-                    } else {
-                        Ok(Value::Float(a % b))
-                    }
-                }
-
-                // &Float, &Int -> Float
-                (Value::Float(a), Value::Int(b)) => {
-                    let a = *a;
-                    let b = *b as f64;
-                    if b == 0.0 {
-                        Err(WqError::DomainError("Modulo by zero".to_string()))
-                    } else {
-                        Ok(Value::Float(a % b))
-                    }
-                }
-
-                _ => Err(WqError::TypeError(
-                    "Modulo expects numeric operands".to_string(),
-                )),
-            },
+            BinaryOperator::Modulo => left.modulo(right).ok_or_else(|| {
+                WqError::DomainError("Modulo by zero or invalid types".to_string())
+            }),
             BinaryOperator::Equal => Ok(left.equals(right)),
             BinaryOperator::NotEqual => Ok(left.not_equals(right)),
             BinaryOperator::LessThan => Ok(left.less_than(right)),
@@ -580,6 +534,7 @@ mod tests {
         assert_eq!(evaluator.eval_string("10-3").unwrap(), Value::Int(7));
         assert_eq!(evaluator.eval_string("4*5").unwrap(), Value::Int(20));
         assert_eq!(evaluator.eval_string("15/3").unwrap(), Value::Int(5));
+        assert_eq!(evaluator.eval_string("7%4").unwrap(), Value::Int(3));
     }
 
     #[test]

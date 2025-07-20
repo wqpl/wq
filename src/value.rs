@@ -366,6 +366,66 @@ impl Value {
         }
     }
 
+    pub fn modulo(&self, other: &Value) -> Option<Value> {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => {
+                if *b == 0 {
+                    None
+                } else {
+                    Some(Value::Int(a % b))
+                }
+            }
+            (Value::Float(a), Value::Float(b)) => {
+                if *b == 0.0 {
+                    None
+                } else {
+                    Some(Value::Float(a % b))
+                }
+            }
+            (Value::Int(a), Value::Float(b)) => {
+                if *b == 0.0 {
+                    None
+                } else {
+                    Some(Value::Float(*a as f64 % b))
+                }
+            }
+            (Value::Float(a), Value::Int(b)) => {
+                if *b == 0 {
+                    None
+                } else {
+                    Some(Value::Float(a % *b as f64))
+                }
+            }
+            (scalar, Value::List(vec)) if scalar.is_scalar() => {
+                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.modulo(x)).collect();
+                result.map(Value::List)
+            }
+            (Value::List(vec), scalar) if scalar.is_scalar() => {
+                let result: Option<Vec<Value>> = vec.iter().map(|x| x.modulo(scalar)).collect();
+                result.map(Value::List)
+            }
+            (Value::List(a), Value::List(b)) => {
+                if a.len() == b.len() {
+                    let result: Option<Vec<Value>> = a.iter().zip(b.iter()).map(|(x, y)| x.modulo(y)).collect();
+                    result.map(Value::List)
+                } else if a.is_empty() || b.is_empty() {
+                    None
+                } else {
+                    let max_len = a.len().max(b.len());
+                    let result: Option<Vec<Value>> = (0..max_len)
+                        .map(|i| {
+                            let left = &a[i % a.len()];
+                            let right = &b[i % b.len()];
+                            left.modulo(right)
+                        })
+                        .collect();
+                    result.map(Value::List)
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Logical AND with broadcasting support
     pub fn and_bool(&self, other: &Value) -> Option<Value> {
         match (self, other) {
@@ -780,6 +840,7 @@ mod tests {
         assert_eq!(a.subtract(&b), Some(Value::int(2)));
         assert_eq!(a.multiply(&b), Some(Value::int(15)));
         assert_eq!(a.divide(&b), Some(Value::float(5.0 / 3.0)));
+        assert_eq!(a.modulo(&b), Some(Value::int(2)));
     }
 
     #[test]
@@ -863,6 +924,23 @@ mod tests {
         assert_eq!(
             d.not_bool(),
             Some(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
+        );
+    }
+
+    #[test]
+    fn test_vectorized_modulo() {
+        let a = Value::list(vec![Value::int(5), Value::int(10)]);
+        let b = Value::int(3);
+        assert_eq!(
+            a.modulo(&b),
+            Some(Value::list(vec![Value::int(2), Value::int(1)]))
+        );
+
+        let c = Value::list(vec![Value::int(5)]);
+        let d = Value::list(vec![Value::int(2), Value::int(3)]);
+        assert_eq!(
+            c.modulo(&d),
+            Some(Value::list(vec![Value::int(1), Value::int(2)]))
         );
     }
 }
