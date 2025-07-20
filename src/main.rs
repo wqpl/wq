@@ -165,9 +165,9 @@ fn load_script(evaluator: &mut Evaluator, filename: &str) {
             }
 
             if new_bindings.is_empty() {
-                println!("no new bindings");
+                println!("{}", "no new bindings".blue());
             } else {
-                println!("new bindings:");
+                println!("{}:", "new bindings:".blue());
                 for (name, value) in new_bindings {
                     println!("  {name} = {value}");
                 }

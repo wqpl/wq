@@ -334,6 +334,123 @@ impl Value {
         }
     }
 
+    /// Logical AND with broadcasting support
+    pub fn and_bool(&self, other: &Value) -> Option<Value> {
+        match (self, other) {
+            (Value::Bool(a), Value::Bool(b)) => Some(Value::Bool(*a && *b)),
+            (scalar @ Value::Bool(_), Value::List(vec)) => {
+                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.and_bool(x)).collect();
+                result.map(Value::List)
+            }
+            (Value::List(vec), scalar @ Value::Bool(_)) => {
+                let result: Option<Vec<Value>> = vec.iter().map(|x| x.and_bool(scalar)).collect();
+                result.map(Value::List)
+            }
+            (Value::List(a), Value::List(b)) => {
+                if a.len() == b.len() {
+                    let result: Option<Vec<Value>> =
+                        a.iter().zip(b.iter()).map(|(x, y)| x.and_bool(y)).collect();
+                    result.map(Value::List)
+                } else if a.is_empty() || b.is_empty() {
+                    None
+                } else {
+                    let max_len = a.len().max(b.len());
+                    let result: Option<Vec<Value>> = (0..max_len)
+                        .map(|i| {
+                            let left = &a[i % a.len()];
+                            let right = &b[i % b.len()];
+                            left.and_bool(right)
+                        })
+                        .collect();
+                    result.map(Value::List)
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Logical OR with broadcasting support
+    pub fn or_bool(&self, other: &Value) -> Option<Value> {
+        match (self, other) {
+            (Value::Bool(a), Value::Bool(b)) => Some(Value::Bool(*a || *b)),
+            (scalar @ Value::Bool(_), Value::List(vec)) => {
+                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.or_bool(x)).collect();
+                result.map(Value::List)
+            }
+            (Value::List(vec), scalar @ Value::Bool(_)) => {
+                let result: Option<Vec<Value>> = vec.iter().map(|x| x.or_bool(scalar)).collect();
+                result.map(Value::List)
+            }
+            (Value::List(a), Value::List(b)) => {
+                if a.len() == b.len() {
+                    let result: Option<Vec<Value>> =
+                        a.iter().zip(b.iter()).map(|(x, y)| x.or_bool(y)).collect();
+                    result.map(Value::List)
+                } else if a.is_empty() || b.is_empty() {
+                    None
+                } else {
+                    let max_len = a.len().max(b.len());
+                    let result: Option<Vec<Value>> = (0..max_len)
+                        .map(|i| {
+                            let left = &a[i % a.len()];
+                            let right = &b[i % b.len()];
+                            left.or_bool(right)
+                        })
+                        .collect();
+                    result.map(Value::List)
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Logical XOR with broadcasting support
+    pub fn xor_bool(&self, other: &Value) -> Option<Value> {
+        match (self, other) {
+            (Value::Bool(a), Value::Bool(b)) => Some(Value::Bool(*a ^ *b)),
+            (scalar @ Value::Bool(_), Value::List(vec)) => {
+                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.xor_bool(x)).collect();
+                result.map(Value::List)
+            }
+            (Value::List(vec), scalar @ Value::Bool(_)) => {
+                let result: Option<Vec<Value>> = vec.iter().map(|x| x.xor_bool(scalar)).collect();
+                result.map(Value::List)
+            }
+            (Value::List(a), Value::List(b)) => {
+                if a.len() == b.len() {
+                    let result: Option<Vec<Value>> =
+                        a.iter().zip(b.iter()).map(|(x, y)| x.xor_bool(y)).collect();
+                    result.map(Value::List)
+                } else if a.is_empty() || b.is_empty() {
+                    None
+                } else {
+                    let max_len = a.len().max(b.len());
+                    let result: Option<Vec<Value>> = (0..max_len)
+                        .map(|i| {
+                            let left = &a[i % a.len()];
+                            let right = &b[i % b.len()];
+                            left.xor_bool(right)
+                        })
+                        .collect();
+                    result.map(Value::List)
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Logical NOT with broadcasting support
+    pub fn not_bool(&self) -> Option<Value> {
+        match self {
+            Value::Bool(b) => Some(Value::Bool(!b)),
+            Value::List(items) => {
+                let result: Option<Vec<Value>> = items.iter().map(|v| v.not_bool()).collect();
+                result.map(Value::List)
+            }
+            _ => None,
+        }
+    }
+
     fn compare_values(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
         match (a, b) {
             (Value::Int(x), Value::Int(y)) => Some(x.cmp(y)),
@@ -590,5 +707,32 @@ mod tests {
         let str_a = Value::list(vec![Value::Char('a'), Value::Char('b')]);
         let str_b = Value::list(vec![Value::Char('a'), Value::Char('b')]);
         assert_eq!(str_a.equals(&str_b), Value::Bool(true));
+    }
+
+    #[test]
+    fn test_vectorized_logical_ops() {
+        let a = Value::Bool(true);
+        let b = Value::list(vec![Value::Bool(true), Value::Bool(false)]);
+        assert_eq!(
+            a.and_bool(&b),
+            Some(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
+        );
+
+        assert_eq!(
+            b.or_bool(&Value::Bool(false)),
+            Some(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
+        );
+
+        let c = Value::list(vec![Value::Bool(true)]);
+        let d = Value::list(vec![Value::Bool(false), Value::Bool(true)]);
+        assert_eq!(
+            c.xor_bool(&d),
+            Some(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
+        );
+
+        assert_eq!(
+            d.not_bool(),
+            Some(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
+        );
     }
 }

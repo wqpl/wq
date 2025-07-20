@@ -68,6 +68,7 @@ impl Builtins {
         self.functions.insert("and".to_string(), and);
         self.functions.insert("or".to_string(), or);
         self.functions.insert("not".to_string(), not);
+        self.functions.insert("xor".to_string(), xor);
     }
 
     pub fn call(&self, name: &str, args: &[Value]) -> WqResult<Value> {
@@ -811,10 +812,9 @@ fn and(args: &[Value]) -> WqResult<Value> {
             "and expects 2 arguments".to_string(),
         ));
     }
-    match (&args[0], &args[1]) {
-        (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a && *b)),
-        _ => Err(WqError::TypeError("and only works on booleans".to_string())),
-    }
+    args[0]
+        .and_bool(&args[1])
+        .ok_or_else(|| WqError::TypeError("and only works on booleans".to_string()))
 }
 
 fn or(args: &[Value]) -> WqResult<Value> {
@@ -823,10 +823,9 @@ fn or(args: &[Value]) -> WqResult<Value> {
             "or expects 2 arguments".to_string(),
         ));
     }
-    match (&args[0], &args[1]) {
-        (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a || *b)),
-        _ => Err(WqError::TypeError("or only works on booleans".to_string())),
-    }
+    args[0]
+        .or_bool(&args[1])
+        .ok_or_else(|| WqError::TypeError("or only works on booleans".to_string()))
 }
 
 fn not(args: &[Value]) -> WqResult<Value> {
@@ -835,10 +834,20 @@ fn not(args: &[Value]) -> WqResult<Value> {
             "not expects 1 argument".to_string(),
         ));
     }
-    match &args[0] {
-        Value::Bool(n) => Ok(Value::Bool(!(*n))),
-        _ => Err(WqError::TypeError("not only works on booleans".to_string())),
+    args[0]
+        .not_bool()
+        .ok_or_else(|| WqError::TypeError("not only works on booleans".to_string()))
+}
+
+fn xor(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 2 {
+        return Err(WqError::FnArgCountMismatchError(
+            "xor expects 2 arguments".to_string(),
+        ));
     }
+    args[0]
+        .xor_bool(&args[1])
+        .ok_or_else(|| WqError::TypeError("xor only works on booleans".to_string()))
 }
 
 fn echo(args: &[Value]) -> WqResult<Value> {

@@ -541,7 +541,11 @@ impl Parser {
                     let val = name.clone();
                     self.advance();
 
-                    if let Some(Token { token_type: TokenType::LeftBracket, .. }) = self.current_token() {
+                    if let Some(Token {
+                        token_type: TokenType::LeftBracket,
+                        ..
+                    }) = self.current_token()
+                    {
                         if val == "W" {
                             self.advance();
                             return self.parse_while();
@@ -736,7 +740,6 @@ impl Parser {
     }
 
     fn parse_while(&mut self) -> WqResult<AstNode> {
-
         let condition = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
 
@@ -781,15 +784,15 @@ impl Parser {
 
             if let Some(token) = self.current_token() {
                 if token.token_type == TokenType::Semicolon {
-                    if std::mem::discriminant(&end)
-                        == std::mem::discriminant(&TokenType::Semicolon)
+                    if std::mem::discriminant(&end) == std::mem::discriminant(&TokenType::Semicolon)
                     {
                         break;
                     } else {
                         self.advance();
                         continue;
                     }
-                } else if std::mem::discriminant(&token.token_type) == std::mem::discriminant(&end) {
+                } else if std::mem::discriminant(&token.token_type) == std::mem::discriminant(&end)
+                {
                     break;
                 } else {
                     return Err(WqError::SyntaxError(format!(

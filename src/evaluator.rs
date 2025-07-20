@@ -299,7 +299,7 @@ impl Evaluator {
                     _ => {
                         return Err(WqError::TypeError(
                             "N expects non-negative integer".to_string(),
-                        ))
+                        ));
                     }
                 };
                 let mut result = Value::Null;
@@ -318,7 +318,10 @@ impl Evaluator {
                             }
                         }
                     } else {
-                        let old = self.environment.variables.insert("n".to_string(), Value::Int(i));
+                        let old = self
+                            .environment
+                            .variables
+                            .insert("n".to_string(), Value::Int(i));
                         result = self.eval(body)?;
                         if let Some(v) = old {
                             self.environment.variables.insert("n".to_string(), v);
