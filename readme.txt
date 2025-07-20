@@ -9,6 +9,7 @@ rlwrap cargo run
     2*til 5            // (0;2;4;6;8)
     til 3+til 2        // (0;2;2)
     (1;2),(3;4)        // cat. (1;2;3;4)
+    + - * / %
 
 //fn:
     f:{x+y}            // implicit params
