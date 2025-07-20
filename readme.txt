@@ -47,7 +47,7 @@ rlwrap cargo run
     til range
     type string
     take drop where distinct sort
-    cat flatten and or not echo
+    cat flatten and or not xor echo
 
 //repl cmds:
     help
