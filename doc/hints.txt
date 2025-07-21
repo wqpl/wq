@@ -21,8 +21,9 @@
         $[true;{do1;do2};do3]   // INVALID
 
     instead, do the following:
-        $[cond;do1;do2;;]
-        $[not cond;;do1;do2]    // which acts as if-else
+        c:do0
+        $[c;do1;do2;;]
+        $[not c;;do1;do2]       // which acts as if-else
 
     loops accept an arbitrary number of bodies:
         N[3;echo n;a:n+1;echo a;]

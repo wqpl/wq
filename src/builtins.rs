@@ -696,7 +696,28 @@ fn to_symbol(args: &[Value]) -> WqResult<Value> {
             "symbol expects 1 argument".to_string(),
         ));
     }
-    Ok(Value::Symbol(args[0].to_string()))
+
+    let input = &args[0];
+    let name = match input {
+        Value::Symbol(s) => s.clone(),
+        Value::Char(c) => (*c).to_string(),
+        Value::List(items) if input.is_string() => {
+            let mut s = String::new();
+            for v in items {
+                if let Value::Char(c) = v {
+                    s.push(*c);
+                }
+            }
+            s
+        }
+        _ => return Err(WqError::TypeError("symbol expects a string".to_string())),
+    };
+
+    if name.is_empty() || !name.chars().all(|ch| ch.is_alphanumeric() || ch == '_') {
+        return Err(WqError::DomainError(format!("invalid symbol name: {name}")));
+    }
+
+    Ok(Value::symbol(name))
 }
 
 fn to_string(args: &[Value]) -> WqResult<Value> {
@@ -705,9 +726,16 @@ fn to_string(args: &[Value]) -> WqResult<Value> {
             "string expects 1 argument".to_string(),
         ));
     }
-    let s = args[0].to_string();
-    let chars: Vec<Value> = s.chars().map(Value::Char).collect();
-    Ok(Value::List(chars))
+    let arg = &args[0];
+    match arg {
+        Value::Char(c) => Ok(Value::Char(*c)),
+        Value::List(_) if arg.is_string() => Ok(arg.clone()),
+        _ => {
+            let s = args[0].to_string();
+            let chars: Vec<Value> = s.chars().map(Value::Char).collect();
+            Ok(Value::List(chars))
+        }
+    }
 }
 
 // List manipulation
@@ -1244,4 +1272,25 @@ fn exec(args: &[Value]) -> WqResult<Value> {
         .collect();
 
     Ok(Value::List(lines))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn string_val(s: &str) -> Value {
+        Value::List(s.chars().map(Value::Char).collect())
+    }
+
+    #[test]
+    fn test_to_symbol_from_string() {
+        let res = to_symbol(&[string_val("abc")]).unwrap();
+        assert_eq!(res, Value::symbol("abc".into()));
+    }
+
+    #[test]
+    fn test_to_symbol_invalid() {
+        let err = to_symbol(&[string_val("a b")]).unwrap_err();
+        assert!(matches!(err, WqError::DomainError(_)));
+    }
 }
