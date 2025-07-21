@@ -714,7 +714,7 @@ fn repr(v: &Value) -> String {
     }
 }
 
-fn format_table(rows: &[Value]) -> Option<String> {
+fn format_boxed(rows: &[Value]) -> Option<String> {
     if rows.is_empty() {
         return None;
     }
@@ -829,10 +829,10 @@ impl fmt::Display for Value {
                     return write!(f, "\"{}\"", s);
                 }
 
-                // 3. In boxed mode, try table formatting first
+                // 3. boxed mode
                 if box_mode::is_boxed() {
-                    if let Some(table) = format_table(items) {
-                        return write!(f, "{}", table);
+                    if let Some(b) = format_boxed(items) {
+                        return write!(f, "{}", b);
                     }
                 }
 
