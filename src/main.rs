@@ -5,8 +5,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::time::Instant;
 
-use wq::value::is_boxed;
-use wq::value::set_boxed;
+use wq::value::box_mode::{is_boxed, set_boxed};
 
 use colored::Colorize;
 

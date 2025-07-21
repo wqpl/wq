@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::parser::AstNode;
 
@@ -677,9 +676,17 @@ impl Value {
     }
 }
 
-pub static BOXED: AtomicBool = AtomicBool::new(false);
-pub fn set_boxed(on: bool) { BOXED.store(on, Ordering::Relaxed); }
-pub fn is_boxed() -> bool { BOXED.load(Ordering::Relaxed) }
+pub mod box_mode {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static BOXED: AtomicBool = AtomicBool::new(false);
+
+    pub fn set_boxed(on: bool) {
+        BOXED.store(on, Ordering::Release);
+    }
+    pub fn is_boxed() -> bool {
+        BOXED.load(Ordering::Acquire)
+    }
+}
 
 fn repr(v: &Value) -> String {
     match v {
@@ -764,7 +771,7 @@ impl fmt::Display for Value {
             Value::Symbol(s) => write!(f, "`{s}`"),
             Value::Bool(b) => write!(f, "{}", if *b { "true" } else { "false" }),
             Value::List(items) => {
-                if is_boxed() && !items.is_empty() {
+                if box_mode::is_boxed() && !items.is_empty() {
                     if let Some(table) = format_table(items) {
                         return write!(f, "{}", table);
                     }
