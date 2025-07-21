@@ -1,6 +1,7 @@
-// do: rlwrap cargo run
-//     $ load ./exa/fib1.wq
-//     $ fib 10
+// do:
+// rlwrap cargo run
+// 1 wq $ load ./exa/fib1.wq
+// 2 wq $ fib 10
 
 fibtr:{[n;a;b]$[n=0;a;fibtr[n-1;b;a+b;]]}
-fib:{[n]fibtr[n;0;1;]}
+fib:{fibtr[x;0;1;]}
