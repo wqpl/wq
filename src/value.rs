@@ -426,7 +426,8 @@ impl Value {
             }
             (Value::List(a), Value::List(b)) => {
                 if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a.iter().zip(b.iter()).map(|(x, y)| x.modulo(y)).collect();
+                    let result: Option<Vec<Value>> =
+                        a.iter().zip(b.iter()).map(|(x, y)| x.modulo(y)).collect();
                     result.map(Value::List)
                 } else if a.is_empty() || b.is_empty() {
                     None
@@ -740,13 +741,16 @@ fn format_table(rows: &[Value]) -> Option<String> {
     }
 
     //actual alignment
-    let table: Vec<Vec<String>> = rows.iter().map(|row| {
-        if let Value::List(cells) = row {
-            cells.iter().map(|c| repr(c)).collect()
-        } else {
-            vec![repr(row)]
-        }
-    }).collect();
+    let table: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            if let Value::List(cells) = row {
+                cells.iter().map(|c| repr(c)).collect()
+            } else {
+                vec![repr(row)]
+            }
+        })
+        .collect();
 
     let ncols = table.iter().map(Vec::len).max().unwrap_or(0);
     if ncols == 0 {
@@ -785,13 +789,20 @@ impl fmt::Display for Value {
                 }
             }
             Value::Char(c) => write!(f, "\"{c}\""),
-            Value::Symbol(s) => write!(f, "`{s}`"),
+            Value::Symbol(s) => write!(f, "`{s}"),
             Value::Bool(b) => write!(f, "{}", if *b { "true" } else { "false" }),
             Value::List(items) => {
                 if items.iter().all(|v| matches!(v, Value::Char(_))) {
-                    let s: String = items.iter().map(|v| {
-                        if let Value::Char(c) = v { *c } else { unreachable!() }
-                    }).collect();
+                    let s: String = items
+                        .iter()
+                        .map(|v| {
+                            if let Value::Char(c) = v {
+                                *c
+                            } else {
+                                unreachable!()
+                            }
+                        })
+                        .collect();
                     return write!(f, "\"{}\"", s);
                 }
                 if box_mode::is_boxed() && !items.is_empty() {
