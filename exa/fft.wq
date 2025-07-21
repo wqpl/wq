@@ -1,0 +1,1 @@
+PI:3.141592653589793;cmul:{[a;b](a[0]*b[0]-a[1]*b[1];a[0]*b[1]+a[1]*b[0])};fft:{[x]n1:count x;res:0*til n1;N[n1;k:n;sum_:(0;0);N[n1;i:n;angle:-2*PI*k*i/n1;w:(cos angle;sin angle);xi:(x[i];0);sum_:sum_+cmul[w;xi;]];res[k]:sum_;];res};

@@ -136,6 +136,27 @@ impl Value {
                 let idx = if *i < 0 { items.len() as i64 + i } else { *i } as usize;
                 items.get(idx).cloned()
             }
+            (Value::List(items), Value::List(idxs)) => {
+                let mut result = Vec::new();
+                for idx_val in idxs {
+                    if let Value::Int(i) = idx_val {
+                        let len = items.len() as i64;
+                        let idx_i64 = if *i < 0 { len + *i } else { *i };
+                        if idx_i64 < 0 || idx_i64 >= len {
+                            return None;
+                        }
+                        let idx = idx_i64 as usize;
+                        if let Some(v) = items.get(idx) {
+                            result.push(v.clone());
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+                Some(Value::List(result))
+            }
             (Value::Dict(map), Value::Symbol(key)) => map.get(key).cloned(),
             _ => None,
         }

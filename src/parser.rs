@@ -486,25 +486,66 @@ impl Parser {
         Ok(args)
     }
 
+    fn parse_index_args(&mut self) -> WqResult<AstNode> {
+        let mut args = Vec::new();
+
+        loop {
+            let expr = self.parse_expression()?;
+            args.push(expr);
+
+            if let Some(token) = self.current_token() {
+                match token.token_type {
+                    TokenType::Semicolon => {
+                        self.advance();
+                        continue;
+                    }
+                    TokenType::RightBracket => {
+                        self.advance();
+                        break;
+                    }
+                    _ => {
+                        return Err(self.syntax_error(
+                            token,
+                            "Expected ';' or ']' in index",
+                        ));
+                    }
+                }
+            } else {
+                return Err(self.eof_error("Unexpected end of input in index"));
+            }
+        }
+
+        if args.len() == 1 {
+            Ok(args.remove(0))
+        } else {
+            Ok(AstNode::List(args))
+        }
+    }
+
     fn parse_postfix(&mut self) -> WqResult<AstNode> {
         let mut expr = self.parse_primary()?;
 
-        while let Some(token) = self.current_token() {
-            match token.token_type {
+        loop {
+            let next = match self.current_token() {
+                Some(t) => t.clone(),
+                None => break,
+            };
+
+            match next.token_type {
                 TokenType::LeftBracket => {
-                    // Look ahead to check for trailing semicolon which indicates a function call
                     if self.has_trailing_semicolon() {
-                        self.advance(); // consume '['
-                        expr = AstNode::CallAnonymous {
-                            object: Box::new(expr),
-                            args: self.parse_fn_args()?,
+                        self.advance();
+                        let args = self.parse_fn_args()?;
+                        expr = match expr {
+                            AstNode::Variable(name) => AstNode::Call { name, args },
+                            _ => AstNode::CallAnonymous {
+                                object: Box::new(expr),
+                                args,
+                            },
                         };
-                    }
-                    // If no trailing semicolon, let postfix parsing handle indexing
-                    else {
-                        self.advance(); // consume '['
-                        let index = self.parse_expression()?;
-                        self.consume(TokenType::RightBracket)?;
+                    } else {
+                        self.advance();
+                        let index = self.parse_index_args()?;
                         expr = AstNode::Index {
                             object: Box::new(expr),
                             index: Box::new(index),
@@ -518,12 +559,15 @@ impl Parser {
                 | TokenType::Symbol(_)
                 | TokenType::Identifier(_)
                 | TokenType::LeftParen => {
-                    // allows `{x}2` or `{x}(1;2)`
                     let arg = self.parse_unary()?;
-                    return Ok(AstNode::CallAnonymous {
-                        object: Box::new(expr),
-                        args: vec![arg],
-                    });
+                    let args = vec![arg];
+                    expr = match expr {
+                        AstNode::Variable(name) => AstNode::Call { name, args },
+                        _ => AstNode::CallAnonymous {
+                            object: Box::new(expr),
+                            args,
+                        },
+                    };
                 }
                 _ => break,
             }
@@ -590,38 +634,6 @@ impl Parser {
                             return self.parse_for();
                         }
                     }
-
-                    // Check for function calls or indexing
-                    if let Some(next_token) = self.current_token() {
-                        match next_token.token_type {
-                            TokenType::LeftBracket => {
-                                if self.has_trailing_semicolon() {
-                                    self.advance(); // consume '['
-                                    return Ok(AstNode::Call {
-                                        name: val,
-                                        args: self.parse_fn_args()?,
-                                    });
-                                }
-                                // If no trailing semicolon, let postfix parsing handle indexing
-                            }
-                            TokenType::Integer(_)
-                            | TokenType::Float(_)
-                            | TokenType::Character(_)
-                            | TokenType::String(_)
-                            | TokenType::Symbol(_)
-                            | TokenType::Identifier(_)
-                            | TokenType::LeftParen => {
-                                // allows `f 2` or `f(1;2)`
-                                let arg = self.parse_unary()?;
-                                return Ok(AstNode::Call {
-                                    name: val,
-                                    args: vec![arg],
-                                });
-                            }
-                            _ => {}
-                        }
-                    }
-
                     Ok(AstNode::Variable(val))
                 }
                 TokenType::LeftBrace => {
@@ -897,6 +909,21 @@ mod tests {
                 object: Box::new(AstNode::Variable("a".into())),
                 index: Box::new(AstNode::Literal(Value::Int(1))),
                 value: Box::new(AstNode::Literal(Value::Int(3))),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_multi_index() {
+        let ast = parse_string("a[1;2]").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::Index {
+                object: Box::new(AstNode::Variable("a".into())),
+                index: Box::new(AstNode::List(vec![
+                    AstNode::Literal(Value::Int(1)),
+                    AstNode::Literal(Value::Int(2)),
+                ])),
             }
         );
     }

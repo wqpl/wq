@@ -561,6 +561,12 @@ mod tests {
         evaluator.eval_string("lst:(10;20;30)").unwrap();
         assert_eq!(evaluator.eval_string("lst[0]").unwrap(), Value::Int(10));
         assert_eq!(evaluator.eval_string("lst[2]").unwrap(), Value::Int(30));
+
+        let result = evaluator.eval_string("lst[1;2]").unwrap();
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Int(20), Value::Int(30)])
+        );
     }
 
     #[test]
