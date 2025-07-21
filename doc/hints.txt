@@ -44,6 +44,17 @@
     instead, function bodies must be written as a single line.
 
 (5) echo
-    when given a string(i.e., a list of chars), echo prints it without quotes.
+    when given a string (i.e., a list of chars), echo prints it without quotes.
     to print a single char without quotes, do:
         echo(,"a")
+
+(6) semicolons
+    function calls require a semicolon at the end of the arg list,
+    whereas indexing requires that there is no trailing semicolon. e.g.,
+        fn[1;2;]
+        lst[1;2]
+        dic[`a;`b]
+    in function parameter lists, a trailing semicolon is optional.
+    both of the following are valid:
+        fn:{[m;n]...}
+        fn:{[m;n;]...}

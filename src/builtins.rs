@@ -976,11 +976,11 @@ fn echo(args: &[Value]) -> WqResult<Value> {
                     .collect();
                 println!("{s}");
             }
+
             _ => println!("{arg}"),
         }
     }
 
-    //todo: further design needed
     Ok(Value::Null)
 }
 
