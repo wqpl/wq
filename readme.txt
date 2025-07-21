@@ -17,6 +17,10 @@ INTRO
     til 3+til 2        // (0;2;2)
     (1;2),(3;4)        // cat. (1;2;3;4)
 
+//types
+    int float char symbol bool list dict
+    * string: list of chars
+
 //fn:
     f:{x+y}            // implicit params
     f[3;4;]            // call (trailing ;)

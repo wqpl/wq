@@ -1,0 +1,32 @@
+(1) fn
+    to call functions that accept 0 args, do:
+        fn[;]
+    to call functions that accept 1 arg, do one of the following:
+        fn 1        // recommended
+        fn[1;]      // the trailing ; is required
+    the following is invalid:
+        fn -1       // this is currently parsed as (- fn 1)
+                    // to pass -1 to fn, do: fn(-1) or fn[-1;]
+    to call functions that accept >=2 args:
+        fn[1;2;]
+
+(2) body
+    currently, "blocks" are not present in wq,
+    therefore the following is invalid:
+        $[true;{do1;do2};do3]   // INVALID
+
+    instead, do the following:
+        $[cond;do1;do2;;]
+        $[not cond;;do1;do2]    // which acts as if-else
+
+    loops accept an arbitrary number of bodies:
+        N[3;echo n;a:n+1;echo a;]
+
+    if you really need "blocks" for some reason, do one of following:
+        {do1;do2;do3}()         // invokes an
+        {do1;do2;do3}[;]        // anonymous function.
+
+(3) scoping
+    currently, assignments inside function bodies create new bindings,
+    overshadowing any bindings with the same name in the outer scope.
+    as a result, you cannot modify a variable from the outer scope within a function body.
