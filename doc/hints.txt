@@ -9,6 +9,11 @@
                     // to pass -1 to fn, do: fn(-1) or fn[-1;]
     to call functions that accept >=2 args:
         fn[1;2;]
+    functions defined without param lists can be called with 0, 1 or 2 args,
+    which are implicitly bound to x and y.
+    to explicitly define a function that accepts 0 args, do one of th following:
+        fn:{[]...}
+        fn:{[;]...}
 
 (2) body
     currently, "blocks" are not present in wq,
@@ -30,3 +35,10 @@
     currently, assignments inside function bodies create new bindings,
     overshadowing any bindings with the same name in the outer scope.
     as a result, you cannot modify a variable from the outer scope within a function body.
+
+(4) interpreter
+    currently, the interpreter reads scripts line by line.
+    as a result, you cannot split a function body across multiple lines:
+        fn:{[n]
+            echo n}             // INVALID
+    instead, function bodies must be written as a single line.
