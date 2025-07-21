@@ -1,6 +1,7 @@
 use crate::value::{Value, WqError, WqResult};
 use rand::Rng;
 use std::collections::HashMap;
+use std::cmp::Ordering;
 
 /// builtin functions
 pub struct Builtins {
@@ -803,6 +804,17 @@ fn sort(args: &[Value]) -> WqResult<Value> {
                 (Value::Float(x), Value::Int(y)) => x
                     .partial_cmp(&(*y as f64))
                     .unwrap_or(std::cmp::Ordering::Equal),
+                (Value::Char(x), Value::Char(y)) => x.cmp(y),
+                (Value::Char(x), Value::Int(y)) => (*x as i64).cmp(y),
+                (Value::Int(x), Value::Char(y)) => x.cmp(&(*y as i64)),
+                (Value::Char(x), Value::Float(y)) => {
+                    ((*x as u8) as f64)
+                        .partial_cmp(y)
+                        .unwrap_or(Ordering::Equal)
+                }
+                (Value::Float(x), Value::Char(y)) => x
+                    .partial_cmp(&((*y as u8) as f64))
+                    .unwrap_or(Ordering::Equal),
                 _ => std::cmp::Ordering::Equal,
             });
             Ok(Value::List(sorted))
