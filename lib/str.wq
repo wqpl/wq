@@ -1,0 +1,16 @@
+// string standard library for wq
+
+// length of string or list
+len:{count x}
+
+// repeat a string `s` n times
+repeat:{[s;n]res:();N[n;res:cat[res;s;];];res}
+
+// join list of strings with separator
+join:{[lst;sep]res:first lst;i:1;W[i<count lst;res:cat[res;sep;lst[i];];i:i+1;];res}
+
+// pad string on the left to width using char c
+lpad:{[s;width;c]pad:width-count s;$[pad>0;cat[repeat[c;pad;];s;];s]}
+
+// pad string on the right to width using char c
+rpad:{[s;width;c]pad:width-count s;$[pad>0;cat[s;repeat[c;pad;];];s]}

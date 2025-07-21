@@ -5,4 +5,4 @@
 
 fibtr:{[n;a;b]$[n=0;a;fibtr[n-1;b;a+b;]]}
 fib:{fibtr[x;0;1;]}
-fib 30
+echo fib 30

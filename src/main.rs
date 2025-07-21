@@ -121,12 +121,10 @@ fn main() {
                         continue;
                     }
                     cmd if cmd.starts_with("load ") || cmd.starts_with("\\l ") => {
-                        let filename = if cmd.starts_with("load ") {
-                            &cmd[5..]
-                        } else {
-                            &cmd[3..]
-                        };
-                        load_script(&mut evaluator, filename.trim());
+                        if let Some(fname) = parse_load_filename(cmd) {
+                            let mut loading = HashSet::new();
+                            load_script(&mut evaluator, Path::new(fname), &mut loading, false);
+                        }
                         continue;
                     }
                     "" => {
@@ -166,32 +164,76 @@ fn show_help() {
         rand sin cos tan sinh cosh tanh
         til range take drop where distinct sort
         cat flatten and or not xor
-        type string echo exec
-        int float char(string) symbol bool
-        list l:(1;2.5);l[0]
+        type string symbol echo exec
+        ----------------------------------------
+        int float char symbol bool list dict
+        lst:(1;2.5);lst[0] dct:(`a:1;`b:2.5);dct[`a]
         func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3;]
                                      required ^
         repl: \h   \v   \c    \l   \t   \b  \d    \q
-              help vars clear load time box debug quit "#
+              help vars clear load time box debug quit"#
     );
 }
 
-fn load_script(evaluator: &mut Evaluator, filename: &str) {
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+fn parse_load_filename(line: &str) -> Option<&str> {
+    let trimmed = line.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("load ") {
+        Some(rest.trim())
+    } else if let Some(rest) = trimmed.strip_prefix("\\l ") {
+        Some(rest.trim())
+    } else {
+        None
+    }
+}
+
+fn resolve_load_path(base: &Path, fname: &str) -> PathBuf {
+    let path = Path::new(fname);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    }
+}
+
+fn load_script(
+    evaluator: &mut Evaluator,
+    path: &Path,
+    loading: &mut HashSet<PathBuf>,
+    silent: bool,
+) {
+    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if loading.contains(&canonical) {
+        eprintln!("Cannot load {}: cycling", canonical.display());
+        return;
+    }
+    loading.insert(canonical.clone());
+
     // record variables before loading
     let vars_before = evaluator.environment().variables().clone();
 
-    match fs::read_to_string(filename) {
+    match fs::read_to_string(path) {
         Ok(content) => {
+            let parent_dir = path.parent().unwrap_or_else(|| Path::new(""));
+
             for line in content.lines() {
                 let line = line.trim();
                 if line.is_empty() || line.starts_with("//") {
                     continue;
                 }
 
+                if let Some(fname) = parse_load_filename(line) {
+                    let sub_path = resolve_load_path(parent_dir, fname);
+                    load_script(evaluator, &sub_path, loading, false);
+                    continue;
+                }
+
                 match evaluator.eval_string(line) {
                     Ok(_) => {} // Silent execution
                     Err(error) => {
-                        eprintln!("Error in {filename}: {error}");
+                        eprintln!("Error in {}: {error}", path.display());
                         return;
                     }
                 }
@@ -199,28 +241,32 @@ fn load_script(evaluator: &mut Evaluator, filename: &str) {
 
             // Show newly introduced bindings
             // fixme: overridden bindings are not shown properly
-            let vars_after = evaluator.environment().variables();
-            let mut new_bindings = Vec::new();
+            if !silent {
+                let vars_after = evaluator.environment().variables();
+                let mut new_bindings = Vec::new();
 
-            for (name, value) in vars_after {
-                if !vars_before.contains_key(name) {
-                    new_bindings.push((name, value));
+                for (name, value) in vars_after {
+                    if !vars_before.contains_key(name) {
+                        new_bindings.push((name, value));
+                    }
                 }
-            }
 
-            if new_bindings.is_empty() {
-                println!("{}", "no new bindings".blue());
-            } else {
-                println!("{}:", "new bindings:".blue());
-                for (name, value) in new_bindings {
-                    println!("  {name} = {value}");
+                if new_bindings.is_empty() {
+                    println!("{}", "no new bindings".blue());
+                } else {
+                    new_bindings.sort_by_key(|(n, _)| (*n).clone());
+                    println!("{}", "new bindings:".blue());
+                    for (name, value) in new_bindings {
+                        println!("  {name} = {value}");
+                    }
                 }
             }
         }
         Err(error) => {
-            eprintln!("Cannot load {filename}: {error}");
+            eprintln!("Cannot load {}: {error}", path.display());
         }
     }
+    loading.remove(&canonical);
 }
 
 fn execute_script(filename: &str) {
@@ -228,23 +274,31 @@ fn execute_script(filename: &str) {
 
     match fs::read_to_string(filename) {
         Ok(content) => {
-            println!("Executing script: {filename}");
-
+            let mut loading = HashSet::new();
             for (line_num, line) in content.lines().enumerate() {
                 let line = line.trim();
                 if line.is_empty() {
                     continue;
                 }
 
-                print!("{}", format!("({}) ", line_num + 1).blue());
-                io::stdout().flush().unwrap();
+                if let Some(fname) = parse_load_filename(line) {
+                    let base = Path::new(filename)
+                        .parent()
+                        .unwrap_or_else(|| Path::new(""));
+                    let path = resolve_load_path(base, fname);
+                    load_script(&mut evaluator, &path, &mut loading, true);
+                    continue;
+                }
+
+                //print!("{}", format!("({}) ", line_num + 1).blue());
+                //io::stdout().flush().unwrap();
 
                 match evaluator.eval_string(line) {
-                    Ok(result) => {
-                        println!("{result}");
+                    Ok(_) => {
+                        //println!("{result}");
                     }
                     Err(error) => {
-                        println!("{error}");
+                        println!("Error at script {filename} line {line_num}: \n {error}");
                     }
                 }
             }

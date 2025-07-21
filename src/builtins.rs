@@ -1,7 +1,7 @@
 use crate::value::{Value, WqError, WqResult};
 use rand::Rng;
-use std::collections::HashMap;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::process::Command;
 
 /// builtin functions
@@ -56,6 +56,7 @@ impl Builtins {
 
         // Type functions
         self.functions.insert("type".to_string(), type_of);
+        self.functions.insert("symbol".to_string(), to_symbol);
         self.functions.insert("string".to_string(), to_string);
 
         // List manipulation
@@ -677,7 +678,23 @@ fn type_of(args: &[Value]) -> WqResult<Value> {
             "type expects 1 argument".to_string(),
         ));
     }
-    Ok(Value::Symbol(args[0].type_name().to_string()))
+    Ok(Value::List(
+        args[0]
+            .type_name()
+            .to_string()
+            .chars()
+            .map(Value::Char)
+            .collect(),
+    ))
+}
+
+fn to_symbol(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(WqError::FnArgCountMismatchError(
+            "symbol expects 1 argument".to_string(),
+        ));
+    }
+    Ok(Value::Symbol(args[0].to_string()))
 }
 
 fn to_string(args: &[Value]) -> WqResult<Value> {
@@ -686,7 +703,9 @@ fn to_string(args: &[Value]) -> WqResult<Value> {
             "string expects 1 argument".to_string(),
         ));
     }
-    Ok(Value::Symbol(args[0].to_string()))
+    let s = args[0].to_string();
+    let chars: Vec<Value> = s.chars().map(Value::Char).collect();
+    Ok(Value::List(chars))
 }
 
 // List manipulation
@@ -811,11 +830,9 @@ fn sort(args: &[Value]) -> WqResult<Value> {
                 (Value::Char(x), Value::Char(y)) => x.cmp(y),
                 (Value::Char(x), Value::Int(y)) => (*x as i64).cmp(y),
                 (Value::Int(x), Value::Char(y)) => x.cmp(&(*y as i64)),
-                (Value::Char(x), Value::Float(y)) => {
-                    ((*x as u8) as f64)
-                        .partial_cmp(y)
-                        .unwrap_or(Ordering::Equal)
-                }
+                (Value::Char(x), Value::Float(y)) => ((*x as u8) as f64)
+                    .partial_cmp(y)
+                    .unwrap_or(Ordering::Equal),
                 (Value::Float(x), Value::Char(y)) => x
                     .partial_cmp(&((*y as u8) as f64))
                     .unwrap_or(Ordering::Equal),
@@ -927,7 +944,22 @@ fn xor(args: &[Value]) -> WqResult<Value> {
 
 fn echo(args: &[Value]) -> WqResult<Value> {
     for arg in args {
-        println!("{arg}");
+        match arg {
+            Value::List(items) if items.iter().all(|v| matches!(v, Value::Char(_))) => {
+                let s: String = items
+                    .iter()
+                    .map(|v| {
+                        if let Value::Char(c) = v {
+                            *c
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect();
+                println!("{s}");
+            }
+            _ => println!("{arg}"),
+        }
     }
 
     //todo: further design needed
@@ -936,12 +968,24 @@ fn echo(args: &[Value]) -> WqResult<Value> {
 
 fn exec(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqError::DomainError("exec expects at least 1 argument".into()));
+        return Err(WqError::DomainError(
+            "exec expects at least 1 argument".into(),
+        ));
     }
-    let parts: WqResult<Vec<String>> = args.iter().map(|v| {
-        match v {
+    let parts: WqResult<Vec<String>> = args
+        .iter()
+        .map(|v| match v {
             Value::List(chars) if chars.iter().all(|c| matches!(c, Value::Char(_))) => {
-                let s: String = chars.iter().map(|c| if let Value::Char(ch)=*c { ch } else { unreachable!() }).collect();
+                let s: String = chars
+                    .iter()
+                    .map(|c| {
+                        if let Value::Char(ch) = *c {
+                            ch
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect();
                 Ok(s)
             }
             Value::Symbol(s) => Ok(s.clone()),
@@ -950,8 +994,8 @@ fn exec(args: &[Value]) -> WqResult<Value> {
                 "exec only accepts string args, got {}",
                 other.type_name()
             ))),
-        }
-    }).collect();
+        })
+        .collect();
     let parts = parts?;
 
     let output = if parts.len() == 1 && parts[0].contains(char::is_whitespace) {
@@ -979,12 +1023,20 @@ fn exec(args: &[Value]) -> WqResult<Value> {
         if parts.len() > 1 {
             cmd.args(&parts[1..]);
         }
-        cmd.output().map_err(|e| WqError::RuntimeError(e.to_string()))?
+        cmd.output()
+            .map_err(|e| WqError::RuntimeError(e.to_string()))?
     };
 
     if !output.status.success() {
-        let code = output.status.code().map(|c| c.to_string()).unwrap_or_else(|| "unknown".into());
-        return Err(WqError::RuntimeError(format!("exec failed (exit {})", code)));
+        let code = output
+            .status
+            .code()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "unknown".into());
+        return Err(WqError::RuntimeError(format!(
+            "exec failed (exit {})",
+            code
+        )));
     }
     // decode
     let text = String::from_utf8_lossy(&output.stdout);

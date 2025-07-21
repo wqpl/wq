@@ -91,6 +91,10 @@ or[a;b]
 not a
 xor[a;b]
 
+type
+----
+type string symbol
+
 io
 --
 echo[...]  // echo[1;2;3;4;]

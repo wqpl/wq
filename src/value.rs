@@ -807,10 +807,24 @@ impl fmt::Display for Value {
             Value::Symbol(s) => write!(f, "`{s}"),
             Value::Bool(b) => write!(f, "{}", if *b { "true" } else { "false" }),
             Value::List(items) => {
+                // 1. Empty list
+                if items.is_empty() {
+                    return write!(f, "()");
+                }
+
+                // 2. In boxed mode, try table formatting first
+                if box_mode::is_boxed() {
+                    if let Some(table) = format_table(items) {
+                        return write!(f, "{}", table);
+                    }
+                }
+
+                // 3. Non-empty char-only list - quoted string
                 if items.iter().all(|v| matches!(v, Value::Char(_))) {
                     let s: String = items
                         .iter()
                         .map(|v| {
+                            // this match should not fail
                             if let Value::Char(c) = v {
                                 *c
                             } else {
@@ -820,27 +834,15 @@ impl fmt::Display for Value {
                         .collect();
                     return write!(f, "\"{}\"", s);
                 }
-                if box_mode::is_boxed() && !items.is_empty() {
-                    if let Some(table) = format_table(items) {
-                        return write!(f, "{}", table);
-                    }
+
+                // 4. Singleton list - ,1
+                if items.len() == 1 {
+                    return write!(f, ",{}", items[0]);
                 }
-                if items.is_empty() {
-                    write!(f, "()")
-                } else if items.iter().all(|v| matches!(v, Value::Char(_))) {
-                    let mut s = String::new();
-                    for v in items {
-                        if let Value::Char(c) = v {
-                            s.push(*c);
-                        }
-                    }
-                    write!(f, "\"{s}\"")
-                } else if items.len() == 1 {
-                    write!(f, ",{}", items[0])
-                } else {
-                    let items_str: Vec<String> = items.iter().map(|v| v.to_string()).collect();
-                    write!(f, "({})", items_str.join(";"))
-                }
+
+                // 5. General case - (1;2)
+                let items_str: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+                write!(f, "({})", items_str.join(";"))
             }
             Value::Dict(map) => {
                 if map.is_empty() {

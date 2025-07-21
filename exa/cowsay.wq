@@ -1,0 +1,6 @@
+load ../lib/str.wq
+
+// cowsay implementation using str library
+cowsay:{[msg]width:len msg;border:repeat["-";width+2;];echo cat[" ";border;];echo ("< ",string msg," >");echo cat[" ";border;];echo "        \\   ^__^";echo "         \\  (oo)\\_______";echo "             (__)\\       )\\/\\";echo "                 ||----w |";echo "                 ||     ||";}
+
+cowsay "Hello, world!"
