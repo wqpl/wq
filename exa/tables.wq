@@ -1,0 +1,17 @@
+// tables in wq.
+// list of dicts
+employees:((`id:1;`name:"Steve";`age:30;`dept:`HR);(`id:2;`name:"Alex";`age:25;`dept:`IT);(`id:3;`name:"Sunny";`age:27;`dept:`Sales))
+// dict of lists
+grades:(`name:("Steve";"Alex";"Sunny");`math:(85;90;78);`eng:(88;93;82);`sci:(90;89;85))
+// dict of dicts
+inventory:(`laptop:(`price:1200;`qty:10;`brand:"D");`mouse:(`price:25;`qty:100;`brand:"L");`desk:(`price:300;`qty:15;`brand:"I"))
+// lod, with nested lists
+orders:((`id:1001;`cust:"A123";`items:(`p:"Pen";`q:2),(`p:"Notebook";`q:1));(`id:1002;`cust:"B456";`items:(`p:"Pencil";`q:5)))
+
+showt employees
+echo ""
+showt grades
+echo ""
+showt inventory
+echo ""
+showt orders

@@ -10,7 +10,7 @@ rlwrap cargo run
 INTRO
 =====
 //basics
-    + - * / %
+    + - * / % ~ = < <= > >=
     x:42
     y:(1;2;3);y[0]
     z:(`a:1;`b:3);z[`b]

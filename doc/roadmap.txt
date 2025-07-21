@@ -3,28 +3,13 @@ todo
 
 0.2.0:
   matrix operations
-
+  maybe: multiline support
 
 DRAFTS
 ======
-builtin data types: date, time
+builtin data types: date, time??
 
-
-table and sql
-$ n:10;t:[[]x:til n;y:sin til n]
-  x y
-  - --------
-  0 ...
-  1 ...
-
-$ t:[[s:(`a;`b;`c)]p:(1;2;3);q:(10;20;30)]
-  s | p q
-  - | - --
-  a | 1 10
-  b | 2 20
-  c | 3 30
-
+sql??
 select A by B from t where C
-
 update q+10 from t
 update r:q*10 from t
