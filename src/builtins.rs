@@ -23,7 +23,8 @@ impl Builtins {
         self.functions.insert("signum".to_string(), signum);
         self.functions.insert("sqrt".to_string(), sqrt);
         self.functions.insert("exp".to_string(), exp);
-        self.functions.insert("log".to_string(), log);
+        self.functions.insert("ln".to_string(), ln);
+        // self.functions.insert("log".to_string(), log);
         self.functions.insert("floor".to_string(), floor);
         self.functions.insert("ceiling".to_string(), ceiling);
         self.functions.insert("rand".to_string(), rand);
@@ -213,10 +214,10 @@ fn exp(args: &[Value]) -> WqResult<Value> {
     }
 }
 
-fn log(args: &[Value]) -> WqResult<Value> {
+fn ln(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(WqError::FnArgCountMismatchError(
-            "log expects 1 argument".to_string(),
+            "ln expects 1 argument".to_string(),
         ));
     }
 
@@ -224,7 +225,7 @@ fn log(args: &[Value]) -> WqResult<Value> {
         Value::Int(n) => {
             if *n <= 0 {
                 Err(WqError::DomainError(
-                    "log of non-positive number".to_string(),
+                    "ln of non-positive number".to_string(),
                 ))
             } else {
                 Ok(Value::Float((*n as f64).ln()))
@@ -233,19 +234,77 @@ fn log(args: &[Value]) -> WqResult<Value> {
         Value::Float(f) => {
             if *f <= 0.0 {
                 Err(WqError::DomainError(
-                    "log of non-positive number".to_string(),
+                    "ln of non-positive number".to_string(),
                 ))
             } else {
                 Ok(Value::Float(f.ln()))
             }
         }
         Value::List(items) => {
-            let result: WqResult<Vec<Value>> = items.iter().map(|v| log(&[v.clone()])).collect();
+            let result: WqResult<Vec<Value>> = items.iter().map(|v| ln(&[v.clone()])).collect();
             Ok(Value::List(result?))
         }
-        _ => Err(WqError::TypeError("log only works on numbers".to_string())),
+        _ => Err(WqError::TypeError("ln only works on numbers".to_string())),
     }
 }
+
+// fn log(args: &[Value]) -> WqResult<Value> {
+//     if args.len() != 2 {
+//         return Err(WqError::FnArgCountMismatchError(
+//             "log expects 2 arguments: log(x, n)".to_string(),
+//         ));
+//     }
+
+//     // If x is a list, map elementwise
+//     if let Value::List(items) = &args[0] {
+//         // Disallow list as base
+//         if matches!(args[1], Value::List(_)) {
+//             return Err(WqError::TypeError(
+//                 "log base must be a single number, not a list".to_string(),
+//             ));
+//         }
+//         // Recurse on each element
+//         let result: WqResult<Vec<Value>> = items
+//             .iter()
+//             .map(|v| log(&[v.clone(), args[1].clone()]))
+//             .collect();
+//         return Ok(Value::List(result?));
+//     }
+
+//     // Extract x as f64
+//     let x = match &args[0] {
+//         Value::Int(i) => *i as f64,
+//         Value::Float(f) => *f,
+//         _ => {
+//             return Err(WqError::TypeError(
+//                 "log only works on numbers or list of numbers".to_string(),
+//             ));
+//         }
+//     };
+//     if x <= 0.0 {
+//         return Err(WqError::DomainError(
+//             "log of non-positive number".to_string(),
+//         ));
+//     }
+
+//     // Extract base n as f64
+//     let n = match &args[1] {
+//         Value::Int(i) => *i as f64,
+//         Value::Float(f) => *f,
+//         _ => {
+//             return Err(WqError::TypeError(
+//                 "expected numerical value for base".to_string(),
+//             ));
+//         }
+//     };
+//     if n <= 0.0 || n == 1.0 {
+//         return Err(WqError::DomainError(
+//             "log base must be positive and not equal to 1".to_string(),
+//         ));
+//     }
+
+//     Ok(Value::Float(x.log(n)))
+// }
 
 fn floor(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
