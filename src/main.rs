@@ -167,8 +167,8 @@ fn show_help() {
         list l:(1;2.5);l[0]
         func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3;]
                                      required ^
-        repl: \h  \v    \c    \l   \t   \d    \q
-              help vars clear load time debug quit"#
+        repl: \h  \v    \c    \l   \t   \d    \q   \b
+              help vars clear load time debug quit box"#
     );
 }
 
