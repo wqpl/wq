@@ -9,12 +9,14 @@ rlwrap cargo run
 INTRO
 =====
 //basics
+    + - * / %
     x:42
     y:(1;2;3);y[0]
+    z:(`a:1;`b:3);z[`b]// 3
     2*til 5            // (0;2;4;6;8)
     til 3+til 2        // (0;2;2)
     (1;2),(3;4)        // cat. (1;2;3;4)
-    + - * / %
+
 //fn:
     f:{x+y}            // implicit params
     f[3;4;]            // call (trailing ;)

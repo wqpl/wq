@@ -640,7 +640,7 @@ impl Parser {
                 TokenType::LeftParen => {
                     self.advance(); // consume '('
 
-                    // Check for empty list
+                    // Check for empty list/dict
                     if let Some(token) = self.current_token() {
                         if token.token_type == TokenType::RightParen {
                             self.advance();
@@ -648,39 +648,92 @@ impl Parser {
                         }
                     }
 
-                    // Parse list elements or grouped expression
-                    let mut elements = Vec::new();
-
-                    loop {
-                        let expr = self.parse_expression()?;
-                        elements.push(expr);
-
-                        if let Some(token) = self.current_token() {
-                            match token.token_type {
-                                TokenType::Semicolon => {
-                                    self.advance();
-                                    continue;
-                                }
-                                TokenType::RightParen => {
-                                    self.advance();
-                                    break;
-                                }
-                                _ => {
-                                    return Err(
-                                        self.syntax_error(token, "Expected ';' or ')' in list")
-                                    );
-                                }
+                    // Determine if this is a dictionary by looking for `symbol:` pattern
+                    let mut is_dict = false;
+                    if let Some(Token {
+                        token_type: TokenType::Symbol(_),
+                        ..
+                    }) = self.current_token()
+                    {
+                        if let Some(next) = self.peek_token() {
+                            if next.token_type == TokenType::Colon {
+                                is_dict = true;
                             }
-                        } else {
-                            return Err(self.eof_error("Unexpected end of input in list"));
                         }
                     }
 
-                    // If single element, it's a grouped expression
-                    if elements.len() == 1 {
-                        Ok(elements.into_iter().next().unwrap())
+                    if is_dict {
+                        let mut pairs = Vec::new();
+                        loop {
+                            let key_token = self
+                                .current_token()
+                                .ok_or_else(|| self.eof_error("Unexpected end of input in dict"))?;
+                            let key = match &key_token.token_type {
+                                TokenType::Symbol(s) => {
+                                    let s = s.clone();
+                                    self.advance();
+                                    s
+                                }
+                                _ => {
+                                    return Err(
+                                        self.syntax_error(key_token, "Expected symbol key in dict")
+                                    );
+                                }
+                            };
+                            self.consume(TokenType::Colon)?;
+                            let value = self.parse_expression()?;
+                            pairs.push((key, value));
+                            if let Some(token) = self.current_token() {
+                                match token.token_type {
+                                    TokenType::Semicolon => {
+                                        self.advance();
+                                        continue;
+                                    }
+                                    TokenType::RightParen => {
+                                        self.advance();
+                                        break;
+                                    }
+                                    _ => {
+                                        return Err(
+                                            self.syntax_error(token, "Expected ';' or ')' in dict")
+                                        );
+                                    }
+                                }
+                            } else {
+                                return Err(self.eof_error("Unexpected end of input in dict"));
+                            }
+                        }
+                        Ok(AstNode::Dict(pairs))
                     } else {
-                        Ok(AstNode::List(elements))
+                        let mut elements = Vec::new();
+                        loop {
+                            let expr = self.parse_expression()?;
+                            elements.push(expr);
+                            if let Some(token) = self.current_token() {
+                                match token.token_type {
+                                    TokenType::Semicolon => {
+                                        self.advance();
+                                        continue;
+                                    }
+                                    TokenType::RightParen => {
+                                        self.advance();
+                                        break;
+                                    }
+                                    _ => {
+                                        return Err(
+                                            self.syntax_error(token, "Expected ';' or ')' in list")
+                                        );
+                                    }
+                                }
+                            } else {
+                                return Err(self.eof_error("Unexpected end of input in list"));
+                            }
+                        }
+                        if elements.len() == 1 {
+                            Ok(elements.into_iter().next().unwrap())
+                        } else {
+                            Ok(AstNode::List(elements))
+                        }
                     }
                 }
 

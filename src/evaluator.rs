@@ -567,6 +567,32 @@ mod tests {
     }
 
     #[test]
+    fn test_eval_dicts() {
+        let mut evaluator = Evaluator::new();
+
+        let result = evaluator.eval_string("(`a:1;`b:2)").unwrap();
+        let mut expected = HashMap::new();
+        expected.insert("a".to_string(), Value::Int(1));
+        expected.insert("b".to_string(), Value::Int(2));
+        assert_eq!(result, Value::Dict(expected.clone()));
+
+        evaluator.eval_string("d:(`a:1;`b:2)").unwrap();
+        assert_eq!(evaluator.eval_string("d[`a]").unwrap(), Value::Int(1));
+    }
+
+    #[test]
+    fn test_eval_dict_multi_index() {
+        let mut evaluator = Evaluator::new();
+
+        evaluator.eval_string("d:(`a:1;`b:2;`c:3)").unwrap();
+        let result = evaluator.eval_string("d[`a;`c]").unwrap();
+        let mut expected = HashMap::new();
+        expected.insert("a".to_string(), Value::Int(1));
+        expected.insert("c".to_string(), Value::Int(3));
+        assert_eq!(result, Value::Dict(expected));
+    }
+
+    #[test]
     fn test_eval_strings() {
         let mut evaluator = Evaluator::new();
         assert_eq!(

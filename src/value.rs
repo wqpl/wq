@@ -157,6 +157,21 @@ impl Value {
                 Some(Value::List(result))
             }
             (Value::Dict(map), Value::Symbol(key)) => map.get(key).cloned(),
+            (Value::Dict(map), Value::List(keys)) => {
+                let mut result = HashMap::new();
+                for key_val in keys {
+                    if let Value::Symbol(k) = key_val {
+                        if let Some(v) = map.get(k) {
+                            result.insert(k.clone(), v.clone());
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+                Some(Value::Dict(result))
+            }
             _ => None,
         }
     }
