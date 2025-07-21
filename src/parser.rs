@@ -706,40 +706,27 @@ impl Parser {
 
                 let mut param_names = Vec::new();
 
-                // Parse parameter names
                 loop {
-                    if let Some(token) = self.current_token() {
-                        if let TokenType::Identifier(name) = &token.token_type {
+                    match self.current_token().map(|t| (&t.token_type, t)) {
+                        Some((TokenType::Identifier(name), _)) => {
                             param_names.push(name.clone());
                             self.advance();
-
-                            if let Some(token) = self.current_token() {
-                                match token.token_type {
-                                    TokenType::Semicolon => {
-                                        self.advance();
-                                        continue;
-                                    }
-                                    TokenType::RightBracket => {
-                                        self.advance(); // consume ']'
-                                        break;
-                                    }
-                                    _ => {
-                                        return Err(self.syntax_error(
-                                            token,
-                                            "Expected ';' or ']' in parameter list",
-                                        ));
-                                    }
-                                }
-                            } else {
-                                return Err(
-                                    self.eof_error("Unexpected end of input in parameter list")
-                                );
-                            }
-                        } else {
-                            return Err(self.syntax_error(token, "Expected parameter name"));
+                            // eat ‘;’ or break on ‘]’ …
                         }
-                    } else {
-                        return Err(self.eof_error("Unexpected end of input in parameter list"));
+                        Some((TokenType::Semicolon, _)) => {
+                            self.advance();
+                            continue;
+                        }
+                        Some((TokenType::RightBracket, _)) => {
+                            self.advance();
+                            break;
+                        }
+                        Some((_, tok)) => {
+                            return Err(self.syntax_error(tok, "Expected identifier, ';' or ']'"));
+                        }
+                        None => {
+                            return Err(self.eof_error("Unexpected end of input in parameter list"));
+                        }
                     }
                 }
 
