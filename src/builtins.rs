@@ -750,7 +750,7 @@ fn where_func(args: &[Value]) -> WqResult<Value> {
                     }
                     _ => {
                         return Err(WqError::TypeError(
-                            "where only works on integer orboolean lists".to_string(),
+                            "where only works on integer or boolean lists".to_string(),
                         ));
                     }
                 }

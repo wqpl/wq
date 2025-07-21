@@ -6,7 +6,7 @@ rlwrap cargo run
 ./doc/refcard.txt
 
 INTRO
------
+=====
 //basics
     x:42
     y:(1;2;3);y[0]
@@ -35,25 +35,25 @@ INTRO
     W[i<3;i:i+1;]      // while style loop
     N[3;echo n;]       // for-i-in-range style loop. counter implicitly binds to n
 //your ordinary fib:
-    fibtr:{[n;a;b]$[n=0;a;fibtr[n-1;b;a+b;]]}
-    fib:{[n]fibtr[n;0;1;]}
-    fib[10;]
+    fibtr:{[n;a;b]$[n=0;a;fibtr[n-1;b;a+b;]]};fib:{[n]fibtr[n;0;1;]}
+    fib 10
 
 REPL CMDS
----------
+=========
 \h  \v    \c    \l   \t   \d    \q
 help vars clear load time debug quit
           ^ clear vars    ^ print ast, debug on | debug off
 BUILTINS
------------
+========
 abs x      // abs(-3) -> 3
 neg x      // neg 2 -> -2
 signum x   // signum(-2) -> -1
+floor x    // floor 3.9 -> 3
+ceiling x  // ceiling 3.1 -> 4
 sqrt x     // sqrt 9 -> 3
 exp x      // exp 1 -> 2.718...
 ln x       // ln 2.718 -> 0.999...
-floor x    // floor 3.9 -> 3
-ceiling x  // ceiling 3.1 -> 4
+sin cos tan sinh cosh tanh
 rand[;]    // rand[;] -> 0.123
 rand n     // rand 10 -> 7
 rand[a;b;] // rand[1;5;] -> 3
