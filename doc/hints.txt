@@ -42,3 +42,8 @@
         fn:{[n]
             echo n}             // INVALID
     instead, function bodies must be written as a single line.
+
+(5) echo
+    when given a string(i.e., a list of chars), echo prints it without quotes.
+    to print a single char without quotes, do:
+        echo(,"a")

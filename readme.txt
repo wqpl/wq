@@ -5,6 +5,7 @@ python3 exa-t.py test
 rlwrap cargo run
 
 ./doc/refcard.txt
+./doc/hints.txt
 
 INTRO
 =====
