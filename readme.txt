@@ -1,6 +1,7 @@
 wq 0.1.2
 (c) tttiw (l) mit
 cargo test
+python3 exa-t.py test
 rlwrap cargo run
 
 ./doc/refcard.txt

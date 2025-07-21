@@ -1,2 +1,3 @@
 isprime:{[x]i:2;flag:1;W[i*i<=x;flag:$[x%i=0;0;flag];i:i+1;];flag};
 primes:{[n]res:();N[n-1;i0:n+2;$[isprime[i0;];res:res,i0;0];];res};
+primes 30
