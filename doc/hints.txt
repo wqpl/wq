@@ -9,7 +9,7 @@
                     // to pass -1 to fn, do: fn(-1) or fn[-1;]
     to call functions that accept >=2 args:
         fn[1;2;]
-    functions defined without param lists can be called with 0, 1 or 2 args,
+    functions defined without a param list can be called with 0, 1 or 2 args,
     which are implicitly bound to x and y.
     to explicitly define a function that accepts 0 args, do one of th following:
         fn:{[]...}
