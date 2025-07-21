@@ -10,7 +10,7 @@ til range take drop where distinct sort
 cat flatten and or not xor
 type string symbol echo exec
 ----------------------------------------
-int float char symbol bool list dict
+int float char symbol bool list dict function
 lst:(1;2.5);lst[0] dct:(`a:1;`b:2.5);dct[`a]
 func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3;]
                               required^

@@ -13,14 +13,15 @@ INTRO
     + - * / %
     x:42
     y:(1;2;3);y[0]
-    z:(`a:1;`b:3);z[`b]// 3
-    2*til 5            // (0;2;4;6;8)
-    til 3+til 2        // (0;2;2)
+    z:(`a:1;`b:3);z[`b]
+    2*til 5
+    til 3+til 2
     (1;2),(3;4)        // cat. (1;2;3;4)
 
 //types
-    int float char symbol bool list dict
-    * string: list of chars
+    int float char symbol bool list  dict        function
+              "a"  `a          (1;2) (`a:1;`b:2) {[m;n]m*2+n}
+    * string: list of chars "abcd" ("a";"b";"c";"d")
 
 //fn:
     f:{x+y}            // implicit params
@@ -98,7 +99,9 @@ xor[a;b]
 
 type
 ----
-type string symbol
+type       // returns "int", "list", "dict", "function", ...
+string n   // 2 -> "2"
+symbol n
 
 io
 --
