@@ -2,6 +2,7 @@ use crate::value::{Value, WqError, WqResult};
 use rand::Rng;
 use std::collections::HashMap;
 use std::cmp::Ordering;
+use std::process::Command;
 
 /// builtin functions
 pub struct Builtins {
@@ -71,6 +72,9 @@ impl Builtins {
         self.functions.insert("or".to_string(), or);
         self.functions.insert("not".to_string(), not);
         self.functions.insert("xor".to_string(), xor);
+
+        // System functions
+        self.functions.insert("exec".to_string(), exec);
     }
 
     pub fn call(&self, name: &str, args: &[Value]) -> WqResult<Value> {
@@ -928,4 +932,68 @@ fn echo(args: &[Value]) -> WqResult<Value> {
 
     //todo: further design needed
     Ok(Value::Null)
+}
+
+fn exec(args: &[Value]) -> WqResult<Value> {
+    if args.is_empty() {
+        return Err(WqError::DomainError("exec expects at least 1 argument".into()));
+    }
+    let parts: WqResult<Vec<String>> = args.iter().map(|v| {
+        match v {
+            Value::List(chars) if chars.iter().all(|c| matches!(c, Value::Char(_))) => {
+                let s: String = chars.iter().map(|c| if let Value::Char(ch)=*c { ch } else { unreachable!() }).collect();
+                Ok(s)
+            }
+            Value::Symbol(s) => Ok(s.clone()),
+            other => Err(WqError::TypeError(format!(
+                "exec only accepts string args, got {}",
+                other.type_name()
+            ))),
+        }
+    }).collect();
+    let parts = parts?;
+
+    let output = if parts.len() == 1 && parts[0].contains(char::is_whitespace) {
+        if cfg!(windows) {
+            Command::new("cmd")
+                .arg("/C")
+                .arg(&parts[0])
+                .output()
+                .map_err(|e| WqError::RuntimeError(e.to_string()))?
+        } else {
+            Command::new("sh")
+                .arg("-c")
+                .arg(&parts[0])
+                .output()
+                .map_err(|e| WqError::RuntimeError(e.to_string()))?
+        }
+    } else {
+        let mut cmd = if cfg!(windows) {
+            let mut c = Command::new("cmd");
+            c.arg("/C").arg(&parts[0]);
+            c
+        } else {
+            Command::new(&parts[0])
+        };
+        if parts.len() > 1 {
+            cmd.args(&parts[1..]);
+        }
+        cmd.output().map_err(|e| WqError::RuntimeError(e.to_string()))?
+    };
+
+    if !output.status.success() {
+        let code = output.status.code().map(|c| c.to_string()).unwrap_or_else(|| "unknown".into());
+        return Err(WqError::RuntimeError(format!("exec failed (exit {})", code)));
+    }
+    // decode
+    let text = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<Value> = text
+        .lines()
+        .map(|line| {
+            let chars = line.chars().map(Value::Char).collect();
+            Value::List(chars)
+        })
+        .collect();
+
+    Ok(Value::List(lines))
 }

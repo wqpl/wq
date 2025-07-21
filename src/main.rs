@@ -166,7 +166,7 @@ fn show_help() {
         rand sin cos tan sinh cosh tanh
         til range take drop where distinct sort
         cat flatten and or not xor
-        type string echo
+        type string echo exec
         int float char(string) symbol bool
         list l:(1;2.5);l[0]
         func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3;]

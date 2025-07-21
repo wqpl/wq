@@ -703,6 +703,23 @@ fn format_table(rows: &[Value]) -> Option<String> {
         return None;
     }
 
+    let all_rows_are_strings = rows.iter().all(|row| {
+        if let Value::List(chars) = row {
+            chars.iter().all(|c| matches!(c, Value::Char(_)))
+        } else {
+            false
+        }
+    });
+
+    if all_rows_are_strings {
+        let lines = rows
+            .iter()
+            .map(|row| row.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Some(lines);
+    }
+
     let has_nested = rows.iter().any(|row| {
         if let Value::List(cells) = row {
             cells.iter().any(|c| matches!(c, Value::List(_)))
@@ -771,6 +788,12 @@ impl fmt::Display for Value {
             Value::Symbol(s) => write!(f, "`{s}`"),
             Value::Bool(b) => write!(f, "{}", if *b { "true" } else { "false" }),
             Value::List(items) => {
+                if items.iter().all(|v| matches!(v, Value::Char(_))) {
+                    let s: String = items.iter().map(|v| {
+                        if let Value::Char(c) = v { *c } else { unreachable!() }
+                    }).collect();
+                    return write!(f, "\"{}\"", s);
+                }
                 if box_mode::is_boxed() && !items.is_empty() {
                     if let Some(table) = format_table(items) {
                         return write!(f, "{}", table);
