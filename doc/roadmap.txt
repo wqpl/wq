@@ -1,3 +1,7 @@
+todo
+====
+make readme more concise, add type intro to readme
+
 0.2.0:
   matrix operations
 

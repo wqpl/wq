@@ -719,18 +719,19 @@ fn format_table(rows: &[Value]) -> Option<String> {
         return None;
     }
 
-    let all_rows_are_strings = rows.iter().all(|row| {
-        if let Value::List(chars) = row {
-            chars.iter().all(|c| matches!(c, Value::Char(_)))
-        } else {
-            false
-        }
+    let all_rows_are_strings = rows.iter().all(|row| match row {
+        Value::List(chars) => chars.iter().all(|c| matches!(c, Value::Char(_))),
+        Value::Char(_) => true,
+        _ => false,
     });
 
     if all_rows_are_strings {
         let lines = rows
             .iter()
-            .map(|row| row.to_string())
+            .map(|row| match row {
+                Value::Char(c) => format!("\"{}\"", c),
+                other => other.to_string(),
+            })
             .collect::<Vec<_>>()
             .join("\n");
         return Some(lines);
@@ -812,14 +813,7 @@ impl fmt::Display for Value {
                     return write!(f, "()");
                 }
 
-                // 2. In boxed mode, try table formatting first
-                if box_mode::is_boxed() {
-                    if let Some(table) = format_table(items) {
-                        return write!(f, "{}", table);
-                    }
-                }
-
-                // 3. Non-empty char-only list - quoted string
+                // 2. Non-empty char-only list - quoted string
                 if items.iter().all(|v| matches!(v, Value::Char(_))) {
                     let s: String = items
                         .iter()
@@ -833,6 +827,13 @@ impl fmt::Display for Value {
                         })
                         .collect();
                     return write!(f, "\"{}\"", s);
+                }
+
+                // 3. In boxed mode, try table formatting first
+                if box_mode::is_boxed() {
+                    if let Some(table) = format_table(items) {
+                        return write!(f, "{}", table);
+                    }
                 }
 
                 // 4. Singleton list - ,1
@@ -849,8 +850,15 @@ impl fmt::Display for Value {
                     write!(f, "()!()")
                 } else {
                     let mut pairs = Vec::new();
+                    let was_boxed = box_mode::is_boxed();
+                    if was_boxed {
+                        box_mode::set_boxed(false);
+                    }
                     for (k, v) in map {
                         pairs.push(format!("`{k}:{v}"));
+                    }
+                    if was_boxed {
+                        box_mode::set_boxed(true);
                     }
                     write!(f, "({})", pairs.join(";"))
                 }
