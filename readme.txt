@@ -43,6 +43,7 @@ REPL CMDS
 \h  \v    \c    \l   \t   \d    \q   \b
 help vars clear load time debug quit box
           ^ clear vars    ^ print ast, debug on | debug off
+
 BUILTINS
 ========
 abs x      // abs(-3) -> 3

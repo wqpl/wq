@@ -5,7 +5,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::time::Instant;
 
-use wq::value::box_mode::{is_boxed, set_boxed};
+use wq::value::box_mode;
 
 use colored::Colorize;
 
@@ -56,34 +56,38 @@ fn main() {
                         continue;
                     }
                     "box" | "\\b" => {
-                        if is_boxed() {
-                            println!("{}", format!("Display mode: default").cyan());
-                            set_boxed(false)
+                        if box_mode::is_boxed() {
+                            println!("{}", format!("display mode is now default").cyan());
+                            box_mode::set_boxed(false)
                         } else {
-                            println!("{}", format!("Display mode: boxed").cyan());
-                            set_boxed(true)
+                            println!("{}", format!("display mode is now boxed").cyan());
+                            box_mode::set_boxed(true)
                         }
                         continue;
                     }
-                    cmd if cmd.starts_with("debug") || cmd.starts_with("\\d") => {
-                        let arg = if let Some(rest) = cmd.strip_prefix("debug") {
-                            rest.trim()
-                        } else if let Some(rest) = cmd.strip_prefix("\\d") {
-                            rest.trim()
+                    "box?" => {
+                        if box_mode::is_boxed() {
+                            println!("{}", format!("display mode is now boxed").cyan());
                         } else {
-                            ""
-                        };
-
-                        if arg.is_empty() {
-                            println!("debug {}", if evaluator.debug() { "on" } else { "off" });
-                        } else if arg == "1" || arg.eq_ignore_ascii_case("on") {
-                            evaluator.set_debug(true);
-                            println!("debug on");
-                        } else if arg == "0" || arg.eq_ignore_ascii_case("off") {
-                            evaluator.set_debug(false);
-                            println!("debug off");
+                            println!("{}", format!("display mode is now default").cyan());
+                        }
+                        continue;
+                    }
+                    "debug" | "\\d" => {
+                        if evaluator.is_debug() {
+                            println!("{}", format!("debug mode is now off").cyan());
+                            evaluator.set_debug(false)
                         } else {
-                            println!("usage: debug [on|off|1|0]");
+                            println!("{}", format!("debug mode is now on").cyan());
+                            evaluator.set_debug(true)
+                        }
+                        continue;
+                    }
+                    "debug?" => {
+                        if evaluator.is_debug() {
+                            println!("{}", format!("debug mode is on").cyan());
+                        } else {
+                            println!("{}", format!("debug mode is off").cyan());
                         }
                         continue;
                     }
@@ -167,8 +171,8 @@ fn show_help() {
         list l:(1;2.5);l[0]
         func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3;]
                                      required ^
-        repl: \h  \v    \c    \l   \t   \d    \q   \b
-              help vars clear load time debug quit box"#
+        repl: \h   \v   \c    \l   \t   \b  \d    \q
+              help vars clear load time box debug quit "#
     );
 }
 

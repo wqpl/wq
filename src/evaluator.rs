@@ -136,7 +136,7 @@ impl Evaluator {
         self.debug = flag;
     }
 
-    pub fn debug(&self) -> bool {
+    pub fn is_debug(&self) -> bool {
         self.debug
     }
 
@@ -405,9 +405,9 @@ impl Evaluator {
             BinaryOperator::Divide => left.divide(right).ok_or_else(|| {
                 WqError::DomainError("Division by zero or invalid types".to_string())
             }),
-            BinaryOperator::Modulo => left.modulo(right).ok_or_else(|| {
-                WqError::DomainError("Modulo by zero or invalid types".to_string())
-            }),
+            BinaryOperator::Modulo => left
+                .modulo(right)
+                .ok_or_else(|| WqError::DomainError("Modulo by zero or invalid types".to_string())),
             BinaryOperator::Equal => Ok(left.equals(right)),
             BinaryOperator::NotEqual => Ok(left.not_equals(right)),
             BinaryOperator::LessThan => Ok(left.less_than(right)),
@@ -563,10 +563,7 @@ mod tests {
         assert_eq!(evaluator.eval_string("lst[2]").unwrap(), Value::Int(30));
 
         let result = evaluator.eval_string("lst[1;2]").unwrap();
-        assert_eq!(
-            result,
-            Value::List(vec![Value::Int(20), Value::Int(30)])
-        );
+        assert_eq!(result, Value::List(vec![Value::Int(20), Value::Int(30)]));
     }
 
     #[test]

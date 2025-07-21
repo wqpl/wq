@@ -137,9 +137,7 @@ impl Parser {
             .nth(line.saturating_sub(1))
             .unwrap_or("");
         let pointer = " ".repeat(column.saturating_sub(1)) + "^";
-        WqError::SyntaxError(format!(
-            "{msg} at {line}:{column}\n{src_line}\n{pointer}"
-        ))
+        WqError::SyntaxError(format!("{msg} at {line}:{column}\n{src_line}\n{pointer}"))
     }
 
     fn eof_error(&self, msg: &str) -> WqError {
@@ -504,10 +502,7 @@ impl Parser {
                         break;
                     }
                     _ => {
-                        return Err(self.syntax_error(
-                            token,
-                            "Expected ';' or ']' in index",
-                        ));
+                        return Err(self.syntax_error(token, "Expected ';' or ']' in index"));
                     }
                 }
             } else {
@@ -558,6 +553,8 @@ impl Parser {
                 | TokenType::String(_)
                 | TokenType::Symbol(_)
                 | TokenType::Identifier(_)
+                | TokenType::True
+                | TokenType::False
                 | TokenType::LeftParen => {
                     let arg = self.parse_unary()?;
                     let args = vec![arg];
@@ -669,10 +666,9 @@ impl Parser {
                                     break;
                                 }
                                 _ => {
-                                    return Err(self.syntax_error(
-                                        token,
-                                        "Expected ';' or ')' in list",
-                                    ));
+                                    return Err(
+                                        self.syntax_error(token, "Expected ';' or ')' in list")
+                                    );
                                 }
                             }
                         } else {
@@ -688,10 +684,10 @@ impl Parser {
                     }
                 }
 
-                _ => Err(self.syntax_error(
-                    token,
-                    &format!("Unexpected token: {:?}", token.token_type),
-                )),
+                _ => {
+                    Err(self
+                        .syntax_error(token, &format!("Unexpected token: {:?}", token.token_type)))
+                }
             }
         } else {
             Err(self.eof_error("Unexpected end of input"))
@@ -735,17 +731,15 @@ impl Parser {
                                     }
                                 }
                             } else {
-                                return Err(self.eof_error(
-                                    "Unexpected end of input in parameter list",
-                                ));
+                                return Err(
+                                    self.eof_error("Unexpected end of input in parameter list")
+                                );
                             }
                         } else {
                             return Err(self.syntax_error(token, "Expected parameter name"));
                         }
                     } else {
-                        return Err(self.eof_error(
-                            "Unexpected end of input in parameter list",
-                        ));
+                        return Err(self.eof_error("Unexpected end of input in parameter list"));
                     }
                 }
 
