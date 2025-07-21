@@ -945,6 +945,7 @@ fn exec(args: &[Value]) -> WqResult<Value> {
                 Ok(s)
             }
             Value::Symbol(s) => Ok(s.clone()),
+            Value::Char(ch) => Ok(ch.to_string()),
             other => Err(WqError::TypeError(format!(
                 "exec only accepts string args, got {}",
                 other.type_name()
