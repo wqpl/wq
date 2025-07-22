@@ -1,14 +1,15 @@
-+    -    *    /    %    :    ,
-               assignment^ cat^
++    -    *    /    %    :    ,    #
+               assignment^   cat count
 =    ~    <    <=   >    >=
-^eq  ^neq
-$[cond;tb;fb] W[cond;b1] N[n;b1]
+eq  neq
+$[cond;tb;fb]       $.[cond;tb1;tb2;...]
+W[cond;b1]          N[n;b1]
 abs neg signum sqrt exp ln floor ceiling
 count first last reverse sum max min avg
 rand sin cos tan sinh cosh tanh
 til range take drop where distinct sort
 cat flatten and or not xor
-type string symbol echo exec
+type string symbol echo showt exec
 ----------------------------------------
 int float char symbol bool list dict function
 lst:(1;2.5);lst[0] dct:(`a:1;`b:2.5);dct[`a]

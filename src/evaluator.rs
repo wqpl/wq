@@ -506,15 +506,11 @@ impl Evaluator {
         self.eval(&ast)
     }
 
-    /// Print current environment state
-    pub fn show_environment(&self) {
+    pub fn get_environment(&self) -> Option<&HashMap<String, Value>> {
         if self.environment.variables().is_empty() {
-            println!("no user-defined bindings");
+            None
         } else {
-            println!("user-defined bindings:");
-            for (name, value) in self.environment.variables() {
-                println!("  {name} = {value}");
-            }
+            Some(self.environment.variables())
         }
     }
 }

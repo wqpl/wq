@@ -5,6 +5,9 @@ use std::fs;
 use std::io::{self, Write};
 use std::time::Instant;
 
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
 use wq::value::WqError;
 use wq::value::box_mode;
 
@@ -47,7 +50,10 @@ fn main() {
                 if buffer.is_empty() {
                     match input {
                         "quit" | "exit" | "\\q" => {
-                            println!("bye");
+                            system_msg_printer::stdout(
+                                "bye".to_string(),
+                                system_msg_printer::MsgType::Info,
+                            );
                             break;
                         }
                         "help" | "\\h" => {
@@ -55,47 +61,91 @@ fn main() {
                             continue;
                         }
                         "vars" | "\\v" => {
-                            evaluator.show_environment();
+                            match evaluator.get_environment() {
+                                Some(env) => {
+                                    system_msg_printer::stdout(
+                                        "user-defined bindings:".to_string(),
+                                        system_msg_printer::MsgType::Info,
+                                    );
+                                    for (key, value) in env {
+                                        system_msg_printer::stdout(
+                                            format!("{}: {}", key, value),
+                                            system_msg_printer::MsgType::Info,
+                                        );
+                                    }
+                                }
+                                None => system_msg_printer::stdout(
+                                    "no user-defined bindings".to_string(),
+                                    system_msg_printer::MsgType::Info,
+                                ),
+                            }
                             continue;
                         }
                         "clear" | "\\c" => {
                             evaluator.environment_mut().clear();
-                            println!("Variables cleared");
+                            system_msg_printer::stdout(
+                                "user-defined bindings cleared".to_string(),
+                                system_msg_printer::MsgType::Info,
+                            );
                             continue;
                         }
                         "box" | "\\b" => {
                             if box_mode::is_boxed() {
-                                println!("{}", format!("display mode is now default").cyan());
+                                system_msg_printer::stdout(
+                                    "boxed display is now off".to_string(),
+                                    system_msg_printer::MsgType::Info,
+                                );
                                 box_mode::set_boxed(false)
                             } else {
-                                println!("{}", format!("display mode is now boxed").cyan());
+                                system_msg_printer::stdout(
+                                    "boxed display is now on".to_string(),
+                                    system_msg_printer::MsgType::Info,
+                                );
                                 box_mode::set_boxed(true)
                             }
                             continue;
                         }
                         "box?" => {
                             if box_mode::is_boxed() {
-                                println!("{}", format!("display mode is now boxed").cyan());
+                                system_msg_printer::stdout(
+                                    "boxed display is on".to_string(),
+                                    system_msg_printer::MsgType::Info,
+                                );
                             } else {
-                                println!("{}", format!("display mode is now default").cyan());
+                                system_msg_printer::stdout(
+                                    "boxed display is off".to_string(),
+                                    system_msg_printer::MsgType::Info,
+                                );
                             }
                             continue;
                         }
                         "debug" | "\\d" => {
                             if evaluator.is_debug() {
-                                println!("{}", format!("debug mode is now off").cyan());
+                                system_msg_printer::stdout(
+                                    "debug mode is off".to_string(),
+                                    system_msg_printer::MsgType::Info,
+                                );
                                 evaluator.set_debug(false)
                             } else {
-                                println!("{}", format!("debug mode is now on").cyan());
+                                system_msg_printer::stdout(
+                                    "debug mode is on".to_string(),
+                                    system_msg_printer::MsgType::Info,
+                                );
                                 evaluator.set_debug(true)
                             }
                             continue;
                         }
                         "debug?" => {
                             if evaluator.is_debug() {
-                                println!("{}", format!("debug mode is on").cyan());
+                                system_msg_printer::stdout(
+                                    "debug mode is on".to_string(),
+                                    system_msg_printer::MsgType::Info,
+                                );
                             } else {
-                                println!("{}", format!("debug mode is off").cyan());
+                                system_msg_printer::stdout(
+                                    "debug mode is off".to_string(),
+                                    system_msg_printer::MsgType::Info,
+                                );
                             }
                             continue;
                         }
@@ -109,7 +159,10 @@ fn main() {
                             };
 
                             if src.is_empty() {
-                                println!("{}", "expected wq code".red());
+                                system_msg_printer::stderr(
+                                    "usage: time <expression>".to_string(),
+                                    system_msg_printer::MsgType::Error,
+                                );
                                 continue;
                             }
 
@@ -117,15 +170,24 @@ fn main() {
 
                             match evaluator.eval_string(src) {
                                 Ok(result) => {
-                                    println!("\u{258D} {result}");
+                                    system_msg_printer::stdout(
+                                        format!("{result}"),
+                                        system_msg_printer::MsgType::Success,
+                                    );
                                 }
                                 Err(error) => {
-                                    eprintln!("{error}");
+                                    system_msg_printer::stderr(
+                                        format!("{error}"),
+                                        system_msg_printer::MsgType::Error,
+                                    );
                                 }
                             }
 
                             let duration = start.elapsed();
-                            println!("{}", format!("\u{258D} time elapsed: {duration:?}").cyan());
+                            system_msg_printer::stdout(
+                                format!("time elapsed: {duration:?}"),
+                                system_msg_printer::MsgType::Info,
+                            );
                             continue;
                         }
                         cmd if cmd.starts_with("load ") || cmd.starts_with("\\l ") => {
@@ -147,7 +209,10 @@ fn main() {
                 let attempt = evaluator.eval_string(buffer.trim());
                 match attempt {
                     Ok(result) => {
-                        println!("\u{258D} {result}");
+                        system_msg_printer::stdout(
+                            format!("{result}"),
+                            system_msg_printer::MsgType::Success,
+                        );
                         buffer.clear();
                         line_number += 1;
                     }
@@ -156,7 +221,10 @@ fn main() {
                             buffer.push('\n');
                             continue;
                         } else {
-                            eprintln!("{error}");
+                            system_msg_printer::stderr(
+                                format!("{error}"),
+                                system_msg_printer::MsgType::Error,
+                            );
                             buffer.clear();
                             line_number += 1;
                         }
@@ -164,7 +232,10 @@ fn main() {
                 }
             }
             Err(error) => {
-                eprintln!("Error reading input: {error}");
+                system_msg_printer::stderr(
+                    format!("Error reading input: {error}"),
+                    system_msg_printer::MsgType::Error,
+                );
                 break;
             }
         }
@@ -175,17 +246,18 @@ fn show_help() {
     println!(
         "{}",
         r#"
-        +    -    *    /    %    :    ,
-                       assignment^ cat^
+        +    -    *    /    %    :    ,    #
+                       assignment^   cat count
         =    ~    <    <=   >    >=
-        ^eq  ^neq
-        $[cond;tb;fb] W[cond;b1] N[n;b1]
+        eq  neq
+        $[cond;tb;fb]       $.[cond;tb1;tb2;...]
+        W[cond;b1]          N[n;b1]
         abs neg signum sqrt exp ln floor ceiling
         count first last reverse sum max min avg
         rand sin cos tan sinh cosh tanh
         til range take drop where distinct sort
         cat flatten and or not xor
-        type string symbol echo exec
+        type string symbol echo showt exec
         ----------------------------------------
         int float char symbol bool list dict function
         lst:(1;2.5);lst[0] dct:(`a:1;`b:2.5);dct[`a]
@@ -195,9 +267,6 @@ fn show_help() {
               help vars clear load time box debug quit"#
     );
 }
-
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 
 fn parse_load_filename(line: &str) -> Option<&str> {
     let trimmed = line.trim_start();
@@ -231,7 +300,10 @@ fn load_script(
 ) {
     let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if loading.contains(&canonical) {
-        eprintln!("Cannot load {}: cycling", canonical.display());
+        system_msg_printer::stderr(
+            format!("Cannot load {}: cycling", canonical.display()),
+            system_msg_printer::MsgType::Error,
+        );
         return;
     }
     loading.insert(canonical.clone());
@@ -268,7 +340,10 @@ fn load_script(
                             buffer.push('\n');
                             continue;
                         } else {
-                            eprintln!("Error in {}: {err}", path.display());
+                            system_msg_printer::stderr(
+                                format!("Error in {}: {err}", path.display()),
+                                system_msg_printer::MsgType::Error,
+                            );
                             return;
                         }
                     }
@@ -277,7 +352,10 @@ fn load_script(
 
             if !buffer.trim().is_empty() {
                 if let Err(err) = evaluator.eval_string(buffer.trim()) {
-                    eprintln!("Error in {}: {err}", path.display());
+                    system_msg_printer::stderr(
+                        format!("Error in {}: {err}", path.display()),
+                        system_msg_printer::MsgType::Error,
+                    );
                     return;
                 }
             }
@@ -295,18 +373,30 @@ fn load_script(
                 }
 
                 if new_bindings.is_empty() {
-                    println!("{}", "no new bindings".blue());
+                    system_msg_printer::stderr(
+                        format!("no new bindings from {}", path.display()),
+                        system_msg_printer::MsgType::Info,
+                    );
                 } else {
                     new_bindings.sort_by_key(|(n, _)| (*n).clone());
-                    println!("{}", "new bindings:".blue());
+                    system_msg_printer::stderr(
+                        format!("new bindings from {}:", path.display()),
+                        system_msg_printer::MsgType::Info,
+                    );
                     for (name, value) in new_bindings {
-                        println!("  {name} = {value}");
+                        system_msg_printer::stderr(
+                            format!("  {name} = {value}"),
+                            system_msg_printer::MsgType::Info,
+                        );
                     }
                 }
             }
         }
         Err(error) => {
-            eprintln!("Cannot load {}: {error}", path.display());
+            system_msg_printer::stderr(
+                format!("Cannot load {}: {error}", path.display()),
+                system_msg_printer::MsgType::Error,
+            );
         }
     }
     loading.remove(&canonical);
@@ -346,7 +436,10 @@ fn execute_script(filename: &str) {
                             buffer.push('\n');
                             continue;
                         } else {
-                            println!("Error at script {filename} line {line_num}: \n {err}");
+                            system_msg_printer::stderr(
+                                format!("Error at script {filename} line {line_num}: \n {err}"),
+                                system_msg_printer::MsgType::Error,
+                            );
                             buffer.clear();
                         }
                     }
@@ -355,13 +448,46 @@ fn execute_script(filename: &str) {
 
             if !buffer.trim().is_empty() {
                 if let Err(err) = evaluator.eval_string(buffer.trim()) {
-                    println!("Error at script {filename}: \n {err}");
+                    system_msg_printer::stderr(
+                        format!("Error at script {filename}: \n {err}"),
+                        system_msg_printer::MsgType::Error,
+                    );
                 }
             }
         }
         Err(error) => {
-            eprintln!("Cannot read {filename}: {error}");
+            system_msg_printer::stderr(
+                format!("Cannot read {filename}: {error}"),
+                system_msg_printer::MsgType::Error,
+            );
             std::process::exit(1);
         }
+    }
+}
+
+mod system_msg_printer {
+    use colored::Colorize;
+
+    pub enum MsgType {
+        Info,
+        Error,
+        Success,
+    }
+
+    fn format_msg(msg: String, msg_type: MsgType) -> String {
+        let body = format!("\u{258D} {msg}");
+        match msg_type {
+            MsgType::Info => body.cyan().to_string(),
+            MsgType::Error => body.red().to_string(),
+            MsgType::Success => body.to_string(),
+        }
+    }
+
+    pub fn stdout(msg: String, msg_type: MsgType) {
+        println!("{}", format_msg(msg, msg_type));
+    }
+
+    pub fn stderr(msg: String, msg_type: MsgType) {
+        eprintln!("{}", format_msg(msg, msg_type));
     }
 }

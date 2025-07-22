@@ -36,7 +36,11 @@ INTRO
     signum(-10)
     max(1;2;3)
 //cond:
-    $[true;42;99]      // if
+    $[true;1;2]        // 1
+    $[false;1;2]       // 2
+    $.[true;
+      echo 1;          // 1
+      echo 2]          // 2
     5<=5
     5~3                // !=. true
     3<5

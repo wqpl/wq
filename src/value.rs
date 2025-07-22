@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fmt;
 
 use crate::parser::AstNode;
-use colored::Colorize;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -888,18 +887,16 @@ pub enum WqError {
 impl fmt::Display for WqError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            WqError::TypeError(msg) => write!(f, "{}", format!("type error: {}", msg).red()),
-            WqError::IndexError(msg) => write!(f, "{}", format!("index error: {}", msg).red()),
-            WqError::DomainError(msg) => write!(f, "{}", format!("domain error: {}", msg).red()),
-            WqError::LengthError(msg) => write!(f, "{}", format!("length error: {}", msg).red()),
-            WqError::SyntaxError(msg) => write!(f, "{}", format!("syntax error: {}", msg).red()),
-            WqError::FnArgCountMismatchError(msg) => write!(
-                f,
-                "{}",
-                format!("function argument count mismatch error: {}", msg).red()
-            ),
-            WqError::RuntimeError(msg) => write!(f, "{}", format!("runtime error: {}", msg).red()),
-            WqError::EofError(msg) => write!(f, "{}", format!("end of file error: {}", msg).red()),
+            WqError::TypeError(msg) => write!(f, "type error: {msg}"),
+            WqError::IndexError(msg) => write!(f, "index error: {msg}"),
+            WqError::DomainError(msg) => write!(f, "domain error: {msg}"),
+            WqError::LengthError(msg) => write!(f, "length error: {msg}"),
+            WqError::SyntaxError(msg) => write!(f, "syntax error: {msg}"),
+            WqError::FnArgCountMismatchError(msg) => {
+                write!(f, "function argument count mismatch error: {msg}")
+            }
+            WqError::RuntimeError(msg) => write!(f, "runtime error: {msg}"),
+            WqError::EofError(msg) => write!(f, "end of file error: {msg}"),
         }
     }
 }
