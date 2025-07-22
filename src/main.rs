@@ -475,11 +475,25 @@ mod system_msg_printer {
     }
 
     fn format_msg(msg: String, msg_type: MsgType) -> String {
-        let body = format!("\u{258D} {msg}");
+        let mut lines = msg.lines();
+        let mut formatted = String::new();
+
+        if let Some(first) = lines.next() {
+            formatted.push_str(&format!("\u{258D} {first}\n"));
+        }
+
+        for line in lines {
+            formatted.push_str(&format!("  {line}\n"));
+        }
+
+        if formatted.ends_with('\n') {
+            formatted.pop();
+        }
+
         match msg_type {
-            MsgType::Info => body.cyan().to_string(),
-            MsgType::Error => body.red().to_string(),
-            MsgType::Success => body.to_string(),
+            MsgType::Info    => formatted.cyan().to_string(),
+            MsgType::Error   => formatted.red().to_string(),
+            MsgType::Success => formatted,
         }
     }
 
