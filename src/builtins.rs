@@ -1023,6 +1023,23 @@ fn show_table(args: &[Value]) -> WqResult<Value> {
 
     let val = &args[0];
 
+    if let Value::Dict(map) = val {
+        let mut wrapped: HashMap<String, Value> = HashMap::new();
+        for (k, v) in map {
+            if let Value::List(_) = v {
+                wrapped.insert(k.clone(), v.clone());
+            } else {
+                wrapped.insert(k.clone(), Value::List(vec![v.clone()]));
+            }
+        }
+        let wrapped_val = Value::Dict(wrapped);
+
+        if let Some((headers, rows)) = parse_dict_of_lists(&wrapped_val) {
+            print_table(&headers, &rows);
+            return Ok(Value::Null);
+        }
+    }
+
     if let Some((headers, rows)) = parse_list_of_dicts(val) {
         print_table(&headers, &rows);
         return Ok(Value::Null);
