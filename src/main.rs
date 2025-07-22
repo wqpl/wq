@@ -117,7 +117,7 @@ fn main() {
 
                             match evaluator.eval_string(src) {
                                 Ok(result) => {
-                                    println!("{result}");
+                                    println!("\u{258D} {result}");
                                 }
                                 Err(error) => {
                                     eprintln!("{error}");
@@ -125,7 +125,7 @@ fn main() {
                             }
 
                             let duration = start.elapsed();
-                            println!("{}", format!("time elapsed: {duration:?}").cyan());
+                            println!("{}", format!("\u{258D} time elapsed: {duration:?}").cyan());
                             continue;
                         }
                         cmd if cmd.starts_with("load ") || cmd.starts_with("\\l ") => {
@@ -147,7 +147,7 @@ fn main() {
                 let attempt = evaluator.eval_string(buffer.trim());
                 match attempt {
                     Ok(result) => {
-                        println!("{result}");
+                        println!("\u{258D} {result}");
                         buffer.clear();
                         line_number += 1;
                     }
@@ -175,7 +175,10 @@ fn show_help() {
     println!(
         "{}",
         r#"
-        +    -    *    /    %    :
+        +    -    *    /    %    :    ,
+                       assignment^ cat^
+        =    ~    <    <=   >    >=
+        ^eq  ^neq
         $[cond;tb;fb] W[cond;b1] N[n;b1]
         abs neg signum sqrt exp ln floor ceiling
         count first last reverse sum max min avg
@@ -184,10 +187,10 @@ fn show_help() {
         cat flatten and or not xor
         type string symbol echo exec
         ----------------------------------------
-        int float char symbol bool list dict
+        int float char symbol bool list dict function
         lst:(1;2.5);lst[0] dct:(`a:1;`b:2.5);dct[`a]
         func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3;]
-                                     required ^
+                                      required^
         repl: \h   \v   \c    \l   \t   \b  \d    \q
               help vars clear load time box debug quit"#
     );
