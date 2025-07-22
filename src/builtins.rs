@@ -1006,7 +1006,7 @@ fn echo(args: &[Value]) -> WqResult<Value> {
                     .collect();
                 println!("{s}");
             }
-
+            Value::Char(c) => println!("{c}"),
             _ => println!("{arg}"),
         }
     }

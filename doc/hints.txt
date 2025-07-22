@@ -18,7 +18,11 @@
 (2) body
     currently, "blocks" are not present in wq,
     therefore the following is invalid:
-        $[true;{do1;do2};do3]   // INVALID
+        $[cond;{do1;do2};do3]   // INVALID
+    instead, use:
+        c: cond
+        $.[c;do1;do2;...]
+        $.[not c;do3;do4;...]
 
     loops accept an arbitrary number of bodies:
         N[3;echo n;a:n+1;echo a;]
@@ -30,14 +34,10 @@
 (3) scoping
     currently, assignments inside function bodies create new bindings,
     overshadowing any bindings with the same name in the outer scope.
+
     as a result, you cannot modify a variable from the outer scope within a function body.
 
-(4) echo
-    when given a string (i.e., a list of chars), echo prints it without quotes.
-    to print a single char without quotes, do:
-        echo(,"a")
-
-(5) semicolons
+(4) semicolons
     function calls require a semicolon at the end of the arg list,
     whereas indexing requires that there is no trailing semicolon. e.g.,
         fn[1;2;]
@@ -48,7 +48,7 @@
         fn:{[m;n]...}
         fn:{[m;n;]...}
 
-(6) newlines
+(5) newlines
     newlines are generally accepted and can act as semicolons in most contexts.
 
     valid examples:
