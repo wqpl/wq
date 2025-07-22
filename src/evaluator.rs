@@ -184,7 +184,10 @@ impl Evaluator {
                 if is_true {
                     self.eval(true_branch)
                 } else {
-                    self.eval(false_branch)
+                    match false_branch {
+                        Some(branch) => self.eval(branch),
+                        None => Ok(Value::Null),
+                    }
                 }
             }
 

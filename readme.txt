@@ -99,9 +99,9 @@ xor[a;b]
 
 type
 ----
-type       // returns "int", "list", "dict", "function", ...
-string n   // 2 -> "2"
-symbol n
+type x     // ->"int", "list", "dict", "function", ...
+string x   // 2 -> "2"
+symbol x   // "2" -> `2
 
 io
 --

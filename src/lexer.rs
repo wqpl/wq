@@ -31,6 +31,9 @@ pub enum TokenType {
 
     // Conditional
     Dollar,
+    DollarDot,
+
+    Sharp,
 
     // Delimiters
     LeftParen,
@@ -353,8 +356,29 @@ impl<'a> Lexer<'a> {
                 }
 
                 Some('$') => {
+                    if self.peek() == Some(&'.') {
+                        self.advance(); // consume '$'
+                        self.advance(); // consume '.'
+                        return Token::new(
+                            TokenType::DollarDot,
+                            token_position,
+                            token_line,
+                            token_column,
+                        );
+                    } else {
+                        self.advance();
+                        return Token::new(
+                            TokenType::Dollar,
+                            token_position,
+                            token_line,
+                            token_column,
+                        );
+                    }
+                }
+
+                Some('#') => {
                     self.advance();
-                    return Token::new(TokenType::Dollar, token_position, token_line, token_column);
+                    return Token::new(TokenType::Sharp, token_position, token_line, token_column);
                 }
 
                 Some('(') => {

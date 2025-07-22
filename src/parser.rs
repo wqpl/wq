@@ -65,7 +65,7 @@ pub enum AstNode {
     Conditional {
         condition: Box<AstNode>,
         true_branch: Box<AstNode>,
-        false_branch: Box<AstNode>,
+        false_branch: Option<Box<AstNode>>,
     },
 
     /// While loop
@@ -102,7 +102,7 @@ pub enum BinaryOperator {
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnaryOperator {
     Negate,
-    Count, // '#' operator for counting/length
+    Count, // '#' operator
 }
 
 pub struct Parser {
@@ -397,39 +397,49 @@ impl Parser {
 
     fn parse_unary(&mut self) -> WqResult<AstNode> {
         if let Some(token) = self.current_token() {
-            if token.token_type == TokenType::Minus {
-                // look ahead to check if this is a negative number
-                if let Some(next_token) = self.peek_token() {
-                    match next_token.token_type {
-                        TokenType::Integer(n) => {
-                            self.advance(); // consume minus
-                            self.advance(); // consume number
-                            return Ok(AstNode::Literal(Value::Int(-n)));
+            match token.token_type {
+                TokenType::Minus => {
+                    if let Some(next_token) = self.peek_token() {
+                        match next_token.token_type {
+                            TokenType::Integer(n) => {
+                                self.advance(); // consume minus
+                                self.advance(); // consume number
+                                return Ok(AstNode::Literal(Value::Int(-n)));
+                            }
+                            TokenType::Float(f) => {
+                                self.advance(); // consume minus
+                                self.advance(); // consume number
+                                return Ok(AstNode::Literal(Value::Float(-f)));
+                            }
+                            _ => {
+                                // It's a unary minus operation
+                                self.advance();
+                                let operand = self.parse_unary()?;
+                                return Ok(AstNode::UnaryOp {
+                                    operator: UnaryOperator::Negate,
+                                    operand: Box::new(operand),
+                                });
+                            }
                         }
-                        TokenType::Float(f) => {
-                            self.advance(); // consume minus
-                            self.advance(); // consume number
-                            return Ok(AstNode::Literal(Value::Float(-f)));
-                        }
-                        _ => {
-                            // It's a unary minus operation
-                            self.advance();
-                            let operand = self.parse_unary()?;
-                            return Ok(AstNode::UnaryOp {
-                                operator: UnaryOperator::Negate,
-                                operand: Box::new(operand),
-                            });
-                        }
+                    } else {
+                        // It's a unary minus operation
+                        self.advance();
+                        let operand = self.parse_unary()?;
+                        return Ok(AstNode::UnaryOp {
+                            operator: UnaryOperator::Negate,
+                            operand: Box::new(operand),
+                        });
                     }
-                } else {
-                    // It's a unary minus operation
+                }
+                TokenType::Sharp => {
                     self.advance();
                     let operand = self.parse_unary()?;
                     return Ok(AstNode::UnaryOp {
-                        operator: UnaryOperator::Negate,
+                        operator: UnaryOperator::Count,
                         operand: Box::new(operand),
                     });
                 }
+                _ => (),
             }
         }
 
@@ -624,6 +634,10 @@ impl Parser {
                 TokenType::Dollar => {
                     // Parse conditional: $[condition;true_branch;false_branch]
                     self.parse_conditional()
+                }
+                TokenType::DollarDot => {
+                    // Parse conditional: $[condition;true_branch;false_branch]
+                    self.parse_conditional_dot()
                 }
                 TokenType::Identifier(name) => {
                     let val = name.clone();
@@ -890,7 +904,26 @@ impl Parser {
         Ok(AstNode::Conditional {
             condition: Box::new(condition),
             true_branch: Box::new(true_branch),
-            false_branch: Box::new(false_branch),
+            false_branch: Some(Box::new(false_branch)),
+        })
+    }
+
+    fn parse_conditional_dot(&mut self) -> WqResult<AstNode> {
+        self.advance(); // consume '$.'
+        self.consume(TokenType::LeftBracket)?;
+
+        self.skip_newlines();
+
+        let condition = self.parse_expression()?;
+        self.consume(TokenType::Semicolon)?;
+
+        let true_branch = self.parse_branch_sequence(vec![TokenType::RightBracket])?;
+        self.consume(TokenType::RightBracket)?;
+
+        Ok(AstNode::Conditional {
+            condition: Box::new(condition),
+            true_branch: Box::new(true_branch),
+            false_branch: None,
         })
     }
 
