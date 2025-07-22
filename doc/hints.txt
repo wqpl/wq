@@ -20,11 +20,6 @@
     therefore the following is invalid:
         $[true;{do1;do2};do3]   // INVALID
 
-    instead, do the following:
-        c:do0
-        $[c;do1;do2;;]
-        $[not c;;do1;do2]       // which acts as if-else
-
     loops accept an arbitrary number of bodies:
         N[3;echo n;a:n+1;echo a;]
 
@@ -37,19 +32,12 @@
     overshadowing any bindings with the same name in the outer scope.
     as a result, you cannot modify a variable from the outer scope within a function body.
 
-(4) interpreter
-    currently, the interpreter reads scripts line by line.
-    as a result, you cannot split a function body across multiple lines:
-        fn:{[n]
-            echo n}             // INVALID
-    instead, function bodies must be written as a single line.
-
-(5) echo
+(4) echo
     when given a string (i.e., a list of chars), echo prints it without quotes.
     to print a single char without quotes, do:
         echo(,"a")
 
-(6) semicolons
+(5) semicolons
     function calls require a semicolon at the end of the arg list,
     whereas indexing requires that there is no trailing semicolon. e.g.,
         fn[1;2;]
@@ -59,3 +47,23 @@
     both of the following are valid:
         fn:{[m;n]...}
         fn:{[m;n;]...}
+
+(6) newlines
+    newlines are generally accepted and can act as semicolons in most contexts.
+
+    valid examples:
+        lst: (1
+              2
+              3)
+        f: {[a;b;c;d;e;f
+             g;h;i;j;]
+            echo x
+            echo y}
+
+    "important positions":
+        some positions are considered "important", and a semicolon is explicitly required.
+            $[true;      // important
+                1;         // important
+                2]
+            N[3;         // important
+                echo n]

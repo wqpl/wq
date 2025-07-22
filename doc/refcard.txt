@@ -1,7 +1,7 @@
 +    -    *    /    %    :    ,
                assignment^ cat^
 =    ~    <    <=   >    >=
-     ^ inequality
+^eq  ^neq
 $[cond;tb;fb] W[cond;b1] N[n;b1]
 abs neg signum sqrt exp ln floor ceiling
 count first last reverse sum max min avg

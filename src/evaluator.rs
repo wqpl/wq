@@ -1,3 +1,5 @@
+use colored::Colorize;
+
 use crate::builtins::Builtins;
 use crate::parser::{AstNode, BinaryOperator, UnaryOperator};
 use crate::value::{Value, WqError, WqResult};
@@ -488,9 +490,14 @@ impl Evaluator {
 
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize();
+        if self.debug {
+            eprintln!("{}", "=====TOKENS=====".red());
+            eprintln!("{tokens:#?}");
+        }
         let mut parser = Parser::new(tokens, input.to_string());
         let ast = parser.parse()?;
         if self.debug {
+            eprintln!("{}", "=====AST=====".red());
             eprintln!("{ast:#?}");
         }
         self.eval(&ast)

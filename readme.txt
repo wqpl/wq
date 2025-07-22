@@ -51,7 +51,7 @@ REPL CMDS
 =========
 \h  \v    \c    \l   \t   \d    \q   \b
 help vars clear load time debug quit box
-          ^ clear vars    ^ print ast, debug on | debug off
+          ^ clear vars    ^ tok & ast
 
 BUILTINS
 ========

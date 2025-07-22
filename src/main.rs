@@ -5,6 +5,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::time::Instant;
 
+use wq::value::WqError;
 use wq::value::box_mode;
 
 use colored::Colorize;
@@ -23,10 +24,16 @@ fn main() {
 
     let mut evaluator = Evaluator::new();
     let mut line_number = 1;
+    let mut buffer = String::new();
 
     loop {
         // Print prompt
-        print!("{} {} ", line_number.to_string().blue(), "wq$".magenta());
+        if buffer.is_empty() {
+            print!("{} {} ", line_number.to_string().blue(), "wq$".magenta());
+        } else {
+            let indent = " ".repeat(line_number.to_string().len());
+            print!("{} {} ", indent, "...".magenta());
+        }
         io::stdout().flush().unwrap();
 
         // Read input
@@ -34,116 +41,127 @@ fn main() {
         match io::stdin().read_line(&mut input) {
             Ok(0) => break, // EOF
             Ok(_) => {
-                let input = input.trim();
+                let input = input.trim_end();
 
-                // Handle repl commands
-                match input {
-                    "quit" | "exit" | "\\q" => {
-                        println!("bye");
-                        break;
-                    }
-                    "help" | "\\h" => {
-                        show_help();
-                        continue;
-                    }
-                    "vars" | "\\v" => {
-                        evaluator.show_environment();
-                        continue;
-                    }
-                    "clear" | "\\c" => {
-                        evaluator.environment_mut().clear();
-                        println!("Variables cleared");
-                        continue;
-                    }
-                    "box" | "\\b" => {
-                        if box_mode::is_boxed() {
-                            println!("{}", format!("display mode is now default").cyan());
-                            box_mode::set_boxed(false)
-                        } else {
-                            println!("{}", format!("display mode is now boxed").cyan());
-                            box_mode::set_boxed(true)
+                // Handle repl commands only if buffer is empty
+                if buffer.is_empty() {
+                    match input {
+                        "quit" | "exit" | "\\q" => {
+                            println!("bye");
+                            break;
                         }
-                        continue;
-                    }
-                    "box?" => {
-                        if box_mode::is_boxed() {
-                            println!("{}", format!("display mode is now boxed").cyan());
-                        } else {
-                            println!("{}", format!("display mode is now default").cyan());
-                        }
-                        continue;
-                    }
-                    "debug" | "\\d" => {
-                        if evaluator.is_debug() {
-                            println!("{}", format!("debug mode is now off").cyan());
-                            evaluator.set_debug(false)
-                        } else {
-                            println!("{}", format!("debug mode is now on").cyan());
-                            evaluator.set_debug(true)
-                        }
-                        continue;
-                    }
-                    "debug?" => {
-                        if evaluator.is_debug() {
-                            println!("{}", format!("debug mode is on").cyan());
-                        } else {
-                            println!("{}", format!("debug mode is off").cyan());
-                        }
-                        continue;
-                    }
-                    cmd if cmd.starts_with("\\t") || cmd.starts_with("time ") => {
-                        let src = if let Some(rest) = cmd.strip_prefix("\\t") {
-                            rest.trim()
-                        } else if let Some(rest) = cmd.strip_prefix("time ") {
-                            rest.trim()
-                        } else {
-                            ""
-                        };
-
-                        if src.is_empty() {
-                            println!("{}", "expected wq code".red());
+                        "help" | "\\h" => {
+                            show_help();
                             continue;
                         }
-
-                        let start = Instant::now();
-
-                        match evaluator.eval_string(src) {
-                            Ok(result) => {
-                                println!("{result}");
-                            }
-                            Err(error) => {
-                                eprintln!("Error: {error}");
-                            }
+                        "vars" | "\\v" => {
+                            evaluator.show_environment();
+                            continue;
                         }
-
-                        let duration = start.elapsed();
-                        println!("{}", format!("time elapsed: {duration:?}").cyan());
-                        continue;
-                    }
-                    cmd if cmd.starts_with("load ") || cmd.starts_with("\\l ") => {
-                        if let Some(fname) = parse_load_filename(cmd) {
-                            let mut loading = HashSet::new();
-                            load_script(&mut evaluator, Path::new(fname), &mut loading, false);
+                        "clear" | "\\c" => {
+                            evaluator.environment_mut().clear();
+                            println!("Variables cleared");
+                            continue;
                         }
-                        continue;
+                        "box" | "\\b" => {
+                            if box_mode::is_boxed() {
+                                println!("{}", format!("display mode is now default").cyan());
+                                box_mode::set_boxed(false)
+                            } else {
+                                println!("{}", format!("display mode is now boxed").cyan());
+                                box_mode::set_boxed(true)
+                            }
+                            continue;
+                        }
+                        "box?" => {
+                            if box_mode::is_boxed() {
+                                println!("{}", format!("display mode is now boxed").cyan());
+                            } else {
+                                println!("{}", format!("display mode is now default").cyan());
+                            }
+                            continue;
+                        }
+                        "debug" | "\\d" => {
+                            if evaluator.is_debug() {
+                                println!("{}", format!("debug mode is now off").cyan());
+                                evaluator.set_debug(false)
+                            } else {
+                                println!("{}", format!("debug mode is now on").cyan());
+                                evaluator.set_debug(true)
+                            }
+                            continue;
+                        }
+                        "debug?" => {
+                            if evaluator.is_debug() {
+                                println!("{}", format!("debug mode is on").cyan());
+                            } else {
+                                println!("{}", format!("debug mode is off").cyan());
+                            }
+                            continue;
+                        }
+                        cmd if cmd.starts_with("\\t") || cmd.starts_with("time ") => {
+                            let src = if let Some(rest) = cmd.strip_prefix("\\t") {
+                                rest.trim()
+                            } else if let Some(rest) = cmd.strip_prefix("time ") {
+                                rest.trim()
+                            } else {
+                                ""
+                            };
+
+                            if src.is_empty() {
+                                println!("{}", "expected wq code".red());
+                                continue;
+                            }
+
+                            let start = Instant::now();
+
+                            match evaluator.eval_string(src) {
+                                Ok(result) => {
+                                    println!("{result}");
+                                }
+                                Err(error) => {
+                                    eprintln!("{error}");
+                                }
+                            }
+
+                            let duration = start.elapsed();
+                            println!("{}", format!("time elapsed: {duration:?}").cyan());
+                            continue;
+                        }
+                        cmd if cmd.starts_with("load ") || cmd.starts_with("\\l ") => {
+                            if let Some(fname) = parse_load_filename(cmd) {
+                                let mut loading = HashSet::new();
+                                load_script(&mut evaluator, Path::new(fname), &mut loading, false);
+                            }
+                            continue;
+                        }
+                        "" => {
+                            // Empty line; continue
+                            continue;
+                        }
+                        _ => {}
                     }
-                    "" => {
-                        // Empty line; continue
-                        continue;
-                    }
-                    _ => {}
                 }
 
-                match evaluator.eval_string(input) {
+                buffer.push_str(input);
+                let attempt = evaluator.eval_string(buffer.trim());
+                match attempt {
                     Ok(result) => {
                         println!("{result}");
+                        buffer.clear();
+                        line_number += 1;
                     }
                     Err(error) => {
-                        eprintln!("Error: {error}");
+                        if is_eof_error(&error) {
+                            buffer.push('\n');
+                            continue;
+                        } else {
+                            eprintln!("{error}");
+                            buffer.clear();
+                            line_number += 1;
+                        }
                     }
                 }
-
-                line_number += 1;
             }
             Err(error) => {
                 eprintln!("Error reading input: {error}");
@@ -189,6 +207,10 @@ fn parse_load_filename(line: &str) -> Option<&str> {
     }
 }
 
+fn is_eof_error(err: &WqError) -> bool {
+    matches!(err, WqError::EofError(_))
+}
+
 fn resolve_load_path(base: &Path, fname: &str) -> PathBuf {
     let path = Path::new(fname);
     if path.is_absolute() {
@@ -217,6 +239,7 @@ fn load_script(
     match fs::read_to_string(path) {
         Ok(content) => {
             let parent_dir = path.parent().unwrap_or_else(|| Path::new(""));
+            let mut buffer = String::new();
 
             for line in content.lines() {
                 let line = line.trim();
@@ -224,18 +247,35 @@ fn load_script(
                     continue;
                 }
 
-                if let Some(fname) = parse_load_filename(line) {
-                    let sub_path = resolve_load_path(parent_dir, fname);
-                    load_script(evaluator, &sub_path, loading, false);
-                    continue;
+                if buffer.is_empty() {
+                    if let Some(fname) = parse_load_filename(line) {
+                        let sub_path = resolve_load_path(parent_dir, fname);
+                        load_script(evaluator, &sub_path, loading, false);
+                        continue;
+                    }
                 }
 
-                match evaluator.eval_string(line) {
-                    Ok(_) => {} // Silent execution
-                    Err(error) => {
-                        eprintln!("Error in {}: {error}", path.display());
-                        return;
+                buffer.push_str(line);
+                match evaluator.eval_string(buffer.trim()) {
+                    Ok(_) => {
+                        buffer.clear();
                     }
+                    Err(err) => {
+                        if is_eof_error(&err) {
+                            buffer.push('\n');
+                            continue;
+                        } else {
+                            eprintln!("Error in {}: {err}", path.display());
+                            return;
+                        }
+                    }
+                }
+            }
+
+            if !buffer.trim().is_empty() {
+                if let Err(err) = evaluator.eval_string(buffer.trim()) {
+                    eprintln!("Error in {}: {err}", path.display());
+                    return;
                 }
             }
 
@@ -275,31 +315,44 @@ fn execute_script(filename: &str) {
     match fs::read_to_string(filename) {
         Ok(content) => {
             let mut loading = HashSet::new();
+            let mut buffer = String::new();
             for (line_num, line) in content.lines().enumerate() {
                 let line = line.trim();
                 if line.is_empty() {
                     continue;
                 }
 
-                if let Some(fname) = parse_load_filename(line) {
-                    let base = Path::new(filename)
-                        .parent()
-                        .unwrap_or_else(|| Path::new(""));
-                    let path = resolve_load_path(base, fname);
-                    load_script(&mut evaluator, &path, &mut loading, true);
-                    continue;
+                if buffer.is_empty() {
+                    if let Some(fname) = parse_load_filename(line) {
+                        let base = Path::new(filename)
+                            .parent()
+                            .unwrap_or_else(|| Path::new(""));
+                        let path = resolve_load_path(base, fname);
+                        load_script(&mut evaluator, &path, &mut loading, true);
+                        continue;
+                    }
                 }
 
-                //print!("{}", format!("({}) ", line_num + 1).blue());
-                //io::stdout().flush().unwrap();
-
-                match evaluator.eval_string(line) {
+                buffer.push_str(line);
+                match evaluator.eval_string(buffer.trim()) {
                     Ok(_) => {
-                        //println!("{result}");
+                        buffer.clear();
                     }
-                    Err(error) => {
-                        println!("Error at script {filename} line {line_num}: \n {error}");
+                    Err(err) => {
+                        if is_eof_error(&err) {
+                            buffer.push('\n');
+                            continue;
+                        } else {
+                            println!("Error at script {filename} line {line_num}: \n {err}");
+                            buffer.clear();
+                        }
                     }
+                }
+            }
+
+            if !buffer.trim().is_empty() {
+                if let Err(err) = evaluator.eval_string(buffer.trim()) {
+                    println!("Error at script {filename}: \n {err}");
                 }
             }
         }

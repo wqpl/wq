@@ -1,4 +1,5 @@
 use crate::value::{Value, WqError, WqResult};
+use colored::Colorize;
 use rand::Rng;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -1037,7 +1038,10 @@ fn show_table(args: &[Value]) -> WqResult<Value> {
         return Ok(Value::Null);
     }
 
-    println!("failed parsing table");
+    println!(
+        "{}",
+        "failed parsing table, expected a list of dicts, a dict of lists, or a dict of dicts".red()
+    );
     Ok(Value::Null)
 }
 

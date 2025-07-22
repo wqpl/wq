@@ -141,7 +141,7 @@ impl Parser {
     }
 
     fn eof_error(&self, msg: &str) -> WqError {
-        WqError::SyntaxError(msg.to_string())
+        WqError::EofError(msg.to_string())
     }
 
     fn advance(&mut self) -> Option<&Token> {
@@ -177,6 +177,16 @@ impl Parser {
             }
         } else {
             Err(self.eof_error("Unexpected end of input"))
+        }
+    }
+
+    fn skip_newlines(&mut self) {
+        while let Some(Token {
+            token_type: TokenType::Newline,
+            ..
+        }) = self.current_token()
+        {
+            self.advance();
         }
     }
 
@@ -472,6 +482,7 @@ impl Parser {
                     }
                 }
                 TokenType::RightBracket => {
+                    // todo: currently unreachable
                     return Err(self.syntax_error(token, "Function call must end with ';]'"));
                 }
                 _ => {
@@ -650,6 +661,15 @@ impl Parser {
 
                     // Determine if this is a dictionary by looking for `symbol:` pattern
                     let mut is_dict = false;
+
+                    while let Some(Token {
+                        token_type: TokenType::Newline,
+                        ..
+                    }) = self.current_token()
+                    {
+                        self.advance();
+                    }
+
                     if let Some(Token {
                         token_type: TokenType::Symbol(_),
                         ..
@@ -665,6 +685,22 @@ impl Parser {
                     if is_dict {
                         let mut pairs = Vec::new();
                         loop {
+                            while let Some(Token {
+                                token_type: TokenType::Newline,
+                                ..
+                            }) = self.current_token()
+                            {
+                                self.advance();
+                            }
+                            if let Some(token) = self.current_token() {
+                                if token.token_type == TokenType::RightParen {
+                                    self.advance();
+                                    break;
+                                }
+                            } else {
+                                return Err(self.eof_error("Unexpected end of input in dict"));
+                            }
+
                             let key_token = self
                                 .current_token()
                                 .ok_or_else(|| self.eof_error("Unexpected end of input in dict"))?;
@@ -673,6 +709,9 @@ impl Parser {
                                     let s = s.clone();
                                     self.advance();
                                     s
+                                }
+                                TokenType::Eof => {
+                                    return Err(self.eof_error("Unexpected end of input in dict"));
                                 }
                                 _ => {
                                     return Err(
@@ -685,9 +724,14 @@ impl Parser {
                             pairs.push((key, value));
                             if let Some(token) = self.current_token() {
                                 match token.token_type {
-                                    TokenType::Semicolon => {
+                                    TokenType::Semicolon | TokenType::Newline => {
                                         self.advance();
                                         continue;
+                                    }
+                                    TokenType::Eof => {
+                                        return Err(
+                                            self.eof_error("Unexpected end of input in dict")
+                                        );
                                     }
                                     TokenType::RightParen => {
                                         self.advance();
@@ -707,13 +751,34 @@ impl Parser {
                     } else {
                         let mut elements = Vec::new();
                         loop {
+                            while let Some(Token {
+                                token_type: TokenType::Newline,
+                                ..
+                            }) = self.current_token()
+                            {
+                                self.advance();
+                            }
+                            if let Some(token) = self.current_token() {
+                                if token.token_type == TokenType::RightParen {
+                                    self.advance();
+                                    break;
+                                }
+                            } else {
+                                return Err(self.eof_error("Unexpected end of input in list"));
+                            }
+
                             let expr = self.parse_expression()?;
                             elements.push(expr);
                             if let Some(token) = self.current_token() {
                                 match token.token_type {
-                                    TokenType::Semicolon => {
+                                    TokenType::Semicolon | TokenType::Newline => {
                                         self.advance();
                                         continue;
+                                    }
+                                    TokenType::Eof => {
+                                        return Err(
+                                            self.eof_error("Unexpected end of input in list")
+                                        );
                                     }
                                     TokenType::RightParen => {
                                         self.advance();
@@ -736,7 +801,9 @@ impl Parser {
                         }
                     }
                 }
-
+                TokenType::Eof => {
+                    return Err(self.eof_error("Unexpected end of input"));
+                }
                 _ => {
                     Err(self
                         .syntax_error(token, &format!("Unexpected token: {:?}", token.token_type)))
@@ -774,6 +841,12 @@ impl Parser {
                             self.advance();
                             break;
                         }
+                        Some((TokenType::Eof, _)) => {
+                            return Err(self.eof_error("Unexpected end of input in parameter list"));
+                        }
+                        Some((TokenType::Newline, _)) => {
+                            self.advance();
+                        }
                         Some((_, tok)) => {
                             return Err(self.syntax_error(tok, "Expected identifier, ';' or ']'"));
                         }
@@ -803,13 +876,15 @@ impl Parser {
         self.advance(); // consume '$'
         self.consume(TokenType::LeftBracket)?;
 
+        self.skip_newlines();
+
         let condition = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
 
-        let true_branch = self.parse_branch_sequence(TokenType::Semicolon)?;
+        let true_branch = self.parse_branch_sequence(vec![TokenType::Semicolon])?;
         self.consume(TokenType::Semicolon)?;
 
-        let false_branch = self.parse_branch_sequence(TokenType::RightBracket)?;
+        let false_branch = self.parse_branch_sequence(vec![TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
 
         Ok(AstNode::Conditional {
@@ -820,10 +895,12 @@ impl Parser {
     }
 
     fn parse_while(&mut self) -> WqResult<AstNode> {
+        self.skip_newlines();
+
         let condition = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
 
-        let body = self.parse_branch_sequence(TokenType::RightBracket)?;
+        let body = self.parse_branch_sequence(vec![TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
 
         Ok(AstNode::WhileLoop {
@@ -833,10 +910,12 @@ impl Parser {
     }
 
     fn parse_for(&mut self) -> WqResult<AstNode> {
+        self.skip_newlines();
+
         let count_expr = self.parse_expression()?;
         self.consume(TokenType::Semicolon)?;
 
-        let body = self.parse_branch_sequence(TokenType::RightBracket)?;
+        let body = self.parse_branch_sequence(vec![TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
 
         Ok(AstNode::ForLoop {
@@ -845,44 +924,78 @@ impl Parser {
         })
     }
 
-    fn parse_branch_sequence(&mut self, end: TokenType) -> WqResult<AstNode> {
+    fn parse_branch_sequence(&mut self, ends: Vec<TokenType>) -> WqResult<AstNode> {
         let mut statements = Vec::new();
 
         loop {
+            // skip leading newlines
+            while let Some(Token {
+                token_type: TokenType::Newline,
+                ..
+            }) = self.current_token()
+            {
+                self.advance();
+            }
+
+            // if already at one of the end‐tokens, stop
             if let Some(token) = self.current_token() {
-                if std::mem::discriminant(&token.token_type) == std::mem::discriminant(&end) {
+                if ends
+                    .iter()
+                    .any(|e| std::mem::discriminant(&token.token_type) == std::mem::discriminant(e))
+                {
                     break;
                 }
             } else {
                 return Err(self.eof_error("Unexpected end of input in branch"));
             }
 
+            // parse one expression
             let expr = self.parse_expression()?;
             statements.push(expr);
 
+            // now see what follows: semicolon/newline, an end‐token, or a syntax error
             if let Some(token) = self.current_token() {
-                if token.token_type == TokenType::Semicolon {
-                    if std::mem::discriminant(&end) == std::mem::discriminant(&TokenType::Semicolon)
-                    {
+                // treat semicolon or newline specially
+                if token.token_type == TokenType::Semicolon
+                    || token.token_type == TokenType::Newline
+                {
+                    // if semicolon is itself one of the ends, break; otherwise consume and continue
+                    let sem_dis = std::mem::discriminant(&TokenType::Semicolon);
+                    if ends.iter().any(|e| std::mem::discriminant(e) == sem_dis) {
                         break;
                     } else {
                         self.advance();
                         continue;
                     }
-                } else if std::mem::discriminant(&token.token_type) == std::mem::discriminant(&end)
+                }
+                // if it’s one of end‐tokens, break
+                else if ends
+                    .iter()
+                    .any(|e| std::mem::discriminant(&token.token_type) == std::mem::discriminant(e))
                 {
                     break;
-                } else {
+                } else if ends.iter().any(|_| {
+                    std::mem::discriminant(&token.token_type)
+                        == std::mem::discriminant(&TokenType::Eof)
+                }) {
+                    return Err(self.eof_error("Unexpected end of input in branch"));
+                }
+                // otherwise it’s an error
+                else {
                     return Err(self.syntax_error(
                         token,
-                        &format!("Expected {:?} or ';', found {:?}", end, token.token_type),
+                        &format!(
+                            "Expected one of {:?} or ';', found {:?}",
+                            ends, token.token_type
+                        ),
                     ));
                 }
             } else {
-                return Err(self.eof_error("Unexpected end of input in branch"));
+                return Err(self.eof_error("Unexpected eof"));
             }
         }
 
+        // collapse single‐stmt blocks
         if statements.len() == 1 {
             Ok(statements.remove(0))
         } else {
@@ -1035,6 +1148,51 @@ mod tests {
     #[test]
     fn test_parse_for() {
         let ast = parse_string("N[3;x:1]").unwrap();
+        assert!(matches!(ast, AstNode::ForLoop { .. }));
+    }
+
+    #[test]
+    fn test_multiline_list() {
+        let ast = parse_string("(1;2;\n3;4;\n5)").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::List(vec![
+                AstNode::Literal(Value::Int(1)),
+                AstNode::Literal(Value::Int(2)),
+                AstNode::Literal(Value::Int(3)),
+                AstNode::Literal(Value::Int(4)),
+                AstNode::Literal(Value::Int(5)),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_multiline_dict() {
+        let ast = parse_string("(`a:1;\n`b:9;\n)").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::Dict(vec![
+                ("a".into(), AstNode::Literal(Value::Int(1))),
+                ("b".into(), AstNode::Literal(Value::Int(9))),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_multiline_if() {
+        let ast = parse_string("$[true;\n1;\n2]").unwrap();
+        assert!(matches!(ast, AstNode::Conditional { .. }));
+    }
+
+    #[test]
+    fn test_multiline_while() {
+        let ast = parse_string("W[true;\necho n;\n]").unwrap();
+        assert!(matches!(ast, AstNode::WhileLoop { .. }));
+    }
+
+    #[test]
+    fn test_multiline_for() {
+        let ast = parse_string("N[3;\necho n\n]").unwrap();
         assert!(matches!(ast, AstNode::ForLoop { .. }));
     }
 }
