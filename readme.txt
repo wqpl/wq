@@ -1,8 +1,8 @@
-wq 0.1.2
+wq 0.2.0
 (c) tttiw (l) mit
 cargo test
 python3 exa-t.py test
-rlwrap cargo run
+rlwrap cargo run --quiet
 
 ./doc/refcard.txt
 ./doc/hints.txt
@@ -10,7 +10,7 @@ rlwrap cargo run
 INTRO
 =====
 //basics
-    + - * / % ~ = < <= > >=
+    + - * / % ~ = < <= > >= #
     x:42
     y:(1;2;3);y[0]
     z:(`a:1;`b:3);z[`b]

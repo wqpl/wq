@@ -24,41 +24,40 @@ def check_environment():
         sys.exit(1)
 
 
-def trim_cargo_lines(output, num_lines=2):
-    """
-    Remove the first `num_lines` from the cargo output.
-    Preserves trailing newline if present.
-    """
-    lines = output.splitlines()
-    trimmed_lines = lines[num_lines:]
-    trimmed = '\n'.join(trimmed_lines)
-    if output.endswith('\n') and trimmed:
-        trimmed += '\n'
-    return trimmed
+def is_excluded(script_path):
+    try:
+        with open(script_path, 'r', encoding='utf-8') as f:
+            first_line = f.readline().lstrip()
+            return first_line.startswith('// EXCLUDE')
+    except OSError:
+        return False
 
 
 def generate_expected():
     check_environment()
     tests_dir = 'exa'
     exp_dir = os.path.join(tests_dir, 'exp')
-    try:
-        os.makedirs(exp_dir, exist_ok=True)
-    except OSError as e:
-        print(f"[ERROR] Failed to create exp directory '{exp_dir}': {e}", file=sys.stderr)
+    os.makedirs(exp_dir, exist_ok=True)
+
+    all_tests = sorted(glob.glob(os.path.join(tests_dir, '*.wq')))
+    included = []
+    for tf in all_tests:
+        if is_excluded(tf):
+            print(f"Skipping excluded file {tf}")
+        else:
+            included.append(tf)
+
+    if not included:
+        print("[ERROR] No test files to process in exa/ (*.wq)", file=sys.stderr)
         sys.exit(1)
 
-    test_files = sorted(glob.glob(os.path.join(tests_dir, '*.wq')))
-    if not test_files:
-        print("[ERROR] No test files found in exa/ (*.wq)", file=sys.stderr)
-        sys.exit(1)
-
-    for tf in test_files:
+    for tf in included:
         basename = os.path.splitext(os.path.basename(tf))[0]
         out_path = os.path.join(exp_dir, f'{basename}.exp')
         print(f"Generating expected for {tf} → {out_path}")
         try:
             completed = subprocess.run(
-                ['cargo', 'run', '--', tf],
+                ['cargo', 'run', '--quiet', '--', tf],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 encoding='utf-8',
@@ -68,11 +67,9 @@ def generate_expected():
             print("[ERROR] 'cargo' not found. Ensure Rust is installed and in your PATH.", file=sys.stderr)
             sys.exit(1)
 
-        trimmed = trim_cargo_lines(completed.stdout, num_lines=2)
-
         try:
             with open(out_path, 'w', encoding='utf-8') as f:
-                f.write(trimmed)
+                f.write(completed.stdout)
         except OSError as e:
             print(f"[ERROR] Could not write to '{out_path}': {e}", file=sys.stderr)
             sys.exit(1)
@@ -88,22 +85,29 @@ def run_tests():
         print(f"[ERROR] Expected directory '{exp_dir}' not found. Run 'gen' first.", file=sys.stderr)
         sys.exit(1)
 
-    test_files = sorted(glob.glob(os.path.join(tests_dir, '*.wq')))
-    if not test_files:
-        print("[ERROR] No test files found in exa/ (*.wq)", file=sys.stderr)
+    all_tests = sorted(glob.glob(os.path.join(tests_dir, '*.wq')))
+    included = []
+    for tf in all_tests:
+        if is_excluded(tf):
+            print(f"Skipping excluded file {tf}")
+        else:
+            included.append(tf)
+
+    if not included:
+        print("[ERROR] No test files to process in exa/ (*.wq)", file=sys.stderr)
         sys.exit(1)
 
-    total = len(test_files)
+    total = len(included)
     passed = 0
     failed = 0
 
-    for tf in test_files:
+    for tf in included:
         basename = os.path.splitext(os.path.basename(tf))[0]
         exp_path = os.path.join(exp_dir, f'{basename}.exp')
         print(f"=== Running {tf} ===")
         try:
             completed = subprocess.run(
-                ['cargo', 'run', '--', tf],
+                ['cargo', 'run', '--quiet', '--', tf],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 encoding='utf-8',
@@ -113,7 +117,7 @@ def run_tests():
             print("[ERROR] 'cargo' not found. Ensure Rust is installed and in your PATH.", file=sys.stderr)
             sys.exit(1)
 
-        trimmed = trim_cargo_lines(completed.stdout, num_lines=2)
+        actual = completed.stdout
 
         if not os.path.isfile(exp_path):
             print(f"[ERROR] Expected file '{exp_dir}/{basename}.exp' not found.", file=sys.stderr)
@@ -125,7 +129,7 @@ def run_tests():
             print(f"[ERROR] Could not read expected file '{exp_path}': {e}", file=sys.stderr)
             sys.exit(1)
 
-        if trimmed.strip() == expected.strip():
+        if actual.strip() == expected.strip():
             print("pass")
             passed += 1
         else:
@@ -133,7 +137,7 @@ def run_tests():
             print("---- Expected ----")
             print(expected.rstrip())
             print("---- Actual ------")
-            print(trimmed.rstrip())
+            print(actual.rstrip())
             failed += 1
         print()
 

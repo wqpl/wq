@@ -22,7 +22,7 @@ fn main() {
         return;
     }
 
-    println!("{}", "wq (c) tttiw (l) mit".magenta());
+    println!("{}", "wq 0.2.0 (c) tttiw (l) mit".magenta());
     println!("{}", "help | quit".green());
 
     let mut evaluator = Evaluator::new();
@@ -491,8 +491,8 @@ mod system_msg_printer {
         }
 
         match msg_type {
-            MsgType::Info    => formatted.cyan().to_string(),
-            MsgType::Error   => formatted.red().to_string(),
+            MsgType::Info => formatted.cyan().to_string(),
+            MsgType::Error => formatted.red().to_string(),
             MsgType::Success => formatted,
         }
     }
