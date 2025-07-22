@@ -69,7 +69,7 @@ fn main() {
                                     );
                                     for (key, value) in env {
                                         system_msg_printer::stdout(
-                                            format!("{}: {}", key, value),
+                                            format!("{key}: {value}"),
                                             system_msg_printer::MsgType::Info,
                                         );
                                     }
@@ -244,8 +244,7 @@ fn main() {
 
 fn show_help() {
     println!(
-        "{}",
-        r#"
+        "
         +    -    *    /    %    :    ,    #
                        assignment^   cat count
         =    ~    <    <=   >    >=
@@ -261,10 +260,10 @@ fn show_help() {
         ----------------------------------------
         int float char symbol bool list dict function
         lst:(1;2.5);lst[0] dct:(`a:1;`b:2.5);dct[`a]
-        func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3;]
+        func f:{{[x;n]t:x;N[n-1;t:t*x];t}};f[2;3;]
                                       required^
-        repl: \h   \v   \c    \l   \t   \b  \d    \q
-              help vars clear load time box debug quit"#
+        repl: \\h   \\v   \\c    \\l   \\t   \\b  \\d    \\q
+              help vars clear load time box debug quit"
     );
 }
 

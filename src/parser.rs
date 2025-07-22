@@ -816,7 +816,7 @@ impl Parser {
                     }
                 }
                 TokenType::Eof => {
-                    return Err(self.eof_error("Unexpected end of input"));
+                    Err(self.eof_error("Unexpected end of input"))
                 }
                 _ => {
                     Err(self

@@ -707,7 +707,7 @@ pub mod box_mode {
 fn repr(v: &Value) -> String {
     match v {
         Value::List(items) => {
-            let inner: Vec<String> = items.iter().map(|c| repr(c)).collect();
+            let inner: Vec<String> = items.iter().map(repr).collect();
             format!("({})", inner.join(" "))
         }
         other => other.to_string(),
@@ -729,7 +729,7 @@ fn format_boxed(rows: &[Value]) -> Option<String> {
         let lines = rows
             .iter()
             .map(|row| match row {
-                Value::Char(c) => format!("\"{}\"", c),
+                Value::Char(c) => format!("\"{c}\""),
                 other => other.to_string(),
             })
             .collect::<Vec<_>>()
@@ -748,7 +748,7 @@ fn format_boxed(rows: &[Value]) -> Option<String> {
     if has_nested {
         let lines = rows.iter().map(|row| {
             if let Value::List(cells) = row {
-                cells.iter().map(|c| repr(c)).collect::<Vec<_>>().join(" ")
+                cells.iter().map(repr).collect::<Vec<_>>().join(" ")
             } else {
                 repr(row)
             }
@@ -761,7 +761,7 @@ fn format_boxed(rows: &[Value]) -> Option<String> {
         .iter()
         .map(|row| {
             if let Value::List(cells) = row {
-                cells.iter().map(|c| repr(c)).collect()
+                cells.iter().map(repr).collect()
             } else {
                 vec![repr(row)]
             }
@@ -785,7 +785,7 @@ fn format_boxed(rows: &[Value]) -> Option<String> {
         let mut parts = Vec::with_capacity(ncols);
         for (j, &w) in widths.iter().enumerate() {
             let text = row.get(j).map(String::as_str).unwrap_or("");
-            parts.push(format!("{:<width$}", text, width = w));
+            parts.push(format!("{text:<w$}"));
         }
         lines.push(parts.join(" ").trim_end().to_string());
     }
@@ -826,13 +826,13 @@ impl fmt::Display for Value {
                             }
                         })
                         .collect();
-                    return write!(f, "\"{}\"", s);
+                    return write!(f, "\"{s}\"");
                 }
 
                 // 3. boxed mode
                 if box_mode::is_boxed() {
                     if let Some(b) = format_boxed(items) {
-                        return write!(f, "{}", b);
+                        return write!(f, "{b}");
                     }
                 }
 

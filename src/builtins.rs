@@ -1189,7 +1189,7 @@ fn print_table(headers: &[String], rows: &[Vec<String>]) {
     if !headers.is_empty() {
         table.push(headers.to_vec());
     }
-    table.extend_from_slice(&rows.to_vec());
+    table.extend_from_slice(rows);
 
     let ncols = table.iter().map(|r| r.len()).max().unwrap_or(0);
     let mut widths = vec![0usize; ncols];
@@ -1278,8 +1278,7 @@ fn exec(args: &[Value]) -> WqResult<Value> {
             .map(|c| c.to_string())
             .unwrap_or_else(|| "unknown".into());
         return Err(WqError::RuntimeError(format!(
-            "exec failed (exit {})",
-            code
+            "exec failed (exit {code})"
         )));
     }
     // decode
