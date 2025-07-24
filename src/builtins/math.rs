@@ -260,6 +260,13 @@ macro_rules! bind_math {
                         items.iter().map(|v| $name(&[v.clone()])).collect();
                     Ok(Value::List(result?))
                 }
+                Value::IntArray(arr) => {
+                    let result: WqResult<Vec<Value>> = arr
+                        .iter()
+                        .map(|&i| $name(&[Value::Int(i)]))
+                        .collect();
+                    Ok(Value::List(result?))
+                }
                 other => Err(WqError::TypeError(
                     stringify!($name).to_string()
                         + " only works on numbers or lists of numbers, got "
