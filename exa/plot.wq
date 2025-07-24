@@ -1,0 +1,9 @@
+// sin x, 1000 samples, dx=0.01
+sine: sin[(til 1000)/100;]
+
+// fx=x^2, 150 samples, dx=1
+fx:{[x]x*x}
+sqr: fx[til 150;]
+
+asciiplot sine
+asciiplot sqr
