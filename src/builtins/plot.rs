@@ -4,7 +4,7 @@ use textplots::{Chart, Plot, Shape};
 pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(WqError::FnArgCountMismatchError(
-            "asciiplot expects exactly one sequence argument".into(),
+            "asciiplot expects 1 argument (a list of numbers or a list of 2‑element numeric lists)".into(),
         ));
     }
 
@@ -42,7 +42,7 @@ pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
 
         _ => {
             return Err(WqError::TypeError(
-                "asciiplot expects a non-empty IntArray, or a List of numbers, or a List of 2‑tuples".into()
+                "asciiplot expects a list of numbers or a list of 2‑element numeric lists".into()
             ))
         }
     };

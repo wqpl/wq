@@ -11,7 +11,7 @@ abs neg signum sqrt exp ln floor ceiling
 rand sin cos tan sinh cosh tanh
 count first last reverse sum max min avg
 til range take drop where distinct sort
-cat flatten idx and or not
+cat flatten idx and or not asciiplot
 type string symbol echo showt exec ...
 ----------------------------------------
 int float char symbol bool list dict
