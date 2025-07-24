@@ -10,10 +10,12 @@ inventory:(`laptop:(`price:1200;`qty:10;`brand:"D");`mouse:(`price:25;`qty:100;`
 // lod, with nested lists
 orders:((`id:1001;`cust:"A123";`items:(`p:"Pen";`q:2),(`p:"Notebook";`q:1));(`id:1002;`cust:"B456";`items:(`p:"Pencil";`q:5)))
 
+print_sep:{echo "=========="}
+print_sep[;]
 showt employees
-echo ""
+print_sep[;]
 showt grades
-echo ""
+print_sep[;]
 showt inventory
-echo ""
+print_sep[;]
 showt orders

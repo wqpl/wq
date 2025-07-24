@@ -2,7 +2,7 @@ use colored::Colorize;
 
 use crate::builtins::Builtins;
 use crate::parser::{AstNode, BinaryOperator, UnaryOperator};
-use crate::value::{Value, WqError, WqResult};
+use crate::value::valuei::{Value, WqError, WqResult};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -355,26 +355,26 @@ impl Evaluator {
                     if self.call_stack.current_frame().is_some() {
                         let old = {
                             let frame = self.call_stack.current_frame_mut().unwrap();
-                            frame.variables.insert("n".to_string(), Value::Int(i))
+                            frame.variables.insert("_n".to_string(), Value::Int(i))
                         };
                         result = self.eval(body)?;
                         if let Some(frame) = self.call_stack.current_frame_mut() {
                             if let Some(v) = old {
-                                frame.variables.insert("n".to_string(), v);
+                                frame.variables.insert("_n".to_string(), v);
                             } else {
-                                frame.variables.remove("n");
+                                frame.variables.remove("_n");
                             }
                         }
                     } else {
                         let old = self
                             .environment
                             .variables
-                            .insert("n".to_string(), Value::Int(i));
+                            .insert("_n".to_string(), Value::Int(i));
                         result = self.eval(body)?;
                         if let Some(v) = old {
-                            self.environment.variables.insert("n".to_string(), v);
+                            self.environment.variables.insert("_n".to_string(), v);
                         } else {
-                            self.environment.variables.remove("n");
+                            self.environment.variables.remove("_n");
                         }
                     }
                 }
@@ -823,8 +823,33 @@ mod tests {
     #[test]
     fn test_for_loop() {
         let mut evaluator = Evaluator::new();
-        let result = evaluator.eval_string("sum:0;N[3;sum:sum+n;];sum").unwrap();
+        let result = evaluator.eval_string("sum:0;N[3;sum:sum+_n;];sum").unwrap();
         assert_eq!(result, Value::Int(3));
+    }
+
+    #[test]
+    fn test_intarray_list_builtins() {
+        let mut evaluator = Evaluator::new();
+
+        assert_eq!(evaluator.eval_string("first til 5").unwrap(), Value::Int(0));
+        assert_eq!(evaluator.eval_string("last til 4").unwrap(), Value::Int(3));
+
+        assert_eq!(
+            evaluator.eval_string("reverse til 3").unwrap(),
+            Value::List(vec![Value::Int(2), Value::Int(1), Value::Int(0)])
+        );
+
+        assert_eq!(
+            evaluator.eval_string("take[2;til 5;]").unwrap(),
+            Value::List(vec![Value::Int(0), Value::Int(1)])
+        );
+
+        assert_eq!(
+            evaluator.eval_string("drop[3;til 5;]").unwrap(),
+            Value::List(vec![Value::Int(3), Value::Int(4)])
+        );
+
+        assert_eq!(evaluator.eval_string("sum til 4").unwrap(), Value::Int(6));
     }
 
     #[test]
@@ -832,5 +857,31 @@ mod tests {
         let mut evaluator = Evaluator::new();
         let result = evaluator.eval_string("echo 1").unwrap();
         assert_eq!(result, Value::Null);
+    }
+
+    #[test]
+    fn test_intarray_modulo() {
+        let mut evaluator = Evaluator::new();
+
+        assert_eq!(
+            evaluator.eval_string("til 5 % 2").unwrap(),
+            Value::List(vec![
+                Value::Int(0),
+                Value::Int(1),
+                Value::Int(0),
+                Value::Int(1),
+                Value::Int(0),
+            ])
+        );
+
+        assert_eq!(
+            evaluator.eval_string("5 % til 3").unwrap(),
+            Value::List(vec![Value::Int(0), Value::Int(0), Value::Int(1)])
+        );
+
+        assert_eq!(
+            evaluator.eval_string("til 3 % til 2").unwrap(),
+            Value::List(vec![Value::Int(0), Value::Int(0), Value::Int(0)])
+        );
     }
 }

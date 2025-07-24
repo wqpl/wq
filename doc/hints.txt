@@ -31,13 +31,7 @@
         {do1;do2;do3}()         // invokes an
         {do1;do2;do3}[;]        // anonymous function.
 
-(3) scoping
-    currently, assignments inside function bodies create new bindings,
-    overshadowing any bindings with the same name in the outer scope.
-
-    as a result, you cannot modify a variable from the outer scope within a function body.
-
-(4) semicolons
+(3) semicolons
     function calls require a semicolon at the end of the arg list,
     whereas indexing requires that there is no trailing semicolon. e.g.,
         fn[1;2;]
@@ -48,7 +42,7 @@
         fn:{[m;n]...}
         fn:{[m;n;]...}
 
-(5) newlines
+(4) newlines
     newlines are generally accepted and can act as semicolons in most contexts.
 
     valid examples:

@@ -1,5 +1,5 @@
 use crate::lexer::{Token, TokenType};
-use crate::value::{Value, WqError, WqResult};
+use crate::value::valuei::{Value, WqError, WqResult};
 
 /// ast nodes
 #[derive(Debug, Clone, PartialEq)]
@@ -181,12 +181,13 @@ impl Parser {
     }
 
     fn skip_newlines(&mut self) {
-        while let Some(Token {
-            token_type: TokenType::Newline,
-            ..
-        }) = self.current_token()
-        {
-            self.advance();
+        while let Some(token) = self.current_token() {
+            match token.token_type {
+                TokenType::Newline | TokenType::Comment(_) => {
+                    self.advance();
+                }
+                _ => break,
+            }
         }
     }
 
@@ -265,7 +266,7 @@ impl Parser {
         while let Some(token) = self.current_token() {
             match token.token_type {
                 TokenType::RightBrace => break,
-                TokenType::Semicolon | TokenType::Newline => {
+                TokenType::Semicolon | TokenType::Newline | TokenType::Comment(_) => {
                     self.advance();
                     continue;
                 }
@@ -541,12 +542,7 @@ impl Parser {
     fn parse_postfix(&mut self) -> WqResult<AstNode> {
         let mut expr = self.parse_primary()?;
 
-        loop {
-            let next = match self.current_token() {
-                Some(t) => t.clone(),
-                None => break,
-            };
-
+        while let Some(next) = self.current_token() {
             match next.token_type {
                 TokenType::LeftBracket => {
                     if self.has_trailing_semicolon() {
@@ -815,9 +811,8 @@ impl Parser {
                         }
                     }
                 }
-                TokenType::Eof => {
-                    Err(self.eof_error("Unexpected end of input"))
-                }
+
+                TokenType::Eof => Err(self.eof_error("Unexpected end of input")),
                 _ => {
                     Err(self
                         .syntax_error(token, &format!("Unexpected token: {:?}", token.token_type)))
@@ -961,13 +956,14 @@ impl Parser {
         let mut statements = Vec::new();
 
         loop {
-            // skip leading newlines
-            while let Some(Token {
-                token_type: TokenType::Newline,
-                ..
-            }) = self.current_token()
-            {
-                self.advance();
+            // skip leading newlines or comments
+            while let Some(token) = self.current_token() {
+                match token.token_type {
+                    TokenType::Newline | TokenType::Comment(_) => {
+                        self.advance();
+                    }
+                    _ => break,
+                }
             }
 
             // if already at one of the end‐tokens, stop
@@ -988,9 +984,8 @@ impl Parser {
 
             // now see what follows: semicolon/newline, an end‐token, or a syntax error
             if let Some(token) = self.current_token() {
-                // treat semicolon or newline specially
-                if token.token_type == TokenType::Semicolon
-                    || token.token_type == TokenType::Newline
+                // treat semicolon, newline, or comment specially
+                if matches!(token.token_type, TokenType::Semicolon | TokenType::Newline | TokenType::Comment(_))
                 {
                     // if semicolon is itself one of the ends, break; otherwise consume and continue
                     let sem_dis = std::mem::discriminant(&TokenType::Semicolon);
@@ -1227,5 +1222,14 @@ mod tests {
     fn test_multiline_for() {
         let ast = parse_string("N[3;\necho n\n]").unwrap();
         assert!(matches!(ast, AstNode::ForLoop { .. }));
+    }
+
+    #[test]
+    fn test_comments_in_bodies() {
+        // comment inside function
+        assert!(parse_string("{1; //c\n2}").is_ok());
+        // comment inside loop and conditional
+        assert!(parse_string("N[2;1;//c\n]").is_ok());
+        assert!(parse_string("$[true;1;//c\n2]").is_ok());
     }
 }

@@ -1,5 +1,15 @@
 load ../lib/str.wq
 
-cowsay:{[msg]width:len msg;border:repeat["-";width+2;];echo cat[" ";border;];echo ("< ",string msg," >");echo cat[" ";border;];echo "        \\   ^__^";echo "         \\  (oo)\\_______";echo "             (__)\\       )\\/\\";echo "                 ||----w |";echo "                 ||     ||";}
+cowsay: {[msg]
+  border: repeat["-";#msg + 2;]
+  echo cat[" ";border;]
+  echo ("< ",string msg," >")
+  echo cat[" ";border;]
+  echo "        \\   ^__^"
+  echo "         \\  (oo)\\_______"
+  echo "             (__)\\       )\\/\\"
+  echo "                 ||-----w-|"
+  echo "                 ||      ||"
+}
 
-cowsay "Hello, world!"
+cowsay "moooving on!"

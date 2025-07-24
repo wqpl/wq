@@ -1,19 +1,26 @@
+          wq by tttiw - refcard
+see also: wq -h
+----------------------------------------
 +    -    *    /    %    :    ,    #
                assignment^   cat count
 =    ~    <    <=   >    >=
 eq  neq
 $[cond;tb;fb]       $.[cond;tb1;tb2;...]
-W[cond;b1]          N[n;b1]
+W[cond;b1]          N[n;b1;echo _n]
 abs neg signum sqrt exp ln floor ceiling
-count first last reverse sum max min avg
 rand sin cos tan sinh cosh tanh
+count first last reverse sum max min avg
 til range take drop where distinct sort
-cat flatten and or not xor
-type string symbol echo showt exec
+cat flatten idx and or not
+type string symbol echo showt exec ...
 ----------------------------------------
-int float char symbol bool list dict function
-lst:(1;2.5);lst[0] dct:(`a:1;`b:2.5);dct[`a]
+int float char symbol bool list dict
+function stream
+lst:(1;2);lst[0] dct:(`a:1;`b:2);dct[`a]
 func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3;]
                               required^
-repl: \h   \v   \c    \l   \t   \b  \d    \q
-      help vars clear load time box debug quit
+----------------------------------------
+repl: \h   \v   \c    \l   \t
+      help vars clear load time
+      \b  \d    \q
+      box debug quit

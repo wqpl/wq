@@ -1,12 +1,10 @@
 todo
 ====
+matrix operations
+csv
 
-0.2.0:
-  matrix operations
-  maybe: multiline support
-
-DRAFTS
-======
+maybe??
+=======
 builtin data types: date, time??
 
 sql??

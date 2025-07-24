@@ -1,50 +1,119 @@
 use wq::evaluator::Evaluator;
+use wq::repl::ReplEngine;
+use wq::tools::formatter::{FormatOptions, Formatter};
+use wq::vm::{self, VmEvaluator};
 
+use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 use std::env;
 use std::fs;
-use std::io::{self, Write};
 use std::time::Instant;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use wq::value::WqError;
 use wq::value::box_mode;
+use wq::value::valuei::WqError;
 
 use colored::Colorize;
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
+use crate::load_resolver::{load_script, parse_load_filename, resolve_load_path};
 
-    // Handle command line script execution
-    if args.len() > 1 {
-        execute_script(&args[1]);
+fn main() {
+    let args = env::args().skip(1);
+
+    let mut use_bcvm = true;
+    let mut debug_mode = false;
+
+    let mut file: Option<String> = None;
+    let mut format_file: Option<String> = None;
+    let mut iter = args.peekable();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--help" | "-h" => {
+                println!(
+                    "{}",
+                    create_boxed_text(
+                        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/doc/usage.txt")),
+                        2,
+                    )
+                );
+                return;
+            }
+            "--version" | "-v" => {
+                println!("wq {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
+            "--tree-walker" | "-t" => use_bcvm = false,
+            "--format" | "-f" => {
+                if let Some(p) = iter.next() {
+                    format_file = Some(p);
+                } else {
+                    eprintln!("usage: wq -f <script>");
+                    std::process::exit(1);
+                }
+            }
+            "--debug" | "-d" => debug_mode = true,
+            _ => {
+                if file.is_none() {
+                    file = Some(arg);
+                } else {
+                    eprintln!("Unexpected argument: {arg}");
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+
+    // Handle formatting request
+    if let Some(file) = format_file {
+        format_script_print(&file);
         return;
     }
 
-    println!("{}", "wq 0.2.0 (c) tttiw (l) mit".magenta());
-    println!("{}", "help | quit".green());
+    // Handle command line script execution
+    if let Some(file) = file {
+        if use_bcvm {
+            vm::vm_exec_script(&file, debug_mode);
+        } else {
+            execute_script(&file);
+        }
+        return;
+    }
 
-    let mut evaluator = Evaluator::new();
+    println!(
+        "{} {}",
+        format!("wq {} (c) tttiw (l) mit", env!("CARGO_PKG_VERSION")).magenta(),
+        "help | quit".green()
+    );
+
+    let mut evaluator: Box<dyn ReplEngine> = if use_bcvm {
+        Box::new(VmEvaluator::new())
+    } else {
+        Box::new(Evaluator::new())
+    };
+    evaluator.set_debug(debug_mode);
+    let mut rl = DefaultEditor::new().unwrap();
     let mut line_number = 1;
     let mut buffer = String::new();
 
     loop {
-        // Print prompt
-        if buffer.is_empty() {
-            print!("{} {} ", line_number.to_string().blue(), "wq$".magenta());
+        // Prompt construction
+        let prompt = if buffer.is_empty() {
+            format!("{} {} ", line_number.to_string().blue(), "wq$".magenta())
         } else {
             let indent = " ".repeat(line_number.to_string().len());
-            print!("{} {} ", indent, "...".magenta());
-        }
-        io::stdout().flush().unwrap();
+            format!("{} {} ", indent, "...".magenta())
+        };
 
         // Read input
-        let mut input = String::new();
-        match io::stdin().read_line(&mut input) {
-            Ok(0) => break, // EOF
-            Ok(_) => {
-                let input = input.trim_end();
+        let readline = rl.readline(&prompt);
+        match readline {
+            Ok(line) => {
+                let input = line.trim_end();
+                if !input.is_empty() {
+                    rl.add_history_entry(input).unwrap();
+                }
 
                 // Handle repl commands only if buffer is empty
                 if buffer.is_empty() {
@@ -57,7 +126,16 @@ fn main() {
                             break;
                         }
                         "help" | "\\h" => {
-                            show_help();
+                            println!(
+                                "{}",
+                                create_boxed_text(
+                                    include_str!(concat!(
+                                        env!("CARGO_MANIFEST_DIR"),
+                                        "/doc/refcard.txt"
+                                    )),
+                                    2,
+                                )
+                            );
                             continue;
                         }
                         "vars" | "\\v" => {
@@ -82,7 +160,7 @@ fn main() {
                             continue;
                         }
                         "clear" | "\\c" => {
-                            evaluator.environment_mut().clear();
+                            evaluator.clear_environment();
                             system_msg_printer::stdout(
                                 "user-defined bindings cleared".to_string(),
                                 system_msg_printer::MsgType::Info,
@@ -193,7 +271,7 @@ fn main() {
                         cmd if cmd.starts_with("load ") || cmd.starts_with("\\l ") => {
                             if let Some(fname) = parse_load_filename(cmd) {
                                 let mut loading = HashSet::new();
-                                load_script(&mut evaluator, Path::new(fname), &mut loading, false);
+                                load_script(&mut *evaluator, Path::new(fname), &mut loading, false);
                             }
                             continue;
                         }
@@ -217,7 +295,7 @@ fn main() {
                         line_number += 1;
                     }
                     Err(error) => {
-                        if is_eof_error(&error) {
+                        if matches!(&error, WqError::EofError(_)) {
                             buffer.push('\n');
                             continue;
                         } else {
@@ -231,6 +309,9 @@ fn main() {
                     }
                 }
             }
+            Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => {
+                break;
+            }
             Err(error) => {
                 system_msg_printer::stderr(
                     format!("Error reading input: {error}"),
@@ -240,165 +321,6 @@ fn main() {
             }
         }
     }
-}
-
-fn show_help() {
-    println!(
-        "
-        +    -    *    /    %    :    ,    #
-                       assignment^   cat count
-        =    ~    <    <=   >    >=
-        eq  neq
-        $[cond;tb;fb]       $.[cond;tb1;tb2;...]
-        W[cond;b1]          N[n;b1]
-        abs neg signum sqrt exp ln floor ceiling
-        count first last reverse sum max min avg
-        rand sin cos tan sinh cosh tanh
-        til range take drop where distinct sort
-        cat flatten and or not xor
-        type string symbol echo showt exec
-        ----------------------------------------
-        int float char symbol bool list dict function
-        lst:(1;2.5);lst[0] dct:(`a:1;`b:2.5);dct[`a]
-        func f:{{[x;n]t:x;N[n-1;t:t*x];t}};f[2;3;]
-                                      required^
-        repl: \\h   \\v   \\c    \\l   \\t   \\b  \\d    \\q
-              help vars clear load time box debug quit"
-    );
-}
-
-fn parse_load_filename(line: &str) -> Option<&str> {
-    let trimmed = line.trim_start();
-    if let Some(rest) = trimmed.strip_prefix("load ") {
-        Some(rest.trim())
-    } else if let Some(rest) = trimmed.strip_prefix("\\l ") {
-        Some(rest.trim())
-    } else {
-        None
-    }
-}
-
-fn is_eof_error(err: &WqError) -> bool {
-    matches!(err, WqError::EofError(_))
-}
-
-fn resolve_load_path(base: &Path, fname: &str) -> PathBuf {
-    let path = Path::new(fname);
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        base.join(path)
-    }
-}
-
-fn load_script(
-    evaluator: &mut Evaluator,
-    path: &Path,
-    loading: &mut HashSet<PathBuf>,
-    silent: bool,
-) {
-    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    if loading.contains(&canonical) {
-        system_msg_printer::stderr(
-            format!("Cannot load {}: cycling", canonical.display()),
-            system_msg_printer::MsgType::Error,
-        );
-        return;
-    }
-    loading.insert(canonical.clone());
-
-    // record variables before loading
-    let vars_before = evaluator.environment().variables().clone();
-
-    match fs::read_to_string(path) {
-        Ok(content) => {
-            let parent_dir = path.parent().unwrap_or_else(|| Path::new(""));
-            let mut buffer = String::new();
-
-            for line in content.lines() {
-                let line = line.trim();
-                if line.is_empty() || line.starts_with("//") {
-                    continue;
-                }
-
-                if buffer.is_empty() {
-                    if let Some(fname) = parse_load_filename(line) {
-                        let sub_path = resolve_load_path(parent_dir, fname);
-                        load_script(evaluator, &sub_path, loading, false);
-                        continue;
-                    }
-                }
-
-                buffer.push_str(line);
-                match evaluator.eval_string(buffer.trim()) {
-                    Ok(_) => {
-                        buffer.clear();
-                    }
-                    Err(err) => {
-                        if is_eof_error(&err) {
-                            buffer.push('\n');
-                            continue;
-                        } else {
-                            system_msg_printer::stderr(
-                                format!("Error in {}: {err}", path.display()),
-                                system_msg_printer::MsgType::Error,
-                            );
-                            return;
-                        }
-                    }
-                }
-            }
-
-            if !buffer.trim().is_empty() {
-                if let Err(err) = evaluator.eval_string(buffer.trim()) {
-                    system_msg_printer::stderr(
-                        format!("Error in {}: {err}", path.display()),
-                        system_msg_printer::MsgType::Error,
-                    );
-                    return;
-                }
-            }
-
-            // Show newly introduced bindings
-            // fixme: overridden bindings are not shown properly
-            if !silent {
-                let vars_after = evaluator.environment().variables();
-                let mut new_bindings = Vec::new();
-
-                for (name, value) in vars_after {
-                    if !vars_before.contains_key(name) {
-                        new_bindings.push((name, value));
-                    }
-                }
-
-                if new_bindings.is_empty() {
-                    system_msg_printer::stderr(
-                        format!("no new bindings from {}", path.display()),
-                        system_msg_printer::MsgType::Info,
-                    );
-                } else {
-                    new_bindings.sort_by_key(|(n, _)| (*n).clone());
-                    system_msg_printer::stderr(
-                        format!("new bindings from {}:", path.display()),
-                        system_msg_printer::MsgType::Info,
-                    );
-                    for (name, value) in new_bindings {
-                        system_msg_printer::stderr(
-                            format!("  {name} = {value}"),
-                            system_msg_printer::MsgType::Info,
-                        );
-                    }
-                }
-            }
-        }
-        Err(error) => {
-            system_msg_printer::stderr(
-                format!("Cannot load {}: {error}", path.display()),
-                system_msg_printer::MsgType::Error,
-            );
-        }
-    }
-    loading.remove(&canonical);
 }
 
 fn execute_script(filename: &str) {
@@ -431,7 +353,7 @@ fn execute_script(filename: &str) {
                         buffer.clear();
                     }
                     Err(err) => {
-                        if is_eof_error(&err) {
+                        if matches!(&err, WqError::EofError(_)) {
                             buffer.push('\n');
                             continue;
                         } else {
@@ -461,6 +383,186 @@ fn execute_script(filename: &str) {
             );
             std::process::exit(1);
         }
+    }
+}
+
+fn format_script_print(filename: &str) {
+    match fs::read_to_string(filename) {
+        Ok(content) => {
+            let fmt = Formatter::new(FormatOptions::default());
+            match fmt.format_script(&content) {
+                Ok(out) => println!("{}", out),
+                Err(err) => {
+                    eprintln!("{err}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(err) => {
+            eprintln!("Cannot read {filename}: {err}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn create_boxed_text(text: &str, padding: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let max_len = lines.iter().map(|line| line.len()).max().unwrap_or(0);
+    let total_width = max_len + padding * 2;
+
+    let top_border = format!("+{}+", "-".repeat(total_width));
+    let bottom_border = top_border.clone();
+
+    let mut result = String::new();
+    result.push_str(&top_border);
+    result.push('\n');
+
+    for line in lines {
+        let spaces = max_len - line.len();
+        result.push_str(&format!(
+            "|{}{}{}|\n",
+            " ".repeat(padding),
+            line,
+            " ".repeat(padding + spaces)
+        ));
+    }
+
+    result.push_str(&bottom_border);
+    result
+}
+
+mod load_resolver {
+
+    use super::*;
+
+    pub fn parse_load_filename(line: &str) -> Option<&str> {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("load ") {
+            Some(rest.trim())
+        } else if let Some(rest) = trimmed.strip_prefix("\\l ") {
+            Some(rest.trim())
+        } else {
+            None
+        }
+    }
+
+    pub fn resolve_load_path(base: &Path, fname: &str) -> PathBuf {
+        let path = Path::new(fname);
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            base.join(path)
+        }
+    }
+
+    pub fn load_script(
+        evaluator: &mut dyn ReplEngine,
+        path: &Path,
+        loading: &mut HashSet<PathBuf>,
+        silent: bool,
+    ) {
+        let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        if loading.contains(&canonical) {
+            system_msg_printer::stderr(
+                format!("Cannot load {}: cycling", canonical.display()),
+                system_msg_printer::MsgType::Error,
+            );
+            return;
+        }
+        loading.insert(canonical.clone());
+
+        // record variables before loading
+        let vars_before = evaluator.env_vars().clone();
+
+        match fs::read_to_string(path) {
+            Ok(content) => {
+                let parent_dir = path.parent().unwrap_or_else(|| Path::new(""));
+                let mut buffer = String::new();
+
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with("//") {
+                        continue;
+                    }
+
+                    if buffer.is_empty() {
+                        if let Some(fname) = parse_load_filename(line) {
+                            let sub_path = resolve_load_path(parent_dir, fname);
+                            load_script(evaluator, &sub_path, loading, false);
+                            continue;
+                        }
+                    }
+
+                    buffer.push_str(line);
+                    match evaluator.eval_string(buffer.trim()) {
+                        Ok(_) => {
+                            buffer.clear();
+                        }
+                        Err(err) => {
+                            if matches!(&err, WqError::EofError(_)) {
+                                buffer.push('\n');
+                                continue;
+                            } else {
+                                system_msg_printer::stderr(
+                                    format!("Error in {}: {err}", path.display()),
+                                    system_msg_printer::MsgType::Error,
+                                );
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                if !buffer.trim().is_empty() {
+                    if let Err(err) = evaluator.eval_string(buffer.trim()) {
+                        system_msg_printer::stderr(
+                            format!("Error in {}: {err}", path.display()),
+                            system_msg_printer::MsgType::Error,
+                        );
+                        return;
+                    }
+                }
+
+                // Show newly introduced bindings
+                // fixme: overridden bindings are not shown properly
+                if !silent {
+                    let vars_after = evaluator.env_vars();
+                    let mut new_bindings = Vec::new();
+
+                    for (name, value) in vars_after {
+                        if !vars_before.contains_key(name) {
+                            new_bindings.push((name, value));
+                        }
+                    }
+
+                    if new_bindings.is_empty() {
+                        system_msg_printer::stderr(
+                            format!("no new bindings from {}", path.display()),
+                            system_msg_printer::MsgType::Info,
+                        );
+                    } else {
+                        new_bindings.sort_by_key(|(n, _)| (*n).clone());
+                        system_msg_printer::stderr(
+                            format!("new bindings from {}:", path.display()),
+                            system_msg_printer::MsgType::Info,
+                        );
+                        for (name, value) in new_bindings {
+                            system_msg_printer::stderr(
+                                format!("  {name} = {value}"),
+                                system_msg_printer::MsgType::Info,
+                            );
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                system_msg_printer::stderr(
+                    format!("Cannot load {}: {error}", path.display()),
+                    system_msg_printer::MsgType::Error,
+                );
+            }
+        }
+        loading.remove(&canonical);
     }
 }
 

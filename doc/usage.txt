@@ -1,0 +1,12 @@
+usage:
+  wq                             repl
+  wq <script>                    exec
+  wq [-f|--format] <script>      formatter - experimental
+
+options:
+  -d, --debug                    debug mode
+  -t, --tree-walker              legacy tree-walker interpreter
+  -h, --help                     show this help message
+  -v, --version                  show version
+
+see also: echo '\h' | wq

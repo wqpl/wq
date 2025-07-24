@@ -1,2 +1,4 @@
+// EXCLUDE
 A:1664525;C:1013904223;M:4294967296;
-rng:{seed:42;out:();N[x;seed:(A*seed+C)%M;out:out,seed];out;}
+lcg:{seed:42;out:();N[x;seed:(A*seed+C)%M;out:out,seed];out;}
+echo lcg 4

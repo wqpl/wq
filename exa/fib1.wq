@@ -1,8 +1,0 @@
-// do:
-// rlwrap cargo run
-// 1 wq $ load ./exa/fib1.wq
-// 2 wq $ fib 10
-
-fibtr:{[n;a;b]$[n=0;a;fibtr[n-1;b;a+b;]]}
-fib:{fibtr[x;0;1;]}
-echo fib 30
