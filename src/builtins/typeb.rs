@@ -39,7 +39,11 @@ pub fn to_symbol(args: &[Value]) -> WqResult<Value> {
         _ => return Err(WqError::TypeError("symbol expects a string".to_string())),
     };
 
-    if name.is_empty() || !name.chars().all(|ch| ch.is_alphanumeric() || ch == '_') {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|ch| ch.is_alphanumeric() || ch == '_' || ch == '?')
+    {
         return Err(WqError::DomainError(format!("invalid symbol name: {name}")));
     }
 
@@ -61,5 +65,29 @@ pub fn to_string(args: &[Value]) -> WqResult<Value> {
             let chars: Vec<Value> = s.chars().map(Value::Char).collect();
             Ok(Value::List(chars))
         }
+    }
+}
+
+pub fn is_null(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(WqError::FnArgCountMismatchError(
+            "isnull expects 1 argument".to_string(),
+        ));
+    }
+    match args[0] {
+        Value::Null => Ok(Value::Bool(true)),
+        _ => Ok(Value::Bool(false)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn symbol_accepts_question_mark() {
+        let val = Value::List("a?".chars().map(Value::Char).collect());
+        let result = to_symbol(&[val]).unwrap();
+        assert_eq!(result, Value::symbol("a?".to_string()));
     }
 }

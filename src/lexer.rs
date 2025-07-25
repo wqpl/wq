@@ -174,7 +174,7 @@ impl<'a> Lexer<'a> {
         let mut identifier = String::new();
 
         while let Some(ch) = self.current_char {
-            if ch.is_alphanumeric() || ch == '_' {
+            if ch.is_alphanumeric() || ch == '_' || ch == '?' {
                 identifier.push(ch);
                 self.advance();
             } else {
@@ -571,5 +571,16 @@ mod tests {
         assert_eq!(tokens[4].token_type, TokenType::Integer(2));
         assert_eq!(tokens[5].token_type, TokenType::Multiply);
         assert_eq!(tokens[6].token_type, TokenType::Integer(3));
+    }
+
+    #[test]
+    fn test_identifier_with_question_mark() {
+        let mut lexer = Lexer::new("a?:1 a? a???");
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0].token_type, TokenType::Identifier("a?".to_string()));
+        assert_eq!(tokens[1].token_type, TokenType::Colon);
+        assert_eq!(tokens[2].token_type, TokenType::Integer(1));
+        assert_eq!(tokens[3].token_type, TokenType::Identifier("a?".to_string()));
+        assert_eq!(tokens[4].token_type, TokenType::Identifier("a???".to_string()));
     }
 }

@@ -86,6 +86,7 @@ impl Builtins {
         self.add("type", typeb::type_of);
         self.add("symbol", typeb::to_symbol);
         self.add("string", typeb::to_string);
+        self.add("null?", typeb::is_null);
 
         self.add("keys", dict::keys);
 
@@ -164,7 +165,7 @@ fn values_to_strings(args: &[Value]) -> WqResult<Vec<String>> {
             Value::Symbol(s) => Ok(s.clone()),
             Value::Char(ch) => Ok(ch.to_string()),
             other => Err(WqError::TypeError(format!(
-                "exec only accepts string args, got {}",
+                "string args expected, got {}",
                 other.type_name()
             ))),
         })

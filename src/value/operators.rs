@@ -862,6 +862,7 @@ impl Value {
             (Value::Bool(x), Value::Bool(y)) => Some(x.cmp(y)),
             (Value::Char(x), Value::Char(y)) => Some(x.cmp(y)),
             (Value::List(a), Value::List(b)) => Value::compare_lists(a, b),
+            (Value::Null, Value::Null) => Some(std::cmp::Ordering::Equal),
             _ => None,
         }
     }
