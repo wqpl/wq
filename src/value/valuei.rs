@@ -24,6 +24,19 @@ impl fmt::Debug for StreamHandle {
 unsafe impl Send for StreamHandle {}
 unsafe impl Sync for StreamHandle {}
 
+impl Drop for StreamHandle {
+    fn drop(&mut self) {
+        self.reader = None;
+        self.writer = None;
+
+        // terminate spawned child processes if any
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 pub type WqResult<T> = Result<T, WqError>;
 
 #[derive(Debug, Clone)]
