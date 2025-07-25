@@ -51,7 +51,7 @@ impl FastPath {
                         },
                         UnaryOperator::Count => match v {
                             Value::List(l) => Value::Int(l.len() as i64),
-                            Value::IntArray(a) => Value::Int(a.len() as i64),
+                            Value::IntList(a) => Value::Int(a.len() as i64),
                             _ => return None,
                         },
                     };

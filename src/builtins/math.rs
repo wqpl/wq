@@ -162,7 +162,7 @@ pub fn floor(args: &[Value]) -> WqResult<Value> {
     match &args[0] {
         Value::Int(n) => Ok(Value::Int(*n)),
         Value::Float(f) => Ok(Value::Int(f.floor() as i64)),
-        Value::IntArray(items) => Ok(Value::IntArray(items.clone())),
+        Value::IntList(items) => Ok(Value::IntList(items.clone())),
         Value::List(items) => {
             let result: WqResult<Vec<Value>> = items.iter().map(|v| floor(&[v.clone()])).collect();
             Ok(Value::List(result?))
@@ -260,11 +260,9 @@ macro_rules! bind_math {
                         items.iter().map(|v| $name(&[v.clone()])).collect();
                     Ok(Value::List(result?))
                 }
-                Value::IntArray(arr) => {
-                    let result: WqResult<Vec<Value>> = arr
-                        .iter()
-                        .map(|&i| $name(&[Value::Int(i)]))
-                        .collect();
+                Value::IntList(arr) => {
+                    let result: WqResult<Vec<Value>> =
+                        arr.iter().map(|&i| $name(&[Value::Int(i)])).collect();
                     Ok(Value::List(result?))
                 }
                 other => Err(WqError::TypeError(

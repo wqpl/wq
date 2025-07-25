@@ -7,22 +7,22 @@ impl Value {
             (Value::Float(a), Value::Float(b)) => Some(Value::Float(a + b)),
             (Value::Int(a), Value::Float(b)) => Some(Value::Float(*a as f64 + b)),
             (Value::Float(a), Value::Int(b)) => Some(Value::Float(a + *b as f64)),
-            (Value::IntArray(vec), Value::Int(b)) => {
-                Some(Value::IntArray(vec.iter().map(|x| x + b).collect()))
+            (Value::IntList(vec), Value::Int(b)) => {
+                Some(Value::IntList(vec.iter().map(|x| x + b).collect()))
             }
-            (Value::Int(a), Value::IntArray(vec)) => {
-                Some(Value::IntArray(vec.iter().map(|x| a + x).collect()))
+            (Value::Int(a), Value::IntList(vec)) => {
+                Some(Value::IntList(vec.iter().map(|x| a + x).collect()))
             }
-            (Value::IntArray(a), Value::IntArray(b)) => {
+            (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         a.iter().zip(b.iter()).map(|(x, y)| x + y).collect(),
                     ))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         (0..max_len)
                             .map(|i| a[i % a.len()] + b[i % b.len()])
                             .collect(),
@@ -76,22 +76,22 @@ impl Value {
             (Value::Float(a), Value::Float(b)) => Some(Value::Float(a - b)),
             (Value::Int(a), Value::Float(b)) => Some(Value::Float(*a as f64 - b)),
             (Value::Float(a), Value::Int(b)) => Some(Value::Float(a - *b as f64)),
-            (Value::IntArray(vec), Value::Int(b)) => {
-                Some(Value::IntArray(vec.iter().map(|x| x - b).collect()))
+            (Value::IntList(vec), Value::Int(b)) => {
+                Some(Value::IntList(vec.iter().map(|x| x - b).collect()))
             }
-            (Value::Int(a), Value::IntArray(vec)) => {
-                Some(Value::IntArray(vec.iter().map(|x| a - x).collect()))
+            (Value::Int(a), Value::IntList(vec)) => {
+                Some(Value::IntList(vec.iter().map(|x| a - x).collect()))
             }
-            (Value::IntArray(a), Value::IntArray(b)) => {
+            (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         a.iter().zip(b.iter()).map(|(x, y)| x - y).collect(),
                     ))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         (0..max_len)
                             .map(|i| a[i % a.len()] - b[i % b.len()])
                             .collect(),
@@ -138,22 +138,22 @@ impl Value {
             (Value::Float(a), Value::Float(b)) => Some(Value::Float(a * b)),
             (Value::Int(a), Value::Float(b)) => Some(Value::Float(*a as f64 * b)),
             (Value::Float(a), Value::Int(b)) => Some(Value::Float(a * *b as f64)),
-            (Value::IntArray(vec), Value::Int(b)) => {
-                Some(Value::IntArray(vec.iter().map(|x| x * b).collect()))
+            (Value::IntList(vec), Value::Int(b)) => {
+                Some(Value::IntList(vec.iter().map(|x| x * b).collect()))
             }
-            (Value::Int(a), Value::IntArray(vec)) => {
-                Some(Value::IntArray(vec.iter().map(|x| a * x).collect()))
+            (Value::Int(a), Value::IntList(vec)) => {
+                Some(Value::IntList(vec.iter().map(|x| a * x).collect()))
             }
-            (Value::IntArray(a), Value::IntArray(b)) => {
+            (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         a.iter().zip(b.iter()).map(|(x, y)| x * y).collect(),
                     ))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         (0..max_len)
                             .map(|i| a[i % a.len()] * b[i % b.len()])
                             .collect(),
@@ -226,7 +226,7 @@ impl Value {
                     Some(Value::Float(a / *b as f64))
                 }
             }
-            (Value::IntArray(items), Value::Int(b)) => {
+            (Value::IntList(items), Value::Int(b)) => {
                 if *b == 0 {
                     None
                 } else {
@@ -250,26 +250,26 @@ impl Value {
                                 _ => unreachable!(),
                             })
                             .collect();
-                        Some(Value::IntArray(ints))
+                        Some(Value::IntList(ints))
                     } else {
                         Some(Value::List(out))
                     }
                 }
             }
-            (Value::Int(a), Value::IntArray(vec)) => {
+            (Value::Int(a), Value::IntList(vec)) => {
                 if vec.is_empty() {
                     Some(Value::List(Vec::new()))
                 } else {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         vec.iter()
                             .map(|x| if *x == 0 { 0 } else { a / x })
                             .collect(),
                     ))
                 }
             }
-            (Value::IntArray(a), Value::IntArray(b)) => {
+            (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         a.iter()
                             .zip(b.iter())
                             .map(|(x, y)| if *y == 0 { 0 } else { x / y })
@@ -279,7 +279,7 @@ impl Value {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         (0..max_len)
                             .map(|i| {
                                 let left = a[i % a.len()];
@@ -354,27 +354,27 @@ impl Value {
                     Some(Value::Float(a % *b as f64))
                 }
             }
-            (Value::IntArray(items), Value::Int(b)) => {
+            (Value::IntList(items), Value::Int(b)) => {
                 if *b == 0 {
                     None
                 } else {
-                    Some(Value::IntArray(items.iter().map(|x| x % b).collect()))
+                    Some(Value::IntList(items.iter().map(|x| x % b).collect()))
                 }
             }
-            (Value::Int(a), Value::IntArray(vec)) => {
+            (Value::Int(a), Value::IntList(vec)) => {
                 if vec.is_empty() {
                     Some(Value::List(Vec::new()))
                 } else {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         vec.iter()
                             .map(|x| if *x == 0 { 0 } else { a % x })
                             .collect(),
                     ))
                 }
             }
-            (Value::IntArray(a), Value::IntArray(b)) => {
+            (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         a.iter()
                             .zip(b.iter())
                             .map(|(x, y)| if *y == 0 { 0 } else { x % y })
@@ -384,7 +384,7 @@ impl Value {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         (0..max_len)
                             .map(|i| {
                                 let left = a[i % a.len()];
@@ -430,22 +430,22 @@ impl Value {
     pub fn bitand(&self, other: &Value) -> Option<Value> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Some(Value::Int(a & b)),
-            (Value::IntArray(vec), Value::Int(b)) => {
-                Some(Value::IntArray(vec.iter().map(|x| x & b).collect()))
+            (Value::IntList(vec), Value::Int(b)) => {
+                Some(Value::IntList(vec.iter().map(|x| x & b).collect()))
             }
-            (Value::Int(a), Value::IntArray(vec)) => {
-                Some(Value::IntArray(vec.iter().map(|x| a & x).collect()))
+            (Value::Int(a), Value::IntList(vec)) => {
+                Some(Value::IntList(vec.iter().map(|x| a & x).collect()))
             }
-            (Value::IntArray(a), Value::IntArray(b)) => {
+            (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         a.iter().zip(b.iter()).map(|(x, y)| x & y).collect(),
                     ))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         (0..max_len)
                             .map(|i| a[i % a.len()] & b[i % b.len()])
                             .collect(),
@@ -487,22 +487,22 @@ impl Value {
     pub fn bitor(&self, other: &Value) -> Option<Value> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Some(Value::Int(a | b)),
-            (Value::IntArray(vec), Value::Int(b)) => {
-                Some(Value::IntArray(vec.iter().map(|x| x | b).collect()))
+            (Value::IntList(vec), Value::Int(b)) => {
+                Some(Value::IntList(vec.iter().map(|x| x | b).collect()))
             }
-            (Value::Int(a), Value::IntArray(vec)) => {
-                Some(Value::IntArray(vec.iter().map(|x| a | x).collect()))
+            (Value::Int(a), Value::IntList(vec)) => {
+                Some(Value::IntList(vec.iter().map(|x| a | x).collect()))
             }
-            (Value::IntArray(a), Value::IntArray(b)) => {
+            (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         a.iter().zip(b.iter()).map(|(x, y)| x | y).collect(),
                     ))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         (0..max_len)
                             .map(|i| a[i % a.len()] | b[i % b.len()])
                             .collect(),
@@ -544,22 +544,22 @@ impl Value {
     pub fn bitxor(&self, other: &Value) -> Option<Value> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Some(Value::Int(a ^ b)),
-            (Value::IntArray(vec), Value::Int(b)) => {
-                Some(Value::IntArray(vec.iter().map(|x| x ^ b).collect()))
+            (Value::IntList(vec), Value::Int(b)) => {
+                Some(Value::IntList(vec.iter().map(|x| x ^ b).collect()))
             }
-            (Value::Int(a), Value::IntArray(vec)) => {
-                Some(Value::IntArray(vec.iter().map(|x| a ^ x).collect()))
+            (Value::Int(a), Value::IntList(vec)) => {
+                Some(Value::IntList(vec.iter().map(|x| a ^ x).collect()))
             }
-            (Value::IntArray(a), Value::IntArray(b)) => {
+            (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         a.iter().zip(b.iter()).map(|(x, y)| x ^ y).collect(),
                     ))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         (0..max_len)
                             .map(|i| a[i % a.len()] ^ b[i % b.len()])
                             .collect(),
@@ -601,7 +601,7 @@ impl Value {
     pub fn bitnot(&self) -> Option<Value> {
         match self {
             Value::Int(a) => Some(Value::Int(!a)),
-            Value::IntArray(vec) => Some(Value::IntArray(vec.iter().map(|x| !x).collect())),
+            Value::IntList(vec) => Some(Value::IntList(vec.iter().map(|x| !x).collect())),
             Value::List(items) => {
                 let result: Option<Vec<Value>> = items.iter().map(|v| v.bitnot()).collect();
                 result.map(Value::List)
@@ -614,18 +614,18 @@ impl Value {
     pub fn shl(&self, other: &Value) -> Option<Value> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Some(Value::Int(a.wrapping_shl(*b as u32))),
-            (Value::IntArray(vec), Value::Int(b)) => {
+            (Value::IntList(vec), Value::Int(b)) => {
                 let shift = *b as u32;
-                Some(Value::IntArray(
+                Some(Value::IntList(
                     vec.iter().map(|x| x.wrapping_shl(shift)).collect(),
                 ))
             }
-            (Value::Int(a), Value::IntArray(vec)) => Some(Value::IntArray(
+            (Value::Int(a), Value::IntList(vec)) => Some(Value::IntList(
                 vec.iter().map(|x| a.wrapping_shl(*x as u32)).collect(),
             )),
-            (Value::IntArray(a), Value::IntArray(b)) => {
+            (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         a.iter()
                             .zip(b.iter())
                             .map(|(x, y)| x.wrapping_shl(*y as u32))
@@ -635,7 +635,7 @@ impl Value {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         (0..max_len)
                             .map(|i| a[i % a.len()].wrapping_shl(b[i % b.len()] as u32))
                             .collect(),
@@ -677,18 +677,18 @@ impl Value {
     pub fn shr(&self, other: &Value) -> Option<Value> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Some(Value::Int(a.wrapping_shr(*b as u32))),
-            (Value::IntArray(vec), Value::Int(b)) => {
+            (Value::IntList(vec), Value::Int(b)) => {
                 let shift = *b as u32;
-                Some(Value::IntArray(
+                Some(Value::IntList(
                     vec.iter().map(|x| x.wrapping_shr(shift)).collect(),
                 ))
             }
-            (Value::Int(a), Value::IntArray(vec)) => Some(Value::IntArray(
+            (Value::Int(a), Value::IntList(vec)) => Some(Value::IntList(
                 vec.iter().map(|x| a.wrapping_shr(*x as u32)).collect(),
             )),
-            (Value::IntArray(a), Value::IntArray(b)) => {
+            (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         a.iter()
                             .zip(b.iter())
                             .map(|(x, y)| x.wrapping_shr(*y as u32))
@@ -698,7 +698,7 @@ impl Value {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntArray(
+                    Some(Value::IntList(
                         (0..max_len)
                             .map(|i| a[i % a.len()].wrapping_shr(b[i % b.len()] as u32))
                             .collect(),
@@ -887,7 +887,7 @@ impl Value {
             (Value::List(_), Value::List(_)) if self.is_string() && other.is_string() => {
                 Value::Bool(cmp(self, other))
             }
-            (Value::IntArray(a), Value::IntArray(b)) => {
+            (Value::IntList(a), Value::IntList(b)) => {
                 if a.is_empty() || b.is_empty() {
                     Value::List(Vec::new())
                 } else if a.len() == b.len() {
@@ -909,14 +909,14 @@ impl Value {
                     Value::List(result)
                 }
             }
-            (Value::IntArray(a), b) => {
+            (Value::IntList(a), b) => {
                 let result: Vec<Value> = a
                     .iter()
                     .map(|x| Value::Bool(cmp(&Value::Int(*x), b)))
                     .collect();
                 Value::List(result)
             }
-            (a, Value::IntArray(b)) => {
+            (a, Value::IntList(b)) => {
                 let result: Vec<Value> = b
                     .iter()
                     .map(|y| Value::Bool(cmp(a, &Value::Int(*y))))

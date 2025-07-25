@@ -23,7 +23,7 @@ pub fn til(args: &[Value]) -> WqResult<Value> {
                 return Ok(v.clone());
             }
             let items: Vec<i64> = (0..*n).collect();
-            let val = Value::IntArray(items);
+            let val = Value::IntList(items);
             cache.insert(*n, val.clone());
             Ok(val)
         }
@@ -90,7 +90,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
         }
     }
 
-    Ok(Value::IntArray(items))
+    Ok(Value::IntList(items))
 }
 
 pub fn count(args: &[Value]) -> WqResult<Value> {
@@ -116,7 +116,7 @@ pub fn first(args: &[Value]) -> WqResult<Value> {
                 Ok(items[0].clone())
             }
         }
-        Value::IntArray(items) => {
+        Value::IntList(items) => {
             if items.is_empty() {
                 Ok(Value::Null)
             } else {
@@ -141,7 +141,7 @@ pub fn last(args: &[Value]) -> WqResult<Value> {
                 Ok(items[items.len() - 1].clone())
             }
         }
-        Value::IntArray(items) => {
+        Value::IntList(items) => {
             if items.is_empty() {
                 Ok(Value::Null)
             } else {
@@ -164,10 +164,10 @@ pub fn reverse(args: &[Value]) -> WqResult<Value> {
             reversed.reverse();
             Ok(Value::List(reversed))
         }
-        Value::IntArray(items) => {
+        Value::IntList(items) => {
             let mut reversed = items.clone();
             reversed.reverse();
-            Ok(Value::IntArray(reversed))
+            Ok(Value::IntList(reversed))
         }
         _ => Err(WqError::TypeError(
             "reverse only works on lists".to_string(),
@@ -194,7 +194,7 @@ pub fn sum(args: &[Value]) -> WqResult<Value> {
             }
             Ok(result)
         }
-        Value::IntArray(items) => {
+        Value::IntList(items) => {
             if items.is_empty() {
                 return Ok(Value::Int(0));
             }
@@ -244,7 +244,7 @@ pub fn max(args: &[Value]) -> WqResult<Value> {
             }
             Ok(result.clone())
         }
-        Value::IntArray(items) => {
+        Value::IntList(items) => {
             if items.is_empty() {
                 return Ok(Value::Null);
             }
@@ -294,7 +294,7 @@ pub fn min(args: &[Value]) -> WqResult<Value> {
             }
             Ok(result.clone())
         }
-        Value::IntArray(items) => {
+        Value::IntList(items) => {
             if items.is_empty() {
                 return Ok(Value::Null);
             }
@@ -324,7 +324,7 @@ pub fn avg(args: &[Value]) -> WqResult<Value> {
                 _ => Err(WqError::TypeError("Cannot compute average".to_string())),
             }
         }
-        Value::IntArray(items) => {
+        Value::IntList(items) => {
             if items.is_empty() {
                 return Ok(Value::Null);
             }
@@ -351,12 +351,12 @@ pub fn take(args: &[Value]) -> WqResult<Value> {
                 Ok(Value::List(items[..n].to_vec()))
             }
         }
-        (Value::Int(n), Value::IntArray(items)) => {
+        (Value::Int(n), Value::IntList(items)) => {
             let n = *n as usize;
             if n > items.len() {
-                Ok(Value::IntArray(items.clone()))
+                Ok(Value::IntList(items.clone()))
             } else {
-                Ok(Value::IntArray(items[..n].to_vec()))
+                Ok(Value::IntList(items[..n].to_vec()))
             }
         }
         _ => Err(WqError::TypeError(
@@ -380,12 +380,12 @@ pub fn drop(args: &[Value]) -> WqResult<Value> {
                 Ok(Value::List(items[n..].to_vec()))
             }
         }
-        (Value::Int(n), Value::IntArray(items)) => {
+        (Value::Int(n), Value::IntList(items)) => {
             let n = *n as usize;
             if n >= items.len() {
-                Ok(Value::IntArray(Vec::new()))
+                Ok(Value::IntList(Vec::new()))
             } else {
-                Ok(Value::IntArray(items[n..].to_vec()))
+                Ok(Value::IntList(items[n..].to_vec()))
             }
         }
         _ => Err(WqError::TypeError(
@@ -424,7 +424,7 @@ pub fn where_func(args: &[Value]) -> WqResult<Value> {
             }
             Ok(Value::List(indices))
         }
-        Value::IntArray(items) => {
+        Value::IntList(items) => {
             let mut indices = Vec::new();
             for (i, n) in items.iter().enumerate() {
                 if *n != 0 {
@@ -453,14 +453,14 @@ pub fn distinct(args: &[Value]) -> WqResult<Value> {
             }
             Ok(Value::List(seen))
         }
-        Value::IntArray(items) => {
+        Value::IntList(items) => {
             let mut seen: Vec<i64> = Vec::new();
             for &x in items {
                 if !seen.contains(&x) {
                     seen.push(x);
                 }
             }
-            Ok(Value::IntArray(seen))
+            Ok(Value::IntList(seen))
         }
         _ => Err(WqError::TypeError(
             "distinct only works on lists".to_string(),
@@ -501,10 +501,10 @@ pub fn sort(args: &[Value]) -> WqResult<Value> {
             });
             Ok(Value::List(sorted))
         }
-        Value::IntArray(items) => {
+        Value::IntList(items) => {
             let mut sorted = items.clone();
             sorted.sort();
-            Ok(Value::IntArray(sorted))
+            Ok(Value::IntList(sorted))
         }
         _ => Err(WqError::TypeError("sort only works on lists".to_string())),
     }
@@ -521,21 +521,21 @@ pub fn cat(args: &[Value]) -> WqResult<Value> {
     let right = &args[1];
 
     match (left, right) {
-        (Value::IntArray(a), Value::IntArray(b)) => {
+        (Value::IntList(a), Value::IntList(b)) => {
             let mut res = a.clone();
             res.extend(b.clone());
-            Ok(Value::IntArray(res))
+            Ok(Value::IntList(res))
         }
-        (Value::IntArray(a), Value::Int(bv)) => {
+        (Value::IntList(a), Value::Int(bv)) => {
             let mut res = a.clone();
             res.push(*bv);
-            Ok(Value::IntArray(res))
+            Ok(Value::IntList(res))
         }
-        (Value::Int(av), Value::IntArray(b)) => {
+        (Value::Int(av), Value::IntList(b)) => {
             let mut res = Vec::with_capacity(b.len() + 1);
             res.push(*av);
             res.extend(b.clone());
-            Ok(Value::IntArray(res))
+            Ok(Value::IntList(res))
         }
         (Value::List(a), Value::List(b)) => {
             let mut res = a.clone();
@@ -570,7 +570,7 @@ pub fn flatten(args: &[Value]) -> WqResult<Value> {
                     flatten_value(v, out);
                 }
             }
-            Value::IntArray(items) => {
+            Value::IntList(items) => {
                 for &v in items {
                     out.push(Value::Int(v));
                 }
@@ -591,7 +591,7 @@ pub fn alloc(args: &[Value]) -> WqResult<Value> {
         ));
     }
     match args[0] {
-        Value::Int(n) if n >= 0 => Ok(Value::IntArray(vec![0; n as usize])),
+        Value::Int(n) if n >= 0 => Ok(Value::IntList(vec![0; n as usize])),
         Value::Int(_) => Err(WqError::DomainError(
             "alloc length must be non-negative".to_string(),
         )),
@@ -606,11 +606,11 @@ pub fn idx(args: &[Value]) -> WqResult<Value> {
         ));
     }
     let indices = match &args[1] {
-        Value::IntArray(idxs) => idxs,
+        Value::IntList(idxs) => idxs,
         _ => {
             return Err(WqError::TypeError(
                 "idx expects an integer list of indices".to_string(),
-            ))
+            ));
         }
     };
     let list_len = args[0].len() as i64;
@@ -620,12 +620,12 @@ pub fn idx(args: &[Value]) -> WqResult<Value> {
         }
     }
     match &args[0] {
-        Value::IntArray(items) => {
+        Value::IntList(items) => {
             let mut out = Vec::with_capacity(indices.len());
             for &i in indices {
                 out.push(items[i as usize]);
             }
-            Ok(Value::IntArray(out))
+            Ok(Value::IntList(out))
         }
         Value::List(items) => {
             let mut out = Vec::with_capacity(indices.len());

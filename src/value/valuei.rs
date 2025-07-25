@@ -46,8 +46,8 @@ pub enum Value {
     Char(char),
     Symbol(String),
     Bool(bool),
-    /// specialized array of integers
-    IntArray(Vec<i64>),
+    /// specialized list of integers
+    IntList(Vec<i64>),
     List(Vec<Value>),
     /// dict (symbol -> value mapping)
     Dict(HashMap<String, Value>),
@@ -88,8 +88,8 @@ impl PartialEq for Value {
             (Bool(a), Bool(b)) => a == b,
             (Null, Null) => true,
             (List(a), List(b)) => a == b,
-            (IntArray(a), IntArray(b)) => a == b,
-            (IntArray(a), List(b)) | (List(b), IntArray(a)) => {
+            (IntList(a), IntList(b)) => a == b,
+            (IntList(a), List(b)) | (List(b), IntList(a)) => {
                 if a.len() != b.len() {
                     return false;
                 }
@@ -169,7 +169,7 @@ impl Value {
     }
 
     pub fn is_list(&self) -> bool {
-        matches!(self, Value::List(_) | Value::IntArray(_))
+        matches!(self, Value::List(_) | Value::IntList(_))
     }
 
     pub fn is_dict(&self) -> bool {
@@ -187,7 +187,7 @@ impl Value {
     pub fn len(&self) -> usize {
         match self {
             Value::List(items) => items.len(),
-            Value::IntArray(items) => items.len(),
+            Value::IntList(items) => items.len(),
             Value::Dict(map) => map.len(),
             Value::Symbol(s) => s.len(),
             _ => 1, // Atoms have length 1
@@ -206,7 +206,7 @@ impl Value {
             Value::Char(_) => "char",
             Value::Symbol(_) => "symbol",
             Value::Bool(_) => "bool",
-            Value::IntArray(_) => "list",
+            Value::IntList(_) => "list",
             Value::List(_) => "list",
             Value::Dict(_) => "dict",
             Value::Function { .. } => "function",
@@ -243,7 +243,7 @@ impl Value {
                 let idx = if *i < 0 { items.len() as i64 + i } else { *i } as usize;
                 items.get(idx).cloned()
             }
-            (Value::IntArray(items), Value::Int(i)) => {
+            (Value::IntList(items), Value::Int(i)) => {
                 let idx = if *i < 0 { items.len() as i64 + i } else { *i } as usize;
                 items.get(idx).cloned().map(Value::Int)
             }
@@ -268,7 +268,7 @@ impl Value {
                 }
                 Some(Value::List(result))
             }
-            (Value::IntArray(items), Value::List(idxs)) => {
+            (Value::IntList(items), Value::List(idxs)) => {
                 let mut out = Vec::new();
                 for idx_val in idxs {
                     if let Value::Int(i) = idx_val {
@@ -287,7 +287,7 @@ impl Value {
                         return None;
                     }
                 }
-                Some(Value::IntArray(out))
+                Some(Value::IntList(out))
             }
             (Value::Dict(map), Value::Symbol(key)) => map.get(key).cloned(),
             (Value::Dict(map), Value::List(keys)) => {
@@ -332,7 +332,7 @@ impl Value {
                     None
                 }
             }
-            Value::IntArray(items) => {
+            Value::IntList(items) => {
                 if let Value::Int(i) = key {
                     let len = items.len() as i64;
                     let idx_i64 = if *i < 0 { len + *i } else { *i };
@@ -391,7 +391,7 @@ impl fmt::Display for Value {
             Value::Char(c) => write!(f, "\"{c}\""),
             Value::Symbol(s) => write!(f, "`{s}"),
             Value::Bool(b) => write!(f, "{}", if *b { "true" } else { "false" }),
-            Value::IntArray(items) => {
+            Value::IntList(items) => {
                 if items.is_empty() {
                     return write!(f, "()");
                 }
@@ -649,8 +649,8 @@ mod tests {
         assert_eq!(a.bitnot(), Some(Value::int(!6)));
         assert_eq!(Value::int(1).shl(&Value::int(3)), Some(Value::int(8)));
         assert_eq!(Value::int(8).shr(&Value::int(2)), Some(Value::int(2)));
-        let arr = Value::IntArray(vec![1, 2, 3]);
+        let arr = Value::IntList(vec![1, 2, 3]);
         let res = arr.bitor(&Value::int(1));
-        assert_eq!(res, Some(Value::IntArray(vec![1 | 1, 2 | 1, 3 | 1])));
+        assert_eq!(res, Some(Value::IntList(vec![1 | 1, 2 | 1, 3 | 1])));
     }
 }

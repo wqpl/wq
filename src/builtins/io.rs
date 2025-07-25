@@ -89,7 +89,7 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
                         .read(&mut buf)
                         .map_err(|e| WqError::RuntimeError(e.to_string()))?;
                     buf.truncate(read);
-                    Ok(Value::IntArray(buf.into_iter().map(|b| b as i64).collect()))
+                    Ok(Value::IntList(buf.into_iter().map(|b| b as i64).collect()))
                 } else {
                     Err(WqError::TypeError("fread length".into()))
                 }
@@ -120,7 +120,7 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
 
 fn value_to_bytes(v: &Value) -> WqResult<Vec<u8>> {
     match v {
-        Value::IntArray(arr) => Ok(arr.iter().map(|&n| n as u8).collect()),
+        Value::IntList(arr) => Ok(arr.iter().map(|&n| n as u8).collect()),
         Value::List(items) => items
             .iter()
             .map(|x| {
