@@ -12,6 +12,7 @@ mod math;
 mod system;
 mod typeb;
 mod plot;
+mod string;
 
 static TIL_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -87,6 +88,7 @@ impl Builtins {
         self.add("type", typeb::type_of);
         self.add("symbol", typeb::to_symbol);
         self.add("string", typeb::to_string);
+        self.add("format", string::format_string);
         self.add("null?", typeb::is_null);
 
         self.add("keys", dict::keys);
