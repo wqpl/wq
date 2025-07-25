@@ -7,10 +7,10 @@ use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use std::env;
 use std::fs;
-use std::time::Instant;
-use std::time::Duration;
+use std::io::{Write, stdout};
 use std::thread;
-use std::io::{stdout, Write};
+use std::time::Duration;
+use std::time::Instant;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -241,18 +241,20 @@ fn main() {
                         "bye!" | "goodbye" => {
                             let mut rng = rand::rng();
                             let mut stdout = stdout();
-                                let frames = if rng.random_bool(0.5) {
-                                    [";D", ";D", ";)", ";)", ";)"]
-                                } else {
-                                    [":D", ":D", ":)", ":)", ":)"]
-                                };
-                            print!("bye! ");
+                            let frames = if rng.random_bool(0.5) {
+                                [";D", ";D", ";D", ";D", ";)"]
+                            } else {
+                                [":D", ":D", ":D", ":D", ":)"]
+                            };
+                            print!("{}", "\u{258D} bye! ".cyan());
                             stdout.flush().unwrap();
+                            thread::sleep(Duration::from_millis(250));
                             for &face in &frames {
-                                print!("\r{}", format!("bye! {}", face));
+                                print!("\r{}", format!("\u{258D} bye! {face}").cyan());
                                 stdout.flush().unwrap();
-                                thread::sleep(Duration::from_millis(200));
+                                thread::sleep(Duration::from_millis(300));
                             }
+                            print!("\r{}", "\u{258D} bye!    ".cyan());
                             println!();
                             break;
                         }
@@ -339,18 +341,30 @@ fn main() {
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                 break;
+                break;
             }
             Err(ReadlineError::Eof) => {
                 let mut rng = rand::rng();
-                if rng.random_bool(0.00666666_f64) {
-                    thread::sleep(Duration::from_millis(1500));
-                    // wq-chan is watching you
-                    println!("{}","you should’ve said goodbye.".red());
-                    continue;
-                } else {
-                    break;
+                let p = 0.006666f64;
+                // let p = 1f64;
+                if rng.random_bool(p) {
+                    print!("{}", "\u{258D} ".cyan());
+                    stdout().flush().unwrap();
+                    thread::sleep(Duration::from_millis(2000));
+                    print!("{}", "\r\u{258D} ".red());
+                    stdout().flush().unwrap();
+                    let message = "you should’ve said goodbye.".red();
+                    for ch in message.chars() {
+                        thread::sleep(Duration::from_millis(150));
+                        print!("{}", ch.to_string().red());
+                        stdout().flush().unwrap();
+                    }
+                    system_msg_printer::stdout(
+                        "\rprogram \"wq\" terminated       ".to_string(),
+                        system_msg_printer::MsgType::Info,
+                    );
                 }
+                break;
             }
             Err(error) => {
                 system_msg_printer::stderr(

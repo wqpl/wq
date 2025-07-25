@@ -1,5 +1,4 @@
 cargo fmt
-cargo check
 cargo clippy
 -------------------------
 ruff format
