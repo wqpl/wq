@@ -13,6 +13,12 @@ impl Value {
             (Value::Int(a), Value::IntList(vec)) => {
                 Some(Value::IntList(vec.iter().map(|x| a + x).collect()))
             }
+            (Value::Float(a), Value::IntList(vec)) => {
+                Some(Value::List(vec.iter().map(|&x| Value::Float(a + x as f64)).collect()))
+            }
+            (Value::IntList(vec), Value::Float(b)) => {
+                Some(Value::List(vec.iter().map(|&x| Value::Float(x as f64 + b)).collect()))
+            }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     Some(Value::IntList(
@@ -82,6 +88,12 @@ impl Value {
             (Value::Int(a), Value::IntList(vec)) => {
                 Some(Value::IntList(vec.iter().map(|x| a - x).collect()))
             }
+            (Value::Float(a), Value::IntList(vec)) => {
+                Some(Value::List(vec.iter().map(|&x| Value::Float(a - x as f64)).collect()))
+            }
+            (Value::IntList(vec), Value::Float(b)) => {
+                Some(Value::List(vec.iter().map(|&x| Value::Float(x as f64 - b)).collect()))
+            }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     Some(Value::IntList(
@@ -143,6 +155,12 @@ impl Value {
             }
             (Value::Int(a), Value::IntList(vec)) => {
                 Some(Value::IntList(vec.iter().map(|x| a * x).collect()))
+            }
+            (Value::Float(a), Value::IntList(vec)) => {
+                Some(Value::List(vec.iter().map(|&x| Value::Float(a * x as f64)).collect()))
+            }
+            (Value::IntList(vec), Value::Float(b)) => {
+                Some(Value::List(vec.iter().map(|&x| Value::Float(x as f64 * b)).collect()))
             }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
@@ -267,6 +285,38 @@ impl Value {
                     ))
                 }
             }
+            (Value::Float(a), Value::IntList(vec)) => {
+                if vec.is_empty() {
+                    Some(Value::List(Vec::new()))
+                } else {
+                    let out = vec.iter()
+                        .map(|&x| {
+                            if x == 0 {
+                                Value::Float(0.0)
+                            } else {
+                                Value::Float(a / x as f64)
+                            }
+                        })
+                        .collect();
+                    Some(Value::List(out))
+                }
+            }
+            (Value::IntList(vec), Value::Float(b)) => {
+                if vec.is_empty() {
+                    Some(Value::List(Vec::new()))
+                } else {
+                    let out = vec.iter()
+                        .map(|&x| {
+                            if *b == 0.0 {
+                                Value::Float(0.0)
+                            } else {
+                                Value::Float(x as f64 / b)
+                            }
+                        })
+                        .collect();
+                    Some(Value::List(out))
+                }
+            }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     Some(Value::IntList(
@@ -370,6 +420,30 @@ impl Value {
                             .map(|x| if *x == 0 { 0 } else { a % x })
                             .collect(),
                     ))
+                }
+            }
+            (Value::Float(a), Value::IntList(vec)) => {
+                if vec.is_empty() {
+                    None
+                } else {
+                    let out = vec.iter().map(|&x| {
+                        if x == 0 {
+                            Value::Float(0.0)
+                        } else {
+                            Value::Float(a % x as f64)
+                        }
+                    }).collect();
+                    Some(Value::List(out))
+                }
+            }
+            (Value::IntList(vec), Value::Float(b)) => {
+                if *b == 0.0 {
+                    None
+                } else {
+                    let out = vec.iter().map(|&x| {
+                        Value::Float(x as f64 % b)
+                    }).collect();
+                    Some(Value::List(out))
                 }
             }
             (Value::IntList(a), Value::IntList(b)) => {
