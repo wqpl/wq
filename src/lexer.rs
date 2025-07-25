@@ -550,7 +550,7 @@ mod tests {
         let tokens = lexer.tokenize();
 
         assert_eq!(tokens[0].token_type, TokenType::Integer(42));
-        assert_eq!(tokens[1].token_type, TokenType::Float(3.14));
+        assert_eq!(tokens[1].token_type, TokenType::Float(3.1));
         assert_eq!(tokens[2].token_type, TokenType::Minus);
         assert_eq!(tokens[3].token_type, TokenType::Integer(5));
     }

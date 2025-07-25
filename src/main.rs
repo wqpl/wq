@@ -391,7 +391,7 @@ fn format_script_print(filename: &str) {
         Ok(content) => {
             let fmt = Formatter::new(FormatOptions::default());
             match fmt.format_script(&content) {
-                Ok(out) => println!("{}", out),
+                Ok(out) => println!("{out}"),
                 Err(err) => {
                     eprintln!("{err}");
                     std::process::exit(1);

@@ -322,9 +322,7 @@ impl Vm {
                             )));
                         }
                     } else {
-                        return Err(WqError::DomainError(format!(
-                            "Failed when assigning - invalid index assign",
-                        )));
+                        return Err(WqError::DomainError("Failed when assigning - invalid index assign".to_string()));
                     }
                 }
                 Instruction::Jump(pos) => self.pc = pos,

@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn test_value_creation() {
         assert_eq!(Value::int(42), Value::Int(42));
-        assert_eq!(Value::float(3.14), Value::Float(3.14));
+        assert_eq!(Value::float(3.1), Value::Float(3.1));
         assert_eq!(Value::char('a'), Value::Char('a'));
         assert_eq!(
             Value::symbol("test".to_string()),

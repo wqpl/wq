@@ -17,7 +17,7 @@ fn has_ctrl(node: &AstNode) -> bool {
             true_branch,
             false_branch,
             ..
-        } => has_ctrl(true_branch) || false_branch.as_ref().map_or(false, |b| has_ctrl(b)),
+        } => has_ctrl(true_branch) || false_branch.as_ref().is_some_and(|b| has_ctrl(b)),
         AstNode::WhileLoop { body, .. }
         | AstNode::ForLoop { body, .. }
         | AstNode::Function { body, .. } => has_ctrl(body),

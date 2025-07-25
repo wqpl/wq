@@ -111,6 +111,12 @@ pub struct VmEvaluator {
     debug: bool,
 }
 
+impl Default for VmEvaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VmEvaluator {
     /// Create a new evaluator with an empty environment.
     pub fn new() -> Self {
