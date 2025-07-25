@@ -175,7 +175,7 @@ impl VmEvaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::valuei::WqError;
+    use crate::value::valuei::{Value, WqError};
 
     #[test]
     fn undefined_variable_errors() {
@@ -196,5 +196,26 @@ mod tests {
         let mut eval = VmEvaluator::new();
         let res = eval.eval_string("N[3;]");
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn break_and_continue() {
+        let mut eval = VmEvaluator::new();
+        let res = eval.eval_string("n:0;N[5;$[n=2;@c;];n:n+1;];n").unwrap();
+        assert_eq!(res, Value::Int(2));
+    }
+
+    #[test]
+    fn return_in_function() {
+        let mut eval = VmEvaluator::new();
+        let res = eval.eval_string("f:{@r 3;1};f[;]").unwrap();
+        assert_eq!(res, Value::Int(3));
+    }
+
+    #[test]
+    fn assert_fails() {
+        let mut eval = VmEvaluator::new();
+        let res = eval.eval_string("@a 1=2;");
+        assert!(matches!(res, Err(WqError::AssertionFailError(_))));
     }
 }

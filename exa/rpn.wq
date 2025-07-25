@@ -1,0 +1,37 @@
+rpn:{[expr]
+  stack:();
+  N[count expr;
+    tok:expr[_n];
+    plus:tok="+";
+    minus:tok="-";
+    mult:tok="*";
+    div:tok="%";
+    $.[plus;
+        len:count stack; b:last stack; stack:take[len-1;stack;];
+        len:count stack; a:last stack; stack:take[len-1;stack;];
+        stack:cat[stack; a+b;];
+    ];
+    $.[minus;
+        len:count stack; b:last stack; stack:take[len-1;stack;];
+        len:count stack; a:last stack; stack:take[len-1;stack;];
+        stack:cat[stack; a-b;];
+    ];
+    $.[mult;
+        len:count stack; b:last stack; stack:take[len-1;stack;];
+        len:count stack; a:last stack; stack:take[len-1;stack;];
+        stack:cat[stack; a*b;];
+    ];
+    $.[div;
+        len:count stack; b:last stack; stack:take[len-1;stack;];
+        len:count stack; a:last stack; stack:take[len-1;stack;];
+        stack:cat[stack; a/b;];
+    ];
+    tmp1: or[plus;minus;];
+    tmp2: or[mult;div;];
+    isop: or[tmp1;tmp2;];
+    $.[not[isop;]; stack:cat[stack;tok;];];
+  ];
+  last stack
+}
+
+echo rpn(3;4;"+";2;"*";1;"-")

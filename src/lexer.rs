@@ -61,6 +61,10 @@ pub enum TokenType {
     False,
 
     Comment(String),
+    AtBreak,
+    AtContinue,
+    AtReturn,
+    AtAssert,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -376,6 +380,33 @@ impl<'a> Lexer<'a> {
                     }
                 }
 
+                Some('@') => {
+                    self.advance();
+                    let tok = match self.current_char {
+                        Some('b') => {
+                            self.advance();
+                            TokenType::AtBreak
+                        }
+                        Some('c') => {
+                            self.advance();
+                            TokenType::AtContinue
+                        }
+                        Some('r') => {
+                            self.advance();
+                            TokenType::AtReturn
+                        }
+                        Some('a') => {
+                            self.advance();
+                            TokenType::AtAssert
+                        }
+                        _ => {
+                            // unknown @ sequence - skip
+                            continue;
+                        }
+                    };
+                    return Token::new(tok, token_position, token_line, token_column);
+                }
+
                 Some('#') => {
                     self.advance();
                     return Token::new(TokenType::Sharp, token_position, token_line, token_column);
@@ -577,10 +608,19 @@ mod tests {
     fn test_identifier_with_question_mark() {
         let mut lexer = Lexer::new("a?:1 a? a???");
         let tokens = lexer.tokenize();
-        assert_eq!(tokens[0].token_type, TokenType::Identifier("a?".to_string()));
+        assert_eq!(
+            tokens[0].token_type,
+            TokenType::Identifier("a?".to_string())
+        );
         assert_eq!(tokens[1].token_type, TokenType::Colon);
         assert_eq!(tokens[2].token_type, TokenType::Integer(1));
-        assert_eq!(tokens[3].token_type, TokenType::Identifier("a?".to_string()));
-        assert_eq!(tokens[4].token_type, TokenType::Identifier("a???".to_string()));
+        assert_eq!(
+            tokens[3].token_type,
+            TokenType::Identifier("a?".to_string())
+        );
+        assert_eq!(
+            tokens[4].token_type,
+            TokenType::Identifier("a???".to_string())
+        );
     }
 }

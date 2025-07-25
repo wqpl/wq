@@ -114,6 +114,7 @@ pub struct Evaluator {
     builtins: Builtins,
     call_stack: CallStack,
     debug: bool,
+    loop_depth: usize,
 }
 
 impl Evaluator {
@@ -123,6 +124,7 @@ impl Evaluator {
             builtins: Builtins::new(),
             call_stack: CallStack::new(),
             debug: false,
+            loop_depth: 0,
         }
     }
 
@@ -328,15 +330,28 @@ impl Evaluator {
             }
 
             AstNode::WhileLoop { condition, body } => {
+                self.loop_depth += 1;
                 let mut result = Value::Null;
                 loop {
                     let cond_val = self.eval(condition)?;
                     match cond_val {
-                        Value::Bool(true) => result = self.eval(body)?,
+                        Value::Bool(true) => match self.eval(body) {
+                            Ok(v) => result = v,
+                            Err(WqError::Break) => break,
+                            Err(WqError::Continue) => continue,
+                            Err(e) => {
+                                self.loop_depth -= 1;
+                                return Err(e);
+                            }
+                        },
                         Value::Bool(false) => break,
-                        _ => return Err(WqError::TypeError("expected boolean for W".to_string())),
+                        _ => {
+                            self.loop_depth -= 1;
+                            return Err(WqError::TypeError("expected boolean for W".to_string()));
+                        }
                     };
                 }
+                self.loop_depth -= 1;
                 Ok(result)
             }
 
@@ -350,6 +365,7 @@ impl Evaluator {
                         ));
                     }
                 };
+                self.loop_depth += 1;
                 let mut result = Value::Null;
                 for i in 0..n {
                     if self.call_stack.current_frame().is_some() {
@@ -357,7 +373,40 @@ impl Evaluator {
                             let frame = self.call_stack.current_frame_mut().unwrap();
                             frame.variables.insert("_n".to_string(), Value::Int(i))
                         };
-                        result = self.eval(body)?;
+                        match self.eval(body) {
+                            Ok(v) => result = v,
+                            Err(WqError::Break) => {
+                                if let Some(frame) = self.call_stack.current_frame_mut() {
+                                    if let Some(v) = old {
+                                        frame.variables.insert("_n".to_string(), v);
+                                    } else {
+                                        frame.variables.remove("_n");
+                                    }
+                                }
+                                break;
+                            }
+                            Err(WqError::Continue) => {
+                                if let Some(frame) = self.call_stack.current_frame_mut() {
+                                    if let Some(v) = old {
+                                        frame.variables.insert("_n".to_string(), v);
+                                    } else {
+                                        frame.variables.remove("_n");
+                                    }
+                                }
+                                continue;
+                            }
+                            Err(e) => {
+                                if let Some(frame) = self.call_stack.current_frame_mut() {
+                                    if let Some(v) = old {
+                                        frame.variables.insert("_n".to_string(), v);
+                                    } else {
+                                        frame.variables.remove("_n");
+                                    }
+                                }
+                                self.loop_depth -= 1;
+                                return Err(e);
+                            }
+                        }
                         if let Some(frame) = self.call_stack.current_frame_mut() {
                             if let Some(v) = old {
                                 frame.variables.insert("_n".to_string(), v);
@@ -370,7 +419,34 @@ impl Evaluator {
                             .environment
                             .variables
                             .insert("_n".to_string(), Value::Int(i));
-                        result = self.eval(body)?;
+                        match self.eval(body) {
+                            Ok(v) => result = v,
+                            Err(WqError::Break) => {
+                                if let Some(v) = old {
+                                    self.environment.variables.insert("_n".to_string(), v);
+                                } else {
+                                    self.environment.variables.remove("_n");
+                                }
+                                break;
+                            }
+                            Err(WqError::Continue) => {
+                                if let Some(v) = old {
+                                    self.environment.variables.insert("_n".to_string(), v);
+                                } else {
+                                    self.environment.variables.remove("_n");
+                                }
+                                continue;
+                            }
+                            Err(e) => {
+                                if let Some(v) = old {
+                                    self.environment.variables.insert("_n".to_string(), v);
+                                } else {
+                                    self.environment.variables.remove("_n");
+                                }
+                                self.loop_depth -= 1;
+                                return Err(e);
+                            }
+                        }
                         if let Some(v) = old {
                             self.environment.variables.insert("_n".to_string(), v);
                         } else {
@@ -378,15 +454,62 @@ impl Evaluator {
                         }
                     }
                 }
+                self.loop_depth -= 1;
                 Ok(result)
             }
 
             AstNode::Block(statements) => {
                 let mut result = Value::Null;
                 for stmt in statements {
-                    result = self.eval(stmt)?;
+                    match self.eval(stmt) {
+                        Ok(v) => result = v,
+                        Err(WqError::Break) => return Err(WqError::Break),
+                        Err(WqError::Continue) => return Err(WqError::Continue),
+                        Err(WqError::Return(v)) => return Err(WqError::Return(v)),
+                        Err(e) => return Err(e),
+                    }
                 }
                 Ok(result)
+            }
+
+            AstNode::Break => {
+                if self.loop_depth == 0 {
+                    Err(WqError::DomainError("@b outside loop".into()))
+                } else {
+                    Err(WqError::Break)
+                }
+            }
+            AstNode::Continue => {
+                if self.loop_depth == 0 {
+                    Err(WqError::DomainError("@c outside loop".into()))
+                } else {
+                    Err(WqError::Continue)
+                }
+            }
+            AstNode::Return(expr) => {
+                if self.call_stack.current_frame().is_none() {
+                    Err(WqError::DomainError("@r outside function".into()))
+                } else {
+                    let val = match expr {
+                        Some(e) => self.eval(e)?,
+                        None => Value::Null,
+                    };
+                    Err(WqError::Return(val))
+                }
+            }
+            AstNode::Assert(expr) => {
+                let val = self.eval(expr)?;
+                let ok = match val {
+                    Value::Bool(b) => b,
+                    Value::Int(n) => n != 0,
+                    Value::Float(f) => f != 0.0,
+                    _ => false,
+                };
+                if ok {
+                    Ok(Value::Null)
+                } else {
+                    Err(WqError::AssertionFailError("assertion failed".into()))
+                }
             }
         }
     }
@@ -480,7 +603,11 @@ impl Evaluator {
 
         // Push frame and evaluate body
         self.call_stack.push_frame(frame)?;
-        let result = self.eval(body);
+        let result = match self.eval(body) {
+            Ok(v) => Ok(v),
+            Err(WqError::Return(v)) => Ok(v),
+            Err(e) => Err(e),
+        };
         self.call_stack.pop_frame();
 
         result
@@ -503,7 +630,12 @@ impl Evaluator {
             eprintln!("{}", "=====AST=====".red());
             eprintln!("{ast:#?}");
         }
-        self.eval(&ast)
+        match self.eval(&ast) {
+            Err(WqError::Break) => Err(WqError::DomainError("@b outside loop".into())),
+            Err(WqError::Continue) => Err(WqError::DomainError("@c outside loop".into())),
+            Err(WqError::Return(_)) => Err(WqError::DomainError("@r outside function".into())),
+            other => other,
+        }
     }
 
     pub fn get_environment(&self) -> Option<&HashMap<String, Value>> {
@@ -883,5 +1015,28 @@ mod tests {
             evaluator.eval_string("til 3 % til 2").unwrap(),
             Value::List(vec![Value::Int(0), Value::Int(0), Value::Int(0)])
         );
+    }
+
+    #[test]
+    fn break_and_continue() {
+        let mut evaluator = Evaluator::new();
+        let res = evaluator
+            .eval_string("n:0;N[5;$[n=2;@c;];n:n+1;];n")
+            .unwrap();
+        assert_eq!(res, Value::Int(2));
+    }
+
+    #[test]
+    fn return_in_function() {
+        let mut evaluator = Evaluator::new();
+        let res = evaluator.eval_string("f:{@r 3;1};f[;]").unwrap();
+        assert_eq!(res, Value::Int(3));
+    }
+
+    #[test]
+    fn assert_fails() {
+        let mut evaluator = Evaluator::new();
+        let res = evaluator.eval_string("@a 1=2;");
+        assert!(matches!(res, Err(WqError::AssertionFailError(_))));
     }
 }

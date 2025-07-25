@@ -195,19 +195,19 @@ pub fn ceiling(args: &[Value]) -> WqResult<Value> {
 }
 
 pub fn rand(args: &[Value]) -> WqResult<Value> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     match args.len() {
-        0 => Ok(Value::Float(rng.r#gen())),
+        0 => Ok(Value::Float(rng.random())),
         1 => match &args[0] {
-            Value::Int(n) if *n > 0 => Ok(Value::Int(rng.gen_range(0..*n))),
-            Value::Float(f) if *f > 0.0 => Ok(Value::Float(rng.gen_range(0.0..*f))),
+            Value::Int(n) if *n > 0 => Ok(Value::Int(rng.random_range(0..*n))),
+            Value::Float(f) if *f > 0.0 => Ok(Value::Float(rng.random_range(0.0..*f))),
             v => Err(WqError::DomainError(format!(
                 "expected positive int or float, got {}",
                 v.type_name()
             ))),
         },
         2 => match (&args[0], &args[1]) {
-            (Value::Int(a), Value::Int(b)) if a < b => Ok(Value::Int(rng.gen_range(*a..*b))),
+            (Value::Int(a), Value::Int(b)) if a < b => Ok(Value::Int(rng.random_range(*a..*b))),
             (a, b) => {
                 let af = match a {
                     Value::Int(n) => *n as f64,
@@ -230,7 +230,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                     }
                 };
                 if af < bf {
-                    Ok(Value::Float(rng.gen_range(af..bf)))
+                    Ok(Value::Float(rng.random_range(af..bf)))
                 } else {
                     Err(WqError::RuntimeError(format!(
                         "require a < b, got {af} >= {bf}"

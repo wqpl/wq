@@ -3,10 +3,47 @@ use crate::builtins::Builtins;
 use crate::parser::{AstNode, BinaryOperator};
 use crate::value::valuei::{Value, WqError, WqResult};
 
+#[derive(Default)]
+struct LoopInfo {
+    break_jumps: Vec<usize>,
+    continue_jumps: Vec<usize>,
+}
+
+fn has_ctrl(node: &AstNode) -> bool {
+    match node {
+        AstNode::Break | AstNode::Continue | AstNode::Return(_) => true,
+        AstNode::Block(stmts) => stmts.iter().any(has_ctrl),
+        AstNode::Conditional {
+            true_branch,
+            false_branch,
+            ..
+        } => has_ctrl(true_branch) || false_branch.as_ref().map_or(false, |b| has_ctrl(b)),
+        AstNode::WhileLoop { body, .. }
+        | AstNode::ForLoop { body, .. }
+        | AstNode::Function { body, .. } => has_ctrl(body),
+        AstNode::UnaryOp { operand, .. } => has_ctrl(operand),
+        AstNode::BinaryOp { left, right, .. } => has_ctrl(left) || has_ctrl(right),
+        AstNode::Call { args, .. } | AstNode::CallAnonymous { args, .. } | AstNode::List(args) => {
+            args.iter().any(has_ctrl)
+        }
+        AstNode::Dict(pairs) => pairs.iter().any(|(_, v)| has_ctrl(v)),
+        AstNode::Index { object, index } => has_ctrl(object) || has_ctrl(index),
+        AstNode::IndexAssign {
+            object,
+            index,
+            value,
+        } => has_ctrl(object) || has_ctrl(index) || has_ctrl(value),
+        AstNode::Assignment { value, .. } => has_ctrl(value),
+        _ => false,
+    }
+}
+
 pub struct Compiler {
     pub instructions: Vec<Instruction>,
     builtins: Builtins,
     loop_id: usize,
+    loop_stack: Vec<LoopInfo>,
+    fn_depth: usize,
 }
 
 impl Default for Compiler {
@@ -21,6 +58,8 @@ impl Compiler {
             instructions: Vec::new(),
             builtins: Builtins::new(),
             loop_id: 0,
+            loop_stack: Vec::new(),
+            fn_depth: 0,
         }
     }
 
@@ -82,6 +121,39 @@ impl Compiler {
                 }
                 self.instructions.push(Instruction::CallAnon(args.len()));
             }
+            AstNode::Break => {
+                if let Some(loop_info) = self.loop_stack.last_mut() {
+                    let pos = self.instructions.len();
+                    self.instructions.push(Instruction::Jump(0));
+                    loop_info.break_jumps.push(pos);
+                } else {
+                    return Err(WqError::DomainError("@b outside loop".into()));
+                }
+            }
+            AstNode::Continue => {
+                if let Some(loop_info) = self.loop_stack.last_mut() {
+                    let pos = self.instructions.len();
+                    self.instructions.push(Instruction::Jump(0));
+                    loop_info.continue_jumps.push(pos);
+                } else {
+                    return Err(WqError::DomainError("@c outside loop".into()));
+                }
+            }
+            AstNode::Return(expr) => {
+                if self.fn_depth == 0 {
+                    return Err(WqError::DomainError("@r outside function".into()));
+                }
+                if let Some(e) = expr {
+                    self.compile(e)?;
+                } else {
+                    self.instructions.push(Instruction::LoadConst(Value::Null));
+                }
+                self.instructions.push(Instruction::Return);
+            }
+            AstNode::Assert(expr) => {
+                self.compile(expr)?;
+                self.instructions.push(Instruction::Assert);
+            }
             AstNode::Index { object, index } => {
                 self.compile(object)?;
                 self.compile(index)?;
@@ -106,6 +178,7 @@ impl Compiler {
             }
             AstNode::Function { params, body } => {
                 let mut c = Compiler::new();
+                c.fn_depth = self.fn_depth + 1;
                 c.compile(body)?;
                 let mut func_instructions = c.instructions;
                 func_instructions.push(Instruction::Return);
@@ -140,18 +213,27 @@ impl Compiler {
                 self.compile(condition)?;
                 let jump_pos = self.instructions.len();
                 self.instructions.push(Instruction::JumpIfFalse(0));
+                self.loop_stack.push(LoopInfo::default());
                 self.compile(body)?;
+                let continue_target = self.instructions.len();
                 self.instructions.push(Instruction::Pop);
                 self.instructions.push(Instruction::Jump(start));
                 let end = self.instructions.len();
                 self.instructions[jump_pos] = Instruction::JumpIfFalse(end);
+                if let Some(info) = self.loop_stack.pop() {
+                    for pos in info.break_jumps {
+                        self.instructions[pos] = Instruction::Jump(end);
+                    }
+                    for pos in info.continue_jumps {
+                        self.instructions[pos] = Instruction::Jump(continue_target);
+                    }
+                }
                 self.instructions.push(Instruction::LoadConst(Value::Null));
             }
             AstNode::ForLoop { count, body } => {
-                // Unroll constant loops. Fully unroll up to 16
-                // iterations and partially unroll larger loops in chunks of 8.
+                // Unroll constant loops only when there is no control flow in body
                 if let AstNode::Literal(Value::Int(n)) = &**count {
-                    if *n >= 0 {
+                    if *n >= 0 && !has_ctrl(body) {
                         let limit = 16;
                         if *n <= limit {
                             if *n == 0 {
@@ -170,7 +252,6 @@ impl Compiler {
                             }
                             return Ok(());
                         } else if *n <= 64 {
-                            // unroll in chunks of 8
                             let full_chunks = *n / 8;
                             let remainder = *n % 8;
                             for c in 0..full_chunks {
@@ -234,9 +315,11 @@ impl Compiler {
                     .push(Instruction::LoadVar("_n".to_string()));
                 self.instructions
                     .push(Instruction::StoreVar(old_var.clone()));
+                self.loop_stack.push(LoopInfo::default());
                 self.compile(body)?;
                 self.instructions
                     .push(Instruction::StoreVar(result_var.clone()));
+                let continue_target = self.instructions.len();
                 self.instructions
                     .push(Instruction::LoadVar(old_var.clone()));
                 self.instructions
@@ -248,6 +331,14 @@ impl Compiler {
                 self.instructions.push(Instruction::Jump(start));
                 let end = self.instructions.len();
                 self.instructions[jump_pos] = Instruction::JumpIfFalse(end);
+                if let Some(info) = self.loop_stack.pop() {
+                    for pos in info.break_jumps {
+                        self.instructions[pos] = Instruction::Jump(end);
+                    }
+                    for pos in info.continue_jumps {
+                        self.instructions[pos] = Instruction::Jump(continue_target);
+                    }
+                }
                 self.instructions.push(Instruction::LoadVar(result_var));
             }
             AstNode::Block(stmts) => {

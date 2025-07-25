@@ -80,6 +80,18 @@ pub enum AstNode {
         body: Box<AstNode>,
     },
 
+    /// break statement
+    Break,
+
+    /// continue statement
+    Continue,
+
+    /// return statement
+    Return(Option<Box<AstNode>>),
+
+    /// assert statement
+    Assert(Box<AstNode>),
+
     /// Block/sequence of statements
     Block(Vec<AstNode>),
 }
@@ -635,6 +647,40 @@ impl Parser {
                     // Parse conditional: $[condition;true_branch;false_branch]
                     self.parse_conditional_dot()
                 }
+                TokenType::AtBreak => {
+                    self.advance();
+                    Ok(AstNode::Break)
+                }
+                TokenType::AtContinue => {
+                    self.advance();
+                    Ok(AstNode::Continue)
+                }
+                TokenType::AtReturn => {
+                    self.advance();
+                    if let Some(token) = self.current_token() {
+                        if matches!(
+                            token.token_type,
+                            TokenType::Semicolon
+                                | TokenType::RightBracket
+                                | TokenType::RightParen
+                                | TokenType::RightBrace
+                                | TokenType::Newline
+                                | TokenType::Eof
+                        ) {
+                            Ok(AstNode::Return(None))
+                        } else {
+                            let expr = self.parse_expression()?;
+                            Ok(AstNode::Return(Some(Box::new(expr))))
+                        }
+                    } else {
+                        Ok(AstNode::Return(None))
+                    }
+                }
+                TokenType::AtAssert => {
+                    self.advance();
+                    let expr = self.parse_expression()?;
+                    Ok(AstNode::Assert(Box::new(expr)))
+                }
                 TokenType::Identifier(name) => {
                     let val = name.clone();
                     self.advance();
@@ -985,8 +1031,10 @@ impl Parser {
             // now see what follows: semicolon/newline, an end‐token, or a syntax error
             if let Some(token) = self.current_token() {
                 // treat semicolon, newline, or comment specially
-                if matches!(token.token_type, TokenType::Semicolon | TokenType::Newline | TokenType::Comment(_))
-                {
+                if matches!(
+                    token.token_type,
+                    TokenType::Semicolon | TokenType::Newline | TokenType::Comment(_)
+                ) {
                     // if semicolon is itself one of the ends, break; otherwise consume and continue
                     let sem_dis = std::mem::discriminant(&TokenType::Semicolon);
                     if ends.iter().any(|e| std::mem::discriminant(e) == sem_dis) {

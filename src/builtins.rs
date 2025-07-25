@@ -9,10 +9,10 @@ mod io;
 mod list;
 mod logical;
 mod math;
-mod system;
-mod typeb;
 mod plot;
 mod string;
+mod system;
+mod typeb;
 
 static TIL_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -171,7 +171,8 @@ fn values_to_strings(args: &[Value]) -> WqResult<Vec<String>> {
             Value::Symbol(s) => Ok(s.clone()),
             Value::Char(ch) => Ok(ch.to_string()),
             other => Err(WqError::TypeError(format!(
-                "string args expected, got {}",
+                "string args expected, got {} of type {}",
+                v,
                 other.type_name()
             ))),
         })

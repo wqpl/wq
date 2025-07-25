@@ -75,6 +75,10 @@ pub enum WqError {
     FnArgCountMismatchError(String),
     RuntimeError(String),
     EofError(String),
+    AssertionFailError(String),
+    Break,
+    Continue,
+    Return(Value),
 }
 
 impl PartialEq for Value {
@@ -489,6 +493,10 @@ impl fmt::Display for WqError {
             }
             WqError::RuntimeError(msg) => write!(f, "runtime error: {msg}"),
             WqError::EofError(msg) => write!(f, "end of file error: {msg}"),
+            WqError::Break => write!(f, "break"),
+            WqError::Continue => write!(f, "continue"),
+            WqError::Return(v) => write!(f, "return {v}"),
+            WqError::AssertionFailError(msg) => write!(f, "assertion failed: {msg}"),
         }
     }
 }

@@ -20,5 +20,6 @@ pub enum Instruction {
     Jump(usize),
     JumpIfFalse(usize),
     Pop,
+    Assert,
     Return,
 }

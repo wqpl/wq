@@ -164,6 +164,13 @@ impl Formatter {
                 let body = self.format_node(body, level + 1);
                 format!("N[{cnt};\n{body}]")
             }
+            AstNode::Break => "@b".to_string(),
+            AstNode::Continue => "@c".to_string(),
+            AstNode::Return(expr) => match expr {
+                Some(e) => format!("@r {}", self.format_node(e, level)),
+                None => "@r".to_string(),
+            },
+            AstNode::Assert(e) => format!("@a {}", self.format_node(e, level)),
             AstNode::Block(stmts) => {
                 let mut res = String::new();
                 for (i, stmt) in stmts.iter().enumerate() {

@@ -12,4 +12,4 @@ gete:{
       e[_n+1]:carry%10;
     ];
 e;}
-echo gete 1000
+echo gete 100

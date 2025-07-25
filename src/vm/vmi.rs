@@ -347,6 +347,21 @@ impl Vm {
                 Instruction::Pop => {
                     self.stack.pop();
                 }
+                Instruction::Assert => {
+                    let v = self.stack.pop().unwrap();
+                    let ok = match v {
+                        Value::Bool(b) => b,
+                        Value::Int(n) => n != 0,
+                        Value::Float(f) => f != 0.0,
+                        _ => {
+                            return Err(WqError::TypeError("Invalid type for assert".into()));
+                        }
+                    };
+                    if !ok {
+                        return Err(WqError::AssertionFailError("assertion failed".into()));
+                    }
+                    self.stack.push(Value::Null);
+                }
                 Instruction::Return => break,
             }
         }
