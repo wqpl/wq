@@ -1,0 +1,10 @@
+cargo fmt
+cargo check
+cargo clippy
+-------------------------
+ruff format
+ruff check
+-------------------------
+python3 exa-t.py gen
+-------------------------
+python3 bdg.py concise

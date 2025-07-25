@@ -546,7 +546,7 @@ mod tests {
 
     #[test]
     fn test_tokenize_numbers() {
-        let mut lexer = Lexer::new("42 3.14 -5");
+        let mut lexer = Lexer::new("42 3.1 -5");
         let tokens = lexer.tokenize();
 
         assert_eq!(tokens[0].token_type, TokenType::Integer(42));

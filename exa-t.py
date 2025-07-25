@@ -10,6 +10,7 @@ Usage examples:
   python3 exa-t.py clean               # Remove all .exp files
 
 """
+
 import subprocess
 import sys
 import os
@@ -111,12 +112,17 @@ def run_tests(build_type, script=None, run_all=False):
         sys.exit(1)
 
     if script:
-        included = [tf for tf in included if os.path.splitext(os.path.basename(tf))[0] == script]
+        included = [
+            tf for tf in included if os.path.splitext(os.path.basename(tf))[0] == script
+        ]
         if not included:
             print(f"[ERROR] No test named '{script}' found.", file=sys.stderr)
             sys.exit(1)
     elif not run_all:
-        print("[ERROR] Specify a script name or use --all to run all tests.", file=sys.stderr)
+        print(
+            "[ERROR] Specify a script name or use --all to run all tests.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     print(f"Building ({build_type}) before running tests...")
@@ -157,8 +163,7 @@ def run_tests(build_type, script=None, run_all=False):
             with open(exp_path, "r", encoding="utf-8") as f:
                 expected = f.read()
         except OSError as e:
-            print(
-                f"[ERROR] Could not read expected file 'هنة نجğ'{e}", file=sys.stderr)
+            print(f"[ERROR] Could not read expected file 'هنة نجğ'{e}", file=sys.stderr)
             sys.exit(1)
 
         if actual.strip() == expected.strip():
@@ -192,7 +197,11 @@ def list_tests():
     check_environment()
     tests_dir = "exa"
     all_tests = sorted(glob.glob(os.path.join(tests_dir, "*.wq")))
-    included = [os.path.splitext(os.path.basename(tf))[0] for tf in all_tests if not is_excluded(tf)]
+    included = [
+        os.path.splitext(os.path.basename(tf))[0]
+        for tf in all_tests
+        if not is_excluded(tf)
+    ]
     if not included:
         print("[INFO] No available tests found.")
     else:
@@ -222,8 +231,9 @@ def main():
         description="Utility for generating expected outputs and running wq tests"
     )
     parser.add_argument(
-        "--build-type", choices=["debug", "release"],
-        help="Build type for cargo (debug or release)."
+        "--build-type",
+        choices=["debug", "release"],
+        help="Build type for cargo (debug or release).",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -232,7 +242,9 @@ def main():
     group = parser_test.add_mutually_exclusive_group(required=True)
     group.add_argument("script", nargs="?", help="Test script basename to run")
     group.add_argument("-a", "--all", action="store_true", help="Run all tests")
-    group.add_argument("-l", "--list", action="store_true", help="List all available tests")
+    group.add_argument(
+        "-l", "--list", action="store_true", help="List all available tests"
+    )
     subparsers.add_parser("clean", help="Remove all generated .exp files")
 
     args = parser.parse_args()
@@ -240,7 +252,11 @@ def main():
     build_type = args.build_type
     if args.command in ("gen", "test"):
         if not build_type:
-            choice = input("Select build type ('debug' or 'release') [debug]: ").strip().lower()
+            choice = (
+                input("Select build type ('debug' or 'release') [debug]: ")
+                .strip()
+                .lower()
+            )
             if choice in ("debug", "release"):
                 build_type = choice
             elif choice == "":
