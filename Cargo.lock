@@ -446,6 +446,7 @@ dependencies = [
  "colored 3.0.0",
  "once_cell",
  "rand",
+ "rgb",
  "rustyline",
  "textplots",
 ]
