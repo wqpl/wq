@@ -5,14 +5,9 @@ see also: wq -h
                assignment^   cat count
 =    ~    <    <=   >    >=
 eq  neq
-$[cond;tb;fb]       $.[cond;tb1;tb2;...]
-W[cond;b1]          N[n;b1;echo _n]
-abs neg signum sqrt exp ln floor ceiling
-rand sin cos tan sinh cosh tanh
-count first last reverse sum max min avg
-til range take drop where distinct sort
-cat flatten idx and or not asciiplot
-type string symbol echo showt exec ...
+$[cond;t;f1;f2...] $.[cond;t1;t2...]
+W[cond;s1;s2...]   N[n;echo _n]
+@a @b @c @r
 ----------------------------------------
 int float char symbol bool list dict
 function stream
@@ -24,3 +19,13 @@ repl: \h   \v   \c    \l   \t
       help vars clear load time
       \b  \d    \q
       box debug quit
+----------------------------------------
+abs neg signum sqrt exp ln floor ceiling
+rand sin cos tan sinh cosh tanh til
+range count first last reverse sum max
+min avg take drop where distinct sort
+cat flatten alloc idx type symbol string
+format null? keys and or not xor band
+bor bxor bnot shl shr echo exec showt
+fopen fread fwrite fclose fsize
+asciiplot
