@@ -8,6 +8,9 @@ use rustyline::error::ReadlineError;
 use std::env;
 use std::fs;
 use std::time::Instant;
+use std::time::Duration;
+use std::thread;
+use std::io::{stdout, Write};
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -16,6 +19,7 @@ use wq::value::box_mode;
 use wq::value::valuei::WqError;
 
 use colored::Colorize;
+use rand::Rng;
 
 use crate::load_resolver::{load_script, parse_load_filename, resolve_load_path};
 
@@ -119,6 +123,13 @@ fn main() {
                 if buffer.is_empty() {
                     match input {
                         "quit" | "exit" | "\\q" => {
+                            system_msg_printer::stdout(
+                                "bye..".to_string(),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            break;
+                        }
+                        "bye" => {
                             system_msg_printer::stdout(
                                 "bye".to_string(),
                                 system_msg_printer::MsgType::Info,
@@ -227,6 +238,24 @@ fn main() {
                             }
                             continue;
                         }
+                        "bye!" | "goodbye" => {
+                            let mut rng = rand::rng();
+                            let mut stdout = stdout();
+                                let frames = if rng.random_bool(0.5) {
+                                    [";D", ";D", ";)", ";)", ";)"]
+                                } else {
+                                    [":D", ":D", ":)", ":)", ":)"]
+                                };
+                            print!("bye! ");
+                            stdout.flush().unwrap();
+                            for &face in &frames {
+                                print!("\r{}", format!("bye! {}", face));
+                                stdout.flush().unwrap();
+                                thread::sleep(Duration::from_millis(200));
+                            }
+                            println!();
+                            break;
+                        }
                         cmd if cmd.starts_with("\\t") || cmd.starts_with("time ") => {
                             let src = if let Some(rest) = cmd.strip_prefix("\\t") {
                                 rest.trim()
@@ -309,8 +338,19 @@ fn main() {
                     }
                 }
             }
-            Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => {
-                break;
+            Err(ReadlineError::Interrupted) => {
+                 break;
+            }
+            Err(ReadlineError::Eof) => {
+                let mut rng = rand::rng();
+                if rng.random_bool(0.00666666_f64) {
+                    thread::sleep(Duration::from_millis(1500));
+                    // wq-chan is watching you
+                    println!("{}","you should’ve said goodbye.".red());
+                    continue;
+                } else {
+                    break;
+                }
             }
             Err(error) => {
                 system_msg_printer::stderr(

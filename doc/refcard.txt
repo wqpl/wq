@@ -18,7 +18,7 @@ func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3;]
 repl: \h   \v   \c    \l   \t
       help vars clear load time
       \b  \d    \q
-      box debug quit
+      box debug goodbye
 ----------------------------------------
 abs neg signum sqrt exp ln floor ceiling
 rand sin cos tan sinh cosh tanh til
