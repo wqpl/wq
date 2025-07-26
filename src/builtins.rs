@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 mod dict;
+mod eval;
 mod io;
 mod list;
 mod logical;
@@ -88,6 +89,7 @@ impl Builtins {
         self.add("type", typeb::type_of);
         self.add("symbol", typeb::to_symbol);
         self.add("string", typeb::to_string);
+        self.add("chr", typeb::chr);
         self.add("format", string::format_string);
         self.add("null?", typeb::is_null);
 
@@ -108,6 +110,7 @@ impl Builtins {
         // System functions
         self.add("echo", system::echo);
         self.add("exec", system::exec);
+        self.add("eval", eval::eval);
         self.add("showt", system::show_table::show_table);
 
         // io functions

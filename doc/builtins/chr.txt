@@ -1,0 +1,6 @@
+chr
+1 arg
+
+Examples:
+chr 65  // "A"
+chr (65;66) // ("A";"B")
