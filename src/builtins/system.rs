@@ -4,10 +4,11 @@ use crate::{
     builtins::values_to_strings,
     value::valuei::{Value, WqError, WqResult},
 };
+use std::io::{Write, stdout};
 
 pub fn echo(args: &[Value]) -> WqResult<Value> {
-    for arg in args {
-        match arg {
+    fn print_value(value: &Value, newline: bool) {
+        match value {
             Value::List(items) if items.iter().all(|v| matches!(v, Value::Char(_))) => {
                 let s: String = items
                     .iter()
@@ -19,11 +20,46 @@ pub fn echo(args: &[Value]) -> WqResult<Value> {
                         }
                     })
                     .collect();
-                println!("{s}");
+                if newline {
+                    println!("{s}");
+                } else {
+                    print!("{s}");
+                    let _ = stdout().flush();
+                }
             }
-            Value::Char(c) => println!("{c}"),
-            _ => println!("{arg}"),
+            Value::Char(c) => {
+                if newline {
+                    println!("{c}");
+                } else {
+                    print!("{c}");
+                    let _ = stdout().flush();
+                }
+            }
+            other => {
+                if newline {
+                    println!("{other}");
+                } else {
+                    print!("{other}");
+                    let _ = stdout().flush();
+                }
+            }
         }
+    }
+
+    if args.is_empty() {
+        println!();
+        return Ok(Value::Null);
+    }
+
+    if args.len() == 2 {
+        if let Value::Bool(b) = args[1] {
+            print_value(&args[0], b);
+            return Ok(Value::Null);
+        }
+    }
+
+    for arg in args {
+        print_value(arg, true);
     }
 
     Ok(Value::Null)

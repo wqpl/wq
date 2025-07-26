@@ -196,20 +196,60 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_string_or_char(&mut self) -> TokenType {
-        self.advance(); // Skip opening quote
+        self.advance(); // skip opening quote
         let mut content = String::new();
 
         while let Some(ch) = self.current_char {
-            if ch == '"' {
-                self.advance(); // consume closing quote
-                break;
-            } else {
-                content.push(ch);
-                self.advance();
+            match ch {
+                '\\' => {
+                    // have an escape; peek at the next char
+                    if let Some(_) = self.peek() {
+                        // Consume the backslash
+                        self.advance();
+                        // next is the escaped char
+                        match self.current_char.unwrap() {
+                            '"' => {
+                                content.push('"');
+                                self.advance();
+                            }
+                            '\\' => {
+                                content.push('\\');
+                                self.advance();
+                            }
+                            'n' => {
+                                content.push('\n');
+                                self.advance();
+                            }
+                            other => {
+                                // unrecognized: keep the backslash + char
+                                content.push('\\');
+                                content.push(other);
+                                self.advance();
+                            }
+                        }
+                    } else {
+                        // Trailing backslash before EOF; push it
+                        content.push('\\');
+                        self.advance();
+                        break;
+                    }
+                }
+
+                '"' => {
+                    // Only a terminator if not escaped
+                    self.advance(); // consume closing quote
+                    break;
+                }
+
+                _ => {
+                    content.push(ch);
+                    self.advance();
+                }
             }
         }
 
-        if content.len() == 1 {
+        // Single‐char content -> Character, otherwise String
+        if content.chars().count() == 1 {
             TokenType::Character(content.chars().next().unwrap())
         } else {
             TokenType::String(content)
@@ -581,6 +621,13 @@ mod tests {
         let mut lexer = Lexer::new("\"ab\"");
         let tokens = lexer.tokenize();
         assert_eq!(tokens[0].token_type, TokenType::String("ab".to_string()));
+    }
+
+    #[test]
+    fn test_escape_quote() {
+        let mut lexer = Lexer::new("\"a\\\"b\"");
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0].token_type, TokenType::String("a\"b".to_string()));
     }
 
     #[test]

@@ -987,7 +987,7 @@ mod tests {
     #[test]
     fn test_echo() {
         let mut evaluator = Evaluator::new();
-        let result = evaluator.eval_string("echo 1").unwrap();
+        let result = evaluator.eval_string("echo[1;false;]").unwrap();
         assert_eq!(result, Value::Null);
     }
 

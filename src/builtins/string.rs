@@ -2,6 +2,7 @@ use crate::{
     builtins::values_to_strings,
     value::valuei::{Value, WqError, WqResult},
 };
+use std::char;
 
 pub fn format_string(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
@@ -22,13 +23,30 @@ pub fn format_string(args: &[Value]) -> WqResult<Value> {
     while let Some(ch) = iter.next() {
         if ch == '\\' {
             match iter.peek() {
-                Some('\\') => {
-                    output.push('\\');
+                Some('u') => {
                     iter.next();
-                }
-                Some('n') => {
-                    output.push('\n');
-                    iter.next();
+                    if iter.peek() == Some(&'{') {
+                        iter.next(); // consume '{'
+                        let mut codepoint = String::new();
+                        while let Some(&next) = iter.peek() {
+                            if next == '}' {
+                                break;
+                            }
+                            codepoint.push(next);
+                            iter.next();
+                        }
+                        if iter.peek() == Some(&'}') {
+                            iter.next();
+                            if let Ok(val) = u32::from_str_radix(&codepoint, 16) {
+                                if let Some(ch) = char::from_u32(val) {
+                                    output.push(ch);
+                                }
+                            }
+                        }
+                    } else {
+                        output.push('\\');
+                        output.push('u');
+                    }
                 }
                 _ => output.push('\\'),
             }
@@ -77,20 +95,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn newline_escape() {
-        let fmt = Value::List("\\n".chars().map(Value::Char).collect());
-        let res = format_string(&[fmt]).unwrap();
-        assert_eq!(res, Value::List("\n".chars().map(Value::Char).collect()));
-    }
-
-    #[test]
-    fn escape_backslash_n() {
-        let fmt = Value::List("\\\\n".chars().map(Value::Char).collect());
-        let res = format_string(&[fmt]).unwrap();
-        assert_eq!(res, Value::List("\\n".chars().map(Value::Char).collect()));
-    }
-
-    #[test]
     fn interpolation() {
         let fmt = Value::List("x = {}".chars().map(Value::Char).collect());
         let res = format_string(&[fmt, Value::Int(5)]).unwrap();
@@ -102,5 +106,12 @@ mod tests {
         let fmt = Value::List("{{}}".chars().map(Value::Char).collect());
         let res = format_string(&[fmt]).unwrap();
         assert_eq!(res, Value::List("{}".chars().map(Value::Char).collect()));
+    }
+
+    #[test]
+    fn unicode_escape() {
+        let fmt = Value::List("\\u{41}".chars().map(Value::Char).collect());
+        let res = format_string(&[fmt]).unwrap();
+        assert_eq!(res, Value::List("A".chars().map(Value::Char).collect()));
     }
 }
