@@ -1,0 +1,5 @@
+keys
+1 arg
+
+Examples:
+  keys(`a:1;`b:2) // (`a;`b)

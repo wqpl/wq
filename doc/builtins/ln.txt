@@ -1,0 +1,5 @@
+ln
+1 arg
+
+Examples:
+  ln 1 // 0.0

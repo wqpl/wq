@@ -1,0 +1,5 @@
+and
+2 args
+
+Examples:
+  and[true;false] // false

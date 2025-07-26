@@ -1,0 +1,5 @@
+or
+2 args
+
+Examples:
+  or[true;false] // true

@@ -1,0 +1,5 @@
+string
+1 arg
+
+Examples:
+  string 42 // "42"

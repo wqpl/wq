@@ -1,0 +1,5 @@
+cos
+1 arg
+
+Examples:
+  cos 0 // 1.0

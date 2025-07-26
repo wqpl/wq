@@ -1,0 +1,5 @@
+echo
+variable args
+
+Examples:
+  echo "hi"

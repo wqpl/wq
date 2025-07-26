@@ -1,0 +1,5 @@
+fread
+1 or 2 args
+
+Examples:
+  fread h

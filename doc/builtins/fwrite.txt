@@ -1,0 +1,5 @@
+fwrite
+2 args
+
+Examples:
+  fwrite[h;"hi"]

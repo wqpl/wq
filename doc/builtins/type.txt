@@ -1,0 +1,5 @@
+type
+1 arg
+
+Examples:
+  type 1 // "int"

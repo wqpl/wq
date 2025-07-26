@@ -1,0 +1,5 @@
+sqrt
+1 arg
+
+Examples:
+  sqrt 4 // 2

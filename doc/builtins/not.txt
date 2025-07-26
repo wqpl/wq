@@ -1,0 +1,5 @@
+not
+1 arg
+
+Examples:
+  not true // false

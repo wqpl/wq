@@ -1,0 +1,5 @@
+bxor
+2 args
+
+Examples:
+  bxor[3;1] // 2

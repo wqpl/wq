@@ -1,0 +1,5 @@
+fopen
+1 or 2 args
+
+Examples:
+  fopen "file" "r"

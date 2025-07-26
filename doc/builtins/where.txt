@@ -1,0 +1,5 @@
+where
+1 arg
+
+Examples:
+  where(0;1;0;1) // (1;3)

@@ -1,0 +1,7 @@
+exec
+1 or more args
+
+Examples:
+  exec "ls"
+  exec "ls -alh"
+  exec["ls";"-alh";]

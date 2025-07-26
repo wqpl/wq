@@ -1,0 +1,5 @@
+exp
+1 arg
+
+Examples:
+  exp 1 // 2.718...

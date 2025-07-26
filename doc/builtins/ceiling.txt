@@ -1,0 +1,5 @@
+ceiling
+1 arg
+
+Examples:
+  ceiling 2.2 // 3

@@ -1,0 +1,5 @@
+xor
+2 args
+
+Examples:
+  xor[true;false] // true

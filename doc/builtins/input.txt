@@ -1,0 +1,5 @@
+input
+0 or 1 arg
+
+Examples:
+  input "name: "

@@ -1,0 +1,5 @@
+bor
+2 args
+
+Examples:
+  bor[2;1] // 3

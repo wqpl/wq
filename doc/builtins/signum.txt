@@ -1,0 +1,5 @@
+signum
+1 arg
+
+Examples:
+  signum -3 // -1

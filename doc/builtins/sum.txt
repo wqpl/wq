@@ -1,0 +1,5 @@
+sum
+1 arg
+
+Examples:
+  sum(1;2;3) // 6

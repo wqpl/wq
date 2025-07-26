@@ -1,0 +1,5 @@
+shr
+2 args
+
+Examples:
+  shr[4;1] // 2

@@ -1,0 +1,5 @@
+cosh
+1 arg
+
+Examples:
+  cosh 0 // 1.0
