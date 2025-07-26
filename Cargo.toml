@@ -2,6 +2,7 @@
 name = "wq"
 version = "0.3.1"
 edition = "2024"
+build = "build.rs"
 
 [dependencies]
 colored = "3.0.0"

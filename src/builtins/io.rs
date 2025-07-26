@@ -8,6 +8,9 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
 };
 
+use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
+
 pub fn fopen(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() || args.len() > 2 {
         return Err(WqError::FnArgCountMismatchError(
@@ -183,4 +186,31 @@ pub fn fsize(args: &[Value]) -> WqResult<Value> {
     let path = values_to_strings(&[args[0].clone()])?.pop().unwrap();
     let meta = std::fs::metadata(&path).map_err(|e| WqError::RuntimeError(e.to_string()))?;
     Ok(Value::Int(meta.len() as i64))
+}
+
+pub fn input(args: &[Value]) -> WqResult<Value> {
+    if args.len() > 1 {
+        return Err(WqError::FnArgCountMismatchError(
+            "input expects 0 or 1 argument".to_string(),
+        ));
+    }
+
+    let prompt = if args.len() == 1 {
+        values_to_strings(&[args[0].clone()])?
+            .into_iter()
+            .next()
+            .unwrap()
+    } else {
+        String::new()
+    };
+
+    let mut rl = DefaultEditor::new().map_err(|e| WqError::RuntimeError(e.to_string()))?;
+    match rl.readline(&prompt) {
+        Ok(line) => Ok(Value::List(line.chars().map(Value::Char).collect())),
+        Err(ReadlineError::Interrupted) => {
+            Err(WqError::RuntimeError("input interrupted".to_string()))
+        }
+        Err(ReadlineError::Eof) => Ok(Value::Null),
+        Err(e) => Err(WqError::RuntimeError(e.to_string())),
+    }
 }

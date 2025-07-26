@@ -1,0 +1,9 @@
+rand
+0, 1, or 2 args
+
+Examples:
+rand        // float ∈ [0.0, 1.0)
+rand 2      // int ∈ [0, 2)
+rand 2.2    // float ∈ [0.0, 2.2)
+rand[1;2]   // int ∈ [1, 2)
+rand[1.1;2] // float ∈ [1.1, 2)

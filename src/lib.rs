@@ -1,4 +1,5 @@
 pub mod builtins;
+pub mod builtins_help;
 pub mod evaluator;
 pub mod lexer;
 pub mod parser;

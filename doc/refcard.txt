@@ -1,5 +1,5 @@
           wq by tttiw - refcard
-see also: wq -h
+see also: help <builtin>, wq -h
 ----------------------------------------
 +    -    *    /    %    :    ,    #
                assignment^   cat count
@@ -26,6 +26,6 @@ range count first last reverse sum max
 min avg take drop where distinct sort
 cat flatten alloc idx type symbol string
 format null? keys and or not xor band
-bor bxor bnot shl shr echo exec showt
+bor bxor bnot shl shr echo exec showt input
 fopen fread fwrite fclose fsize
 asciiplot

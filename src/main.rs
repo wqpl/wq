@@ -1,3 +1,4 @@
+use wq::builtins_help;
 use wq::evaluator::Evaluator;
 use wq::repl::ReplEngine;
 use wq::tools::formatter::{FormatOptions, Formatter};
@@ -136,17 +137,34 @@ fn main() {
                             );
                             break;
                         }
-                        "help" | "\\h" => {
-                            println!(
-                                "{}",
-                                create_boxed_text(
-                                    include_str!(concat!(
-                                        env!("CARGO_MANIFEST_DIR"),
-                                        "/doc/refcard.txt"
-                                    )),
-                                    2,
-                                )
-                            );
+                        cmd if cmd.starts_with("help") || cmd.starts_with("\\h") => {
+                            let arg = if let Some(rest) = cmd.strip_prefix("help") {
+                                rest.trim()
+                            } else if let Some(rest) = cmd.strip_prefix("\\h") {
+                                rest.trim()
+                            } else {
+                                ""
+                            };
+
+                            if arg.is_empty() {
+                                println!(
+                                    "{}",
+                                    create_boxed_text(
+                                        include_str!(concat!(
+                                            env!("CARGO_MANIFEST_DIR"),
+                                            "/doc/refcard.txt"
+                                        )),
+                                        2,
+                                    )
+                                );
+                            } else if let Some(text) = builtins_help::get_builtin_help(arg) {
+                                println!("{}", create_boxed_text(text, 2));
+                            } else {
+                                system_msg_printer::stderr(
+                                    format!("no help available for '{arg}'"),
+                                    system_msg_printer::MsgType::Error,
+                                );
+                            }
                             continue;
                         }
                         "vars" | "\\v" => {
@@ -345,8 +363,8 @@ fn main() {
             }
             Err(ReadlineError::Eof) => {
                 let mut rng = rand::rng();
-                let p = 0.006666f64;
-                // let p = 1f64;
+                // let p = 0.006666f64;
+                let p = 1f64;
                 if rng.random_bool(p) {
                     print!("{}", "\u{258D} ".cyan());
                     stdout().flush().unwrap();
@@ -359,10 +377,7 @@ fn main() {
                         print!("{}", ch.to_string().red());
                         stdout().flush().unwrap();
                     }
-                    system_msg_printer::stdout(
-                        "\rprogram \"wq\" terminated       ".to_string(),
-                        system_msg_printer::MsgType::Info,
-                    );
+                    println!("{}", "\rprogram \"wq\" terminated       ",);
                 }
                 break;
             }

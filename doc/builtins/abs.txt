@@ -1,0 +1,6 @@
+abs
+1 arg
+
+Examples:
+  abs(-1)    // 1
+  abs(-1;-2) // (1;2)

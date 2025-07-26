@@ -116,6 +116,7 @@ impl Builtins {
         self.add("fwrite", io::fwrite);
         self.add("fclose", io::fclose);
         self.add("fsize", io::fsize);
+        self.add("input", io::input);
 
         // plot
         self.add("asciiplot", plot::asciiplot);
