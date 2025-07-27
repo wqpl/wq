@@ -13,12 +13,12 @@ impl Value {
             (Value::Int(a), Value::IntList(vec)) => {
                 Some(Value::IntList(vec.iter().map(|x| a + x).collect()))
             }
-            (Value::Float(a), Value::IntList(vec)) => {
-                Some(Value::List(vec.iter().map(|&x| Value::Float(a + x as f64)).collect()))
-            }
-            (Value::IntList(vec), Value::Float(b)) => {
-                Some(Value::List(vec.iter().map(|&x| Value::Float(x as f64 + b)).collect()))
-            }
+            (Value::Float(a), Value::IntList(vec)) => Some(Value::List(
+                vec.iter().map(|&x| Value::Float(a + x as f64)).collect(),
+            )),
+            (Value::IntList(vec), Value::Float(b)) => Some(Value::List(
+                vec.iter().map(|&x| Value::Float(x as f64 + b)).collect(),
+            )),
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     Some(Value::IntList(
@@ -76,7 +76,6 @@ impl Value {
         )
     }
 
-
     pub fn subtract(&self, other: &Value) -> Option<Value> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Some(Value::Int(a - b)),
@@ -89,12 +88,12 @@ impl Value {
             (Value::Int(a), Value::IntList(vec)) => {
                 Some(Value::IntList(vec.iter().map(|x| a - x).collect()))
             }
-            (Value::Float(a), Value::IntList(vec)) => {
-                Some(Value::List(vec.iter().map(|&x| Value::Float(a - x as f64)).collect()))
-            }
-            (Value::IntList(vec), Value::Float(b)) => {
-                Some(Value::List(vec.iter().map(|&x| Value::Float(x as f64 - b)).collect()))
-            }
+            (Value::Float(a), Value::IntList(vec)) => Some(Value::List(
+                vec.iter().map(|&x| Value::Float(a - x as f64)).collect(),
+            )),
+            (Value::IntList(vec), Value::Float(b)) => Some(Value::List(
+                vec.iter().map(|&x| Value::Float(x as f64 - b)).collect(),
+            )),
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     Some(Value::IntList(
@@ -157,12 +156,12 @@ impl Value {
             (Value::Int(a), Value::IntList(vec)) => {
                 Some(Value::IntList(vec.iter().map(|x| a * x).collect()))
             }
-            (Value::Float(a), Value::IntList(vec)) => {
-                Some(Value::List(vec.iter().map(|&x| Value::Float(a * x as f64)).collect()))
-            }
-            (Value::IntList(vec), Value::Float(b)) => {
-                Some(Value::List(vec.iter().map(|&x| Value::Float(x as f64 * b)).collect()))
-            }
+            (Value::Float(a), Value::IntList(vec)) => Some(Value::List(
+                vec.iter().map(|&x| Value::Float(a * x as f64)).collect(),
+            )),
+            (Value::IntList(vec), Value::Float(b)) => Some(Value::List(
+                vec.iter().map(|&x| Value::Float(x as f64 * b)).collect(),
+            )),
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     Some(Value::IntList(
@@ -264,7 +263,10 @@ impl Value {
                 if all_int {
                     let ints: Vec<i64> = out
                         .into_iter()
-                        .map(|v| match v { Value::Int(n) => n, _ => unreachable!() })
+                        .map(|v| match v {
+                            Value::Int(n) => n,
+                            _ => unreachable!(),
+                        })
                         .collect();
                     Some(Value::IntList(ints))
                 } else {
@@ -274,7 +276,7 @@ impl Value {
             (Value::Int(a), Value::IntList(vec)) => {
                 if vec.is_empty() {
                     Some(Value::List(Vec::new()))
-                } else if vec.iter().any(|x| *x == 0) {
+                } else if vec.contains(&0) {
                     None
                 } else {
                     Some(Value::IntList(vec.iter().map(|x| a / x).collect()))
@@ -283,7 +285,7 @@ impl Value {
             (Value::Float(a), Value::IntList(vec)) => {
                 if vec.is_empty() {
                     Some(Value::List(Vec::new()))
-                } else if vec.iter().any(|&x| x == 0) {
+                } else if vec.contains(&0) {
                     None
                 } else {
                     let out = vec.iter().map(|&x| Value::Float(a / x as f64)).collect();
@@ -302,10 +304,12 @@ impl Value {
             }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    if b.iter().any(|&x| x == 0) {
+                    if b.contains(&0) {
                         return None;
                     }
-                    Some(Value::IntList(a.iter().zip(b.iter()).map(|(x, y)| x / y).collect()))
+                    Some(Value::IntList(
+                        a.iter().zip(b.iter()).map(|(x, y)| x / y).collect(),
+                    ))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
@@ -365,7 +369,11 @@ impl Value {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => {
                 if *b == 0 {
-                    Some(Value::Float(if *a >= 0 { f64::INFINITY } else { f64::NEG_INFINITY }))
+                    Some(Value::Float(if *a >= 0 {
+                        f64::INFINITY
+                    } else {
+                        f64::NEG_INFINITY
+                    }))
                 } else if a % b == 0 {
                     Some(Value::Int(a / b))
                 } else {
@@ -379,7 +387,13 @@ impl Value {
                 if *b == 0 {
                     let out = items
                         .iter()
-                        .map(|&x| Value::Float(if x >= 0 { f64::INFINITY } else { f64::NEG_INFINITY }))
+                        .map(|&x| {
+                            Value::Float(if x >= 0 {
+                                f64::INFINITY
+                            } else {
+                                f64::NEG_INFINITY
+                            })
+                        })
                         .collect();
                     Some(Value::List(out))
                 } else {
@@ -395,7 +409,11 @@ impl Value {
                     for &x in vec {
                         let val = if x == 0 {
                             all_int = false;
-                            Value::Float(if *a >= 0 { f64::INFINITY } else { f64::NEG_INFINITY })
+                            Value::Float(if *a >= 0 {
+                                f64::INFINITY
+                            } else {
+                                f64::NEG_INFINITY
+                            })
                         } else if a % x == 0 {
                             Value::Int(a / x)
                         } else {
@@ -405,7 +423,13 @@ impl Value {
                         out.push(val);
                     }
                     if all_int {
-                        let ints: Vec<i64> = out.into_iter().map(|v| match v { Value::Int(n) => n, _ => unreachable!() }).collect();
+                        let ints: Vec<i64> = out
+                            .into_iter()
+                            .map(|v| match v {
+                                Value::Int(n) => n,
+                                _ => unreachable!(),
+                            })
+                            .collect();
                         Some(Value::IntList(ints))
                     } else {
                         Some(Value::List(out))
@@ -420,7 +444,11 @@ impl Value {
                         .iter()
                         .map(|&x| {
                             if x == 0 {
-                                Value::Float(if *a >= 0.0 { f64::INFINITY } else { f64::NEG_INFINITY })
+                                Value::Float(if *a >= 0.0 {
+                                    f64::INFINITY
+                                } else {
+                                    f64::NEG_INFINITY
+                                })
                             } else {
                                 Value::Float(a / x as f64)
                             }
@@ -437,7 +465,11 @@ impl Value {
                         .iter()
                         .map(|&x| {
                             if *b == 0.0 {
-                                Value::Float(if x >= 0 { f64::INFINITY } else { f64::NEG_INFINITY })
+                                Value::Float(if x >= 0 {
+                                    f64::INFINITY
+                                } else {
+                                    f64::NEG_INFINITY
+                                })
                             } else {
                                 Value::Float(x as f64 / b)
                             }
@@ -453,7 +485,11 @@ impl Value {
                     for (&x, &y) in a.iter().zip(b.iter()) {
                         let val = if y == 0 {
                             all_int = false;
-                            Value::Float(if x >= 0 { f64::INFINITY } else { f64::NEG_INFINITY })
+                            Value::Float(if x >= 0 {
+                                f64::INFINITY
+                            } else {
+                                f64::NEG_INFINITY
+                            })
                         } else if x % y == 0 {
                             Value::Int(x / y)
                         } else {
@@ -463,7 +499,17 @@ impl Value {
                         out.push(val);
                     }
                     if all_int {
-                        Some(Value::IntList(out.into_iter().map(|v| if let Value::Int(n) = v { n } else { unreachable!() }).collect()))
+                        Some(Value::IntList(
+                            out.into_iter()
+                                .map(|v| {
+                                    if let Value::Int(n) = v {
+                                        n
+                                    } else {
+                                        unreachable!()
+                                    }
+                                })
+                                .collect(),
+                        ))
                     } else {
                         Some(Value::List(out))
                     }
@@ -478,7 +524,11 @@ impl Value {
                         let right = b[i % b.len()];
                         let val = if right == 0 {
                             all_int = false;
-                            Value::Float(if left >= 0 { f64::INFINITY } else { f64::NEG_INFINITY })
+                            Value::Float(if left >= 0 {
+                                f64::INFINITY
+                            } else {
+                                f64::NEG_INFINITY
+                            })
                         } else if left % right == 0 {
                             Value::Int(left / right)
                         } else {
@@ -488,7 +538,17 @@ impl Value {
                         out.push(val);
                     }
                     if all_int {
-                        Some(Value::IntList(out.into_iter().map(|v| if let Value::Int(n) = v { n } else { unreachable!() }).collect()))
+                        Some(Value::IntList(
+                            out.into_iter()
+                                .map(|v| {
+                                    if let Value::Int(n) = v {
+                                        n
+                                    } else {
+                                        unreachable!()
+                                    }
+                                })
+                                .collect(),
+                        ))
                     } else {
                         Some(Value::List(out))
                     }
@@ -504,7 +564,11 @@ impl Value {
             }
             (Value::List(a), Value::List(b)) => {
                 if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a.iter().zip(b.iter()).map(|(x, y)| x.divide_dot(y)).collect();
+                    let result: Option<Vec<Value>> = a
+                        .iter()
+                        .zip(b.iter())
+                        .map(|(x, y)| x.divide_dot(y))
+                        .collect();
                     result.map(Value::List)
                 } else if a.is_empty() || b.is_empty() {
                     None
@@ -563,16 +627,14 @@ impl Value {
             (Value::Int(a), Value::IntList(vec)) => {
                 if vec.is_empty() {
                     Some(Value::List(Vec::new()))
-                } else if vec.iter().any(|x| *x == 0) {
+                } else if vec.contains(&0) {
                     None
                 } else {
                     Some(Value::IntList(vec.iter().map(|x| a % x).collect()))
                 }
             }
             (Value::Float(a), Value::IntList(vec)) => {
-                if vec.is_empty() {
-                    None
-                } else if vec.iter().any(|&x| x == 0) {
+                if vec.is_empty() || vec.contains(&0) {
                     None
                 } else {
                     let out = vec.iter().map(|&x| Value::Float(a % x as f64)).collect();
@@ -589,10 +651,12 @@ impl Value {
             }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    if b.iter().any(|&x| x == 0) {
+                    if b.contains(&0) {
                         return None;
                     }
-                    Some(Value::IntList(a.iter().zip(b.iter()).map(|(x, y)| x % y).collect()))
+                    Some(Value::IntList(
+                        a.iter().zip(b.iter()).map(|(x, y)| x % y).collect(),
+                    ))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
@@ -719,7 +783,13 @@ impl Value {
                     let out = a
                         .iter()
                         .zip(b.iter())
-                        .map(|(x, y)| if *y == 0 { Value::nan() } else { Value::Int(x % y) })
+                        .map(|(x, y)| {
+                            if *y == 0 {
+                                Value::nan()
+                            } else {
+                                Value::Int(x % y)
+                            }
+                        })
                         .collect();
                     Some(Value::List(out))
                 } else if a.is_empty() || b.is_empty() {
@@ -750,7 +820,11 @@ impl Value {
             }
             (Value::List(a), Value::List(b)) => {
                 if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a.iter().zip(b.iter()).map(|(x, y)| x.modulo_dot(y)).collect();
+                    let result: Option<Vec<Value>> = a
+                        .iter()
+                        .zip(b.iter())
+                        .map(|(x, y)| x.modulo_dot(y))
+                        .collect();
                     result.map(Value::List)
                 } else if a.is_empty() || b.is_empty() {
                     None

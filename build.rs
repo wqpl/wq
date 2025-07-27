@@ -26,9 +26,7 @@ fn main() {
                 let path_str = path.to_str().unwrap().replace('\\', "/");
                 writeln!(
                     file,
-                    "        \"{name}\" => Some(include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/{path_str}\"))),",
-                    name = name,
-                    path_str = path_str
+                    "        \"{name}\" => Some(include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/{path_str}\"))),"
                 ).unwrap();
             }
         }

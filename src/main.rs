@@ -387,7 +387,7 @@ fn main() {
                         print!("{}", ch.to_string().red());
                         stdout().flush().unwrap();
                     }
-                    println!("{}", "\rprogram \"wq\" terminated       ",);
+                    println!("\rprogram \"wq\" terminated       ",);
                 }
                 break;
             }

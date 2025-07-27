@@ -208,7 +208,7 @@ impl<'a> Lexer<'a> {
             match ch {
                 '\\' => {
                     // have an escape; peek at the next char
-                    if let Some(_) = self.peek() {
+                    if self.peek().is_some() {
                         // Consume the backslash
                         self.advance();
                         // next is the escaped char
