@@ -102,7 +102,9 @@ pub enum BinaryOperator {
     Subtract,
     Multiply,
     Divide,
+    DivideDot,
     Modulo,
+    ModuloDot,
     Equal,
     NotEqual,
     LessThan,
@@ -392,7 +394,9 @@ impl Parser {
             let op = match token.token_type {
                 TokenType::Multiply => BinaryOperator::Multiply,
                 TokenType::Divide => BinaryOperator::Divide,
+                TokenType::DivideDot => BinaryOperator::DivideDot,
                 TokenType::Modulo => BinaryOperator::Modulo,
+                TokenType::ModuloDot => BinaryOperator::ModuloDot,
                 _ => break,
             };
 
@@ -638,6 +642,14 @@ impl Parser {
                 TokenType::False => {
                     self.advance();
                     Ok(AstNode::Literal(Value::Bool(false)))
+                }
+                TokenType::Inf => {
+                    self.advance();
+                    Ok(AstNode::Literal(Value::float(f64::INFINITY)))
+                }
+                TokenType::NaN => {
+                    self.advance();
+                    Ok(AstNode::Literal(Value::float(f64::NAN)))
                 }
                 TokenType::Dollar => {
                     // Parse conditional: $[condition;true_branch;false_branch]

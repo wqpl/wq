@@ -12,6 +12,7 @@ use std::io::{Write, stdout};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use wq::builtins::io;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -98,7 +99,12 @@ fn main() {
         Box::new(Evaluator::new())
     };
     evaluator.set_debug(debug_mode);
-    let mut rl = DefaultEditor::new().unwrap();
+    {
+        let mut guard = io::RUSTYLINE.lock().unwrap();
+        if guard.is_none() {
+            *guard = Some(DefaultEditor::new().unwrap());
+        }
+    }
     let mut line_number = 1;
     let mut buffer = String::new();
 
@@ -112,12 +118,16 @@ fn main() {
         };
 
         // Read input
-        let readline = rl.readline(&prompt);
+        let readline = {
+            let mut guard = io::RUSTYLINE.lock().unwrap();
+            guard.as_mut().unwrap().readline(&prompt)
+        };
         match readline {
             Ok(line) => {
                 let input = line.trim_end();
                 if !input.is_empty() {
-                    rl.add_history_entry(input).unwrap();
+                    let mut guard = io::RUSTYLINE.lock().unwrap();
+                    guard.as_mut().unwrap().add_history_entry(input).unwrap();
                 }
 
                 // Handle repl commands only if buffer is empty
@@ -363,8 +373,8 @@ fn main() {
             }
             Err(ReadlineError::Eof) => {
                 let mut rng = rand::rng();
-                // let p = 0.006666f64;
-                let p = 1f64;
+                let p = 0.006666f64;
+                // let p = 1f64;
                 if rng.random_bool(p) {
                     print!("{}", "\u{258D} ".cyan());
                     stdout().flush().unwrap();

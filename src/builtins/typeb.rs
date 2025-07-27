@@ -108,6 +108,36 @@ pub fn chr(args: &[Value]) -> WqResult<Value> {
     }
 }
 
+pub fn ord(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(WqError::FnArgCountMismatchError(
+            "ord expects 1 argument".to_string(),
+        ));
+    }
+
+    match &args[0] {
+        Value::Char(c) => Ok(Value::Int(*c as i64)),
+        Value::List(items) => {
+            let mut out = Vec::new();
+            for v in items {
+                match v {
+                    Value::Char(ch) => out.push(*ch as i64),
+                    _ => {
+                        return Err(WqError::TypeError(
+                            "ord expects characters or list of characters".to_string(),
+                        ));
+                    }
+                }
+            }
+            Ok(Value::IntList(out))
+        }
+        Value::Symbol(s) => Ok(Value::IntList(s.chars().map(|c| c as i64).collect())),
+        _ => Err(WqError::TypeError(
+            "ord expects a character or string".to_string(),
+        )),
+    }
+}
+
 pub fn is_null(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(WqError::FnArgCountMismatchError(
@@ -144,5 +174,18 @@ mod tests {
             result,
             Value::List(vec![Value::Char('A'), Value::Char('B')])
         );
+    }
+
+    #[test]
+    fn ord_single_char() {
+        let result = ord(&[Value::Char('A')]).unwrap();
+        assert_eq!(result, Value::Int(65));
+    }
+
+    #[test]
+    fn ord_char_list() {
+        let input = Value::List(vec![Value::Char('A'), Value::Char('B')]);
+        let result = ord(&[input]).unwrap();
+        assert_eq!(result, Value::IntList(vec![65, 66]));
     }
 }

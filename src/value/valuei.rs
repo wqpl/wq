@@ -70,6 +70,7 @@ pub enum WqError {
     TypeError(String),
     IndexError(String),
     DomainError(String),
+    ZeroDivisionError(String),
     LengthError(String),
     SyntaxError(String),
     FnArgCountMismatchError(String),
@@ -134,6 +135,15 @@ impl Value {
     /// Create a new float value
     pub fn float(f: f64) -> Self {
         Value::Float(f)
+    }
+    pub fn inf() -> Self {
+        Value::Float(f64::INFINITY)
+    }
+    pub fn neg_inf() -> Self {
+        Value::Float(f64::NEG_INFINITY)
+    }
+    pub fn nan() -> Self {
+        Value::Float(f64::NAN)
     }
     /// Create a new character value
     pub fn char(c: char) -> Self {
@@ -386,7 +396,15 @@ impl fmt::Display for Value {
         match self {
             Value::Int(n) => write!(f, "{n}"),
             Value::Float(fl) => {
-                if fl.fract() == 0.0 {
+                if fl.is_infinite() {
+                    if fl.is_sign_positive() {
+                        write!(f, "Inf")
+                    } else {
+                        write!(f, "-Inf")
+                    }
+                } else if fl.is_nan() {
+                    write!(f, "NaN")
+                } else if fl.fract() == 0.0 {
                     write!(f, "{fl:.0}")
                 } else {
                     write!(f, "{fl}")
@@ -486,6 +504,7 @@ impl fmt::Display for WqError {
             WqError::TypeError(msg) => write!(f, "type error: {msg}"),
             WqError::IndexError(msg) => write!(f, "index error: {msg}"),
             WqError::DomainError(msg) => write!(f, "domain error: {msg}"),
+            WqError::ZeroDivisionError(msg) => write!(f, "zero division error: {msg}"),
             WqError::LengthError(msg) => write!(f, "length error: {msg}"),
             WqError::SyntaxError(msg) => write!(f, "syntax error: {msg}"),
             WqError::FnArgCountMismatchError(msg) => {
@@ -660,5 +679,20 @@ mod tests {
         let arr = Value::IntList(vec![1, 2, 3]);
         let res = arr.bitor(&Value::int(1));
         assert_eq!(res, Some(Value::IntList(vec![1 | 1, 2 | 1, 3 | 1])));
+    }
+
+    #[test]
+    fn test_zero_division_and_dot_ops() {
+        let zero = Value::int(0);
+        assert_eq!(zero.divide(&zero), None);
+        match zero.divide_dot(&zero) {
+            Some(Value::Float(f)) => assert!(f.is_infinite()),
+            _ => panic!("expected infinity"),
+        }
+        match zero.modulo_dot(&zero) {
+            Some(Value::Float(f)) => assert!(f.is_nan()),
+            Some(Value::Int(_)) => panic!("expected NaN"),
+            _ => (),
+        }
     }
 }

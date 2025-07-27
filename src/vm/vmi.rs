@@ -165,8 +165,14 @@ impl Vm {
                         BinaryOperator::Divide => left.divide(&right).ok_or_else(|| {
                             WqError::DomainError("Division by zero or invalid types".to_string())
                         }),
+                        BinaryOperator::DivideDot => left.divide_dot(&right).ok_or_else(|| {
+                            WqError::DomainError("Invalid types".to_string())
+                        }),
                         BinaryOperator::Modulo => left.modulo(&right).ok_or_else(|| {
                             WqError::DomainError("Modulo by zero or invalid types".to_string())
+                        }),
+                        BinaryOperator::ModuloDot => left.modulo_dot(&right).ok_or_else(|| {
+                            WqError::DomainError("Invalid types".to_string())
                         }),
                         BinaryOperator::Equal => Ok(left.equals(&right)),
                         BinaryOperator::NotEqual => Ok(left.not_equals(&right)),

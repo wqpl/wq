@@ -1,0 +1,6 @@
+ord
+1 arg
+
+Examples:
+  ord 'A'  // 65
+  ord "AB" // (65;66)

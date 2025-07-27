@@ -54,7 +54,9 @@ impl FastPath {
                         BinaryOperator::Subtract => a.subtract(&b),
                         BinaryOperator::Multiply => a.multiply(&b),
                         BinaryOperator::Divide => a.divide(&b),
+                        BinaryOperator::DivideDot => a.divide_dot(&b),
                         BinaryOperator::Modulo => a.modulo(&b),
+                        BinaryOperator::ModuloDot => a.modulo_dot(&b),
                         _ => return None,
                     }?;
                     stack.push(res);

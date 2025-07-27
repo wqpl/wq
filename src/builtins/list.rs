@@ -337,9 +337,13 @@ pub fn avg(args: &[Value]) -> WqResult<Value> {
 }
 
 pub fn take(args: &[Value]) -> WqResult<Value> {
+    if args.len() == 1 {
+        let tmp = [Value::Int(1), args[0].clone()];
+        return take(&tmp);
+    }
     if args.len() != 2 {
         return Err(WqError::FnArgCountMismatchError(
-            "take expects 2 arguments".to_string(),
+            "take expects 1 or 2 arguments".to_string(),
         ));
     }
     match (&args[0], &args[1]) {
@@ -366,9 +370,13 @@ pub fn take(args: &[Value]) -> WqResult<Value> {
 }
 
 pub fn drop(args: &[Value]) -> WqResult<Value> {
+    if args.len() == 1 {
+        let tmp = [Value::Int(1), args[0].clone()];
+        return drop(&tmp);
+    }
     if args.len() != 2 {
         return Err(WqError::FnArgCountMismatchError(
-            "drop expects 2 arguments".to_string(),
+            "drop expects 1 or 2 arguments".to_string(),
         ));
     }
     match (&args[0], &args[1]) {

@@ -533,9 +533,15 @@ impl Evaluator {
             BinaryOperator::Divide => left.divide(right).ok_or_else(|| {
                 WqError::DomainError("Division by zero or invalid types".to_string())
             }),
+            BinaryOperator::DivideDot => left
+                .divide_dot(right)
+                .ok_or_else(|| WqError::DomainError("Invalid types".to_string())),
             BinaryOperator::Modulo => left
                 .modulo(right)
                 .ok_or_else(|| WqError::DomainError("Modulo by zero or invalid types".to_string())),
+            BinaryOperator::ModuloDot => left
+                .modulo_dot(right)
+                .ok_or_else(|| WqError::DomainError("Invalid types".to_string())),
             BinaryOperator::Equal => Ok(left.equals(right)),
             BinaryOperator::NotEqual => Ok(left.not_equals(right)),
             BinaryOperator::LessThan => Ok(left.less_than(right)),
@@ -747,6 +753,14 @@ mod tests {
         );
         assert_eq!(
             evaluator.eval_string("drop[1;\"abc\";]").unwrap(),
+            Value::List(vec![Value::Char('b'), Value::Char('c')])
+        );
+        assert_eq!(
+            evaluator.eval_string("take \"abc\"").unwrap(),
+            Value::List(vec![Value::Char('a')])
+        );
+        assert_eq!(
+            evaluator.eval_string("drop \"abc\"").unwrap(),
             Value::List(vec![Value::Char('b'), Value::Char('c')])
         );
         assert_eq!(
@@ -977,8 +991,23 @@ mod tests {
         );
 
         assert_eq!(
+            evaluator.eval_string("take til 5").unwrap(),
+            Value::List(vec![Value::Int(0)])
+        );
+
+        assert_eq!(
             evaluator.eval_string("drop[3;til 5;]").unwrap(),
             Value::List(vec![Value::Int(3), Value::Int(4)])
+        );
+
+        assert_eq!(
+            evaluator.eval_string("drop til 5").unwrap(),
+            Value::List(vec![
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(3),
+                Value::Int(4)
+            ])
         );
 
         assert_eq!(evaluator.eval_string("sum til 4").unwrap(), Value::Int(6));
@@ -1006,15 +1035,9 @@ mod tests {
             ])
         );
 
-        assert_eq!(
-            evaluator.eval_string("5 % til 3").unwrap(),
-            Value::List(vec![Value::Int(0), Value::Int(0), Value::Int(1)])
-        );
+        assert!(evaluator.eval_string("5 % til 3").is_err());
 
-        assert_eq!(
-            evaluator.eval_string("til 3 % til 2").unwrap(),
-            Value::List(vec![Value::Int(0), Value::Int(0), Value::Int(0)])
-        );
+        assert!(evaluator.eval_string("til 3 % til 2").is_err());
     }
 
     #[test]

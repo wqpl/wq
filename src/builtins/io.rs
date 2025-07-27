@@ -8,8 +8,12 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
 };
 
+use once_cell::sync::Lazy;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
+use std::sync::Mutex;
+
+pub static RUSTYLINE: Lazy<Mutex<Option<DefaultEditor>>> = Lazy::new(|| Mutex::new(None));
 
 pub fn fopen(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() || args.len() > 2 {
@@ -204,8 +208,11 @@ pub fn input(args: &[Value]) -> WqResult<Value> {
         String::new()
     };
 
-    let mut rl = DefaultEditor::new().map_err(|e| WqError::RuntimeError(e.to_string()))?;
-    match rl.readline(&prompt) {
+    let mut rl_guard = RUSTYLINE.lock().unwrap();
+    if rl_guard.is_none() {
+        *rl_guard = Some(DefaultEditor::new().map_err(|e| WqError::RuntimeError(e.to_string()))?);
+    }
+    match rl_guard.as_mut().unwrap().readline(&prompt) {
         Ok(line) => Ok(Value::List(line.chars().map(Value::Char).collect())),
         Err(ReadlineError::Interrupted) => {
             Err(WqError::RuntimeError("input interrupted".to_string()))

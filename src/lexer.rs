@@ -16,7 +16,9 @@ pub enum TokenType {
     Minus,
     Multiply,
     Divide,
+    DivideDot,
     Modulo,
+    ModuloDot,
 
     // Assignment
     Colon,
@@ -56,6 +58,9 @@ pub enum TokenType {
     Eof,
 
     Identifier(String),
+
+    Inf,
+    NaN,
 
     True,
     False,
@@ -301,6 +306,10 @@ impl<'a> Lexer<'a> {
                         self.advance(); // consume first /
                         let comment = self.read_comment();
                         return Token::new(comment, token_position, token_line, token_column);
+                    } else if self.peek() == Some(&'.') {
+                        self.advance(); // consume '/'
+                        self.advance(); // consume '.'
+                        return Token::new(TokenType::DivideDot, token_position, token_line, token_column);
                     } else {
                         self.advance();
                         return Token::new(
@@ -333,8 +342,14 @@ impl<'a> Lexer<'a> {
                 }
 
                 Some('%') => {
-                    self.advance();
-                    return Token::new(TokenType::Modulo, token_position, token_line, token_column);
+                    if self.peek() == Some(&'.') {
+                        self.advance();
+                        self.advance();
+                        return Token::new(TokenType::ModuloDot, token_position, token_line, token_column);
+                    } else {
+                        self.advance();
+                        return Token::new(TokenType::Modulo, token_position, token_line, token_column);
+                    }
                 }
 
                 Some(':') => {
@@ -545,10 +560,12 @@ impl<'a> Lexer<'a> {
                 Some(ch) if ch.is_alphabetic() || ch == '_' => {
                     let identifier = self.read_identifier();
 
-                    // Check for boolean literals
+                    // Check for literals and identifiers
                     let token_type = match identifier.as_str() {
                         "true" => TokenType::True,
                         "false" => TokenType::False,
+                        "Inf" | "inf" => TokenType::Inf,
+                        "NaN" | "nan" => TokenType::NaN,
                         _ => TokenType::Identifier(identifier),
                     };
 
@@ -605,6 +622,22 @@ mod tests {
         assert_eq!(tokens[2].token_type, TokenType::Multiply);
         assert_eq!(tokens[3].token_type, TokenType::Divide);
         assert_eq!(tokens[4].token_type, TokenType::Modulo);
+    }
+
+    #[test]
+    fn test_tokenize_dot_operators() {
+        let mut lexer = Lexer::new("/. %.");
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0].token_type, TokenType::DivideDot);
+        assert_eq!(tokens[1].token_type, TokenType::ModuloDot);
+    }
+
+    #[test]
+    fn test_tokenize_inf_nan() {
+        let mut lexer = Lexer::new("Inf NaN");
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0].token_type, TokenType::Inf);
+        assert_eq!(tokens[1].token_type, TokenType::NaN);
     }
 
     #[test]

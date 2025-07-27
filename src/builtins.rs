@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 mod dict;
 mod eval;
-mod io;
+pub mod io;
 mod list;
 mod logical;
 mod math;
@@ -90,6 +90,7 @@ impl Builtins {
         self.add("symbol", typeb::to_symbol);
         self.add("string", typeb::to_string);
         self.add("chr", typeb::chr);
+        self.add("ord", typeb::ord);
         self.add("format", string::format_string);
         self.add("null?", typeb::is_null);
 
