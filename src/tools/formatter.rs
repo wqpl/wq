@@ -189,7 +189,7 @@ impl Formatter {
 
     fn format_source(&self, src: &str) -> WqResult<String> {
         let mut lexer = Lexer::new(src);
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize()?;
         let mut parser = Parser::new(tokens, src.to_string());
         parser.parse().map(|ast| self.format(&ast))
     }

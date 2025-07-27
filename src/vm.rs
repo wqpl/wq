@@ -75,7 +75,7 @@ pub fn vm_get_ins(path: &String) -> WqResult<Vec<Instruction>> {
     let mut visited = HashSet::new();
     let src = expand_script(path, &mut loading, &mut visited);
     let mut lexer = Lexer::new(&src);
-    let tokens = lexer.tokenize();
+    let tokens = lexer.tokenize()?;
     let mut parser = Parser::new(tokens, src.clone());
     let ast = parser.parse().expect("parse error");
     let mut compiler = Compiler::new();
@@ -139,7 +139,7 @@ impl VmEvaluator {
     /// Evaluate a string of source code and return the resulting value.
     pub fn eval_string(&mut self, input: &str) -> WqResult<Value> {
         let mut lexer = Lexer::new(input);
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize()?;
         if self.debug {
             eprintln!("=====TOKENS=====");
             eprintln!("{tokens:#?}");

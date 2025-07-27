@@ -2,6 +2,8 @@ use std::fmt;
 use std::iter::Peekable;
 use std::str::Chars;
 
+use crate::value::valuei::{WqError, WqResult};
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // Literals
@@ -145,8 +147,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_number(&mut self) -> TokenType {
-        let _start_pos = self.position;
+    fn read_number(&mut self) -> WqResult<TokenType> {
         let mut number_str = String::new();
         let mut is_float = false;
 
@@ -173,9 +174,19 @@ impl<'a> Lexer<'a> {
         }
 
         if is_float {
-            TokenType::Float(number_str.parse().unwrap_or(0.0))
+            match number_str.parse::<f64>() {
+                Ok(n) if n.is_finite() => Ok(TokenType::Float(n)),
+                _ => Err(WqError::ArithmeticOverflowError(
+                    "float literal overflow".into(),
+                )),
+            }
         } else {
-            TokenType::Integer(number_str.parse().unwrap_or(0))
+            match number_str.parse::<i64>() {
+                Ok(n) => Ok(TokenType::Integer(n)),
+                Err(_) => Err(WqError::ArithmeticOverflowError(
+                    "integer literal overflow".into(),
+                )),
+            }
         }
     }
 
@@ -200,9 +211,14 @@ impl<'a> Lexer<'a> {
         TokenType::Symbol(symbol_name)
     }
 
-    fn read_string_or_char(&mut self) -> TokenType {
+    fn read_string_or_char(
+        &mut self,
+        start_line: usize,
+        start_column: usize,
+    ) -> WqResult<TokenType> {
         self.advance(); // skip opening quote
         let mut content = String::new();
+        let mut closed = false;
 
         while let Some(ch) = self.current_char {
             match ch {
@@ -243,6 +259,7 @@ impl<'a> Lexer<'a> {
                 '"' => {
                     // Only a terminator if not escaped
                     self.advance(); // consume closing quote
+                    closed = true;
                     break;
                 }
 
@@ -253,11 +270,17 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        if !closed {
+            return Err(WqError::SyntaxError(format!(
+                "missing closing quote at {start_line}:{start_column}"
+            )));
+        }
+
         // Single‐char content -> Character, otherwise String
         if content.chars().count() == 1 {
-            TokenType::Character(content.chars().next().unwrap())
+            Ok(TokenType::Character(content.chars().next().unwrap()))
         } else {
-            TokenType::String(content)
+            Ok(TokenType::String(content))
         }
     }
 
@@ -275,7 +298,7 @@ impl<'a> Lexer<'a> {
         TokenType::Comment(comment)
     }
 
-    pub fn next_token(&mut self) -> Token {
+    pub fn next_token(&mut self) -> WqResult<Token> {
         loop {
             let token_line = self.line;
             let token_column = self.column;
@@ -283,7 +306,7 @@ impl<'a> Lexer<'a> {
 
             match self.current_char {
                 None => {
-                    return Token::new(TokenType::Eof, token_position, token_line, token_column);
+                    return Ok(Token::new(TokenType::Eof, token_position, token_line, token_column));
                 }
 
                 Some(' ') | Some('\t') | Some('\r') => {
@@ -293,103 +316,103 @@ impl<'a> Lexer<'a> {
 
                 Some('\n') => {
                     self.advance();
-                    return Token::new(
+                    return Ok(Token::new(
                         TokenType::Newline,
                         token_position,
                         token_line,
                         token_column,
-                    );
+                    ));
                 }
 
                 Some('/') => {
                     if self.peek() == Some(&'/') {
                         self.advance(); // consume first /
                         let comment = self.read_comment();
-                        return Token::new(comment, token_position, token_line, token_column);
+                        return Ok(Token::new(comment, token_position, token_line, token_column));
                     } else if self.peek() == Some(&'.') {
                         self.advance(); // consume '/'
                         self.advance(); // consume '.'
-                        return Token::new(TokenType::DivideDot, token_position, token_line, token_column);
+                        return Ok(Token::new(TokenType::DivideDot, token_position, token_line, token_column));
                     } else {
                         self.advance();
-                        return Token::new(
+                        return Ok(Token::new(
                             TokenType::Divide,
                             token_position,
                             token_line,
                             token_column,
-                        );
+                        ));
                     }
                 }
 
                 Some('+') => {
                     self.advance();
-                    return Token::new(TokenType::Plus, token_position, token_line, token_column);
+                    return Ok(Token::new(TokenType::Plus, token_position, token_line, token_column));
                 }
 
                 Some('-') => {
                     self.advance();
-                    return Token::new(TokenType::Minus, token_position, token_line, token_column);
+                    return Ok(Token::new(TokenType::Minus, token_position, token_line, token_column));
                 }
 
                 Some('*') => {
                     self.advance();
-                    return Token::new(
+                    return Ok(Token::new(
                         TokenType::Multiply,
                         token_position,
                         token_line,
                         token_column,
-                    );
+                    ));
                 }
 
                 Some('%') => {
                     if self.peek() == Some(&'.') {
                         self.advance();
                         self.advance();
-                        return Token::new(TokenType::ModuloDot, token_position, token_line, token_column);
+                        return Ok(Token::new(TokenType::ModuloDot, token_position, token_line, token_column));
                     } else {
                         self.advance();
-                        return Token::new(TokenType::Modulo, token_position, token_line, token_column);
+                        return Ok(Token::new(TokenType::Modulo, token_position, token_line, token_column));
                     }
                 }
 
                 Some(':') => {
                     self.advance();
-                    return Token::new(TokenType::Colon, token_position, token_line, token_column);
+                    return Ok(Token::new(TokenType::Colon, token_position, token_line, token_column));
                 }
 
                 Some('=') => {
                     self.advance();
-                    return Token::new(TokenType::Equal, token_position, token_line, token_column);
+                    return Ok(Token::new(TokenType::Equal, token_position, token_line, token_column));
                 }
 
                 Some('~') => {
                     self.advance();
-                    return Token::new(
+                    return Ok(Token::new(
                         TokenType::NotEqual,
                         token_position,
                         token_line,
                         token_column,
-                    );
+                    ));
                 }
 
                 Some('<') => {
                     if self.peek() == Some(&'=') {
                         self.advance(); // consume '<'
                         self.advance(); // consume '='
-                        return Token::new(
+                        return Ok(Token::new(
                             TokenType::LessThanOrEqual,
                             token_position,
                             token_line,
                             token_column,
-                        );
+                        ));
                     } else {
                         self.advance();
-                        return Token::new(
+                        return Ok(Token::new(
                             TokenType::LessThan,
                             token_position,
                             token_line,
                             token_column,
-                        );
+                        ));
                     }
                 }
 
@@ -397,20 +420,20 @@ impl<'a> Lexer<'a> {
                     if self.peek() == Some(&'=') {
                         self.advance(); // consume '>'
                         self.advance(); // consume '='
-                        return Token::new(
+                        return Ok(Token::new(
                             TokenType::GreaterThanOrEqual,
                             token_position,
                             token_line,
                             token_column,
-                        );
+                        ));
                     } else {
                         self.advance();
-                        return Token::new(
+                        return Ok(Token::new(
                             TokenType::GreaterThan,
                             token_position,
                             token_line,
                             token_column,
-                        );
+                        ));
                     }
                 }
 
@@ -418,20 +441,20 @@ impl<'a> Lexer<'a> {
                     if self.peek() == Some(&'.') {
                         self.advance(); // consume '$'
                         self.advance(); // consume '.'
-                        return Token::new(
+                        return Ok(Token::new(
                             TokenType::DollarDot,
                             token_position,
                             token_line,
                             token_column,
-                        );
+                        ));
                     } else {
                         self.advance();
-                        return Token::new(
+                        return Ok(Token::new(
                             TokenType::Dollar,
                             token_position,
                             token_line,
                             token_column,
-                        );
+                        ));
                     }
                 }
 
@@ -459,102 +482,102 @@ impl<'a> Lexer<'a> {
                             continue;
                         }
                     };
-                    return Token::new(tok, token_position, token_line, token_column);
+                    return Ok(Token::new(tok, token_position, token_line, token_column));
                 }
 
                 Some('#') => {
                     self.advance();
-                    return Token::new(TokenType::Sharp, token_position, token_line, token_column);
+                    return Ok(Token::new(TokenType::Sharp, token_position, token_line, token_column));
                 }
 
                 Some('(') => {
                     self.advance();
-                    return Token::new(
+                    return Ok(Token::new(
                         TokenType::LeftParen,
                         token_position,
                         token_line,
                         token_column,
-                    );
+                    ));
                 }
 
                 Some(')') => {
                     self.advance();
-                    return Token::new(
+                    return Ok(Token::new(
                         TokenType::RightParen,
                         token_position,
                         token_line,
                         token_column,
-                    );
+                    ));
                 }
 
                 Some('[') => {
                     self.advance();
-                    return Token::new(
+                    return Ok(Token::new(
                         TokenType::LeftBracket,
                         token_position,
                         token_line,
                         token_column,
-                    );
+                    ));
                 }
 
                 Some(']') => {
                     self.advance();
-                    return Token::new(
+                    return Ok(Token::new(
                         TokenType::RightBracket,
                         token_position,
                         token_line,
                         token_column,
-                    );
+                    ));
                 }
 
                 Some('{') => {
                     self.advance();
-                    return Token::new(
+                    return Ok(Token::new(
                         TokenType::LeftBrace,
                         token_position,
                         token_line,
                         token_column,
-                    );
+                    ));
                 }
 
                 Some('}') => {
                     self.advance();
-                    return Token::new(
+                    return Ok(Token::new(
                         TokenType::RightBrace,
                         token_position,
                         token_line,
                         token_column,
-                    );
+                    ));
                 }
 
                 Some(';') => {
                     self.advance();
-                    return Token::new(
+                    return Ok(Token::new(
                         TokenType::Semicolon,
                         token_position,
                         token_line,
                         token_column,
-                    );
+                    ));
                 }
 
                 Some(',') => {
                     self.advance();
-                    return Token::new(TokenType::Comma, token_position, token_line, token_column);
+                    return Ok(Token::new(TokenType::Comma, token_position, token_line, token_column));
                 }
 
                 Some('`') => {
                     let symbol = self.read_symbol();
-                    return Token::new(symbol, token_position, token_line, token_column);
+                    return Ok(Token::new(symbol, token_position, token_line, token_column));
                 }
 
                 Some('"') => {
-                    let string_or_char = self.read_string_or_char();
-                    return Token::new(string_or_char, token_position, token_line, token_column);
+                    let string_or_char = self.read_string_or_char(token_line, token_column)?;
+                    return Ok(Token::new(string_or_char, token_position, token_line, token_column));
                 }
 
                 Some(ch) if ch.is_ascii_digit() => {
-                    let number = self.read_number();
-                    return Token::new(number, token_position, token_line, token_column);
+                    let number = self.read_number()?;
+                    return Ok(Token::new(number, token_position, token_line, token_column));
                 }
 
                 Some(ch) if ch.is_alphabetic() || ch == '_' => {
@@ -569,7 +592,7 @@ impl<'a> Lexer<'a> {
                         _ => TokenType::Identifier(identifier),
                     };
 
-                    return Token::new(token_type, token_position, token_line, token_column);
+                    return Ok(Token::new(token_type, token_position, token_line, token_column));
                 }
 
                 Some(_ch) => {
@@ -581,11 +604,11 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn tokenize(&mut self) -> Vec<Token> {
+    pub fn tokenize(&mut self) -> WqResult<Vec<Token>> {
         let mut tokens = Vec::new();
 
         loop {
-            let token = self.next_token();
+            let token = self.next_token()?;
             let is_eof = token.token_type == TokenType::Eof;
             tokens.push(token);
             if is_eof {
@@ -593,7 +616,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        tokens
+        Ok(tokens)
     }
 }
 
@@ -604,7 +627,7 @@ mod tests {
     #[test]
     fn test_tokenize_numbers() {
         let mut lexer = Lexer::new("42 3.1 -5");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
 
         assert_eq!(tokens[0].token_type, TokenType::Integer(42));
         assert_eq!(tokens[1].token_type, TokenType::Float(3.1));
@@ -615,7 +638,7 @@ mod tests {
     #[test]
     fn test_tokenize_operators() {
         let mut lexer = Lexer::new("+ - * / %");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
 
         assert_eq!(tokens[0].token_type, TokenType::Plus);
         assert_eq!(tokens[1].token_type, TokenType::Minus);
@@ -627,7 +650,7 @@ mod tests {
     #[test]
     fn test_tokenize_dot_operators() {
         let mut lexer = Lexer::new("/. %.");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens[0].token_type, TokenType::DivideDot);
         assert_eq!(tokens[1].token_type, TokenType::ModuloDot);
     }
@@ -635,7 +658,7 @@ mod tests {
     #[test]
     fn test_tokenize_inf_nan() {
         let mut lexer = Lexer::new("Inf NaN");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens[0].token_type, TokenType::Inf);
         assert_eq!(tokens[1].token_type, TokenType::NaN);
     }
@@ -643,7 +666,7 @@ mod tests {
     #[test]
     fn test_tokenize_symbols() {
         let mut lexer = Lexer::new("`hello `world");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
 
         assert_eq!(tokens[0].token_type, TokenType::Symbol("hello".to_string()));
         assert_eq!(tokens[1].token_type, TokenType::Symbol("world".to_string()));
@@ -652,28 +675,28 @@ mod tests {
     #[test]
     fn test_tokenize_string() {
         let mut lexer = Lexer::new("\"ab\"");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens[0].token_type, TokenType::String("ab".to_string()));
     }
 
     #[test]
     fn test_escape_quote() {
         let mut lexer = Lexer::new("\"a\\\"b\"");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens[0].token_type, TokenType::String("a\"b".to_string()));
     }
 
     #[test]
     fn test_tokenize_char() {
         let mut lexer = Lexer::new("\"a\"");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens[0].token_type, TokenType::Character('a'));
     }
 
     #[test]
     fn test_tokenize_expression() {
         let mut lexer = Lexer::new("x:1+2*3");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
 
         assert_eq!(tokens[0].token_type, TokenType::Identifier("x".to_string()));
         assert_eq!(tokens[1].token_type, TokenType::Colon);
@@ -687,7 +710,7 @@ mod tests {
     #[test]
     fn test_identifier_with_question_mark() {
         let mut lexer = Lexer::new("a?:1 a? a???");
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize().unwrap();
         assert_eq!(
             tokens[0].token_type,
             TokenType::Identifier("a?".to_string())
@@ -702,5 +725,27 @@ mod tests {
             tokens[4].token_type,
             TokenType::Identifier("a???".to_string())
         );
+    }
+
+    #[test]
+    fn unterminated_string_errors() {
+        let mut lexer = Lexer::new("\"abc");
+        let res = lexer.tokenize();
+        assert!(matches!(res, Err(WqError::SyntaxError(_))));
+    }
+
+    #[test]
+    fn integer_overflow_errors() {
+        let mut lexer = Lexer::new("9223372036854775808");
+        let res = lexer.tokenize();
+        assert!(matches!(res, Err(WqError::ArithmeticOverflowError(_))));
+    }
+
+    #[test]
+    fn float_overflow_errors() {
+        let big = "1".repeat(400) + ".0";
+        let mut lexer = Lexer::new(&big);
+        let res = lexer.tokenize();
+        assert!(matches!(res, Err(WqError::ArithmeticOverflowError(_))));
     }
 }

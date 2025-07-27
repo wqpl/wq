@@ -670,7 +670,7 @@ impl Evaluator {
         use crate::parser::Parser;
 
         let mut lexer = Lexer::new(input);
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize()?;
         if self.debug {
             eprintln!("{}", "=====TOKENS=====".red());
             eprintln!("{tokens:#?}");

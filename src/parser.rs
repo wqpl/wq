@@ -1099,7 +1099,7 @@ mod tests {
 
     fn parse_string(input: &str) -> WqResult<AstNode> {
         let mut lexer = Lexer::new(input);
-        let tokens = lexer.tokenize();
+        let tokens = lexer.tokenize()?;
         let mut parser = Parser::new(tokens, input.to_string());
         parser.parse()
     }
