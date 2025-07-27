@@ -647,3 +647,54 @@ pub fn idx(args: &[Value]) -> WqResult<Value> {
         )),
     }
 }
+
+pub fn in_list(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 2 {
+        return Err(WqError::FnArgCountMismatchError(
+            "in expects 2 arguments".to_string(),
+        ));
+    }
+    match &args[1] {
+        Value::List(items) => Ok(Value::Bool(items.contains(&args[0]))),
+        Value::IntList(items) => match &args[0] {
+            Value::Int(n) => Ok(Value::Bool(items.contains(n))),
+            _ => Err(WqError::TypeError(
+                "in expects an integer when searching an integer list".to_string(),
+            )),
+        },
+        _ => Err(WqError::TypeError(
+            "in expects a list as the second argument".to_string(),
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn in_list_with_value() {
+        let lst = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+        assert_eq!(
+            in_list(&[Value::Int(2), lst.clone()]).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            in_list(&[Value::Int(4), lst]).unwrap(),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn in_int_list() {
+        let lst = Value::IntList(vec![1, 2, 3]);
+        assert_eq!(
+            in_list(&[Value::Int(2), lst.clone()]).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            in_list(&[Value::Int(4), lst]).unwrap(),
+            Value::Bool(false)
+        );
+    }
+}

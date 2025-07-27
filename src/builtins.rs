@@ -84,6 +84,7 @@ impl Builtins {
         self.add("flatten", list::flatten);
         self.add("alloc", list::alloc);
         self.add("idx", list::idx);
+        self.add("in", list::in_list);
 
         // Type functions
         self.add("type", typeb::type_of);
