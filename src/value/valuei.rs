@@ -376,12 +376,14 @@ impl Value {
             }
             Value::Dict(map) => {
                 if let Value::Symbol(key_str) = key {
-                    if map.contains_key(key_str) {
-                        map.insert(key_str.clone(), value);
-                        Some(())
-                    } else {
-                        None
-                    }
+                    // if map.contains_key(key_str) {
+                    //     map.insert(key_str.clone(), value);
+                    //     Some(())
+                    // } else {
+                    //     None
+                    // }
+                    map.insert(key_str.clone(), value);
+                    Some(())
                 } else {
                     None
                 }
