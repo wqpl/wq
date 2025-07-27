@@ -730,10 +730,7 @@ mod tests {
 
         evaluator.eval_string("d:(`a:1;`b:2;`c:3)").unwrap();
         let result = evaluator.eval_string("d[`a;`c]").unwrap();
-        let mut expected = HashMap::new();
-        expected.insert("a".to_string(), Value::Int(1));
-        expected.insert("c".to_string(), Value::Int(3));
-        assert_eq!(result, Value::Dict(expected));
+        assert_eq!(result, Value::List(vec![Value::Int(1), Value::Int(3)]));
     }
 
     #[test]

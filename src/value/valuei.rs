@@ -305,11 +305,11 @@ impl Value {
             }
             (Value::Dict(map), Value::Symbol(key)) => map.get(key).cloned(),
             (Value::Dict(map), Value::List(keys)) => {
-                let mut result = HashMap::new();
+                let mut result = Vec::new();
                 for key_val in keys {
                     if let Value::Symbol(k) = key_val {
                         if let Some(v) = map.get(k) {
-                            result.insert(k.clone(), v.clone());
+                            result.push(v.clone());
                         } else {
                             return None;
                         }
@@ -317,7 +317,7 @@ impl Value {
                         return None;
                     }
                 }
-                Some(Value::Dict(result))
+                Some(Value::List(result))
             }
             _ => None,
         }
@@ -577,7 +577,7 @@ mod tests {
         assert_eq!(dict.index(&Value::symbol("a".into())), Some(Value::int(2)));
         assert_eq!(
             dict.set_index(&Value::symbol("b".into()), Value::int(3)),
-            None
+            Some(())
         );
     }
 
@@ -696,5 +696,18 @@ mod tests {
             Some(Value::Int(_)) => panic!("expected NaN"),
             _ => (),
         }
+    }
+
+    #[test]
+    fn test_dict_multi_index() {
+        let mut map = HashMap::new();
+        map.insert("a".to_string(), Value::int(1));
+        map.insert("b".to_string(), Value::int(2));
+        let dict = Value::dict(map);
+        let keys = Value::list(vec![Value::symbol("b".into()), Value::symbol("a".into())]);
+        assert_eq!(
+            dict.index(&keys),
+            Some(Value::list(vec![Value::int(2), Value::int(1)]))
+        );
     }
 }
