@@ -241,6 +241,51 @@ impl<'a> Lexer<'a> {
                                 content.push('\n');
                                 self.advance();
                             }
+                            'u' => {
+                                self.advance(); // move to the next char after 'u'
+                                if self.current_char == Some('{') {
+                                    self.advance(); // consume '{'
+
+                                    let mut val: u32 = 0;
+                                    let mut digits = 0;
+
+                                    while let Some(c) = self.current_char {
+                                        if c == '}' {
+                                            break;
+                                        }
+                                        if let Some(d) = c.to_digit(16) {
+                                            val = (val << 4) | d;
+                                            digits += 1;
+                                            self.advance();
+                                        } else {
+                                            // handle invalid hex digit
+                                            return Err(WqError::SyntaxError(
+                                                "invalid unicode escape".to_string(),
+                                            ));
+                                        }
+                                    }
+
+                                    // we must be on the closing '}'
+                                    if self.current_char != Some('}') || digits == 0 {
+                                        return Err(WqError::SyntaxError(
+                                            "invalid unicode escape".to_string(),
+                                        ));
+                                    }
+                                    self.advance(); // consume '}'
+
+                                    if let Some(ch) = char::from_u32(val) {
+                                        content.push(ch);
+                                    } else {
+                                        return Err(WqError::SyntaxError(
+                                            "invalid unicode escape".to_string(),
+                                        ));
+                                    }
+                                } else {
+                                    // not a \u{...} escape, keep it literally
+                                    content.push('\\');
+                                    content.push('u');
+                                }
+                            }
                             other => {
                                 // unrecognized: keep the backslash + char
                                 content.push('\\');
@@ -306,7 +351,12 @@ impl<'a> Lexer<'a> {
 
             match self.current_char {
                 None => {
-                    return Ok(Token::new(TokenType::Eof, token_position, token_line, token_column));
+                    return Ok(Token::new(
+                        TokenType::Eof,
+                        token_position,
+                        token_line,
+                        token_column,
+                    ));
                 }
 
                 Some(' ') | Some('\t') | Some('\r') => {
@@ -328,11 +378,21 @@ impl<'a> Lexer<'a> {
                     if self.peek() == Some(&'/') {
                         self.advance(); // consume first /
                         let comment = self.read_comment();
-                        return Ok(Token::new(comment, token_position, token_line, token_column));
+                        return Ok(Token::new(
+                            comment,
+                            token_position,
+                            token_line,
+                            token_column,
+                        ));
                     } else if self.peek() == Some(&'.') {
                         self.advance(); // consume '/'
                         self.advance(); // consume '.'
-                        return Ok(Token::new(TokenType::DivideDot, token_position, token_line, token_column));
+                        return Ok(Token::new(
+                            TokenType::DivideDot,
+                            token_position,
+                            token_line,
+                            token_column,
+                        ));
                     } else {
                         self.advance();
                         return Ok(Token::new(
@@ -346,12 +406,22 @@ impl<'a> Lexer<'a> {
 
                 Some('+') => {
                     self.advance();
-                    return Ok(Token::new(TokenType::Plus, token_position, token_line, token_column));
+                    return Ok(Token::new(
+                        TokenType::Plus,
+                        token_position,
+                        token_line,
+                        token_column,
+                    ));
                 }
 
                 Some('-') => {
                     self.advance();
-                    return Ok(Token::new(TokenType::Minus, token_position, token_line, token_column));
+                    return Ok(Token::new(
+                        TokenType::Minus,
+                        token_position,
+                        token_line,
+                        token_column,
+                    ));
                 }
 
                 Some('*') => {
@@ -368,21 +438,41 @@ impl<'a> Lexer<'a> {
                     if self.peek() == Some(&'.') {
                         self.advance();
                         self.advance();
-                        return Ok(Token::new(TokenType::ModuloDot, token_position, token_line, token_column));
+                        return Ok(Token::new(
+                            TokenType::ModuloDot,
+                            token_position,
+                            token_line,
+                            token_column,
+                        ));
                     } else {
                         self.advance();
-                        return Ok(Token::new(TokenType::Modulo, token_position, token_line, token_column));
+                        return Ok(Token::new(
+                            TokenType::Modulo,
+                            token_position,
+                            token_line,
+                            token_column,
+                        ));
                     }
                 }
 
                 Some(':') => {
                     self.advance();
-                    return Ok(Token::new(TokenType::Colon, token_position, token_line, token_column));
+                    return Ok(Token::new(
+                        TokenType::Colon,
+                        token_position,
+                        token_line,
+                        token_column,
+                    ));
                 }
 
                 Some('=') => {
                     self.advance();
-                    return Ok(Token::new(TokenType::Equal, token_position, token_line, token_column));
+                    return Ok(Token::new(
+                        TokenType::Equal,
+                        token_position,
+                        token_line,
+                        token_column,
+                    ));
                 }
 
                 Some('~') => {
@@ -487,7 +577,12 @@ impl<'a> Lexer<'a> {
 
                 Some('#') => {
                     self.advance();
-                    return Ok(Token::new(TokenType::Sharp, token_position, token_line, token_column));
+                    return Ok(Token::new(
+                        TokenType::Sharp,
+                        token_position,
+                        token_line,
+                        token_column,
+                    ));
                 }
 
                 Some('(') => {
@@ -562,7 +657,12 @@ impl<'a> Lexer<'a> {
 
                 Some(',') => {
                     self.advance();
-                    return Ok(Token::new(TokenType::Comma, token_position, token_line, token_column));
+                    return Ok(Token::new(
+                        TokenType::Comma,
+                        token_position,
+                        token_line,
+                        token_column,
+                    ));
                 }
 
                 Some('`') => {
@@ -572,7 +672,12 @@ impl<'a> Lexer<'a> {
 
                 Some('"') => {
                     let string_or_char = self.read_string_or_char(token_line, token_column)?;
-                    return Ok(Token::new(string_or_char, token_position, token_line, token_column));
+                    return Ok(Token::new(
+                        string_or_char,
+                        token_position,
+                        token_line,
+                        token_column,
+                    ));
                 }
 
                 Some(ch) if ch.is_ascii_digit() => {
@@ -592,7 +697,12 @@ impl<'a> Lexer<'a> {
                         _ => TokenType::Identifier(identifier),
                     };
 
-                    return Ok(Token::new(token_type, token_position, token_line, token_column));
+                    return Ok(Token::new(
+                        token_type,
+                        token_position,
+                        token_line,
+                        token_column,
+                    ));
                 }
 
                 Some(_ch) => {

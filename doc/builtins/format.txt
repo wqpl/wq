@@ -2,4 +2,4 @@ format
 1 or more args
 
 Examples:
-  format "x={}" 3 // "x=3"
+  format["x={}";3;] // "x=3"

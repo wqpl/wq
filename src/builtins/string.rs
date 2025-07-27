@@ -2,7 +2,6 @@ use crate::{
     builtins::values_to_strings,
     value::valuei::{Value, WqError, WqResult},
 };
-use std::char;
 
 pub fn format_string(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
@@ -21,36 +20,7 @@ pub fn format_string(args: &[Value]) -> WqResult<Value> {
     let mut arg_idx = 0usize;
 
     while let Some(ch) = iter.next() {
-        if ch == '\\' {
-            match iter.peek() {
-                Some('u') => {
-                    iter.next();
-                    if iter.peek() == Some(&'{') {
-                        iter.next(); // consume '{'
-                        let mut codepoint = String::new();
-                        while let Some(&next) = iter.peek() {
-                            if next == '}' {
-                                break;
-                            }
-                            codepoint.push(next);
-                            iter.next();
-                        }
-                        if iter.peek() == Some(&'}') {
-                            iter.next();
-                            if let Ok(val) = u32::from_str_radix(&codepoint, 16) {
-                                if let Some(ch) = char::from_u32(val) {
-                                    output.push(ch);
-                                }
-                            }
-                        }
-                    } else {
-                        output.push('\\');
-                        output.push('u');
-                    }
-                }
-                _ => output.push('\\'),
-            }
-        } else if ch == '{' {
+        if ch == '{' {
             match iter.peek() {
                 Some('{') => {
                     output.push('{');
@@ -63,7 +33,7 @@ pub fn format_string(args: &[Value]) -> WqResult<Value> {
                             "format expects more arguments".to_string(),
                         ));
                     }
-                    output.push_str(&args[arg_idx + 1].to_string());
+                    output.push_str(&value_to_plain_string(&args[arg_idx + 1]));
                     arg_idx += 1;
                 }
                 _ => output.push('{'),
@@ -89,7 +59,22 @@ pub fn format_string(args: &[Value]) -> WqResult<Value> {
 
     Ok(Value::List(output.chars().map(Value::Char).collect()))
 }
-
+fn value_to_plain_string(v: &Value) -> String {
+    match v {
+        Value::List(items) if items.iter().all(|c| matches!(c, Value::Char(_))) => items
+            .iter()
+            .map(|c| {
+                if let Value::Char(ch) = c {
+                    *ch
+                } else {
+                    unreachable!()
+                }
+            })
+            .collect(),
+        Value::Char(c) => c.to_string(),
+        _ => v.to_string(),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,12 +91,5 @@ mod tests {
         let fmt = Value::List("{{}}".chars().map(Value::Char).collect());
         let res = format_string(&[fmt]).unwrap();
         assert_eq!(res, Value::List("{}".chars().map(Value::Char).collect()));
-    }
-
-    #[test]
-    fn unicode_escape() {
-        let fmt = Value::List("\\u{41}".chars().map(Value::Char).collect());
-        let res = format_string(&[fmt]).unwrap();
-        assert_eq!(res, Value::List("A".chars().map(Value::Char).collect()));
     }
 }
