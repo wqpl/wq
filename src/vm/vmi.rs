@@ -163,17 +163,21 @@ impl Vm {
                             WqError::TypeError("Cannot multiply these types".to_string())
                         }),
                         BinaryOperator::Divide => left.divide(&right).ok_or_else(|| {
-                            WqError::DomainError("Division by zero or invalid types".to_string())
+                            WqError::ZeroDivisionError(
+                                "Division by zero or invalid types".to_string(),
+                            )
                         }),
-                        BinaryOperator::DivideDot => left.divide_dot(&right).ok_or_else(|| {
-                            WqError::DomainError("Invalid types".to_string())
-                        }),
+                        BinaryOperator::DivideDot => left
+                            .divide_dot(&right)
+                            .ok_or_else(|| WqError::DomainError("Invalid types".to_string())),
                         BinaryOperator::Modulo => left.modulo(&right).ok_or_else(|| {
-                            WqError::DomainError("Modulo by zero or invalid types".to_string())
+                            WqError::ZeroDivisionError(
+                                "Modulo by zero or invalid types".to_string(),
+                            )
                         }),
-                        BinaryOperator::ModuloDot => left.modulo_dot(&right).ok_or_else(|| {
-                            WqError::DomainError("Invalid types".to_string())
-                        }),
+                        BinaryOperator::ModuloDot => left
+                            .modulo_dot(&right)
+                            .ok_or_else(|| WqError::DomainError("Invalid types".to_string())),
                         BinaryOperator::Equal => Ok(left.equals(&right)),
                         BinaryOperator::NotEqual => Ok(left.not_equals(&right)),
                         BinaryOperator::LessThan => Ok(left.less_than(&right)),
@@ -328,7 +332,9 @@ impl Vm {
                             )));
                         }
                     } else {
-                        return Err(WqError::DomainError("Failed when assigning - invalid index assign".to_string()));
+                        return Err(WqError::DomainError(
+                            "Failed when assigning - invalid index assign".to_string(),
+                        ));
                     }
                 }
                 Instruction::Jump(pos) => self.pc = pos,

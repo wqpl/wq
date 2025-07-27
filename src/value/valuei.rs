@@ -71,6 +71,7 @@ pub enum WqError {
     IndexError(String),
     DomainError(String),
     ZeroDivisionError(String),
+    ArithmeticOverflowError(String),
     LengthError(String),
     SyntaxError(String),
     FnArgCountMismatchError(String),
@@ -507,6 +508,7 @@ impl fmt::Display for WqError {
             WqError::IndexError(msg) => write!(f, "index error: {msg}"),
             WqError::DomainError(msg) => write!(f, "domain error: {msg}"),
             WqError::ZeroDivisionError(msg) => write!(f, "zero division error: {msg}"),
+            WqError::ArithmeticOverflowError(msg) => write!(f, "arithmetic overflow error: {msg}"),
             WqError::LengthError(msg) => write!(f, "length error: {msg}"),
             WqError::SyntaxError(msg) => write!(f, "syntax error: {msg}"),
             WqError::FnArgCountMismatchError(msg) => {
