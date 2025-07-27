@@ -65,7 +65,7 @@ impl FastPath {
                     let v = stack.pop()?;
                     let res = match op {
                         UnaryOperator::Negate => match v {
-                            Value::Int(n) => Value::Int(-n),
+                            Value::Int(n) => n.checked_neg().map(Value::Int)?,
                             Value::Float(f) => Value::Float(-f),
                             _ => return None,
                         },

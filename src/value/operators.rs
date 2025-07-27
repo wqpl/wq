@@ -3,15 +3,23 @@ use super::valuei::Value;
 impl Value {
     pub fn add(&self, other: &Value) -> Option<Value> {
         match (self, other) {
-            (Value::Int(a), Value::Int(b)) => Some(Value::Int(a + b)),
+            (Value::Int(a), Value::Int(b)) => a.checked_add(*b).map(Value::Int),
             (Value::Float(a), Value::Float(b)) => Some(Value::Float(a + b)),
             (Value::Int(a), Value::Float(b)) => Some(Value::Float(*a as f64 + b)),
             (Value::Float(a), Value::Int(b)) => Some(Value::Float(a + *b as f64)),
             (Value::IntList(vec), Value::Int(b)) => {
-                Some(Value::IntList(vec.iter().map(|x| x + b).collect()))
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(x.checked_add(*b)?);
+                }
+                Some(Value::IntList(out))
             }
             (Value::Int(a), Value::IntList(vec)) => {
-                Some(Value::IntList(vec.iter().map(|x| a + x).collect()))
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(a.checked_add(x)?);
+                }
+                Some(Value::IntList(out))
             }
             (Value::Float(a), Value::IntList(vec)) => Some(Value::List(
                 vec.iter().map(|&x| Value::Float(a + x as f64)).collect(),
@@ -21,18 +29,20 @@ impl Value {
             )),
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntList(
-                        a.iter().zip(b.iter()).map(|(x, y)| x + y).collect(),
-                    ))
+                    let mut out = Vec::with_capacity(a.len());
+                    for (&x, &y) in a.iter().zip(b.iter()) {
+                        out.push(x.checked_add(y)?);
+                    }
+                    Some(Value::IntList(out))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntList(
-                        (0..max_len)
-                            .map(|i| a[i % a.len()] + b[i % b.len()])
-                            .collect(),
-                    ))
+                    let mut out = Vec::with_capacity(max_len);
+                    for i in 0..max_len {
+                        out.push(a[i % a.len()].checked_add(b[i % b.len()])?);
+                    }
+                    Some(Value::IntList(out))
                 }
             }
             // Scalar-vector operations
@@ -78,15 +88,23 @@ impl Value {
 
     pub fn subtract(&self, other: &Value) -> Option<Value> {
         match (self, other) {
-            (Value::Int(a), Value::Int(b)) => Some(Value::Int(a - b)),
+            (Value::Int(a), Value::Int(b)) => a.checked_sub(*b).map(Value::Int),
             (Value::Float(a), Value::Float(b)) => Some(Value::Float(a - b)),
             (Value::Int(a), Value::Float(b)) => Some(Value::Float(*a as f64 - b)),
             (Value::Float(a), Value::Int(b)) => Some(Value::Float(a - *b as f64)),
             (Value::IntList(vec), Value::Int(b)) => {
-                Some(Value::IntList(vec.iter().map(|x| x - b).collect()))
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(x.checked_sub(*b)?);
+                }
+                Some(Value::IntList(out))
             }
             (Value::Int(a), Value::IntList(vec)) => {
-                Some(Value::IntList(vec.iter().map(|x| a - x).collect()))
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(a.checked_sub(x)?);
+                }
+                Some(Value::IntList(out))
             }
             (Value::Float(a), Value::IntList(vec)) => Some(Value::List(
                 vec.iter().map(|&x| Value::Float(a - x as f64)).collect(),
@@ -96,18 +114,20 @@ impl Value {
             )),
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntList(
-                        a.iter().zip(b.iter()).map(|(x, y)| x - y).collect(),
-                    ))
+                    let mut out = Vec::with_capacity(a.len());
+                    for (&x, &y) in a.iter().zip(b.iter()) {
+                        out.push(x.checked_sub(y)?);
+                    }
+                    Some(Value::IntList(out))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntList(
-                        (0..max_len)
-                            .map(|i| a[i % a.len()] - b[i % b.len()])
-                            .collect(),
-                    ))
+                    let mut out = Vec::with_capacity(max_len);
+                    for i in 0..max_len {
+                        out.push(a[i % a.len()].checked_sub(b[i % b.len()])?);
+                    }
+                    Some(Value::IntList(out))
                 }
             }
             // Scalar-vector operations
@@ -146,15 +166,23 @@ impl Value {
 
     pub fn multiply(&self, other: &Value) -> Option<Value> {
         match (self, other) {
-            (Value::Int(a), Value::Int(b)) => Some(Value::Int(a * b)),
+            (Value::Int(a), Value::Int(b)) => a.checked_mul(*b).map(Value::Int),
             (Value::Float(a), Value::Float(b)) => Some(Value::Float(a * b)),
             (Value::Int(a), Value::Float(b)) => Some(Value::Float(*a as f64 * b)),
             (Value::Float(a), Value::Int(b)) => Some(Value::Float(a * *b as f64)),
             (Value::IntList(vec), Value::Int(b)) => {
-                Some(Value::IntList(vec.iter().map(|x| x * b).collect()))
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(x.checked_mul(*b)?);
+                }
+                Some(Value::IntList(out))
             }
             (Value::Int(a), Value::IntList(vec)) => {
-                Some(Value::IntList(vec.iter().map(|x| a * x).collect()))
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(a.checked_mul(x)?);
+                }
+                Some(Value::IntList(out))
             }
             (Value::Float(a), Value::IntList(vec)) => Some(Value::List(
                 vec.iter().map(|&x| Value::Float(a * x as f64)).collect(),
@@ -164,18 +192,20 @@ impl Value {
             )),
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    Some(Value::IntList(
-                        a.iter().zip(b.iter()).map(|(x, y)| x * y).collect(),
-                    ))
+                    let mut out = Vec::with_capacity(a.len());
+                    for (&x, &y) in a.iter().zip(b.iter()) {
+                        out.push(x.checked_mul(y)?);
+                    }
+                    Some(Value::IntList(out))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    Some(Value::IntList(
-                        (0..max_len)
-                            .map(|i| a[i % a.len()] * b[i % b.len()])
-                            .collect(),
-                    ))
+                    let mut out = Vec::with_capacity(max_len);
+                    for i in 0..max_len {
+                        out.push(a[i % a.len()].checked_mul(b[i % b.len()])?);
+                    }
+                    Some(Value::IntList(out))
                 }
             }
             // Scalar-vector operations
@@ -218,7 +248,7 @@ impl Value {
                 if *b == 0 {
                     None
                 } else if a % b == 0 {
-                    Some(Value::Int(a / b))
+                    a.checked_div(*b).map(Value::Int)
                 } else {
                     Some(Value::Float(*a as f64 / *b as f64))
                 }
@@ -279,7 +309,11 @@ impl Value {
                 } else if vec.contains(&0) {
                     None
                 } else {
-                    Some(Value::IntList(vec.iter().map(|x| a / x).collect()))
+                    let mut out = Vec::with_capacity(vec.len());
+                    for &x in vec {
+                        out.push(a.checked_div(x)?);
+                    }
+                    Some(Value::IntList(out))
                 }
             }
             (Value::Float(a), Value::IntList(vec)) => {
@@ -307,9 +341,11 @@ impl Value {
                     if b.contains(&0) {
                         return None;
                     }
-                    Some(Value::IntList(
-                        a.iter().zip(b.iter()).map(|(x, y)| x / y).collect(),
-                    ))
+                    let mut out = Vec::with_capacity(a.len());
+                    for (&x, &y) in a.iter().zip(b.iter()) {
+                        out.push(x.checked_div(y)?);
+                    }
+                    Some(Value::IntList(out))
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
@@ -320,15 +356,13 @@ impl Value {
                             return None;
                         }
                     }
-                    Some(Value::IntList(
-                        (0..max_len)
-                            .map(|i| {
-                                let left = a[i % a.len()];
-                                let right = b[i % b.len()];
-                                left / right
-                            })
-                            .collect(),
-                    ))
+                    let mut out = Vec::with_capacity(max_len);
+                    for i in 0..max_len {
+                        let left = a[i % a.len()];
+                        let right = b[i % b.len()];
+                        out.push(left.checked_div(right)?);
+                    }
+                    Some(Value::IntList(out))
                 }
             }
             // Scalar-vector operations

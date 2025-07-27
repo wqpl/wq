@@ -153,20 +153,78 @@ impl Vm {
                     let right = self.stack.pop().unwrap();
                     let left = self.stack.pop().unwrap();
                     let result = match op {
-                        BinaryOperator::Add => left.add(&right).ok_or_else(|| {
-                            WqError::TypeError("Cannot add these types".to_string())
-                        }),
-                        BinaryOperator::Subtract => left.subtract(&right).ok_or_else(|| {
-                            WqError::TypeError("Cannot subtract these types".to_string())
-                        }),
-                        BinaryOperator::Multiply => left.multiply(&right).ok_or_else(|| {
-                            WqError::TypeError("Cannot multiply these types".to_string())
-                        }),
-                        BinaryOperator::Divide => left.divide(&right).ok_or_else(|| {
-                            WqError::ZeroDivisionError(
-                                "Division by zero or invalid types".to_string(),
-                            )
-                        }),
+                        BinaryOperator::Add => match left.add(&right) {
+                            Some(v) => Ok(v),
+                            None => {
+                                if matches!(left, Value::Int(_) | Value::IntList(_))
+                                    && matches!(right, Value::Int(_) | Value::IntList(_))
+                                {
+                                    Err(WqError::ArithmeticOverflowError(
+                                        "addition overflow".into(),
+                                    ))
+                                } else {
+                                    Err(WqError::TypeError("Cannot add these types".to_string()))
+                                }
+                            }
+                        },
+                        BinaryOperator::Subtract => match left.subtract(&right) {
+                            Some(v) => Ok(v),
+                            None => {
+                                if matches!(left, Value::Int(_) | Value::IntList(_))
+                                    && matches!(right, Value::Int(_) | Value::IntList(_))
+                                {
+                                    Err(WqError::ArithmeticOverflowError(
+                                        "subtraction overflow".into(),
+                                    ))
+                                } else {
+                                    Err(WqError::TypeError(
+                                        "Cannot subtract these types".to_string(),
+                                    ))
+                                }
+                            }
+                        },
+                        BinaryOperator::Multiply => match left.multiply(&right) {
+                            Some(v) => Ok(v),
+                            None => {
+                                if matches!(left, Value::Int(_) | Value::IntList(_))
+                                    && matches!(right, Value::Int(_) | Value::IntList(_))
+                                {
+                                    Err(WqError::ArithmeticOverflowError(
+                                        "multiplication overflow".into(),
+                                    ))
+                                } else {
+                                    Err(WqError::TypeError(
+                                        "Cannot multiply these types".to_string(),
+                                    ))
+                                }
+                            }
+                        },
+                        BinaryOperator::Divide => match left.divide(&right) {
+                            Some(v) => Ok(v),
+                            None => {
+                                let zero_div = match &right {
+                                    Value::Int(0) => true,
+                                    Value::Float(f) if *f == 0.0 => true,
+                                    Value::IntList(vec) if vec.contains(&0) => true,
+                                    _ => false,
+                                };
+                                if zero_div {
+                                    Err(WqError::ZeroDivisionError(
+                                        "Division by zero or invalid types".to_string(),
+                                    ))
+                                } else if matches!(left, Value::Int(_) | Value::IntList(_))
+                                    && matches!(right, Value::Int(_) | Value::IntList(_))
+                                {
+                                    Err(WqError::ArithmeticOverflowError(
+                                        "division overflow".into(),
+                                    ))
+                                } else {
+                                    Err(WqError::ZeroDivisionError(
+                                        "Division by zero or invalid types".to_string(),
+                                    ))
+                                }
+                            }
+                        },
                         BinaryOperator::DivideDot => left
                             .divide_dot(&right)
                             .ok_or_else(|| WqError::DomainError("Invalid types".to_string())),
@@ -200,7 +258,9 @@ impl Vm {
                     let val = self.stack.pop().unwrap();
                     let result = match op {
                         UnaryOperator::Negate => match val {
-                            Value::Int(n) => Value::Int(-n),
+                            Value::Int(n) => n.checked_neg().map(Value::Int).ok_or_else(|| {
+                                WqError::ArithmeticOverflowError("negation overflow".into())
+                            })?,
                             Value::Float(f) => Value::Float(-f),
                             _ => return Err(WqError::TypeError("Cannot negate this type".into())),
                         },
