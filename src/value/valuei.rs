@@ -690,8 +690,9 @@ mod tests {
         let zero = Value::int(0);
         assert_eq!(zero.divide(&zero), None);
         match zero.divide_dot(&zero) {
-            Some(Value::Float(f)) => assert!(f.is_infinite()),
-            _ => panic!("expected infinity"),
+            Some(Value::Float(f)) => assert!(f.is_nan()),
+            Some(Value::Int(_)) => panic!("expected NaN"),
+            _ => panic!("expected NaN"),
         }
         match zero.modulo_dot(&zero) {
             Some(Value::Float(f)) => assert!(f.is_nan()),

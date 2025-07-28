@@ -403,11 +403,15 @@ impl Value {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => {
                 if *b == 0 {
-                    Some(Value::Float(if *a >= 0 {
-                        f64::INFINITY
+                    if *a == 0 {
+                        Some(Value::nan())
                     } else {
-                        f64::NEG_INFINITY
-                    }))
+                        Some(Value::Float(if *a >= 0 {
+                            f64::INFINITY
+                        } else {
+                            f64::NEG_INFINITY
+                        }))
+                    }
                 } else if a % b == 0 {
                     Some(Value::Int(a / b))
                 } else {
@@ -422,11 +426,15 @@ impl Value {
                     let out = items
                         .iter()
                         .map(|&x| {
-                            Value::Float(if x >= 0 {
-                                f64::INFINITY
+                            if x == 0 {
+                                Value::nan()
                             } else {
-                                f64::NEG_INFINITY
-                            })
+                                Value::Float(if x > 0 {
+                                    f64::INFINITY
+                                } else {
+                                    f64::NEG_INFINITY
+                                })
+                            }
                         })
                         .collect();
                     Some(Value::List(out))
@@ -443,11 +451,15 @@ impl Value {
                     for &x in vec {
                         let val = if x == 0 {
                             all_int = false;
-                            Value::Float(if *a >= 0 {
-                                f64::INFINITY
+                            if *a == 0 {
+                                Value::nan()
                             } else {
-                                f64::NEG_INFINITY
-                            })
+                                Value::Float(if *a >= 0 {
+                                    f64::INFINITY
+                                } else {
+                                    f64::NEG_INFINITY
+                                })
+                            }
                         } else if a % x == 0 {
                             Value::Int(a / x)
                         } else {
@@ -478,11 +490,15 @@ impl Value {
                         .iter()
                         .map(|&x| {
                             if x == 0 {
-                                Value::Float(if *a >= 0.0 {
-                                    f64::INFINITY
+                                if *a == 0.0 {
+                                    Value::nan()
                                 } else {
-                                    f64::NEG_INFINITY
-                                })
+                                    Value::Float(if *a >= 0.0 {
+                                        f64::INFINITY
+                                    } else {
+                                        f64::NEG_INFINITY
+                                    })
+                                }
                             } else {
                                 Value::Float(a / x as f64)
                             }
@@ -499,11 +515,13 @@ impl Value {
                         .iter()
                         .map(|&x| {
                             if *b == 0.0 {
-                                Value::Float(if x >= 0 {
-                                    f64::INFINITY
+                                if x == 0 {
+                                    Value::nan()
+                                } else if x > 0 {
+                                    Value::Float(f64::INFINITY)
                                 } else {
-                                    f64::NEG_INFINITY
-                                })
+                                    Value::Float(f64::NEG_INFINITY)
+                                }
                             } else {
                                 Value::Float(x as f64 / b)
                             }
@@ -519,11 +537,13 @@ impl Value {
                     for (&x, &y) in a.iter().zip(b.iter()) {
                         let val = if y == 0 {
                             all_int = false;
-                            Value::Float(if x >= 0 {
-                                f64::INFINITY
+                            if x == 0 {
+                                Value::nan()
+                            } else if x > 0 {
+                                Value::Float(f64::INFINITY)
                             } else {
-                                f64::NEG_INFINITY
-                            })
+                                Value::Float(f64::NEG_INFINITY)
+                            }
                         } else if x % y == 0 {
                             Value::Int(x / y)
                         } else {
@@ -558,11 +578,13 @@ impl Value {
                         let right = b[i % b.len()];
                         let val = if right == 0 {
                             all_int = false;
-                            Value::Float(if left >= 0 {
-                                f64::INFINITY
+                            if left == 0 {
+                                Value::nan()
+                            } else if left > 0 {
+                                Value::Float(f64::INFINITY)
                             } else {
-                                f64::NEG_INFINITY
-                            })
+                                Value::Float(f64::NEG_INFINITY)
+                            }
                         } else if left % right == 0 {
                             Value::Int(left / right)
                         } else {
