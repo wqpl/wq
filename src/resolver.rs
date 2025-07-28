@@ -37,6 +37,8 @@ impl Resolver {
                 let value = Box::new(self.resolve_node(*value));
                 if matches!(&*value, AstNode::Function { .. }) {
                     self.known_funcs.insert(name.clone());
+                } else {
+                    self.known_funcs.remove(&name);
                 }
                 AstNode::Assignment { name, value }
             }

@@ -635,7 +635,7 @@ impl Evaluator {
                 }
             }
             None => {
-                // Implicit parameters: x y
+                // Implicit parameters: x y z
                 match args.len() {
                     0 => {}
                     1 => {
@@ -645,9 +645,14 @@ impl Evaluator {
                         frame.variables.insert("x".to_string(), args[0].clone());
                         frame.variables.insert("y".to_string(), args[1].clone());
                     }
+                    3 => {
+                        frame.variables.insert("x".to_string(), args[0].clone());
+                        frame.variables.insert("y".to_string(), args[1].clone());
+                        frame.variables.insert("z".to_string(), args[2].clone());
+                    }
                     _ => {
                         return Err(WqError::ArityError(
-                            "Implicit function expects 0, 1 or 2 arguments".to_string(),
+                            "Implicit function expects up to 3 arguments".to_string(),
                         ));
                     }
                 }
@@ -1016,7 +1021,9 @@ mod tests {
     #[test]
     fn test_for_loop() {
         let mut evaluator = Evaluator::new();
-        let result = evaluator.eval_string("total:0;N[3;total:total+_n;];total").unwrap();
+        let result = evaluator
+            .eval_string("total:0;N[3;total:total+_n;];total")
+            .unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
@@ -1108,5 +1115,17 @@ mod tests {
         let mut evaluator = Evaluator::new();
         let res = evaluator.eval_string("@a 1=2;");
         assert!(matches!(res, Err(WqError::AssertionError(_))));
+    }
+
+    #[test]
+    fn implicit_arg_order_and_arity() {
+        let mut evaluator = Evaluator::new();
+        // Order of implicit arguments should be preserved
+        evaluator.eval_string("f:{100*x+10*y+z}").unwrap();
+        let result = evaluator.eval_string("f[1;2;3]").unwrap();
+        assert_eq!(result, Value::Int(123));
+
+        let err = evaluator.eval_string("f[1;2;3;4]");
+        assert!(matches!(err, Err(WqError::ArityError(_))));
     }
 }

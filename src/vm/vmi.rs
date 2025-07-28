@@ -97,10 +97,22 @@ impl Vm {
 
         let mut frame = HashMap::new();
         if let Some(p) = params {
+            if args.len() != p.len() {
+                return Err(WqError::ArityError(format!(
+                    "Function expects {} arguments, got {}",
+                    p.len(),
+                    args.len()
+                )));
+            }
             for (param, arg) in p.into_iter().zip(args.into_iter()) {
                 frame.insert(param, arg);
             }
         } else {
+            if args.len() > 3 {
+                return Err(WqError::ArityError(
+                    "Implicit function expects up to 3 arguments".to_string(),
+                ));
+            }
             if let Some(arg) = args.first() {
                 frame.insert("x".to_string(), arg.clone());
             }
@@ -147,7 +159,9 @@ impl Vm {
                         if self.builtins.has_function(&name) {
                             self.stack.push(Value::BuiltinFunction(name));
                         } else {
-                            return Err(WqError::ValueError(format!("Undefined variable: '{name}'")));
+                            return Err(WqError::ValueError(format!(
+                                "Undefined variable: '{name}'"
+                            )));
                         }
                     }
                 },
@@ -249,43 +263,39 @@ impl Vm {
                         args.push(arg);
                     }
 
-                    let result = self.builtins.call(&name, &args).map_err(|e| {
-                        WqError::ValueError(format!("Builtin '{}' failed: {}", name, e))
-                    })?;
+                    let result = self.builtins.call(&name, &args)?;
 
                     self.stack.push(result);
                 }
 
                 Instruction::CallBuiltinId(id, argc) => {
                     let mut args = Vec::with_capacity(argc);
-                    for i in (0..argc).rev() {
+                    for _ in 0..argc {
                         let arg = self.stack.pop().ok_or_else(|| {
                             WqError::RuntimeError(format!(
-                                "Stack underflow: expected {} arguments for builtin ID {}, only found {}",
-                                argc, id, argc - i
+                                "Stack underflow: expected {} arguments for builtin ID {} but only found fewer",
+                                argc, id
                             ))
                         })?;
                         args.push(arg);
                     }
-
-                    let result = self.builtins.call_id(id as usize, &args).map_err(|e| {
-                        WqError::ValueError(format!("Builtin ID {} failed: {}", id, e))
-                    })?;
+                    args.reverse();
+                    let result = self.builtins.call_id(id as usize, &args)?;
 
                     self.stack.push(result);
                 }
                 Instruction::CallUser(name, argc) => {
                     let mut args = Vec::with_capacity(argc);
-                    for i in (0..argc).rev() {
+                    for _ in 0..argc {
                         let arg = self.stack.pop().ok_or_else(|| {
                             WqError::RuntimeError(format!(
-                                "Stack underflow: expected {} arguments for function '{}', only found {}",
-                                argc, name, argc - i
+                                "Stack underflow: expected {} arguments for function '{}' but only found fewer",
+                                argc, name
                             ))
                         })?;
                         args.push(arg);
                     }
-
+                    args.reverse();
                     let func = self.lookup(&name);
                     match func {
                         Some(Value::BytecodeFunction {
@@ -321,17 +331,16 @@ impl Vm {
                     let mut args = Vec::with_capacity(argc);
 
                     // Pop arguments in reverse order for proper evaluation
-                    for i in (0..argc).rev() {
+                    for _ in 0..argc {
                         let arg = self.stack.pop().ok_or_else(|| {
                             WqError::RuntimeError(format!(
-                                "Stack underflow: expected {} arguments but only found {}",
-                                argc,
-                                argc - i
+                                "Stack underflow: expected {} arguments but only found fewer",
+                                argc
                             ))
                         })?;
                         args.push(arg);
                     }
-
+                    args.reverse();
                     // Pop function value
                     let func_val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(

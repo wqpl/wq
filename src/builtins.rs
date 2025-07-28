@@ -133,7 +133,7 @@ impl Builtins {
         if let Some(id) = self.name_to_id.get(name) {
             self.call_id(*id, args)
         } else {
-            Err(WqError::DomainError(format!(
+            Err(WqError::ValueError(format!(
                 "Unknown builtin function: {name}",
             )))
         }
@@ -143,7 +143,7 @@ impl Builtins {
         if let Some(&func) = self.functions.get(id) {
             func(args)
         } else {
-            Err(WqError::DomainError("invalid builtin id".into()))
+            Err(WqError::ValueError("invalid builtin id".into()))
         }
     }
 

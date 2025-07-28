@@ -230,4 +230,23 @@ mod tests {
         let res = eval.eval_string("@a 1=2;");
         assert!(matches!(res, Err(WqError::AssertionError(_))));
     }
+
+    #[test]
+    fn implicit_arg_order_and_arity() {
+        let mut eval = VmEvaluator::new();
+        // Test argument order with three implicit parameters
+        let res = eval.eval_string("f:{100*x+10*y+z};f[1;2;3]").unwrap();
+        assert_eq!(res, Value::Int(123));
+
+        // Too many arguments should error
+        let res = eval.eval_string("f[1;2;3;4]");
+        assert!(matches!(res, Err(WqError::ArityError(_))));
+    }
+
+    #[test]
+    fn arity_error_too_many_args() {
+        let mut eval = VmEvaluator::new();
+        let res = eval.eval_string("f:{[a;b;c]a+b+c};f[1;2;3;4]");
+        assert!(matches!(res, Err(WqError::ArityError(_))));
+    }
 }

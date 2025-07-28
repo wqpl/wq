@@ -64,7 +64,7 @@ pub enum AstNode {
 
     /// Function def
     Function {
-        params: Option<Vec<String>>, // None for implicit params (x, y)
+        params: Option<Vec<String>>, // None for implicit params (x, y, z)
         body: Box<AstNode>,
     },
 
