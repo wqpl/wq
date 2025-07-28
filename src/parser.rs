@@ -130,6 +130,7 @@ pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
     source: String,
+    builtins: crate::builtins::Builtins,
 }
 
 impl Parser {
@@ -138,6 +139,7 @@ impl Parser {
             tokens,
             current: 0,
             source,
+            builtins: crate::builtins::Builtins::new(),
         }
     }
 
@@ -255,6 +257,12 @@ impl Parser {
             if token.token_type == TokenType::Colon {
                 match expr {
                     AstNode::Variable(name) => {
+                        if self.builtins.has_function(&name) {
+                            return Err(self.syntax_error(
+                                token,
+                                &format!("cannot assign to builtin '{name}'"),
+                            ));
+                        }
                         self.advance();
                         let value = self.parse_assignment()?;
                         expr = AstNode::Assignment {

@@ -602,34 +602,54 @@ mod load_resolver {
                     }
                 }
 
-                // Show newly introduced bindings
-                // fixme: overridden bindings are not shown properly
+                // Show newly introduced or overridden bindings
                 if !silent {
-                    let vars_after = evaluator.env_vars();
+                    let vars_after = evaluator.env_vars().clone();
                     let mut new_bindings = Vec::new();
+                    let mut overridden = Vec::new();
 
-                    for (name, value) in vars_after {
-                        if !vars_before.contains_key(name) {
-                            new_bindings.push((name, value));
+                    for (name, value) in &vars_after {
+                        match vars_before.get(name) {
+                            None => new_bindings.push((name.clone(), value.clone())),
+                            Some(before_val) if before_val != value => {
+                                overridden.push((name.clone(), value.clone()));
+                            }
+                            _ => {}
                         }
                     }
 
-                    if new_bindings.is_empty() {
+                    if new_bindings.is_empty() && overridden.is_empty() {
                         system_msg_printer::stderr(
                             format!("no new bindings from {}", path.display()),
                             system_msg_printer::MsgType::Info,
                         );
                     } else {
-                        new_bindings.sort_by_key(|(n, _)| (*n).clone());
-                        system_msg_printer::stderr(
-                            format!("new bindings from {}:", path.display()),
-                            system_msg_printer::MsgType::Info,
-                        );
-                        for (name, value) in new_bindings {
+                        if !new_bindings.is_empty() {
+                            new_bindings.sort_by_key(|(n, _)| n.clone());
                             system_msg_printer::stderr(
-                                format!("  {name} = {value}"),
+                                format!("new bindings from {}:", path.display()),
                                 system_msg_printer::MsgType::Info,
                             );
+                            for (name, value) in new_bindings {
+                                system_msg_printer::stderr(
+                                    format!("  {name} = {value}"),
+                                    system_msg_printer::MsgType::Info,
+                                );
+                            }
+                        }
+
+                        if !overridden.is_empty() {
+                            overridden.sort_by_key(|(n, _)| n.clone());
+                            system_msg_printer::stderr(
+                                format!("overridden bindings from {}:", path.display()),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            for (name, value) in overridden {
+                                system_msg_printer::stderr(
+                                    format!("  {name} = {value}"),
+                                    system_msg_printer::MsgType::Info,
+                                );
+                            }
                         }
                     }
                 }

@@ -40,7 +40,7 @@ fn pop2(stack: &mut Vec<Value>) -> Option<(Value, Value)> {
 }
 
 #[inline]
-fn take_args<'a>(stack: &'a [Value], argc: usize) -> Option<&'a [Value]> {
+fn take_args(stack: &[Value], argc: usize) -> Option<&[Value]> {
     if stack.len() < argc {
         None
     } else {

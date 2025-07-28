@@ -144,7 +144,11 @@ impl Vm {
                 Instruction::LoadVar(name) => match self.lookup(&name) {
                     Some(val) => self.stack.push(val),
                     None => {
-                        return Err(WqError::ValueError(format!("Undefined variable: '{name}'")));
+                        if self.builtins.has_function(&name) {
+                            self.stack.push(Value::BuiltinFunction(name));
+                        } else {
+                            return Err(WqError::ValueError(format!("Undefined variable: '{name}'")));
+                        }
                     }
                 },
                 Instruction::StoreVar(name) => {

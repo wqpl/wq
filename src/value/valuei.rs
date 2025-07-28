@@ -60,6 +60,8 @@ pub enum Value {
         params: Option<Vec<String>>,
         instructions: Vec<vm::instruction::Instruction>,
     },
+    /// handle for builtin functions
+    BuiltinFunction(String),
     /// handle to an input/output stream, e.g. a process pipe
     Stream(Arc<Mutex<StreamHandle>>),
     Null,
@@ -120,6 +122,7 @@ impl PartialEq for Value {
                     instructions: ib,
                 },
             ) => pa == pb && ia == ib,
+            (BuiltinFunction(a), BuiltinFunction(b)) => a == b,
             (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
             _ => false,
         }
@@ -176,6 +179,7 @@ impl Value {
                 | Value::Float(_)
                 | Value::Char(_)
                 | Value::Symbol(_)
+                | Value::BuiltinFunction(_)
                 | Value::Bool(_)
                 | Value::Null
         )
@@ -203,6 +207,7 @@ impl Value {
             Value::IntList(items) => items.len(),
             Value::Dict(map) => map.len(),
             Value::Symbol(s) => s.len(),
+            Value::BuiltinFunction(_) => 1,
             _ => 1, // Atoms have length 1
         }
     }
@@ -224,6 +229,7 @@ impl Value {
             Value::Dict(_) => "dict",
             Value::Function { .. } => "function",
             Value::BytecodeFunction { .. } => "function",
+            Value::BuiltinFunction(_) => "function",
             Value::Stream(_) => "stream",
             Value::Null => "null",
         }
@@ -493,6 +499,7 @@ impl fmt::Display for Value {
                 Some(p) => write!(f, "{{[{}]...}}", p.join(";")),
                 None => write!(f, "{{...}}"),
             },
+            Value::BuiltinFunction(name) => write!(f, "built-in function {name}"),
             Value::Stream(_) => write!(f, "<stream>"),
             Value::Null => write!(f, "null"),
         }

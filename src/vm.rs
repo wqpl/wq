@@ -150,7 +150,7 @@ impl VmEvaluator {
         use crate::resolver::Resolver;
         let mut parser = Parser::new(tokens, input.to_string());
         let ast = parser.parse()?;
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::from_env(self.environment());
         let ast = resolver.resolve(ast);
         if self.debug {
             eprintln!("=====AST=====");
@@ -193,7 +193,7 @@ mod tests {
     fn undefined_variable_errors() {
         let mut eval = VmEvaluator::new();
         let res = eval.eval_string("a");
-        assert!(matches!(res, Err(WqError::DomainError(_))));
+        assert!(matches!(res, Err(WqError::ValueError(_))));
     }
 
     #[test]

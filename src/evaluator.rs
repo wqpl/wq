@@ -157,6 +157,8 @@ impl Evaluator {
                 }
                 if let Some(value) = self.environment.get(name) {
                     Ok(value.clone())
+                } else if self.builtins.has_function(name) {
+                    Ok(Value::BuiltinFunction(name.clone()))
                 } else {
                     Err(WqError::ValueError(format!("Undefined variable: {name}")))
                 }
@@ -678,7 +680,7 @@ impl Evaluator {
         use crate::resolver::Resolver;
         let mut parser = Parser::new(tokens, input.to_string());
         let ast = parser.parse()?;
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::from_env(self.environment.variables());
         let ast = resolver.resolve(ast);
         if self.debug {
             eprintln!("{}", "=====AST=====".red());
@@ -1014,7 +1016,7 @@ mod tests {
     #[test]
     fn test_for_loop() {
         let mut evaluator = Evaluator::new();
-        let result = evaluator.eval_string("sum:0;N[3;sum:sum+_n;];sum").unwrap();
+        let result = evaluator.eval_string("total:0;N[3;total:total+_n;];total").unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
