@@ -1,57 +1,62 @@
 use crate::value::valuei::{Value, WqError, WqResult};
-use textplots::{Chart, Plot, Shape, ColorPlot};
 use rgb::RGB8;
+use textplots::{Chart, ColorPlot, Plot, Shape};
 
 pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqError::FnArgCountMismatchError(
+        return Err(WqError::ArityError(
             "asciiplot expects at least one argument".into(),
         ));
     }
 
     let mut all_series = Vec::with_capacity(args.len());
     for arg in args {
-        let series: Vec<(f32, f32)> = match arg {
-            Value::IntList(arr) if !arr.is_empty() => {
-                arr.iter()
-                   .enumerate()
-                   .map(|(i, &y)| (i as f32, y as f32))
-                   .collect()
-            }
-            Value::List(items)
-                if items.iter().all(|it| {
-                    if let Value::List(pair) = it {
-                        pair.len() == 2
-                            && pair[0].to_float().is_some()
-                            && pair[1].to_float().is_some()
-                    } else {
-                        false
-                    }
-                }) =>
-            {
-                items.iter()
-                     .map(|it| {
-                         let pair = if let Value::List(pair) = it { pair } else { unreachable!() };
-                         let x = pair[0].to_float().unwrap() as f32;
-                         let y = pair[1].to_float().unwrap() as f32;
-                         (x, y)
-                     })
-                     .collect()
-            }
-            Value::List(items)
-                if items.iter().all(|v| v.to_float().is_some()) && !items.is_empty() =>
-            {
-                items.iter()
-                     .enumerate()
-                     .map(|(i, v)| (i as f32, v.to_float().unwrap() as f32))
-                     .collect()
-            }
-            _ => {
-                return Err(WqError::TypeError(
-                    "each argument must be a list of numbers or a list of 2‑element numeric lists".into(),
-                ))
-            }
-        };
+        let series: Vec<(f32, f32)> =
+            match arg {
+                Value::IntList(arr) if !arr.is_empty() => arr
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &y)| (i as f32, y as f32))
+                    .collect(),
+                Value::List(items)
+                    if items.iter().all(|it| {
+                        if let Value::List(pair) = it {
+                            pair.len() == 2
+                                && pair[0].to_float().is_some()
+                                && pair[1].to_float().is_some()
+                        } else {
+                            false
+                        }
+                    }) =>
+                {
+                    items
+                        .iter()
+                        .map(|it| {
+                            let pair = if let Value::List(pair) = it {
+                                pair
+                            } else {
+                                unreachable!()
+                            };
+                            let x = pair[0].to_float().unwrap() as f32;
+                            let y = pair[1].to_float().unwrap() as f32;
+                            (x, y)
+                        })
+                        .collect()
+                }
+                Value::List(items)
+                    if items.iter().all(|v| v.to_float().is_some()) && !items.is_empty() =>
+                {
+                    items
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| (i as f32, v.to_float().unwrap() as f32))
+                        .collect()
+                }
+                _ => return Err(WqError::TypeError(
+                    "each argument must be a list of numbers or a list of 2‑element numeric lists"
+                        .into(),
+                )),
+            };
         all_series.push(series);
     }
 
@@ -70,11 +75,19 @@ pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
         .collect();
 
     let palette = [
-        RGB8 { r: 255, g:   0, b:   0 }, // red
-        RGB8 { r:   0, g: 255, b:   0 }, // green
-        RGB8 { r:   0, g:   0, b: 255 }, // blue
-        RGB8 { r: 255, g: 255, b:   0 }, // yellow
-        RGB8 { r: 255, g:   0, b: 255 }, // magenta
+        RGB8 { r: 255, g: 0, b: 0 }, // red
+        RGB8 { r: 0, g: 255, b: 0 }, // green
+        RGB8 { r: 0, g: 0, b: 255 }, // blue
+        RGB8 {
+            r: 255,
+            g: 255,
+            b: 0,
+        }, // yellow
+        RGB8 {
+            r: 255,
+            g: 0,
+            b: 255,
+        }, // magenta
     ];
 
     let mut chart = Chart::new(100, 100, xmin, xmax);

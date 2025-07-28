@@ -70,14 +70,12 @@ pub enum WqError {
     TypeError(String),
     IndexError(String),
     DomainError(String),
-    ZeroDivisionError(String),
-    ArithmeticOverflowError(String),
-    LengthError(String),
+    ValueError(String),
     SyntaxError(String),
-    FnArgCountMismatchError(String),
+    ArityError(String),
     RuntimeError(String),
     EofError(String),
-    AssertionFailError(String),
+    AssertionError(String),
     Break,
     Continue,
     Return(Value),
@@ -504,22 +502,20 @@ impl fmt::Display for Value {
 impl fmt::Display for WqError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            WqError::TypeError(msg) => write!(f, "type error: {msg}"),
-            WqError::IndexError(msg) => write!(f, "index error: {msg}"),
-            WqError::DomainError(msg) => write!(f, "domain error: {msg}"),
-            WqError::ZeroDivisionError(msg) => write!(f, "zero division error: {msg}"),
-            WqError::ArithmeticOverflowError(msg) => write!(f, "arithmetic overflow error: {msg}"),
-            WqError::LengthError(msg) => write!(f, "length error: {msg}"),
-            WqError::SyntaxError(msg) => write!(f, "syntax error: {msg}"),
-            WqError::FnArgCountMismatchError(msg) => {
-                write!(f, "function argument count mismatch error: {msg}")
+            WqError::TypeError(msg) => write!(f, "TYPE ERROR: {msg}"),
+            WqError::IndexError(msg) => write!(f, "INDEX ERROR: {msg}"),
+            WqError::DomainError(msg) => write!(f, "DOMAIN ERROR: {msg}"),
+            WqError::ValueError(msg) => write!(f, "VALUE ERROR: {msg}"),
+            WqError::SyntaxError(msg) => write!(f, "SYNTAX ERROR: {msg}"),
+            WqError::ArityError(msg) => {
+                write!(f, "ARITY ERROR: {msg}")
             }
-            WqError::RuntimeError(msg) => write!(f, "runtime error: {msg}"),
-            WqError::EofError(msg) => write!(f, "end of file error: {msg}"),
-            WqError::Break => write!(f, "break"),
-            WqError::Continue => write!(f, "continue"),
-            WqError::Return(v) => write!(f, "return {v}"),
-            WqError::AssertionFailError(msg) => write!(f, "assertion failed: {msg}"),
+            WqError::RuntimeError(msg) => write!(f, "RUNTIME ERROR: {msg}"),
+            WqError::EofError(msg) => write!(f, "EOF ERROR: {msg}"),
+            WqError::Break => write!(f, "BREAK"),
+            WqError::Continue => write!(f, "CONTINUE"),
+            WqError::Return(v) => write!(f, "RETURN {v}"),
+            WqError::AssertionError(msg) => write!(f, "ASSERTION ERROR: {msg}"),
         }
     }
 }

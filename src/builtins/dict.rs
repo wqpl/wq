@@ -2,9 +2,7 @@ use crate::value::valuei::{Value, WqError, WqResult};
 
 pub fn keys(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "keys expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("keys expects 1 argument".to_string()));
     }
     match &args[0] {
         Value::Dict(map) => {

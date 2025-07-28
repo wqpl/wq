@@ -5,7 +5,7 @@ use crate::{
 
 pub fn format_string(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqError::FnArgCountMismatchError(
+        return Err(WqError::ArityError(
             "format expects at least 1 argument".to_string(),
         ));
     }
@@ -29,7 +29,7 @@ pub fn format_string(args: &[Value]) -> WqResult<Value> {
                 Some('}') => {
                     iter.next();
                     if arg_idx + 1 >= args.len() {
-                        return Err(WqError::FnArgCountMismatchError(
+                        return Err(WqError::ArityError(
                             "format expects more arguments".to_string(),
                         ));
                     }
@@ -52,7 +52,7 @@ pub fn format_string(args: &[Value]) -> WqResult<Value> {
     }
 
     if arg_idx + 1 < args.len() {
-        return Err(WqError::FnArgCountMismatchError(
+        return Err(WqError::ArityError(
             "too many arguments for format".to_string(),
         ));
     }

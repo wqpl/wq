@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn return_in_function() {
         let mut eval = VmEvaluator::new();
-        let res = eval.eval_string("f:{@r 3;1};f[;]").unwrap();
+        let res = eval.eval_string("f:{@r 3;1};f[]").unwrap();
         assert_eq!(res, Value::Int(3));
     }
 
@@ -228,6 +228,6 @@ mod tests {
     fn assert_fails() {
         let mut eval = VmEvaluator::new();
         let res = eval.eval_string("@a 1=2;");
-        assert!(matches!(res, Err(WqError::AssertionFailError(_))));
+        assert!(matches!(res, Err(WqError::AssertionError(_))));
     }
 }

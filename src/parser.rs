@@ -271,7 +271,11 @@ impl Parser {
                             value: Box::new(value),
                         };
                     }
-                    AstNode::Postfix { object, items, explicit_call: false } => {
+                    AstNode::Postfix {
+                        object,
+                        items,
+                        explicit_call: false,
+                    } => {
                         self.advance();
                         let value = self.parse_assignment()?;
                         let index = if items.len() == 1 {
@@ -485,10 +489,19 @@ impl Parser {
     }
 
     fn parse_bracket_items(&mut self) -> WqResult<(Vec<AstNode>, bool)> {
-        if let Some(Token { token_type: TokenType::Semicolon, .. }) = self.current_token() {
-            self.advance();
-            self.consume(TokenType::RightBracket)?;
-            return Ok((Vec::new(), true));
+        if let Some(token) = self.current_token() {
+            match token.token_type {
+                TokenType::Semicolon => {
+                    self.advance();
+                    self.consume(TokenType::RightBracket)?;
+                    return Ok((Vec::new(), true));
+                }
+                TokenType::RightBracket => {
+                    self.advance();
+                    return Ok((Vec::new(), true));
+                }
+                _ => {}
+            }
         }
 
         let mut items = Vec::new();
@@ -525,7 +538,6 @@ impl Parser {
         Ok((items, trailing))
     }
 
-
     fn parse_postfix(&mut self) -> WqResult<AstNode> {
         let mut expr = self.parse_primary()?;
 
@@ -541,14 +553,14 @@ impl Parser {
                     };
                 }
                 TokenType::Integer(_)
-                    | TokenType::Float(_)
-                    | TokenType::Character(_)
-                    | TokenType::String(_)
-                    | TokenType::Symbol(_)
-                    | TokenType::Identifier(_)
-                    | TokenType::True
-                    | TokenType::False
-                    | TokenType::LeftParen => {
+                | TokenType::Float(_)
+                | TokenType::Character(_)
+                | TokenType::String(_)
+                | TokenType::Symbol(_)
+                | TokenType::Identifier(_)
+                | TokenType::True
+                | TokenType::False
+                | TokenType::LeftParen => {
                     let arg = self.parse_unary()?;
                     expr = AstNode::Postfix {
                         object: Box::new(expr),

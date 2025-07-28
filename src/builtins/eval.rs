@@ -6,9 +6,7 @@ use crate::{
 
 pub fn eval(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "eval expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("eval expects 1 argument".to_string()));
     }
     let code = values_to_strings(&[args[0].clone()])?
         .into_iter()

@@ -17,7 +17,7 @@ pub static RUSTYLINE: Lazy<Mutex<Option<DefaultEditor>>> = Lazy::new(|| Mutex::n
 
 pub fn fopen(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() || args.len() > 2 {
-        return Err(WqError::FnArgCountMismatchError(
+        return Err(WqError::ArityError(
             "fopen expects 1 or 2 arguments".to_string(),
         ));
     }
@@ -77,7 +77,7 @@ pub fn fopen(args: &[Value]) -> WqResult<Value> {
 
 pub fn fread(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() || args.len() > 2 {
-        return Err(WqError::FnArgCountMismatchError(
+        return Err(WqError::ArityError(
             "fread expects 1 or 2 arguments".to_string(),
         ));
     }
@@ -145,7 +145,7 @@ fn value_to_bytes(v: &Value) -> WqResult<Vec<u8>> {
 
 pub fn fwrite(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::FnArgCountMismatchError(
+        return Err(WqError::ArityError(
             "fwrite expects 2 arguments".to_string(),
         ));
     }
@@ -166,9 +166,7 @@ pub fn fwrite(args: &[Value]) -> WqResult<Value> {
 
 pub fn fclose(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "fclose expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("fclose expects 1 argument".to_string()));
     }
     if let Value::Stream(rc) = &args[0] {
         let mut handle = rc.lock().unwrap();
@@ -183,9 +181,7 @@ pub fn fclose(args: &[Value]) -> WqResult<Value> {
 
 pub fn fsize(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "fsize expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("fsize expects 1 argument".to_string()));
     }
     let path = values_to_strings(&[args[0].clone()])?.pop().unwrap();
     let meta = std::fs::metadata(&path).map_err(|e| WqError::RuntimeError(e.to_string()))?;
@@ -194,7 +190,7 @@ pub fn fsize(args: &[Value]) -> WqResult<Value> {
 
 pub fn input(args: &[Value]) -> WqResult<Value> {
     if args.len() > 1 {
-        return Err(WqError::FnArgCountMismatchError(
+        return Err(WqError::ArityError(
             "input expects 0 or 1 argument".to_string(),
         ));
     }

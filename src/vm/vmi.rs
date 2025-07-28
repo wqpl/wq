@@ -144,106 +144,56 @@ impl Vm {
                 Instruction::LoadVar(name) => match self.lookup(&name) {
                     Some(val) => self.stack.push(val),
                     None => {
-                        return Err(WqError::DomainError(format!("Undefined variable: {name}")));
+                        return Err(WqError::ValueError(format!("Undefined variable: '{name}'")));
                     }
                 },
                 Instruction::StoreVar(name) => {
-                    if let Some(v) = self.stack.pop() {
-                        self.assign(name.clone(), v);
-                    }
+                    let val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(format!(
+                            "Stack underflow: cannot store into variable '{name}'"
+                        ))
+                    })?;
+                    self.assign(name.clone(), val);
                 }
+
                 Instruction::StoreLocalVar(name) => {
-                    if let Some(v) = self.stack.pop() {
-                        self.env().insert(name.clone(), v);
-                    }
+                    let val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(format!(
+                            "Stack underflow: cannot store into local variable '{name}'"
+                        ))
+                    })?;
+                    self.env().insert(name.clone(), val);
                 }
                 Instruction::BinaryOp(op) => {
-                    let right = self.stack.pop().unwrap();
-                    let left = self.stack.pop().unwrap();
+                    let right = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError("Stack underflow: missing right operand".into())
+                    })?;
+                    let left = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError("Stack underflow: missing left operand".into())
+                    })?;
+
                     let result = match op {
-                        BinaryOperator::Add => match left.add(&right) {
-                            Some(v) => Ok(v),
-                            None => {
-                                if matches!(left, Value::Int(_) | Value::IntList(_))
-                                    && matches!(right, Value::Int(_) | Value::IntList(_))
-                                {
-                                    Err(WqError::ArithmeticOverflowError(
-                                        "addition overflow".into(),
-                                    ))
-                                } else {
-                                    Err(WqError::TypeError("Cannot add these types".to_string()))
-                                }
-                            }
-                        },
-                        BinaryOperator::Subtract => match left.subtract(&right) {
-                            Some(v) => Ok(v),
-                            None => {
-                                if matches!(left, Value::Int(_) | Value::IntList(_))
-                                    && matches!(right, Value::Int(_) | Value::IntList(_))
-                                {
-                                    Err(WqError::ArithmeticOverflowError(
-                                        "subtraction overflow".into(),
-                                    ))
-                                } else {
-                                    Err(WqError::TypeError(
-                                        "Cannot subtract these types".to_string(),
-                                    ))
-                                }
-                            }
-                        },
-                        BinaryOperator::Multiply => match left.multiply(&right) {
-                            Some(v) => Ok(v),
-                            None => {
-                                if matches!(left, Value::Int(_) | Value::IntList(_))
-                                    && matches!(right, Value::Int(_) | Value::IntList(_))
-                                {
-                                    Err(WqError::ArithmeticOverflowError(
-                                        "multiplication overflow".into(),
-                                    ))
-                                } else {
-                                    Err(WqError::TypeError(
-                                        "Cannot multiply these types".to_string(),
-                                    ))
-                                }
-                            }
-                        },
-                        BinaryOperator::Divide => match left.divide(&right) {
-                            Some(v) => Ok(v),
-                            None => {
-                                let zero_div = match &right {
-                                    Value::Int(0) => true,
-                                    Value::Float(f) if *f == 0.0 => true,
-                                    Value::IntList(vec) if vec.contains(&0) => true,
-                                    _ => false,
-                                };
-                                if zero_div {
-                                    Err(WqError::ZeroDivisionError(
-                                        "Division by zero or invalid types".to_string(),
-                                    ))
-                                } else if matches!(left, Value::Int(_) | Value::IntList(_))
-                                    && matches!(right, Value::Int(_) | Value::IntList(_))
-                                {
-                                    Err(WqError::ArithmeticOverflowError(
-                                        "division overflow".into(),
-                                    ))
-                                } else {
-                                    Err(WqError::ZeroDivisionError(
-                                        "Division by zero or invalid types".to_string(),
-                                    ))
-                                }
-                            }
-                        },
+                        BinaryOperator::Add => left
+                            .add(&right)
+                            .ok_or_else(|| classify_arith("addition", &left, &right)),
+                        BinaryOperator::Subtract => left
+                            .subtract(&right)
+                            .ok_or_else(|| classify_arith("subtraction", &left, &right)),
+                        BinaryOperator::Multiply => left
+                            .multiply(&right)
+                            .ok_or_else(|| classify_arith("multiplication", &left, &right)),
+                        BinaryOperator::Divide => left
+                            .divide(&right)
+                            .ok_or_else(|| classify_divide(&left, &right)),
                         BinaryOperator::DivideDot => left
                             .divide_dot(&right)
-                            .ok_or_else(|| WqError::DomainError("Invalid types".to_string())),
+                            .ok_or_else(|| WqError::DomainError("Invalid types".into())),
                         BinaryOperator::Modulo => left.modulo(&right).ok_or_else(|| {
-                            WqError::ZeroDivisionError(
-                                "Modulo by zero or invalid types".to_string(),
-                            )
+                            WqError::DomainError("Modulo by zero or invalid types".into())
                         }),
                         BinaryOperator::ModuloDot => left
                             .modulo_dot(&right)
-                            .ok_or_else(|| WqError::DomainError("Invalid types".to_string())),
+                            .ok_or_else(|| WqError::DomainError("Invalid types".into())),
                         BinaryOperator::Equal => Ok(left.equals(&right)),
                         BinaryOperator::NotEqual => Ok(left.not_equals(&right)),
                         BinaryOperator::LessThan => Ok(left.less_than(&right)),
@@ -253,53 +203,85 @@ impl Vm {
                             Ok(left.greater_than_or_equal(&right))
                         }
                     };
+
                     match result {
                         Ok(v) => self.stack.push(v),
                         Err(e) => {
-                            return Err(WqError::TypeError(format!(
-                                "Failed to execute binary operator {op:#?} - {e:#?}"
-                            )));
+                            return Err(e);
                         }
                     }
                 }
                 Instruction::UnaryOp(op) => {
-                    let val = self.stack.pop().unwrap();
+                    let val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing operand for unary operator".into(),
+                        )
+                    })?;
+
                     let result = match op {
                         UnaryOperator::Negate => match val {
-                            Value::Int(n) => n.checked_neg().map(Value::Int).ok_or_else(|| {
-                                WqError::ArithmeticOverflowError("negation overflow".into())
-                            })?,
-                            Value::Float(f) => Value::Float(-f),
-                            _ => return Err(WqError::TypeError("Cannot negate this type".into())),
+                            Value::Int(n) => n
+                                .checked_neg()
+                                .map(Value::Int)
+                                .ok_or_else(|| WqError::DomainError("negation overflow".into())),
+                            Value::Float(f) => Ok(Value::Float(-f)),
+                            _ => Err(WqError::TypeError("Cannot negate this type".into())),
                         },
-                        UnaryOperator::Count => Value::Int(val.len() as i64),
+                        UnaryOperator::Count => Ok(Value::Int(val.len() as i64)),
                     };
-                    self.stack.push(result);
+
+                    let v = result?; // Propagate the error as-is
+                    self.stack.push(v);
                 }
                 Instruction::CallBuiltin(name, argc) => {
                     let mut args = Vec::with_capacity(argc);
-                    for _ in 0..argc {
-                        args.push(self.stack.pop().unwrap());
+                    for i in (0..argc).rev() {
+                        let arg = self.stack.pop().ok_or_else(|| {
+                            WqError::RuntimeError(format!(
+                                "Stack underflow: expected {} arguments for builtin '{}', only found {}",
+                                argc, name, argc - i
+                            ))
+                        })?;
+                        args.push(arg);
                     }
-                    args.reverse();
-                    let result = self.builtins.call(&name, &args)?;
+
+                    let result = self.builtins.call(&name, &args).map_err(|e| {
+                        WqError::ValueError(format!("Builtin '{}' failed: {}", name, e))
+                    })?;
+
                     self.stack.push(result);
                 }
+
                 Instruction::CallBuiltinId(id, argc) => {
                     let mut args = Vec::with_capacity(argc);
-                    for _ in 0..argc {
-                        args.push(self.stack.pop().unwrap());
+                    for i in (0..argc).rev() {
+                        let arg = self.stack.pop().ok_or_else(|| {
+                            WqError::RuntimeError(format!(
+                                "Stack underflow: expected {} arguments for builtin ID {}, only found {}",
+                                argc, id, argc - i
+                            ))
+                        })?;
+                        args.push(arg);
                     }
-                    args.reverse();
-                    let result = self.builtins.call_id(id as usize, &args)?;
+
+                    let result = self.builtins.call_id(id as usize, &args).map_err(|e| {
+                        WqError::ValueError(format!("Builtin ID {} failed: {}", id, e))
+                    })?;
+
                     self.stack.push(result);
                 }
                 Instruction::CallUser(name, argc) => {
                     let mut args = Vec::with_capacity(argc);
-                    for _ in 0..argc {
-                        args.push(self.stack.pop().unwrap());
+                    for i in (0..argc).rev() {
+                        let arg = self.stack.pop().ok_or_else(|| {
+                            WqError::RuntimeError(format!(
+                                "Stack underflow: expected {} arguments for function '{}', only found {}",
+                                argc, name, argc - i
+                            ))
+                        })?;
+                        args.push(arg);
                     }
-                    args.reverse();
+
                     let func = self.lookup(&name);
                     match func {
                         Some(Value::BytecodeFunction {
@@ -316,20 +298,43 @@ impl Vm {
                             let res = self.call_function(c.instructions, params, args)?;
                             self.stack.push(res);
                         }
-                        _ => {
-                            return Err(WqError::DomainError(format!(
-                                "Unknown function {name} with {argc} params"
+                        Some(other) => {
+                            return Err(WqError::TypeError(format!(
+                                "Cannot call '{}': expected function, found {}",
+                                name,
+                                other.type_name()
+                            )));
+                        }
+                        None => {
+                            return Err(WqError::ValueError(format!(
+                                "Function '{}' is not defined",
+                                name
                             )));
                         }
                     }
                 }
                 Instruction::CallAnon(argc) => {
                     let mut args = Vec::with_capacity(argc);
-                    for _ in 0..argc {
-                        args.push(self.stack.pop().unwrap());
+
+                    // Pop arguments in reverse order for proper evaluation
+                    for i in (0..argc).rev() {
+                        let arg = self.stack.pop().ok_or_else(|| {
+                            WqError::RuntimeError(format!(
+                                "Stack underflow: expected {} arguments but only found {}",
+                                argc,
+                                argc - i
+                            ))
+                        })?;
+                        args.push(arg);
                     }
-                    args.reverse();
-                    let func_val = self.stack.pop().unwrap();
+
+                    // Pop function value
+                    let func_val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing function value for call".into(),
+                        )
+                    })?;
+
                     match func_val {
                         Value::BytecodeFunction {
                             params,
@@ -345,30 +350,49 @@ impl Vm {
                             let res = self.call_function(c.instructions, params, args)?;
                             self.stack.push(res);
                         }
-                        _ => {
-                            return Err(WqError::DomainError(
-                                "Failed calling anonymous function - not a function".into(),
-                            ));
+                        other => {
+                            return Err(WqError::TypeError(format!(
+                                "Cannot call value of type {:?} as a function",
+                                other.type_name()
+                            )));
                         }
                     }
                 }
                 Instruction::MakeList(n) => {
                     let mut items = Vec::with_capacity(n);
-                    for _ in 0..n {
-                        items.push(self.stack.pop().unwrap());
+                    for i in (0..n).rev() {
+                        let item = self.stack.pop().ok_or_else(|| {
+                            WqError::RuntimeError(format!(
+                                "Stack underflow: expected {} list items, only got {}",
+                                n,
+                                n - i
+                            ))
+                        })?;
+                        items.push(item);
                     }
-                    items.reverse();
+                    items.reverse(); // Optional: only needed if preserving original order matters
                     self.stack.push(Value::List(items));
                 }
                 Instruction::MakeDict(n) => {
                     let mut map = IndexMap::new();
                     for _ in 0..n {
-                        let val = self.stack.pop().unwrap();
-                        let key = self.stack.pop().unwrap();
-                        if let Value::Symbol(k) = key {
-                            map.insert(k, val);
-                        } else {
-                            return Err(WqError::TypeError("Invalid dict key".into()));
+                        let val = self.stack.pop().ok_or_else(|| {
+                            WqError::RuntimeError("Stack underflow: expected value for dict".into())
+                        })?;
+                        let key = self.stack.pop().ok_or_else(|| {
+                            WqError::RuntimeError("Stack underflow: expected key for dict".into())
+                        })?;
+
+                        match key {
+                            Value::Symbol(k) => {
+                                map.insert(k, val);
+                            }
+                            other => {
+                                return Err(WqError::TypeError(format!(
+                                    "Invalid dict key: expected Symbol, got {:?}",
+                                    other
+                                )));
+                            }
                         }
                     }
                     self.stack.push(Value::Dict(map));
@@ -380,49 +404,76 @@ impl Vm {
                         Some(v) => self.stack.push(v),
                         None => {
                             return Err(WqError::IndexError(format!(
-                                "Invalid index {}, {}",
-                                &obj, &idx
+                                "Invalid index: attempted to access index {} in {}",
+                                idx, obj
                             )));
                         }
                     }
                 }
                 Instruction::IndexAssign => {
-                    let val = self.stack.pop().unwrap();
-                    let idx = self.stack.pop().unwrap();
-                    let obj_name = self.stack.pop().unwrap();
-                    if let Value::Symbol(name) = obj_name {
-                        if let Some(obj) = self.lookup_mut(&name) {
-                            if obj.set_index(&idx, val.clone()).is_some() {
-                                self.stack.push(val);
-                            } else {
-                                return Err(WqError::IndexError(format!(
-                                    "Failed when assigning to {name}, index = {idx}"
+                    let val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing value for index assignment".into(),
+                        )
+                    })?;
+
+                    let idx = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing index for assignment".into(),
+                        )
+                    })?;
+
+                    let obj_name = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing target object name for index assignment"
+                                .into(),
+                        )
+                    })?;
+
+                    match obj_name {
+                        Value::Symbol(name) => match self.lookup_mut(&name) {
+                            Some(obj) => {
+                                if obj.set_index(&idx, val.clone()).is_some() {
+                                    self.stack.push(val);
+                                } else {
+                                    return Err(WqError::IndexError(format!(
+                                        "Failed assigning to {name}[{idx}], index invalid or not supported"
+                                    )));
+                                }
+                            }
+                            None => {
+                                return Err(WqError::ValueError(format!(
+                                    "Cannot assign to {name}[{idx}], variable not found"
                                 )));
                             }
-                        } else {
-                            return Err(WqError::DomainError(format!(
-                                "Failed when assigning to {name} - unknown variable",
+                        },
+                        other => {
+                            return Err(WqError::TypeError(format!(
+                                "Invalid index assignment target: expected Symbol, got {}",
+                                other.type_name()
                             )));
                         }
-                    } else {
-                        return Err(WqError::DomainError(
-                            "Failed when assigning - invalid index assign".to_string(),
-                        ));
                     }
                 }
                 Instruction::Jump(pos) => self.pc = pos,
                 Instruction::JumpIfFalse(pos) => {
-                    let v = self.stack.pop().unwrap();
+                    let v = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing value for conditional jump".into(),
+                        )
+                    })?;
+
                     let is_false = match v {
                         Value::Bool(b) => !b,
                         Value::Int(n) => n == 0,
                         Value::Float(f) => f == 0.0,
                         _ => {
                             return Err(WqError::TypeError(
-                                "Invalid type for conditionals or loops".into(),
+                                "Invalid condition type in control flow, expected bool, int, or float".into(),
                             ));
                         }
                     };
+
                     if is_false {
                         self.pc = pos;
                     }
@@ -431,17 +482,19 @@ impl Vm {
                     self.stack.pop();
                 }
                 Instruction::Assert => {
-                    let v = self.stack.pop().unwrap();
+                    let v = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError("Stack underflow: missing value for assert".into())
+                    })?;
                     let ok = match v {
                         Value::Bool(b) => b,
-                        Value::Int(n) => n != 0,
-                        Value::Float(f) => f != 0.0,
                         _ => {
-                            return Err(WqError::TypeError("Invalid type for assert".into()));
+                            return Err(WqError::TypeError(
+                                "Invalid type for assert, expected bool".into(),
+                            ));
                         }
                     };
                     if !ok {
-                        return Err(WqError::AssertionFailError("assertion failed".into()));
+                        return Err(WqError::AssertionError("Assertion failed".into()));
                     }
                     self.stack.push(Value::Null);
                 }
@@ -449,5 +502,34 @@ impl Vm {
             }
         }
         Ok(self.stack.pop().unwrap_or(Value::Null))
+    }
+}
+
+fn classify_arith(op_name: &str, left: &Value, right: &Value) -> WqError {
+    if matches!(left, Value::Int(_) | Value::IntList(_))
+        && matches!(right, Value::Int(_) | Value::IntList(_))
+    {
+        WqError::DomainError(format!("{op_name} overflow"))
+    } else {
+        WqError::TypeError(format!("Cannot {op_name} these types"))
+    }
+}
+
+fn classify_divide(left: &Value, right: &Value) -> WqError {
+    let is_zero = match right {
+        Value::Int(0) => true,
+        Value::Float(f) if *f == 0.0 => true,
+        Value::IntList(v) if v.contains(&0) => true,
+        _ => false,
+    };
+
+    if is_zero {
+        WqError::DomainError("Division by zero".into())
+    } else if matches!(left, Value::Int(_) | Value::IntList(_))
+        && matches!(right, Value::Int(_) | Value::IntList(_))
+    {
+        WqError::DomainError("division overflow".into())
+    } else {
+        WqError::TypeError("Cannot divide these types".into())
     }
 }

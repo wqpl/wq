@@ -1,5 +1,6 @@
 (1) fn
-    to call functions that accept 0 args, do:
+    to call functions that accept 0 args, do one of the following:
+        fn[]        // recommended
         fn[;]
     to call functions that accept 1 arg, do one of the following:
         fn 1        // recommended
@@ -11,7 +12,7 @@
         fn[1;2;]
     functions defined without a param list can be called with 0, 1 or 2 args,
     which are implicitly bound to x and y.
-    to explicitly define a function that accepts 0 args, do one of th following:
+    to explicitly define a function that accepts 0 args, do one of the following:
         fn:{[]...}
         fn:{[;]...}
 
@@ -29,7 +30,7 @@
 
     if you really need "blocks" for some reason, do one of following:
         {do1;do2;do3}()         // invokes an
-        {do1;do2;do3}[;]        // anonymous function.
+        {do1;do2;do3}[]        // anonymous function.
 
 (3) semicolons
     trailing semicolons after function arguments are optional.

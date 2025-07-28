@@ -73,9 +73,7 @@ pub mod show_table {
 
     pub fn show_table(args: &[Value]) -> WqResult<Value> {
         if args.len() != 1 {
-            return Err(WqError::FnArgCountMismatchError(
-                "showt expects 1 argument".to_string(),
-            ));
+            return Err(WqError::ArityError("showt expects 1 argument".to_string()));
         }
 
         let val = &args[0];
@@ -83,7 +81,7 @@ pub mod show_table {
         if let Value::Dict(map) = val {
             let mut wrapped: IndexMap<String, Value> = IndexMap::new();
             for (k, v) in map {
-                if let Value::List(_) = v {
+                if matches!(v, Value::List(_) | Value::IntList(_)) {
                     wrapped.insert(k.clone(), v.clone());
                 } else {
                     wrapped.insert(k.clone(), Value::List(vec![v.clone()]));
@@ -156,7 +154,10 @@ pub mod show_table {
 
     fn parse_dict_of_lists(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
         if let Value::Dict(map) = val {
-            if map.values().all(|v| matches!(v, Value::List(_))) {
+            if map
+                .values()
+                .all(|v| matches!(v, Value::List(_) | Value::IntList(_)))
+            {
                 let mut headers: Vec<String> = map.keys().cloned().collect();
                 headers.sort();
 
@@ -164,6 +165,7 @@ pub mod show_table {
                     .values()
                     .filter_map(|v| match v {
                         Value::List(items) => Some(items.len()),
+                        Value::IntList(items) => Some(items.len()),
                         _ => None,
                     })
                     .max()
@@ -173,11 +175,23 @@ pub mod show_table {
                 for i in 0..nrows {
                     let mut row = Vec::new();
                     for h in &headers {
-                        if let Some(Value::List(items)) = map.get(h) {
-                            if let Some(v) = items.get(i) {
-                                row.push(v.to_string());
-                            } else {
-                                row.push(String::new());
+                        if let Some(value) = map.get(h) {
+                            match value {
+                                Value::List(items) => {
+                                    if let Some(v) = items.get(i) {
+                                        row.push(v.to_string());
+                                    } else {
+                                        row.push(String::new());
+                                    }
+                                }
+                                Value::IntList(items) => {
+                                    if let Some(v) = items.get(i) {
+                                        row.push(v.to_string());
+                                    } else {
+                                        row.push(String::new());
+                                    }
+                                }
+                                _ => row.push(String::new()),
                             }
                         } else {
                             row.push(String::new());

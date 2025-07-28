@@ -2,4 +2,4 @@ null?
 1 arg
 
 Examples:
-a:{}[;];null? a // true
+a:{}[];null? a // true

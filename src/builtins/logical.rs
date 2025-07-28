@@ -2,9 +2,7 @@ use crate::value::valuei::{Value, WqError, WqResult};
 
 pub fn and(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::FnArgCountMismatchError(
-            "and expects 2 arguments".to_string(),
-        ));
+        return Err(WqError::ArityError("and expects 2 arguments".to_string()));
     }
     args[0]
         .and_bool(&args[1])
@@ -13,9 +11,7 @@ pub fn and(args: &[Value]) -> WqResult<Value> {
 
 pub fn or(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::FnArgCountMismatchError(
-            "or expects 2 arguments".to_string(),
-        ));
+        return Err(WqError::ArityError("or expects 2 arguments".to_string()));
     }
     args[0]
         .or_bool(&args[1])
@@ -24,9 +20,7 @@ pub fn or(args: &[Value]) -> WqResult<Value> {
 
 pub fn not(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "not expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("not expects 1 argument".to_string()));
     }
     args[0]
         .not_bool()
@@ -35,9 +29,7 @@ pub fn not(args: &[Value]) -> WqResult<Value> {
 
 pub fn xor(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::FnArgCountMismatchError(
-            "xor expects 2 arguments".to_string(),
-        ));
+        return Err(WqError::ArityError("xor expects 2 arguments".to_string()));
     }
     args[0]
         .xor_bool(&args[1])
@@ -46,9 +38,7 @@ pub fn xor(args: &[Value]) -> WqResult<Value> {
 
 pub fn band(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::FnArgCountMismatchError(
-            "band expects 2 arguments".to_string(),
-        ));
+        return Err(WqError::ArityError("band expects 2 arguments".to_string()));
     }
     args[0]
         .bitand(&args[1])
@@ -57,9 +47,7 @@ pub fn band(args: &[Value]) -> WqResult<Value> {
 
 pub fn bor(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::FnArgCountMismatchError(
-            "bor expects 2 arguments".to_string(),
-        ));
+        return Err(WqError::ArityError("bor expects 2 arguments".to_string()));
     }
     args[0]
         .bitor(&args[1])
@@ -68,9 +56,7 @@ pub fn bor(args: &[Value]) -> WqResult<Value> {
 
 pub fn bxor(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::FnArgCountMismatchError(
-            "bxor expects 2 arguments".to_string(),
-        ));
+        return Err(WqError::ArityError("bxor expects 2 arguments".to_string()));
     }
     args[0]
         .bitxor(&args[1])
@@ -79,9 +65,7 @@ pub fn bxor(args: &[Value]) -> WqResult<Value> {
 
 pub fn bnot(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "bnot expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("bnot expects 1 argument".to_string()));
     }
     args[0]
         .bitnot()
@@ -90,9 +74,7 @@ pub fn bnot(args: &[Value]) -> WqResult<Value> {
 
 pub fn shl(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::FnArgCountMismatchError(
-            "shl expects 2 arguments".to_string(),
-        ));
+        return Err(WqError::ArityError("shl expects 2 arguments".to_string()));
     }
     args[0]
         .shl(&args[1])
@@ -101,9 +83,7 @@ pub fn shl(args: &[Value]) -> WqResult<Value> {
 
 pub fn shr(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::FnArgCountMismatchError(
-            "shr expects 2 arguments".to_string(),
-        ));
+        return Err(WqError::ArityError("shr expects 2 arguments".to_string()));
     }
     args[0]
         .shr(&args[1])

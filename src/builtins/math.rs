@@ -4,9 +4,7 @@ use crate::value::valuei::{Value, WqError, WqResult};
 
 pub fn abs(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "abs expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("abs expects 1 argument".to_string()));
     }
 
     match &args[0] {
@@ -22,9 +20,7 @@ pub fn abs(args: &[Value]) -> WqResult<Value> {
 
 pub fn neg(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "neg expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("neg expects 1 argument".to_string()));
     }
 
     match &args[0] {
@@ -40,9 +36,7 @@ pub fn neg(args: &[Value]) -> WqResult<Value> {
 
 pub fn signum(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "signum expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("signum expects 1 argument".to_string()));
     }
 
     match &args[0] {
@@ -72,9 +66,7 @@ pub fn signum(args: &[Value]) -> WqResult<Value> {
 
 pub fn sqrt(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "sqrt expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("sqrt expects 1 argument".to_string()));
     }
 
     match &args[0] {
@@ -102,9 +94,7 @@ pub fn sqrt(args: &[Value]) -> WqResult<Value> {
 
 pub fn exp(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "exp expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("exp expects 1 argument".to_string()));
     }
 
     match &args[0] {
@@ -120,9 +110,7 @@ pub fn exp(args: &[Value]) -> WqResult<Value> {
 
 pub fn ln(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "ln expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("ln expects 1 argument".to_string()));
     }
 
     match &args[0] {
@@ -154,9 +142,7 @@ pub fn ln(args: &[Value]) -> WqResult<Value> {
 
 pub fn floor(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
-            "floor expects 1 argument".to_string(),
-        ));
+        return Err(WqError::ArityError("floor expects 1 argument".to_string()));
     }
 
     match &args[0] {
@@ -175,7 +161,7 @@ pub fn floor(args: &[Value]) -> WqResult<Value> {
 
 pub fn ceiling(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::FnArgCountMismatchError(
+        return Err(WqError::ArityError(
             "ceiling expects 1 argument".to_string(),
         ));
     }
@@ -238,7 +224,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                 }
             }
         },
-        other => Err(WqError::FnArgCountMismatchError(format!(
+        other => Err(WqError::ArityError(format!(
             "rand expects 0, 1 or 2 arguments, got {other}"
         ))),
     }
@@ -248,7 +234,7 @@ macro_rules! bind_math {
     ($name:ident, $func:path) => {
         pub fn $name(args: &[Value]) -> WqResult<Value> {
             if args.len() != 1 {
-                return Err(WqError::FnArgCountMismatchError(
+                return Err(WqError::ArityError(
                     stringify!($name).to_string() + " expects 1 argument",
                 ));
             }

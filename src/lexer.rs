@@ -176,16 +176,12 @@ impl<'a> Lexer<'a> {
         if is_float {
             match number_str.parse::<f64>() {
                 Ok(n) if n.is_finite() => Ok(TokenType::Float(n)),
-                _ => Err(WqError::ArithmeticOverflowError(
-                    "float literal overflow".into(),
-                )),
+                _ => Err(WqError::DomainError("float literal overflow".into())),
             }
         } else {
             match number_str.parse::<i64>() {
                 Ok(n) => Ok(TokenType::Integer(n)),
-                Err(_) => Err(WqError::ArithmeticOverflowError(
-                    "integer literal overflow".into(),
-                )),
+                Err(_) => Err(WqError::DomainError("integer literal overflow".into())),
             }
         }
     }
@@ -848,7 +844,7 @@ mod tests {
     fn integer_overflow_errors() {
         let mut lexer = Lexer::new("9223372036854775808");
         let res = lexer.tokenize();
-        assert!(matches!(res, Err(WqError::ArithmeticOverflowError(_))));
+        assert!(matches!(res, Err(WqError::DomainError(_))));
     }
 
     #[test]
@@ -856,6 +852,6 @@ mod tests {
         let big = "1".repeat(400) + ".0";
         let mut lexer = Lexer::new(&big);
         let res = lexer.tokenize();
-        assert!(matches!(res, Err(WqError::ArithmeticOverflowError(_))));
+        assert!(matches!(res, Err(WqError::DomainError(_))));
     }
 }

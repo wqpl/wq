@@ -3,8 +3,8 @@ use colored::Colorize;
 use crate::builtins::Builtins;
 use crate::parser::{AstNode, BinaryOperator, UnaryOperator};
 use crate::value::valuei::{Value, WqError, WqResult};
-use std::collections::HashMap;
 use indexmap::IndexMap;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Environment {
@@ -158,7 +158,7 @@ impl Evaluator {
                 if let Some(value) = self.environment.get(name) {
                     Ok(value.clone())
                 } else {
-                    Err(WqError::DomainError(format!("Undefined variable: {name}")))
+                    Err(WqError::ValueError(format!("Undefined variable: {name}")))
                 }
             }
 
@@ -238,9 +238,7 @@ impl Evaluator {
                 // Try built-in functions first
                 match self.builtins.call(name, &arg_values) {
                     Ok(result) => Ok(result),
-                    Err(WqError::FnArgCountMismatchError(msg)) => {
-                        Err(WqError::FnArgCountMismatchError(msg))
-                    }
+                    Err(WqError::ArityError(msg)) => Err(WqError::ArityError(msg)),
                     Err(WqError::TypeError(msg)) => Err(WqError::TypeError(msg)),
                     Err(WqError::RuntimeError(msg)) => Err(WqError::RuntimeError(msg)),
                     Err(WqError::DomainError(_)) => {
@@ -296,7 +294,7 @@ impl Evaluator {
                     } else if let Some(val) = self.environment.get(name).cloned() {
                         val
                     } else {
-                        return Err(WqError::DomainError(format!("Undefined variable: {name}",)));
+                        return Err(WqError::ValueError(format!("Undefined variable: {name}",)));
                     };
 
                     let idx_val = self.eval(index)?;
@@ -510,7 +508,7 @@ impl Evaluator {
                 if ok {
                     Ok(Value::Null)
                 } else {
-                    Err(WqError::AssertionFailError("assertion failed".into()))
+                    Err(WqError::AssertionError("assertion failed".into()))
                 }
             }
         }
@@ -529,7 +527,7 @@ impl Evaluator {
                     if matches!(left, Value::Int(_) | Value::IntList(_))
                         && matches!(right, Value::Int(_) | Value::IntList(_))
                     {
-                        Err(WqError::ArithmeticOverflowError("addition overflow".into()))
+                        Err(WqError::DomainError("addition overflow".into()))
                     } else {
                         Err(WqError::TypeError("Cannot add these types".to_string()))
                     }
@@ -539,7 +537,7 @@ impl Evaluator {
                 if matches!(left, Value::Int(_) | Value::IntList(_))
                     && matches!(right, Value::Int(_) | Value::IntList(_))
                 {
-                    WqError::ArithmeticOverflowError("subtraction overflow".into())
+                    WqError::DomainError("subtraction overflow".into())
                 } else {
                     WqError::TypeError("Cannot subtract these types".to_string())
                 }
@@ -548,7 +546,7 @@ impl Evaluator {
                 if matches!(left, Value::Int(_) | Value::IntList(_))
                     && matches!(right, Value::Int(_) | Value::IntList(_))
                 {
-                    WqError::ArithmeticOverflowError("multiplication overflow".into())
+                    WqError::DomainError("multiplication overflow".into())
                 } else {
                     WqError::TypeError("Cannot multiply these types".to_string())
                 }
@@ -563,15 +561,15 @@ impl Evaluator {
                         _ => false,
                     };
                     if zero_div {
-                        Err(WqError::ZeroDivisionError(
+                        Err(WqError::DomainError(
                             "Division by zero or invalid types".to_string(),
                         ))
                     } else if matches!(left, Value::Int(_) | Value::IntList(_))
                         && matches!(right, Value::Int(_) | Value::IntList(_))
                     {
-                        Err(WqError::ArithmeticOverflowError("division overflow".into()))
+                        Err(WqError::DomainError("division overflow".into()))
                     } else {
-                        Err(WqError::ZeroDivisionError(
+                        Err(WqError::DomainError(
                             "Division by zero or invalid types".to_string(),
                         ))
                     }
@@ -580,9 +578,9 @@ impl Evaluator {
             BinaryOperator::DivideDot => left
                 .divide_dot(right)
                 .ok_or_else(|| WqError::DomainError("Invalid types".to_string())),
-            BinaryOperator::Modulo => left.modulo(right).ok_or_else(|| {
-                WqError::ZeroDivisionError("Modulo by zero or invalid types".to_string())
-            }),
+            BinaryOperator::Modulo => left
+                .modulo(right)
+                .ok_or_else(|| WqError::DomainError("Modulo by zero or invalid types".to_string())),
             BinaryOperator::ModuloDot => left
                 .modulo_dot(right)
                 .ok_or_else(|| WqError::DomainError("Invalid types".to_string())),
@@ -601,7 +599,7 @@ impl Evaluator {
                 Value::Int(n) => n
                     .checked_neg()
                     .map(Value::Int)
-                    .ok_or_else(|| WqError::ArithmeticOverflowError("negation overflow".into())),
+                    .ok_or_else(|| WqError::DomainError("negation overflow".into())),
                 Value::Float(f) => Ok(Value::Float(-f)),
                 _ => Err(WqError::TypeError("Cannot negate this type".to_string())),
             },
@@ -624,7 +622,7 @@ impl Evaluator {
         match params {
             Some(param_names) => {
                 if args.len() != param_names.len() {
-                    return Err(WqError::FnArgCountMismatchError(format!(
+                    return Err(WqError::ArityError(format!(
                         "Function expects {} arguments, got {}",
                         param_names.len(),
                         args.len()
@@ -646,7 +644,7 @@ impl Evaluator {
                         frame.variables.insert("y".to_string(), args[1].clone());
                     }
                     _ => {
-                        return Err(WqError::FnArgCountMismatchError(
+                        return Err(WqError::ArityError(
                             "Implicit function expects 0, 1 or 2 arguments".to_string(),
                         ));
                     }
@@ -1099,7 +1097,7 @@ mod tests {
     #[test]
     fn return_in_function() {
         let mut evaluator = Evaluator::new();
-        let res = evaluator.eval_string("f:{@r 3;1};f[;]").unwrap();
+        let res = evaluator.eval_string("f:{@r 3;1};f[]").unwrap();
         assert_eq!(res, Value::Int(3));
     }
 
@@ -1107,6 +1105,6 @@ mod tests {
     fn assert_fails() {
         let mut evaluator = Evaluator::new();
         let res = evaluator.eval_string("@a 1=2;");
-        assert!(matches!(res, Err(WqError::AssertionFailError(_))));
+        assert!(matches!(res, Err(WqError::AssertionError(_))));
     }
 }
