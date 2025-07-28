@@ -6,6 +6,8 @@ pub enum Instruction {
     LoadConst(Value),
     LoadVar(String),
     StoreVar(String),
+    /// Store variable in the current frame only
+    StoreLocalVar(String),
     BinaryOp(BinaryOperator),
     UnaryOp(UnaryOperator),
     CallBuiltin(String, usize),

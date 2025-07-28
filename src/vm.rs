@@ -76,8 +76,11 @@ pub fn vm_get_ins(path: &String) -> WqResult<Vec<Instruction>> {
     let src = expand_script(path, &mut loading, &mut visited);
     let mut lexer = Lexer::new(&src);
     let tokens = lexer.tokenize()?;
+    use crate::resolver::Resolver;
     let mut parser = Parser::new(tokens, src.clone());
     let ast = parser.parse().expect("parse error");
+    let mut resolver = Resolver::new();
+    let ast = resolver.resolve(ast);
     let mut compiler = Compiler::new();
     compiler.compile(&ast)?;
     Ok(compiler.instructions)
@@ -144,8 +147,11 @@ impl VmEvaluator {
             eprintln!("=====TOKENS=====");
             eprintln!("{tokens:#?}");
         }
+        use crate::resolver::Resolver;
         let mut parser = Parser::new(tokens, input.to_string());
         let ast = parser.parse()?;
+        let mut resolver = Resolver::new();
+        let ast = resolver.resolve(ast);
         if self.debug {
             eprintln!("=====AST=====");
             eprintln!("{ast:#?}");

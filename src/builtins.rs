@@ -82,8 +82,10 @@ impl Builtins {
         self.add("sort", list::sort);
         self.add("cat", list::cat);
         self.add("flatten", list::flatten);
+        self.add("shape", list::shape);
         self.add("alloc", list::alloc);
         self.add("idx", list::idx);
+        self.add("find", list::find);
         self.add("in", list::in_list);
 
         // Type functions

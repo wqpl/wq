@@ -32,12 +32,11 @@
         {do1;do2;do3}[;]        // anonymous function.
 
 (3) semicolons
-    function calls require a semicolon at the end of the arg list,
-    whereas indexing requires that there is no trailing semicolon. e.g.,
-        fn[1;2;]
-        lst[1;2]
-        dic[`a;`b]
-    in function parameter lists, a trailing semicolon is optional.
+    trailing semicolons after function arguments are optional.
+    the parser now distinguishes calls from indexing automatically.
+        fn[1;2]    // call
+        lst[1;2]   // index
+    in function parameter lists, a trailing semicolon is still optional.
     both of the following are valid:
         fn:{[m;n]...}
         fn:{[m;n;]...}

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::fmt;
 use std::io::{BufRead, Write};
 use std::process::Child;
@@ -49,8 +49,8 @@ pub enum Value {
     /// specialized list of integers
     IntList(Vec<i64>),
     List(Vec<Value>),
-    /// dict (symbol -> value mapping)
-    Dict(HashMap<String, Value>),
+    /// dict (symbol -> value mapping) - preserves insertion order
+    Dict(IndexMap<String, Value>),
     Function {
         params: Option<Vec<String>>,
         body: Box<AstNode>,
@@ -163,7 +163,7 @@ impl Value {
         Value::List(items)
     }
     /// Create a new dict value
-    pub fn dict(map: HashMap<String, Value>) -> Self {
+    pub fn dict(map: IndexMap<String, Value>) -> Self {
         Value::Dict(map)
     }
     /// Create a new stream value
@@ -569,7 +569,7 @@ mod tests {
         assert_eq!(list.index(&Value::int(1)), Some(Value::int(5)));
         assert_eq!(list.set_index(&Value::int(5), Value::int(0)), None);
 
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("a".to_string(), Value::int(1));
         let mut dict = Value::dict(map);
         assert_eq!(
@@ -702,7 +702,7 @@ mod tests {
 
     #[test]
     fn test_dict_multi_index() {
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("a".to_string(), Value::int(1));
         map.insert("b".to_string(), Value::int(2));
         let dict = Value::dict(map);

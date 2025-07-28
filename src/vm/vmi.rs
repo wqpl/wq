@@ -1,9 +1,10 @@
 use super::compiler::Compiler;
-use super::fastpath::FastPath;
+use super::fastpath::{FastPath, TryRunOutcome};
 use super::instruction::Instruction;
 use crate::builtins::Builtins;
 use crate::parser::{BinaryOperator, UnaryOperator};
 use crate::value::valuei::{Value, WqError, WqResult};
+use indexmap::IndexMap;
 use std::collections::HashMap;
 
 pub struct Vm {
@@ -121,8 +122,10 @@ impl Vm {
     }
 
     pub fn run(&mut self) -> WqResult<Value> {
-        if let Some(res) = FastPath::try_run(&self.instructions, &self.builtins) {
-            return res;
+        match FastPath::try_run(&self.instructions, &self.builtins, None) {
+            TryRunOutcome::Ok(v) => return Ok(v),
+            TryRunOutcome::VmError(e) => return Err(e),
+            TryRunOutcome::Bail(_) => {}
         }
         self.execute()
     }
@@ -147,6 +150,11 @@ impl Vm {
                 Instruction::StoreVar(name) => {
                     if let Some(v) = self.stack.pop() {
                         self.assign(name.clone(), v);
+                    }
+                }
+                Instruction::StoreLocalVar(name) => {
+                    if let Some(v) = self.stack.pop() {
+                        self.env().insert(name.clone(), v);
                     }
                 }
                 Instruction::BinaryOp(op) => {
@@ -353,7 +361,7 @@ impl Vm {
                     self.stack.push(Value::List(items));
                 }
                 Instruction::MakeDict(n) => {
-                    let mut map = HashMap::new();
+                    let mut map = IndexMap::new();
                     for _ in 0..n {
                         let val = self.stack.pop().unwrap();
                         let key = self.stack.pop().unwrap();
@@ -370,7 +378,12 @@ impl Vm {
                     let obj = self.stack.pop().unwrap();
                     match obj.index(&idx) {
                         Some(v) => self.stack.push(v),
-                        None => return Err(WqError::IndexError("Invalid index".into())),
+                        None => {
+                            return Err(WqError::IndexError(format!(
+                                "Invalid index {}, {}",
+                                &obj, &idx
+                            )));
+                        }
                     }
                 }
                 Instruction::IndexAssign => {

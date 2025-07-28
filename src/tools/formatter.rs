@@ -40,6 +40,7 @@ impl Formatter {
 
     fn format_node(&self, node: &AstNode, level: usize) -> String {
         match node {
+            AstNode::Postfix { .. } => unreachable!(),
             AstNode::Literal(v) => v.to_string(),
             AstNode::Variable(n) => n.clone(),
             AstNode::BinaryOp {
@@ -190,8 +191,12 @@ impl Formatter {
     fn format_source(&self, src: &str) -> WqResult<String> {
         let mut lexer = Lexer::new(src);
         let tokens = lexer.tokenize()?;
+        use crate::resolver::Resolver;
         let mut parser = Parser::new(tokens, src.to_string());
-        parser.parse().map(|ast| self.format(&ast))
+        let ast = parser.parse()?;
+        let mut resolver = Resolver::new();
+        let ast = resolver.resolve(ast);
+        Ok(self.format(&ast))
     }
 
     /// Format a script that may contain meta commands like `load <path>`.

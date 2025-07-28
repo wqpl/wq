@@ -12,8 +12,7 @@ W[cond;s1;s2...]   N[n;echo _n]
 int float char symbol bool list dict
 function stream
 lst:(1;2);lst[0] dct:(`a:1;`b:2);dct[`a]
-func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3;]
-                              required^
+func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3]
 ----------------------------------------
 repl: \h   \v   \c    \l   \t
       help vars clear load time

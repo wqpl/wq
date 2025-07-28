@@ -592,19 +592,112 @@ pub fn flatten(args: &[Value]) -> WqResult<Value> {
     Ok(Value::List(result))
 }
 
+fn alloc_dims(dims: &[usize]) -> Value {
+    if dims.len() == 1 {
+        Value::IntList(vec![0; dims[0]])
+    } else {
+        let mut out = Vec::with_capacity(dims[0]);
+        for _ in 0..dims[0] {
+            out.push(alloc_dims(&dims[1..]));
+        }
+        Value::List(out)
+    }
+}
+
+fn alloc_shape(shape: &Value) -> WqResult<Value> {
+    match shape {
+        Value::Int(n) => {
+            if *n < 0 {
+                Err(WqError::DomainError(
+                    "alloc length must be non-negative".to_string(),
+                ))
+            } else {
+                Ok(Value::IntList(vec![0; *n as usize]))
+            }
+        }
+        Value::IntList(dims) => {
+            if dims.iter().any(|&d| d < 0) {
+                return Err(WqError::DomainError(
+                    "alloc length must be non-negative".to_string(),
+                ));
+            }
+            let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
+            Ok(alloc_dims(&dims))
+        }
+        Value::List(items) => {
+            if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
+                let dims: Vec<usize> = items
+                    .iter()
+                    .map(|v| {
+                        if let Value::Int(n) = v {
+                            *n as usize
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect();
+                Ok(alloc_dims(&dims))
+            } else {
+                let mut out = Vec::with_capacity(items.len());
+                for v in items {
+                    out.push(alloc_shape(v)?);
+                }
+                Ok(Value::List(out))
+            }
+        }
+        _ => Err(WqError::TypeError("alloc expects an integer shape".into())),
+    }
+}
+
 pub fn alloc(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(WqError::FnArgCountMismatchError(
             "alloc expects 1 argument".to_string(),
         ));
     }
-    match args[0] {
-        Value::Int(n) if n >= 0 => Ok(Value::IntList(vec![0; n as usize])),
-        Value::Int(_) => Err(WqError::DomainError(
-            "alloc length must be non-negative".to_string(),
-        )),
-        _ => Err(WqError::TypeError("alloc expects an integer".into())),
+    alloc_shape(&args[0])
+}
+
+fn shape_value(v: &Value) -> WqResult<Value> {
+    match v {
+        Value::IntList(items) => Ok(Value::Int(items.len() as i64)),
+        Value::List(items) => {
+            if items.is_empty() {
+                return Ok(Value::Int(0));
+            }
+            let mut shapes = Vec::with_capacity(items.len());
+            for it in items {
+                shapes.push(shape_value(it)?);
+            }
+            let first = shapes.first().cloned().unwrap();
+            let uniform = shapes.iter().all(|s| *s == first);
+            let simple = matches!(first, Value::Int(_) | Value::IntList(_));
+            if uniform && simple {
+                match first {
+                    Value::Int(n) => Ok(Value::IntList(vec![items.len() as i64, n])),
+                    Value::IntList(dims) => {
+                        let mut dims2 = Vec::with_capacity(dims.len() + 1);
+                        dims2.push(items.len() as i64);
+                        dims2.extend(dims);
+                        Ok(Value::IntList(dims2))
+                    }
+                    _ => unreachable!(),
+                }
+            } else {
+                Ok(Value::List(shapes))
+            }
+        }
+        _ => Err(WqError::TypeError("shape expects a list".to_string())),
     }
+}
+
+pub fn shape(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(WqError::FnArgCountMismatchError(
+            "shape expects 1 argument".to_string(),
+        ));
+    }
+    shape_value(&args[0])
 }
 
 pub fn idx(args: &[Value]) -> WqResult<Value> {
@@ -668,6 +761,41 @@ pub fn in_list(args: &[Value]) -> WqResult<Value> {
     }
 }
 
+pub fn find(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 2 {
+        return Err(WqError::FnArgCountMismatchError(
+            "find expects 2 arguments".to_string(),
+        ));
+    }
+    let target = &args[0];
+    match &args[1] {
+        Value::List(items) => {
+            for (i, item) in items.iter().enumerate() {
+                if item == target {
+                    return Ok(Value::Int(i as i64));
+                }
+            }
+            Ok(Value::Null)
+        }
+        Value::IntList(items) => match target {
+            Value::Int(n) => {
+                for (i, item) in items.iter().enumerate() {
+                    if item == n {
+                        return Ok(Value::Int(i as i64));
+                    }
+                }
+                Ok(Value::Null)
+            }
+            _ => Err(WqError::TypeError(
+                "find expects an integer when searching an integer list".to_string(),
+            )),
+        },
+        _ => Err(WqError::TypeError(
+            "find expects a list as the second argument".to_string(),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -679,10 +807,7 @@ mod tests {
             in_list(&[Value::Int(2), lst.clone()]).unwrap(),
             Value::Bool(true)
         );
-        assert_eq!(
-            in_list(&[Value::Int(4), lst]).unwrap(),
-            Value::Bool(false)
-        );
+        assert_eq!(in_list(&[Value::Int(4), lst]).unwrap(), Value::Bool(false));
     }
 
     #[test]
@@ -692,9 +817,54 @@ mod tests {
             in_list(&[Value::Int(2), lst.clone()]).unwrap(),
             Value::Bool(true)
         );
+        assert_eq!(in_list(&[Value::Int(4), lst]).unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn shape_and_alloc() {
+        // simple vector
+        let vec = alloc(&[Value::Int(3)]).unwrap();
+        assert_eq!(vec, Value::IntList(vec![0, 0, 0]));
+        assert_eq!(shape(&[vec]).unwrap(), Value::Int(3));
+
+        // matrix
+        let mat_shape = Value::List(vec![Value::Int(2), Value::Int(3)]);
+        let mat = alloc(&[mat_shape.clone()]).unwrap();
+        assert_eq!(shape(&[mat]).unwrap(), Value::IntList(vec![2, 3]));
+
+        // heterogeneous shape
+        let nested_shape = Value::List(vec![
+            Value::List(vec![Value::Int(2), Value::Int(2)]),
+            Value::Int(3),
+        ]);
+        let nested = alloc(&[nested_shape.clone()]).unwrap();
+        let expected_shape = Value::List(vec![Value::IntList(vec![2, 2]), Value::Int(3)]);
+        assert_eq!(shape(&[nested]).unwrap(), expected_shape);
+    }
+
+    #[test]
+    fn find_in_list() {
+        let lst = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(2)]);
         assert_eq!(
-            in_list(&[Value::Int(4), lst]).unwrap(),
-            Value::Bool(false)
+            find(&[Value::Int(2), lst.clone()]).unwrap(),
+            Value::Int(1)
+        );
+        assert_eq!(
+            find(&[Value::Int(4), lst]).unwrap(),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn find_in_int_list() {
+        let lst = Value::IntList(vec![1, 2, 3, 2]);
+        assert_eq!(
+            find(&[Value::Int(2), lst.clone()]).unwrap(),
+            Value::Int(1)
+        );
+        assert_eq!(
+            find(&[Value::Int(4), lst]).unwrap(),
+            Value::Null
         );
     }
 }

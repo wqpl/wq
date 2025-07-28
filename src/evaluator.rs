@@ -4,6 +4,7 @@ use crate::builtins::Builtins;
 use crate::parser::{AstNode, BinaryOperator, UnaryOperator};
 use crate::value::valuei::{Value, WqError, WqResult};
 use std::collections::HashMap;
+use indexmap::IndexMap;
 
 #[derive(Debug, Clone)]
 pub struct Environment {
@@ -147,6 +148,7 @@ impl Evaluator {
     /// Evaluate an AST node
     pub fn eval(&mut self, node: &AstNode) -> WqResult<Value> {
         match node {
+            AstNode::Postfix { .. } => unreachable!(),
             AstNode::Literal(value) => Ok(value.clone()),
 
             AstNode::Variable(name) => {
@@ -219,7 +221,7 @@ impl Evaluator {
             }
 
             AstNode::Dict(pairs) => {
-                let mut map = HashMap::new();
+                let mut map = IndexMap::new();
                 for (key, value_node) in pairs {
                     let value = self.eval(value_node)?;
                     map.insert(key.clone(), value);
@@ -675,8 +677,11 @@ impl Evaluator {
             eprintln!("{}", "=====TOKENS=====".red());
             eprintln!("{tokens:#?}");
         }
+        use crate::resolver::Resolver;
         let mut parser = Parser::new(tokens, input.to_string());
         let ast = parser.parse()?;
+        let mut resolver = Resolver::new();
+        let ast = resolver.resolve(ast);
         if self.debug {
             eprintln!("{}", "=====AST=====".red());
             eprintln!("{ast:#?}");
@@ -760,7 +765,7 @@ mod tests {
         let mut evaluator = Evaluator::new();
 
         let result = evaluator.eval_string("(`a:1;`b:2)").unwrap();
-        let mut expected = HashMap::new();
+        let mut expected = IndexMap::new();
         expected.insert("a".to_string(), Value::Int(1));
         expected.insert("b".to_string(), Value::Int(2));
         assert_eq!(result, Value::Dict(expected.clone()));

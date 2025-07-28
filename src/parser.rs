@@ -31,6 +31,13 @@ pub enum AstNode {
     /// Dictionary construction
     Dict(Vec<(String, AstNode)>),
 
+    /// Generic postfix expression
+    Postfix {
+        object: Box<AstNode>,
+        items: Vec<AstNode>,
+        explicit_call: bool,
+    },
+
     /// Function call
     Call {
         name: String,
@@ -264,6 +271,20 @@ impl Parser {
                             value: Box::new(value),
                         };
                     }
+                    AstNode::Postfix { object, items, explicit_call: false } => {
+                        self.advance();
+                        let value = self.parse_assignment()?;
+                        let index = if items.len() == 1 {
+                            Box::new(items.into_iter().next().unwrap())
+                        } else {
+                            Box::new(AstNode::List(items))
+                        };
+                        expr = AstNode::IndexAssign {
+                            object,
+                            index,
+                            value: Box::new(value),
+                        };
+                    }
                     _ => break,
                 }
             } else {
@@ -463,76 +484,30 @@ impl Parser {
         self.parse_postfix()
     }
 
-    fn has_trailing_semicolon(&mut self) -> bool {
-        let mut lookahead_pos = self.current + 1;
-        let mut bracket_depth = 1;
-        let mut has_trailing_semicolon = false;
-
-        while lookahead_pos < self.tokens.len() && bracket_depth > 0 {
-            match &self.tokens[lookahead_pos].token_type {
-                TokenType::LeftBracket => bracket_depth += 1,
-                TokenType::RightBracket => {
-                    bracket_depth -= 1;
-                    if bracket_depth == 0 {
-                        // Check if there's a semicolon right before the closing bracket
-                        if lookahead_pos > self.current + 1 {
-                            if let Some(prev_token) = self.tokens.get(lookahead_pos - 1) {
-                                if prev_token.token_type == TokenType::Semicolon {
-                                    has_trailing_semicolon = true;
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
-                _ => {}
-            }
-            lookahead_pos += 1;
+    fn parse_bracket_items(&mut self) -> WqResult<(Vec<AstNode>, bool)> {
+        if let Some(Token { token_type: TokenType::Semicolon, .. }) = self.current_token() {
+            self.advance();
+            self.consume(TokenType::RightBracket)?;
+            return Ok((Vec::new(), true));
         }
 
-        has_trailing_semicolon
-    }
-
-    fn parse_fn_args(&mut self) -> WqResult<Vec<AstNode>> {
-        let mut args = Vec::new();
-
-        // Parse arguments until final semicolon
-        while let Some(token) = self.current_token() {
-            match token.token_type {
-                TokenType::Semicolon => {
-                    self.advance();
-                    // Check if this is the final semicolon before ']'
-                    if let Some(next_token) = self.current_token() {
-                        if next_token.token_type == TokenType::RightBracket {
-                            break;
-                        }
-                    }
-                }
-                TokenType::RightBracket => {
-                    // todo: currently unreachable
-                    return Err(self.syntax_error(token, "Function call must end with ';]'"));
-                }
-                _ => {
-                    let arg = self.parse_expression()?;
-                    args.push(arg);
-                }
-            }
-        }
-        self.consume(TokenType::RightBracket)?;
-        Ok(args)
-    }
-
-    fn parse_index_args(&mut self) -> WqResult<AstNode> {
-        let mut args = Vec::new();
-
+        let mut items = Vec::new();
+        let mut trailing = false;
         loop {
             let expr = self.parse_expression()?;
-            args.push(expr);
+            items.push(expr);
 
             if let Some(token) = self.current_token() {
                 match token.token_type {
                     TokenType::Semicolon => {
                         self.advance();
+                        if let Some(next) = self.current_token() {
+                            if next.token_type == TokenType::RightBracket {
+                                trailing = true;
+                                self.advance();
+                                break;
+                            }
+                        }
                         continue;
                     }
                     TokenType::RightBracket => {
@@ -540,20 +515,16 @@ impl Parser {
                         break;
                     }
                     _ => {
-                        return Err(self.syntax_error(token, "Expected ';' or ']' in index"));
+                        return Err(self.syntax_error(token, "Expected ';' or ']' in bracket"));
                     }
                 }
             } else {
-                return Err(self.eof_error("Unexpected end of input in index"));
+                return Err(self.eof_error("Unexpected end of input in bracket"));
             }
         }
-
-        if args.len() == 1 {
-            Ok(args.remove(0))
-        } else {
-            Ok(AstNode::List(args))
-        }
+        Ok((items, trailing))
     }
+
 
     fn parse_postfix(&mut self) -> WqResult<AstNode> {
         let mut expr = self.parse_primary()?;
@@ -561,42 +532,28 @@ impl Parser {
         while let Some(next) = self.current_token() {
             match next.token_type {
                 TokenType::LeftBracket => {
-                    if self.has_trailing_semicolon() {
-                        self.advance();
-                        let args = self.parse_fn_args()?;
-                        expr = match expr {
-                            AstNode::Variable(name) => AstNode::Call { name, args },
-                            _ => AstNode::CallAnonymous {
-                                object: Box::new(expr),
-                                args,
-                            },
-                        };
-                    } else {
-                        self.advance();
-                        let index = self.parse_index_args()?;
-                        expr = AstNode::Index {
-                            object: Box::new(expr),
-                            index: Box::new(index),
-                        };
-                    }
+                    self.advance();
+                    let (items, call_flag) = self.parse_bracket_items()?;
+                    expr = AstNode::Postfix {
+                        object: Box::new(expr),
+                        items,
+                        explicit_call: call_flag,
+                    };
                 }
                 TokenType::Integer(_)
-                | TokenType::Float(_)
-                | TokenType::Character(_)
-                | TokenType::String(_)
-                | TokenType::Symbol(_)
-                | TokenType::Identifier(_)
-                | TokenType::True
-                | TokenType::False
-                | TokenType::LeftParen => {
+                    | TokenType::Float(_)
+                    | TokenType::Character(_)
+                    | TokenType::String(_)
+                    | TokenType::Symbol(_)
+                    | TokenType::Identifier(_)
+                    | TokenType::True
+                    | TokenType::False
+                    | TokenType::LeftParen => {
                     let arg = self.parse_unary()?;
-                    let args = vec![arg];
-                    expr = match expr {
-                        AstNode::Variable(name) => AstNode::Call { name, args },
-                        _ => AstNode::CallAnonymous {
-                            object: Box::new(expr),
-                            args,
-                        },
+                    expr = AstNode::Postfix {
+                        object: Box::new(expr),
+                        items: vec![arg],
+                        explicit_call: true,
                     };
                 }
                 _ => break,
@@ -1100,8 +1057,11 @@ mod tests {
     fn parse_string(input: &str) -> WqResult<AstNode> {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize()?;
+        use crate::resolver::Resolver;
         let mut parser = Parser::new(tokens, input.to_string());
-        parser.parse()
+        let ast = parser.parse()?;
+        let mut resolver = Resolver::new();
+        Ok(resolver.resolve(ast))
     }
 
     #[test]

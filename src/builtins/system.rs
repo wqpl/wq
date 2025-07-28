@@ -67,7 +67,7 @@ pub fn echo(args: &[Value]) -> WqResult<Value> {
 
 pub mod show_table {
 
-    use std::collections::HashMap;
+    use indexmap::IndexMap;
 
     use super::*;
 
@@ -81,7 +81,7 @@ pub mod show_table {
         let val = &args[0];
 
         if let Value::Dict(map) = val {
-            let mut wrapped: HashMap<String, Value> = HashMap::new();
+            let mut wrapped: IndexMap<String, Value> = IndexMap::new();
             for (k, v) in map {
                 if let Value::List(_) = v {
                     wrapped.insert(k.clone(), v.clone());
