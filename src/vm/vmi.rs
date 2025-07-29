@@ -369,6 +369,7 @@ impl Vm {
                 }
                 Instruction::MakeList(n) => {
                     let mut items = Vec::with_capacity(n);
+                    let mut all_ints = n > 0;
                     for i in (0..n).rev() {
                         let item = self.stack.pop().ok_or_else(|| {
                             WqError::RuntimeError(format!(
@@ -377,10 +378,24 @@ impl Vm {
                                 n - i
                             ))
                         })?;
+                        if !matches!(item, Value::Int(_)) {
+                            all_ints = false;
+                        }
                         items.push(item);
                     }
-                    items.reverse(); // Optional: only needed if preserving original order matters
-                    self.stack.push(Value::List(items));
+                    items.reverse();
+                    if all_ints {
+                        let ints: Vec<i64> = items
+                            .into_iter()
+                            .map(|v| match v {
+                                Value::Int(i) => i,
+                                _ => unreachable!(),
+                            })
+                            .collect();
+                        self.stack.push(Value::IntList(ints));
+                    } else {
+                        self.stack.push(Value::List(items));
+                    }
                 }
                 Instruction::MakeDict(n) => {
                     let mut map = IndexMap::new();

@@ -264,4 +264,25 @@ mod tests {
         let res = eval.eval_string("f:{[a;b;c]a+b+c};f[1;2;3;4]");
         assert!(matches!(res, Err(WqError::ArityError(_))));
     }
+
+    #[test]
+    fn intlist_literal_inferred_and_list_interop() {
+        let mut eval = VmEvaluator::new();
+        let res = eval.eval_string("(1;2;3)").unwrap();
+        assert_eq!(res, Value::IntList(vec![1, 2, 3]));
+
+        eval.eval_string("a:alloc 3").unwrap();
+        eval.eval_string("b:(0;0;0)").unwrap();
+        let sum = eval.eval_string("a+b").unwrap();
+        assert_eq!(sum, Value::IntList(vec![0, 0, 0]));
+        let cmp = eval.eval_string("a=b").unwrap();
+        assert_eq!(
+            cmp,
+            Value::List(vec![
+                Value::Bool(true),
+                Value::Bool(true),
+                Value::Bool(true)
+            ])
+        );
+    }
 }

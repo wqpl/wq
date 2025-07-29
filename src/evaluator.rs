@@ -216,10 +216,26 @@ impl Evaluator {
 
             AstNode::List(elements) => {
                 let mut values = Vec::new();
+                let mut all_ints = !elements.is_empty();
                 for element in elements {
-                    values.push(self.eval(element)?);
+                    let val = self.eval(element)?;
+                    if !matches!(val, Value::Int(_)) {
+                        all_ints = false;
+                    }
+                    values.push(val);
                 }
-                Ok(Value::List(values))
+                if all_ints {
+                    let items: Vec<i64> = values
+                        .into_iter()
+                        .map(|v| match v {
+                            Value::Int(n) => n,
+                            _ => unreachable!(),
+                        })
+                        .collect();
+                    Ok(Value::IntList(items))
+                } else {
+                    Ok(Value::List(values))
+                }
             }
 
             AstNode::Dict(pairs) => {
@@ -752,6 +768,19 @@ mod tests {
         assert_eq!(
             result,
             Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+        );
+
+        // literal of integers should produce an int-list type
+        let ty = evaluator.eval_string("type (1;2;3)").unwrap();
+        assert_eq!(
+            ty,
+            Value::List("int-list".chars().map(Value::Char).collect())
+        );
+
+        let nested = evaluator.eval_string("((1;2);(3;4))").unwrap();
+        assert_eq!(
+            nested,
+            Value::List(vec![Value::IntList(vec![1, 2]), Value::IntList(vec![3, 4])])
         );
 
         evaluator.eval_string("lst:(10;20;30)").unwrap();
