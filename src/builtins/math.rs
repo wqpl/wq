@@ -23,15 +23,9 @@ pub fn neg(args: &[Value]) -> WqResult<Value> {
         return Err(WqError::ArityError("neg expects 1 argument".to_string()));
     }
 
-    match &args[0] {
-        Value::Int(n) => Ok(Value::Int(-n)),
-        Value::Float(f) => Ok(Value::Float(-f)),
-        Value::List(items) => {
-            let result: WqResult<Vec<Value>> = items.iter().map(|v| neg(&[v.clone()])).collect();
-            Ok(Value::List(result?))
-        }
-        _ => Err(WqError::TypeError("neg only works on numbers".to_string())),
-    }
+    args[0]
+        .neg_value()
+        .ok_or_else(|| WqError::TypeError("neg only works on numbers".to_string()))
 }
 
 pub fn signum(args: &[Value]) -> WqResult<Value> {

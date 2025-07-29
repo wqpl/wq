@@ -108,6 +108,7 @@ pub enum BinaryOperator {
     Add,
     Subtract,
     Multiply,
+    Power,
     Divide,
     DivideDot,
     Modulo,
@@ -421,7 +422,7 @@ impl Parser {
     }
 
     fn parse_multiplicative(&mut self) -> WqResult<AstNode> {
-        let mut left = self.parse_unary()?;
+        let mut left = self.parse_power()?;
 
         while let Some(token) = self.current_token() {
             let op = match token.token_type {
@@ -434,12 +435,32 @@ impl Parser {
             };
 
             self.advance();
-            let right = self.parse_unary()?;
+            let right = self.parse_power()?;
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 operator: op,
                 right: Box::new(right),
             };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_power(&mut self) -> WqResult<AstNode> {
+        let mut left = self.parse_unary()?;
+
+        while let Some(token) = self.current_token() {
+            if token.token_type == TokenType::Power {
+                self.advance();
+                let right = self.parse_unary()?;
+                left = AstNode::BinaryOp {
+                    left: Box::new(left),
+                    operator: BinaryOperator::Power,
+                    right: Box::new(right),
+                };
+            } else {
+                break;
+            }
         }
 
         Ok(left)

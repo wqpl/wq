@@ -200,6 +200,9 @@ impl Vm {
                         BinaryOperator::Multiply => left
                             .multiply(&right)
                             .ok_or_else(|| classify_arith("multiply", &left, &right)),
+                        BinaryOperator::Power => left
+                            .power(&right)
+                            .ok_or_else(|| classify_arith("exponentiate", &left, &right)),
                         BinaryOperator::Divide => left
                             .divide(&right)
                             .ok_or_else(|| classify_divide(&left, &right)),
@@ -237,14 +240,9 @@ impl Vm {
                     })?;
 
                     let result = match op {
-                        UnaryOperator::Negate => match val {
-                            Value::Int(n) => n
-                                .checked_neg()
-                                .map(Value::Int)
-                                .ok_or_else(|| WqError::DomainError("negation overflow".into())),
-                            Value::Float(f) => Ok(Value::Float(-f)),
-                            _ => Err(WqError::TypeError("Cannot negate this type".into())),
-                        },
+                        UnaryOperator::Negate => val
+                            .neg_value()
+                            .ok_or_else(|| WqError::TypeError("Cannot negate this type".into())),
                         UnaryOperator::Count => Ok(Value::Int(val.len() as i64)),
                     };
 

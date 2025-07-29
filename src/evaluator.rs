@@ -489,21 +489,21 @@ impl Evaluator {
 
             AstNode::Break => {
                 if self.loop_depth == 0 {
-                    Err(WqError::DomainError("@b outside loop".into()))
+                    Err(WqError::SyntaxError("@b outside loop".into()))
                 } else {
                     Err(WqError::Break)
                 }
             }
             AstNode::Continue => {
                 if self.loop_depth == 0 {
-                    Err(WqError::DomainError("@c outside loop".into()))
+                    Err(WqError::SyntaxError("@c outside loop".into()))
                 } else {
                     Err(WqError::Continue)
                 }
             }
             AstNode::Return(expr) => {
                 if self.call_stack.current_frame().is_none() {
-                    Err(WqError::DomainError("@r outside function".into()))
+                    Err(WqError::SyntaxError("@r outside function".into()))
                 } else {
                     let val = match expr {
                         Some(e) => self.eval(e)?,
@@ -542,7 +542,7 @@ impl Evaluator {
                     if matches!(left, Value::Int(_) | Value::IntList(_))
                         && matches!(right, Value::Int(_) | Value::IntList(_))
                     {
-                        Err(WqError::DomainError("addition overflow".into()))
+                        Err(WqError::RuntimeError("addition overflow".into()))
                     } else {
                         Err(WqError::TypeError("Cannot add these types".to_string()))
                     }
@@ -552,7 +552,7 @@ impl Evaluator {
                 if matches!(left, Value::Int(_) | Value::IntList(_))
                     && matches!(right, Value::Int(_) | Value::IntList(_))
                 {
-                    WqError::DomainError("subtraction overflow".into())
+                    WqError::RuntimeError("subtraction overflow".into())
                 } else {
                     WqError::TypeError("Cannot subtract these types".to_string())
                 }
@@ -561,11 +561,14 @@ impl Evaluator {
                 if matches!(left, Value::Int(_) | Value::IntList(_))
                     && matches!(right, Value::Int(_) | Value::IntList(_))
                 {
-                    WqError::DomainError("multiplication overflow".into())
+                    WqError::RuntimeError("multiplication overflow".into())
                 } else {
                     WqError::TypeError("Cannot multiply these types".to_string())
                 }
             }),
+            BinaryOperator::Power => left
+                .power(right)
+                .ok_or_else(|| WqError::TypeError("Cannot exponentiate these types".to_string())),
             BinaryOperator::Divide => match left.divide(right) {
                 Some(v) => Ok(v),
                 None => {
@@ -610,13 +613,15 @@ impl Evaluator {
 
     fn eval_unary_op(&self, operator: &UnaryOperator, operand: &Value) -> WqResult<Value> {
         match operator {
-            UnaryOperator::Negate => match operand {
-                Value::Int(n) => n
-                    .checked_neg()
-                    .map(Value::Int)
-                    .ok_or_else(|| WqError::DomainError("negation overflow".into())),
-                Value::Float(f) => Ok(Value::Float(-f)),
-                _ => Err(WqError::TypeError("Cannot negate this type".to_string())),
+            UnaryOperator::Negate => match operand.neg_value() {
+                Some(v) => Ok(v),
+                None => {
+                    if matches!(operand, Value::Int(_) | Value::IntList(_)) {
+                        Err(WqError::DomainError("negation overflow".into()))
+                    } else {
+                        Err(WqError::TypeError("Cannot negate this type".to_string()))
+                    }
+                }
             },
             UnaryOperator::Count => Ok(Value::Int(operand.len() as i64)),
         }

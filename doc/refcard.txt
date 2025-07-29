@@ -1,10 +1,10 @@
           wq by tttiw - refcard
 see also: help <builtin>, wq -h
 ----------------------------------------
-+    -    *    /    %    :    ,    #
-               assignment^   cat count
-=    ~    <    <=   >    >=
-eq  neq
++    -    *    /    %    ^    ,    #
+                       power cat count
+:         =    ~    <    <=   >    >=
+assign    eq  neq
 $[cond;t;f1;f2...]     $.[cond;t1;t2...]
 W[cond;s1;s2...]       N[n;echo _n]
 @a assert|@b break|@c continue|@r return

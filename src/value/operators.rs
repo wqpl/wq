@@ -956,6 +956,129 @@ impl Value {
         }
     }
 
+    pub fn power(&self, other: &Value) -> Option<Value> {
+        match (self, other) {
+            // Scalar ^ Scalar
+            (Value::Int(a), Value::Int(b)) => {
+                if *b >= 0 {
+                    a.checked_pow(*b as u32).map(Value::Int)
+                } else {
+                    None
+                }
+            }
+            (Value::Float(a), Value::Float(b)) => Some(Value::Float(a.powf(*b))),
+            (Value::Int(a), Value::Float(b)) => Some(Value::Float((*a as f64).powf(*b))),
+            (Value::Float(a), Value::Int(b)) => Some(Value::Float(a.powf(*b as f64))),
+
+            // IntList ^ Int
+            (Value::IntList(vec), Value::Int(b)) => {
+                if *b < 0 {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(x.checked_pow(*b as u32)?);
+                }
+                Some(Value::IntList(out))
+            }
+            // Int ^ IntList
+            (Value::Int(a), Value::IntList(vec)) => {
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    if x < 0 {
+                        return None;
+                    }
+                    out.push(a.checked_pow(x as u32)?);
+                }
+                Some(Value::IntList(out))
+            }
+
+            // Float/List hybrids
+            (Value::Float(a), Value::IntList(vec)) => Some(Value::List(
+                vec.iter()
+                    .map(|&x| Value::Float(a.powf(x as f64)))
+                    .collect(),
+            )),
+            (Value::IntList(vec), Value::Float(b)) => Some(Value::List(
+                vec.iter()
+                    .map(|&x| Value::Float((x as f64).powf(*b)))
+                    .collect(),
+            )),
+
+            // Promote IntList to generic List then recurse
+            (Value::IntList(a), Value::List(_)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.power(other)
+            }
+            (Value::List(_), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.power(&right)
+            }
+
+            // IntList ^ IntList
+            (Value::IntList(a), Value::IntList(b)) => {
+                if a.len() == b.len() {
+                    let mut out = Vec::with_capacity(a.len());
+                    for (&x, &y) in a.iter().zip(b.iter()) {
+                        if y < 0 {
+                            return None;
+                        }
+                        out.push(x.checked_pow(y as u32)?);
+                    }
+                    Some(Value::IntList(out))
+                } else if a.is_empty() || b.is_empty() {
+                    None
+                } else {
+                    let max_len = a.len().max(b.len());
+                    let mut out = Vec::with_capacity(max_len);
+                    for i in 0..max_len {
+                        let x = a[i % a.len()];
+                        let y = b[i % b.len()];
+                        if y < 0 {
+                            return None;
+                        }
+                        out.push(x.checked_pow(y as u32)?);
+                    }
+                    Some(Value::IntList(out))
+                }
+            }
+
+            // Scalar–vector and vector–scalar for generic List
+            (scalar, Value::List(vec)) if scalar.is_scalar() => {
+                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.power(x)).collect();
+                result.map(Value::List)
+            }
+            (Value::List(vec), scalar) if scalar.is_scalar() => {
+                let result: Option<Vec<Value>> = vec.iter().map(|x| x.power(scalar)).collect();
+                result.map(Value::List)
+            }
+
+            // List ^ List
+            (Value::List(a), Value::List(b)) => {
+                if a.len() == b.len() {
+                    let result: Option<Vec<Value>> =
+                        a.iter().zip(b.iter()).map(|(x, y)| x.power(y)).collect();
+                    result.map(Value::List)
+                } else if a.is_empty() || b.is_empty() {
+                    None
+                } else {
+                    let max_len = a.len().max(b.len());
+                    let result: Option<Vec<Value>> = (0..max_len)
+                        .map(|i| {
+                            let left = &a[i % a.len()];
+                            let right = &b[i % b.len()];
+                            left.power(right)
+                        })
+                        .collect();
+                    result.map(Value::List)
+                }
+            }
+
+            // All other cases
+            _ => None,
+        }
+    }
+
     /// Bitwise AND with broadcasting support
     pub fn bitand(&self, other: &Value) -> Option<Value> {
         match (self, other) {
@@ -1158,6 +1281,26 @@ impl Value {
             Value::IntList(vec) => Some(Value::IntList(vec.iter().map(|x| !x).collect())),
             Value::List(items) => {
                 let result: Option<Vec<Value>> = items.iter().map(|v| v.bitnot()).collect();
+                result.map(Value::List)
+            }
+            _ => None,
+        }
+    }
+
+    /// Arithmetic negation with broadcasting support
+    pub fn neg_value(&self) -> Option<Value> {
+        match self {
+            Value::Int(n) => n.checked_neg().map(Value::Int),
+            Value::Float(f) => Some(Value::Float(-f)),
+            Value::IntList(vec) => {
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(x.checked_neg()?);
+                }
+                Some(Value::IntList(out))
+            }
+            Value::List(items) => {
+                let result: Option<Vec<Value>> = items.iter().map(|v| v.neg_value()).collect();
                 result.map(Value::List)
             }
             _ => None,

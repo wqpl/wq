@@ -4,7 +4,8 @@ BUILTINS:
   in input eval chr ord
   shape
 ARITHMETIC:
-  /.   %.   inf   nan
+  /.   %.   ^
+  inf   nan
 REPL:
   help chr
 INTERNAL:

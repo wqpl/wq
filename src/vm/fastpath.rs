@@ -221,6 +221,7 @@ impl FastPath {
                         BinaryOperator::Add => a.add(&b),
                         BinaryOperator::Subtract => a.subtract(&b),
                         BinaryOperator::Multiply => a.multiply(&b),
+                        BinaryOperator::Power => a.power(&b),
                         BinaryOperator::Divide => a.divide(&b),
                         BinaryOperator::DivideDot => a.divide_dot(&b),
                         BinaryOperator::Modulo => a.modulo(&b),
@@ -239,13 +240,9 @@ impl FastPath {
                         None => return TryRunOutcome::Bail(BailReason::StackUnderflow(pc)),
                     };
                     let res = match op {
-                        UnaryOperator::Negate => match v {
-                            Value::Int(n) => match n.checked_neg() {
-                                Some(nn) => Value::Int(nn),
-                                None => return TryRunOutcome::Bail(BailReason::Overflow(pc)),
-                            },
-                            Value::Float(f) => Value::Float(-f),
-                            _ => return TryRunOutcome::Bail(BailReason::UnsupportedAt(pc)),
+                        UnaryOperator::Negate => match v.neg_value() {
+                            Some(val) => val,
+                            None => return TryRunOutcome::Bail(BailReason::UnsupportedAt(pc)),
                         },
                         UnaryOperator::Count => match v {
                             Value::List(l) => Value::Int(l.len() as i64),

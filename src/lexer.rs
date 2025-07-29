@@ -17,6 +17,7 @@ pub enum TokenType {
     Plus,
     Minus,
     Multiply,
+    Power,
     Divide,
     DivideDot,
     Modulo,
@@ -148,19 +149,38 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_number(&mut self) -> WqResult<TokenType> {
-        let mut number_str = String::new();
+        let mut raw_lit = String::new(); // will include digits, dots, exponents, and `_`
         let mut is_float = false;
+        let mut has_exp = false;
 
         while let Some(ch) = self.current_char {
             if ch.is_ascii_digit() {
-                number_str.push(ch);
+                raw_lit.push(ch);
                 self.advance();
-            } else if ch == '.' && !is_float {
-                // Check if next char is a digit
+            } else if ch == '_' {
+                // only allow an underscore if the previous char is a digit
+                // and the next char (peek) is a digit
+                if raw_lit
+                    .chars()
+                    .last()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false)
+                {
+                    if let Some(next_ch) = self.peek() {
+                        if next_ch.is_ascii_digit() {
+                            // consume the underscore but don't push it into raw_lit
+                            self.advance();
+                            continue;
+                        }
+                    }
+                }
+                break;
+            } else if ch == '.' && !is_float && !has_exp {
+                // float part
                 if let Some(next_ch) = self.peek() {
                     if next_ch.is_ascii_digit() {
                         is_float = true;
-                        number_str.push(ch);
+                        raw_lit.push(ch);
                         self.advance();
                     } else {
                         break;
@@ -168,18 +188,34 @@ impl<'a> Lexer<'a> {
                 } else {
                     break;
                 }
+            } else if (ch == 'e' || ch == 'E') && !has_exp {
+                // exponent part
+                has_exp = true;
+                is_float = true;
+                raw_lit.push(ch);
+                self.advance();
+                // optional +/-
+                if let Some(sign_ch) = self.current_char {
+                    if sign_ch == '+' || sign_ch == '-' {
+                        raw_lit.push(sign_ch);
+                        self.advance();
+                    }
+                }
             } else {
                 break;
             }
         }
 
+        // remove all '_' for parsing
+        let lit = raw_lit.replace('_', "");
+
         if is_float {
-            match number_str.parse::<f64>() {
+            match lit.parse::<f64>() {
                 Ok(n) if n.is_finite() => Ok(TokenType::Float(n)),
                 _ => Err(WqError::DomainError("float literal overflow".into())),
             }
         } else {
-            match number_str.parse::<i64>() {
+            match lit.parse::<i64>() {
                 Ok(n) => Ok(TokenType::Integer(n)),
                 Err(_) => Err(WqError::DomainError("integer literal overflow".into())),
             }
@@ -424,6 +460,16 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     return Ok(Token::new(
                         TokenType::Multiply,
+                        token_position,
+                        token_line,
+                        token_column,
+                    ));
+                }
+
+                Some('^') => {
+                    self.advance();
+                    return Ok(Token::new(
+                        TokenType::Power,
                         token_position,
                         token_line,
                         token_column,
@@ -732,18 +778,20 @@ mod tests {
 
     #[test]
     fn test_tokenize_numbers() {
-        let mut lexer = Lexer::new("42 3.1 -5");
+        let mut lexer = Lexer::new("42 3.1 -5 1e3 2E-2");
         let tokens = lexer.tokenize().unwrap();
 
         assert_eq!(tokens[0].token_type, TokenType::Integer(42));
         assert_eq!(tokens[1].token_type, TokenType::Float(3.1));
         assert_eq!(tokens[2].token_type, TokenType::Minus);
         assert_eq!(tokens[3].token_type, TokenType::Integer(5));
+        assert_eq!(tokens[4].token_type, TokenType::Float(1000.0));
+        assert_eq!(tokens[5].token_type, TokenType::Float(0.02));
     }
 
     #[test]
     fn test_tokenize_operators() {
-        let mut lexer = Lexer::new("+ - * / %");
+        let mut lexer = Lexer::new("+ - * / % ^");
         let tokens = lexer.tokenize().unwrap();
 
         assert_eq!(tokens[0].token_type, TokenType::Plus);
@@ -751,6 +799,7 @@ mod tests {
         assert_eq!(tokens[2].token_type, TokenType::Multiply);
         assert_eq!(tokens[3].token_type, TokenType::Divide);
         assert_eq!(tokens[4].token_type, TokenType::Modulo);
+        assert_eq!(tokens[5].token_type, TokenType::Power);
     }
 
     #[test]

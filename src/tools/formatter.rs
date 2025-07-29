@@ -52,6 +52,7 @@ impl Formatter {
                     BinaryOperator::Add => "+",
                     BinaryOperator::Subtract => "-",
                     BinaryOperator::Multiply => "*",
+                    BinaryOperator::Power => "^",
                     BinaryOperator::Divide => "/",
                     BinaryOperator::DivideDot => "/.",
                     BinaryOperator::Modulo => "%",
