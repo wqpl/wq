@@ -459,8 +459,10 @@ impl fmt::Display for Value {
                     return write!(f, "()");
                 }
                 if box_mode::is_boxed() {
-                    let rows: Vec<String> = items.iter().map(|v| v.to_string()).collect();
-                    return write!(f, "({})", rows.join(";"));
+                    let rows: Vec<Value> = items.iter().map(|&n| Value::Int(n)).collect();
+                    if let Some(b) = box_mode::format_boxed(&rows) {
+                        return write!(f, "{b}");
+                    }
                 }
                 if items.len() == 1 {
                     write!(f, ",{}", items[0])
@@ -756,5 +758,32 @@ mod tests {
         let arr = Value::IntList(vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let idxs = Value::IntList(vec![2, 4]);
         assert_eq!(arr.index(&idxs), Some(Value::IntList(vec![2, 4])));
+    }
+
+    #[test]
+    fn test_intlist_list_arith_and_cmp() {
+        let arr = Value::IntList(vec![1, 2, 3]);
+        let list = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
+        assert_eq!(
+            arr.add(&list),
+            Some(Value::List(vec![Value::int(2), Value::int(4), Value::int(6)]))
+        );
+        assert_eq!(
+            list.add(&arr),
+            Some(Value::List(vec![Value::int(2), Value::int(4), Value::int(6)]))
+        );
+        assert_eq!(
+            arr.equals(&list),
+            Value::List(vec![Value::Bool(true), Value::Bool(true), Value::Bool(true)])
+        );
+    }
+
+    #[test]
+    fn test_intlist_boxed_display() {
+        box_mode::set_boxed(true);
+        let arr = Value::IntList(vec![0, 0, 0]);
+        let disp = format!("{arr}");
+        box_mode::set_boxed(false);
+        assert!(disp.contains('\n'));
     }
 }

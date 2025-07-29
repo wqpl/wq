@@ -16,3 +16,7 @@ PR        (1) rust:   cargo fmt
           (4) PR: clarify what’s changed and why
           (5) add your name (and optionally your email)
               to AUTHORS.txt
+=====================================================
+dev tools:
+  exa-t.py
+  builtin-rcg.py

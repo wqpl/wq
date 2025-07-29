@@ -12,12 +12,12 @@ W[cond;s1;s2...]       N[n;echo _n]
 int float char symbol bool list dict
 function stream (int-list) (null)
 lst:(1;2);lst[0] dct:(`a:1;`b:2);dct[`a]
-func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3]
+fn:{2*x+y};fn[3;4] {[a;b]a*b*b}[6;7]
 ----------------------------------------
-repl: \h   \v   \c    \l   \t
-      help vars clear load time
-      \b  \d    \q
-      box debug goodbye
+repl: \h   \v   \c    \l   \t   \b
+      help vars clear load time box
+      \d    \q
+      debug goodbye
 ----------------------------------------
 abs neg signum sqrt exp ln floor ceiling
 rand sin cos tan sinh cosh tanh til

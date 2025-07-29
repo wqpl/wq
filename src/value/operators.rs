@@ -27,6 +27,14 @@ impl Value {
             (Value::IntList(vec), Value::Float(b)) => Some(Value::List(
                 vec.iter().map(|&x| Value::Float(x as f64 + b)).collect(),
             )),
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.add(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.add(&right)
+            }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     let mut out = Vec::with_capacity(a.len());
@@ -112,6 +120,14 @@ impl Value {
             (Value::IntList(vec), Value::Float(b)) => Some(Value::List(
                 vec.iter().map(|&x| Value::Float(x as f64 - b)).collect(),
             )),
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.subtract(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.subtract(&right)
+            }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     let mut out = Vec::with_capacity(a.len());
@@ -190,6 +206,14 @@ impl Value {
             (Value::IntList(vec), Value::Float(b)) => Some(Value::List(
                 vec.iter().map(|&x| Value::Float(x as f64 * b)).collect(),
             )),
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.multiply(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.multiply(&right)
+            }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     let mut out = Vec::with_capacity(a.len());
@@ -335,6 +359,14 @@ impl Value {
                     let out = vec.iter().map(|&x| Value::Float(x as f64 / b)).collect();
                     Some(Value::List(out))
                 }
+            }
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.divide(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.divide(&right)
             }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
@@ -530,6 +562,14 @@ impl Value {
                     Some(Value::List(out))
                 }
             }
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.divide_dot(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.divide_dot(&right)
+            }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     let mut out = Vec::with_capacity(a.len());
@@ -705,6 +745,14 @@ impl Value {
                     Some(Value::List(out))
                 }
             }
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.modulo(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.modulo(&right)
+            }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     if b.contains(&0) {
@@ -834,6 +882,14 @@ impl Value {
                     .collect();
                 Some(Value::List(out))
             }
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.modulo_dot(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.modulo_dot(&right)
+            }
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
                     let out = a
@@ -926,6 +982,14 @@ impl Value {
                     ))
                 }
             }
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.bitand(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.bitand(&right)
+            }
             (scalar @ Value::Int(_), Value::List(vec)) => {
                 let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.bitand(x)).collect();
                 result.map(Value::List)
@@ -983,6 +1047,14 @@ impl Value {
                     ))
                 }
             }
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.bitor(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.bitor(&right)
+            }
             (scalar @ Value::Int(_), Value::List(vec)) => {
                 let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.bitor(x)).collect();
                 result.map(Value::List)
@@ -1039,6 +1111,14 @@ impl Value {
                             .collect(),
                     ))
                 }
+            }
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.bitxor(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.bitxor(&right)
             }
             (scalar @ Value::Int(_), Value::List(vec)) => {
                 let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.bitxor(x)).collect();
@@ -1116,6 +1196,14 @@ impl Value {
                     ))
                 }
             }
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.shl(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.shl(&right)
+            }
             (scalar @ Value::Int(_), Value::List(vec)) => {
                 let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.shl(x)).collect();
                 result.map(Value::List)
@@ -1178,6 +1266,14 @@ impl Value {
                             .collect(),
                     ))
                 }
+            }
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.shr(other)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.shr(&right)
             }
             (scalar @ Value::Int(_), Value::List(vec)) => {
                 let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.shr(x)).collect();
@@ -1382,6 +1478,14 @@ impl Value {
                         .collect();
                     Value::List(result)
                 }
+            }
+            (Value::IntList(a), Value::List(_b)) => {
+                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
+                left.cmp_broadcast(other, cmp)
+            }
+            (Value::List(_a), Value::IntList(b)) => {
+                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
+                self.cmp_broadcast(&right, cmp)
             }
             (Value::IntList(a), b) => {
                 let result: Vec<Value> = a

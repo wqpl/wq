@@ -8,5 +8,3 @@ options:
   -t, --tree-walker              legacy tree-walker interpreter
   -h, --help                     show this help message
   -v, --version                  show version
-
-see also: echo '\h' | wq

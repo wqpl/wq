@@ -273,8 +273,7 @@ impl Vm {
                     for _ in 0..argc {
                         let arg = self.stack.pop().ok_or_else(|| {
                             WqError::RuntimeError(format!(
-                                "Stack underflow: expected {} arguments for builtin ID {} but only found fewer",
-                                argc, id
+                                "Stack underflow: expected {argc} arguments for builtin ID {id} but only found fewer"
                             ))
                         })?;
                         args.push(arg);
@@ -289,8 +288,7 @@ impl Vm {
                     for _ in 0..argc {
                         let arg = self.stack.pop().ok_or_else(|| {
                             WqError::RuntimeError(format!(
-                                "Stack underflow: expected {} arguments for function '{}' but only found fewer",
-                                argc, name
+                                "Stack underflow: expected {argc} arguments for function '{name}' but only found fewer"
                             ))
                         })?;
                         args.push(arg);
@@ -321,8 +319,7 @@ impl Vm {
                         }
                         None => {
                             return Err(WqError::ValueError(format!(
-                                "Function '{}' is not defined",
-                                name
+                                "Function '{name}' is not defined"
                             )));
                         }
                     }
@@ -334,8 +331,7 @@ impl Vm {
                     for _ in 0..argc {
                         let arg = self.stack.pop().ok_or_else(|| {
                             WqError::RuntimeError(format!(
-                                "Stack underflow: expected {} arguments but only found fewer",
-                                argc
+                                "Stack underflow: expected {argc} arguments but only found fewer"
                             ))
                         })?;
                         args.push(arg);
@@ -402,8 +398,7 @@ impl Vm {
                             }
                             other => {
                                 return Err(WqError::TypeError(format!(
-                                    "Invalid dict key: expected Symbol, got {:?}",
-                                    other
+                                    "Invalid dict key: expected Symbol, got {other:?}"
                                 )));
                             }
                         }
@@ -417,8 +412,7 @@ impl Vm {
                         Some(v) => self.stack.push(v),
                         None => {
                             return Err(WqError::IndexError(format!(
-                                "Invalid index: attempted to access index {} in {}",
-                                idx, obj
+                                "Invalid index: attempted to access index {idx} in {obj}"
                             )));
                         }
                     }
