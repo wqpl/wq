@@ -37,19 +37,25 @@ fn expand_script(
     path: &Path,
     loading: &mut HashSet<PathBuf>,
     visited: &mut HashSet<PathBuf>,
-) -> String {
+) -> std::io::Result<String> {
     let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if !loading.insert(canonical.clone()) {
         // already in loading stack -> cycle
         println!("Cycle detected: {}", canonical.display());
-        return String::new();
+        return Ok(String::new());
     }
     if visited.contains(&canonical) {
         loading.remove(&canonical);
-        return String::new();
+        return Ok(String::new());
     }
     visited.insert(canonical.clone());
-    let content = fs::read_to_string(path).expect("cannot read script");
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            loading.remove(&canonical);
+            return Err(e);
+        }
+    };
     let mut result = String::new();
     let parent = path.parent().unwrap_or_else(|| Path::new(""));
     for line in content.lines() {
@@ -59,26 +65,35 @@ fn expand_script(
         }
         if let Some(fname) = parse_load_filename(trimmed) {
             let sub = resolve_load_path(parent, fname);
-            result.push_str(&expand_script(&sub, loading, visited));
+            result.push_str(&expand_script(&sub, loading, visited)?);
         } else {
             result.push_str(trimmed);
             result.push('\n');
         }
     }
     loading.remove(&canonical);
-    result
+    Ok(result)
 }
 
 pub fn vm_get_ins(path: &String) -> WqResult<Vec<Instruction>> {
     let path = Path::new(path);
     let mut loading = HashSet::new();
     let mut visited = HashSet::new();
-    let src = expand_script(path, &mut loading, &mut visited);
+    let src = match expand_script(path, &mut loading, &mut visited) {
+        Ok(s) => s,
+        Err(e) => {
+            return Err(crate::value::valuei::WqError::RuntimeError(format!(
+                "Cannot read {}: {}",
+                path.display(),
+                e
+            )));
+        }
+    };
     let mut lexer = Lexer::new(&src);
     let tokens = lexer.tokenize()?;
     use crate::resolver::Resolver;
     let mut parser = Parser::new(tokens, src.clone());
-    let ast = parser.parse().expect("parse error");
+    let ast = parser.parse()?;
     let mut resolver = Resolver::new();
     let ast = resolver.resolve(ast);
     let mut compiler = Compiler::new();
