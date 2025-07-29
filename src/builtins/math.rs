@@ -180,153 +180,20 @@ pub fn ceiling(args: &[Value]) -> WqResult<Value> {
     }
 }
 
-fn rand_dims_int(dims: &[usize], rng: &mut impl Rng, low: i64, high: i64) -> WqResult<Value> {
-    match dims.len() {
-        0 => Err(WqError::DomainError("shape cannot be an empty list".into())),
-        1 => {
-            let mut out = Vec::with_capacity(dims[0]);
-            for _ in 0..dims[0] {
-                out.push(rng.random_range(low..high));
-            }
-            Ok(Value::IntList(out))
-        }
-        _ => {
-            let mut out = Vec::with_capacity(dims[0]);
-            for _ in 0..dims[0] {
-                out.push(rand_dims_int(&dims[1..], rng, low, high)?);
-            }
-            Ok(Value::List(out))
-        }
-    }
-}
-
-fn rand_dims_float(dims: &[usize], rng: &mut impl Rng, low: f64, high: f64) -> WqResult<Value> {
-    match dims.len() {
-        0 => Err(WqError::DomainError("shape cannot be an empty list".into())),
-        1 => {
-            let mut out = Vec::with_capacity(dims[0]);
-            for _ in 0..dims[0] {
-                out.push(Value::Float(rng.random_range(low..high)));
-            }
-            Ok(Value::List(out))
-        }
-        _ => {
-            let mut out = Vec::with_capacity(dims[0]);
-            for _ in 0..dims[0] {
-                out.push(rand_dims_float(&dims[1..], rng, low, high)?);
-            }
-            Ok(Value::List(out))
-        }
-    }
-}
-
-fn rand_shape_int(shape: &Value, rng: &mut impl Rng, low: i64, high: i64) -> WqResult<Value> {
-    match shape {
-        Value::Int(n) => {
-            if *n < 0 {
-                Err(WqError::DomainError(
-                    "rand length must be non-negative".into(),
-                ))
-            } else {
-                Ok(rand_dims_int(&[*n as usize], rng, low, high)?)
-            }
-        }
-        Value::IntList(dims) => {
-            if dims.iter().any(|&d| d < 0) {
-                Err(WqError::DomainError(
-                    "rand length must be non-negative".into(),
-                ))
-            } else {
-                let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
-                Ok(rand_dims_int(&dims, rng, low, high)?)
-            }
-        }
-        Value::List(items) => {
-            if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
-                let dims: Vec<usize> = items
-                    .iter()
-                    .map(|v| {
-                        if let Value::Int(n) = v {
-                            *n as usize
-                        } else {
-                            unreachable!()
-                        }
-                    })
-                    .collect();
-                Ok(rand_dims_int(&dims, rng, low, high)?)
-            } else {
-                let mut out = Vec::with_capacity(items.len());
-                for v in items {
-                    out.push(rand_shape_int(v, rng, low, high)?);
-                }
-                Ok(Value::List(out))
-            }
-        }
-        _ => Err(WqError::TypeError("rand expects an integer shape".into())),
-    }
-}
-
-fn rand_shape_float(shape: &Value, rng: &mut impl Rng, low: f64, high: f64) -> WqResult<Value> {
-    match shape {
-        Value::Int(n) => {
-            if *n < 0 {
-                Err(WqError::DomainError(
-                    "rand length must be non-negative".into(),
-                ))
-            } else {
-                Ok(rand_dims_float(&[*n as usize], rng, low, high)?)
-            }
-        }
-        Value::IntList(dims) => {
-            if dims.iter().any(|&d| d < 0) {
-                Err(WqError::DomainError(
-                    "rand length must be non-negative".into(),
-                ))
-            } else {
-                let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
-                Ok(rand_dims_float(&dims, rng, low, high)?)
-            }
-        }
-        Value::List(items) => {
-            if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
-                let dims: Vec<usize> = items
-                    .iter()
-                    .map(|v| {
-                        if let Value::Int(n) = v {
-                            *n as usize
-                        } else {
-                            unreachable!()
-                        }
-                    })
-                    .collect();
-                Ok(rand_dims_float(&dims, rng, low, high)?)
-            } else {
-                let mut out = Vec::with_capacity(items.len());
-                for v in items {
-                    out.push(rand_shape_float(v, rng, low, high)?);
-                }
-                Ok(Value::List(out))
-            }
-        }
-        _ => Err(WqError::TypeError("rand expects an integer shape".into())),
-    }
-}
-
 pub fn rand(args: &[Value]) -> WqResult<Value> {
     let mut rng = rand::rng();
     match args.len() {
         0 => Ok(Value::Float(rng.random())),
-        1 => rand_shape_float(&args[0], &mut rng, 0.0, 1.0),
-        2 => match &args[1] {
-            Value::Int(n) if *n > 0 => rand_shape_int(&args[0], &mut rng, 0, *n),
-            Value::Float(f) if *f > 0.0 => rand_shape_float(&args[0], &mut rng, 0.0, *f),
+        1 => match &args[0] {
+            Value::Int(n) if *n > 0 => Ok(Value::Int(rng.random_range(0..*n))),
+            Value::Float(f) if *f > 0.0 => Ok(Value::Float(rng.random_range(0.0..*f))),
             v => Err(WqError::DomainError(format!(
                 "expected positive int or float, got {}",
                 v.type_name()
             ))),
         },
-        3 => match (&args[1], &args[2]) {
-            (Value::Int(a), Value::Int(b)) if a < b => rand_shape_int(&args[0], &mut rng, *a, *b),
+        2 => match (&args[0], &args[1]) {
+            (Value::Int(a), Value::Int(b)) if a < b => Ok(Value::Int(rng.random_range(*a..*b))),
             (a, b) => {
                 let af = match a {
                     Value::Int(n) => *n as f64,
@@ -349,7 +216,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                     }
                 };
                 if af < bf {
-                    rand_shape_float(&args[0], &mut rng, af, bf)
+                    Ok(Value::Float(rng.random_range(af..bf)))
                 } else {
                     Err(WqError::RuntimeError(format!(
                         "require a < b, got {af} >= {bf}"
@@ -358,7 +225,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
             }
         },
         other => Err(WqError::ArityError(format!(
-            "rand expects 0 to 3 arguments, got {other}"
+            "rand expects 0 to 2 arguments, got {other}"
         ))),
     }
 }

@@ -1,5 +1,4 @@
-// string standard library for wq
-// WIP!!!!
+// wip!!
 
 // repeat a string `s` n times
 repeat:{[s;n]res:();N[n;res:cat[res;s;];];res}

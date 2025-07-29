@@ -1,0 +1,73 @@
+// EXCLUDE
+// bf interpreter in wq
+
+// Build bracket jump table
+build_map:{[code]
+  len: count code;
+  jump: alloc len;
+  stack:();
+  N[len;
+    ch: code[_n];
+    $.[ch="[";
+      stack: cat[stack; _n;];
+    ];
+    $.[ch="]";
+      open: last stack; stack: take[count stack-1; stack;];
+      jump[open]: _n;
+      jump[_n]: open;
+    ];
+  ];
+  jump
+};
+
+bf_run:{[code]
+  tape: alloc 30000; // memory cells
+  ptr:0;
+  jump: build_map code;
+  ip:0;
+  len: count code;
+  W[ip < len;
+    op: code[ip];
+    $.[op=">";
+      ptr: ptr+1;
+      $.[ptr >= count tape;
+        tape: cat[tape;0;];
+      ];
+    ];
+    $.[op="<";
+      ptr: ptr-1;
+      $.[ptr < 0;
+        tape: cat[0; tape;];
+        ptr: 0;
+      ];
+    ];
+    $.[op="+";
+      tape[ptr]: tape[ptr] + 1;
+    ];
+    $.[op="-";
+      tape[ptr]: tape[ptr] - 1;
+    ];
+    $.[op=".";
+      echo[chr tape[ptr]; true;];
+    ];
+    $.[op=",";
+      inp: input "input";
+      $[count inp>0;
+        tape[ptr]: ord inp[0];
+        tape[ptr]:0;
+      ];
+      echo format["tape[ptr]={}";tape[ptr];]
+    ];
+    $.[op="[";
+      $.[tape[ptr]=0; ip: jump[ip];];
+    ];
+    $.[op="]";
+      $.[tape[ptr]~0; ip: jump[ip];];
+    ];
+    ip: ip+1;
+  ];
+};
+
+code: input "bf code: ";
+bf_run code;
+echo "";

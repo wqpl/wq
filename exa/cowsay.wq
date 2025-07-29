@@ -11,5 +11,5 @@ cowsay: {[msg]
   echo "                 ||-----w-|"
   echo "                 ||      ||"
 }
-a: input "enter text"
-cowsay a
+
+cowsay "moooving on!"

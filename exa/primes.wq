@@ -16,4 +16,4 @@ primes:{[x]
   where[p;]
 }
 
-echo[primes[30;];]
+echo[primes[100;];]

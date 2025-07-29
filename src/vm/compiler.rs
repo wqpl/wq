@@ -208,6 +208,10 @@ impl Compiler {
                 self.instructions[jump_if_false_pos] = Instruction::JumpIfFalse(else_start);
                 if let Some(fb) = false_branch {
                     self.compile(fb)?;
+                } else {
+                    // when there is no false branch, the conditional
+                    // expression should evaluate to null on the false path
+                    self.instructions.push(Instruction::LoadConst(Value::Null));
                 }
                 let end = self.instructions.len();
                 self.instructions[jump_end_pos] = Instruction::Jump(end);

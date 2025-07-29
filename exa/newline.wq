@@ -1,0 +1,16 @@
+a:(`b:2;
+`a:1)
+
+b:(1
+2
+3)
+
+c:{[x;
+    y]
+    echo 1;
+        x+y;
+    }
+
+echo a
+echo b
+echo c[1;9;];

@@ -8,7 +8,6 @@ Usage examples:
   python3 exa-t.py test --all, -a      # Run all tests
   python3 exa-t.py test --list, -l     # List all available tests
   python3 exa-t.py clean               # Remove all .exp files
-
 """
 
 import subprocess
@@ -66,7 +65,7 @@ def generate_expected(build_type):
         print(f"Generating expected for {tf} → {out_path}")
         try:
             completed = subprocess.run(
-                ["./target/{}/wq".format(build_type), tf],
+                [f"./target/{build_type}/wq", tf],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 encoding="utf-8",
@@ -120,8 +119,7 @@ def run_tests(build_type, script=None, run_all=False):
             sys.exit(1)
     elif not run_all:
         print(
-            "[ERROR] Specify a script name or use --all to run all tests.",
-            file=sys.stderr,
+            "[ERROR] Specify a script name or use --all to run all tests.", file=sys.stderr,
         )
         sys.exit(1)
 
@@ -138,7 +136,7 @@ def run_tests(build_type, script=None, run_all=False):
         print(f"=== Running {tf} ===")
         try:
             completed = subprocess.run(
-                ["./target/{}/wq".format(build_type), tf],
+                [f"./target/{build_type}/wq", tf],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 encoding="utf-8",
@@ -163,7 +161,7 @@ def run_tests(build_type, script=None, run_all=False):
             with open(exp_path, "r", encoding="utf-8") as f:
                 expected = f.read()
         except OSError as e:
-            print(f"[ERROR] Could not read expected file 'هنة نجğ'{e}", file=sys.stderr)
+            print(f"[ERROR] Could not read expected file: {e}", file=sys.stderr)
             sys.exit(1)
 
         if actual.strip() == expected.strip():
@@ -249,23 +247,8 @@ def main():
 
     args = parser.parse_args()
 
-    build_type = args.build_type
-    if args.command in ("gen", "test"):
-        if not build_type:
-            choice = (
-                input("Select build type ('debug' or 'release') [debug]: ")
-                .strip()
-                .lower()
-            )
-            if choice in ("debug", "release"):
-                build_type = choice
-            elif choice == "":
-                build_type = "debug"
-            else:
-                print("Invalid choice, defaulting to 'debug'.")
-                build_type = "debug"
-    else:
-        build_type = "debug"
+    # Always default to debug unless --build-type is explicitly provided
+    build_type = args.build_type or "debug"
 
     if args.command == "gen":
         generate_expected(build_type)

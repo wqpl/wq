@@ -1,0 +1,38 @@
+// EXCLUDE
+
+load ../lib/str.wq
+
+// ascii_box: read file at `path` and display its contents in a box
+ascii_box:{[path]
+  fh: fopen[path; "r";];
+  lines:();
+  line: fread[fh;];
+  W[not null? line;
+    lines: cat[lines; ,(string line);];
+    line: fread[fh;];
+  ];
+  fclose[fh;];
+
+  maxlen: 0;
+  i: 0;
+  N[count lines;
+    len: count lines[i];
+    $[len > maxlen; maxlen: len;];
+    i: i + 1;
+  ];
+
+  pad: 1;
+  width: maxlen + pad*2;
+  border: cat["+"; cat[repeat["-"; width;]; "+";];];
+  echo border;
+  i: 0;
+  N[count lines;
+    l: lines[i];
+    spaces: maxlen - count l;
+    echo cat["|";cat[repeat[" "; pad;];cat[l;cat[repeat[" "; pad + spaces;];"|";];];];];
+    i: i + 1;
+  ];
+  echo border;
+}
+
+ ascii_box "readme.txt"

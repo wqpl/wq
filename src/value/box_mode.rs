@@ -16,6 +16,10 @@ fn repr(v: &Value) -> String {
             let inner: Vec<String> = items.iter().map(repr).collect();
             format!("({})", inner.join(" "))
         }
+        Value::IntList(items) => {
+            let inner: Vec<String> = items.iter().map(|n| n.to_string()).collect();
+            format!("({})", inner.join(" "))
+        }
         other => other.to_string(),
     }
 }
@@ -65,12 +69,13 @@ pub fn format_boxed(rows: &[Value]) -> Option<String> {
     //actual alignment
     let table: Vec<Vec<String>> = rows
         .iter()
-        .map(|row| {
-            if let Value::List(cells) = row {
-                cells.iter().map(repr).collect()
-            } else {
-                vec![repr(row)]
-            }
+        .map(|row| match row {
+            Value::List(cells) => cells.iter().map(repr).collect(),
+            Value::IntList(items) => items
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<String>>(),
+            other => vec![repr(other)],
         })
         .collect();
 
