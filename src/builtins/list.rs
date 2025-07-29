@@ -5,28 +5,82 @@ use crate::{
     value::valuei::{Value, WqError, WqResult},
 };
 
+fn til_dims(dims: &[usize], next: &mut i64) -> Value {
+    if dims.len() == 1 {
+        let mut out = Vec::with_capacity(dims[0]);
+        for _ in 0..dims[0] {
+            out.push(*next);
+            *next += 1;
+        }
+        Value::IntList(out)
+    } else {
+        let mut out = Vec::with_capacity(dims[0]);
+        for _ in 0..dims[0] {
+            out.push(til_dims(&dims[1..], next));
+        }
+        Value::List(out)
+    }
+}
+
+fn til_shape(shape: &Value) -> WqResult<Value> {
+    match shape {
+        Value::Int(n) => {
+            if *n < 0 {
+                Err(WqError::TypeError(
+                    "til expects non-negative integer".into(),
+                ))
+            } else {
+                let mut cache = TIL_CACHE.lock().unwrap();
+                if let Some(v) = cache.get(n) {
+                    return Ok(v.clone());
+                }
+                let items: Vec<i64> = (0..*n).collect();
+                let val = Value::IntList(items);
+                cache.insert(*n, val.clone());
+                Ok(val)
+            }
+        }
+        Value::IntList(dims) => {
+            if dims.iter().any(|&d| d < 0) {
+                return Err(WqError::DomainError(
+                    "til length must be non-negative".to_string(),
+                ));
+            }
+            let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
+            let mut next = 0i64;
+            Ok(til_dims(&dims, &mut next))
+        }
+        Value::List(items) => {
+            if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
+                let dims: Vec<usize> = items
+                    .iter()
+                    .map(|v| {
+                        if let Value::Int(n) = v {
+                            *n as usize
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect();
+                let mut next = 0i64;
+                Ok(til_dims(&dims, &mut next))
+            } else {
+                let mut out = Vec::with_capacity(items.len());
+                for v in items {
+                    out.push(til_shape(v)?);
+                }
+                Ok(Value::List(out))
+            }
+        }
+        _ => Err(WqError::TypeError("til expects an integer shape".into())),
+    }
+}
+
 pub fn til(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(WqError::ArityError("til expects 1 argument".to_string()));
     }
-    match &args[0] {
-        Value::Int(n) => {
-            if *n < 0 {
-                return Err(WqError::TypeError(
-                    "til expects non-negative integer".to_string(),
-                ));
-            }
-            let mut cache = TIL_CACHE.lock().unwrap();
-            if let Some(v) = cache.get(n) {
-                return Ok(v.clone());
-            }
-            let items: Vec<i64> = (0..*n).collect();
-            let val = Value::IntList(items);
-            cache.insert(*n, val.clone());
-            Ok(val)
-        }
-        _ => Err(WqError::TypeError("til only works on integers".to_string())),
-    }
+    til_shape(&args[0])
 }
 
 pub fn range(args: &[Value]) -> WqResult<Value> {
@@ -635,35 +689,37 @@ pub fn alloc(args: &[Value]) -> WqResult<Value> {
 }
 
 fn shape_value(v: &Value) -> WqResult<Value> {
-    match v {
-        Value::IntList(items) => Ok(Value::Int(items.len() as i64)),
-        Value::List(items) => {
-            if items.is_empty() {
-                return Ok(Value::Int(0));
-            }
-            let mut shapes = Vec::with_capacity(items.len());
-            for it in items {
-                shapes.push(shape_value(it)?);
-            }
-            let first = shapes.first().cloned().unwrap();
-            let uniform = shapes.iter().all(|s| *s == first);
-            let simple = matches!(first, Value::Int(_) | Value::IntList(_));
-            if uniform && simple {
-                match first {
-                    Value::Int(_) => Ok(Value::Int(items.len() as i64)),
-                    Value::IntList(dims) => {
-                        let mut dims2 = Vec::with_capacity(dims.len() + 1);
-                        dims2.push(items.len() as i64);
-                        dims2.extend(dims);
-                        Ok(Value::IntList(dims2))
+    fn shape_vec(v: &Value) -> Option<Vec<i64>> {
+        match v {
+            Value::IntList(items) => Some(vec![items.len() as i64]),
+            Value::List(items) => {
+                if items.is_empty() {
+                    Some(vec![0])
+                } else {
+                    let first = shape_vec(&items[0])?;
+                    for it in &items[1..] {
+                        let s = shape_vec(it)?;
+                        if s != first {
+                            return None;
+                        }
                     }
-                    _ => unreachable!(),
+                    let mut dims = Vec::with_capacity(first.len() + 1);
+                    dims.push(items.len() as i64);
+                    dims.extend(first);
+                    Some(dims)
                 }
-            } else {
-                Ok(Value::List(shapes))
             }
+            _ => Some(vec![]),
         }
-        _ => Ok(Value::Int(0)),
+    }
+
+    match shape_vec(v) {
+        Some(dims) => match dims.as_slice() {
+            [] => Ok(Value::Int(0)),
+            [d] => Ok(Value::Int(*d)),
+            _ => Ok(Value::IntList(dims)),
+        },
+        None => Ok(Value::Int(v.len() as i64)),
     }
 }
 
@@ -806,8 +862,7 @@ mod tests {
             Value::Int(3),
         ]);
         let nested = alloc(&[nested_shape.clone()]).unwrap();
-        let expected_shape = Value::List(vec![Value::IntList(vec![2, 2]), Value::Int(3)]);
-        assert_eq!(shape(&[nested]).unwrap(), expected_shape);
+        assert_eq!(shape(&[nested]).unwrap(), Value::Int(2));
     }
 
     #[test]
@@ -839,8 +894,8 @@ mod tests {
     #[test]
     fn shape_string_and_mixed_list() {
         let s = Value::List(vec![Value::Char('h'), Value::Char('i')]);
-        assert_eq!(shape(&[s.clone()]).unwrap(), Value::IntList(vec![2, 0]));
+        assert_eq!(shape(&[s.clone()]).unwrap(), Value::Int(2));
         let mixed = Value::List(vec![Value::Char('h'), Value::Int(2)]);
-        assert_eq!(shape(&[mixed]).unwrap(), Value::IntList(vec![2, 0]));
+        assert_eq!(shape(&[mixed]).unwrap(), Value::Int(2));
     }
 }

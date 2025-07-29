@@ -224,7 +224,7 @@ impl Value {
             Value::Char(_) => "char",
             Value::Symbol(_) => "symbol",
             Value::Bool(_) => "bool",
-            Value::IntList(_) => "list",
+            Value::IntList(_) => "int-list",
             Value::List(_) => "list",
             Value::Dict(_) => "dict",
             Value::Function { .. } => "function",
