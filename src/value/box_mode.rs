@@ -71,10 +71,7 @@ pub fn format_boxed(rows: &[Value]) -> Option<String> {
         .iter()
         .map(|row| match row {
             Value::List(cells) => cells.iter().map(repr).collect(),
-            Value::IntList(items) => items
-                .iter()
-                .map(|n| n.to_string())
-                .collect::<Vec<String>>(),
+            Value::IntList(items) => items.iter().map(|n| n.to_string()).collect::<Vec<String>>(),
             other => vec![repr(other)],
         })
         .collect();

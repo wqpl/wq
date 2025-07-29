@@ -22,9 +22,7 @@ fn has_ctrl(node: &AstNode) -> bool {
         | AstNode::ForLoop { body, .. }
         | AstNode::Function { body, .. } => has_ctrl(body),
         AstNode::UnaryOp { operand, .. } => has_ctrl(operand),
-        AstNode::Postfix { object, items, .. } => {
-            has_ctrl(object) || items.iter().any(has_ctrl)
-        }
+        AstNode::Postfix { object, items, .. } => has_ctrl(object) || items.iter().any(has_ctrl),
         AstNode::BinaryOp { left, right, .. } => has_ctrl(left) || has_ctrl(right),
         AstNode::Call { args, .. } | AstNode::CallAnonymous { args, .. } | AstNode::List(args) => {
             args.iter().any(has_ctrl)
@@ -305,8 +303,8 @@ impl Compiler {
                     .push(Instruction::StoreVar(count_var.clone()));
                 self.instructions
                     .push(Instruction::LoadConst(Value::Int(0)));
-                                    self.instructions
-                                        .push(Instruction::StoreLocalVar("_n".to_string()));
+                self.instructions
+                    .push(Instruction::StoreLocalVar("_n".to_string()));
                 self.instructions.push(Instruction::LoadConst(Value::Null));
                 self.instructions
                     .push(Instruction::StoreVar(result_var.clone()));
@@ -334,8 +332,8 @@ impl Compiler {
                     .push(Instruction::LoadConst(Value::Int(1)));
                 self.instructions
                     .push(Instruction::BinaryOp(BinaryOperator::Add));
-                                self.instructions
-                                    .push(Instruction::StoreLocalVar("_n".to_string()));
+                self.instructions
+                    .push(Instruction::StoreLocalVar("_n".to_string()));
                 self.instructions.push(Instruction::Jump(start));
                 let end = self.instructions.len();
                 self.instructions[jump_pos] = Instruction::JumpIfFalse(end);
