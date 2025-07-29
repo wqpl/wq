@@ -1,5 +1,6 @@
 string
-1 arg
+======
+string x
 
 Examples:
   string 42 // "42"

@@ -1,5 +1,6 @@
 cosh
-1 arg
+====
+cosh x
 
 Examples:
   cosh 0 // 1.0

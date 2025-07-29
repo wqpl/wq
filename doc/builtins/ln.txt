@@ -1,5 +1,6 @@
 ln
-1 arg
+==
+ln x
 
 Examples:
   ln 1 // 0.0

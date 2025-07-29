@@ -1,6 +1,7 @@
 asciiplot
-variable arg numbers
-each arg must be a numeric list, or a list of 2-element numeric lists
+=========
+asciiplot[<numeric list | list of 2-element numeric lists>+]
 
-asciiplot til 14               // dx = 1
-asciiplot((0;0);(1;1);(2;4))
+Examples:
+  asciiplot til 14               // dx = 1
+  asciiplot((0;0);(1;1);(2;4))

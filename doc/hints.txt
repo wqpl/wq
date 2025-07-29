@@ -1,20 +1,11 @@
 (1) fn
-    to call functions that accept 0 args, do one of the following:
-        fn[]        // recommended
-        fn[;]
-    to call functions that accept 1 arg, do one of the following:
-        fn 1        // recommended
-        fn[1;]      // the trailing ; is required
     the following is invalid:
         fn -1       // this is currently parsed as (- fn 1)
-                    // to pass -1 to fn, do: fn(-1) or fn[-1;]
-    to call functions that accept >=2 args:
-        fn[1;2;]
+                    // to pass -1 to fn, do: fn(-1) or fn[-1]
     functions defined without a param list can be called with 0, 1, 2 or 3 args,
     which are implicitly bound to x, y and z.
-    to explicitly define a function that accepts 0 args, do one of the following:
+    to explicitly define a function that accepts 0 args:
         fn:{[]...}
-        fn:{[;]...}
 
 (2) body
     currently, "blocks" are not present in wq,
@@ -25,24 +16,13 @@
         $.[c;do1;do2;...]
         $.[not c;do3;do4;...]
 
-    loops accept an arbitrary number of bodies:
+    loops accept an arbitrary number of body expressions:
         N[3;echo n;a:n+1;echo a;]
 
-    if you really need "blocks" for some reason, do one of following:
-        {do1;do2;do3}()         // invokes an
-        {do1;do2;do3}[]        // anonymous function.
+    if you really need "blocks" for some reason, do:
+        {do1;do2;do3}[]         // invokes an anonymous function
 
-(3) semicolons
-    trailing semicolons after function arguments are optional.
-    the parser now distinguishes calls from indexing automatically.
-        fn[1;2]    // call
-        lst[1;2]   // index
-    in function parameter lists, a trailing semicolon is still optional.
-    both of the following are valid:
-        fn:{[m;n]...}
-        fn:{[m;n;]...}
-
-(4) newlines
+(3) newlines
     newlines are generally accepted and can act as semicolons in most contexts.
 
     valid examples:

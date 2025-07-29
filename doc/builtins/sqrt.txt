@@ -1,5 +1,6 @@
 sqrt
-1 arg
+====
+sqrt x
 
 Examples:
   sqrt 4 // 2

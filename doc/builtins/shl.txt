@@ -1,5 +1,6 @@
 shl
-2 args
+===
+shl[x;y]
 
 Examples:
   shl[1;2] // 4

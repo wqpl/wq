@@ -1,5 +1,6 @@
 tan
-1 arg
+===
+tan x
 
 Examples:
   tan 0 // 0.0

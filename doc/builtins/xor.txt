@@ -1,5 +1,6 @@
 xor
-2 args
+===
+xor[x;y]
 
 Examples:
   xor[true;false] // true

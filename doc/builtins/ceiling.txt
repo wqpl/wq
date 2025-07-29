@@ -1,5 +1,6 @@
 ceiling
-1 arg
+=======
+ceiling x
 
 Examples:
   ceiling 2.2 // 3

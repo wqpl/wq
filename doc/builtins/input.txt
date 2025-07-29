@@ -1,5 +1,7 @@
 input
-0 or 1 arg
+=====
+input[]
+input <prompt>
 
 Examples:
   input "name: "

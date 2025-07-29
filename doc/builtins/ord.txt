@@ -1,6 +1,7 @@
 ord
-1 arg
+===
+ord x
 
 Examples:
-  ord 'A'  // 65
+  ord "A"  // 65
   ord "AB" // (65;66)

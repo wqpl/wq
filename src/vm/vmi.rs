@@ -193,13 +193,13 @@ impl Vm {
                     let result = match op {
                         BinaryOperator::Add => left
                             .add(&right)
-                            .ok_or_else(|| classify_arith("addition", &left, &right)),
+                            .ok_or_else(|| classify_arith("add", &left, &right)),
                         BinaryOperator::Subtract => left
                             .subtract(&right)
-                            .ok_or_else(|| classify_arith("subtraction", &left, &right)),
+                            .ok_or_else(|| classify_arith("subtract", &left, &right)),
                         BinaryOperator::Multiply => left
                             .multiply(&right)
-                            .ok_or_else(|| classify_arith("multiplication", &left, &right)),
+                            .ok_or_else(|| classify_arith("multiply", &left, &right)),
                         BinaryOperator::Divide => left
                             .divide(&right)
                             .ok_or_else(|| classify_divide(&left, &right)),
@@ -524,7 +524,11 @@ fn classify_arith(op_name: &str, left: &Value, right: &Value) -> WqError {
     {
         WqError::DomainError(format!("{op_name} overflow"))
     } else {
-        WqError::TypeError(format!("Cannot {op_name} these types"))
+        WqError::TypeError(format!(
+            "Cannot {op_name} {} and {}",
+            left.type_name(),
+            right.type_name()
+        ))
     }
 }
 

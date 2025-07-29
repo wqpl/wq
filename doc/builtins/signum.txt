@@ -1,5 +1,6 @@
 signum
-1 arg
+======
+signum x
 
 Examples:
   signum -3 // -1

@@ -1,5 +1,6 @@
 exec
-1 or more args
+====
+exec[<command>+]
 
 Examples:
   exec "ls"

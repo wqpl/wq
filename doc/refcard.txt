@@ -5,12 +5,12 @@ see also: help <builtin>, wq -h
                assignment^   cat count
 =    ~    <    <=   >    >=
 eq  neq
-$[cond;t;f1;f2...] $.[cond;t1;t2...]
-W[cond;s1;s2...]   N[n;echo _n]
-@a @b @c @r
+$[cond;t;f1;f2...]     $.[cond;t1;t2...]
+W[cond;s1;s2...]       N[n;echo _n]
+@a assert|@b break|@c continue|@r return
 ----------------------------------------
 int float char symbol bool list dict
-function stream
+function stream (int-list) (null)
 lst:(1;2);lst[0] dct:(`a:1;`b:2);dct[`a]
 func f:{[x;n]t:x;N[n-1;t:t*x];t};f[2;3]
 ----------------------------------------
@@ -23,8 +23,8 @@ abs neg signum sqrt exp ln floor ceiling
 rand sin cos tan sinh cosh tanh til
 range count first last reverse sum max
 min avg take drop where distinct sort
-cat flatten alloc idx type symbol string
-format null? keys and or not xor band
-bor bxor bnot shl shr echo exec showt input
-fopen fread fwrite fclose fsize
-asciiplot
+cat flatten shape alloc idx find in type
+symbol string chr ord format null? keys
+and or not xor band bor bxor bnot shl
+shr echo exec eval showt fopen fread
+fwrite fclose fsize input asciiplot

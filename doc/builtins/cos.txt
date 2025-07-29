@@ -1,5 +1,6 @@
 cos
-1 arg
+===
+cox x
 
 Examples:
   cos 0 // 1.0

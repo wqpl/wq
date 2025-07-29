@@ -1,5 +1,6 @@
 abs
-1 arg
+===
+abs x
 
 Examples:
   abs(-1)    // 1

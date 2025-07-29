@@ -1,5 +1,6 @@
 showt
-1 arg
+=====
+showt x
 
 Examples:
   showt[`a:1;`b:2]

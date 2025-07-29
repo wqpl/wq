@@ -1,5 +1,6 @@
 band
-2 args
+====
+band[x;y]
 
 Examples:
   band[3;1] // 1

@@ -1,5 +1,3 @@
 fsize
-1 arg
-
-Examples:
-  fsize "file"
+=====
+fsize <path>

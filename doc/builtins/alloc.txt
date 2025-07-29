@@ -1,8 +1,8 @@
 alloc
-1 arg
+=====
+alloc <shape>
 
 Examples:
   alloc 3          // (0;0;0)
   alloc(3;3)       // ((0;0;0);(0;0;0))
   alloc((2;2);3)   // (((0;0);(0;0));(0;0;0))
-  alloc(2;3;4)     // 3D array of zeros

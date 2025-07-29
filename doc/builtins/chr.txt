@@ -1,5 +1,6 @@
 chr
-1 arg
+===
+chr x
 
 Examples:
 chr 65  // "A"

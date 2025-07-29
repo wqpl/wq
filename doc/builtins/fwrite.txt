@@ -1,5 +1,6 @@
 fwrite
-2 args
+======
+fwrite[<stream>;<content>]
 
 Examples:
   fwrite[h;"hi"]

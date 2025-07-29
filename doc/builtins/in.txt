@@ -1,5 +1,6 @@
 in
-2 args
+==
+in[x;y]
 
 Examples:
   in[1;(1;2;3)] // true

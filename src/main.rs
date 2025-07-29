@@ -28,7 +28,7 @@ use crate::load_resolver::{load_script, parse_load_filename, resolve_load_path};
 fn main() {
     let args = env::args().skip(1);
 
-    let mut use_bcvm = true;
+    let mut use_vm = true;
     let mut debug_mode = false;
 
     let mut file: Option<String> = None;
@@ -50,7 +50,7 @@ fn main() {
                 println!("wq {}", env!("CARGO_PKG_VERSION"));
                 return;
             }
-            "--tree-walker" | "-t" => use_bcvm = false,
+            "--tree-walker" | "-t" => use_vm = false,
             "--format" | "-f" => {
                 if let Some(p) = iter.next() {
                     format_file = Some(p);
@@ -79,7 +79,7 @@ fn main() {
 
     // Handle command line script execution
     if let Some(file) = file {
-        if use_bcvm {
+        if use_vm {
             vm::vm_exec_script(&file, debug_mode);
         } else {
             execute_script(&file);
@@ -93,7 +93,7 @@ fn main() {
         "help | quit".green()
     );
 
-    let mut evaluator: Box<dyn ReplEngine> = if use_bcvm {
+    let mut evaluator: Box<dyn ReplEngine> = if use_vm {
         Box::new(VmEvaluator::new())
     } else {
         Box::new(Evaluator::new())

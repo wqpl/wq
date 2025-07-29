@@ -1,5 +1,6 @@
 til
-1 arg
+===
+til <shape>
 
 Examples:
   til 3      // (0;1;2)

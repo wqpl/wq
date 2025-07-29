@@ -1,5 +1,3 @@
 fclose
-1 arg
-
-Examples:
-  fclose h
+======
+fclose <stream>

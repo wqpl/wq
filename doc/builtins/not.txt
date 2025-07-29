@@ -1,5 +1,6 @@
 not
-1 arg
+===
+not x
 
 Examples:
   not true // false

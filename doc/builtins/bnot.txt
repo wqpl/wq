@@ -1,5 +1,6 @@
 bnot
-1 arg
+====
+bnot x
 
 Examples:
   bnot 0 // -1

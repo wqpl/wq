@@ -1,5 +1,6 @@
 exp
-1 arg
+===
+exp x
 
 Examples:
   exp 1 // 2.718...

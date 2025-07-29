@@ -1,5 +1,6 @@
 format
-1 or more args
+======
+format[<string>;<value>*]
 
 Examples:
   format["x={}";3;] // "x=3"

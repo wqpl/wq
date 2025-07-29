@@ -1,5 +1,6 @@
 or
-2 args
+==
+or[x;y]
 
 Examples:
   or[true;false] // true

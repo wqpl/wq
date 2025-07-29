@@ -1,5 +1,6 @@
 type
-1 arg
+====
+type x
 
 Examples:
   type 1 // "int"

@@ -1,5 +1,7 @@
 count
-1 arg
+=====
+count x
 
+// Using # to count is recommended
 Examples:
   count(1;2;3) // 3

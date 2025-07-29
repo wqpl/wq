@@ -1,9 +1,12 @@
 echo
-1 or 2 args
+====
+echo x
+echo x y
 
-print a value to stdout. a newline is printed by default. when the optional
-boolean argument is false, no newline is appended.
+// Print a value to stdout.
+// A newline is printed by default, when the optional
+// boolean argument is false, no newline is appended.
 
 Examples:
   echo "hi"
-  echo["hi";false;]
+  echo["hi";false]

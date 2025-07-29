@@ -1,5 +1,6 @@
 tanh
-1 arg
+====
+tanh x
 
 Examples:
   tanh 0 // 0.0
