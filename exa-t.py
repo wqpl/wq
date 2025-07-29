@@ -119,7 +119,8 @@ def run_tests(build_type, script=None, run_all=False):
             sys.exit(1)
     elif not run_all:
         print(
-            "[ERROR] Specify a script name or use --all to run all tests.", file=sys.stderr,
+            "[ERROR] Specify a script name or use --all to run all tests.",
+            file=sys.stderr,
         )
         sys.exit(1)
 
