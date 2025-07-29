@@ -129,7 +129,7 @@ impl Compiler {
                     self.instructions.push(Instruction::Jump(0));
                     loop_info.break_jumps.push(pos);
                 } else {
-                    return Err(WqError::DomainError("@b outside loop".into()));
+                    return Err(WqError::SyntaxError("@b outside loop".into()));
                 }
             }
             AstNode::Continue => {
@@ -138,12 +138,12 @@ impl Compiler {
                     self.instructions.push(Instruction::Jump(0));
                     loop_info.continue_jumps.push(pos);
                 } else {
-                    return Err(WqError::DomainError("@c outside loop".into()));
+                    return Err(WqError::SyntaxError("@c outside loop".into()));
                 }
             }
             AstNode::Return(expr) => {
                 if self.fn_depth == 0 {
-                    return Err(WqError::DomainError("@r outside function".into()));
+                    return Err(WqError::SyntaxError("@r outside function".into()));
                 }
                 if let Some(e) = expr {
                     self.compile(e)?;
