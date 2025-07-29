@@ -240,10 +240,7 @@ impl Evaluator {
                 // Try built-in functions first
                 match self.builtins.call(name, &arg_values) {
                     Ok(result) => Ok(result),
-                    Err(WqError::ArityError(msg)) => Err(WqError::ArityError(msg)),
-                    Err(WqError::TypeError(msg)) => Err(WqError::TypeError(msg)),
-                    Err(WqError::RuntimeError(msg)) => Err(WqError::RuntimeError(msg)),
-                    Err(WqError::DomainError(_)) => {
+                    Err(WqError::ValueError(_)) => {
                         // Check if it's a user-defined function in stack and global env
                         let function = self
                             .call_stack
@@ -259,7 +256,7 @@ impl Evaluator {
                             ))),
                         }
                     }
-                    _ => Err(WqError::DomainError("Unknown error in eval".to_string())),
+                    Err(other) => Err(other),
                 }
             }
 

@@ -1,9 +1,18 @@
-cargo fmt
-cargo clippy
--------------------------
-ruff format
-ruff check
--------------------------
-python3 exa-t.py gen
--------------------------
-python3 bdg.py concise
+                    CONTRIBUTING
+=====================================================
+contributions are always welcome!
+=====================================================
+issues:   (1) include steps to reproduce
+
+features: (1) open an issue first
+          (2) explain the value
+
+PR        (1) rust:   cargo fmt
+                      cargo clippy # Ensure no warns/errs
+                      cargo test   # All tests must pass
+          (2) python: ruff format
+                      ruff check
+          (3) commit msg: concise, clean
+          (4) PR: clarify what’s changed and why
+          (5) add your name (and optionally your email)
+              to AUTHORS.txt

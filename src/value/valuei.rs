@@ -287,6 +287,23 @@ impl Value {
                 }
                 Some(Value::List(result))
             }
+            (Value::List(items), Value::IntList(idxs)) => {
+                let mut result = Vec::new();
+                for i in idxs {
+                    let len = items.len() as i64;
+                    let idx_i64 = if *i < 0 { len + *i } else { *i };
+                    if idx_i64 < 0 || idx_i64 >= len {
+                        return None;
+                    }
+                    let idx = idx_i64 as usize;
+                    if let Some(v) = items.get(idx) {
+                        result.push(v.clone());
+                    } else {
+                        return None;
+                    }
+                }
+                Some(Value::List(result))
+            }
             (Value::IntList(items), Value::List(idxs)) => {
                 let mut out = Vec::new();
                 for idx_val in idxs {
@@ -302,6 +319,23 @@ impl Value {
                         } else {
                             return None;
                         }
+                    } else {
+                        return None;
+                    }
+                }
+                Some(Value::IntList(out))
+            }
+            (Value::IntList(items), Value::IntList(idxs)) => {
+                let mut out = Vec::new();
+                for i in idxs {
+                    let len = items.len() as i64;
+                    let idx_i64 = if *i < 0 { len + *i } else { *i };
+                    if idx_i64 < 0 || idx_i64 >= len {
+                        return None;
+                    }
+                    let idx = idx_i64 as usize;
+                    if let Some(v) = items.get(idx) {
+                        out.push(*v);
                     } else {
                         return None;
                     }
@@ -715,5 +749,12 @@ mod tests {
             dict.index(&keys),
             Some(Value::list(vec![Value::int(2), Value::int(1)]))
         );
+    }
+
+    #[test]
+    fn test_intlist_multi_index() {
+        let arr = Value::IntList(vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let idxs = Value::IntList(vec![2, 4]);
+        assert_eq!(arr.index(&idxs), Some(Value::IntList(vec![2, 4])));
     }
 }

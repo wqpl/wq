@@ -650,7 +650,7 @@ fn shape_value(v: &Value) -> WqResult<Value> {
             let simple = matches!(first, Value::Int(_) | Value::IntList(_));
             if uniform && simple {
                 match first {
-                    Value::Int(n) => Ok(Value::IntList(vec![items.len() as i64, n])),
+                    Value::Int(_) => Ok(Value::Int(items.len() as i64)),
                     Value::IntList(dims) => {
                         let mut dims2 = Vec::with_capacity(dims.len() + 1);
                         dims2.push(items.len() as i64);
@@ -663,7 +663,7 @@ fn shape_value(v: &Value) -> WqResult<Value> {
                 Ok(Value::List(shapes))
             }
         }
-        _ => Err(WqError::TypeError("shape expects a list".to_string())),
+        _ => Ok(Value::Int(0)),
     }
 }
 
@@ -827,5 +827,20 @@ mod tests {
         let lst = Value::IntList(vec![1, 2, 3, 2]);
         assert_eq!(find(&[Value::Int(2), lst.clone()]).unwrap(), Value::Int(1));
         assert_eq!(find(&[Value::Int(4), lst]).unwrap(), Value::Null);
+    }
+
+    #[test]
+    fn shape_atoms_and_empty() {
+        assert_eq!(shape(&[Value::Int(5)]).unwrap(), Value::Int(0));
+        assert_eq!(shape(&[Value::Char('a')]).unwrap(), Value::Int(0));
+        assert_eq!(shape(&[Value::List(vec![])]).unwrap(), Value::Int(0));
+    }
+
+    #[test]
+    fn shape_string_and_mixed_list() {
+        let s = Value::List(vec![Value::Char('h'), Value::Char('i')]);
+        assert_eq!(shape(&[s.clone()]).unwrap(), Value::IntList(vec![2, 0]));
+        let mixed = Value::List(vec![Value::Char('h'), Value::Int(2)]);
+        assert_eq!(shape(&[mixed]).unwrap(), Value::IntList(vec![2, 0]));
     }
 }
