@@ -3,9 +3,9 @@ load ../lib/str.wq
 fold_line:{[chars;width]
   W[count chars > width;
     idx_: width - 1
-    W[and[idx >= 0; chars[idx_] ~ " "]; idx_: idx_ - 1]
+    W[and[idx_ >= 0; chars[idx_] ~ " "]; idx_: idx_ - 1]
     $.[idx_ < 0;seg: take[width; chars]; chars: drop[width; chars]]
-    $.[idx_ > 0;seg: take[idx; chars]; chars: drop[idx + 1; chars]]
+    $.[idx_ > 0;seg: take[idx_; chars]; chars: drop[idx_ + 1; chars]]
     echo seg]
   $.[count chars > 0; echo chars]}
 fold_file:{[path;width]

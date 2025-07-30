@@ -401,9 +401,11 @@ pub fn take(args: &[Value]) -> WqResult<Value> {
                 Ok(Value::IntList(items[..n].to_vec()))
             }
         }
-        _ => Err(WqError::TypeError(
-            "take expects integer and list".to_string(),
-        )),
+        _ => Err(WqError::TypeError(format!(
+            "take expects integer and list, got {} and {}",
+            &args[0].type_name(),
+            &args[1].type_name()
+        ))),
     }
 }
 
@@ -434,9 +436,11 @@ pub fn drop(args: &[Value]) -> WqResult<Value> {
                 Ok(Value::IntList(items[n..].to_vec()))
             }
         }
-        _ => Err(WqError::TypeError(
-            "drop expects integer and list".to_string(),
-        )),
+        _ => Err(WqError::TypeError(format!(
+            "drop expects integer and list, got {} and {}",
+            &args[0].type_name(),
+            &args[1].type_name()
+        ))),
     }
 }
 

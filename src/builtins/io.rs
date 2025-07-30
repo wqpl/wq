@@ -64,7 +64,7 @@ pub fn fopen(args: &[Value]) -> WqResult<Value> {
             writer = Some(Box::new(file) as Box<dyn Write + Send>);
         }
         _ => {
-            return Err(WqError::DomainError("invalid mode".into()));
+            return Err(WqError::DomainError("invalid fopen mode".into()));
         }
     }
     let handle = StreamHandle {
@@ -98,7 +98,7 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
                     buf.truncate(read);
                     Ok(Value::IntList(buf.into_iter().map(|b| b as i64).collect()))
                 } else {
-                    Err(WqError::TypeError("fread length".into()))
+                    Err(WqError::TypeError("invalid fread length".into()))
                 }
             } else {
                 let mut line = String::new();

@@ -11,6 +11,10 @@ pub fn keys(args: &[Value]) -> WqResult<Value> {
             let list = ks.into_iter().map(Value::Symbol).collect();
             Ok(Value::List(list))
         }
-        _ => Err(WqError::TypeError("keys only works on dicts".to_string())),
+        _ => Err(WqError::TypeError(format!(
+            "keys expect dict, got {} of type {}",
+            &args[0],
+            &args[0].type_name()
+        ))),
     }
 }
