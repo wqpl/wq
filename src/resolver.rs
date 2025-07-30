@@ -34,7 +34,15 @@ impl Resolver {
     fn resolve_node(&mut self, node: AstNode) -> AstNode {
         match node {
             AstNode::Assignment { name, value } => {
+                let was_function = matches!(*value, AstNode::Function { .. });
+                if was_function {
+                    // Register the function name before resolving the body so
+                    // recursive references are recognized.
+                    self.known_funcs.insert(name.clone());
+                }
+
                 let value = Box::new(self.resolve_node(*value));
+
                 if matches!(&*value, AstNode::Function { .. }) {
                     self.known_funcs.insert(name.clone());
                 } else {

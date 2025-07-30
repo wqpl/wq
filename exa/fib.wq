@@ -1,3 +1,2 @@
-fibtr:{[n;a;b]$[n=0;a;fibtr[n-1;b;a+b;]]}
-fib:{fibtr[x;0;1;]}
+fib:{fib_:{[n;a;b]$[n=0;a;fib_[n-1;b;a+b]]};fib_[x;0;1]}
 echo fib 90

@@ -1,28 +1,18 @@
-// EXCLUDE
-
 load ../lib/str.wq
 
 fold_line:{[chars;width]
   W[count chars > width;
-    //echo count chars
-    idx_: width - 1;
-    W[and[idx >= 0; chars[idx_] ~ " ";]; idx_: idx_ - 1;];
-    $.[idx_ < 0;seg: take[width; chars;]; chars: drop[width; chars;]];
-    $.[idx_ > 0;seg: take[idx; chars;]; chars: drop[idx + 1; chars;]];
-    echo seg;
-  ];
-  $[count chars > 0; echo chars;];
-}
-
+    idx_: width - 1
+    W[and[idx >= 0; chars[idx_] ~ " "]; idx_: idx_ - 1]
+    $.[idx_ < 0;seg: take[width; chars]; chars: drop[width; chars]]
+    $.[idx_ > 0;seg: take[idx; chars]; chars: drop[idx + 1; chars]]
+    echo seg]
+  $.[count chars > 0; echo chars]}
 fold_file:{[path;width]
-  h: fopen[path; "r";];
-  line: fread[h;];
+  h: fopen[path; "r"];line: fread[h]
   W[not null? line;
-    fold_line[line; width;];
-    line: fread[h;];
-  ];
-  fclose[h;];
-}
-
-path:input "enter path"
-fold_file[path; 80;]
+    fold_line[line; width]
+    line: fread[h]]
+  fclose[h]}
+//fold_file[input "Enter path"; 80]
+fold_file["readme.txt"; 10]

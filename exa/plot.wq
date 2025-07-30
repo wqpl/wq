@@ -1,18 +1,7 @@
-// sin x, 1000 samples, dx=0.01
-sine: sin[(til 1000)/100;]
-cosine: cos[(til 1000)/100;]
-
-// fx=x^2, 150 samples, dx=1
-fx:{[x]x*x}
-sqr: fx[til 150;]
-
-// color test
-id:{[x]x}
-y1: id[til 1000;]
-
-echo "sin x && cos x"
-asciiplot[sine;cosine;]
-echo "fx=x*x"
-asciiplot sqr
-echo "linear"
-asciiplot[0.25*y1;0.5*y1;y1;2*y1;3*y1;4*y1;]
+sine:   sin[(til 1000)/100];
+cosine: cos[(til 1000)/100]
+sqr:    {x*x} til 150
+y1:     {x^2} til 1000
+echo "sin x, cos x";asciiplot[sine;cosine]
+echo "fx=x*x";      asciiplot sqr
+echo "quadratic";   asciiplot[0.25*y1;0.5*y1;y1;2*y1;3*y1;4*y1]

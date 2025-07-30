@@ -1229,6 +1229,24 @@ mod tests {
     }
 
     #[test]
+    fn test_recursive_function_def() {
+        let ast = parse_string("a:{a[]}").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::Assignment {
+                name: "a".into(),
+                value: Box::new(AstNode::Function {
+                    params: None,
+                    body: Box::new(AstNode::Call {
+                        name: "a".into(),
+                        args: vec![],
+                    }),
+                }),
+            }
+        );
+    }
+
+    #[test]
     fn test_parse_while() {
         let ast = parse_string("W[x<3;x:1]").unwrap();
         assert!(matches!(ast, AstNode::WhileLoop { .. }));

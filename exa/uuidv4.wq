@@ -1,34 +1,15 @@
-// EXCLUDE
-
 load ../lib/str.wq
 
-HEX:"0123456789abcdef";
-hexbyte:{[b]cat[HEX[shr[b;4;]];HEX[band[b;15;]];]};
-
+HEX:"0123456789abcdef";hexbyte:{[b]HEX[shr[b;4]],HEX[band[b;15]]}
 uuidv4:{
-  bytes:();
-  N[16;bytes:cat[bytes;rand 256;];];
-  bytes[6]:bor[band[bytes[6];15;];64;];
-  bytes[8]:bor[band[bytes[8];63;];128;];
-  chars:();
-  N[16;chars:cat[chars;hexbyte[bytes[_n];];];];
-  part1: take[8;chars;];
-  rest: drop[8;chars;];
-  uuid: cat[part1;"-";];
-  part2: take[4;rest;];
-  uuid: cat[uuid;part2;];
-  uuid: cat[uuid;"-";];
-  rest: drop[4;rest;];
-  part3: take[4;rest;];
-  uuid: cat[uuid;part3;];
-  uuid: cat[uuid;"-";];
-  rest: drop[4;rest;];
-  part4: take[4;rest;];
-  uuid: cat[uuid;part4;];
-  uuid: cat[uuid;"-";];
-  part5: drop[4;rest;];
-  cat[uuid;part5;]
-};
-
-getu4:{l:();N[x;l:l,(,uuidv4[;])];l}
+  bytes:alloc 16;N[16;bytes[_n]:rand 256]
+  bytes[6]:bor[band[bytes[6];15];64];bytes[8]:bor[band[bytes[8];63];128]
+  chars:();N[16;chars:chars,hexbyte[bytes[_n]]]
+  part1: take[8;chars];rest: drop[8;chars]
+  part2: take[4;rest]; rest: drop[4;rest]
+  part3: take[4;rest]; rest: drop[4;rest;]
+  part4: take[4;rest;]
+  part5: drop[4;rest;]
+  part1,"-",part2,"-",part3,"-",part4,"-",part5}
+getu4:{l:();N[x;l:l,(,uuidv4[])];l}
 echo getu4 4
