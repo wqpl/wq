@@ -1,8 +1,9 @@
+use super::arity_error;
 use crate::value::valuei::{Value, WqError, WqResult};
 
 pub fn keys(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("keys expects 1 argument".to_string()));
+        return Err(arity_error("keys", "1 argument", args.len()));
     }
     match &args[0] {
         Value::Dict(map) => {
@@ -12,9 +13,8 @@ pub fn keys(args: &[Value]) -> WqResult<Value> {
             Ok(Value::List(list))
         }
         _ => Err(WqError::TypeError(format!(
-            "keys expect dict, got {} of type {}",
-            &args[0],
-            &args[0].type_name()
+            "keys expects dict, got {}",
+            args[0].type_name()
         ))),
     }
 }

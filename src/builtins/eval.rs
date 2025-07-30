@@ -1,12 +1,13 @@
+use super::arity_error;
 use crate::{
     builtins::values_to_strings,
     evaluator::Evaluator,
-    value::valuei::{Value, WqError, WqResult},
+    value::valuei::{Value, WqResult},
 };
 
 pub fn eval(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("eval expects 1 argument".to_string()));
+        return Err(arity_error("eval", "1 argument", args.len()));
     }
     let code = values_to_strings(&[args[0].clone()])?
         .into_iter()

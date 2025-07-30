@@ -17,6 +17,10 @@ mod typeb;
 
 static TIL_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
+fn arity_error(func: &str, expected: &str, got: usize) -> WqError {
+    WqError::ArityError(format!("{func} expects {expected}, got {got}"))
+}
+
 /// builtin functions
 pub type BuiltinFn = fn(&[Value]) -> WqResult<Value>;
 pub struct Builtins {

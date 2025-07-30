@@ -1,11 +1,14 @@
+use super::arity_error;
 use crate::value::valuei::{Value, WqError, WqResult};
 use rgb::RGB8;
 use textplots::{Chart, ColorPlot, Plot, Shape};
 
 pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqError::ArityError(
-            "asciiplot expects at least one argument".into(),
+        return Err(arity_error(
+            "asciiplot",
+            "at least one argument",
+            args.len(),
         ));
     }
 

@@ -1,13 +1,12 @@
+use super::arity_error;
 use crate::{
     builtins::values_to_strings,
-    value::valuei::{Value, WqError, WqResult},
+    value::valuei::{Value, WqResult},
 };
 
 pub fn format_string(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqError::ArityError(
-            "format expects at least 1 argument".to_string(),
-        ));
+        return Err(arity_error("format", "at least 1 argument", args.len()));
     }
 
     let fmt = values_to_strings(&[args[0].clone()])?
@@ -29,9 +28,7 @@ pub fn format_string(args: &[Value]) -> WqResult<Value> {
                 Some('}') => {
                     iter.next();
                     if arg_idx + 1 >= args.len() {
-                        return Err(WqError::ArityError(
-                            "format expects more arguments".to_string(),
-                        ));
+                        return Err(arity_error("format", "more arguments", args.len()));
                     }
                     output.push_str(&value_to_plain_string(&args[arg_idx + 1]));
                     arg_idx += 1;
@@ -52,9 +49,7 @@ pub fn format_string(args: &[Value]) -> WqResult<Value> {
     }
 
     if arg_idx + 1 < args.len() {
-        return Err(WqError::ArityError(
-            "too many arguments for format".to_string(),
-        ));
+        return Err(arity_error("format", "fewer arguments", args.len()));
     }
 
     Ok(Value::List(output.chars().map(Value::Char).collect()))

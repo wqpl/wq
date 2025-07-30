@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+use super::arity_error;
 use crate::{
     builtins::TIL_CACHE,
     value::valuei::{Value, WqError, WqResult},
@@ -78,34 +79,34 @@ fn til_shape(shape: &Value) -> WqResult<Value> {
 
 pub fn til(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("til expects 1 argument".to_string()));
+        return Err(arity_error("til", "1 argument", args.len()));
     }
     til_shape(&args[0])
 }
 
 pub fn range(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 && args.len() != 3 {
-        return Err(WqError::ArityError(
-            "range expects 2 or 3 arguments".to_string(),
-        ));
+        return Err(arity_error("range", "2 or 3 arguments", args.len()));
     }
 
     // extract start
     let start = match &args[0] {
         Value::Int(n) => *n,
         _ => {
-            return Err(WqError::TypeError(
-                "range only works on integers".to_string(),
-            ));
+            return Err(WqError::TypeError(format!(
+                "range expects integers, got {}",
+                args[0].type_name()
+            )));
         }
     };
     // extract end
     let end = match &args[1] {
         Value::Int(n) => *n,
         _ => {
-            return Err(WqError::TypeError(
-                "range only works on integers".to_string(),
-            ));
+            return Err(WqError::TypeError(format!(
+                "range expects integers, got {}",
+                args[1].type_name()
+            )));
         }
     };
     // extract optional step (default = 1)
@@ -147,14 +148,14 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
 
 pub fn count(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("count expects 1 argument".to_string()));
+        return Err(arity_error("count", "1 argument", args.len()));
     }
     Ok(Value::Int(args[0].len() as i64))
 }
 
 pub fn first(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("first expects 1 argument".to_string()));
+        return Err(arity_error("first", "1 argument", args.len()));
     }
     match &args[0] {
         Value::List(items) => {
@@ -171,13 +172,16 @@ pub fn first(args: &[Value]) -> WqResult<Value> {
                 Ok(Value::Int(items[0]))
             }
         }
-        _ => Err(WqError::TypeError("first only works on lists".to_string())),
+        _ => Err(WqError::TypeError(format!(
+            "first expects a list, got {}",
+            args[0].type_name()
+        ))),
     }
 }
 
 pub fn last(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("last expects 1 argument".to_string()));
+        return Err(arity_error("last", "1 argument", args.len()));
     }
     match &args[0] {
         Value::List(items) => {
@@ -194,15 +198,16 @@ pub fn last(args: &[Value]) -> WqResult<Value> {
                 Ok(Value::Int(items[items.len() - 1]))
             }
         }
-        _ => Err(WqError::TypeError("last only works on lists".to_string())),
+        _ => Err(WqError::TypeError(format!(
+            "last expects a list, got {}",
+            args[0].type_name()
+        ))),
     }
 }
 
 pub fn reverse(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError(
-            "reverse expects 1 argument".to_string(),
-        ));
+        return Err(arity_error("reverse", "1 argument", args.len()));
     }
     match &args[0] {
         Value::List(items) => {
@@ -215,15 +220,16 @@ pub fn reverse(args: &[Value]) -> WqResult<Value> {
             reversed.reverse();
             Ok(Value::IntList(reversed))
         }
-        _ => Err(WqError::TypeError(
-            "reverse only works on lists".to_string(),
-        )),
+        _ => Err(WqError::TypeError(format!(
+            "reverse expects a list, got {}",
+            args[0].type_name()
+        ))),
     }
 }
 
 pub fn sum(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("sum expects 1 argument".to_string()));
+        return Err(arity_error("sum", "1 argument", args.len()));
     }
     match &args[0] {
         Value::List(items) => {
@@ -251,7 +257,7 @@ pub fn sum(args: &[Value]) -> WqResult<Value> {
 
 pub fn max(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("max expects 1 argument".to_string()));
+        return Err(arity_error("max", "1 argument", args.len()));
     }
     match &args[0] {
         Value::List(items) => {
@@ -299,7 +305,7 @@ pub fn max(args: &[Value]) -> WqResult<Value> {
 
 pub fn min(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("min expects 1 argument".to_string()));
+        return Err(arity_error("min", "1 argument", args.len()));
     }
     match &args[0] {
         Value::List(items) => {
@@ -347,7 +353,7 @@ pub fn min(args: &[Value]) -> WqResult<Value> {
 
 pub fn avg(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("avg expects 1 argument".to_string()));
+        return Err(arity_error("avg", "1 argument", args.len()));
     }
     match &args[0] {
         Value::List(items) => {
@@ -380,9 +386,7 @@ pub fn take(args: &[Value]) -> WqResult<Value> {
         return take(&tmp);
     }
     if args.len() != 2 {
-        return Err(WqError::ArityError(
-            "take expects 1 or 2 arguments".to_string(),
-        ));
+        return Err(arity_error("take", "1 or 2 arguments", args.len()));
     }
     match (&args[0], &args[1]) {
         (Value::Int(n), Value::List(items)) => {
@@ -415,9 +419,7 @@ pub fn drop(args: &[Value]) -> WqResult<Value> {
         return drop(&tmp);
     }
     if args.len() != 2 {
-        return Err(WqError::ArityError(
-            "drop expects 1 or 2 arguments".to_string(),
-        ));
+        return Err(arity_error("drop", "1 or 2 arguments", args.len()));
     }
     match (&args[0], &args[1]) {
         (Value::Int(n), Value::List(items)) => {
@@ -446,7 +448,7 @@ pub fn drop(args: &[Value]) -> WqResult<Value> {
 
 pub fn where_func(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("where expects 1 argument".to_string()));
+        return Err(arity_error("where", "1 argument", args.len()));
     }
     match &args[0] {
         Value::List(items) => {
@@ -464,9 +466,10 @@ pub fn where_func(args: &[Value]) -> WqResult<Value> {
                         }
                     }
                     _ => {
-                        return Err(WqError::TypeError(
-                            "where only works on integer or boolean lists".to_string(),
-                        ));
+                        return Err(WqError::TypeError(format!(
+                            "where expects integer or boolean lists, got {}",
+                            item.type_name()
+                        )));
                     }
                 }
             }
@@ -481,15 +484,16 @@ pub fn where_func(args: &[Value]) -> WqResult<Value> {
             }
             Ok(Value::List(indices))
         }
-        _ => Err(WqError::TypeError("where only works on lists".to_string())),
+        _ => Err(WqError::TypeError(format!(
+            "where expects a list, got {}",
+            args[0].type_name()
+        ))),
     }
 }
 
 pub fn distinct(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError(
-            "distinct expects 1 argument".to_string(),
-        ));
+        return Err(arity_error("distinct", "1 argument", args.len()));
     }
     match &args[0] {
         Value::List(items) => {
@@ -510,15 +514,16 @@ pub fn distinct(args: &[Value]) -> WqResult<Value> {
             }
             Ok(Value::IntList(seen))
         }
-        _ => Err(WqError::TypeError(
-            "distinct only works on lists".to_string(),
-        )),
+        _ => Err(WqError::TypeError(format!(
+            "distinct expects a list, got {}",
+            args[0].type_name()
+        ))),
     }
 }
 
 pub fn sort(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("sort expects 1 argument".to_string()));
+        return Err(arity_error("sort", "1 argument", args.len()));
     }
     match &args[0] {
         Value::List(items) => {
@@ -552,13 +557,16 @@ pub fn sort(args: &[Value]) -> WqResult<Value> {
             sorted.sort();
             Ok(Value::IntList(sorted))
         }
-        _ => Err(WqError::TypeError("sort only works on lists".to_string())),
+        _ => Err(WqError::TypeError(format!(
+            "sort expects a list, got {}",
+            args[0].type_name()
+        ))),
     }
 }
 
 pub fn cat(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::ArityError("cat expects 2 arguments".to_string()));
+        return Err(arity_error("cat", "2 arguments", args.len()));
     }
 
     let left = &args[0];
@@ -602,9 +610,7 @@ pub fn cat(args: &[Value]) -> WqResult<Value> {
 
 pub fn flatten(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError(
-            "flatten expects 1 argument".to_string(),
-        ));
+        return Err(arity_error("flatten", "1 argument", args.len()));
     }
 
     fn flatten_value(val: &Value, out: &mut Vec<Value>) {
@@ -687,7 +693,7 @@ fn alloc_shape(shape: &Value) -> WqResult<Value> {
 
 pub fn alloc(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("alloc expects 1 argument".to_string()));
+        return Err(arity_error("alloc", "1 argument", args.len()));
     }
     alloc_shape(&args[0])
 }
@@ -729,14 +735,14 @@ fn shape_value(v: &Value) -> WqResult<Value> {
 
 pub fn shape(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("shape expects 1 argument".to_string()));
+        return Err(arity_error("shape", "1 argument", args.len()));
     }
     shape_value(&args[0])
 }
 
 pub fn idx(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::ArityError("idx expects 2 arguments".to_string()));
+        return Err(arity_error("idx", "2 arguments", args.len()));
     }
     let indices = match &args[1] {
         Value::IntList(idxs) => idxs,
@@ -775,7 +781,7 @@ pub fn idx(args: &[Value]) -> WqResult<Value> {
 
 pub fn in_list(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::ArityError("in expects 2 arguments".to_string()));
+        return Err(arity_error("in", "2 arguments", args.len()));
     }
     match &args[1] {
         Value::List(items) => Ok(Value::Bool(items.contains(&args[0]))),
@@ -793,7 +799,7 @@ pub fn in_list(args: &[Value]) -> WqResult<Value> {
 
 pub fn find(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(WqError::ArityError("find expects 2 arguments".to_string()));
+        return Err(arity_error("find", "2 arguments", args.len()));
     }
     let target = &args[0];
     match &args[1] {

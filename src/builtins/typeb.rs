@@ -1,8 +1,9 @@
+use super::arity_error;
 use crate::value::valuei::{Value, WqError, WqResult};
 
 pub fn type_of(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("type expects 1 argument".to_string()));
+        return Err(arity_error("type", "1 argument", args.len()));
     }
     Ok(Value::List(
         args[0]
@@ -16,7 +17,7 @@ pub fn type_of(args: &[Value]) -> WqResult<Value> {
 
 pub fn to_symbol(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("symbol expects 1 argument".to_string()));
+        return Err(arity_error("symbol", "1 argument", args.len()));
     }
 
     let input = &args[0];
@@ -48,7 +49,7 @@ pub fn to_symbol(args: &[Value]) -> WqResult<Value> {
 
 pub fn to_string(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("string expects 1 argument".to_string()));
+        return Err(arity_error("string", "1 argument", args.len()));
     }
     let arg = &args[0];
     match arg {
@@ -64,7 +65,7 @@ pub fn to_string(args: &[Value]) -> WqResult<Value> {
 
 pub fn chr(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("chr expects 1 argument".to_string()));
+        return Err(arity_error("chr", "1 argument", args.len()));
     }
     match &args[0] {
         Value::Int(n) => {
@@ -102,7 +103,7 @@ pub fn chr(args: &[Value]) -> WqResult<Value> {
 
 pub fn ord(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("ord expects 1 argument".to_string()));
+        return Err(arity_error("ord", "1 argument", args.len()));
     }
 
     match &args[0] {
@@ -130,7 +131,7 @@ pub fn ord(args: &[Value]) -> WqResult<Value> {
 
 pub fn is_null(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(WqError::ArityError("isnull expects 1 argument".to_string()));
+        return Err(arity_error("isnull", "1 argument", args.len()));
     }
     match args[0] {
         Value::Null => Ok(Value::Bool(true)),

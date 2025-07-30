@@ -1,5 +1,6 @@
 use std::process::Command;
 
+use super::arity_error;
 use crate::{
     builtins::values_to_strings,
     value::valuei::{Value, WqError, WqResult},
@@ -73,7 +74,7 @@ pub mod show_table {
 
     pub fn show_table(args: &[Value]) -> WqResult<Value> {
         if args.len() != 1 {
-            return Err(WqError::ArityError("showt expects 1 argument".to_string()));
+            return Err(arity_error("showt", "1 argument", args.len()));
         }
 
         let val = &args[0];
@@ -283,9 +284,10 @@ pub mod show_table {
 
 pub fn exec(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqError::DomainError(
-            "exec expects at least 1 argument".into(),
-        ));
+        return Err(WqError::DomainError(format!(
+            "exec expects at least 1 argument, got {}",
+            args.len()
+        )));
     }
     let parts = values_to_strings(args)?;
 
