@@ -3,11 +3,11 @@
 exa-t.py
 
 Usage examples:
-  python3 exa-t.py gen                 # Runs cargo build
-		                               # Runs each .wq script in exa/
-	                                   # Saves the output into exa/exp/<script>.exp
-		                               # Skips scripts starting with // EXCLUDE
-																																	#
+  python3 exa-t.py gen                 # 1. Runs cargo build
+                                       # 2. Executes each .wq script in exa/
+                                       # 3. Saves the output into exa/exp/<script>.exp
+                                       # 4. Skips scripts starting with // EXCLUDE
+
   python3 exa-t.py test <script>       # Executes a specific test, and
                                        # compares output against the corresponding .exp file
 
