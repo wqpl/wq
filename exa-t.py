@@ -3,11 +3,17 @@
 exa-t.py
 
 Usage examples:
-  python3 exa-t.py gen                 # Generate .exp files
-  python3 exa-t.py test <script>       # Run specified test
+  python3 exa-t.py gen                 # Runs cargo build
+		                               # Runs each .wq script in exa/
+	                                   # Saves the output into exa/exp/<script>.exp
+		                               # Skips scripts starting with // EXCLUDE
+																																	#
+  python3 exa-t.py test <script>       # Executes a specific test, and
+                                       # compares output against the corresponding .exp file
+
   python3 exa-t.py test --all, -a      # Run all tests
   python3 exa-t.py test --list, -l     # List all available tests
-  python3 exa-t.py clean               # Remove all .exp files
+  python3 exa-t.py clean               # Remove all .exp files under exa/exp
 """
 
 import subprocess
@@ -18,7 +24,7 @@ import argparse
 
 
 def check_environment():
-    # Ensure script is run from project root (contains Cargo.toml)
+    # Ensure script is run from project root
     if not os.path.isfile("Cargo.toml"):
         print(
             "[ERROR] Cargo.toml not found. Please run this script from the Rust project root.",
@@ -248,7 +254,7 @@ def main():
 
     args = parser.parse_args()
 
-    # Always default to debug unless --build-type is explicitly provided
+    # Default to debug build, unless --build-type is provided
     build_type = args.build_type or "debug"
 
     if args.command == "gen":

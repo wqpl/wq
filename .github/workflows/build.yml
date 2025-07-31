@@ -1,0 +1,51 @@
+name: Build Binaries
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - run: cargo build --release
+      - run: mkdir -p dist && cp target/release/wq dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-Linux
+          path: dist/
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - run: cargo build --release
+      - run: mkdir dist; copy target\release\wq.exe dist\
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-Windows
+          path: dist/
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - run: cargo build --release
+      - run: mkdir -p dist && cp target/release/wq dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-macOS
+          path: dist/

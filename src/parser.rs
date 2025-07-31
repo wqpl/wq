@@ -81,22 +81,15 @@ pub enum AstNode {
         body: Box<AstNode>,
     },
 
-    /// Numeric for loop, exposes counter `n`
+    /// Numeric for loop, exposes counter `_n`
     ForLoop {
         count: Box<AstNode>,
         body: Box<AstNode>,
     },
 
-    /// break statement
     Break,
-
-    /// continue statement
     Continue,
-
-    /// return statement
     Return(Option<Box<AstNode>>),
-
-    /// assert statement
     Assert(Box<AstNode>),
 
     /// Block/sequence of statements

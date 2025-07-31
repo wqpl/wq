@@ -7,22 +7,7 @@
     to explicitly define a function that accepts 0 args:
         fn:{[]...}
 
-(2) body
-    currently, "blocks" are not present in wq,
-    therefore the following is invalid:
-        $[cond;{do1;do2};do3]   // INVALID
-    instead, use:
-        c: cond
-        $.[c;do1;do2;...]
-        $.[not c;do3;do4;...]
-
-    loops accept an arbitrary number of body expressions:
-        N[3;echo n;a:n+1;echo a;]
-
-    if you really need "blocks" for some reason:
-        {do1;do2;do3}[]         // invokes an anonymous function
-
-(3) newlines
+(2) newlines
     newlines are generally accepted and can act as semicolons in most contexts.
 
     valid examples:

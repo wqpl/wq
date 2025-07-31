@@ -1,8 +1,9 @@
+#!/usr/bin/env python3
 """
 builtin-rcg.py
 
 Usage examples:
-  python3 builtin-rcg.py
+  python3 builtin-rcg.py              # Generates a summary of builtin functions
   python3 builtin-rcg.py --fold 80
 """
 

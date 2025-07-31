@@ -5,9 +5,9 @@ BUILTINS:
   shape
 ARITHMETIC:
   /.   %.   ^
-  inf   nan
+  inf  nan
 REPL:
-  help chr
+  help <builtin>
 INTERNAL:
   resolver
 
