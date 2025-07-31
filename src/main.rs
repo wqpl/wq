@@ -111,10 +111,18 @@ fn main() {
     loop {
         // Prompt construction
         let prompt = if buffer.is_empty() {
-            format!("{} {} ", line_number.to_string().blue(), "wq$".magenta())
+            if cfg!(windows) {
+                format!("{} {} ", line_number, "wq$")
+            } else {
+                format!("{} {} ", line_number.to_string().blue(), "wq$".magenta())
+            }
         } else {
             let indent = " ".repeat(line_number.to_string().len());
-            format!("{} {} ", indent, "...".magenta())
+            if cfg!(windows) {
+                format!("{} {} ", indent, "...")
+            } else {
+                format!("{} {} ", indent, "...".magenta())
+            }
         };
 
         // Read input

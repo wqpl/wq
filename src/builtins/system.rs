@@ -291,33 +291,46 @@ pub fn exec(args: &[Value]) -> WqResult<Value> {
     }
     let parts = values_to_strings(args)?;
 
-    let output = if parts.len() == 1 && parts[0].contains(char::is_whitespace) {
-        if cfg!(windows) {
-            Command::new("cmd")
-                .arg("/C")
-                .arg(&parts[0])
-                .output()
-                .map_err(|e| WqError::RuntimeError(e.to_string()))?
-        } else {
+    #[cfg(windows)]
+    let output = {
+        let command = parts
+            .iter()
+            .map(|p| {
+                if p.contains(char::is_whitespace) {
+                    let escaped = p.replace("'", "''");
+                    format!("'{escaped}'")
+                } else {
+                    p.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        Command::new("powershell")
+            .arg("-NoLogo")
+            .arg("-NoProfile")
+            .arg("-Command")
+            .arg(&command)
+            .output()
+            .map_err(|e| WqError::RuntimeError(e.to_string()))?
+    };
+
+    #[cfg(not(windows))]
+    let output = {
+        if parts.len() == 1 && parts[0].contains(char::is_whitespace) {
             Command::new("sh")
                 .arg("-c")
                 .arg(&parts[0])
                 .output()
                 .map_err(|e| WqError::RuntimeError(e.to_string()))?
-        }
-    } else {
-        let mut cmd = if cfg!(windows) {
-            let mut c = Command::new("cmd");
-            c.arg("/C").arg(&parts[0]);
-            c
         } else {
-            Command::new(&parts[0])
-        };
-        if parts.len() > 1 {
-            cmd.args(&parts[1..]);
+            let mut cmd = Command::new(&parts[0]);
+            if parts.len() > 1 {
+                cmd.args(&parts[1..]);
+            }
+            cmd.output()
+                .map_err(|e| WqError::RuntimeError(e.to_string()))?
         }
-        cmd.output()
-            .map_err(|e| WqError::RuntimeError(e.to_string()))?
     };
 
     if !output.status.success() {
