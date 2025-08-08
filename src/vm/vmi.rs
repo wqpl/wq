@@ -7,19 +7,10 @@ use crate::value::valuei::{Value, WqError, WqResult};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct InlineCache {
     version: u64,
     value: Option<Value>,
-}
-
-impl Default for InlineCache {
-    fn default() -> Self {
-        InlineCache {
-            version: 0,
-            value: None,
-        }
-    }
 }
 
 pub struct Vm {
