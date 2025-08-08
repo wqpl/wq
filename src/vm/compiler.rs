@@ -2,6 +2,7 @@ use super::instruction::Instruction;
 use crate::builtins::Builtins;
 use crate::parser::{AstNode, BinaryOperator};
 use crate::value::valuei::{Value, WqError, WqResult};
+use indexmap::IndexMap;
 
 #[derive(Default)]
 struct LoopInfo {
@@ -45,6 +46,7 @@ pub struct Compiler {
     loop_id: usize,
     loop_stack: Vec<LoopInfo>,
     fn_depth: usize,
+    locals: IndexMap<String, u16>,
 }
 
 impl Default for Compiler {
@@ -61,6 +63,45 @@ impl Compiler {
             loop_id: 0,
             loop_stack: Vec::new(),
             fn_depth: 0,
+            locals: IndexMap::new(),
+        }
+    }
+
+    fn local_slot(&mut self, name: &str) -> u16 {
+        if let Some(&i) = self.locals.get(name) {
+            i
+        } else {
+            let idx = self.locals.len() as u16;
+            self.locals.insert(name.to_string(), idx);
+            idx
+        }
+    }
+
+    fn is_local(&self, name: &str) -> bool {
+        self.locals.contains_key(name)
+    }
+
+    pub fn local_count(&self) -> u16 {
+        self.locals.len() as u16
+    }
+
+    fn emit_load(&mut self, name: &str) {
+        if self.fn_depth > 0 && self.is_local(name) {
+            let idx = self.locals[name];
+            self.instructions.push(Instruction::LoadLocal(idx));
+        } else {
+            self.instructions
+                .push(Instruction::LoadVar(name.to_string()));
+        }
+    }
+
+    fn emit_store(&mut self, name: &str) {
+        if self.fn_depth > 0 {
+            let idx = self.local_slot(name);
+            self.instructions.push(Instruction::StoreLocal(idx));
+        } else {
+            self.instructions
+                .push(Instruction::StoreVar(name.to_string()));
         }
     }
 
@@ -68,11 +109,52 @@ impl Compiler {
         match node {
             AstNode::Postfix { .. } => unreachable!(),
             AstNode::Literal(v) => self.instructions.push(Instruction::LoadConst(v.clone())),
-            AstNode::Variable(name) => self.instructions.push(Instruction::LoadVar(name.clone())),
+            AstNode::Variable(name) => self.emit_load(name),
             AstNode::Assignment { name, value } => {
-                self.compile(value)?;
-                self.instructions.push(Instruction::StoreVar(name.clone()));
-                self.instructions.push(Instruction::LoadVar(name.clone()));
+                if let AstNode::Function { params, body } = &**value {
+                    // Reserve slot for recursion when in a local scope
+                    let slot = if self.fn_depth > 0 {
+                        self.local_slot(name)
+                    } else {
+                        0
+                    };
+                    let mut c = Compiler::new();
+                    c.fn_depth = self.fn_depth + 1;
+                    if let Some(ps) = params {
+                        for p in ps {
+                            c.local_slot(p);
+                        }
+                    } else {
+                        c.local_slot("x");
+                        c.local_slot("y");
+                        c.local_slot("z");
+                    }
+                    c.compile(body)?;
+                    if self.fn_depth > 0 {
+                        for instr in c.instructions.iter_mut() {
+                            if let Instruction::CallUser(n, argc) = instr {
+                                if n == name {
+                                    *instr = Instruction::CallLocal(slot, *argc);
+                                }
+                            }
+                        }
+                    }
+                    let locals = c.local_count();
+                    let mut func_instructions = c.instructions;
+                    func_instructions.push(Instruction::Return);
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::BytecodeFunction {
+                            params: params.clone(),
+                            locals,
+                            instructions: func_instructions,
+                        }));
+                    self.emit_store(name);
+                    self.emit_load(name);
+                } else {
+                    self.compile(value)?;
+                    self.emit_store(name);
+                    self.emit_load(name);
+                }
             }
             AstNode::BinaryOp {
                 left,
@@ -111,6 +193,10 @@ impl Compiler {
                 if let Some(id) = self.builtins.get_id(name) {
                     self.instructions
                         .push(Instruction::CallBuiltinId(id as u8, args.len()));
+                } else if self.fn_depth > 0 && self.is_local(name) {
+                    let slot = self.locals[name];
+                    self.instructions
+                        .push(Instruction::CallLocal(slot, args.len()));
                 } else {
                     self.instructions
                         .push(Instruction::CallUser(name.clone(), args.len()));
@@ -167,26 +253,44 @@ impl Compiler {
                 value,
             } => {
                 if let AstNode::Variable(name) = &**object {
-                    self.instructions
-                        .push(Instruction::LoadConst(Value::Symbol(name.clone())));
+                    if self.fn_depth > 0 && self.is_local(name) {
+                        let slot = self.local_slot(name);
+                        self.compile(index)?;
+                        self.compile(value)?;
+                        self.instructions.push(Instruction::IndexAssignLocal(slot));
+                    } else {
+                        self.instructions
+                            .push(Instruction::LoadConst(Value::Symbol(name.clone())));
+                        self.compile(index)?;
+                        self.compile(value)?;
+                        self.instructions.push(Instruction::IndexAssign);
+                    }
                 } else {
                     return Err(WqError::DomainError(
                         "Invalid index assignment target".into(),
                     ));
                 }
-                self.compile(index)?;
-                self.compile(value)?;
-                self.instructions.push(Instruction::IndexAssign);
             }
             AstNode::Function { params, body } => {
                 let mut c = Compiler::new();
                 c.fn_depth = self.fn_depth + 1;
+                if let Some(ps) = params {
+                    for p in ps {
+                        c.local_slot(p);
+                    }
+                } else {
+                    c.local_slot("x");
+                    c.local_slot("y");
+                    c.local_slot("z");
+                }
                 c.compile(body)?;
+                let locals = c.local_count();
                 let mut func_instructions = c.instructions;
                 func_instructions.push(Instruction::Return);
                 self.instructions
                     .push(Instruction::LoadConst(Value::BytecodeFunction {
                         params: params.clone(),
+                        locals,
                         instructions: func_instructions,
                     }));
             }
@@ -248,8 +352,7 @@ impl Compiler {
                                 for i in 0..*n {
                                     self.instructions
                                         .push(Instruction::LoadConst(Value::Int(i)));
-                                    self.instructions
-                                        .push(Instruction::StoreLocalVar("_n".to_string()));
+                                    self.emit_store("_n");
                                     self.compile(body)?;
                                     if i < *n - 1 {
                                         self.instructions.push(Instruction::Pop);
@@ -265,8 +368,7 @@ impl Compiler {
                                     let idx = c * 8 + i;
                                     self.instructions
                                         .push(Instruction::LoadConst(Value::Int(idx)));
-                                    self.instructions
-                                        .push(Instruction::StoreLocalVar("_n".to_string()));
+                                    self.emit_store("_n");
                                     self.compile(body)?;
                                     self.instructions.push(Instruction::Pop);
                                 }
@@ -275,8 +377,7 @@ impl Compiler {
                                 let idx = full_chunks * 8 + i;
                                 self.instructions
                                     .push(Instruction::LoadConst(Value::Int(idx)));
-                                self.instructions
-                                    .push(Instruction::StoreLocalVar("_n".to_string()));
+                                self.emit_store("_n");
                                 self.compile(body)?;
                                 if i < remainder - 1 {
                                     self.instructions.push(Instruction::Pop);
@@ -299,41 +400,31 @@ impl Compiler {
                 let old_var = format!("__old_n{id}");
 
                 self.compile(count)?; // -> count on stack
-                self.instructions
-                    .push(Instruction::StoreVar(count_var.clone()));
+                self.emit_store(&count_var);
                 self.instructions
                     .push(Instruction::LoadConst(Value::Int(0)));
-                self.instructions
-                    .push(Instruction::StoreLocalVar("_n".to_string()));
+                self.emit_store("_n");
                 self.instructions.push(Instruction::LoadConst(Value::Null));
-                self.instructions
-                    .push(Instruction::StoreVar(result_var.clone()));
+                self.emit_store(&result_var);
                 let start = self.instructions.len();
-                self.instructions
-                    .push(Instruction::LoadVar("_n".to_string()));
-                self.instructions
-                    .push(Instruction::LoadVar(count_var.clone()));
+                self.emit_load("_n");
+                self.emit_load(&count_var);
                 self.instructions
                     .push(Instruction::BinaryOp(BinaryOperator::LessThan));
                 let jump_pos = self.instructions.len();
                 self.instructions.push(Instruction::JumpIfFalse(0));
-                self.instructions
-                    .push(Instruction::LoadVar("_n".to_string()));
-                self.instructions
-                    .push(Instruction::StoreVar(old_var.clone()));
+                self.emit_load("_n");
+                self.emit_store(&old_var);
                 self.loop_stack.push(LoopInfo::default());
                 self.compile(body)?;
-                self.instructions
-                    .push(Instruction::StoreVar(result_var.clone()));
+                self.emit_store(&result_var);
                 let continue_target = self.instructions.len();
-                self.instructions
-                    .push(Instruction::LoadVar(old_var.clone()));
+                self.emit_load(&old_var);
                 self.instructions
                     .push(Instruction::LoadConst(Value::Int(1)));
                 self.instructions
                     .push(Instruction::BinaryOp(BinaryOperator::Add));
-                self.instructions
-                    .push(Instruction::StoreLocalVar("_n".to_string()));
+                self.emit_store("_n");
                 self.instructions.push(Instruction::Jump(start));
                 let end = self.instructions.len();
                 self.instructions[jump_pos] = Instruction::JumpIfFalse(end);
@@ -345,7 +436,7 @@ impl Compiler {
                         self.instructions[pos] = Instruction::Jump(continue_target);
                     }
                 }
-                self.instructions.push(Instruction::LoadVar(result_var));
+                self.emit_load(&result_var);
             }
             AstNode::Block(stmts) => {
                 if stmts.is_empty() {

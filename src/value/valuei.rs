@@ -58,6 +58,7 @@ pub enum Value {
     /// pre-compiled function represented as bytecode instructions
     BytecodeFunction {
         params: Option<Vec<String>>,
+        locals: u16,
         instructions: Vec<vm::instruction::Instruction>,
     },
     /// handle for builtin functions
@@ -115,13 +116,15 @@ impl PartialEq for Value {
             (
                 BytecodeFunction {
                     params: pa,
+                    locals: la,
                     instructions: ia,
                 },
                 BytecodeFunction {
                     params: pb,
+                    locals: lb,
                     instructions: ib,
                 },
-            ) => pa == pb && ia == ib,
+            ) => pa == pb && la == lb && ia == ib,
             (BuiltinFunction(a), BuiltinFunction(b)) => a == b,
             (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
             _ => false,
@@ -766,15 +769,27 @@ mod tests {
         let list = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
         assert_eq!(
             arr.add(&list),
-            Some(Value::List(vec![Value::int(2), Value::int(4), Value::int(6)]))
+            Some(Value::List(vec![
+                Value::int(2),
+                Value::int(4),
+                Value::int(6)
+            ]))
         );
         assert_eq!(
             list.add(&arr),
-            Some(Value::List(vec![Value::int(2), Value::int(4), Value::int(6)]))
+            Some(Value::List(vec![
+                Value::int(2),
+                Value::int(4),
+                Value::int(6)
+            ]))
         );
         assert_eq!(
             arr.equals(&list),
-            Value::List(vec![Value::Bool(true), Value::Bool(true), Value::Bool(true)])
+            Value::List(vec![
+                Value::Bool(true),
+                Value::Bool(true),
+                Value::Bool(true)
+            ])
         );
     }
 

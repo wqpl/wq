@@ -285,4 +285,12 @@ mod tests {
             ])
         );
     }
+
+    #[test]
+    fn nested_function_calls_access_locals() {
+        let mut eval = VmEvaluator::new();
+        let code = "fib:{fib_:{[n;a;b]$[n=0;a;fib_[n-1;b;a+b]]};fib_[x;0;1]};fib 10";
+        let res = eval.eval_string(code).unwrap();
+        assert_eq!(res, Value::Int(55));
+    }
 }

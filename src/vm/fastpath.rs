@@ -2,7 +2,7 @@ use super::instruction::Instruction;
 use crate::builtins::Builtins;
 use crate::parser::{BinaryOperator, UnaryOperator};
 use crate::value::valuei::{Value, WqError};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 
 pub struct FastPath;
 
@@ -68,20 +68,19 @@ fn check_target(pc: usize, target: usize, len: usize) -> Result<usize, BailReaso
 }
 
 struct Analysis {
-    idx: HashMap<String, usize>,
+    locals: usize,
     max_stack: usize,
 }
 
 impl FastPath {
     fn analyze(instructions: &[Instruction]) -> Result<Analysis, BailReason> {
-        // check supported and collect locals
-        let mut idx = HashMap::new();
-        let mut next = 0usize;
+        // check supported and collect local slot count
+        let mut locals = 0usize;
         for (pc, ins) in instructions.iter().enumerate() {
             match ins {
                 Instruction::LoadConst(_)
-                | Instruction::LoadVar(_)
-                | Instruction::StoreVar(_)
+                | Instruction::LoadLocal(_)
+                | Instruction::StoreLocal(_)
                 | Instruction::BinaryOp(_)
                 | Instruction::UnaryOp(_)
                 | Instruction::CallBuiltinId(_, _)
@@ -92,12 +91,11 @@ impl FastPath {
                 | Instruction::Return => {}
                 _ => return Err(BailReason::UnsupportedAt(pc)),
             }
-            if let Instruction::LoadVar(name) | Instruction::StoreVar(name) = ins {
-                idx.entry(name.clone()).or_insert_with(|| {
-                    let i = next;
-                    next += 1;
-                    i
-                });
+            if let Instruction::LoadLocal(i) | Instruction::StoreLocal(i) = ins {
+                locals = locals.max(*i as usize + 1);
+            }
+            if matches!(ins, Instruction::LoadVar(_) | Instruction::StoreVar(_)) {
+                return Err(BailReason::UnsupportedAt(pc));
             }
         }
         let len = instructions.len();
@@ -127,8 +125,8 @@ impl FastPath {
             let ins = &instructions[pc];
             match ins {
                 Instruction::LoadConst(_) => queue.push_back((pc + 1, depth + 1)),
-                Instruction::LoadVar(_) => queue.push_back((pc + 1, depth + 1)),
-                Instruction::StoreVar(_) => {
+                Instruction::LoadLocal(_) => queue.push_back((pc + 1, depth + 1)),
+                Instruction::StoreLocal(_) => {
                     if depth == 0 {
                         return Err(BailReason::StackUnderflow(pc));
                     }
@@ -175,7 +173,7 @@ impl FastPath {
                 _ => return Err(BailReason::UnsupportedAt(pc)),
             }
         }
-        Ok(Analysis { idx, max_stack })
+        Ok(Analysis { locals, max_stack })
     }
 
     pub fn try_run(
@@ -188,7 +186,7 @@ impl FastPath {
             Err(br) => return TryRunOutcome::Bail(br),
         };
         let mut stack: Vec<Value> = Vec::with_capacity(analysis.max_stack.max(32));
-        let mut locals: Vec<Value> = vec![Value::Null; analysis.idx.len()];
+        let mut locals: Vec<Value> = vec![Value::Null; analysis.locals];
         let mut pc = 0usize;
         let mut steps = 0usize;
         let hard_limit = step_limit.unwrap_or(100_000);
@@ -200,17 +198,15 @@ impl FastPath {
             }
             match &instructions[pc] {
                 Instruction::LoadConst(v) => stack.push(v.clone()),
-                Instruction::LoadVar(name) => {
-                    let i = analysis.idx.get(name).copied().unwrap();
-                    stack.push(locals[i].clone());
+                Instruction::LoadLocal(i) => {
+                    stack.push(locals[*i as usize].clone());
                 }
-                Instruction::StoreVar(name) => {
-                    let i = analysis.idx.get(name).copied().unwrap();
+                Instruction::StoreLocal(i) => {
                     let v = match pop(&mut stack) {
                         Some(v) => v,
                         None => return TryRunOutcome::Bail(BailReason::StackUnderflow(pc)),
                     };
-                    locals[i] = v;
+                    locals[*i as usize] = v;
                 }
                 Instruction::BinaryOp(op) => {
                     let (a, b) = match pop2(&mut stack) {
