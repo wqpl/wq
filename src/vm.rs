@@ -190,7 +190,7 @@ impl VmEvaluator {
             }
         }
         self.vm.reset(compiler.instructions);
-        self.vm.run_no_fastpath()
+        self.vm.run()
     }
 
     /// Access the environment holding user-defined bindings.

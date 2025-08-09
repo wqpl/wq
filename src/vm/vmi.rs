@@ -121,16 +121,6 @@ impl Vm {
     }
 
     pub fn run(&mut self) -> WqResult<Value> {
-        // match FastPath::try_run(&self.instructions, &self.builtins, None) {
-        //     TryRunOutcome::Ok(v) => return Ok(v),
-        //     TryRunOutcome::VmError(e) => return Err(e),
-        //     TryRunOutcome::Bail(_) => {}
-        // }
-        self.execute()
-    }
-
-    /// Execute instructions without attempting fast-path optimization.
-    pub fn run_no_fastpath(&mut self) -> WqResult<Value> {
         self.execute()
     }
 
@@ -668,39 +658,37 @@ impl Vm {
 
                     match obj_name {
                         Value::Symbol(name) => match self.globals.get_mut(&name) {
-                            Some(obj) => {
-                                match (&mut *obj, &idx, &val) {
-                                    (Value::IntList(items), Value::Int(i), Value::Int(v)) => {
-                                        let len = items.len() as i64;
-                                        let ii = if *i < 0 { len + *i } else { *i };
-                                        if ii >= 0 && ii < len {
-                                            items[ii as usize] = *v;
-                                        } else {
-                                            return Err(WqError::IndexError(format!(
-                                                "Failed assigning to {name}[{i}], out of bounds",
-                                            )));
-                                        }
-                                    }
-                                    (Value::List(items), Value::Int(i), _) => {
-                                        let len = items.len() as i64;
-                                        let ii = if *i < 0 { len + *i } else { *i };
-                                        if ii >= 0 && ii < len {
-                                            items[ii as usize] = val.clone();
-                                        } else {
-                                            return Err(WqError::IndexError(format!(
-                                                "Failed assigning to {name}[{i}], out of bounds",
-                                            )));
-                                        }
-                                    }
-                                    _ => {
-                                        if (*obj).set_index(&idx, val.clone()).is_none() {
-                                            return Err(WqError::IndexError(format!(
-                                                "Failed assigning to {name}[{idx}], index invalid or not supported",
-                                            )));
-                                        }
+                            Some(obj) => match (&mut *obj, &idx, &val) {
+                                (Value::IntList(items), Value::Int(i), Value::Int(v)) => {
+                                    let len = items.len() as i64;
+                                    let ii = if *i < 0 { len + *i } else { *i };
+                                    if ii >= 0 && ii < len {
+                                        items[ii as usize] = *v;
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to {name}[{i}], out of bounds",
+                                        )));
                                     }
                                 }
-                            }
+                                (Value::List(items), Value::Int(i), _) => {
+                                    let len = items.len() as i64;
+                                    let ii = if *i < 0 { len + *i } else { *i };
+                                    if ii >= 0 && ii < len {
+                                        items[ii as usize] = val.clone();
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to {name}[{i}], out of bounds",
+                                        )));
+                                    }
+                                }
+                                _ => {
+                                    if (*obj).set_index(&idx, val.clone()).is_none() {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to {name}[{idx}], index invalid or not supported",
+                                        )));
+                                    }
+                                }
+                            },
                             None => {
                                 return Err(WqError::ValueError(format!(
                                     "Cannot assign to {name}[{idx}], variable not found",
@@ -881,7 +869,9 @@ impl Vm {
                         .last()
                         .and_then(|f| f.get(*slot as usize))
                         .cloned()
-                        .ok_or_else(|| WqError::RuntimeError(format!("Invalid local slot {slot}")))?;
+                        .ok_or_else(|| {
+                            WqError::RuntimeError(format!("Invalid local slot {slot}"))
+                        })?;
                     let is_le_zero = match v {
                         Value::Int(n) => n <= 0,
                         Value::Float(f) => f <= 0.0,
