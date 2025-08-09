@@ -1,5 +1,4 @@
 mod compiler;
-mod fastpath;
 pub mod instruction;
 mod vmi;
 
@@ -99,6 +98,7 @@ pub fn vm_get_ins(path: &String) -> WqResult<Vec<Instruction>> {
     let ast = resolver.resolve(ast);
     let mut compiler = Compiler::new();
     compiler.compile(&ast)?;
+    compiler.fuse();
     Ok(compiler.instructions)
 }
 
@@ -176,6 +176,7 @@ impl VmEvaluator {
         }
         let mut compiler = Compiler::new();
         compiler.compile(&ast)?;
+        compiler.fuse();
         compiler.instructions.push(Instruction::Return);
         if self.debug {
             eprintln!("=====INST=====");

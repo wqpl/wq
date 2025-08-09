@@ -105,6 +105,16 @@ impl Compiler {
         }
     }
 
+    fn emit_store_keep(&mut self, name: &str) {
+        if self.fn_depth > 0 {
+            let idx = self.local_slot(name);
+            self.instructions.push(Instruction::StoreLocalKeep(idx));
+        } else {
+            self.instructions
+                .push(Instruction::StoreVarKeep(name.to_string()));
+        }
+    }
+
     pub fn compile(&mut self, node: &AstNode) -> WqResult<()> {
         match node {
             AstNode::Postfix { .. } => unreachable!(),
@@ -148,12 +158,12 @@ impl Compiler {
                             locals,
                             instructions: func_instructions,
                         }));
-                    self.emit_store(name);
-                    self.emit_load(name);
+                    // Store and keep the value on the stack for expression result
+                    self.emit_store_keep(name);
                 } else {
                     self.compile(value)?;
-                    self.emit_store(name);
-                    self.emit_load(name);
+                    // Store and keep the value on the stack for expression result
+                    self.emit_store_keep(name);
                 }
             }
             AstNode::BinaryOp {
@@ -453,5 +463,189 @@ impl Compiler {
             }
         }
         Ok(())
+    }
+
+    pub fn fuse(&mut self) {
+        #[derive(Default, Clone)]
+        struct Stats {
+            slk_pop: usize,
+            svk_pop: usize,
+            idx_local_pop: usize,
+            idx_global_pop: usize,
+            lt_jifalse: usize,
+            ll0_gt_jifalse: usize,
+        }
+
+        fn fuse_once(code: &mut Vec<Instruction>, stats: &mut Stats) -> bool {
+            use Instruction::*;
+            use Value::BytecodeFunction;
+            let mut changed_any = false;
+
+            // Recurse into nested code objects first
+            for ins in code.iter_mut() {
+                if let LoadConst(v) = ins {
+                    if let BytecodeFunction { instructions, .. } = v {
+                        if fuse_once(instructions, stats) {
+                            changed_any = true;
+                        }
+                    }
+                }
+            }
+
+            let old: Vec<Instruction> = code.clone();
+            let n = old.len();
+            if n == 0 {
+                return changed_any;
+            }
+
+            let mut keep = vec![true; n];
+            let mut out: Vec<Instruction> = Vec::with_capacity(n);
+            let mut origin: Vec<usize> = Vec::with_capacity(n);
+
+            let mut i = 0;
+            while i < n {
+                // Early: eliminate StoreKeep; Pop and IndexAssign*; Pop
+                if i + 1 < n {
+                    match (&old[i], &old[i + 1]) {
+                        (StoreLocalKeep(slot), Pop) => {
+                            out.push(StoreLocal(*slot));
+                            origin.push(i);
+                            keep[i] = true;
+                            keep[i + 1] = false;
+                            stats.slk_pop += 1;
+                            changed_any = true;
+                            i += 2;
+                            continue;
+                        }
+                        (StoreVarKeep(name), Pop) => {
+                            out.push(StoreVar(name.clone()));
+                            origin.push(i);
+                            keep[i] = true;
+                            keep[i + 1] = false;
+                            stats.svk_pop += 1;
+                            changed_any = true;
+                            i += 2;
+                            continue;
+                        }
+                        (IndexAssignLocal(slot), Pop) => {
+                            out.push(IndexAssignLocalDrop(*slot));
+                            origin.push(i);
+                            keep[i] = true;
+                            keep[i + 1] = false;
+                            stats.idx_local_pop += 1;
+                            changed_any = true;
+                            i += 2;
+                            continue;
+                        }
+                        (IndexAssign, Pop) => {
+                            out.push(IndexAssignDrop);
+                            origin.push(i);
+                            keep[i] = true;
+                            keep[i + 1] = false;
+                            stats.idx_global_pop += 1;
+                            changed_any = true;
+                            i += 2;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // 4-op fusion: LL j; LC 0; GreaterThan; JIFalse T -> JumpIfLEZLocal(j, T)
+                if i + 3 < n {
+                    match (&old[i], &old[i + 1], &old[i + 2], &old[i + 3]) {
+                        (
+                            LoadLocal(slot),
+                            LoadConst(Value::Int(0)),
+                            BinaryOp(BinaryOperator::GreaterThan),
+                            JumpIfFalse(pos),
+                        ) => {
+                            out.push(JumpIfLEZLocal(*slot, *pos));
+                            origin.push(i);
+                            keep[i] = true;
+                            keep[i + 1] = false;
+                            keep[i + 2] = false;
+                            keep[i + 3] = false;
+                            stats.ll0_gt_jifalse += 1;
+                            changed_any = true;
+                            i += 4;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // cmp+branch: LT; JIFalse -> JGE (stack-based)
+                if i + 1 < n {
+                    match (&old[i], &old[i + 1]) {
+                        (BinaryOp(BinaryOperator::LessThan), JumpIfFalse(pos)) => {
+                            out.push(JumpIfGE(*pos));
+                            origin.push(i);
+                            keep[i] = true;
+                            keep[i + 1] = false;
+                            stats.lt_jifalse += 1;
+                            changed_any = true;
+                            i += 2;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+
+                out.push(old[i].clone());
+                origin.push(i);
+                keep[i] = true;
+                i += 1;
+            }
+
+            if changed_any {
+                // Build mapping from old index -> new index of first kept instruction at or after old index
+                let mut old_to_new: Vec<usize> = vec![out.len(); n + 1];
+                let mut next_kept = vec![n; n + 1];
+                let mut next = n;
+                for idx in (0..n).rev() {
+                    if keep[idx] {
+                        next = idx;
+                    }
+                    next_kept[idx] = next;
+                }
+                next_kept[n] = n;
+                let mut kept_to_new: Vec<isize> = vec![-1; n];
+                for (new_idx, &orig) in origin.iter().enumerate() {
+                    kept_to_new[orig] = new_idx as isize;
+                }
+                for old_idx in 0..=n {
+                    let nk = next_kept[old_idx.min(n)];
+                    if nk < n {
+                        old_to_new[old_idx] = kept_to_new[nk] as usize;
+                    } else {
+                        old_to_new[old_idx] = out.len();
+                    }
+                }
+                // Remap jump targets to new indices
+                for ins in &mut out {
+                    match ins {
+                        Jump(pos) | JumpIfFalse(pos) | JumpIfGE(pos) => {
+                            *pos = old_to_new[*pos];
+                        }
+                        JumpIfLEZLocal(_, pos) => {
+                            *pos = old_to_new[*pos];
+                        }
+                        _ => {}
+                    }
+                }
+                *code = out;
+            }
+
+            changed_any
+        }
+
+        let mut stats = Stats::default();
+        loop {
+            let changed = fuse_once(&mut self.instructions, &mut stats);
+            if !changed {
+                break;
+            }
+        }
     }
 }
