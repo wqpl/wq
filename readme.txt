@@ -1,6 +1,6 @@
 wq (c) tttiw (l) mit
 
-cargo build --release
+cargo run --profile lyrical
 1 wq$ f:{f_:{$[x=0;y;f_[x-1;z;y+z]]};f_[x;0;1]}
 2 wq$ f 90
 
