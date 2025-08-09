@@ -316,7 +316,7 @@ impl Vm {
                         )));
                     }
                     let base = self.stack.len() - *argc;
-                    let args: Vec<Value> = self.stack.drain(base..).collect();
+                    let args = self.stack.split_off(base);
                     // Walk frames top-down; compile once and replace
                     let maybe_compiled = {
                         let mut compiled: Option<(Option<Vec<String>>, u16, Vec<Instruction>)> =
@@ -372,7 +372,7 @@ impl Vm {
                         )));
                     }
                     let base = self.stack.len() - argc_val;
-                    let args: Vec<Value> = self.stack.drain(base..).collect();
+                    let args = self.stack.split_off(base);
 
                     let (cver, cval) = {
                         let c = &self.inline_cache[idx];
@@ -447,7 +447,7 @@ impl Vm {
                         )));
                     }
                     let base = self.stack.len() - *argc;
-                    let args: Vec<Value> = self.stack.drain(base..).collect();
+                    let args = self.stack.split_off(base);
                     let func_val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
                             "Stack underflow: missing function value for call".into(),
@@ -486,7 +486,7 @@ impl Vm {
                         )));
                     }
                     let base = self.stack.len() - *n;
-                    let items: Vec<Value> = self.stack.drain(base..).collect();
+                    let items = self.stack.split_off(base);
                     let all_ints = items.iter().all(|v| matches!(v, Value::Int(_)));
                     if all_ints {
                         let ints: Vec<i64> = items

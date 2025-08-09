@@ -391,18 +391,26 @@ pub fn take(args: &[Value]) -> WqResult<Value> {
     match (&args[0], &args[1]) {
         (Value::Int(n), Value::List(items)) => {
             let n = *n as usize;
-            if n > items.len() {
+            if n >= items.len() {
                 Ok(Value::List(items.clone()))
             } else {
-                Ok(Value::List(items[..n].to_vec()))
+                let mut result = Vec::with_capacity(n);
+                for item in items.iter().take(n) {
+                    result.push(item.clone());
+                }
+                Ok(Value::List(result))
             }
         }
         (Value::Int(n), Value::IntList(items)) => {
             let n = *n as usize;
-            if n > items.len() {
+            if n >= items.len() {
                 Ok(Value::IntList(items.clone()))
             } else {
-                Ok(Value::IntList(items[..n].to_vec()))
+                let mut result = Vec::with_capacity(n);
+                for &item in items.iter().take(n) {
+                    result.push(item);
+                }
+                Ok(Value::IntList(result))
             }
         }
         _ => Err(WqError::TypeError(format!(
@@ -427,7 +435,12 @@ pub fn drop(args: &[Value]) -> WqResult<Value> {
             if n >= items.len() {
                 Ok(Value::List(Vec::new()))
             } else {
-                Ok(Value::List(items[n..].to_vec()))
+                let remaining = items.len() - n;
+                let mut result = Vec::with_capacity(remaining);
+                for item in items.iter().skip(n) {
+                    result.push(item.clone());
+                }
+                Ok(Value::List(result))
             }
         }
         (Value::Int(n), Value::IntList(items)) => {
@@ -435,7 +448,12 @@ pub fn drop(args: &[Value]) -> WqResult<Value> {
             if n >= items.len() {
                 Ok(Value::IntList(Vec::new()))
             } else {
-                Ok(Value::IntList(items[n..].to_vec()))
+                let remaining = items.len() - n;
+                let mut result = Vec::with_capacity(remaining);
+                for &item in items.iter().skip(n) {
+                    result.push(item);
+                }
+                Ok(Value::IntList(result))
             }
         }
         _ => Err(WqError::TypeError(format!(
