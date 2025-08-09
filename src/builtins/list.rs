@@ -568,7 +568,6 @@ pub fn cat(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
         return Err(arity_error("cat", "2 arguments", args.len()));
     }
-
     let left = &args[0];
     let right = &args[1];
 
@@ -589,6 +588,16 @@ pub fn cat(args: &[Value]) -> WqResult<Value> {
             res.extend(b.clone());
             Ok(Value::IntList(res))
         }
+        (Value::IntList(a), Value::List(b)) => {
+            let mut res: Vec<Value> = a.iter().copied().map(Value::Int).collect();
+            res.extend(b.clone());
+            Ok(Value::List(res))
+        }
+        (Value::List(a), Value::IntList(b)) => {
+            let mut res = a.clone();
+            res.extend(b.iter().copied().map(Value::Int));
+            Ok(Value::List(res))
+        }
         (Value::List(a), Value::List(b)) => {
             let mut res = a.clone();
             res.extend(b.clone());
@@ -599,9 +608,20 @@ pub fn cat(args: &[Value]) -> WqResult<Value> {
             res.push(b.clone());
             Ok(Value::List(res))
         }
+        (Value::IntList(a), b) => {
+            let mut res: Vec<Value> = a.iter().cloned().map(Value::Int).collect();
+            res.push(b.clone());
+            Ok(Value::List(res))
+        }
         (a, Value::List(b)) => {
             let mut res = vec![a.clone()];
             res.extend(b.clone());
+            Ok(Value::List(res))
+        }
+        (a, Value::IntList(b)) => {
+            let mut res = Vec::with_capacity(b.len() + 1);
+            res.push(a.clone());
+            res.extend(b.iter().copied().map(Value::Int));
             Ok(Value::List(res))
         }
         (a, b) => Ok(Value::List(vec![a.clone(), b.clone()])),

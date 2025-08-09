@@ -8,6 +8,7 @@ use crate::parser::Parser;
 use crate::value::valuei::{Value, WqResult};
 use crate::vm::compiler::Compiler;
 use crate::vm::instruction::Instruction;
+use colored::Colorize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -159,8 +160,10 @@ impl VmEvaluator {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize()?;
         if self.debug {
-            eprintln!("=====TOKENS=====");
-            eprintln!("{tokens:#?}");
+            eprintln!("=====TOK=====");
+            for t in &tokens {
+                eprintln!("{t:?}");
+            }
         }
         use crate::resolver::Resolver;
         let mut parser = Parser::new(tokens, input.to_string());
@@ -169,14 +172,21 @@ impl VmEvaluator {
         let ast = resolver.resolve(ast);
         if self.debug {
             eprintln!("=====AST=====");
-            eprintln!("{ast:#?}");
+            eprintln!("{ast:?}");
         }
         let mut compiler = Compiler::new();
         compiler.compile(&ast)?;
         compiler.instructions.push(Instruction::Return);
         if self.debug {
-            eprintln!("=====BC=====");
-            eprintln!("{:#?}", compiler.instructions);
+            eprintln!("=====INST=====");
+            for inst in &compiler.instructions {
+                let s = format!("{inst:?}");
+                if let Some((name, rest)) = s.split_once('(') {
+                    eprintln!("{}({}", name.blue().bold(), rest);
+                } else {
+                    eprintln!("{}", s.blue().bold());
+                }
+            }
         }
         self.vm.reset(compiler.instructions);
         self.vm.run_no_fastpath()

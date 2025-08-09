@@ -1,7 +1,7 @@
 load ../lib/str.wq
 
 ascii_box:{[path]
-  fh: fopen[path; "r"];lines:();line: fread[fh]
+  fh: fopen[path; "r"];lines:"";line: fread[fh]
   W[not null? line;
     lines: lines,(,string line)
     line: fread[fh]]
