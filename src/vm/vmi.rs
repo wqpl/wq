@@ -79,8 +79,12 @@ impl Vm {
     ) -> WqResult<Value> {
         let saved_instructions = std::mem::replace(&mut self.instructions, instructions);
         let saved_pc = self.pc;
-        let mut saved_stack = Vec::new();
-        std::mem::swap(&mut self.stack, &mut saved_stack);
+        // Preserve stack allocation to avoid reallocations during the call
+        let prev_cap = self.stack.capacity();
+        let mut saved_stack = std::mem::replace(
+            &mut self.stack,
+            Vec::with_capacity(std::cmp::max(prev_cap, 256)),
+        );
         let saved_cache = std::mem::replace(
             &mut self.inline_cache,
             vec![InlineCache::default(); self.instructions.len()],
@@ -135,24 +139,23 @@ impl Vm {
             match op_ref {
                 Instruction::LoadConst(v) => self.stack.push(v.clone()),
                 Instruction::LoadVar(name) => {
-                    let name_owned = name.clone();
                     let (cver, cval) = {
                         let c = &self.inline_cache[idx];
-                        (c.version, c.value.clone())
+                        (c.version, c.value.as_ref())
                     };
                     if cver == self.global_version {
                         if let Some(v) = cval {
-                            self.stack.push(v);
+                            self.stack.push(v.clone());
                             continue;
                         }
                     }
-                    let (val, ver) = if let Some(val) = self.lookup_global(&name_owned) {
+                    let (val, ver) = if let Some(val) = self.lookup_global(name) {
                         (val, self.global_version)
-                    } else if self.builtins.has_function(&name_owned) {
-                        (Value::BuiltinFunction(name_owned.clone()), u64::MAX)
+                    } else if self.builtins.has_function(name) {
+                        (Value::BuiltinFunction(name.clone()), u64::MAX)
                     } else {
                         return Err(WqError::ValueError(format!(
-                            "Undefined variable: '{name_owned}'",
+                            "Undefined variable: '{name}'",
                         )));
                     };
                     {
@@ -185,9 +188,8 @@ impl Vm {
                         .locals
                         .last()
                         .and_then(|f| f.get(*i as usize))
-                        .cloned()
                         .ok_or_else(|| WqError::RuntimeError(format!("Invalid local slot {i}")))?;
-                    self.stack.push(val);
+                    self.stack.push(val.clone());
                 }
                 Instruction::StoreLocal(i) => {
                     let val = self.stack.pop().ok_or_else(|| {
@@ -206,14 +208,14 @@ impl Vm {
                     }
                 }
                 Instruction::StoreLocalKeep(i) => {
-                    let val = self.stack.last().cloned().ok_or_else(|| {
+                    let val = self.stack.last().ok_or_else(|| {
                         WqError::RuntimeError(format!(
                             "Stack underflow: cannot store into local slot {i}",
                         ))
                     })?;
                     if let Some(frame) = self.locals.last_mut() {
                         if let Some(slot) = frame.get_mut(*i as usize) {
-                            *slot = val;
+                            *slot = val.clone();
                         } else {
                             return Err(WqError::RuntimeError(format!("Invalid local slot {i}")));
                         }
@@ -285,15 +287,14 @@ impl Vm {
                     self.stack.push(result);
                 }
                 Instruction::CallBuiltin(name, argc) => {
-                    let name_owned = name.clone();
                     let argc_val = *argc;
                     if self.stack.len() < argc_val {
                         return Err(WqError::RuntimeError(format!(
-                            "Stack underflow: expected {argc_val} arguments for builtin '{name_owned}'",
+                            "Stack underflow: expected {argc_val} arguments for builtin '{name}'",
                         )));
                     }
                     let base = self.stack.len() - argc_val;
-                    let result = self.builtins.call(&name_owned, &self.stack[base..])?;
+                    let result = self.builtins.call(name, &self.stack[base..])?;
                     self.stack.truncate(base);
                     self.stack.push(result);
                 }
@@ -315,33 +316,34 @@ impl Vm {
                         )));
                     }
                     let base = self.stack.len() - *argc;
-                    let args = self.stack.split_off(base);
+                    let args: Vec<Value> = self.stack.drain(base..).collect();
                     // Walk frames top-down; compile once and replace
                     let maybe_compiled = {
                         let mut compiled: Option<(Option<Vec<String>>, u16, Vec<Instruction>)> =
                             None;
                         for frame in self.locals.iter_mut().rev() {
                             if let Some(v) = frame.get_mut(*slot as usize) {
-                                match v.clone() {
+                                match v {
                                     Value::BytecodeFunction {
                                         params,
                                         locals,
                                         instructions,
                                     } => {
-                                        compiled = Some((params, locals, instructions));
+                                        compiled = Some((params.clone(), *locals, instructions.clone()));
                                     }
                                     Value::Function { params, body } => {
                                         let mut c = Compiler::new();
-                                        c.compile(&body)?;
+                                        c.compile(body)?;
                                         c.instructions.push(Instruction::Return);
                                         let locals = c.local_count();
-                                        let instrs = c.instructions.clone();
+                                        let instrs = std::mem::take(&mut c.instructions);
+                                        let compiled_params = params.clone();
                                         *v = Value::BytecodeFunction {
-                                            params: params.clone(),
+                                            params: compiled_params.clone(),
                                             locals,
                                             instructions: instrs.clone(),
                                         };
-                                        compiled = Some((params, locals, instrs));
+                                        compiled = Some((compiled_params, locals, instrs));
                                     }
                                     other => {
                                         return Err(WqError::TypeError(format!(
@@ -370,7 +372,7 @@ impl Vm {
                         )));
                     }
                     let base = self.stack.len() - argc_val;
-                    let args = self.stack.split_off(base);
+                    let args: Vec<Value> = self.stack.drain(base..).collect();
 
                     let (cver, cval) = {
                         let c = &self.inline_cache[idx];
@@ -401,7 +403,7 @@ impl Vm {
                             instructions,
                         } => {
                             let res =
-                                self.call_function(instructions.clone(), params, locals, args)?;
+                                self.call_function(instructions, params, locals, args)?;
                             self.stack.push(res);
                         }
                         Value::Function { params, body } => {
@@ -445,7 +447,7 @@ impl Vm {
                         )));
                     }
                     let base = self.stack.len() - *argc;
-                    let args = self.stack.split_off(base);
+                    let args: Vec<Value> = self.stack.drain(base..).collect();
                     let func_val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
                             "Stack underflow: missing function value for call".into(),
@@ -484,7 +486,7 @@ impl Vm {
                         )));
                     }
                     let base = self.stack.len() - *n;
-                    let items = self.stack.split_off(base);
+                    let items: Vec<Value> = self.stack.drain(base..).collect();
                     let all_ints = items.iter().all(|v| matches!(v, Value::Int(_)));
                     if all_ints {
                         let ints: Vec<i64> = items
