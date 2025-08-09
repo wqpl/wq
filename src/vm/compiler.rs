@@ -483,11 +483,9 @@ impl Compiler {
 
             // Recurse into nested code objects first
             for ins in code.iter_mut() {
-                if let LoadConst(v) = ins {
-                    if let BytecodeFunction { instructions, .. } = v {
-                        if fuse_once(instructions, stats) {
-                            changed_any = true;
-                        }
+                if let LoadConst(BytecodeFunction { instructions, .. }) = ins {
+                    if fuse_once(instructions, stats) {
+                        changed_any = true;
                     }
                 }
             }
@@ -553,42 +551,39 @@ impl Compiler {
 
                 // 4-op fusion: LL j; LC 0; GreaterThan; JIFalse T -> JumpIfLEZLocal(j, T)
                 if i + 3 < n {
-                    match (&old[i], &old[i + 1], &old[i + 2], &old[i + 3]) {
-                        (
-                            LoadLocal(slot),
-                            LoadConst(Value::Int(0)),
-                            BinaryOp(BinaryOperator::GreaterThan),
-                            JumpIfFalse(pos),
-                        ) => {
-                            out.push(JumpIfLEZLocal(*slot, *pos));
-                            origin.push(i);
-                            keep[i] = true;
-                            keep[i + 1] = false;
-                            keep[i + 2] = false;
-                            keep[i + 3] = false;
-                            stats.ll0_gt_jifalse += 1;
-                            changed_any = true;
-                            i += 4;
-                            continue;
-                        }
-                        _ => {}
+                    if let (
+                        LoadLocal(slot),
+                        LoadConst(Value::Int(0)),
+                        BinaryOp(BinaryOperator::GreaterThan),
+                        JumpIfFalse(pos),
+                    ) = (&old[i], &old[i + 1], &old[i + 2], &old[i + 3])
+                    {
+                        out.push(JumpIfLEZLocal(*slot, *pos));
+                        origin.push(i);
+                        keep[i] = true;
+                        keep[i + 1] = false;
+                        keep[i + 2] = false;
+                        keep[i + 3] = false;
+                        stats.ll0_gt_jifalse += 1;
+                        changed_any = true;
+                        i += 4;
+                        continue;
                     }
                 }
 
                 // cmp+branch: LT; JIFalse -> JGE (stack-based)
                 if i + 1 < n {
-                    match (&old[i], &old[i + 1]) {
-                        (BinaryOp(BinaryOperator::LessThan), JumpIfFalse(pos)) => {
-                            out.push(JumpIfGE(*pos));
-                            origin.push(i);
-                            keep[i] = true;
-                            keep[i + 1] = false;
-                            stats.lt_jifalse += 1;
-                            changed_any = true;
-                            i += 2;
-                            continue;
-                        }
-                        _ => {}
+                    if let (BinaryOp(BinaryOperator::LessThan), JumpIfFalse(pos)) =
+                        (&old[i], &old[i + 1])
+                    {
+                        out.push(JumpIfGE(*pos));
+                        origin.push(i);
+                        keep[i] = true;
+                        keep[i + 1] = false;
+                        stats.lt_jifalse += 1;
+                        changed_any = true;
+                        i += 2;
+                        continue;
                     }
                 }
 
