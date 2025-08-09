@@ -293,4 +293,21 @@ mod tests {
         let res = eval.eval_string(code).unwrap();
         assert_eq!(res, Value::Int(55));
     }
+
+    #[test]
+    fn local_function_compiles_once_and_works_twice() {
+        let mut eval = VmEvaluator::new();
+        // Define a local function 'g' inside 'h' and call it twice
+        let code = "h:{g:{[n]n+1}; g 1 + g 2}; h[]";
+        let res = eval.eval_string(code).unwrap();
+        assert_eq!(res, Value::Int(5));
+    }
+
+    #[test]
+    fn builtin_arg_order_preserved() {
+        let mut eval = VmEvaluator::new();
+        // 'take' takes (list, n) and returns first n items
+        let res = eval.eval_string("take[2;(1;2;3;4)]").unwrap();
+        assert_eq!(res, Value::IntList(vec![1, 2]));
+    }
 }

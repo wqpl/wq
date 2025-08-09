@@ -21,12 +21,20 @@ impl Value {
                 }
                 Some(Value::IntList(out))
             }
-            (Value::Float(a), Value::IntList(vec)) => Some(Value::List(
-                vec.iter().map(|&x| Value::Float(a + x as f64)).collect(),
-            )),
-            (Value::IntList(vec), Value::Float(b)) => Some(Value::List(
-                vec.iter().map(|&x| Value::Float(x as f64 + b)).collect(),
-            )),
+            (Value::Float(a), Value::IntList(vec)) => {
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(Value::Float(a + x as f64));
+                }
+                Some(Value::List(out))
+            }
+            (Value::IntList(vec), Value::Float(b)) => {
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(Value::Float(x as f64 + b));
+                }
+                Some(Value::List(out))
+            }
             (Value::IntList(a), Value::List(_b)) => {
                 let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
                 left.add(other)
@@ -114,12 +122,20 @@ impl Value {
                 }
                 Some(Value::IntList(out))
             }
-            (Value::Float(a), Value::IntList(vec)) => Some(Value::List(
-                vec.iter().map(|&x| Value::Float(a - x as f64)).collect(),
-            )),
-            (Value::IntList(vec), Value::Float(b)) => Some(Value::List(
-                vec.iter().map(|&x| Value::Float(x as f64 - b)).collect(),
-            )),
+            (Value::Float(a), Value::IntList(vec)) => {
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(Value::Float(a - x as f64));
+                }
+                Some(Value::List(out))
+            }
+            (Value::IntList(vec), Value::Float(b)) => {
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(Value::Float(x as f64 - b));
+                }
+                Some(Value::List(out))
+            }
             (Value::IntList(a), Value::List(_b)) => {
                 let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
                 left.subtract(other)
@@ -200,12 +216,20 @@ impl Value {
                 }
                 Some(Value::IntList(out))
             }
-            (Value::Float(a), Value::IntList(vec)) => Some(Value::List(
-                vec.iter().map(|&x| Value::Float(a * x as f64)).collect(),
-            )),
-            (Value::IntList(vec), Value::Float(b)) => Some(Value::List(
-                vec.iter().map(|&x| Value::Float(x as f64 * b)).collect(),
-            )),
+            (Value::Float(a), Value::IntList(vec)) => {
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(Value::Float(a * x as f64));
+                }
+                Some(Value::List(out))
+            }
+            (Value::IntList(vec), Value::Float(b)) => {
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(Value::Float(x as f64 * b));
+                }
+                Some(Value::List(out))
+            }
             (Value::IntList(a), Value::List(_b)) => {
                 let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
                 left.multiply(other)
@@ -346,7 +370,10 @@ impl Value {
                 } else if vec.contains(&0) {
                     None
                 } else {
-                    let out = vec.iter().map(|&x| Value::Float(a / x as f64)).collect();
+                    let mut out = Vec::with_capacity(vec.len());
+                    for &x in vec {
+                        out.push(Value::Float(a / x as f64));
+                    }
                     Some(Value::List(out))
                 }
             }
@@ -356,7 +383,10 @@ impl Value {
                 } else if *b == 0.0 {
                     None
                 } else {
-                    let out = vec.iter().map(|&x| Value::Float(x as f64 / b)).collect();
+                    let mut out = Vec::with_capacity(vec.len());
+                    for &x in vec {
+                        out.push(Value::Float(x as f64 / b));
+                    }
                     Some(Value::List(out))
                 }
             }
@@ -518,24 +548,22 @@ impl Value {
                 if vec.is_empty() {
                     Some(Value::List(Vec::new()))
                 } else {
-                    let out = vec
-                        .iter()
-                        .map(|&x| {
-                            if x == 0 {
-                                if *a == 0.0 {
-                                    Value::nan()
-                                } else {
-                                    Value::Float(if *a >= 0.0 {
-                                        f64::INFINITY
-                                    } else {
-                                        f64::NEG_INFINITY
-                                    })
-                                }
+                    let mut out = Vec::with_capacity(vec.len());
+                    for &x in vec {
+                        if x == 0 {
+                            if *a == 0.0 {
+                                out.push(Value::nan());
                             } else {
-                                Value::Float(a / x as f64)
+                                out.push(Value::Float(if *a >= 0.0 {
+                                    f64::INFINITY
+                                } else {
+                                    f64::NEG_INFINITY
+                                }));
                             }
-                        })
-                        .collect();
+                        } else {
+                            out.push(Value::Float(a / x as f64));
+                        }
+                    }
                     Some(Value::List(out))
                 }
             }
@@ -543,22 +571,20 @@ impl Value {
                 if vec.is_empty() {
                     Some(Value::List(Vec::new()))
                 } else {
-                    let out = vec
-                        .iter()
-                        .map(|&x| {
-                            if *b == 0.0 {
-                                if x == 0 {
-                                    Value::nan()
-                                } else if x > 0 {
-                                    Value::Float(f64::INFINITY)
-                                } else {
-                                    Value::Float(f64::NEG_INFINITY)
-                                }
+                    let mut out = Vec::with_capacity(vec.len());
+                    for &x in vec {
+                        if *b == 0.0 {
+                            if x == 0 {
+                                out.push(Value::nan());
+                            } else if x > 0 {
+                                out.push(Value::Float(f64::INFINITY));
                             } else {
-                                Value::Float(x as f64 / b)
+                                out.push(Value::Float(f64::NEG_INFINITY));
                             }
-                        })
-                        .collect();
+                        } else {
+                            out.push(Value::Float(x as f64 / b));
+                        }
+                    }
                     Some(Value::List(out))
                 }
             }
@@ -718,7 +744,11 @@ impl Value {
                 if *b == 0 {
                     return None;
                 }
-                Some(Value::IntList(items.iter().map(|x| x % b).collect()))
+                let mut out = Vec::with_capacity(items.len());
+                for &x in items {
+                    out.push(x % b);
+                }
+                Some(Value::IntList(out))
             }
             (Value::Int(a), Value::IntList(vec)) => {
                 if vec.is_empty() {
@@ -726,14 +756,21 @@ impl Value {
                 } else if vec.contains(&0) {
                     None
                 } else {
-                    Some(Value::IntList(vec.iter().map(|x| a % x).collect()))
+                    let mut out = Vec::with_capacity(vec.len());
+                    for &x in vec {
+                        out.push(a % x);
+                    }
+                    Some(Value::IntList(out))
                 }
             }
             (Value::Float(a), Value::IntList(vec)) => {
                 if vec.is_empty() || vec.contains(&0) {
                     None
                 } else {
-                    let out = vec.iter().map(|&x| Value::Float(a % x as f64)).collect();
+                    let mut out = Vec::with_capacity(vec.len());
+                    for &x in vec {
+                        out.push(Value::Float(a % x as f64));
+                    }
                     Some(Value::List(out))
                 }
             }
@@ -741,7 +778,10 @@ impl Value {
                 if *b == 0.0 {
                     None
                 } else {
-                    let out = vec.iter().map(|&x| Value::Float(x as f64 % b)).collect();
+                    let mut out = Vec::with_capacity(vec.len());
+                    for &x in vec {
+                        out.push(Value::Float(x as f64 % b));
+                    }
                     Some(Value::List(out))
                 }
             }
@@ -999,11 +1039,13 @@ impl Value {
                     .map(|&x| Value::Float(a.powf(x as f64)))
                     .collect(),
             )),
-            (Value::IntList(vec), Value::Float(b)) => Some(Value::List(
-                vec.iter()
-                    .map(|&x| Value::Float((x as f64).powf(*b)))
-                    .collect(),
-            )),
+            (Value::IntList(vec), Value::Float(b)) => {
+                let mut out = Vec::with_capacity(vec.len());
+                for &x in vec {
+                    out.push(Value::Float((x as f64).powf(*b)));
+                }
+                Some(Value::List(out))
+            }
 
             // Promote IntList to generic List then recurse
             (Value::IntList(a), Value::List(_)) => {
@@ -1604,22 +1646,20 @@ impl Value {
                 if a.is_empty() || b.is_empty() {
                     Value::List(Vec::new())
                 } else if a.len() == b.len() {
-                    let result: Vec<Value> = a
-                        .iter()
-                        .zip(b.iter())
-                        .map(|(x, y)| Value::Bool(cmp(&Value::Int(*x), &Value::Int(*y))))
-                        .collect();
-                    Value::List(result)
+                    let mut out = Vec::with_capacity(a.len());
+                    for (&x, &y) in a.iter().zip(b.iter()) {
+                        out.push(Value::Bool(cmp(&Value::Int(x), &Value::Int(y))));
+                    }
+                    Value::List(out)
                 } else {
                     let max_len = a.len().max(b.len());
-                    let result: Vec<Value> = (0..max_len)
-                        .map(|i| {
-                            let left = Value::Int(a[i % a.len()]);
-                            let right = Value::Int(b[i % b.len()]);
-                            Value::Bool(cmp(&left, &right))
-                        })
-                        .collect();
-                    Value::List(result)
+                    let mut out = Vec::with_capacity(max_len);
+                    for i in 0..max_len {
+                        let left = Value::Int(a[i % a.len()]);
+                        let right = Value::Int(b[i % b.len()]);
+                        out.push(Value::Bool(cmp(&left, &right)));
+                    }
+                    Value::List(out)
                 }
             }
             (Value::IntList(a), Value::List(_b)) => {
@@ -1631,48 +1671,52 @@ impl Value {
                 self.cmp_broadcast(&right, cmp)
             }
             (Value::IntList(a), b) => {
-                let result: Vec<Value> = a
-                    .iter()
-                    .map(|x| Value::Bool(cmp(&Value::Int(*x), b)))
-                    .collect();
-                Value::List(result)
+                let mut out = Vec::with_capacity(a.len());
+                for &x in a {
+                    out.push(Value::Bool(cmp(&Value::Int(x), b)));
+                }
+                Value::List(out)
             }
             (a, Value::IntList(b)) => {
-                let result: Vec<Value> = b
-                    .iter()
-                    .map(|y| Value::Bool(cmp(a, &Value::Int(*y))))
-                    .collect();
-                Value::List(result)
+                let mut out = Vec::with_capacity(b.len());
+                for &y in b {
+                    out.push(Value::Bool(cmp(a, &Value::Int(y))));
+                }
+                Value::List(out)
             }
             (Value::List(a), Value::List(b)) => {
                 if a.is_empty() || b.is_empty() {
                     Value::List(Vec::new())
                 } else if a.len() == b.len() {
-                    let result: Vec<Value> = a
-                        .iter()
-                        .zip(b.iter())
-                        .map(|(x, y)| Value::Bool(cmp(x, y)))
-                        .collect();
-                    Value::List(result)
+                    let mut out = Vec::with_capacity(a.len());
+                    for (x, y) in a.iter().zip(b.iter()) {
+                        out.push(Value::Bool(cmp(x, y)));
+                    }
+                    Value::List(out)
                 } else {
                     let max_len = a.len().max(b.len());
-                    let result: Vec<Value> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            Value::Bool(cmp(left, right))
-                        })
-                        .collect();
-                    Value::List(result)
+                    let mut out = Vec::with_capacity(max_len);
+                    for i in 0..max_len {
+                        let left = &a[i % a.len()];
+                        let right = &b[i % b.len()];
+                        out.push(Value::Bool(cmp(left, right)));
+                    }
+                    Value::List(out)
                 }
             }
             (Value::List(a), b) => {
-                let result: Vec<Value> = a.iter().map(|x| Value::Bool(cmp(x, b))).collect();
-                Value::List(result)
+                let mut out = Vec::with_capacity(a.len());
+                for x in a {
+                    out.push(Value::Bool(cmp(x, b)));
+                }
+                Value::List(out)
             }
             (a, Value::List(b)) => {
-                let result: Vec<Value> = b.iter().map(|y| Value::Bool(cmp(a, y))).collect();
-                Value::List(result)
+                let mut out = Vec::with_capacity(b.len());
+                for y in b {
+                    out.push(Value::Bool(cmp(a, y)));
+                }
+                Value::List(out)
             }
             (a, b) => Value::Bool(cmp(a, b)),
         }

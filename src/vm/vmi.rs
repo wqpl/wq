@@ -136,82 +136,16 @@ impl Vm {
     }
 
     fn execute(&mut self) -> WqResult<Value> {
-        enum OpView {
-            LoadConst(Value),
-            LoadVar(String),
-            StoreVar(String),
-            LoadLocal(u16),
-            StoreLocal(u16),
-            BinaryOp(BinaryOperator),
-            UnaryOp(UnaryOperator),
-            CallBuiltin { name: String, argc: usize },
-            CallBuiltinId { id: u8, argc: usize },
-            CallLocal { slot: u16, argc: usize },
-            CallUser { name: String, argc: usize },
-            CallAnon(usize),
-            MakeList(usize),
-            MakeDict(usize),
-            Index,
-            IndexAssign,
-            IndexAssignLocal(u16),
-            Jump(usize),
-            JumpIfFalse(usize),
-            Pop,
-            Assert,
-            Return,
-        }
-
         while self.pc < self.instructions.len() {
             let idx = self.pc;
-            // Phase A: decode the instruction into an owned view
-            let op = {
-                // SAFETY: pc bounds-checked above
-                let instr = unsafe { self.instructions.get_unchecked(idx) };
-                match instr {
-                    Instruction::LoadConst(v) => OpView::LoadConst(v.clone()),
-                    Instruction::LoadVar(name) => OpView::LoadVar(name.clone()),
-                    Instruction::StoreVar(name) => OpView::StoreVar(name.clone()),
-                    Instruction::LoadLocal(i) => OpView::LoadLocal(*i),
-                    Instruction::StoreLocal(i) => OpView::StoreLocal(*i),
-                    Instruction::BinaryOp(op) => OpView::BinaryOp(op.clone()),
-                    Instruction::UnaryOp(op) => OpView::UnaryOp(op.clone()),
-                    Instruction::CallBuiltin(name, argc) => OpView::CallBuiltin {
-                        name: name.clone(),
-                        argc: *argc,
-                    },
-                    Instruction::CallBuiltinId(id, argc) => OpView::CallBuiltinId {
-                        id: *id,
-                        argc: *argc,
-                    },
-                    Instruction::CallLocal(slot, argc) => OpView::CallLocal {
-                        slot: *slot,
-                        argc: *argc,
-                    },
-                    Instruction::CallUser(name, argc) => OpView::CallUser {
-                        name: name.clone(),
-                        argc: *argc,
-                    },
-                    Instruction::CallAnon(argc) => OpView::CallAnon(*argc),
-                    Instruction::MakeList(n) => OpView::MakeList(*n),
-                    Instruction::MakeDict(n) => OpView::MakeDict(*n),
-                    Instruction::Index => OpView::Index,
-                    Instruction::IndexAssign => OpView::IndexAssign,
-                    Instruction::IndexAssignLocal(i) => OpView::IndexAssignLocal(*i),
-                    Instruction::Jump(pos) => OpView::Jump(*pos),
-                    Instruction::JumpIfFalse(pos) => OpView::JumpIfFalse(*pos),
-                    Instruction::Pop => OpView::Pop,
-                    Instruction::Assert => OpView::Assert,
-                    Instruction::Return => OpView::Return,
-                }
-            };
-
-            // borrow dropped; advance program counter
+            // Clone current instruction to drop borrow before executing
+            let op = unsafe { self.instructions.get_unchecked(idx) }.clone();
+            // advance program counter
             self.pc += 1;
 
-            // Phase B: execute
             match op {
-                OpView::LoadConst(v) => self.stack.push(v),
-                OpView::LoadVar(name) => {
+                Instruction::LoadConst(v) => self.stack.push(v),
+                Instruction::LoadVar(name) => {
                     let (cver, cval) = {
                         let c = &self.inline_cache[idx];
                         (c.version, c.value.clone())
@@ -238,7 +172,7 @@ impl Vm {
                     }
                     self.stack.push(val);
                 }
-                OpView::StoreVar(name) => {
+                Instruction::StoreVar(name) => {
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(format!(
                             "Stack underflow: cannot store into variable '{name}'",
@@ -246,7 +180,7 @@ impl Vm {
                     })?;
                     self.assign_global(name, val);
                 }
-                OpView::LoadLocal(i) => {
+                Instruction::LoadLocal(i) => {
                     let val = self
                         .locals
                         .last()
@@ -255,7 +189,7 @@ impl Vm {
                         .ok_or_else(|| WqError::RuntimeError(format!("Invalid local slot {i}")))?;
                     self.stack.push(val);
                 }
-                OpView::StoreLocal(i) => {
+                Instruction::StoreLocal(i) => {
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(format!(
                             "Stack underflow: cannot store into local slot {i}",
@@ -271,7 +205,7 @@ impl Vm {
                         return Err(WqError::RuntimeError("No local frame".into()));
                     }
                 }
-                OpView::BinaryOp(op) => {
+                Instruction::BinaryOp(op) => {
                     let right = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError("Stack underflow: missing right operand".into())
                     })?;
@@ -319,7 +253,7 @@ impl Vm {
                         Err(e) => return Err(e),
                     }
                 }
-                OpView::UnaryOp(op) => {
+                Instruction::UnaryOp(op) => {
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
                             "Stack underflow: missing operand for unary operator".into(),
@@ -334,96 +268,89 @@ impl Vm {
                     }?;
                     self.stack.push(result);
                 }
-                OpView::CallBuiltin { name, argc } => {
-                    let mut args = Vec::with_capacity(argc);
-                    for i in (0..argc).rev() {
-                        let arg = self.stack.pop().ok_or_else(|| {
-                            WqError::RuntimeError(format!(
-                                "Stack underflow: expected {} arguments for builtin '{}', only found {}",
-                                argc, name, argc - i
-                            ))
-                        })?;
-                        args.push(arg);
+                Instruction::CallBuiltin(name, argc) => {
+                    if self.stack.len() < argc {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {argc} arguments for builtin '{name}'",
+                        )));
                     }
-
+                    let base = self.stack.len() - argc;
+                    let args = self.stack.split_off(base);
                     let result = self.builtins.call(&name, &args)?;
                     self.stack.push(result);
                 }
-                OpView::CallBuiltinId { id, argc } => {
-                    let mut args = Vec::with_capacity(argc);
-                    for _ in 0..argc {
-                        let arg = self.stack.pop().ok_or_else(|| {
-                            WqError::RuntimeError(format!(
-                                "Stack underflow: expected {argc} arguments for builtin ID {id} but only found fewer",
-                            ))
-                        })?;
-                        args.push(arg);
+                Instruction::CallBuiltinId(id, argc) => {
+                    if self.stack.len() < argc {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {argc} arguments for builtin ID {id}",
+                        )));
                     }
-                    args.reverse();
+                    let base = self.stack.len() - argc;
+                    let args = self.stack.split_off(base);
                     let result = self.builtins.call_id(id as usize, &args)?;
                     self.stack.push(result);
                 }
-                OpView::CallLocal { slot, argc } => {
-                    let mut args = Vec::with_capacity(argc);
-                    for _ in 0..argc {
-                        let arg = self.stack.pop().ok_or_else(|| {
-                            WqError::RuntimeError(format!(
-                                "Stack underflow: expected {argc} arguments for local function at slot {slot} but only found fewer",
-                            ))
-                        })?;
-                        args.push(arg);
+                Instruction::CallLocal(slot, argc) => {
+                    if self.stack.len() < argc {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {argc} arguments for local function at slot {slot}",
+                        )));
                     }
-                    args.reverse();
-                    let func_val = {
-                        let mut found = None;
-                        for frame in self.locals.iter().rev() {
-                            if let Some(v) = frame.get(slot as usize) {
-                                found = Some(v.clone());
+                    let base = self.stack.len() - argc;
+                    let args = self.stack.split_off(base);
+                    // Walk frames top-down; compile once and replace
+                    let maybe_compiled = {
+                        let mut compiled: Option<(Option<Vec<String>>, u16, Vec<Instruction>)> =
+                            None;
+                        for frame in self.locals.iter_mut().rev() {
+                            if let Some(v) = frame.get_mut(slot as usize) {
+                                match v.clone() {
+                                    Value::BytecodeFunction {
+                                        params,
+                                        locals,
+                                        instructions,
+                                    } => {
+                                        compiled = Some((params, locals, instructions));
+                                    }
+                                    Value::Function { params, body } => {
+                                        let mut c = Compiler::new();
+                                        c.compile(&body)?;
+                                        c.instructions.push(Instruction::Return);
+                                        let locals = c.local_count();
+                                        let instrs = c.instructions.clone();
+                                        *v = Value::BytecodeFunction {
+                                            params: params.clone(),
+                                            locals,
+                                            instructions: instrs.clone(),
+                                        };
+                                        compiled = Some((params, locals, instrs));
+                                    }
+                                    other => {
+                                        return Err(WqError::TypeError(format!(
+                                            "Cannot call local slot {slot}: expected function, found {}",
+                                            other.type_name(),
+                                        )));
+                                    }
+                                }
                                 break;
                             }
                         }
-                        found.ok_or_else(|| {
-                            WqError::RuntimeError(format!("Invalid local slot {slot}"))
-                        })?
+                        compiled
                     };
-                    match func_val {
-                        Value::BytecodeFunction {
-                            params,
-                            locals,
-                            instructions,
-                        } => {
-                            let res =
-                                self.call_function(instructions.clone(), params, locals, args)?;
-                            self.stack.push(res);
-                        }
-                        Value::Function { params, body } => {
-                            let mut c = Compiler::new();
-                            c.compile(&body)?;
-                            c.instructions.push(Instruction::Return);
-                            let locals = c.local_count();
-                            let instrs = c.instructions.clone();
-                            let res = self.call_function(instrs, params, locals, args)?;
-                            self.stack.push(res);
-                        }
-                        other => {
-                            return Err(WqError::TypeError(format!(
-                                "Cannot call local slot {slot}: expected function, found {}",
-                                other.type_name(),
-                            )));
-                        }
-                    }
+                    let (params, locals, instructions) = maybe_compiled.ok_or_else(|| {
+                        WqError::RuntimeError(format!("Invalid local slot {slot}"))
+                    })?;
+                    let res = self.call_function(instructions, params, locals, args)?;
+                    self.stack.push(res);
                 }
-                OpView::CallUser { name, argc } => {
-                    let mut args = Vec::with_capacity(argc);
-                    for _ in 0..argc {
-                        let arg = self.stack.pop().ok_or_else(|| {
-                            WqError::RuntimeError(format!(
-                                "Stack underflow: expected {argc} arguments for function '{name}' but only found fewer",
-                            ))
-                        })?;
-                        args.push(arg);
+                Instruction::CallUser(name, argc) => {
+                    if self.stack.len() < argc {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {argc} arguments for function '{name}'",
+                        )));
                     }
-                    args.reverse();
+                    let base = self.stack.len() - argc;
+                    let args = self.stack.split_off(base);
 
                     let (cver, cval) = {
                         let c = &self.inline_cache[idx];
@@ -463,6 +390,14 @@ impl Vm {
                             c.instructions.push(Instruction::Return);
                             let locals = c.local_count();
                             let instrs = c.instructions.clone();
+                            // Replace in globals to avoid recompilation on next lookup
+                            if let Some(slot) = self.globals.get_mut(&name) {
+                                *slot = Value::BytecodeFunction {
+                                    params: params.clone(),
+                                    locals,
+                                    instructions: instrs.clone(),
+                                };
+                            }
                             {
                                 let entry = &mut self.inline_cache[idx];
                                 entry.version = self.global_version;
@@ -483,18 +418,14 @@ impl Vm {
                         }
                     }
                 }
-                OpView::CallAnon(argc) => {
-                    let mut args = Vec::with_capacity(argc);
-
-                    for _ in 0..argc {
-                        let arg = self.stack.pop().ok_or_else(|| {
-                            WqError::RuntimeError(format!(
-                                "Stack underflow: expected {argc} arguments but only found fewer",
-                            ))
-                        })?;
-                        args.push(arg);
+                Instruction::CallAnon(argc) => {
+                    if self.stack.len() < argc + 1 {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {argc} arguments and a function",
+                        )));
                     }
-                    args.reverse();
+                    let base = self.stack.len() - argc;
+                    let args = self.stack.split_off(base);
                     let func_val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
                             "Stack underflow: missing function value for call".into(),
@@ -526,23 +457,15 @@ impl Vm {
                         }
                     }
                 }
-                OpView::MakeList(n) => {
-                    let mut items = Vec::with_capacity(n);
-                    let mut all_ints = n > 0;
-                    for i in (0..n).rev() {
-                        let item = self.stack.pop().ok_or_else(|| {
-                            WqError::RuntimeError(format!(
-                                "Stack underflow: expected {} list items, only got {}",
-                                n,
-                                n - i
-                            ))
-                        })?;
-                        if !matches!(item, Value::Int(_)) {
-                            all_ints = false;
-                        }
-                        items.push(item);
+                Instruction::MakeList(n) => {
+                    if self.stack.len() < n {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {n} list items",
+                        )));
                     }
-                    items.reverse();
+                    let base = self.stack.len() - n;
+                    let items = self.stack.split_off(base);
+                    let all_ints = items.iter().all(|v| matches!(v, Value::Int(_)));
                     if all_ints {
                         let ints: Vec<i64> = items
                             .into_iter()
@@ -556,7 +479,7 @@ impl Vm {
                         self.stack.push(Value::List(items));
                     }
                 }
-                OpView::MakeDict(n) => {
+                Instruction::MakeDict(n) => {
                     let mut map = IndexMap::new();
                     for _ in 0..n {
                         let val = self.stack.pop().ok_or_else(|| {
@@ -579,19 +502,47 @@ impl Vm {
                     }
                     self.stack.push(Value::Dict(map));
                 }
-                OpView::Index => {
-                    let idx = self.stack.pop().unwrap();
-                    let obj = self.stack.pop().unwrap();
-                    match obj.index(&idx) {
-                        Some(v) => self.stack.push(v),
-                        None => {
-                            return Err(WqError::IndexError(format!(
-                                "Invalid index: attempted to access index {idx} in {obj}"
-                            )));
+                Instruction::Index => {
+                    // Hot path: IntList/List with integer index
+                    match (self.stack.pop().unwrap(), self.stack.pop().unwrap()) {
+                        (Value::Int(i), Value::IntList(items)) => {
+                            let len = items.len() as i64;
+                            let ii = if i < 0 { len + i } else { i };
+                            if ii >= 0 && ii < len {
+                                let idx = ii as usize;
+                                self.stack.push(Value::Int(items[idx]));
+                            } else {
+                                return Err(WqError::IndexError(format!(
+                                    "Invalid index: attempted to access index {i} in int-list of len {}",
+                                    items.len()
+                                )));
+                            }
                         }
+                        (Value::Int(i), Value::List(items)) => {
+                            let len = items.len() as i64;
+                            let ii = if i < 0 { len + i } else { i };
+                            if ii >= 0 && ii < len {
+                                let idx = ii as usize;
+                                let v = items.get(idx).cloned().unwrap();
+                                self.stack.push(v);
+                            } else {
+                                return Err(WqError::IndexError(format!(
+                                    "Invalid index: attempted to access index {i} in list of len {}",
+                                    items.len()
+                                )));
+                            }
+                        }
+                        (idx, obj) => match obj.index(&idx) {
+                            Some(v) => self.stack.push(v),
+                            None => {
+                                return Err(WqError::IndexError(format!(
+                                    "Invalid index: attempted to access index {idx} in {obj}"
+                                )));
+                            }
+                        },
                     }
                 }
-                OpView::IndexAssign => {
+                Instruction::IndexAssign => {
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
                             "Stack underflow: missing value for index assignment".into(),
@@ -614,12 +565,41 @@ impl Vm {
                     match obj_name {
                         Value::Symbol(name) => match self.globals.get_mut(&name) {
                             Some(obj) => {
-                                if obj.set_index(&idx, val.clone()).is_some() {
-                                    self.stack.push(val);
-                                } else {
-                                    return Err(WqError::IndexError(format!(
-                                        "Failed assigning to {name}[{idx}], index invalid or not supported",
-                                    )));
+                                // Fast path: int-list/list with int index
+                                match (&mut *obj, &idx, &val) {
+                                    (Value::IntList(items), Value::Int(i), Value::Int(v)) => {
+                                        let len = items.len() as i64;
+                                        let ii = if *i < 0 { len + *i } else { *i };
+                                        if ii >= 0 && ii < len {
+                                            items[ii as usize] = *v;
+                                            self.stack.push(val);
+                                        } else {
+                                            return Err(WqError::IndexError(format!(
+                                                "Failed assigning to {name}[{i}], out of bounds",
+                                            )));
+                                        }
+                                    }
+                                    (Value::List(items), Value::Int(i), _) => {
+                                        let len = items.len() as i64;
+                                        let ii = if *i < 0 { len + *i } else { *i };
+                                        if ii >= 0 && ii < len {
+                                            items[ii as usize] = val.clone();
+                                            self.stack.push(val);
+                                        } else {
+                                            return Err(WqError::IndexError(format!(
+                                                "Failed assigning to {name}[{i}], out of bounds",
+                                            )));
+                                        }
+                                    }
+                                    _ => {
+                                        if (*obj).set_index(&idx, val.clone()).is_some() {
+                                            self.stack.push(val);
+                                        } else {
+                                            return Err(WqError::IndexError(format!(
+                                                "Failed assigning to {name}[{idx}], index invalid or not supported",
+                                            )));
+                                        }
+                                    }
                                 }
                             }
                             None => {
@@ -636,7 +616,7 @@ impl Vm {
                         }
                     }
                 }
-                OpView::IndexAssignLocal(slot) => {
+                Instruction::IndexAssignLocal(slot) => {
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
                             "Stack underflow: missing value for index assignment".into(),
@@ -649,12 +629,40 @@ impl Vm {
                     })?;
                     if let Some(frame) = self.locals.last_mut() {
                         if let Some(obj) = frame.get_mut(slot as usize) {
-                            if obj.set_index(&idx, val.clone()).is_some() {
-                                self.stack.push(val);
-                            } else {
-                                return Err(WqError::IndexError(format!(
-                                    "Failed assigning to local[{slot}][{idx}], index invalid or not supported",
-                                )));
+                            match (&mut *obj, &idx, &val) {
+                                (Value::IntList(items), Value::Int(i), Value::Int(v)) => {
+                                    let len = items.len() as i64;
+                                    let ii = if *i < 0 { len + *i } else { *i };
+                                    if ii >= 0 && ii < len {
+                                        items[ii as usize] = *v;
+                                        self.stack.push(val);
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to local[{slot}][{i}], out of bounds",
+                                        )));
+                                    }
+                                }
+                                (Value::List(items), Value::Int(i), _) => {
+                                    let len = items.len() as i64;
+                                    let ii = if *i < 0 { len + *i } else { *i };
+                                    if ii >= 0 && ii < len {
+                                        items[ii as usize] = val.clone();
+                                        self.stack.push(val);
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to local[{slot}][{i}], out of bounds",
+                                        )));
+                                    }
+                                }
+                                _ => {
+                                    if (*obj).set_index(&idx, val.clone()).is_some() {
+                                        self.stack.push(val);
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to local[{slot}][{idx}], index invalid or not supported",
+                                        )));
+                                    }
+                                }
                             }
                         } else {
                             return Err(WqError::RuntimeError(format!(
@@ -665,8 +673,8 @@ impl Vm {
                         return Err(WqError::RuntimeError("No local frame".into()));
                     }
                 }
-                OpView::Jump(pos) => self.pc = pos,
-                OpView::JumpIfFalse(pos) => {
+                Instruction::Jump(pos) => self.pc = pos,
+                Instruction::JumpIfFalse(pos) => {
                     let v = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
                             "Stack underflow: missing value for conditional jump".into(),
@@ -688,10 +696,10 @@ impl Vm {
                         self.pc = pos;
                     }
                 }
-                OpView::Pop => {
+                Instruction::Pop => {
                     self.stack.pop();
                 }
-                OpView::Assert => {
+                Instruction::Assert => {
                     let v = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError("Stack underflow: missing value for assert".into())
                     })?;
@@ -708,7 +716,7 @@ impl Vm {
                     }
                     self.stack.push(Value::Null);
                 }
-                OpView::Return => break,
+                Instruction::Return => break,
             }
         }
         Ok(self.stack.pop().unwrap_or(Value::Null))
