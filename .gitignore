@@ -1,5 +1,6 @@
 /target
 /.ropeproject
+/.ruff_cache
 /.DS_Store
 /drafts
 /exa/exp

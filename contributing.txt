@@ -1,15 +1,12 @@
-                    CONTRIBUTING
-=====================================================
-contributions are always welcome!
-=====================================================
-issues:   (1) include steps to reproduce
+Contributions are always welcome!
+Issues:   (1) include steps to reproduce
 
-features: (1) open an issue first
+Features: (1) open an issue first
           (2) explain the value
 
 PR        (1) rust:   cargo fmt
-                      cargo clippy # Ensure no warns/errs
-                      cargo test   # All tests must pass
+                      cargo clippy
+                      cargo test
           (2) python: ruff format
                       ruff check
           (3) commit msg: concise, clean
