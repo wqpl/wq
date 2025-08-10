@@ -1,7 +1,8 @@
+use wq::apps::formatter::{FormatOptions, Formatter};
+use wq::builtins::io;
 use wq::builtins_help;
-use wq::evaluator::Evaluator;
 use wq::repl::ReplEngine;
-use wq::tools::formatter::{FormatOptions, Formatter};
+use wq::utils::textutils::create_boxed_text;
 use wq::vm::{self, VmEvaluator};
 
 use rustyline::DefaultEditor;
@@ -12,7 +13,6 @@ use std::io::{Write, stdout};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use wq::builtins::io;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -23,12 +23,12 @@ use wq::value::valuei::WqError;
 use colored::Colorize;
 use rand::Rng;
 
-use crate::load_resolver::{load_script, parse_load_filename, resolve_load_path};
+use crate::load_resolver::{load_script, parse_load_filename};
 
 fn main() {
     let args = env::args().skip(1);
 
-    let mut use_vm = true;
+    let mut interactive_mode = false;
     let mut debug_mode = false;
 
     let mut file: Option<String> = None;
@@ -50,7 +50,6 @@ fn main() {
                 println!("wq {}", env!("CARGO_PKG_VERSION"));
                 return;
             }
-            "--tree-walker" | "-t" => use_vm = false,
             "--format" | "-f" => {
                 if let Some(p) = iter.next() {
                     format_file = Some(p);
@@ -60,6 +59,7 @@ fn main() {
                 }
             }
             "--debug" | "-d" => debug_mode = true,
+            "--interactive" | "-i" => interactive_mode = true,
             _ => {
                 if file.is_none() {
                     file = Some(arg);
@@ -76,15 +76,12 @@ fn main() {
         format_script_print(&file);
         return;
     }
-
     // Handle command line script execution
     if let Some(file) = file {
-        if use_vm {
-            vm::vm_exec_script(&file, debug_mode);
-        } else {
-            execute_script(&file);
+        vm::vm_exec_script(&file, debug_mode);
+        if !interactive_mode {
+            return;
         }
-        return;
     }
 
     println!(
@@ -93,11 +90,8 @@ fn main() {
         "help | quit".green()
     );
 
-    let mut evaluator: Box<dyn ReplEngine> = if use_vm {
-        Box::new(VmEvaluator::new())
-    } else {
-        Box::new(Evaluator::new())
-    };
+    let mut evaluator: Box<dyn ReplEngine> = Box::new(VmEvaluator::new());
+
     evaluator.set_debug(debug_mode);
     {
         let mut guard = io::RUSTYLINE.lock().unwrap();
@@ -410,69 +404,6 @@ fn main() {
     }
 }
 
-fn execute_script(filename: &str) {
-    let mut evaluator = Evaluator::new();
-
-    match fs::read_to_string(filename) {
-        Ok(content) => {
-            let mut loading = HashSet::new();
-            let mut buffer = String::new();
-            for (line_num, line) in content.lines().enumerate() {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-
-                if buffer.is_empty() {
-                    if let Some(fname) = parse_load_filename(line) {
-                        let base = Path::new(filename)
-                            .parent()
-                            .unwrap_or_else(|| Path::new(""));
-                        let path = resolve_load_path(base, fname);
-                        load_script(&mut evaluator, &path, &mut loading, true);
-                        continue;
-                    }
-                }
-
-                buffer.push_str(line);
-                match evaluator.eval_string(buffer.trim()) {
-                    Ok(_) => {
-                        buffer.clear();
-                    }
-                    Err(err) => {
-                        if matches!(&err, WqError::EofError(_)) {
-                            buffer.push('\n');
-                            continue;
-                        } else {
-                            system_msg_printer::stderr(
-                                format!("Error at script {filename} line {line_num}: \n {err}"),
-                                system_msg_printer::MsgType::Error,
-                            );
-                            buffer.clear();
-                        }
-                    }
-                }
-            }
-
-            if !buffer.trim().is_empty() {
-                if let Err(err) = evaluator.eval_string(buffer.trim()) {
-                    system_msg_printer::stderr(
-                        format!("Error at script {filename}: \n {err}"),
-                        system_msg_printer::MsgType::Error,
-                    );
-                }
-            }
-        }
-        Err(error) => {
-            system_msg_printer::stderr(
-                format!("Cannot read {filename}: {error}"),
-                system_msg_printer::MsgType::Error,
-            );
-            std::process::exit(1);
-        }
-    }
-}
-
 fn format_script_print(filename: &str) {
     match fs::read_to_string(filename) {
         Ok(content) => {
@@ -490,32 +421,6 @@ fn format_script_print(filename: &str) {
             std::process::exit(1);
         }
     }
-}
-
-fn create_boxed_text(text: &str, padding: usize) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let max_len = lines.iter().map(|line| line.len()).max().unwrap_or(0);
-    let total_width = max_len + padding * 2;
-
-    let top_border = format!("+{}+", "-".repeat(total_width));
-    let bottom_border = top_border.clone();
-
-    let mut result = String::new();
-    result.push_str(&top_border);
-    result.push('\n');
-
-    for line in lines {
-        let spaces = max_len - line.len();
-        result.push_str(&format!(
-            "|{}{}{}|\n",
-            " ".repeat(padding),
-            line,
-            " ".repeat(padding + spaces)
-        ));
-    }
-
-    result.push_str(&bottom_border);
-    result
 }
 
 mod load_resolver {

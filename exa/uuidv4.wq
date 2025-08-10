@@ -1,3 +1,4 @@
+// EXCLUDE
 load ../lib/str.wq
 
 HEX:"0123456789abcdef";hexbyte:{[b]HEX[shr[b;4]],HEX[band[b;15]]}

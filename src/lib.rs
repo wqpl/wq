@@ -1,10 +1,10 @@
+pub mod apps;
 pub mod builtins;
 pub mod builtins_help;
-pub mod evaluator;
 pub mod lexer;
 pub mod parser;
 pub mod repl;
 pub mod resolver;
-pub mod tools;
+pub mod utils;
 pub mod value;
 pub mod vm;

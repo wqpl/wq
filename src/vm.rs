@@ -124,7 +124,6 @@ pub fn vm_exec_script(path: &String, debug: bool) {
     }
 }
 
-/// A stateful evaluator for the bytecode VM used by the REPL.
 pub struct VmEvaluator {
     vm: Vm,
     debug: bool,
@@ -161,9 +160,7 @@ impl VmEvaluator {
         let tokens = lexer.tokenize()?;
         if self.debug {
             eprintln!("=====TOK=====");
-            for t in &tokens {
-                eprintln!("{t:?}");
-            }
+            eprintln!("{tokens:?}");
         }
         use crate::resolver::Resolver;
         let mut parser = Parser::new(tokens, input.to_string());

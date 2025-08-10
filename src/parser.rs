@@ -1,7 +1,7 @@
 use crate::lexer::{Token, TokenType};
 use crate::value::valuei::{Value, WqError, WqResult};
 
-/// ast nodes
+/// Ast nodes
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
     Literal(Value),
@@ -92,7 +92,7 @@ pub enum AstNode {
     Return(Option<Box<AstNode>>),
     Assert(Box<AstNode>),
 
-    /// Block/sequence of statements
+    /// Sequence of statements
     Block(Vec<AstNode>),
 }
 

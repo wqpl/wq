@@ -2,36 +2,46 @@
 """
 exa-t.py
 
-Usage examples:
-  python3 exa-t.py gen                 # 1. Runs cargo build
-                                       # 2. Executes each .wq script in exa/
-                                       # 3. Saves the output into exa/exp/<script>.exp
-                                       # 4. Skips scripts starting with // EXCLUDE
+Workflow:
+  gen  -> preview run: write outputs to exa/gen/<name>.out
+  lock -> approve baseline: write lockfiles to exa/lock/<name>.lock
+  test -> compare current run against exa/lock/*.lock
 
-  python3 exa-t.py test <script>       # Executes a specific test, and
-                                       # compares output against the corresponding .exp file
+Notes:
+  - Scripts whose first line starts with "// EXCLUDE" are skipped.
 
-  python3 exa-t.py test --all, -a      # Run all tests
-  python3 exa-t.py test --list, -l     # List all available tests
-  python3 exa-t.py clean               # Remove all .exp files under exa/exp
+Examples:
+  python3 exa-t.py gen                 # build + preview all tests to exa/gen/*.out
+  python3 exa-t.py gen foo             # build + preview only exa/foo.wq -> exa/gen/foo.out
+  python3 exa-t.py lock                # build + (re)create all lockfiles in exa/lock/*.lock
+  python3 exa-t.py lock foo            # build + (re)create lockfile for foo only
+  python3 exa-t.py test                # build + run all tests, compare to exa/lock/*.lock
+  python3 exa-t.py test foo            # build + run foo only, compare to exa/lock/foo.lock
+  python3 exa-t.py test --list, -l     # list available, non-excluded *.wq basenames
+  python3 exa-t.py clean               # remove exa/gen/*.out
+
 """
 
+import argparse
+import glob
+import os
 import subprocess
 import sys
-import os
-import glob
-import argparse
+from typing import List
 
 
-def check_environment():
-    # Ensure script is run from project root
+# -------------------------
+# Environment & utilities
+# -------------------------
+
+
+def check_environment() -> None:
     if not os.path.isfile("Cargo.toml"):
         print(
             "[ERROR] Cargo.toml not found. Please run this script from the Rust project root.",
             file=sys.stderr,
         )
         sys.exit(1)
-    # Ensure exa/ directory exists
     if not os.path.isdir("exa"):
         print(
             "[ERROR] 'exa/' directory not found. Make sure you're in the correct folder and 'exa/' exists.",
@@ -40,154 +50,7 @@ def check_environment():
         sys.exit(1)
 
 
-def is_excluded(script_path):
-    try:
-        with open(script_path, "r", encoding="utf-8") as f:
-            first_line = f.readline().lstrip()
-            return first_line.startswith("// EXCLUDE")
-    except OSError:
-        return False
-
-
-def generate_expected(build_type):
-    check_environment()
-    tests_dir = "exa"
-    exp_dir = os.path.join(tests_dir, "exp")
-    os.makedirs(exp_dir, exist_ok=True)
-
-    all_tests = sorted(glob.glob(os.path.join(tests_dir, "*.wq")))
-    included = [tf for tf in all_tests if not is_excluded(tf)]
-
-    if not included:
-        print("[ERROR] No test files to process in exa/ (*.wq)", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Building ({build_type}) before generating expectations...")
-    run_cargo_build(build_type)
-
-    for tf in included:
-        basename = os.path.splitext(os.path.basename(tf))[0]
-        out_path = os.path.join(exp_dir, f"{basename}.exp")
-        print(f"Generating expected for {tf} → {out_path}")
-        try:
-            completed = subprocess.run(
-                [f"./target/{build_type}/wq", tf],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                encoding="utf-8",
-                check=False,
-            )
-        except FileNotFoundError:
-            print(
-                "[ERROR] binary not found. Ensure Rust is installed, built, and in your PATH.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        try:
-            with open(out_path, "w", encoding="utf-8") as f:
-                f.write(completed.stdout)
-        except OSError as e:
-            print(f"[ERROR] Could not write to '{out_path}': {e}", file=sys.stderr)
-            sys.exit(1)
-
-    print("All .exp files generated.")
-
-
-def run_tests(build_type, script=None, run_all=False):
-    check_environment()
-    tests_dir = "exa"
-    exp_dir = os.path.join(tests_dir, "exp")
-    if not os.path.isdir(exp_dir):
-        print(
-            f"[ERROR] Expected directory '{exp_dir}' not found. Run 'gen' first.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    all_tests = sorted(glob.glob(os.path.join(tests_dir, "*.wq")))
-    included = [tf for tf in all_tests if not is_excluded(tf)]
-
-    if not included:
-        print("[ERROR] No test files to process in exa/ (*.wq)", file=sys.stderr)
-        sys.exit(1)
-
-    if script and run_all:
-        print("[ERROR] Cannot specify a script name with --all.", file=sys.stderr)
-        sys.exit(1)
-
-    if script:
-        included = [
-            tf for tf in included if os.path.splitext(os.path.basename(tf))[0] == script
-        ]
-        if not included:
-            print(f"[ERROR] No test named '{script}' found.", file=sys.stderr)
-            sys.exit(1)
-    elif not run_all:
-        print(
-            "[ERROR] Specify a script name or use --all to run all tests.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    print(f"Building ({build_type}) before running tests...")
-    run_cargo_build(build_type)
-
-    total = len(included)
-    passed = 0
-    failed = 0
-
-    for tf in included:
-        basename = os.path.splitext(os.path.basename(tf))[0]
-        exp_path = os.path.join(exp_dir, f"{basename}.exp")
-        print(f"=== Running {tf} ===")
-        try:
-            completed = subprocess.run(
-                [f"./target/{build_type}/wq", tf],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                encoding="utf-8",
-                check=False,
-            )
-        except FileNotFoundError:
-            print(
-                "[ERROR] binary not found. Ensure Rust is installed, built, and in your PATH.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        actual = completed.stdout
-
-        if not os.path.isfile(exp_path):
-            print(
-                f"[ERROR] Expected file '{exp_dir}/{basename}.exp' not found. Run 'gen' first.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        try:
-            with open(exp_path, "r", encoding="utf-8") as f:
-                expected = f.read()
-        except OSError as e:
-            print(f"[ERROR] Could not read expected file: {e}", file=sys.stderr)
-            sys.exit(1)
-
-        if actual.strip() == expected.strip():
-            print("pass")
-            passed += 1
-        else:
-            print("fail")
-            print("---- Expected ----")
-            print(expected.rstrip())
-            print("---- Actual ------")
-            print(actual.rstrip())
-            failed += 1
-        print()
-
-    print(f"SUMMARY: {passed}/{total} passed, {failed} failed.")
-    sys.exit(failed)
-
-
-def run_cargo_build(build_type):
+def run_cargo_build(build_type: str) -> None:
     cmd = ["cargo", "build", "--quiet"]
     if build_type == "release":
         cmd.insert(2, "--release")
@@ -198,7 +61,192 @@ def run_cargo_build(build_type):
         sys.exit(1)
 
 
-def list_tests():
+def is_excluded(script_path: str) -> bool:
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            first_line = f.readline().lstrip()
+            return first_line.startswith("// EXCLUDE")
+    except OSError:
+        return False
+
+
+def collect_scripts(script: str | None) -> List[str]:
+    tests_dir = "exa"
+    all_tests = sorted(glob.glob(os.path.join(tests_dir, "*.wq")))
+    included = [tf for tf in all_tests if not is_excluded(tf)]
+
+    if not included:
+        print("[ERROR] No test files to process in exa/ (*.wq)", file=sys.stderr)
+        sys.exit(1)
+
+    if script:
+        base = os.path.splitext(os.path.basename(script))[0]
+        included = [
+            tf for tf in included if os.path.splitext(os.path.basename(tf))[0] == base
+        ]
+        if not included:
+            print(f"[ERROR] No test named '{base}' found.", file=sys.stderr)
+            sys.exit(1)
+
+    return included
+
+
+def run_wq(build_type: str, script_path: str) -> str:
+    try:
+        completed = subprocess.run(
+            [f"./target/{build_type}/wq", script_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            encoding="utf-8",
+            check=False,
+        )
+    except FileNotFoundError:
+        print(
+            "[ERROR] binary not found. Ensure Rust is installed, built, and in your PATH.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return completed.stdout
+
+
+# -------------------------
+# gen (preview) → exa/gen/*.out
+# -------------------------
+
+
+def cmd_gen(build_type: str, script: str | None) -> None:
+    check_environment()
+    out_dir = os.path.join("exa", "gen")
+    os.makedirs(out_dir, exist_ok=True)
+
+    scripts = collect_scripts(script)
+
+    print(f"Building ({build_type}) before preview generation...")
+    run_cargo_build(build_type)
+
+    for tf in scripts:
+        basename = os.path.splitext(os.path.basename(tf))[0]
+        out_path = os.path.join(out_dir, f"{basename}.out")
+        print(f"[gen] {tf} → {out_path}")
+        actual = run_wq(build_type, tf)
+        try:
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(actual)
+        except OSError as e:
+            print(f"[ERROR] Could not write to '{out_path}': {e}", file=sys.stderr)
+            sys.exit(1)
+
+    print("Preview outputs written to exa/gen/*.out")
+
+
+# -------------------------
+# lock (approve) → exa/lock/*.lock
+# -------------------------
+
+
+def cmd_lock(build_type: str, script: str | None) -> None:
+    check_environment()
+    lock_dir = os.path.join("exa", "lock")
+    os.makedirs(lock_dir, exist_ok=True)
+
+    # Clean lock folder first
+    old_files = glob.glob(os.path.join(lock_dir, "*.lock"))
+    for f in old_files:
+        try:
+            os.remove(f)
+        except OSError as e:
+            print(f"[WARN] Failed to remove '{f}': {e}")
+    if old_files:
+        print(f"Cleaned {len(old_files)} old lockfiles from {lock_dir}")
+
+    scripts = collect_scripts(script)
+
+    print(f"Building ({build_type}) before locking...")
+    run_cargo_build(build_type)
+
+    for tf in scripts:
+        basename = os.path.splitext(os.path.basename(tf))[0]
+        lock_path = os.path.join(lock_dir, f"{basename}.lock")
+        print(f"[lock] {tf} → {lock_path}")
+        actual = run_wq(build_type, tf)
+        try:
+            with open(lock_path, "w", encoding="utf-8") as f:
+                f.write(actual)
+        except OSError as e:
+            print(f"[ERROR] Could not write to '{lock_path}': {e}", file=sys.stderr)
+            sys.exit(1)
+
+    print("Lockfiles written to exa/lock/*.lock")
+
+
+# -------------------------
+# test (compare) vs exa/lock/*.lock
+# -------------------------
+
+
+def cmd_test(build_type: str, script: str | None) -> None:
+    check_environment()
+
+    lock_dir = os.path.join("exa", "lock")
+    if not os.path.isdir(lock_dir):
+        print(
+            f"[ERROR] Lock directory '{lock_dir}' not found. Run 'lock' first to create baselines.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    scripts = collect_scripts(script)
+
+    print(f"Building ({build_type}) before running tests...")
+    run_cargo_build(build_type)
+
+    total = len(scripts)
+    passed = 0
+    failed = 0
+
+    for tf in scripts:
+        basename = os.path.splitext(os.path.basename(tf))[0]
+        lock_path = os.path.join(lock_dir, f"{basename}.lock")
+        print(f"=== Running {tf} ===")
+
+        if not os.path.isfile(lock_path):
+            print(
+                f"[ERROR] Missing lockfile '{lock_path}'. Run 'lock {basename}' to create it.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        actual = run_wq(build_type, tf)
+
+        try:
+            with open(lock_path, "r", encoding="utf-8") as f:
+                expected = f.read()
+        except OSError as e:
+            print(f"[ERROR] Could not read lockfile: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        if actual.strip() == expected.strip():
+            print("pass")
+            passed += 1
+        else:
+            print("fail")
+            print("---- Expected (lock) ----")
+            print(expected.rstrip())
+            print("---- Actual  (run)  ----")
+            print(actual.rstrip())
+            failed += 1
+        print()
+
+    print(f"SUMMARY: {passed}/{total} passed, {failed} failed.")
+    sys.exit(failed)
+
+
+# -------------------------
+# list & clean
+# -------------------------
+
+
+def cmd_list() -> None:
     check_environment()
     tests_dir = "exa"
     all_tests = sorted(glob.glob(os.path.join(tests_dir, "*.wq")))
@@ -216,56 +264,77 @@ def list_tests():
     sys.exit(0)
 
 
-def clean_exp():
-    exp_dir = os.path.join("exa", "exp")
-    if os.path.isdir(exp_dir):
-        files = glob.glob(os.path.join(exp_dir, "*.exp"))
+def cmd_clean() -> None:
+    gen_dir = os.path.join("exa", "gen")
+    if os.path.isdir(gen_dir):
+        files = glob.glob(os.path.join(gen_dir, "*.out"))
         for f in files:
             try:
                 os.remove(f)
             except OSError as e:
                 print(f"[WARN] Failed to remove '{f}': {e}")
-        print(f"Removed {len(files)} .exp files from {exp_dir}")
+        print(f"Removed {len(files)} .out files from {gen_dir}")
     else:
-        print(f"No exp directory found at '{exp_dir}' to clean.")
+        print(f"No gen directory found at '{gen_dir}' to clean.")
     sys.exit(0)
 
 
-def main():
+# -------------------------
+# CLI
+# -------------------------
+
+
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Utility for generating expected outputs and running wq tests"
+        description="Utility for previewing (gen), locking, and testing wq scripts"
     )
     parser.add_argument(
         "--build-type",
         choices=["debug", "release"],
         help="Build type for cargo (debug or release).",
     )
+
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("gen", help="Generate .exp files from exa/*.wq")
-    parser_test = subparsers.add_parser("test", help="Run or list tests")
-    group = parser_test.add_mutually_exclusive_group(required=True)
-    group.add_argument("script", nargs="?", help="Test script basename to run")
-    group.add_argument("-a", "--all", action="store_true", help="Run all tests")
-    group.add_argument(
-        "-l", "--list", action="store_true", help="List all available tests"
+    # gen
+    p_gen = subparsers.add_parser("gen", help="Preview run to exa/gen/*.out")
+    p_gen.add_argument("script", nargs="?", help="Optional script basename to preview")
+
+    # lock
+    p_lock = subparsers.add_parser("lock", help="Approve baseline to exa/lock/*.lock")
+    p_lock.add_argument("script", nargs="?", help="Optional script basename to lock")
+
+    # test
+    p_test = subparsers.add_parser("test", help="Run tests against exa/lock/*.lock")
+    p_test.add_argument("script", nargs="?", help="Optional script basename to test")
+    p_test.add_argument(
+        "-l", "--list", action="store_true", help="List available tests and exit"
     )
-    subparsers.add_parser("clean", help="Remove all generated .exp files")
+
+    # list (alias for test --list)
+    subparsers.add_parser("list", help="List available tests")
+
+    # clean
+    subparsers.add_parser(
+        "clean", help="Remove all generated preview files (exa/gen/*.out)"
+    )
 
     args = parser.parse_args()
 
-    # Default to debug build, unless --build-type is provided
     build_type = args.build_type or "debug"
 
     if args.command == "gen":
-        generate_expected(build_type)
+        cmd_gen(build_type, args.script)
+    elif args.command == "lock":
+        cmd_lock(build_type, args.script)
     elif args.command == "test":
         if args.list:
-            list_tests()
-        else:
-            run_tests(build_type, script=args.script, run_all=args.all)
+            cmd_list()
+        cmd_test(build_type, args.script)
+    elif args.command == "list":
+        cmd_list()
     elif args.command == "clean":
-        clean_exp()
+        cmd_clean()
     else:
         parser.print_help()
         sys.exit(1)

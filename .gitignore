@@ -3,5 +3,5 @@
 /.ruff_cache
 /.DS_Store
 /drafts
-/exa/exp
-/exa/dat
+/exa/gen
+/exa/lock

@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 mod dict;
-mod eval;
 pub mod io;
 mod list;
 mod logical;
@@ -118,7 +117,6 @@ impl Builtins {
         // System functions
         self.add("echo", system::echo);
         self.add("exec", system::exec);
-        self.add("eval", eval::eval);
         self.add("showt", system::show_table::show_table);
 
         // io functions
