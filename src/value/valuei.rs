@@ -55,8 +55,8 @@ pub enum Value {
         params: Option<Vec<String>>,
         body: Box<AstNode>,
     },
-    /// pre-compiled function represented as bytecode instructions
-    BytecodeFunction {
+    /// pre-compiled function
+    CompiledFunction {
         params: Option<Vec<String>>,
         locals: u16,
         instructions: Vec<vm::instruction::Instruction>,
@@ -114,12 +114,12 @@ impl PartialEq for Value {
                 },
             ) => pa == pb && ba == bb,
             (
-                BytecodeFunction {
+                CompiledFunction {
                     params: pa,
                     locals: la,
                     instructions: ia,
                 },
-                BytecodeFunction {
+                CompiledFunction {
                     params: pb,
                     locals: lb,
                     instructions: ib,
@@ -231,7 +231,7 @@ impl Value {
             Value::List(_) => "list",
             Value::Dict(_) => "dict",
             Value::Function { .. } => "function",
-            Value::BytecodeFunction { .. } => "function",
+            Value::CompiledFunction { .. } => "function",
             Value::BuiltinFunction(_) => "function",
             Value::Stream(_) => "stream",
             Value::Null => "null",
@@ -534,7 +534,7 @@ impl fmt::Display for Value {
                 Some(p) => write!(f, "{{[{}]...}}", p.join(";")),
                 None => write!(f, "{{...}}"),
             },
-            Value::BytecodeFunction { params, .. } => match params {
+            Value::CompiledFunction { params, .. } => match params {
                 Some(p) => write!(f, "{{[{}]...}}", p.join(";")),
                 None => write!(f, "{{...}}"),
             },

@@ -20,7 +20,7 @@ impl Resolver {
     pub fn from_env(env: &HashMap<String, Value>) -> Self {
         let mut res = Self::new();
         for (name, val) in env {
-            if matches!(val, Value::Function { .. } | Value::BytecodeFunction { .. }) {
+            if matches!(val, Value::Function { .. } | Value::CompiledFunction { .. }) {
                 res.known_funcs.insert(name.clone());
             }
         }

@@ -154,9 +154,9 @@ impl Vm {
                     } else if self.builtins.has_function(name) {
                         (Value::BuiltinFunction(name.clone()), u64::MAX)
                     } else {
-                        return Err(WqError::ValueError(format!(
-                            "Undefined variable: '{name}'",
-                        )));
+                        return Err(WqError::ValueError(
+                            format!("Undefined variable: '{name}'",),
+                        ));
                     };
                     {
                         let c = &mut self.inline_cache[idx];
@@ -324,12 +324,13 @@ impl Vm {
                         for frame in self.locals.iter_mut().rev() {
                             if let Some(v) = frame.get_mut(*slot as usize) {
                                 match v {
-                                    Value::BytecodeFunction {
+                                    Value::CompiledFunction {
                                         params,
                                         locals,
                                         instructions,
                                     } => {
-                                        compiled = Some((params.clone(), *locals, instructions.clone()));
+                                        compiled =
+                                            Some((params.clone(), *locals, instructions.clone()));
                                     }
                                     Value::Function { params, body } => {
                                         let mut c = Compiler::new();
@@ -338,7 +339,7 @@ impl Vm {
                                         let locals = c.local_count();
                                         let instrs = std::mem::take(&mut c.instructions);
                                         let compiled_params = params.clone();
-                                        *v = Value::BytecodeFunction {
+                                        *v = Value::CompiledFunction {
                                             params: compiled_params.clone(),
                                             locals,
                                             instructions: instrs.clone(),
@@ -397,13 +398,12 @@ impl Vm {
                         v
                     };
                     match func_val {
-                        Value::BytecodeFunction {
+                        Value::CompiledFunction {
                             params,
                             locals,
                             instructions,
                         } => {
-                            let res =
-                                self.call_function(instructions, params, locals, args)?;
+                            let res = self.call_function(instructions, params, locals, args)?;
                             self.stack.push(res);
                         }
                         Value::Function { params, body } => {
@@ -414,7 +414,7 @@ impl Vm {
                             let instrs = c.instructions.clone();
                             // Replace in globals to avoid recompilation on next lookup
                             if let Some(slot) = self.globals.get_mut(&name_owned) {
-                                *slot = Value::BytecodeFunction {
+                                *slot = Value::CompiledFunction {
                                     params: params.clone(),
                                     locals,
                                     instructions: instrs.clone(),
@@ -423,7 +423,7 @@ impl Vm {
                             {
                                 let entry = &mut self.inline_cache[idx];
                                 entry.version = self.global_version;
-                                entry.value = Some(Value::BytecodeFunction {
+                                entry.value = Some(Value::CompiledFunction {
                                     params: params.clone(),
                                     locals,
                                     instructions: instrs.clone(),
@@ -455,7 +455,7 @@ impl Vm {
                     })?;
 
                     match func_val {
-                        Value::BytecodeFunction {
+                        Value::CompiledFunction {
                             params,
                             locals,
                             instructions,

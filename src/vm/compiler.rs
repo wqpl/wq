@@ -153,7 +153,7 @@ impl Compiler {
                     let mut func_instructions = c.instructions;
                     func_instructions.push(Instruction::Return);
                     self.instructions
-                        .push(Instruction::LoadConst(Value::BytecodeFunction {
+                        .push(Instruction::LoadConst(Value::CompiledFunction {
                             params: params.clone(),
                             locals,
                             instructions: func_instructions,
@@ -298,7 +298,7 @@ impl Compiler {
                 let mut func_instructions = c.instructions;
                 func_instructions.push(Instruction::Return);
                 self.instructions
-                    .push(Instruction::LoadConst(Value::BytecodeFunction {
+                    .push(Instruction::LoadConst(Value::CompiledFunction {
                         params: params.clone(),
                         locals,
                         instructions: func_instructions,
@@ -478,12 +478,12 @@ impl Compiler {
 
         fn fuse_once(code: &mut Vec<Instruction>, stats: &mut Stats) -> bool {
             use Instruction::*;
-            use Value::BytecodeFunction;
+            use Value::CompiledFunction;
             let mut changed_any = false;
 
             // Recurse into nested code objects first
             for ins in code.iter_mut() {
-                if let LoadConst(BytecodeFunction { instructions, .. }) = ins {
+                if let LoadConst(CompiledFunction { instructions, .. }) = ins {
                     if fuse_once(instructions, stats) {
                         changed_any = true;
                     }
