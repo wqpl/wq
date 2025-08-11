@@ -4,6 +4,7 @@ use crate::{
     value::valuei::{BufReadSeek, StreamHandle, Value, WqError, WqResult, WriteSeek},
 };
 
+use encoding_rs::Encoding;
 use once_cell::sync::Lazy;
 use rustyline::{DefaultEditor, error::ReadlineError};
 use std::sync::Mutex;
@@ -25,12 +26,18 @@ fn value_to_bytes(v: &Value) -> WqResult<Vec<u8>> {
                 if let Value::Int(i) = x {
                     Ok(*i as u8)
                 } else {
-                    Err(WqError::TypeError("invalid byte".into()))
+                    Err(WqError::TypeError(format!(
+                        "Cannot interpret {} as bytes",
+                        x.type_name()
+                    )))
                 }
             })
             .collect(),
         Value::Int(n) => Ok(vec![*n as u8]),
-        _ => Err(WqError::TypeError("invalid byte".into())),
+        _ => Err(WqError::TypeError(format!(
+            "Cannot interpret {} as bytes",
+            v.type_name()
+        ))),
     }
 }
 
@@ -318,6 +325,10 @@ pub fn fclose(args: &[Value]) -> WqResult<Value> {
     }
 }
 
+fn find_encoding(label: &str) -> Option<&'static Encoding> {
+    Encoding::for_label(label.as_bytes())
+}
+
 pub fn decode(args: &[Value]) -> WqResult<Value> {
     if args.len() < 2 || args.len() > 3 {
         return Err(arity_error("decode", "2 or 3 arguments", args.len()));
@@ -329,14 +340,22 @@ pub fn decode(args: &[Value]) -> WqResult<Value> {
     } else {
         "s".to_string()
     };
-    if codec.to_lowercase() != "utf-8" {
-        return Err(WqError::DomainError("unsupported codec".into()));
-    }
+    let enc =
+        find_encoding(&codec).ok_or_else(|| WqError::DomainError("unsupported codec".into()))?;
+    let (text, had_errors) = enc.decode_without_bom_handling(&bytes);
     let s = match mode.as_str() {
-        "s" => String::from_utf8(bytes).map_err(|e| WqError::RuntimeError(e.to_string()))?,
-        "i" => String::from_utf8_lossy(&bytes).replace('\u{FFFD}', ""),
-        "r" => String::from_utf8_lossy(&bytes).into_owned(),
-        _ => return Err(WqError::DomainError("invalid mode".into())),
+        "s" => {
+            if had_errors {
+                return Err(WqError::RuntimeError("decode failed".into()));
+            }
+            text
+        }
+        "r" => text,
+        _ => {
+            return Err(WqError::DomainError(
+                "invalid mode, expected \"s\" or \"r\"".into(),
+            ));
+        }
     };
     Ok(Value::List(s.chars().map(Value::Char).collect()))
 }
@@ -347,13 +366,30 @@ pub fn encode(args: &[Value]) -> WqResult<Value> {
     }
     let s = value_to_string(&args[0])?;
     let codec = value_to_string(&args[1])?;
-    if codec.to_lowercase() != "utf-8" {
-        return Err(WqError::DomainError("unsupported codec".into()));
-    }
-    let bytes = s.into_bytes();
-    Ok(Value::IntList(
-        bytes.into_iter().map(|b| b as i64).collect(),
-    ))
+    let mode = if args.len() == 3 {
+        value_to_string(&args[2])?
+    } else {
+        "s".into()
+    };
+    let enc =
+        find_encoding(&codec).ok_or_else(|| WqError::DomainError("unsupported codec".into()))?;
+
+    let out: Vec<u8> = match mode.as_str() {
+        "s" => {
+            let (cow, _enc_used, had_errors) = enc.encode(&s);
+            if had_errors {
+                return Err(WqError::DomainError("encode error".into()));
+            }
+            cow.into_owned()
+        }
+        "r" => {
+            let (cow, _enc_used, _had_errors) = enc.encode(&s);
+            cow.into_owned()
+        }
+        _ => return Err(WqError::DomainError("invalid mode".into())),
+    };
+
+    Ok(Value::IntList(out.into_iter().map(|b| b as i64).collect()))
 }
 
 pub fn input(args: &[Value]) -> WqResult<Value> {
