@@ -4,8 +4,8 @@ build_map:{[code]
     ch: code[_n]
     $.[ch="[";stack: stack, _n]
     $.[ch="]";
-      open: last stack; stack: take[count stack-1; stack]
-      jump[open]: _n;jump[_n]: open]]
+      open_: last stack; stack: take[count stack-1; stack]
+      jump[open_]: _n;jump[_n]: open_]]
   jump}
 bf_run:{[code]
   tape: alloc 30000;ptr:0;jump: build_map code;ip:0;len: count code

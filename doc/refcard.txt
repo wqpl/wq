@@ -27,5 +27,7 @@ min avg take drop where distinct sort
 cat flatten shape alloc idx find in type
 symbol string chr ord format null? keys
 and or not xor band bor bxor bnot shl
-shr echo exec eval showt fopen fread
-fwrite fclose fsize input asciiplot
+shr echo exec showt open pexists? mkdir
+fsize fwrite fwritet fread freadt
+freadtln fseek fclose decode encode
+input asciiplot

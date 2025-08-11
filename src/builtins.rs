@@ -120,11 +120,19 @@ impl Builtins {
         self.add("showt", system::show_table::show_table);
 
         // io functions
-        self.add("fopen", io::fopen);
-        self.add("fread", io::fread);
-        self.add("fwrite", io::fwrite);
-        self.add("fclose", io::fclose);
+        self.add("open", io::open);
+        self.add("pexists?", io::pexists);
+        self.add("mkdir", io::mkdir);
         self.add("fsize", io::fsize);
+        self.add("fwrite", io::fwrite);
+        self.add("fwritet", io::fwritet);
+        self.add("fread", io::fread);
+        self.add("freadt", io::freadt);
+        self.add("freadtln", io::freadtln);
+        self.add("fseek", io::fseek);
+        self.add("fclose", io::fclose);
+        self.add("decode", io::decode);
+        self.add("encode", io::encode);
         self.add("input", io::input);
 
         // plot

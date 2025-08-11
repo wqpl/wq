@@ -9,10 +9,13 @@ fold_line:{[chars;width]
     echo seg]
   $.[count chars > 0; echo chars]}
 fold_file:{[path;width]
-  h: fopen[path; "r"];line: fread[h]
-  W[not null? line;
-    fold_line[line; width]
-    line: fread[h]]
-  fclose[h]}
+  r: @t open[path; "r"]
+  $.[r[1]=0;
+    h: r[0];line: freadtln[h]
+    W[not null? line;
+      fold_line[line; width]
+      line: freadtln[h]]
+    fclose[h]]
+  $.[r[1]~0;echo r[0]]}
 //fold_file[input "Enter path"; 80]
 fold_file["readme.txt"; 10]

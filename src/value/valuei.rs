@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 use std::fmt;
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Seek, Write};
 use std::process::Child;
 use std::sync::{Arc, Mutex};
 
@@ -9,9 +9,15 @@ use crate::value::box_mode;
 use crate::vm;
 
 /// handle for a streaming io source
+pub trait BufReadSeek: BufRead + Seek {}
+impl<T: BufRead + Seek> BufReadSeek for T {}
+
+pub trait WriteSeek: Write + Seek {}
+impl<T: Write + Seek> WriteSeek for T {}
+
 pub struct StreamHandle {
-    pub reader: Option<Box<dyn BufRead + Send>>,
-    pub writer: Option<Box<dyn Write + Send>>,
+    pub reader: Option<Box<dyn BufReadSeek + Send>>,
+    pub writer: Option<Box<dyn WriteSeek + Send>>,
     pub child: Option<Child>, // process handle when spawning
 }
 
@@ -79,6 +85,7 @@ pub enum WqError {
     RuntimeError(String),
     EofError(String),
     AssertionError(String),
+    IoError(String),
 }
 
 impl PartialEq for Value {
@@ -556,6 +563,7 @@ impl fmt::Display for WqError {
             WqError::RuntimeError(msg) => write!(f, "RUNTIME ERROR: {msg}"),
             WqError::EofError(msg) => write!(f, "EOF ERROR: {msg}"),
             WqError::AssertionError(msg) => write!(f, "ASSERTION ERROR: {msg}"),
+            WqError::IoError(msg) => write!(f, "IO ERROR: {msg}"),
         }
     }
 }
@@ -572,6 +580,7 @@ impl WqError {
             WqError::RuntimeError(_) => 7,
             WqError::EofError(_) => 8,
             WqError::AssertionError(_) => 9,
+            WqError::IoError(_) => 10,
         }
     }
 }
