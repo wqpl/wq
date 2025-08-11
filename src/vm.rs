@@ -318,4 +318,25 @@ mod tests {
         let res = eval.eval_string("take[2;(1;2;3;4)]").unwrap();
         assert_eq!(res, Value::IntList(vec![1, 2]));
     }
+
+    #[test]
+    fn try_returns_status() {
+        let mut eval = VmEvaluator::new();
+        let ok = eval.eval_string("@t 1+2").unwrap();
+        assert_eq!(ok, Value::List(vec![Value::Int(3), Value::Int(0)]));
+
+        let err = eval.eval_string("@t 1+\"a\"").unwrap();
+        if let Value::List(items) = err {
+            assert_eq!(items.len(), 2);
+            match &items[1] {
+                Value::Int(code) => {
+                    assert_eq!(*code, WqError::TypeError(String::new()).code() as i64);
+                }
+                _ => panic!("expected error code"),
+            }
+            assert!(items[0].to_string().contains("TYPE ERROR"));
+        } else {
+            panic!("expected list result");
+        }
+    }
 }

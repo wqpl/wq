@@ -7,7 +7,8 @@ see also: help <builtin>, wq -h
 assign    eq  neq
 $[cond;t;f1;f2...]     $.[cond;t1;t2...]
 W[cond;s1;s2...]       N[n;echo _n]
-@a assert|@b break|@c continue|@r return
+@a     @b    @c       @r     @t
+assert break continue return try
 ----------------------------------------
 int float char symbol bool list dict
 function stream (int-list) (null)

@@ -79,9 +79,6 @@ pub enum WqError {
     RuntimeError(String),
     EofError(String),
     AssertionError(String),
-    Break,
-    Continue,
-    Return(Value),
 }
 
 impl PartialEq for Value {
@@ -558,10 +555,23 @@ impl fmt::Display for WqError {
             }
             WqError::RuntimeError(msg) => write!(f, "RUNTIME ERROR: {msg}"),
             WqError::EofError(msg) => write!(f, "EOF ERROR: {msg}"),
-            WqError::Break => write!(f, "BREAK"),
-            WqError::Continue => write!(f, "CONTINUE"),
-            WqError::Return(v) => write!(f, "RETURN {v}"),
             WqError::AssertionError(msg) => write!(f, "ASSERTION ERROR: {msg}"),
+        }
+    }
+}
+
+impl WqError {
+    pub fn code(&self) -> i32 {
+        match self {
+            WqError::TypeError(_) => 1,
+            WqError::IndexError(_) => 2,
+            WqError::DomainError(_) => 3,
+            WqError::ValueError(_) => 4,
+            WqError::SyntaxError(_) => 5,
+            WqError::ArityError(_) => 6,
+            WqError::RuntimeError(_) => 7,
+            WqError::EofError(_) => 8,
+            WqError::AssertionError(_) => 9,
         }
     }
 }

@@ -141,6 +141,7 @@ impl Resolver {
             },
             AstNode::Return(expr) => AstNode::Return(expr.map(|e| Box::new(self.resolve_node(*e)))),
             AstNode::Assert(e) => AstNode::Assert(Box::new(self.resolve_node(*e))),
+            AstNode::Try(e) => AstNode::Try(Box::new(self.resolve_node(*e))),
             AstNode::Block(stmts) => {
                 AstNode::Block(stmts.into_iter().map(|s| self.resolve_node(s)).collect())
             }

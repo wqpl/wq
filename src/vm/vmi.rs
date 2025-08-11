@@ -114,7 +114,8 @@ impl Vm {
             }
         }
         self.locals.push(frame);
-        let res = self.execute();
+        let limit = self.instructions.len();
+        let res = self.execute_until(limit);
         self.locals.pop();
         let result = res?;
         std::mem::swap(&mut self.stack, &mut saved_stack);
@@ -125,11 +126,12 @@ impl Vm {
     }
 
     pub fn run(&mut self) -> WqResult<Value> {
-        self.execute()
+        let limit = self.instructions.len();
+        self.execute_until(limit)
     }
 
-    fn execute(&mut self) -> WqResult<Value> {
-        while self.pc < self.instructions.len() {
+    fn execute_until(&mut self, limit: usize) -> WqResult<Value> {
+        while self.pc < limit {
             let idx = self.pc;
             // Borrow current instruction by reference to avoid cloning per step
             let op_ref = unsafe { self.instructions.get_unchecked(idx) };
@@ -908,6 +910,26 @@ impl Vm {
                     self.stack.push(Value::Null);
                 }
                 Instruction::Return => break,
+                Instruction::Try(len) => {
+                    let start_pc = self.pc;
+                    let end_pc = start_pc + len;
+                    let stack_start = self.stack.len();
+                    match self.execute_until(end_pc) {
+                        Ok(v) => {
+                            self.stack.truncate(stack_start);
+                            self.stack.push(Value::List(vec![v, Value::Int(0)]));
+                        }
+                        Err(e) => {
+                            self.stack.truncate(stack_start);
+                            let msg: Vec<Value> = e.to_string().chars().map(Value::Char).collect();
+                            self.stack.push(Value::List(vec![
+                                Value::List(msg),
+                                Value::Int(e.code() as i64),
+                            ]));
+                        }
+                    }
+                    self.pc = end_pc;
+                }
             }
         }
         Ok(self.stack.pop().unwrap_or(Value::Null))

@@ -73,6 +73,7 @@ pub enum TokenType {
     AtContinue,
     AtReturn,
     AtAssert,
+    AtTry,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -609,6 +610,10 @@ impl<'a> Lexer<'a> {
                             self.advance();
                             TokenType::AtAssert
                         }
+                        Some('t') => {
+                            self.advance();
+                            TokenType::AtTry
+                        }
                         _ => {
                             // unknown @ sequence - skip
                             continue;
@@ -902,5 +907,12 @@ mod tests {
         let mut lexer = Lexer::new(&big);
         let res = lexer.tokenize();
         assert!(matches!(res, Err(WqError::DomainError(_))));
+    }
+
+    #[test]
+    fn at_try_token() {
+        let mut lexer = Lexer::new("@t 1");
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].token_type, TokenType::AtTry);
     }
 }

@@ -43,4 +43,5 @@ pub enum Instruction {
     Pop,
     Assert,
     Return,
+    Try(usize),
 }

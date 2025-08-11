@@ -175,6 +175,7 @@ impl Formatter {
                 None => "@r".to_string(),
             },
             AstNode::Assert(e) => format!("@a {}", self.format_node(e, level)),
+            AstNode::Try(e) => format!("@t {}", self.format_node(e, level)),
             AstNode::Block(stmts) => {
                 let mut res = String::new();
                 for (i, stmt) in stmts.iter().enumerate() {

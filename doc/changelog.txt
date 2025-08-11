@@ -1,5 +1,9 @@
+0.6.0
+-----
+@t
+
 0.4.0
----------------------------
+-----
 BUILTINS:
   in input eval chr ord
   shape
@@ -11,8 +15,9 @@ REPL:
 INTERNAL:
   resolver
 
+
 0.3.1
----------------------------
+-----
 @b                 break
 @c                 continue
 @r 1               return

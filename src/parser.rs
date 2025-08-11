@@ -91,6 +91,7 @@ pub enum AstNode {
     Continue,
     Return(Option<Box<AstNode>>),
     Assert(Box<AstNode>),
+    Try(Box<AstNode>),
 
     /// Sequence of statements
     Block(Vec<AstNode>),
@@ -683,6 +684,11 @@ impl Parser {
                     self.advance();
                     let expr = self.parse_expression()?;
                     Ok(AstNode::Assert(Box::new(expr)))
+                }
+                TokenType::AtTry => {
+                    self.advance();
+                    let expr = self.parse_expression()?;
+                    Ok(AstNode::Try(Box::new(expr)))
                 }
                 TokenType::Identifier(name) => {
                     let val = name.clone();

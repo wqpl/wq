@@ -252,6 +252,15 @@ impl Compiler {
                 self.compile(expr)?;
                 self.instructions.push(Instruction::Assert);
             }
+            AstNode::Try(expr) => {
+                let pos = self.instructions.len();
+                self.instructions.push(Instruction::Try(0));
+                self.compile(expr)?;
+                let len = self.instructions.len() - pos - 1;
+                if let Instruction::Try(ref mut l) = self.instructions[pos] {
+                    *l = len;
+                }
+            }
             AstNode::Index { object, index } => {
                 self.compile(object)?;
                 self.compile(index)?;
