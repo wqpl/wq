@@ -273,3 +273,144 @@ bind_math!(tan, f64::tan);
 bind_math!(sinh, f64::sinh);
 bind_math!(cosh, f64::cosh);
 bind_math!(tanh, f64::tanh);
+
+fn parse_prefix_arg(args: &[Value], name: &str) -> WqResult<bool> {
+    Ok(match args.len() {
+        1 => false,
+        2 => match &args[1] {
+            Value::Bool(b) => *b,
+            _ => {
+                return Err(WqError::TypeError(format!(
+                    "{name} expects a boolean as second argument"
+                )));
+            }
+        },
+        _ => return Err(arity_error(name, "1 or 2 arguments", args.len())),
+    })
+}
+
+fn int_to_hex_chars(n: i64, prefix: bool) -> Vec<Value> {
+    let (sign, abs) = if n < 0 {
+        ('-', (-n) as u64)
+    } else {
+        ('+', n as u64)
+    };
+    let mut s = if prefix {
+        format!("{:#x}", abs)
+    } else {
+        format!("{:x}", abs)
+    };
+    if sign == '-' {
+        s.insert(0, '-');
+    }
+    s.chars().map(Value::Char).collect()
+}
+
+fn int_to_bin_chars(n: i64, prefix: bool) -> Vec<Value> {
+    let (sign, abs) = if n < 0 {
+        ('-', (-n) as u64)
+    } else {
+        ('+', n as u64)
+    };
+    let mut s = if prefix {
+        format!("{:#b}", abs)
+    } else {
+        format!("{:b}", abs)
+    };
+    if sign == '-' {
+        s.insert(0, '-');
+    }
+    s.chars().map(Value::Char).collect()
+}
+
+pub fn hex(args: &[Value]) -> WqResult<Value> {
+    let prefix = parse_prefix_arg(args, "hex")?;
+
+    match &args[0] {
+        Value::Int(n) => Ok(Value::List(int_to_hex_chars(*n, prefix))),
+        Value::IntList(items) => {
+            let result: Vec<Value> = items
+                .iter()
+                .map(|&n| Value::List(int_to_hex_chars(n, prefix)))
+                .collect();
+            Ok(Value::List(result))
+        }
+        Value::List(items) => {
+            let mut out = Vec::new();
+            for v in items {
+                if let Value::Int(n) = v {
+                    out.push(Value::List(int_to_hex_chars(*n, prefix)));
+                } else {
+                    return Err(WqError::TypeError(
+                        "hex expects integers or list of integers".to_string(),
+                    ));
+                }
+            }
+            Ok(Value::List(out))
+        }
+        _ => Err(WqError::TypeError(
+            "hex expects integers or list of integers".to_string(),
+        )),
+    }
+}
+
+pub fn bin(args: &[Value]) -> WqResult<Value> {
+    let prefix = parse_prefix_arg(args, "bin")?;
+
+    match &args[0] {
+        Value::Int(n) => Ok(Value::List(int_to_bin_chars(*n, prefix))),
+        Value::IntList(items) => {
+            let result: Vec<Value> = items
+                .iter()
+                .map(|&n| Value::List(int_to_bin_chars(n, prefix)))
+                .collect();
+            Ok(Value::List(result))
+        }
+        Value::List(items) => {
+            let mut out = Vec::new();
+            for v in items {
+                if let Value::Int(n) = v {
+                    out.push(Value::List(int_to_bin_chars(*n, prefix)));
+                } else {
+                    return Err(WqError::TypeError(
+                        "bin expects integers or list of integers".to_string(),
+                    ));
+                }
+            }
+            Ok(Value::List(out))
+        }
+        _ => Err(WqError::TypeError(
+            "bin expects integers or list of integers".to_string(),
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_single() {
+        let res = hex(&[Value::Int(255)]).unwrap();
+        assert_eq!(res, Value::List("ff".chars().map(Value::Char).collect()));
+    }
+
+    #[test]
+    fn hex_list_prefix() {
+        let res = hex(&[Value::IntList(vec![10, 11]), Value::Bool(true)]).unwrap();
+        let expected = Value::List(vec![
+            Value::List("0xa".chars().map(Value::Char).collect()),
+            Value::List("0xb".chars().map(Value::Char).collect()),
+        ]);
+        assert_eq!(res, expected);
+    }
+
+    #[test]
+    fn bin_negative_prefix() {
+        let res = bin(&[Value::Int(-5), Value::Bool(true)]).unwrap();
+        assert_eq!(
+            res,
+            Value::List("-0b101".chars().map(Value::Char).collect())
+        );
+    }
+}

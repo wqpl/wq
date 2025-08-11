@@ -66,6 +66,8 @@ impl Builtins {
         self.add("sinh", math::sinh);
         self.add("cosh", math::cosh);
         self.add("tanh", math::tanh);
+        self.add("hex", math::hex);
+        self.add("bin", math::bin);
 
         // List functions
         self.add("til", list::til);

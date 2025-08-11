@@ -310,6 +310,35 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
     }
 }
 
+pub fn ftell(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("ftell", "1 argument", args.len()));
+    }
+
+    if let Value::Stream(rc) = &args[0] {
+        let mut handle = rc.lock().unwrap();
+
+        // Prefer writer if present.
+        // Both sides are Seek, so just ask for stream_position.
+        if let Some(w) = handle.writer.as_mut() {
+            let pos = w
+                .stream_position()
+                .map_err(|e| WqError::IoError(e.to_string()))?;
+            return Ok(Value::Int(pos as i64));
+        }
+        if let Some(r) = handle.reader.as_mut() {
+            let pos = r
+                .stream_position()
+                .map_err(|e| WqError::IoError(e.to_string()))?;
+            return Ok(Value::Int(pos as i64));
+        }
+
+        Err(WqError::IoError("stream not seekable".into()))
+    } else {
+        Err(WqError::TypeError("ftell expects a stream".into()))
+    }
+}
+
 pub fn fclose(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(arity_error("fclose", "1 argument", args.len()));

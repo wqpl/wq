@@ -1,6 +1,11 @@
 0.6.0
 -----
 @t
+open pexists? mkdir
+fsize fwrite fwritet fread freadt
+freadtln fseek fclose decode encode
+
+hex bin
 
 0.4.0
 -----

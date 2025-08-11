@@ -1,0 +1,9 @@
+hex
+===
+hex x
+hex[x;prefix?]
+
+Examples:
+  hex 255        // "ff"
+  hex[255;true]  // "0xff"
+  hex (10;15)    // ("a";"f")
