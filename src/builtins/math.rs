@@ -273,6 +273,9 @@ bind_math!(tan, f64::tan);
 bind_math!(sinh, f64::sinh);
 bind_math!(cosh, f64::cosh);
 bind_math!(tanh, f64::tanh);
+bind_math!(arcsin, f64::asin);
+bind_math!(arccos, f64::acos);
+bind_math!(arctan, f64::atan);
 
 fn parse_prefix_arg(args: &[Value], name: &str) -> WqResult<bool> {
     Ok(match args.len() {
@@ -296,9 +299,9 @@ fn int_to_hex_chars(n: i64, prefix: bool) -> Vec<Value> {
         ('+', n as u64)
     };
     let mut s = if prefix {
-        format!("{:#x}", abs)
+        format!("{abs:#x}")
     } else {
-        format!("{:x}", abs)
+        format!("{abs:x}")
     };
     if sign == '-' {
         s.insert(0, '-');
@@ -313,9 +316,9 @@ fn int_to_bin_chars(n: i64, prefix: bool) -> Vec<Value> {
         ('+', n as u64)
     };
     let mut s = if prefix {
-        format!("{:#b}", abs)
+        format!("{abs:#b}")
     } else {
-        format!("{:b}", abs)
+        format!("{abs:b}")
     };
     if sign == '-' {
         s.insert(0, '-');

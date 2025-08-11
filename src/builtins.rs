@@ -63,6 +63,9 @@ impl Builtins {
         self.add("sin", math::sin);
         self.add("cos", math::cos);
         self.add("tan", math::tan);
+        self.add("arcsin", math::arcsin);
+        self.add("arccos", math::arccos);
+        self.add("arctan", math::arctan);
         self.add("sinh", math::sinh);
         self.add("cosh", math::cosh);
         self.add("tanh", math::tanh);
@@ -131,6 +134,7 @@ impl Builtins {
         self.add("fread", io::fread);
         self.add("freadt", io::freadt);
         self.add("freadtln", io::freadtln);
+        self.add("ftell", io::ftell);
         self.add("fseek", io::fseek);
         self.add("fclose", io::fclose);
         self.add("decode", io::decode);

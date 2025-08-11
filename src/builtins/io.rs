@@ -495,4 +495,21 @@ mod tests {
         let res = open(&[str_val("/no/such/file"), str_val("r")]);
         assert!(matches!(res, Err(WqError::IoError(_))));
     }
+    #[test]
+    fn ftell_basic() {
+        let path = std::env::temp_dir().join("wq_ftell_test.txt");
+        let sv = |s: &str| Value::List(s.chars().map(Value::Char).collect());
+
+        let h = open(&[sv(path.to_str().unwrap()), sv("w+")]).unwrap();
+        fwritet(&[h.clone(), sv("hello")]).unwrap();
+        let pos1 = ftell(&[h.clone()]).unwrap();
+        assert_eq!(pos1, Value::Int(5));
+
+        fseek(&[h.clone(), Value::Int(2)]).unwrap();
+        let pos2 = ftell(&[h.clone()]).unwrap();
+        assert_eq!(pos2, Value::Int(2));
+
+        fclose(&[h]).unwrap();
+        let _ = std::fs::remove_file(path);
+    }
 }
