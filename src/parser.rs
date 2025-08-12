@@ -461,54 +461,57 @@ impl Parser {
     }
 
     fn parse_unary(&mut self) -> WqResult<AstNode> {
-        if let Some(token) = self.current_token() {
+        // Collect leading unary operators iteratively to avoid deep recursion.
+        let mut ops: Vec<UnaryOperator> = Vec::new();
+        let mut negate_parity = 0u8;
+
+        while let Some(token) = self.current_token().cloned() {
             match token.token_type {
                 TokenType::Minus => {
-                    if let Some(next_token) = self.peek_token() {
-                        match next_token.token_type {
-                            TokenType::Integer(n) => {
-                                self.advance(); // consume minus
-                                self.advance(); // consume number
-                                return Ok(AstNode::Literal(Value::Int(-n)));
-                            }
-                            TokenType::Float(f) => {
-                                self.advance(); // consume minus
-                                self.advance(); // consume number
-                                return Ok(AstNode::Literal(Value::Float(-f)));
-                            }
-                            _ => {
-                                // It's a unary minus operation
-                                self.advance();
-                                let operand = self.parse_unary()?;
-                                return Ok(AstNode::UnaryOp {
-                                    operator: UnaryOperator::Negate,
-                                    operand: Box::new(operand),
-                                });
-                            }
-                        }
-                    } else {
-                        // It's a unary minus operation
-                        self.advance();
-                        let operand = self.parse_unary()?;
-                        return Ok(AstNode::UnaryOp {
-                            operator: UnaryOperator::Negate,
-                            operand: Box::new(operand),
-                        });
-                    }
+                    self.advance();
+                    negate_parity ^= 1;
                 }
                 TokenType::Sharp => {
+                    if negate_parity == 1 {
+                        ops.push(UnaryOperator::Negate);
+                        negate_parity = 0;
+                    }
                     self.advance();
-                    let operand = self.parse_unary()?;
-                    return Ok(AstNode::UnaryOp {
-                        operator: UnaryOperator::Count,
-                        operand: Box::new(operand),
-                    });
+                    ops.push(UnaryOperator::Count);
                 }
-                _ => (),
+                _ => break,
             }
         }
 
-        self.parse_postfix()
+        let mut node = self.parse_postfix()?;
+
+        // Apply pending negation.
+        if negate_parity == 1 {
+            match node {
+                AstNode::Literal(Value::Int(n)) => {
+                    node = AstNode::Literal(Value::Int(-n));
+                }
+                AstNode::Literal(Value::Float(f)) => {
+                    node = AstNode::Literal(Value::Float(-f));
+                }
+                _ => {
+                    node = AstNode::UnaryOp {
+                        operator: UnaryOperator::Negate,
+                        operand: Box::new(node),
+                    };
+                }
+            }
+        }
+
+        // Apply other operators in reverse order (outermost first).
+        while let Some(op) = ops.pop() {
+            node = AstNode::UnaryOp {
+                operator: op,
+                operand: Box::new(node),
+            };
+        }
+
+        Ok(node)
     }
 
     fn parse_bracket_items(&mut self) -> WqResult<(Vec<AstNode>, bool)> {

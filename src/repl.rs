@@ -370,4 +370,13 @@ mod tests {
             panic!("expected list result");
         }
     }
+    #[test]
+    fn long_chain_of_negation_does_not_overflow() {
+        let mut eval = VmEvaluator::new();
+        let hyphens = "-".repeat(10000);
+        let expr = format!("{hyphens}10");
+        let res = eval.eval_string(&expr).unwrap();
+        // 10000 is even, so the result remains positive
+        assert_eq!(res, Value::Int(10));
+    }
 }
