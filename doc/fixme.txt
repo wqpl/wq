@@ -1,0 +1,12 @@
+01
+==
+1 wq$ a:{2*x}
+▍ {...}
+2 wq$ b:{x[3]}
+▍ {...}
+3 wq$ b[a]
+▍ 6
+4 wq$ a:til 10
+▍ (0;1;2;3;4;5;6;7;8;9)
+5 wq$ b[a]
+▍ TYPE ERROR: Cannot call local slot 0: expected function, found int-list

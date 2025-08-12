@@ -960,7 +960,6 @@ fn classify_divide(left: &Value, right: &Value) -> WqError {
         Value::IntList(v) if v.contains(&0) => true,
         _ => false,
     };
-
     if is_zero {
         WqError::DomainError("Division by zero".into())
     } else if matches!(left, Value::Int(_) | Value::IntList(_))

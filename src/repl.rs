@@ -379,4 +379,11 @@ mod tests {
         // 10000 is even, so the result remains positive
         assert_eq!(res, Value::Int(10));
     }
+
+    #[test]
+    fn passed_function_resolves_correctly() {
+        let mut eval = VmEvaluator::new();
+        let res = eval.eval_string("a:{2*x};b:{x[3]};b[a]").unwrap();
+        assert_eq!(res, Value::Int(6));
+    }
 }
