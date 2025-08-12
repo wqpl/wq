@@ -1,9 +1,12 @@
 use std::process::Command;
 
+use rustyline::{DefaultEditor, error::ReadlineError};
+
 use super::arity_error;
 use crate::{
-    builtins::values_to_strings,
-    value::valuei::{Value, WqError, WqResult},
+    builtins::{value_to_string, values_to_strings},
+    repl::RUSTYLINE,
+    value::{Value, WqError, WqResult},
 };
 use std::io::{Write, stdout};
 
@@ -279,6 +282,29 @@ pub mod show_table {
             }
             println!("{}", parts.join(" ").trim_end());
         }
+    }
+}
+
+pub fn input(args: &[Value]) -> WqResult<Value> {
+    if args.len() > 1 {
+        return Err(arity_error("input", "0 or 1 argument", args.len()));
+    }
+
+    let prompt = if args.len() == 1 {
+        value_to_string(&args[0])?
+    } else {
+        String::new()
+    };
+
+    let mut rl_guard = RUSTYLINE.lock().unwrap();
+    if rl_guard.is_none() {
+        *rl_guard = Some(DefaultEditor::new().map_err(|e| WqError::IoError(e.to_string()))?);
+    }
+    match rl_guard.as_mut().unwrap().readline(&prompt) {
+        Ok(line) => Ok(Value::List(line.chars().map(Value::Char).collect())),
+        Err(ReadlineError::Interrupted) => Err(WqError::IoError("input interrupted".to_string())),
+        Err(ReadlineError::Eof) => Ok(Value::Null),
+        Err(e) => Err(WqError::IoError(e.to_string())),
     }
 }
 

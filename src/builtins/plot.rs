@@ -1,5 +1,5 @@
 use super::arity_error;
-use crate::value::valuei::{Value, WqError, WqResult};
+use crate::value::{Value, WqError, WqResult};
 use rgb::RGB8;
 use textplots::{Chart, ColorPlot, Plot, Shape};
 

@@ -1,3 +1,0 @@
-fopen
-=====
-fopen[<path>;"r"|"w"|"a"|"rw"|"wr"]

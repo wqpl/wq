@@ -2,7 +2,7 @@ use std::fmt;
 use std::iter::Peekable;
 use std::str::Chars;
 
-use crate::value::valuei::{WqError, WqResult};
+use crate::value::{WqError, WqResult};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {

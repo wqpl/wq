@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use super::arity_error;
 use crate::{
     builtins::TIL_CACHE,
-    value::valuei::{Value, WqError, WqResult},
+    value::{Value, WqError, WqResult},
 };
 
 fn til_dims(dims: &[usize], next: &mut i64) -> Value {

@@ -1,6 +1,0 @@
-fwrite
-======
-fwrite[<stream>;<content>]
-
-Examples:
-  fwrite[h;"hi"]

@@ -1,4 +1,4 @@
-use crate::value::valuei::{Value, WqError, WqResult};
+use crate::value::{Value, WqError, WqResult};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
@@ -12,7 +12,7 @@ mod math;
 mod plot;
 mod string;
 mod system;
-mod typeb;
+mod type_builtins;
 
 static TIL_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -97,13 +97,13 @@ impl Builtins {
         self.add("in", list::in_list);
 
         // Type functions
-        self.add("type", typeb::type_of);
-        self.add("symbol", typeb::to_symbol);
-        self.add("string", typeb::to_string);
-        self.add("chr", typeb::chr);
-        self.add("ord", typeb::ord);
+        self.add("type", type_builtins::type_of);
+        self.add("symbol", type_builtins::to_symbol);
+        self.add("string", type_builtins::to_string);
+        self.add("chr", type_builtins::chr);
+        self.add("ord", type_builtins::ord);
         self.add("format", string::format_string);
-        self.add("null?", typeb::is_null);
+        self.add("null?", type_builtins::is_null);
 
         self.add("keys", dict::keys);
 
@@ -123,10 +123,11 @@ impl Builtins {
         self.add("echo", system::echo);
         self.add("exec", system::exec);
         self.add("showt", system::show_table::show_table);
+        self.add("input", system::input);
 
-        // io functions
+        // IO functions
         self.add("open", io::open);
-        self.add("pexists?", io::pexists);
+        self.add("fexists?", io::fexists);
         self.add("mkdir", io::mkdir);
         self.add("fsize", io::fsize);
         self.add("fwrite", io::fwrite);
@@ -139,9 +140,8 @@ impl Builtins {
         self.add("fclose", io::fclose);
         self.add("decode", io::decode);
         self.add("encode", io::encode);
-        self.add("input", io::input);
 
-        // plot
+        // Plot functions
         self.add("asciiplot", plot::asciiplot);
     }
 
@@ -201,4 +201,8 @@ fn values_to_strings(args: &[Value]) -> WqResult<Vec<String>> {
             ))),
         })
         .collect()
+}
+
+fn value_to_string(v: &Value) -> WqResult<String> {
+    Ok(values_to_strings(&[v.clone()])?.pop().unwrap())
 }

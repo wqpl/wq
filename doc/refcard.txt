@@ -1,33 +1,33 @@
-          wq by tttiw - refcard
-see also: help <builtin>, wq -h
-----------------------------------------
-+    -    *    /    %    ^    ,    #
-                       power cat count
-:         =    ~    <    <=   >    >=
-assign    eq  neq
-$[cond;t;f1;f2...]     $.[cond;t1;t2...]
-W[cond;s1;s2...]       N[n;echo _n]
-@a     @b    @c       @r     @t
-assert break continue return try
-----------------------------------------
-int float char symbol bool list dict
-function stream (int-list) (null)
-lst:(1;2);lst[0] dct:(`a:1;`b:2);dct[`a]
-fn:{2*x+y};fn[3;4] {[a;b]a*b*b}[6;7]
-----------------------------------------
-repl: \h   \v   \c    \l   \t   \b
-      help vars clear load time box
-      \d    \q
-      debug goodbye
-----------------------------------------
-abs neg signum sqrt exp ln floor ceiling
-rand sin cos tan sinh cosh tanh til
-range count first last reverse sum max
-min avg take drop where distinct sort
-cat flatten shape alloc idx find in type
-symbol string chr ord format null? keys
-and or not xor band bor bxor bnot shl
-shr echo exec showt open pexists? mkdir
-fsize fwrite fwritet fread freadt
-freadtln fseek fclose decode encode
-input asciiplot
+wq refcard
+==========
++  plus              ,  cat
+-  minus             #  count
+*  multiply          =  equal
+/  divide            ~  not equal
+/. safe divide       <  lesser than
+%  modulo            <=
+%. safe modulo       >  greater than
+^  power             >=
+:  assign
+$ [cond;t;f1;f2...]  W[cond;s1;s2...]
+$.[cond;t1;t2...]    N[n;echo _n]
+@a  assert           @r return
+@b  break            @t try
+@c  continue
+
+types
+=====
+int float char symbol bool stream
+list (1;2;3)[0;1]
+dict (`a:1;`b:2)[`a]
+func {[a;b]a*b*b}[6;7]
+
+repl
+====
+help quit load time vars clear
+debug \hqltvcd
+
+builtins
+========
+help builtins
+help abs

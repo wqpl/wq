@@ -1,0 +1,3 @@
+arccos
+======
+arccos x

@@ -1,7 +1,7 @@
 use rand::Rng;
 
 use super::arity_error;
-use crate::value::valuei::{Value, WqError, WqResult};
+use crate::value::{Value, WqError, WqResult};
 
 pub fn abs(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {

@@ -1,4 +1,4 @@
-use super::valuei::Value;
+use super::Value;
 
 impl Value {
     pub fn add(&self, other: &Value) -> Option<Value> {
@@ -37,37 +37,45 @@ impl Value {
             }
             (Value::IntList(a), Value::List(b)) => {
                 if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a.iter().zip(b.iter()).map(|(&x, y)| {
-                        Value::Int(x).add(y)
-                    }).collect();
+                    let result: Option<Vec<Value>> = a
+                        .iter()
+                        .zip(b.iter())
+                        .map(|(&x, y)| Value::Int(x).add(y))
+                        .collect();
                     result.map(Value::List)
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len).map(|i| {
-                        let left = Value::Int(a[i % a.len()]);
-                        let right = &b[i % b.len()];
-                        left.add(right)
-                    }).collect();
+                    let result: Option<Vec<Value>> = (0..max_len)
+                        .map(|i| {
+                            let left = Value::Int(a[i % a.len()]);
+                            let right = &b[i % b.len()];
+                            left.add(right)
+                        })
+                        .collect();
                     result.map(Value::List)
                 }
             }
             (Value::List(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a.iter().zip(b.iter()).map(|(x, &y)| {
-                        x.add(&Value::Int(y))
-                    }).collect();
+                    let result: Option<Vec<Value>> = a
+                        .iter()
+                        .zip(b.iter())
+                        .map(|(x, &y)| x.add(&Value::Int(y)))
+                        .collect();
                     result.map(Value::List)
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len).map(|i| {
-                        let left = &a[i % a.len()];
-                        let right = Value::Int(b[i % b.len()]);
-                        left.add(&right)
-                    }).collect();
+                    let result: Option<Vec<Value>> = (0..max_len)
+                        .map(|i| {
+                            let left = &a[i % a.len()];
+                            let right = Value::Int(b[i % b.len()]);
+                            left.add(&right)
+                        })
+                        .collect();
                     result.map(Value::List)
                 }
             }
@@ -166,37 +174,45 @@ impl Value {
             }
             (Value::IntList(a), Value::List(b)) => {
                 if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a.iter().zip(b.iter()).map(|(&x, y)| {
-                        Value::Int(x).subtract(y)
-                    }).collect();
+                    let result: Option<Vec<Value>> = a
+                        .iter()
+                        .zip(b.iter())
+                        .map(|(&x, y)| Value::Int(x).subtract(y))
+                        .collect();
                     result.map(Value::List)
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len).map(|i| {
-                        let left = Value::Int(a[i % a.len()]);
-                        let right = &b[i % b.len()];
-                        left.subtract(right)
-                    }).collect();
+                    let result: Option<Vec<Value>> = (0..max_len)
+                        .map(|i| {
+                            let left = Value::Int(a[i % a.len()]);
+                            let right = &b[i % b.len()];
+                            left.subtract(right)
+                        })
+                        .collect();
                     result.map(Value::List)
                 }
             }
             (Value::List(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a.iter().zip(b.iter()).map(|(x, &y)| {
-                        x.subtract(&Value::Int(y))
-                    }).collect();
+                    let result: Option<Vec<Value>> = a
+                        .iter()
+                        .zip(b.iter())
+                        .map(|(x, &y)| x.subtract(&Value::Int(y)))
+                        .collect();
                     result.map(Value::List)
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len).map(|i| {
-                        let left = &a[i % a.len()];
-                        let right = Value::Int(b[i % b.len()]);
-                        left.subtract(&right)
-                    }).collect();
+                    let result: Option<Vec<Value>> = (0..max_len)
+                        .map(|i| {
+                            let left = &a[i % a.len()];
+                            let right = Value::Int(b[i % b.len()]);
+                            left.subtract(&right)
+                        })
+                        .collect();
                     result.map(Value::List)
                 }
             }
@@ -288,37 +304,45 @@ impl Value {
             }
             (Value::IntList(a), Value::List(b)) => {
                 if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a.iter().zip(b.iter()).map(|(&x, y)| {
-                        Value::Int(x).multiply(y)
-                    }).collect();
+                    let result: Option<Vec<Value>> = a
+                        .iter()
+                        .zip(b.iter())
+                        .map(|(&x, y)| Value::Int(x).multiply(y))
+                        .collect();
                     result.map(Value::List)
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len).map(|i| {
-                        let left = Value::Int(a[i % a.len()]);
-                        let right = &b[i % b.len()];
-                        left.multiply(right)
-                    }).collect();
+                    let result: Option<Vec<Value>> = (0..max_len)
+                        .map(|i| {
+                            let left = Value::Int(a[i % a.len()]);
+                            let right = &b[i % b.len()];
+                            left.multiply(right)
+                        })
+                        .collect();
                     result.map(Value::List)
                 }
             }
             (Value::List(a), Value::IntList(b)) => {
                 if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a.iter().zip(b.iter()).map(|(x, &y)| {
-                        x.multiply(&Value::Int(y))
-                    }).collect();
+                    let result: Option<Vec<Value>> = a
+                        .iter()
+                        .zip(b.iter())
+                        .map(|(x, &y)| x.multiply(&Value::Int(y)))
+                        .collect();
                     result.map(Value::List)
                 } else if a.is_empty() || b.is_empty() {
                     None
                 } else {
                     let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len).map(|i| {
-                        let left = &a[i % a.len()];
-                        let right = Value::Int(b[i % b.len()]);
-                        left.multiply(&right)
-                    }).collect();
+                    let result: Option<Vec<Value>> = (0..max_len)
+                        .map(|i| {
+                            let left = &a[i % a.len()];
+                            let right = Value::Int(b[i % b.len()]);
+                            left.multiply(&right)
+                        })
+                        .collect();
                     result.map(Value::List)
                 }
             }

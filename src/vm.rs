@@ -1,342 +1,973 @@
-mod compiler;
+pub mod compiler;
 pub mod instruction;
-mod vmi;
 
-use crate::lexer::Lexer;
-use crate::parser::Parser;
-use crate::value::valuei::{Value, WqResult};
-use crate::vm::compiler::Compiler;
-use crate::vm::instruction::Instruction;
-use colored::Colorize;
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
-use vmi::Vm;
+use crate::builtins::Builtins;
+use crate::parser::{BinaryOperator, UnaryOperator};
+use crate::value::{Value, WqError, WqResult};
+use compiler::Compiler;
+use indexmap::IndexMap;
+use instruction::Instruction;
+use std::collections::HashMap;
 
-fn parse_load_filename(line: &str) -> Option<&str> {
-    let trimmed = line.trim_start();
-    if let Some(rest) = trimmed.strip_prefix("load ") {
-        Some(rest.trim())
-    } else if let Some(rest) = trimmed.strip_prefix("\\l ") {
-        Some(rest.trim())
-    } else {
-        None
-    }
+#[derive(Clone, Default)]
+struct InlineCache {
+    version: u64,
+    value: Option<Value>,
 }
 
-fn resolve_load_path(base: &Path, fname: &str) -> PathBuf {
-    let path = Path::new(fname);
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        base.join(path)
-    }
+pub struct Vm {
+    pub instructions: Vec<Instruction>,
+    pc: usize,
+    stack: Vec<Value>,
+    /// Global variables
+    globals: HashMap<String, Value>,
+    builtins: Builtins,
+    /// Stack of local slot frames
+    locals: Vec<Vec<Value>>,
+    /// Inline caches for global lookups and call sites
+    inline_cache: Vec<InlineCache>,
+    /// Version number bumped whenever globals change
+    global_version: u64,
 }
 
-fn expand_script(
-    path: &Path,
-    loading: &mut HashSet<PathBuf>,
-    visited: &mut HashSet<PathBuf>,
-) -> std::io::Result<String> {
-    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    if !loading.insert(canonical.clone()) {
-        // already in loading stack -> cycle
-        println!("Cycle detected: {}", canonical.display());
-        return Ok(String::new());
-    }
-    if visited.contains(&canonical) {
-        loading.remove(&canonical);
-        return Ok(String::new());
-    }
-    visited.insert(canonical.clone());
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(e) => {
-            loading.remove(&canonical);
-            return Err(e);
-        }
-    };
-    let mut result = String::new();
-    let parent = path.parent().unwrap_or_else(|| Path::new(""));
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("//") {
-            continue;
-        }
-        if let Some(fname) = parse_load_filename(trimmed) {
-            let sub = resolve_load_path(parent, fname);
-            result.push_str(&expand_script(&sub, loading, visited)?);
-        } else {
-            result.push_str(trimmed);
-            result.push('\n');
-        }
-    }
-    loading.remove(&canonical);
-    Ok(result)
-}
-
-pub fn vm_get_ins(path: &String) -> WqResult<Vec<Instruction>> {
-    let path = Path::new(path);
-    let mut loading = HashSet::new();
-    let mut visited = HashSet::new();
-    let src = match expand_script(path, &mut loading, &mut visited) {
-        Ok(s) => s,
-        Err(e) => {
-            return Err(crate::value::valuei::WqError::RuntimeError(format!(
-                "Cannot read {}: {}",
-                path.display(),
-                e
-            )));
-        }
-    };
-    let mut lexer = Lexer::new(&src);
-    let tokens = lexer.tokenize()?;
-    use crate::resolver::Resolver;
-    let mut parser = Parser::new(tokens, src.clone());
-    let ast = parser.parse()?;
-    let mut resolver = Resolver::new();
-    let ast = resolver.resolve(ast);
-    let mut compiler = Compiler::new();
-    compiler.compile(&ast)?;
-    compiler.fuse();
-    Ok(compiler.instructions)
-}
-
-pub fn vm_exec_script(path: &String, debug: bool) {
-    let ins = match vm_get_ins(path) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return;
-        }
-    };
-    if debug {
-        eprintln!("{ins:#?}");
-    }
-    let mut vm = Vm::new(ins);
-    match vm.run() {
-        Ok(_) => {
-            //if val != Value::Null {
-            // println!("{val}");
-            //}
-        }
-        Err(e) => eprintln!("error: {e}"),
-    }
-}
-
-pub struct VmEvaluator {
-    vm: Vm,
-    debug: bool,
-}
-
-impl Default for VmEvaluator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl VmEvaluator {
-    /// Create a new evaluator with an empty environment.
-    pub fn new() -> Self {
-        VmEvaluator {
-            vm: Vm::new(Vec::new()),
-            debug: false,
+impl Vm {
+    pub fn new(instructions: Vec<Instruction>) -> Self {
+        let len = instructions.len();
+        Vm {
+            instructions,
+            pc: 0,
+            stack: Vec::with_capacity(256),
+            globals: HashMap::new(),
+            builtins: Builtins::new(),
+            locals: Vec::new(),
+            inline_cache: vec![InlineCache::default(); len],
+            global_version: 0,
         }
     }
 
-    /// Enable or disable debug mode.
-    pub fn set_debug(&mut self, flag: bool) {
-        self.debug = flag;
+    /// Replace instructions and reset execution state.
+    pub fn reset(&mut self, instructions: Vec<Instruction>) {
+        self.instructions = instructions;
+        self.pc = 0;
+        self.stack.clear();
+        self.locals.clear();
+        self.inline_cache = vec![InlineCache::default(); self.instructions.len()];
     }
 
-    /// Check if debug mode is active.
-    pub fn is_debug(&self) -> bool {
-        self.debug
+    /// Access the global environment.
+    pub fn global_env(&self) -> &HashMap<String, Value> {
+        &self.globals
     }
 
-    /// Evaluate a string of source code and return the resulting value.
-    pub fn eval_string(&mut self, input: &str) -> WqResult<Value> {
-        let mut lexer = Lexer::new(input);
-        let tokens = lexer.tokenize()?;
-        if self.debug {
-            eprintln!("=====TOK=====");
-            eprintln!("{tokens:?}");
-        }
-        use crate::resolver::Resolver;
-        let mut parser = Parser::new(tokens, input.to_string());
-        let ast = parser.parse()?;
-        let mut resolver = Resolver::from_env(self.environment());
-        let ast = resolver.resolve(ast);
-        if self.debug {
-            eprintln!("=====AST=====");
-            eprintln!("{ast:?}");
-        }
-        let mut compiler = Compiler::new();
-        compiler.compile(&ast)?;
-        compiler.fuse();
-        compiler.instructions.push(Instruction::Return);
-        if self.debug {
-            eprintln!("=====INST=====");
-            for inst in &compiler.instructions {
-                let s = format!("{inst:?}");
-                if let Some((name, rest)) = s.split_once('(') {
-                    eprintln!("{}({}", name.blue().bold(), rest);
-                } else {
-                    eprintln!("{}", s.blue().bold());
-                }
-            }
-        }
-        self.vm.reset(compiler.instructions);
-        self.vm.run()
+    /// Mutable access to the global environment.
+    pub fn global_env_mut(&mut self) -> &mut HashMap<String, Value> {
+        &mut self.globals
     }
 
-    /// Access the environment holding user-defined bindings.
-    pub fn environment(&self) -> &HashMap<String, Value> {
-        self.vm.global_env()
+    fn lookup_global(&self, name: &str) -> Option<Value> {
+        self.globals.get(name).cloned()
     }
 
-    /// Optionally get the environment if it contains any bindings.
-    pub fn get_environment(&self) -> Option<&HashMap<String, Value>> {
-        let env = self.vm.global_env();
-        if env.is_empty() { None } else { Some(env) }
+    fn assign_global(&mut self, name: &str, value: Value) {
+        self.globals.insert(name.to_string(), value);
+        self.global_version += 1;
     }
 
-    /// Mutable access to the environment.
-    pub fn environment_mut(&mut self) -> &mut HashMap<String, Value> {
-        self.vm.global_env_mut()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::value::valuei::{Value, WqError};
-
-    #[test]
-    fn undefined_variable_errors() {
-        let mut eval = VmEvaluator::new();
-        let res = eval.eval_string("a");
-        assert!(matches!(res, Err(WqError::ValueError(_))));
-    }
-
-    #[test]
-    fn empty_conditional_branches_dont_panic() {
-        let mut eval = VmEvaluator::new();
-        let res = eval.eval_string("$[1;;]");
-        assert!(res.is_ok());
-    }
-
-    #[test]
-    fn empty_loop_body_dont_panic() {
-        let mut eval = VmEvaluator::new();
-        let res = eval.eval_string("N[3;]");
-        assert!(res.is_ok());
-    }
-
-    #[test]
-    fn break_and_continue() {
-        let mut eval = VmEvaluator::new();
-        let res = eval.eval_string("n:0;N[5;$[n=2;@c;];n:n+1;];n").unwrap();
-        assert_eq!(res, Value::Int(2));
-    }
-
-    #[test]
-    fn return_in_function() {
-        let mut eval = VmEvaluator::new();
-        let res = eval.eval_string("f:{@r 3;1};f[]").unwrap();
-        assert_eq!(res, Value::Int(3));
-    }
-
-    #[test]
-    fn assert_fails() {
-        let mut eval = VmEvaluator::new();
-        let res = eval.eval_string("@a 1=2;");
-        assert!(matches!(res, Err(WqError::AssertionError(_))));
-    }
-
-    #[test]
-    fn implicit_arg_order_and_arity() {
-        let mut eval = VmEvaluator::new();
-        // Test argument order with three implicit parameters
-        let res = eval.eval_string("f:{100*x+10*y+z};f[1;2;3]").unwrap();
-        assert_eq!(res, Value::Int(123));
-
-        // Too many arguments should error
-        let res = eval.eval_string("f[1;2;3;4]");
-        assert!(matches!(res, Err(WqError::ArityError(_))));
-    }
-
-    #[test]
-    fn arity_error_too_many_args() {
-        let mut eval = VmEvaluator::new();
-        let res = eval.eval_string("f:{[a;b;c]a+b+c};f[1;2;3;4]");
-        assert!(matches!(res, Err(WqError::ArityError(_))));
-    }
-
-    #[test]
-    fn intlist_literal_inferred_and_list_interop() {
-        let mut eval = VmEvaluator::new();
-        let res = eval.eval_string("(1;2;3)").unwrap();
-        assert_eq!(res, Value::IntList(vec![1, 2, 3]));
-
-        eval.eval_string("a:alloc 3").unwrap();
-        eval.eval_string("b:(0;0;0)").unwrap();
-        let sum = eval.eval_string("a+b").unwrap();
-        assert_eq!(sum, Value::IntList(vec![0, 0, 0]));
-        let cmp = eval.eval_string("a=b").unwrap();
-        assert_eq!(
-            cmp,
-            Value::List(vec![
-                Value::Bool(true),
-                Value::Bool(true),
-                Value::Bool(true)
-            ])
+    fn call_function(
+        &mut self,
+        instructions: Vec<Instruction>,
+        params: Option<Vec<String>>,
+        local_count: u16,
+        args: Vec<Value>,
+    ) -> WqResult<Value> {
+        let saved_instructions = std::mem::replace(&mut self.instructions, instructions);
+        let saved_pc = self.pc;
+        // Preserve stack allocation to avoid reallocations during the call
+        let prev_cap = self.stack.capacity();
+        let mut saved_stack = std::mem::replace(
+            &mut self.stack,
+            Vec::with_capacity(std::cmp::max(prev_cap, 256)),
         );
-    }
+        let saved_cache = std::mem::replace(
+            &mut self.inline_cache,
+            vec![InlineCache::default(); self.instructions.len()],
+        );
+        self.pc = 0;
 
-    #[test]
-    fn nested_function_calls_access_locals() {
-        let mut eval = VmEvaluator::new();
-        let code = "fib:{fib_:{[n;a;b]$[n=0;a;fib_[n-1;b;a+b]]};fib_[x;0;1]};fib 10";
-        let res = eval.eval_string(code).unwrap();
-        assert_eq!(res, Value::Int(55));
-    }
-
-    #[test]
-    fn local_function_compiles_once_and_works_twice() {
-        let mut eval = VmEvaluator::new();
-        // Define a local function 'g' inside 'h' and call it twice
-        let code = "h:{g:{[n]n+1}; g 1 + g 2}; h[]";
-        let res = eval.eval_string(code).unwrap();
-        assert_eq!(res, Value::Int(5));
-    }
-
-    #[test]
-    fn builtin_arg_order_preserved() {
-        let mut eval = VmEvaluator::new();
-        // 'take' takes (list, n) and returns first n items
-        let res = eval.eval_string("take[2;(1;2;3;4)]").unwrap();
-        assert_eq!(res, Value::IntList(vec![1, 2]));
-    }
-
-    #[test]
-    fn try_returns_status() {
-        let mut eval = VmEvaluator::new();
-        let ok = eval.eval_string("@t 1+2").unwrap();
-        assert_eq!(ok, Value::List(vec![Value::Int(3), Value::Int(0)]));
-
-        let err = eval.eval_string("@t 1+\"a\"").unwrap();
-        if let Value::List(items) = err {
-            assert_eq!(items.len(), 2);
-            match &items[1] {
-                Value::Int(code) => {
-                    assert_eq!(*code, WqError::TypeError(String::new()).code() as i64);
-                }
-                _ => panic!("expected error code"),
+        let mut frame = vec![Value::Null; local_count as usize];
+        if let Some(p) = params {
+            if args.len() != p.len() {
+                return Err(WqError::ArityError(format!(
+                    "Function expects {} arguments, got {}",
+                    p.len(),
+                    args.len()
+                )));
             }
-            assert!(items[0].to_string().contains("TYPE ERROR"));
+            for (i, arg) in args.into_iter().enumerate() {
+                frame[i] = arg;
+            }
         } else {
-            panic!("expected list result");
+            if args.len() > 3 {
+                return Err(WqError::ArityError(
+                    "Implicit function expects up to 3 arguments".to_string(),
+                ));
+            }
+            for (i, arg) in args.into_iter().enumerate() {
+                frame[i] = arg;
+            }
         }
+        self.locals.push(frame);
+        let limit = self.instructions.len();
+        let res = self.execute_until(limit);
+        self.locals.pop();
+        let result = res?;
+        std::mem::swap(&mut self.stack, &mut saved_stack);
+        self.instructions = saved_instructions;
+        self.pc = saved_pc;
+        self.inline_cache = saved_cache;
+        Ok(result)
+    }
+
+    pub fn run(&mut self) -> WqResult<Value> {
+        let limit = self.instructions.len();
+        self.execute_until(limit)
+    }
+
+    fn execute_until(&mut self, limit: usize) -> WqResult<Value> {
+        while self.pc < limit {
+            let idx = self.pc;
+            // Borrow current instruction by reference to avoid cloning per step
+            let op_ref = unsafe { self.instructions.get_unchecked(idx) };
+            // advance program counter
+            self.pc += 1;
+
+            match op_ref {
+                Instruction::LoadConst(v) => self.stack.push(v.clone()),
+                Instruction::LoadVar(name) => {
+                    let (cver, cval) = {
+                        let c = &self.inline_cache[idx];
+                        (c.version, c.value.as_ref())
+                    };
+                    if cver == self.global_version {
+                        if let Some(v) = cval {
+                            self.stack.push(v.clone());
+                            continue;
+                        }
+                    }
+                    let (val, ver) = if let Some(val) = self.lookup_global(name) {
+                        (val, self.global_version)
+                    } else if self.builtins.has_function(name) {
+                        (Value::BuiltinFunction(name.clone()), u64::MAX)
+                    } else {
+                        return Err(WqError::ValueError(
+                            format!("Undefined variable: '{name}'",),
+                        ));
+                    };
+                    {
+                        let c = &mut self.inline_cache[idx];
+                        c.version = ver;
+                        c.value = Some(val.clone());
+                    }
+                    self.stack.push(val);
+                }
+                Instruction::StoreVar(name) => {
+                    let name_owned = name.clone();
+                    let val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(format!(
+                            "Stack underflow: cannot store into variable '{name_owned}'",
+                        ))
+                    })?;
+                    self.assign_global(&name_owned, val);
+                }
+                Instruction::StoreVarKeep(name) => {
+                    let name_owned = name.clone();
+                    let val = self.stack.last().cloned().ok_or_else(|| {
+                        WqError::RuntimeError(format!(
+                            "Stack underflow: cannot store into variable '{name_owned}'",
+                        ))
+                    })?;
+                    self.assign_global(&name_owned, val);
+                }
+                Instruction::LoadLocal(i) => {
+                    let val = self
+                        .locals
+                        .last()
+                        .and_then(|f| f.get(*i as usize))
+                        .ok_or_else(|| WqError::RuntimeError(format!("Invalid local slot {i}")))?;
+                    self.stack.push(val.clone());
+                }
+                Instruction::StoreLocal(i) => {
+                    let val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(format!(
+                            "Stack underflow: cannot store into local slot {i}",
+                        ))
+                    })?;
+                    if let Some(frame) = self.locals.last_mut() {
+                        if let Some(slot) = frame.get_mut(*i as usize) {
+                            *slot = val;
+                        } else {
+                            return Err(WqError::RuntimeError(format!("Invalid local slot {i}")));
+                        }
+                    } else {
+                        return Err(WqError::RuntimeError("No local frame".into()));
+                    }
+                }
+                Instruction::StoreLocalKeep(i) => {
+                    let val = self.stack.last().ok_or_else(|| {
+                        WqError::RuntimeError(format!(
+                            "Stack underflow: cannot store into local slot {i}",
+                        ))
+                    })?;
+                    if let Some(frame) = self.locals.last_mut() {
+                        if let Some(slot) = frame.get_mut(*i as usize) {
+                            *slot = val.clone();
+                        } else {
+                            return Err(WqError::RuntimeError(format!("Invalid local slot {i}")));
+                        }
+                    } else {
+                        return Err(WqError::RuntimeError("No local frame".into()));
+                    }
+                }
+                Instruction::BinaryOp(op) => {
+                    let right = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError("Stack underflow: missing right operand".into())
+                    })?;
+                    let left = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError("Stack underflow: missing left operand".into())
+                    })?;
+
+                    let result = match op {
+                        BinaryOperator::Add => left
+                            .add(&right)
+                            .ok_or_else(|| classify_arith("add", &left, &right)),
+                        BinaryOperator::Subtract => left
+                            .subtract(&right)
+                            .ok_or_else(|| classify_arith("subtract", &left, &right)),
+                        BinaryOperator::Multiply => left
+                            .multiply(&right)
+                            .ok_or_else(|| classify_arith("multiply", &left, &right)),
+                        BinaryOperator::Power => left
+                            .power(&right)
+                            .ok_or_else(|| classify_arith("exponentiate", &left, &right)),
+                        BinaryOperator::Divide => left
+                            .divide(&right)
+                            .ok_or_else(|| classify_divide(&left, &right)),
+                        BinaryOperator::DivideDot => left
+                            .divide_dot(&right)
+                            .ok_or_else(|| WqError::DomainError("Invalid types".into())),
+                        BinaryOperator::Modulo => left.modulo(&right).ok_or_else(|| {
+                            WqError::DomainError("Modulo by zero or invalid types".into())
+                        }),
+                        BinaryOperator::ModuloDot => left
+                            .modulo_dot(&right)
+                            .ok_or_else(|| WqError::DomainError("Invalid types".into())),
+                        BinaryOperator::Equal => Ok(left.equals(&right)),
+                        BinaryOperator::NotEqual => Ok(left.not_equals(&right)),
+                        BinaryOperator::LessThan => Ok(left.less_than(&right)),
+                        BinaryOperator::LessThanOrEqual => Ok(left.less_than_or_equal(&right)),
+                        BinaryOperator::GreaterThan => Ok(left.greater_than(&right)),
+                        BinaryOperator::GreaterThanOrEqual => {
+                            Ok(left.greater_than_or_equal(&right))
+                        }
+                    };
+
+                    match result {
+                        Ok(v) => self.stack.push(v),
+                        Err(e) => return Err(e),
+                    }
+                }
+                Instruction::UnaryOp(op) => {
+                    let val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing operand for unary operator".into(),
+                        )
+                    })?;
+
+                    let result = match op {
+                        UnaryOperator::Negate => val
+                            .neg_value()
+                            .ok_or_else(|| WqError::TypeError("Cannot negate this type".into())),
+                        UnaryOperator::Count => Ok(Value::Int(val.len() as i64)),
+                    }?;
+                    self.stack.push(result);
+                }
+                Instruction::CallBuiltin(name, argc) => {
+                    let argc_val = *argc;
+                    if self.stack.len() < argc_val {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {argc_val} arguments for builtin '{name}'",
+                        )));
+                    }
+                    let base = self.stack.len() - argc_val;
+                    let result = self.builtins.call(name, &self.stack[base..])?;
+                    self.stack.truncate(base);
+                    self.stack.push(result);
+                }
+                Instruction::CallBuiltinId(id, argc) => {
+                    if self.stack.len() < *argc {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {argc} arguments for builtin ID {id}",
+                        )));
+                    }
+                    let base = self.stack.len() - *argc;
+                    let result = self.builtins.call_id(*id as usize, &self.stack[base..])?;
+                    self.stack.truncate(base);
+                    self.stack.push(result);
+                }
+                Instruction::CallLocal(slot, argc) => {
+                    if self.stack.len() < *argc {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {argc} arguments for local function at slot {slot}",
+                        )));
+                    }
+                    let base = self.stack.len() - *argc;
+                    let args = self.stack.split_off(base);
+                    // Walk frames top-down; compile once and replace
+                    let maybe_compiled = {
+                        let mut compiled: Option<(Option<Vec<String>>, u16, Vec<Instruction>)> =
+                            None;
+                        for frame in self.locals.iter_mut().rev() {
+                            if let Some(v) = frame.get_mut(*slot as usize) {
+                                match v {
+                                    Value::CompiledFunction {
+                                        params,
+                                        locals,
+                                        instructions,
+                                    } => {
+                                        compiled =
+                                            Some((params.clone(), *locals, instructions.clone()));
+                                    }
+                                    Value::Function { params, body } => {
+                                        let mut c = Compiler::new();
+                                        c.compile(body)?;
+                                        c.instructions.push(Instruction::Return);
+                                        let locals = c.local_count();
+                                        let instrs = std::mem::take(&mut c.instructions);
+                                        let compiled_params = params.clone();
+                                        *v = Value::CompiledFunction {
+                                            params: compiled_params.clone(),
+                                            locals,
+                                            instructions: instrs.clone(),
+                                        };
+                                        compiled = Some((compiled_params, locals, instrs));
+                                    }
+                                    other => {
+                                        return Err(WqError::TypeError(format!(
+                                            "Cannot call local slot {slot}: expected function, found {}",
+                                            other.type_name(),
+                                        )));
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                        compiled
+                    };
+                    let (params, locals, instructions) = maybe_compiled.ok_or_else(|| {
+                        WqError::RuntimeError(format!("Invalid local slot {slot}"))
+                    })?;
+                    let res = self.call_function(instructions, params, locals, args)?;
+                    self.stack.push(res);
+                }
+                Instruction::CallUser(name, argc) => {
+                    let name_owned = name.clone();
+                    let argc_val = *argc;
+                    if self.stack.len() < argc_val {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {argc_val} arguments for function '{name_owned}'",
+                        )));
+                    }
+                    let base = self.stack.len() - argc_val;
+                    let args = self.stack.split_off(base);
+
+                    let (cver, cval) = {
+                        let c = &self.inline_cache[idx];
+                        (c.version, c.value.clone())
+                    };
+                    let func_val = if cver == self.global_version {
+                        cval
+                    } else {
+                        None
+                    };
+                    let func_val = if let Some(v) = func_val {
+                        v
+                    } else {
+                        let v = self.lookup_global(&name_owned).ok_or_else(|| {
+                            WqError::ValueError(format!("Function '{name_owned}' is not defined"))
+                        })?;
+                        {
+                            let c = &mut self.inline_cache[idx];
+                            c.version = self.global_version;
+                            c.value = Some(v.clone());
+                        }
+                        v
+                    };
+                    match func_val {
+                        Value::CompiledFunction {
+                            params,
+                            locals,
+                            instructions,
+                        } => {
+                            let res = self.call_function(instructions, params, locals, args)?;
+                            self.stack.push(res);
+                        }
+                        Value::Function { params, body } => {
+                            let mut c = Compiler::new();
+                            c.compile(&body)?;
+                            c.instructions.push(Instruction::Return);
+                            let locals = c.local_count();
+                            let instrs = c.instructions.clone();
+                            // Replace in globals to avoid recompilation on next lookup
+                            if let Some(slot) = self.globals.get_mut(&name_owned) {
+                                *slot = Value::CompiledFunction {
+                                    params: params.clone(),
+                                    locals,
+                                    instructions: instrs.clone(),
+                                };
+                            }
+                            {
+                                let entry = &mut self.inline_cache[idx];
+                                entry.version = self.global_version;
+                                entry.value = Some(Value::CompiledFunction {
+                                    params: params.clone(),
+                                    locals,
+                                    instructions: instrs.clone(),
+                                });
+                            }
+                            let res = self.call_function(instrs, params, locals, args)?;
+                            self.stack.push(res);
+                        }
+                        other => {
+                            return Err(WqError::TypeError(format!(
+                                "Cannot call '{name_owned}': expected function, found {}",
+                                other.type_name(),
+                            )));
+                        }
+                    }
+                }
+                Instruction::CallAnon(argc) => {
+                    if self.stack.len() < *argc + 1 {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {argc} arguments and a function",
+                        )));
+                    }
+                    let base = self.stack.len() - *argc;
+                    let args = self.stack.split_off(base);
+                    let func_val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing function value for call".into(),
+                        )
+                    })?;
+
+                    match func_val {
+                        Value::CompiledFunction {
+                            params,
+                            locals,
+                            instructions,
+                        } => {
+                            let res = self.call_function(instructions, params, locals, args)?;
+                            self.stack.push(res);
+                        }
+                        Value::Function { params, body } => {
+                            let mut c = Compiler::new();
+                            c.compile(&body)?;
+                            c.instructions.push(Instruction::Return);
+                            let locals = c.local_count();
+                            let res = self.call_function(c.instructions, params, locals, args)?;
+                            self.stack.push(res);
+                        }
+                        other => {
+                            return Err(WqError::TypeError(format!(
+                                "Cannot call value of type {:?} as a function",
+                                other.type_name(),
+                            )));
+                        }
+                    }
+                }
+                Instruction::MakeList(n) => {
+                    if self.stack.len() < *n {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {n} list items",
+                        )));
+                    }
+                    let base = self.stack.len() - *n;
+                    let items = self.stack.split_off(base);
+                    let all_ints = items.iter().all(|v| matches!(v, Value::Int(_)));
+                    if all_ints {
+                        let ints: Vec<i64> = items
+                            .into_iter()
+                            .map(|v| match v {
+                                Value::Int(i) => i,
+                                _ => unreachable!(),
+                            })
+                            .collect();
+                        self.stack.push(Value::IntList(ints));
+                    } else {
+                        self.stack.push(Value::List(items));
+                    }
+                }
+                Instruction::MakeDict(n) => {
+                    let mut map = IndexMap::new();
+                    for _ in 0..*n {
+                        let val = self.stack.pop().ok_or_else(|| {
+                            WqError::RuntimeError("Stack underflow: expected value for dict".into())
+                        })?;
+                        let key = self.stack.pop().ok_or_else(|| {
+                            WqError::RuntimeError("Stack underflow: expected key for dict".into())
+                        })?;
+
+                        match key {
+                            Value::Symbol(k) => {
+                                map.insert(k, val);
+                            }
+                            other => {
+                                return Err(WqError::TypeError(format!(
+                                    "Invalid dict key: expected Symbol, got {other:?}"
+                                )));
+                            }
+                        }
+                    }
+                    self.stack.push(Value::Dict(map));
+                }
+                Instruction::Index => {
+                    // Hot path: IntList/List with integer index
+                    match (self.stack.pop().unwrap(), self.stack.pop().unwrap()) {
+                        (Value::Int(i), Value::IntList(items)) => {
+                            let len = items.len() as i64;
+                            let ii = if i < 0 { len + i } else { i };
+                            if ii >= 0 && ii < len {
+                                let idx = ii as usize;
+                                self.stack.push(Value::Int(items[idx]));
+                            } else {
+                                return Err(WqError::IndexError(format!(
+                                    "Invalid index: attempted to access index {i} in int-list of len {}",
+                                    items.len()
+                                )));
+                            }
+                        }
+                        (Value::Int(i), Value::List(items)) => {
+                            let len = items.len() as i64;
+                            let ii = if i < 0 { len + i } else { i };
+                            if ii >= 0 && ii < len {
+                                let idx = ii as usize;
+                                let v = items.get(idx).cloned().unwrap();
+                                self.stack.push(v);
+                            } else {
+                                return Err(WqError::IndexError(format!(
+                                    "Invalid index: attempted to access index {i} in list of len {}",
+                                    items.len()
+                                )));
+                            }
+                        }
+                        (idx, obj) => match obj.index(&idx) {
+                            Some(v) => self.stack.push(v),
+                            None => {
+                                return Err(WqError::IndexError(format!(
+                                    "Invalid index: attempted to access index {idx} in {obj}"
+                                )));
+                            }
+                        },
+                    }
+                }
+                Instruction::IndexAssign => {
+                    let val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing value for index assignment".into(),
+                        )
+                    })?;
+
+                    let idx = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing index for assignment".into(),
+                        )
+                    })?;
+
+                    let obj_name = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing target object name for index assignment"
+                                .into(),
+                        )
+                    })?;
+
+                    match obj_name {
+                        Value::Symbol(name) => match self.globals.get_mut(&name) {
+                            Some(obj) => {
+                                // Fast path: int-list/list with int index
+                                match (&mut *obj, &idx, &val) {
+                                    (Value::IntList(items), Value::Int(i), Value::Int(v)) => {
+                                        let len = items.len() as i64;
+                                        let ii = if *i < 0 { len + *i } else { *i };
+                                        if ii >= 0 && ii < len {
+                                            items[ii as usize] = *v;
+                                            self.stack.push(val);
+                                        } else {
+                                            return Err(WqError::IndexError(format!(
+                                                "Failed assigning to {name}[{i}], out of bounds",
+                                            )));
+                                        }
+                                    }
+                                    (Value::List(items), Value::Int(i), _) => {
+                                        let len = items.len() as i64;
+                                        let ii = if *i < 0 { len + *i } else { *i };
+                                        if ii >= 0 && ii < len {
+                                            items[ii as usize] = val.clone();
+                                            self.stack.push(val);
+                                        } else {
+                                            return Err(WqError::IndexError(format!(
+                                                "Failed assigning to {name}[{i}], out of bounds",
+                                            )));
+                                        }
+                                    }
+                                    _ => {
+                                        if (*obj).set_index(&idx, val.clone()).is_some() {
+                                            self.stack.push(val);
+                                        } else {
+                                            return Err(WqError::IndexError(format!(
+                                                "Failed assigning to {name}[{idx}], index invalid or not supported",
+                                            )));
+                                        }
+                                    }
+                                }
+                            }
+                            None => {
+                                return Err(WqError::ValueError(format!(
+                                    "Cannot assign to {name}[{idx}], variable not found",
+                                )));
+                            }
+                        },
+                        other => {
+                            return Err(WqError::TypeError(format!(
+                                "Invalid index assignment target: expected Symbol, got {}",
+                                other.type_name(),
+                            )));
+                        }
+                    }
+                }
+                Instruction::IndexAssignDrop => {
+                    let val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing value for index assignment".into(),
+                        )
+                    })?;
+
+                    let idx = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing index for assignment".into(),
+                        )
+                    })?;
+
+                    let obj_name = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing target object name for index assignment"
+                                .into(),
+                        )
+                    })?;
+
+                    match obj_name {
+                        Value::Symbol(name) => match self.globals.get_mut(&name) {
+                            Some(obj) => match (&mut *obj, &idx, &val) {
+                                (Value::IntList(items), Value::Int(i), Value::Int(v)) => {
+                                    let len = items.len() as i64;
+                                    let ii = if *i < 0 { len + *i } else { *i };
+                                    if ii >= 0 && ii < len {
+                                        items[ii as usize] = *v;
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to {name}[{i}], out of bounds",
+                                        )));
+                                    }
+                                }
+                                (Value::List(items), Value::Int(i), _) => {
+                                    let len = items.len() as i64;
+                                    let ii = if *i < 0 { len + *i } else { *i };
+                                    if ii >= 0 && ii < len {
+                                        items[ii as usize] = val.clone();
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to {name}[{i}], out of bounds",
+                                        )));
+                                    }
+                                }
+                                _ => {
+                                    if (*obj).set_index(&idx, val.clone()).is_none() {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to {name}[{idx}], index invalid or not supported",
+                                        )));
+                                    }
+                                }
+                            },
+                            None => {
+                                return Err(WqError::ValueError(format!(
+                                    "Cannot assign to {name}[{idx}], variable not found",
+                                )));
+                            }
+                        },
+                        other => {
+                            return Err(WqError::TypeError(format!(
+                                "Invalid index assignment target: expected Symbol, got {}",
+                                other.type_name(),
+                            )));
+                        }
+                    }
+                }
+                Instruction::IndexAssignLocal(slot) => {
+                    let val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing value for index assignment".into(),
+                        )
+                    })?;
+                    let idx = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing index for assignment".into(),
+                        )
+                    })?;
+                    if let Some(frame) = self.locals.last_mut() {
+                        if let Some(obj) = frame.get_mut(*slot as usize) {
+                            match (&mut *obj, &idx, &val) {
+                                (Value::IntList(items), Value::Int(i), Value::Int(v)) => {
+                                    let len = items.len() as i64;
+                                    let ii = if *i < 0 { len + *i } else { *i };
+                                    if ii >= 0 && ii < len {
+                                        items[ii as usize] = *v;
+                                        self.stack.push(val);
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to local[{slot}][{i}], out of bounds",
+                                        )));
+                                    }
+                                }
+                                (Value::List(items), Value::Int(i), _) => {
+                                    let len = items.len() as i64;
+                                    let ii = if *i < 0 { len + *i } else { *i };
+                                    if ii >= 0 && ii < len {
+                                        items[ii as usize] = val.clone();
+                                        self.stack.push(val);
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to local[{slot}][{i}], out of bounds",
+                                        )));
+                                    }
+                                }
+                                _ => {
+                                    if (*obj).set_index(&idx, val.clone()).is_some() {
+                                        self.stack.push(val);
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to local[{slot}][{idx}], index invalid or not supported",
+                                        )));
+                                    }
+                                }
+                            }
+                        } else {
+                            return Err(WqError::RuntimeError(format!(
+                                "Invalid local slot {slot}"
+                            )));
+                        }
+                    } else {
+                        return Err(WqError::RuntimeError("No local frame".into()));
+                    }
+                }
+                Instruction::IndexAssignLocalDrop(slot) => {
+                    let val = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing value for index assignment".into(),
+                        )
+                    })?;
+                    let idx = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing index for assignment".into(),
+                        )
+                    })?;
+                    if let Some(frame) = self.locals.last_mut() {
+                        if let Some(obj) = frame.get_mut(*slot as usize) {
+                            match (&mut *obj, &idx, &val) {
+                                (Value::IntList(items), Value::Int(i), Value::Int(v)) => {
+                                    let len = items.len() as i64;
+                                    let ii = if *i < 0 { len + *i } else { *i };
+                                    if ii >= 0 && ii < len {
+                                        items[ii as usize] = *v;
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to local[{slot}][{i}], out of bounds",
+                                        )));
+                                    }
+                                }
+                                (Value::List(items), Value::Int(i), _) => {
+                                    let len = items.len() as i64;
+                                    let ii = if *i < 0 { len + *i } else { *i };
+                                    if ii >= 0 && ii < len {
+                                        items[ii as usize] = val.clone();
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to local[{slot}][{i}], out of bounds",
+                                        )));
+                                    }
+                                }
+                                _ => {
+                                    if (*obj).set_index(&idx, val.clone()).is_none() {
+                                        return Err(WqError::IndexError(format!(
+                                            "Failed assigning to local[{slot}][{idx}], index invalid or not supported",
+                                        )));
+                                    }
+                                }
+                            }
+                        } else {
+                            return Err(WqError::RuntimeError(format!(
+                                "Invalid local slot {slot}"
+                            )));
+                        }
+                    } else {
+                        return Err(WqError::RuntimeError("No local frame".into()));
+                    }
+                }
+                Instruction::Jump(pos) => self.pc = *pos,
+                Instruction::JumpIfFalse(pos) => {
+                    let v = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing value for conditional jump".into(),
+                        )
+                    })?;
+
+                    let is_false = match v {
+                        Value::Bool(b) => !b,
+                        Value::Int(n) => n == 0,
+                        Value::Float(f) => f == 0.0,
+                        _ => {
+                            return Err(WqError::TypeError(
+                                "Invalid condition type in control flow, expected bool, int, or float".into(),
+                            ));
+                        }
+                    };
+
+                    if is_false {
+                        self.pc = *pos;
+                    }
+                }
+                Instruction::JumpIfGE(pos) => {
+                    // Pop right then left, jump if left >= right
+                    let right = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing right operand for compare-jump".into(),
+                        )
+                    })?;
+                    let left = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError(
+                            "Stack underflow: missing left operand for compare-jump".into(),
+                        )
+                    })?;
+                    // emulate !(left < right)
+                    let lt = left.less_than(&right);
+                    let cond = match lt {
+                        Value::Bool(b) => !b,
+                        _ => {
+                            return Err(WqError::TypeError(
+                                "Invalid condition type in control flow, expected bool, int, or float".into(),
+                            ));
+                        }
+                    };
+                    if cond {
+                        self.pc = *pos;
+                    }
+                }
+                Instruction::JumpIfLEZLocal(slot, pos) => {
+                    // Jump if local[slot] <= 0
+                    let v = self
+                        .locals
+                        .last()
+                        .and_then(|f| f.get(*slot as usize))
+                        .cloned()
+                        .ok_or_else(|| {
+                            WqError::RuntimeError(format!("Invalid local slot {slot}"))
+                        })?;
+                    let is_le_zero = match v {
+                        Value::Int(n) => n <= 0,
+                        Value::Float(f) => f <= 0.0,
+                        _ => {
+                            return Err(WqError::TypeError(
+                                "Invalid condition type in control flow, expected bool, int, or float".into(),
+                            ));
+                        }
+                    };
+                    if is_le_zero {
+                        self.pc = *pos;
+                    }
+                }
+                Instruction::Pop => {
+                    self.stack.pop();
+                }
+                Instruction::Assert => {
+                    let v = self.stack.pop().ok_or_else(|| {
+                        WqError::RuntimeError("Stack underflow: missing value for assert".into())
+                    })?;
+                    let ok = match v {
+                        Value::Bool(b) => b,
+                        _ => {
+                            return Err(WqError::TypeError(
+                                "Invalid type for assert, expected bool".into(),
+                            ));
+                        }
+                    };
+                    if !ok {
+                        return Err(WqError::AssertionError("Assertion failed".into()));
+                    }
+                    self.stack.push(Value::Null);
+                }
+                Instruction::Return => break,
+                Instruction::Try(len) => {
+                    let start_pc = self.pc;
+                    let end_pc = start_pc + len;
+                    let stack_start = self.stack.len();
+                    match self.execute_until(end_pc) {
+                        Ok(v) => {
+                            self.stack.truncate(stack_start);
+                            self.stack.push(Value::List(vec![v, Value::Int(0)]));
+                        }
+                        Err(e) => {
+                            self.stack.truncate(stack_start);
+                            let msg: Vec<Value> = e.to_string().chars().map(Value::Char).collect();
+                            self.stack.push(Value::List(vec![
+                                Value::List(msg),
+                                Value::Int(e.code() as i64),
+                            ]));
+                        }
+                    }
+                    self.pc = end_pc;
+                }
+            }
+        }
+        Ok(self.stack.pop().unwrap_or(Value::Null))
+    }
+}
+
+fn classify_arith(op_name: &str, left: &Value, right: &Value) -> WqError {
+    if matches!(left, Value::Int(_) | Value::IntList(_))
+        && matches!(right, Value::Int(_) | Value::IntList(_))
+    {
+        WqError::DomainError(format!("{op_name} overflow"))
+    } else {
+        WqError::TypeError(format!(
+            "Cannot {op_name} {} and {}",
+            left.type_name(),
+            right.type_name()
+        ))
+    }
+}
+
+fn classify_divide(left: &Value, right: &Value) -> WqError {
+    let is_zero = match right {
+        Value::Int(0) => true,
+        Value::Float(f) if *f == 0.0 => true,
+        Value::IntList(v) if v.contains(&0) => true,
+        _ => false,
+    };
+
+    if is_zero {
+        WqError::DomainError("Division by zero".into())
+    } else if matches!(left, Value::Int(_) | Value::IntList(_))
+        && matches!(right, Value::Int(_) | Value::IntList(_))
+    {
+        WqError::DomainError("division overflow".into())
+    } else {
+        WqError::TypeError("Cannot divide these types".into())
     }
 }

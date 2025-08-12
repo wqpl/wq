@@ -1,5 +1,5 @@
 use super::arity_error;
-use crate::value::valuei::{Value, WqError, WqResult};
+use crate::value::{Value, WqError, WqResult};
 
 pub fn and(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {

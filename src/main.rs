@@ -1,9 +1,7 @@
 use wq::apps::formatter::{FormatOptions, Formatter};
-use wq::builtins::io;
 use wq::builtins_help;
-use wq::repl::ReplEngine;
+use wq::repl::{RUSTYLINE, ReplEngine, VmEvaluator, vm_exec_script};
 use wq::utils::textutils::create_boxed_text;
-use wq::vm::{self, VmEvaluator};
 
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
@@ -17,8 +15,8 @@ use std::time::Instant;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use wq::value::WqError;
 use wq::value::box_mode;
-use wq::value::valuei::WqError;
 
 use colored::Colorize;
 use rand::Rng;
@@ -78,7 +76,7 @@ fn main() {
     }
     // Handle command line script execution
     if let Some(file) = file {
-        vm::vm_exec_script(&file, debug_mode);
+        vm_exec_script(&file, debug_mode);
         if !interactive_mode {
             return;
         }
@@ -94,7 +92,7 @@ fn main() {
 
     evaluator.set_debug(debug_mode);
     {
-        let mut guard = io::RUSTYLINE.lock().unwrap();
+        let mut guard = RUSTYLINE.lock().unwrap();
         if guard.is_none() {
             *guard = Some(DefaultEditor::new().unwrap());
         }
@@ -121,14 +119,14 @@ fn main() {
 
         // Read input
         let readline = {
-            let mut guard = io::RUSTYLINE.lock().unwrap();
+            let mut guard = RUSTYLINE.lock().unwrap();
             guard.as_mut().unwrap().readline(&prompt)
         };
         match readline {
             Ok(line) => {
                 let input = line.trim_end();
                 if !input.is_empty() {
-                    let mut guard = io::RUSTYLINE.lock().unwrap();
+                    let mut guard = RUSTYLINE.lock().unwrap();
                     guard.as_mut().unwrap().add_history_entry(input).unwrap();
                 }
 

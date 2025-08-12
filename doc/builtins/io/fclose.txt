@@ -1,0 +1,5 @@
+fclose
+======
+fclose <stream>
+
+closing a stream twice silently fails.

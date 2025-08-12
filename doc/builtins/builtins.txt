@@ -1,0 +1,41 @@
+dict
+====
+keys
+
+io
+==
+decode    fclose    fread     freadtln  fsize     fwrite    mkdir
+encode    fexists   freadt    fseek     ftell     fwritet   open
+
+list
+====
+alloc     count     find      idx       range     sort      til
+avg       distinct  first     in        reverse   sum       where
+cat       drop      flatten   last      shape     take
+
+logical
+=======
+and   band  bnot  bor   bxor  not   or    shl   shr   xor
+
+math
+====
+abs      arctan   cos      floor    min      signum   sqrt
+arccos   bin      cosh     ln       neg      sin      tan
+arcsin   ceiling  exp      max      rand     sinh     tanh
+
+plot
+====
+asciiplot
+
+string
+======
+format
+
+system
+======
+echo   exec   input  showt
+
+type_builtins
+=============
+chr     hex     null    ord     string  symbol  type
+

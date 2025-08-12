@@ -1,7 +1,7 @@
 use super::arity_error;
 use crate::{
     builtins::values_to_strings,
-    value::valuei::{Value, WqResult},
+    value::{Value, WqResult},
 };
 
 pub fn format_string(args: &[Value]) -> WqResult<Value> {

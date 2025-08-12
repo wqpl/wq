@@ -1,5 +1,5 @@
 use crate::lexer::{Token, TokenType};
-use crate::value::valuei::{Value, WqError, WqResult};
+use crate::value::{Value, WqError, WqResult};
 
 /// Ast nodes
 #[derive(Debug, Clone, PartialEq)]

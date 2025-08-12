@@ -1,0 +1,6 @@
+fwritet
+=======
+fwritet[<stream>;<text>]
+
+Examples:
+  fwrite[h;"hi"]

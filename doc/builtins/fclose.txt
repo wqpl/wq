@@ -1,3 +1,0 @@
-fclose
-======
-fclose <stream>

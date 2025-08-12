@@ -1,4 +1,4 @@
-use super::valuei::Value;
+use super::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static BOXED: AtomicBool = AtomicBool::new(false);

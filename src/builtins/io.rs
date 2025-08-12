@@ -1,21 +1,16 @@
 use super::arity_error;
 use crate::{
-    builtins::values_to_strings,
-    value::valuei::{BufReadSeek, StreamHandle, Value, WqError, WqResult, WriteSeek},
+    builtins::value_to_string,
+    value::{BufReadSeek, StreamHandle, Value, WqError, WqResult, WriteSeek},
 };
 
 use encoding_rs::Encoding;
-use once_cell::sync::Lazy;
-use rustyline::{DefaultEditor, error::ReadlineError};
-use std::sync::Mutex;
 
 use std::{
     fs::{self, OpenOptions},
     io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
     path::Path,
 };
-
-pub static RUSTYLINE: Lazy<Mutex<Option<DefaultEditor>>> = Lazy::new(|| Mutex::new(None));
 
 fn value_to_bytes(v: &Value) -> WqResult<Vec<u8>> {
     match v {
@@ -39,10 +34,6 @@ fn value_to_bytes(v: &Value) -> WqResult<Vec<u8>> {
             v.type_name()
         ))),
     }
-}
-
-fn value_to_string(v: &Value) -> WqResult<String> {
-    Ok(values_to_strings(&[v.clone()])?.pop().unwrap())
 }
 
 pub fn open(args: &[Value]) -> WqResult<Value> {
@@ -120,7 +111,7 @@ pub fn open(args: &[Value]) -> WqResult<Value> {
     Ok(Value::stream(handle))
 }
 
-pub fn pexists(args: &[Value]) -> WqResult<Value> {
+pub fn fexists(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(arity_error("exists?", "1 argument", args.len()));
     }
@@ -421,29 +412,6 @@ pub fn encode(args: &[Value]) -> WqResult<Value> {
     Ok(Value::IntList(out.into_iter().map(|b| b as i64).collect()))
 }
 
-pub fn input(args: &[Value]) -> WqResult<Value> {
-    if args.len() > 1 {
-        return Err(arity_error("input", "0 or 1 argument", args.len()));
-    }
-
-    let prompt = if args.len() == 1 {
-        value_to_string(&args[0])?
-    } else {
-        String::new()
-    };
-
-    let mut rl_guard = RUSTYLINE.lock().unwrap();
-    if rl_guard.is_none() {
-        *rl_guard = Some(DefaultEditor::new().map_err(|e| WqError::IoError(e.to_string()))?);
-    }
-    match rl_guard.as_mut().unwrap().readline(&prompt) {
-        Ok(line) => Ok(Value::List(line.chars().map(Value::Char).collect())),
-        Err(ReadlineError::Interrupted) => Err(WqError::IoError("input interrupted".to_string())),
-        Err(ReadlineError::Eof) => Ok(Value::Null),
-        Err(e) => Err(WqError::IoError(e.to_string())),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,9 +444,9 @@ mod tests {
     #[test]
     fn pexists_and_mkdir() {
         let path = tmpfile();
-        assert_eq!(pexists(&[str_val(&path)]).unwrap(), Value::Bool(false));
+        assert_eq!(fexists(&[str_val(&path)]).unwrap(), Value::Bool(false));
         mkdir(&[str_val(&path)]).unwrap();
-        assert_eq!(pexists(&[str_val(&path)]).unwrap(), Value::Bool(true));
+        assert_eq!(fexists(&[str_val(&path)]).unwrap(), Value::Bool(true));
         fs::remove_dir_all(&path).unwrap();
     }
 

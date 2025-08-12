@@ -1,0 +1,5 @@
+fopen
+=====
+fopen[<path>;<mode>]
+
+mode = "r"|"r+"|"w"|"w+"|"a"|"a+"

@@ -1,7 +1,7 @@
 use super::instruction::Instruction;
 use crate::builtins::Builtins;
 use crate::parser::{AstNode, BinaryOperator};
-use crate::value::valuei::{Value, WqError, WqResult};
+use crate::value::{Value, WqError, WqResult};
 use indexmap::IndexMap;
 
 #[derive(Default)]
