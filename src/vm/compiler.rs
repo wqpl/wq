@@ -117,7 +117,6 @@ impl Compiler {
 
     pub fn compile(&mut self, node: &AstNode) -> WqResult<()> {
         match node {
-            AstNode::Postfix { .. } => unreachable!(),
             AstNode::Literal(v) => self.instructions.push(Instruction::LoadConst(v.clone())),
             AstNode::Variable(name) => self.emit_load(name),
             AstNode::Assignment { name, value } => {
@@ -218,6 +217,33 @@ impl Compiler {
                     self.compile(arg)?;
                 }
                 self.instructions.push(Instruction::CallAnon(args.len()));
+            }
+            AstNode::Postfix {
+                object,
+                items,
+                explicit_call: _,
+            } => {
+                let builtin_id = match object.as_ref() {
+                    AstNode::Variable(name) => self.builtins.get_id(name),
+                    _ => None,
+                };
+
+                if let Some(id) = builtin_id {
+                    // Builtin call: don't compile the callee, only the args
+                    for item in items {
+                        self.compile(item)?;
+                    }
+                    self.instructions
+                        .push(Instruction::CallBuiltinId(id as u8, items.len()));
+                } else {
+                    // Non-builtin: compile the callee first, then the args
+                    self.compile(object)?;
+                    for item in items {
+                        self.compile(item)?;
+                    }
+                    self.instructions
+                        .push(Instruction::CallOrIndex(items.len()));
+                }
             }
             AstNode::Break => {
                 if let Some(loop_info) = self.loop_stack.last_mut() {

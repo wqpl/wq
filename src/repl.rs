@@ -385,5 +385,7 @@ mod tests {
         let mut eval = VmEvaluator::new();
         let res = eval.eval_string("a:{2*x};b:{x[3]};b[a]").unwrap();
         assert_eq!(res, Value::Int(6));
+        let res = eval.eval_string("a:til 10;b[a]").unwrap();
+        assert_eq!(res, Value::Int(3));
     }
 }

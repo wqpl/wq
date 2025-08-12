@@ -25,6 +25,8 @@ pub enum Instruction {
     CallLocal(u16, usize),
     CallUser(String, usize),
     CallAnon(usize),
+    /// Call if the object is a function, otherwise index
+    CallOrIndex(usize),
     MakeList(usize),
     MakeDict(usize),
     Index,

@@ -40,7 +40,14 @@ impl Formatter {
 
     fn format_node(&self, node: &AstNode, level: usize) -> String {
         match node {
-            AstNode::Postfix { .. } => unreachable!(),
+            AstNode::Postfix {
+                object,
+                items,
+                explicit_call: _,
+            } => {
+                let args_str = self.join_semicolon(items, level);
+                format!("{}[{}]", self.format_node(object, level), args_str)
+            }
             AstNode::Literal(v) => v.to_string(),
             AstNode::Variable(n) => n.clone(),
             AstNode::BinaryOp {

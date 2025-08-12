@@ -933,6 +933,92 @@ impl Vm {
                     }
                     self.pc = end_pc;
                 }
+                Instruction::CallOrIndex(argc) => {
+                    if self.stack.len() < *argc + 1 {
+                        return Err(WqError::RuntimeError(format!(
+                            "Stack underflow: expected {argc} arguments and an object",
+                        )));
+                    }
+                    let base = self.stack.len() - *argc;
+                    let mut args = self.stack.split_off(base);
+                    let obj = self.stack.pop().unwrap();
+
+                    match obj {
+                        Value::CompiledFunction {
+                            params,
+                            locals,
+                            instructions,
+                        } => {
+                            let res = self.call_function(instructions, params, locals, args)?;
+                            self.stack.push(res);
+                        }
+                        Value::Function { params, body } => {
+                            let mut c = Compiler::new();
+                            c.compile(&body)?;
+                            c.instructions.push(Instruction::Return);
+                            let locals = c.local_count();
+                            let res = self.call_function(c.instructions, params, locals, args)?;
+                            self.stack.push(res);
+                        }
+                        other => {
+                            // treat as index
+                            let idx_val = if args.len() == 1 {
+                                args.pop().unwrap()
+                            } else {
+                                let all_ints = args.iter().all(|v| matches!(v, Value::Int(_)));
+                                if all_ints {
+                                    let ints: Vec<i64> = args
+                                        .into_iter()
+                                        .map(|v| match v {
+                                            Value::Int(i) => i,
+                                            _ => unreachable!(),
+                                        })
+                                        .collect();
+                                    Value::IntList(ints)
+                                } else {
+                                    Value::List(args)
+                                }
+                            };
+                            match (idx_val, other) {
+                                (Value::Int(i), Value::IntList(items)) => {
+                                    let len = items.len() as i64;
+                                    let ii = if i < 0 { len + i } else { i };
+                                    if ii >= 0 && ii < len {
+                                        let idx = ii as usize;
+                                        self.stack.push(Value::Int(items[idx]));
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Invalid index: attempted to access index {i} in int-list of len {}",
+                                            items.len()
+                                        )));
+                                    }
+                                }
+                                (Value::Int(i), Value::List(items)) => {
+                                    let len = items.len() as i64;
+                                    let ii = if i < 0 { len + i } else { i };
+                                    if ii >= 0 && ii < len {
+                                        let idx = ii as usize;
+                                        let v = items.get(idx).cloned().unwrap();
+                                        self.stack.push(v);
+                                    } else {
+                                        return Err(WqError::IndexError(format!(
+                                            "Invalid index: attempted to access index {i} in list of len {}",
+                                            items.len()
+                                        )));
+                                    }
+                                }
+                                (idx, objv) => match objv.index(&idx) {
+                                    Some(v) => self.stack.push(v),
+                                    None => {
+                                        return Err(WqError::IndexError(format!(
+                                            "Invalid index: attempted to access index {idx} in {objv}"
+                                        )));
+                                    }
+                                },
+                            }
+                        }
+                    }
+                }
             }
         }
         Ok(self.stack.pop().unwrap_or(Value::Null))

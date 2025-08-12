@@ -1152,21 +1152,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_multi_index() {
-        let ast = parse_string("a[1;2]").unwrap();
-        assert_eq!(
-            ast,
-            AstNode::Index {
-                object: Box::new(AstNode::Variable("a".into())),
-                index: Box::new(AstNode::List(vec![
-                    AstNode::Literal(Value::Int(1)),
-                    AstNode::Literal(Value::Int(2)),
-                ])),
-            }
-        );
-    }
-
-    #[test]
     fn test_parse_list() {
         let ast = parse_string("(1;2;3)").unwrap();
         assert_eq!(

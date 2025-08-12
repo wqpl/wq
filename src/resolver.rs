@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 pub struct Resolver {
     builtins: Builtins,
     known_funcs: HashSet<String>,
+    in_func: usize,
 }
 
 impl Resolver {
@@ -13,6 +14,7 @@ impl Resolver {
         Self {
             builtins: Builtins::new(),
             known_funcs: HashSet::new(),
+            in_func: 0,
         }
     }
 
@@ -34,12 +36,12 @@ impl Resolver {
     fn resolve_node(&mut self, node: AstNode) -> AstNode {
         match node {
             AstNode::Assignment { name, value } => {
-                let was_function = matches!(*value, AstNode::Function { .. });
-                if was_function {
-                    // Register the function name before resolving the body so
-                    // recursive references are recognized.
-                    self.known_funcs.insert(name.clone());
-                }
+                // let was_function = matches!(*value, AstNode::Function { .. });
+                // if was_function {
+                //     // Register the function name before resolving the body so
+                //     // recursive references are recognized.
+                //     self.known_funcs.insert(name.clone());
+                // }
 
                 let value = Box::new(self.resolve_node(*value));
 
@@ -57,7 +59,13 @@ impl Resolver {
             } => {
                 let object = Box::new(self.resolve_node(*object));
                 let items: Vec<_> = items.into_iter().map(|n| self.resolve_node(n)).collect();
-                if explicit_call || self.should_call(&object) {
+                if self.in_func > 0 && !explicit_call {
+                    AstNode::Postfix {
+                        object,
+                        items,
+                        explicit_call: false,
+                    }
+                } else if explicit_call || self.should_call(&object) {
                     if let AstNode::Variable(name) = *object.clone() {
                         AstNode::Call { name, args: items }
                     } else {
@@ -118,10 +126,12 @@ impl Resolver {
                 index: Box::new(self.resolve_node(*index)),
                 value: Box::new(self.resolve_node(*value)),
             },
-            AstNode::Function { params, body } => AstNode::Function {
-                params,
-                body: Box::new(self.resolve_node(*body)),
-            },
+            AstNode::Function { params, body } => {
+                self.in_func += 1;
+                let body = Box::new(self.resolve_node(*body));
+                self.in_func -= 1;
+                AstNode::Function { params, body }
+            }
             AstNode::Conditional {
                 condition,
                 true_branch,
