@@ -1,31 +1,27 @@
 0.6.0
------
+=====
 @t
-open pexists? mkdir
+open fexists? mkdir
 fsize fwrite fwritet fread freadt
 freadtln fseek fclose decode encode
-
 hex bin
 
 0.4.0
------
-BUILTINS:
-  in input eval chr ord
-  shape
-ARITHMETIC:
-  /.   %.   ^
-  inf  nan
-REPL:
-  help <builtin>
-INTERNAL:
-  resolver
-
+=====
+in input eval chr ord shape
+/. %. ^ inf nan
+help <builtin>
+resolver
 
 0.3.1
------
-@b                 break
-@c                 continue
-@r 1               return
-@a 1=2             assert
+=====
+@b       break
+@c       continue
+@r 1     return
+@a 1=2   assert
 a:{}();null? a
 format["{}+1=1";0;]
+
+0.1.0
+=====
+2025.7.19
