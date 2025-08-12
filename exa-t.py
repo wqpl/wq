@@ -150,14 +150,15 @@ def cmd_lock(build_type: str, script: str | None) -> None:
     os.makedirs(lock_dir, exist_ok=True)
 
     # Clean lock folder first
-    old_files = glob.glob(os.path.join(lock_dir, "*.lock"))
-    for f in old_files:
-        try:
-            os.remove(f)
-        except OSError as e:
-            print(f"[WARN] Failed to remove '{f}': {e}")
-    if old_files:
-        print(f"Cleaned {len(old_files)} old lockfiles from {lock_dir}")
+    if script is None:
+        old_files = glob.glob(os.path.join(lock_dir, "*.lock"))
+        for f in old_files:
+            try:
+                os.remove(f)
+            except OSError as e:
+                print(f"[WARN] Failed to remove '{f}': {e}")
+        if old_files:
+            print(f"Cleaned {len(old_files)} old lockfiles from {lock_dir}")
 
     scripts = collect_scripts(script)
 

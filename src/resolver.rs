@@ -118,34 +118,10 @@ impl Resolver {
                 index: Box::new(self.resolve_node(*index)),
                 value: Box::new(self.resolve_node(*value)),
             },
-            AstNode::Function { params, body } => {
-                // Register the parameter names as potential functions so that
-                // `x[1]` will be treated as function calls if a function is supplied for `x`.
-                let mut param_names: Vec<String> = Vec::new();
-                if let Some(p) = &params {
-                    param_names.extend(p.iter().cloned());
-                } else {
-                    param_names.extend(["x", "y", "z"].iter().map(|s| s.to_string()));
-                }
-
-                // Save current known functions and extend with parameters for
-                // the duration of function body resolving.
-                let prev_known = self.known_funcs.clone();
-                for name in &param_names {
-                    self.known_funcs.insert(name.clone());
-                }
-
-                let resolved_body = Box::new(self.resolve_node(*body));
-
-                // Restore previously known functions so outer scopes are
-                // unaffected by the temporary parameter entries.
-                self.known_funcs = prev_known;
-
-                AstNode::Function {
-                    params,
-                    body: resolved_body,
-                }
-            }
+            AstNode::Function { params, body } => AstNode::Function {
+                params,
+                body: Box::new(self.resolve_node(*body)),
+            },
             AstNode::Conditional {
                 condition,
                 true_branch,
