@@ -1,5 +1,9 @@
-0.6.0
-=====
+0.6.0-b2
+========
+closure
+
+0.6.0-b1
+========
 @t
 open fexists? mkdir
 fsize fwrite fwritet fread freadt

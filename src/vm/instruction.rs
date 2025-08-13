@@ -2,13 +2,20 @@ use crate::parser::{BinaryOperator, UnaryOperator};
 use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Capture {
+    Local(u16),
+    FromCapture(u16),
+    Global(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
     LoadConst(Value),
     /// Load a closure capturing current local slots
     LoadClosure {
         params: Option<Vec<String>>,
         locals: u16,
-        captures: Vec<u16>,
+        captures: Vec<Capture>,
         instructions: Vec<Instruction>,
     },
     /// Load a global variable or builtin by name

@@ -1,4 +1,4 @@
-use super::instruction::Instruction;
+use super::instruction::{Capture, Instruction};
 use crate::builtins::Builtins;
 use crate::parser::{AstNode, BinaryOperator};
 use crate::value::{Value, WqError, WqResult};
@@ -46,13 +46,12 @@ pub struct Compiler {
     loop_id: usize,
     loop_stack: Vec<LoopInfo>,
     fn_depth: usize,
-    // mapping of names defined in this function to final slot index (offset by capture_offset)
+    // mapping of names defined in this function to final slot index
     locals: IndexMap<String, u16>,
-    // number of slots reserved at the beginning of the frame for captured outer locals
-        // mapping of captured names to their slot index in this function's frame (0..capture_offset-1)
+    // mapping of captured names to their index in the captured vector
     capture_map: IndexMap<String, u16>,
-    // list of parent slot indices to copy into this frame in order [0..capture_offset)
-    captures_parent_slots: Vec<u16>,
+    // information on what to capture when creating the closure
+    captures: Vec<Capture>,
     // if this compiler was created for a function assigned to a name in the parent scope,
     // record that name and its parent-slot to support recursion rewrites
     parent_fn_name: Option<String>,
@@ -74,8 +73,8 @@ impl Compiler {
             loop_stack: Vec::new(),
             fn_depth: 0,
             locals: IndexMap::new(),
-                        capture_map: IndexMap::new(),
-            captures_parent_slots: Vec::new(),
+            capture_map: IndexMap::new(),
+            captures: Vec::new(),
             parent_fn_name: None,
             parent_fn_slot: None,
         }
@@ -95,7 +94,9 @@ impl Compiler {
         self.locals.contains_key(name)
     }
 
-    pub fn local_count(&self) -> u16 { self.locals.len() as u16 }
+    pub fn local_count(&self) -> u16 {
+        self.locals.len() as u16
+    }
 
     fn emit_load(&mut self, name: &str) {
         if self.fn_depth > 0 {
@@ -108,6 +109,12 @@ impl Compiler {
                 self.instructions.push(Instruction::LoadCapture(*idx));
                 return;
             }
+            // capture globals by value
+            let idx = self.capture_map.len() as u16;
+            self.capture_map.insert(name.to_string(), idx);
+            self.captures.push(Capture::Global(name.to_string()));
+            self.instructions.push(Instruction::LoadCapture(idx));
+            return;
         }
         self.instructions
             .push(Instruction::LoadVar(name.to_string()));
@@ -157,11 +164,30 @@ impl Compiler {
                             .map(|(k, &v)| (k.clone(), v))
                             .collect();
                         pairs.sort_by_key(|(_, idx)| *idx);
-                        for (i, (k, _v)) in pairs.iter().enumerate() {
+                        for (i, (k, v)) in pairs.iter().enumerate() {
                             c.capture_map.insert(k.clone(), i as u16);
+                            c.captures.push(Capture::Local(*v));
                         }
-                        c.captures_parent_slots = pairs.into_iter().map(|(_, v)| v).collect();
-                        
+
+                        // Re-expose captured names to the child,
+                        // so the child can capture them from our capture vector
+                        // without falling back to globals.
+                        // Keep a stable order by the parent's capture index.
+                        let mut parent_caps: Vec<(String, u16)> = self
+                            .capture_map
+                            .iter()
+                            .map(|(k, &i)| (k.clone(), i))
+                            .collect();
+                        parent_caps.sort_by_key(|(_, i)| *i);
+                        for (k, i_parent) in parent_caps {
+                            if c.capture_map.contains_key(&k) {
+                                continue; // local shadows captured
+                            }
+                            let idx = c.capture_map.len() as u16;
+                            c.capture_map.insert(k.clone(), idx);
+                            c.captures.push(Capture::FromCapture(i_parent));
+                        }
+
                         // record recursion context
                         c.parent_fn_name = Some(name.clone());
                         c.parent_fn_slot = Some(slot);
@@ -188,11 +214,11 @@ impl Compiler {
                     let locals = c.local_count();
                     let mut func_instructions = c.instructions;
                     func_instructions.push(Instruction::Return);
-                    if !c.captures_parent_slots.is_empty() {
+                    if !c.captures.is_empty() {
                         self.instructions.push(Instruction::LoadClosure {
                             params: params.clone(),
                             locals,
-                            captures: c.captures_parent_slots.clone(),
+                            captures: c.captures.clone(),
                             instructions: func_instructions,
                         });
                     } else {
@@ -243,27 +269,42 @@ impl Compiler {
             }
             AstNode::Call { name, args } => {
                 if let Some(id) = self.builtins.get_id(name) {
-                    for arg in args { self.compile(arg)?; }
-                    self.instructions.push(Instruction::CallBuiltinId(id as u8, args.len()));
+                    for arg in args {
+                        self.compile(arg)?;
+                    }
+                    self.instructions
+                        .push(Instruction::CallBuiltinId(id as u8, args.len()));
                 } else if self.fn_depth > 0 && self.is_local(name) {
-                    for arg in args { self.compile(arg)?; }
+                    for arg in args {
+                        self.compile(arg)?;
+                    }
                     let slot = self.locals[name];
-                    self.instructions.push(Instruction::CallLocal(slot, args.len()));
+                    self.instructions
+                        .push(Instruction::CallLocal(slot, args.len()));
                 } else if self.fn_depth > 0
                     && self.parent_fn_name.as_ref().is_some_and(|n| n == name)
                     && self.parent_fn_slot.is_some()
                 {
-                    for arg in args { self.compile(arg)?; }
-                    self.instructions
-                        .push(Instruction::CallLocal(self.parent_fn_slot.unwrap(), args.len()));
+                    for arg in args {
+                        self.compile(arg)?;
+                    }
+                    self.instructions.push(Instruction::CallLocal(
+                        self.parent_fn_slot.unwrap(),
+                        args.len(),
+                    ));
                 } else if self.fn_depth > 0 && self.capture_map.contains_key(name) {
                     // load captured callee then args, and call anonymously
                     self.emit_load(name);
-                    for arg in args { self.compile(arg)?; }
+                    for arg in args {
+                        self.compile(arg)?;
+                    }
                     self.instructions.push(Instruction::CallAnon(args.len()));
                 } else {
-                    for arg in args { self.compile(arg)?; }
-                    self.instructions.push(Instruction::CallUser(name.clone(), args.len()));
+                    for arg in args {
+                        self.compile(arg)?;
+                    }
+                    self.instructions
+                        .push(Instruction::CallUser(name.clone(), args.len()));
                 }
             }
             AstNode::CallAnonymous { object, args } => {
@@ -296,9 +337,13 @@ impl Compiler {
                         && self.parent_fn_name.as_ref().is_some_and(|n| n == vname)
                         && self.parent_fn_slot.is_some()
                     {
-                        for item in items { self.compile(item)?; }
-                        self.instructions
-                            .push(Instruction::CallLocal(self.parent_fn_slot.unwrap(), items.len()));
+                        for item in items {
+                            self.compile(item)?;
+                        }
+                        self.instructions.push(Instruction::CallLocal(
+                            self.parent_fn_slot.unwrap(),
+                            items.len(),
+                        ));
                     } else {
                         // Non-builtin: compile the callee first, then the args
                         self.compile(object)?;
@@ -396,11 +441,26 @@ impl Compiler {
                     let mut pairs: Vec<(String, u16)> =
                         self.locals.iter().map(|(k, &v)| (k.clone(), v)).collect();
                     pairs.sort_by_key(|(_, idx)| *idx);
-                    for (i, (k, _v)) in pairs.iter().enumerate() {
+                    for (i, (k, v)) in pairs.iter().enumerate() {
                         c.capture_map.insert(k.clone(), i as u16);
+                        c.captures.push(Capture::Local(*v));
                     }
-                    c.captures_parent_slots = pairs.into_iter().map(|(_, v)| v).collect();
-                    
+
+                    // Re-expose captured names to the child
+                    let mut parent_caps: Vec<(String, u16)> = self
+                        .capture_map
+                        .iter()
+                        .map(|(k, &i)| (k.clone(), i))
+                        .collect();
+                    parent_caps.sort_by_key(|(_, i)| *i);
+                    for (k, i_parent) in parent_caps {
+                        if c.capture_map.contains_key(&k) {
+                            continue;
+                        }
+                        let idx = c.capture_map.len() as u16;
+                        c.capture_map.insert(k.clone(), idx);
+                        c.captures.push(Capture::FromCapture(i_parent));
+                    }
                 }
                 if let Some(ps) = params {
                     for p in ps {
@@ -415,11 +475,11 @@ impl Compiler {
                 let locals = c.local_count();
                 let mut func_instructions = c.instructions;
                 func_instructions.push(Instruction::Return);
-                if !c.captures_parent_slots.is_empty() {
+                if !c.captures.is_empty() {
                     self.instructions.push(Instruction::LoadClosure {
                         params: params.clone(),
                         locals,
-                        captures: c.captures_parent_slots.clone(),
+                        captures: c.captures.clone(),
                         instructions: func_instructions,
                     });
                 } else {

@@ -351,6 +351,20 @@ mod tests {
     }
 
     #[test]
+    fn closure_captures_global_by_value() {
+        let mut eval = VmEvaluator::new();
+        let res = eval.eval_string("a:3;f:{a};a:4;f[]").unwrap();
+        assert_eq!(res, Value::Int(3));
+    }
+
+    #[test]
+    fn closure_captures_local_by_value() {
+        let mut eval = VmEvaluator::new();
+        let res = eval.eval_string("f:{a:4;f2:{a};a:5;f2};f[][]").unwrap();
+        assert_eq!(res, Value::Int(4));
+    }
+
+    #[test]
     fn try_returns_status() {
         let mut eval = VmEvaluator::new();
         let ok = eval.eval_string("@t 1+2").unwrap();

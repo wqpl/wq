@@ -6,7 +6,7 @@ use crate::parser::{BinaryOperator, UnaryOperator};
 use crate::value::{Value, WqError, WqResult};
 use compiler::Compiler;
 use indexmap::IndexMap;
-use instruction::Instruction;
+use instruction::{Capture, Instruction};
 use std::collections::HashMap;
 
 #[derive(Clone, Default)]
@@ -1109,14 +1109,39 @@ impl Vm {
                     instructions,
                 } => {
                     let mut captured_vals = Vec::with_capacity(captures.len());
-                    if let Some(parent) = self.locals.last() {
-                        for &slot in captures {
-                            captured_vals
-                                .push(parent.get(slot as usize).cloned().unwrap_or(Value::Null));
-                        }
-                    } else {
-                        for _ in captures {
-                            captured_vals.push(Value::Null);
+                    for cap in captures {
+                        match cap {
+                            Capture::Local(slot) => {
+                                if let Some(parent) = self.locals.last() {
+                                    captured_vals.push(
+                                        parent.get(*slot as usize).cloned().unwrap_or(Value::Null),
+                                    );
+                                } else {
+                                    captured_vals.push(Value::Null);
+                                }
+                            }
+                            Capture::FromCapture(i) => {
+                                let val = self
+                                    .captures
+                                    .last()
+                                    .and_then(|c| c.get(*i as usize).cloned())
+                                    .unwrap_or(Value::Null);
+                                captured_vals.push(val);
+                            }
+                            Capture::Global(name) => {
+                                let val = if let Some(v) = self.lookup_global(name) {
+                                    v
+                                }
+                                // else if self.builtins.get_id(name).is_some() {
+                                //     Value::BuiltinFunction(name.clone())
+                                // }
+                                else {
+                                    return Err(WqError::ValueError(format!(
+                                        "Undefined variable: '{name}'"
+                                    )));
+                                };
+                                captured_vals.push(val);
+                            }
                         }
                     }
                     self.stack.push(Value::Closure {
