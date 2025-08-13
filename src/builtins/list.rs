@@ -95,7 +95,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
         _ => {
             return Err(WqError::TypeError(format!(
                 "range expects integers, got {}",
-                args[0].type_name()
+                args[0].type_name_verbose()
             )));
         }
     };
@@ -105,7 +105,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
         _ => {
             return Err(WqError::TypeError(format!(
                 "range expects integers, got {}",
-                args[1].type_name()
+                args[1].type_name_verbose()
             )));
         }
     };
@@ -174,7 +174,7 @@ pub fn first(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "first expects a list, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -200,7 +200,7 @@ pub fn last(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "last expects a list, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -222,7 +222,7 @@ pub fn reverse(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "reverse expects a list, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -415,8 +415,8 @@ pub fn take(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "take expects integer and list, got {} and {}",
-            &args[0].type_name(),
-            &args[1].type_name()
+            &args[0].type_name_verbose(),
+            &args[1].type_name_verbose()
         ))),
     }
 }
@@ -458,8 +458,8 @@ pub fn drop(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "drop expects integer and list, got {} and {}",
-            &args[0].type_name(),
-            &args[1].type_name()
+            &args[0].type_name_verbose(),
+            &args[1].type_name_verbose()
         ))),
     }
 }
@@ -486,7 +486,7 @@ pub fn where_func(args: &[Value]) -> WqResult<Value> {
                     _ => {
                         return Err(WqError::TypeError(format!(
                             "where expects integer or boolean lists, got {}",
-                            item.type_name()
+                            item.type_name_verbose()
                         )));
                     }
                 }
@@ -504,7 +504,7 @@ pub fn where_func(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "where expects a list, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -534,7 +534,7 @@ pub fn distinct(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "distinct expects a list, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -577,7 +577,7 @@ pub fn sort(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "sort expects a list, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }

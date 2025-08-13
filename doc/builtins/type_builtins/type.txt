@@ -3,4 +3,5 @@ type
 type x
 
 Examples:
-  type 1 // "int"
+  type 1       // "int"
+  type (1;2;3) // "list"

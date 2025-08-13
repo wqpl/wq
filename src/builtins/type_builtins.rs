@@ -1,13 +1,27 @@
 use super::arity_error;
 use crate::value::{Value, WqError, WqResult};
 
-pub fn type_of(args: &[Value]) -> WqResult<Value> {
+pub fn type_of_verbose(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(arity_error("type", "1 argument", args.len()));
     }
     Ok(Value::List(
         args[0]
-            .type_name()
+            .type_name_verbose()
+            .to_string()
+            .chars()
+            .map(Value::Char)
+            .collect(),
+    ))
+}
+
+pub fn type_of_simple(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("type", "1 argument", args.len()));
+    }
+    Ok(Value::List(
+        args[0]
+            .type_name_simple()
             .to_string()
             .chars()
             .map(Value::Char)

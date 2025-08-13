@@ -24,6 +24,8 @@ pub struct Vm {
     builtins: Builtins,
     /// Stack of local slot frames
     locals: Vec<Vec<Value>>,
+    /// Stack of capture vectors (per frame), for closures
+    captures: Vec<Vec<Value>>,
     /// Inline caches for global lookups and call sites
     inline_cache: Vec<InlineCache>,
     /// Version number bumped whenever globals change
@@ -40,6 +42,7 @@ impl Vm {
             globals: HashMap::new(),
             builtins: Builtins::new(),
             locals: Vec::new(),
+            captures: Vec::new(),
             inline_cache: vec![InlineCache::default(); len],
             global_version: 0,
         }
@@ -78,6 +81,7 @@ impl Vm {
         instructions: Vec<Instruction>,
         params: Option<Vec<String>>,
         local_count: u16,
+        captured: Vec<Value>,
         args: Vec<Value>,
     ) -> WqResult<Value> {
         let saved_instructions = std::mem::replace(&mut self.instructions, instructions);
@@ -95,6 +99,7 @@ impl Vm {
         self.pc = 0;
 
         let mut frame = vec![Value::Null; local_count as usize];
+        // let capture_count = captured.len();
         if let Some(p) = params {
             if args.len() != p.len() {
                 return Err(WqError::ArityError(format!(
@@ -117,9 +122,11 @@ impl Vm {
             }
         }
         self.locals.push(frame);
+        self.captures.push(captured);
         let limit = self.instructions.len();
         let res = self.execute_until(limit);
         self.locals.pop();
+        self.captures.pop();
         let result = res?;
         std::mem::swap(&mut self.stack, &mut saved_stack);
         self.instructions = saved_instructions;
@@ -337,6 +344,15 @@ impl Vm {
                                         compiled =
                                             Some((params.clone(), *locals, instructions.clone()));
                                     }
+                                    Value::Closure {
+                                        params,
+                                        locals,
+                                        captured: _,
+                                        instructions,
+                                    } => {
+                                        compiled =
+                                            Some((params.clone(), *locals, instructions.clone()));
+                                    }
                                     Value::Function { params, body } => {
                                         let mut c = Compiler::new();
                                         c.compile(body)?;
@@ -354,7 +370,7 @@ impl Vm {
                                     other => {
                                         return Err(WqError::TypeError(format!(
                                             "Cannot call local slot {slot}: expected function, found {}",
-                                            other.type_name(),
+                                            other.type_name_verbose(),
                                         )));
                                     }
                                 }
@@ -366,7 +382,18 @@ impl Vm {
                     let (params, locals, instructions) = maybe_compiled.ok_or_else(|| {
                         WqError::RuntimeError(format!("Invalid local slot {slot}"))
                     })?;
-                    let res = self.call_function(instructions, params, locals, args)?;
+                    // Determine captured values if closure
+                    let captured = match self
+                        .locals
+                        .iter()
+                        .rev()
+                        .find_map(|f| f.get(*slot as usize))
+                        .cloned()
+                    {
+                        Some(Value::Closure { captured, .. }) => captured,
+                        _ => Vec::new(),
+                    };
+                    let res = self.call_function(instructions, params, locals, captured, args)?;
                     self.stack.push(res);
                 }
                 Instruction::CallUser(name, argc) => {
@@ -408,7 +435,18 @@ impl Vm {
                             locals,
                             instructions,
                         } => {
-                            let res = self.call_function(instructions, params, locals, args)?;
+                            let res =
+                                self.call_function(instructions, params, locals, Vec::new(), args)?;
+                            self.stack.push(res);
+                        }
+                        Value::Closure {
+                            params,
+                            locals,
+                            captured,
+                            instructions,
+                        } => {
+                            let res =
+                                self.call_function(instructions, params, locals, captured, args)?;
                             self.stack.push(res);
                         }
                         Value::Function { params, body } => {
@@ -434,13 +472,14 @@ impl Vm {
                                     instructions: instrs.clone(),
                                 });
                             }
-                            let res = self.call_function(instrs, params, locals, args)?;
+                            let res =
+                                self.call_function(instrs, params, locals, Vec::new(), args)?;
                             self.stack.push(res);
                         }
                         other => {
                             return Err(WqError::TypeError(format!(
                                 "Cannot call '{name_owned}': expected function, found {}",
-                                other.type_name(),
+                                other.type_name_verbose(),
                             )));
                         }
                     }
@@ -465,7 +504,18 @@ impl Vm {
                             locals,
                             instructions,
                         } => {
-                            let res = self.call_function(instructions, params, locals, args)?;
+                            let res =
+                                self.call_function(instructions, params, locals, Vec::new(), args)?;
+                            self.stack.push(res);
+                        }
+                        Value::Closure {
+                            params,
+                            locals,
+                            captured,
+                            instructions,
+                        } => {
+                            let res =
+                                self.call_function(instructions, params, locals, captured, args)?;
                             self.stack.push(res);
                         }
                         Value::Function { params, body } => {
@@ -473,13 +523,19 @@ impl Vm {
                             c.compile(&body)?;
                             c.instructions.push(Instruction::Return);
                             let locals = c.local_count();
-                            let res = self.call_function(c.instructions, params, locals, args)?;
+                            let res = self.call_function(
+                                c.instructions,
+                                params,
+                                locals,
+                                Vec::new(),
+                                args,
+                            )?;
                             self.stack.push(res);
                         }
                         other => {
                             return Err(WqError::TypeError(format!(
                                 "Cannot call value of type {:?} as a function",
-                                other.type_name(),
+                                other.type_name_verbose(),
                             )));
                         }
                     }
@@ -638,7 +694,7 @@ impl Vm {
                         other => {
                             return Err(WqError::TypeError(format!(
                                 "Invalid index assignment target: expected Symbol, got {}",
-                                other.type_name(),
+                                other.type_name_verbose(),
                             )));
                         }
                     }
@@ -705,7 +761,7 @@ impl Vm {
                         other => {
                             return Err(WqError::TypeError(format!(
                                 "Invalid index assignment target: expected Symbol, got {}",
-                                other.type_name(),
+                                other.type_name_verbose(),
                             )));
                         }
                     }
@@ -949,7 +1005,18 @@ impl Vm {
                             locals,
                             instructions,
                         } => {
-                            let res = self.call_function(instructions, params, locals, args)?;
+                            let res =
+                                self.call_function(instructions, params, locals, Vec::new(), args)?;
+                            self.stack.push(res);
+                        }
+                        Value::Closure {
+                            params,
+                            locals,
+                            captured,
+                            instructions,
+                        } => {
+                            let res =
+                                self.call_function(instructions, params, locals, captured, args)?;
                             self.stack.push(res);
                         }
                         Value::Function { params, body } => {
@@ -957,7 +1024,13 @@ impl Vm {
                             c.compile(&body)?;
                             c.instructions.push(Instruction::Return);
                             let locals = c.local_count();
-                            let res = self.call_function(c.instructions, params, locals, args)?;
+                            let res = self.call_function(
+                                c.instructions,
+                                params,
+                                locals,
+                                Vec::new(),
+                                args,
+                            )?;
                             self.stack.push(res);
                         }
                         other => {
@@ -1019,6 +1092,40 @@ impl Vm {
                         }
                     }
                 }
+                Instruction::LoadCapture(i) => {
+                    let cap = self
+                        .captures
+                        .last()
+                        .and_then(|c| c.get(*i as usize))
+                        .ok_or_else(|| {
+                            WqError::RuntimeError(format!("Invalid capture slot {i}"))
+                        })?;
+                    self.stack.push(cap.clone());
+                }
+                Instruction::LoadClosure {
+                    params,
+                    locals,
+                    captures,
+                    instructions,
+                } => {
+                    let mut captured_vals = Vec::with_capacity(captures.len());
+                    if let Some(parent) = self.locals.last() {
+                        for &slot in captures {
+                            captured_vals
+                                .push(parent.get(slot as usize).cloned().unwrap_or(Value::Null));
+                        }
+                    } else {
+                        for _ in captures {
+                            captured_vals.push(Value::Null);
+                        }
+                    }
+                    self.stack.push(Value::Closure {
+                        params: params.clone(),
+                        locals: *locals,
+                        captured: captured_vals,
+                        instructions: instructions.clone(),
+                    });
+                }
             }
         }
         Ok(self.stack.pop().unwrap_or(Value::Null))
@@ -1033,8 +1140,8 @@ fn classify_arith(op_name: &str, left: &Value, right: &Value) -> WqError {
     } else {
         WqError::TypeError(format!(
             "Cannot {op_name} {} and {}",
-            left.type_name(),
-            right.type_name()
+            left.type_name_verbose(),
+            right.type_name_verbose()
         ))
     }
 }

@@ -17,7 +17,7 @@ pub fn abs(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "abs expects numbers, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -28,7 +28,10 @@ pub fn neg(args: &[Value]) -> WqResult<Value> {
     }
 
     args[0].neg_value().ok_or_else(|| {
-        WqError::TypeError(format!("neg expects numbers, got {}", args[0].type_name()))
+        WqError::TypeError(format!(
+            "neg expects numbers, got {}",
+            args[0].type_name_verbose()
+        ))
     })
 }
 
@@ -58,7 +61,7 @@ pub fn signum(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "signum expects numbers, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -89,7 +92,7 @@ pub fn sqrt(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "sqrt expects numbers, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -108,7 +111,7 @@ pub fn exp(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "exp expects numbers, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -143,7 +146,7 @@ pub fn ln(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "ln expects numbers, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -163,7 +166,7 @@ pub fn floor(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "floor expects numbers, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -183,7 +186,7 @@ pub fn ceiling(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::TypeError(format!(
             "ceiling expects numbers, got {}",
-            args[0].type_name()
+            args[0].type_name_verbose()
         ))),
     }
 }
@@ -197,7 +200,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
             Value::Float(f) if *f > 0.0 => Ok(Value::Float(rng.random_range(0.0..*f))),
             v => Err(WqError::DomainError(format!(
                 "expected positive int or float, got {}",
-                v.type_name()
+                v.type_name_verbose()
             ))),
         },
         2 => match (&args[0], &args[1]) {
@@ -209,7 +212,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                     _ => {
                         return Err(WqError::TypeError(format!(
                             "expected numbers, got {}",
-                            a.type_name()
+                            a.type_name_verbose()
                         )));
                     }
                 };
@@ -219,7 +222,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                     _ => {
                         return Err(WqError::TypeError(format!(
                             "expected numbers, got {}",
-                            b.type_name()
+                            b.type_name_verbose()
                         )));
                     }
                 };
@@ -260,7 +263,7 @@ macro_rules! bind_math {
                 other => Err(WqError::TypeError(
                     stringify!($name).to_string()
                         + " expects numbers or lists of numbers, got "
-                        + other.type_name(),
+                        + other.type_name_verbose(),
                 )),
             }
         }

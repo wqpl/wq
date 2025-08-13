@@ -63,10 +63,17 @@ pub enum Value {
         params: Option<Vec<String>>,
         body: Box<AstNode>,
     },
-    /// pre-compiled function
+    /// pre-compiled function (no captures)
     CompiledFunction {
         params: Option<Vec<String>>,
         locals: u16,
+        instructions: Vec<vm::instruction::Instruction>,
+    },
+    /// closure with captured values
+    Closure {
+        params: Option<Vec<String>>,
+        locals: u16,
+        captured: Vec<Value>,
         instructions: Vec<vm::instruction::Instruction>,
     },
     /// handle for builtin functions
@@ -131,6 +138,20 @@ impl PartialEq for Value {
                     instructions: ib,
                 },
             ) => pa == pb && la == lb && ia == ib,
+            (
+                Closure {
+                    params: pa,
+                    locals: la,
+                    captured: ca,
+                    instructions: ia,
+                },
+                Closure {
+                    params: pb,
+                    locals: lb,
+                    captured: cb,
+                    instructions: ib,
+                },
+            ) => pa == pb && la == lb && ca == cb && ia == ib,
             (BuiltinFunction(a), BuiltinFunction(b)) => a == b,
             (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
             _ => false,
@@ -226,7 +247,7 @@ impl Value {
     }
 
     /// Get the type name of a value
-    pub fn type_name(&self) -> &'static str {
+    pub fn type_name_verbose(&self) -> &'static str {
         match self {
             Value::Int(_) => "int",
             Value::Float(_) => "float",
@@ -238,6 +259,26 @@ impl Value {
             Value::Dict(_) => "dict",
             Value::Function { .. } => "function",
             Value::CompiledFunction { .. } => "function",
+            Value::Closure { .. } => "closure",
+            Value::BuiltinFunction(_) => "builtin-function",
+            Value::Stream(_) => "stream",
+            Value::Null => "null",
+        }
+    }
+
+    pub fn type_name_simple(&self) -> &'static str {
+        match self {
+            Value::Int(_) => "int",
+            Value::Float(_) => "float",
+            Value::Char(_) => "char",
+            Value::Symbol(_) => "symbol",
+            Value::Bool(_) => "bool",
+            Value::IntList(_) => "list",
+            Value::List(_) => "list",
+            Value::Dict(_) => "dict",
+            Value::Function { .. } => "function",
+            Value::CompiledFunction { .. } => "function",
+            Value::Closure { .. } => "function",
             Value::BuiltinFunction(_) => "function",
             Value::Stream(_) => "stream",
             Value::Null => "null",
@@ -541,6 +582,10 @@ impl fmt::Display for Value {
                 None => write!(f, "{{...}}"),
             },
             Value::CompiledFunction { params, .. } => match params {
+                Some(p) => write!(f, "{{[{}]...}}", p.join(";")),
+                None => write!(f, "{{...}}"),
+            },
+            Value::Closure { params, .. } => match params {
                 Some(p) => write!(f, "{{[{}]...}}", p.join(";")),
                 None => write!(f, "{{...}}"),
             },

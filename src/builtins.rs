@@ -97,7 +97,8 @@ impl Builtins {
         self.add("in", list::in_list);
 
         // Type functions
-        self.add("type", type_builtins::type_of);
+        self.add("type", type_builtins::type_of_simple);
+        self.add("typev", type_builtins::type_of_verbose);
         self.add("symbol", type_builtins::to_symbol);
         self.add("string", type_builtins::to_string);
         self.add("chr", type_builtins::chr);
@@ -197,7 +198,7 @@ fn values_to_strings(args: &[Value]) -> WqResult<Vec<String>> {
             other => Err(WqError::TypeError(format!(
                 "string args expected, got {} of type {}",
                 v,
-                other.type_name()
+                other.type_name_verbose()
             ))),
         })
         .collect()

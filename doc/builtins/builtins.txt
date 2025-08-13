@@ -37,5 +37,5 @@ echo   exec   input  showt
 
 type_builtins
 =============
-chr     hex     null    ord     string  symbol  type
+chr     hex     null    ord     string  symbol  type    typev
 

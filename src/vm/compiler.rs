@@ -46,7 +46,17 @@ pub struct Compiler {
     loop_id: usize,
     loop_stack: Vec<LoopInfo>,
     fn_depth: usize,
+    // mapping of names defined in this function to final slot index (offset by capture_offset)
     locals: IndexMap<String, u16>,
+    // number of slots reserved at the beginning of the frame for captured outer locals
+        // mapping of captured names to their slot index in this function's frame (0..capture_offset-1)
+    capture_map: IndexMap<String, u16>,
+    // list of parent slot indices to copy into this frame in order [0..capture_offset)
+    captures_parent_slots: Vec<u16>,
+    // if this compiler was created for a function assigned to a name in the parent scope,
+    // record that name and its parent-slot to support recursion rewrites
+    parent_fn_name: Option<String>,
+    parent_fn_slot: Option<u16>,
 }
 
 impl Default for Compiler {
@@ -64,6 +74,10 @@ impl Compiler {
             loop_stack: Vec::new(),
             fn_depth: 0,
             locals: IndexMap::new(),
+                        capture_map: IndexMap::new(),
+            captures_parent_slots: Vec::new(),
+            parent_fn_name: None,
+            parent_fn_slot: None,
         }
     }
 
@@ -81,18 +95,22 @@ impl Compiler {
         self.locals.contains_key(name)
     }
 
-    pub fn local_count(&self) -> u16 {
-        self.locals.len() as u16
-    }
+    pub fn local_count(&self) -> u16 { self.locals.len() as u16 }
 
     fn emit_load(&mut self, name: &str) {
-        if self.fn_depth > 0 && self.is_local(name) {
-            let idx = self.locals[name];
-            self.instructions.push(Instruction::LoadLocal(idx));
-        } else {
-            self.instructions
-                .push(Instruction::LoadVar(name.to_string()));
+        if self.fn_depth > 0 {
+            if self.is_local(name) {
+                let idx = self.locals[name];
+                self.instructions.push(Instruction::LoadLocal(idx));
+                return;
+            }
+            if let Some(idx) = self.capture_map.get(name) {
+                self.instructions.push(Instruction::LoadCapture(*idx));
+                return;
+            }
         }
+        self.instructions
+            .push(Instruction::LoadVar(name.to_string()));
     }
 
     fn emit_store(&mut self, name: &str) {
@@ -129,6 +147,25 @@ impl Compiler {
                     };
                     let mut c = Compiler::new();
                     c.fn_depth = self.fn_depth + 1;
+                    // prepare captures from current locals if inside a function
+                    if self.fn_depth > 0 {
+                        // collect parent locals sorted by slot index, excluding the name being defined (avoid self-capture)
+                        let mut pairs: Vec<(String, u16)> = self
+                            .locals
+                            .iter()
+                            .filter(|(k, _)| k.as_str() != name.as_str())
+                            .map(|(k, &v)| (k.clone(), v))
+                            .collect();
+                        pairs.sort_by_key(|(_, idx)| *idx);
+                        for (i, (k, _v)) in pairs.iter().enumerate() {
+                            c.capture_map.insert(k.clone(), i as u16);
+                        }
+                        c.captures_parent_slots = pairs.into_iter().map(|(_, v)| v).collect();
+                        
+                        // record recursion context
+                        c.parent_fn_name = Some(name.clone());
+                        c.parent_fn_slot = Some(slot);
+                    }
                     if let Some(ps) = params {
                         for p in ps {
                             c.local_slot(p);
@@ -151,12 +188,21 @@ impl Compiler {
                     let locals = c.local_count();
                     let mut func_instructions = c.instructions;
                     func_instructions.push(Instruction::Return);
-                    self.instructions
-                        .push(Instruction::LoadConst(Value::CompiledFunction {
+                    if !c.captures_parent_slots.is_empty() {
+                        self.instructions.push(Instruction::LoadClosure {
                             params: params.clone(),
                             locals,
+                            captures: c.captures_parent_slots.clone(),
                             instructions: func_instructions,
-                        }));
+                        });
+                    } else {
+                        self.instructions
+                            .push(Instruction::LoadConst(Value::CompiledFunction {
+                                params: params.clone(),
+                                locals,
+                                instructions: func_instructions,
+                            }));
+                    }
                     // Store and keep the value on the stack for expression result
                     self.emit_store_keep(name);
                 } else {
@@ -196,19 +242,28 @@ impl Compiler {
                 self.instructions.push(Instruction::MakeDict(pairs.len()));
             }
             AstNode::Call { name, args } => {
-                for arg in args {
-                    self.compile(arg)?;
-                }
                 if let Some(id) = self.builtins.get_id(name) {
-                    self.instructions
-                        .push(Instruction::CallBuiltinId(id as u8, args.len()));
+                    for arg in args { self.compile(arg)?; }
+                    self.instructions.push(Instruction::CallBuiltinId(id as u8, args.len()));
                 } else if self.fn_depth > 0 && self.is_local(name) {
+                    for arg in args { self.compile(arg)?; }
                     let slot = self.locals[name];
+                    self.instructions.push(Instruction::CallLocal(slot, args.len()));
+                } else if self.fn_depth > 0
+                    && self.parent_fn_name.as_ref().is_some_and(|n| n == name)
+                    && self.parent_fn_slot.is_some()
+                {
+                    for arg in args { self.compile(arg)?; }
                     self.instructions
-                        .push(Instruction::CallLocal(slot, args.len()));
+                        .push(Instruction::CallLocal(self.parent_fn_slot.unwrap(), args.len()));
+                } else if self.fn_depth > 0 && self.capture_map.contains_key(name) {
+                    // load captured callee then args, and call anonymously
+                    self.emit_load(name);
+                    for arg in args { self.compile(arg)?; }
+                    self.instructions.push(Instruction::CallAnon(args.len()));
                 } else {
-                    self.instructions
-                        .push(Instruction::CallUser(name.clone(), args.len()));
+                    for arg in args { self.compile(arg)?; }
+                    self.instructions.push(Instruction::CallUser(name.clone(), args.len()));
                 }
             }
             AstNode::CallAnonymous { object, args } => {
@@ -235,6 +290,24 @@ impl Compiler {
                     }
                     self.instructions
                         .push(Instruction::CallBuiltinId(id as u8, items.len()));
+                } else if let AstNode::Variable(vname) = object.as_ref() {
+                    // If this is a recursive reference to the parent-defined name, call by slot
+                    if self.fn_depth > 0
+                        && self.parent_fn_name.as_ref().is_some_and(|n| n == vname)
+                        && self.parent_fn_slot.is_some()
+                    {
+                        for item in items { self.compile(item)?; }
+                        self.instructions
+                            .push(Instruction::CallLocal(self.parent_fn_slot.unwrap(), items.len()));
+                    } else {
+                        // Non-builtin: compile the callee first, then the args
+                        self.compile(object)?;
+                        for item in items {
+                            self.compile(item)?;
+                        }
+                        self.instructions
+                            .push(Instruction::CallOrIndex(items.len()));
+                    }
                 } else {
                     // Non-builtin: compile the callee first, then the args
                     self.compile(object)?;
@@ -319,6 +392,16 @@ impl Compiler {
             AstNode::Function { params, body } => {
                 let mut c = Compiler::new();
                 c.fn_depth = self.fn_depth + 1;
+                if self.fn_depth > 0 {
+                    let mut pairs: Vec<(String, u16)> =
+                        self.locals.iter().map(|(k, &v)| (k.clone(), v)).collect();
+                    pairs.sort_by_key(|(_, idx)| *idx);
+                    for (i, (k, _v)) in pairs.iter().enumerate() {
+                        c.capture_map.insert(k.clone(), i as u16);
+                    }
+                    c.captures_parent_slots = pairs.into_iter().map(|(_, v)| v).collect();
+                    
+                }
                 if let Some(ps) = params {
                     for p in ps {
                         c.local_slot(p);
@@ -332,12 +415,21 @@ impl Compiler {
                 let locals = c.local_count();
                 let mut func_instructions = c.instructions;
                 func_instructions.push(Instruction::Return);
-                self.instructions
-                    .push(Instruction::LoadConst(Value::CompiledFunction {
+                if !c.captures_parent_slots.is_empty() {
+                    self.instructions.push(Instruction::LoadClosure {
                         params: params.clone(),
                         locals,
+                        captures: c.captures_parent_slots.clone(),
                         instructions: func_instructions,
-                    }));
+                    });
+                } else {
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::CompiledFunction {
+                            params: params.clone(),
+                            locals,
+                            instructions: func_instructions,
+                        }));
+                }
             }
             AstNode::Conditional {
                 condition,

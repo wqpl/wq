@@ -1,12 +1,1 @@
-01
-==
-1 wq$ a:{2*x}
-▍ {...}
-2 wq$ b:{x[3]}
-▍ {...}
-3 wq$ b[a]
-▍ INDEX ERROR: Invalid index: attempted to access index 3 in {...}
-4 wq$ b:{x[3;]}
-▍ {...}
-5 wq$ b[a]
-▍ 6
+empty for now :)

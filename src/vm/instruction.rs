@@ -4,8 +4,17 @@ use crate::value::Value;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
     LoadConst(Value),
+    /// Load a closure capturing current local slots
+    LoadClosure {
+        params: Option<Vec<String>>,
+        locals: u16,
+        captures: Vec<u16>,
+        instructions: Vec<Instruction>,
+    },
     /// Load a global variable or builtin by name
     LoadVar(String),
+    /// Load a captured value by index from the current closure frame
+    LoadCapture(u16),
     /// Store into a global variable by name
     StoreVar(String),
     /// Store into a global variable and keep value on stack

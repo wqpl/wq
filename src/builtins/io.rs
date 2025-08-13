@@ -23,7 +23,7 @@ fn value_to_bytes(v: &Value) -> WqResult<Vec<u8>> {
                 } else {
                     Err(WqError::TypeError(format!(
                         "Cannot interpret {} as bytes",
-                        x.type_name()
+                        x.type_name_verbose()
                     )))
                 }
             })
@@ -31,7 +31,7 @@ fn value_to_bytes(v: &Value) -> WqResult<Vec<u8>> {
         Value::Int(n) => Ok(vec![*n as u8]),
         _ => Err(WqError::TypeError(format!(
             "Cannot interpret {} as bytes",
-            v.type_name()
+            v.type_name_verbose()
         ))),
     }
 }
