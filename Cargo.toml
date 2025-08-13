@@ -1,6 +1,6 @@
 [package]
 name = "wq"
-version = "0.6.0-b1"
+version = "0.6.0-b2"
 edition = "2024"
 build = "build.rs"
 
