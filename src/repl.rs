@@ -106,7 +106,7 @@ fn expand_script(
     Ok(result)
 }
 
-pub fn vm_get_ins(path: &String) -> WqResult<Vec<Instruction>> {
+pub fn vm_get_ins(path: &String, debug: bool) -> WqResult<Vec<Instruction>> {
     let path = Path::new(path);
     let mut loading = HashSet::new();
     let mut visited = HashSet::new();
@@ -122,9 +122,17 @@ pub fn vm_get_ins(path: &String) -> WqResult<Vec<Instruction>> {
     };
     let mut lexer = Lexer::new(&src);
     let tokens = lexer.tokenize()?;
+    if debug {
+        eprintln!("{tokens:?}");
+        eprintln!();
+    }
     use crate::resolver::Resolver;
     let mut parser = Parser::new(tokens, src.clone());
     let ast = parser.parse()?;
+    if debug {
+        eprintln!("{ast:?}");
+        eprintln!();
+    }
     let mut resolver = Resolver::new();
     let ast = resolver.resolve(ast);
     let mut compiler = Compiler::new();
@@ -134,7 +142,7 @@ pub fn vm_get_ins(path: &String) -> WqResult<Vec<Instruction>> {
 }
 
 pub fn vm_exec_script(path: &String, debug: bool) {
-    let ins = match vm_get_ins(path) {
+    let ins = match vm_get_ins(path, debug) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("error: {e}");
@@ -142,7 +150,8 @@ pub fn vm_exec_script(path: &String, debug: bool) {
         }
     };
     if debug {
-        eprintln!("{ins:#?}");
+        eprintln!("{ins:?}");
+        eprintln!();
     }
     let mut vm = Vm::new(ins);
     match vm.run() {

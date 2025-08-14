@@ -138,12 +138,25 @@ impl Parser {
         }
     }
 
+    // helpers
+    // =======
+
     fn current_token(&self) -> Option<&Token> {
         self.tokens.get(self.current)
     }
 
     fn peek_token(&self) -> Option<&Token> {
         self.tokens.get(self.current + 1)
+    }
+
+    fn advance(&mut self) -> Option<&Token> {
+        if self.current < self.tokens.len() {
+            let tok = &self.tokens[self.current];
+            self.current += 1;
+            Some(tok)
+        } else {
+            None
+        }
     }
 
     fn syntax_error(&self, token: &Token, msg: &str) -> WqError {
@@ -162,35 +175,15 @@ impl Parser {
         WqError::EofError(msg.to_string())
     }
 
-    fn advance(&mut self) -> Option<&Token> {
-        if self.current < self.tokens.len() {
-            let token = &self.tokens[self.current];
-            self.current += 1;
-            Some(token)
-        } else {
-            None
-        }
-    }
-
-    // fn match_token(&mut self, expected: &TokenType) -> bool {
-    //     if let Some(token) = self.current_token() {
-    //         if std::mem::discriminant(&token.token_type) == std::mem::discriminant(expected) {
-    //             self.advance();
-    //             return true;
-    //         }
-    //     }
-    //     false
-    // }
-
     fn consume(&mut self, expected: TokenType) -> WqResult<()> {
-        if let Some(token) = self.current_token() {
-            if std::mem::discriminant(&token.token_type) == std::mem::discriminant(&expected) {
+        if let Some(tok) = self.current_token() {
+            if std::mem::discriminant(&tok.token_type) == std::mem::discriminant(&expected) {
                 self.advance();
                 Ok(())
             } else {
                 Err(self.syntax_error(
-                    token,
-                    &format!("Expected {:?}, found {:?}", expected, token.token_type),
+                    tok,
+                    &format!("Expected {:?}, found {:?}", expected, tok.token_type),
                 ))
             }
         } else {
@@ -198,44 +191,184 @@ impl Parser {
         }
     }
 
-    fn skip_newlines(&mut self) {
-        while let Some(token) = self.current_token() {
-            match token.token_type {
-                TokenType::Newline | TokenType::Comment(_) => {
+    #[inline]
+    fn is_token(&self, tt: &TokenType) -> bool {
+        self.current_token()
+            .map(|t| std::mem::discriminant(&t.token_type) == std::mem::discriminant(tt))
+            .unwrap_or(false)
+    }
+
+    /// Skip trivia tokens.
+    /// - allow_nl: if true, skip newline tokens as trivia
+    /// - allow_com: if true, skip comments as trivia
+    #[inline]
+    fn eat_trivia(&mut self, allow_nl: bool, allow_com: bool) -> usize {
+        let mut n = 0;
+        while let Some(tok) = self.current_token() {
+            match tok.token_type {
+                TokenType::Newline if allow_nl => {
                     self.advance();
+                    n += 1;
+                }
+                TokenType::Comment(_) if allow_com => {
+                    self.advance();
+                    n += 1;
                 }
                 _ => break,
             }
         }
+        n
     }
+
+    #[inline]
+    fn eat_stmt_separators(&mut self) -> usize {
+        let mut n = 0;
+        while let Some(TokenType::Semicolon)
+        | Some(TokenType::Newline)
+        | Some(TokenType::Comment(_)) = self.current_token().map(|t| &t.token_type)
+        {
+            self.advance();
+            n += 1;
+        }
+        n
+    }
+
+    /// Require a literal semicolon. Comments/newlines may appear around it,
+    /// but only `;` satisfies the requirement.
+    #[inline]
+    fn require_semicolon(&mut self, ctx: &str) -> WqResult<()> {
+        self.eat_trivia(true, true);
+        match self.current_token().map(|t| &t.token_type) {
+            Some(TokenType::Semicolon) => {
+                self.advance();
+                Ok(())
+            }
+            Some(TokenType::Eof) => {
+                Err(self.eof_error(&format!("Unexpected end of input in {ctx}")))
+            }
+            Some(tt) => Err(self.syntax_error(
+                self.current_token().unwrap(),
+                &format!("Expected ';' in {ctx}, found {tt:?}"),
+            )),
+            None => Err(self.eof_error(&format!("Unexpected end of input in {ctx}"))),
+        }
+    }
+
+    #[inline]
+    fn require_control_separator(&mut self, ctx: &str) -> WqResult<()> {
+        // Prefer a literal semicolon first
+        if matches!(
+            self.current_token().map(|t| &t.token_type),
+            Some(TokenType::Semicolon)
+        ) {
+            self.advance();
+            // eat trailing trivia
+            self.eat_trivia(true, true);
+            return Ok(());
+        }
+
+        // Skip comments
+        while matches!(
+            self.current_token().map(|t| &t.token_type),
+            Some(TokenType::Comment(_))
+        ) {
+            self.advance();
+        }
+
+        // Now require at least one newline
+        match self.current_token().map(|t| &t.token_type) {
+            Some(TokenType::Newline) => {
+                // consume >=1 newline
+                self.advance();
+                // then any additional newlines/comments
+                while let Some(TokenType::Newline) | Some(TokenType::Comment(_)) =
+                    self.current_token().map(|t| &t.token_type)
+                {
+                    self.advance();
+                }
+
+                Ok(())
+            }
+            Some(TokenType::Eof) => {
+                Err(self.eof_error(&format!("Unexpected end of input in {ctx}")))
+            }
+            Some(tt) => Err(self.syntax_error(
+                self.current_token().unwrap(),
+                &format!("Expected ';' or newline in {ctx}, found {tt:?}"),
+            )),
+            None => Err(self.eof_error(&format!("Unexpected end of input in {ctx}"))),
+        }
+    }
+
+    #[inline]
+    fn err_missing_rhs(&self, op_tok: &Token, ctx: &str) -> WqError {
+        self.syntax_error(op_tok, &format!("Expected expression after {ctx}"))
+    }
+
+    #[inline]
+    fn ensure_rhs_after_op(&self, op_tok: &Token, ctx: &str) -> WqResult<()> {
+        match self.current_token().map(|t| &t.token_type) {
+            Some(TokenType::Eof) | None => Err(self.err_missing_rhs(op_tok, ctx)),
+            _ => Ok(()),
+        }
+    }
+
+    // program
+    // =======
 
     pub fn parse(&mut self) -> WqResult<AstNode> {
         let mut statements = Vec::new();
 
-        while let Some(token) = self.current_token() {
-            match token.token_type {
-                TokenType::Eof => break,
-                TokenType::Newline | TokenType::Semicolon => {
-                    self.advance();
-                    continue;
+        loop {
+            self.eat_stmt_separators();
+
+            match self.current_token().map(|t| &t.token_type) {
+                Some(TokenType::Eof) | None => break,
+                _ => {
+                    let stmt = self.parse_statement()?;
+                    statements.push(stmt);
                 }
-                TokenType::Comment(_) => {
-                    self.advance();
-                    continue;
+            }
+
+            self.eat_stmt_separators();
+        }
+
+        Ok(if statements.len() == 1 {
+            statements.remove(0)
+        } else {
+            AstNode::Block(statements)
+        })
+    }
+
+    fn parse_block(&mut self) -> WqResult<AstNode> {
+        let mut statements = Vec::new();
+
+        loop {
+            self.eat_stmt_separators();
+
+            match self.current_token().map(|t| &t.token_type) {
+                Some(TokenType::RightBrace) => break,
+                Some(TokenType::Eof) | None => {
+                    return Err(self.eof_error("Unexpected end of input in block"));
                 }
                 _ => {
                     let stmt = self.parse_statement()?;
                     statements.push(stmt);
                 }
             }
+
+            self.eat_stmt_separators();
         }
 
-        if statements.len() == 1 {
-            Ok(statements.into_iter().next().unwrap())
+        Ok(if statements.len() == 1 {
+            statements.remove(0)
         } else {
-            Ok(AstNode::Block(statements))
-        }
+            AstNode::Block(statements)
+        })
     }
+
+    // expr
+    // ====
 
     fn parse_statement(&mut self) -> WqResult<AstNode> {
         self.parse_expression()
@@ -255,10 +388,12 @@ impl Parser {
                         if self.builtins.has_function(&name) {
                             return Err(self.syntax_error(
                                 token,
-                                &format!("cannot assign to builtin '{name}'"),
+                                &format!("Cannot assign to '{name}' because a builtin with the same name exists"),
                             ));
                         }
+                        let colon_tok = token.clone();
                         self.advance();
+                        self.ensure_rhs_after_op(&colon_tok, "':'")?;
                         let value = self.parse_assignment()?;
                         expr = AstNode::Assignment {
                             name,
@@ -266,7 +401,9 @@ impl Parser {
                         };
                     }
                     AstNode::Index { object, index } => {
+                        let colon_tok = token.clone();
                         self.advance();
+                        self.ensure_rhs_after_op(&colon_tok, "':'")?;
                         let value = self.parse_assignment()?;
                         expr = AstNode::IndexAssign {
                             object,
@@ -279,7 +416,9 @@ impl Parser {
                         items,
                         explicit_call: false,
                     } => {
+                        let colon_tok = token.clone();
                         self.advance();
+                        self.ensure_rhs_after_op(&colon_tok, "':'")?;
                         let value = self.parse_assignment()?;
                         let index = if items.len() == 1 {
                             Box::new(items.into_iter().next().unwrap())
@@ -302,43 +441,16 @@ impl Parser {
         Ok(expr)
     }
 
-    fn parse_block(&mut self) -> WqResult<AstNode> {
-        let mut statements = Vec::new();
-
-        while let Some(token) = self.current_token() {
-            match token.token_type {
-                TokenType::RightBrace => break,
-                TokenType::Semicolon | TokenType::Newline | TokenType::Comment(_) => {
-                    self.advance();
-                    continue;
-                }
-                TokenType::Eof => {
-                    return Err(self.eof_error("Unexpected end of input in block"));
-                }
-                _ => {
-                    let stmt = self.parse_statement()?;
-                    statements.push(stmt);
-                }
-            }
-        }
-
-        if statements.len() == 1 {
-            Ok(statements.into_iter().next().unwrap())
-        } else {
-            Ok(AstNode::Block(statements))
-        }
-    }
-
     fn parse_comma(&mut self) -> WqResult<AstNode> {
         let mut items = Vec::new();
 
         if let Some(token) = self.current_token() {
             if token.token_type == TokenType::Comma {
-                // Leading comma: begin list
+                // Leading comma list: ,a,b,c
                 while let Some(token) = self.current_token() {
                     if token.token_type == TokenType::Comma {
-                        self.advance(); // consume comma
-                        let expr = self.parse_additive()?; // or parse_expression() depending on desired precedence
+                        self.advance();
+                        let expr = self.parse_additive()?;
                         items.push(expr);
                     } else {
                         break;
@@ -348,12 +460,11 @@ impl Parser {
             }
         }
 
-        // No leading comma: parse normally, treating comma as concatenation
         let mut expr = self.parse_additive()?;
 
         while let Some(token) = self.current_token() {
             if token.token_type == TokenType::Comma {
-                self.advance(); // consume comma
+                self.advance();
                 let right = self.parse_additive()?;
                 expr = AstNode::Call {
                     name: "cat".to_string(),
@@ -370,14 +481,14 @@ impl Parser {
     fn parse_additive(&mut self) -> WqResult<AstNode> {
         let mut left = self.parse_comparison()?;
 
-        while let Some(token) = self.current_token() {
-            let op = match token.token_type {
-                TokenType::Plus => BinaryOperator::Add,
-                TokenType::Minus => BinaryOperator::Subtract,
+        while let Some(token) = self.current_token().cloned() {
+            let (op, op_tok) = match token.token_type {
+                TokenType::Plus => (BinaryOperator::Add, token),
+                TokenType::Minus => (BinaryOperator::Subtract, token),
                 _ => break,
             };
-
             self.advance();
+            self.ensure_rhs_after_op(&op_tok, "binary operator")?;
             let right = self.parse_comparison()?;
             left = AstNode::BinaryOp {
                 left: Box::new(left),
@@ -392,18 +503,18 @@ impl Parser {
     fn parse_comparison(&mut self) -> WqResult<AstNode> {
         let mut left = self.parse_multiplicative()?;
 
-        while let Some(token) = self.current_token() {
-            let op = match token.token_type {
-                TokenType::Equal => BinaryOperator::Equal,
-                TokenType::NotEqual => BinaryOperator::NotEqual,
-                TokenType::LessThan => BinaryOperator::LessThan,
-                TokenType::LessThanOrEqual => BinaryOperator::LessThanOrEqual,
-                TokenType::GreaterThan => BinaryOperator::GreaterThan,
-                TokenType::GreaterThanOrEqual => BinaryOperator::GreaterThanOrEqual,
+        while let Some(token) = self.current_token().cloned() {
+            let (op, op_tok) = match token.token_type {
+                TokenType::Equal => (BinaryOperator::Equal, token),
+                TokenType::NotEqual => (BinaryOperator::NotEqual, token),
+                TokenType::LessThan => (BinaryOperator::LessThan, token),
+                TokenType::LessThanOrEqual => (BinaryOperator::LessThanOrEqual, token),
+                TokenType::GreaterThan => (BinaryOperator::GreaterThan, token),
+                TokenType::GreaterThanOrEqual => (BinaryOperator::GreaterThanOrEqual, token),
                 _ => break,
             };
-
             self.advance();
+            self.ensure_rhs_after_op(&op_tok, "comparison operator")?;
             let right = self.parse_multiplicative()?;
             left = AstNode::BinaryOp {
                 left: Box::new(left),
@@ -416,20 +527,20 @@ impl Parser {
     }
 
     fn parse_multiplicative(&mut self) -> WqResult<AstNode> {
-        let mut left = self.parse_power()?;
+        let mut left = self.parse_unary()?;
 
-        while let Some(token) = self.current_token() {
-            let op = match token.token_type {
-                TokenType::Multiply => BinaryOperator::Multiply,
-                TokenType::Divide => BinaryOperator::Divide,
-                TokenType::DivideDot => BinaryOperator::DivideDot,
-                TokenType::Modulo => BinaryOperator::Modulo,
-                TokenType::ModuloDot => BinaryOperator::ModuloDot,
+        while let Some(token) = self.current_token().cloned() {
+            let (op, op_tok) = match token.token_type {
+                TokenType::Multiply => (BinaryOperator::Multiply, token),
+                TokenType::Divide => (BinaryOperator::Divide, token),
+                TokenType::DivideDot => (BinaryOperator::DivideDot, token),
+                TokenType::Modulo => (BinaryOperator::Modulo, token),
+                TokenType::ModuloDot => (BinaryOperator::ModuloDot, token),
                 _ => break,
             };
-
             self.advance();
-            let right = self.parse_power()?;
+            self.ensure_rhs_after_op(&op_tok, "binary operator")?;
+            let right = self.parse_unary()?;
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 operator: op,
@@ -440,28 +551,7 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_power(&mut self) -> WqResult<AstNode> {
-        let mut left = self.parse_unary()?;
-
-        while let Some(token) = self.current_token() {
-            if token.token_type == TokenType::Power {
-                self.advance();
-                let right = self.parse_unary()?;
-                left = AstNode::BinaryOp {
-                    left: Box::new(left),
-                    operator: BinaryOperator::Power,
-                    right: Box::new(right),
-                };
-            } else {
-                break;
-            }
-        }
-
-        Ok(left)
-    }
-
     fn parse_unary(&mut self) -> WqResult<AstNode> {
-        // Collect leading unary operators iteratively to avoid deep recursion.
         let mut ops: Vec<UnaryOperator> = Vec::new();
         let mut negate_parity = 0u8;
 
@@ -483,27 +573,19 @@ impl Parser {
             }
         }
 
-        let mut node = self.parse_postfix()?;
+        let mut node = self.parse_power()?;
 
-        // Apply pending negation.
         if negate_parity == 1 {
-            match node {
-                AstNode::Literal(Value::Int(n)) => {
-                    node = AstNode::Literal(Value::Int(-n));
-                }
-                AstNode::Literal(Value::Float(f)) => {
-                    node = AstNode::Literal(Value::Float(-f));
-                }
-                _ => {
-                    node = AstNode::UnaryOp {
-                        operator: UnaryOperator::Negate,
-                        operand: Box::new(node),
-                    };
-                }
-            }
+            node = match node {
+                AstNode::Literal(Value::Int(n)) => AstNode::Literal(Value::Int(-n)),
+                AstNode::Literal(Value::Float(f)) => AstNode::Literal(Value::Float(-f)),
+                _ => AstNode::UnaryOp {
+                    operator: UnaryOperator::Negate,
+                    operand: Box::new(node),
+                },
+            };
         }
 
-        // Apply other operators in reverse order (outermost first).
         while let Some(op) = ops.pop() {
             node = AstNode::UnaryOp {
                 operator: op,
@@ -514,62 +596,106 @@ impl Parser {
         Ok(node)
     }
 
-    fn parse_bracket_items(&mut self) -> WqResult<(Vec<AstNode>, bool)> {
-        if let Some(token) = self.current_token() {
-            match token.token_type {
-                TokenType::Semicolon => {
-                    self.advance();
-                    self.consume(TokenType::RightBracket)?;
-                    return Ok((Vec::new(), true));
-                }
-                TokenType::RightBracket => {
-                    self.advance();
-                    return Ok((Vec::new(), true));
-                }
-                _ => {}
+    fn parse_power(&mut self) -> WqResult<AstNode> {
+        let mut operands = Vec::new();
+        operands.push(self.parse_postfix()?);
+
+        // slurp all "^ unary" pairs first
+        while let Some(tok) = self.current_token() {
+            if tok.token_type == TokenType::Power {
+                let caret_tok = tok.clone();
+                self.advance();
+                self.ensure_rhs_after_op(&caret_tok, "power operator")?;
+                operands.push(self.parse_postfix()?);
+            } else {
+                break;
             }
+        }
+
+        // fold right: a ^ b ^ c => a ^ (b ^ c)
+        let mut it = operands.into_iter().rev();
+        let mut acc = it.next().unwrap();
+        for left in it {
+            acc = AstNode::BinaryOp {
+                left: Box::new(left),
+                operator: BinaryOperator::Power,
+                right: Box::new(acc),
+            };
+        }
+        Ok(acc)
+    }
+
+    // postfix
+    // =======
+
+    fn parse_bracket_items(&mut self) -> WqResult<(Vec<AstNode>, bool)> {
+        // Accept [] and ;]
+        if self.is_token(&TokenType::Semicolon) {
+            self.advance();
+            self.consume(TokenType::RightBracket)?;
+            return Ok((Vec::new(), true));
+        }
+        if self.is_token(&TokenType::RightBracket) {
+            self.advance();
+            return Ok((Vec::new(), true));
+        }
+        if self.is_token(&TokenType::Eof) {
+            return Err(self.eof_error("Unexpected end of input in bracket"));
         }
 
         let mut items = Vec::new();
         let mut trailing = false;
+
         loop {
+            // trivia allowed before item
+            self.eat_trivia(true, true);
+
+            if self.is_token(&TokenType::RightBracket) {
+                self.advance();
+                break;
+            }
+
             let expr = self.parse_expression()?;
             items.push(expr);
 
-            if let Some(token) = self.current_token() {
-                match token.token_type {
-                    TokenType::Semicolon => {
-                        self.advance();
-                        if let Some(next) = self.current_token() {
-                            if next.token_type == TokenType::RightBracket {
-                                trailing = true;
-                                self.advance();
-                                break;
-                            }
-                        }
-                        continue;
-                    }
-                    TokenType::RightBracket => {
-                        self.advance();
-                        break;
-                    }
-                    _ => {
-                        return Err(self.syntax_error(token, "Expected ';' or ']' in bracket"));
-                    }
-                }
-            } else {
+            // after item: either ']' or a required ';'
+            self.eat_trivia(true, true);
+            if self.is_token(&TokenType::RightBracket) {
+                self.advance();
+                break;
+            }
+
+            self.require_semicolon("bracket items")?;
+
+            // allow trailing '; ]'
+            self.eat_trivia(true, true);
+            if self.is_token(&TokenType::RightBracket) {
+                trailing = true;
+                self.advance();
+                break;
+            }
+            if self.is_token(&TokenType::Eof) {
                 return Err(self.eof_error("Unexpected end of input in bracket"));
             }
         }
+
         Ok((items, trailing))
     }
 
     fn parse_postfix(&mut self) -> WqResult<AstNode> {
         let mut expr = self.parse_primary()?;
 
-        while let Some(next) = self.current_token() {
-            match next.token_type {
-                TokenType::LeftBracket => {
+        loop {
+            // ignore comments but do not skip newlines.
+            while matches!(
+                self.current_token().map(|t| &t.token_type),
+                Some(TokenType::Comment(_))
+            ) {
+                self.advance();
+            }
+
+            match self.current_token().map(|t| &t.token_type) {
+                Some(TokenType::LeftBracket) => {
                     self.advance();
                     let (items, call_flag) = self.parse_bracket_items()?;
                     expr = AstNode::Postfix {
@@ -578,15 +704,16 @@ impl Parser {
                         explicit_call: call_flag,
                     };
                 }
-                TokenType::Integer(_)
-                | TokenType::Float(_)
-                | TokenType::Character(_)
-                | TokenType::String(_)
-                | TokenType::Symbol(_)
-                | TokenType::Identifier(_)
-                | TokenType::True
-                | TokenType::False
-                | TokenType::LeftParen => {
+                // call candidates (newline not allowed)
+                Some(TokenType::Integer(_))
+                | Some(TokenType::Float(_))
+                | Some(TokenType::Character(_))
+                | Some(TokenType::String(_))
+                | Some(TokenType::Symbol(_))
+                | Some(TokenType::Identifier(_))
+                | Some(TokenType::True)
+                | Some(TokenType::False)
+                | Some(TokenType::LeftParen) => {
                     let arg = self.parse_unary()?;
                     expr = AstNode::Postfix {
                         object: Box::new(expr),
@@ -601,34 +728,127 @@ impl Parser {
         Ok(expr)
     }
 
+    // list/dict
+    // =========
+
+    fn parse_paren_list(&mut self) -> WqResult<AstNode> {
+        let mut elements = Vec::new();
+
+        loop {
+            self.eat_trivia(true, true);
+            if self.is_token(&TokenType::RightParen) {
+                self.advance();
+                break;
+            }
+            if self.is_token(&TokenType::Eof) {
+                return Err(self.eof_error("Unexpected end of input in list"));
+            }
+
+            let expr = self.parse_expression()?;
+            elements.push(expr);
+
+            self.eat_trivia(true, true);
+            if self.is_token(&TokenType::RightParen) {
+                self.advance();
+                break;
+            }
+
+            self.require_semicolon("list")?;
+            self.eat_trivia(true, true);
+            if self.is_token(&TokenType::RightParen) {
+                self.advance();
+                break;
+            }
+            if self.is_token(&TokenType::Eof) {
+                return Err(self.eof_error("Unexpected end of input in list"));
+            }
+        }
+
+        Ok(if elements.len() == 1 {
+            elements.remove(0)
+        } else {
+            AstNode::List(elements)
+        })
+    }
+
+    fn parse_paren_dict(&mut self) -> WqResult<AstNode> {
+        let mut pairs = Vec::new();
+
+        loop {
+            self.eat_trivia(true, true);
+            if self.is_token(&TokenType::RightParen) {
+                self.advance();
+                break;
+            }
+            if self.is_token(&TokenType::Eof) {
+                return Err(self.eof_error("Unexpected end of input in dict"));
+            }
+
+            let key_tok = self
+                .current_token()
+                .ok_or_else(|| self.eof_error("Unexpected end of input in dict"))?;
+            let key = match &key_tok.token_type {
+                TokenType::Symbol(s) => {
+                    let s = s.clone();
+                    self.advance();
+                    s
+                }
+                TokenType::Eof => return Err(self.eof_error("Unexpected end of input in dict")),
+                _ => return Err(self.syntax_error(key_tok, "Expected symbol key in dict")),
+            };
+
+            self.consume(TokenType::Colon)?;
+            let value = self.parse_expression()?;
+            pairs.push((key, value));
+
+            self.eat_trivia(true, true);
+            if self.is_token(&TokenType::RightParen) {
+                self.advance();
+                break;
+            }
+            if self.is_token(&TokenType::Eof) {
+                return Err(self.eof_error("Unexpected end of input in dict"));
+            }
+
+            self.require_semicolon("dict")?;
+            self.eat_trivia(true, true);
+            if self.is_token(&TokenType::RightParen) {
+                self.advance();
+                break;
+            }
+        }
+
+        Ok(AstNode::Dict(pairs))
+    }
+
     fn parse_primary(&mut self) -> WqResult<AstNode> {
         if let Some(token) = self.current_token() {
             match &token.token_type {
                 TokenType::Integer(n) => {
-                    let val = *n;
+                    let v = *n;
                     self.advance();
-                    Ok(AstNode::Literal(Value::Int(val)))
+                    Ok(AstNode::Literal(Value::Int(v)))
                 }
                 TokenType::Float(f) => {
-                    let val = *f;
+                    let v = *f;
                     self.advance();
-                    Ok(AstNode::Literal(Value::Float(val)))
+                    Ok(AstNode::Literal(Value::Float(v)))
                 }
                 TokenType::Character(c) => {
-                    let val = *c;
+                    let v = *c;
                     self.advance();
-                    Ok(AstNode::Literal(Value::Char(val)))
+                    Ok(AstNode::Literal(Value::Char(v)))
                 }
                 TokenType::String(s) => {
-                    let val = s.clone();
+                    let v = s.clone();
                     self.advance();
-                    let chars = val.chars().map(Value::Char).collect();
+                    let chars = v.chars().map(Value::Char).collect();
                     Ok(AstNode::Literal(Value::List(chars)))
                 }
                 TokenType::Symbol(s) => {
-                    let val = s.clone();
+                    let v = s.clone();
                     self.advance();
-                    Ok(AstNode::Literal(Value::Symbol(val)))
+                    Ok(AstNode::Literal(Value::Symbol(v)))
                 }
                 TokenType::True => {
                     self.advance();
@@ -646,14 +866,10 @@ impl Parser {
                     self.advance();
                     Ok(AstNode::Literal(Value::float(f64::NAN)))
                 }
-                TokenType::Dollar => {
-                    // Parse conditional: $[condition;true_branch;false_branch]
-                    self.parse_conditional()
-                }
-                TokenType::DollarDot => {
-                    // Parse conditional: $[condition;true_branch;false_branch]
-                    self.parse_conditional_dot()
-                }
+
+                TokenType::Dollar => self.parse_conditional(),
+                TokenType::DollarDot => self.parse_conditional_dot(),
+
                 TokenType::AtBreak => {
                     self.advance();
                     Ok(AstNode::Break)
@@ -664,9 +880,9 @@ impl Parser {
                 }
                 TokenType::AtReturn => {
                     self.advance();
-                    if let Some(token) = self.current_token() {
+                    if let Some(tok) = self.current_token() {
                         if matches!(
-                            token.token_type,
+                            tok.token_type,
                             TokenType::Semicolon
                                 | TokenType::RightBracket
                                 | TokenType::RightParen
@@ -685,17 +901,26 @@ impl Parser {
                 }
                 TokenType::AtAssert => {
                     self.advance();
-                    let expr = self.parse_expression()?;
-                    Ok(AstNode::Assert(Box::new(expr)))
+                    let e = self.parse_expression()?;
+                    Ok(AstNode::Assert(Box::new(e)))
                 }
                 TokenType::AtTry => {
                     self.advance();
-                    let expr = self.parse_expression()?;
-                    Ok(AstNode::Try(Box::new(expr)))
+                    let e = self.parse_expression()?;
+                    Ok(AstNode::Try(Box::new(e)))
                 }
+
                 TokenType::Identifier(name) => {
                     let val = name.clone();
                     self.advance();
+
+                    // Allow comments between W/N and '['; newline not allowed
+                    while matches!(
+                        self.current_token().map(|t| &t.token_type),
+                        Some(TokenType::Comment(_))
+                    ) {
+                        self.advance();
+                    }
 
                     if let Some(Token {
                         token_type: TokenType::LeftBracket,
@@ -712,32 +937,19 @@ impl Parser {
                     }
                     Ok(AstNode::Variable(val))
                 }
-                TokenType::LeftBrace => {
-                    // Parse function definition
-                    self.parse_function()
-                }
+
+                TokenType::LeftBrace => self.parse_function(),
+
                 TokenType::LeftParen => {
-                    self.advance(); // consume '('
-
-                    // Check for empty list/dict
-                    if let Some(token) = self.current_token() {
-                        if token.token_type == TokenType::RightParen {
-                            self.advance();
-                            return Ok(AstNode::List(Vec::new()));
-                        }
-                    }
-
-                    // Determine if this is a dictionary by looking for `symbol:` pattern
-                    let mut is_dict = false;
-
-                    while let Some(Token {
-                        token_type: TokenType::Newline,
-                        ..
-                    }) = self.current_token()
-                    {
+                    self.advance(); // '('
+                    self.eat_trivia(true, true);
+                    if self.is_token(&TokenType::RightParen) {
                         self.advance();
+                        return Ok(AstNode::List(Vec::new()));
                     }
 
+                    // Decide dict vs list: Symbol ':' lookahead (no deep skipping)
+                    let mut is_dict = false;
                     if let Some(Token {
                         token_type: TokenType::Symbol(_),
                         ..
@@ -751,122 +963,9 @@ impl Parser {
                     }
 
                     if is_dict {
-                        let mut pairs = Vec::new();
-                        loop {
-                            while let Some(Token {
-                                token_type: TokenType::Newline,
-                                ..
-                            }) = self.current_token()
-                            {
-                                self.advance();
-                            }
-                            if let Some(token) = self.current_token() {
-                                if token.token_type == TokenType::RightParen {
-                                    self.advance();
-                                    break;
-                                }
-                            } else {
-                                return Err(self.eof_error("Unexpected end of input in dict"));
-                            }
-
-                            let key_token = self
-                                .current_token()
-                                .ok_or_else(|| self.eof_error("Unexpected end of input in dict"))?;
-                            let key = match &key_token.token_type {
-                                TokenType::Symbol(s) => {
-                                    let s = s.clone();
-                                    self.advance();
-                                    s
-                                }
-                                TokenType::Eof => {
-                                    return Err(self.eof_error("Unexpected end of input in dict"));
-                                }
-                                _ => {
-                                    return Err(
-                                        self.syntax_error(key_token, "Expected symbol key in dict")
-                                    );
-                                }
-                            };
-                            self.consume(TokenType::Colon)?;
-                            let value = self.parse_expression()?;
-                            pairs.push((key, value));
-                            if let Some(token) = self.current_token() {
-                                match token.token_type {
-                                    TokenType::Semicolon | TokenType::Newline => {
-                                        self.advance();
-                                        continue;
-                                    }
-                                    TokenType::Eof => {
-                                        return Err(
-                                            self.eof_error("Unexpected end of input in dict")
-                                        );
-                                    }
-                                    TokenType::RightParen => {
-                                        self.advance();
-                                        break;
-                                    }
-                                    _ => {
-                                        return Err(
-                                            self.syntax_error(token, "Expected ';' or ')' in dict")
-                                        );
-                                    }
-                                }
-                            } else {
-                                return Err(self.eof_error("Unexpected end of input in dict"));
-                            }
-                        }
-                        Ok(AstNode::Dict(pairs))
+                        self.parse_paren_dict()
                     } else {
-                        let mut elements = Vec::new();
-                        loop {
-                            while let Some(Token {
-                                token_type: TokenType::Newline,
-                                ..
-                            }) = self.current_token()
-                            {
-                                self.advance();
-                            }
-                            if let Some(token) = self.current_token() {
-                                if token.token_type == TokenType::RightParen {
-                                    self.advance();
-                                    break;
-                                }
-                            } else {
-                                return Err(self.eof_error("Unexpected end of input in list"));
-                            }
-
-                            let expr = self.parse_expression()?;
-                            elements.push(expr);
-                            if let Some(token) = self.current_token() {
-                                match token.token_type {
-                                    TokenType::Semicolon | TokenType::Newline => {
-                                        self.advance();
-                                        continue;
-                                    }
-                                    TokenType::Eof => {
-                                        return Err(
-                                            self.eof_error("Unexpected end of input in list")
-                                        );
-                                    }
-                                    TokenType::RightParen => {
-                                        self.advance();
-                                        break;
-                                    }
-                                    _ => {
-                                        return Err(
-                                            self.syntax_error(token, "Expected ';' or ')' in list")
-                                        );
-                                    }
-                                }
-                            } else {
-                                return Err(self.eof_error("Unexpected end of input in list"));
-                            }
-                        }
-                        if elements.len() == 1 {
-                            Ok(elements.into_iter().next().unwrap())
-                        } else {
-                            Ok(AstNode::List(elements))
-                        }
+                        self.parse_paren_list()
                     }
                 }
 
@@ -881,28 +980,30 @@ impl Parser {
         }
     }
 
+    // func
+    // ====
+
     fn parse_function(&mut self) -> WqResult<AstNode> {
-        self.advance(); // consume '{'
+        self.advance(); // '{'
 
         let mut params = None;
 
-        // Check for explicit parameter declaration [a;b]
-        if let Some(token) = self.current_token() {
-            if token.token_type == TokenType::LeftBracket {
-                self.advance(); // consume '['
-
-                let mut param_names = Vec::new();
+        // Optional parameter list: {[a;b]}
+        if let Some(tok) = self.current_token() {
+            if tok.token_type == TokenType::LeftBracket {
+                self.advance(); // '['
+                let mut names = Vec::new();
 
                 loop {
+                    // allow trivia inside params
+                    self.eat_trivia(true, true);
                     match self.current_token().map(|t| (&t.token_type, t)) {
                         Some((TokenType::Identifier(name), _)) => {
-                            param_names.push(name.clone());
+                            names.push(name.clone());
                             self.advance();
-                            // eat ‘;’ or break on ‘]’ …
                         }
                         Some((TokenType::Semicolon, _)) => {
                             self.advance();
-                            continue;
                         }
                         Some((TokenType::RightBracket, _)) => {
                             self.advance();
@@ -911,11 +1012,8 @@ impl Parser {
                         Some((TokenType::Eof, _)) => {
                             return Err(self.eof_error("Unexpected end of input in parameter list"));
                         }
-                        Some((TokenType::Newline, _)) => {
-                            self.advance();
-                        }
-                        Some((_, tok)) => {
-                            return Err(self.syntax_error(tok, "Expected identifier, ';' or ']'"));
+                        Some((_, bad)) => {
+                            return Err(self.syntax_error(bad, "Expected identifier, ';' or ']'"));
                         }
                         None => {
                             return Err(self.eof_error("Unexpected end of input in parameter list"));
@@ -923,14 +1021,11 @@ impl Parser {
                     }
                 }
 
-                params = Some(param_names);
+                params = Some(names);
             }
         }
 
-        // Parse function body allowing multiple statements
         let body = self.parse_block()?;
-
-        // Expect closing brace
         self.consume(TokenType::RightBrace)?;
 
         Ok(AstNode::Function {
@@ -939,19 +1034,98 @@ impl Parser {
         })
     }
 
+    // control forms
+    // =============
+
+    fn parse_branch_sequence(&mut self, ends: &[TokenType]) -> WqResult<AstNode> {
+        let mut stmts = Vec::new();
+        let is_end =
+            |tt: &TokenType, x: &TokenType| std::mem::discriminant(tt) == std::mem::discriminant(x);
+
+        loop {
+            // allow trivia before items
+            self.eat_trivia(true, true);
+
+            // stop if at an end token (do not consume); if Eof token, propagate EOF
+            match self.current_token() {
+                Some(tok) => {
+                    if matches!(tok.token_type, TokenType::Eof) {
+                        return Err(self.eof_error("Unexpected end of input in branch"));
+                    }
+                    if ends.iter().any(|e| is_end(&tok.token_type, e)) {
+                        break;
+                    }
+                }
+                None => return Err(self.eof_error("Unexpected end of input in branch")),
+            }
+
+            let expr = self.parse_expression()?;
+            stmts.push(expr);
+
+            // Between statements:
+            // - skip comments (never a separator)
+            // - newline separates
+            // - semicolon separates only if it's not an end token
+            loop {
+                while matches!(
+                    self.current_token().map(|t| &t.token_type),
+                    Some(TokenType::Comment(_))
+                ) {
+                    self.advance();
+                }
+                match self.current_token().map(|t| &t.token_type) {
+                    Some(TokenType::Newline) => {
+                        self.advance();
+                        continue;
+                    }
+                    Some(TokenType::Semicolon) => {
+                        if ends.iter().any(|e| is_end(&TokenType::Semicolon, e)) {
+                            // boundary for caller; don't consume
+                            break;
+                        } else {
+                            self.advance();
+                            continue;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+        }
+
+        Ok(if stmts.len() == 1 {
+            stmts.remove(0)
+        } else {
+            AstNode::Block(stmts)
+        })
+    }
+
     fn parse_conditional(&mut self) -> WqResult<AstNode> {
-        self.advance(); // consume '$'
+        self.advance(); // '$'
         self.consume(TokenType::LeftBracket)?;
 
-        self.skip_newlines();
-
+        // condition
+        self.eat_trivia(true, true);
         let condition = self.parse_expression()?;
+
+        // cond -> true boundary: ';' or >=1 newline
+        self.require_control_separator("$[condition; true ; false]")?;
+
+        // true-branch ends at ';' (boundary) or ']' (if no false for `$` -> error)
+        let true_branch =
+            self.parse_branch_sequence(&[TokenType::Semicolon, TokenType::RightBracket])?;
+
+        if self.is_token(&TokenType::RightBracket) {
+            return Err(self.syntax_error(
+                self.current_token().unwrap(),
+                "Expected false branch after true branch; use '$.[...]' for single-branch conditional",
+            ));
+        }
+
+        // consume the separating ';'
         self.consume(TokenType::Semicolon)?;
 
-        let true_branch = self.parse_branch_sequence(vec![TokenType::Semicolon])?;
-        self.consume(TokenType::Semicolon)?;
-
-        let false_branch = self.parse_branch_sequence(vec![TokenType::RightBracket])?;
+        // false-branch ends at ']'
+        let false_branch = self.parse_branch_sequence(&[TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
 
         Ok(AstNode::Conditional {
@@ -962,15 +1136,15 @@ impl Parser {
     }
 
     fn parse_conditional_dot(&mut self) -> WqResult<AstNode> {
-        self.advance(); // consume '$.'
+        self.advance(); // '$.'
         self.consume(TokenType::LeftBracket)?;
 
-        self.skip_newlines();
-
+        self.eat_trivia(true, true);
         let condition = self.parse_expression()?;
-        self.consume(TokenType::Semicolon)?;
 
-        let true_branch = self.parse_branch_sequence(vec![TokenType::RightBracket])?;
+        self.require_control_separator("$.[condition; true]")?;
+
+        let true_branch = self.parse_branch_sequence(&[TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
 
         Ok(AstNode::Conditional {
@@ -981,12 +1155,13 @@ impl Parser {
     }
 
     fn parse_while(&mut self) -> WqResult<AstNode> {
-        self.skip_newlines();
-
+        // called after Identifier("W") and '[' consumed in parse_primary()
+        self.eat_trivia(true, true);
         let condition = self.parse_expression()?;
-        self.consume(TokenType::Semicolon)?;
 
-        let body = self.parse_branch_sequence(vec![TokenType::RightBracket])?;
+        self.require_control_separator("W[condition; body]")?;
+
+        let body = self.parse_branch_sequence(&[TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
 
         Ok(AstNode::WhileLoop {
@@ -996,99 +1171,19 @@ impl Parser {
     }
 
     fn parse_for(&mut self) -> WqResult<AstNode> {
-        self.skip_newlines();
-
+        // called after Identifier("N") and '[' consumed
+        self.eat_trivia(true, true);
         let count_expr = self.parse_expression()?;
-        self.consume(TokenType::Semicolon)?;
 
-        let body = self.parse_branch_sequence(vec![TokenType::RightBracket])?;
+        self.require_control_separator("N[count; body]")?;
+
+        let body = self.parse_branch_sequence(&[TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
 
         Ok(AstNode::ForLoop {
             count: Box::new(count_expr),
             body: Box::new(body),
         })
-    }
-
-    fn parse_branch_sequence(&mut self, ends: Vec<TokenType>) -> WqResult<AstNode> {
-        let mut statements = Vec::new();
-
-        loop {
-            // skip leading newlines or comments
-            while let Some(token) = self.current_token() {
-                match token.token_type {
-                    TokenType::Newline | TokenType::Comment(_) => {
-                        self.advance();
-                    }
-                    _ => break,
-                }
-            }
-
-            // if already at one of the end‐tokens, stop
-            if let Some(token) = self.current_token() {
-                if ends
-                    .iter()
-                    .any(|e| std::mem::discriminant(&token.token_type) == std::mem::discriminant(e))
-                {
-                    break;
-                }
-            } else {
-                return Err(self.eof_error("Unexpected end of input in branch"));
-            }
-
-            // parse one expression
-            let expr = self.parse_expression()?;
-            statements.push(expr);
-
-            // now see what follows: semicolon/newline, an end‐token, or a syntax error
-            if let Some(token) = self.current_token() {
-                // treat semicolon, newline, or comment specially
-                if matches!(
-                    token.token_type,
-                    TokenType::Semicolon | TokenType::Newline | TokenType::Comment(_)
-                ) {
-                    // if semicolon is itself one of the ends, break; otherwise consume and continue
-                    let sem_dis = std::mem::discriminant(&TokenType::Semicolon);
-                    if ends.iter().any(|e| std::mem::discriminant(e) == sem_dis) {
-                        break;
-                    } else {
-                        self.advance();
-                        continue;
-                    }
-                }
-                // if it’s one of end‐tokens, break
-                else if ends
-                    .iter()
-                    .any(|e| std::mem::discriminant(&token.token_type) == std::mem::discriminant(e))
-                {
-                    break;
-                } else if ends.iter().any(|_| {
-                    std::mem::discriminant(&token.token_type)
-                        == std::mem::discriminant(&TokenType::Eof)
-                }) {
-                    return Err(self.eof_error("Unexpected end of input in branch"));
-                }
-                // otherwise it’s an error
-                else {
-                    return Err(self.syntax_error(
-                        token,
-                        &format!(
-                            "Expected one of {:?} or ';', found {:?}",
-                            ends, token.token_type
-                        ),
-                    ));
-                }
-            } else {
-                return Err(self.eof_error("Unexpected eof"));
-            }
-        }
-
-        // collapse single‐stmt blocks
-        if statements.len() == 1 {
-            Ok(statements.remove(0))
-        } else {
-            Ok(AstNode::Block(statements))
-        }
     }
 }
 

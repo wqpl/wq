@@ -16,26 +16,3 @@ Functions defined without a param list can be called with 0, 1, 2 or 3 args, whi
 ### Closure
 
 Closures capture variables by value.
-
-## Newline
-
-newlines are generally accepted and can act as semicolons in most contexts.
-
-```
-mat:((1;2;3);(4;5;6);
-     (7;8;9);(0;1;2))
-fn:{echo x
-    echo y}
-```
-
-### Important position
-
-Some positions are considered "important" and a semicolon is explicitly required.
-
-```
-$[true;  // <- important
-  1;     // <- important
-  2]
-N[3;     // <- important
-  echo n]
-```
