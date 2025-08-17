@@ -1,12 +1,12 @@
 todo
 ====
-matrix operations
-csv
+todo :)
 
 maybe??
 =======
+matrix operations?
+csv?
 builtin data types: date, time??
-
 sql??
 select A by B from t where C
 update q+10 from t

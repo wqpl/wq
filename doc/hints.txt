@@ -1,0 +1,6 @@
+1. Functions
+============
+(1) `fn -1` is invalid as a call; it is parsed as BinaryOp{fn,-,1}.
+(2) Functions defined without a param list can be called with 0, 1, 2 or 3 args, which are implicitly bound to x, y and z.
+(3) `fn:{[]...}` explicitly defines a function that accepts 0 args.
+(4) Closures capture bindings by value.

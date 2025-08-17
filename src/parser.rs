@@ -450,7 +450,7 @@ impl Parser {
                 while let Some(token) = self.current_token() {
                     if token.token_type == TokenType::Comma {
                         self.advance();
-                        let expr = self.parse_additive()?;
+                        let expr = self.parse_comparison()?;
                         items.push(expr);
                     } else {
                         break;
@@ -460,12 +460,12 @@ impl Parser {
             }
         }
 
-        let mut expr = self.parse_additive()?;
+        let mut expr = self.parse_comparison()?;
 
         while let Some(token) = self.current_token() {
             if token.token_type == TokenType::Comma {
                 self.advance();
-                let right = self.parse_additive()?;
+                let right = self.parse_comparison()?;
                 expr = AstNode::Call {
                     name: "cat".to_string(),
                     args: vec![expr, right],
@@ -478,30 +478,8 @@ impl Parser {
         Ok(expr)
     }
 
-    fn parse_additive(&mut self) -> WqResult<AstNode> {
-        let mut left = self.parse_comparison()?;
-
-        while let Some(token) = self.current_token().cloned() {
-            let (op, op_tok) = match token.token_type {
-                TokenType::Plus => (BinaryOperator::Add, token),
-                TokenType::Minus => (BinaryOperator::Subtract, token),
-                _ => break,
-            };
-            self.advance();
-            self.ensure_rhs_after_op(&op_tok, "binary operator")?;
-            let right = self.parse_comparison()?;
-            left = AstNode::BinaryOp {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right),
-            };
-        }
-
-        Ok(left)
-    }
-
     fn parse_comparison(&mut self) -> WqResult<AstNode> {
-        let mut left = self.parse_multiplicative()?;
+        let mut left = self.parse_additive()?;
 
         while let Some(token) = self.current_token().cloned() {
             let (op, op_tok) = match token.token_type {
@@ -515,6 +493,28 @@ impl Parser {
             };
             self.advance();
             self.ensure_rhs_after_op(&op_tok, "comparison operator")?;
+            let right = self.parse_additive()?;
+            left = AstNode::BinaryOp {
+                left: Box::new(left),
+                operator: op,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_additive(&mut self) -> WqResult<AstNode> {
+        let mut left = self.parse_multiplicative()?;
+
+        while let Some(token) = self.current_token().cloned() {
+            let (op, op_tok) = match token.token_type {
+                TokenType::Plus => (BinaryOperator::Add, token),
+                TokenType::Minus => (BinaryOperator::Subtract, token),
+                _ => break,
+            };
+            self.advance();
+            self.ensure_rhs_after_op(&op_tok, "binary operator")?;
             let right = self.parse_multiplicative()?;
             left = AstNode::BinaryOp {
                 left: Box::new(left),
@@ -1281,6 +1281,23 @@ mod tests {
                     operator: BinaryOperator::Multiply,
                     right: Box::new(AstNode::Literal(Value::Int(3))),
                 }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_addition_before_comparison() {
+        let ast = parse_string("3+2<10").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::BinaryOp {
+                left: Box::new(AstNode::BinaryOp {
+                    left: Box::new(AstNode::Literal(Value::Int(3))),
+                    operator: BinaryOperator::Add,
+                    right: Box::new(AstNode::Literal(Value::Int(2))),
+                }),
+                operator: BinaryOperator::LessThan,
+                right: Box::new(AstNode::Literal(Value::Int(10))),
             }
         );
     }
