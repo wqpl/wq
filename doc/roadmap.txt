@@ -1,13 +1,14 @@
-todo
-====
-todo :)
-
-maybe??
+todo-t1
 =======
-matrix operations?
+1. parser error recovery
+2. builtins refactor (esp. bc)
+3. enhance unit tests
+
+todo-t2
+=======
+
+
+todo-t3
+=======
+matrix ops?
 csv?
-builtin data types: date, time??
-sql??
-select A by B from t where C
-update q+10 from t
-update r:q*10 from t
