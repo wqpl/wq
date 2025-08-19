@@ -104,9 +104,9 @@ fn main() {
         // Prompt construction
         let prompt = if buffer.is_empty() {
             if cfg!(windows) {
-                format!("{} {} ", line_number, "wq$")
+                format!("wq[{line_number}] ")
             } else {
-                format!("{} {} ", line_number.to_string().blue(), "wq$".magenta())
+                format!("{}[{}] ", "wq".magenta(), line_number.to_string().blue())
             }
         } else {
             let indent = " ".repeat(line_number.to_string().len());
@@ -369,13 +369,11 @@ fn main() {
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                break;
+                continue;
             }
             Err(ReadlineError::Eof) => {
                 let mut rng = rand::rng();
-                let p = 0.006666f64;
-                // let p = 1f64;
-                if rng.random_bool(p) {
+                if rng.random_bool(0.006666f64) {
                     print!("{}", "\u{258D} ".cyan());
                     stdout().flush().unwrap();
                     thread::sleep(Duration::from_millis(2000));

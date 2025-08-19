@@ -3,4 +3,4 @@ fwritet
 fwritet[<stream>;<text>]
 
 Examples:
-  fwrite[h;"hi"]
+  fwritet[h;"hi"]

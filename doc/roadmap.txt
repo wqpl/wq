@@ -1,12 +1,12 @@
 todo-t1
 =======
-1. parser error recovery
-2. builtins refactor (esp. bc)
-3. enhance unit tests
+1. builtins refactor (esp. bc)
+2. enhance unit tests
+3. update builtins docs
 
 todo-t2
 =======
-
+1. update formatter
 
 todo-t3
 =======

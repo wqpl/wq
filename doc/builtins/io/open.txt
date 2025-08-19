@@ -1,5 +1,5 @@
-fopen
-=====
-fopen[<path>;<mode>]
+open
+====
+open[<path>;<mode>]
 
 mode = "r"|"r+"|"w"|"w+"|"a"|"a+"
