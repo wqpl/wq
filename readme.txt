@@ -2,10 +2,10 @@ wq (c) tttiw (l) mit
 
 wq               repl
 wq -h            usage help
-echo '\h' | wq   refcard
+echo '\h'|wq   refcard
 
 quick start
 ===========
 cargo run --release
-1 wq$ f:{f_:{$[x=0;y;f_[x-1;z;y+z]]};f_[x;0;1]}
-2 wq$ f 90
+wq[1] fib:{(f_:{$[x=0;y;f_[x-1;z;y+z]]})[x;0;1]}
+wq[2] fib 90

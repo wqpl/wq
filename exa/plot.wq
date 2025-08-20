@@ -1,7 +1,7 @@
-sine:   sin[(til 1000)/100];
-cosine: cos[(til 1000)/100]
-sqr:    {x*x} til 150
-y1:     {x^2} til 1000
+sine:   sin[(iota 1000)/100];
+cosine: cos[(iota 1000)/100]
+sqr:    {x*x} iota 150
+y1:     {x^2} iota 1000
 echo "sin x, cos x";asciiplot[sine;cosine]
 echo "fx=x*x";      asciiplot sqr
 echo "quadratic";   asciiplot[0.25*y1;0.5*y1;y1;2*y1;3*y1;4*y1]
