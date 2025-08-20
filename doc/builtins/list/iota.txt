@@ -1,0 +1,7 @@
+iota
+====
+iota <shape>
+
+Examples:
+  iota 3      // (0;1;2)
+  iota(2;3)   // ((0;1;2);(3;4;5))

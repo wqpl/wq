@@ -229,8 +229,8 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                 if af < bf {
                     Ok(Value::Float(rng.random_range(af..bf)))
                 } else {
-                    Err(WqError::RuntimeError(format!(
-                        "require a < b, got {af} >= {bf}"
+                    Err(WqError::DomainError(format!(
+                        "expected lower < upper, got {af} >= {bf}"
                     )))
                 }
             }

@@ -9,9 +9,9 @@ encode    fexists   freadt    fseek     ftell     fwritet   open
 
 list
 ====
-alloc     count     find      idx       range     sort      til
-avg       distinct  first     in        reverse   sum       where
-cat       drop      flatten   last      shape     take
+alloc     count     find      idx       last      shape     take
+avg       distinct  first     in        range     sort      where
+cat       drop      flatten   iota      reverse   sum
 
 logical
 =======

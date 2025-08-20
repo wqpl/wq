@@ -2,6 +2,5 @@ cat
 ===
 cat[x;y]
 
-// Using , to cat is recommended
 Examples:
   cat((1;2);(3;4)) // (1;2;3;4)

@@ -73,7 +73,7 @@ impl Builtins {
         self.add("bin", math::bin);
 
         // List functions
-        self.add("til", list::til);
+        self.add("iota", list::iota);
         self.add("range", list::range);
         self.add("count", list::count);
         self.add("first", list::first);

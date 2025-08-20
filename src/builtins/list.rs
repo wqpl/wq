@@ -6,7 +6,7 @@ use crate::{
     value::{Value, WqError, WqResult},
 };
 
-fn til_dims(dims: &[usize], next: &mut i64) -> Value {
+fn iota_dims(dims: &[usize], next: &mut i64) -> Value {
     if dims.len() == 1 {
         let mut out = Vec::with_capacity(dims[0]);
         for _ in 0..dims[0] {
@@ -17,13 +17,13 @@ fn til_dims(dims: &[usize], next: &mut i64) -> Value {
     } else {
         let mut out = Vec::with_capacity(dims[0]);
         for _ in 0..dims[0] {
-            out.push(til_dims(&dims[1..], next));
+            out.push(iota_dims(&dims[1..], next));
         }
         Value::List(out)
     }
 }
 
-fn til_shape(shape: &Value) -> WqResult<Value> {
+fn iota_shape(shape: &Value) -> WqResult<Value> {
     match shape {
         Value::Int(n) => {
             if *n < 0 {
@@ -49,7 +49,7 @@ fn til_shape(shape: &Value) -> WqResult<Value> {
             }
             let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
             let mut next = 0i64;
-            Ok(til_dims(&dims, &mut next))
+            Ok(iota_dims(&dims, &mut next))
         }
         Value::List(items) => {
             if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
@@ -64,11 +64,11 @@ fn til_shape(shape: &Value) -> WqResult<Value> {
                     })
                     .collect();
                 let mut next = 0i64;
-                Ok(til_dims(&dims, &mut next))
+                Ok(iota_dims(&dims, &mut next))
             } else {
                 let mut out = Vec::with_capacity(items.len());
                 for v in items {
-                    out.push(til_shape(v)?);
+                    out.push(iota_shape(v)?);
                 }
                 Ok(Value::List(out))
             }
@@ -77,11 +77,11 @@ fn til_shape(shape: &Value) -> WqResult<Value> {
     }
 }
 
-pub fn til(args: &[Value]) -> WqResult<Value> {
+pub fn iota(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(arity_error("til", "1 argument", args.len()));
     }
-    til_shape(&args[0])
+    iota_shape(&args[0])
 }
 
 pub fn range(args: &[Value]) -> WqResult<Value> {
