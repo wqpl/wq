@@ -26,7 +26,6 @@ use crate::load_resolver::{load_script, parse_load_filename};
 fn main() {
     let args = env::args().skip(1);
 
-    let mut interactive_mode = false;
     let mut debug_mode = false;
 
     let mut file: Option<String> = None;
@@ -57,7 +56,6 @@ fn main() {
                 }
             }
             "--debug" | "-d" => debug_mode = true,
-            "--interactive" | "-i" => interactive_mode = true,
             _ => {
                 if file.is_none() {
                     file = Some(arg);
@@ -77,9 +75,7 @@ fn main() {
     // Handle command line script execution
     if let Some(file) = file {
         vm_exec_script(&file, debug_mode);
-        if !interactive_mode {
-            return;
-        }
+        return;
     }
 
     println!(

@@ -1,12 +1,11 @@
 usage:
-  wq                             repl
-  wq <script>                    exec
-  wq <script> [-i|--interactive] exec + repl
+  wq                         repl
+  wq <script>                exec
 
 apps:
-  wq [-f|--format] <script>      formatter - experimental
+  wq [-f|--format] <script>  formatter - experimental
 
 options:
-  -d, --debug                    debug mode
-  -h, --help                     show this help message
-  -v, --version                  show version
+  -d, --debug                debug mode
+  -h, --help                 show this help message
+  -v, --version              show version
