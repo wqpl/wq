@@ -1,4 +1,4 @@
-load ../lib/math.wq
+load math.wq
 
 echo fft (0;0;1;0;0;0;0;0)
 echo fft (1;0;-1;0;1;0;-1;0)

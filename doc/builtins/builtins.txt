@@ -1,3 +1,7 @@
+core
+====
+hash    match?
+
 dict
 ====
 keys
@@ -5,7 +9,7 @@ keys
 io
 ==
 decode    fclose    fread     freadtln  fsize     fwrite    mkdir
-encode    fexists   freadt    fseek     ftell     fwritet   open
+encode    fexists?  freadt    fseek     ftell     fwritet   open
 
 list
 ====
@@ -35,7 +39,7 @@ system
 ======
 echo   exec   input  showt
 
-type_builtins
-=============
-chr     hex     null    ord     string  symbol  type    typev
+type
+====
+chr     hex     null?   ord     string  symbol  type    typev
 

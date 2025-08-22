@@ -8,6 +8,12 @@ use std::{
 const INDEX_FILE_NAME: &str = "builtins.txt";
 const INDEX_WRAP: usize = 80; // target line width for the index columns
 const COL_SPACING: usize = 2; // spaces between columns
+const RENAMES: &[(&str, &str)] = &[
+    ("type_builtins", "type"),
+    ("null", "null?"),
+    ("fexists", "fexists?"),
+    ("match", "match?"),
+];
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
@@ -40,9 +46,7 @@ fn main() {
         doc_files.sort();
         doc_files.dedup();
 
-        let renames: HashMap<&str, &str> = [("null", "null?"), ("fexists", "fexists?")]
-            .into_iter()
-            .collect();
+        let renames: HashMap<&str, &str> = RENAMES.iter().copied().collect();
 
         for path in &doc_files {
             let stem = path.file_stem().unwrap().to_string_lossy();
@@ -107,8 +111,14 @@ fn generate_index_file(root: &Path, files: &[PathBuf]) -> Option<PathBuf> {
         groups.entry(parent).or_default().push(stem);
     }
 
+    let renames: HashMap<&str, &str> = RENAMES.iter().copied().collect();
     // Sort names within each group
     for names in groups.values_mut() {
+        for name in names.iter_mut() {
+            if let Some(&new_name) = renames.get(name.as_str()) {
+                *name = new_name.to_string();
+            }
+        }
         names.sort();
     }
 
@@ -120,9 +130,10 @@ fn generate_index_file(root: &Path, files: &[PathBuf]) -> Option<PathBuf> {
         } else {
             group.as_str()
         };
-        out.push_str(title);
+        let renamed = renames.get(title).unwrap_or(&title);
+        out.push_str(renamed);
         out.push('\n');
-        out.push_str(&"=".repeat(title.len()));
+        out.push_str(&"=".repeat(renamed.len()));
         out.push('\n');
         out.push_str(&format_columns(names, INDEX_WRAP, COL_SPACING));
         out.push('\n');

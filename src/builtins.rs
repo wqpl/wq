@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use std::sync::Mutex;
 
+mod core;
 mod dict;
 pub mod io;
 mod list;
@@ -50,6 +51,10 @@ impl Builtins {
     }
 
     fn register_functions(&mut self) {
+        // Core
+        self.add("match?", core::wq_match);
+        self.add("hash", core::hash);
+
         // Arithmetic functions
         self.add("abs", math::abs);
         self.add("neg", math::neg);
@@ -196,7 +201,7 @@ fn values_to_strings(args: &[Value]) -> WqResult<Vec<String>> {
             Value::Symbol(s) => Ok(s.clone()),
             Value::Char(ch) => Ok(ch.to_string()),
             other => Err(WqError::TypeError(format!(
-                "string args expected, got {} of type {}",
+                "string args expected, got '{}' of type {}",
                 v,
                 other.type_name_verbose()
             ))),

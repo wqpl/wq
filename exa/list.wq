@@ -1,0 +1,5 @@
+// wip!!
+
+delta:{[x]$.[#x<=1;@r x];t:alloc(#x-1);N[#t;t[_n]:x[_n+1]-x[_n]];t}
+// build a list of n elements with each elem being s
+repeat:{[s;n]res:alloc n;N[n;res[_n]:s];res}

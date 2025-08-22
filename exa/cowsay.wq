@@ -1,6 +1,6 @@
-load ../lib/str.wq
+load list.wq
 
-cowsay: {[msg]border: repeat["-";#msg + 2]
+cowsay:{[msg]border:repeat["-";#msg+2]
   echo (" ",border)
   echo ("< ",string msg," >")
   echo (" ",border)

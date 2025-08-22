@@ -1,4 +1,4 @@
-load ../lib/str.wq
+load list.wq
 
 ascii_box:{[path]r:@t open[path; "r"];$.[r[1]=0;fh:r[0];lines:"";line:freadtln fh
   W[not null? line;lines:lines,(,string line);line:freadtln fh];fclose fh]

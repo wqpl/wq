@@ -1,4 +1,4 @@
-load ../lib/str.wq
+load list.wq
 fold_line:{[chars;width]
   W[count chars>width;idx_:width-1
     W[and[idx_>=0;chars[idx_]~" "];idx_:idx_-1]

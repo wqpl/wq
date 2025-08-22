@@ -1164,7 +1164,7 @@ fn classify_arith(op_name: &str, left: &Value, right: &Value) -> WqError {
         WqError::DomainError(format!("{op_name} overflow"))
     } else {
         WqError::TypeError(format!(
-            "Cannot {op_name} {} and {}",
+            "Cannot {op_name} '{left}' of type {} and '{right}' of type {}",
             left.type_name_verbose(),
             right.type_name_verbose()
         ))
