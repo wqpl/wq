@@ -463,7 +463,10 @@ mod load_resolver {
                 let parent_dir = path.parent().unwrap_or_else(|| Path::new(""));
                 let mut buffer = String::new();
 
-                for line in content.lines() {
+                for (i, line) in content.lines().enumerate() {
+                    if i == 0 && line.starts_with("#!") {
+                        continue;
+                    }
                     let line = line.trim();
                     if line.is_empty() || line.starts_with("//") {
                         continue;

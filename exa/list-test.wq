@@ -2,9 +2,9 @@ load list.wq
 delta iota 3
 delta 0
 repeat[iota 2;3]
-@a eq?[((,1);2);(1;2)]        =false
-@a eq?[((1;2);2);(1;2;2)]     =false
-@a eq?[((1;2);2);((1;2);2)]   =true
-@a eq?[((,1;2);2);((1;2);2)]  =false
-@a eq?[0;0]                   =true
-@a eq?[0;1]                   =false
+@a match?[((,1);2);(1;2)]        =false
+@a match?[((1;2);2);(1;2;2)]     =false
+@a match?[((1;2);2);((1;2);2)]   =true
+@a match?[((,1;2);2);((1;2);2)]  =false
+@a match?[0;0]                   =true
+@a match?[0;1]                   =false

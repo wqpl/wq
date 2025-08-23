@@ -89,7 +89,10 @@ fn expand_script(
     };
     let mut result = String::new();
     let parent = path.parent().unwrap_or_else(|| Path::new(""));
-    for line in content.lines() {
+    for (i, line) in content.lines().enumerate() {
+        if i == 0 && line.starts_with("#!") {
+            continue;
+        }
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with("//") {
             continue;
@@ -408,7 +411,7 @@ mod tests {
         let mut eval = VmEvaluator::new();
         let res = eval.eval_string("a:{2*x};b:{x[3]};b[a]").unwrap();
         assert_eq!(res, Value::Int(6));
-        let res = eval.eval_string("a:til 10;b[a]").unwrap();
+        let res = eval.eval_string("a:iota 10;b[a]").unwrap();
         assert_eq!(res, Value::Int(3));
     }
 }
