@@ -1,5 +1,15 @@
 // wip!!
 
+enlist:{[x],x}
 delta:{[x]$.[#x<=1;@r x];t:alloc(#x-1);N[#t;t[_n]:x[_n+1]-x[_n]];t}
+
 // build a list of n elements with each elem being s
 repeat:{[s;n]res:alloc n;N[n;res[_n]:s];res}
+
+replicate:{[f;n]N[#(l:alloc n);l[_n]:f[]];l}
+map:{[f;xs]l:alloc(#xs);N[#l;l[_n]:f[xs[_n]]];l}
+filter:{[f;xs]l:();N[#xs;k:xs[_n];$.[f[k];l:l,k]];l}
+// f(acc,x) -> acc
+foldl:{[f;init;xs]acc:init;N[#xs;acc:f[acc;xs[_n]]];acc}
+scanl:{[f;init;xs]out:,init;acc:init;N[#xs;acc:f[acc;xs[_n]];out:out,acc];out}
+zip:{[xs;ys]out:();N[min(#xs;#ys);out:out,enlist(xs[_n];ys[_n])];out}
