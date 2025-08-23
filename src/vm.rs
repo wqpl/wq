@@ -329,10 +329,20 @@ impl Vm {
                     }
                     let base = self.stack.len() - *argc;
                     let args = self.stack.split_off(base);
-                    // Walk frames top-down; compile once and replace
-                    let maybe_compiled = {
-                        let mut compiled: Option<(Option<Vec<String>>, u16, Vec<Instruction>)> =
-                            None;
+
+                    // Walk frames top-down looking for the callable value
+                    enum LocalCallable {
+                        Func {
+                            params: Option<Vec<String>>,
+                            locals: u16,
+                            instructions: Vec<Instruction>,
+                            captured: Vec<Value>,
+                        },
+                        Builtin(String),
+                    }
+
+                    let callable = {
+                        let mut found: Option<LocalCallable> = None;
                         for frame in self.locals.iter_mut().rev() {
                             if let Some(v) = frame.get_mut(*slot as usize) {
                                 match v {
@@ -341,31 +351,47 @@ impl Vm {
                                         locals,
                                         instructions,
                                     } => {
-                                        compiled =
-                                            Some((params.clone(), *locals, instructions.clone()));
+                                        found = Some(LocalCallable::Func {
+                                            params: params.clone(),
+                                            locals: *locals,
+                                            instructions: instructions.clone(),
+                                            captured: Vec::new(),
+                                        });
                                     }
                                     Value::Closure {
                                         params,
                                         locals,
-                                        captured: _,
+                                        captured,
                                         instructions,
                                     } => {
-                                        compiled =
-                                            Some((params.clone(), *locals, instructions.clone()));
+                                        found = Some(LocalCallable::Func {
+                                            params: params.clone(),
+                                            locals: *locals,
+                                            instructions: instructions.clone(),
+                                            captured: captured.clone(),
+                                        });
                                     }
                                     Value::Function { params, body } => {
                                         let mut c = Compiler::new();
                                         c.compile(body)?;
                                         c.instructions.push(Instruction::Return);
-                                        let locals = c.local_count();
+                                        let locals_cnt = c.local_count();
                                         let instrs = std::mem::take(&mut c.instructions);
                                         let compiled_params = params.clone();
                                         *v = Value::CompiledFunction {
                                             params: compiled_params.clone(),
-                                            locals,
+                                            locals: locals_cnt,
                                             instructions: instrs.clone(),
                                         };
-                                        compiled = Some((compiled_params, locals, instrs));
+                                        found = Some(LocalCallable::Func {
+                                            params: compiled_params,
+                                            locals: locals_cnt,
+                                            instructions: instrs,
+                                            captured: Vec::new(),
+                                        });
+                                    }
+                                    Value::BuiltinFunction(name) => {
+                                        found = Some(LocalCallable::Builtin(name.clone()));
                                     }
                                     other => {
                                         return Err(WqError::TypeError(format!(
@@ -377,24 +403,29 @@ impl Vm {
                                 break;
                             }
                         }
-                        compiled
+                        found
                     };
-                    let (params, locals, instructions) = maybe_compiled.ok_or_else(|| {
+
+                    let callable = callable.ok_or_else(|| {
                         WqError::RuntimeError(format!("Invalid local slot {slot}"))
                     })?;
-                    // Determine captured values if closure
-                    let captured = match self
-                        .locals
-                        .iter()
-                        .rev()
-                        .find_map(|f| f.get(*slot as usize))
-                        .cloned()
-                    {
-                        Some(Value::Closure { captured, .. }) => captured,
-                        _ => Vec::new(),
-                    };
-                    let res = self.call_function(instructions, params, locals, captured, args)?;
-                    self.stack.push(res);
+
+                    match callable {
+                        LocalCallable::Func {
+                            params,
+                            locals,
+                            instructions,
+                            captured,
+                        } => {
+                            let res =
+                                self.call_function(instructions, params, locals, captured, args)?;
+                            self.stack.push(res);
+                        }
+                        LocalCallable::Builtin(name) => {
+                            let result = self.builtins.call(&name, &args)?;
+                            self.stack.push(result);
+                        }
+                    }
                 }
                 Instruction::CallUser(name, argc) => {
                     let name_owned = name.clone();
@@ -476,6 +507,10 @@ impl Vm {
                                 self.call_function(instrs, params, locals, Vec::new(), args)?;
                             self.stack.push(res);
                         }
+                        Value::BuiltinFunction(name) => {
+                            let result = self.builtins.call(&name, &args)?;
+                            self.stack.push(result);
+                        }
                         other => {
                             return Err(WqError::TypeError(format!(
                                 "Cannot call '{name_owned}': expected function, found {}",
@@ -531,6 +566,10 @@ impl Vm {
                                 args,
                             )?;
                             self.stack.push(res);
+                        }
+                        Value::BuiltinFunction(name) => {
+                            let result = self.builtins.call(&name, &args)?;
+                            self.stack.push(result);
                         }
                         other => {
                             return Err(WqError::TypeError(format!(
@@ -1032,6 +1071,10 @@ impl Vm {
                                 args,
                             )?;
                             self.stack.push(res);
+                        }
+                        Value::BuiltinFunction(name) => {
+                             let result = self.builtins.call(&name, &args)?;
+                             self.stack.push(result);
                         }
                         other => {
                             // treat as index

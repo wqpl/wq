@@ -363,6 +363,13 @@ mod tests {
     }
 
     #[test]
+    fn builtin_function_can_be_passed_and_called() {
+        let mut eval = VmEvaluator::new();
+        let res = eval.eval_string("a:{[x]x[]};a[rand]").unwrap();
+        assert!(matches!(res, Value::Float(_)));
+    }
+
+    #[test]
     fn closure_captures_global_by_value() {
         let mut eval = VmEvaluator::new();
         let res = eval.eval_string("a:3;f:{a};a:4;f[]").unwrap();
