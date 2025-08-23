@@ -706,14 +706,27 @@ impl Parser {
                 }
                 // call candidates (newline not allowed)
                 Some(TokenType::Integer(_))
-                | Some(TokenType::Float(_))
-                | Some(TokenType::Character(_))
-                | Some(TokenType::String(_))
                 | Some(TokenType::Symbol(_))
                 | Some(TokenType::Identifier(_))
-                | Some(TokenType::True)
-                | Some(TokenType::False)
                 | Some(TokenType::LeftParen) => {
+                    let arg = self.parse_unary()?;
+                    expr = AstNode::Postfix {
+                        object: Box::new(expr),
+                        items: vec![arg],
+                        explicit_call: false,
+                    };
+                }
+                //Some(TokenType::Integer(_))
+                Some(TokenType::Float(_))
+                | Some(TokenType::Character(_))
+                | Some(TokenType::String(_))
+                | Some(TokenType::Inf)
+                | Some(TokenType::NaN)
+                //| Some(TokenType::Symbol(_))
+                //| Some(TokenType::Identifier(_))
+                | Some(TokenType::True)
+                | Some(TokenType::False) => {
+                //| Some(TokenType::LeftParen) => {
                     let arg = self.parse_unary()?;
                     expr = AstNode::Postfix {
                         object: Box::new(expr),

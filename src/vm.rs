@@ -166,9 +166,9 @@ impl Vm {
                     } else if self.builtins.has_function(name) {
                         (Value::BuiltinFunction(name.clone()), u64::MAX)
                     } else {
-                        return Err(WqError::ValueError(
-                            format!("Undefined variable: '{name}'",),
-                        ));
+                        return Err(WqError::ValueError(format!(
+                            "Variable '{name}' is not defined"
+                        )));
                     };
                     {
                         let c = &mut self.inline_cache[idx];
@@ -1073,8 +1073,8 @@ impl Vm {
                             self.stack.push(res);
                         }
                         Value::BuiltinFunction(name) => {
-                             let result = self.builtins.call(&name, &args)?;
-                             self.stack.push(result);
+                            let result = self.builtins.call(&name, &args)?;
+                            self.stack.push(result);
                         }
                         other => {
                             // treat as index
@@ -1175,12 +1175,13 @@ impl Vm {
                                 let val = if let Some(v) = self.lookup_global(name) {
                                     v
                                 }
+                                // do not capture builtins for now
                                 // else if self.builtins.get_id(name).is_some() {
                                 //     Value::BuiltinFunction(name.clone())
                                 // }
                                 else {
                                     return Err(WqError::ValueError(format!(
-                                        "Undefined variable: '{name}'"
+                                        "Variable '{name}' is not defined"
                                     )));
                                 };
                                 captured_vals.push(val);
