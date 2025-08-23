@@ -5,6 +5,7 @@ pub mod lexer;
 pub mod parser;
 pub mod repl;
 pub mod resolver;
+pub mod folder;
 pub mod utils;
 pub mod value;
 pub mod vm;

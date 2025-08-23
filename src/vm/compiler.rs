@@ -1,6 +1,6 @@
 use super::instruction::{Capture, Instruction};
 use crate::builtins::Builtins;
-use crate::parser::{AstNode, BinaryOperator, UnaryOperator};
+use crate::parser::{AstNode, BinaryOperator};
 use crate::value::{Value, WqError, WqResult};
 use indexmap::IndexMap;
 
@@ -37,70 +37,6 @@ fn has_ctrl(node: &AstNode) -> bool {
         } => has_ctrl(object) || has_ctrl(index) || has_ctrl(value),
         AstNode::Assignment { value, .. } => has_ctrl(value),
         _ => false,
-    }
-}
-
-fn const_eval(node: &AstNode) -> Option<Value> {
-    use AstNode::*;
-    use BinaryOperator::*;
-    use UnaryOperator::*;
-
-    match node {
-        Literal(v) => Some(v.clone()),
-        List(items) => {
-            let mut values = Vec::with_capacity(items.len());
-            for item in items {
-                values.push(const_eval(item)?);
-            }
-            if values.iter().all(|v| matches!(v, Value::Int(_))) {
-                Some(Value::IntList(
-                    values
-                        .into_iter()
-                        .map(|v| {
-                            if let Value::Int(i) = v {
-                                i
-                            } else {
-                                unreachable!()
-                            }
-                        })
-                        .collect(),
-                ))
-            } else {
-                Some(Value::List(values))
-            }
-        }
-        UnaryOp { operator, operand } => {
-            let val = const_eval(operand)?;
-            match operator {
-                Negate => val.neg_value(),
-                Count => Some(Value::Int(val.len() as i64)),
-            }
-        }
-        BinaryOp {
-            left,
-            operator,
-            right,
-        } => {
-            let l = const_eval(left)?;
-            let r = const_eval(right)?;
-            match operator {
-                Add => l.add(&r),
-                Subtract => l.subtract(&r),
-                Multiply => l.multiply(&r),
-                Power => l.power(&r),
-                Divide => l.divide(&r),
-                DivideDot => l.divide_dot(&r),
-                Modulo => l.modulo(&r),
-                ModuloDot => l.modulo_dot(&r),
-                Equal => Some(l.equals(&r)),
-                NotEqual => Some(l.not_equals(&r)),
-                LessThan => Some(l.less_than(&r)),
-                LessThanOrEqual => Some(l.less_than_or_equal(&r)),
-                GreaterThan => Some(l.greater_than(&r)),
-                GreaterThanOrEqual => Some(l.greater_than_or_equal(&r)),
-            }
-        }
-        _ => None,
     }
 }
 
@@ -205,11 +141,6 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, node: &AstNode) -> WqResult<()> {
-        if let Some(v) = const_eval(node) {
-            self.instructions.push(Instruction::LoadConst(v));
-            return Ok(());
-        }
-
         match node {
             AstNode::Literal(v) => self.instructions.push(Instruction::LoadConst(v.clone())),
             AstNode::Variable(name) => self.emit_load(name),
@@ -897,55 +828,6 @@ impl Compiler {
             if !changed {
                 break;
             }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn folds_simple_addition() {
-        let mut c = Compiler::new();
-        let ast = AstNode::BinaryOp {
-            left: Box::new(AstNode::Literal(Value::Int(1))),
-            operator: BinaryOperator::Add,
-            right: Box::new(AstNode::Literal(Value::Int(1))),
-        };
-        c.compile(&ast).unwrap();
-        assert_eq!(c.instructions, vec![Instruction::LoadConst(Value::Int(2))]);
-    }
-
-    #[test]
-    fn folds_list_addition_to_int_list() {
-        let mut c = Compiler::new();
-        let l1 = AstNode::List(vec![
-            AstNode::Literal(Value::Int(1)),
-            AstNode::Literal(Value::Int(2)),
-            AstNode::Literal(Value::Int(3)),
-            AstNode::Literal(Value::Int(4)),
-        ]);
-        let l2 = AstNode::List(vec![
-            AstNode::Literal(Value::Int(3)),
-            AstNode::Literal(Value::Int(4)),
-            AstNode::Literal(Value::Int(5)),
-            AstNode::Literal(Value::Int(6)),
-        ]);
-        let ast = AstNode::BinaryOp {
-            left: Box::new(l1),
-            operator: BinaryOperator::Add,
-            right: Box::new(l2),
-        };
-        c.compile(&ast).unwrap();
-        assert_eq!(
-            c.instructions,
-            vec![Instruction::LoadConst(Value::IntList(vec![4, 6, 8, 10]))]
-        );
-        if let Instruction::LoadConst(val) = &c.instructions[0] {
-            assert_eq!(val.type_name_verbose(), "int-list");
-        } else {
-            panic!("expected LoadConst");
         }
     }
 }

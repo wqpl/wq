@@ -130,6 +130,7 @@ pub fn vm_get_ins(path: &String, debug: bool) -> WqResult<Vec<Instruction>> {
         eprintln!();
     }
     use crate::resolver::Resolver;
+    use crate::folder;
     let mut parser = Parser::new(tokens, src.clone());
     let ast = parser.parse()?;
     if debug {
@@ -138,6 +139,7 @@ pub fn vm_get_ins(path: &String, debug: bool) -> WqResult<Vec<Instruction>> {
     }
     let mut resolver = Resolver::new();
     let ast = resolver.resolve(ast);
+    let ast = folder::fold(ast);
     let mut compiler = Compiler::new();
     compiler.compile(&ast)?;
     compiler.fuse();
@@ -206,10 +208,12 @@ impl VmEvaluator {
             eprintln!("{tokens:?}");
         }
         use crate::resolver::Resolver;
+        use crate::folder;
         let mut parser = Parser::new(tokens, input.to_string());
         let ast = parser.parse()?;
         let mut resolver = Resolver::from_env(self.environment());
         let ast = resolver.resolve(ast);
+        let ast = folder::fold(ast);
         if self.debug {
             eprintln!("=====AST=====");
             eprintln!("{ast:?}");
