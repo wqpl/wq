@@ -1,7 +1,7 @@
 use wq::apps::formatter::{FormatOptions, Formatter};
 use wq::builtins_help;
 use wq::helpers::string_helpers::create_boxed_text;
-use wq::repl::{RUSTYLINE, ReplEngine, VmEvaluator, vm_exec_script};
+use wq::repl::{RUSTYLINE, ReplEngine, VmEvaluator};
 
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
@@ -21,7 +21,7 @@ use wq::value::box_mode;
 use colored::Colorize;
 use rand::Rng;
 
-use crate::load_resolver::{load_script, parse_load_filename};
+use crate::load_resolver::{parse_load_filename, repl_load_script};
 
 fn main() {
     let args = env::args().skip(1);
@@ -74,7 +74,7 @@ fn main() {
     }
     // Handle command line script execution
     if let Some(file) = file {
-        vm_exec_script(&file, debug_mode);
+        exec_script(&file, debug_mode);
         return;
     }
 
@@ -326,7 +326,12 @@ fn main() {
                         cmd if cmd.starts_with("load ") || cmd.starts_with("\\l ") => {
                             if let Some(fname) = parse_load_filename(cmd) {
                                 let mut loading = HashSet::new();
-                                load_script(&mut *evaluator, Path::new(fname), &mut loading, false);
+                                repl_load_script(
+                                    &mut *evaluator,
+                                    Path::new(fname),
+                                    &mut loading,
+                                    false,
+                                );
                             }
                             continue;
                         }
@@ -396,6 +401,29 @@ fn main() {
     }
 }
 
+fn exec_script(path: &String, debug: bool) {
+    let path = Path::new(path);
+    let mut loading = HashSet::new();
+    let mut visited = HashSet::new();
+    let src = match load_resolver::expand_script(path, &mut loading, &mut visited) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Cannot load {}: {e}", path.display());
+            return;
+        }
+    };
+    let mut vm = VmEvaluator::new();
+    vm.set_debug(debug);
+    match vm.eval_string(&src) {
+        Ok(_) => {
+            //if val != Value::Null {
+            // println!("{val}");
+            //}
+        }
+        Err(e) => eprintln!("Error executing script: {e}"),
+    }
+}
+
 fn format_script_print(filename: &str) {
     match fs::read_to_string(filename) {
         Ok(content) => {
@@ -439,7 +467,52 @@ mod load_resolver {
         }
     }
 
-    pub fn load_script(
+    pub fn expand_script(
+        path: &Path,
+        loading: &mut HashSet<PathBuf>,
+        visited: &mut HashSet<PathBuf>,
+    ) -> std::io::Result<String> {
+        let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        if !loading.insert(canonical.clone()) {
+            // already in loading stack -> cycle
+            println!("Cannot load {}: cycling", canonical.display());
+            return Ok(String::new());
+        }
+        if visited.contains(&canonical) {
+            loading.remove(&canonical);
+            return Ok(String::new());
+        }
+        visited.insert(canonical.clone());
+        let content = match fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                loading.remove(&canonical);
+                return Err(e);
+            }
+        };
+        let mut result = String::new();
+        let parent = path.parent().unwrap_or_else(|| Path::new(""));
+        for (i, line) in content.lines().enumerate() {
+            if i == 0 && line.starts_with("#!") {
+                continue;
+            }
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("//") {
+                continue;
+            }
+            if let Some(fname) = parse_load_filename(trimmed) {
+                let sub = resolve_load_path(parent, fname);
+                result.push_str(&expand_script(&sub, loading, visited)?);
+            } else {
+                result.push_str(trimmed);
+                result.push('\n');
+            }
+        }
+        loading.remove(&canonical);
+        Ok(result)
+    }
+
+    pub fn repl_load_script(
         evaluator: &mut dyn ReplEngine,
         path: &Path,
         loading: &mut HashSet<PathBuf>,
@@ -475,7 +548,7 @@ mod load_resolver {
                     if buffer.is_empty() {
                         if let Some(fname) = parse_load_filename(line) {
                             let sub_path = resolve_load_path(parent_dir, fname);
-                            load_script(evaluator, &sub_path, loading, false);
+                            repl_load_script(evaluator, &sub_path, loading, false);
                             continue;
                         }
                     }

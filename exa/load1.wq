@@ -1,2 +1,2 @@
-load ./load2.wq
+load load2.wq
 echo 1

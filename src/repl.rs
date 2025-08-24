@@ -8,11 +8,21 @@ use crate::vm::instruction::Instruction;
 use colored::Colorize;
 use once_cell::sync::Lazy;
 use rustyline::DefaultEditor;
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+
 use std::sync::Mutex;
 pub static RUSTYLINE: Lazy<Mutex<Option<DefaultEditor>>> = Lazy::new(|| Mutex::new(None));
+
+pub struct VmEvaluator {
+    vm: Vm,
+    debug: bool,
+}
+
+impl Default for VmEvaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub trait ReplEngine {
     fn eval_string(&mut self, input: &str) -> Result<Value, WqError>;
@@ -41,105 +51,6 @@ impl ReplEngine for VmEvaluator {
     }
     fn env_vars(&self) -> &std::collections::HashMap<String, Value> {
         self.environment()
-    }
-}
-
-fn parse_load_filename(line: &str) -> Option<&str> {
-    let trimmed = line.trim_start();
-    if let Some(rest) = trimmed.strip_prefix("load ") {
-        Some(rest.trim())
-    } else if let Some(rest) = trimmed.strip_prefix("\\l ") {
-        Some(rest.trim())
-    } else {
-        None
-    }
-}
-
-fn resolve_load_path(base: &Path, fname: &str) -> PathBuf {
-    let path = Path::new(fname);
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        base.join(path)
-    }
-}
-
-fn expand_script(
-    path: &Path,
-    loading: &mut HashSet<PathBuf>,
-    visited: &mut HashSet<PathBuf>,
-) -> std::io::Result<String> {
-    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    if !loading.insert(canonical.clone()) {
-        // already in loading stack -> cycle
-        println!("Cannot load {}: cycling", canonical.display());
-        return Ok(String::new());
-    }
-    if visited.contains(&canonical) {
-        loading.remove(&canonical);
-        return Ok(String::new());
-    }
-    visited.insert(canonical.clone());
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(e) => {
-            loading.remove(&canonical);
-            return Err(e);
-        }
-    };
-    let mut result = String::new();
-    let parent = path.parent().unwrap_or_else(|| Path::new(""));
-    for (i, line) in content.lines().enumerate() {
-        if i == 0 && line.starts_with("#!") {
-            continue;
-        }
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("//") {
-            continue;
-        }
-        if let Some(fname) = parse_load_filename(trimmed) {
-            let sub = resolve_load_path(parent, fname);
-            result.push_str(&expand_script(&sub, loading, visited)?);
-        } else {
-            result.push_str(trimmed);
-            result.push('\n');
-        }
-    }
-    loading.remove(&canonical);
-    Ok(result)
-}
-
-pub fn vm_exec_script(path: &String, debug: bool) {
-    let path = Path::new(path);
-    let mut loading = HashSet::new();
-    let mut visited = HashSet::new();
-    let src = match expand_script(path, &mut loading, &mut visited) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Cannot load {}: {e}", path.display());
-            return;
-        }
-    };
-    let mut vm = VmEvaluator::new();
-    vm.set_debug(debug);
-    match vm.eval_string(&src) {
-        Ok(_) => {
-            //if val != Value::Null {
-            // println!("{val}");
-            //}
-        }
-        Err(e) => eprintln!("Error executing script: {e}"),
-    }
-}
-
-pub struct VmEvaluator {
-    vm: Vm,
-    debug: bool,
-}
-
-impl Default for VmEvaluator {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
