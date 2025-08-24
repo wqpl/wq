@@ -39,6 +39,7 @@ pub enum TokenType {
     DollarDot,
 
     Sharp,
+    Pipe,
 
     // Delimiters
     LeftParen,
@@ -632,6 +633,16 @@ impl<'a> Lexer<'a> {
                     ));
                 }
 
+                Some('|') => {
+                    self.advance();
+                    return Ok(Token::new(
+                        TokenType::Pipe,
+                        token_position,
+                        token_line,
+                        token_column,
+                    ));
+                }
+
                 Some('(') => {
                     self.advance();
                     return Ok(Token::new(
@@ -796,7 +807,7 @@ mod tests {
 
     #[test]
     fn test_tokenize_operators() {
-        let mut lexer = Lexer::new("+ - * / % ^");
+        let mut lexer = Lexer::new("+ - * / % ^ |");
         let tokens = lexer.tokenize().unwrap();
 
         assert_eq!(tokens[0].token_type, TokenType::Plus);
@@ -805,6 +816,7 @@ mod tests {
         assert_eq!(tokens[3].token_type, TokenType::Divide);
         assert_eq!(tokens[4].token_type, TokenType::Modulo);
         assert_eq!(tokens[5].token_type, TokenType::Power);
+        assert_eq!(tokens[6].token_type, TokenType::Pipe);
     }
 
     #[test]

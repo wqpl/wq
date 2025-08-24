@@ -379,7 +379,7 @@ impl Parser {
     }
 
     fn parse_assignment(&mut self) -> WqResult<AstNode> {
-        let mut expr = self.parse_comma()?;
+        let mut expr = self.parse_pipe()?;
 
         while let Some(token) = self.current_token() {
             if token.token_type == TokenType::Colon {
@@ -439,6 +439,60 @@ impl Parser {
         }
 
         Ok(expr)
+    }
+
+    fn parse_pipe(&mut self) -> WqResult<AstNode> {
+        let mut left = self.parse_comma()?;
+
+        while let Some(token) = self.current_token().cloned() {
+            if token.token_type == TokenType::Pipe {
+                self.advance();
+                self.ensure_rhs_after_op(&token, "'|' operator")?;
+                let right = self.parse_postfix()?;
+                left = match right {
+                    // AstNode::Variable(name) => AstNode::Call {
+                    //     name,
+                    //     args: vec![left],
+                    // },
+                    AstNode::Variable(name) => AstNode::Postfix {
+                        object: Box::new(AstNode::Variable(name)),
+                        items: vec![left],
+                        explicit_call: false,
+                    },
+                    AstNode::Function { params, body } => AstNode::CallAnonymous {
+                        object: Box::new(AstNode::Function { params, body }),
+                        args: vec![left],
+                    },
+                    AstNode::Call { name, mut args } => {
+                        args.push(left);
+                        AstNode::Call { name, args }
+                    }
+                    AstNode::CallAnonymous { object, mut args } => {
+                        args.push(left);
+                        AstNode::CallAnonymous { object, args }
+                    }
+                    AstNode::Postfix {
+                        object, mut items, ..
+                    } => {
+                        items.push(left);
+                        AstNode::Postfix {
+                            object,
+                            items,
+                            explicit_call: false,
+                        }
+                    }
+                    _ => {
+                        return Err(
+                            self.syntax_error(&token, "Right-hand side of '|' must accept postfix")
+                        );
+                    }
+                };
+            } else {
+                break;
+            }
+        }
+
+        Ok(left)
     }
 
     fn parse_comma(&mut self) -> WqResult<AstNode> {
@@ -722,6 +776,7 @@ impl Parser {
                 | Some(TokenType::String(_))
                 | Some(TokenType::Inf)
                 | Some(TokenType::NaN)
+                | Some(TokenType::LeftBrace)
                 //| Some(TokenType::Symbol(_))
                 //| Some(TokenType::Identifier(_))
                 | Some(TokenType::True)
@@ -1422,5 +1477,68 @@ mod tests {
         // comment inside loop and conditional
         assert!(parse_string("N[2;1;//c\n]").is_ok());
         assert!(parse_string("$[true;1;//c\n2]").is_ok());
+    }
+
+    #[test]
+    fn test_pipe_simple() {
+        let ast = parse_string("a | sum").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::Call {
+                name: "sum".into(),
+                args: vec![AstNode::Variable("a".into())],
+            }
+        );
+    }
+
+    #[test]
+    fn test_pipe_with_arg() {
+        let ast = parse_string("a | f[x]").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::Call {
+                name: "f".into(),
+                args: vec![AstNode::Variable("x".into()), AstNode::Variable("a".into())],
+            }
+        );
+    }
+
+    #[test]
+    fn test_pipe_chain() {
+        let ast = parse_string("a | f | g[y] | h").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::Call {
+                name: "h".into(),
+                args: vec![AstNode::Call {
+                    name: "g".into(),
+                    args: vec![
+                        AstNode::Variable("y".into()),
+                        AstNode::Call {
+                            name: "f".into(),
+                            args: vec![AstNode::Variable("a".into())],
+                        },
+                    ],
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn test_pipe_sequence() {
+        let ast = parse_string("a|sum; b|sum").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::Block(vec![
+                AstNode::Call {
+                    name: "sum".into(),
+                    args: vec![AstNode::Variable("a".into())],
+                },
+                AstNode::Call {
+                    name: "sum".into(),
+                    args: vec![AstNode::Variable("b".into())],
+                },
+            ]),
+        );
     }
 }
