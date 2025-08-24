@@ -19,8 +19,8 @@ BUILTIN_DIR = os.path.join(SRC_DIR, "builtins")
 ADD_RE = re.compile(r'self\.add\("([^"]+)",\s*([a-zA-Z0-9_:]+)\)')
 
 
-def parse_builtins():
-    builtins = []
+def parse_builtins() -> list[tuple[str, str]]:
+    builtins: list[tuple[str, str]] = []
     with open(BUILTINS_RS, "r", encoding="utf-8") as f:
         for line in f:
             m = ADD_RE.search(line)

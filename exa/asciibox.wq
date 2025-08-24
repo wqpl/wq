@@ -10,4 +10,4 @@ ascii_box:{[path]r:@t open[path; "r"];$.[r[1]=0;fh:r[0];lines:"";line:freadtln f
   echo border
 }
 //ascii_box input "Enter path:"
-ascii_box "license.txt"
+ascii_box "LICENSE"

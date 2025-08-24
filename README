@@ -2,7 +2,7 @@ wq (c) tttiw (l) mit
 
 wq               repl
 wq -h            usage help
-echo '\h'|wq   refcard
+echo '\h'|wq     refcard
 
 quick start
 ===========

@@ -11,17 +11,21 @@ Features
 
 PR
 ==
-(1) rust:
+(1) Rust:
+    cargo clippy -- -D warnings
     cargo fmt
-    cargo clippy
-    cargo test
-(2) python:
-    ruff format
+    
+(2) Python:
+    pyright
     ruff check
+    ruff format
+    
+(3) Tests:
+    cargo test
+    python3 exa-t.py test
+    
 (3) Commit msg: concise, clean
-(4) PR: clarify what’s changed and why
-(5) Add your name (and optionally your email) to AUTHORS.txt
 
-Dev tools
-=========
-(1) exa-t.py
+(4) PR: clarify what’s changed and why
+
+(5) Add your name (and optionally your email) to the `AUTHORS` file at project root

@@ -10,4 +10,4 @@ fold_file:{[path;width]r:@t open[path;"r"]
     W[not null? line;fold_line[line;width];line:freadtln h];fclose h]
   $.[r[1]~0;echo r[0]]}
 //fold_file[input "Enter path"; 80]
-fold_file["license.txt";16]
+fold_file["LICENSE";16]
