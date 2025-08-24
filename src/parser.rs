@@ -1263,7 +1263,7 @@ mod tests {
     fn parse_string(input: &str) -> WqResult<AstNode> {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize()?;
-        use crate::resolver::Resolver;
+        use crate::post_parser::resolver::Resolver;
         let mut parser = Parser::new(tokens, input.to_string());
         let ast = parser.parse()?;
         let mut resolver = Resolver::new();
@@ -1496,9 +1496,10 @@ mod tests {
         let ast = parse_string("a | f[x]").unwrap();
         assert_eq!(
             ast,
-            AstNode::Call {
-                name: "f".into(),
-                args: vec![AstNode::Variable("x".into()), AstNode::Variable("a".into())],
+            AstNode::Postfix {
+                object: Box::new(AstNode::Variable("f".into())),
+                items: vec![AstNode::Variable("x".into()), AstNode::Variable("a".into())],
+                explicit_call: false
             }
         );
     }
@@ -1508,18 +1509,21 @@ mod tests {
         let ast = parse_string("a | f | g[y] | h").unwrap();
         assert_eq!(
             ast,
-            AstNode::Call {
-                name: "h".into(),
-                args: vec![AstNode::Call {
-                    name: "g".into(),
-                    args: vec![
+            AstNode::Postfix {
+                object: Box::new(AstNode::Variable("h".into())),
+                items: vec![AstNode::Postfix {
+                    object: Box::new(AstNode::Variable("g".into())),
+                    items: vec![
                         AstNode::Variable("y".into()),
-                        AstNode::Call {
-                            name: "f".into(),
-                            args: vec![AstNode::Variable("a".into())],
-                        },
+                        AstNode::Postfix {
+                            object: Box::new(AstNode::Variable("f".into())),
+                            items: vec![AstNode::Variable("a".into())],
+                            explicit_call: false
+                        }
                     ],
+                    explicit_call: false
                 }],
+                explicit_call: false
             }
         );
     }

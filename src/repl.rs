@@ -72,7 +72,7 @@ fn expand_script(
     let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if !loading.insert(canonical.clone()) {
         // already in loading stack -> cycle
-        println!("Cycle detected: {}", canonical.display());
+        println!("Cannot load {}: cycling", canonical.display());
         return Ok(String::new());
     }
     if visited.contains(&canonical) {
@@ -109,63 +109,26 @@ fn expand_script(
     Ok(result)
 }
 
-pub fn vm_get_ins(path: &String, debug: bool) -> WqResult<Vec<Instruction>> {
+pub fn vm_exec_script(path: &String, debug: bool) {
     let path = Path::new(path);
     let mut loading = HashSet::new();
     let mut visited = HashSet::new();
     let src = match expand_script(path, &mut loading, &mut visited) {
         Ok(s) => s,
         Err(e) => {
-            return Err(crate::value::WqError::RuntimeError(format!(
-                "Cannot read {}: {}",
-                path.display(),
-                e
-            )));
-        }
-    };
-    let mut lexer = Lexer::new(&src);
-    let tokens = lexer.tokenize()?;
-    if debug {
-        eprintln!("{tokens:?}");
-        eprintln!();
-    }
-    use crate::resolver::Resolver;
-    use crate::folder;
-    let mut parser = Parser::new(tokens, src.clone());
-    let ast = parser.parse()?;
-    if debug {
-        eprintln!("{ast:?}");
-        eprintln!();
-    }
-    let mut resolver = Resolver::new();
-    let ast = resolver.resolve(ast);
-    let ast = folder::fold(ast);
-    let mut compiler = Compiler::new();
-    compiler.compile(&ast)?;
-    compiler.fuse();
-    Ok(compiler.instructions)
-}
-
-pub fn vm_exec_script(path: &String, debug: bool) {
-    let ins = match vm_get_ins(path, debug) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("error: {e}");
+            eprintln!("Cannot load {}: {e}", path.display());
             return;
         }
     };
-    if debug {
-        eprintln!("{ins:?}");
-        eprintln!();
-    }
-    let mut vm = Vm::new(ins);
-    match vm.run() {
+    let mut vm = VmEvaluator::new();
+    vm.set_debug(debug);
+    match vm.eval_string(&src) {
         Ok(_) => {
             //if val != Value::Null {
             // println!("{val}");
             //}
         }
-        Err(e) => eprintln!("error: {e}"),
+        Err(e) => eprintln!("Error executing script: {e}"),
     }
 }
 
@@ -204,26 +167,31 @@ impl VmEvaluator {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize()?;
         if self.debug {
-            eprintln!("=====TOK=====");
+            eprintln!("Tokens");
+            eprintln!("======");
             eprintln!("{tokens:?}");
+            eprintln!();
         }
-        use crate::resolver::Resolver;
-        use crate::folder;
+        use crate::post_parser::folder;
+        use crate::post_parser::resolver::Resolver;
         let mut parser = Parser::new(tokens, input.to_string());
         let ast = parser.parse()?;
         let mut resolver = Resolver::from_env(self.environment());
         let ast = resolver.resolve(ast);
         let ast = folder::fold(ast);
         if self.debug {
-            eprintln!("=====AST=====");
+            eprintln!("AST");
+            eprintln!("===");
             eprintln!("{ast:?}");
+            eprintln!()
         }
         let mut compiler = Compiler::new();
         compiler.compile(&ast)?;
         compiler.fuse();
         compiler.instructions.push(Instruction::Return);
         if self.debug {
-            eprintln!("=====INST=====");
+            eprintln!("Inst");
+            eprintln!("====");
             for inst in &compiler.instructions {
                 let s = format!("{inst:?}");
                 if let Some((name, rest)) = s.split_once('(') {
@@ -232,6 +200,7 @@ impl VmEvaluator {
                     eprintln!("{}", s.blue().bold());
                 }
             }
+            eprintln!();
         }
         self.vm.reset(compiler.instructions);
         self.vm.run()

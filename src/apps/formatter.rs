@@ -200,7 +200,7 @@ impl Formatter {
     fn format_source(&self, src: &str) -> WqResult<String> {
         let mut lexer = Lexer::new(src);
         let tokens = lexer.tokenize()?;
-        use crate::resolver::Resolver;
+        use crate::post_parser::resolver::Resolver;
         let mut parser = Parser::new(tokens, src.to_string());
         let ast = parser.parse()?;
         let mut resolver = Resolver::new();

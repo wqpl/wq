@@ -1,7 +1,7 @@
 use wq::apps::formatter::{FormatOptions, Formatter};
 use wq::builtins_help;
+use wq::helpers::string_helpers::create_boxed_text;
 use wq::repl::{RUSTYLINE, ReplEngine, VmEvaluator, vm_exec_script};
-use wq::utils::textutils::create_boxed_text;
 
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
