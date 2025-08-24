@@ -8,7 +8,7 @@ wq refcard
 %  modulo            <=
 %. safe modulo       >  greater than
 ^  power             >=
-:  assign
+:  assign            |  pipe
 $ [cond;t;f1;f2...]  W[cond;s1;s2...]
 $.[cond;t1;t2...]    N[n;echo _n]
 @a  assert           @r return

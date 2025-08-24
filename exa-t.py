@@ -110,7 +110,7 @@ def run_wq(build_type: str, script_path: str) -> str:
 
 
 # -------------------------
-# gen (preview) → exa/gen/*.out
+# gen (preview) -> exa/gen/*.out
 # -------------------------
 
 
@@ -127,7 +127,7 @@ def cmd_gen(build_type: str, script: str | None) -> None:
     for tf in scripts:
         basename = os.path.splitext(os.path.basename(tf))[0]
         out_path = os.path.join(out_dir, f"{basename}.out")
-        print(f"[gen] {tf} → {out_path}")
+        print(f"[gen] {tf} -> {out_path}")
         actual = run_wq(build_type, tf)
         try:
             with open(out_path, "w", encoding="utf-8") as f:
@@ -140,7 +140,7 @@ def cmd_gen(build_type: str, script: str | None) -> None:
 
 
 # -------------------------
-# lock (approve) → exa/lock/*.lock
+# lock (approve) -> exa/lock/*.lock
 # -------------------------
 
 
@@ -168,7 +168,7 @@ def cmd_lock(build_type: str, script: str | None) -> None:
     for tf in scripts:
         basename = os.path.splitext(os.path.basename(tf))[0]
         lock_path = os.path.join(lock_dir, f"{basename}.lock")
-        print(f"[lock] {tf} → {lock_path}")
+        print(f"[lock] {tf} -> {lock_path}")
         actual = run_wq(build_type, tf)
         try:
             with open(lock_path, "w", encoding="utf-8") as f:
