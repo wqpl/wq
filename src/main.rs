@@ -1,3 +1,5 @@
+use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 use std::env;
 use std::fs;
 use std::io::{Write, stdout};
@@ -7,9 +9,9 @@ use std::time::Instant;
 use wq::apps::formatter::{FormatOptions, Formatter};
 use wq::builtins_help;
 use wq::helpers::string_helpers::create_boxed_text;
-use wq::repl::{
-    ReplEngine, RustylineInput, StdinError, VmEvaluator, stdin_add_history, stdin_readline,
-};
+use wq::repl::ReplInput;
+use wq::repl::{ReplEngine, StdinError, VmEvaluator, stdin_add_history, stdin_readline};
+use wq::value::WqResult;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -431,6 +433,33 @@ fn format_script_print(filename: &str) {
             eprintln!("Cannot read {filename}: {err}");
             std::process::exit(1);
         }
+    }
+}
+
+pub struct RustylineInput {
+    rl: DefaultEditor,
+}
+
+impl RustylineInput {
+    pub fn new() -> WqResult<Self> {
+        Ok(Self {
+            rl: DefaultEditor::new().map_err(|e| WqError::IoError(e.to_string()))?,
+        })
+    }
+}
+
+impl ReplInput for RustylineInput {
+    fn readline(&mut self, prompt: &str) -> Result<String, StdinError> {
+        match self.rl.readline(prompt) {
+            Ok(line) => Ok(line),
+            Err(ReadlineError::Eof) => Err(StdinError::Eof),
+            Err(ReadlineError::Interrupted) => Err(StdinError::Interrupted),
+            Err(e) => Err(StdinError::Other(e.to_string())),
+        }
+    }
+
+    fn add_history(&mut self, line: &str) {
+        let _ = self.rl.add_history_entry(line);
     }
 }
 

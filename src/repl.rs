@@ -7,7 +7,6 @@ use crate::vm::compiler::Compiler;
 use crate::vm::instruction::Instruction;
 use colored::Colorize;
 use once_cell::sync::Lazy;
-use rustyline::{DefaultEditor, error::ReadlineError};
 use std::collections::HashMap;
 
 use std::sync::Mutex;
@@ -180,33 +179,6 @@ pub fn stdin_readline(prompt: &str) -> Result<String, StdinError> {
 pub fn stdin_add_history(line: &str) {
     if let Some(r) = STDIN.lock().unwrap().as_mut() {
         r.add_history(line);
-    }
-}
-
-pub struct RustylineInput {
-    rl: DefaultEditor,
-}
-
-impl RustylineInput {
-    pub fn new() -> WqResult<Self> {
-        Ok(Self {
-            rl: DefaultEditor::new().map_err(|e| WqError::IoError(e.to_string()))?,
-        })
-    }
-}
-
-impl ReplInput for RustylineInput {
-    fn readline(&mut self, prompt: &str) -> Result<String, StdinError> {
-        match self.rl.readline(prompt) {
-            Ok(line) => Ok(line),
-            Err(ReadlineError::Eof) => Err(StdinError::Eof),
-            Err(ReadlineError::Interrupted) => Err(StdinError::Interrupted),
-            Err(e) => Err(StdinError::Other(e.to_string())),
-        }
-    }
-
-    fn add_history(&mut self, line: &str) {
-        let _ = self.rl.add_history_entry(line);
     }
 }
 
