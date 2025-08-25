@@ -7,11 +7,10 @@ use crate::vm::compiler::Compiler;
 use crate::vm::instruction::Instruction;
 use colored::Colorize;
 use once_cell::sync::Lazy;
-use rustyline::DefaultEditor;
+use rustyline::{DefaultEditor, error::ReadlineError};
 use std::collections::HashMap;
 
 use std::sync::Mutex;
-pub static RUSTYLINE: Lazy<Mutex<Option<DefaultEditor>>> = Lazy::new(|| Mutex::new(None));
 
 pub struct VmEvaluator {
     vm: Vm,
@@ -31,6 +30,7 @@ pub trait ReplEngine {
     fn get_environment(&self) -> Option<&std::collections::HashMap<String, Value>>;
     fn clear_environment(&mut self);
     fn env_vars(&self) -> &std::collections::HashMap<String, Value>;
+    fn set_stdin(&mut self, stdin: Box<dyn ReplInput>);
 }
 
 impl ReplEngine for VmEvaluator {
@@ -51,6 +51,10 @@ impl ReplEngine for VmEvaluator {
     }
     fn env_vars(&self) -> &std::collections::HashMap<String, Value> {
         self.environment()
+    }
+
+    fn set_stdin(&mut self, stdin: Box<dyn ReplInput>) {
+        set_stdin(stdin);
     }
 }
 
@@ -131,6 +135,78 @@ impl VmEvaluator {
     /// Mutable access to the environment.
     pub fn environment_mut(&mut self) -> &mut HashMap<String, Value> {
         self.vm.global_env_mut()
+    }
+}
+
+#[derive(Debug)]
+pub enum StdinError {
+    Interrupted,
+    Eof,
+    Other(String),
+}
+
+impl std::fmt::Display for StdinError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StdinError::Interrupted => write!(f, "Input interrupted"),
+            StdinError::Eof => write!(f, "End of File"),
+            StdinError::Other(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for StdinError {}
+
+pub trait ReplInput: Send {
+    fn readline(&mut self, prompt: &str) -> Result<String, StdinError>;
+    fn add_history(&mut self, _line: &str) {}
+}
+
+pub static STDIN: Lazy<Mutex<Option<Box<dyn ReplInput>>>> = Lazy::new(|| Mutex::new(None));
+
+pub fn set_stdin(reader: Box<dyn ReplInput>) {
+    *STDIN.lock().unwrap() = Some(reader);
+}
+
+pub fn stdin_readline(prompt: &str) -> Result<String, StdinError> {
+    let mut guard = STDIN.lock().unwrap();
+    if let Some(r) = guard.as_mut() {
+        r.readline(prompt)
+    } else {
+        Err(StdinError::Other("Stdin not initialized".into()))
+    }
+}
+
+pub fn stdin_add_history(line: &str) {
+    if let Some(r) = STDIN.lock().unwrap().as_mut() {
+        r.add_history(line);
+    }
+}
+
+pub struct RustylineInput {
+    rl: DefaultEditor,
+}
+
+impl RustylineInput {
+    pub fn new() -> WqResult<Self> {
+        Ok(Self {
+            rl: DefaultEditor::new().map_err(|e| WqError::IoError(e.to_string()))?,
+        })
+    }
+}
+
+impl ReplInput for RustylineInput {
+    fn readline(&mut self, prompt: &str) -> Result<String, StdinError> {
+        match self.rl.readline(prompt) {
+            Ok(line) => Ok(line),
+            Err(ReadlineError::Eof) => Err(StdinError::Eof),
+            Err(ReadlineError::Interrupted) => Err(StdinError::Interrupted),
+            Err(e) => Err(StdinError::Other(e.to_string())),
+        }
+    }
+
+    fn add_history(&mut self, line: &str) {
+        let _ = self.rl.add_history_entry(line);
     }
 }
 

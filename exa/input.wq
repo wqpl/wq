@@ -1,0 +1,3 @@
+// EXCLUDE
+a:input("hi")
+echo a

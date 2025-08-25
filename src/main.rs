@@ -1,16 +1,15 @@
-use wq::apps::formatter::{FormatOptions, Formatter};
-use wq::builtins_help;
-use wq::helpers::string_helpers::create_boxed_text;
-use wq::repl::{RUSTYLINE, ReplEngine, VmEvaluator};
-
-use rustyline::DefaultEditor;
-use rustyline::error::ReadlineError;
 use std::env;
 use std::fs;
 use std::io::{Write, stdout};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use wq::apps::formatter::{FormatOptions, Formatter};
+use wq::builtins_help;
+use wq::helpers::string_helpers::create_boxed_text;
+use wq::repl::{
+    ReplEngine, RustylineInput, StdinError, VmEvaluator, stdin_add_history, stdin_readline,
+};
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -87,12 +86,7 @@ fn main() {
     let mut evaluator: Box<dyn ReplEngine> = Box::new(VmEvaluator::new());
 
     evaluator.set_debug(debug_mode);
-    {
-        let mut guard = RUSTYLINE.lock().unwrap();
-        if guard.is_none() {
-            *guard = Some(DefaultEditor::new().unwrap());
-        }
-    }
+    evaluator.set_stdin(Box::new(RustylineInput::new().unwrap()));
     let mut line_number = 1;
     let mut buffer = String::new();
 
@@ -114,16 +108,12 @@ fn main() {
         };
 
         // Read input
-        let readline = {
-            let mut guard = RUSTYLINE.lock().unwrap();
-            guard.as_mut().unwrap().readline(&prompt)
-        };
+        let readline = stdin_readline(&prompt);
         match readline {
             Ok(line) => {
                 let input = line.trim_end();
                 if !input.is_empty() {
-                    let mut guard = RUSTYLINE.lock().unwrap();
-                    guard.as_mut().unwrap().add_history_entry(input).unwrap();
+                    stdin_add_history(input);
                 }
 
                 // Handle repl commands only if buffer is empty
@@ -369,10 +359,7 @@ fn main() {
                     }
                 }
             }
-            Err(ReadlineError::Interrupted) => {
-                continue;
-            }
-            Err(ReadlineError::Eof) => {
+            Err(StdinError::Eof) => {
                 let mut rng = rand::rng();
                 if rng.random_bool(0.006666f64) {
                     print!("{}", "\u{258D} ".cyan());
@@ -390,7 +377,10 @@ fn main() {
                 }
                 break;
             }
-            Err(error) => {
+            Err(StdinError::Interrupted) => {
+                continue;
+            }
+            Err(StdinError::Other(error)) => {
                 system_msg_printer::stderr(
                     format!("Error reading input: {error}"),
                     system_msg_printer::MsgType::Error,
@@ -414,6 +404,7 @@ fn exec_script(path: &String, debug: bool) {
     };
     let mut vm = VmEvaluator::new();
     vm.set_debug(debug);
+    vm.set_stdin(Box::new(RustylineInput::new().unwrap()));
     match vm.eval_string(&src) {
         Ok(_) => {
             //if val != Value::Null {
