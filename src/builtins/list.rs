@@ -7,7 +7,9 @@ use crate::{
 };
 
 fn iota_dims(dims: &[usize], next: &mut i64) -> Value {
-    if dims.len() == 1 {
+    if dims.is_empty() {
+        Value::IntList(Vec::new())
+    } else if dims.len() == 1 {
         let mut out = Vec::with_capacity(dims[0]);
         for _ in 0..dims[0] {
             out.push(*next);
@@ -47,24 +49,31 @@ fn iota_shape(shape: &Value) -> WqResult<Value> {
                     "til length must be non-negative".to_string(),
                 ));
             }
+            if dims.is_empty() {
+                return Ok(Value::IntList(Vec::new()));
+            }
             let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
             let mut next = 0i64;
             Ok(iota_dims(&dims, &mut next))
         }
         Value::List(items) => {
             if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
-                let dims: Vec<usize> = items
-                    .iter()
-                    .map(|v| {
-                        if let Value::Int(n) = v {
-                            *n as usize
-                        } else {
-                            unreachable!()
-                        }
-                    })
-                    .collect();
-                let mut next = 0i64;
-                Ok(iota_dims(&dims, &mut next))
+                if items.is_empty() {
+                    Ok(Value::IntList(Vec::new()))
+                } else {
+                    let dims: Vec<usize> = items
+                        .iter()
+                        .map(|v| {
+                            if let Value::Int(n) = v {
+                                *n as usize
+                            } else {
+                                unreachable!()
+                            }
+                        })
+                        .collect();
+                    let mut next = 0i64;
+                    Ok(iota_dims(&dims, &mut next))
+                }
             } else {
                 let mut out = Vec::with_capacity(items.len());
                 for v in items {
@@ -871,6 +880,14 @@ pub fn find(args: &[Value]) -> WqResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn iota_empty_shape() {
+        assert_eq!(
+            iota(&[Value::List(vec![])]).unwrap(),
+            Value::IntList(vec![])
+        );
+    }
 
     #[test]
     fn in_list_with_value() {
