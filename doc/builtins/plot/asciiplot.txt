@@ -3,5 +3,5 @@ asciiplot
 asciiplot[<numeric list | list of 2-element numeric lists>+]
 
 Examples:
-  asciiplot til 14               // dx = 1
+  asciiplot iota 14              // dx = 1
   asciiplot((0;0);(1;1);(2;4))

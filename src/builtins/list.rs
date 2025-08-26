@@ -1,8 +1,7 @@
 use std::cmp::Ordering;
-
 use super::arity_error;
 use crate::{
-    builtins::TIL_CACHE,
+    builtins::IOTA_CACHE,
     value::{Value, WqError, WqResult},
 };
 
@@ -30,10 +29,10 @@ fn iota_shape(shape: &Value) -> WqResult<Value> {
         Value::Int(n) => {
             if *n < 0 {
                 Err(WqError::TypeError(
-                    "til expects non-negative integer".into(),
+                    "iota expects non-negative integer".into(),
                 ))
             } else {
-                let mut cache = TIL_CACHE.lock().unwrap();
+                let mut cache = IOTA_CACHE.lock().unwrap();
                 if let Some(v) = cache.get(n) {
                     return Ok(v.clone());
                 }
@@ -46,11 +45,11 @@ fn iota_shape(shape: &Value) -> WqResult<Value> {
         Value::IntList(dims) => {
             if dims.iter().any(|&d| d < 0) {
                 return Err(WqError::DomainError(
-                    "til length must be non-negative".to_string(),
+                    "iota length must be non-negative".to_string(),
                 ));
             }
             if dims.is_empty() {
-                return Ok(Value::IntList(Vec::new()));
+                return Ok(Value::Int(0));
             }
             let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
             let mut next = 0i64;
@@ -59,7 +58,7 @@ fn iota_shape(shape: &Value) -> WqResult<Value> {
         Value::List(items) => {
             if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
                 if items.is_empty() {
-                    Ok(Value::IntList(Vec::new()))
+                    Ok(Value::Int(0))
                 } else {
                     let dims: Vec<usize> = items
                         .iter()
@@ -82,13 +81,13 @@ fn iota_shape(shape: &Value) -> WqResult<Value> {
                 Ok(Value::List(out))
             }
         }
-        _ => Err(WqError::TypeError("til expects an integer shape".into())),
+        _ => Err(WqError::TypeError("iota expects an integer shape".into())),
     }
 }
 
 pub fn iota(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("til", "1 argument", args.len()));
+        return Err(arity_error("iota", "1 argument", args.len()));
     }
     iota_shape(&args[0])
 }
@@ -771,11 +770,15 @@ fn shape_value(v: &Value) -> WqResult<Value> {
     }
 
     match shape_vec(v) {
-        Some(dims) => match dims.as_slice() {
-            [] => Ok(Value::Int(0)),
-            [d] => Ok(Value::Int(*d)),
-            _ => Ok(Value::IntList(dims)),
-        },
+        Some(dims) => {
+            if dims.is_empty() {
+                Ok(Value::IntList(vec![]))
+            } else if dims.len() == 1 {
+                Ok(Value::Int(dims[0]))
+            } else {
+                Ok(Value::IntList(dims))
+            }
+        }
         None => Ok(Value::Int(v.len() as i64)),
     }
 }
@@ -883,10 +886,17 @@ mod tests {
 
     #[test]
     fn iota_empty_shape() {
-        assert_eq!(
-            iota(&[Value::List(vec![])]).unwrap(),
-            Value::IntList(vec![])
-        );
+        assert_eq!(iota(&[Value::List(vec![])]).unwrap(), Value::Int(0));
+    }
+
+    #[test]
+    fn shape_scalar() {
+        assert_eq!(shape(&[Value::Int(42)]).unwrap(), Value::IntList(vec![]));
+    }
+
+    #[test]
+    fn iota_zero() {
+        assert_eq!(iota(&[Value::Int(0)]).unwrap(), Value::IntList(vec![]));
     }
 
     #[test]
@@ -951,8 +961,8 @@ mod tests {
 
     #[test]
     fn shape_atoms_and_empty() {
-        assert_eq!(shape(&[Value::Int(5)]).unwrap(), Value::Int(0));
-        assert_eq!(shape(&[Value::Char('a')]).unwrap(), Value::Int(0));
+        assert_eq!(shape(&[Value::Int(5)]).unwrap(), Value::IntList(vec![]));
+        assert_eq!(shape(&[Value::Char('a')]).unwrap(), Value::IntList(vec![]));
         assert_eq!(shape(&[Value::List(vec![])]).unwrap(), Value::Int(0));
     }
 

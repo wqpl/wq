@@ -15,7 +15,7 @@ mod string;
 mod system;
 mod type_builtins;
 
-static TIL_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static IOTA_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn arity_error(func: &str, expected: &str, got: usize) -> WqError {
     WqError::ArityError(format!("{func} expects {expected}, got {got}"))

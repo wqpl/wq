@@ -1,3 +1,7 @@
 shape
 =====
 shape x
+
+Examples:
+  shape 42   // ()
+  shape ()   // 0
