@@ -4,7 +4,7 @@ pub mod builtins_help;
 pub mod helpers;
 pub mod lexer;
 pub mod parser;
-pub mod platform;
+pub mod platforms;
 pub mod post_parser;
 pub mod repl;
 pub mod value;

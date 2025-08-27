@@ -3,27 +3,24 @@
 use crate::apps::formatter::{FormatOptions, Formatter};
 use crate::builtins_help;
 use crate::helpers::string_helpers::create_boxed_text;
-use crate::platform::native::load_resolver::{parse_load_filename, repl_load_script};
 use crate::repl::ReplStdin;
 use crate::repl::{ReplEngine, StdinError, VmEvaluator, stdin_add_history, stdin_readline};
+use crate::value::WqError;
 use crate::value::WqResult;
+use crate::value::box_mode;
+use colored::Colorize;
+use load_resolver::{parse_load_filename, repl_load_script};
+use rand::Rng;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io::{Write, stdout};
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
-
-use crate::value::WqError;
-use crate::value::box_mode;
-
-use colored::Colorize;
-use rand::Rng;
 
 pub fn start() {
     let args = env::args().skip(1);
@@ -83,7 +80,7 @@ pub fn start() {
     println!(
         "{} {}",
         format!("wq {} (c) tttiw (l) mit", env!("CARGO_PKG_VERSION")).magenta(),
-        "help | quit".green()
+        "| help quit".green()
     );
 
     let mut evaluator: Box<dyn ReplEngine> = Box::new(VmEvaluator::new());
