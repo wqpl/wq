@@ -4,9 +4,11 @@
 # cargo
 /target
 
+# editors
+/.zed
+
 # tools
 /.ropeproject
-/.ruff_cache
 
 # others
 /drafts
