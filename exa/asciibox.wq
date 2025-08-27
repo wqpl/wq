@@ -1,7 +1,7 @@
 load list.wq
 
 ascii_box:{[path]r:@t open[path; "r"];$.[r[1]=0;fh:r[0];lines:"";line:freadtln fh
-  W[not null? line;lines:lines,(,string line);line:freadtln fh];fclose fh]
+  W[not null? line;lines:lines,(,str line);line:freadtln fh];fclose fh]
   $.[r[1]~0;echo r[0]];maxlen:0;i:0
   N[count lines;len:count lines[i];$.[len>maxlen;maxlen:len];i:i+1]
   pad:1;width:maxlen+pad*2;border:"+",repeat["-"; width],"+";echo border;i: 0

@@ -1,6 +1,6 @@
 core
 ====
-hash    match?
+chr     echo    exec    hash    input   match?  ord
 
 dict
 ====
@@ -13,9 +13,9 @@ encode    fexists?  freadt    fseek     ftell     fwritet   open
 
 list
 ====
-alloc     count     find      idx       last      shape     take
-avg       distinct  first     in        range     sort      where
-cat       drop      flatten   iota      reverse   sum
+alloc    count    first    in       range    sort     uniq
+avg      drop     flatten  iota     reverse  sum      where
+cat      find     idx      last     shape    take
 
 logical
 =======
@@ -23,23 +23,19 @@ and   band  bnot  bor   bxor  not   or    shl   shr   xor
 
 math
 ====
-abs      arctan   cos      floor    min      signum   sqrt
-arccos   bin      cosh     ln       neg      sin      tan
-arcsin   ceiling  exp      max      rand     sinh     tanh
+abs     arctan  cos     floor   max     rand    sinh    tanh
+arccos  bin     cosh    hex     min     signum  sqrt
+arcsin  ceil    exp     ln      neg     sin     tan
 
-plot
-====
-asciiplot
-
-string
-======
-format
-
-system
-======
-echo   exec   input  showt
+str
+===
+fmt  str
 
 type
 ====
-chr     hex     null?   ord     string  symbol  type    typev
+null?   symbol  type    typev
+
+viz
+===
+asciiplot  showt
 

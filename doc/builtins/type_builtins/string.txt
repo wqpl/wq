@@ -1,6 +1,0 @@
-string
-======
-string x
-
-Examples:
-  string 42 // "42"

@@ -1,9 +1,9 @@
-use std::cmp::Ordering;
 use super::arity_error;
 use crate::{
     builtins::IOTA_CACHE,
     value::{Value, WqError, WqResult},
 };
+use std::cmp::Ordering;
 
 fn iota_dims(dims: &[usize], next: &mut i64) -> Value {
     if dims.is_empty() {
@@ -472,7 +472,7 @@ pub fn drop(args: &[Value]) -> WqResult<Value> {
     }
 }
 
-pub fn where_func(args: &[Value]) -> WqResult<Value> {
+pub fn wq_where(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(arity_error("where", "1 argument", args.len()));
     }
@@ -517,9 +517,9 @@ pub fn where_func(args: &[Value]) -> WqResult<Value> {
     }
 }
 
-pub fn distinct(args: &[Value]) -> WqResult<Value> {
+pub fn uniq(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("distinct", "1 argument", args.len()));
+        return Err(arity_error("uniq", "1 argument", args.len()));
     }
     match &args[0] {
         Value::List(items) => {
@@ -541,7 +541,7 @@ pub fn distinct(args: &[Value]) -> WqResult<Value> {
             Ok(Value::IntList(seen))
         }
         _ => Err(WqError::TypeError(format!(
-            "distinct expects a list, got {}",
+            "uniq expects a list, got {}",
             args[0].type_name_verbose()
         ))),
     }
@@ -829,7 +829,7 @@ pub fn idx(args: &[Value]) -> WqResult<Value> {
     }
 }
 
-pub fn in_list(args: &[Value]) -> WqResult<Value> {
+pub fn wq_in(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
         return Err(arity_error("in", "2 arguments", args.len()));
     }
@@ -903,20 +903,20 @@ mod tests {
     fn in_list_with_value() {
         let lst = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
         assert_eq!(
-            in_list(&[Value::Int(2), lst.clone()]).unwrap(),
+            wq_in(&[Value::Int(2), lst.clone()]).unwrap(),
             Value::Bool(true)
         );
-        assert_eq!(in_list(&[Value::Int(4), lst]).unwrap(), Value::Bool(false));
+        assert_eq!(wq_in(&[Value::Int(4), lst]).unwrap(), Value::Bool(false));
     }
 
     #[test]
     fn in_int_list() {
         let lst = Value::IntList(vec![1, 2, 3]);
         assert_eq!(
-            in_list(&[Value::Int(2), lst.clone()]).unwrap(),
+            wq_in(&[Value::Int(2), lst.clone()]).unwrap(),
             Value::Bool(true)
         );
-        assert_eq!(in_list(&[Value::Int(4), lst]).unwrap(), Value::Bool(false));
+        assert_eq!(wq_in(&[Value::Int(4), lst]).unwrap(), Value::Bool(false));
     }
 
     #[test]

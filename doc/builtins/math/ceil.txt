@@ -1,0 +1,7 @@
+ceil
+====
+ceil x
+
+Examples:
+  ceil 2.2    // 3
+  ceil(-2.2)  // -2

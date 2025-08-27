@@ -1,71 +1,7 @@
-use std::io::{Write, stdout};
-use std::process::Command;
-
 use super::arity_error;
-use crate::{
-    builtins::{value_to_string, values_to_strings},
-    repl::{StdinError, stdin_readline},
-    value::{Value, WqError, WqResult},
-};
-
-pub fn echo(args: &[Value]) -> WqResult<Value> {
-    fn print_value(value: &Value, newline: bool) {
-        match value {
-            Value::List(items) if items.iter().all(|v| matches!(v, Value::Char(_))) => {
-                let s: String = items
-                    .iter()
-                    .map(|v| {
-                        if let Value::Char(c) = v {
-                            *c
-                        } else {
-                            unreachable!()
-                        }
-                    })
-                    .collect();
-                if newline {
-                    println!("{s}");
-                } else {
-                    print!("{s}");
-                    let _ = stdout().flush();
-                }
-            }
-            Value::Char(c) => {
-                if newline {
-                    println!("{c}");
-                } else {
-                    print!("{c}");
-                    let _ = stdout().flush();
-                }
-            }
-            other => {
-                if newline {
-                    println!("{other}");
-                } else {
-                    print!("{other}");
-                    let _ = stdout().flush();
-                }
-            }
-        }
-    }
-
-    if args.is_empty() {
-        println!();
-        return Ok(Value::Null);
-    }
-
-    if args.len() == 2 {
-        if let Value::Bool(b) = args[1] {
-            print_value(&args[0], b);
-            return Ok(Value::Null);
-        }
-    }
-
-    for arg in args {
-        print_value(arg, true);
-    }
-
-    Ok(Value::Null)
-}
+use crate::value::{Value, WqError, WqResult};
+use rgb::RGB8;
+use textplots::{Chart, ColorPlot, Plot, Shape};
 
 pub mod show_table {
 
@@ -283,93 +219,108 @@ pub mod show_table {
     }
 }
 
-pub fn input(args: &[Value]) -> WqResult<Value> {
-    if args.len() > 1 {
-        return Err(arity_error("input", "0 or 1 argument", args.len()));
-    }
-
-    let prompt = if args.len() == 1 {
-        value_to_string(&args[0])?
-    } else {
-        String::new()
-    };
-
-    match stdin_readline(&prompt) {
-        Ok(line) => Ok(Value::List(line.chars().map(Value::Char).collect())),
-        Err(StdinError::Eof) => Ok(Value::Null),
-        Err(StdinError::Interrupted) => Err(WqError::IoError("Input interrupted".into())),
-        Err(StdinError::Other(e)) => Err(WqError::IoError(e)),
-    }
-}
-
-pub fn exec(args: &[Value]) -> WqResult<Value> {
+pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqError::DomainError(format!(
-            "exec expects at least 1 argument, got {}",
-            args.len()
-        )));
+        return Err(arity_error(
+            "asciiplot",
+            "at least one argument",
+            args.len(),
+        ));
     }
-    let parts = values_to_strings(args)?;
 
-    #[cfg(windows)]
-    let output = {
-        let command = parts
-            .iter()
-            .map(|p| {
-                if p.contains(char::is_whitespace) {
-                    let escaped = p.replace("'", "''");
-                    format!("'{escaped}'")
-                } else {
-                    p.clone()
+    let mut all_series = Vec::with_capacity(args.len());
+    for arg in args {
+        let series: Vec<(f32, f32)> =
+            match arg {
+                Value::IntList(arr) if !arr.is_empty() => arr
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &y)| (i as f32, y as f32))
+                    .collect(),
+                Value::List(items)
+                    if items.iter().all(|it| {
+                        if let Value::List(pair) = it {
+                            pair.len() == 2
+                                && pair[0].to_float().is_some()
+                                && pair[1].to_float().is_some()
+                        } else {
+                            false
+                        }
+                    }) =>
+                {
+                    items
+                        .iter()
+                        .map(|it| {
+                            let pair = if let Value::List(pair) = it {
+                                pair
+                            } else {
+                                unreachable!()
+                            };
+                            let x = pair[0].to_float().unwrap() as f32;
+                            let y = pair[1].to_float().unwrap() as f32;
+                            (x, y)
+                        })
+                        .collect()
                 }
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        Command::new("powershell")
-            .arg("-NoLogo")
-            .arg("-NoProfile")
-            .arg("-Command")
-            .arg(&command)
-            .output()
-            .map_err(|e| WqError::RuntimeError(e.to_string()))?
-    };
-
-    #[cfg(not(windows))]
-    let output = {
-        if parts.len() == 1 && parts[0].contains(char::is_whitespace) {
-            Command::new("sh")
-                .arg("-c")
-                .arg(&parts[0])
-                .output()
-                .map_err(|e| WqError::RuntimeError(e.to_string()))?
-        } else {
-            let mut cmd = Command::new(&parts[0]);
-            if parts.len() > 1 {
-                cmd.args(&parts[1..]);
-            }
-            cmd.output()
-                .map_err(|e| WqError::RuntimeError(e.to_string()))?
-        }
-    };
-
-    if !output.status.success() {
-        let code = output
-            .status
-            .code()
-            .map(|c| c.to_string())
-            .unwrap_or_else(|| "unknown".into());
-        return Err(WqError::RuntimeError(format!("exec failed (exit {code})")));
+                Value::List(items)
+                    if items.iter().all(|v| v.to_float().is_some()) && !items.is_empty() =>
+                {
+                    items
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| (i as f32, v.to_float().unwrap() as f32))
+                        .collect()
+                }
+                _ => return Err(WqError::TypeError(
+                    "each argument must be a list of numbers or a list of 2‑element numeric lists"
+                        .into(),
+                )),
+            };
+        all_series.push(series);
     }
-    // decode
-    let text = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<Value> = text
-        .lines()
-        .map(|line| {
-            let chars = line.chars().map(Value::Char).collect();
-            Value::List(chars)
-        })
+
+    let xmin = all_series
+        .iter()
+        .flat_map(|s| s.iter().map(|&(x, _)| x))
+        .fold(f32::INFINITY, f32::min);
+    let xmax = all_series
+        .iter()
+        .flat_map(|s| s.iter().map(|&(x, _)| x))
+        .fold(f32::NEG_INFINITY, f32::max);
+
+    let shapes: Vec<Shape<'_>> = all_series
+        .iter()
+        .map(|series| Shape::Lines(series.as_slice()))
         .collect();
 
-    Ok(Value::List(lines))
+    let palette = [
+        RGB8 { r: 255, g: 0, b: 0 }, // red
+        RGB8 { r: 0, g: 255, b: 0 }, // green
+        RGB8 { r: 0, g: 0, b: 255 }, // blue
+        RGB8 {
+            r: 255,
+            g: 255,
+            b: 0,
+        }, // yellow
+        RGB8 {
+            r: 255,
+            g: 0,
+            b: 255,
+        }, // magenta
+    ];
+
+    let mut chart = Chart::new(100, 100, xmin, xmax);
+    let mut chart_ref: &mut Chart = &mut chart;
+    for (i, shape) in shapes.iter().enumerate() {
+        if i == 0 {
+            chart_ref = chart_ref.lineplot(shape);
+        } else {
+            let color = palette[(i - 1) % palette.len()];
+            chart_ref = chart_ref.linecolorplot(shape, color);
+        }
+    }
+
+    chart_ref.display();
+
+    Ok(Value::Null)
 }

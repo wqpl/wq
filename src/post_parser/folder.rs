@@ -14,7 +14,11 @@ pub fn fold(node: AstNode) -> AstNode {
             }
             UnaryOp { operator, operand }
         }
-        BinaryOp { left, operator, right } => {
+        BinaryOp {
+            left,
+            operator,
+            right,
+        } => {
             let left = Box::new(fold(*left));
             let right = Box::new(fold(*right));
             if let (Literal(lv), Literal(rv)) = (&*left, &*right) {
@@ -22,7 +26,11 @@ pub fn fold(node: AstNode) -> AstNode {
                     return Literal(res);
                 }
             }
-            BinaryOp { left, operator, right }
+            BinaryOp {
+                left,
+                operator,
+                right,
+            }
         }
         List(items) => {
             let items: Vec<AstNode> = items.into_iter().map(fold).collect();
@@ -36,7 +44,13 @@ pub fn fold(node: AstNode) -> AstNode {
                 if values.iter().all(|v| matches!(v, Value::Int(_))) {
                     let ints: Vec<i64> = values
                         .into_iter()
-                        .map(|v| if let Value::Int(i) = v { i } else { unreachable!() })
+                        .map(|v| {
+                            if let Value::Int(i) = v {
+                                i
+                            } else {
+                                unreachable!()
+                            }
+                        })
                         .collect();
                     Literal(Value::IntList(ints))
                 } else {
@@ -47,17 +61,19 @@ pub fn fold(node: AstNode) -> AstNode {
             }
         }
         Dict(pairs) => {
-            let pairs: Vec<(String, AstNode)> = pairs
-                .into_iter()
-                .map(|(k, v)| (k, fold(v)))
-                .collect();
+            let pairs: Vec<(String, AstNode)> =
+                pairs.into_iter().map(|(k, v)| (k, fold(v))).collect();
             Dict(pairs)
         }
         Assignment { name, value } => Assignment {
             name,
             value: Box::new(fold(*value)),
         },
-        Postfix { object, items, explicit_call } => Postfix {
+        Postfix {
+            object,
+            items,
+            explicit_call,
+        } => Postfix {
             object: Box::new(fold(*object)),
             items: items.into_iter().map(fold).collect(),
             explicit_call,
@@ -74,7 +90,11 @@ pub fn fold(node: AstNode) -> AstNode {
             object: Box::new(fold(*object)),
             index: Box::new(fold(*index)),
         },
-        IndexAssign { object, index, value } => IndexAssign {
+        IndexAssign {
+            object,
+            index,
+            value,
+        } => IndexAssign {
             object: Box::new(fold(*object)),
             index: Box::new(fold(*index)),
             value: Box::new(fold(*value)),
@@ -83,7 +103,11 @@ pub fn fold(node: AstNode) -> AstNode {
             params,
             body: Box::new(fold(*body)),
         },
-        Conditional { condition, true_branch, false_branch } => Conditional {
+        Conditional {
+            condition,
+            true_branch,
+            false_branch,
+        } => Conditional {
             condition: Box::new(fold(*condition)),
             true_branch: Box::new(fold(*true_branch)),
             false_branch: false_branch.map(|b| Box::new(fold(*b))),
@@ -166,12 +190,9 @@ mod tests {
             right: Box::new(l2),
         };
         let folded = fold(ast);
-        assert_eq!(
-            folded,
-            AstNode::Literal(Value::IntList(vec![4, 6, 8, 10]))
-        );
+        assert_eq!(folded, AstNode::Literal(Value::IntList(vec![4, 6, 8, 10])));
         if let AstNode::Literal(val) = folded {
-            assert_eq!(val.type_name_verbose(), "int-list");
+            assert_eq!(val.type_name_verbose(), "intlist");
         } else {
             panic!("expected literal");
         }

@@ -1,0 +1,6 @@
+str
+===
+str x
+
+Examples:
+  str 42 // "42"

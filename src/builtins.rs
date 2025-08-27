@@ -10,10 +10,9 @@ pub mod io;
 mod list;
 mod logical;
 mod math;
-mod plot;
-mod string;
-mod system;
+mod str;
 mod type_builtins;
+mod viz;
 
 static IOTA_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -54,8 +53,13 @@ impl Builtins {
         // Core
         self.add("match?", core::wq_match);
         self.add("hash", core::hash);
+        self.add("chr", core::chr);
+        self.add("ord", core::ord);
+        self.add("echo", core::echo);
+        self.add("exec", core::exec);
+        self.add("input", core::input);
 
-        // Arithmetic functions
+        // Arithmetic
         self.add("abs", math::abs);
         self.add("neg", math::neg);
         self.add("signum", math::signum);
@@ -63,7 +67,7 @@ impl Builtins {
         self.add("exp", math::exp);
         self.add("ln", math::ln);
         self.add("floor", math::floor);
-        self.add("ceiling", math::ceiling);
+        self.add("ceil", math::ceil);
         self.add("rand", math::rand);
         self.add("sin", math::sin);
         self.add("cos", math::cos);
@@ -77,7 +81,7 @@ impl Builtins {
         self.add("hex", math::hex);
         self.add("bin", math::bin);
 
-        // List functions
+        // List
         self.add("iota", list::iota);
         self.add("range", list::range);
         self.add("count", list::count);
@@ -90,8 +94,8 @@ impl Builtins {
         self.add("avg", list::avg);
         self.add("take", list::take);
         self.add("drop", list::drop);
-        self.add("where", list::where_func);
-        self.add("distinct", list::distinct);
+        self.add("where", list::wq_where);
+        self.add("uniq", list::uniq);
         self.add("sort", list::sort);
         self.add("cat", list::cat);
         self.add("flatten", list::flatten);
@@ -99,21 +103,22 @@ impl Builtins {
         self.add("alloc", list::alloc);
         self.add("idx", list::idx);
         self.add("find", list::find);
-        self.add("in", list::in_list);
+        self.add("in", list::wq_in);
 
-        // Type functions
+        // Type
         self.add("type", type_builtins::type_of_simple);
         self.add("typev", type_builtins::type_of_verbose);
         self.add("symbol", type_builtins::to_symbol);
-        self.add("string", type_builtins::to_string);
-        self.add("chr", type_builtins::chr);
-        self.add("ord", type_builtins::ord);
-        self.add("format", string::format_string);
         self.add("null?", type_builtins::is_null);
 
+        // String
+        self.add("fmt", str::fmt);
+        self.add("str", str::to_str);
+
+        // Dict
         self.add("keys", dict::keys);
 
-        // Logical and bitwise functions
+        // Logical & bitwise
         self.add("and", logical::and);
         self.add("or", logical::or);
         self.add("not", logical::not);
@@ -125,13 +130,7 @@ impl Builtins {
         self.add("shl", logical::shl);
         self.add("shr", logical::shr);
 
-        // System functions
-        self.add("echo", system::echo);
-        self.add("exec", system::exec);
-        self.add("showt", system::show_table::show_table);
-        self.add("input", system::input);
-
-        // IO functions
+        // IO
         self.add("open", io::open);
         self.add("fexists?", io::fexists);
         self.add("mkdir", io::mkdir);
@@ -147,8 +146,9 @@ impl Builtins {
         self.add("decode", io::decode);
         self.add("encode", io::encode);
 
-        // Plot functions
-        self.add("asciiplot", plot::asciiplot);
+        // Visualization
+        self.add("showt", viz::show_table::show_table);
+        self.add("asciiplot", viz::asciiplot);
     }
 
     pub fn call(&self, name: &str, args: &[Value]) -> WqResult<Value> {

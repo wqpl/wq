@@ -1,9 +1,163 @@
-use std::hash::{DefaultHasher, Hash, Hasher};
-
 use crate::{
-    builtins::arity_error,
+    builtins::{arity_error, value_to_string, values_to_strings},
+    repl::{StdinError, stdin_readline},
     value::{Value, WqError, WqResult},
 };
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    io::stdout,
+};
+use std::{io::Write, process::Command};
+
+pub fn echo(args: &[Value]) -> WqResult<Value> {
+    fn print_value(value: &Value, newline: bool) {
+        match value {
+            Value::List(items) if items.iter().all(|v| matches!(v, Value::Char(_))) => {
+                let s: String = items
+                    .iter()
+                    .map(|v| {
+                        if let Value::Char(c) = v {
+                            *c
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect();
+                if newline {
+                    println!("{s}");
+                } else {
+                    print!("{s}");
+                    let _ = stdout().flush();
+                }
+            }
+            Value::Char(c) => {
+                if newline {
+                    println!("{c}");
+                } else {
+                    print!("{c}");
+                    let _ = stdout().flush();
+                }
+            }
+            other => {
+                if newline {
+                    println!("{other}");
+                } else {
+                    print!("{other}");
+                    let _ = stdout().flush();
+                }
+            }
+        }
+    }
+
+    if args.is_empty() {
+        println!();
+        return Ok(Value::Null);
+    }
+
+    if args.len() == 2 {
+        if let Value::Bool(b) = args[1] {
+            print_value(&args[0], b);
+            return Ok(Value::Null);
+        }
+    }
+
+    for arg in args {
+        print_value(arg, true);
+    }
+
+    Ok(Value::Null)
+}
+
+pub fn input(args: &[Value]) -> WqResult<Value> {
+    if args.len() > 1 {
+        return Err(arity_error("input", "0 or 1 argument", args.len()));
+    }
+
+    let prompt = if args.len() == 1 {
+        value_to_string(&args[0])?
+    } else {
+        String::new()
+    };
+
+    match stdin_readline(&prompt) {
+        Ok(line) => Ok(Value::List(line.chars().map(Value::Char).collect())),
+        Err(StdinError::Eof) => Ok(Value::Null),
+        Err(StdinError::Interrupted) => Err(WqError::IoError("Input interrupted".into())),
+        Err(StdinError::Other(e)) => Err(WqError::IoError(e)),
+    }
+}
+
+pub fn exec(args: &[Value]) -> WqResult<Value> {
+    if args.is_empty() {
+        return Err(WqError::DomainError(format!(
+            "exec expects at least 1 argument, got {}",
+            args.len()
+        )));
+    }
+    let parts = values_to_strings(args)?;
+
+    #[cfg(windows)]
+    let output = {
+        let command = parts
+            .iter()
+            .map(|p| {
+                if p.contains(char::is_whitespace) {
+                    let escaped = p.replace("'", "''");
+                    format!("'{escaped}'")
+                } else {
+                    p.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        Command::new("powershell")
+            .arg("-NoLogo")
+            .arg("-NoProfile")
+            .arg("-Command")
+            .arg(&command)
+            .output()
+            .map_err(|e| WqError::RuntimeError(e.to_string()))?
+    };
+
+    #[cfg(all(not(windows), not(target_arch = "wasm32")))]
+    let output = {
+        if parts.len() == 1 && parts[0].contains(char::is_whitespace) {
+            Command::new("sh")
+                .arg("-c")
+                .arg(&parts[0])
+                .output()
+                .map_err(|e| WqError::RuntimeError(e.to_string()))?
+        } else {
+            let mut cmd = Command::new(&parts[0]);
+            if parts.len() > 1 {
+                cmd.args(&parts[1..]);
+            }
+            cmd.output()
+                .map_err(|e| WqError::RuntimeError(e.to_string()))?
+        }
+    };
+
+    if !output.status.success() {
+        let code = output
+            .status
+            .code()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "unknown".into());
+        return Err(WqError::RuntimeError(format!("exec failed (exit {code})")));
+    }
+    // decode
+    let text = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<Value> = text
+        .lines()
+        .map(|line| {
+            let chars = line.chars().map(Value::Char).collect();
+            Value::List(chars)
+        })
+        .collect();
+
+    Ok(Value::List(lines))
+}
 
 pub fn wq_match(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
@@ -14,6 +168,72 @@ pub fn wq_match(args: &[Value]) -> WqResult<Value> {
     let all_equal = args.iter().all(|x| x == first);
 
     Ok(Value::Bool(all_equal))
+}
+
+pub fn chr(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("chr", "1 argument", args.len()));
+    }
+    match &args[0] {
+        Value::Int(n) => {
+            let ch = char::from_u32(*n as u32)
+                .ok_or_else(|| WqError::DomainError("invalid char code".into()))?;
+            Ok(Value::Char(ch))
+        }
+        Value::IntList(items) => {
+            let mut out = Vec::new();
+            for &n in items {
+                let ch = char::from_u32(n as u32)
+                    .ok_or_else(|| WqError::DomainError("invalid char code".into()))?;
+                out.push(Value::Char(ch));
+            }
+            Ok(Value::List(out))
+        }
+        Value::List(items) => {
+            let mut out = Vec::new();
+            for v in items {
+                if let Value::Int(n) = v {
+                    let ch = char::from_u32(*n as u32)
+                        .ok_or_else(|| WqError::DomainError("invalid char code".into()))?;
+                    out.push(Value::Char(ch));
+                } else {
+                    return Err(WqError::TypeError(
+                        "chr expects integers or list of integers".to_string(),
+                    ));
+                }
+            }
+            Ok(Value::List(out))
+        }
+        _ => Err(WqError::TypeError("chr expects an integer".to_string())),
+    }
+}
+
+pub fn ord(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("ord", "1 argument", args.len()));
+    }
+
+    match &args[0] {
+        Value::Char(c) => Ok(Value::Int(*c as i64)),
+        Value::List(items) => {
+            let mut out = Vec::new();
+            for v in items {
+                match v {
+                    Value::Char(ch) => out.push(*ch as i64),
+                    _ => {
+                        return Err(WqError::TypeError(
+                            "ord expects characters or list of characters".to_string(),
+                        ));
+                    }
+                }
+            }
+            Ok(Value::IntList(out))
+        }
+        Value::Symbol(s) => Ok(Value::IntList(s.chars().map(|c| c as i64).collect())),
+        _ => Err(WqError::TypeError(
+            "ord expects a character or string".to_string(),
+        )),
+    }
 }
 
 trait TryHash {
@@ -98,4 +318,37 @@ pub fn hash(args: &[Value]) -> WqResult<Value> {
     let mut hasher = DefaultHasher::new();
     args[0].try_hash(&mut hasher)?;
     Ok(Value::Int(hasher.finish() as i64))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chr_single_int() {
+        let result = chr(&[Value::Int(65)]).unwrap();
+        assert_eq!(result, Value::Char('A'));
+    }
+
+    #[test]
+    fn chr_int_list() {
+        let result = chr(&[Value::IntList(vec![65, 66])]).unwrap();
+        assert_eq!(
+            result,
+            Value::List(vec![Value::Char('A'), Value::Char('B')])
+        );
+    }
+
+    #[test]
+    fn ord_single_char() {
+        let result = ord(&[Value::Char('A')]).unwrap();
+        assert_eq!(result, Value::Int(65));
+    }
+
+    #[test]
+    fn ord_char_list() {
+        let input = Value::List(vec![Value::Char('A'), Value::Char('B')]);
+        let result = ord(&[input]).unwrap();
+        assert_eq!(result, Value::IntList(vec![65, 66]));
+    }
 }

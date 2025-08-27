@@ -4,4 +4,4 @@ typev x
 
 Examples:
   type 1       // "int"
-  type (1;2;3) // "int-list"
+  type(1;2;3)  // "intlist"

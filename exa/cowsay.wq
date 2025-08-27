@@ -2,7 +2,7 @@ load list.wq
 
 cowsay:{[msg]border:repeat["-";#msg+2]
   echo (" ",border)
-  echo ("< ",string msg," >")
+  echo ("< ",str msg," >")
   echo (" ",border)
   echo "        \\   ^__^"
   echo "         \\  (oo)\\_______"

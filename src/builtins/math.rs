@@ -171,21 +171,20 @@ pub fn floor(args: &[Value]) -> WqResult<Value> {
     }
 }
 
-pub fn ceiling(args: &[Value]) -> WqResult<Value> {
+pub fn ceil(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("ceiling", "1 argument", args.len()));
+        return Err(arity_error("ceil", "1 argument", args.len()));
     }
 
     match &args[0] {
         Value::Int(n) => Ok(Value::Int(*n)),
         Value::Float(f) => Ok(Value::Int(f.ceil() as i64)),
         Value::List(items) => {
-            let result: WqResult<Vec<Value>> =
-                items.iter().map(|v| ceiling(&[v.clone()])).collect();
+            let result: WqResult<Vec<Value>> = items.iter().map(|v| ceil(&[v.clone()])).collect();
             Ok(Value::List(result?))
         }
         _ => Err(WqError::TypeError(format!(
-            "ceiling expects numbers, got {}",
+            "ceil expects numbers, got {}",
             args[0].type_name_verbose()
         ))),
     }

@@ -635,7 +635,7 @@ impl Vm {
                                 self.stack.push(Value::Int(items[idx]));
                             } else {
                                 return Err(WqError::IndexError(format!(
-                                    "Invalid index: attempted to access index {i} in int-list of len {}",
+                                    "Invalid index: attempted to access index {i} in intlist of len {}",
                                     items.len()
                                 )));
                             }
@@ -687,7 +687,7 @@ impl Vm {
                     match obj_name {
                         Value::Symbol(name) => match self.globals.get_mut(&name) {
                             Some(obj) => {
-                                // Fast path: int-list/list with int index
+                                // Fast path: intlist/list with int index
                                 match (&mut *obj, &idx, &val) {
                                     (Value::IntList(items), Value::Int(i), Value::Int(v)) => {
                                         let len = items.len() as i64;
@@ -1104,7 +1104,7 @@ impl Vm {
                                         self.stack.push(Value::Int(items[idx]));
                                     } else {
                                         return Err(WqError::IndexError(format!(
-                                            "Invalid index: attempted to access index {i} in int-list of len {}",
+                                            "Invalid index: attempted to access index {i} in intlist of len {}",
                                             items.len()
                                         )));
                                     }
