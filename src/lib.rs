@@ -8,3 +8,4 @@ pub mod post_parser;
 pub mod repl;
 pub mod value;
 pub mod vm;
+pub mod wasm;

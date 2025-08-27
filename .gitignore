@@ -1,7 +1,17 @@
+# macos
+/.DS_Store
+
+# cargo
 /target
+
+# tools
 /.ropeproject
 /.ruff_cache
-/.DS_Store
+
+# editors
+/.zed
+
+# others
 /drafts
 /exa/gen
 /exa/lock

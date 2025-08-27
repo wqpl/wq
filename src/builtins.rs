@@ -56,6 +56,7 @@ impl Builtins {
         self.add("chr", core::chr);
         self.add("ord", core::ord);
         self.add("echo", core::echo);
+        #[cfg(not(target_arch = "wasm32"))]
         self.add("exec", core::exec);
         self.add("input", core::input);
 

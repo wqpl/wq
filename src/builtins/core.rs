@@ -1,13 +1,11 @@
 use crate::{
-    builtins::{arity_error, value_to_string, values_to_strings},
-    repl::{StdinError, stdin_readline},
+    builtins::{arity_error, value_to_string},
+    repl::{StdinError, stdin_readline, stdout_print, stdout_println},
     value::{Value, WqError, WqResult},
 };
-use std::{
-    hash::{DefaultHasher, Hash, Hasher},
-    io::stdout,
-};
-use std::{io::Write, process::Command};
+use std::hash::{DefaultHasher, Hash, Hasher};
+#[cfg(not(target_arch = "wasm32"))]
+use std::process::Command;
 
 pub fn echo(args: &[Value]) -> WqResult<Value> {
     fn print_value(value: &Value, newline: bool) {
@@ -24,26 +22,25 @@ pub fn echo(args: &[Value]) -> WqResult<Value> {
                     })
                     .collect();
                 if newline {
-                    println!("{s}");
+                    stdout_println(&s);
                 } else {
-                    print!("{s}");
-                    let _ = stdout().flush();
+                    stdout_print(&s);
                 }
             }
             Value::Char(c) => {
+                let s = c.to_string();
                 if newline {
-                    println!("{c}");
+                    stdout_println(&s);
                 } else {
-                    print!("{c}");
-                    let _ = stdout().flush();
+                    stdout_print(&s);
                 }
             }
             other => {
+                let s = other.to_string();
                 if newline {
-                    println!("{other}");
+                    stdout_println(&s);
                 } else {
-                    print!("{other}");
-                    let _ = stdout().flush();
+                    stdout_print(&s);
                 }
             }
         }
@@ -87,7 +84,9 @@ pub fn input(args: &[Value]) -> WqResult<Value> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn exec(args: &[Value]) -> WqResult<Value> {
+    use crate::builtins::values_to_strings;
     if args.is_empty() {
         return Err(WqError::DomainError(format!(
             "exec expects at least 1 argument, got {}",
@@ -120,7 +119,7 @@ pub fn exec(args: &[Value]) -> WqResult<Value> {
             .map_err(|e| WqError::RuntimeError(e.to_string()))?
     };
 
-    #[cfg(all(not(windows), not(target_arch = "wasm32")))]
+    #[cfg(not(windows))]
     let output = {
         if parts.len() == 1 && parts[0].contains(char::is_whitespace) {
             Command::new("sh")
@@ -138,6 +137,7 @@ pub fn exec(args: &[Value]) -> WqResult<Value> {
         }
     };
 
+    // shared logic
     if !output.status.success() {
         let code = output
             .status

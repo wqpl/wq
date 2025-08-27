@@ -1,5 +1,8 @@
 use super::arity_error;
-use crate::value::{Value, WqError, WqResult};
+use crate::{
+    repl::stdout_println,
+    value::{Value, WqError, WqResult},
+};
 use rgb::RGB8;
 use textplots::{Chart, ColorPlot, Plot, Shape};
 
@@ -320,7 +323,10 @@ pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
         }
     }
 
-    chart_ref.display();
+    // chart_ref.display();
+    chart_ref.axis();
+    chart_ref.figures();
+    stdout_println(chart_ref.to_string().as_str());
 
     Ok(Value::Null)
 }

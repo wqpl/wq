@@ -9,7 +9,7 @@ use std::time::Instant;
 use wq::apps::formatter::{FormatOptions, Formatter};
 use wq::builtins_help;
 use wq::helpers::string_helpers::create_boxed_text;
-use wq::repl::ReplInput;
+use wq::repl::ReplStdin;
 use wq::repl::{ReplEngine, StdinError, VmEvaluator, stdin_add_history, stdin_readline};
 use wq::value::WqResult;
 
@@ -448,7 +448,7 @@ impl RustylineInput {
     }
 }
 
-impl ReplInput for RustylineInput {
+impl ReplStdin for RustylineInput {
     fn readline(&mut self, prompt: &str) -> Result<String, StdinError> {
         match self.rl.readline(prompt) {
             Ok(line) => Ok(line),

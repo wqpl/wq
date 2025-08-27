@@ -5,6 +5,7 @@ use crate::value::{Value, WqError};
 use crate::vm::Vm;
 use crate::vm::compiler::Compiler;
 use crate::vm::instruction::Instruction;
+#[cfg(not(target_arch = "wasm32"))]
 use colored::Colorize;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
@@ -29,7 +30,7 @@ pub trait ReplEngine {
     fn get_environment(&self) -> Option<&std::collections::HashMap<String, Value>>;
     fn clear_environment(&mut self);
     fn env_vars(&self) -> &std::collections::HashMap<String, Value>;
-    fn set_stdin(&mut self, stdin: Box<dyn ReplInput>);
+    fn set_stdin(&mut self, stdin: Box<dyn ReplStdin>);
 }
 
 impl ReplEngine for VmEvaluator {
@@ -52,7 +53,7 @@ impl ReplEngine for VmEvaluator {
         self.environment()
     }
 
-    fn set_stdin(&mut self, stdin: Box<dyn ReplInput>) {
+    fn set_stdin(&mut self, stdin: Box<dyn ReplStdin>) {
         set_stdin(stdin);
     }
 }
@@ -80,12 +81,20 @@ impl VmEvaluator {
     pub fn eval_string(&mut self, input: &str) -> WqResult<Value> {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize()?;
+
+        #[cfg(not(target_arch = "wasm32"))]
         if self.debug {
-            eprintln!("Tokens");
-            eprintln!("======");
-            eprintln!("{tokens:?}");
-            eprintln!();
+            stderr_println("Tokens".red().bold().to_string().as_str());
+            stderr_println("======".red().bold().to_string().as_str());
+            stderr_println(format!("{tokens:?}").as_str());
         }
+        #[cfg(target_arch = "wasm32")]
+        if self.debug {
+            stderr_println("Tokens");
+            stderr_println("======");
+            stderr_println(format!("{tokens:?}").as_str());
+        }
+
         use crate::post_parser::folder;
         use crate::post_parser::resolver::Resolver;
         let mut parser = Parser::new(tokens, input.to_string());
@@ -93,29 +102,52 @@ impl VmEvaluator {
         let mut resolver = Resolver::from_env(self.environment());
         let ast = resolver.resolve(ast);
         let ast = folder::fold(ast);
+
+        #[cfg(not(target_arch = "wasm32"))]
         if self.debug {
-            eprintln!("AST");
-            eprintln!("===");
-            eprintln!("{ast:?}");
-            eprintln!()
+            stderr_println("AST".yellow().bold().to_string().as_str());
+            stderr_println("===".yellow().bold().to_string().as_str());
+            stderr_println(format!("{ast:?}").as_str());
         }
+        #[cfg(target_arch = "wasm32")]
+        if self.debug {
+            stderr_println("AST");
+            stderr_println("===");
+            stderr_println(format!("{ast:?}").as_str());
+        }
+
         let mut compiler = Compiler::new();
         compiler.compile(&ast)?;
         compiler.fuse();
         compiler.instructions.push(Instruction::Return);
+
+        #[cfg(not(target_arch = "wasm32"))]
         if self.debug {
-            eprintln!("Inst");
-            eprintln!("====");
+            stderr_println("Inst".green().bold().to_string().as_str());
+            stderr_println("====".green().bold().to_string().as_str());
             for inst in &compiler.instructions {
                 let s = format!("{inst:?}");
                 if let Some((name, rest)) = s.split_once('(') {
-                    eprintln!("{}({}", name.blue().bold(), rest);
+                    stderr_println(format!("{}({rest}", name.blue().bold()).as_str());
                 } else {
-                    eprintln!("{}", s.blue().bold());
+                    stderr_println(format!("{}", s.blue().bold()).as_str());
                 }
             }
-            eprintln!();
         }
+        #[cfg(target_arch = "wasm32")]
+        if self.debug {
+            stderr_println("Inst");
+            stderr_println("====");
+            for inst in &compiler.instructions {
+                let s = format!("{inst:?}");
+                if let Some((name, rest)) = s.split_once('(') {
+                    stderr_println(format!("{name}({rest}").as_str());
+                } else {
+                    stderr_println(s.as_str());
+                }
+            }
+        }
+
         self.vm.reset(compiler.instructions);
         self.vm.run()
     }
@@ -156,14 +188,14 @@ impl std::fmt::Display for StdinError {
 
 impl std::error::Error for StdinError {}
 
-pub trait ReplInput: Send {
+pub trait ReplStdin: Send {
     fn readline(&mut self, prompt: &str) -> Result<String, StdinError>;
     fn add_history(&mut self, _line: &str) {}
 }
 
-pub static STDIN: Lazy<Mutex<Option<Box<dyn ReplInput>>>> = Lazy::new(|| Mutex::new(None));
+pub static STDIN: Lazy<Mutex<Option<Box<dyn ReplStdin>>>> = Lazy::new(|| Mutex::new(None));
 
-pub fn set_stdin(reader: Box<dyn ReplInput>) {
+pub fn set_stdin(reader: Box<dyn ReplStdin>) {
     *STDIN.lock().unwrap() = Some(reader);
 }
 
@@ -179,6 +211,64 @@ pub fn stdin_readline(prompt: &str) -> Result<String, StdinError> {
 pub fn stdin_add_history(line: &str) {
     if let Some(r) = STDIN.lock().unwrap().as_mut() {
         r.add_history(line);
+    }
+}
+
+pub trait ReplStdout: Send {
+    fn print(&mut self, s: &str);
+    fn println(&mut self, s: &str);
+}
+
+pub static STDOUT: Lazy<Mutex<Option<Box<dyn ReplStdout>>>> = Lazy::new(|| Mutex::new(None));
+
+pub fn set_stdout(writer: Option<Box<dyn ReplStdout>>) {
+    *STDOUT.lock().unwrap() = writer;
+}
+
+pub fn stdout_print(s: &str) {
+    if let Some(w) = STDOUT.lock().unwrap().as_mut() {
+        w.print(s);
+    } else {
+        use std::io::{Write, stdout};
+        print!("{s}");
+        let _ = stdout().flush();
+    }
+}
+
+pub fn stdout_println(s: &str) {
+    if let Some(w) = STDOUT.lock().unwrap().as_mut() {
+        w.println(s);
+    } else {
+        println!("{s}");
+    }
+}
+
+pub trait ReplStderr: Send {
+    fn eprint(&mut self, s: &str);
+    fn eprintln(&mut self, s: &str);
+}
+
+pub static STDERR: Lazy<Mutex<Option<Box<dyn ReplStderr>>>> = Lazy::new(|| Mutex::new(None));
+
+pub fn set_stderr(writer: Option<Box<dyn ReplStderr>>) {
+    *STDERR.lock().unwrap() = writer;
+}
+
+pub fn stderr_print(s: &str) {
+    if let Some(w) = STDERR.lock().unwrap().as_mut() {
+        w.eprint(s);
+    } else {
+        use std::io::{Write, stderr};
+        print!("{s}");
+        let _ = stderr().flush();
+    }
+}
+
+pub fn stderr_println(s: &str) {
+    if let Some(w) = STDERR.lock().unwrap().as_mut() {
+        w.eprintln(s);
+    } else {
+        eprintln!("{s}");
     }
 }
 
