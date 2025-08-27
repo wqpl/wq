@@ -577,7 +577,7 @@ dependencies = [
 
 [[package]]
 name = "wq"
-version = "0.7.0-a2"
+version = "0.7.0-a3"
 dependencies = [
  "colored 3.0.0",
  "encoding_rs",
