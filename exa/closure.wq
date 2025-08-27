@@ -1,8 +1,8 @@
 a:{[a]b:{x+a}};c:a[5]
 @a c[3]=8
-echo "ok"
+echo"ok"
 
 a:10
 f:{a:4;f2:{f3:{a}};a:5;f2}
 @a f[][][]=4
-echo "ok"
+echo"ok"

@@ -1,2 +1,2 @@
 load load3.wq
-echo "hi"
+echo 3
