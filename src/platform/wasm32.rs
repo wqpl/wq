@@ -2,7 +2,9 @@
 
 use crate::builtins_help;
 use crate::helpers::string_helpers::create_boxed_text;
-use crate::repl::{ReplEngine, ReplStdin, ReplStdout, StdinError, VmEvaluator, set_stdout};
+use crate::repl::{
+    ReplEngine, ReplStderr, ReplStdin, ReplStdout, StdinError, VmEvaluator, set_stderr, set_stdout,
+};
 use crate::value::box_mode;
 use js_sys::{Array, Reflect};
 use std::collections::VecDeque;
@@ -31,6 +33,25 @@ pub async fn run_wasm(code: String, opts: JsValue) -> Result<JsValue, JsValue> {
         }
     } else {
         set_stdout(None);
+    }
+
+    // optional stderr sink from opts.stderr
+    let stderr_val =
+        Reflect::get(&opts, &JsValue::from_str("stderr")).unwrap_or(JsValue::UNDEFINED);
+
+    // Install stderr hook if provided
+    if !stderr_val.is_undefined() && !stderr_val.is_null() {
+        if js_sys::Function::instanceof(&stderr_val) {
+            let f: js_sys::Function = stderr_val.unchecked_into();
+            set_stderr(Some(Box::new(FunctionStderr { cb: f })));
+        } else if Array::is_array(&stderr_val) {
+            let arr: Array = stderr_val.unchecked_into();
+            set_stderr(Some(Box::new(ArrayStderr { arr })));
+        } else {
+            set_stderr(None);
+        }
+    } else {
+        set_stderr(None);
     }
 
     // case 1: stdin is an array (preloaded)
@@ -74,72 +95,13 @@ pub async fn run_wasm(code: String, opts: JsValue) -> Result<JsValue, JsValue> {
     Ok(JsValue::from_str(&result.to_string()))
 }
 
-pub struct ArrayStdin {
-    lines: Vec<String>, // pop from front
-}
-
-impl ArrayStdin {
-    pub fn new(lines: Vec<String>) -> Self {
-        Self { lines }
-    }
-}
-
-impl ReplStdin for ArrayStdin {
-    fn readline(&mut self, _prompt: &str) -> Result<String, StdinError> {
-        if self.lines.is_empty() {
-            Err(StdinError::Eof)
-        } else {
-            Ok(self.lines.remove(0))
-        }
-    }
-}
-
-// WASM stdout hooks
-struct ArrayStdout {
-    arr: Array,
-}
-
-impl ReplStdout for ArrayStdout {
-    fn print(&mut self, s: &str) {
-        let _ = self.arr.push(&JsValue::from_str(s));
-    }
-    fn println(&mut self, s: &str) {
-        let _ = self.arr.push(&JsValue::from_str(&(s.to_string() + "\n")));
-    }
-}
-
-struct FunctionStdout {
-    cb: js_sys::Function,
-}
-
-impl ReplStdout for FunctionStdout {
-    fn print(&mut self, s: &str) {
-        let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(s));
-    }
-    fn println(&mut self, s: &str) {
-        let _ = self
-            .cb
-            .call1(&JsValue::NULL, &JsValue::from_str(&(s.to_string() + "\n")));
-    }
-}
-
-// SAFETY: WebAssembly in the browser runs single-threaded (no preemptive threads),
-// and these wrappers are only used behind a global during execution of `run_wasm`.
-// Marking them Send satisfies the Mutex-bound in the host without actual cross-thread use.
-unsafe impl Send for ArrayStdout {}
-unsafe impl Send for FunctionStdout {}
-
 // Reusable REPL session that preserves environment and accumulates stdin.
 #[wasm_bindgen]
 pub struct WqSession {
     eval: VmEvaluator,
     stdin_buf: Arc<Mutex<VecDeque<String>>>,
     stdout_pref: Option<StdoutPref>,
-}
-
-enum StdoutPref {
-    Array(Array),
-    Function(js_sys::Function),
+    stderr_pref: Option<StderrPref>,
 }
 
 #[wasm_bindgen]
@@ -150,6 +112,7 @@ impl WqSession {
             eval: VmEvaluator::new(),
             stdin_buf: Arc::new(Mutex::new(VecDeque::new())),
             stdout_pref: None,
+            stderr_pref: None,
         }
     }
 
@@ -179,6 +142,17 @@ impl WqSession {
             self.stdout_pref = Some(StdoutPref::Array(stdout.unchecked_into()));
         } else {
             self.stdout_pref = None;
+        }
+    }
+
+    // Configure persistent stderr sink for this session.
+    pub fn set_stderr(&mut self, stderr: JsValue) {
+        if js_sys::Function::instanceof(&stderr) {
+            self.stderr_pref = Some(StderrPref::Function(stderr.unchecked_into()));
+        } else if Array::is_array(&stderr) {
+            self.stderr_pref = Some(StderrPref::Array(stderr.unchecked_into()));
+        } else {
+            self.stderr_pref = None;
         }
     }
 
@@ -223,6 +197,31 @@ impl WqSession {
             }
         } else {
             set_stdout(None);
+        }
+
+        let stderr_val =
+            Reflect::get(&opts, &JsValue::from_str("stderr")).unwrap_or(JsValue::UNDEFINED);
+        if !stderr_val.is_undefined() && !stderr_val.is_null() {
+            if js_sys::Function::instanceof(&stderr_val) {
+                let f: js_sys::Function = stderr_val.unchecked_into();
+                set_stderr(Some(Box::new(FunctionStderr { cb: f })));
+            } else if Array::is_array(&stderr_val) {
+                let arr: Array = stderr_val.unchecked_into();
+                set_stderr(Some(Box::new(ArrayStderr { arr })));
+            } else {
+                set_stderr(None);
+            }
+        } else if let Some(pref) = &self.stderr_pref {
+            match pref {
+                StderrPref::Array(arr) => {
+                    set_stderr(Some(Box::new(ArrayStderr { arr: arr.clone() })))
+                }
+                StderrPref::Function(f) => {
+                    set_stderr(Some(Box::new(FunctionStderr { cb: f.clone() })))
+                }
+            }
+        } else {
+            set_stderr(None);
         }
 
         let result = self
@@ -280,6 +279,45 @@ impl Default for WqSession {
     }
 }
 
+#[wasm_bindgen]
+pub fn get_help_doc(name: &str) -> String {
+    if name.is_empty() {
+        create_boxed_text(
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/doc/refcard.txt")),
+            2,
+        )
+    } else if let Some(text) = builtins_help::get_builtin_help(name) {
+        create_boxed_text(text, 2)
+    } else {
+        format!("no help available for '{name}'")
+    }
+}
+
+#[wasm_bindgen]
+pub fn get_wq_ver() -> String {
+    env!("CARGO_PKG_VERSION").into()
+}
+
+pub struct ArrayStdin {
+    lines: Vec<String>, // pop from front
+}
+
+impl ArrayStdin {
+    pub fn new(lines: Vec<String>) -> Self {
+        Self { lines }
+    }
+}
+
+impl ReplStdin for ArrayStdin {
+    fn readline(&mut self, _prompt: &str) -> Result<String, StdinError> {
+        if self.lines.is_empty() {
+            Err(StdinError::Eof)
+        } else {
+            Ok(self.lines.remove(0))
+        }
+    }
+}
+
 // ReplInput backed by a session-shared buffer.
 struct SessionStdin {
     buf: Arc<Mutex<VecDeque<String>>>,
@@ -298,21 +336,79 @@ impl ReplStdin for SessionStdin {
     }
 }
 
-#[wasm_bindgen]
-pub fn get_help_doc(name: &str) -> String {
-    if name.is_empty() {
-        create_boxed_text(
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/doc/refcard.txt")),
-            2,
-        )
-    } else if let Some(text) = builtins_help::get_builtin_help(name) {
-        create_boxed_text(text, 2)
-    } else {
-        format!("no help available for '{name}'")
+// WASM stdout hooks
+struct ArrayStdout {
+    arr: Array,
+}
+
+impl ReplStdout for ArrayStdout {
+    fn print(&mut self, s: &str) {
+        let _ = self.arr.push(&JsValue::from_str(s));
+    }
+    fn println(&mut self, s: &str) {
+        let _ = self.arr.push(&JsValue::from_str(&(s.to_string() + "\n")));
     }
 }
 
-#[wasm_bindgen]
-pub fn get_wq_ver() -> String {
-    env!("CARGO_PKG_VERSION").into()
+struct FunctionStdout {
+    cb: js_sys::Function,
+}
+
+impl ReplStdout for FunctionStdout {
+    fn print(&mut self, s: &str) {
+        let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(s));
+    }
+    fn println(&mut self, s: &str) {
+        let _ = self
+            .cb
+            .call1(&JsValue::NULL, &JsValue::from_str(&(s.to_string() + "\n")));
+    }
+}
+
+// SAFETY: WebAssembly in the browser runs single-threaded (no preemptive threads),
+// and these wrappers are only used behind a global during execution of `run_wasm`.
+// Marking them Send satisfies the Mutex-bound in the host without actual cross-thread use.
+unsafe impl Send for ArrayStdout {}
+unsafe impl Send for FunctionStdout {}
+
+// WASM stderr hooks
+struct ArrayStderr {
+    arr: Array,
+}
+
+impl ReplStderr for ArrayStderr {
+    fn eprint(&mut self, s: &str) {
+        let _ = self.arr.push(&JsValue::from_str(s));
+    }
+    fn eprintln(&mut self, s: &str) {
+        let _ = self.arr.push(&JsValue::from_str(&(s.to_string() + "\n")));
+    }
+}
+
+struct FunctionStderr {
+    cb: js_sys::Function,
+}
+
+impl ReplStderr for FunctionStderr {
+    fn eprint(&mut self, s: &str) {
+        let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(s));
+    }
+    fn eprintln(&mut self, s: &str) {
+        let _ = self
+            .cb
+            .call1(&JsValue::NULL, &JsValue::from_str(&(s.to_string() + "\n")));
+    }
+}
+
+unsafe impl Send for ArrayStderr {}
+unsafe impl Send for FunctionStderr {}
+
+enum StdoutPref {
+    Array(Array),
+    Function(js_sys::Function),
+}
+
+enum StderrPref {
+    Array(Array),
+    Function(js_sys::Function),
 }
