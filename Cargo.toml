@@ -3,6 +3,9 @@ name = "wq"
 version = "0.7.0-a2"
 edition = "2024"
 build = "build.rs"
+description = "The wq programming language"
+repository = "https://github.com/illusory-dept/wq"
+license = "MIT"
 
 [profile.lyrical]
 inherits = "release"
