@@ -598,34 +598,36 @@ impl fmt::Display for Value {
 
 impl fmt::Display for WqError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            WqError::TypeError(msg) => write!(f, "TYPE ERROR: {msg}"),
-            WqError::IndexError(msg) => write!(f, "INDEX ERROR: {msg}"),
-            WqError::DomainError(msg) => write!(f, "DOMAIN ERROR: {msg}"),
-            WqError::ValueError(msg) => write!(f, "VALUE ERROR: {msg}"),
-            WqError::SyntaxError(msg) => write!(f, "SYNTAX ERROR: {msg}"),
-            WqError::ArityError(msg) => {
-                write!(f, "ARITY ERROR: {msg}")
-            }
-            WqError::RuntimeError(msg) => write!(f, "RUNTIME ERROR: {msg}"),
-            WqError::EofError(msg) => write!(f, "EOF ERROR: {msg}"),
-            WqError::AssertionError(msg) => write!(f, "ASSERTION ERROR: {msg}"),
-            WqError::IoError(msg) => write!(f, "IO ERROR: {msg}"),
-        }
+        use WqError::*;
+
+        let (label, msg) = match self {
+            EofError(msg) => ("EOF ERROR", msg),
+            SyntaxError(msg) => ("SYNTAX ERROR", msg),
+            ValueError(msg) => ("VALUE ERROR", msg),
+            DomainError(msg) => ("DOMAIN ERROR", msg),
+            TypeError(msg) => ("TYPE ERROR", msg),
+            ArityError(msg) => ("ARITY ERROR", msg),
+            IndexError(msg) => ("INDEX ERROR", msg),
+            RuntimeError(msg) => ("RUNTIME ERROR", msg),
+            AssertionError(msg) => ("ASSERTION ERROR", msg),
+            IoError(msg) => ("IO ERROR", msg),
+        };
+
+        write!(f, "{label}({}): {msg}", self.code())
     }
 }
 
 impl WqError {
     pub fn code(&self) -> i32 {
         match self {
-            WqError::TypeError(_) => 1,
-            WqError::IndexError(_) => 2,
-            WqError::DomainError(_) => 3,
-            WqError::ValueError(_) => 4,
-            WqError::SyntaxError(_) => 5,
+            WqError::EofError(_) => 1,
+            WqError::SyntaxError(_) => 2,
+            WqError::ValueError(_) => 3,
+            WqError::DomainError(_) => 4,
+            WqError::TypeError(_) => 5,
             WqError::ArityError(_) => 6,
-            WqError::RuntimeError(_) => 7,
-            WqError::EofError(_) => 8,
+            WqError::IndexError(_) => 7,
+            WqError::RuntimeError(_) => 8,
             WqError::AssertionError(_) => 9,
             WqError::IoError(_) => 10,
         }
