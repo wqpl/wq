@@ -2,7 +2,7 @@ use super::instruction::{Capture, Instruction};
 use crate::builtins::Builtins;
 use crate::parser::{AstNode, BinaryOperator};
 use crate::value::{Value, WqError, WqResult};
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 
 #[derive(Default)]
 struct LoopInfo {
@@ -50,6 +50,8 @@ pub struct Compiler {
     locals: IndexMap<String, u16>,
     // mapping of captured names to their index in the captured vector
     capture_map: IndexMap<String, u16>,
+    // names of locals known to be functions
+    fn_locals: IndexSet<String>,
     // information on what to capture when creating the closure
     captures: Vec<Capture>,
     // if this compiler was created for a function assigned to a name in the parent scope,
@@ -74,6 +76,7 @@ impl Compiler {
             fn_depth: 0,
             locals: IndexMap::new(),
             capture_map: IndexMap::new(),
+            fn_locals: IndexSet::new(),
             captures: Vec::new(),
             parent_fn_name: None,
             parent_fn_slot: None,
@@ -154,6 +157,8 @@ impl Compiler {
                     };
                     let mut c = Compiler::new();
                     c.fn_depth = self.fn_depth + 1;
+                    // record recursion context
+                    c.parent_fn_name = Some(name.clone());
                     // prepare captures from current locals if inside a function
                     if self.fn_depth > 0 {
                         // collect parent locals sorted by slot index, excluding the name being defined (avoid self-capture)
@@ -188,8 +193,7 @@ impl Compiler {
                             c.captures.push(Capture::FromCapture(i_parent));
                         }
 
-                        // record recursion context
-                        c.parent_fn_name = Some(name.clone());
+                        // record recursion slot for nested functions
                         c.parent_fn_slot = Some(slot);
                     }
                     if let Some(ps) = params {
@@ -231,6 +235,9 @@ impl Compiler {
                     }
                     // Store and keep the value on the stack for expression result
                     self.emit_store_keep(name);
+                    if self.fn_depth > 0 {
+                        self.fn_locals.insert(name.clone());
+                    }
                 } else {
                     self.compile(value)?;
                     // Store and keep the value on the stack for expression result
@@ -275,12 +282,20 @@ impl Compiler {
                     self.instructions
                         .push(Instruction::CallBuiltinId(id as u8, args.len()));
                 } else if self.fn_depth > 0 && self.is_local(name) {
-                    for arg in args {
-                        self.compile(arg)?;
+                    if self.fn_locals.contains(name) {
+                        for arg in args {
+                            self.compile(arg)?;
+                        }
+                        let slot = self.locals[name];
+                        self.instructions
+                            .push(Instruction::CallLocal(slot, args.len()));
+                    } else {
+                        self.emit_load(name);
+                        for arg in args {
+                            self.compile(arg)?;
+                        }
+                        self.instructions.push(Instruction::CallOrIndex(args.len()));
                     }
-                    let slot = self.locals[name];
-                    self.instructions
-                        .push(Instruction::CallLocal(slot, args.len()));
                 } else if self.fn_depth > 0
                     && self.parent_fn_name.as_ref().is_some_and(|n| n == name)
                     && self.parent_fn_slot.is_some()
@@ -293,12 +308,11 @@ impl Compiler {
                         args.len(),
                     ));
                 } else if self.fn_depth > 0 && self.capture_map.contains_key(name) {
-                    // load captured callee then args, and call anonymously
                     self.emit_load(name);
                     for arg in args {
                         self.compile(arg)?;
                     }
-                    self.instructions.push(Instruction::CallAnon(args.len()));
+                    self.instructions.push(Instruction::CallOrIndex(args.len()));
                 } else {
                     for arg in args {
                         self.compile(arg)?;
@@ -332,18 +346,21 @@ impl Compiler {
                     self.instructions
                         .push(Instruction::CallBuiltinId(id as u8, items.len()));
                 } else if let AstNode::Variable(vname) = object.as_ref() {
-                    // If this is a recursive reference to the parent-defined name, call by slot
-                    if self.fn_depth > 0
-                        && self.parent_fn_name.as_ref().is_some_and(|n| n == vname)
-                        && self.parent_fn_slot.is_some()
+                    // Recursive reference to the *enclosing* function name, only if it's not shadowed
+                    if self.parent_fn_name.as_ref().is_some_and(|n| n == vname)
+                        && !self.is_local(vname)
+                        && !self.capture_map.contains_key(vname)
                     {
                         for item in items {
                             self.compile(item)?;
                         }
-                        self.instructions.push(Instruction::CallLocal(
-                            self.parent_fn_slot.unwrap(),
-                            items.len(),
-                        ));
+                        if let Some(slot) = self.parent_fn_slot {
+                            self.instructions
+                                .push(Instruction::CallLocal(slot, items.len()));
+                        } else {
+                            self.instructions
+                                .push(Instruction::CallUser(vname.clone(), items.len()));
+                        }
                     } else {
                         // Non-builtin: compile the callee first, then the args
                         self.compile(object)?;

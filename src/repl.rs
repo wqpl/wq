@@ -82,16 +82,16 @@ impl VmEvaluator {
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize()?;
 
-        #[cfg(not(target_arch = "wasm32"))]
-        if self.debug {
-            stderr_println("~ Tokens ~".red().underline().to_string().as_str());
-            stderr_println(format!("{tokens:?}").as_str());
-        }
-        #[cfg(target_arch = "wasm32")]
-        if self.debug {
-            stderr_println("~ Tokens ~");
-            stderr_println(format!("{tokens:?}").as_str());
-        }
+        // #[cfg(not(target_arch = "wasm32"))]
+        // if self.debug {
+        //     stderr_println("~ Tokens ~".red().underline().to_string().as_str());
+        //     stderr_println(format!("{tokens:?}").as_str());
+        // }
+        // #[cfg(target_arch = "wasm32")]
+        // if self.debug {
+        //     stderr_println("~ Tokens ~");
+        //     stderr_println(format!("{tokens:?}").as_str());
+        // }
 
         use crate::post_parser::folder;
         use crate::post_parser::resolver::Resolver;
@@ -436,5 +436,12 @@ mod tests {
         assert_eq!(res, Value::Int(6));
         let res = eval.eval_string("a:iota 10;b[a]").unwrap();
         assert_eq!(res, Value::Int(3));
+    }
+
+    #[test]
+    fn recursive_function_with_postfix() {
+        let mut eval = VmEvaluator::new();
+        let res = eval.eval_string("a:{[n]$[n<4;a[n+1];n]};a 0").unwrap();
+        assert_eq!(res, Value::Int(4));
     }
 }
