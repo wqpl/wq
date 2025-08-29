@@ -496,39 +496,38 @@ impl Parser {
     }
 
     fn parse_comma(&mut self) -> WqResult<AstNode> {
-        let mut items = Vec::new();
-
-        if let Some(token) = self.current_token() {
-            if token.token_type == TokenType::Comma {
-                // Leading comma list: ,a,b,c
-                while let Some(token) = self.current_token() {
-                    if token.token_type == TokenType::Comma {
-                        self.advance();
-                        let expr = self.parse_comparison()?;
-                        items.push(expr);
-                    } else {
-                        break;
-                    }
-                }
-                return Ok(AstNode::List(items));
-            }
-        }
-
-        let mut expr = self.parse_comparison()?;
-
-        while let Some(token) = self.current_token() {
-            if token.token_type == TokenType::Comma {
-                self.advance();
-                let right = self.parse_comparison()?;
-                expr = AstNode::Call {
-                    name: "cat".to_string(),
-                    args: vec![expr, right],
-                };
+        // Handle optional leading comma: `,expr` 1-elem list
+        let mut expr = if let Some(t) = self.current_token() {
+            if t.token_type == TokenType::Comma {
+                self.advance(); // eat ','
+                let first = self.parse_comparison()?;
+                AstNode::List(vec![first])
             } else {
+                self.parse_comparison()?
+            }
+        } else {
+            self.parse_comparison()?
+        };
+
+        // Repeated infix commas
+        while let Some(t) = self.current_token() {
+            if t.token_type != TokenType::Comma {
                 break;
             }
+            self.advance(); // eat ','
+            let right = self.parse_comparison()?;
+            expr = match (expr, right) {
+                // cat
+                (AstNode::List(mut a), AstNode::List(mut b)) => {
+                    a.append(&mut b);
+                    AstNode::List(a)
+                }
+                (x, y) => AstNode::Call {
+                    name: "cat".into(),
+                    args: vec![x, y],
+                },
+            };
         }
-
         Ok(expr)
     }
 
