@@ -1,7 +1,0 @@
-in
-==
-in[x;y]
-
-Examples:
-  in[1;(1;2;3)] // true
-  in[4;(1;2;3)] // false

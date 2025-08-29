@@ -13,3 +13,6 @@ filter:{[f;xs]l:();N[#xs;k:xs[_n];$.[f[k];l:l,k]];l}
 foldl:{[f;init;xs]acc:init;N[#xs;acc:f[acc;xs[_n]]];acc}
 scanl:{[f;init;xs]out:,init;acc:init;N[#xs;acc:f[acc;xs[_n]];out:out,acc];out}
 zip:{[xs;ys]out:();N[min(#xs;#ys);out:out,enlist(xs[_n];ys[_n])];out}
+
+in:{[e;lst]N[#lst;$.[lst _n=e;@r true]];false}
+find:{[e;lst]N[#lst;$.[lst _n=e;@r _n]];-1}

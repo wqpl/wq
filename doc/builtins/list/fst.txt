@@ -1,0 +1,6 @@
+fst
+===
+fst x
+
+Examples:
+  fst(4;5;6) // 4

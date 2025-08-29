@@ -14,7 +14,7 @@ pub mod show_table {
 
     pub fn show_table(args: &[Value]) -> WqResult<Value> {
         if args.len() != 1 {
-            return Err(arity_error("showt", "1 argument", args.len()));
+            return Err(arity_error("showt", "1", args.len()));
         }
 
         let val = &args[0];
@@ -52,7 +52,7 @@ pub mod show_table {
         }
 
         Err(WqError::RuntimeError(
-            "failed parsing table, expected a list of dicts, a dict of lists, or a dict of dicts"
+            "`showt`: invalid table, expected (a dict), (a list of dicts), (a dict of lists), or (a dict of dicts)"
                 .to_string(),
         ))
     }
@@ -224,11 +224,7 @@ pub mod show_table {
 
 pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(arity_error(
-            "asciiplot",
-            "at least one argument",
-            args.len(),
-        ));
+        return Err(arity_error("asciiplot", "at least 1", args.len()));
     }
 
     let mut all_series = Vec::with_capacity(args.len());
@@ -275,7 +271,7 @@ pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
                         .collect()
                 }
                 _ => return Err(WqError::TypeError(
-                    "each argument must be a list of numbers or a list of 2‑element numeric lists"
+                    "`asciiplot`: expected each arg to be (a list of numbers) or (a list of 2‑element numeric lists)"
                         .into(),
                 )),
             };

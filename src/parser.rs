@@ -183,11 +183,11 @@ impl Parser {
             } else {
                 Err(self.syntax_error(
                     tok,
-                    &format!("Expected {:?}, found {:?}", expected, tok.token_type),
+                    &format!("expected {:?}, found {:?}", expected, tok.token_type),
                 ))
             }
         } else {
-            Err(self.eof_error("Unexpected end of input"))
+            Err(self.eof_error("unexpected end of input"))
         }
     }
 
@@ -248,7 +248,7 @@ impl Parser {
             }
             Some(tt) => Err(self.syntax_error(
                 self.current_token().unwrap(),
-                &format!("Expected ';' in {ctx}, found {tt:?}"),
+                &format!("expected ';' in {ctx}, found {tt:?}"),
             )),
             None => Err(self.eof_error(&format!("Unexpected end of input in {ctx}"))),
         }
@@ -290,19 +290,19 @@ impl Parser {
                 Ok(())
             }
             Some(TokenType::Eof) => {
-                Err(self.eof_error(&format!("Unexpected end of input in {ctx}")))
+                Err(self.eof_error(&format!("unexpected end of input in {ctx}")))
             }
             Some(tt) => Err(self.syntax_error(
                 self.current_token().unwrap(),
-                &format!("Expected ';' or newline in {ctx}, found {tt:?}"),
+                &format!("expected ';' or newline in {ctx}, found {tt:?}"),
             )),
-            None => Err(self.eof_error(&format!("Unexpected end of input in {ctx}"))),
+            None => Err(self.eof_error(&format!("unexpected end of input in {ctx}"))),
         }
     }
 
     #[inline]
     fn err_missing_rhs(&self, op_tok: &Token, ctx: &str) -> WqError {
-        self.syntax_error(op_tok, &format!("Expected expression after {ctx}"))
+        self.syntax_error(op_tok, &format!("expected expression after {ctx}"))
     }
 
     #[inline]
@@ -349,7 +349,7 @@ impl Parser {
             match self.current_token().map(|t| &t.token_type) {
                 Some(TokenType::RightBrace) => break,
                 Some(TokenType::Eof) | None => {
-                    return Err(self.eof_error("Unexpected end of input in block"));
+                    return Err(self.eof_error("unexpected end of input in block"));
                 }
                 _ => {
                     let stmt = self.parse_statement()?;
@@ -388,7 +388,7 @@ impl Parser {
                         if self.builtins.has_function(&name) {
                             return Err(self.syntax_error(
                                 token,
-                                &format!("Cannot assign to '{name}' because a builtin with the same name exists"),
+                                &format!("cannot assign to builtin `{name}`"),
                             ));
                         }
                         let colon_tok = token.clone();
@@ -482,9 +482,7 @@ impl Parser {
                         }
                     }
                     _ => {
-                        return Err(
-                            self.syntax_error(&token, "Right-hand side of '|' must accept postfix")
-                        );
+                        return Err(self.syntax_error(&token, "invalid right-hand side for '|'"));
                     }
                 };
             } else {
@@ -693,7 +691,7 @@ impl Parser {
             return Ok((Vec::new(), true));
         }
         if self.is_token(&TokenType::Eof) {
-            return Err(self.eof_error("Unexpected end of input in bracket"));
+            return Err(self.eof_error("unexpected end of input in bracket"));
         }
 
         let mut items = Vec::new();
@@ -728,7 +726,7 @@ impl Parser {
                 break;
             }
             if self.is_token(&TokenType::Eof) {
-                return Err(self.eof_error("Unexpected end of input in bracket"));
+                return Err(self.eof_error("unexpected end of input in bracket"));
             }
         }
 
@@ -808,7 +806,7 @@ impl Parser {
                 break;
             }
             if self.is_token(&TokenType::Eof) {
-                return Err(self.eof_error("Unexpected end of input in list"));
+                return Err(self.eof_error("unexpected end of input in list"));
             }
 
             let expr = self.parse_expression()?;
@@ -827,7 +825,7 @@ impl Parser {
                 break;
             }
             if self.is_token(&TokenType::Eof) {
-                return Err(self.eof_error("Unexpected end of input in list"));
+                return Err(self.eof_error("unexpected end of input in list"));
             }
         }
 
@@ -848,20 +846,20 @@ impl Parser {
                 break;
             }
             if self.is_token(&TokenType::Eof) {
-                return Err(self.eof_error("Unexpected end of input in dict"));
+                return Err(self.eof_error("unexpected end of input in dict"));
             }
 
             let key_tok = self
                 .current_token()
-                .ok_or_else(|| self.eof_error("Unexpected end of input in dict"))?;
+                .ok_or_else(|| self.eof_error("unexpected end of input in dict"))?;
             let key = match &key_tok.token_type {
                 TokenType::Symbol(s) => {
                     let s = s.clone();
                     self.advance();
                     s
                 }
-                TokenType::Eof => return Err(self.eof_error("Unexpected end of input in dict")),
-                _ => return Err(self.syntax_error(key_tok, "Expected symbol key in dict")),
+                TokenType::Eof => return Err(self.eof_error("unexpected end of input in dict")),
+                _ => return Err(self.syntax_error(key_tok, "expected symbol key in dict")),
             };
 
             self.consume(TokenType::Colon)?;
@@ -874,7 +872,7 @@ impl Parser {
                 break;
             }
             if self.is_token(&TokenType::Eof) {
-                return Err(self.eof_error("Unexpected end of input in dict"));
+                return Err(self.eof_error("unexpected end of input in dict"));
             }
 
             self.require_semicolon("dict")?;
@@ -1036,14 +1034,14 @@ impl Parser {
                     }
                 }
 
-                TokenType::Eof => Err(self.eof_error("Unexpected end of input")),
+                TokenType::Eof => Err(self.eof_error("unexpected end of input")),
                 _ => {
                     Err(self
-                        .syntax_error(token, &format!("Unexpected token: {:?}", token.token_type)))
+                        .syntax_error(token, &format!("unexpected token: {:?}", token.token_type)))
                 }
             }
         } else {
-            Err(self.eof_error("Unexpected end of input"))
+            Err(self.eof_error("unexpected end of input"))
         }
     }
 
@@ -1077,13 +1075,13 @@ impl Parser {
                             break;
                         }
                         Some((TokenType::Eof, _)) => {
-                            return Err(self.eof_error("Unexpected end of input in parameter list"));
+                            return Err(self.eof_error("unexpected end of input in parameter list"));
                         }
                         Some((_, bad)) => {
-                            return Err(self.syntax_error(bad, "Expected identifier, ';' or ']'"));
+                            return Err(self.syntax_error(bad, "expected identifier `;` or `]`"));
                         }
                         None => {
-                            return Err(self.eof_error("Unexpected end of input in parameter list"));
+                            return Err(self.eof_error("unexpected end of input in parameter list"));
                         }
                     }
                 }
@@ -1117,13 +1115,13 @@ impl Parser {
             match self.current_token() {
                 Some(tok) => {
                     if matches!(tok.token_type, TokenType::Eof) {
-                        return Err(self.eof_error("Unexpected end of input in branch"));
+                        return Err(self.eof_error("unexpected end of input in branch"));
                     }
                     if ends.iter().any(|e| is_end(&tok.token_type, e)) {
                         break;
                     }
                 }
-                None => return Err(self.eof_error("Unexpected end of input in branch")),
+                None => return Err(self.eof_error("unexpected end of input in branch")),
             }
 
             let expr = self.parse_expression()?;
@@ -1175,7 +1173,7 @@ impl Parser {
         let condition = self.parse_expression()?;
 
         // cond -> true boundary: ';' or >=1 newline
-        self.require_control_separator("$[condition; true ; false]")?;
+        self.require_control_separator("$[condition;true;false]")?;
 
         // true-branch ends at ';' (boundary) or ']' (if no false for `$` -> error)
         let true_branch =
@@ -1184,7 +1182,7 @@ impl Parser {
         if self.is_token(&TokenType::RightBracket) {
             return Err(self.syntax_error(
                 self.current_token().unwrap(),
-                "Expected false branch after true branch; use '$.[...]' for single-branch conditional",
+                "`$`: expected false branch; use '$.[...]' for single-branch conditional",
             ));
         }
 
@@ -1209,7 +1207,7 @@ impl Parser {
         self.eat_trivia(true, true);
         let condition = self.parse_expression()?;
 
-        self.require_control_separator("$.[condition; true]")?;
+        self.require_control_separator("$.[condition;true]")?;
 
         let true_branch = self.parse_branch_sequence(&[TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
@@ -1226,7 +1224,7 @@ impl Parser {
         self.eat_trivia(true, true);
         let condition = self.parse_expression()?;
 
-        self.require_control_separator("W[condition; body]")?;
+        self.require_control_separator("W[condition;body]")?;
 
         let body = self.parse_branch_sequence(&[TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
@@ -1242,7 +1240,7 @@ impl Parser {
         self.eat_trivia(true, true);
         let count_expr = self.parse_expression()?;
 
-        self.require_control_separator("N[count; body]")?;
+        self.require_control_separator("N[count;body]")?;
 
         let body = self.parse_branch_sequence(&[TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;

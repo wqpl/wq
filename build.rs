@@ -8,12 +8,7 @@ use std::{
 const INDEX_FILE_NAME: &str = "builtins.txt";
 const INDEX_WRAP: usize = 80; // target line width for the index columns
 const COL_SPACING: usize = 2; // spaces between columns
-const RENAMES: &[(&str, &str)] = &[
-    ("type_builtins", "type"),
-    ("null", "null?"),
-    ("fexists", "fexists?"),
-    ("match", "match?"),
-];
+const RENAMES: &[(&str, &str)] = &[("null", "null?"), ("fexists", "fexists?"), ("m", "m?")];
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();

@@ -103,7 +103,7 @@ impl Vm {
         if let Some(p) = params {
             if args.len() != p.len() {
                 return Err(WqError::ArityError(format!(
-                    "Function expects {} arguments, got {}",
+                    "function expects {} args, got {}",
                     p.len(),
                     args.len()
                 )));
@@ -114,7 +114,7 @@ impl Vm {
         } else {
             if args.len() > 3 {
                 return Err(WqError::ArityError(
-                    "Implicit function expects up to 3 arguments".to_string(),
+                    "implicit function expects up to 3 args".to_string(),
                 ));
             }
             for (i, arg) in args.into_iter().enumerate() {
@@ -166,9 +166,7 @@ impl Vm {
                     } else if self.builtins.has_function(name) {
                         (Value::BuiltinFunction(name.clone()), u64::MAX)
                     } else {
-                        return Err(WqError::ValueError(format!(
-                            "Variable '{name}' is not defined"
-                        )));
+                        return Err(WqError::ValueError(format!("`{name}` is not defined")));
                     };
                     {
                         let c = &mut self.inline_cache[idx];
@@ -181,7 +179,7 @@ impl Vm {
                     let name_owned = name.clone();
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(format!(
-                            "Stack underflow: cannot store into variable '{name_owned}'",
+                            "stack underflow: cannot store into variable '{name_owned}'",
                         ))
                     })?;
                     self.assign_global(&name_owned, val);
@@ -190,7 +188,7 @@ impl Vm {
                     let name_owned = name.clone();
                     let val = self.stack.last().cloned().ok_or_else(|| {
                         WqError::RuntimeError(format!(
-                            "Stack underflow: cannot store into variable '{name_owned}'",
+                            "stack underflow: cannot store into variable '{name_owned}'",
                         ))
                     })?;
                     self.assign_global(&name_owned, val);
@@ -200,47 +198,47 @@ impl Vm {
                         .locals
                         .last()
                         .and_then(|f| f.get(*i as usize))
-                        .ok_or_else(|| WqError::RuntimeError(format!("Invalid local slot {i}")))?;
+                        .ok_or_else(|| WqError::RuntimeError(format!("invalid local slot {i}")))?;
                     self.stack.push(val.clone());
                 }
                 Instruction::StoreLocal(i) => {
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(format!(
-                            "Stack underflow: cannot store into local slot {i}",
+                            "stack underflow: cannot store into local slot {i}",
                         ))
                     })?;
                     if let Some(frame) = self.locals.last_mut() {
                         if let Some(slot) = frame.get_mut(*i as usize) {
                             *slot = val;
                         } else {
-                            return Err(WqError::RuntimeError(format!("Invalid local slot {i}")));
+                            return Err(WqError::RuntimeError(format!("invalid local slot {i}")));
                         }
                     } else {
-                        return Err(WqError::RuntimeError("No local frame".into()));
+                        return Err(WqError::RuntimeError("no local frame".into()));
                     }
                 }
                 Instruction::StoreLocalKeep(i) => {
                     let val = self.stack.last().ok_or_else(|| {
                         WqError::RuntimeError(format!(
-                            "Stack underflow: cannot store into local slot {i}",
+                            "stack underflow: cannot store into local slot {i}",
                         ))
                     })?;
                     if let Some(frame) = self.locals.last_mut() {
                         if let Some(slot) = frame.get_mut(*i as usize) {
                             *slot = val.clone();
                         } else {
-                            return Err(WqError::RuntimeError(format!("Invalid local slot {i}")));
+                            return Err(WqError::RuntimeError(format!("invalid local slot {i}")));
                         }
                     } else {
-                        return Err(WqError::RuntimeError("No local frame".into()));
+                        return Err(WqError::RuntimeError("no local frame".into()));
                     }
                 }
                 Instruction::BinaryOp(op) => {
                     let right = self.stack.pop().ok_or_else(|| {
-                        WqError::RuntimeError("Stack underflow: missing right operand".into())
+                        WqError::RuntimeError("stack underflow: missing right operand".into())
                     })?;
                     let left = self.stack.pop().ok_or_else(|| {
-                        WqError::RuntimeError("Stack underflow: missing left operand".into())
+                        WqError::RuntimeError("stack underflow: missing left operand".into())
                     })?;
 
                     let result = match op {
@@ -259,15 +257,17 @@ impl Vm {
                         BinaryOperator::Divide => left
                             .divide(&right)
                             .ok_or_else(|| classify_divide(&left, &right)),
-                        BinaryOperator::DivideDot => left
-                            .divide_dot(&right)
-                            .ok_or_else(|| WqError::DomainError("Invalid types".into())),
-                        BinaryOperator::Modulo => left.modulo(&right).ok_or_else(|| {
-                            WqError::DomainError("Modulo by zero or invalid types".into())
+                        BinaryOperator::DivideDot => left.divide_dot(&right).ok_or_else(|| {
+                            WqError::DomainError("`/.`: invalid operand types".into())
                         }),
-                        BinaryOperator::ModuloDot => left
-                            .modulo_dot(&right)
-                            .ok_or_else(|| WqError::DomainError("Invalid types".into())),
+                        BinaryOperator::Modulo => left.modulo(&right).ok_or_else(|| {
+                            WqError::DomainError(
+                                "`%`: modulo by zero or invalid operand types".into(),
+                            ) // todo!!!!
+                        }),
+                        BinaryOperator::ModuloDot => left.modulo_dot(&right).ok_or_else(|| {
+                            WqError::DomainError("`%.`: invalid operand types".into())
+                        }),
                         BinaryOperator::Equal => Ok(left.equals(&right)),
                         BinaryOperator::NotEqual => Ok(left.not_equals(&right)),
                         BinaryOperator::LessThan => Ok(left.less_than(&right)),
@@ -286,14 +286,14 @@ impl Vm {
                 Instruction::UnaryOp(op) => {
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing operand for unary operator".into(),
+                            "stack underflow: missing operand for unary operator".into(),
                         )
                     })?;
 
                     let result = match op {
-                        UnaryOperator::Negate => val
-                            .neg_value()
-                            .ok_or_else(|| WqError::TypeError("Cannot negate this type".into())),
+                        UnaryOperator::Negate => val.neg_value().ok_or_else(|| {
+                            WqError::TypeError("cannot negate provided type".into())
+                        }),
                         UnaryOperator::Count => Ok(Value::Int(val.len() as i64)),
                     }?;
                     self.stack.push(result);
@@ -302,7 +302,7 @@ impl Vm {
                     let argc_val = *argc;
                     if self.stack.len() < argc_val {
                         return Err(WqError::RuntimeError(format!(
-                            "Stack underflow: expected {argc_val} arguments for builtin '{name}'",
+                            "stack underflow: expected {argc_val} args for builtin '{name}'",
                         )));
                     }
                     let base = self.stack.len() - argc_val;
@@ -313,7 +313,7 @@ impl Vm {
                 Instruction::CallBuiltinId(id, argc) => {
                     if self.stack.len() < *argc {
                         return Err(WqError::RuntimeError(format!(
-                            "Stack underflow: expected {argc} arguments for builtin ID {id}",
+                            "stack underflow: expected {argc} args for builtin ID {id}",
                         )));
                     }
                     let base = self.stack.len() - *argc;
@@ -324,7 +324,7 @@ impl Vm {
                 Instruction::CallLocal(slot, argc) => {
                     if self.stack.len() < *argc {
                         return Err(WqError::RuntimeError(format!(
-                            "Stack underflow: expected {argc} arguments for local function at slot {slot}",
+                            "stack underflow: expected {argc} args for local function at slot {slot}",
                         )));
                     }
                     let base = self.stack.len() - *argc;
@@ -395,7 +395,7 @@ impl Vm {
                                     }
                                     other => {
                                         return Err(WqError::TypeError(format!(
-                                            "Cannot call local slot {slot}: expected function, found {}",
+                                            "cannot call local slot {slot}: expected function, found {}",
                                             other.type_name_verbose(),
                                         )));
                                     }
@@ -407,7 +407,7 @@ impl Vm {
                     };
 
                     let callable = callable.ok_or_else(|| {
-                        WqError::RuntimeError(format!("Invalid local slot {slot}"))
+                        WqError::RuntimeError(format!("invalid local slot {slot}"))
                     })?;
 
                     match callable {
@@ -432,7 +432,7 @@ impl Vm {
                     let argc_val = *argc;
                     if self.stack.len() < argc_val {
                         return Err(WqError::RuntimeError(format!(
-                            "Stack underflow: expected {argc_val} arguments for function '{name_owned}'",
+                            "stack underflow: expected {argc_val} args for fn '{name_owned}'",
                         )));
                     }
                     let base = self.stack.len() - argc_val;
@@ -451,7 +451,7 @@ impl Vm {
                         v
                     } else {
                         let v = self.lookup_global(&name_owned).ok_or_else(|| {
-                            WqError::ValueError(format!("Function '{name_owned}' is not defined"))
+                            WqError::ValueError(format!("fn `{name_owned}` is not defined"))
                         })?;
                         {
                             let c = &mut self.inline_cache[idx];
@@ -513,7 +513,7 @@ impl Vm {
                         }
                         other => {
                             return Err(WqError::TypeError(format!(
-                                "Cannot call '{name_owned}': expected function, found {}",
+                                "cannot call '{name_owned}': expected fn, found {}",
                                 other.type_name_verbose(),
                             )));
                         }
@@ -522,14 +522,14 @@ impl Vm {
                 Instruction::CallAnon(argc) => {
                     if self.stack.len() < *argc + 1 {
                         return Err(WqError::RuntimeError(format!(
-                            "Stack underflow: expected {argc} arguments and a function",
+                            "stack underflow: expected {argc} args and a function",
                         )));
                     }
                     let base = self.stack.len() - *argc;
                     let args = self.stack.split_off(base);
                     let func_val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing function value for call".into(),
+                            "stack underflow: missing function value for call".into(),
                         )
                     })?;
 
@@ -573,7 +573,7 @@ impl Vm {
                         }
                         other => {
                             return Err(WqError::TypeError(format!(
-                                "Cannot call value of type {:?} as a function",
+                                "cannot call value of type {:?} as a function",
                                 other.type_name_verbose(),
                             )));
                         }
@@ -582,7 +582,7 @@ impl Vm {
                 Instruction::MakeList(n) => {
                     if self.stack.len() < *n {
                         return Err(WqError::RuntimeError(format!(
-                            "Stack underflow: expected {n} list items",
+                            "stack underflow: expected {n} list items",
                         )));
                     }
                     let base = self.stack.len() - *n;
@@ -605,10 +605,10 @@ impl Vm {
                     let mut map = IndexMap::new();
                     for _ in 0..*n {
                         let val = self.stack.pop().ok_or_else(|| {
-                            WqError::RuntimeError("Stack underflow: expected value for dict".into())
+                            WqError::RuntimeError("stack underflow: expected value for dict".into())
                         })?;
                         let key = self.stack.pop().ok_or_else(|| {
-                            WqError::RuntimeError("Stack underflow: expected key for dict".into())
+                            WqError::RuntimeError("stack underflow: expected key for dict".into())
                         })?;
 
                         match key {
@@ -617,7 +617,7 @@ impl Vm {
                             }
                             other => {
                                 return Err(WqError::TypeError(format!(
-                                    "Invalid dict key: expected Symbol, got {other:?}"
+                                    "invalid dict key: expected symbol, got {other:?}"
                                 )));
                             }
                         }
@@ -635,7 +635,7 @@ impl Vm {
                                 self.stack.push(Value::Int(items[idx]));
                             } else {
                                 return Err(WqError::IndexError(format!(
-                                    "Invalid index: attempted to access index {i} in intlist of len {}",
+                                    "invalid index: attempted to access index {i} in intlist of len {}",
                                     items.len()
                                 )));
                             }
@@ -649,7 +649,7 @@ impl Vm {
                                 self.stack.push(v);
                             } else {
                                 return Err(WqError::IndexError(format!(
-                                    "Invalid index: attempted to access index {i} in list of len {}",
+                                    "invalid index: attempted to access index {i} in list of len {}",
                                     items.len()
                                 )));
                             }
@@ -658,7 +658,7 @@ impl Vm {
                             Some(v) => self.stack.push(v),
                             None => {
                                 return Err(WqError::IndexError(format!(
-                                    "Invalid index: attempted to access index {idx} in {obj}"
+                                    "invalid index: attempted to access index {idx} in {obj}"
                                 )));
                             }
                         },
@@ -667,19 +667,19 @@ impl Vm {
                 Instruction::IndexAssign => {
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing value for index assignment".into(),
+                            "stack underflow: missing value for index assignment".into(),
                         )
                     })?;
 
                     let idx = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing index for assignment".into(),
+                            "stack underflow: missing index for assignment".into(),
                         )
                     })?;
 
                     let obj_name = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing target object name for index assignment"
+                            "stack underflow: missing target object name for index assignment"
                                 .into(),
                         )
                     })?;
@@ -697,7 +697,7 @@ impl Vm {
                                             self.stack.push(val);
                                         } else {
                                             return Err(WqError::IndexError(format!(
-                                                "Failed assigning to {name}[{i}], out of bounds",
+                                                "failed to assign to {name}[{i}], out of bounds",
                                             )));
                                         }
                                     }
@@ -709,7 +709,7 @@ impl Vm {
                                             self.stack.push(val);
                                         } else {
                                             return Err(WqError::IndexError(format!(
-                                                "Failed assigning to {name}[{i}], out of bounds",
+                                                "failed to assign to {name}[{i}], out of bounds",
                                             )));
                                         }
                                     }
@@ -718,7 +718,7 @@ impl Vm {
                                             self.stack.push(val);
                                         } else {
                                             return Err(WqError::IndexError(format!(
-                                                "Failed assigning to {name}[{idx}], index invalid or not supported",
+                                                "failed to assign to {name}[{idx}], index invalid or not supported",
                                             )));
                                         }
                                     }
@@ -726,13 +726,13 @@ impl Vm {
                             }
                             None => {
                                 return Err(WqError::ValueError(format!(
-                                    "Cannot assign to {name}[{idx}], variable not found",
+                                    "cannot assign to {name}[{idx}], variable not found",
                                 )));
                             }
                         },
                         other => {
                             return Err(WqError::TypeError(format!(
-                                "Invalid index assignment target: expected Symbol, got {}",
+                                "invalid index assignment target: expected symbol, got {}",
                                 other.type_name_verbose(),
                             )));
                         }
@@ -741,19 +741,19 @@ impl Vm {
                 Instruction::IndexAssignDrop => {
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing value for index assignment".into(),
+                            "stack underflow: missing value for index assignment".into(),
                         )
                     })?;
 
                     let idx = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing index for assignment".into(),
+                            "stack underflow: missing index for assignment".into(),
                         )
                     })?;
 
                     let obj_name = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing target object name for index assignment"
+                            "stack underflow: missing target object name for index assignment"
                                 .into(),
                         )
                     })?;
@@ -768,7 +768,7 @@ impl Vm {
                                         items[ii as usize] = *v;
                                     } else {
                                         return Err(WqError::IndexError(format!(
-                                            "Failed assigning to {name}[{i}], out of bounds",
+                                            "failed to assign to {name}[{i}], out of bounds",
                                         )));
                                     }
                                 }
@@ -779,27 +779,27 @@ impl Vm {
                                         items[ii as usize] = val.clone();
                                     } else {
                                         return Err(WqError::IndexError(format!(
-                                            "Failed assigning to {name}[{i}], out of bounds",
+                                            "failed to assign to {name}[{i}], out of bounds",
                                         )));
                                     }
                                 }
                                 _ => {
                                     if (*obj).set_index(&idx, val.clone()).is_none() {
                                         return Err(WqError::IndexError(format!(
-                                            "Failed assigning to {name}[{idx}], index invalid or not supported",
+                                            "failed to assign to {name}[{idx}], index invalid or not supported",
                                         )));
                                     }
                                 }
                             },
                             None => {
                                 return Err(WqError::ValueError(format!(
-                                    "Cannot assign to {name}[{idx}], variable not found",
+                                    "cannot assign to {name}[{idx}], variable not found",
                                 )));
                             }
                         },
                         other => {
                             return Err(WqError::TypeError(format!(
-                                "Invalid index assignment target: expected Symbol, got {}",
+                                "invalid index assignment target: expected Symbol, got {}",
                                 other.type_name_verbose(),
                             )));
                         }
@@ -808,12 +808,12 @@ impl Vm {
                 Instruction::IndexAssignLocal(slot) => {
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing value for index assignment".into(),
+                            "stack underflow: missing value for index assignment".into(),
                         )
                     })?;
                     let idx = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing index for assignment".into(),
+                            "stack underflow: missing index for assignment".into(),
                         )
                     })?;
                     if let Some(frame) = self.locals.last_mut() {
@@ -827,7 +827,7 @@ impl Vm {
                                         self.stack.push(val);
                                     } else {
                                         return Err(WqError::IndexError(format!(
-                                            "Failed assigning to local[{slot}][{i}], out of bounds",
+                                            "failed to assign to local[{slot}][{i}], out of bounds",
                                         )));
                                     }
                                 }
@@ -839,7 +839,7 @@ impl Vm {
                                         self.stack.push(val);
                                     } else {
                                         return Err(WqError::IndexError(format!(
-                                            "Failed assigning to local[{slot}][{i}], out of bounds",
+                                            "failed to assign to local[{slot}][{i}], out of bounds",
                                         )));
                                     }
                                 }
@@ -848,29 +848,29 @@ impl Vm {
                                         self.stack.push(val);
                                     } else {
                                         return Err(WqError::IndexError(format!(
-                                            "Failed assigning to local[{slot}][{idx}], index invalid or not supported",
+                                            "failed to assign to local[{slot}][{idx}], index invalid or not supported",
                                         )));
                                     }
                                 }
                             }
                         } else {
                             return Err(WqError::RuntimeError(format!(
-                                "Invalid local slot {slot}"
+                                "invalid local slot {slot}"
                             )));
                         }
                     } else {
-                        return Err(WqError::RuntimeError("No local frame".into()));
+                        return Err(WqError::RuntimeError("no local frame".into()));
                     }
                 }
                 Instruction::IndexAssignLocalDrop(slot) => {
                     let val = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing value for index assignment".into(),
+                            "stack underflow: missing value for index assignment".into(),
                         )
                     })?;
                     let idx = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing index for assignment".into(),
+                            "stack underflow: missing index for assignment".into(),
                         )
                     })?;
                     if let Some(frame) = self.locals.last_mut() {
@@ -883,7 +883,7 @@ impl Vm {
                                         items[ii as usize] = *v;
                                     } else {
                                         return Err(WqError::IndexError(format!(
-                                            "Failed assigning to local[{slot}][{i}], out of bounds",
+                                            "failed to assign to local[{slot}][{i}], out of bounds",
                                         )));
                                     }
                                 }
@@ -894,42 +894,43 @@ impl Vm {
                                         items[ii as usize] = val.clone();
                                     } else {
                                         return Err(WqError::IndexError(format!(
-                                            "Failed assigning to local[{slot}][{i}], out of bounds",
+                                            "failed to assign to local[{slot}][{i}], out of bounds",
                                         )));
                                     }
                                 }
                                 _ => {
                                     if (*obj).set_index(&idx, val.clone()).is_none() {
                                         return Err(WqError::IndexError(format!(
-                                            "Failed assigning to local[{slot}][{idx}], index invalid or not supported",
+                                            "failed to assign to local[{slot}][{idx}], index invalid or not supported",
                                         )));
                                     }
                                 }
                             }
                         } else {
                             return Err(WqError::RuntimeError(format!(
-                                "Invalid local slot {slot}"
+                                "invalid local slot {slot}"
                             )));
                         }
                     } else {
-                        return Err(WqError::RuntimeError("No local frame".into()));
+                        return Err(WqError::RuntimeError("no local frame".into()));
                     }
                 }
                 Instruction::Jump(pos) => self.pc = *pos,
                 Instruction::JumpIfFalse(pos) => {
                     let v = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing value for conditional jump".into(),
+                            "stack underflow: missing value for conditional jump".into(),
                         )
                     })?;
 
                     let is_false = match v {
                         Value::Bool(b) => !b,
-                        Value::Int(n) => n == 0,
-                        Value::Float(f) => f == 0.0,
+                        // only bool is accepted
+                        // Value::Int(n) => n == 0,
+                        // Value::Float(f) => f == 0.0,
                         _ => {
                             return Err(WqError::TypeError(
-                                "Invalid condition type in control flow, expected bool, int, or float".into(),
+                                "control flow: invalid condition type, expected bool".into(),
                             ));
                         }
                     };
@@ -942,12 +943,12 @@ impl Vm {
                     // Pop right then left, jump if left >= right
                     let right = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing right operand for compare-jump".into(),
+                            "stack underflow: missing right operand for compare-jump".into(),
                         )
                     })?;
                     let left = self.stack.pop().ok_or_else(|| {
                         WqError::RuntimeError(
-                            "Stack underflow: missing left operand for compare-jump".into(),
+                            "stack underflow: missing left operand for compare-jump".into(),
                         )
                     })?;
                     // emulate !(left < right)
@@ -956,7 +957,7 @@ impl Vm {
                         Value::Bool(b) => !b,
                         _ => {
                             return Err(WqError::TypeError(
-                                "Invalid condition type in control flow, expected bool, int, or float".into(),
+                                "invalid condition type in control flow, expected bool, int, or float".into(),
                             ));
                         }
                     };
@@ -972,14 +973,14 @@ impl Vm {
                         .and_then(|f| f.get(*slot as usize))
                         .cloned()
                         .ok_or_else(|| {
-                            WqError::RuntimeError(format!("Invalid local slot {slot}"))
+                            WqError::RuntimeError(format!("invalid local slot {slot}"))
                         })?;
                     let is_le_zero = match v {
                         Value::Int(n) => n <= 0,
                         Value::Float(f) => f <= 0.0,
                         _ => {
                             return Err(WqError::TypeError(
-                                "Invalid condition type in control flow, expected bool, int, or float".into(),
+                                "invalid condition type in control flow, expected bool, int, or float".into(),
                             ));
                         }
                     };
@@ -992,18 +993,16 @@ impl Vm {
                 }
                 Instruction::Assert => {
                     let v = self.stack.pop().ok_or_else(|| {
-                        WqError::RuntimeError("Stack underflow: missing value for assert".into())
+                        WqError::RuntimeError("stack underflow: missing value for assert".into())
                     })?;
                     let ok = match v {
                         Value::Bool(b) => b,
                         _ => {
-                            return Err(WqError::TypeError(
-                                "Invalid type for assert, expected bool".into(),
-                            ));
+                            return Err(WqError::TypeError("`@a`: expected bool".into()));
                         }
                     };
                     if !ok {
-                        return Err(WqError::AssertionError("Assertion failed".into()));
+                        return Err(WqError::AssertionError("assertion failed".into()));
                     }
                     self.stack.push(Value::Null);
                 }
@@ -1031,7 +1030,7 @@ impl Vm {
                 Instruction::CallOrIndex(argc) => {
                     if self.stack.len() < *argc + 1 {
                         return Err(WqError::RuntimeError(format!(
-                            "Stack underflow: expected {argc} arguments and an object",
+                            "stack underflow: expected {argc} args and an object",
                         )));
                     }
                     let base = self.stack.len() - *argc;
@@ -1104,7 +1103,7 @@ impl Vm {
                                         self.stack.push(Value::Int(items[idx]));
                                     } else {
                                         return Err(WqError::IndexError(format!(
-                                            "Invalid index: attempted to access index {i} in intlist of len {}",
+                                            "invalid index: attempted to access index {i} in intlist of len {}",
                                             items.len()
                                         )));
                                     }
@@ -1118,7 +1117,7 @@ impl Vm {
                                         self.stack.push(v);
                                     } else {
                                         return Err(WqError::IndexError(format!(
-                                            "Invalid index: attempted to access index {i} in list of len {}",
+                                            "invalid index: attempted to access index {i} in list of len {}",
                                             items.len()
                                         )));
                                     }
@@ -1127,7 +1126,7 @@ impl Vm {
                                     Some(v) => self.stack.push(v),
                                     None => {
                                         return Err(WqError::IndexError(format!(
-                                            "Invalid index: attempted to access index {idx} in {objv}"
+                                            "invalid index: attempted to access index {idx} in {objv}"
                                         )));
                                     }
                                 },
@@ -1141,7 +1140,7 @@ impl Vm {
                         .last()
                         .and_then(|c| c.get(*i as usize))
                         .ok_or_else(|| {
-                            WqError::RuntimeError(format!("Invalid capture slot {i}"))
+                            WqError::RuntimeError(format!("invalid capture slot {i}"))
                         })?;
                     self.stack.push(cap.clone());
                 }
@@ -1181,7 +1180,7 @@ impl Vm {
                                 // }
                                 else {
                                     return Err(WqError::ValueError(format!(
-                                        "Variable '{name}' is not defined"
+                                        "`{name}` is not defined"
                                     )));
                                 };
                                 captured_vals.push(val);
@@ -1208,7 +1207,7 @@ fn classify_arith(op_name: &str, left: &Value, right: &Value) -> WqError {
         WqError::DomainError(format!("{op_name} overflow"))
     } else {
         WqError::TypeError(format!(
-            "Cannot {op_name} '{left}' of type {} and '{right}' of type {}",
+            "cannot {op_name} '{left}' of type {} and '{right}' of type {}",
             left.type_name_verbose(),
             right.type_name_verbose()
         ))
@@ -1223,12 +1222,12 @@ fn classify_divide(left: &Value, right: &Value) -> WqError {
         _ => false,
     };
     if is_zero {
-        WqError::DomainError("Division by zero".into())
+        WqError::DomainError("division by zero".into())
     } else if matches!(left, Value::Int(_) | Value::IntList(_))
         && matches!(right, Value::Int(_) | Value::IntList(_))
     {
         WqError::DomainError("division overflow".into())
     } else {
-        WqError::TypeError("Cannot divide these types".into())
+        WqError::TypeError("cannot divide provided values".into())
     }
 }

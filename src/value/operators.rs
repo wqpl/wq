@@ -1747,16 +1747,21 @@ impl Value {
         F: Fn(&Value, &Value) -> bool + Copy,
     {
         match (self, other) {
-            (Value::List(_), Value::List(_)) if self.is_string() && other.is_string() => {
-                Value::Bool(cmp(self, other))
-            }
+            // special-case strings encoded as lists
+            // (Value::List(_), Value::List(_)) if self.is_string() && other.is_string() => {
+            //     Value::Bool(cmp(self, other))
+            // }
+
+            // IntList vs IntList
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.is_empty() || b.is_empty() {
                     Value::List(Vec::new())
                 } else if a.len() == b.len() {
                     let mut out = Vec::with_capacity(a.len());
                     for (&x, &y) in a.iter().zip(b.iter()) {
-                        out.push(Value::Bool(cmp(&Value::Int(x), &Value::Int(y))));
+                        let left = Value::Int(x);
+                        let right = Value::Int(y);
+                        out.push(left.cmp_broadcast(&right, cmp));
                     }
                     Value::List(out)
                 } else {
@@ -1765,18 +1770,20 @@ impl Value {
                     for i in 0..max_len {
                         let left = Value::Int(a[i % a.len()]);
                         let right = Value::Int(b[i % b.len()]);
-                        out.push(Value::Bool(cmp(&left, &right)));
+                        out.push(left.cmp_broadcast(&right, cmp));
                     }
                     Value::List(out)
                 }
             }
+
+            // IntList vs List
             (Value::IntList(a), Value::List(b)) => {
                 if a.is_empty() || b.is_empty() {
                     Value::List(Vec::new())
                 } else if a.len() == b.len() {
                     let mut out = Vec::with_capacity(a.len());
                     for (&x, y) in a.iter().zip(b.iter()) {
-                        out.push(Value::Bool(cmp(&Value::Int(x), y)));
+                        out.push(Value::Int(x).cmp_broadcast(y, cmp));
                     }
                     Value::List(out)
                 } else {
@@ -1785,18 +1792,20 @@ impl Value {
                     for i in 0..max_len {
                         let left = Value::Int(a[i % a.len()]);
                         let right = &b[i % b.len()];
-                        out.push(Value::Bool(cmp(&left, right)));
+                        out.push(left.cmp_broadcast(right, cmp));
                     }
                     Value::List(out)
                 }
             }
+
+            // List vs IntList
             (Value::List(a), Value::IntList(b)) => {
                 if a.is_empty() || b.is_empty() {
                     Value::List(Vec::new())
                 } else if a.len() == b.len() {
                     let mut out = Vec::with_capacity(a.len());
                     for (x, &y) in a.iter().zip(b.iter()) {
-                        out.push(Value::Bool(cmp(x, &Value::Int(y))));
+                        out.push(x.cmp_broadcast(&Value::Int(y), cmp));
                     }
                     Value::List(out)
                 } else {
@@ -1805,32 +1814,38 @@ impl Value {
                     for i in 0..max_len {
                         let left = &a[i % a.len()];
                         let right = Value::Int(b[i % b.len()]);
-                        out.push(Value::Bool(cmp(left, &right)));
+                        out.push(left.cmp_broadcast(&right, cmp));
                     }
                     Value::List(out)
                 }
             }
+
+            // IntList vs scalar (non-list)
             (Value::IntList(a), b) => {
                 let mut out = Vec::with_capacity(a.len());
                 for &x in a {
-                    out.push(Value::Bool(cmp(&Value::Int(x), b)));
+                    out.push(Value::Int(x).cmp_broadcast(b, cmp)); // safe: b is not a list here
                 }
                 Value::List(out)
             }
+
+            // scalar (non-list) vs IntList
             (a, Value::IntList(b)) => {
                 let mut out = Vec::with_capacity(b.len());
                 for &y in b {
-                    out.push(Value::Bool(cmp(a, &Value::Int(y))));
+                    out.push(a.cmp_broadcast(&Value::Int(y), cmp)); // safe: a is not a list here
                 }
                 Value::List(out)
             }
+
+            // List vs List (generic)
             (Value::List(a), Value::List(b)) => {
                 if a.is_empty() || b.is_empty() {
                     Value::List(Vec::new())
                 } else if a.len() == b.len() {
                     let mut out = Vec::with_capacity(a.len());
                     for (x, y) in a.iter().zip(b.iter()) {
-                        out.push(Value::Bool(cmp(x, y)));
+                        out.push(x.cmp_broadcast(y, cmp));
                     }
                     Value::List(out)
                 } else {
@@ -1839,25 +1854,31 @@ impl Value {
                     for i in 0..max_len {
                         let left = &a[i % a.len()];
                         let right = &b[i % b.len()];
-                        out.push(Value::Bool(cmp(left, right)));
+                        out.push(left.cmp_broadcast(right, cmp));
                     }
                     Value::List(out)
                 }
             }
+
+            // List vs scalar
             (Value::List(a), b) => {
                 let mut out = Vec::with_capacity(a.len());
                 for x in a {
-                    out.push(Value::Bool(cmp(x, b)));
+                    out.push(x.cmp_broadcast(b, cmp));
                 }
                 Value::List(out)
             }
+
+            // scalar vs List
             (a, Value::List(b)) => {
                 let mut out = Vec::with_capacity(b.len());
                 for y in b {
-                    out.push(Value::Bool(cmp(a, y)));
+                    out.push(a.cmp_broadcast(y, cmp));
                 }
                 Value::List(out)
             }
+
+            // pure scalars (or non-list types)
             (a, b) => Value::Bool(cmp(a, b)),
         }
     }

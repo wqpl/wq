@@ -1,7 +1,0 @@
-find
-====
-find[x;y]
-
-Examples:
-  find[2;(1;2;3;2)] // 1
-  find[4;(1;2;3)]   // null

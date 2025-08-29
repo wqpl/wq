@@ -3,11 +3,11 @@ use crate::value::{Value, WqError, WqResult};
 
 pub fn and(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(arity_error("and", "2 arguments", args.len()));
+        return Err(arity_error("and", "2", args.len()));
     }
     args[0].and_bool(&args[1]).ok_or_else(|| {
         WqError::TypeError(format!(
-            "and expects booleans, got {} and {}",
+            "`and`: expected bools, got {} and {}",
             args[0].type_name_verbose(),
             args[1].type_name_verbose()
         ))
@@ -16,11 +16,11 @@ pub fn and(args: &[Value]) -> WqResult<Value> {
 
 pub fn or(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(arity_error("or", "2 arguments", args.len()));
+        return Err(arity_error("or", "2", args.len()));
     }
     args[0].or_bool(&args[1]).ok_or_else(|| {
         WqError::TypeError(format!(
-            "or expects booleans, got {} and {}",
+            "`or`: expected bools, got {} and {}",
             args[0].type_name_verbose(),
             args[1].type_name_verbose()
         ))
@@ -29,11 +29,11 @@ pub fn or(args: &[Value]) -> WqResult<Value> {
 
 pub fn not(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("not", "1 argument", args.len()));
+        return Err(arity_error("not", "1", args.len()));
     }
     args[0].not_bool().ok_or_else(|| {
         WqError::TypeError(format!(
-            "not expects a boolean, got {}",
+            "`not`: expected bool, got {}",
             args[0].type_name_verbose()
         ))
     })
@@ -41,11 +41,11 @@ pub fn not(args: &[Value]) -> WqResult<Value> {
 
 pub fn xor(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(arity_error("xor", "2 arguments", args.len()));
+        return Err(arity_error("xor", "2", args.len()));
     }
     args[0].xor_bool(&args[1]).ok_or_else(|| {
         WqError::TypeError(format!(
-            "xor expects booleans, got {} and {}",
+            "`xor`: expected bools, got {} and {}",
             args[0].type_name_verbose(),
             args[1].type_name_verbose()
         ))
@@ -54,11 +54,11 @@ pub fn xor(args: &[Value]) -> WqResult<Value> {
 
 pub fn band(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(arity_error("band", "2 arguments", args.len()));
+        return Err(arity_error("band", "2", args.len()));
     }
     args[0].bitand(&args[1]).ok_or_else(|| {
         WqError::TypeError(format!(
-            "band expects integers, got {} and {}",
+            "`band`: expected ints, got {} and {}",
             args[0].type_name_verbose(),
             args[1].type_name_verbose()
         ))
@@ -67,11 +67,11 @@ pub fn band(args: &[Value]) -> WqResult<Value> {
 
 pub fn bor(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(arity_error("bor", "2 arguments", args.len()));
+        return Err(arity_error("bor", "2", args.len()));
     }
     args[0].bitor(&args[1]).ok_or_else(|| {
         WqError::TypeError(format!(
-            "bor expects integers, got {} and {}",
+            "`bor`: expected ints, got {} and {}",
             args[0].type_name_verbose(),
             args[1].type_name_verbose()
         ))
@@ -80,11 +80,11 @@ pub fn bor(args: &[Value]) -> WqResult<Value> {
 
 pub fn bxor(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(arity_error("bxor", "2 arguments", args.len()));
+        return Err(arity_error("bxor", "2", args.len()));
     }
     args[0].bitxor(&args[1]).ok_or_else(|| {
         WqError::TypeError(format!(
-            "bxor expects integers, got {} and {}",
+            "`bxor`: expected ints, got {} and {}",
             args[0].type_name_verbose(),
             args[1].type_name_verbose()
         ))
@@ -93,11 +93,11 @@ pub fn bxor(args: &[Value]) -> WqResult<Value> {
 
 pub fn bnot(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("bnot", "1 argument", args.len()));
+        return Err(arity_error("bnot", "1", args.len()));
     }
     args[0].bitnot().ok_or_else(|| {
         WqError::TypeError(format!(
-            "bnot expects an integer, got {}",
+            "`bnot`: expected int, got {}",
             args[0].type_name_verbose()
         ))
     })
@@ -105,11 +105,11 @@ pub fn bnot(args: &[Value]) -> WqResult<Value> {
 
 pub fn shl(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(arity_error("shl", "2 arguments", args.len()));
+        return Err(arity_error("shl", "2", args.len()));
     }
     args[0].shl(&args[1]).ok_or_else(|| {
         WqError::TypeError(format!(
-            "shl expects integers, got {} and {}",
+            "`shl`: expected ints, got {} and {}",
             args[0].type_name_verbose(),
             args[1].type_name_verbose()
         ))
@@ -118,11 +118,11 @@ pub fn shl(args: &[Value]) -> WqResult<Value> {
 
 pub fn shr(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(arity_error("shr", "2 arguments", args.len()));
+        return Err(arity_error("shr", "2", args.len()));
     }
     args[0].shr(&args[1]).ok_or_else(|| {
         WqError::TypeError(format!(
-            "shr expects integers, got {} and {}",
+            "`shr`: expected ints, got {} and {}",
             args[0].type_name_verbose(),
             args[1].type_name_verbose()
         ))

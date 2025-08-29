@@ -1,6 +1,0 @@
-signum
-======
-signum x
-
-Examples:
-  signum -3 // -1

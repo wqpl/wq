@@ -3,7 +3,7 @@ use crate::value::{Value, WqError, WqResult};
 
 pub fn keys(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("keys", "1 argument", args.len()));
+        return Err(arity_error("keys", "1", args.len()));
     }
     match &args[0] {
         Value::Dict(map) => {
@@ -13,7 +13,7 @@ pub fn keys(args: &[Value]) -> WqResult<Value> {
             Ok(Value::List(list))
         }
         _ => Err(WqError::TypeError(format!(
-            "keys expects dict, got {}",
+            "`keys`: expected dict, got {}",
             args[0].type_name_verbose()
         ))),
     }

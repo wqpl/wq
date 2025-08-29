@@ -21,24 +21,22 @@ fn value_to_bytes(v: &Value) -> WqResult<Vec<u8>> {
                 if let Value::Int(i) = x {
                     Ok(*i as u8)
                 } else {
-                    Err(WqError::TypeError(format!(
-                        "Cannot interpret {} as bytes",
-                        x.type_name_verbose()
+                    Err(WqError::DomainError(format!(
+                        "Cannot interpret {v} as bytes",
                     )))
                 }
             })
             .collect(),
         Value::Int(n) => Ok(vec![*n as u8]),
-        _ => Err(WqError::TypeError(format!(
-            "Cannot interpret {} as bytes",
-            v.type_name_verbose()
+        _ => Err(WqError::DomainError(format!(
+            "Cannot interpret {v} as bytes",
         ))),
     }
 }
 
 pub fn open(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() || args.len() > 2 {
-        return Err(arity_error("open", "1 or 2 arguments", args.len()));
+        return Err(arity_error("open", "1 or 2", args.len()));
     }
     let path = value_to_string(&args[0])?;
     let mode = if args.len() == 2 {
@@ -78,7 +76,11 @@ pub fn open(args: &[Value]) -> WqResult<Value> {
             read = true;
             write = true;
         }
-        _ => return Err(WqError::DomainError("invalid open mode".into())),
+        _ => {
+            return Err(WqError::DomainError(format!(
+                "`open`: invalid open mode `{mode}`"
+            )));
+        }
     }
 
     let file = options
@@ -113,7 +115,7 @@ pub fn open(args: &[Value]) -> WqResult<Value> {
 
 pub fn fexists(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("exists?", "1 argument", args.len()));
+        return Err(arity_error("fexists?", "1", args.len()));
     }
     let path = value_to_string(&args[0])?;
     Ok(Value::Bool(Path::new(&path).exists()))
@@ -121,7 +123,7 @@ pub fn fexists(args: &[Value]) -> WqResult<Value> {
 
 pub fn mkdir(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("mkdir", "1 argument", args.len()));
+        return Err(arity_error("mkdir", "1", args.len()));
     }
     let path = value_to_string(&args[0])?;
     fs::create_dir_all(&path).map_err(|e| WqError::IoError(e.to_string()))?;
@@ -130,7 +132,7 @@ pub fn mkdir(args: &[Value]) -> WqResult<Value> {
 
 pub fn fsize(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("fsize", "1 argument", args.len()));
+        return Err(arity_error("fsize", "1", args.len()));
     }
     let path = value_to_string(&args[0])?;
     let meta = fs::metadata(&path).map_err(|e| WqError::IoError(e.to_string()))?;
@@ -139,7 +141,7 @@ pub fn fsize(args: &[Value]) -> WqResult<Value> {
 
 pub fn fwrite(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(arity_error("fwrite", "2 arguments", args.len()));
+        return Err(arity_error("fwrite", "2", args.len()));
     }
     if let Value::Stream(rc) = &args[0] {
         let mut handle = rc.lock().unwrap();
@@ -150,16 +152,19 @@ pub fn fwrite(args: &[Value]) -> WqResult<Value> {
             w.flush().map_err(|e| WqError::IoError(e.to_string()))?;
             Ok(Value::Null)
         } else {
-            Err(WqError::IoError("stream not writable".into()))
+            Err(WqError::IoError("`fwrite`: stream not writable".into()))
         }
     } else {
-        Err(WqError::TypeError("fwrite expects a stream".into()))
+        Err(WqError::TypeError(format!(
+            "`fwrite`: expected stream at arg0, got {}",
+            args[0].type_name_verbose()
+        )))
     }
 }
 
 pub fn fwritet(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
-        return Err(arity_error("fwritet", "2 arguments", args.len()));
+        return Err(arity_error("fwritet", "2", args.len()));
     }
     let s = value_to_string(&args[1])?;
     fwrite(&[
@@ -170,7 +175,7 @@ pub fn fwritet(args: &[Value]) -> WqResult<Value> {
 
 pub fn fread(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() || args.len() > 2 {
-        return Err(arity_error("fread", "1 or 2 arguments", args.len()));
+        return Err(arity_error("fread", "1 or 2", args.len()));
     }
     if let Value::Stream(rc) = &args[0] {
         let mut handle = rc.lock().unwrap();
@@ -179,9 +184,7 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
             if args.len() == 2 {
                 if let Value::Int(n) = args[1] {
                     if n < 0 {
-                        return Err(WqError::DomainError(
-                            "fread length must be non-negative".into(),
-                        ));
+                        return Err(WqError::DomainError("`fread`: negative length".into()));
                     }
                     let mut tmp = vec![0u8; n as usize];
                     let read = reader
@@ -193,7 +196,10 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
                     }
                     buf.extend_from_slice(&tmp[..read]);
                 } else {
-                    return Err(WqError::TypeError("invalid fread length".into()));
+                    return Err(WqError::TypeError(format!(
+                        "`fread`: invalid length, expected int, got {}",
+                        args[1].type_name_verbose()
+                    )));
                 }
             } else {
                 reader
@@ -202,10 +208,13 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
             }
             Ok(Value::IntList(buf.into_iter().map(|b| b as i64).collect()))
         } else {
-            Err(WqError::IoError("stream not readable".into()))
+            Err(WqError::IoError("`fread`: stream not readable".into()))
         }
     } else {
-        Err(WqError::TypeError("fread expects a stream".into()))
+        Err(WqError::TypeError(format!(
+            "`fread`: expected stream at arg0, got {}",
+            args[0].type_name_verbose()
+        )))
     }
 }
 
@@ -224,7 +233,7 @@ pub fn freadt(args: &[Value]) -> WqResult<Value> {
 
 pub fn freadtln(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("freadtln", "1 argument", args.len()));
+        return Err(arity_error("freadtln", "1", args.len()));
     }
     if let Value::Stream(rc) = &args[0] {
         let mut handle = rc.lock().unwrap();
@@ -248,24 +257,33 @@ pub fn freadtln(args: &[Value]) -> WqResult<Value> {
             Err(WqError::IoError("stream not readable".into()))
         }
     } else {
-        Err(WqError::TypeError("freadtln expects a stream".into()))
+        Err(WqError::TypeError(format!(
+            "`freadtln`: expected stream at arg0, got {}",
+            args[0].type_name_verbose()
+        )))
     }
 }
 
 pub fn fseek(args: &[Value]) -> WqResult<Value> {
     if args.len() < 2 || args.len() > 3 {
-        return Err(arity_error("fseek", "2 or 3 arguments", args.len()));
+        return Err(arity_error("fseek", "2 or 3", args.len()));
     }
     let offset = if let Value::Int(n) = args[1] {
         n
     } else {
-        return Err(WqError::TypeError("offset must be int".into()));
+        return Err(WqError::TypeError(format!(
+            "`fseek`: invalid offset, expected int, got {}",
+            args[1].type_name_verbose()
+        )));
     };
     let whence = if args.len() == 3 {
         if let Value::Int(w) = args[2] {
             w
         } else {
-            return Err(WqError::TypeError("whence".into()));
+            return Err(WqError::TypeError(format!(
+                "`fseek`: invalid whence, expected int, got {}",
+                args[2].type_name_verbose()
+            )));
         }
     } else {
         0
@@ -276,7 +294,11 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
             0 => SeekFrom::Start(offset as u64),
             1 => SeekFrom::Current(offset),
             2 => SeekFrom::End(offset),
-            _ => return Err(WqError::DomainError("invalid whence".into())),
+            _ => {
+                return Err(WqError::DomainError(
+                    "`fseek`: invalid whence, expected 0, 1, or 2".into(),
+                ));
+            }
         };
 
         if let Some(w) = handle.writer.as_mut() {
@@ -294,16 +316,19 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
                 .map_err(|e| WqError::IoError(e.to_string()))?;
             Ok(Value::Int(pos as i64))
         } else {
-            Err(WqError::IoError("stream not seekable".into()))
+            Err(WqError::IoError("`fseek`: stream not seekable".into()))
         }
     } else {
-        Err(WqError::TypeError("fseek expects a stream".into()))
+        Err(WqError::TypeError(format!(
+            "`fseek`: expected stream at arg0, got {}",
+            args[0].type_name_verbose()
+        )))
     }
 }
 
 pub fn ftell(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("ftell", "1 argument", args.len()));
+        return Err(arity_error("ftell", "1", args.len()));
     }
 
     if let Value::Stream(rc) = &args[0] {
@@ -324,15 +349,18 @@ pub fn ftell(args: &[Value]) -> WqResult<Value> {
             return Ok(Value::Int(pos as i64));
         }
 
-        Err(WqError::IoError("stream not seekable".into()))
+        Err(WqError::IoError("`ftell`: stream not seekable".into()))
     } else {
-        Err(WqError::TypeError("ftell expects a stream".into()))
+        Err(WqError::TypeError(format!(
+            "`ftell`: expected stream at arg0, got {}",
+            args[0].type_name_verbose()
+        )))
     }
 }
 
 pub fn fclose(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("fclose", "1 argument", args.len()));
+        return Err(arity_error("fclose", "1", args.len()));
     }
     if let Value::Stream(rc) = &args[0] {
         let mut handle = rc.lock().unwrap();
@@ -341,7 +369,10 @@ pub fn fclose(args: &[Value]) -> WqResult<Value> {
         handle.child = None;
         Ok(Value::Null)
     } else {
-        Err(WqError::TypeError("fclose expects a stream".into()))
+        Err(WqError::TypeError(format!(
+            "`fclose`: expected stream at arg0, got {}",
+            args[0].type_name_verbose()
+        )))
     }
 }
 
@@ -351,7 +382,7 @@ fn find_encoding(label: &str) -> Option<&'static Encoding> {
 
 pub fn decode(args: &[Value]) -> WqResult<Value> {
     if args.len() < 2 || args.len() > 3 {
-        return Err(arity_error("decode", "2 or 3 arguments", args.len()));
+        return Err(arity_error("decode", "2 or 3", args.len()));
     }
     let bytes = value_to_bytes(&args[0])?;
     let codec = value_to_string(&args[1])?;
@@ -360,20 +391,22 @@ pub fn decode(args: &[Value]) -> WqResult<Value> {
     } else {
         "s".to_string()
     };
-    let enc =
-        find_encoding(&codec).ok_or_else(|| WqError::DomainError("unsupported codec".into()))?;
+    let enc = find_encoding(&codec)
+        .ok_or_else(|| WqError::DomainError("`decode`: unsupported codec".into()))?;
     let (text, had_errors) = enc.decode_without_bom_handling(&bytes);
     let s = match mode.as_str() {
         "s" => {
             if had_errors {
-                return Err(WqError::RuntimeError("decode failed".into()));
+                return Err(WqError::RuntimeError(
+                    "`decode`: strict mode decode error".into(),
+                ));
             }
             text
         }
         "r" => text,
         _ => {
             return Err(WqError::DomainError(
-                "invalid mode, expected \"s\" or \"r\"".into(),
+                "`decode`: invalid mode, expected \"s\" or \"r\"".into(),
             ));
         }
     };
@@ -382,7 +415,7 @@ pub fn decode(args: &[Value]) -> WqResult<Value> {
 
 pub fn encode(args: &[Value]) -> WqResult<Value> {
     if args.len() < 2 || args.len() > 3 {
-        return Err(arity_error("encode", "2 or 3 arguments", args.len()));
+        return Err(arity_error("encode", "2 or 3", args.len()));
     }
     let s = value_to_string(&args[0])?;
     let codec = value_to_string(&args[1])?;
@@ -391,14 +424,16 @@ pub fn encode(args: &[Value]) -> WqResult<Value> {
     } else {
         "s".into()
     };
-    let enc =
-        find_encoding(&codec).ok_or_else(|| WqError::DomainError("unsupported codec".into()))?;
+    let enc = find_encoding(&codec)
+        .ok_or_else(|| WqError::DomainError("`encode`: unsupported codec".into()))?;
 
     let out: Vec<u8> = match mode.as_str() {
         "s" => {
             let (cow, _enc_used, had_errors) = enc.encode(&s);
             if had_errors {
-                return Err(WqError::DomainError("encode error".into()));
+                return Err(WqError::RuntimeError(
+                    "`encode`: strict mode encode error".into(),
+                ));
             }
             cow.into_owned()
         }
@@ -406,7 +441,11 @@ pub fn encode(args: &[Value]) -> WqResult<Value> {
             let (cow, _enc_used, _had_errors) = enc.encode(&s);
             cow.into_owned()
         }
-        _ => return Err(WqError::DomainError("invalid mode".into())),
+        _ => {
+            return Err(WqError::DomainError(
+                "`encode`: invalid mode, expected \"s\" or \"r\"".into(),
+            ));
+        }
     };
 
     Ok(Value::IntList(out.into_iter().map(|b| b as i64).collect()))

@@ -84,14 +84,12 @@ impl VmEvaluator {
 
         #[cfg(not(target_arch = "wasm32"))]
         if self.debug {
-            stderr_println("Tokens".red().bold().to_string().as_str());
-            stderr_println("======".red().bold().to_string().as_str());
+            stderr_println("~ Tokens ~".red().underline().to_string().as_str());
             stderr_println(format!("{tokens:?}").as_str());
         }
         #[cfg(target_arch = "wasm32")]
         if self.debug {
-            stderr_println("Tokens");
-            stderr_println("======");
+            stderr_println("~ Tokens ~");
             stderr_println(format!("{tokens:?}").as_str());
         }
 
@@ -105,14 +103,12 @@ impl VmEvaluator {
 
         #[cfg(not(target_arch = "wasm32"))]
         if self.debug {
-            stderr_println("AST".yellow().bold().to_string().as_str());
-            stderr_println("===".yellow().bold().to_string().as_str());
+            stderr_println("~ AST ~".yellow().underline().to_string().as_str());
             stderr_println(format!("{ast:?}").as_str());
         }
         #[cfg(target_arch = "wasm32")]
         if self.debug {
-            stderr_println("AST");
-            stderr_println("===");
+            stderr_println("~ AST ~");
             stderr_println(format!("{ast:?}").as_str());
         }
 
@@ -123,21 +119,19 @@ impl VmEvaluator {
 
         #[cfg(not(target_arch = "wasm32"))]
         if self.debug {
-            stderr_println("Inst".green().bold().to_string().as_str());
-            stderr_println("====".green().bold().to_string().as_str());
+            stderr_println("~ Inst ~".green().underline().to_string().as_str());
             for inst in &compiler.instructions {
                 let s = format!("{inst:?}");
                 if let Some((name, rest)) = s.split_once('(') {
-                    stderr_println(format!("{}({rest}", name.blue().bold()).as_str());
+                    stderr_println(format!("{}({rest}", name.green()).as_str());
                 } else {
-                    stderr_println(format!("{}", s.blue().bold()).as_str());
+                    stderr_println(format!("{}", s.green()).as_str());
                 }
             }
         }
         #[cfg(target_arch = "wasm32")]
         if self.debug {
-            stderr_println("Inst");
-            stderr_println("====");
+            stderr_println("~ Inst ~");
             for inst in &compiler.instructions {
                 let s = format!("{inst:?}");
                 if let Some((name, rest)) = s.split_once('(') {
@@ -287,7 +281,7 @@ mod tests {
     #[test]
     fn empty_conditional_branches_dont_panic() {
         let mut eval = VmEvaluator::new();
-        let res = eval.eval_string("$[1;;]");
+        let res = eval.eval_string("$[true;;]");
         assert!(res.is_ok());
     }
 
@@ -326,7 +320,7 @@ mod tests {
         let res = eval.eval_string("f:{100*x+10*y+z};f[1;2;3]").unwrap();
         assert_eq!(res, Value::Int(123));
 
-        // Too many arguments should error
+        // Too many args should error
         let res = eval.eval_string("f[1;2;3;4]");
         assert!(matches!(res, Err(WqError::ArityError(_))));
     }

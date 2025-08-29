@@ -1,0 +1,6 @@
+sgn
+===
+sgn x
+
+Examples:
+  sgn(-3) // -1

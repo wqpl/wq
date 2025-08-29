@@ -5,7 +5,7 @@ echo x y
 
 // Print a value to stdout.
 // A newline is printed by default, when the optional
-// boolean argument is false, no newline is appended.
+// boolean arg is false, no newline is appended.
 
 Examples:
   echo "hi"

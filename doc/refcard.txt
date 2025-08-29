@@ -1,33 +1,34 @@
 wq refcard
 ==========
-+  plus              ,  cat
--  minus             #  count
-*  multiply          =  equal
-/  divide            ~  not equal
-/. safe divide       <  lesser than
-%  modulo            <=
-%. safe modulo       >  greater than
-^  power             >=
-:  assign            |  pipe
-$ [cond;t;f1;f2...]  W[cond;s1;s2...]
-$.[cond;t1;t2...]    N[n;echo _n]
-@a  assert           @r return
-@b  break            @t try
-@c  continue
++     |plus       ,  enlist|cat
+-  neg|minus      #  count |
+*     |mul        =        |eq
+/     |div        ~        |neq
+/.    |safe div   <        |less
+%     |mod        <=       |leq
+%.    |safe mod   >        |greater
+^     |power      >=       |geq
+:     |assign     |        |pipe
 
-types
-=====
+@a assert            @r return
+@b break             @t try
+@c continue
+
+$ [cond;t;f1;f2...]  W[cond;b1;b2...]
+$.[cond;t1;t2...]    N[n;echo _n]
+
+type
+====
 int float char symbol bool stream
 list (1;2;3)[0;1]
 dict (`a:1;`b:2)[`a]
-func {[a;b]a*b*b}[6;7]
+fn   {[a;b]a*b*b}[2;3]
 
 repl
 ====
-help quit load time vars clear
-debug \hqltvcd
+\hqltvcd
+help quit  load time
+vars clear debug
 
-builtins
-========
 help builtins
 help abs

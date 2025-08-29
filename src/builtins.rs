@@ -11,13 +11,12 @@ mod list;
 mod logical;
 mod math;
 mod str;
-mod type_builtins;
 mod viz;
 
 static IOTA_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn arity_error(func: &str, expected: &str, got: usize) -> WqError {
-    WqError::ArityError(format!("{func} expects {expected}, got {got}"))
+    WqError::ArityError(format!("`{func}`: expected {expected} arg(s), got {got}"))
 }
 
 /// builtin functions
@@ -51,19 +50,23 @@ impl Builtins {
 
     fn register_functions(&mut self) {
         // Core
-        self.add("match?", core::wq_match);
+        self.add("m?", core::wq_match);
         self.add("hash", core::hash);
         self.add("chr", core::chr);
         self.add("ord", core::ord);
         self.add("echo", core::echo);
+        self.add("input", core::input);
+        self.add("type", core::type_of_simple);
+        self.add("typev", core::type_of_verbose);
+        self.add("symbol", core::to_symbol);
+        self.add("null?", core::is_null);
         #[cfg(not(target_arch = "wasm32"))]
         self.add("exec", core::exec);
-        self.add("input", core::input);
 
         // Arithmetic
         self.add("abs", math::abs);
         self.add("neg", math::neg);
-        self.add("signum", math::signum);
+        self.add("sgn", math::sgn);
         self.add("sqrt", math::sqrt);
         self.add("exp", math::exp);
         self.add("ln", math::ln);
@@ -79,15 +82,15 @@ impl Builtins {
         self.add("sinh", math::sinh);
         self.add("cosh", math::cosh);
         self.add("tanh", math::tanh);
-        self.add("hex", math::hex);
-        self.add("bin", math::bin);
+        // self.add("hex", math::hex);
+        // self.add("bin", math::bin);
 
         // List
         self.add("iota", list::iota);
         self.add("range", list::range);
         self.add("count", list::count);
-        self.add("first", list::first);
-        self.add("last", list::last);
+        self.add("fst", list::fst);
+        self.add("lst", list::lst);
         self.add("reverse", list::reverse);
         self.add("sum", list::sum);
         self.add("max", list::max);
@@ -96,21 +99,15 @@ impl Builtins {
         self.add("take", list::take);
         self.add("drop", list::drop);
         self.add("where", list::wq_where);
-        self.add("uniq", list::uniq);
+        self.add("distinct", list::distinct);
         self.add("sort", list::sort);
         self.add("cat", list::cat);
         self.add("flatten", list::flatten);
         self.add("shape", list::shape);
         self.add("alloc", list::alloc);
-        self.add("idx", list::idx);
-        self.add("find", list::find);
-        self.add("in", list::wq_in);
-
-        // Type
-        self.add("type", type_builtins::type_of_simple);
-        self.add("typev", type_builtins::type_of_verbose);
-        self.add("symbol", type_builtins::to_symbol);
-        self.add("null?", type_builtins::is_null);
+        // self.add("idx", list::idx);
+        // self.add("find", list::find);
+        // self.add("in", list::wq_in);
 
         // String
         self.add("fmt", str::fmt);
@@ -132,18 +129,21 @@ impl Builtins {
         self.add("shr", logical::shr);
 
         // IO
-        self.add("open", io::open);
-        self.add("fexists?", io::fexists);
-        self.add("mkdir", io::mkdir);
-        self.add("fsize", io::fsize);
-        self.add("fwrite", io::fwrite);
-        self.add("fwritet", io::fwritet);
-        self.add("fread", io::fread);
-        self.add("freadt", io::freadt);
-        self.add("freadtln", io::freadtln);
-        self.add("ftell", io::ftell);
-        self.add("fseek", io::fseek);
-        self.add("fclose", io::fclose);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.add("open", io::open);
+            self.add("fexists?", io::fexists);
+            self.add("mkdir", io::mkdir);
+            self.add("fsize", io::fsize);
+            self.add("fwrite", io::fwrite);
+            self.add("fwritet", io::fwritet);
+            self.add("fread", io::fread);
+            self.add("freadt", io::freadt);
+            self.add("freadtln", io::freadtln);
+            self.add("ftell", io::ftell);
+            self.add("fseek", io::fseek);
+            self.add("fclose", io::fclose);
+        }
         self.add("decode", io::decode);
         self.add("encode", io::encode);
 
@@ -183,33 +183,34 @@ impl Builtins {
     }
 }
 
-fn values_to_strings(args: &[Value]) -> WqResult<Vec<String>> {
-    args.iter()
-        .map(|v| match v {
-            Value::List(chars) if chars.iter().all(|c| matches!(c, Value::Char(_))) => {
-                let s: String = chars
-                    .iter()
-                    .map(|c| {
-                        if let Value::Char(ch) = *c {
-                            ch
-                        } else {
-                            unreachable!()
-                        }
-                    })
-                    .collect();
-                Ok(s)
+fn value_to_string(v: &Value) -> WqResult<String> {
+    match v {
+        Value::List(chars) => {
+            // Collect only if every item is a Char; otherwise error out.
+            let mut s = String::with_capacity(chars.len());
+            for c in chars {
+                match c {
+                    Value::Char(ch) => s.push(*ch),
+                    _ => {
+                        return Err(WqError::TypeError(
+                            "expected 'str', got a list that contains non-char elements".into(),
+                        ));
+                    }
+                }
             }
-            Value::Symbol(s) => Ok(s.clone()),
-            Value::Char(ch) => Ok(ch.to_string()),
-            other => Err(WqError::TypeError(format!(
-                "string args expected, got '{}' of type {}",
-                v,
-                other.type_name_verbose()
-            ))),
-        })
-        .collect()
+            Ok(s)
+        }
+        // symbol should not be interpreted as a string
+        // Value::Symbol(s) => Ok(s.clone()),
+        Value::Char(ch) => Ok(ch.to_string()),
+        other => Err(WqError::TypeError(format!(
+            "expected 'str', got `{}`",
+            other.type_name_verbose()
+        ))),
+    }
 }
 
-fn value_to_string(v: &Value) -> WqResult<String> {
-    Ok(values_to_strings(&[v.clone()])?.pop().unwrap())
+fn values_to_strings(args: &[Value]) -> WqResult<Vec<String>> {
+    args.iter().map(value_to_string).collect()
+    // args.iter().map(value_to_string).collect::<WqResult<Vec<_>>>()
 }

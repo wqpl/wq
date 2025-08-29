@@ -67,7 +67,7 @@ pub fn echo(args: &[Value]) -> WqResult<Value> {
 
 pub fn input(args: &[Value]) -> WqResult<Value> {
     if args.len() > 1 {
-        return Err(arity_error("input", "0 or 1 argument", args.len()));
+        return Err(arity_error("input", "0 or 1", args.len()));
     }
 
     let prompt = if args.len() == 1 {
@@ -88,11 +88,9 @@ pub fn input(args: &[Value]) -> WqResult<Value> {
 pub fn exec(args: &[Value]) -> WqResult<Value> {
     use crate::builtins::values_to_strings;
     if args.is_empty() {
-        return Err(WqError::DomainError(format!(
-            "exec expects at least 1 argument, got {}",
-            args.len()
-        )));
+        return Err(arity_error("exec", "at least 1", args.len()));
     }
+
     let parts = values_to_strings(args)?;
 
     #[cfg(windows)]
@@ -144,7 +142,9 @@ pub fn exec(args: &[Value]) -> WqResult<Value> {
             .code()
             .map(|c| c.to_string())
             .unwrap_or_else(|| "unknown".into());
-        return Err(WqError::RuntimeError(format!("exec failed (exit {code})")));
+        return Err(WqError::RuntimeError(format!(
+            "`exec`: exec failed (exit {code})"
+        )));
     }
     // decode
     let text = String::from_utf8_lossy(&output.stdout);
@@ -172,19 +172,19 @@ pub fn wq_match(args: &[Value]) -> WqResult<Value> {
 
 pub fn chr(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("chr", "1 argument", args.len()));
+        return Err(arity_error("chr", "1", args.len()));
     }
     match &args[0] {
         Value::Int(n) => {
             let ch = char::from_u32(*n as u32)
-                .ok_or_else(|| WqError::DomainError("invalid char code".into()))?;
+                .ok_or_else(|| WqError::DomainError("`chr`: invalid char code".into()))?;
             Ok(Value::Char(ch))
         }
         Value::IntList(items) => {
             let mut out = Vec::new();
             for &n in items {
                 let ch = char::from_u32(n as u32)
-                    .ok_or_else(|| WqError::DomainError("invalid char code".into()))?;
+                    .ok_or_else(|| WqError::DomainError("`chr`: invalid char code".into()))?;
                 out.push(Value::Char(ch));
             }
             Ok(Value::List(out))
@@ -194,23 +194,25 @@ pub fn chr(args: &[Value]) -> WqResult<Value> {
             for v in items {
                 if let Value::Int(n) = v {
                     let ch = char::from_u32(*n as u32)
-                        .ok_or_else(|| WqError::DomainError("invalid char code".into()))?;
+                        .ok_or_else(|| WqError::DomainError("`chr`: invalid char code".into()))?;
                     out.push(Value::Char(ch));
                 } else {
                     return Err(WqError::TypeError(
-                        "chr expects integers or list of integers".to_string(),
+                        "`chr`: expected int or a list of ints".to_string(),
                     ));
                 }
             }
             Ok(Value::List(out))
         }
-        _ => Err(WqError::TypeError("chr expects an integer".to_string())),
+        _ => Err(WqError::TypeError(
+            "`chr`: expected int or a list of ints".to_string(),
+        )),
     }
 }
 
 pub fn ord(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("ord", "1 argument", args.len()));
+        return Err(arity_error("ord", "1", args.len()));
     }
 
     match &args[0] {
@@ -222,7 +224,7 @@ pub fn ord(args: &[Value]) -> WqResult<Value> {
                     Value::Char(ch) => out.push(*ch as i64),
                     _ => {
                         return Err(WqError::TypeError(
-                            "ord expects characters or list of characters".to_string(),
+                            "`ord`: expected char or a list of chars".into(),
                         ));
                     }
                 }
@@ -231,8 +233,83 @@ pub fn ord(args: &[Value]) -> WqResult<Value> {
         }
         Value::Symbol(s) => Ok(Value::IntList(s.chars().map(|c| c as i64).collect())),
         _ => Err(WqError::TypeError(
-            "ord expects a character or string".to_string(),
+            "`ord`: expected char or a list of chars".into(),
         )),
+    }
+}
+
+pub fn type_of_verbose(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("type", "1", args.len()));
+    }
+    Ok(Value::List(
+        args[0]
+            .type_name_verbose()
+            .to_string()
+            .chars()
+            .map(Value::Char)
+            .collect(),
+    ))
+}
+
+pub fn type_of_simple(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("type", "1", args.len()));
+    }
+    Ok(Value::List(
+        args[0]
+            .type_name_simple()
+            .to_string()
+            .chars()
+            .map(Value::Char)
+            .collect(),
+    ))
+}
+
+pub fn to_symbol(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("symbol", "1", args.len()));
+    }
+
+    let input = &args[0];
+    let name = match input {
+        Value::Symbol(s) => s.clone(),
+        Value::Char(c) => (*c).to_string(),
+        Value::List(items) if input.is_string() => {
+            let mut s = String::new();
+            for v in items {
+                if let Value::Char(c) = v {
+                    s.push(*c);
+                }
+            }
+            s
+        }
+        _ => {
+            return Err(WqError::TypeError(format!(
+                "`symbol`: expected 'str', got {}",
+                input.type_name_verbose()
+            )));
+        }
+    };
+
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|ch| ch.is_alphanumeric() || ch == '_' || ch == '?')
+    {
+        return Err(WqError::DomainError(format!("invalid symbol name: {name}")));
+    }
+
+    Ok(Value::symbol(name))
+}
+
+pub fn is_null(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("null?", "1", args.len()));
+    }
+    match args[0] {
+        Value::Null => Ok(Value::Bool(true)),
+        _ => Ok(Value::Bool(false)),
     }
 }
 
@@ -266,7 +343,7 @@ impl TryHash for Value {
             Value::Float(f) => {
                 // floats are hashable unless NaN; +0.0 and -0.0 hash differently
                 if f.is_nan() {
-                    return Err(WqError::DomainError("Cannot hash NaN".into()));
+                    return Err(WqError::DomainError("`hash`: cannot hash NaN".into()));
                 }
                 4u8.hash(state);
                 f.to_bits().hash(state);
@@ -303,7 +380,7 @@ impl TryHash for Value {
                 Ok(())
             }
             _ => Err(WqError::DomainError(format!(
-                "Cannot hash '{self}' of type {}",
+                "`hash`: cannot hash {}",
                 self.type_name_verbose()
             ))),
         }
@@ -312,7 +389,7 @@ impl TryHash for Value {
 
 pub fn hash(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("hash", "1 argument", args.len()));
+        return Err(arity_error("hash", "1", args.len()));
     }
 
     let mut hasher = DefaultHasher::new();
@@ -350,5 +427,12 @@ mod tests {
         let input = Value::List(vec![Value::Char('A'), Value::Char('B')]);
         let result = ord(&[input]).unwrap();
         assert_eq!(result, Value::IntList(vec![65, 66]));
+    }
+
+    #[test]
+    fn symbol_accepts_question_mark() {
+        let val = Value::List("a?".chars().map(Value::Char).collect());
+        let result = to_symbol(&[val]).unwrap();
+        assert_eq!(result, Value::symbol("a?".to_string()));
     }
 }

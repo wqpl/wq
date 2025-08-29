@@ -166,21 +166,19 @@ pub fn start() {
                         "vars" | "\\v" => {
                             match evaluator.get_environment() {
                                 Some(env) => {
-                                    system_msg_printer::stdout(
-                                        "user-defined bindings:".to_string(),
-                                        system_msg_printer::MsgType::Info,
-                                    );
+                                    eprintln!("{}", "~ user-defined bindings ~".red().underline());
                                     for (key, value) in env {
-                                        system_msg_printer::stdout(
-                                            format!("{key}: {value}"),
-                                            system_msg_printer::MsgType::Info,
+                                        eprintln!(
+                                            "{}: {} {}",
+                                            key.red().bold(),
+                                            value.to_string().yellow(),
+                                            value.type_name_verbose().green().underline()
                                         );
                                     }
                                 }
-                                None => system_msg_printer::stdout(
-                                    "no user-defined bindings".to_string(),
-                                    system_msg_printer::MsgType::Info,
-                                ),
+                                None => {
+                                    eprintln!("{}", "no user-defined bindings".red().underline())
+                                }
                             }
                             continue;
                         }
@@ -609,9 +607,9 @@ mod load_resolver {
 
                     for (name, value) in &vars_after {
                         match vars_before.get(name) {
-                            None => new_bindings.push((name.clone(), value.clone())),
+                            None => new_bindings.push(name.clone()),
                             Some(before_val) if before_val != value => {
-                                overridden.push((name.clone(), value.clone()));
+                                overridden.push(name.clone());
                             }
                             _ => {}
                         }
@@ -619,36 +617,30 @@ mod load_resolver {
 
                     if new_bindings.is_empty() && overridden.is_empty() {
                         system_msg_printer::stderr(
-                            format!("no new bindings from {}", path.display()),
+                            format!("no new bindings from '{}'", path.display()),
                             system_msg_printer::MsgType::Info,
                         );
                     } else {
                         if !new_bindings.is_empty() {
-                            new_bindings.sort_by_key(|(n, _)| n.clone());
+                            new_bindings.sort_by_key(|n| n.clone());
+                            // system_msg_printer::stderr(
+                            //     format!("new bindings from {}:", path.display()),
+                            //     system_msg_printer::MsgType::Info,
+                            // );
+                            let s = new_bindings.join(", ");
                             system_msg_printer::stderr(
-                                format!("new bindings from {}:", path.display()),
+                                format!("new bindings from '{}': {}", path.display(), s),
                                 system_msg_printer::MsgType::Info,
                             );
-                            for (name, value) in new_bindings {
-                                system_msg_printer::stderr(
-                                    format!("  {name} = {value}"),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                            }
                         }
 
                         if !overridden.is_empty() {
-                            overridden.sort_by_key(|(n, _)| n.clone());
+                            overridden.sort_by_key(|n| n.clone());
+                            let s = overridden.join(", ");
                             system_msg_printer::stderr(
-                                format!("overridden bindings from {}:", path.display()),
+                                format!("overridden bindings from '{}': {}", path.display(), s),
                                 system_msg_printer::MsgType::Info,
                             );
-                            for (name, value) in overridden {
-                                system_msg_printer::stderr(
-                                    format!("  {name} = {value}"),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                            }
                         }
                     }
                 }
