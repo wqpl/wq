@@ -27,7 +27,7 @@ pub fn neg(args: &[Value]) -> WqResult<Value> {
         return Err(arity_error("neg", "1", args.len()));
     }
 
-    args[0].neg_value().ok_or_else(|| {
+    args[0].neg().ok_or_else(|| {
         WqError::TypeError(format!(
             "`neg`: expected 'numbers', got {}",
             args[0].type_name_verbose()

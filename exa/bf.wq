@@ -1,7 +1,7 @@
 build_map:{[code]len:count code;jump:alloc len;stack:()
   N[len;ch:code[_n]
     $.[ch="[";stack: stack, _n]
-    $.[ch="]";open_:last stack; stack:take[count stack-1;stack]
+    $.[ch="]";open_:lst stack; stack:take[count stack-1;stack]
       jump[open_]:_n;jump[_n]:open_]];jump}
 bf_run:{[code]tape:alloc 30000;ptr:0;jump:build_map code;ip:0;len:count code
   W[ip<len;op:code[ip]

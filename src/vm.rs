@@ -268,14 +268,24 @@ impl Vm {
                         BinaryOperator::ModuloDot => left.modulo_dot(&right).ok_or_else(|| {
                             WqError::DomainError("`%.`: invalid operand types".into())
                         }),
-                        BinaryOperator::Equal => Ok(left.equals(&right)),
-                        BinaryOperator::NotEqual => Ok(left.not_equals(&right)),
-                        BinaryOperator::LessThan => Ok(left.less_than(&right)),
-                        BinaryOperator::LessThanOrEqual => Ok(left.less_than_or_equal(&right)),
-                        BinaryOperator::GreaterThan => Ok(left.greater_than(&right)),
-                        BinaryOperator::GreaterThanOrEqual => {
-                            Ok(left.greater_than_or_equal(&right))
-                        }
+                        BinaryOperator::Equal => left.eq(&right).ok_or_else(|| {
+                            WqError::DomainError("`=`: invalid operand types".into())
+                        }),
+                        BinaryOperator::NotEqual => left.neq(&right).ok_or_else(|| {
+                            WqError::DomainError("`~`: invalid operand types".into())
+                        }),
+                        BinaryOperator::LessThan => left.lt(&right).ok_or_else(|| {
+                            WqError::DomainError("`<`: invalid operand types".into())
+                        }),
+                        BinaryOperator::LessThanOrEqual => left.leq(&right).ok_or_else(|| {
+                            WqError::DomainError("<=`: invalid operand types".into())
+                        }),
+                        BinaryOperator::GreaterThan => left
+                            .gt(&right)
+                            .ok_or_else(|| WqError::DomainError(">: invalid operand types".into())),
+                        BinaryOperator::GreaterThanOrEqual => left.geq(&right).ok_or_else(|| {
+                            WqError::DomainError(">=`: invalid operand types".into())
+                        }),
                     };
 
                     match result {
@@ -291,7 +301,7 @@ impl Vm {
                     })?;
 
                     let result = match op {
-                        UnaryOperator::Negate => val.neg_value().ok_or_else(|| {
+                        UnaryOperator::Negate => val.neg().ok_or_else(|| {
                             WqError::TypeError("cannot negate provided type".into())
                         }),
                         UnaryOperator::Count => Ok(Value::Int(val.len() as i64)),
@@ -929,9 +939,10 @@ impl Vm {
                         // Value::Int(n) => n == 0,
                         // Value::Float(f) => f == 0.0,
                         _ => {
-                            return Err(WqError::TypeError(
-                                "control flow: invalid condition type, expected bool".into(),
-                            ));
+                            return Err(WqError::TypeError(format!(
+                                "control flow: invalid condition type, expected bool, got {}",
+                                v.type_name_verbose()
+                            )));
                         }
                     };
 
@@ -952,9 +963,9 @@ impl Vm {
                         )
                     })?;
                     // emulate !(left < right)
-                    let lt = left.less_than(&right);
+                    let lt = left.lt(&right);
                     let cond = match lt {
-                        Value::Bool(b) => !b,
+                        Some(Value::Bool(b)) => !b,
                         _ => {
                             return Err(WqError::TypeError(
                                 "invalid condition type in control flow, expected bool, int, or float".into(),

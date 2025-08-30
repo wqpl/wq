@@ -8,7 +8,7 @@ pub fn to_str(args: &[Value]) -> WqResult<Value> {
     let arg = &args[0];
     match arg {
         Value::Char(c) => Ok(Value::Char(*c)),
-        Value::List(_) if arg.is_string() => Ok(arg.clone()),
+        Value::List(_) if arg.is_str() => Ok(arg.clone()),
         _ => {
             let s = args[0].to_string();
             let chars: Vec<Value> = s.chars().map(Value::Char).collect();

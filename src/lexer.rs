@@ -64,7 +64,7 @@ pub enum TokenType {
     Identifier(String),
 
     Inf,
-    NaN,
+    Nan,
 
     True,
     False,
@@ -750,8 +750,8 @@ impl<'a> Lexer<'a> {
                     let token_type = match identifier.as_str() {
                         "true" => TokenType::True,
                         "false" => TokenType::False,
-                        "Inf" | "inf" => TokenType::Inf,
-                        "NaN" | "nan" => TokenType::NaN,
+                        "inf" => TokenType::Inf,
+                        "nan" => TokenType::Nan,
                         _ => TokenType::Identifier(identifier),
                     };
 
@@ -829,10 +829,10 @@ mod tests {
 
     #[test]
     fn test_tokenize_inf_nan() {
-        let mut lexer = Lexer::new("Inf NaN");
+        let mut lexer = Lexer::new("inf nan");
         let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens[0].token_type, TokenType::Inf);
-        assert_eq!(tokens[1].token_type, TokenType::NaN);
+        assert_eq!(tokens[1].token_type, TokenType::Nan);
     }
 
     #[test]

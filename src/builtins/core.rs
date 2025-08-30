@@ -275,7 +275,7 @@ pub fn to_symbol(args: &[Value]) -> WqResult<Value> {
     let name = match input {
         Value::Symbol(s) => s.clone(),
         Value::Char(c) => (*c).to_string(),
-        Value::List(items) if input.is_string() => {
+        Value::List(items) if input.is_str() => {
             let mut s = String::new();
             for v in items {
                 if let Value::Char(c) = v {
@@ -313,6 +313,60 @@ pub fn is_null(args: &[Value]) -> WqResult<Value> {
     }
 }
 
+pub fn is_list(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("list?", "1", args.len()));
+    }
+    Ok(Value::Bool(args[0].is_list()))
+}
+
+pub fn is_dict(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("dict?", "1", args.len()));
+    }
+    Ok(Value::Bool(args[0].is_dict()))
+}
+
+pub fn is_atom(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("atom?", "1", args.len()));
+    }
+    Ok(Value::Bool(args[0].is_atom()))
+}
+pub fn is_int(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("int?", "1", args.len()));
+    }
+    match args[0] {
+        Value::Int(_) => Ok(Value::Bool(true)),
+        _ => Ok(Value::Bool(false)),
+    }
+}
+pub fn is_float(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("float?", "1", args.len()));
+    }
+    match args[0] {
+        Value::Float(_) => Ok(Value::Bool(true)),
+        _ => Ok(Value::Bool(false)),
+    }
+}
+pub fn is_number(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("number?", "1", args.len()));
+    }
+    match args[0] {
+        Value::Int(_) | Value::Float(_) => Ok(Value::Bool(true)),
+        _ => Ok(Value::Bool(false)),
+    }
+}
+pub fn is_str(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("str?", "1", args.len()));
+    }
+    Ok(Value::Bool(args[0].is_str()))
+}
+
 trait TryHash {
     fn try_hash<H: Hasher>(&self, state: &mut H) -> WqResult<()>;
 }
@@ -341,9 +395,9 @@ impl TryHash for Value {
                 Ok(())
             }
             Value::Float(f) => {
-                // floats are hashable unless NaN; +0.0 and -0.0 hash differently
+                // floats are hashable unless nan; +0.0 and -0.0 hash differently
                 if f.is_nan() {
-                    return Err(WqError::DomainError("`hash`: cannot hash NaN".into()));
+                    return Err(WqError::DomainError("`hash`: cannot hash nan".into()));
                 }
                 4u8.hash(state);
                 f.to_bits().hash(state);

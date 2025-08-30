@@ -3,7 +3,7 @@ use crate::{
     builtins::IOTA_CACHE,
     value::{Value, WqError, WqResult},
 };
-use std::cmp::Ordering;
+// use std::cmp::Ordering;
 
 pub fn iota(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
@@ -94,7 +94,7 @@ pub fn iota(args: &[Value]) -> WqResult<Value> {
 
 pub fn range(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 && args.len() != 3 {
-        return Err(arity_error("range", "2 or 3", args.len()));
+        return Err(arity_error("rg", "2 or 3", args.len()));
     }
 
     // extract start
@@ -102,7 +102,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
         Value::Int(n) => *n,
         _ => {
             return Err(WqError::TypeError(format!(
-                "`range`: invalid start, expected int, got {}",
+                "`rg`: invalid start, expected int, got {}",
                 args[0].type_name_verbose()
             )));
         }
@@ -112,7 +112,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
         Value::Int(n) => *n,
         _ => {
             return Err(WqError::TypeError(format!(
-                "`range`: invalid end, expected int, got {}",
+                "`rg`: invalid end, expected int, got {}",
                 args[1].type_name_verbose()
             )));
         }
@@ -123,7 +123,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
             Value::Int(n) => *n,
             _ => {
                 return Err(WqError::TypeError(format!(
-                    "`range`: invalid step, expected int, got {}",
+                    "`rg`: invalid step, expected int, got {}",
                     args[2].type_name_verbose()
                 )));
             }
@@ -132,7 +132,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
         1
     };
     if step == 0 {
-        return Err(WqError::DomainError("`range`: step must not be 0".into()));
+        return Err(WqError::DomainError("`rg`: step must not be 0".into()));
     }
     // build the sequence
     let mut items = Vec::new();
@@ -160,57 +160,57 @@ pub fn count(args: &[Value]) -> WqResult<Value> {
     Ok(Value::Int(args[0].len() as i64))
 }
 
-pub fn fst(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("fst", "1", args.len()));
-    }
-    match &args[0] {
-        Value::List(items) => {
-            if items.is_empty() {
-                Ok(Value::Null)
-            } else {
-                Ok(items[0].clone())
-            }
-        }
-        Value::IntList(items) => {
-            if items.is_empty() {
-                Ok(Value::Null)
-            } else {
-                Ok(Value::Int(items[0]))
-            }
-        }
-        _ => Err(WqError::TypeError(format!(
-            "`fst`: expected list at arg0, got {}",
-            args[0].type_name_verbose()
-        ))),
-    }
-}
+// pub fn fst(args: &[Value]) -> WqResult<Value> {
+//     if args.len() != 1 {
+//         return Err(arity_error("fst", "1", args.len()));
+//     }
+//     match &args[0] {
+//         Value::List(items) => {
+//             if items.is_empty() {
+//                 Ok(Value::Null)
+//             } else {
+//                 Ok(items[0].clone())
+//             }
+//         }
+//         Value::IntList(items) => {
+//             if items.is_empty() {
+//                 Ok(Value::Null)
+//             } else {
+//                 Ok(Value::Int(items[0]))
+//             }
+//         }
+//         _ => Err(WqError::TypeError(format!(
+//             "`fst`: expected list at arg0, got {}",
+//             args[0].type_name_verbose()
+//         ))),
+//     }
+// }
 
-pub fn lst(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("lst", "1", args.len()));
-    }
-    match &args[0] {
-        Value::List(items) => {
-            if items.is_empty() {
-                Ok(Value::Null)
-            } else {
-                Ok(items[items.len() - 1].clone())
-            }
-        }
-        Value::IntList(items) => {
-            if items.is_empty() {
-                Ok(Value::Null)
-            } else {
-                Ok(Value::Int(items[items.len() - 1]))
-            }
-        }
-        _ => Err(WqError::TypeError(format!(
-            "`lst`: expected list at arg0, got {}",
-            args[0].type_name_verbose()
-        ))),
-    }
-}
+// pub fn lst(args: &[Value]) -> WqResult<Value> {
+//     if args.len() != 1 {
+//         return Err(arity_error("lst", "1", args.len()));
+//     }
+//     match &args[0] {
+//         Value::List(items) => {
+//             if items.is_empty() {
+//                 Ok(Value::Null)
+//             } else {
+//                 Ok(items[items.len() - 1].clone())
+//             }
+//         }
+//         Value::IntList(items) => {
+//             if items.is_empty() {
+//                 Ok(Value::Null)
+//             } else {
+//                 Ok(Value::Int(items[items.len() - 1]))
+//             }
+//         }
+//         _ => Err(WqError::TypeError(format!(
+//             "`lst`: expected list at arg0, got {}",
+//             args[0].type_name_verbose()
+//         ))),
+//     }
+// }
 
 pub fn reverse(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
@@ -234,252 +234,252 @@ pub fn reverse(args: &[Value]) -> WqResult<Value> {
     }
 }
 
-pub fn sum(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("sum", "1", args.len()));
-    }
-    match &args[0] {
-        Value::List(items) => {
-            if items.is_empty() {
-                return Ok(Value::Int(0));
-            }
-            let mut result = items[0].clone();
-            for item in items.iter().skip(1) {
-                result = result.add(item).ok_or_else(|| {
-                    WqError::TypeError("`sum`: cannot compute sum of provided list".to_string())
-                })?;
-            }
-            Ok(result)
-        }
-        Value::IntList(items) => {
-            if items.is_empty() {
-                return Ok(Value::Int(0));
-            }
-            let sum: i64 = items.iter().sum();
-            Ok(Value::Int(sum))
-        }
-        _ => Ok(args[0].clone()),
-    }
-}
+// pub fn sum(args: &[Value]) -> WqResult<Value> {
+//     if args.len() != 1 {
+//         return Err(arity_error("sum", "1", args.len()));
+//     }
+//     match &args[0] {
+//         Value::List(items) => {
+//             if items.is_empty() {
+//                 return Ok(Value::Int(0));
+//             }
+//             let mut result = items[0].clone();
+//             for item in items.iter().skip(1) {
+//                 result = result.add(item).ok_or_else(|| {
+//                     WqError::TypeError("`sum`: cannot compute sum of provided list".to_string())
+//                 })?;
+//             }
+//             Ok(result)
+//         }
+//         Value::IntList(items) => {
+//             if items.is_empty() {
+//                 return Ok(Value::Int(0));
+//             }
+//             let sum: i64 = items.iter().sum();
+//             Ok(Value::Int(sum))
+//         }
+//         _ => Ok(args[0].clone()),
+//     }
+// }
 
-pub fn max(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("max", "1", args.len()));
-    }
-    match &args[0] {
-        Value::List(items) => {
-            if items.is_empty() {
-                return Ok(Value::Null);
-            }
-            let mut result = &items[0];
-            for item in items.iter().skip(1) {
-                match (result, item) {
-                    (Value::Int(a), Value::Int(b)) => {
-                        if b > a {
-                            result = item;
-                        }
-                    }
-                    (Value::Float(a), Value::Float(b)) => {
-                        if b > a {
-                            result = item;
-                        }
-                    }
-                    (Value::Int(a), Value::Float(b)) => {
-                        if *b > *a as f64 {
-                            result = item;
-                        }
-                    }
-                    (Value::Float(a), Value::Int(b)) => {
-                        if *b as f64 > *a {
-                            result = item;
-                        }
-                    }
-                    _ => {
-                        return Err(WqError::TypeError(
-                            "`max`: cannot compare provided types".to_string(),
-                        ));
-                    }
-                }
-            }
-            Ok(result.clone())
-        }
-        Value::IntList(items) => {
-            if items.is_empty() {
-                return Ok(Value::Null);
-            }
-            let max = items.iter().max().cloned().unwrap();
-            Ok(Value::Int(max))
-        }
-        _ => Ok(args[0].clone()),
-    }
-}
+// pub fn max(args: &[Value]) -> WqResult<Value> {
+//     if args.len() != 1 {
+//         return Err(arity_error("max", "1", args.len()));
+//     }
+//     match &args[0] {
+//         Value::List(items) => {
+//             if items.is_empty() {
+//                 return Ok(Value::Null);
+//             }
+//             let mut result = &items[0];
+//             for item in items.iter().skip(1) {
+//                 match (result, item) {
+//                     (Value::Int(a), Value::Int(b)) => {
+//                         if b > a {
+//                             result = item;
+//                         }
+//                     }
+//                     (Value::Float(a), Value::Float(b)) => {
+//                         if b > a {
+//                             result = item;
+//                         }
+//                     }
+//                     (Value::Int(a), Value::Float(b)) => {
+//                         if *b > *a as f64 {
+//                             result = item;
+//                         }
+//                     }
+//                     (Value::Float(a), Value::Int(b)) => {
+//                         if *b as f64 > *a {
+//                             result = item;
+//                         }
+//                     }
+//                     _ => {
+//                         return Err(WqError::TypeError(
+//                             "`max`: cannot compare provided types".to_string(),
+//                         ));
+//                     }
+//                 }
+//             }
+//             Ok(result.clone())
+//         }
+//         Value::IntList(items) => {
+//             if items.is_empty() {
+//                 return Ok(Value::Null);
+//             }
+//             let max = items.iter().max().cloned().unwrap();
+//             Ok(Value::Int(max))
+//         }
+//         _ => Ok(args[0].clone()),
+//     }
+// }
 
-pub fn min(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("min", "1", args.len()));
-    }
-    match &args[0] {
-        Value::List(items) => {
-            if items.is_empty() {
-                return Ok(Value::Null);
-            }
-            let mut result = &items[0];
-            for item in items.iter().skip(1) {
-                match (result, item) {
-                    (Value::Int(a), Value::Int(b)) => {
-                        if b < a {
-                            result = item;
-                        }
-                    }
-                    (Value::Float(a), Value::Float(b)) => {
-                        if b < a {
-                            result = item;
-                        }
-                    }
-                    (Value::Int(a), Value::Float(b)) => {
-                        if *b < *a as f64 {
-                            result = item;
-                        }
-                    }
-                    (Value::Float(a), Value::Int(b)) => {
-                        if (*b as f64) < *a {
-                            result = item;
-                        }
-                    }
-                    _ => {
-                        return Err(WqError::TypeError(
-                            "`min`: cannot compare provided types".to_string(),
-                        ));
-                    }
-                }
-            }
-            Ok(result.clone())
-        }
-        Value::IntList(items) => {
-            if items.is_empty() {
-                return Ok(Value::Null);
-            }
-            let min = items.iter().min().cloned().unwrap();
-            Ok(Value::Int(min))
-        }
-        _ => Ok(args[0].clone()),
-    }
-}
+// pub fn min(args: &[Value]) -> WqResult<Value> {
+//     if args.len() != 1 {
+//         return Err(arity_error("min", "1", args.len()));
+//     }
+//     match &args[0] {
+//         Value::List(items) => {
+//             if items.is_empty() {
+//                 return Ok(Value::Null);
+//             }
+//             let mut result = &items[0];
+//             for item in items.iter().skip(1) {
+//                 match (result, item) {
+//                     (Value::Int(a), Value::Int(b)) => {
+//                         if b < a {
+//                             result = item;
+//                         }
+//                     }
+//                     (Value::Float(a), Value::Float(b)) => {
+//                         if b < a {
+//                             result = item;
+//                         }
+//                     }
+//                     (Value::Int(a), Value::Float(b)) => {
+//                         if *b < *a as f64 {
+//                             result = item;
+//                         }
+//                     }
+//                     (Value::Float(a), Value::Int(b)) => {
+//                         if (*b as f64) < *a {
+//                             result = item;
+//                         }
+//                     }
+//                     _ => {
+//                         return Err(WqError::TypeError(
+//                             "`min`: cannot compare provided types".to_string(),
+//                         ));
+//                     }
+//                 }
+//             }
+//             Ok(result.clone())
+//         }
+//         Value::IntList(items) => {
+//             if items.is_empty() {
+//                 return Ok(Value::Null);
+//             }
+//             let min = items.iter().min().cloned().unwrap();
+//             Ok(Value::Int(min))
+//         }
+//         _ => Ok(args[0].clone()),
+//     }
+// }
 
-pub fn avg(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("avg", "1", args.len()));
-    }
-    match &args[0] {
-        Value::List(items) => {
-            if items.is_empty() {
-                return Ok(Value::Null);
-            }
-            let sum_result = sum(args)?;
-            let count = items.len() as f64;
-            match sum_result {
-                Value::Int(n) => Ok(Value::Float(n as f64 / count)),
-                Value::Float(f) => Ok(Value::Float(f / count)),
-                _ => Err(WqError::TypeError(
-                    "`avg`: cannot compute average of provided list".to_string(),
-                )),
-            }
-        }
-        Value::IntList(items) => {
-            if items.is_empty() {
-                return Ok(Value::Null);
-            }
-            let sum: i64 = items.iter().sum();
-            let count = items.len() as f64;
-            Ok(Value::Float(sum as f64 / count))
-        }
-        _ => Ok(args[0].clone()),
-    }
-}
+// pub fn avg(args: &[Value]) -> WqResult<Value> {
+//     if args.len() != 1 {
+//         return Err(arity_error("avg", "1", args.len()));
+//     }
+//     match &args[0] {
+//         Value::List(items) => {
+//             if items.is_empty() {
+//                 return Ok(Value::Null);
+//             }
+//             let sum_result = sum(args)?;
+//             let count = items.len() as f64;
+//             match sum_result {
+//                 Value::Int(n) => Ok(Value::Float(n as f64 / count)),
+//                 Value::Float(f) => Ok(Value::Float(f / count)),
+//                 _ => Err(WqError::TypeError(
+//                     "`avg`: cannot compute average of provided list".to_string(),
+//                 )),
+//             }
+//         }
+//         Value::IntList(items) => {
+//             if items.is_empty() {
+//                 return Ok(Value::Null);
+//             }
+//             let sum: i64 = items.iter().sum();
+//             let count = items.len() as f64;
+//             Ok(Value::Float(sum as f64 / count))
+//         }
+//         _ => Ok(args[0].clone()),
+//     }
+// }
 
-pub fn take(args: &[Value]) -> WqResult<Value> {
-    if args.len() == 1 {
-        let tmp = [Value::Int(1), args[0].clone()];
-        return take(&tmp);
-    }
-    if args.len() != 2 {
-        return Err(arity_error("take", "1 or 2", args.len()));
-    }
-    match (&args[0], &args[1]) {
-        (Value::Int(n), Value::List(items)) => {
-            let n = *n as usize;
-            if n >= items.len() {
-                Ok(Value::List(items.clone()))
-            } else {
-                let mut result = Vec::with_capacity(n);
-                for item in items.iter().take(n) {
-                    result.push(item.clone());
-                }
-                Ok(Value::List(result))
-            }
-        }
-        (Value::Int(n), Value::IntList(items)) => {
-            let n = *n as usize;
-            if n >= items.len() {
-                Ok(Value::IntList(items.clone()))
-            } else {
-                let mut result = Vec::with_capacity(n);
-                for &item in items.iter().take(n) {
-                    result.push(item);
-                }
-                Ok(Value::IntList(result))
-            }
-        }
-        _ => Err(WqError::TypeError(format!(
-            "`take`: expected int and list, got {} and {}",
-            &args[0].type_name_verbose(),
-            &args[1].type_name_verbose()
-        ))),
-    }
-}
+// pub fn take(args: &[Value]) -> WqResult<Value> {
+//     if args.len() == 1 {
+//         let tmp = [Value::Int(1), args[0].clone()];
+//         return take(&tmp);
+//     }
+//     if args.len() != 2 {
+//         return Err(arity_error("take", "1 or 2", args.len()));
+//     }
+//     match (&args[0], &args[1]) {
+//         (Value::Int(n), Value::List(items)) => {
+//             let n = *n as usize;
+//             if n >= items.len() {
+//                 Ok(Value::List(items.clone()))
+//             } else {
+//                 let mut result = Vec::with_capacity(n);
+//                 for item in items.iter().take(n) {
+//                     result.push(item.clone());
+//                 }
+//                 Ok(Value::List(result))
+//             }
+//         }
+//         (Value::Int(n), Value::IntList(items)) => {
+//             let n = *n as usize;
+//             if n >= items.len() {
+//                 Ok(Value::IntList(items.clone()))
+//             } else {
+//                 let mut result = Vec::with_capacity(n);
+//                 for &item in items.iter().take(n) {
+//                     result.push(item);
+//                 }
+//                 Ok(Value::IntList(result))
+//             }
+//         }
+//         _ => Err(WqError::TypeError(format!(
+//             "`take`: expected int and list, got {} and {}",
+//             &args[0].type_name_verbose(),
+//             &args[1].type_name_verbose()
+//         ))),
+//     }
+// }
 
-pub fn drop(args: &[Value]) -> WqResult<Value> {
-    if args.len() == 1 {
-        let tmp = [Value::Int(1), args[0].clone()];
-        return drop(&tmp);
-    }
-    if args.len() != 2 {
-        return Err(arity_error("drop", "1 or 2", args.len()));
-    }
-    match (&args[0], &args[1]) {
-        (Value::Int(n), Value::List(items)) => {
-            let n = *n as usize;
-            if n >= items.len() {
-                Ok(Value::List(Vec::new()))
-            } else {
-                let remaining = items.len() - n;
-                let mut result = Vec::with_capacity(remaining);
-                for item in items.iter().skip(n) {
-                    result.push(item.clone());
-                }
-                Ok(Value::List(result))
-            }
-        }
-        (Value::Int(n), Value::IntList(items)) => {
-            let n = *n as usize;
-            if n >= items.len() {
-                Ok(Value::IntList(Vec::new()))
-            } else {
-                let remaining = items.len() - n;
-                let mut result = Vec::with_capacity(remaining);
-                for &item in items.iter().skip(n) {
-                    result.push(item);
-                }
-                Ok(Value::IntList(result))
-            }
-        }
-        _ => Err(WqError::TypeError(format!(
-            "`drop`: expected int and list, got {} and {}",
-            &args[0].type_name_verbose(),
-            &args[1].type_name_verbose()
-        ))),
-    }
-}
+// pub fn drop(args: &[Value]) -> WqResult<Value> {
+//     if args.len() == 1 {
+//         let tmp = [Value::Int(1), args[0].clone()];
+//         return drop(&tmp);
+//     }
+//     if args.len() != 2 {
+//         return Err(arity_error("drop", "1 or 2", args.len()));
+//     }
+//     match (&args[0], &args[1]) {
+//         (Value::Int(n), Value::List(items)) => {
+//             let n = *n as usize;
+//             if n >= items.len() {
+//                 Ok(Value::List(Vec::new()))
+//             } else {
+//                 let remaining = items.len() - n;
+//                 let mut result = Vec::with_capacity(remaining);
+//                 for item in items.iter().skip(n) {
+//                     result.push(item.clone());
+//                 }
+//                 Ok(Value::List(result))
+//             }
+//         }
+//         (Value::Int(n), Value::IntList(items)) => {
+//             let n = *n as usize;
+//             if n >= items.len() {
+//                 Ok(Value::IntList(Vec::new()))
+//             } else {
+//                 let remaining = items.len() - n;
+//                 let mut result = Vec::with_capacity(remaining);
+//                 for &item in items.iter().skip(n) {
+//                     result.push(item);
+//                 }
+//                 Ok(Value::IntList(result))
+//             }
+//         }
+//         _ => Err(WqError::TypeError(format!(
+//             "`drop`: expected int and list, got {} and {}",
+//             &args[0].type_name_verbose(),
+//             &args[1].type_name_verbose()
+//         ))),
+//     }
+// }
 
 pub fn wq_where(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
@@ -526,78 +526,78 @@ pub fn wq_where(args: &[Value]) -> WqResult<Value> {
     }
 }
 
-pub fn distinct(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("distinct", "1", args.len()));
-    }
-    match &args[0] {
-        Value::List(items) => {
-            let mut seen = Vec::new();
-            for item in items {
-                if !seen.contains(item) {
-                    seen.push(item.clone());
-                }
-            }
-            Ok(Value::List(seen))
-        }
-        Value::IntList(items) => {
-            let mut seen: Vec<i64> = Vec::new();
-            for &x in items {
-                if !seen.contains(&x) {
-                    seen.push(x);
-                }
-            }
-            Ok(Value::IntList(seen))
-        }
-        _ => Err(WqError::TypeError(format!(
-            "`distinct`: expected list, got {}",
-            args[0].type_name_verbose()
-        ))),
-    }
-}
+// pub fn distinct(args: &[Value]) -> WqResult<Value> {
+//     if args.len() != 1 {
+//         return Err(arity_error("distinct", "1", args.len()));
+//     }
+//     match &args[0] {
+//         Value::List(items) => {
+//             let mut seen = Vec::new();
+//             for item in items {
+//                 if !seen.contains(item) {
+//                     seen.push(item.clone());
+//                 }
+//             }
+//             Ok(Value::List(seen))
+//         }
+//         Value::IntList(items) => {
+//             let mut seen: Vec<i64> = Vec::new();
+//             for &x in items {
+//                 if !seen.contains(&x) {
+//                     seen.push(x);
+//                 }
+//             }
+//             Ok(Value::IntList(seen))
+//         }
+//         _ => Err(WqError::TypeError(format!(
+//             "`distinct`: expected list, got {}",
+//             args[0].type_name_verbose()
+//         ))),
+//     }
+// }
 
-pub fn sort(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("sort", "1", args.len()));
-    }
-    match &args[0] {
-        Value::List(items) => {
-            let mut sorted = items.clone();
-            sorted.sort_by(|a, b| match (a, b) {
-                (Value::Int(x), Value::Int(y)) => x.cmp(y),
-                (Value::Float(x), Value::Float(y)) => {
-                    x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
-                }
-                (Value::Int(x), Value::Float(y)) => (*x as f64)
-                    .partial_cmp(y)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-                (Value::Float(x), Value::Int(y)) => x
-                    .partial_cmp(&(*y as f64))
-                    .unwrap_or(std::cmp::Ordering::Equal),
-                (Value::Char(x), Value::Char(y)) => x.cmp(y),
-                (Value::Char(x), Value::Int(y)) => (*x as i64).cmp(y),
-                (Value::Int(x), Value::Char(y)) => x.cmp(&(*y as i64)),
-                (Value::Char(x), Value::Float(y)) => ((*x as u8) as f64)
-                    .partial_cmp(y)
-                    .unwrap_or(Ordering::Equal),
-                (Value::Float(x), Value::Char(y)) => x
-                    .partial_cmp(&((*y as u8) as f64))
-                    .unwrap_or(Ordering::Equal),
-                _ => std::cmp::Ordering::Equal,
-            });
-            Ok(Value::List(sorted))
-        }
-        Value::IntList(items) => {
-            let mut sorted = items.clone();
-            sorted.sort();
-            Ok(Value::IntList(sorted))
-        }
-        _ => Err(WqError::TypeError(format!(
-            "`sort`: expected list, got {}",
-            args[0].type_name_verbose()
-        ))),
-    }
-}
+// pub fn sort(args: &[Value]) -> WqResult<Value> {
+//     if args.len() != 1 {
+//         return Err(arity_error("sort", "1", args.len()));
+//     }
+//     match &args[0] {
+//         Value::List(items) => {
+//             let mut sorted = items.clone();
+//             sorted.sort_by(|a, b| match (a, b) {
+//                 (Value::Int(x), Value::Int(y)) => x.cmp(y),
+//                 (Value::Float(x), Value::Float(y)) => {
+//                     x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
+//                 }
+//                 (Value::Int(x), Value::Float(y)) => (*x as f64)
+//                     .partial_cmp(y)
+//                     .unwrap_or(std::cmp::Ordering::Equal),
+//                 (Value::Float(x), Value::Int(y)) => x
+//                     .partial_cmp(&(*y as f64))
+//                     .unwrap_or(std::cmp::Ordering::Equal),
+//                 (Value::Char(x), Value::Char(y)) => x.cmp(y),
+//                 (Value::Char(x), Value::Int(y)) => (*x as i64).cmp(y),
+//                 (Value::Int(x), Value::Char(y)) => x.cmp(&(*y as i64)),
+//                 (Value::Char(x), Value::Float(y)) => ((*x as u8) as f64)
+//                     .partial_cmp(y)
+//                     .unwrap_or(Ordering::Equal),
+//                 (Value::Float(x), Value::Char(y)) => x
+//                     .partial_cmp(&((*y as u8) as f64))
+//                     .unwrap_or(Ordering::Equal),
+//                 _ => std::cmp::Ordering::Equal,
+//             });
+//             Ok(Value::List(sorted))
+//         }
+//         Value::IntList(items) => {
+//             let mut sorted = items.clone();
+//             sorted.sort();
+//             Ok(Value::IntList(sorted))
+//         }
+//         _ => Err(WqError::TypeError(format!(
+//             "`sort`: expected list, got {}",
+//             args[0].type_name_verbose()
+//         ))),
+//     }
+// }
 
 pub fn cat(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {

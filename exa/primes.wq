@@ -1,3 +1,3 @@
 primes:{p:iota[x+1]>1;limit:floor sqrt x;i:2
-  W[i<=limit;$.[p[i]~0;j:i*i;W[j<=x;p[j]:0;j:j+i]];i:$[i=2;3;i+2]];where p}
+  W[i<=limit;$.[p[i];j:i*i;W[j<=x;p[j]:false;j:j+i]];i:$[i=2;3;i+2]];where p}
 echo primes 100

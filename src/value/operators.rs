@@ -1,1722 +1,381 @@
+use std::cmp::Ordering;
+
 use super::Value;
 
 impl Value {
-    pub fn add(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => a.checked_add(*b).map(Value::Int),
-            (Value::Float(a), Value::Float(b)) => Some(Value::Float(a + b)),
-            (Value::Int(a), Value::Float(b)) => Some(Value::Float(*a as f64 + b)),
-            (Value::Float(a), Value::Int(b)) => Some(Value::Float(a + *b as f64)),
-            (Value::IntList(vec), Value::Int(b)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(x.checked_add(*b)?);
-                }
-                Some(Value::IntList(out))
-            }
-            (Value::Int(a), Value::IntList(vec)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(a.checked_add(x)?);
-                }
-                Some(Value::IntList(out))
-            }
-            (Value::Float(a), Value::IntList(vec)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(Value::Float(a + x as f64));
-                }
-                Some(Value::List(out))
-            }
-            (Value::IntList(vec), Value::Float(b)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(Value::Float(x as f64 + b));
-                }
-                Some(Value::List(out))
-            }
-            (Value::IntList(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a
-                        .iter()
-                        .zip(b.iter())
-                        .map(|(&x, y)| Value::Int(x).add(y))
-                        .collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = Value::Int(a[i % a.len()]);
-                            let right = &b[i % b.len()];
-                            left.add(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
-            (Value::List(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a
-                        .iter()
-                        .zip(b.iter())
-                        .map(|(x, &y)| x.add(&Value::Int(y)))
-                        .collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = Value::Int(b[i % b.len()]);
-                            left.add(&right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    let mut out = Vec::with_capacity(a.len());
-                    for (&x, &y) in a.iter().zip(b.iter()) {
-                        out.push(x.checked_add(y)?);
-                    }
-                    Some(Value::IntList(out))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let mut out = Vec::with_capacity(max_len);
-                    for i in 0..max_len {
-                        out.push(a[i % a.len()].checked_add(b[i % b.len()])?);
-                    }
-                    Some(Value::IntList(out))
-                }
-            }
-            // Scalar-vector operations
-            (scalar, Value::List(vec)) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.add(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.add(scalar)).collect();
-                result.map(Value::List)
-            }
-            // Vector-vector operations
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.add(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    // Cycle the shorter vector
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.add(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
-            _ => None,
+    #[inline]
+    fn is_scalar(&self) -> bool {
+        !matches!(self, Value::List(_) | Value::IntList(_))
+    }
+
+    // Pack a vec result back into Value container, preferring IntList when safe.
+    fn pack_bc_result(a: &Value, b: &Value, out: Vec<Value>) -> Value {
+        // If not all ints, just return the original list (moves `out` here).
+        if !out.iter().all(|v| matches!(v, Value::Int(_))) {
+            return Value::List(out);
+        }
+
+        // Decide if we want an IntList result.
+        let want_intlist = matches!((a, b), (Value::IntList(_), Value::IntList(_)))
+            || (matches!(a, Value::IntList(_)) && b.is_scalar())
+            || (a.is_scalar() && matches!(b, Value::IntList(_)));
+
+        if want_intlist {
+            // Now we can safely consume `out` exactly once.
+            let ints = out
+                .into_iter()
+                .map(|v| match v {
+                    Value::Int(i) => i,
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<i64>>();
+            Value::IntList(ints)
+        } else {
+            Value::List(out)
         }
     }
 
-    fn is_scalar(&self) -> bool {
-        matches!(
-            self,
-            Value::Int(_) | Value::Float(_) | Value::Char(_) | Value::Symbol(_) | Value::Bool(_)
-        )
+    fn pack_unary_result(src: &Value, out: Vec<Value>) -> Value {
+        let all_ints = out.iter().all(|v| matches!(v, Value::Int(_)));
+        if all_ints && matches!(src, Value::IntList(_)) {
+            Value::IntList(
+                out.into_iter()
+                    .map(|v| {
+                        if let Value::Int(i) = v {
+                            i
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect(),
+            )
+        } else {
+            Value::List(out)
+        }
+    }
+
+    /// Generic 1-arg broadcasting
+    fn bc1<F>(&self, f: F) -> Option<Value>
+    where
+        F: Fn(&Value) -> Option<Value> + Copy,
+    {
+        match self {
+            Value::List(a) => {
+                let mut out = Vec::with_capacity(a.len());
+                for x in a {
+                    out.push(x.bc1(f)?);
+                }
+                Some(Value::List(out))
+            }
+            Value::IntList(a) => {
+                let mut out = Vec::with_capacity(a.len());
+                for &x in a {
+                    out.push(f(&Value::Int(x))?);
+                }
+                Some(Value::pack_unary_result(self, out))
+            }
+            _ => f(self),
+        }
+    }
+
+    /// Generic 2-arg broadcasting, returns None on length mismatch.
+    fn bc2<F>(&self, other: &Value, op: F) -> Option<Value>
+    where
+        F: Fn(&Value, &Value) -> Option<Value> + Copy,
+    {
+        match (self, other) {
+            // elementwise over two lists (Vec<Value>)
+            (Value::List(a), Value::List(b)) => {
+                if a.is_empty() || b.is_empty() || a.len() != b.len() {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(a.len());
+                for (x, y) in a.iter().zip(b.iter()) {
+                    out.push(x.bc2(y, op)?);
+                }
+                Some(Value::List(out))
+            }
+
+            // IntList and IntList -> elementwise, must match lengths
+            (Value::IntList(a), Value::IntList(b)) => {
+                if a.is_empty() || b.is_empty() || a.len() != b.len() {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(a.len());
+                for (&x, &y) in a.iter().zip(b.iter()) {
+                    out.push(Value::Int(x).bc2(&Value::Int(y), op)?);
+                }
+                Some(Value::pack_bc_result(self, other, out))
+            }
+
+            // IntList and List -> elementwise, must match lengths
+            (Value::IntList(a), Value::List(b)) => {
+                if a.is_empty() || b.is_empty() || a.len() != b.len() {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(a.len());
+                for (&x, y) in a.iter().zip(b.iter()) {
+                    out.push(Value::Int(x).bc2(y, op)?);
+                }
+                Some(Value::List(out))
+            }
+            (Value::List(a), Value::IntList(b)) => {
+                if a.is_empty() || b.is_empty() || a.len() != b.len() {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(a.len());
+                for (x, &y) in a.iter().zip(b.iter()) {
+                    out.push(x.bc2(&Value::Int(y), op)?);
+                }
+                Some(Value::List(out))
+            }
+
+            // Atom and List / IntList
+            (s, Value::List(b)) if s.is_scalar() => {
+                if b.is_empty() {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(b.len());
+                for y in b {
+                    out.push(s.bc2(y, op)?);
+                }
+                Some(Value::List(out))
+            }
+            (Value::List(a), s) if s.is_scalar() => {
+                if a.is_empty() {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(a.len());
+                for x in a {
+                    out.push(x.bc2(s, op)?);
+                }
+                Some(Value::List(out))
+            }
+            (Value::IntList(a), s) if s.is_scalar() => {
+                if a.is_empty() {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(a.len());
+                for &x in a {
+                    out.push(Value::Int(x).bc2(s, op)?);
+                }
+                Some(Value::pack_bc_result(self, other, out))
+            }
+            (s, Value::IntList(b)) if s.is_scalar() => {
+                if b.is_empty() {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(b.len());
+                for &y in b {
+                    out.push(s.bc2(&Value::Int(y), op)?);
+                }
+                Some(Value::pack_bc_result(self, other, out))
+            }
+
+            // Both atoms
+            (a, b) => op(a, b),
+        }
+    }
+
+    // arithmetic ops
+    // ==============
+
+    pub fn neg(&self) -> Option<Value> {
+        self.bc1(|v| match v {
+            Value::Int(n) => n.checked_neg().map(Value::Int),
+            Value::Float(f) => Some(Value::Float(-f)),
+            _ => None,
+        })
+    }
+
+    pub fn add(&self, other: &Value) -> Option<Value> {
+        self.bc2(other, |a, b| match (a, b) {
+            (Value::Int(x), Value::Int(y)) => x.checked_add(*y).map(Value::Int),
+            (Value::Float(x), Value::Float(y)) => Some(Value::Float(x + y)),
+            (Value::Int(x), Value::Float(y)) => Some(Value::Float(*x as f64 + *y)),
+            (Value::Float(x), Value::Int(y)) => Some(Value::Float(*x + *y as f64)),
+            _ => None, // non-numeric or unsupported
+        })
     }
 
     pub fn subtract(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => a.checked_sub(*b).map(Value::Int),
-            (Value::Float(a), Value::Float(b)) => Some(Value::Float(a - b)),
-            (Value::Int(a), Value::Float(b)) => Some(Value::Float(*a as f64 - b)),
-            (Value::Float(a), Value::Int(b)) => Some(Value::Float(a - *b as f64)),
-            (Value::IntList(vec), Value::Int(b)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(x.checked_sub(*b)?);
-                }
-                Some(Value::IntList(out))
-            }
-            (Value::Int(a), Value::IntList(vec)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(a.checked_sub(x)?);
-                }
-                Some(Value::IntList(out))
-            }
-            (Value::Float(a), Value::IntList(vec)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(Value::Float(a - x as f64));
-                }
-                Some(Value::List(out))
-            }
-            (Value::IntList(vec), Value::Float(b)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(Value::Float(x as f64 - b));
-                }
-                Some(Value::List(out))
-            }
-            (Value::IntList(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a
-                        .iter()
-                        .zip(b.iter())
-                        .map(|(&x, y)| Value::Int(x).subtract(y))
-                        .collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = Value::Int(a[i % a.len()]);
-                            let right = &b[i % b.len()];
-                            left.subtract(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
-            (Value::List(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a
-                        .iter()
-                        .zip(b.iter())
-                        .map(|(x, &y)| x.subtract(&Value::Int(y)))
-                        .collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = Value::Int(b[i % b.len()]);
-                            left.subtract(&right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    let mut out = Vec::with_capacity(a.len());
-                    for (&x, &y) in a.iter().zip(b.iter()) {
-                        out.push(x.checked_sub(y)?);
-                    }
-                    Some(Value::IntList(out))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let mut out = Vec::with_capacity(max_len);
-                    for i in 0..max_len {
-                        out.push(a[i % a.len()].checked_sub(b[i % b.len()])?);
-                    }
-                    Some(Value::IntList(out))
-                }
-            }
-            // Scalar-vector operations
-            (scalar, Value::List(vec)) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.subtract(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.subtract(scalar)).collect();
-                result.map(Value::List)
-            }
-            // Vector-vector operations
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.subtract(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    // Cycle the shorter vector
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.subtract(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
+        self.bc2(other, |a, b| match (a, b) {
+            (Value::Int(x), Value::Int(y)) => x.checked_sub(*y).map(Value::Int),
+            (Value::Float(x), Value::Float(y)) => Some(Value::Float(x - y)),
+            (Value::Int(x), Value::Float(y)) => Some(Value::Float(*x as f64 - y)),
+            (Value::Float(x), Value::Int(y)) => Some(Value::Float(x - *y as f64)),
             _ => None,
-        }
+        })
     }
 
     pub fn multiply(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => a.checked_mul(*b).map(Value::Int),
-            (Value::Float(a), Value::Float(b)) => Some(Value::Float(a * b)),
-            (Value::Int(a), Value::Float(b)) => Some(Value::Float(*a as f64 * b)),
-            (Value::Float(a), Value::Int(b)) => Some(Value::Float(a * *b as f64)),
-            (Value::IntList(vec), Value::Int(b)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(x.checked_mul(*b)?);
-                }
-                Some(Value::IntList(out))
-            }
-            (Value::Int(a), Value::IntList(vec)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(a.checked_mul(x)?);
-                }
-                Some(Value::IntList(out))
-            }
-            (Value::Float(a), Value::IntList(vec)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(Value::Float(a * x as f64));
-                }
-                Some(Value::List(out))
-            }
-            (Value::IntList(vec), Value::Float(b)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(Value::Float(x as f64 * b));
-                }
-                Some(Value::List(out))
-            }
-            (Value::IntList(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a
-                        .iter()
-                        .zip(b.iter())
-                        .map(|(&x, y)| Value::Int(x).multiply(y))
-                        .collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = Value::Int(a[i % a.len()]);
-                            let right = &b[i % b.len()];
-                            left.multiply(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
-            (Value::List(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a
-                        .iter()
-                        .zip(b.iter())
-                        .map(|(x, &y)| x.multiply(&Value::Int(y)))
-                        .collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = Value::Int(b[i % b.len()]);
-                            left.multiply(&right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    let mut out = Vec::with_capacity(a.len());
-                    for (&x, &y) in a.iter().zip(b.iter()) {
-                        out.push(x.checked_mul(y)?);
-                    }
-                    Some(Value::IntList(out))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let mut out = Vec::with_capacity(max_len);
-                    for i in 0..max_len {
-                        out.push(a[i % a.len()].checked_mul(b[i % b.len()])?);
-                    }
-                    Some(Value::IntList(out))
-                }
-            }
-            // Scalar-vector operations
-            (scalar, Value::List(vec)) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.multiply(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.multiply(scalar)).collect();
-                result.map(Value::List)
-            }
-            // Vector-vector operations
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.multiply(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    // Cycle the shorter vector
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.multiply(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
+        self.bc2(other, |a, b| match (a, b) {
+            (Value::Int(x), Value::Int(y)) => x.checked_mul(*y).map(Value::Int),
+            (Value::Float(x), Value::Float(y)) => Some(Value::Float(x * y)),
+            (Value::Int(x), Value::Float(y)) => Some(Value::Float(*x as f64 * y)),
+            (Value::Float(x), Value::Int(y)) => Some(Value::Float(x * *y as f64)),
             _ => None,
-        }
+        })
     }
 
     pub fn divide(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => {
-                if *b == 0 {
-                    None
-                } else if a % b == 0 {
-                    a.checked_div(*b).map(Value::Int)
-                } else {
-                    Some(Value::Float(*a as f64 / *b as f64))
-                }
-            }
-            (Value::Float(a), Value::Float(b)) => {
-                if *b == 0.0 {
-                    None
-                } else {
-                    Some(Value::Float(a / b))
-                }
-            }
-            (Value::Int(a), Value::Float(b)) => {
-                if *b == 0.0 {
-                    None
-                } else {
-                    Some(Value::Float(*a as f64 / b))
-                }
-            }
-            (Value::Float(a), Value::Int(b)) => {
-                if *b == 0 {
-                    None
-                } else {
-                    Some(Value::Float(a / *b as f64))
-                }
-            }
-            (Value::IntList(items), Value::Int(b)) => {
-                if *b == 0 {
-                    return None;
-                }
-                let mut out = Vec::with_capacity(items.len());
-                let mut all_int = true;
-                for &x in items {
-                    match Value::Int(x).divide(other) {
-                        Some(Value::Int(n)) => out.push(Value::Int(n)),
-                        Some(Value::Float(f)) => {
-                            all_int = false;
-                            out.push(Value::Float(f));
-                        }
-                        _ => return None,
-                    }
-                }
-                if all_int {
-                    let ints: Vec<i64> = out
-                        .into_iter()
-                        .map(|v| match v {
-                            Value::Int(n) => n,
-                            _ => unreachable!(),
-                        })
-                        .collect();
-                    Some(Value::IntList(ints))
-                } else {
-                    Some(Value::List(out))
-                }
-            }
-            (Value::Int(a), Value::IntList(vec)) => {
-                if vec.is_empty() {
-                    Some(Value::List(Vec::new()))
-                } else if vec.contains(&0) {
-                    None
-                } else {
-                    let mut out = Vec::with_capacity(vec.len());
-                    for &x in vec {
-                        out.push(a.checked_div(x)?);
-                    }
-                    Some(Value::IntList(out))
-                }
-            }
-            (Value::Float(a), Value::IntList(vec)) => {
-                if vec.is_empty() {
-                    Some(Value::List(Vec::new()))
-                } else if vec.contains(&0) {
-                    None
-                } else {
-                    let mut out = Vec::with_capacity(vec.len());
-                    for &x in vec {
-                        out.push(Value::Float(a / x as f64));
-                    }
-                    Some(Value::List(out))
-                }
-            }
-            (Value::IntList(vec), Value::Float(b)) => {
-                if vec.is_empty() {
-                    Some(Value::List(Vec::new()))
-                } else if *b == 0.0 {
-                    None
-                } else {
-                    let mut out = Vec::with_capacity(vec.len());
-                    for &x in vec {
-                        out.push(Value::Float(x as f64 / b));
-                    }
-                    Some(Value::List(out))
-                }
-            }
-            (Value::IntList(a), Value::List(_b)) => {
-                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
-                left.divide(other)
-            }
-            (Value::List(_a), Value::IntList(b)) => {
-                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
-                self.divide(&right)
-            }
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    if b.contains(&0) {
-                        return None;
-                    }
-                    let mut out = Vec::with_capacity(a.len());
-                    for (&x, &y) in a.iter().zip(b.iter()) {
-                        out.push(x.checked_div(y)?);
-                    }
-                    Some(Value::IntList(out))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    for i in 0..max_len {
-                        let right = b[i % b.len()];
-                        if right == 0 {
-                            return None;
-                        }
-                    }
-                    let mut out = Vec::with_capacity(max_len);
-                    for i in 0..max_len {
-                        let left = a[i % a.len()];
-                        let right = b[i % b.len()];
-                        out.push(left.checked_div(right)?);
-                    }
-                    Some(Value::IntList(out))
-                }
-            }
-            // Scalar-vector operations
-            (scalar, Value::List(vec)) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.divide(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.divide(scalar)).collect();
-                result.map(Value::List)
-            }
-            // Vector-vector operations
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.divide(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    // Cycle the shorter vector
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.divide(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
+        self.bc2(other, |a, b| match (a, b) {
+            (Value::Int(_), Value::Int(0)) => None,
+            (Value::Float(_), Value::Int(0)) => None,
+            (Value::Float(_), Value::Float(y)) if *y == 0.0 => None,
+
+            (Value::Int(x), Value::Int(y)) => Some(Value::Float(*x as f64 / *y as f64)),
+            (Value::Float(x), Value::Float(y)) => Some(Value::Float(x / y)),
+            (Value::Int(x), Value::Float(y)) => Some(Value::Float(*x as f64 / y)),
+            (Value::Float(x), Value::Int(y)) => Some(Value::Float(x / *y as f64)),
             _ => None,
-        }
+        })
     }
 
     pub fn divide_dot(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => {
-                if *b == 0 {
-                    if *a == 0 {
-                        Some(Value::nan())
-                    } else {
-                        Some(Value::Float(if *a >= 0 {
-                            f64::INFINITY
-                        } else {
-                            f64::NEG_INFINITY
-                        }))
-                    }
-                } else if a % b == 0 {
-                    Some(Value::Int(a / b))
-                } else {
-                    Some(Value::Float(*a as f64 / *b as f64))
-                }
-            }
-            (Value::Float(a), Value::Float(b)) => Some(Value::Float(a / b)),
-            (Value::Int(a), Value::Float(b)) => Some(Value::Float(*a as f64 / b)),
-            (Value::Float(a), Value::Int(b)) => Some(Value::Float(a / *b as f64)),
-            (Value::IntList(items), Value::Int(b)) => {
-                if *b == 0 {
-                    let out = items
-                        .iter()
-                        .map(|&x| {
-                            if x == 0 {
-                                Value::nan()
-                            } else {
-                                Value::Float(if x > 0 {
-                                    f64::INFINITY
-                                } else {
-                                    f64::NEG_INFINITY
-                                })
-                            }
-                        })
-                        .collect();
-                    Some(Value::List(out))
-                } else {
-                    self.divide(other)
-                }
-            }
-            (Value::Int(a), Value::IntList(vec)) => {
-                if vec.is_empty() {
-                    Some(Value::List(Vec::new()))
-                } else {
-                    let mut out = Vec::with_capacity(vec.len());
-                    let mut all_int = true;
-                    for &x in vec {
-                        let val = if x == 0 {
-                            all_int = false;
-                            if *a == 0 {
-                                Value::nan()
-                            } else {
-                                Value::Float(if *a >= 0 {
-                                    f64::INFINITY
-                                } else {
-                                    f64::NEG_INFINITY
-                                })
-                            }
-                        } else if a % x == 0 {
-                            Value::Int(a / x)
-                        } else {
-                            all_int = false;
-                            Value::Float(*a as f64 / x as f64)
-                        };
-                        out.push(val);
-                    }
-                    if all_int {
-                        let ints: Vec<i64> = out
-                            .into_iter()
-                            .map(|v| match v {
-                                Value::Int(n) => n,
-                                _ => unreachable!(),
-                            })
-                            .collect();
-                        Some(Value::IntList(ints))
-                    } else {
-                        Some(Value::List(out))
-                    }
-                }
-            }
-            (Value::Float(a), Value::IntList(vec)) => {
-                if vec.is_empty() {
-                    Some(Value::List(Vec::new()))
-                } else {
-                    let mut out = Vec::with_capacity(vec.len());
-                    for &x in vec {
-                        if x == 0 {
-                            if *a == 0.0 {
-                                out.push(Value::nan());
-                            } else {
-                                out.push(Value::Float(if *a >= 0.0 {
-                                    f64::INFINITY
-                                } else {
-                                    f64::NEG_INFINITY
-                                }));
-                            }
-                        } else {
-                            out.push(Value::Float(a / x as f64));
-                        }
-                    }
-                    Some(Value::List(out))
-                }
-            }
-            (Value::IntList(vec), Value::Float(b)) => {
-                if vec.is_empty() {
-                    Some(Value::List(Vec::new()))
-                } else {
-                    let mut out = Vec::with_capacity(vec.len());
-                    for &x in vec {
-                        if *b == 0.0 {
-                            if x == 0 {
-                                out.push(Value::nan());
-                            } else if x > 0 {
-                                out.push(Value::Float(f64::INFINITY));
-                            } else {
-                                out.push(Value::Float(f64::NEG_INFINITY));
-                            }
-                        } else {
-                            out.push(Value::Float(x as f64 / b));
-                        }
-                    }
-                    Some(Value::List(out))
-                }
-            }
-            (Value::IntList(a), Value::List(_b)) => {
-                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
-                left.divide_dot(other)
-            }
-            (Value::List(_a), Value::IntList(b)) => {
-                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
-                self.divide_dot(&right)
-            }
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    let mut out = Vec::with_capacity(a.len());
-                    let mut all_int = true;
-                    for (&x, &y) in a.iter().zip(b.iter()) {
-                        let val = if y == 0 {
-                            all_int = false;
-                            if x == 0 {
-                                Value::nan()
-                            } else if x > 0 {
-                                Value::Float(f64::INFINITY)
-                            } else {
-                                Value::Float(f64::NEG_INFINITY)
-                            }
-                        } else if x % y == 0 {
-                            Value::Int(x / y)
-                        } else {
-                            all_int = false;
-                            Value::Float(x as f64 / y as f64)
-                        };
-                        out.push(val);
-                    }
-                    if all_int {
-                        Some(Value::IntList(
-                            out.into_iter()
-                                .map(|v| {
-                                    if let Value::Int(n) = v {
-                                        n
-                                    } else {
-                                        unreachable!()
-                                    }
-                                })
-                                .collect(),
-                        ))
-                    } else {
-                        Some(Value::List(out))
-                    }
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let mut out = Vec::with_capacity(max_len);
-                    let mut all_int = true;
-                    for i in 0..max_len {
-                        let left = a[i % a.len()];
-                        let right = b[i % b.len()];
-                        let val = if right == 0 {
-                            all_int = false;
-                            if left == 0 {
-                                Value::nan()
-                            } else if left > 0 {
-                                Value::Float(f64::INFINITY)
-                            } else {
-                                Value::Float(f64::NEG_INFINITY)
-                            }
-                        } else if left % right == 0 {
-                            Value::Int(left / right)
-                        } else {
-                            all_int = false;
-                            Value::Float(left as f64 / right as f64)
-                        };
-                        out.push(val);
-                    }
-                    if all_int {
-                        Some(Value::IntList(
-                            out.into_iter()
-                                .map(|v| {
-                                    if let Value::Int(n) = v {
-                                        n
-                                    } else {
-                                        unreachable!()
-                                    }
-                                })
-                                .collect(),
-                        ))
-                    } else {
-                        Some(Value::List(out))
-                    }
-                }
-            }
-            (scalar, Value::List(vec)) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.divide_dot(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.divide_dot(scalar)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a
-                        .iter()
-                        .zip(b.iter())
-                        .map(|(x, y)| x.divide_dot(y))
-                        .collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.divide_dot(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
+        self.bc2(other, |a, b| match (a, b) {
+            // (Value::Int(_), Value::Int(0)) => None,
+            // allow y==0.0`
+            // (Value::Float(_), Value::Int(0)) => None,
+            // (Value::Float(_), Value::Float(y)) if *y == 0.0 => None,
+            (Value::Int(x), Value::Int(y)) => Some(Value::Float(*x as f64 / *y as f64)),
+            (Value::Float(x), Value::Float(y)) => Some(Value::Float(x / y)),
+            (Value::Int(x), Value::Float(y)) => Some(Value::Float(*x as f64 / *y)),
+            (Value::Float(x), Value::Int(y)) => Some(Value::Float(*x / *y as f64)),
             _ => None,
-        }
+        })
     }
 
     pub fn modulo(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => {
-                if *b == 0 {
-                    None
-                } else {
-                    Some(Value::Int(a % b))
-                }
-            }
-            (Value::Float(a), Value::Float(b)) => {
-                if *b == 0.0 {
-                    None
-                } else {
-                    Some(Value::Float(a % b))
-                }
-            }
-            (Value::Int(a), Value::Float(b)) => {
-                if *b == 0.0 {
-                    None
-                } else {
-                    Some(Value::Float(*a as f64 % b))
-                }
-            }
-            (Value::Float(a), Value::Int(b)) => {
-                if *b == 0 {
-                    None
-                } else {
-                    Some(Value::Float(a % *b as f64))
-                }
-            }
-            (Value::IntList(items), Value::Int(b)) => {
-                if *b == 0 {
-                    return None;
-                }
-                let mut out = Vec::with_capacity(items.len());
-                for &x in items {
-                    out.push(x % b);
-                }
-                Some(Value::IntList(out))
-            }
-            (Value::Int(a), Value::IntList(vec)) => {
-                if vec.is_empty() {
-                    Some(Value::List(Vec::new()))
-                } else if vec.contains(&0) {
-                    None
-                } else {
-                    let mut out = Vec::with_capacity(vec.len());
-                    for &x in vec {
-                        out.push(a % x);
-                    }
-                    Some(Value::IntList(out))
-                }
-            }
-            (Value::Float(a), Value::IntList(vec)) => {
-                if vec.is_empty() || vec.contains(&0) {
-                    None
-                } else {
-                    let mut out = Vec::with_capacity(vec.len());
-                    for &x in vec {
-                        out.push(Value::Float(a % x as f64));
-                    }
-                    Some(Value::List(out))
-                }
-            }
-            (Value::IntList(vec), Value::Float(b)) => {
-                if *b == 0.0 {
-                    None
-                } else {
-                    let mut out = Vec::with_capacity(vec.len());
-                    for &x in vec {
-                        out.push(Value::Float(x as f64 % b));
-                    }
-                    Some(Value::List(out))
-                }
-            }
-            (Value::IntList(a), Value::List(_b)) => {
-                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
-                left.modulo(other)
-            }
-            (Value::List(_a), Value::IntList(b)) => {
-                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
-                self.modulo(&right)
-            }
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    if b.contains(&0) {
-                        return None;
-                    }
-                    Some(Value::IntList(
-                        a.iter().zip(b.iter()).map(|(x, y)| x % y).collect(),
-                    ))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    for i in 0..max_len {
-                        if b[i % b.len()] == 0 {
-                            return None;
-                        }
-                    }
-                    Some(Value::IntList(
-                        (0..max_len)
-                            .map(|i| {
-                                let left = a[i % a.len()];
-                                let right = b[i % b.len()];
-                                left % right
-                            })
-                            .collect(),
-                    ))
-                }
-            }
-            (scalar, Value::List(vec)) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.modulo(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.modulo(scalar)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.modulo(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.modulo(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
+        self.bc2(other, |a, b| match (a, b) {
+            (Value::Int(_), Value::Int(0)) => None,
+            (Value::Float(_), Value::Int(0)) => None,
+            (Value::Float(_), Value::Float(y)) if *y == 0.0 => None,
+
+            (Value::Int(x), Value::Int(y)) => Some(Value::Int(x % y)),
+            (Value::Float(x), Value::Float(y)) => Some(Value::Float(x % y)),
+            (Value::Int(x), Value::Float(y)) => Some(Value::Float(*x as f64 % y)),
+            (Value::Float(x), Value::Int(y)) => Some(Value::Float(x % *y as f64)),
             _ => None,
-        }
+        })
     }
 
     pub fn modulo_dot(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => {
-                if *b == 0 {
-                    Some(Value::nan())
-                } else {
-                    Some(Value::Int(a % b))
-                }
-            }
-            (Value::Float(a), Value::Float(b)) => Some(Value::Float(a % b)),
-            (Value::Int(a), Value::Float(b)) => Some(Value::Float(*a as f64 % b)),
-            (Value::Float(a), Value::Int(b)) => Some(Value::Float(a % *b as f64)),
-            (Value::IntList(items), Value::Int(b)) => {
-                let out = items
-                    .iter()
-                    .map(|&x| {
-                        if *b == 0 {
-                            Value::nan()
-                        } else {
-                            Value::Int(x % b)
-                        }
-                    })
-                    .collect();
-                Some(Value::List(out))
-            }
-            (Value::Int(a), Value::IntList(vec)) => {
-                if vec.is_empty() {
-                    Some(Value::List(Vec::new()))
-                } else {
-                    let mut out = Vec::with_capacity(vec.len());
-                    for &x in vec {
-                        if x == 0 {
-                            out.push(Value::nan());
-                        } else {
-                            out.push(Value::Int(a % x));
-                        }
-                    }
-                    Some(Value::List(out))
-                }
-            }
-            (Value::Float(a), Value::IntList(vec)) => {
-                if vec.is_empty() {
-                    None
-                } else {
-                    let out = vec
-                        .iter()
-                        .map(|&x| {
-                            if x == 0 {
-                                Value::nan()
-                            } else {
-                                Value::Float(a % x as f64)
-                            }
-                        })
-                        .collect();
-                    Some(Value::List(out))
-                }
-            }
-            (Value::IntList(vec), Value::Float(b)) => {
-                let out = vec
-                    .iter()
-                    .map(|&x| {
-                        if *b == 0.0 {
-                            Value::nan()
-                        } else {
-                            Value::Float(x as f64 % b)
-                        }
-                    })
-                    .collect();
-                Some(Value::List(out))
-            }
-            (Value::IntList(a), Value::List(_b)) => {
-                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
-                left.modulo_dot(other)
-            }
-            (Value::List(_a), Value::IntList(b)) => {
-                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
-                self.modulo_dot(&right)
-            }
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    let out = a
-                        .iter()
-                        .zip(b.iter())
-                        .map(|(x, y)| {
-                            if *y == 0 {
-                                Value::nan()
-                            } else {
-                                Value::Int(x % y)
-                            }
-                        })
-                        .collect();
-                    Some(Value::List(out))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let out = (0..max_len)
-                        .map(|i| {
-                            let left = a[i % a.len()];
-                            let right = b[i % b.len()];
-                            if right == 0 {
-                                Value::nan()
-                            } else {
-                                Value::Int(left % right)
-                            }
-                        })
-                        .collect();
-                    Some(Value::List(out))
-                }
-            }
-            (scalar, Value::List(vec)) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.modulo_dot(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.modulo_dot(scalar)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> = a
-                        .iter()
-                        .zip(b.iter())
-                        .map(|(x, y)| x.modulo_dot(y))
-                        .collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.modulo_dot(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
+        self.bc2(other, |a, b| match (a, b) {
+            // (Value::Int(_), Value::Int(0)) => None,
+            // (Value::Float(_), Value::Int(0)) => None,
+            // (Value::Float(_), Value::Float(y)) if *y == 0.0 => None,
+            (Value::Int(x), Value::Int(y)) => Some(Value::Float(*x as f64 % *y as f64)),
+            (Value::Float(x), Value::Float(y)) => Some(Value::Float(x % y)),
+            (Value::Int(x), Value::Float(y)) => Some(Value::Float(*x as f64 % y)),
+            (Value::Float(x), Value::Int(y)) => Some(Value::Float(x % *y as f64)),
             _ => None,
-        }
+        })
     }
 
     pub fn power(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            // Scalar ^ Scalar
-            (Value::Int(a), Value::Int(b)) => {
-                if *b >= 0 {
-                    a.checked_pow(*b as u32).map(Value::Int)
+        self.bc2(other, |a, b| match (a, b) {
+            (Value::Int(x), Value::Int(y)) if *y >= 0 => x.checked_pow(*y as u32).map(Value::Int),
+            (Value::Int(x), Value::Int(y)) /* y < 0 */ => {
+                // handle 0.pow(negative) explicitly
+                if *x == 0 {
+                    None // or Some(Value::Float(f64::INFINITY)) depending on semantics
                 } else {
-                    None
+                    Some(Value::Float((*x as f64).powf(*y as f64)))
                 }
             }
-            (Value::Float(a), Value::Float(b)) => Some(Value::Float(a.powf(*b))),
-            (Value::Int(a), Value::Float(b)) => Some(Value::Float((*a as f64).powf(*b))),
-            (Value::Float(a), Value::Int(b)) => Some(Value::Float(a.powf(*b as f64))),
-
-            // IntList ^ Int
-            (Value::IntList(vec), Value::Int(b)) => {
-                if *b < 0 {
-                    return None;
-                }
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(x.checked_pow(*b as u32)?);
-                }
-                Some(Value::IntList(out))
-            }
-            // Int ^ IntList
-            (Value::Int(a), Value::IntList(vec)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    if x < 0 {
-                        return None;
-                    }
-                    out.push(a.checked_pow(x as u32)?);
-                }
-                Some(Value::IntList(out))
-            }
-
-            // Float/List hybrids
-            (Value::Float(a), Value::IntList(vec)) => Some(Value::List(
-                vec.iter()
-                    .map(|&x| Value::Float(a.powf(x as f64)))
-                    .collect(),
-            )),
-            (Value::IntList(vec), Value::Float(b)) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(Value::Float((x as f64).powf(*b)));
-                }
-                Some(Value::List(out))
-            }
-
-            // Promote IntList to generic List then recurse
-            (Value::IntList(a), Value::List(_)) => {
-                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
-                left.power(other)
-            }
-            (Value::List(_), Value::IntList(b)) => {
-                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
-                self.power(&right)
-            }
-
-            // IntList ^ IntList
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    let mut out = Vec::with_capacity(a.len());
-                    for (&x, &y) in a.iter().zip(b.iter()) {
-                        if y < 0 {
-                            return None;
-                        }
-                        out.push(x.checked_pow(y as u32)?);
-                    }
-                    Some(Value::IntList(out))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let mut out = Vec::with_capacity(max_len);
-                    for i in 0..max_len {
-                        let x = a[i % a.len()];
-                        let y = b[i % b.len()];
-                        if y < 0 {
-                            return None;
-                        }
-                        out.push(x.checked_pow(y as u32)?);
-                    }
-                    Some(Value::IntList(out))
-                }
-            }
-
-            // Scalar–vector and vector–scalar for generic List
-            (scalar, Value::List(vec)) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.power(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar) if scalar.is_scalar() => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.power(scalar)).collect();
-                result.map(Value::List)
-            }
-
-            // List ^ List
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.power(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.power(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
-
-            // All other cases
+            (Value::Float(x), Value::Float(y)) => Some(Value::Float(x.powf(*y))),
+            (Value::Int(x), Value::Float(y)) => Some(Value::Float((*x as f64).powf(*y))),
+            (Value::Float(x), Value::Int(y)) => Some(Value::Float(x.powf(*y as f64))),
             _ => None,
-        }
+        })
     }
 
-    /// Bitwise AND with broadcasting support
+    // bitwise ops
+    // ===========
+
     pub fn bitand(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => Some(Value::Int(a & b)),
-            (Value::IntList(vec), Value::Int(b)) => {
-                Some(Value::IntList(vec.iter().map(|x| x & b).collect()))
-            }
-            (Value::Int(a), Value::IntList(vec)) => {
-                Some(Value::IntList(vec.iter().map(|x| a & x).collect()))
-            }
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    Some(Value::IntList(
-                        a.iter().zip(b.iter()).map(|(x, y)| x & y).collect(),
-                    ))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    Some(Value::IntList(
-                        (0..max_len)
-                            .map(|i| a[i % a.len()] & b[i % b.len()])
-                            .collect(),
-                    ))
-                }
-            }
-            (Value::IntList(a), Value::List(_b)) => {
-                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
-                left.bitand(other)
-            }
-            (Value::List(_a), Value::IntList(b)) => {
-                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
-                self.bitand(&right)
-            }
-            (scalar @ Value::Int(_), Value::List(vec)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.bitand(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar @ Value::Int(_)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.bitand(scalar)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.bitand(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.bitand(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
+        self.bc2(other, |a, b| match (a, b) {
+            (Value::Int(x), Value::Int(y)) => Some(Value::Int(x & y)),
             _ => None,
-        }
+        })
     }
 
-    /// Bitwise OR with broadcasting support
     pub fn bitor(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => Some(Value::Int(a | b)),
-            (Value::IntList(vec), Value::Int(b)) => {
-                Some(Value::IntList(vec.iter().map(|x| x | b).collect()))
-            }
-            (Value::Int(a), Value::IntList(vec)) => {
-                Some(Value::IntList(vec.iter().map(|x| a | x).collect()))
-            }
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    Some(Value::IntList(
-                        a.iter().zip(b.iter()).map(|(x, y)| x | y).collect(),
-                    ))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    Some(Value::IntList(
-                        (0..max_len)
-                            .map(|i| a[i % a.len()] | b[i % b.len()])
-                            .collect(),
-                    ))
-                }
-            }
-            (Value::IntList(a), Value::List(_b)) => {
-                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
-                left.bitor(other)
-            }
-            (Value::List(_a), Value::IntList(b)) => {
-                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
-                self.bitor(&right)
-            }
-            (scalar @ Value::Int(_), Value::List(vec)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.bitor(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar @ Value::Int(_)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.bitor(scalar)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.bitor(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.bitor(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
+        self.bc2(other, |a, b| match (a, b) {
+            (Value::Int(x), Value::Int(y)) => Some(Value::Int(x | y)),
             _ => None,
-        }
+        })
     }
 
-    /// Bitwise XOR with broadcasting support
     pub fn bitxor(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => Some(Value::Int(a ^ b)),
-            (Value::IntList(vec), Value::Int(b)) => {
-                Some(Value::IntList(vec.iter().map(|x| x ^ b).collect()))
-            }
-            (Value::Int(a), Value::IntList(vec)) => {
-                Some(Value::IntList(vec.iter().map(|x| a ^ x).collect()))
-            }
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    Some(Value::IntList(
-                        a.iter().zip(b.iter()).map(|(x, y)| x ^ y).collect(),
-                    ))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    Some(Value::IntList(
-                        (0..max_len)
-                            .map(|i| a[i % a.len()] ^ b[i % b.len()])
-                            .collect(),
-                    ))
-                }
-            }
-            (Value::IntList(a), Value::List(_b)) => {
-                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
-                left.bitxor(other)
-            }
-            (Value::List(_a), Value::IntList(b)) => {
-                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
-                self.bitxor(&right)
-            }
-            (scalar @ Value::Int(_), Value::List(vec)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.bitxor(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar @ Value::Int(_)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.bitxor(scalar)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.bitxor(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.bitxor(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
+        self.bc2(other, |a, b| match (a, b) {
+            (Value::Int(x), Value::Int(y)) => Some(Value::Int(x ^ y)),
             _ => None,
-        }
+        })
     }
 
-    /// Bitwise NOT with broadcasting support
     pub fn bitnot(&self) -> Option<Value> {
-        match self {
-            Value::Int(a) => Some(Value::Int(!a)),
-            Value::IntList(vec) => Some(Value::IntList(vec.iter().map(|x| !x).collect())),
-            Value::List(items) => {
-                let result: Option<Vec<Value>> = items.iter().map(|v| v.bitnot()).collect();
-                result.map(Value::List)
-            }
+        self.bc1(|v| match v {
+            Value::Int(x) => Some(Value::Int(!x)),
             _ => None,
-        }
+        })
     }
 
-    /// Arithmetic negation with broadcasting support
-    pub fn neg_value(&self) -> Option<Value> {
-        match self {
-            Value::Int(n) => n.checked_neg().map(Value::Int),
-            Value::Float(f) => Some(Value::Float(-f)),
-            Value::IntList(vec) => {
-                let mut out = Vec::with_capacity(vec.len());
-                for &x in vec {
-                    out.push(x.checked_neg()?);
-                }
-                Some(Value::IntList(out))
-            }
-            Value::List(items) => {
-                let result: Option<Vec<Value>> = items.iter().map(|v| v.neg_value()).collect();
-                result.map(Value::List)
-            }
-            _ => None,
-        }
-    }
+    // Shifts (reject negative shift counts)
 
-    /// Left shift with broadcasting support
     pub fn shl(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => Some(Value::Int(a.wrapping_shl(*b as u32))),
-            (Value::IntList(vec), Value::Int(b)) => {
-                let shift = *b as u32;
-                Some(Value::IntList(
-                    vec.iter().map(|x| x.wrapping_shl(shift)).collect(),
-                ))
-            }
-            (Value::Int(a), Value::IntList(vec)) => Some(Value::IntList(
-                vec.iter().map(|x| a.wrapping_shl(*x as u32)).collect(),
-            )),
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    Some(Value::IntList(
-                        a.iter()
-                            .zip(b.iter())
-                            .map(|(x, y)| x.wrapping_shl(*y as u32))
-                            .collect(),
-                    ))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    Some(Value::IntList(
-                        (0..max_len)
-                            .map(|i| a[i % a.len()].wrapping_shl(b[i % b.len()] as u32))
-                            .collect(),
-                    ))
-                }
-            }
-            (Value::IntList(a), Value::List(_b)) => {
-                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
-                left.shl(other)
-            }
-            (Value::List(_a), Value::IntList(b)) => {
-                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
-                self.shl(&right)
-            }
-            (scalar @ Value::Int(_), Value::List(vec)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.shl(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar @ Value::Int(_)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.shl(scalar)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.shl(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.shl(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
+        self.bc2(other, |a, b| match (a, b) {
+            (Value::Int(x), Value::Int(s)) if *s >= 0 => {
+                Some(Value::Int(x.wrapping_shl(*s as u32)))
             }
             _ => None,
-        }
+        })
     }
 
-    /// Right shift with broadcasting support
     pub fn shr(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => Some(Value::Int(a.wrapping_shr(*b as u32))),
-            (Value::IntList(vec), Value::Int(b)) => {
-                let shift = *b as u32;
-                Some(Value::IntList(
-                    vec.iter().map(|x| x.wrapping_shr(shift)).collect(),
-                ))
-            }
-            (Value::Int(a), Value::IntList(vec)) => Some(Value::IntList(
-                vec.iter().map(|x| a.wrapping_shr(*x as u32)).collect(),
-            )),
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.len() == b.len() {
-                    Some(Value::IntList(
-                        a.iter()
-                            .zip(b.iter())
-                            .map(|(x, y)| x.wrapping_shr(*y as u32))
-                            .collect(),
-                    ))
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    Some(Value::IntList(
-                        (0..max_len)
-                            .map(|i| a[i % a.len()].wrapping_shr(b[i % b.len()] as u32))
-                            .collect(),
-                    ))
-                }
-            }
-            (Value::IntList(a), Value::List(_b)) => {
-                let left = Value::List(a.iter().map(|&x| Value::Int(x)).collect());
-                left.shr(other)
-            }
-            (Value::List(_a), Value::IntList(b)) => {
-                let right = Value::List(b.iter().map(|&x| Value::Int(x)).collect());
-                self.shr(&right)
-            }
-            (scalar @ Value::Int(_), Value::List(vec)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.shr(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar @ Value::Int(_)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.shr(scalar)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.shr(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.shr(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
+        self.bc2(other, |a, b| match (a, b) {
+            (Value::Int(x), Value::Int(s)) if *s >= 0 => {
+                Some(Value::Int(x.wrapping_shr(*s as u32)))
             }
             _ => None,
-        }
+        })
     }
 
-    /// Logical AND with broadcasting support
+    // Logical
+
     pub fn and_bool(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
+        self.bc2(other, |a, b| match (a, b) {
             (Value::Bool(a), Value::Bool(b)) => Some(Value::Bool(*a && *b)),
-            (scalar @ Value::Bool(_), Value::List(vec)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.and_bool(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar @ Value::Bool(_)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.and_bool(scalar)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.and_bool(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.and_bool(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
             _ => None,
-        }
+        })
     }
 
-    /// Logical OR with broadcasting support
     pub fn or_bool(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
+        self.bc2(other, |a, b| match (a, b) {
             (Value::Bool(a), Value::Bool(b)) => Some(Value::Bool(*a || *b)),
-            (scalar @ Value::Bool(_), Value::List(vec)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.or_bool(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar @ Value::Bool(_)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.or_bool(scalar)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.or_bool(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.or_bool(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
             _ => None,
-        }
+        })
     }
 
-    /// Logical XOR with broadcasting support
     pub fn xor_bool(&self, other: &Value) -> Option<Value> {
-        match (self, other) {
+        self.bc2(other, |a, b| match (a, b) {
             (Value::Bool(a), Value::Bool(b)) => Some(Value::Bool(*a ^ *b)),
-            (scalar @ Value::Bool(_), Value::List(vec)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| scalar.xor_bool(x)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(vec), scalar @ Value::Bool(_)) => {
-                let result: Option<Vec<Value>> = vec.iter().map(|x| x.xor_bool(scalar)).collect();
-                result.map(Value::List)
-            }
-            (Value::List(a), Value::List(b)) => {
-                if a.len() == b.len() {
-                    let result: Option<Vec<Value>> =
-                        a.iter().zip(b.iter()).map(|(x, y)| x.xor_bool(y)).collect();
-                    result.map(Value::List)
-                } else if a.is_empty() || b.is_empty() {
-                    None
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let result: Option<Vec<Value>> = (0..max_len)
-                        .map(|i| {
-                            let left = &a[i % a.len()];
-                            let right = &b[i % b.len()];
-                            left.xor_bool(right)
-                        })
-                        .collect();
-                    result.map(Value::List)
-                }
-            }
             _ => None,
-        }
+        })
     }
 
-    /// Logical NOT with broadcasting support
     pub fn not_bool(&self) -> Option<Value> {
-        match self {
+        self.bc1(|v| match v {
             Value::Bool(b) => Some(Value::Bool(!b)),
-            Value::List(items) => {
-                let result: Option<Vec<Value>> = items.iter().map(|v| v.not_bool()).collect();
-                result.map(Value::List)
-            }
             _ => None,
-        }
+        })
     }
 
-    fn compare_values(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
+    // Comparison
+
+    #[inline]
+    fn cmp_atom(a: &Value, b: &Value) -> Option<Ordering> {
         match (a, b) {
             (Value::Int(x), Value::Int(y)) => Some(x.cmp(y)),
             (Value::Float(x), Value::Float(y)) => x.partial_cmp(y),
@@ -1724,208 +383,69 @@ impl Value {
             (Value::Float(x), Value::Int(y)) => x.partial_cmp(&(*y as f64)),
             (Value::Bool(x), Value::Bool(y)) => Some(x.cmp(y)),
             (Value::Char(x), Value::Char(y)) => Some(x.cmp(y)),
-            (Value::List(a), Value::List(b)) => Value::compare_lists(a, b),
-            (Value::Null, Value::Null) => Some(std::cmp::Ordering::Equal),
+            (Value::Symbol(x), Value::Symbol(y)) => Some(x.cmp(y)),
+            // (Value::List(a), Value::List(b)) => Value::compare_lists(a, b),
+            (Value::Null, Value::Null) => Some(Ordering::Equal),
             _ => None,
         }
     }
 
-    fn compare_lists(a: &[Value], b: &[Value]) -> Option<std::cmp::Ordering> {
-        let len = a.len().min(b.len());
-        for i in 0..len {
-            match Value::compare_values(&a[i], &b[i])? {
-                std::cmp::Ordering::Equal => continue,
-                ord => return Some(ord),
-            }
-        }
-        Some(a.len().cmp(&b.len()))
-    }
-
-    /// Helper for vectorized comparisons
-    fn cmp_broadcast<F>(&self, other: &Value, cmp: F) -> Value
+    #[inline]
+    fn cmp_pred<F>(&self, other: &Value, pred: F) -> Option<Value>
     where
-        F: Fn(&Value, &Value) -> bool + Copy,
+        F: Fn(Ordering) -> bool + Copy,
     {
-        match (self, other) {
-            // special-case strings encoded as lists
-            // (Value::List(_), Value::List(_)) if self.is_string() && other.is_string() => {
-            //     Value::Bool(cmp(self, other))
-            // }
+        self.bc2(other, |a, b| {
+            let ord = Self::cmp_atom(a, b)?;
+            Some(Value::Bool(pred(ord)))
+        })
+    }
 
-            // IntList vs IntList
-            (Value::IntList(a), Value::IntList(b)) => {
-                if a.is_empty() || b.is_empty() {
-                    Value::List(Vec::new())
-                } else if a.len() == b.len() {
-                    let mut out = Vec::with_capacity(a.len());
-                    for (&x, &y) in a.iter().zip(b.iter()) {
-                        let left = Value::Int(x);
-                        let right = Value::Int(y);
-                        out.push(left.cmp_broadcast(&right, cmp));
-                    }
-                    Value::List(out)
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let mut out = Vec::with_capacity(max_len);
-                    for i in 0..max_len {
-                        let left = Value::Int(a[i % a.len()]);
-                        let right = Value::Int(b[i % b.len()]);
-                        out.push(left.cmp_broadcast(&right, cmp));
-                    }
-                    Value::List(out)
-                }
-            }
-
-            // IntList vs List
-            (Value::IntList(a), Value::List(b)) => {
-                if a.is_empty() || b.is_empty() {
-                    Value::List(Vec::new())
-                } else if a.len() == b.len() {
-                    let mut out = Vec::with_capacity(a.len());
-                    for (&x, y) in a.iter().zip(b.iter()) {
-                        out.push(Value::Int(x).cmp_broadcast(y, cmp));
-                    }
-                    Value::List(out)
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let mut out = Vec::with_capacity(max_len);
-                    for i in 0..max_len {
-                        let left = Value::Int(a[i % a.len()]);
-                        let right = &b[i % b.len()];
-                        out.push(left.cmp_broadcast(right, cmp));
-                    }
-                    Value::List(out)
-                }
-            }
-
-            // List vs IntList
-            (Value::List(a), Value::IntList(b)) => {
-                if a.is_empty() || b.is_empty() {
-                    Value::List(Vec::new())
-                } else if a.len() == b.len() {
-                    let mut out = Vec::with_capacity(a.len());
-                    for (x, &y) in a.iter().zip(b.iter()) {
-                        out.push(x.cmp_broadcast(&Value::Int(y), cmp));
-                    }
-                    Value::List(out)
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let mut out = Vec::with_capacity(max_len);
-                    for i in 0..max_len {
-                        let left = &a[i % a.len()];
-                        let right = Value::Int(b[i % b.len()]);
-                        out.push(left.cmp_broadcast(&right, cmp));
-                    }
-                    Value::List(out)
-                }
-            }
-
-            // IntList vs scalar (non-list)
-            (Value::IntList(a), b) => {
-                let mut out = Vec::with_capacity(a.len());
-                for &x in a {
-                    out.push(Value::Int(x).cmp_broadcast(b, cmp)); // safe: b is not a list here
-                }
-                Value::List(out)
-            }
-
-            // scalar (non-list) vs IntList
-            (a, Value::IntList(b)) => {
-                let mut out = Vec::with_capacity(b.len());
-                for &y in b {
-                    out.push(a.cmp_broadcast(&Value::Int(y), cmp)); // safe: a is not a list here
-                }
-                Value::List(out)
-            }
-
-            // List vs List (generic)
-            (Value::List(a), Value::List(b)) => {
-                if a.is_empty() || b.is_empty() {
-                    Value::List(Vec::new())
-                } else if a.len() == b.len() {
-                    let mut out = Vec::with_capacity(a.len());
-                    for (x, y) in a.iter().zip(b.iter()) {
-                        out.push(x.cmp_broadcast(y, cmp));
-                    }
-                    Value::List(out)
-                } else {
-                    let max_len = a.len().max(b.len());
-                    let mut out = Vec::with_capacity(max_len);
-                    for i in 0..max_len {
-                        let left = &a[i % a.len()];
-                        let right = &b[i % b.len()];
-                        out.push(left.cmp_broadcast(right, cmp));
-                    }
-                    Value::List(out)
-                }
-            }
-
-            // List vs scalar
-            (Value::List(a), b) => {
-                let mut out = Vec::with_capacity(a.len());
-                for x in a {
-                    out.push(x.cmp_broadcast(b, cmp));
-                }
-                Value::List(out)
-            }
-
-            // scalar vs List
-            (a, Value::List(b)) => {
-                let mut out = Vec::with_capacity(b.len());
-                for y in b {
-                    out.push(a.cmp_broadcast(y, cmp));
-                }
-                Value::List(out)
-            }
-
-            // pure scalars (or non-list types)
-            (a, b) => Value::Bool(cmp(a, b)),
+    pub fn eq(&self, other: &Value) -> Option<Value> {
+        match self.cmp_pred(other, |o| o == Ordering::Equal) {
+            Some(v) => Some(v),
+            None => Some(Value::Bool(false)),
         }
     }
 
-    /// Comparison operations
-    pub fn equals(&self, other: &Value) -> Value {
-        self.cmp_broadcast(other, |a, b| {
-            matches!(Value::compare_values(a, b), Some(std::cmp::Ordering::Equal))
-        })
+    pub fn neq(&self, other: &Value) -> Option<Value> {
+        match self.cmp_pred(other, |o| o != Ordering::Equal) {
+            Some(v) => Some(v),
+            None => Some(Value::Bool(true)),
+        }
     }
 
-    pub fn not_equals(&self, other: &Value) -> Value {
-        self.cmp_broadcast(other, |a, b| {
-            !matches!(Value::compare_values(a, b), Some(std::cmp::Ordering::Equal))
-        })
+    pub fn lt(&self, other: &Value) -> Option<Value> {
+        self.cmp_pred(other, |o| o == Ordering::Less)
     }
 
-    pub fn less_than(&self, other: &Value) -> Value {
-        self.cmp_broadcast(other, |a, b| {
-            matches!(Value::compare_values(a, b), Some(std::cmp::Ordering::Less))
-        })
+    pub fn leq(&self, other: &Value) -> Option<Value> {
+        self.cmp_pred(other, |o| o != Ordering::Greater)
     }
 
-    pub fn less_than_or_equal(&self, other: &Value) -> Value {
-        self.cmp_broadcast(other, |a, b| {
-            matches!(
-                Value::compare_values(a, b),
-                Some(std::cmp::Ordering::Less) | Some(std::cmp::Ordering::Equal)
-            )
-        })
+    pub fn gt(&self, other: &Value) -> Option<Value> {
+        self.cmp_pred(other, |o| o == Ordering::Greater)
     }
 
-    pub fn greater_than(&self, other: &Value) -> Value {
-        self.cmp_broadcast(other, |a, b| {
-            matches!(
-                Value::compare_values(a, b),
-                Some(std::cmp::Ordering::Greater)
-            )
-        })
+    pub fn geq(&self, other: &Value) -> Option<Value> {
+        self.cmp_pred(other, |o| o != Ordering::Less)
     }
 
-    pub fn greater_than_or_equal(&self, other: &Value) -> Value {
-        self.cmp_broadcast(other, |a, b| {
-            matches!(
-                Value::compare_values(a, b),
-                Some(std::cmp::Ordering::Greater) | Some(std::cmp::Ordering::Equal)
-            )
-        })
-    }
+    // pub fn min_value(&self, other: &Value) -> Option<Value> {
+    //     self.bc2(other, |a, b| {
+    //         match Self::cmp_atom(a, b)? {
+    //                 Ordering::Greater => Some(b.clone()),
+    //                 _ /* Less|Equal  */ => Some(a.clone()),
+    //             }
+    //     })
+    // }
+
+    // pub fn max_value(&self, other: &Value) -> Option<Value> {
+    //     self.bc2(other, |a, b| {
+    //         match Self::cmp_atom(a, b)? {
+    //                 Ordering::Less => Some(b.clone()),
+    //                 _ /* Greater|Equal */ => Some(a.clone()),
+    //             }
+    //     })
+    // }
 }

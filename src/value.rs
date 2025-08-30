@@ -203,16 +203,7 @@ impl Value {
     }
 
     pub fn is_atom(&self) -> bool {
-        matches!(
-            self,
-            Value::Int(_)
-                | Value::Float(_)
-                | Value::Char(_)
-                | Value::Symbol(_)
-                | Value::BuiltinFunction(_)
-                | Value::Bool(_)
-                | Value::Null
-        )
+        !matches!(self, Value::List(_) | Value::IntList(_) | Value::Dict(_))
     }
 
     pub fn is_list(&self) -> bool {
@@ -223,7 +214,7 @@ impl Value {
         matches!(self, Value::Dict(_))
     }
 
-    pub fn is_string(&self) -> bool {
+    pub fn is_str(&self) -> bool {
         match self {
             Value::List(items) => items.iter().all(|v| matches!(v, Value::Char(_))),
             _ => false,
@@ -236,7 +227,7 @@ impl Value {
             Value::List(items) => items.len(),
             Value::IntList(items) => items.len(),
             Value::Dict(map) => map.len(),
-            Value::Symbol(s) => s.len(),
+            Value::Symbol(_) => 1,
             Value::BuiltinFunction(_) => 1,
             _ => 1, // Atoms have length 1
         }
@@ -489,12 +480,12 @@ impl fmt::Display for Value {
             Value::Float(fl) => {
                 if fl.is_infinite() {
                     if fl.is_sign_positive() {
-                        write!(f, "Inf")
+                        write!(f, "inf")
                     } else {
-                        write!(f, "-Inf")
+                        write!(f, "-inf")
                     }
                 } else if fl.is_nan() {
-                    write!(f, "NaN")
+                    write!(f, "nan")
                 } else if fl.fract() == 0.0 {
                     write!(f, "{fl:.0}")
                 } else {
@@ -698,41 +689,41 @@ mod tests {
         let scalar = Value::int(1);
         let vec = Value::list(vec![Value::int(1), Value::int(1)]);
         assert_eq!(
-            scalar.equals(&vec),
-            Value::List(vec![Value::Bool(true), Value::Bool(true)])
+            scalar.eq(&vec),
+            Some(Value::List(vec![Value::Bool(true), Value::Bool(true)]))
         );
 
         let a = Value::list(vec![Value::int(1)]);
         let b = Value::list(vec![Value::int(1), Value::int(2)]);
-        assert_eq!(
-            a.equals(&b),
-            Value::List(vec![Value::Bool(true), Value::Bool(false)])
-        );
+        assert_eq!(a.eq(&b), Some(Value::Bool(false)));
 
         let list = Value::list(vec![Value::int(1), Value::int(2)]);
         assert_eq!(
-            list.greater_than(&Value::int(1)),
-            Value::List(vec![Value::Bool(false), Value::Bool(true)])
+            list.gt(&Value::int(1)),
+            Some(Value::List(vec![Value::Bool(false), Value::Bool(true)]))
         );
 
         let str_a = Value::list(vec![Value::Char('a'), Value::Char('b')]);
-        let str_b = Value::list(vec![Value::Char('a'), Value::Char('b')]);
-        assert_eq!(str_a.equals(&str_b), Value::Bool(true));
+        let str_b = Value::list(vec![Value::Char('a'), Value::Char('c')]);
+        assert_eq!(
+            str_a.eq(&str_b),
+            Some(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
+        );
     }
 
     #[test]
     fn test_bool_equals() {
         assert_eq!(
-            Value::Bool(true).equals(&Value::Bool(true)),
-            Value::Bool(true)
+            Value::Bool(true).eq(&Value::Bool(true)),
+            Some(Value::Bool(true))
         );
         assert_eq!(
-            Value::Bool(true).equals(&Value::Bool(false)),
-            Value::Bool(false)
+            Value::Bool(true).eq(&Value::Bool(false)),
+            Some(Value::Bool(false))
         );
         assert_eq!(
-            Value::Bool(false).equals(&Value::Bool(false)),
-            Value::Bool(true)
+            Value::Bool(false).eq(&Value::Bool(false)),
+            Some(Value::Bool(true))
         );
     }
 
@@ -752,10 +743,7 @@ mod tests {
 
         let c = Value::list(vec![Value::Bool(true)]);
         let d = Value::list(vec![Value::Bool(false), Value::Bool(true)]);
-        assert_eq!(
-            c.xor_bool(&d),
-            Some(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
-        );
+        assert_eq!(c.xor_bool(&d), None);
 
         assert_eq!(
             d.not_bool(),
@@ -774,10 +762,7 @@ mod tests {
 
         let c = Value::list(vec![Value::int(5)]);
         let d = Value::list(vec![Value::int(2), Value::int(3)]);
-        assert_eq!(
-            c.modulo(&d),
-            Some(Value::list(vec![Value::int(1), Value::int(2)]))
-        );
+        assert_eq!(c.modulo(&d), None);
     }
 
     #[test]
@@ -801,12 +786,12 @@ mod tests {
         assert_eq!(zero.divide(&zero), None);
         match zero.divide_dot(&zero) {
             Some(Value::Float(f)) => assert!(f.is_nan()),
-            Some(Value::Int(_)) => panic!("expected NaN"),
-            _ => panic!("expected NaN"),
+            Some(Value::Int(_)) => panic!("expected nan"),
+            _ => panic!("expected nan"),
         }
         match zero.modulo_dot(&zero) {
             Some(Value::Float(f)) => assert!(f.is_nan()),
-            Some(Value::Int(_)) => panic!("expected NaN"),
+            Some(Value::Int(_)) => panic!("expected nan"),
             _ => (),
         }
     }
@@ -852,12 +837,12 @@ mod tests {
             ]))
         );
         assert_eq!(
-            arr.equals(&list),
-            Value::List(vec![
+            arr.eq(&list),
+            Some(Value::List(vec![
                 Value::Bool(true),
                 Value::Bool(true),
                 Value::Bool(true)
-            ])
+            ]))
         );
     }
 

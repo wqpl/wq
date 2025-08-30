@@ -59,7 +59,7 @@ pub fn start() {
                 if file.is_none() {
                     file = Some(arg);
                 } else {
-                    eprintln!("Unexpected argument: {arg}");
+                    eprintln!("unexpected argument: {arg}");
                     std::process::exit(1);
                 }
             }
@@ -182,7 +182,7 @@ pub fn start() {
                             }
                             continue;
                         }
-                        "clear" | "\\c" => {
+                        "reset" | "\\r" => {
                             evaluator.clear_environment();
                             system_msg_printer::stdout(
                                 "user-defined bindings cleared".to_string(),

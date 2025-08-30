@@ -60,6 +60,13 @@ impl Builtins {
         self.add("typev", core::type_of_verbose);
         self.add("symbol", core::to_symbol);
         self.add("null?", core::is_null);
+        self.add("list?", core::is_list);
+        self.add("dict?", core::is_dict);
+        self.add("atom?", core::is_atom);
+        self.add("number?", core::is_number);
+        self.add("int?", core::is_int);
+        self.add("float?", core::is_float);
+        self.add("str?", core::is_str);
         #[cfg(not(target_arch = "wasm32"))]
         self.add("exec", core::exec);
 
@@ -87,20 +94,20 @@ impl Builtins {
 
         // List
         self.add("iota", list::iota);
-        self.add("range", list::range);
+        self.add("rg", list::range);
         self.add("count", list::count);
-        self.add("fst", list::fst);
-        self.add("lst", list::lst);
+        // self.add("fst", list::fst);
+        // self.add("lst", list::lst);
         self.add("reverse", list::reverse);
-        self.add("sum", list::sum);
-        self.add("max", list::max);
-        self.add("min", list::min);
-        self.add("avg", list::avg);
-        self.add("take", list::take);
-        self.add("drop", list::drop);
+        // self.add("sum", list::sum);
+        // self.add("max", list::max);
+        // self.add("min", list::min);
+        // self.add("avg", list::avg);
+        // self.add("take", list::take);
+        // self.add("drop", list::drop);
         self.add("where", list::wq_where);
-        self.add("distinct", list::distinct);
-        self.add("sort", list::sort);
+        // self.add("distinct", list::distinct);
+        // self.add("sort", list::sort);
         self.add("cat", list::cat);
         self.add("flatten", list::flatten);
         self.add("shape", list::shape);

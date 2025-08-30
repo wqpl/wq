@@ -772,7 +772,7 @@ impl Parser {
                 | Some(TokenType::Character(_))
                 | Some(TokenType::String(_))
                 | Some(TokenType::Inf)
-                | Some(TokenType::NaN)
+                | Some(TokenType::Nan)
                 | Some(TokenType::LeftBrace)
                 //| Some(TokenType::Symbol(_))
                 //| Some(TokenType::Identifier(_))
@@ -927,7 +927,7 @@ impl Parser {
                     self.advance();
                     Ok(AstNode::Literal(Value::float(f64::INFINITY)))
                 }
-                TokenType::NaN => {
+                TokenType::Nan => {
                     self.advance();
                     Ok(AstNode::Literal(Value::float(f64::NAN)))
                 }
@@ -1478,11 +1478,11 @@ mod tests {
 
     #[test]
     fn test_pipe_simple() {
-        let ast = parse_string("a | sum").unwrap();
+        let ast = parse_string("a | iota").unwrap();
         assert_eq!(
             ast,
             AstNode::Call {
-                name: "sum".into(),
+                name: "iota".into(),
                 args: vec![AstNode::Variable("a".into())],
             }
         );
@@ -1527,16 +1527,16 @@ mod tests {
 
     #[test]
     fn test_pipe_sequence() {
-        let ast = parse_string("a|sum; b|sum").unwrap();
+        let ast = parse_string("a|iota; b|iota").unwrap();
         assert_eq!(
             ast,
             AstNode::Block(vec![
                 AstNode::Call {
-                    name: "sum".into(),
+                    name: "iota".into(),
                     args: vec![AstNode::Variable("a".into())],
                 },
                 AstNode::Call {
-                    name: "sum".into(),
+                    name: "iota".into(),
                     args: vec![AstNode::Variable("b".into())],
                 },
             ]),

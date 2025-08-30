@@ -130,7 +130,7 @@ pub fn fold(node: AstNode) -> AstNode {
 fn eval_unary(op: UnaryOperator, val: Value) -> Option<Value> {
     use UnaryOperator::*;
     match op {
-        Negate => val.neg_value(),
+        Negate => val.neg(),
         Count => Some(Value::Int(val.len() as i64)),
     }
 }
@@ -146,12 +146,12 @@ fn eval_binary(op: BinaryOperator, left: Value, right: Value) -> Option<Value> {
         DivideDot => left.divide_dot(&right),
         Modulo => left.modulo(&right),
         ModuloDot => left.modulo_dot(&right),
-        Equal => Some(left.equals(&right)),
-        NotEqual => Some(left.not_equals(&right)),
-        LessThan => Some(left.less_than(&right)),
-        LessThanOrEqual => Some(left.less_than_or_equal(&right)),
-        GreaterThan => Some(left.greater_than(&right)),
-        GreaterThanOrEqual => Some(left.greater_than_or_equal(&right)),
+        Equal => left.eq(&right),
+        NotEqual => left.neq(&right),
+        LessThan => left.lt(&right),
+        LessThanOrEqual => left.leq(&right),
+        GreaterThan => left.gt(&right),
+        GreaterThanOrEqual => left.geq(&right),
     }
 }
 
