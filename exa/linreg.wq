@@ -1,3 +1,0 @@
-load list.wq
-linreg:{n:count x;sumx:sum1 x;sumy:sum1 y;sumxy:sum1(x*y);sumx2:sum1(x*x);m:(n*sumxy-sumx*sumy)/(n*sumx2-sumx*sumx);b:(sumy-m*sumx)/n;(m;b)}
-echo linreg[(2.3;1.2);(4;6.7)]

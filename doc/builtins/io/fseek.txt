@@ -1,4 +1,0 @@
-fseek
-=====
-fseek[<stream>;<offset>]
-fseek[<stream>;<offset>;<whence>]

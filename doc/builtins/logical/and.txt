@@ -1,7 +1,0 @@
-and
-===
-and[x;y]
-
-Examples:
-  and[true;false]                // false
-  and[(true;true);(true;false)]  // (true;false)

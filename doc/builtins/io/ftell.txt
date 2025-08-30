@@ -1,3 +1,0 @@
-ftell
-=====
-ftell <stream>

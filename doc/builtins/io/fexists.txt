@@ -1,3 +1,0 @@
-fexists?
-========
-fexists? <path>

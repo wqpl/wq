@@ -1,0 +1,9 @@
+---
+source: tests/wqsnap.rs
+expression: output
+input_file: tests/wq/newline.wq
+---
+(`b:2;`a:1)
+(1;2;3;4)
+1
+10

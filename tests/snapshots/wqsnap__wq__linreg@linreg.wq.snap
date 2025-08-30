@@ -1,0 +1,6 @@
+---
+source: tests/wqsnap.rs
+expression: output
+input_file: tests/wq/linreg.wq
+---
+(-2.454545454545459;9.645454545454552)

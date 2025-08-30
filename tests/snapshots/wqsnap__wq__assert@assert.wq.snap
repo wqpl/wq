@@ -1,0 +1,6 @@
+---
+source: tests/wqsnap.rs
+expression: output
+input_file: tests/wq/assert.wq
+---
+("(UNKNOWN ERROR) (114514): wow";114514)

@@ -1,0 +1,13 @@
+---
+source: tests/wqsnap.rs
+expression: output
+input_file: tests/wq/cowsay.wq
+---
+ --------------
+< moooving on! >
+ --------------
+        \   ^__^
+         \  (oo)\_______
+             (__)\       )\/\
+                 ||-----w-|
+                 ||      ||

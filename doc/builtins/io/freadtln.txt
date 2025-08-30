@@ -1,3 +1,0 @@
-freadtln
-========
-freadtln <stream>

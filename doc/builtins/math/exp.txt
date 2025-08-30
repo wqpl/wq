@@ -1,6 +1,0 @@
-exp
-===
-exp x
-
-Examples:
-  exp 1 // 2.718...

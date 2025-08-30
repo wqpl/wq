@@ -1,7 +1,8 @@
 use super::instruction::{Capture, Instruction};
+use crate::astnode::{AstNode, BinaryOperator};
 use crate::builtins::Builtins;
-use crate::parser::{AstNode, BinaryOperator};
-use crate::value::{Value, WqError, WqResult};
+use crate::value::{Value, WqResult};
+use crate::wqerror::WqError;
 use indexmap::{IndexMap, IndexSet};
 
 #[derive(Default)]
@@ -58,6 +59,9 @@ pub struct Compiler {
     // record that name and its parent-slot to support recursion rewrites
     parent_fn_name: Option<String>,
     parent_fn_slot: Option<u16>,
+    // Debug: stream of function-body statement spans in encounter order
+    fn_spans_stream: Vec<Vec<(usize, usize)>>,
+    fn_spans_idx: usize,
 }
 
 impl Default for Compiler {
@@ -80,6 +84,21 @@ impl Compiler {
             captures: Vec::new(),
             parent_fn_name: None,
             parent_fn_slot: None,
+            fn_spans_stream: Vec::new(),
+            fn_spans_idx: 0,
+        }
+    }
+
+    pub fn set_fn_spans(&mut self, spans: Vec<Vec<(usize, usize)>>) {
+        self.fn_spans_stream = spans;
+        self.fn_spans_idx = 0;
+    }
+
+    fn current_fn_spans(&self) -> Vec<(usize, usize)> {
+        if self.fn_spans_idx < self.fn_spans_stream.len() {
+            self.fn_spans_stream[self.fn_spans_idx].clone()
+        } else {
+            Vec::new()
         }
     }
 
@@ -99,6 +118,16 @@ impl Compiler {
 
     pub fn local_count(&self) -> u16 {
         self.locals.len() as u16
+    }
+
+    fn local_names_vec(&self) -> Vec<String> {
+        let mut names = vec![String::new(); self.local_count() as usize];
+        for (name, &idx) in self.locals.iter() {
+            if (idx as usize) < names.len() {
+                names[idx as usize] = name.clone();
+            }
+        }
+        names
     }
 
     fn emit_load(&mut self, name: &str) {
@@ -205,7 +234,13 @@ impl Compiler {
                         c.local_slot("y");
                         c.local_slot("z");
                     }
+                    // Prepare spans stream for nested functions: child starts at next entry
+                    let spans_for_fn = self.current_fn_spans();
+                    c.fn_spans_stream = self.fn_spans_stream.clone();
+                    c.fn_spans_idx = self.fn_spans_idx.saturating_add(1);
                     c.compile(body)?;
+                    // Advance our index past what child consumed
+                    self.fn_spans_idx = c.fn_spans_idx;
                     if self.fn_depth > 0 {
                         for instr in c.instructions.iter_mut() {
                             if let Instruction::CallUser(n, argc) = instr {
@@ -216,6 +251,7 @@ impl Compiler {
                         }
                     }
                     let locals = c.local_count();
+                    let dbg_local_names = c.local_names_vec();
                     let mut func_instructions = c.instructions;
                     func_instructions.push(Instruction::Return);
                     if !c.captures.is_empty() {
@@ -224,6 +260,8 @@ impl Compiler {
                             locals,
                             captures: c.captures.clone(),
                             instructions: func_instructions,
+                            dbg_stmt_spans: spans_for_fn,
+                            dbg_local_names,
                         });
                     } else {
                         self.instructions
@@ -231,6 +269,9 @@ impl Compiler {
                                 params: params.clone(),
                                 locals,
                                 instructions: func_instructions,
+                                dbg_chunk: None,
+                                dbg_stmt_spans: Some(spans_for_fn),
+                                dbg_local_names: Some(dbg_local_names),
                             }));
                     }
                     // Store and keep the value on the stack for expression result
@@ -488,8 +529,14 @@ impl Compiler {
                     c.local_slot("y");
                     c.local_slot("z");
                 }
+                // Prepare spans stream for nested functions: child starts at next entry
+                let spans_for_fn = self.current_fn_spans();
+                c.fn_spans_stream = self.fn_spans_stream.clone();
+                c.fn_spans_idx = self.fn_spans_idx.saturating_add(1);
                 c.compile(body)?;
+                self.fn_spans_idx = c.fn_spans_idx;
                 let locals = c.local_count();
+                let dbg_local_names = c.local_names_vec();
                 let mut func_instructions = c.instructions;
                 func_instructions.push(Instruction::Return);
                 if !c.captures.is_empty() {
@@ -498,6 +545,8 @@ impl Compiler {
                         locals,
                         captures: c.captures.clone(),
                         instructions: func_instructions,
+                        dbg_stmt_spans: spans_for_fn,
+                        dbg_local_names,
                     });
                 } else {
                     self.instructions
@@ -505,6 +554,9 @@ impl Compiler {
                             params: params.clone(),
                             locals,
                             instructions: func_instructions,
+                            dbg_chunk: None,
+                            dbg_stmt_spans: Some(spans_for_fn),
+                            dbg_local_names: Some(dbg_local_names),
                         }));
                 }
             }

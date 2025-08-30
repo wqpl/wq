@@ -1,6 +1,0 @@
-fwritet
-=======
-fwritet[<stream>;<text>]
-
-Examples:
-  fwritet[h;"hi"]

@@ -1,6 +1,0 @@
-tan
-===
-tan x
-
-Examples:
-  tan 0 // 0.0

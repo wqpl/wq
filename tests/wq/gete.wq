@@ -1,0 +1,4 @@
+gete:{e:alloc x;e[0]:2;p:x+10;a:1+0*iota p
+  N[x-1;carry:0;j:p-1
+    W[j>0;temp:a[j]*10+carry;a[j]:temp%j;carry:floor(temp/j);j:j-1];e[_n+1]:carry%10];e}
+echo gete 100

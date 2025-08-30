@@ -1,94 +1,102 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use crate::apps::formatter::{FormatOptions, Formatter};
-use crate::builtins_help;
-use crate::helpers::string_helpers::create_boxed_text;
-use crate::repl::ReplStdin;
-use crate::repl::{ReplEngine, StdinError, VmEvaluator, stdin_add_history, stdin_readline};
-use crate::value::WqError;
-use crate::value::WqResult;
+use crate::builtins::Builtins;
+use crate::desserts::daydream::{Command, ExecSource, ParseOutcome, RuntimeFlags, parse_args};
+use crate::desserts::hotchoco;
+use crate::desserts::icedtea::create_boxed_text;
+use crate::desserts::tshelper::TSHelper;
+use crate::repl::stdio::{
+    ReplStdin, StdinError, stdin_add_history, stdin_highlight_enabled, stdin_readline,
+    stdin_set_highlight,
+};
+use crate::repl::{VmEvaluator, repl_engine::ReplEngine};
 use crate::value::box_mode;
+use crate::wqerror::WqError;
 use colored::Colorize;
-use load_resolver::{parse_load_filename, repl_load_script};
 use rand::Rng;
-use rustyline::DefaultEditor;
+use rustyline::Editor;
 use rustyline::error::ReadlineError;
+use rustyline::history::FileHistory;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
-use std::io::{Write, stdout};
+use std::io::{Read, Write, stdout};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
 pub fn start() {
-    let args = env::args().skip(1);
-
-    let mut debug_mode = false;
-
-    let mut file: Option<String> = None;
-    let mut format_file: Option<String> = None;
-    let mut iter = args.peekable();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--help" | "-h" => {
-                println!(
-                    "{}",
-                    create_boxed_text(
-                        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/doc/usage.txt")),
-                        2,
-                    )
-                );
-                return;
-            }
-            "--version" | "-v" => {
-                println!("wq {}", env!("CARGO_PKG_VERSION"));
-                return;
-            }
-            "--format" | "-f" => {
-                if let Some(p) = iter.next() {
-                    format_file = Some(p);
-                } else {
-                    eprintln!("usage: wq -f <script>");
-                    std::process::exit(1);
+    match parse_args(env::args_os().skip(1)) {
+        ParseOutcome::ShowHelp => {
+            print_cli_usage();
+        }
+        ParseOutcome::ShowVersion => {
+            print_version();
+        }
+        ParseOutcome::Error { msg, code } => {
+            eprintln!("{msg}");
+            std::process::exit(code);
+        }
+        ParseOutcome::Succeed(parsed) => {
+            let rt = parsed.runtime;
+            match parsed.command {
+                Command::Fmt { script, opts } => {
+                    format_script_print_with_opts(&script, opts.nlcd, opts.nbc, opts.olw);
                 }
-            }
-            "--debug" | "-d" => debug_mode = true,
-            _ => {
-                if file.is_none() {
-                    file = Some(arg);
-                } else {
-                    eprintln!("unexpected argument: {arg}");
-                    std::process::exit(1);
+                Command::Exec(ExecSource::Inline(src)) => {
+                    exec_command(&src, rt);
+                }
+                Command::Exec(ExecSource::Stdin) => {
+                    let mut input = String::new();
+                    let _ = std::io::stdin().read_to_string(&mut input);
+                    exec_command(&input, rt);
+                }
+                Command::Script(path) => {
+                    exec_script(&path, rt);
+                }
+                Command::Repl => {
+                    enter_repl(rt);
                 }
             }
         }
     }
+}
 
-    // Handle formatting request
-    if let Some(file) = format_file {
-        format_script_print(&file);
-        return;
-    }
-    // Handle command line script execution
-    if let Some(file) = file {
-        exec_script(&file, debug_mode);
-        return;
-    }
+fn enter_repl(rtflags: RuntimeFlags) {
+    let mut vm = VmEvaluator::new();
 
-    println!(
-        "{} {}",
-        format!("wq {} (c) tttiw (l) mit", env!("CARGO_PKG_VERSION")).magenta(),
-        "| help quit".green()
-    );
+    let mut time_mode = false;
+    let mut xray_mode = false;
 
-    let mut evaluator: Box<dyn ReplEngine> = Box::new(VmEvaluator::new());
+    vm.set_debug_level(rtflags.debug_level);
+    vm.set_bt_mode(rtflags.bt);
+    vm.set_wqdb(rtflags.wqdb);
 
-    evaluator.set_debug(debug_mode);
-    evaluator.set_stdin(Box::new(RustylineInput::new().unwrap()));
+    // let mut rl: Editor<TSHelper, _> = Editor::new().unwrap();
+    // rl.set_helper(Some(TSHelper::new()));
+
+    vm.set_stdin(Box::new(RustylineInput::new().unwrap()));
+    // vm.set_stdin(Box::new(rl));
+
     let mut line_number = 1;
     let mut buffer = String::new();
+    // One-shot controls for next input
+    let mut oneshot_time = false;
+    let mut oneshot_debug: Option<u8> = None;
+    let mut oneshot_wqdb = false;
+
+    // Unified loader state for directive lines handled by hotchoco
+    let repl_loading = RefCell::new(HashSet::new());
+
+    println!(
+        "{} {} {}",
+        format!("wq {}", env!("CARGO_PKG_VERSION")).magenta(),
+        "(c)tttiw (l)MIT".blue(),
+        "!highlight !help !exit".green()
+    );
 
     loop {
         // Prompt construction
@@ -119,54 +127,44 @@ pub fn start() {
                 // Handle repl commands only if buffer is empty
                 if buffer.is_empty() {
                     match input {
-                        "quit" | "exit" | "\\q" => {
+                        "!exit" | "!e" => {
                             system_msg_printer::stdout(
                                 "bye..".to_string(),
                                 system_msg_printer::MsgType::Info,
                             );
                             break;
                         }
-                        "bye" => {
+                        "!bye" => {
                             system_msg_printer::stdout(
                                 "bye".to_string(),
                                 system_msg_printer::MsgType::Info,
                             );
                             break;
                         }
-                        cmd if cmd.starts_with("help") || cmd.starts_with("\\h") => {
-                            let arg = if let Some(rest) = cmd.strip_prefix("help") {
-                                rest.trim()
-                            } else if let Some(rest) = cmd.strip_prefix("\\h") {
-                                rest.trim()
-                            } else {
-                                ""
-                            };
-
-                            if arg.is_empty() {
-                                println!(
-                                    "{}",
-                                    create_boxed_text(
-                                        include_str!(concat!(
-                                            env!("CARGO_MANIFEST_DIR"),
-                                            "/doc/refcard.txt"
-                                        )),
-                                        2,
-                                    )
-                                );
-                            } else if let Some(text) = builtins_help::get_builtin_help(arg) {
-                                println!("{}", create_boxed_text(text, 2));
-                            } else {
-                                system_msg_printer::stderr(
-                                    format!("no help available for '{arg}'"),
-                                    system_msg_printer::MsgType::Error,
-                                );
-                            }
+                        "!goodbye" => {
+                            print_goodbye();
+                            break;
+                        }
+                        "!help" | "!h" => {
+                            println!("{}", create_boxed_text(include_str!("../../d/refcard"), 2));
                             continue;
                         }
-                        "vars" | "\\v" => {
-                            match evaluator.get_environment() {
+                        "!highlight" | "!hl" => {
+                            stdin_set_highlight(!stdin_highlight_enabled());
+                            continue;
+                        }
+                        "!builtins" | "!bfn" => {
+                            print_builtins();
+                            continue;
+                        }
+                        "!error" | "!err" => {
+                            println!("{}", WqError::dump_error_codes());
+                            continue;
+                        }
+                        "!g" | "!vars" => {
+                            match vm.get_environment() {
                                 Some(env) => {
-                                    eprintln!("{}", "~ user-defined bindings ~".red().underline());
+                                    eprintln!("{}", "~ global bindings ~".red().underline());
                                     for (key, value) in env {
                                         eprintln!(
                                             "{}: {} {}",
@@ -177,150 +175,112 @@ pub fn start() {
                                     }
                                 }
                                 None => {
-                                    eprintln!("{}", "no user-defined bindings".red().underline())
-                                }
-                            }
-                            continue;
-                        }
-                        "reset" | "\\r" => {
-                            evaluator.clear_environment();
-                            system_msg_printer::stdout(
-                                "user-defined bindings cleared".to_string(),
-                                system_msg_printer::MsgType::Info,
-                            );
-                            continue;
-                        }
-                        "box" | "\\b" => {
-                            if box_mode::is_boxed() {
-                                system_msg_printer::stdout(
-                                    "boxed display is now off".to_string(),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                                box_mode::set_boxed(false)
-                            } else {
-                                system_msg_printer::stdout(
-                                    "boxed display is now on".to_string(),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                                box_mode::set_boxed(true)
-                            }
-                            continue;
-                        }
-                        "box?" => {
-                            if box_mode::is_boxed() {
-                                system_msg_printer::stdout(
-                                    "boxed display is on".to_string(),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                            } else {
-                                system_msg_printer::stdout(
-                                    "boxed display is off".to_string(),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                            }
-                            continue;
-                        }
-                        "debug" | "\\d" => {
-                            if evaluator.is_debug() {
-                                system_msg_printer::stdout(
-                                    "debug mode is off".to_string(),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                                evaluator.set_debug(false)
-                            } else {
-                                system_msg_printer::stdout(
-                                    "debug mode is on".to_string(),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                                evaluator.set_debug(true)
-                            }
-                            continue;
-                        }
-                        "debug?" => {
-                            if evaluator.is_debug() {
-                                system_msg_printer::stdout(
-                                    "debug mode is on".to_string(),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                            } else {
-                                system_msg_printer::stdout(
-                                    "debug mode is off".to_string(),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                            }
-                            continue;
-                        }
-                        "bye!" | "goodbye" => {
-                            let mut rng = rand::rng();
-                            let mut stdout = stdout();
-                            let frames = if rng.random_bool(0.5) {
-                                [";D", ";D", ";D", ";D", ";)"]
-                            } else {
-                                [":D", ":D", ":D", ":D", ":)"]
-                            };
-                            print!("{}", "\u{258D} bye! ".cyan());
-                            stdout.flush().unwrap();
-                            thread::sleep(Duration::from_millis(250));
-                            for &face in &frames {
-                                print!("\r{}", format!("\u{258D} bye! {face}").cyan());
-                                stdout.flush().unwrap();
-                                thread::sleep(Duration::from_millis(300));
-                            }
-                            print!("\r{}", "\u{258D} bye!    ".cyan());
-                            println!();
-                            break;
-                        }
-                        cmd if cmd.starts_with("\\t") || cmd.starts_with("time ") => {
-                            let src = if let Some(rest) = cmd.strip_prefix("\\t") {
-                                rest.trim()
-                            } else if let Some(rest) = cmd.strip_prefix("time ") {
-                                rest.trim()
-                            } else {
-                                ""
-                            };
-
-                            if src.is_empty() {
-                                system_msg_printer::stderr(
-                                    "usage: time <expression>".to_string(),
-                                    system_msg_printer::MsgType::Error,
-                                );
-                                continue;
-                            }
-
-                            let start = Instant::now();
-
-                            match evaluator.eval_string(src) {
-                                Ok(result) => {
                                     system_msg_printer::stdout(
-                                        format!("{result}"),
-                                        system_msg_printer::MsgType::Success,
-                                    );
-                                }
-                                Err(error) => {
-                                    system_msg_printer::stderr(
-                                        format!("{error}"),
-                                        system_msg_printer::MsgType::Error,
+                                        "no global bindings".to_string(),
+                                        system_msg_printer::MsgType::Info,
                                     );
                                 }
                             }
-
-                            let duration = start.elapsed();
+                            continue;
+                        }
+                        "!reset" | "!r" => {
+                            vm.reset_session();
                             system_msg_printer::stdout(
-                                format!("time elapsed: {duration:?}"),
+                                "session reset".to_string(),
                                 system_msg_printer::MsgType::Info,
                             );
                             continue;
                         }
-                        cmd if cmd.starts_with("load ") || cmd.starts_with("\\l ") => {
-                            if let Some(fname) = parse_load_filename(cmd) {
-                                let mut loading = HashSet::new();
-                                repl_load_script(
-                                    &mut *evaluator,
-                                    Path::new(fname),
-                                    &mut loading,
-                                    false,
+                        "!box" | "!b" => {
+                            box_mode::set_boxed(!box_mode::is_boxed());
+                            system_msg_printer::stdout(
+                                format!(
+                                    "boxed display is now {}",
+                                    (if box_mode::is_boxed() { "on" } else { "off" }).underline()
+                                ),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            continue;
+                        }
+                        "!x" | "!xray" => {
+                            xray_mode = !xray_mode;
+                            system_msg_printer::stdout(
+                                format!(
+                                    "xray mode is now {}",
+                                    (if xray_mode { "on" } else { "off" }).underline()
+                                ),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            continue;
+                        }
+                        cmd if cmd.starts_with("!d") => {
+                            let rest = cmd.trim_start_matches("!d");
+                            if let Some(level_str) = rest.strip_prefix('.') {
+                                // One-shot: !d.<level>
+                                if let Ok(level) = level_str.parse::<u8>() {
+                                    oneshot_debug = Some(level);
+                                    system_msg_printer::stdout(
+                                        format!("debug level will be {level} for next eval"),
+                                        system_msg_printer::MsgType::Info,
+                                    );
+                                }
+                            } else if rest.is_empty() {
+                                match vm.get_debug_level() {
+                                    0 => vm.set_debug_level(1),
+                                    _ => vm.set_debug_level(0),
+                                }
+                                system_msg_printer::stdout(
+                                    format!(
+                                        "debug level is now {}",
+                                        vm.get_debug_level().to_string().underline()
+                                    ),
+                                    system_msg_printer::MsgType::Info,
+                                );
+                            } else if let Ok(level) = rest.parse::<u8>() {
+                                vm.set_debug_level(level);
+                                system_msg_printer::stdout(
+                                    format!("debug level is now {}", level.to_string().underline()),
+                                    system_msg_printer::MsgType::Info,
                                 );
                             }
+                            continue;
+                        }
+                        "!time" | "!t" => {
+                            time_mode = !time_mode;
+                            system_msg_printer::stdout(
+                                format!(
+                                    "time mode is now {}",
+                                    (if time_mode { "on" } else { "off" }).underline()
+                                ),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            continue;
+                        }
+                        "!t." | "!time." => {
+                            oneshot_time = true;
+                            system_msg_printer::stdout(
+                                "time will be shown for next eval".to_string(),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            continue;
+                        }
+                        "!wqdb" | "!w" => {
+                            vm.set_wqdb(!vm.is_wqdb_on());
+                            system_msg_printer::stdout(
+                                format!(
+                                    "wqdb is now {}",
+                                    (if vm.is_wqdb_on() { "on" } else { "off" }).underline()
+                                ),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            continue;
+                        }
+                        "!wqdb." | "!w." => {
+                            oneshot_wqdb = true;
+                            system_msg_printer::stdout(
+                                "wqdb will be on for next eval".to_string(),
+                                system_msg_printer::MsgType::Info,
+                            );
                             continue;
                         }
                         "" => {
@@ -330,27 +290,119 @@ pub fn start() {
                         _ => {}
                     }
                 }
+                // If this is a directive line, hand it to hotchoco
+                // eprintln!("input={input}");
+                if buffer.is_empty() {
+                    let t = input.trim_start();
+                    if t.starts_with("!") {
+                        let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                        match hotchoco::repl_eval_inline(
+                            &mut vm,
+                            input,
+                            &cwd,
+                            &repl_loading,
+                            false,
+                            rtflags.bt,
+                        ) {
+                            Ok(report) => print_load_report_ui(&report),
+                            Err(err) => {
+                                // Only treat EOF as a signal to continue buffering multi-line input
+                                if let hotchoco::LoadErrorKind::Eval(_, ref we) = err.kind {
+                                    if matches!(we, WqError::EofError(_)) {
+                                        buffer.push_str(input);
+                                        buffer.push('\n');
+                                        continue;
+                                    }
+                                }
+                                print_load_error_ui(&err, &mut vm, rtflags.bt);
+                            }
+                        }
+                        // move on to next prompt
+                        continue;
+                    }
+                }
 
                 buffer.push_str(input);
-                let attempt = evaluator.eval_string(buffer.trim());
+                let src_eval = buffer.trim();
+
+                // Prepare for one-shot cmds
+                let prev_dbg_level = vm.get_debug_level();
+                if let Some(level) = oneshot_debug.take() {
+                    vm.set_debug_level(level);
+                }
+                if oneshot_wqdb {
+                    vm.set_wqdb(true);
+                }
+                let start_t = if time_mode || oneshot_time {
+                    Some(Instant::now())
+                } else {
+                    None
+                };
+
+                // eval
+                // Ensure interactive inputs always map to a fresh <repl> source
+                vm.dbg_set_source("<repl>", src_eval);
+                vm.dbg_set_offset(0);
+                let attempt = vm.eval_string(src_eval);
+
+                // Revert one-shot cmds
+                // revert one-shot wqdb
+                if oneshot_wqdb {
+                    vm.set_wqdb(false);
+                    oneshot_wqdb = false;
+                }
+                // revert one-shot dbg level
+                vm.set_debug_level(prev_dbg_level);
+
+                // handle eval result
                 match attempt {
                     Ok(result) => {
                         system_msg_printer::stdout(
                             format!("{result}"),
                             system_msg_printer::MsgType::Success,
                         );
+                        // X-Ray list info
+                        if xray_mode && result.is_list() {
+                            let info = xray_info(&result);
+                            system_msg_printer::stdout(info, system_msg_printer::MsgType::Info);
+                        }
+                        if let Some(st) = start_t {
+                            system_msg_printer::stdout(
+                                format!("time elapsed: {:?}", st.elapsed()),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            // reset one-shot time mode
+                            oneshot_time = false;
+                        }
                         buffer.clear();
                         line_number += 1;
                     }
                     Err(error) => {
                         if matches!(&error, WqError::EofError(_)) {
                             buffer.push('\n');
+                            // one-shot time consumed
+                            oneshot_time = false;
                             continue;
                         } else {
                             system_msg_printer::stderr(
                                 format!("{error}"),
                                 system_msg_printer::MsgType::Error,
                             );
+                            // Only show backtrace for runtime errors; skip for parse/EOF errors
+                            if rtflags.bt
+                                && !matches!(&error, WqError::SyntaxError(_) | WqError::EofError(_))
+                            {
+                                vm.dbg_print_bt();
+                            }
+                            if let Some(st) = start_t {
+                                let d = st.elapsed();
+                                system_msg_printer::stdout(
+                                    format!("time elapsed: {d:?}"),
+                                    system_msg_printer::MsgType::Info,
+                                );
+                            }
+                            // one-shot time consumed
+                            oneshot_time = false;
                             buffer.clear();
                             line_number += 1;
                         }
@@ -389,34 +441,53 @@ pub fn start() {
     }
 }
 
-fn exec_script(path: &String, debug: bool) {
-    let path = Path::new(path);
-    let mut loading = HashSet::new();
-    let mut visited = HashSet::new();
-    let src = match load_resolver::expand_script(path, &mut loading, &mut visited) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Cannot load {}: {e}", path.display());
-            return;
-        }
-    };
+fn exec_script<P: AsRef<Path>>(filename: P, rtflags: RuntimeFlags) {
     let mut vm = VmEvaluator::new();
-    vm.set_debug(debug);
+    vm.set_debug_level(rtflags.debug_level);
     vm.set_stdin(Box::new(RustylineInput::new().unwrap()));
-    match vm.eval_string(&src) {
+    // if wqdb_mode {
+    // Enter wqdb persistently for script execution
+    vm.set_wqdb(rtflags.wqdb);
+    // vm.arm_wqdb_next();
+    // }
+    let loading = RefCell::new(HashSet::new());
+    // Use the loader to execute the script with proper debug source tracking
+    match hotchoco::repl_load_script(&mut vm, filename, &loading, true, rtflags.bt) {
         Ok(_) => {
-            //if val != Value::Null {
-            // println!("{val}");
-            //}
+            // silence in script exec
+            // print_load_report_ui(&report)
         }
-        Err(e) => eprintln!("Error executing script: {e}"),
+        Err(err) => print_load_error_ui(&err, &mut vm, rtflags.bt),
     }
 }
 
-fn format_script_print(filename: &str) {
-    match fs::read_to_string(filename) {
+fn exec_command(content: &str, rtflags: RuntimeFlags) {
+    let mut vm = VmEvaluator::new();
+    vm.set_debug_level(rtflags.debug_level);
+    vm.set_stdin(Box::new(RustylineInput::new().unwrap()));
+    vm.set_wqdb(rtflags.wqdb);
+
+    let loading = RefCell::new(HashSet::new());
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    match hotchoco::repl_eval_inline(&mut vm, content, &cwd, &loading, true, rtflags.bt) {
+        Ok(_report) => {
+            // silent
+        }
+        Err(err) => print_load_error_ui(&err, &mut vm, rtflags.bt),
+    }
+}
+
+fn format_script_print_with_opts<P: AsRef<Path>>(filename: P, nlcd: bool, nbc: bool, olw: bool) {
+    let path = filename.as_ref();
+    match fs::read_to_string(path) {
         Ok(content) => {
-            let fmt = Formatter::new(FormatOptions::default());
+            let fmt = Formatter::new(FormatOptions {
+                indent_size: 2,
+                nlcd,
+                no_bracket_calls: nbc,
+                one_line_wizard: olw,
+            });
             match fmt.format_script(&content) {
                 Ok(out) => println!("{out}"),
                 Err(err) => {
@@ -426,21 +497,92 @@ fn format_script_print(filename: &str) {
             }
         }
         Err(err) => {
-            eprintln!("Cannot read {filename}: {err}");
+            eprintln!("Cannot read {}: {err}", path.display());
             std::process::exit(1);
         }
     }
 }
 
+fn print_cli_usage() {
+    println!("{}", create_boxed_text(include_str!("../../d/usage"), 2));
+}
+
+fn print_version() {
+    println!("wq {}", env!("CARGO_PKG_VERSION"));
+}
+
+fn print_goodbye() {
+    let mut rng = rand::rng();
+    let mut stdout = stdout();
+    let frames = if rng.random_bool(0.5) {
+        [";D", ";D", ";D", ";D", ";)"]
+    } else {
+        [":D", ":D", ":D", ":D", ":)"]
+    };
+    print!("{}", "\u{258D} goodbye! ".cyan());
+    stdout.flush().unwrap();
+    thread::sleep(Duration::from_millis(250));
+    for &face in &frames {
+        print!("\r{}", format!("\u{258D} goodbye! {face}").cyan());
+        stdout.flush().unwrap();
+        thread::sleep(Duration::from_millis(300));
+    }
+    print!("\r{}", "\u{258D} goodbye!        ".cyan());
+    println!();
+}
+
+fn print_builtins() {
+    let mut funcs = Builtins::new().list_functions();
+    funcs.sort();
+    let max_len = funcs.iter().map(|s| s.len()).max().unwrap_or(0);
+    let columns = 6;
+    for (i, func) in funcs.iter().enumerate() {
+        print!("{func:<max_len$} ");
+        if (i + 1) % columns == 0 {
+            println!();
+        }
+    }
+}
+
+fn xray_info(v: &crate::value::Value) -> String {
+    use crate::builtins::list as blist;
+    use crate::value::Value;
+
+    let count = v.len();
+    let depth = match blist::depth(&[v.clone()]) {
+        Ok(s) => &s.to_string(),
+        _ => "?",
+    };
+    let shape = match blist::shape(&[v.clone()]) {
+        Ok(s) => &s.to_string(),
+        _ => "?",
+    };
+    let rank = match blist::shape(&[v.clone()]) {
+        Ok(s) => &s.len().to_string(),
+        _ => "?",
+    };
+    let uniform = match blist::is_uniform(&[v.clone()]) {
+        Ok(Value::Bool(b)) => b,
+        _ => false,
+    };
+    format!("xray: count={count}, shape={shape}, rank={rank}, depth={depth}, uniform?={uniform}")
+}
+
 pub struct RustylineInput {
-    rl: DefaultEditor,
+    // rl: DefaultEditor,
+    rl: Editor<TSHelper, FileHistory>,
 }
 
 impl RustylineInput {
-    pub fn new() -> WqResult<Self> {
-        Ok(Self {
-            rl: DefaultEditor::new().map_err(|e| WqError::IoError(e.to_string()))?,
-        })
+    // pub fn new() -> WqResult<Self> {
+    //     Ok(Self {
+    //         rl: DefaultEditor::new().map_err(|e| WqError::IoError(e.to_string()))?,
+    //     })
+    // }
+    pub fn new() -> rustyline::Result<Self> {
+        let mut rl: Editor<TSHelper, _> = Editor::new()?;
+        rl.set_helper(Some(TSHelper::new()));
+        Ok(Self { rl })
     }
 }
 
@@ -457,202 +599,83 @@ impl ReplStdin for RustylineInput {
     fn add_history(&mut self, line: &str) {
         let _ = self.rl.add_history_entry(line);
     }
+
+    fn set_highlight(&mut self, on: bool) {
+        if let Some(h) = self.rl.helper_mut() {
+            h.set_enabled(on);
+        }
+    }
+
+    fn highlight_enabled(&self) -> bool {
+        self.rl.helper().map(|h| h.enabled()).unwrap_or(true)
+    }
 }
 
-mod load_resolver {
-
-    use super::*;
-
-    pub fn parse_load_filename(line: &str) -> Option<&str> {
-        let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("load ") {
-            Some(rest.trim())
-        } else if let Some(rest) = trimmed.strip_prefix("\\l ") {
-            Some(rest.trim())
-        } else {
-            None
-        }
+fn print_load_report_ui(report: &hotchoco::LoadReport) {
+    for w in &report.warnings {
+        system_msg_printer::stderr(format!("warning: {w}"), system_msg_printer::MsgType::Info);
     }
 
-    pub fn resolve_load_path(base: &Path, fname: &str) -> PathBuf {
-        let path = Path::new(fname);
-        if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            base.join(path)
-        }
+    if report.new_bindings.is_empty() && report.overridden.is_empty() {
+        system_msg_printer::stderr(
+            format!("no new bindings from `{}`", report.label),
+            system_msg_printer::MsgType::Info,
+        );
+        return;
     }
 
-    pub fn expand_script(
-        path: &Path,
-        loading: &mut HashSet<PathBuf>,
-        visited: &mut HashSet<PathBuf>,
-    ) -> std::io::Result<String> {
-        let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        if !loading.insert(canonical.clone()) {
-            // already in loading stack -> cycle
-            println!("Cannot load {}: cycling", canonical.display());
-            return Ok(String::new());
-        }
-        if visited.contains(&canonical) {
-            loading.remove(&canonical);
-            return Ok(String::new());
-        }
-        visited.insert(canonical.clone());
-        let content = match fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(e) => {
-                loading.remove(&canonical);
-                return Err(e);
-            }
-        };
-        let mut result = String::new();
-        let parent = path.parent().unwrap_or_else(|| Path::new(""));
-        for (i, line) in content.lines().enumerate() {
-            if i == 0 && line.starts_with("#!") {
-                continue;
-            }
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with("//") {
-                continue;
-            }
-            if let Some(fname) = parse_load_filename(trimmed) {
-                let sub = resolve_load_path(parent, fname);
-                result.push_str(&expand_script(&sub, loading, visited)?);
-            } else {
-                result.push_str(trimmed);
-                result.push('\n');
-            }
-        }
-        loading.remove(&canonical);
-        Ok(result)
+    if !report.new_bindings.is_empty() {
+        system_msg_printer::stderr(
+            format!(
+                "new bindings from `{}`: {}",
+                report.label,
+                report.new_bindings.join(", ")
+            ),
+            system_msg_printer::MsgType::Info,
+        );
     }
+    if !report.overridden.is_empty() {
+        system_msg_printer::stderr(
+            format!(
+                "overridden bindings from `{}`: {}",
+                report.label,
+                report.overridden.join(", ")
+            ),
+            system_msg_printer::MsgType::Info,
+        );
+    }
+}
 
-    pub fn repl_load_script(
-        evaluator: &mut dyn ReplEngine,
-        path: &Path,
-        loading: &mut HashSet<PathBuf>,
-        silent: bool,
-    ) {
-        let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        if loading.contains(&canonical) {
+fn print_load_error_ui<R: ReplEngine>(err: &hotchoco::LoadError, evaluator: &mut R, bt: bool) {
+    match &err.kind {
+        hotchoco::LoadErrorKind::Cycle(path) => {
             system_msg_printer::stderr(
-                format!("Cannot load {}: cycling", canonical.display()),
+                format!("Cannot load {}: cycling", path.display()),
                 system_msg_printer::MsgType::Error,
             );
-            return;
         }
-        loading.insert(canonical.clone());
-
-        // record variables before loading
-        let vars_before = evaluator.env_vars().clone();
-
-        match fs::read_to_string(path) {
-            Ok(content) => {
-                let parent_dir = path.parent().unwrap_or_else(|| Path::new(""));
-                let mut buffer = String::new();
-
-                for (i, line) in content.lines().enumerate() {
-                    if i == 0 && line.starts_with("#!") {
-                        continue;
-                    }
-                    let line = line.trim();
-                    if line.is_empty() || line.starts_with("//") {
-                        continue;
-                    }
-
-                    if buffer.is_empty() {
-                        if let Some(fname) = parse_load_filename(line) {
-                            let sub_path = resolve_load_path(parent_dir, fname);
-                            repl_load_script(evaluator, &sub_path, loading, false);
-                            continue;
-                        }
-                    }
-
-                    buffer.push_str(line);
-                    match evaluator.eval_string(buffer.trim()) {
-                        Ok(_) => {
-                            buffer.clear();
-                        }
-                        Err(err) => {
-                            if matches!(&err, WqError::EofError(_)) {
-                                buffer.push('\n');
-                                continue;
-                            } else {
-                                system_msg_printer::stderr(
-                                    format!("Error in {}: {err}", path.display()),
-                                    system_msg_printer::MsgType::Error,
-                                );
-                                return;
-                            }
-                        }
-                    }
-                }
-
-                if !buffer.trim().is_empty() {
-                    if let Err(err) = evaluator.eval_string(buffer.trim()) {
-                        system_msg_printer::stderr(
-                            format!("Error in {}: {err}", path.display()),
-                            system_msg_printer::MsgType::Error,
-                        );
-                        return;
-                    }
-                }
-
-                // Show newly introduced or overridden bindings
-                if !silent {
-                    let vars_after = evaluator.env_vars().clone();
-                    let mut new_bindings = Vec::new();
-                    let mut overridden = Vec::new();
-
-                    for (name, value) in &vars_after {
-                        match vars_before.get(name) {
-                            None => new_bindings.push(name.clone()),
-                            Some(before_val) if before_val != value => {
-                                overridden.push(name.clone());
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    if new_bindings.is_empty() && overridden.is_empty() {
-                        system_msg_printer::stderr(
-                            format!("no new bindings from '{}'", path.display()),
-                            system_msg_printer::MsgType::Info,
-                        );
-                    } else {
-                        if !new_bindings.is_empty() {
-                            new_bindings.sort_by_key(|n| n.clone());
-                            // system_msg_printer::stderr(
-                            //     format!("new bindings from {}:", path.display()),
-                            //     system_msg_printer::MsgType::Info,
-                            // );
-                            let s = new_bindings.join(", ");
-                            system_msg_printer::stderr(
-                                format!("new bindings from '{}': {}", path.display(), s),
-                                system_msg_printer::MsgType::Info,
-                            );
-                        }
-
-                        if !overridden.is_empty() {
-                            overridden.sort_by_key(|n| n.clone());
-                            let s = overridden.join(", ");
-                            system_msg_printer::stderr(
-                                format!("overridden bindings from '{}': {}", path.display(), s),
-                                system_msg_printer::MsgType::Info,
-                            );
-                        }
-                    }
-                }
-            }
-            Err(error) => {
-                system_msg_printer::stderr(
-                    format!("Cannot load {}: {error}", path.display()),
-                    system_msg_printer::MsgType::Error,
-                );
+        hotchoco::LoadErrorKind::Io(path, e) => {
+            system_msg_printer::stderr(
+                format!("Cannot load {}: {}", path.display(), e),
+                system_msg_printer::MsgType::Error,
+            );
+        }
+        hotchoco::LoadErrorKind::Eval(label, e) => {
+            system_msg_printer::stderr(
+                format!("Error in {label}: {e}"),
+                system_msg_printer::MsgType::Error,
+            );
+            if bt && !matches!(e, WqError::SyntaxError(_) | WqError::EofError(_)) {
+                evaluator.dbg_print_bt();
             }
         }
-        loading.remove(&canonical);
+    }
+
+    if !err.stack.is_empty() {
+        system_msg_printer::stderr(
+            format!("import stack: {}", err.stack.join(" -> ")),
+            system_msg_printer::MsgType::Info,
+        );
     }
 }
 

@@ -1,6 +1,0 @@
-sqrt
-====
-sqrt x
-
-Examples:
-  sqrt 4 // 2

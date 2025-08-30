@@ -1,8 +1,0 @@
-range
-=====
-range[<start>;<end>]
-range[<start>;<end>;<step>]
-
-Examples:
-  range[0;3]   // (0;1;2)
-  range[0;4;2] // (0;2)

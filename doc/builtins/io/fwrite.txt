@@ -1,3 +1,0 @@
-fwrite
-======
-fwrite[<stream>;<bytes>]

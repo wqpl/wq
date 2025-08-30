@@ -1,6 +1,0 @@
-sort
-====
-sort x
-
-Examples:
-  sort(3;1;2) // (1;2;3)

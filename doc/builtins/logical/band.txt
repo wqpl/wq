@@ -1,6 +1,0 @@
-band
-====
-band[x;y]
-
-Examples:
-  band[3;1] // 1

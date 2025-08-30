@@ -1,5 +1,0 @@
-null?
-=====
-
-Examples:
-a:{}[];null? a // true

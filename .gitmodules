@@ -1,0 +1,3 @@
+[submodule "vendor/tree-sitter-wq"]
+	path = vendor/tree-sitter-wq
+	url = https://github.com/illusory-dept/tree-sitter-wq

@@ -1,9 +1,0 @@
-bin
-===
-bin x
-bin[x;prefix?]
-
-Examples:
-  bin 5        // "101"
-  bin[5;true]  // "0b101"
-  bin(2;4)     // ("10";"100")

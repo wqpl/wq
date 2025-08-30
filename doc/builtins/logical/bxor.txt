@@ -1,6 +1,0 @@
-bxor
-====
-bxor[x;y]
-
-Examples:
-  bxor[3;1] // 2

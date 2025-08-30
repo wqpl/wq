@@ -1,8 +1,0 @@
-exec
-====
-exec[<command>+]
-
-Examples:
-  exec "ls"
-  exec "ls -alh"
-  exec["ls";"-alh";]

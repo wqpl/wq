@@ -1,0 +1,11 @@
+---
+source: tests/wqsnap.rs
+expression: output
+input_file: tests/wq/asciibox.wq
+---
++-----------------------------+
+| orange orange orange orange |
+| orange orange orange        |
+| orange orange               |
+| orange                      |
++-----------------------------+

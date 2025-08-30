@@ -1,6 +1,0 @@
-sinh
-====
-sinh x
-
-Examples:
-  sinh 0 // 0.0

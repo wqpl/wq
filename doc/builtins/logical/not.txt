@@ -1,6 +1,0 @@
-not
-===
-not x
-
-Examples:
-  not true // false

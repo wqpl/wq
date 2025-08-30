@@ -1,8 +1,10 @@
-use std::fmt;
+// use std::fmt;
 use std::iter::Peekable;
 use std::str::Chars;
 
-use crate::value::{WqError, WqResult};
+use crate::value::WqResult;
+use crate::wqerror::WqError;
+use colored::Colorize;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
@@ -83,50 +85,96 @@ pub struct Token {
     pub position: usize,
     pub line: usize,
     pub column: usize,
+    // Byte offsets into the original source string (half-open [start, end))
+    pub byte_start: usize,
+    pub byte_end: usize,
 }
 
 impl Token {
-    pub fn new(token_type: TokenType, position: usize, line: usize, column: usize) -> Self {
+    pub fn new(
+        token_type: TokenType,
+        position: usize,
+        line: usize,
+        column: usize,
+        byte_start: usize,
+        byte_end: usize,
+    ) -> Self {
         Token {
             token_type,
             position,
             line,
             column,
+            byte_start,
+            byte_end,
         }
     }
 }
 
-impl fmt::Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}@{}:{}", self.token_type, self.line, self.column)
-    }
-}
+// impl fmt::Display for Token {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(f, "{:?}@{}:{}", self.token_type, self.line, self.column)
+//     }
+// }
 
 pub struct Lexer<'a> {
     input: Peekable<Chars<'a>>,
+    source: &'a str,
     position: usize,
     line: usize,
     column: usize,
     current_char: Option<char>,
+    // Current byte position (immediately after `current_char`)
+    byte_pos: usize,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(input: &'a str) -> Self {
         let mut lexer = Lexer {
             input: input.chars().peekable(),
+            source: input,
             position: 0,
             line: 1,
             column: 0,
             current_char: None,
+            byte_pos: 0,
         };
         lexer.advance();
         lexer
+    }
+
+    fn syntax_error_span(
+        &self,
+        line: usize,
+        column: usize,
+        byte_start: usize,
+        byte_end: usize,
+        msg: &str,
+    ) -> WqError {
+        let src_line = self
+            .source
+            .lines()
+            .nth(line.saturating_sub(1))
+            .unwrap_or("");
+        let width = if byte_end > byte_start
+            && byte_end <= self.source.len()
+            && byte_start <= self.source.len()
+        {
+            self.source[byte_start..byte_end].chars().count().max(1)
+        } else {
+            1
+        };
+        let pointer = " ".repeat(column.saturating_sub(1)) + &"^".repeat(width);
+        WqError::SyntaxError(format!(
+            "{msg} \n{}\n{src_line}\n{pointer}",
+            format!("At {line}:{column}").underline()
+        ))
     }
 
     fn advance(&mut self) {
         self.current_char = self.input.next();
         if let Some(ch) = self.current_char {
             self.position += 1;
+            self.byte_pos += ch.len_utf8();
             if ch == '\n' {
                 self.line += 1;
                 self.column = 0;
@@ -150,18 +198,113 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_number(&mut self) -> WqResult<TokenType> {
-        let mut raw_lit = String::new(); // will include digits, dots, exponents, and `_`
+    fn read_number(
+        &mut self,
+        start_line: usize,
+        start_column: usize,
+        start_byte: usize,
+    ) -> WqResult<TokenType> {
+        let mut raw_lit = String::new(); // digits and optional `_`
         let mut is_float = false;
         let mut has_exp = false;
 
+        // --- detect 0b / 0o / 0x prefix ---
+        let mut base: u32 = 10;
+        let mut had_prefix = false;
+
+        if self.current_char == Some('0') {
+            if let Some(next_ch) = self.peek() {
+                match next_ch {
+                    'b' | 'B' => {
+                        base = 2;
+                        had_prefix = true;
+                    }
+                    'o' | 'O' => {
+                        base = 8;
+                        had_prefix = true;
+                    }
+                    'x' | 'X' => {
+                        base = 16;
+                        had_prefix = true;
+                    }
+                    _ => {}
+                }
+                if had_prefix {
+                    // consume '0' and the base letter
+                    self.advance();
+                    self.advance();
+
+                    let is_digit_for_base = |c: char| -> bool {
+                        match base {
+                            2 => c == '0' || c == '1',
+                            8 => c.is_ascii_digit() && c <= '7',
+                            10 => c.is_ascii_digit(),
+                            16 => c.is_ascii_hexdigit(),
+                            _ => false,
+                        }
+                    };
+
+                    let mut prev_was_digit = false;
+                    let mut saw_digit = false;
+
+                    while let Some(ch) = self.current_char {
+                        if is_digit_for_base(ch) {
+                            raw_lit.push(ch);
+                            prev_was_digit = true;
+                            saw_digit = true;
+                            self.advance();
+                        } else if ch == '_' {
+                            // allow underscore only between two valid digits
+                            if prev_was_digit {
+                                if let Some(nc) = self.peek() {
+                                    if is_digit_for_base(*nc) {
+                                        self.advance(); // consume '_'
+                                        prev_was_digit = false;
+                                        continue;
+                                    }
+                                }
+                            }
+                            break;
+                        } else {
+                            // For non-decimal prefixed literals, stop on '.'/'e' as well.
+                            break;
+                        }
+                    }
+
+                    if !saw_digit {
+                        return Err(self.syntax_error_span(
+                            start_line,
+                            start_column,
+                            start_byte,
+                            self.byte_pos,
+                            "expected digits after base prefix",
+                        ));
+                    }
+
+                    let lit = raw_lit.replace('_', "");
+                    match i64::from_str_radix(&lit, base) {
+                        Ok(n) => return Ok(TokenType::Integer(n)),
+                        Err(_) => {
+                            return Err(self.syntax_error_span(
+                                start_line,
+                                start_column,
+                                start_byte,
+                                self.byte_pos,
+                                "integer literal overflow",
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- decimal (no prefix) path: keep your original float/int logic ---
         while let Some(ch) = self.current_char {
             if ch.is_ascii_digit() {
                 raw_lit.push(ch);
                 self.advance();
             } else if ch == '_' {
-                // only allow an underscore if the previous char is a digit
-                // and the next char (peek) is a digit
+                // only allow underscore between digits
                 if raw_lit
                     .chars()
                     .last()
@@ -170,15 +313,14 @@ impl<'a> Lexer<'a> {
                 {
                     if let Some(next_ch) = self.peek() {
                         if next_ch.is_ascii_digit() {
-                            // consume the underscore but don't push it into raw_lit
-                            self.advance();
+                            self.advance(); // consume '_'
                             continue;
                         }
                     }
                 }
                 break;
             } else if ch == '.' && !is_float && !has_exp {
-                // float part
+                // fractional part
                 if let Some(next_ch) = self.peek() {
                     if next_ch.is_ascii_digit() {
                         is_float = true;
@@ -191,7 +333,7 @@ impl<'a> Lexer<'a> {
                     break;
                 }
             } else if (ch == 'e' || ch == 'E') && !has_exp {
-                // exponent part
+                // exponent part (decimal only)
                 has_exp = true;
                 is_float = true;
                 raw_lit.push(ch);
@@ -208,18 +350,28 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // remove all '_' for parsing
         let lit = raw_lit.replace('_', "");
-
         if is_float {
             match lit.parse::<f64>() {
                 Ok(n) if n.is_finite() => Ok(TokenType::Float(n)),
-                _ => Err(WqError::DomainError("float literal overflow".into())),
+                _ => Err(self.syntax_error_span(
+                    start_line,
+                    start_column,
+                    start_byte,
+                    self.byte_pos,
+                    "float literal overflow",
+                )),
             }
         } else {
             match lit.parse::<i64>() {
                 Ok(n) => Ok(TokenType::Integer(n)),
-                Err(_) => Err(WqError::DomainError("integer literal overflow".into())),
+                Err(_) => Err(self.syntax_error_span(
+                    start_line,
+                    start_column,
+                    start_byte,
+                    self.byte_pos,
+                    "integer literal overflow",
+                )),
             }
         }
     }
@@ -249,6 +401,7 @@ impl<'a> Lexer<'a> {
         &mut self,
         start_line: usize,
         start_column: usize,
+        start_byte: usize,
     ) -> WqResult<TokenType> {
         self.advance(); // skip opening quote
         let mut content = String::new();
@@ -293,16 +446,24 @@ impl<'a> Lexer<'a> {
                                             self.advance();
                                         } else {
                                             // handle invalid hex digit
-                                            return Err(WqError::SyntaxError(
-                                                "invalid unicode escape".to_string(),
+                                            return Err(self.syntax_error_span(
+                                                start_line,
+                                                start_column,
+                                                start_byte,
+                                                self.byte_pos,
+                                                "invalid unicode escape",
                                             ));
                                         }
                                     }
 
                                     // we must be on the closing '}'
                                     if self.current_char != Some('}') || digits == 0 {
-                                        return Err(WqError::SyntaxError(
-                                            "invalid unicode escape".to_string(),
+                                        return Err(self.syntax_error_span(
+                                            start_line,
+                                            start_column,
+                                            start_byte,
+                                            self.byte_pos,
+                                            "invalid unicode escape",
                                         ));
                                     }
                                     self.advance(); // consume '}'
@@ -310,8 +471,12 @@ impl<'a> Lexer<'a> {
                                     if let Some(ch) = char::from_u32(val) {
                                         content.push(ch);
                                     } else {
-                                        return Err(WqError::SyntaxError(
-                                            "invalid unicode escape".to_string(),
+                                        return Err(self.syntax_error_span(
+                                            start_line,
+                                            start_column,
+                                            start_byte,
+                                            self.byte_pos,
+                                            "invalid unicode escape",
                                         ));
                                     }
                                 } else {
@@ -350,9 +515,13 @@ impl<'a> Lexer<'a> {
         }
 
         if !closed {
-            return Err(WqError::SyntaxError(format!(
-                "missing closing quote at {start_line}:{start_column}"
-            )));
+            return Err(self.syntax_error_span(
+                start_line,
+                start_column,
+                start_byte,
+                self.byte_pos,
+                "unterminated string",
+            ));
         }
 
         // Single‐char content -> Character, otherwise String
@@ -382,6 +551,10 @@ impl<'a> Lexer<'a> {
             let token_line = self.line;
             let token_column = self.column;
             let token_position = self.position;
+            let token_byte_start = match self.current_char {
+                Some(ch) => self.byte_pos.saturating_sub(ch.len_utf8()),
+                None => self.byte_pos,
+            };
 
             match self.current_char {
                 None => {
@@ -390,6 +563,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -405,6 +580,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -417,6 +594,8 @@ impl<'a> Lexer<'a> {
                             token_position,
                             token_line,
                             token_column,
+                            token_byte_start,
+                            self.byte_pos,
                         ));
                     } else if self.peek() == Some(&'.') {
                         self.advance(); // consume '/'
@@ -426,6 +605,8 @@ impl<'a> Lexer<'a> {
                             token_position,
                             token_line,
                             token_column,
+                            token_byte_start,
+                            self.byte_pos,
                         ));
                     } else {
                         self.advance();
@@ -434,6 +615,8 @@ impl<'a> Lexer<'a> {
                             token_position,
                             token_line,
                             token_column,
+                            token_byte_start,
+                            self.byte_pos,
                         ));
                     }
                 }
@@ -445,6 +628,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -455,6 +640,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -465,6 +652,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -475,6 +664,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -487,6 +678,8 @@ impl<'a> Lexer<'a> {
                             token_position,
                             token_line,
                             token_column,
+                            token_byte_start,
+                            self.byte_pos,
                         ));
                     } else {
                         self.advance();
@@ -495,6 +688,8 @@ impl<'a> Lexer<'a> {
                             token_position,
                             token_line,
                             token_column,
+                            token_byte_start,
+                            self.byte_pos,
                         ));
                     }
                 }
@@ -506,6 +701,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -516,6 +713,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -526,6 +725,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -538,6 +739,8 @@ impl<'a> Lexer<'a> {
                             token_position,
                             token_line,
                             token_column,
+                            token_byte_start,
+                            self.byte_pos,
                         ));
                     } else {
                         self.advance();
@@ -546,6 +749,8 @@ impl<'a> Lexer<'a> {
                             token_position,
                             token_line,
                             token_column,
+                            token_byte_start,
+                            self.byte_pos,
                         ));
                     }
                 }
@@ -559,6 +764,8 @@ impl<'a> Lexer<'a> {
                             token_position,
                             token_line,
                             token_column,
+                            token_byte_start,
+                            self.byte_pos,
                         ));
                     } else {
                         self.advance();
@@ -567,6 +774,8 @@ impl<'a> Lexer<'a> {
                             token_position,
                             token_line,
                             token_column,
+                            token_byte_start,
+                            self.byte_pos,
                         ));
                     }
                 }
@@ -580,6 +789,8 @@ impl<'a> Lexer<'a> {
                             token_position,
                             token_line,
                             token_column,
+                            token_byte_start,
+                            self.byte_pos,
                         ));
                     } else {
                         self.advance();
@@ -588,6 +799,8 @@ impl<'a> Lexer<'a> {
                             token_position,
                             token_line,
                             token_column,
+                            token_byte_start,
+                            self.byte_pos,
                         ));
                     }
                 }
@@ -620,7 +833,14 @@ impl<'a> Lexer<'a> {
                             continue;
                         }
                     };
-                    return Ok(Token::new(tok, token_position, token_line, token_column));
+                    return Ok(Token::new(
+                        tok,
+                        token_position,
+                        token_line,
+                        token_column,
+                        token_byte_start,
+                        self.byte_pos,
+                    ));
                 }
 
                 Some('#') => {
@@ -630,6 +850,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -640,6 +862,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -650,6 +874,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -660,6 +886,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -670,6 +898,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -680,6 +910,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -690,6 +922,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -700,6 +934,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -710,6 +946,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -720,27 +958,46 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
                 Some('`') => {
                     let symbol = self.read_symbol();
-                    return Ok(Token::new(symbol, token_position, token_line, token_column));
+                    return Ok(Token::new(
+                        symbol,
+                        token_position,
+                        token_line,
+                        token_column,
+                        token_byte_start,
+                        self.byte_pos,
+                    ));
                 }
 
                 Some('"') => {
-                    let string_or_char = self.read_string_or_char(token_line, token_column)?;
+                    let string_or_char =
+                        self.read_string_or_char(token_line, token_column, token_byte_start)?;
                     return Ok(Token::new(
                         string_or_char,
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
                 Some(ch) if ch.is_ascii_digit() => {
-                    let number = self.read_number()?;
-                    return Ok(Token::new(number, token_position, token_line, token_column));
+                    let number = self.read_number(token_line, token_column, token_byte_start)?;
+                    return Ok(Token::new(
+                        number,
+                        token_position,
+                        token_line,
+                        token_column,
+                        token_byte_start,
+                        self.byte_pos,
+                    ));
                 }
 
                 Some(ch) if ch.is_alphabetic() || ch == '_' => {
@@ -760,6 +1017,8 @@ impl<'a> Lexer<'a> {
                         token_position,
                         token_line,
                         token_column,
+                        token_byte_start,
+                        self.byte_pos,
                     ));
                 }
 
@@ -910,7 +1169,7 @@ mod tests {
     fn integer_overflow_errors() {
         let mut lexer = Lexer::new("9223372036854775808");
         let res = lexer.tokenize();
-        assert!(matches!(res, Err(WqError::DomainError(_))));
+        assert!(matches!(res, Err(WqError::SyntaxError(_))));
     }
 
     #[test]
@@ -918,7 +1177,7 @@ mod tests {
         let big = "1".repeat(400) + ".0";
         let mut lexer = Lexer::new(&big);
         let res = lexer.tokenize();
-        assert!(matches!(res, Err(WqError::DomainError(_))));
+        assert!(matches!(res, Err(WqError::SyntaxError(_))));
     }
 
     #[test]

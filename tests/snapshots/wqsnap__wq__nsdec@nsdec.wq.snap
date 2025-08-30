@@ -1,0 +1,6 @@
+---
+source: tests/wqsnap.rs
+expression: output
+input_file: tests/wq/nsdec.wq
+---
+よろしくね

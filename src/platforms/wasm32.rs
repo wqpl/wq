@@ -282,10 +282,7 @@ impl Default for WqSession {
 #[wasm_bindgen]
 pub fn get_help_doc(name: &str) -> String {
     if name.is_empty() {
-        create_boxed_text(
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/doc/refcard.txt")),
-            2,
-        )
+        create_boxed_text(include_str!("../docs/refcard"), 2)
     } else if let Some(text) = builtins_help::get_builtin_help(name) {
         create_boxed_text(text, 2)
     } else {

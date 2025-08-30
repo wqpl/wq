@@ -1,6 +1,0 @@
-bnot
-====
-bnot x
-
-Examples:
-  bnot 0 // -1

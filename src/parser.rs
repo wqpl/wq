@@ -1,131 +1,22 @@
+use crate::astnode::{AstNode, BinaryOperator, UnaryOperator};
 use crate::lexer::{Token, TokenType};
-use crate::value::{Value, WqError, WqResult};
-
-/// Ast nodes
-#[derive(Debug, Clone, PartialEq)]
-pub enum AstNode {
-    Literal(Value),
-
-    /// Variable reference
-    Variable(String),
-
-    BinaryOp {
-        left: Box<AstNode>,
-        operator: BinaryOperator,
-        right: Box<AstNode>,
-    },
-
-    UnaryOp {
-        operator: UnaryOperator,
-        operand: Box<AstNode>,
-    },
-
-    Assignment {
-        name: String,
-        value: Box<AstNode>,
-    },
-
-    /// List construction
-    List(Vec<AstNode>),
-
-    /// Dictionary construction
-    Dict(Vec<(String, AstNode)>),
-
-    /// Generic postfix expression
-    Postfix {
-        object: Box<AstNode>,
-        items: Vec<AstNode>,
-        explicit_call: bool,
-    },
-
-    /// Function call
-    Call {
-        name: String,
-        args: Vec<AstNode>,
-    },
-
-    CallAnonymous {
-        object: Box<AstNode>,
-        args: Vec<AstNode>,
-    },
-
-    /// Index access
-    Index {
-        object: Box<AstNode>,
-        index: Box<AstNode>,
-    },
-
-    /// Index assignment like `a[1]:3`
-    IndexAssign {
-        object: Box<AstNode>,
-        index: Box<AstNode>,
-        value: Box<AstNode>,
-    },
-
-    /// Function def
-    Function {
-        params: Option<Vec<String>>, // None for implicit params (x, y, z)
-        body: Box<AstNode>,
-    },
-
-    /// Conditional expression
-    Conditional {
-        condition: Box<AstNode>,
-        true_branch: Box<AstNode>,
-        false_branch: Option<Box<AstNode>>,
-    },
-
-    /// While loop
-    WhileLoop {
-        condition: Box<AstNode>,
-        body: Box<AstNode>,
-    },
-
-    /// Numeric for loop, exposes counter `_n`
-    ForLoop {
-        count: Box<AstNode>,
-        body: Box<AstNode>,
-    },
-
-    Break,
-    Continue,
-    Return(Option<Box<AstNode>>),
-    Assert(Box<AstNode>),
-    Try(Box<AstNode>),
-
-    /// Sequence of statements
-    Block(Vec<AstNode>),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum BinaryOperator {
-    Add,
-    Subtract,
-    Multiply,
-    Power,
-    Divide,
-    DivideDot,
-    Modulo,
-    ModuloDot,
-    Equal,
-    NotEqual,
-    LessThan,
-    LessThanOrEqual,
-    GreaterThan,
-    GreaterThanOrEqual,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum UnaryOperator {
-    Negate,
-    Count, // '#' operator
-}
+use crate::value::{Value, WqResult};
+use crate::wqerror::WqError;
+use colored::Colorize;
 
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
     source: String,
     builtins: crate::builtins::Builtins,
+    // Byte spans for statements parsed at the current (top-level) scope
+    stmt_spans: Vec<(usize, usize)>,
+    // Function body statement spans, in encounter order
+    fn_spans: Vec<Vec<(usize, usize)>>,
+    // Stack of span collectors for the current function context; when parsing a function,
+    // we push a new collector and record every statement (including nested branch bodies)
+    // into the top of this stack. On function end, we pop and store into fn_spans.
+    fn_span_stack: Vec<Vec<(usize, usize)>>,
 }
 
 impl Parser {
@@ -135,6 +26,9 @@ impl Parser {
             current: 0,
             source,
             builtins: crate::builtins::Builtins::new(),
+            stmt_spans: Vec::new(),
+            fn_spans: Vec::new(),
+            fn_span_stack: Vec::new(),
         }
     }
 
@@ -167,8 +61,22 @@ impl Parser {
             .lines()
             .nth(line.saturating_sub(1))
             .unwrap_or("");
-        let pointer = " ".repeat(column.saturating_sub(1)) + "^";
-        WqError::SyntaxError(format!("{msg} at {line}:{column}\n{src_line}\n{pointer}"))
+        let width = if token.byte_end > token.byte_start
+            && token.byte_end <= self.source.len()
+            && token.byte_start <= self.source.len()
+        {
+            self.source[token.byte_start..token.byte_end - 1]
+                .chars()
+                .count()
+                .max(1)
+        } else {
+            1
+        };
+        let pointer = " ".repeat(column.saturating_sub(1)) + &"^".repeat(width);
+        WqError::SyntaxError(format!(
+            "{msg} \n{}\n{src_line}\n{pointer}",
+            format!("At {line}:{column}").underline()
+        ))
     }
 
     fn eof_error(&self, msg: &str) -> WqError {
@@ -325,7 +233,14 @@ impl Parser {
             match self.current_token().map(|t| &t.token_type) {
                 Some(TokenType::Eof) | None => break,
                 _ => {
+                    let start_idx = self.current;
                     let stmt = self.parse_statement()?;
+                    let end_idx = self.current.saturating_sub(1);
+                    if start_idx < self.tokens.len() && end_idx < self.tokens.len() {
+                        let start = self.tokens[start_idx].byte_start;
+                        let end = self.tokens[end_idx].byte_end;
+                        self.stmt_spans.push((start, end));
+                    }
                     statements.push(stmt);
                 }
             }
@@ -340,8 +255,56 @@ impl Parser {
         })
     }
 
-    fn parse_block(&mut self) -> WqResult<AstNode> {
+    pub fn stmt_spans_top(&self) -> &[(usize, usize)] {
+        &self.stmt_spans
+    }
+
+    pub fn fn_body_spans_all(&self) -> &Vec<Vec<(usize, usize)>> {
+        &self.fn_spans
+    }
+
+    #[inline]
+    fn record_stmt_span_idx(&mut self, start_idx: usize, end_idx: usize) {
+        if start_idx < self.tokens.len() && end_idx < self.tokens.len() {
+            let start = self.tokens[start_idx].byte_start;
+            let end = self.tokens[end_idx].byte_end;
+            if let Some(cur) = self.fn_span_stack.last_mut() {
+                cur.push((start, end));
+            }
+        }
+    }
+
+    // fn parse_block(&mut self) -> WqResult<AstNode> {
+    //     let mut statements = Vec::new();
+
+    //     loop {
+    //         self.eat_stmt_separators();
+
+    //         match self.current_token().map(|t| &t.token_type) {
+    //             Some(TokenType::RightBrace) => break,
+    //             Some(TokenType::Eof) | None => {
+    //                 return Err(self.eof_error("unexpected end of input in block"));
+    //             }
+    //             _ => {
+    //                 let stmt = self.parse_statement()?;
+    //                 statements.push(stmt);
+    //             }
+    //         }
+
+    //         self.eat_stmt_separators();
+    //     }
+
+    //     Ok(if statements.len() == 1 {
+    //         statements.remove(0)
+    //     } else {
+    //         AstNode::Block(statements)
+    //     })
+    // }
+
+    // Parse a block and also record per-statement spans (start,end) for debug mapping.
+    fn parse_block_with_spans(&mut self) -> WqResult<(AstNode, Vec<(usize, usize)>)> {
         let mut statements = Vec::new();
+        let mut spans: Vec<(usize, usize)> = Vec::new();
 
         loop {
             self.eat_stmt_separators();
@@ -352,7 +315,16 @@ impl Parser {
                     return Err(self.eof_error("unexpected end of input in block"));
                 }
                 _ => {
+                    let start_idx = self.current;
                     let stmt = self.parse_statement()?;
+                    let end_idx = self.current.saturating_sub(1);
+                    if start_idx < self.tokens.len() && end_idx < self.tokens.len() {
+                        let start = self.tokens[start_idx].byte_start;
+                        let end = self.tokens[end_idx].byte_end;
+                        spans.push((start, end));
+                    }
+                    // Also record into the current function collector if any
+                    self.record_stmt_span_idx(start_idx, end_idx);
                     statements.push(stmt);
                 }
             }
@@ -360,11 +332,15 @@ impl Parser {
             self.eat_stmt_separators();
         }
 
-        Ok(if statements.len() == 1 {
+        // Do not push into fn_spans here; function-level span collection is finalized
+        // in parse_function to ensure nested branch statements are included.
+
+        let block = if statements.len() == 1 {
             statements.remove(0)
         } else {
             AstNode::Block(statements)
-        })
+        };
+        Ok((block, spans))
     }
 
     // expr
@@ -494,26 +470,32 @@ impl Parser {
     }
 
     fn parse_comma(&mut self) -> WqResult<AstNode> {
-        // Handle optional leading comma: `,expr` 1-elem list
-        let mut expr = if let Some(t) = self.current_token() {
-            if t.token_type == TokenType::Comma {
-                self.advance(); // eat ','
-                let first = self.parse_comparison()?;
-                AstNode::List(vec![first])
-            } else {
-                self.parse_comparison()?
-            }
-        } else {
-            self.parse_comparison()?
-        };
+        let mut items = Vec::new();
 
-        // Repeated infix commas
+        if let Some(token) = self.current_token() {
+            if token.token_type == TokenType::Comma {
+                // Leading comma list: ,a,b,c
+                while let Some(t) = self.current_token() {
+                    if t.token_type != TokenType::Comma {
+                        break;
+                    }
+                    self.advance();
+                    let expr = self.parse_comparison()?;
+                    items.push(expr);
+                }
+                return Ok(AstNode::List(items));
+            }
+        }
+
+        let mut expr = self.parse_comparison()?;
+
         while let Some(t) = self.current_token() {
             if t.token_type != TokenType::Comma {
                 break;
             }
             self.advance(); // eat ','
             let right = self.parse_comparison()?;
+            // eprintln!("cat left={expr:?} right={right:?}");
             expr = match (expr, right) {
                 // cat
                 (AstNode::List(mut a), AstNode::List(mut b)) => {
@@ -526,6 +508,7 @@ impl Parser {
                 },
             };
         }
+
         Ok(expr)
     }
 
@@ -759,6 +742,10 @@ impl Parser {
                 Some(TokenType::Integer(_))
                 | Some(TokenType::Symbol(_))
                 | Some(TokenType::Identifier(_))
+                // NO MINUS
+                // | Some(TokenType::Minus)
+                // EXPERIMENTAL!!
+                | Some(TokenType::Sharp)
                 | Some(TokenType::LeftParen) => {
                     let arg = self.parse_unary()?;
                     expr = AstNode::Postfix {
@@ -767,6 +754,7 @@ impl Parser {
                         explicit_call: false,
                     };
                 }
+                // definitely fn calls
                 //Some(TokenType::Integer(_))
                 Some(TokenType::Float(_))
                 | Some(TokenType::Character(_))
@@ -925,11 +913,11 @@ impl Parser {
                 }
                 TokenType::Inf => {
                     self.advance();
-                    Ok(AstNode::Literal(Value::float(f64::INFINITY)))
+                    Ok(AstNode::Literal(Value::Float(f64::INFINITY)))
                 }
                 TokenType::Nan => {
                     self.advance();
-                    Ok(AstNode::Literal(Value::float(f64::NAN)))
+                    Ok(AstNode::Literal(Value::Float(f64::NAN)))
                 }
 
                 TokenType::Dollar => self.parse_conditional(),
@@ -1063,7 +1051,13 @@ impl Parser {
                     // allow trivia inside params
                     self.eat_trivia(true, true);
                     match self.current_token().map(|t| (&t.token_type, t)) {
-                        Some((TokenType::Identifier(name), _)) => {
+                        Some((TokenType::Identifier(name), tok)) => {
+                            if self.builtins.has_function(name) {
+                                return Err(self.syntax_error(
+                                    tok,
+                                    &format!("cannot use `{name}` as a param because a builtin with the same name exists"),
+                                ));
+                            }
                             names.push(name.clone());
                             self.advance();
                         }
@@ -1090,8 +1084,17 @@ impl Parser {
             }
         }
 
-        let body = self.parse_block()?;
+        // Start collecting spans for this function (including nested branches)
+        self.fn_span_stack.push(Vec::new());
+
+        let (body, spans) = self.parse_block_with_spans()?;
+        let _ = spans; // kept for potential local usage; full collection stored below
         self.consume(TokenType::RightBrace)?;
+
+        // Finalize collection for this function body
+        if let Some(collected) = self.fn_span_stack.pop() {
+            self.fn_spans.push(collected);
+        }
 
         Ok(AstNode::Function {
             params,
@@ -1124,7 +1127,12 @@ impl Parser {
                 None => return Err(self.eof_error("unexpected end of input in branch")),
             }
 
+            // Record span for this branch statement relative to the current position
+            let start_idx = self.current;
             let expr = self.parse_expression()?;
+            let end_idx = self.current.saturating_sub(1);
+            self.record_stmt_span_idx(start_idx, end_idx);
+
             stmts.push(expr);
 
             // Between statements:
@@ -1167,7 +1175,8 @@ impl Parser {
     fn parse_conditional(&mut self) -> WqResult<AstNode> {
         self.advance(); // '$'
         self.consume(TokenType::LeftBracket)?;
-
+        // Record a span for the whole `$[cond;...]` construct as a statement boundary
+        let header_start_idx = self.current.saturating_sub(2); // '$' then '[' consumed
         // condition
         self.eat_trivia(true, true);
         let condition = self.parse_expression()?;
@@ -1192,6 +1201,9 @@ impl Parser {
         // false-branch ends at ']'
         let false_branch = self.parse_branch_sequence(&[TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
+        // Record header span covering from '$' to ']'
+        let header_end_idx = self.current.saturating_sub(1);
+        self.record_stmt_span_idx(header_start_idx, header_end_idx);
 
         Ok(AstNode::Conditional {
             condition: Box::new(condition),
@@ -1203,7 +1215,8 @@ impl Parser {
     fn parse_conditional_dot(&mut self) -> WqResult<AstNode> {
         self.advance(); // '$.'
         self.consume(TokenType::LeftBracket)?;
-
+        // Record a span for the whole '$.[cond;true]' construct
+        let header_start_idx = self.current.saturating_sub(2); // '$.' and '[' consumed
         self.eat_trivia(true, true);
         let condition = self.parse_expression()?;
 
@@ -1211,6 +1224,8 @@ impl Parser {
 
         let true_branch = self.parse_branch_sequence(&[TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
+        let header_end_idx = self.current.saturating_sub(1);
+        self.record_stmt_span_idx(header_start_idx, header_end_idx);
 
         Ok(AstNode::Conditional {
             condition: Box::new(condition),
@@ -1221,6 +1236,8 @@ impl Parser {
 
     fn parse_while(&mut self) -> WqResult<AstNode> {
         // called after Identifier("W") and '[' consumed in parse_primary()
+        // Record a span for the whole 'W[cond;body]' starting at 'W'
+        let header_start_idx = self.current.saturating_sub(2); // 'W' and '[' consumed
         self.eat_trivia(true, true);
         let condition = self.parse_expression()?;
 
@@ -1228,6 +1245,8 @@ impl Parser {
 
         let body = self.parse_branch_sequence(&[TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
+        let header_end_idx = self.current.saturating_sub(1);
+        self.record_stmt_span_idx(header_start_idx, header_end_idx);
 
         Ok(AstNode::WhileLoop {
             condition: Box::new(condition),
@@ -1237,6 +1256,7 @@ impl Parser {
 
     fn parse_for(&mut self) -> WqResult<AstNode> {
         // called after Identifier("N") and '[' consumed
+        let header_start_idx = self.current.saturating_sub(2); // 'N' and '[' consumed
         self.eat_trivia(true, true);
         let count_expr = self.parse_expression()?;
 
@@ -1244,6 +1264,8 @@ impl Parser {
 
         let body = self.parse_branch_sequence(&[TokenType::RightBracket])?;
         self.consume(TokenType::RightBracket)?;
+        let header_end_idx = self.current.saturating_sub(1);
+        self.record_stmt_span_idx(header_start_idx, header_end_idx);
 
         Ok(AstNode::ForLoop {
             count: Box::new(count_expr),

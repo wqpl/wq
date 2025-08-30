@@ -1,0 +1,12 @@
+!p
+cowsay:{[msg]border:repeat["-";#msg+2]
+  echo(" ",border)
+  echo("< ",str msg," >")
+  echo(" ",border)
+  echo"        \\   ^__^"
+  echo"         \\  (oo)\\_______"
+  echo"             (__)\\       )\\/\\"
+  echo"                 ||-----w-|"
+  echo"                 ||      ||"
+}
+cowsay"moooving on!"

@@ -1,6 +1,0 @@
-cosh
-====
-cosh x
-
-Examples:
-  cosh 0 // 1.0

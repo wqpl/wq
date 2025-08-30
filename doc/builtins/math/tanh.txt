@@ -1,6 +1,0 @@
-tanh
-====
-tanh x
-
-Examples:
-  tanh 0 // 0.0

@@ -1,5 +1,8 @@
 use super::arity_error;
-use crate::value::{Value, WqError, WqResult};
+use crate::{
+    value::{Value, WqResult},
+    wqerror::WqError,
+};
 
 pub fn to_str(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
@@ -69,7 +72,7 @@ pub fn fmt(args: &[Value]) -> WqResult<Value> {
             return Ok(Value::Char(*c));
         }
         Some(s) => {
-            return Err(WqError::TypeError(format!(
+            return Err(WqError::DomainError(format!(
                 "`fmt`: invalid template, expected 'str', got {}",
                 s.type_name_verbose()
             )));
@@ -134,7 +137,11 @@ pub fn fmt(args: &[Value]) -> WqResult<Value> {
 
     // Redundant args
     if provided > needed {
-        return Err(arity_error("fmt", needed.to_string().as_str(), provided));
+        return Err(arity_error(
+            "fmt",
+            (needed + 1).to_string().as_str(),
+            provided + 1,
+        ));
     }
 
     Ok(Value::List(out))

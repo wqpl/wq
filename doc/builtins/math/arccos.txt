@@ -1,3 +1,0 @@
-arccos
-======
-arccos x

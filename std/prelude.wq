@@ -1,0 +1,266 @@
+// The wq Prelude
+// Copyright 2025 tttiw. License: MIT
+// wip!!!!
+
+PRELUDE_VERSION:"0.1.0"
+DOMAINERR:1
+LENGTHERR:2
+
+domain_err:{[name;exp_]raise[fmt["`{}`: expected {}";name;exp_];DOMAINERR]}
+idx:{[x]$.[atom? x;domain_err["idx";"list or dict"]];$.[list? x;@r iota #x];$.[dict? x;@r keys x]}
+values:{[dict]$.[not dict? dict;raise["`values`: expected dict";DOMAINERR]];
+  ks:keys dict;acc:alloc #ks;N[#ks;acc[_n]:dict ks _n];acc}
+
+min:{[x]
+$.[atom? x;@r x]
+$.[list? x;$.[#x=0;@r ()];tmp:x 0
+  N[#x;@a atom? x _n;$.[x _n<tmp;tmp:x _n]]
+  @r tmp]
+$.[dict? x;$.[#x=0;@r ()];ks:keys x;tmp:x ks 0
+  N[#x;@a atom? x ks _n;$.[x ks _n<tmp;tmp:x ks _n]]
+  @r tmp]}
+
+enlist:{[x],x}
+delta:{[x]$.[#x<=1;@r x];t:alloc(#x-1);N[#t;t[_n]:x[_n+1]-x[_n]];t}
+// build a list of n elements with each elem being s
+replicate:{[f;n]N[#(l:alloc n);l[_n]:f[]];l}
+repeat:{[s;n]res:alloc n;N[n;res[_n]:s];res}
+zip:{[xs;ys]out:();N[min(#xs;#ys);out:out,enlist(xs[_n];ys[_n])];out}
+in:{[e;list]N[#list;$.[list _n=e;@r true]];false}
+find:{[e;list]N[#list;$.[list _n=e;@r _n]];-1}
+take:{[n;list]@a list? list;list iota n}
+drop:{[n;list]@a list? list;list rg[n;#list]}
+last:{[list]@a list? list;list[#list-1]}
+filter:{[f;xs]l:();N[#xs;k:xs[_n];$.[f[k];l:l,k]];l}
+
+sum:{[xs] $.[atom? xs;@r xs];
+  acc:0;i:idx xs;N[#i;acc:acc+xs i _n];acc}
+
+prod:{[xs] $.[atom? xs;@r xs];
+  acc:1;i:idx xs;N[#i; acc:acc*xs i _n];acc}
+
+bc1:{[a;fn]
+  is_list:list? a
+  $.[is_list;out:()
+    N[#a;out:out,enlist bc1[a _n;fn]]
+    @r fn out
+  ]
+  @r fn a
+}
+
+bc2:{[a;b;fn]
+  a_is_list:list? a;b_is_list:list? b
+  $.[a_is_list |and b_is_list;$.[#a~#b;@r ()]
+    out:();N[#a;out:out,enlist bc2[a _n;b _n;fn]];@r out]
+  $.[a_is_list |and not b_is_list;
+    out:();N[#a;out:out,enlist bc2[a _n;b;fn]];@r out]
+  $.[not a_is_list |and b_is_list;
+    out:();N[#b;out:out,enlist bc2[a;b _n;fn]];@r out]
+  @r fn[a;b]}
+
+
+// PIPE HELPERS
+// ============
+///
+flip:{[f]{[x;y]f[y;x]}}
+/// a | tap echo | filter {...} | ...
+tap:{[g;x]g[x];x}
+/// a | when[{#x>0}; filter{...}]
+when:{[p;g;x]$[p x;g x;x]}
+//when2:{[p;g;f;x]$[p x;g x;f x]}
+//ok?:{[x]$[x 1=0;true;false]}
+//err?:{[x]$[x 1~0;true;false]}
+
+/// map: Apply a function to each element (1D). Pair with rank for N-D.
+/// map[{x+1}; (1;2;3)]    // (2;3;4)
+map:{[f;xs]
+  $.[atom? xs;@r f xs]
+  out:alloc(#xs); N[#out; out[_n]:f[xs[_n]]]; out }
+
+
+
+/// map2: Elementwise map on two lists (same length).
+/// map2[{x+y}; (1;2); (10;20)]    // (11;22)
+map2:{[f;xs;ys]
+  $[list? xs; 0; raise["map2: xs must be a list";DOMAINERR]]
+  $[list? ys; 0; raise["map2: ys must be a list";DOMAINERR]]
+  $[#xs=#ys; 0; raise["map2: length mismatch";LENGTHERR]]
+  out:alloc(#xs); N[#out; out[_n]:f[xs[_n];ys[_n]]]; out }
+
+/// foldl: Left fold over a flat list.
+/// foldl[{x+y}; 0; (1;2;3)]    // 6
+foldl:{[f;init;xs]
+  $[list? xs; 0; raise["foldl: xs must be a list";DOMAINERR]]
+  acc:init; N[#xs; acc:f[acc;xs[_n]]]; acc }
+
+// foldr: Right fold over a flat list.
+// foldr[{x-y}; 0; (1;2;3)]    // 2    // 1-(2-(3-0))
+foldr:{[f;init;xs]
+  $[list? xs; 0; raise["foldr: xs must be a list";DOMAINERR]]
+  acc:init; i:#xs-1; W[i>=0; acc:f[xs[i];acc]; i:i-1]; acc }
+
+/// scanl: Inclusive left scan.
+/// scanl[{x+y}; 0; (1;2;3)]    // (0;1;3;6)
+scanl:{[f;init;xs]
+  $[list? xs; 0; raise["scanl: xs must be a list";DOMAINERR]]
+  out:,init; acc:init; N[#xs; acc:f[acc;xs[_n]]; out:out,acc]; out }
+
+/// scanr: Inclusive right scan.
+/// scanr[{x+y};0;(1;2;3)]    // (0;3;5;6)
+scanr:{[f;init;xs]
+  $[list? xs; 0; raise["scanr: xs must be a list";DOMAINERR]]
+  out:,init; acc:init; i:#xs-1; W[i>=0; acc:f[xs[i];acc]; out:out,acc; i:i-1]; out }
+
+/// rank: Apply f to r‑rank subarrays along trailing axes (uniform arrays), or map structurally for ragged lists.
+/// rank[1; sum; ((1;2;3);(4;5;6))]   -> (6;15)
+/// rank[0; {x*2}; (1;(2;3))]         -> (2;(4;6))
+rank:{[r;f;x]
+  $[int? r; 0; raise["rank: r must be an int >= 0";DOMAINERR]]
+  $[r>=0; 0; raise["rank: r must be >= 0";DOMAINERR]]
+  nd:#shape x
+  $.[nd=0; @r f[x]]
+  $.[nd<=r; @r f[x]]
+  $. [list? x; out:alloc(#x); N[#x; out[_n]:rank[r;f;x[_n]]]; @r out]
+  f[x]
+}
+
+/// reduce_last: Reduce along the last axis (inclusive semantics for seedless vectors).
+/// reduce_last[{x+y}; ((1;2;3);(4;5;6))] -> (6;15)
+reduce_last:{[f;x]
+  s:shape x
+  $[list? s;
+      $[#s=0; @r x;
+        $[#s=1;
+            $[#x=0; @r x; acc:x 0; N[#x-1; acc:f[acc;x[_n+1]]]; @r acc];
+            out:alloc(#x); N[#x; out[_n]:reduce_last[f;x[_n]]]; @r out]
+      ];
+      $[list? x;
+          $[#x=0; @r x; acc:x 0; N[#x-1; acc:f[acc;x[_n+1]]]; @r acc];
+          @r x]
+  ]
+}
+
+/// scan_last: Inclusive scan along the last axis, preserving shape.
+/// scan_last[{x+y}; (1;2;3)]            -> (1;3;6)
+scan_last:{[f;x]
+  s:shape x
+  $[list? s;
+      $[#s=0; @r x;
+        $[#s=1;
+            $[#x=0; @r x; out:alloc(#x); acc:x 0; out[0]:acc; N[#x-1; acc:f[acc;x[_n+1]]; out[_n+1]:acc]; @r out];
+            out:alloc(#x); N[#x; out[_n]:scan_last[f;x[_n]]]; @r out]
+      ];
+      $[list? x;
+          $[#x=0; @r x; out:alloc(#x); acc:x 0; out[0]:acc; N[#x-1; acc:f[acc;x[_n+1]]; out[_n+1]:acc]; @r out];
+          @r x]
+  ]
+}
+
+/// transpose
+/// transpose ((1;2;3);(4;5;6))    // ((1;4);(2;5);(3;6))
+transpose:{[m]
+  $.[atom? m;@r m]
+  s:shape m
+  $.[not list? s;@r m]
+  @a #s>=2
+  //$[#s=2; 0; raise["transpose: expected a 2D matrix"; -1]]
+  r:s 0; c:s 1
+  cols:alloc c
+  N[c;cols[_n]:map[{[row]row[_n]};m]]
+  cols
+}
+
+/// dot: Dot product of two equal-length vectors.
+/// dot[(1;2;3); (10;20;30)]              -> 140
+dot:{[a;b]
+  $[#a=#b; 0; raise["dot: length mismatch";LENGTHERR]]
+  sum(a*b)
+}
+
+/// mm: Matrix multiply A[m×k] × B[k×n] -> C[m×n].
+/// A:((1;2;3);(4;5;6)); B:((7;8);(9;10);(11;12)); mm[A;B] -> ((58;64);(139;154))
+mm:{[A;B]
+  sA:shape A; sB:shape B
+  BT:transpose B
+  map[{[row] map[{[col] dot[row;col]} ; BT]} ; A]
+}
+
+/// Helpers to move axes for uniform arrays using 2D transpose
+/// move_axis_to_last: move axis a to the last position
+move_axis_to_last:{[a;x]
+  nd:#shape x
+  $.[a<0; raise["move_axis_to_last: a must be >= 0";DOMAINERR]]
+  $.[a>=nd; raise["move_axis_to_last: axis out of range";DOMAINERR]]
+  $.[a=nd-1; @r x]
+  $.[a=0;
+      y:transpose x
+      out:alloc(#y)
+      N[#y; out[_n]:move_axis_to_last[0; y[_n]]]
+      @r out
+  ]
+  out:alloc(#x)
+  N[#x; out[_n]:move_axis_to_last[a-1; x[_n]]]
+  @r out
+}
+
+/// move_last_to_axis: inverse of move_axis_to_last
+move_last_to_axis:{[a;x]
+  nd:#shape x
+  $.[a<0; raise["move_last_to_axis: a must be >= 0";DOMAINERR]]
+  $.[a>=nd; raise["move_last_to_axis: axis out of range";DOMAINERR]]
+  $.[a=nd-1; @r x]
+  $.[a=0;
+      $.[nd<2; @r x]
+      y:alloc(#x)
+      N[#x; y[_n]:move_last_to_axis[0;x[_n]]]
+      @r transpose y
+  ]
+  out:alloc(#x)
+  N[#x; out[_n]:move_last_to_axis[a-1;x[_n]]]
+  @r out
+}
+
+/// reduce_axis: Reduce along an arbitrary axis (0-based), handling uniform/ragged via ndims.
+/// reduce_axis[1; {x+y}; ((1;2;3);(4;5;6))]    // (6;15)   // reduce rows
+reduce_axis:{[a;f;x]
+  $[int? a; 0; raise["reduce_axis: a must be int";DOMAINERR]]
+  $[a>=0; 0; raise["reduce_axis: expected a >= 0";DOMAINERR]]
+  nd:#shape x
+  $.[a>=nd; raise["reduce_axis: axis out of range";DOMAINERR]]
+  s:shape x
+  $.[list? s;
+      y:move_axis_to_last[a; x]
+      @r reduce_last[f; y]
+  ]
+  $.[nd=0; @r x]
+  $.[a=nd-1;
+      $[#x=0; @r x; acc:x 0; N[#x-1; acc:f[acc; x[_n+1]]]; @r acc]
+  ]
+  $.[a>0;
+      out:alloc(#x); N[#x; out[_n]:reduce_axis[a-1; f; x[_n]]]; @r out
+  ]
+  acc:x 0; N[#x-1; acc:map2[f; acc; x[_n+1]]]; @r acc
+}
+
+/// scan_axis: Inclusive scan along an arbitrary axis (0-based), preserving shape.
+/// scan_axis[1; {x+y}; ((1;2;3);(4;5;6))]    //  ((1;3;6);(4;9;15))
+scan_axis:{[a;f;x]
+  $[int? a; 0; raise["scan_axis: a must be int";DOMAINERR]]
+  $[a>=0; 0; raise["scan_axis: a must be >= 0";DOMAINERR]]
+  nd:#shape x
+  $.[a>=nd; raise["scan_axis: axis out of range";DOMAINERR]]
+  s:shape x
+  $.[list? s;
+      y:move_axis_to_last[a; x]
+      z:scan_last[f; y]
+      @r move_last_to_axis[a; z]
+  ]
+  $.[nd=0; @r x]
+  $.[a=nd-1;
+      $[#x=0; @r x; out:alloc(#x); acc:x 0; out[0]:acc; N[#x-1; acc:f[acc; x[_n+1]]; out[_n+1]:acc]; @r out]
+  ]
+  $.[a>0;
+      out:alloc(#x); N[#x; out[_n]:scan_axis[a-1; f; x[_n]]]; @r out
+  ]
+  out:alloc(#x); acc:x 0; out[0]:acc; N[#x-1; acc:map2[f; acc; x[_n+1]]; out[_n+1]:acc]; @r out
+}

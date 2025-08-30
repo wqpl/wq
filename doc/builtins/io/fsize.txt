@@ -1,3 +1,0 @@
-fsize
-=====
-fsize <path>

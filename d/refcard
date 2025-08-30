@@ -1,0 +1,38 @@
+                   wq refcard
+==================================================
++     |plus       ,  enlist|cat    @a assert
+-  neg|minus      #  count |       @b break
+*     |mul        =        |eq     @c continue
+/     |div        ~        |neq    @r return
+/.    |safe div   <        |lt     @t try
+%     |mod        <=       |le
+%.    |safe mod   >        |gt
+^     |power      >=       |ge
+:     |assign     |        |pipe
+$[cond;then;else1;else2...] $.[cond;then1;then2...]
+W[cond;...] N[n;echo _n]
+
+!l  load     !p  load prelude
+~ repl only ~
+!q  quit     !b    box mode   !hl   highlight
+!h  help     !bfn  builtins   !err  err codes
+!t  time     !g    globals    !r  reset
+!w  wqdb     !d !d0 ... !d4   debug level
+!t. !w. !d.  one-shot
+
+type *v
++-- atom?
+|   +-- int
+|   |-- float
+|   |-- char
+|   |-- symbol
+|   |-- bool
+|   |-- fn       {[a;b]a*b*b}[2;3]
+|   |-- bfn*
+|   |-- stream
+|   \-- null
++-- list?
+|   +-- list
+|   \-- intlist* (1;2;3)[0;1]
++-- dict?
+\   \-- dict     (`a:1;`b:2)[`a]

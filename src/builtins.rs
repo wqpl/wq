@@ -1,4 +1,5 @@
-use crate::value::{Value, WqError, WqResult};
+use crate::value::{Value, WqResult};
+use crate::wqerror::WqError;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
@@ -7,13 +8,13 @@ use std::sync::Mutex;
 mod core;
 mod dict;
 pub mod io;
-mod list;
+pub mod list;
 mod logical;
 mod math;
 mod str;
 mod viz;
 
-static IOTA_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static INTS_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn arity_error(func: &str, expected: &str, got: usize) -> WqError {
     WqError::ArityError(format!("`{func}`: expected {expected} arg(s), got {got}"))
@@ -53,6 +54,10 @@ impl Builtins {
         self.add("m?", core::wq_match);
         self.add("hash", core::hash);
         self.add("chr", core::chr);
+        self.add("hex", core::hex);
+        self.add("bin", core::bin);
+        self.add("oct", core::oct);
+        self.add("int", core::int);
         self.add("ord", core::ord);
         self.add("echo", core::echo);
         self.add("input", core::input);
@@ -67,6 +72,7 @@ impl Builtins {
         self.add("int?", core::is_int);
         self.add("float?", core::is_float);
         self.add("str?", core::is_str);
+        self.add("raise", core::raise);
         #[cfg(not(target_arch = "wasm32"))]
         self.add("exec", core::exec);
 
@@ -77,8 +83,10 @@ impl Builtins {
         self.add("sqrt", math::sqrt);
         self.add("exp", math::exp);
         self.add("ln", math::ln);
+        self.add("log", math::log);
         self.add("floor", math::floor);
         self.add("ceil", math::ceil);
+        self.add("round", math::round);
         self.add("rand", math::rand);
         self.add("sin", math::sin);
         self.add("cos", math::cos);
@@ -89,29 +97,38 @@ impl Builtins {
         self.add("sinh", math::sinh);
         self.add("cosh", math::cosh);
         self.add("tanh", math::tanh);
+        self.add("arcsinh", math::arcsinh);
+        self.add("arccosh", math::arccosh);
+        self.add("arctanh", math::arctanh);
         // self.add("hex", math::hex);
         // self.add("bin", math::bin);
 
         // List
-        self.add("iota", list::iota);
-        self.add("rg", list::range);
+        self.add("cat", list::cat);
         self.add("count", list::count);
+        self.add("alloc", list::alloc);
+        self.add("iota", list::iota);
+        self.add("ints", list::ints);
+        self.add("reshape", list::reshape);
+        self.add("shape", list::shape);
+        self.add("depth", list::depth);
+        self.add("intlist?", list::is_intlist);
+        self.add("uniform?", list::is_uniform);
+        self.add("rg", list::range);
+        self.add("reverse", list::reverse);
+        self.add("where", list::wq_where);
+        self.add("flatten", list::flatten);
+        self.add("sort", list::sort);
         // self.add("fst", list::fst);
         // self.add("lst", list::lst);
-        self.add("reverse", list::reverse);
         // self.add("sum", list::sum);
         // self.add("max", list::max);
         // self.add("min", list::min);
         // self.add("avg", list::avg);
         // self.add("take", list::take);
         // self.add("drop", list::drop);
-        self.add("where", list::wq_where);
         // self.add("distinct", list::distinct);
         // self.add("sort", list::sort);
-        self.add("cat", list::cat);
-        self.add("flatten", list::flatten);
-        self.add("shape", list::shape);
-        self.add("alloc", list::alloc);
         // self.add("idx", list::idx);
         // self.add("find", list::find);
         // self.add("in", list::wq_in);
@@ -190,34 +207,6 @@ impl Builtins {
     }
 }
 
-fn value_to_string(v: &Value) -> WqResult<String> {
-    match v {
-        Value::List(chars) => {
-            // Collect only if every item is a Char; otherwise error out.
-            let mut s = String::with_capacity(chars.len());
-            for c in chars {
-                match c {
-                    Value::Char(ch) => s.push(*ch),
-                    _ => {
-                        return Err(WqError::TypeError(
-                            "expected 'str', got a list that contains non-char elements".into(),
-                        ));
-                    }
-                }
-            }
-            Ok(s)
-        }
-        // symbol should not be interpreted as a string
-        // Value::Symbol(s) => Ok(s.clone()),
-        Value::Char(ch) => Ok(ch.to_string()),
-        other => Err(WqError::TypeError(format!(
-            "expected 'str', got `{}`",
-            other.type_name_verbose()
-        ))),
-    }
-}
-
-fn values_to_strings(args: &[Value]) -> WqResult<Vec<String>> {
-    args.iter().map(value_to_string).collect()
-    // args.iter().map(value_to_string).collect::<WqResult<Vec<_>>>()
+fn values_to_strings(args: &[Value]) -> Option<Vec<String>> {
+    args.iter().map(Value::try_str).collect()
 }

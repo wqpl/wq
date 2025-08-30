@@ -1,0 +1,6 @@
+---
+source: tests/wqsnap.rs
+expression: output
+input_file: tests/wq/fib.wq
+---
+2880067194370816120

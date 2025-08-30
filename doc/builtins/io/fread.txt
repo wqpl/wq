@@ -1,4 +1,0 @@
-fread
-=====
-fread <stream>
-fread[<stream>;<length>]

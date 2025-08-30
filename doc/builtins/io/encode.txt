@@ -1,6 +1,0 @@
-encode
-======
-encode[<bytes>;<codec>]
-encode[<bytes>;<codec>;<mode>]
-
-mode = "s"|"r"

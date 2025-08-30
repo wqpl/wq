@@ -1,0 +1,6 @@
+---
+source: tests/wqsnap.rs
+expression: output
+input_file: tests/wq/lcg.wq
+---
+(1083814273;378494188;2479403867;955863294)

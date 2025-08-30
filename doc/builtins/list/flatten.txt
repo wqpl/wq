@@ -1,7 +1,0 @@
-flatten
-=======
-flatten x
-
-Examples:
-  flatten(1;(2;3))      // (1;2;3)
-  flatten(1;(2;(3;4)))  // (1;2;3;4)

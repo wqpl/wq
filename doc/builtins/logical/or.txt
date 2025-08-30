@@ -1,6 +1,0 @@
-or
-==
-or[x;y]
-
-Examples:
-  or[true;false] // true

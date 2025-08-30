@@ -1,4 +1,4 @@
-use crate::parser::{BinaryOperator, UnaryOperator};
+use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -17,6 +17,10 @@ pub enum Instruction {
         locals: u16,
         captures: Vec<Capture>,
         instructions: Vec<Instruction>,
+        /// Statement spans for the function body (byte start,end in source)
+        dbg_stmt_spans: Vec<(usize, usize)>,
+        /// Local variable names by slot index (for wqdb)
+        dbg_local_names: Vec<String>,
     },
     /// Load a global variable or builtin by name
     LoadVar(String),

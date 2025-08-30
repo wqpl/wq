@@ -1,7 +1,7 @@
 use super::arity_error;
 use crate::{
-    builtins::value_to_string,
-    value::{BufReadSeek, StreamHandle, Value, WqError, WqResult, WriteSeek},
+    value::{BufReadSeek, StreamHandle, Value, WqResult, WriteSeek},
+    wqerror::WqError,
 };
 
 use encoding_rs::Encoding;
@@ -38,9 +38,13 @@ pub fn open(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() || args.len() > 2 {
         return Err(arity_error("open", "1 or 2", args.len()));
     }
-    let path = value_to_string(&args[0])?;
+    let path = args[0]
+        .try_str()
+        .ok_or_else(|| WqError::DomainError("`open`: expected 'str' at arg0".into()))?;
     let mode = if args.len() == 2 {
-        value_to_string(&args[1])?
+        args[1]
+            .try_str()
+            .ok_or_else(|| WqError::DomainError("`open`: expected 'str' at arg1".into()))?
     } else {
         "r".to_string()
     };
@@ -117,7 +121,9 @@ pub fn fexists(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(arity_error("fexists?", "1", args.len()));
     }
-    let path = value_to_string(&args[0])?;
+    let path = args[0]
+        .try_str()
+        .ok_or_else(|| WqError::DomainError("`fexists?`: expected 'str' at arg0".into()))?;
     Ok(Value::Bool(Path::new(&path).exists()))
 }
 
@@ -125,7 +131,9 @@ pub fn mkdir(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(arity_error("mkdir", "1", args.len()));
     }
-    let path = value_to_string(&args[0])?;
+    let path = args[0]
+        .try_str()
+        .ok_or_else(|| WqError::DomainError("`mkdir`: expected 'str' at arg0".into()))?;
     fs::create_dir_all(&path).map_err(|e| WqError::IoError(e.to_string()))?;
     Ok(Value::Null)
 }
@@ -134,7 +142,9 @@ pub fn fsize(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(arity_error("fsize", "1", args.len()));
     }
-    let path = value_to_string(&args[0])?;
+    let path = args[0]
+        .try_str()
+        .ok_or_else(|| WqError::DomainError("`fsize`: expected 'str' at arg0".into()))?;
     let meta = fs::metadata(&path).map_err(|e| WqError::IoError(e.to_string()))?;
     Ok(Value::Int(meta.len() as i64))
 }
@@ -155,7 +165,7 @@ pub fn fwrite(args: &[Value]) -> WqResult<Value> {
             Err(WqError::IoError("`fwrite`: stream not writable".into()))
         }
     } else {
-        Err(WqError::TypeError(format!(
+        Err(WqError::DomainError(format!(
             "`fwrite`: expected stream at arg0, got {}",
             args[0].type_name_verbose()
         )))
@@ -166,7 +176,9 @@ pub fn fwritet(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
         return Err(arity_error("fwritet", "2", args.len()));
     }
-    let s = value_to_string(&args[1])?;
+    let s = args[1]
+        .try_str()
+        .ok_or_else(|| WqError::DomainError("`open`: expected 'str' at arg1".into()))?;
     fwrite(&[
         args[0].clone(),
         Value::IntList(s.into_bytes().into_iter().map(|b| b as i64).collect()),
@@ -196,7 +208,7 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
                     }
                     buf.extend_from_slice(&tmp[..read]);
                 } else {
-                    return Err(WqError::TypeError(format!(
+                    return Err(WqError::DomainError(format!(
                         "`fread`: invalid length, expected int, got {}",
                         args[1].type_name_verbose()
                     )));
@@ -211,7 +223,7 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
             Err(WqError::IoError("`fread`: stream not readable".into()))
         }
     } else {
-        Err(WqError::TypeError(format!(
+        Err(WqError::DomainError(format!(
             "`fread`: expected stream at arg0, got {}",
             args[0].type_name_verbose()
         )))
@@ -257,7 +269,7 @@ pub fn freadtln(args: &[Value]) -> WqResult<Value> {
             Err(WqError::IoError("stream not readable".into()))
         }
     } else {
-        Err(WqError::TypeError(format!(
+        Err(WqError::DomainError(format!(
             "`freadtln`: expected stream at arg0, got {}",
             args[0].type_name_verbose()
         )))
@@ -271,7 +283,7 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
     let offset = if let Value::Int(n) = args[1] {
         n
     } else {
-        return Err(WqError::TypeError(format!(
+        return Err(WqError::DomainError(format!(
             "`fseek`: invalid offset, expected int, got {}",
             args[1].type_name_verbose()
         )));
@@ -280,7 +292,7 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
         if let Value::Int(w) = args[2] {
             w
         } else {
-            return Err(WqError::TypeError(format!(
+            return Err(WqError::DomainError(format!(
                 "`fseek`: invalid whence, expected int, got {}",
                 args[2].type_name_verbose()
             )));
@@ -319,7 +331,7 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
             Err(WqError::IoError("`fseek`: stream not seekable".into()))
         }
     } else {
-        Err(WqError::TypeError(format!(
+        Err(WqError::DomainError(format!(
             "`fseek`: expected stream at arg0, got {}",
             args[0].type_name_verbose()
         )))
@@ -351,7 +363,7 @@ pub fn ftell(args: &[Value]) -> WqResult<Value> {
 
         Err(WqError::IoError("`ftell`: stream not seekable".into()))
     } else {
-        Err(WqError::TypeError(format!(
+        Err(WqError::DomainError(format!(
             "`ftell`: expected stream at arg0, got {}",
             args[0].type_name_verbose()
         )))
@@ -369,7 +381,7 @@ pub fn fclose(args: &[Value]) -> WqResult<Value> {
         handle.child = None;
         Ok(Value::Null)
     } else {
-        Err(WqError::TypeError(format!(
+        Err(WqError::DomainError(format!(
             "`fclose`: expected stream at arg0, got {}",
             args[0].type_name_verbose()
         )))
@@ -385,9 +397,13 @@ pub fn decode(args: &[Value]) -> WqResult<Value> {
         return Err(arity_error("decode", "2 or 3", args.len()));
     }
     let bytes = value_to_bytes(&args[0])?;
-    let codec = value_to_string(&args[1])?;
+    let codec = args[1]
+        .try_str()
+        .ok_or_else(|| WqError::DomainError("`decode`: expected 'str' at arg1 (codec)".into()))?;
     let mode = if args.len() == 3 {
-        value_to_string(&args[2])?
+        args[2]
+            .try_str()
+            .ok_or_else(|| WqError::DomainError("`decode`: expected 'str' at arg2 (mode)".into()))?
     } else {
         "s".to_string()
     };
@@ -397,7 +413,7 @@ pub fn decode(args: &[Value]) -> WqResult<Value> {
     let s = match mode.as_str() {
         "s" => {
             if had_errors {
-                return Err(WqError::RuntimeError(
+                return Err(WqError::EncodeError(
                     "`decode`: strict mode decode error".into(),
                 ));
             }
@@ -417,10 +433,16 @@ pub fn encode(args: &[Value]) -> WqResult<Value> {
     if args.len() < 2 || args.len() > 3 {
         return Err(arity_error("encode", "2 or 3", args.len()));
     }
-    let s = value_to_string(&args[0])?;
-    let codec = value_to_string(&args[1])?;
+    let s = args[0]
+        .try_str()
+        .ok_or_else(|| WqError::DomainError("`encode`: expected 'str' at arg0".into()))?;
+    let codec = args[1]
+        .try_str()
+        .ok_or_else(|| WqError::DomainError("`encode`: expected 'str' at arg1 (codec)".into()))?;
     let mode = if args.len() == 3 {
-        value_to_string(&args[2])?
+        args[2]
+            .try_str()
+            .ok_or_else(|| WqError::DomainError("`encode`: expected 'str' at arg2 (mode)".into()))?
     } else {
         "s".into()
     };
@@ -431,7 +453,7 @@ pub fn encode(args: &[Value]) -> WqResult<Value> {
         "s" => {
             let (cow, _enc_used, had_errors) = enc.encode(&s);
             if had_errors {
-                return Err(WqError::RuntimeError(
+                return Err(WqError::EncodeError(
                     "`encode`: strict mode encode error".into(),
                 ));
             }

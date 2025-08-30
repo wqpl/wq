@@ -1,0 +1,2 @@
+!p
+t:iota 10|tap echo|filter{x%2=0}|map {x*x}|sum|tap echo

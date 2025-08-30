@@ -1,7 +1,0 @@
-input
-=====
-input[]
-input <prompt>
-
-Examples:
-  input "name: "

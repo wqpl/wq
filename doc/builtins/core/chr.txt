@@ -1,7 +1,0 @@
-chr
-===
-chr x
-
-Examples:
-chr 65  // "A"
-chr (65;66) // ("A";"B")

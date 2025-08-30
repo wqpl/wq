@@ -1,0 +1,15 @@
+wqdb man
+========
+c   | continue  continue
+n   | next      step over
+s   | step      step in
+fin | finish    step out
+b <ln>          add breakpoint
+ib              show breakpoints
+rs              reset breakpoints
+gb | globals    dump globals
+lb | locals     dump locals
+bt              show backtrace
+p <n> | peek    peek +-n lines (def:3)
+i <n> | ins     peek +-n insts (def:5)
+h  | help       show this help

@@ -1,3 +1,0 @@
-load list.wq
-t:iota 10|filter{x%2=0}|map {x*x}|sum1
-@a t=120

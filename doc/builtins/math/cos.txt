@@ -1,6 +1,0 @@
-cos
-===
-cox x
-
-Examples:
-  cos 0 // 1.0

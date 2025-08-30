@@ -1,8 +1,0 @@
-drop
-====
-drop x
-drop x y
-
-Examples:
-  drop (1;2;3;4)    // (2;3;4)
-  drop[2;(1;2;3;4)] // (3;4)

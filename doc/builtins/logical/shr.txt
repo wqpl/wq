@@ -1,6 +1,0 @@
-shr
-===
-shr[x;y]
-
-Examples:
-  shr[4;1] // 2

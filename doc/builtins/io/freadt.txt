@@ -1,4 +1,0 @@
-freadt
-======
-freadt <stream>
-freadt[<stream>;<length>]

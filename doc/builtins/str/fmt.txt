@@ -1,6 +1,0 @@
-fmt
-===
-fmt[str;value*]
-
-Examples:
-  fmt["x={}";3] // "x=3"

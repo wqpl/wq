@@ -1,7 +1,0 @@
-neg
-===
-neg x
-
-Examples:
-  neg 1   // -1
-  neg(-1) // 1

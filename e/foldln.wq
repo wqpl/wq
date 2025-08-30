@@ -1,0 +1,12 @@
+!p
+fold_line:{[chars;width]
+  W[count chars>width;idx_:width-1
+    W[and[idx_>=0;chars[idx_]~" "];idx_:idx_-1]
+    $.[idx_<=0;seg:take[width;chars];chars:drop[width;chars]]
+    $.[idx_>0;seg:take[idx_;chars];chars:drop[idx_+1;chars]];echo seg]
+  $.[count chars > 0;echo chars]}
+fold_file:{[path;width]r:@t open[path;"r"]
+  $.[r[1]=0;h:r[0];line:freadtln h
+    W[not null? line;fold_line[line;width];line:freadtln h];fclose h]
+  $.[r[1]~0;echo r[0]]}
+//fold_file[input"enter path";80]

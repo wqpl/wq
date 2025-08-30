@@ -1,6 +1,0 @@
-sum
-===
-sum x
-
-Examples:
-  sum(1;2;3) // 6

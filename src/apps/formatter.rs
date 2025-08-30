@@ -1,16 +1,50 @@
 use crate::lexer::Lexer;
-use crate::parser::{AstNode, BinaryOperator, Parser, UnaryOperator};
+
+use crate::astnode::{AstNode, BinaryOperator, UnaryOperator};
+use crate::parser::Parser;
 use crate::value::WqResult;
 
 #[derive(Debug, Clone)]
 pub struct FormatOptions {
     pub indent_size: usize,
+    pub nlcd: bool,             // newline for closing ']' in control blocks
+    pub no_bracket_calls: bool, // use space-call syntax when possible
+    pub one_line_wizard: bool,  // force single-line formatting where possible
 }
 
 impl Default for FormatOptions {
     fn default() -> Self {
-        Self { indent_size: 2 }
+        Self {
+            indent_size: 2,
+            nlcd: false,
+            no_bracket_calls: false,
+            one_line_wizard: false,
+        }
     }
+}
+
+fn escape_for_lexer(s: &str, delim: char) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push(delim);
+    for ch in s.chars() {
+        match ch {
+            c if c == delim => {
+                out.push('\\');
+                out.push(delim);
+            }
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            c if c.is_control() => {
+                // Use the unicode form your lexer supports
+                use core::fmt::Write as _;
+                // lowercase hex to match your tokenizer’s reader (flexible anyway)
+                let _ = write!(out, "\\u{{{:x}}}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push(delim);
+    out
 }
 
 pub struct Formatter {
@@ -27,7 +61,11 @@ impl Formatter {
     }
 
     fn indent(&self, level: usize) -> String {
-        " ".repeat(self.opts.indent_size * level)
+        if self.opts.one_line_wizard {
+            String::new()
+        } else {
+            " ".repeat(self.opts.indent_size * level)
+        }
     }
 
     fn join_semicolon(&self, items: &[AstNode], level: usize) -> String {
@@ -36,6 +74,80 @@ impl Formatter {
             .map(|n| self.format_node(n, level))
             .collect::<Vec<_>>()
             .join(";")
+    }
+
+    // Format a branch/loop body respecting options.
+    // - In one-line mode, collapse Blocks into `stmt1;stmt2` with no indentation.
+    // - Otherwise, indent each line for Blocks; indent single expressions.
+    fn format_inline_block_or_stmt(&self, node: &AstNode, level: usize) -> String {
+        match node {
+            AstNode::Block(stmts) => {
+                if self.opts.one_line_wizard {
+                    stmts
+                        .iter()
+                        .map(|s| self.format_node(s, level))
+                        .collect::<Vec<_>>()
+                        .join(";")
+                } else {
+                    let mut res = String::new();
+                    for (i, stmt) in stmts.iter().enumerate() {
+                        if i > 0 {
+                            res.push('\n');
+                        }
+                        res.push_str(&self.indent(level));
+                        res.push_str(&self.format_node(stmt, level));
+                    }
+                    res
+                }
+            }
+            _ => {
+                if self.opts.one_line_wizard {
+                    self.format_node(node, level)
+                } else {
+                    format!("{}{}", self.indent(level), self.format_node(node, level))
+                }
+            }
+        }
+    }
+
+    fn closing_bracket(&self, level: usize) -> String {
+        if self.opts.one_line_wizard || !self.opts.nlcd {
+            "]".to_string()
+        } else {
+            format!("\n{}]", self.indent(level))
+        }
+    }
+
+    fn needs_paren_arg(node: &AstNode) -> bool {
+        use AstNode::*;
+        match node {
+            // Negative numeric literals must be wrapped to avoid `fn -1` ambiguity
+            Literal(v) => match v {
+                crate::value::Value::Int(n) if *n < 0 => true,
+                crate::value::Value::Float(f) if *f < 0.0 => true,
+                _ => false,
+            },
+            // Primaries that parse fine without extra parens
+            Variable(_)
+            | Function { .. }
+            | List(_)
+            | Dict(_)
+            | Call { .. }
+            | CallAnonymous { .. }
+            | Postfix { .. }
+            | Index { .. } => false,
+            // Everything else: wrap to be safe in space-call syntax
+            _ => true,
+        }
+    }
+
+    fn fmt_arg_as_call(&self, node: &AstNode, level: usize) -> String {
+        let s = self.format_node(node, level);
+        if Self::needs_paren_arg(node) {
+            format!("({s})")
+        } else {
+            s
+        }
     }
 
     fn format_node(&self, node: &AstNode, level: usize) -> String {
@@ -48,7 +160,13 @@ impl Formatter {
                 let args_str = self.join_semicolon(items, level);
                 format!("{}[{}]", self.format_node(object, level), args_str)
             }
-            AstNode::Literal(v) => v.to_string(),
+            AstNode::Literal(v) => {
+                if let Some(s) = v.try_str() {
+                    escape_for_lexer(&s, '"')
+                } else {
+                    v.to_string()
+                }
+            }
             AstNode::Variable(n) => n.clone(),
             AstNode::BinaryOp {
                 left,
@@ -71,12 +189,21 @@ impl Formatter {
                     BinaryOperator::GreaterThan => ">",
                     BinaryOperator::GreaterThanOrEqual => ">=",
                 };
-                format!(
-                    "{} {} {}",
-                    self.format_node(left, level),
-                    op,
-                    self.format_node(right, level)
-                )
+                if self.opts.one_line_wizard {
+                    format!(
+                        "{}{}{}",
+                        self.format_node(left, level),
+                        op,
+                        self.format_node(right, level)
+                    )
+                } else {
+                    format!(
+                        "{} {} {}",
+                        self.format_node(left, level),
+                        op,
+                        self.format_node(right, level)
+                    )
+                }
             }
             AstNode::UnaryOp { operator, operand } => {
                 let op = match operator {
@@ -86,7 +213,11 @@ impl Formatter {
                 format!("{}{}", op, self.format_node(operand, level))
             }
             AstNode::Assignment { name, value } => {
-                format!("{}: {}", name, self.format_node(value, level))
+                if self.opts.one_line_wizard {
+                    format!("{}:{}", name, self.format_node(value, level))
+                } else {
+                    format!("{}: {}", name, self.format_node(value, level))
+                }
             }
             AstNode::List(items) => {
                 let body = self.join_semicolon(items, level);
@@ -95,17 +226,36 @@ impl Formatter {
             AstNode::Dict(pairs) => {
                 let mut parts = Vec::new();
                 for (k, v) in pairs {
-                    parts.push(format!("`{}: {}", k, self.format_node(v, level)));
+                    if self.opts.one_line_wizard {
+                        parts.push(format!("`{}:{}", k, self.format_node(v, level)));
+                    } else {
+                        parts.push(format!("`{}: {}", k, self.format_node(v, level)));
+                    }
                 }
                 format!("({})", parts.join(";"))
             }
             AstNode::Call { name, args } => {
-                let args_str = self.join_semicolon(args, level);
-                format!("{name}[{args_str};]")
+                if self.opts.no_bracket_calls && args.len() == 1 {
+                    let arg = self.fmt_arg_as_call(&args[0], level);
+                    format!("{name} {arg}")
+                } else if self.opts.no_bracket_calls && args.is_empty() {
+                    format!("{name}[]")
+                } else {
+                    let args_str = self.join_semicolon(args, level);
+                    format!("{name}[{args_str};]")
+                }
             }
             AstNode::CallAnonymous { object, args } => {
-                let args_str = self.join_semicolon(args, level);
-                format!("{}[{};]", self.format_node(object, level), args_str)
+                if self.opts.no_bracket_calls && args.len() == 1 {
+                    let obj = self.format_node(object, level);
+                    let arg = self.fmt_arg_as_call(&args[0], level);
+                    format!("{obj} {arg}")
+                } else if self.opts.no_bracket_calls && args.is_empty() {
+                    format!("{}[]", self.format_node(object, level))
+                } else {
+                    let args_str = self.join_semicolon(args, level);
+                    format!("{}[{};]", self.format_node(object, level), args_str)
+                }
             }
             AstNode::Index { object, index } => {
                 format!(
@@ -119,12 +269,21 @@ impl Formatter {
                 index,
                 value,
             } => {
-                format!(
-                    "{}[{}]:{}",
-                    self.format_node(object, level),
-                    self.format_node(index, level),
-                    self.format_node(value, level)
-                )
+                if self.opts.one_line_wizard {
+                    format!(
+                        "{}[{}]:{}",
+                        self.format_node(object, level),
+                        self.format_node(index, level),
+                        self.format_node(value, level)
+                    )
+                } else {
+                    format!(
+                        "{}[{}]: {}",
+                        self.format_node(object, level),
+                        self.format_node(index, level),
+                        self.format_node(value, level)
+                    )
+                }
             }
             AstNode::Function { params, body } => {
                 let p = match params {
@@ -133,22 +292,38 @@ impl Formatter {
                 };
                 match **body {
                     AstNode::Block(ref stmts) => {
-                        let mut res = String::new();
-                        res.push('{');
-                        if !p.is_empty() {
-                            res.push_str(&p);
-                        }
-                        res.push('\n');
-                        for stmt in stmts {
-                            res.push_str(&self.indent(level + 1));
-                            res.push_str(&self.format_node(stmt, level + 1));
+                        if self.opts.one_line_wizard {
+                            let body = stmts
+                                .iter()
+                                .map(|s| self.format_node(s, level + 1))
+                                .collect::<Vec<_>>()
+                                .join(";");
+                            format!("{{{p}{body}}}")
+                        } else {
+                            let mut res = String::new();
+                            res.push('{');
+                            if !p.is_empty() {
+                                res.push_str(&p);
+                            }
                             res.push('\n');
+                            for stmt in stmts {
+                                res.push_str(&self.indent(level + 1));
+                                res.push_str(&self.format_node(stmt, level + 1));
+                                res.push('\n');
+                            }
+                            res.push_str(&self.indent(level));
+                            res.push('}');
+                            res
                         }
-                        res.push_str(&self.indent(level));
-                        res.push('}');
-                        res
                     }
-                    _ => format!("{{{}{}}}", p, self.format_node(body, level)),
+                    _ => {
+                        // if self.opts.one_line_wizard {
+                        //     format!("{{{}{}}}", p, self.format_node(body, level))
+                        // } else {
+                        //     format!("{{{}{}}}", p, self.format_node(body, level))
+                        // }
+                        format!("{{{}{}}}", p, self.format_node(body, level))
+                    }
                 }
             }
             AstNode::Conditional {
@@ -157,42 +332,82 @@ impl Formatter {
                 false_branch,
             } => {
                 let cond = self.format_node(condition, level);
-                let t = self.format_node(true_branch, level + 1);
+                let t = self.format_inline_block_or_stmt(true_branch, level + 1);
                 if let Some(f) = false_branch {
-                    let f = self.format_node(f, level + 1);
-                    format!("$[{cond};\n{t};\n{f}]")
+                    let f = self.format_inline_block_or_stmt(f, level + 1);
+                    if self.opts.one_line_wizard {
+                        format!("$[{cond};{t};{f}]")
+                    } else {
+                        format!("$[{cond};\n{t};\n{f}{}", self.closing_bracket(level))
+                    }
+                } else if self.opts.one_line_wizard {
+                    format!("$.[{cond};{t}]")
                 } else {
-                    format!("$.[{cond};\n{t}]")
+                    format!("$.[{cond};\n{t}{}", self.closing_bracket(level))
                 }
             }
             AstNode::WhileLoop { condition, body } => {
                 let cond = self.format_node(condition, level);
-                let body = self.format_node(body, level + 1);
-                format!("W[{cond};\n{body}]")
+                let body = self.format_inline_block_or_stmt(body, level + 1);
+                if self.opts.one_line_wizard {
+                    format!("W[{cond};{body}]")
+                } else {
+                    format!("W[{cond};\n{body}{}", self.closing_bracket(level))
+                }
             }
             AstNode::ForLoop { count, body } => {
                 let cnt = self.format_node(count, level);
-                let body = self.format_node(body, level + 1);
-                format!("N[{cnt};\n{body}]")
+                let body = self.format_inline_block_or_stmt(body, level + 1);
+                if self.opts.one_line_wizard {
+                    format!("N[{cnt};{body}]")
+                } else {
+                    format!("N[{cnt};\n{body}{}", self.closing_bracket(level))
+                }
             }
             AstNode::Break => "@b".to_string(),
             AstNode::Continue => "@c".to_string(),
             AstNode::Return(expr) => match expr {
-                Some(e) => format!("@r {}", self.format_node(e, level)),
+                Some(e) => {
+                    if self.opts.one_line_wizard {
+                        format!("@r{}", self.format_node(e, level))
+                    } else {
+                        format!("@r {}", self.format_node(e, level))
+                    }
+                }
                 None => "@r".to_string(),
             },
-            AstNode::Assert(e) => format!("@a {}", self.format_node(e, level)),
-            AstNode::Try(e) => format!("@t {}", self.format_node(e, level)),
-            AstNode::Block(stmts) => {
-                let mut res = String::new();
-                for (i, stmt) in stmts.iter().enumerate() {
-                    if i > 0 {
-                        res.push('\n');
-                    }
-                    res.push_str(&self.indent(level));
-                    res.push_str(&self.format_node(stmt, level));
+            AstNode::Assert(e) => {
+                if self.opts.one_line_wizard {
+                    format!("@a{}", self.format_node(e, level))
+                } else {
+                    format!("@a {}", self.format_node(e, level))
                 }
-                res
+            }
+            AstNode::Try(e) => {
+                if self.opts.one_line_wizard {
+                    format!("@t{}", self.format_node(e, level))
+                } else {
+                    format!("@t {}", self.format_node(e, level))
+                }
+            }
+            AstNode::Block(stmts) => {
+                if self.opts.one_line_wizard {
+                    stmts
+                        .iter()
+                        .map(|s| self.format_node(s, level))
+                        .collect::<Vec<_>>()
+                        .join(";")
+                } else {
+                    let mut res = String::new();
+                    for (i, stmt) in stmts.iter().enumerate() {
+                        if i > 0 {
+                            res.push('\n');
+                        }
+                        res.push_str(&self.indent(level));
+                        res.push_str(&self.format_node(stmt, level));
+                    }
+                    res
+                }
             }
         }
     }
@@ -213,7 +428,7 @@ impl Formatter {
         let mut result = String::new();
         let mut buffer = String::new();
 
-        for line in content.lines() {
+        for (i, line) in content.lines().enumerate() {
             let trimmed = line.trim();
 
             // skip comments and empty lines (they are not preserved by the formatter)
@@ -221,7 +436,8 @@ impl Formatter {
                 continue;
             }
 
-            if trimmed.starts_with("load ") || trimmed.starts_with("\\") {
+            // special cmds
+            if trimmed.starts_with("!") || (i == 0 && trimmed.starts_with("#!")) {
                 if !buffer.trim().is_empty() {
                     result.push_str(&self.format_source(&buffer)?);
                     result.push('\n');

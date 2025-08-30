@@ -1,0 +1,22 @@
+SYNOPSIS
+========
+  wq                     repl
+  wq <script>            script exec
+  wq exec [<inline>|-]   inline exec
+  wq fmt <script>        format
+
+OPTIONS
+=======
+generic
+  -h, --help         show this help
+  -v, --version      show wq version
+
+runtime
+  -d[|<l>]           exec with debug level l (l=1,2,3,4) [def:1]
+  -w, --wqdb         exec with wqdb
+  --no-bt            disable backtrace
+
+fmt
+  --nlcd             NewLine for Closing Delimiter
+  --nbc              prefer No Bracket form for Calls
+  --olw              One Line Wizard

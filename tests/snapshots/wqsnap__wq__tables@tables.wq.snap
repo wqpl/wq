@@ -1,0 +1,21 @@
+---
+source: tests/wqsnap.rs
+expression: output
+input_file: tests/wq/tables.wq
+---
+age dept   id name
+30  `HR    1  "Steve"
+25  `IT    2  "Alex"
+27  `Sales 3  "Sunny"
+================================
+eng math name    sci
+88  85   "Steve" 90
+93  90   "Alex"  89
+82  78   "Sunny" 85
+================================
+desk                            laptop                           mouse
+(`price:300;`qty:15;`brand:"I") (`price:1200;`qty:10;`brand:"D") (`price:25;`qty:100;`brand:"L")
+================================
+cust   id   items
+"A123" 1001 ((`p:"Pen";`q:2);(`p:"Notebook";`q:1))
+"B456" 1002 (`p:"Pencil";`q:5)

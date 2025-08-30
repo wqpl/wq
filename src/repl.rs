@@ -1,20 +1,49 @@
+pub mod repl_engine;
+pub mod stdio;
+pub mod wqdb_shell;
+
 use crate::lexer::Lexer;
 use crate::parser::Parser;
+use crate::value::Value;
 use crate::value::WqResult;
-use crate::value::{Value, WqError};
 use crate::vm::Vm;
 use crate::vm::compiler::Compiler;
 use crate::vm::instruction::Instruction;
+use crate::wqdb::apply_stmt_spans_exact_offs;
+use crate::wqdb::mark_stmt_heuristic;
+use crate::wqdb::register_function_chunks;
+use crate::wqdb::{self, DebugHost};
+use crate::wqerror::WqError;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU8, Ordering};
+
 #[cfg(not(target_arch = "wasm32"))]
 use colored::Colorize;
-use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use repl_engine::ReplEngine;
+use stdio::ReplStdin;
+use stdio::set_stdin;
+use stdio::stderr_println;
 
-use std::sync::Mutex;
+// Global verbose level for debug logging across modules (0=off, 1=inst, 2=inst+ast+debug logs, 3=+tokens)
+static DEBUG_LEVEL: AtomicU8 = AtomicU8::new(0);
+pub fn set_debug_level(level: u8) {
+    DEBUG_LEVEL.store(level, Ordering::Relaxed);
+}
+pub fn get_debug_level() -> u8 {
+    DEBUG_LEVEL.load(Ordering::Relaxed)
+}
 
 pub struct VmEvaluator {
     vm: Vm,
-    debug: bool,
+    debug_level: u8,
+    // Arm entering the wqdb on the next eval call
+    wqdb_arm_next: bool,
+    // Optional debug source context for next eval (path, full_text)
+    dbg_source_ctx: Option<(String, String)>,
+    // Byte offset into dbg_source_ctx where current snippet starts
+    dbg_source_offs: usize,
+    // Backtrace mode (minimal debug mapping for errors)
+    bt_mode: bool,
 }
 
 impl Default for VmEvaluator {
@@ -23,25 +52,9 @@ impl Default for VmEvaluator {
     }
 }
 
-pub trait ReplEngine {
-    fn eval_string(&mut self, input: &str) -> Result<Value, WqError>;
-    fn set_debug(&mut self, flag: bool);
-    fn is_debug(&self) -> bool;
-    fn get_environment(&self) -> Option<&std::collections::HashMap<String, Value>>;
-    fn clear_environment(&mut self);
-    fn env_vars(&self) -> &std::collections::HashMap<String, Value>;
-    fn set_stdin(&mut self, stdin: Box<dyn ReplStdin>);
-}
-
 impl ReplEngine for VmEvaluator {
     fn eval_string(&mut self, input: &str) -> Result<Value, WqError> {
         VmEvaluator::eval_string(self, input)
-    }
-    fn set_debug(&mut self, flag: bool) {
-        VmEvaluator::set_debug(self, flag)
-    }
-    fn is_debug(&self) -> bool {
-        VmEvaluator::is_debug(self)
     }
     fn get_environment(&self) -> Option<&std::collections::HashMap<String, Value>> {
         VmEvaluator::get_environment(self)
@@ -56,42 +69,95 @@ impl ReplEngine for VmEvaluator {
     fn set_stdin(&mut self, stdin: Box<dyn ReplStdin>) {
         set_stdin(stdin);
     }
+    fn arm_wqdb_next(&mut self) {
+        VmEvaluator::arm_wqdb_next(self)
+    }
+    fn dbg_set_source(&mut self, path: &str, full_text: &str) {
+        VmEvaluator::dbg_set_source(self, path, full_text)
+    }
+    fn dbg_set_offset(&mut self, offset: usize) {
+        VmEvaluator::dbg_set_offset(self, offset)
+    }
+    fn dbg_print_bt(&mut self) {
+        VmEvaluator::dbg_print_bt(self)
+    }
+    fn set_bt_mode(&mut self, flag: bool) {
+        VmEvaluator::set_bt_mode(self, flag)
+    }
+    fn set_wqdb(&mut self, flag: bool) {
+        VmEvaluator::set_wqdb(self, flag)
+    }
+    fn set_debug_level(&mut self, level: u8) {
+        VmEvaluator::set_debug_level(self, level)
+    }
+    fn get_debug_level(&mut self) -> u8 {
+        VmEvaluator::get_debug_level(self)
+    }
+    fn is_wqdb_on(&self) -> bool {
+        self.vm.wqdb.enabled
+    }
+    fn reset_session(&mut self) {
+        VmEvaluator::reset_session(self)
+    }
 }
 
 impl VmEvaluator {
     /// Create a new evaluator with an empty environment.
     pub fn new() -> Self {
+        let mut vm = Vm::new(Vec::new());
+        vm.set_bt_mode(true);
         VmEvaluator {
-            vm: Vm::new(Vec::new()),
-            debug: false,
+            vm,
+            debug_level: 0,
+            wqdb_arm_next: false,
+            dbg_source_ctx: None,
+            dbg_source_offs: 0,
+            bt_mode: true,
         }
     }
-
-    /// Enable or disable debug mode.
-    pub fn set_debug(&mut self, flag: bool) {
-        self.debug = flag;
+    pub fn set_debug_level(&mut self, level: u8) {
+        self.debug_level = level;
+        set_debug_level(level);
     }
-
-    /// Check if debug mode is active.
-    pub fn is_debug(&self) -> bool {
-        self.debug
+    pub fn get_debug_level(&mut self) -> u8 {
+        self.debug_level
+    }
+    pub fn set_bt_mode(&mut self, flag: bool) {
+        self.bt_mode = flag;
+        self.vm.set_bt_mode(flag);
+    }
+    pub fn set_wqdb(&mut self, flag: bool) {
+        self.vm.wqdb.enabled = flag;
+        if self.vm.wqdb.enabled {
+            self.vm.wqdb.on_pause = Some(repl_on_pause);
+            self.wqdb_arm_next = true;
+        } else {
+            self.vm.wqdb.clear_mode();
+            self.vm.wqdb.on_pause = None;
+        }
     }
 
     /// Evaluate a string of source code and return the resulting value.
     pub fn eval_string(&mut self, input: &str) -> WqResult<Value> {
+        // If a wqdb entry was armed, record it for the upcoming run.
+        let _enter_wqdb = if self.wqdb_arm_next {
+            self.wqdb_arm_next = false;
+            true
+        } else {
+            false
+        };
         let mut lexer = Lexer::new(input);
         let tokens = lexer.tokenize()?;
-
-        // #[cfg(not(target_arch = "wasm32"))]
-        // if self.debug {
-        //     stderr_println("~ Tokens ~".red().underline().to_string().as_str());
-        //     stderr_println(format!("{tokens:?}").as_str());
-        // }
-        // #[cfg(target_arch = "wasm32")]
-        // if self.debug {
-        //     stderr_println("~ Tokens ~");
-        //     stderr_println(format!("{tokens:?}").as_str());
-        // }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.debug_level >= 3 {
+            stderr_println("~ Tokens ~".red().underline().to_string().as_str());
+            stderr_println(format!("{tokens:?}").as_str());
+        }
+        #[cfg(target_arch = "wasm32")]
+        if self.debug_level >= 3 {
+            stderr_println("~ Tokens ~");
+            stderr_println(format!("{tokens:?}").as_str());
+        }
 
         use crate::post_parser::folder;
         use crate::post_parser::resolver::Resolver;
@@ -102,23 +168,25 @@ impl VmEvaluator {
         let ast = folder::fold(ast);
 
         #[cfg(not(target_arch = "wasm32"))]
-        if self.debug {
+        if self.debug_level >= 2 {
             stderr_println("~ AST ~".yellow().underline().to_string().as_str());
-            stderr_println(format!("{ast:?}").as_str());
+            // stderr_println(format!("{ast:?}").as_str());
+            stderr_println(format!("{ast}").as_str());
         }
         #[cfg(target_arch = "wasm32")]
-        if self.debug {
+        if self.debug_level >= 2 {
             stderr_println("~ AST ~");
             stderr_println(format!("{ast:?}").as_str());
         }
 
         let mut compiler = Compiler::new();
+        compiler.set_fn_spans(parser.fn_body_spans_all().clone());
         compiler.compile(&ast)?;
         compiler.fuse();
         compiler.instructions.push(Instruction::Return);
 
         #[cfg(not(target_arch = "wasm32"))]
-        if self.debug {
+        if self.debug_level >= 1 {
             stderr_println("~ Inst ~".green().underline().to_string().as_str());
             for inst in &compiler.instructions {
                 let s = format!("{inst:?}");
@@ -130,7 +198,7 @@ impl VmEvaluator {
             }
         }
         #[cfg(target_arch = "wasm32")]
-        if self.debug {
+        if self.debug_level >= 1 {
             stderr_println("~ Inst ~");
             for inst in &compiler.instructions {
                 let s = format!("{inst:?}");
@@ -142,7 +210,53 @@ impl VmEvaluator {
             }
         }
 
+        self.vm.clear_last_bt();
+
         self.vm.reset(compiler.instructions);
+        // Prepare debug artifacts when wqdb or backtrace mode is on
+        if self.vm.wqdb.enabled || _enter_wqdb || self.bt_mode {
+            // Prepare debug mapping for this top-level script
+            let (src_path, src_text) = if let Some((p, t)) = self.dbg_source_ctx.as_ref() {
+                (p.clone(), t.clone())
+            } else {
+                ("<repl>".to_string(), input.to_string())
+            };
+            self.vm.debug_prepare_script(&src_path, &src_text);
+            // Set base offset into the source file for this snippet
+            self.vm.set_debug_src_offset(self.dbg_source_offs);
+            // Mark statements using a combination of parser spans and heuristics
+            {
+                let chunk = self.vm.current_chunk_id();
+                let code = &self.vm.instructions;
+                // Compute file_id first to avoid borrow conflicts
+                let file_id = self.vm.debug_info.chunk(chunk).file_id;
+                // First mark all likely statement PCs
+                let line_table = &mut self.vm.debug_info.chunk_mut(chunk).line_table;
+                mark_stmt_heuristic(line_table, code);
+                // Overlay exact mapping for top-level spans across candidates
+                apply_stmt_spans_exact_offs(
+                    line_table,
+                    code,
+                    file_id,
+                    parser.stmt_spans_top(),
+                    self.dbg_source_offs,
+                );
+                // Recursively register chunks for nested non-capturing functions
+                register_function_chunks(
+                    &mut self.vm.debug_info,
+                    file_id,
+                    code,
+                    self.dbg_source_offs,
+                );
+            }
+        }
+        // If wqdb is enabled (persistently or armed just once), attach hook and step-in
+        if self.vm.wqdb.enabled || _enter_wqdb {
+            if self.vm.wqdb.on_pause.is_none() {
+                self.vm.wqdb.on_pause = Some(repl_on_pause);
+            }
+            self.vm.dbg_step_in();
+        }
         self.vm.run()
     }
 
@@ -161,115 +275,47 @@ impl VmEvaluator {
     pub fn environment_mut(&mut self) -> &mut HashMap<String, Value> {
         self.vm.global_env_mut()
     }
-}
 
-#[derive(Debug)]
-pub enum StdinError {
-    Interrupted,
-    Eof,
-    Other(String),
-}
+    /// Arm wqdb for the next eval.
+    pub fn arm_wqdb_next(&mut self) {
+        self.wqdb_arm_next = true;
+    }
+    pub fn dbg_set_source(&mut self, path: &str, full_text: &str) {
+        self.dbg_source_ctx = Some((path.to_string(), full_text.to_string()));
+    }
+    pub fn dbg_set_offset(&mut self, offset: usize) {
+        self.dbg_source_offs = offset;
+    }
 
-impl std::fmt::Display for StdinError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StdinError::Interrupted => write!(f, "Input interrupted"),
-            StdinError::Eof => write!(f, "End of File"),
-            StdinError::Other(e) => write!(f, "{e}"),
+    pub fn dbg_print_bt(&mut self) {
+        // try captured (innermost) first; else fall back to asking live VM
+        let frames = self
+            .vm
+            .take_last_bt()
+            .unwrap_or_else(|| <Vm as DebugHost>::bt_frames(&self.vm));
+        let di = &self.vm.debug_info;
+        for (loc, name) in frames {
+            eprint!("{}", wqdb::format_frame(di, loc, &name));
         }
     }
-}
 
-impl std::error::Error for StdinError {}
-
-pub trait ReplStdin: Send {
-    fn readline(&mut self, prompt: &str) -> Result<String, StdinError>;
-    fn add_history(&mut self, _line: &str) {}
-}
-
-pub static STDIN: Lazy<Mutex<Option<Box<dyn ReplStdin>>>> = Lazy::new(|| Mutex::new(None));
-
-pub fn set_stdin(reader: Box<dyn ReplStdin>) {
-    *STDIN.lock().unwrap() = Some(reader);
-}
-
-pub fn stdin_readline(prompt: &str) -> Result<String, StdinError> {
-    let mut guard = STDIN.lock().unwrap();
-    if let Some(r) = guard.as_mut() {
-        r.readline(prompt)
-    } else {
-        Err(StdinError::Other("Stdin not initialized".into()))
+    /// Reset REPL session state: clear environment and virtual debug sources
+    pub fn reset_session(&mut self) {
+        self.environment_mut().clear();
+        self.vm.debug_info = wqdb::DebugInfo::default();
+        self.vm.wqdb = wqdb::Wqdb::default();
     }
 }
 
-pub fn stdin_add_history(line: &str) {
-    if let Some(r) = STDIN.lock().unwrap().as_mut() {
-        r.add_history(line);
-    }
-}
-
-pub trait ReplStdout: Send {
-    fn print(&mut self, s: &str);
-    fn println(&mut self, s: &str);
-}
-
-pub static STDOUT: Lazy<Mutex<Option<Box<dyn ReplStdout>>>> = Lazy::new(|| Mutex::new(None));
-
-pub fn set_stdout(writer: Option<Box<dyn ReplStdout>>) {
-    *STDOUT.lock().unwrap() = writer;
-}
-
-pub fn stdout_print(s: &str) {
-    if let Some(w) = STDOUT.lock().unwrap().as_mut() {
-        w.print(s);
-    } else {
-        use std::io::{Write, stdout};
-        print!("{s}");
-        let _ = stdout().flush();
-    }
-}
-
-pub fn stdout_println(s: &str) {
-    if let Some(w) = STDOUT.lock().unwrap().as_mut() {
-        w.println(s);
-    } else {
-        println!("{s}");
-    }
-}
-
-pub trait ReplStderr: Send {
-    fn eprint(&mut self, s: &str);
-    fn eprintln(&mut self, s: &str);
-}
-
-pub static STDERR: Lazy<Mutex<Option<Box<dyn ReplStderr>>>> = Lazy::new(|| Mutex::new(None));
-
-pub fn set_stderr(writer: Option<Box<dyn ReplStderr>>) {
-    *STDERR.lock().unwrap() = writer;
-}
-
-pub fn stderr_print(s: &str) {
-    if let Some(w) = STDERR.lock().unwrap().as_mut() {
-        w.eprint(s);
-    } else {
-        use std::io::{Write, stderr};
-        print!("{s}");
-        let _ = stderr().flush();
-    }
-}
-
-pub fn stderr_println(s: &str) {
-    if let Some(w) = STDERR.lock().unwrap().as_mut() {
-        w.eprintln(s);
-    } else {
-        eprintln!("{s}");
-    }
+/// REPL pause hook: run the interactive wqdb shell
+fn repl_on_pause(host: &mut dyn DebugHost) {
+    wqdb_shell::wqdb_shell(host);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::{Value, WqError};
+    use crate::value::Value;
 
     #[test]
     fn undefined_variable_errors() {
@@ -374,8 +420,8 @@ mod tests {
     fn builtin_arg_order_preserved() {
         let mut eval = VmEvaluator::new();
         // 'take' takes (list, n) and returns first n items
-        let res = eval.eval_string("take[2;(1;2;3;4)]").unwrap();
-        assert_eq!(res, Value::IntList(vec![1, 2]));
+        let res = eval.eval_string("rg[2;4]").unwrap();
+        assert_eq!(res, Value::IntList(vec![2, 3]));
     }
 
     #[test]
@@ -410,11 +456,11 @@ mod tests {
             assert_eq!(items.len(), 2);
             match &items[1] {
                 Value::Int(code) => {
-                    assert_eq!(*code, WqError::TypeError(String::new()).code() as i64);
+                    assert_eq!(*code, WqError::DomainError(String::new()).code() as i64);
                 }
                 _ => panic!("expected error code"),
             }
-            assert!(items[0].to_string().contains("TYPE ERROR"));
+            assert!(items[0].to_string().contains("DOMAIN ERROR"));
         } else {
             panic!("expected list result");
         }

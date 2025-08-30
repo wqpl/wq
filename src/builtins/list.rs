@@ -1,95 +1,570 @@
+use std::cmp::Ordering;
+
 use super::arity_error;
 use crate::{
-    builtins::IOTA_CACHE,
-    value::{Value, WqError, WqResult},
+    builtins::INTS_CACHE,
+    value::{Value, WqResult},
+    wqerror::WqError,
 };
 // use std::cmp::Ordering;
+
+pub fn cat(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 2 {
+        return Err(arity_error("cat", "2", args.len()));
+    }
+    let left = &args[0];
+    let right = &args[1];
+
+    match (left, right) {
+        (Value::IntList(a), Value::IntList(b)) => {
+            let mut res = a.clone();
+            res.extend(b.clone());
+            Ok(Value::IntList(res))
+        }
+        (Value::IntList(a), Value::Int(bv)) => {
+            let mut res = a.clone();
+            res.push(*bv);
+            Ok(Value::IntList(res))
+        }
+        (Value::Int(av), Value::IntList(b)) => {
+            let mut res = Vec::with_capacity(b.len() + 1);
+            res.push(*av);
+            res.extend(b.clone());
+            Ok(Value::IntList(res))
+        }
+        (Value::IntList(a), Value::List(b)) => {
+            let mut res: Vec<Value> = a.iter().copied().map(Value::Int).collect();
+            res.extend(b.clone());
+            Ok(Value::List(res))
+        }
+        (Value::List(a), Value::IntList(b)) => {
+            let mut res = a.clone();
+            res.extend(b.iter().copied().map(Value::Int));
+            Ok(Value::List(res))
+        }
+        (Value::List(a), Value::List(b)) => {
+            let mut res = a.clone();
+            res.extend(b.clone());
+            Ok(Value::List(res))
+        }
+        (Value::List(a), b) => {
+            let mut res = a.clone();
+            res.push(b.clone());
+            Ok(Value::List(res))
+        }
+        (Value::IntList(a), b) => {
+            let mut res: Vec<Value> = a.iter().cloned().map(Value::Int).collect();
+            res.push(b.clone());
+            Ok(Value::List(res))
+        }
+        (a, Value::List(b)) => {
+            let mut res = vec![a.clone()];
+            res.extend(b.clone());
+            Ok(Value::List(res))
+        }
+        (a, Value::IntList(b)) => {
+            let mut res = Vec::with_capacity(b.len() + 1);
+            res.push(a.clone());
+            res.extend(b.iter().copied().map(Value::Int));
+            Ok(Value::List(res))
+        }
+        (Value::Int(a), Value::Int(b)) => Ok(Value::IntList(vec![*a, *b])),
+        (a, b) => Ok(Value::List(vec![a.clone(), b.clone()])),
+    }
+}
+
+pub fn count(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("count", "1", args.len()));
+    }
+    Ok(Value::Int(args[0].len() as i64))
+}
+
+fn uniform_shape_vec(v: &Value) -> Option<Vec<i64>> {
+    match v {
+        Value::IntList(items) => Some(vec![items.len() as i64]),
+        Value::List(items) => {
+            if items.is_empty() {
+                Some(vec![0])
+            } else {
+                let first = uniform_shape_vec(&items[0])?;
+                for it in &items[1..] {
+                    let s = uniform_shape_vec(it)?;
+                    if s != first {
+                        return None;
+                    }
+                }
+                let mut dims = Vec::with_capacity(first.len() + 1);
+                dims.push(items.len() as i64);
+                dims.extend(first);
+                Some(dims)
+            }
+        }
+        v if v.is_atom() => Some(vec![]),
+        _ => {
+            eprintln!("unexpected value at shape_vec {v:?}");
+            Some(vec![])
+        }
+    }
+}
+
+pub fn shape(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("shape", "1", args.len()));
+    }
+    match uniform_shape_vec(&args[0]) {
+        Some(dims) => {
+            if dims.is_empty() {
+                Ok(Value::IntList(vec![]))
+            } else if dims.len() == 1 {
+                Ok(Value::Int(dims[0]))
+            } else {
+                Ok(Value::IntList(dims))
+            }
+        }
+        None => Ok(Value::Int(args[0].len() as i64)),
+    }
+}
+
+pub fn depth(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("depth", "1", args.len()));
+    }
+
+    fn depth_of(v: &Value) -> i64 {
+        match v {
+            // Specialized flat list of ints counts as one level
+            Value::IntList(_) => 1,
+
+            // Heterogeneous or nested list
+            Value::List(items) => {
+                if items.is_empty() {
+                    1
+                } else {
+                    let mut max_child = 0i64;
+                    for it in items {
+                        let d = depth_of(it);
+                        if d > max_child {
+                            max_child = d;
+                        }
+                    }
+                    1 + max_child
+                }
+            }
+
+            // Dict: one level for the container + maximum of values
+            Value::Dict(map) => {
+                if map.is_empty() {
+                    1
+                } else {
+                    let mut max_child = 0i64;
+                    for (_, v) in map.iter() {
+                        let d = depth_of(v);
+                        if d > max_child {
+                            max_child = d;
+                        }
+                    }
+                    1 + max_child
+                }
+            }
+            // Atomic values
+            v if v.is_atom() => 0,
+
+            _ => {
+                eprintln!("Unexpected value type in depth_of: {v:?}");
+                0
+            }
+        }
+    }
+
+    Ok(Value::Int(depth_of(&args[0])))
+}
+
+pub fn is_uniform(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("uniform?", "1", args.len()));
+    }
+    let v = &args[0];
+    let res = match v {
+        Value::List(_) | Value::IntList(_) => uniform_shape_vec(v).is_some(),
+        Value::Dict(_) => false,
+        v if v.is_atom() => true,
+        _ => {
+            eprintln!("unexpected value at is_uniform");
+            true
+        }
+    };
+    Ok(Value::Bool(res))
+}
+
+// pub fn alloc(args: &[Value]) -> WqResult<Value> {
+//     if args.len() != 1 {
+//         return Err(arity_error("alloc", "1", args.len()));
+//     }
+
+//     fn alloc_dims(dims: &[usize]) -> Value {
+//         if dims.len() == 1 {
+//             Value::IntList(vec![0; dims[0]])
+//         } else {
+//             let mut out = Vec::with_capacity(dims[0]);
+//             for _ in 0..dims[0] {
+//                 out.push(alloc_dims(&dims[1..]));
+//             }
+//             Value::List(out)
+//         }
+//     }
+
+//     fn alloc_shape(shape: &Value) -> WqResult<Value> {
+//         match shape {
+//             Value::Int(n) => {
+//                 if *n < 0 {
+//                     Err(WqError::DomainError("`alloc`: negative length".to_string()))
+//                 } else {
+//                     Ok(Value::IntList(vec![0; *n as usize]))
+//                 }
+//             }
+//             Value::IntList(dims) => {
+//                 if dims.iter().any(|&d| d < 0) {
+//                     return Err(WqError::DomainError("`alloc`: negative length".to_string()));
+//                 }
+//                 let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
+//                 Ok(alloc_dims(&dims))
+//             }
+//             Value::List(items) => {
+//                 if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
+//                     let dims: Vec<usize> = items
+//                         .iter()
+//                         .map(|v| {
+//                             if let Value::Int(n) = v {
+//                                 *n as usize
+//                             } else {
+//                                 unreachable!()
+//                             }
+//                         })
+//                         .collect();
+//                     Ok(alloc_dims(&dims))
+//                 } else {
+//                     let mut out = Vec::with_capacity(items.len());
+//                     for v in items {
+//                         out.push(alloc_shape(v)?);
+//                     }
+//                     Ok(Value::List(out))
+//                 }
+//             }
+//             _ => Err(WqError::DomainError(format!(
+//                 "`alloc`: invalid shape, expected int or list, got {}",
+//                 shape.type_name_verbose()
+//             ))),
+//         }
+//     }
+//     alloc_shape(&args[0])
+// }
+
+// pub fn iota(args: &[Value]) -> WqResult<Value> {
+//     if args.len() != 1 {
+//         return Err(arity_error("iota", "1", args.len()));
+//     }
+
+//     fn iota_dims(dims: &[usize], next: &mut i64) -> Value {
+//         if dims.is_empty() {
+//             Value::IntList(Vec::new())
+//         } else if dims.len() == 1 {
+//             let mut out = Vec::with_capacity(dims[0]);
+//             for _ in 0..dims[0] {
+//                 out.push(*next);
+//                 *next += 1;
+//             }
+//             Value::IntList(out)
+//         } else {
+//             let mut out = Vec::with_capacity(dims[0]);
+//             for _ in 0..dims[0] {
+//                 out.push(iota_dims(&dims[1..], next));
+//             }
+//             Value::List(out)
+//         }
+//     }
+
+//     fn iota_shape(shape: &Value) -> WqResult<Value> {
+//         match shape {
+//             Value::Int(n) => {
+//                 if *n < 0 {
+//                     Err(WqError::DomainError("`iota`: negative shape".into()))
+//                 } else {
+//                     let mut cache = IOTA_CACHE.lock().unwrap();
+//                     if let Some(v) = cache.get(n) {
+//                         return Ok(v.clone());
+//                     }
+//                     let items: Vec<i64> = (0..*n).collect();
+//                     let val = Value::IntList(items);
+//                     cache.insert(*n, val.clone());
+//                     Ok(val)
+//                 }
+//             }
+//             Value::IntList(dims) => {
+//                 if dims.iter().any(|&d| d < 0) {
+//                     return Err(WqError::DomainError("`iota`: negative shape".to_string()));
+//                 }
+//                 if dims.is_empty() {
+//                     return Ok(Value::Int(0));
+//                 }
+//                 let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
+//                 let mut next = 0i64;
+//                 Ok(iota_dims(&dims, &mut next))
+//             }
+//             Value::List(items) => {
+//                 if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
+//                     if items.is_empty() {
+//                         Ok(Value::Int(0))
+//                     } else {
+//                         let dims: Vec<usize> = items
+//                             .iter()
+//                             .map(|v| {
+//                                 if let Value::Int(n) = v {
+//                                     *n as usize
+//                                 } else {
+//                                     unreachable!()
+//                                 }
+//                             })
+//                             .collect();
+//                         let mut next = 0i64;
+//                         Ok(iota_dims(&dims, &mut next))
+//                     }
+//                 } else {
+//                     let mut out = Vec::with_capacity(items.len());
+//                     for v in items {
+//                         out.push(iota_shape(v)?);
+//                     }
+//                     Ok(Value::List(out))
+//                 }
+//             }
+//             _ => Err(WqError::DomainError(format!(
+//                 "`iota`: invalid shape, expected int or list, got {}",
+//                 shape.type_name_verbose()
+//             ))),
+//         }
+//     }
+//     iota_shape(&args[0])
+// }
+
+fn parse_shape_dims(shape: &Value, fname: &str) -> WqResult<Vec<usize>> {
+    match shape {
+        Value::Int(n) => {
+            if *n < 0 {
+                Err(WqError::DomainError(format!("`{fname}`: negative length")))
+            } else {
+                Ok(vec![*n as usize])
+            }
+        }
+        Value::IntList(dims) => {
+            if dims.iter().any(|&d| d < 0) {
+                Err(WqError::DomainError(format!("`{fname}`: negative length")))
+            } else {
+                Ok(dims.iter().map(|&d| d as usize).collect())
+            }
+        }
+        Value::List(items) => {
+            if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
+                Ok(items
+                    .iter()
+                    .map(|v| {
+                        if let Value::Int(n) = v {
+                            *n as usize
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect())
+            } else {
+                Err(WqError::DomainError(format!(
+                    "`{fname}`: shape must be a rank-1 list of non-negative ints (or an int)"
+                )))
+            }
+        }
+        _ => Err(WqError::DomainError(format!(
+            "`{fname}`: invalid shape, expected int or rank-1 list of ints, got {}",
+            shape.type_name_verbose()
+        ))),
+    }
+}
+
+// fn product(dims: &[usize]) -> usize {
+//     dims.iter()
+//         .copied()
+//         .fold(1usize, |a, b| a.saturating_mul(b))
+// }
+
+fn build_array_from_dims<F>(dims: &[usize], next: &mut F) -> Value
+where
+    F: FnMut() -> Value,
+{
+    match dims.len() {
+        0 => next(),
+        1 => {
+            let n = dims[0];
+            if n == 0 {
+                return Value::IntList(vec![]);
+            }
+            let mut tmp: Vec<Value> = Vec::with_capacity(n);
+            let mut all_int = true;
+            for _ in 0..n {
+                let v = next();
+                if !matches!(v, Value::Int(_)) {
+                    all_int = false;
+                }
+                tmp.push(v);
+            }
+            if all_int {
+                Value::IntList(
+                    tmp.into_iter()
+                        .map(|v| {
+                            if let Value::Int(i) = v {
+                                i
+                            } else {
+                                unreachable!()
+                            }
+                        })
+                        .collect(),
+                )
+            } else {
+                Value::List(tmp)
+            }
+        }
+        _ => {
+            let m = dims[0];
+            let mut out = Vec::with_capacity(m);
+            for _ in 0..m {
+                out.push(build_array_from_dims(&dims[1..], next));
+            }
+            Value::List(out)
+        }
+    }
+}
+
+fn ravel_atoms(v: &Value, out: &mut Vec<Value>) {
+    match v {
+        Value::Int(_) => out.push(v.clone()),
+        Value::IntList(xs) => {
+            for &i in xs {
+                out.push(Value::Int(i));
+            }
+        }
+        Value::List(items) => {
+            for it in items {
+                ravel_atoms(it, out);
+            }
+        }
+        vv if vv.is_atom() => out.push(vv.clone()),
+        _ => out.push(v.clone()),
+    }
+}
+
+pub fn alloc(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("alloc", "1", args.len()));
+    }
+    let dims = parse_shape_dims(&args[0], "alloc")?;
+    let mut generator = || Value::Int(0);
+    Ok(build_array_from_dims(&dims, &mut generator))
+}
+
+pub fn ints(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("ints", "1", args.len()));
+    }
+
+    if let Value::Int(n) = args[0] {
+        if n < 0 {
+            return Err(WqError::DomainError("`ints`: negative shape".into()));
+        }
+        let mut cache = INTS_CACHE.lock().unwrap();
+        if let Some(v) = cache.get(&n) {
+            return Ok(v.clone());
+        }
+        let val = Value::IntList((0..n).collect());
+        cache.insert(n, val.clone());
+        return Ok(val);
+    }
+
+    let dims = parse_shape_dims(&args[0], "ints")?;
+    if dims.is_empty() {
+        return Ok(Value::Int(0));
+    }
+
+    let mut next = 0i64;
+    let mut generator = || {
+        let v = Value::Int(next);
+        next += 1;
+        v
+    };
+    Ok(build_array_from_dims(&dims, &mut generator))
+}
 
 pub fn iota(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(arity_error("iota", "1", args.len()));
     }
 
-    fn iota_dims(dims: &[usize], next: &mut i64) -> Value {
-        if dims.is_empty() {
-            Value::IntList(Vec::new())
-        } else if dims.len() == 1 {
-            let mut out = Vec::with_capacity(dims[0]);
-            for _ in 0..dims[0] {
-                out.push(*next);
-                *next += 1;
+    match &args[0] {
+        // 1D case: simple range 0..n-1
+        Value::Int(n) => {
+            if *n < 0 {
+                Err(WqError::DomainError("`iota`: negative length".into()))
+            } else {
+                Ok(Value::IntList((0..*n).collect()))
             }
-            Value::IntList(out)
-        } else {
-            let mut out = Vec::with_capacity(dims[0]);
-            for _ in 0..dims[0] {
-                out.push(iota_dims(&dims[1..], next));
-            }
-            Value::List(out)
         }
-    }
-
-    fn iota_shape(shape: &Value) -> WqResult<Value> {
-        match shape {
-            Value::Int(n) => {
-                if *n < 0 {
-                    Err(WqError::DomainError("`iota`: negative shape".into()))
-                } else {
-                    let mut cache = IOTA_CACHE.lock().unwrap();
-                    if let Some(v) = cache.get(n) {
-                        return Ok(v.clone());
-                    }
-                    let items: Vec<i64> = (0..*n).collect();
-                    let val = Value::IntList(items);
-                    cache.insert(*n, val.clone());
-                    Ok(val)
-                }
-            }
-            Value::IntList(dims) => {
-                if dims.iter().any(|&d| d < 0) {
-                    return Err(WqError::DomainError("`iota`: negative shape".to_string()));
-                }
+        // Multidimensional: nested grid of coordinate vectors, shaped by dims
+        _ => {
+            fn build_coords(dims: &[usize], prefix: &mut Vec<i64>) -> Value {
                 if dims.is_empty() {
-                    return Ok(Value::Int(0));
+                    return Value::IntList(prefix.clone());
                 }
-                let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
-                let mut next = 0i64;
-                Ok(iota_dims(&dims, &mut next))
-            }
-            Value::List(items) => {
-                if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
-                    if items.is_empty() {
-                        Ok(Value::Int(0))
-                    } else {
-                        let dims: Vec<usize> = items
-                            .iter()
-                            .map(|v| {
-                                if let Value::Int(n) = v {
-                                    *n as usize
-                                } else {
-                                    unreachable!()
-                                }
-                            })
-                            .collect();
-                        let mut next = 0i64;
-                        Ok(iota_dims(&dims, &mut next))
-                    }
-                } else {
-                    let mut out = Vec::with_capacity(items.len());
-                    for v in items {
-                        out.push(iota_shape(v)?);
-                    }
-                    Ok(Value::List(out))
+                let n = dims[0];
+                let mut out = Vec::with_capacity(n);
+                for i in 0..n {
+                    prefix.push(i as i64);
+                    out.push(build_coords(&dims[1..], prefix));
+                    prefix.pop();
                 }
+                Value::List(out)
             }
-            _ => Err(WqError::TypeError(format!(
-                "`iota`: invalid shape, expected int or list, got {}",
-                shape.type_name_verbose()
-            ))),
+
+            let dims = parse_shape_dims(&args[0], "iota")?;
+            if dims.is_empty() {
+                // Preserve existing behavior for empty shape
+                return Ok(Value::IntList(vec![]));
+            }
+            let mut prefix = Vec::<i64>::with_capacity(dims.len());
+            Ok(build_coords(&dims, &mut prefix))
         }
     }
+}
 
-    iota_shape(&args[0])
+pub fn reshape(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 2 {
+        return Err(arity_error("reshape", "2", args.len()));
+    }
+    let dims = parse_shape_dims(&args[0], "reshape")?;
+
+    let mut pool = Vec::<Value>::new();
+    ravel_atoms(&args[1], &mut pool);
+
+    if pool.is_empty() {
+        let mut generator = || Value::Int(0);
+        return Ok(build_array_from_dims(&dims, &mut generator));
+    }
+
+    let n = pool.len();
+    let mut i = 0usize;
+    let mut generator = || {
+        let v = pool[i].clone();
+        i += 1;
+        if i == n {
+            i = 0;
+        }
+        v
+    };
+    Ok(build_array_from_dims(&dims, &mut generator))
 }
 
 pub fn range(args: &[Value]) -> WqResult<Value> {
@@ -101,7 +576,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
     let start = match &args[0] {
         Value::Int(n) => *n,
         _ => {
-            return Err(WqError::TypeError(format!(
+            return Err(WqError::DomainError(format!(
                 "`rg`: invalid start, expected int, got {}",
                 args[0].type_name_verbose()
             )));
@@ -111,7 +586,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
     let end = match &args[1] {
         Value::Int(n) => *n,
         _ => {
-            return Err(WqError::TypeError(format!(
+            return Err(WqError::DomainError(format!(
                 "`rg`: invalid end, expected int, got {}",
                 args[1].type_name_verbose()
             )));
@@ -122,7 +597,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
         match &args[2] {
             Value::Int(n) => *n,
             _ => {
-                return Err(WqError::TypeError(format!(
+                return Err(WqError::DomainError(format!(
                     "`rg`: invalid step, expected int, got {}",
                     args[2].type_name_verbose()
                 )));
@@ -151,13 +626,6 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
     }
 
     Ok(Value::IntList(items))
-}
-
-pub fn count(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("count", "1", args.len()));
-    }
-    Ok(Value::Int(args[0].len() as i64))
 }
 
 // pub fn fst(args: &[Value]) -> WqResult<Value> {
@@ -227,289 +695,88 @@ pub fn reverse(args: &[Value]) -> WqResult<Value> {
             reversed.reverse();
             Ok(Value::IntList(reversed))
         }
-        _ => Err(WqError::TypeError(format!(
+        _ => Err(WqError::DomainError(format!(
             "`reverse`: expected list at arg0, got {}",
             args[0].type_name_verbose()
         ))),
     }
 }
 
-// pub fn sum(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 1 {
-//         return Err(arity_error("sum", "1", args.len()));
-//     }
-//     match &args[0] {
-//         Value::List(items) => {
-//             if items.is_empty() {
-//                 return Ok(Value::Int(0));
-//             }
-//             let mut result = items[0].clone();
-//             for item in items.iter().skip(1) {
-//                 result = result.add(item).ok_or_else(|| {
-//                     WqError::TypeError("`sum`: cannot compute sum of provided list".to_string())
-//                 })?;
-//             }
-//             Ok(result)
-//         }
-//         Value::IntList(items) => {
-//             if items.is_empty() {
-//                 return Ok(Value::Int(0));
-//             }
-//             let sum: i64 = items.iter().sum();
-//             Ok(Value::Int(sum))
-//         }
-//         _ => Ok(args[0].clone()),
-//     }
-// }
-
-// pub fn max(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 1 {
-//         return Err(arity_error("max", "1", args.len()));
-//     }
-//     match &args[0] {
-//         Value::List(items) => {
-//             if items.is_empty() {
-//                 return Ok(Value::Null);
-//             }
-//             let mut result = &items[0];
-//             for item in items.iter().skip(1) {
-//                 match (result, item) {
-//                     (Value::Int(a), Value::Int(b)) => {
-//                         if b > a {
-//                             result = item;
-//                         }
-//                     }
-//                     (Value::Float(a), Value::Float(b)) => {
-//                         if b > a {
-//                             result = item;
-//                         }
-//                     }
-//                     (Value::Int(a), Value::Float(b)) => {
-//                         if *b > *a as f64 {
-//                             result = item;
-//                         }
-//                     }
-//                     (Value::Float(a), Value::Int(b)) => {
-//                         if *b as f64 > *a {
-//                             result = item;
-//                         }
-//                     }
-//                     _ => {
-//                         return Err(WqError::TypeError(
-//                             "`max`: cannot compare provided types".to_string(),
-//                         ));
-//                     }
-//                 }
-//             }
-//             Ok(result.clone())
-//         }
-//         Value::IntList(items) => {
-//             if items.is_empty() {
-//                 return Ok(Value::Null);
-//             }
-//             let max = items.iter().max().cloned().unwrap();
-//             Ok(Value::Int(max))
-//         }
-//         _ => Ok(args[0].clone()),
-//     }
-// }
-
-// pub fn min(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 1 {
-//         return Err(arity_error("min", "1", args.len()));
-//     }
-//     match &args[0] {
-//         Value::List(items) => {
-//             if items.is_empty() {
-//                 return Ok(Value::Null);
-//             }
-//             let mut result = &items[0];
-//             for item in items.iter().skip(1) {
-//                 match (result, item) {
-//                     (Value::Int(a), Value::Int(b)) => {
-//                         if b < a {
-//                             result = item;
-//                         }
-//                     }
-//                     (Value::Float(a), Value::Float(b)) => {
-//                         if b < a {
-//                             result = item;
-//                         }
-//                     }
-//                     (Value::Int(a), Value::Float(b)) => {
-//                         if *b < *a as f64 {
-//                             result = item;
-//                         }
-//                     }
-//                     (Value::Float(a), Value::Int(b)) => {
-//                         if (*b as f64) < *a {
-//                             result = item;
-//                         }
-//                     }
-//                     _ => {
-//                         return Err(WqError::TypeError(
-//                             "`min`: cannot compare provided types".to_string(),
-//                         ));
-//                     }
-//                 }
-//             }
-//             Ok(result.clone())
-//         }
-//         Value::IntList(items) => {
-//             if items.is_empty() {
-//                 return Ok(Value::Null);
-//             }
-//             let min = items.iter().min().cloned().unwrap();
-//             Ok(Value::Int(min))
-//         }
-//         _ => Ok(args[0].clone()),
-//     }
-// }
-
-// pub fn avg(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 1 {
-//         return Err(arity_error("avg", "1", args.len()));
-//     }
-//     match &args[0] {
-//         Value::List(items) => {
-//             if items.is_empty() {
-//                 return Ok(Value::Null);
-//             }
-//             let sum_result = sum(args)?;
-//             let count = items.len() as f64;
-//             match sum_result {
-//                 Value::Int(n) => Ok(Value::Float(n as f64 / count)),
-//                 Value::Float(f) => Ok(Value::Float(f / count)),
-//                 _ => Err(WqError::TypeError(
-//                     "`avg`: cannot compute average of provided list".to_string(),
-//                 )),
-//             }
-//         }
-//         Value::IntList(items) => {
-//             if items.is_empty() {
-//                 return Ok(Value::Null);
-//             }
-//             let sum: i64 = items.iter().sum();
-//             let count = items.len() as f64;
-//             Ok(Value::Float(sum as f64 / count))
-//         }
-//         _ => Ok(args[0].clone()),
-//     }
-// }
-
-// pub fn take(args: &[Value]) -> WqResult<Value> {
-//     if args.len() == 1 {
-//         let tmp = [Value::Int(1), args[0].clone()];
-//         return take(&tmp);
-//     }
-//     if args.len() != 2 {
-//         return Err(arity_error("take", "1 or 2", args.len()));
-//     }
-//     match (&args[0], &args[1]) {
-//         (Value::Int(n), Value::List(items)) => {
-//             let n = *n as usize;
-//             if n >= items.len() {
-//                 Ok(Value::List(items.clone()))
-//             } else {
-//                 let mut result = Vec::with_capacity(n);
-//                 for item in items.iter().take(n) {
-//                     result.push(item.clone());
-//                 }
-//                 Ok(Value::List(result))
-//             }
-//         }
-//         (Value::Int(n), Value::IntList(items)) => {
-//             let n = *n as usize;
-//             if n >= items.len() {
-//                 Ok(Value::IntList(items.clone()))
-//             } else {
-//                 let mut result = Vec::with_capacity(n);
-//                 for &item in items.iter().take(n) {
-//                     result.push(item);
-//                 }
-//                 Ok(Value::IntList(result))
-//             }
-//         }
-//         _ => Err(WqError::TypeError(format!(
-//             "`take`: expected int and list, got {} and {}",
-//             &args[0].type_name_verbose(),
-//             &args[1].type_name_verbose()
-//         ))),
-//     }
-// }
-
-// pub fn drop(args: &[Value]) -> WqResult<Value> {
-//     if args.len() == 1 {
-//         let tmp = [Value::Int(1), args[0].clone()];
-//         return drop(&tmp);
-//     }
-//     if args.len() != 2 {
-//         return Err(arity_error("drop", "1 or 2", args.len()));
-//     }
-//     match (&args[0], &args[1]) {
-//         (Value::Int(n), Value::List(items)) => {
-//             let n = *n as usize;
-//             if n >= items.len() {
-//                 Ok(Value::List(Vec::new()))
-//             } else {
-//                 let remaining = items.len() - n;
-//                 let mut result = Vec::with_capacity(remaining);
-//                 for item in items.iter().skip(n) {
-//                     result.push(item.clone());
-//                 }
-//                 Ok(Value::List(result))
-//             }
-//         }
-//         (Value::Int(n), Value::IntList(items)) => {
-//             let n = *n as usize;
-//             if n >= items.len() {
-//                 Ok(Value::IntList(Vec::new()))
-//             } else {
-//                 let remaining = items.len() - n;
-//                 let mut result = Vec::with_capacity(remaining);
-//                 for &item in items.iter().skip(n) {
-//                     result.push(item);
-//                 }
-//                 Ok(Value::IntList(result))
-//             }
-//         }
-//         _ => Err(WqError::TypeError(format!(
-//             "`drop`: expected int and list, got {} and {}",
-//             &args[0].type_name_verbose(),
-//             &args[1].type_name_verbose()
-//         ))),
-//     }
-// }
-
 pub fn wq_where(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(arity_error("where", "1", args.len()));
     }
-    match &args[0] {
-        Value::List(items) => {
-            let mut indices = Vec::new();
-            for (i, item) in items.iter().enumerate() {
-                match item {
-                    Value::Int(n) => {
-                        if *n != 0 {
-                            indices.push(Value::Int(i as i64));
-                        }
-                    }
-                    Value::Bool(b) => {
-                        if *b {
-                            indices.push(Value::Int(i as i64));
-                        }
-                    }
-                    _ => {
-                        return Err(WqError::TypeError(format!(
-                            "`where`: expected provided list to contain (only ints) or (only bools), got {} in the list",
-                            item.type_name_verbose()
-                        )));
-                    }
+
+    // Helper used by the nested collector: emit Int for length-1 paths, IntList otherwise.
+    fn push_coord(out: &mut Vec<Value>, coord: Vec<i64>) {
+        if coord.len() == 1 {
+            out.push(Value::Int(coord[0]));
+        } else {
+            out.push(Value::IntList(coord));
+        }
+    }
+
+    // Helper: flat 1D case (list of ints/bools or IntList).
+    fn where_1d_list(items: &[Value]) -> WqResult<Value> {
+        let mut indices = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            match item {
+                Value::Int(n) if *n != 0 => indices.push(Value::Int(i as i64)),
+                Value::Bool(b) if *b => indices.push(Value::Int(i as i64)),
+                Value::Int(_) | Value::Bool(_) => {}
+                _ => {
+                    return Err(WqError::DomainError(format!(
+                        "`where`: expected T, where T is list of (int, bool or T), got {} in list",
+                        item.type_name_verbose()
+                    )));
                 }
             }
-            Ok(Value::List(indices))
         }
+        Ok(Value::List(indices))
+    }
+
+    // Recursively collect coordinates. Single-index paths become Int atoms.
+    fn collect_coords(v: &Value, prefix: &mut Vec<i64>, out: &mut Vec<Value>) -> WqResult<()> {
+        match v {
+            Value::List(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    prefix.push(i as i64);
+                    collect_coords(item, prefix, out)?;
+                    prefix.pop();
+                }
+                Ok(())
+            }
+            Value::IntList(items) => {
+                for (i, &n) in items.iter().enumerate() {
+                    if n != 0 {
+                        let mut coord = prefix.clone();
+                        coord.push(i as i64);
+                        push_coord(out, coord);
+                    }
+                }
+                Ok(())
+            }
+            Value::Int(n) => {
+                if *n != 0 {
+                    push_coord(out, prefix.clone());
+                }
+                Ok(())
+            }
+            Value::Bool(b) => {
+                if *b {
+                    push_coord(out, prefix.clone());
+                }
+                Ok(())
+            }
+            _ => Err(WqError::DomainError(format!(
+                "`where`: expected T, where T is list of (int, bool or T), got {} in list",
+                v.type_name_verbose()
+            ))),
+        }
+    }
+
+    match &args[0] {
+        // Flat vector of ints -> indices as list of ints
         Value::IntList(items) => {
             let mut indices = Vec::new();
             for (i, n) in items.iter().enumerate() {
@@ -519,148 +786,24 @@ pub fn wq_where(args: &[Value]) -> WqResult<Value> {
             }
             Ok(Value::List(indices))
         }
-        _ => Err(WqError::TypeError(format!(
-            "`where`: expected list, got {}",
+        // Generic list: nested -> coordinate vectors (with atom for length-1), else flat ints/bools.
+        Value::List(items) => {
+            let has_nested = items
+                .iter()
+                .any(|x| matches!(x, Value::List(_) | Value::IntList(_)));
+            if has_nested {
+                let mut out = Vec::new();
+                let mut pref = Vec::new();
+                collect_coords(&args[0], &mut pref, &mut out)?;
+                Ok(Value::List(out))
+            } else {
+                where_1d_list(items)
+            }
+        }
+        _ => Err(WqError::DomainError(format!(
+            "`where`: expected T, where T is list of (int, bool or T), got {}",
             args[0].type_name_verbose()
         ))),
-    }
-}
-
-// pub fn distinct(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 1 {
-//         return Err(arity_error("distinct", "1", args.len()));
-//     }
-//     match &args[0] {
-//         Value::List(items) => {
-//             let mut seen = Vec::new();
-//             for item in items {
-//                 if !seen.contains(item) {
-//                     seen.push(item.clone());
-//                 }
-//             }
-//             Ok(Value::List(seen))
-//         }
-//         Value::IntList(items) => {
-//             let mut seen: Vec<i64> = Vec::new();
-//             for &x in items {
-//                 if !seen.contains(&x) {
-//                     seen.push(x);
-//                 }
-//             }
-//             Ok(Value::IntList(seen))
-//         }
-//         _ => Err(WqError::TypeError(format!(
-//             "`distinct`: expected list, got {}",
-//             args[0].type_name_verbose()
-//         ))),
-//     }
-// }
-
-// pub fn sort(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 1 {
-//         return Err(arity_error("sort", "1", args.len()));
-//     }
-//     match &args[0] {
-//         Value::List(items) => {
-//             let mut sorted = items.clone();
-//             sorted.sort_by(|a, b| match (a, b) {
-//                 (Value::Int(x), Value::Int(y)) => x.cmp(y),
-//                 (Value::Float(x), Value::Float(y)) => {
-//                     x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
-//                 }
-//                 (Value::Int(x), Value::Float(y)) => (*x as f64)
-//                     .partial_cmp(y)
-//                     .unwrap_or(std::cmp::Ordering::Equal),
-//                 (Value::Float(x), Value::Int(y)) => x
-//                     .partial_cmp(&(*y as f64))
-//                     .unwrap_or(std::cmp::Ordering::Equal),
-//                 (Value::Char(x), Value::Char(y)) => x.cmp(y),
-//                 (Value::Char(x), Value::Int(y)) => (*x as i64).cmp(y),
-//                 (Value::Int(x), Value::Char(y)) => x.cmp(&(*y as i64)),
-//                 (Value::Char(x), Value::Float(y)) => ((*x as u8) as f64)
-//                     .partial_cmp(y)
-//                     .unwrap_or(Ordering::Equal),
-//                 (Value::Float(x), Value::Char(y)) => x
-//                     .partial_cmp(&((*y as u8) as f64))
-//                     .unwrap_or(Ordering::Equal),
-//                 _ => std::cmp::Ordering::Equal,
-//             });
-//             Ok(Value::List(sorted))
-//         }
-//         Value::IntList(items) => {
-//             let mut sorted = items.clone();
-//             sorted.sort();
-//             Ok(Value::IntList(sorted))
-//         }
-//         _ => Err(WqError::TypeError(format!(
-//             "`sort`: expected list, got {}",
-//             args[0].type_name_verbose()
-//         ))),
-//     }
-// }
-
-pub fn cat(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 2 {
-        return Err(arity_error("cat", "2", args.len()));
-    }
-    let left = &args[0];
-    let right = &args[1];
-
-    match (left, right) {
-        (Value::IntList(a), Value::IntList(b)) => {
-            let mut res = a.clone();
-            res.extend(b.clone());
-            Ok(Value::IntList(res))
-        }
-        (Value::IntList(a), Value::Int(bv)) => {
-            let mut res = a.clone();
-            res.push(*bv);
-            Ok(Value::IntList(res))
-        }
-        (Value::Int(av), Value::IntList(b)) => {
-            let mut res = Vec::with_capacity(b.len() + 1);
-            res.push(*av);
-            res.extend(b.clone());
-            Ok(Value::IntList(res))
-        }
-        (Value::IntList(a), Value::List(b)) => {
-            let mut res: Vec<Value> = a.iter().copied().map(Value::Int).collect();
-            res.extend(b.clone());
-            Ok(Value::List(res))
-        }
-        (Value::List(a), Value::IntList(b)) => {
-            let mut res = a.clone();
-            res.extend(b.iter().copied().map(Value::Int));
-            Ok(Value::List(res))
-        }
-        (Value::List(a), Value::List(b)) => {
-            let mut res = a.clone();
-            res.extend(b.clone());
-            Ok(Value::List(res))
-        }
-        (Value::List(a), b) => {
-            let mut res = a.clone();
-            res.push(b.clone());
-            Ok(Value::List(res))
-        }
-        (Value::IntList(a), b) => {
-            let mut res: Vec<Value> = a.iter().cloned().map(Value::Int).collect();
-            res.push(b.clone());
-            Ok(Value::List(res))
-        }
-        (a, Value::List(b)) => {
-            let mut res = vec![a.clone()];
-            res.extend(b.clone());
-            Ok(Value::List(res))
-        }
-        (a, Value::IntList(b)) => {
-            let mut res = Vec::with_capacity(b.len() + 1);
-            res.push(a.clone());
-            res.extend(b.iter().copied().map(Value::Int));
-            Ok(Value::List(res))
-        }
-        (Value::Int(a), Value::Int(b)) => Ok(Value::IntList(vec![*a, *b])),
-        (a, b) => Ok(Value::List(vec![a.clone(), b.clone()])),
     }
 }
 
@@ -690,210 +833,74 @@ pub fn flatten(args: &[Value]) -> WqResult<Value> {
     Ok(Value::List(result))
 }
 
-pub fn alloc(args: &[Value]) -> WqResult<Value> {
+pub fn sort(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("alloc", "1", args.len()));
+        return Err(arity_error("sort", "1", args.len()));
     }
-
-    fn alloc_dims(dims: &[usize]) -> Value {
-        if dims.len() == 1 {
-            Value::IntList(vec![0; dims[0]])
-        } else {
-            let mut out = Vec::with_capacity(dims[0]);
-            for _ in 0..dims[0] {
-                out.push(alloc_dims(&dims[1..]));
-            }
-            Value::List(out)
+    let v = &args[0];
+    let res = match v {
+        Value::IntList(items) => {
+            let mut sorted = items.clone();
+            sorted.sort();
+            Value::IntList(sorted)
         }
-    }
-
-    fn alloc_shape(shape: &Value) -> WqResult<Value> {
-        match shape {
-            Value::Int(n) => {
-                if *n < 0 {
-                    Err(WqError::DomainError("`alloc`: negative length".to_string()))
-                } else {
-                    Ok(Value::IntList(vec![0; *n as usize]))
+        Value::List(items) => {
+            let mut sorted = items.clone();
+            sorted.sort_by(|a, b| {
+                if let (Some(sa), Some(sb)) = (a.try_str(), b.try_str()) {
+                    return sa.cmp(&sb);
                 }
-            }
-            Value::IntList(dims) => {
-                if dims.iter().any(|&d| d < 0) {
-                    return Err(WqError::DomainError("`alloc`: negative length".to_string()));
-                }
-                let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
-                Ok(alloc_dims(&dims))
-            }
-            Value::List(items) => {
-                if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
-                    let dims: Vec<usize> = items
-                        .iter()
-                        .map(|v| {
-                            if let Value::Int(n) = v {
-                                *n as usize
-                            } else {
-                                unreachable!()
-                            }
-                        })
-                        .collect();
-                    Ok(alloc_dims(&dims))
-                } else {
-                    let mut out = Vec::with_capacity(items.len());
-                    for v in items {
-                        out.push(alloc_shape(v)?);
+                match (a, b) {
+                    (Value::Int(x), Value::Int(y)) => x.cmp(y),
+                    (Value::Float(x), Value::Float(y)) => {
+                        x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
                     }
-                    Ok(Value::List(out))
+                    (Value::Int(x), Value::Float(y)) => (*x as f64)
+                        .partial_cmp(y)
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                    (Value::Float(x), Value::Int(y)) => x
+                        .partial_cmp(&(*y as f64))
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                    (Value::Char(x), Value::Char(y)) => x.cmp(y),
+                    (Value::Char(x), Value::Int(y)) => (*x as i64).cmp(y),
+                    (Value::Int(x), Value::Char(y)) => x.cmp(&(*y as i64)),
+                    (Value::Char(x), Value::Float(y)) => ((*x as u8) as f64)
+                        .partial_cmp(y)
+                        .unwrap_or(Ordering::Equal),
+                    (Value::Float(x), Value::Char(y)) => x
+                        .partial_cmp(&((*y as u8) as f64))
+                        .unwrap_or(Ordering::Equal),
+                    _ => std::cmp::Ordering::Equal,
                 }
-            }
-            _ => Err(WqError::TypeError(format!(
-                "`alloc`: invalid shape, expected int or list, got {}",
-                shape.type_name_verbose()
-            ))),
-        }
-    }
+            });
 
-    alloc_shape(&args[0])
+            Value::List(sorted)
+        }
+        other => other.clone(),
+    };
+    Ok(res)
 }
 
-pub fn shape(args: &[Value]) -> WqResult<Value> {
+pub fn is_intlist(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
-        return Err(arity_error("shape", "1", args.len()));
+        return Err(arity_error("intlist?", "1", args.len()));
     }
-
-    fn shape_vec(v: &Value) -> Option<Vec<i64>> {
-        match v {
-            Value::IntList(items) => Some(vec![items.len() as i64]),
-            Value::List(items) => {
-                if items.is_empty() {
-                    Some(vec![0])
-                } else {
-                    let first = shape_vec(&items[0])?;
-                    for it in &items[1..] {
-                        let s = shape_vec(it)?;
-                        if s != first {
-                            return None;
-                        }
-                    }
-                    let mut dims = Vec::with_capacity(first.len() + 1);
-                    dims.push(items.len() as i64);
-                    dims.extend(first);
-                    Some(dims)
-                }
-            }
-            _ => Some(vec![]),
-        }
-    }
-
-    match shape_vec(&args[0]) {
-        Some(dims) => {
-            if dims.is_empty() {
-                Ok(Value::IntList(vec![]))
-            } else if dims.len() == 1 {
-                Ok(Value::Int(dims[0]))
-            } else {
-                Ok(Value::IntList(dims))
-            }
-        }
-        None => Ok(Value::Int(args[0].len() as i64)),
-    }
+    let v = &args[0];
+    let res = match v {
+        Value::IntList(_) => true,
+        Value::List(items) => items.iter().all(|x| matches!(x, Value::Int(_))),
+        _ => false,
+    };
+    Ok(Value::Bool(res))
 }
-
-// pub fn idx(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 2 {
-//         return Err(arity_error("idx", "2", args.len()));
-//     }
-//     let indices = match &args[1] {
-//         Value::IntList(idxs) => idxs,
-//         _ => {
-//             return Err(WqError::TypeError(
-//                 "idx expects an integer list of indices".to_string(),
-//             ));
-//         }
-//     };
-//     let list_len = args[0].len() as i64;
-//     for &i in indices {
-//         if i < 0 || i >= list_len {
-//             return Err(WqError::IndexError("idx out of bounds".into()));
-//         }
-//     }
-//     match &args[0] {
-//         Value::IntList(items) => {
-//             let mut out = Vec::with_capacity(indices.len());
-//             for &i in indices {
-//                 out.push(items[i as usize]);
-//             }
-//             Ok(Value::IntList(out))
-//         }
-//         Value::List(items) => {
-//             let mut out = Vec::with_capacity(indices.len());
-//             for &i in indices {
-//                 out.push(items[i as usize].clone());
-//             }
-//             Ok(Value::List(out))
-//         }
-//         _ => Err(WqError::TypeError(
-//             "idx expects a list as the first arg".to_string(),
-//         )),
-//     }
-// }
-
-// pub fn wq_in(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 2 {
-//         return Err(arity_error("in", "2", args.len()));
-//     }
-//     match &args[1] {
-//         Value::List(items) => Ok(Value::Bool(items.contains(&args[0]))),
-//         Value::IntList(items) => match &args[0] {
-//             Value::Int(n) => Ok(Value::Bool(items.contains(n))),
-//             _ => Err(WqError::TypeError(
-//                 "in expects an integer when searching an integer list".to_string(),
-//             )),
-//         },
-//         _ => Err(WqError::TypeError(
-//             "in expects a list as the second arg".to_string(),
-//         )),
-//     }
-// }
-
-// pub fn find(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 2 {
-//         return Err(arity_error("find", "2", args.len()));
-//     }
-//     let target = &args[0];
-//     match &args[1] {
-//         Value::List(items) => {
-//             for (i, item) in items.iter().enumerate() {
-//                 if item == target {
-//                     return Ok(Value::Int(i as i64));
-//                 }
-//             }
-//             Ok(Value::Null)
-//         }
-//         Value::IntList(items) => match target {
-//             Value::Int(n) => {
-//                 for (i, item) in items.iter().enumerate() {
-//                     if item == n {
-//                         return Ok(Value::Int(i as i64));
-//                     }
-//                 }
-//                 Ok(Value::Null)
-//             }
-//             _ => Err(WqError::TypeError(
-//                 "find expects an integer when searching an integer list".to_string(),
-//             )),
-//         },
-//         _ => Err(WqError::TypeError(
-//             "find expects a list as the second arg".to_string(),
-//         )),
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn iota_empty_shape() {
-        assert_eq!(iota(&[Value::List(vec![])]).unwrap(), Value::Int(0));
+    fn ints_empty_shape() {
+        assert_eq!(ints(&[Value::List(vec![])]).unwrap(), Value::Int(0));
     }
 
     #[test]
@@ -905,26 +912,6 @@ mod tests {
     fn iota_zero() {
         assert_eq!(iota(&[Value::Int(0)]).unwrap(), Value::IntList(vec![]));
     }
-
-    // #[test]
-    // fn in_list_with_value() {
-    //     let lst = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
-    //     assert_eq!(
-    //         wq_in(&[Value::Int(2), lst.clone()]).unwrap(),
-    //         Value::Bool(true)
-    //     );
-    //     assert_eq!(wq_in(&[Value::Int(4), lst]).unwrap(), Value::Bool(false));
-    // }
-
-    // #[test]
-    // fn in_int_list() {
-    //     let lst = Value::IntList(vec![1, 2, 3]);
-    //     assert_eq!(
-    //         wq_in(&[Value::Int(2), lst.clone()]).unwrap(),
-    //         Value::Bool(true)
-    //     );
-    //     assert_eq!(wq_in(&[Value::Int(4), lst]).unwrap(), Value::Bool(false));
-    // }
 
     #[test]
     fn shape_and_alloc() {
@@ -938,33 +925,11 @@ mod tests {
         let mat = alloc(&[mat_shape.clone()]).unwrap();
         assert_eq!(shape(&[mat]).unwrap(), Value::IntList(vec![2, 3]));
 
-        // heterogeneous shape
-        let nested_shape = Value::List(vec![
-            Value::List(vec![Value::Int(2), Value::Int(2)]),
-            Value::Int(3),
-        ]);
-        let nested = alloc(&[nested_shape.clone()]).unwrap();
-        assert_eq!(shape(&[nested]).unwrap(), Value::Int(2));
+        // invalid shape
+        let invalid_shape = Value::List(vec![Value::List(vec![Value::Int(2), Value::Int(2)])]);
+        let invalid = alloc(&[invalid_shape.clone()]);
+        assert!(matches!(invalid, Err(WqError::DomainError(_))));
     }
-
-    // #[test]
-    // fn find_in_list() {
-    //     let lst = Value::List(vec![
-    //         Value::Int(1),
-    //         Value::Int(2),
-    //         Value::Int(3),
-    //         Value::Int(2),
-    //     ]);
-    //     assert_eq!(find(&[Value::Int(2), lst.clone()]).unwrap(), Value::Int(1));
-    //     assert_eq!(find(&[Value::Int(4), lst]).unwrap(), Value::Null);
-    // }
-
-    // #[test]
-    // fn find_in_int_list() {
-    //     let lst = Value::IntList(vec![1, 2, 3, 2]);
-    //     assert_eq!(find(&[Value::Int(2), lst.clone()]).unwrap(), Value::Int(1));
-    //     assert_eq!(find(&[Value::Int(4), lst]).unwrap(), Value::Null);
-    // }
 
     #[test]
     fn shape_atoms_and_empty() {
@@ -979,5 +944,36 @@ mod tests {
         assert_eq!(shape(&[s.clone()]).unwrap(), Value::Int(2));
         let mixed = Value::List(vec![Value::Char('h'), Value::Int(2)]);
         assert_eq!(shape(&[mixed]).unwrap(), Value::Int(2));
+    }
+
+    #[test]
+    fn where_on_nested_bool_matrix() {
+        // ((true;false;false); (false;true;false); (false;false;true))
+        let mat = Value::List(vec![
+            Value::List(vec![
+                Value::Bool(true),
+                Value::Bool(false),
+                Value::Bool(false),
+            ]),
+            Value::List(vec![
+                Value::Bool(false),
+                Value::Bool(true),
+                Value::Bool(false),
+            ]),
+            Value::List(vec![
+                Value::Bool(false),
+                Value::Bool(false),
+                Value::Bool(true),
+            ]),
+        ]);
+        let res = wq_where(&[mat]).unwrap();
+        assert_eq!(
+            res,
+            Value::List(vec![
+                Value::IntList(vec![0, 0]),
+                Value::IntList(vec![1, 1]),
+                Value::IntList(vec![2, 2]),
+            ])
+        );
     }
 }

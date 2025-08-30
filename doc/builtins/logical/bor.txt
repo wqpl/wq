@@ -1,6 +1,0 @@
-bor
-===
-bor[x;y]
-
-Examples:
-  bor[2;1] // 3

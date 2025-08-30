@@ -1,6 +1,0 @@
-xor
-===
-xor[x;y]
-
-Examples:
-  xor[true;false] // true

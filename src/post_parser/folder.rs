@@ -1,5 +1,5 @@
-use crate::parser::{AstNode, BinaryOperator, UnaryOperator};
-use crate::value::Value;
+use crate::astnode::{AstNode, BinaryOperator, UnaryOperator};
+use crate::value::{Value, WqResult};
 
 pub fn fold(node: AstNode) -> AstNode {
     use AstNode::*;
@@ -8,7 +8,7 @@ pub fn fold(node: AstNode) -> AstNode {
         UnaryOp { operator, operand } => {
             let operand = Box::new(fold(*operand));
             if let Literal(v) = operand.as_ref() {
-                if let Some(res) = eval_unary(operator.clone(), v.clone()) {
+                if let Ok(res) = eval_unary(operator.clone(), v.clone()) {
                     return Literal(res);
                 }
             }
@@ -22,7 +22,7 @@ pub fn fold(node: AstNode) -> AstNode {
             let left = Box::new(fold(*left));
             let right = Box::new(fold(*right));
             if let (Literal(lv), Literal(rv)) = (&*left, &*right) {
-                if let Some(res) = eval_binary(operator.clone(), lv.clone(), rv.clone()) {
+                if let Ok(res) = eval_binary(operator.clone(), lv.clone(), rv.clone()) {
                     return Literal(res);
                 }
             }
@@ -127,15 +127,15 @@ pub fn fold(node: AstNode) -> AstNode {
     }
 }
 
-fn eval_unary(op: UnaryOperator, val: Value) -> Option<Value> {
+fn eval_unary(op: UnaryOperator, val: Value) -> WqResult<Value> {
     use UnaryOperator::*;
     match op {
         Negate => val.neg(),
-        Count => Some(Value::Int(val.len() as i64)),
+        Count => Ok(Value::Int(val.len() as i64)),
     }
 }
 
-fn eval_binary(op: BinaryOperator, left: Value, right: Value) -> Option<Value> {
+fn eval_binary(op: BinaryOperator, left: Value, right: Value) -> WqResult<Value> {
     use BinaryOperator::*;
     match op {
         Add => left.add(&right),

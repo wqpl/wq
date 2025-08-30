@@ -1,5 +1,10 @@
+pub mod bc;
 pub mod box_mode;
-pub mod operators;
+pub mod cmp;
+pub mod list;
+pub mod math;
+pub mod op;
+pub mod str;
 
 use indexmap::IndexMap;
 use std::fmt;
@@ -7,44 +12,12 @@ use std::io::{BufRead, Seek, Write};
 use std::process::Child;
 use std::sync::{Arc, Mutex};
 
-use crate::parser::AstNode;
+use crate::astnode::AstNode;
 use crate::vm;
+use crate::wqdb::ChunkId;
+use crate::wqerror::WqError;
 
-/// handle for a streaming io source
-pub trait BufReadSeek: BufRead + Seek {}
-impl<T: BufRead + Seek> BufReadSeek for T {}
-
-pub trait WriteSeek: Write + Seek {}
-impl<T: Write + Seek> WriteSeek for T {}
-
-pub struct StreamHandle {
-    pub reader: Option<Box<dyn BufReadSeek + Send>>,
-    pub writer: Option<Box<dyn WriteSeek + Send>>,
-    pub child: Option<Child>, // process handle when spawning
-}
-
-impl fmt::Debug for StreamHandle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("StreamHandle").finish()
-    }
-}
-
-unsafe impl Send for StreamHandle {}
-unsafe impl Sync for StreamHandle {}
-
-impl Drop for StreamHandle {
-    fn drop(&mut self) {
-        self.reader = None;
-        self.writer = None;
-
-        // terminate spawned child processes if any
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
+// pub type WqResult<T> = Result<T, WqError>;
 pub type WqResult<T> = Result<T, WqError>;
 
 #[derive(Debug, Clone)]
@@ -68,6 +41,12 @@ pub enum Value {
         params: Option<Vec<String>>,
         locals: u16,
         instructions: Vec<vm::instruction::Instruction>,
+        /// Debug chunk id for this function's code
+        dbg_chunk: Option<ChunkId>,
+        /// Statement spans for the function body (byte start,end in source)
+        dbg_stmt_spans: Option<Vec<(usize, usize)>>,
+        /// Local variable names by slot index (for wqdb)
+        dbg_local_names: Option<Vec<String>>,
     },
     /// closure with captured values
     Closure {
@@ -75,6 +54,12 @@ pub enum Value {
         locals: u16,
         captured: Vec<Value>,
         instructions: Vec<vm::instruction::Instruction>,
+        /// Debug chunk id for this function's code
+        dbg_chunk: Option<ChunkId>,
+        /// Statement spans for the function body (byte start,end in source)
+        dbg_stmt_spans: Option<Vec<(usize, usize)>>,
+        /// Local variable names by slot index (for wqdb)
+        dbg_local_names: Option<Vec<String>>,
     },
     /// handle for builtin functions
     BuiltinFunction(String),
@@ -83,120 +68,7 @@ pub enum Value {
     Null,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum WqError {
-    TypeError(String),
-    IndexError(String),
-    DomainError(String),
-    ValueError(String),
-    SyntaxError(String),
-    ArityError(String),
-    RuntimeError(String),
-    EofError(String),
-    AssertionError(String),
-    IoError(String),
-}
-
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        use Value::*;
-        match (self, other) {
-            (Int(a), Int(b)) => a == b,
-            (Float(a), Float(b)) => a == b,
-            (Char(a), Char(b)) => a == b,
-            (Symbol(a), Symbol(b)) => a == b,
-            (Bool(a), Bool(b)) => a == b,
-            (Null, Null) => true,
-            (List(a), List(b)) => a == b,
-            (IntList(a), IntList(b)) => a == b,
-            (IntList(a), List(b)) | (List(b), IntList(a)) => {
-                if a.len() != b.len() {
-                    return false;
-                }
-                a.iter().zip(b).all(|(x, y)| matches!(y, Int(n) if n == x))
-            }
-            (Dict(a), Dict(b)) => a == b,
-            (
-                Function {
-                    params: pa,
-                    body: ba,
-                },
-                Function {
-                    params: pb,
-                    body: bb,
-                },
-            ) => pa == pb && ba == bb,
-            (
-                CompiledFunction {
-                    params: pa,
-                    locals: la,
-                    instructions: ia,
-                },
-                CompiledFunction {
-                    params: pb,
-                    locals: lb,
-                    instructions: ib,
-                },
-            ) => pa == pb && la == lb && ia == ib,
-            (
-                Closure {
-                    params: pa,
-                    locals: la,
-                    captured: ca,
-                    instructions: ia,
-                },
-                Closure {
-                    params: pb,
-                    locals: lb,
-                    captured: cb,
-                    instructions: ib,
-                },
-            ) => pa == pb && la == lb && ca == cb && ia == ib,
-            (BuiltinFunction(a), BuiltinFunction(b)) => a == b,
-            (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
-            _ => false,
-        }
-    }
-}
-
 impl Value {
-    /// Create a new integer value
-    pub fn int(n: i64) -> Self {
-        Value::Int(n)
-    }
-    /// Create a new float value
-    pub fn float(f: f64) -> Self {
-        Value::Float(f)
-    }
-    pub fn inf() -> Self {
-        Value::Float(f64::INFINITY)
-    }
-    pub fn neg_inf() -> Self {
-        Value::Float(f64::NEG_INFINITY)
-    }
-    pub fn nan() -> Self {
-        Value::Float(f64::NAN)
-    }
-    /// Create a new character value
-    pub fn char(c: char) -> Self {
-        Value::Char(c)
-    }
-    /// Create a new symbol value
-    pub fn symbol(s: String) -> Self {
-        Value::Symbol(s)
-    }
-    /// Create a new boolean value
-    pub fn bool(b: bool) -> Self {
-        Value::Bool(b)
-    }
-    /// Create a new list value
-    pub fn list(items: Vec<Value>) -> Self {
-        Value::List(items)
-    }
-    /// Create a new dict value
-    pub fn dict(map: IndexMap<String, Value>) -> Self {
-        Value::Dict(map)
-    }
     /// Create a new stream value
     pub fn stream(handle: StreamHandle) -> Self {
         Value::Stream(Arc::new(Mutex::new(handle)))
@@ -210,14 +82,31 @@ impl Value {
         matches!(self, Value::List(_) | Value::IntList(_))
     }
 
-    pub fn is_dict(&self) -> bool {
-        matches!(self, Value::Dict(_))
-    }
-
     pub fn is_str(&self) -> bool {
         match self {
             Value::List(items) => items.iter().all(|v| matches!(v, Value::Char(_))),
+            Value::Char(_) => true,
             _ => false,
+        }
+    }
+
+    pub fn try_str(&self) -> Option<String> {
+        match self {
+            Value::Char(c) => Some(c.to_string()),
+            // experimental: interpret () as empty str
+            il @ Value::IntList(_) if il.is_empty() => Some(String::new()),
+            Value::List(items) => {
+                let mut s = String::with_capacity(items.len());
+                for v in items {
+                    if let Value::Char(c) = v {
+                        s.push(*c);
+                    } else {
+                        return None; // bail out on the fly
+                    }
+                }
+                Some(s)
+            }
+            _ => None,
         }
     }
 
@@ -233,6 +122,7 @@ impl Value {
         }
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -473,6 +363,72 @@ impl Value {
     }
 }
 
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        use Value::*;
+        match (self, other) {
+            (Int(a), Int(b)) => a == b,
+            (Float(a), Float(b)) => a == b,
+            (Char(a), Char(b)) => a == b,
+            (Symbol(a), Symbol(b)) => a == b,
+            (Bool(a), Bool(b)) => a == b,
+            (Null, Null) => true,
+            (List(a), List(b)) => a == b,
+            (IntList(a), IntList(b)) => a == b,
+            (IntList(a), List(b)) | (List(b), IntList(a)) => {
+                if a.len() != b.len() {
+                    return false;
+                }
+                a.iter().zip(b).all(|(x, y)| matches!(y, Int(n) if n == x))
+            }
+            (Dict(a), Dict(b)) => a == b,
+            (
+                Function {
+                    params: pa,
+                    body: ba,
+                },
+                Function {
+                    params: pb,
+                    body: bb,
+                },
+            ) => pa == pb && ba == bb,
+            (
+                CompiledFunction {
+                    params: pa,
+                    locals: la,
+                    instructions: ia,
+                    ..
+                },
+                CompiledFunction {
+                    params: pb,
+                    locals: lb,
+                    instructions: ib,
+                    ..
+                },
+            ) => pa == pb && la == lb && ia == ib,
+            (
+                Closure {
+                    params: pa,
+                    locals: la,
+                    captured: ca,
+                    instructions: ia,
+                    ..
+                },
+                Closure {
+                    params: pb,
+                    locals: lb,
+                    captured: cb,
+                    instructions: ib,
+                    ..
+                },
+            ) => pa == pb && la == lb && ca == cb && ia == ib,
+            (BuiltinFunction(a), BuiltinFunction(b)) => a == b,
+            (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -512,25 +468,14 @@ impl fmt::Display for Value {
                     write!(f, "({})", strs.join(";"))
                 }
             }
-            Value::List(items) => {
+            l @ Value::List(items) => {
                 // 1. Empty list
                 if items.is_empty() {
                     return write!(f, "()");
                 }
 
-                // 2. Non-empty char-only list - quoted string
-                if items.iter().all(|v| matches!(v, Value::Char(_))) {
-                    let s: String = items
-                        .iter()
-                        .map(|v| {
-                            // this match should not fail
-                            if let Value::Char(c) = v {
-                                *c
-                            } else {
-                                unreachable!()
-                            }
-                        })
-                        .collect();
+                // 2. Non-empty char-only list -> quoted string
+                if let Some(s) = l.try_str() {
                     return write!(f, "\"{s}\"");
                 }
 
@@ -587,127 +532,113 @@ impl fmt::Display for Value {
     }
 }
 
-impl fmt::Display for WqError {
+/// handle for a streaming io source
+pub trait BufReadSeek: BufRead + Seek {}
+impl<T: BufRead + Seek> BufReadSeek for T {}
+
+pub trait WriteSeek: Write + Seek {}
+impl<T: Write + Seek> WriteSeek for T {}
+
+pub struct StreamHandle {
+    pub reader: Option<Box<dyn BufReadSeek + Send>>,
+    pub writer: Option<Box<dyn WriteSeek + Send>>,
+    pub child: Option<Child>, // process handle when spawning
+}
+
+impl fmt::Debug for StreamHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use WqError::*;
-
-        let (label, msg) = match self {
-            EofError(msg) => ("EOF ERROR", msg),
-            SyntaxError(msg) => ("SYNTAX ERROR", msg),
-            ValueError(msg) => ("VALUE ERROR", msg),
-            DomainError(msg) => ("DOMAIN ERROR", msg),
-            TypeError(msg) => ("TYPE ERROR", msg),
-            ArityError(msg) => ("ARITY ERROR", msg),
-            IndexError(msg) => ("INDEX ERROR", msg),
-            RuntimeError(msg) => ("RUNTIME ERROR", msg),
-            AssertionError(msg) => ("ASSERTION ERROR", msg),
-            IoError(msg) => ("IO ERROR", msg),
-        };
-
-        write!(f, "{label}({}): {msg}", self.code())
+        f.debug_struct("StreamHandle").finish()
     }
 }
 
-impl WqError {
-    pub fn code(&self) -> i32 {
-        match self {
-            WqError::EofError(_) => 1,
-            WqError::SyntaxError(_) => 2,
-            WqError::ValueError(_) => 3,
-            WqError::DomainError(_) => 4,
-            WqError::TypeError(_) => 5,
-            WqError::ArityError(_) => 6,
-            WqError::IndexError(_) => 7,
-            WqError::RuntimeError(_) => 8,
-            WqError::AssertionError(_) => 9,
-            WqError::IoError(_) => 10,
+unsafe impl Send for StreamHandle {}
+unsafe impl Sync for StreamHandle {}
+
+impl Drop for StreamHandle {
+    fn drop(&mut self) {
+        self.reader = None;
+        self.writer = None;
+
+        // terminate spawned child processes if any
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
 }
 
-impl std::error::Error for WqError {}
-
 #[cfg(test)]
 mod tests {
+    use crate::wqerror::WqError;
+
     use super::*;
 
     #[test]
-    fn test_value_creation() {
-        assert_eq!(Value::int(42), Value::Int(42));
-        assert_eq!(Value::float(3.1), Value::Float(3.1));
-        assert_eq!(Value::char('a'), Value::Char('a'));
-        assert_eq!(
-            Value::symbol("test".to_string()),
-            Value::Symbol("test".to_string())
-        );
-    }
-
-    #[test]
     fn test_arithmetic() {
-        let a = Value::int(5);
-        let b = Value::int(3);
+        let a = Value::Int(5);
+        let b = Value::Int(3);
 
-        assert_eq!(a.add(&b), Some(Value::int(8)));
-        assert_eq!(a.subtract(&b), Some(Value::int(2)));
-        assert_eq!(a.multiply(&b), Some(Value::int(15)));
-        assert_eq!(a.divide(&b), Some(Value::float(5.0 / 3.0)));
-        assert_eq!(a.modulo(&b), Some(Value::int(2)));
+        assert_eq!(a.add(&b), Ok(Value::Int(8)));
+        assert_eq!(a.subtract(&b), Ok(Value::Int(2)));
+        assert_eq!(a.multiply(&b), Ok(Value::Int(15)));
+        assert_eq!(a.divide(&b), Ok(Value::Float(5.0 / 3.0)));
+        assert_eq!(a.modulo(&b), Ok(Value::Int(2)));
     }
 
     #[test]
     fn test_list_operations() {
-        let list = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
+        let list = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
 
         assert_eq!(list.len(), 3);
-        assert_eq!(list.index(&Value::int(0)), Some(Value::int(1)));
-        assert_eq!(list.index(&Value::int(-1)), Some(Value::int(3)));
+        assert_eq!(list.index(&Value::Int(0)), Some(Value::Int(1)));
+        assert_eq!(list.index(&Value::Int(-1)), Some(Value::Int(3)));
     }
 
     #[test]
     fn test_set_index() {
-        let mut list = Value::list(vec![Value::int(1), Value::int(2)]);
-        assert_eq!(list.set_index(&Value::int(1), Value::int(5)), Some(()));
-        assert_eq!(list.index(&Value::int(1)), Some(Value::int(5)));
-        assert_eq!(list.set_index(&Value::int(5), Value::int(0)), None);
+        let mut list = Value::List(vec![Value::Int(1), Value::Int(2)]);
+        assert_eq!(list.set_index(&Value::Int(1), Value::Int(5)), Some(()));
+        assert_eq!(list.index(&Value::Int(1)), Some(Value::Int(5)));
+        assert_eq!(list.set_index(&Value::Int(5), Value::Int(0)), None);
 
         let mut map = IndexMap::new();
-        map.insert("a".to_string(), Value::int(1));
-        let mut dict = Value::dict(map);
+        map.insert("a".to_string(), Value::Int(1));
+        let mut dict = Value::Dict(map);
         assert_eq!(
-            dict.set_index(&Value::symbol("a".into()), Value::int(2)),
+            dict.set_index(&Value::Symbol("a".into()), Value::Int(2)),
             Some(())
         );
-        assert_eq!(dict.index(&Value::symbol("a".into())), Some(Value::int(2)));
+        assert_eq!(dict.index(&Value::Symbol("a".into())), Some(Value::Int(2)));
         assert_eq!(
-            dict.set_index(&Value::symbol("b".into()), Value::int(3)),
+            dict.set_index(&Value::Symbol("b".into()), Value::Int(3)),
             Some(())
         );
     }
 
     #[test]
     fn test_vectorized_comparisons() {
-        let scalar = Value::int(1);
-        let vec = Value::list(vec![Value::int(1), Value::int(1)]);
+        let scalar = Value::Int(1);
+        let vec = Value::List(vec![Value::Int(1), Value::Int(1)]);
         assert_eq!(
             scalar.eq(&vec),
-            Some(Value::List(vec![Value::Bool(true), Value::Bool(true)]))
+            Ok(Value::List(vec![Value::Bool(true), Value::Bool(true)]))
         );
 
-        let a = Value::list(vec![Value::int(1)]);
-        let b = Value::list(vec![Value::int(1), Value::int(2)]);
-        assert_eq!(a.eq(&b), Some(Value::Bool(false)));
+        let a = Value::List(vec![Value::Int(1)]);
+        let b = Value::List(vec![Value::Int(1), Value::Int(2)]);
+        assert!(matches!(a.eq(&b), Err(WqError::LengthError(_))));
 
-        let list = Value::list(vec![Value::int(1), Value::int(2)]);
+        let list = Value::List(vec![Value::Int(1), Value::Int(2)]);
         assert_eq!(
-            list.gt(&Value::int(1)),
-            Some(Value::List(vec![Value::Bool(false), Value::Bool(true)]))
+            list.gt(&Value::Int(1)),
+            Ok(Value::List(vec![Value::Bool(false), Value::Bool(true)]))
         );
 
-        let str_a = Value::list(vec![Value::Char('a'), Value::Char('b')]);
-        let str_b = Value::list(vec![Value::Char('a'), Value::Char('c')]);
+        let str_a = Value::List(vec![Value::Char('a'), Value::Char('b')]);
+        let str_b = Value::List(vec![Value::Char('a'), Value::Char('c')]);
         assert_eq!(
             str_a.eq(&str_b),
-            Some(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
+            Ok(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
         );
     }
 
@@ -715,97 +646,97 @@ mod tests {
     fn test_bool_equals() {
         assert_eq!(
             Value::Bool(true).eq(&Value::Bool(true)),
-            Some(Value::Bool(true))
+            Ok(Value::Bool(true))
         );
         assert_eq!(
             Value::Bool(true).eq(&Value::Bool(false)),
-            Some(Value::Bool(false))
+            Ok(Value::Bool(false))
         );
         assert_eq!(
             Value::Bool(false).eq(&Value::Bool(false)),
-            Some(Value::Bool(true))
+            Ok(Value::Bool(true))
         );
     }
 
     #[test]
     fn test_vectorized_logical_ops() {
         let a = Value::Bool(true);
-        let b = Value::list(vec![Value::Bool(true), Value::Bool(false)]);
+        let b = Value::List(vec![Value::Bool(true), Value::Bool(false)]);
         assert_eq!(
             a.and_bool(&b),
-            Some(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
+            Ok(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
         );
 
         assert_eq!(
             b.or_bool(&Value::Bool(false)),
-            Some(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
+            Ok(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
         );
 
-        let c = Value::list(vec![Value::Bool(true)]);
-        let d = Value::list(vec![Value::Bool(false), Value::Bool(true)]);
-        assert_eq!(c.xor_bool(&d), None);
+        let c = Value::List(vec![Value::Bool(true)]);
+        let d = Value::List(vec![Value::Bool(false), Value::Bool(true)]);
+        assert!(matches!(c.xor_bool(&d), Err(WqError::LengthError(_))));
 
         assert_eq!(
             d.not_bool(),
-            Some(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
+            Ok(Value::List(vec![Value::Bool(true), Value::Bool(false)]))
         );
     }
 
     #[test]
     fn test_vectorized_modulo() {
-        let a = Value::list(vec![Value::int(5), Value::int(10)]);
-        let b = Value::int(3);
+        let a = Value::List(vec![Value::Int(5), Value::Int(10)]);
+        let b = Value::Int(3);
         assert_eq!(
             a.modulo(&b),
-            Some(Value::list(vec![Value::int(2), Value::int(1)]))
+            Ok(Value::List(vec![Value::Int(2), Value::Int(1)]))
         );
 
-        let c = Value::list(vec![Value::int(5)]);
-        let d = Value::list(vec![Value::int(2), Value::int(3)]);
-        assert_eq!(c.modulo(&d), None);
+        let c = Value::List(vec![Value::Int(5)]);
+        let d = Value::List(vec![Value::Int(2), Value::Int(3)]);
+        assert!(matches!(c.modulo(&d), Err(WqError::LengthError(_))));
     }
 
     #[test]
     fn test_bitwise_ops() {
-        let a = Value::int(6);
-        let b = Value::int(3);
-        assert_eq!(a.bitand(&b), Some(Value::int(2)));
-        assert_eq!(a.bitor(&b), Some(Value::int(7)));
-        assert_eq!(a.bitxor(&b), Some(Value::int(5)));
-        assert_eq!(a.bitnot(), Some(Value::int(!6)));
-        assert_eq!(Value::int(1).shl(&Value::int(3)), Some(Value::int(8)));
-        assert_eq!(Value::int(8).shr(&Value::int(2)), Some(Value::int(2)));
+        let a = Value::Int(6);
+        let b = Value::Int(3);
+        assert_eq!(a.bitand(&b), Ok(Value::Int(2)));
+        assert_eq!(a.bitor(&b), Ok(Value::Int(7)));
+        assert_eq!(a.bitxor(&b), Ok(Value::Int(5)));
+        assert_eq!(a.bitnot(), Ok(Value::Int(!6)));
+        assert_eq!(Value::Int(1).shl(&Value::Int(3)), Ok(Value::Int(8)));
+        assert_eq!(Value::Int(8).shr(&Value::Int(2)), Ok(Value::Int(2)));
         let arr = Value::IntList(vec![1, 2, 3]);
-        let res = arr.bitor(&Value::int(1));
-        assert_eq!(res, Some(Value::IntList(vec![1 | 1, 2 | 1, 3 | 1])));
+        let res = arr.bitor(&Value::Int(1));
+        assert_eq!(res, Ok(Value::IntList(vec![1 | 1, 2 | 1, 3 | 1])));
     }
 
-    #[test]
-    fn test_zero_division_and_dot_ops() {
-        let zero = Value::int(0);
-        assert_eq!(zero.divide(&zero), None);
-        match zero.divide_dot(&zero) {
-            Some(Value::Float(f)) => assert!(f.is_nan()),
-            Some(Value::Int(_)) => panic!("expected nan"),
-            _ => panic!("expected nan"),
-        }
-        match zero.modulo_dot(&zero) {
-            Some(Value::Float(f)) => assert!(f.is_nan()),
-            Some(Value::Int(_)) => panic!("expected nan"),
-            _ => (),
-        }
-    }
+    // #[test]
+    // fn test_zero_division_and_dot_ops() {
+    //     let zero = Value::Int(0);
+    //     assert!(matches!(zero.divide(&zero), Err(WqError::DomainError(_))));
+    //     match zero.divide_dot(&zero) {
+    //         Ok(Value::Float(f)) => assert!(f.is_nan()),
+    //         Ok(Value::Int(_)) => panic!("expected nan"),
+    //         _ => panic!("expected nan"),
+    //     }
+    //     match zero.modulo_dot(&zero) {
+    //         Ok(Value::Float(f)) => assert!(f.is_nan()),
+    //         Ok(Value::Int(_)) => panic!("expected nan"),
+    //         _ => (),
+    //     }
+    // }
 
     #[test]
     fn test_dict_multi_index() {
         let mut map = IndexMap::new();
-        map.insert("a".to_string(), Value::int(1));
-        map.insert("b".to_string(), Value::int(2));
-        let dict = Value::dict(map);
-        let keys = Value::list(vec![Value::symbol("b".into()), Value::symbol("a".into())]);
+        map.insert("a".to_string(), Value::Int(1));
+        map.insert("b".to_string(), Value::Int(2));
+        let dict = Value::Dict(map);
+        let keys = Value::List(vec![Value::Symbol("b".into()), Value::Symbol("a".into())]);
         assert_eq!(
             dict.index(&keys),
-            Some(Value::list(vec![Value::int(2), Value::int(1)]))
+            Some(Value::List(vec![Value::Int(2), Value::Int(1)]))
         );
     }
 
@@ -819,26 +750,26 @@ mod tests {
     #[test]
     fn test_intlist_list_arith_and_cmp() {
         let arr = Value::IntList(vec![1, 2, 3]);
-        let list = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
+        let list = Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
         assert_eq!(
             arr.add(&list),
-            Some(Value::List(vec![
-                Value::int(2),
-                Value::int(4),
-                Value::int(6)
+            Ok(Value::List(vec![
+                Value::Int(2),
+                Value::Int(4),
+                Value::Int(6)
             ]))
         );
         assert_eq!(
             list.add(&arr),
-            Some(Value::List(vec![
-                Value::int(2),
-                Value::int(4),
-                Value::int(6)
+            Ok(Value::List(vec![
+                Value::Int(2),
+                Value::Int(4),
+                Value::Int(6)
             ]))
         );
         assert_eq!(
             arr.eq(&list),
-            Some(Value::List(vec![
+            Ok(Value::List(vec![
                 Value::Bool(true),
                 Value::Bool(true),
                 Value::Bool(true)

@@ -1,6 +1,0 @@
-floor
-=====
-floor x
-
-Examples:
-  floor 2.7 // 2

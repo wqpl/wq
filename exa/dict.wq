@@ -1,2 +1,0 @@
-din:{[e;dct];ks:keys dct;N[#ks;$.[dct ks _n=e;@r true]];false}
-dfind:{[e;dct];ks:keys dct;N[#ks;$.[dct ks _n=e;@r ks _n]];-1}

@@ -1,0 +1,3 @@
+buggy:{raise["wow";114514]}
+a:@t buggy[]
+echo a

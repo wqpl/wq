@@ -1,5 +1,5 @@
+use crate::astnode::AstNode;
 use crate::builtins::Builtins;
-use crate::parser::AstNode;
 use crate::value::Value;
 use std::collections::{HashMap, HashSet};
 

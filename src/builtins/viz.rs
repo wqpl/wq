@@ -1,7 +1,8 @@
 use super::arity_error;
 use crate::{
-    repl::stdout_println,
-    value::{Value, WqError, WqResult},
+    repl::stdio::stdout_println,
+    value::{Value, WqResult},
+    wqerror::WqError,
 };
 use rgb::RGB8;
 use textplots::{Chart, ColorPlot, Plot, Shape};
@@ -9,6 +10,8 @@ use textplots::{Chart, ColorPlot, Plot, Shape};
 pub mod show_table {
 
     use indexmap::IndexMap;
+
+    use crate::wqerror::WqError;
 
     use super::*;
 
@@ -51,7 +54,7 @@ pub mod show_table {
             return Ok(Value::Null);
         }
 
-        Err(WqError::RuntimeError(
+        Err(WqError::DomainError(
             "`showt`: invalid table, expected (a dict), (a list of dicts), (a dict of lists), or (a dict of dicts)"
                 .to_string(),
         ))
@@ -270,7 +273,7 @@ pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
                         .map(|(i, v)| (i as f32, v.to_float().unwrap() as f32))
                         .collect()
                 }
-                _ => return Err(WqError::TypeError(
+                _ => return Err(WqError::DomainError(
                     "`asciiplot`: expected each arg to be (a list of numbers) or (a list of 2‑element numeric lists)"
                         .into(),
                 )),

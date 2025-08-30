@@ -1,0 +1,7 @@
+---
+source: tests/wqsnap.rs
+expression: output
+input_file: tests/wq/pipe.wq
+---
+(0;1;2;3;4;5;6;7;8;9)
+120

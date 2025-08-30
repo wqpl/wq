@@ -24,9 +24,17 @@ rgb = "0.8.52"
 indexmap = "2.10.0"
 encoding_rs = "0.8.35"
 
+[dev-dependencies]
+insta = { version = "1", features = ["glob", "filters"] }
+assert_cmd = "2"
+anyhow = "1"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 colored = "3.0.0"
-rustyline = "16.0.0"
+rustyline = "17"
+tree-sitter = "0.25"
+tree-sitter-highlight = "0.25"
+tree-sitter-wq = { path = "vendor/tree-sitter-wq" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }

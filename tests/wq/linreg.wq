@@ -1,0 +1,3 @@
+!p
+linreg:{n:count x;sumx:sum x;sumy:sum y;sumxy:sum(x*y);sumx2:sum(x*x);m:(n*sumxy-sumx*sumy)/(n*sumx2-sumx*sumx);b:(sumy-m*sumx)/n;(m;b)}
+echo linreg[(2.3;1.2);(4;6.7)]

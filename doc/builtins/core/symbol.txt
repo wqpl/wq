@@ -1,6 +1,0 @@
-symbol
-======
-symbol x
-
-Examples:
-  symbol "abc" // `abc

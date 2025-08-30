@@ -1,7 +1,7 @@
 pub mod apps;
+pub mod astnode;
 pub mod builtins;
-pub mod builtins_help;
-pub mod helpers;
+pub mod desserts;
 pub mod lexer;
 pub mod parser;
 pub mod platforms;
@@ -9,3 +9,5 @@ pub mod post_parser;
 pub mod repl;
 pub mod value;
 pub mod vm;
+pub mod wqdb;
+pub mod wqerror;

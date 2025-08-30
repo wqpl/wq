@@ -13,8 +13,19 @@ pub fn is_boxed() -> bool {
 fn repr(v: &Value) -> String {
     match v {
         Value::List(items) => {
-            let inner: Vec<String> = items.iter().map(repr).collect();
-            format!("({})", inner.join(" "))
+            // Special-case: list of chars → quoted string
+            if items.iter().all(|c| matches!(c, Value::Char(_))) {
+                let mut s = String::with_capacity(items.len());
+                for c in items {
+                    if let Value::Char(ch) = c {
+                        s.push(*ch);
+                    }
+                }
+                format!("\"{s}\"")
+            } else {
+                let inner: Vec<String> = items.iter().map(repr).collect();
+                format!("({})", inner.join(" "))
+            }
         }
         Value::IntList(items) => {
             let inner: Vec<String> = items.iter().map(|n| n.to_string()).collect();
@@ -70,6 +81,11 @@ pub fn format_boxed(rows: &[Value]) -> Option<String> {
     let table: Vec<Vec<String>> = rows
         .iter()
         .map(|row| match row {
+            // Treat a list of chars as a single string cell
+            Value::List(cells) if cells.iter().all(|c| matches!(c, Value::Char(_))) => {
+                vec![repr(row)]
+            }
+            // General list: each element becomes a cell
             Value::List(cells) => cells.iter().map(repr).collect(),
             Value::IntList(items) => items.iter().map(|n| n.to_string()).collect::<Vec<String>>(),
             other => vec![repr(other)],
@@ -99,4 +115,17 @@ pub fn format_boxed(rows: &[Value]) -> Option<String> {
     }
 
     Some(lines.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn string_row_is_single_cell() {
+        let msg = Value::List("abc".chars().map(Value::Char).collect());
+        let code = Value::Int(42);
+        let out = format_boxed(&[msg, code]).unwrap();
+        assert_eq!(out, "\"abc\"\n42");
+    }
 }
