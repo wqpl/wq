@@ -5,14 +5,14 @@ use crate::parser::Parser;
 use crate::value::WqResult;
 
 #[derive(Debug, Clone)]
-pub struct FormatOptions {
+pub struct FormatConfig {
     pub indent_size: usize,
     pub nlcd: bool,             // newline for closing ']' in control blocks
     pub no_bracket_calls: bool, // use space-call syntax when possible
     pub one_line_wizard: bool,  // force single-line formatting where possible
 }
 
-impl Default for FormatOptions {
+impl Default for FormatConfig {
     fn default() -> Self {
         Self {
             indent_size: 2,
@@ -48,11 +48,11 @@ fn escape_for_lexer(s: &str, delim: char) -> String {
 }
 
 pub struct Formatter {
-    opts: FormatOptions,
+    opts: FormatConfig,
 }
 
 impl Formatter {
-    pub fn new(opts: FormatOptions) -> Self {
+    pub fn new(opts: FormatConfig) -> Self {
         Self { opts }
     }
 

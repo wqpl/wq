@@ -10,8 +10,7 @@ use std::{
 
 use crate::{repl::repl_engine::ReplEngine, value::Value, wqerror::WqError};
 
-// Public API
-// ==========
+// Public API =============================================================================
 
 pub fn repl_load_script<T, P>(
     evaluator: &mut T,
@@ -65,8 +64,7 @@ where
     })
 }
 
-// Reporting types
-// ===============
+// Reporting types =============================================================================
 
 #[derive(Debug, Clone)]
 pub struct LoadReport {
@@ -117,13 +115,12 @@ impl fmt::Display for LoadError {
 impl error::Error for LoadError {}
 impl error::Error for LoadErrorKind {}
 
-// Embedded registry
-// =================
+// Embedded registry =============================================================================
 
 struct EmbeddedScript {
     /// Shown in debugger/backtraces
     virtual_name: &'static str,
-    /// Simple aliases used in angle-bracket loads (e.g., <prelude>)
+    /// used in angle-bracket loads (e.g., <prelude>)
     aliases: &'static [&'static str],
     /// Canonical filename (only for reference)
     // todo!!!!!
@@ -153,8 +150,7 @@ fn lookup_embedded_by_alias(name: &str) -> Option<&'static EmbeddedScript> {
     EMBEDDED.iter().find(|e| e.aliases.contains(&n))
 }
 
-// Cycle guard
-// ===========
+// Cycle guard =============================================================================
 // RAII guard that inserts/removes a key from an external loading set.
 // This keeps &mut self free while eval calls borrow self.
 struct CycleGuard<'a> {
@@ -173,7 +169,7 @@ impl<'a> Drop for CycleGuard<'a> {
     }
 }
 
-// =========================== Loader ==========================================
+// Loader =============================================================================
 
 pub struct Loader<'a, T: ReplEngine> {
     evaluator: &'a mut T,

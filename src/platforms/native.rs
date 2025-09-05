@@ -1,8 +1,10 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use crate::apps::formatter::{FormatOptions, Formatter};
+use crate::apps::formatter::{FormatConfig, Formatter};
 use crate::builtins::Builtins;
-use crate::desserts::daydream::{Command, ExecSource, ParseOutcome, RuntimeFlags, parse_args};
+use crate::desserts::daydream::{
+    Command, ExecSource, FmtOpts, ParseOutcome, RuntimeFlags, parse_args,
+};
 use crate::desserts::hotchoco;
 use crate::desserts::icedtea::create_boxed_text;
 use crate::desserts::tshelper::TSHelper;
@@ -44,7 +46,7 @@ pub fn start() {
             let rt = parsed.runtime;
             match parsed.command {
                 Command::Fmt { script, opts } => {
-                    format_script_print_with_opts(&script, opts.nlcd, opts.nbc, opts.olw);
+                    format_script_print_with_opts(&script, opts);
                 }
                 Command::Exec(ExecSource::Inline(src)) => {
                     exec_command(&src, rt);
@@ -74,12 +76,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
     vm.set_debug_level(rtflags.debug_level);
     vm.set_bt_mode(rtflags.bt);
     vm.set_wqdb(rtflags.wqdb);
-
-    // let mut rl: Editor<TSHelper, _> = Editor::new().unwrap();
-    // rl.set_helper(Some(TSHelper::new()));
-
     vm.set_stdin(Box::new(RustylineInput::new().unwrap()));
-    // vm.set_stdin(Box::new(rl));
 
     let mut line_number = 1;
     let mut buffer = String::new();
@@ -478,15 +475,15 @@ fn exec_command(content: &str, rtflags: RuntimeFlags) {
     }
 }
 
-fn format_script_print_with_opts<P: AsRef<Path>>(filename: P, nlcd: bool, nbc: bool, olw: bool) {
+fn format_script_print_with_opts<P: AsRef<Path>>(filename: P, opts: FmtOpts) {
     let path = filename.as_ref();
     match fs::read_to_string(path) {
         Ok(content) => {
-            let fmt = Formatter::new(FormatOptions {
+            let fmt = Formatter::new(FormatConfig {
                 indent_size: 2,
-                nlcd,
-                no_bracket_calls: nbc,
-                one_line_wizard: olw,
+                nlcd: opts.nlcd,
+                no_bracket_calls: opts.nbc,
+                one_line_wizard: opts.olw,
             });
             match fmt.format_script(&content) {
                 Ok(out) => println!("{out}"),

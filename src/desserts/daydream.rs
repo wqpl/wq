@@ -8,8 +8,8 @@ use std::{ffi::OsString, path::PathBuf};
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeFlags {
     pub wqdb: bool,
-    pub bt: bool,        // default true
-    pub debug_level: u8, // default 0
+    pub bt: bool,        // default: true
+    pub debug_level: u8, // default: 0
 }
 impl RuntimeFlags {
     pub fn new() -> Self {
