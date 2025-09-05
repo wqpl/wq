@@ -1,71 +1,63 @@
-// Load prelude
 !p
 
-@a map[{x+1}; (1;2;3)] |m? (2;3;4)
-@a map2[{x+y}; (1;2;3); (10;20;30)] |m? (11;22;33)
+@a map[{x+1};(1;2;3)] |m? (2;3;4)
+@a map2[{x+y};(1;2;3);(10;20;30)] |m? (11;22;33)
 
 // foldl / foldr
-@a foldl[{x+y}; 0; (1;2;3;4)] = 10
-@a foldr[{x-y}; 0; (1;2;3)] = 2
+@a foldl[{x+y};0;(1;2;3;4)] = 10
+@a foldr[{x-y};0;(1;2;3)] = 2
 
 // scanl / scanr
-@a scanl[{x+y}; 0; (1;2;3)] |m? (0;1;3;6)
-@a scanr[{x+y}; 0; (1;2;3)] |m? (0;3;5;6)
+@a scanl[{x+y};0;(1;2;3)] |m? (0;1;3;6)
+@a scanr[{x+y};0;(1;2;3)] |m? (0;3;5;6)
 
 // sum / prod
 @a sum(1;2;3;4) = 10
 @a prod(2;3;4) = 24
 
-// rank on uniform arrays
-@a rank[1; sum; ((1;2;3);(4;5;6))] |m? (6;15)
-@a rank[0; {x*2}; (1;(2;3))] |m? (2;(4;6))
+// rank on uniform lists
+@a rank[1;sum;((1;2;3);(4;5;6))] |m? (6;15)
+@a rank[0;{x*2};(1;(2;3))] |m? (2;(4;6))
 
 // reduce_last / scan_last
-@a reduce_last[{x+y}; ((1;2;3);(4;5;6))] |m? (6;15)
-@a scan_last[{x+y}; (1;2;3;4)] |m? (1;3;6;10)
+@a reduce_last[{x+y};((1;2;3);(4;5;6))] |m? (6;15)
+@a scan_last[{x+y};(1;2;3;4)] |m? (1;3;6;10)
 
 // transpose / dot / mm
-@a transpose ((1;2;3);(4;5;6)) |m? ((1;4);(2;5);(3;6))
-@a dot[(1;2;3); (10;20;30)] = 140
+@a transpose((1;2;3);(4;5;6)) |m? ((1;4);(2;5);(3;6))
+@a dot[(1;2;3);(10;20;30)] |m? 140
 A:((1;2;3);(4;5;6))
 B:((7;8);(9;10);(11;12))
 @a mm[A;B] |m? ((58;64);(139;154))
 
-// error paths (spot-check few)
-//@a (@t map[ord; 42])[1] = -1
-//@a (@t dot[(1;2); (1;2;3)])[1] = -1
+// error paths
+@a (@t map[ord;42])[1] |m? DOMAINERR
+@a (@t dot[(1;2);(1;2;3)])[1] |m? LENGTHERR
 
 // depth
-@a depth 42 = 0
-@a depth (1;2;3) = 1
-@a depth ((1;2);(3;4)) = 2
-@a depth ((1;(2;3));4) = 3
+@a depth 42 |m? 0
+@a depth (1;2;3) |m? 1
+@a depth ((1;2);(3;4)) |m? 2
+@a depth ((1;(2;3));4) |m? 3
 
 // 3D uniform tensor tests (shape 2x2x3)
 T:ints(2;2;3)
-@a #shape T = 3
+@a #shape T |m? 3
 @a shape T |m? (2;2;3)
-@a uniform? T = true
+@a uniform? T |m? true
 
 // rank over trailing axis on 3D (sum rows per 2D slice)
-@a rank[1; sum; T] |m? ((3;12);(21;30))
-
+@a rank[1;sum;T] |m? ((3;12);(21;30))
 // reduce_axis on last axis (2) equals row-sums
-//@a reduce_axis[2; {x+y}; T] |m? ((3;12);(21;30))
-
+@a reduce_axis[2;{x+y};T] |m? ((3;12);(21;30))
 // reduce_axis on middle axis (1): sum across the 2 rows -> shape (2;3)
-//@a reduce_axis[1; {x+y}; T] |m? ((3;5;7);(15;17;19))
-
+@a reduce_axis[1;{x+y};T] |m? ((3;5;7);(15;17;19))
 // reduce_axis on outer axis (0): pairwise sum of the two 2x3 blocks -> shape (2;3)
-//@a reduce_axis[0; {x+y}; T] |m? ((6;8;10);(12;14;16))
-
+@a reduce_axis[0;{x+y};T] |m? ((6;8;10);(12;14;16))
 // scan_axis along last axis (2): prefix sums per row, shape preserved
-//@a scan_axis[2; {x+y}; T] |m? (((0;1;3);(3;7;12));((6;13;21);(9;19;30)))
-
+@a scan_axis[2;{x+y};T] |m? (((0;1;3);(3;7;12));((6;13;21);(9;19;30)))
 // scan_axis along middle axis (1): cumulative across rows, shape preserved
-//@a scan_axis[1; {x+y}; T] |m? (((0;1;2);(3;5;7));((6;7;8);(15;17;19)))
-
-// Non-uniform example
-@a uniform? ((1;2);(3;(4;5))) = false
+@a scan_axis[1;{x+y};T] |m? (((0;1;2);(3;5;7));((6;7;8);(15;17;19)))
+@a uniform? ((1;2);(3;(4;5))) |m? false
 
 echo"ok"
