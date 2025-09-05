@@ -1,5 +1,4 @@
-use std::borrow::Cow;
-use std::cell::RefCell;
+#![cfg(not(target_arch = "wasm32"))]
 
 use rustyline::Context as RLContext;
 use rustyline::Helper;
@@ -7,7 +6,8 @@ use rustyline::completion::{Completer, Pair};
 use rustyline::highlight::{CmdKind, Highlighter as RLHighlighter};
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
-
+use std::borrow::Cow;
+use std::cell::RefCell;
 use tree_sitter::Language;
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter as TSHighlighter};
 

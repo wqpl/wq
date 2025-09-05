@@ -206,7 +206,3 @@ impl Builtins {
         self.name_to_id.keys().cloned().collect()
     }
 }
-
-fn values_to_strings(args: &[Value]) -> Option<Vec<String>> {
-    args.iter().map(Value::try_str).collect()
-}

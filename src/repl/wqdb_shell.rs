@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use colored::Colorize;
 
 use crate::{
@@ -18,15 +19,16 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
     print_current_context(host);
 
     loop {
-        let prompt = if cfg!(windows) {
-            format!("wqdb[{dbg_line}] ")
-        } else {
-            format!(
-                "{}[{}] ",
-                "wqdb".bold().bright_magenta(),
-                dbg_line.to_string().bright_blue()
-            )
-        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let prompt = format!(
+            "{}[{}] ",
+            "wqdb".bold().bright_magenta(),
+            dbg_line.to_string().bright_blue()
+        );
+
+        #[cfg(any(target_arch = "wasm32", target_os = "windows"))]
+        let prompt = format!("wqdb[{dbg_line}] ");
+
         let res = stdin_with_highlight_off(|| stdin_readline(&prompt));
         match res {
             Ok(line) => {
@@ -202,12 +204,15 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                             for (i, v) in locals {
                                 let name =
                                     names.get(i).cloned().unwrap_or_else(|| format!("loc[{i}]"));
+                                #[cfg(not(target_arch = "wasm32"))]
                                 stderr_println(&format!(
                                     "{}: {} {}",
                                     name.red().bold(),
                                     v.to_string().yellow(),
                                     v.type_name_verbose().green().underline()
                                 ));
+                                #[cfg(target_arch = "wasm32")]
+                                stderr_println(&format!("{name}: {v} {}", v.type_name_verbose()));
                             }
                         } else {
                             for (i, v) in locals {
@@ -215,11 +220,14 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                                 //     "loc[{i}] = {v}  ({})",
                                 //     v.type_name_verbose()
                                 // ));
+                                #[cfg(not(target_arch = "wasm32"))]
                                 stderr_println(&format!(
                                     "loc[{i}]: {} {}",
                                     v.to_string().yellow(),
                                     v.type_name_verbose().green().underline()
                                 ));
+                                #[cfg(target_arch = "wasm32")]
+                                stderr_println(&format!("loc[{i}]: {v} {}", v.type_name_verbose()));
                             }
                         }
                     }
@@ -233,12 +241,15 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                             let mut pairs = globals;
                             pairs.sort_by(|a, b| a.0.cmp(&b.0));
                             for (name, v) in pairs.into_iter() {
+                                #[cfg(not(target_arch = "wasm32"))]
                                 stderr_println(&format!(
                                     "{}: {} {}",
                                     name.red().bold(),
                                     v.to_string().yellow(),
                                     v.type_name_verbose().green().underline()
                                 ));
+                                #[cfg(target_arch = "wasm32")]
+                                stderr_println(&format!("{name}: {v} {}", v.type_name_verbose()));
                             }
                         }
                     }
@@ -317,12 +328,15 @@ fn peek_context(host: &mut dyn DebugHost, n: usize) {
         let hi_ln = if l + n <= total { l + n } else { total };
         for ln in lo_ln..=hi_ln {
             if ln == l {
+                #[cfg(not(target_arch = "wasm32"))]
                 stderr_println(
                     &format!("{:>4} -> {}", ln, sf.line_snippet(ln).trim())
                         .green()
                         .bold()
                         .to_string(),
                 );
+                #[cfg(target_arch = "wasm32")]
+                stderr_println(&format!("{:>4} -> {}", ln, sf.line_snippet(ln).trim()).to_string());
             } else {
                 stderr_println(&format!("{:>4}    {}", ln, sf.line_snippet(ln).trim()));
             }

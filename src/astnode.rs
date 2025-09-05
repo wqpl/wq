@@ -1,6 +1,8 @@
+#[cfg(not(target_arch = "wasm32"))]
 use colored::{Color, Colorize};
 
 use crate::value::Value;
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
@@ -121,10 +123,9 @@ pub enum UnaryOperator {
     Count, // '#' operator
 }
 
-use std::fmt;
-
 // --- helpers ---------------------------------------------------------------
 
+#[cfg(not(target_arch = "wasm32"))]
 const COLORS: [Color; 12] = [
     // Color::Black,
     Color::Red,
@@ -143,7 +144,7 @@ const COLORS: [Color; 12] = [
     Color::BrightCyan,
     // Color::BrightWhite,
 ];
-
+#[cfg(not(target_arch = "wasm32"))]
 fn parens(depth: usize) -> (String, String, Color) {
     let color = COLORS[depth % COLORS.len()];
     (
@@ -153,6 +154,7 @@ fn parens(depth: usize) -> (String, String, Color) {
     )
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn group(depth: usize, parts: impl IntoIterator<Item = String>) -> String {
     let (open, close, color) = parens(depth);
     let mut out = String::new();
@@ -172,6 +174,22 @@ fn group(depth: usize, parts: impl IntoIterator<Item = String>) -> String {
         first = false;
     }
     out.push_str(&close);
+    out
+}
+
+#[cfg(target_arch = "wasm32")]
+fn group(_: usize, parts: impl IntoIterator<Item = String>) -> String {
+    let mut out = String::new();
+    out.push('(');
+    let mut first = true;
+    for p in parts {
+        if !first {
+            out.push(' ');
+        }
+        out.push_str(&p);
+        first = false;
+    }
+    out.push(')');
     out
 }
 
@@ -296,7 +314,6 @@ impl AstNode {
                 group(depth, parts)
             }
 
-            // Renders as: (foo arg1 arg2) — classic s-expr call
             Call { name, args } => {
                 let mut parts = Vec::with_capacity(args.len() + 1);
                 parts.push(atom_ident(name));
@@ -304,7 +321,6 @@ impl AstNode {
                 group(depth, parts)
             }
 
-            // Renders as: ((<expr>) arg1 arg2)
             CallAnonymous { object, args } => {
                 let mut parts = Vec::with_capacity(args.len() + 1);
                 parts.push(object.sexpr_with_depth(depth + 1));
@@ -404,7 +420,7 @@ impl AstNode {
     }
 }
 
-// make it printable with println!("{}", node);
+// println!("{}", node);
 impl fmt::Display for AstNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.sexpr())

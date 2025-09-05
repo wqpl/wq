@@ -92,13 +92,15 @@ pub fn input(args: &[Value]) -> WqResult<Value> {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn exec(args: &[Value]) -> WqResult<Value> {
-    use crate::builtins::values_to_strings;
     if args.is_empty() {
         return Err(arity_error("exec", "at least 1", args.len()));
     }
 
-    let parts =
-        values_to_strings(args).ok_or(WqError::DomainError("`exec`: expected 'str'".into()))?;
+    let parts = args
+        .iter()
+        .map(Value::try_str)
+        .collect()
+        .ok_or(WqError::DomainError("`exec`: expected 'str'".into()))?;
 
     #[cfg(windows)]
     let output = {

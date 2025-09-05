@@ -1,9 +1,10 @@
-use colored::Colorize;
-
 use crate::repl::get_debug_level;
 use crate::value::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+#[cfg(not(target_arch = "wasm32"))]
+use colored::Colorize;
 
 #[derive(Clone)]
 pub struct SourceFile {
@@ -433,47 +434,66 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str) -> String {
         // If still unknown, but we know the file for this chunk, show its path
         if span.file_id == u32::MAX {
             if let Some(sf) = di.file(meta.file_id) {
+                #[cfg(not(target_arch = "wasm32"))]
                 return format!("At {name} ({}:?:?)\n   ? -> ?\n", sf.path)
                     .underline()
                     .bright_yellow()
                     .to_string();
+                #[cfg(target_arch = "wasm32")]
+                return format!("At {name} ({}:?:?)\n   ? -> ?\n", sf.path);
             }
             // Last resort
+            #[cfg(not(target_arch = "wasm32"))]
             return format!("At {name} (?:?:?)\n   ? -> ?\n")
                 .underline()
                 .bright_yellow()
                 .to_string();
+            #[cfg(target_arch = "wasm32")]
+            return format!("At {name} (?:?:?)\n   ? -> ?\n");
         }
     }
 
     if let Some(sf) = di.file(span.file_id) {
         let (l, c) = sf.line_col(span.start as usize);
+        #[cfg(not(target_arch = "wasm32"))]
         let mut out = format!("At {} ({}:{}:{})\n", name, sf.path, l, c)
             .underline()
             .bright_yellow()
             .to_string();
+        #[cfg(target_arch = "wasm32")]
+        let mut out = format!("At {} ({}:{}:{})\n", name, sf.path, l, c);
         // Clamp 1-based line numbers correctly within [1, total]
         let total = sf.line_starts.len();
         let lo_ln = if l > 1 { l - 1 } else { 1 };
         let hi_ln = if l < total { l + 1 } else { total };
         for ln in lo_ln..=hi_ln {
             if ln == l {
+                #[cfg(not(target_arch = "wasm32"))]
                 out.push_str(
                     &format!("{:>4} -> {}\n", ln, sf.line_snippet(ln).trim())
                         .green()
                         .bold()
                         .to_string(),
                 );
+                #[cfg(target_arch = "wasm32")]
+                out.push_str(&format!("{:>4} -> {}\n", ln, sf.line_snippet(ln).trim()));
             } else {
                 out.push_str(&format!("{:>4}    {}\n", ln, sf.line_snippet(ln).trim()));
             }
         }
         out.to_string()
     } else {
-        format!("At {} (chunk {:?} pc {})\n", name, meta.id, loc.pc)
-            .underline()
-            .yellow()
-            .to_string()
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            format!("At {} (chunk {:?} pc {})\n", name, meta.id, loc.pc)
+                .underline()
+                .yellow()
+                .to_string()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            format!("At {} (chunk {:?} pc {})\n", name, meta.id, loc.pc)
+        }
     }
 }
 

@@ -1,9 +1,10 @@
 // use std::fmt;
+use crate::value::WqResult;
+use crate::wqerror::WqError;
 use std::iter::Peekable;
 use std::str::Chars;
 
-use crate::value::WqResult;
-use crate::wqerror::WqError;
+#[cfg(not(target_arch = "wasm32"))]
 use colored::Colorize;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -164,10 +165,19 @@ impl<'a> Lexer<'a> {
             1
         };
         let pointer = " ".repeat(column.saturating_sub(1)) + &"^".repeat(width);
-        WqError::SyntaxError(format!(
-            "{msg} \n{}\n{src_line}\n{pointer}",
-            format!("At {line}:{column}").underline()
-        ))
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            WqError::SyntaxError(format!(
+                "{msg} \n{}\n{src_line}\n{pointer}",
+                format!("At {line}:{column}").underline()
+            ))
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            WqError::SyntaxError(format!("{msg} \nAt {line}:{column}\n{src_line}\n{pointer}",))
+        }
     }
 
     fn advance(&mut self) {

@@ -1,11 +1,13 @@
 #![cfg(target_arch = "wasm32")]
 
-use crate::builtins_help;
-use crate::helpers::string_helpers::create_boxed_text;
-use crate::repl::{
-    ReplEngine, ReplStderr, ReplStdin, ReplStdout, StdinError, VmEvaluator, set_stderr, set_stdout,
-};
+use crate::desserts::icedtea::create_boxed_text;
+
+use crate::builtins::Builtins;
+use crate::repl::VmEvaluator;
+use crate::repl::repl_engine::ReplEngine;
+use crate::repl::stdio::{ReplStderr, ReplStdin, ReplStdout, StdinError, set_stderr, set_stdout};
 use crate::value::box_mode;
+use crate::wqerror::WqError;
 use js_sys::{Array, Reflect};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -235,14 +237,9 @@ impl WqSession {
         Ok(JsValue::from_str(&result.to_string()))
     }
 
-    pub fn set_debug(&mut self) -> bool {
-        if self.eval.is_debug() {
-            self.eval.set_debug(false);
-            false
-        } else {
-            self.eval.set_debug(true);
-            true
-        }
+    pub fn set_debug(&mut self, n: u8) -> u8 {
+        self.eval.set_debug_level(n);
+        self.eval.get_debug_level()
     }
 
     pub fn get_env(&self) -> String {
@@ -263,13 +260,8 @@ impl WqSession {
     }
 
     pub fn set_box_mode(&mut self) -> bool {
-        if box_mode::is_boxed() {
-            box_mode::set_boxed(false);
-            false
-        } else {
-            box_mode::set_boxed(true);
-            true
-        }
+        box_mode::set_boxed(!box_mode::is_boxed());
+        box_mode::is_boxed()
     }
 }
 
@@ -280,19 +272,34 @@ impl Default for WqSession {
 }
 
 #[wasm_bindgen]
-pub fn get_help_doc(name: &str) -> String {
-    if name.is_empty() {
-        create_boxed_text(include_str!("../docs/refcard"), 2)
-    } else if let Some(text) = builtins_help::get_builtin_help(name) {
-        create_boxed_text(text, 2)
-    } else {
-        format!("no help available for '{name}'")
-    }
+pub fn get_help_doc() -> String {
+    create_boxed_text(include_str!("../../d/refcard"), 2)
 }
 
 #[wasm_bindgen]
 pub fn get_wq_ver() -> String {
     env!("CARGO_PKG_VERSION").into()
+}
+
+#[wasm_bindgen]
+pub fn get_builtins() -> String {
+    let mut funcs = Builtins::new().list_functions();
+    funcs.sort();
+    let max_len = funcs.iter().map(|s| s.len()).max().unwrap_or(0);
+    let columns = 6;
+    let mut output = String::new();
+    for (i, func) in funcs.iter().enumerate() {
+        output.push_str(&format!("{func:<max_len$} "));
+        if (i + 1) % columns == 0 {
+            output.push('\n');
+        }
+    }
+    output
+}
+
+#[wasm_bindgen]
+pub fn get_err_codes() -> String {
+    WqError::dump_error_codes()
 }
 
 pub struct ArrayStdin {
@@ -313,6 +320,10 @@ impl ReplStdin for ArrayStdin {
             Ok(self.lines.remove(0))
         }
     }
+
+    fn highlight_enabled(&self) -> bool {
+        true
+    }
 }
 
 // ReplInput backed by a session-shared buffer.
@@ -330,6 +341,10 @@ impl ReplStdin for SessionStdin {
             Some(s) => Ok(s),
             None => Err(StdinError::Eof),
         }
+    }
+
+    fn highlight_enabled(&self) -> bool {
+        true
     }
 }
 
