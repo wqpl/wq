@@ -59,7 +59,10 @@ impl Builtins {
         self.add("oct", core::oct);
         self.add("int", core::int);
         self.add("ord", core::ord);
-        self.add("echo", core::echo);
+        self.add("print", core::print);
+        self.add("println", core::println);
+        // alias
+        self.add("echo", core::println);
         self.add("input", core::input);
         self.add("type", core::type_of_simple);
         self.add("typev", core::type_of_verbose);

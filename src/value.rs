@@ -69,6 +69,9 @@ pub enum Value {
 }
 
 impl Value {
+    pub fn unit() -> Self {
+        Value::IntList(vec![])
+    }
     /// Create a new stream value
     pub fn stream(handle: StreamHandle) -> Self {
         Value::Stream(Arc::new(Mutex::new(handle)))

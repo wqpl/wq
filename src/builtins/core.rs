@@ -10,62 +10,33 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 #[cfg(not(target_arch = "wasm32"))]
 use std::process::Command;
 
-pub fn echo(args: &[Value]) -> WqResult<Value> {
-    fn print_value(value: &Value, newline: bool) {
-        match value {
-            Value::List(items) if items.iter().all(|v| matches!(v, Value::Char(_))) => {
-                let s: String = items
-                    .iter()
-                    .map(|v| {
-                        if let Value::Char(c) = v {
-                            *c
-                        } else {
-                            unreachable!()
-                        }
-                    })
-                    .collect();
-                if newline {
-                    stdout_println(&s);
-                } else {
-                    stdout_print(&s);
-                }
-            }
-            Value::Char(c) => {
-                let s = c.to_string();
-                if newline {
-                    stdout_println(&s);
-                } else {
-                    stdout_print(&s);
-                }
-            }
-            other => {
-                let s = other.to_string();
-                if newline {
-                    stdout_println(&s);
-                } else {
-                    stdout_print(&s);
-                }
-            }
+pub fn print(args: &[Value]) -> WqResult<Value> {
+    if args.is_empty() {
+        return Ok(Value::unit());
+    }
+    for arg in args {
+        if let Some(s) = arg.try_str() {
+            stdout_print(s.as_str());
+        } else {
+            stdout_print(arg.to_string().as_str());
         }
     }
+    Ok(Value::unit())
+}
 
+pub fn println(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
         println!();
-        return Ok(Value::Null);
+        return Ok(Value::unit());
     }
-
-    if args.len() == 2 {
-        if let Value::Bool(b) = args[1] {
-            print_value(&args[0], b);
-            return Ok(Value::Null);
+    for arg in args {
+        if let Some(s) = arg.try_str() {
+            stdout_println(s.as_str());
+        } else {
+            stdout_println(arg.to_string().as_str());
         }
     }
-
-    for arg in args {
-        print_value(arg, true);
-    }
-
-    Ok(Value::Null)
+    Ok(Value::unit())
 }
 
 pub fn input(args: &[Value]) -> WqResult<Value> {
@@ -96,10 +67,10 @@ pub fn exec(args: &[Value]) -> WqResult<Value> {
         return Err(arity_error("exec", "at least 1", args.len()));
     }
 
-    let parts = args
+    let parts: Vec<String> = args
         .iter()
         .map(Value::try_str)
-        .collect()
+        .collect::<Option<Vec<_>>>()
         .ok_or(WqError::DomainError("`exec`: expected 'str'".into()))?;
 
     #[cfg(windows)]
