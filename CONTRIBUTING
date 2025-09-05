@@ -14,16 +14,10 @@ PR
 (1) Rust:
     cargo clippy -- -D warnings
     cargo fmt
-    
-(2) Python:
-    pyright
-    ruff check
-    ruff format
-    
-(3) Tests:
+
+(2) Tests:
     cargo test
-    python3 exa-t.py test
-    
+
 (3) Commit msg: concise, clean
 
 (4) PR: clarify what’s changed and why
