@@ -37,8 +37,8 @@ macro_rules! def_unary_math_fns {
 }
 
 def_unary_math_fns!(
-    neg, abs, sgn, sqrt, exp, ln, floor, ceil, round, sin, cos, tan, arcsin, arccos, arctan, sinh,
-    cosh, tanh, arcsinh, arccosh, arctanh
+    neg, abs, sgn, sqrt, exp, ln, log2, log10, floor, ceil, round, sin, cos, tan, arcsin, arccos,
+    arctan, sinh, cosh, tanh, arcsinh, arccosh, arctanh
 );
 
 // Example of a binary like atan2 (y, x)

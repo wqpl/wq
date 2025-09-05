@@ -91,6 +91,8 @@ impl Builtins {
         self.add("sqrt", math::sqrt);
         self.add("exp", math::exp);
         self.add("ln", math::ln);
+        self.add("log2", math::log2);
+        self.add("log10", math::log10);
         self.add("log", math::log);
         self.add("floor", math::floor);
         self.add("ceil", math::ceil);

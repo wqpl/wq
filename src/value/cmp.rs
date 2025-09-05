@@ -7,7 +7,7 @@ use crate::{
 
 impl Value {
     #[inline]
-    fn cmp_atom(a: &Value, b: &Value) -> Option<Ordering> {
+    pub fn cmp_atom(a: &Value, b: &Value) -> Option<Ordering> {
         match (a, b) {
             (Value::Int(x), Value::Int(y)) => Some(x.cmp(y)),
             (Value::Float(x), Value::Float(y)) => x.partial_cmp(y),

@@ -1,3 +1,4 @@
+// use std::cmp::Ordering;
 use super::Value;
 use crate::{value::WqResult, wqerror::WqError};
 
@@ -300,6 +301,14 @@ impl Value {
         })
     }
 
+    // pub fn binarize(&self) -> WqResult<Value> {
+    //     self.bc1(|v| match v {
+    //         Value::Bool(true) => Ok(Value::Int(1)),
+    //         Value::Bool(false) => Ok(Value::Int(0)),
+    //         _ => Err(type_err1("binarize", v)),
+    //     })
+    // }
+
     pub fn chr(&self) -> WqResult<Value> {
         self.bc1(|v| match v {
             Value::Int(i) => {
@@ -365,23 +374,29 @@ impl Value {
 
     // Comparison
 
-    // pub fn min_value(&self, other: &Value) -> Option<Value> {
-    //     self.bc2(other, |a, b| {
-    //         match Self::cmp_atom(a, b)? {
-    //                 Ordering::Greater => Some(b.clone()),
-    //                 _ /* Less|Equal  */ => Some(a.clone()),
-    //             }
-    //     })
-    // }
+    //     pub fn min_value(&self, other: &Value) -> WqResult<Value> {
+    //         self.bc2(other, |a, b| {
+    //             match Self::cmp_atom(a, b) {
+    //                     Some(Ordering::Greater) => Ok(b.clone()),
+    //                     Some(_) /* Less|Equal  */ => Ok(a.clone()),
+    //                     _ => Err(WqError::DomainError(format!(
+    //                         "`min`: cannot compare {a} and {b}"
+    //                     )))
+    //                 }
+    //         })
+    //     }
 
-    // pub fn max_value(&self, other: &Value) -> Option<Value> {
-    //     self.bc2(other, |a, b| {
-    //         match Self::cmp_atom(a, b)? {
-    //                 Ordering::Less => Some(b.clone()),
-    //                 _ /* Greater|Equal */ => Some(a.clone()),
-    //             }
-    //     })
-    // }
+    //     pub fn max_value(&self, other: &Value) -> WqResult<Value> {
+    //         self.bc2(other, |a, b| {
+    //             match Self::cmp_atom(a, b) {
+    //                     Some(Ordering::Less) => Ok(b.clone()),
+    //                     Some(_) /* Greater|Equal */ => Ok(a.clone()),
+    //                     _ => Err(WqError::DomainError(format!(
+    //                         "`min`: cannot compare {a} and {b}"
+    //                     )))
+    //                 }
+    //         })
+    //     }
 }
 
 pub fn type_err1(op: &str, v: &Value) -> WqError {
