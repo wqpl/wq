@@ -14,7 +14,7 @@ W[cond;...] N[n;echo _n]
 
 !l  load     !p  load prelude
 ~ repl only ~
-!q  quit     !b    box mode   !hl   highlight
+!e  exit     !b    box mode   !hl   highlight
 !h  help     !bfn  builtins   !err  err codes
 !t  time     !g    globals    !r  reset
 !w  wqdb     !d !d0 ... !d4   debug level

@@ -12,7 +12,7 @@ generic
   -v, --version      show wq version
 
 runtime
-  -d[|<l>]           exec with debug level l (l=1,2,3,4) [def:1]
+  -d[|<l>]           exec with debug level l (l=1,2,3,4) [def=1]
   -w, --wqdb         exec with wqdb
   --no-bt            disable backtrace
 
