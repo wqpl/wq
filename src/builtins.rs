@@ -78,6 +78,7 @@ impl Builtins {
         self.add("int?", wq_type::is_int);
         self.add("number?", wq_type::is_number);
         self.add("fn?", wq_type::is_fn);
+        self.add("bool?", wq_type::is_bool);
         self.add("stream?", wq_type::is_stream);
         self.add("list?", wq_type::is_list);
         self.add("str?", wq_type::is_str);

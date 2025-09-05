@@ -114,6 +114,13 @@ pub fn is_fn(args: &[Value]) -> WqResult<Value> {
     )))
 }
 
+pub fn is_bool(args: &[Value]) -> WqResult<Value> {
+    if args.len() != 1 {
+        return Err(arity_error("bool?", "1", args.len()));
+    }
+    Ok(Value::Bool(matches!(args[0], Value::Bool(_))))
+}
+
 pub fn is_stream(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
         return Err(arity_error("stream?", "1", args.len()));
