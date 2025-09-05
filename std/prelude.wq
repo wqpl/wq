@@ -22,11 +22,11 @@ $.[dict? x;$.[#x=0;@r ()];ks:keys x;tmp:x ks 0
 
 enlist:{[x],x}
 delta:{[x]$.[#x<=1;@r x];t:alloc(#x-1);N[#t;t[_n]:x[_n+1]-x[_n]];t}
-// build a list of n elements with each elem being s
 replicate:{[f;n]N[#(l:alloc n);l[_n]:f[]];l}
+// build a list of n elements with each elem being s
 repeat:{[s;n]res:alloc n;N[n;res[_n]:s];res}
 zip:{[xs;ys]out:();N[min(#xs;#ys);out:out,enlist(xs[_n];ys[_n])];out}
-in:{[e;list]N[#list;$.[list _n=e;@r true]];false}
+in:{[e;list]N[#list;$.[list _n |m? e;@r true]];false}
 find:{[e;list]N[#list;$.[list _n=e;@r _n]];-1}
 take:{[n;list]@a list? list;list iota n}
 drop:{[n;list]@a list? list;list rg[n;#list]}
@@ -39,14 +39,14 @@ sum:{[xs] $.[atom? xs;@r xs];
 prod:{[xs] $.[atom? xs;@r xs];
   acc:1;i:idx xs;N[#i; acc:acc*xs i _n];acc}
 
-bc1:{[a;fn]
+bc1:{[fn;a]
   is_list:list? a
   $.[is_list;out:()
     N[#a;out:out,enlist bc1[a _n;fn]]
     @r fn out]
   @r fn a}
 
-bc2:{[a;b;fn]
+bc2:{[fn;a;b]
   a_is_list:list? a;b_is_list:list? b
   $.[a_is_list |and b_is_list;$.[#a~#b;@r ()]
     out:();N[#a;out:out,enlist bc2[a _n;b _n;fn]];@r out]

@@ -10,6 +10,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 #[cfg(not(target_arch = "wasm32"))]
 use std::process::Command;
 
+use super::Builtins;
+
 pub fn print(args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
         return Ok(Value::unit());
@@ -59,6 +61,17 @@ pub fn input(args: &[Value]) -> WqResult<Value> {
         Err(StdinError::Interrupted) => Err(WqError::IoError("Input interrupted".into())),
         Err(StdinError::Other(e)) => Err(WqError::IoError(e)),
     }
+}
+
+pub fn bfn(_: &[Value]) -> WqResult<Value> {
+    let mut funcs = Builtins::new().list_functions();
+    funcs.sort();
+    let funcstr = funcs
+        .into_iter()
+        .map(|s| s.chars().map(Value::Char).collect::<Vec<Value>>())
+        .map(Value::List)
+        .collect();
+    Ok(Value::List(funcstr))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

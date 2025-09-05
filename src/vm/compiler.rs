@@ -488,7 +488,7 @@ impl Compiler {
                         self.instructions.push(Instruction::IndexAssign);
                     }
                 } else {
-                    return Err(WqError::DomainError(
+                    return Err(WqError::SyntaxError(
                         "Invalid index assignment target".into(),
                     ));
                 }

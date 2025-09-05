@@ -22,6 +22,11 @@ splitfn:{[delim;str_]
     acc:acc,(,temp);temp:();@c]
     temp:temp,str_ _n]
   acc:acc,(,temp)}
-t:splitfn[wschr?;input[]]
-echo fmt["result={}";t]
-echo #t
+//t:splitfn[wschr?;input[]]
+//echo fmt["result={}";t]
+//echo #t
+
+join:{[delim;strlist]acc:();N[#strlist;$.[_n |m?(#strlist-1);@r acc,strlist _n];acc:acc,strlist _n,","]}
+
+// dump all builtins
+// bfn[] | map{"\"",x,"\""} | join ","

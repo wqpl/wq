@@ -62,10 +62,10 @@ impl Builtins {
         self.add("ord", core::ord);
         self.add("print", core::print);
         self.add("println", core::println);
-        // alias
-        self.add("echo", core::println);
+        self.add("echo", core::println); // alias for println
         self.add("input", core::input);
         self.add("raise", core::raise);
+        self.add("bfn", core::bfn);
         #[cfg(not(target_arch = "wasm32"))]
         self.add("exec", core::exec);
 
