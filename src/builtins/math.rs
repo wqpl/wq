@@ -53,11 +53,11 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
             Value::Float(f) if *f > 0.0 => Ok(Value::Float(rng.random_range(0.0..*f))),
             Value::Int(_) | Value::Float(_) => Err(WqError::DomainError(format!(
                 "`rand`: expected a positive number, got {}",
-                args[0].type_name_verbose()
+                args[0].type_name()
             ))),
             _ => Err(WqError::DomainError(format!(
                 "`rand`: expected numbers, got {}",
-                args[0].type_name_verbose()
+                args[0].type_name()
             ))),
         },
         2 => match (&args[0], &args[1]) {
@@ -69,7 +69,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                     _ => {
                         return Err(WqError::DomainError(format!(
                             "`rand`: expected numbers, got {}",
-                            a.type_name_verbose()
+                            a.type_name()
                         )));
                     }
                 };
@@ -79,7 +79,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                     _ => {
                         return Err(WqError::DomainError(format!(
                             "`rand`: expected numbers, got {}",
-                            b.type_name_verbose()
+                            b.type_name()
                         )));
                     }
                 };

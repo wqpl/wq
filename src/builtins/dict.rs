@@ -18,7 +18,7 @@ pub fn keys(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::DomainError(format!(
             "`keys`: expected dict, got {}",
-            args[0].type_name_verbose()
+            args[0].type_name()
         ))),
     }
 }

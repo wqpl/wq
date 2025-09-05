@@ -192,7 +192,7 @@ mod tests {
         let folded = fold(ast);
         assert_eq!(folded, AstNode::Literal(Value::IntList(vec![4, 6, 8, 10])));
         if let AstNode::Literal(val) = folded {
-            assert_eq!(val.type_name_verbose(), "intlist");
+            assert_eq!(val.type_name(), "intlist");
         } else {
             panic!("expected literal");
         }

@@ -382,7 +382,7 @@ fn parse_shape_dims(shape: &Value, fname: &str) -> WqResult<Vec<usize>> {
         }
         _ => Err(WqError::DomainError(format!(
             "`{fname}`: invalid shape, expected int or rank-1 list of ints, got {}",
-            shape.type_name_verbose()
+            shape.type_name()
         ))),
     }
 }
@@ -578,7 +578,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
         _ => {
             return Err(WqError::DomainError(format!(
                 "`rg`: invalid start, expected int, got {}",
-                args[0].type_name_verbose()
+                args[0].type_name()
             )));
         }
     };
@@ -588,7 +588,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
         _ => {
             return Err(WqError::DomainError(format!(
                 "`rg`: invalid end, expected int, got {}",
-                args[1].type_name_verbose()
+                args[1].type_name()
             )));
         }
     };
@@ -599,7 +599,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
             _ => {
                 return Err(WqError::DomainError(format!(
                     "`rg`: invalid step, expected int, got {}",
-                    args[2].type_name_verbose()
+                    args[2].type_name()
                 )));
             }
         }
@@ -697,7 +697,7 @@ pub fn reverse(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::DomainError(format!(
             "`reverse`: expected list at arg0, got {}",
-            args[0].type_name_verbose()
+            args[0].type_name()
         ))),
     }
 }
@@ -727,7 +727,7 @@ pub fn wq_where(args: &[Value]) -> WqResult<Value> {
                 _ => {
                     return Err(WqError::DomainError(format!(
                         "`where`: expected T, where T is list of (int, bool or T), got {} in list",
-                        item.type_name_verbose()
+                        item.type_name()
                     )));
                 }
             }
@@ -770,7 +770,7 @@ pub fn wq_where(args: &[Value]) -> WqResult<Value> {
             }
             _ => Err(WqError::DomainError(format!(
                 "`where`: expected T, where T is list of (int, bool or T), got {} in list",
-                v.type_name_verbose()
+                v.type_name()
             ))),
         }
     }
@@ -802,7 +802,7 @@ pub fn wq_where(args: &[Value]) -> WqResult<Value> {
         }
         _ => Err(WqError::DomainError(format!(
             "`where`: expected T, where T is list of (int, bool or T), got {}",
-            args[0].type_name_verbose()
+            args[0].type_name()
         ))),
     }
 }

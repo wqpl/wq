@@ -65,7 +65,7 @@ pub enum Value {
     BuiltinFunction(String),
     /// handle to an input/output stream, e.g. a process pipe
     Stream(Arc<Mutex<StreamHandle>>),
-    Null,
+    // Null,
 }
 
 impl Value {
@@ -131,7 +131,7 @@ impl Value {
     }
 
     /// Get the type name of a value
-    pub fn type_name_verbose(&self) -> &'static str {
+    pub fn type_name(&self) -> &'static str {
         match self {
             Value::Int(_) => "int",
             Value::Float(_) => "float",
@@ -142,11 +142,11 @@ impl Value {
             Value::List(_) => "list",
             Value::Dict(_) => "dict",
             Value::Function { .. } => "fn",
-            Value::CompiledFunction { .. } => "fn",
+            Value::CompiledFunction { .. } => "cfn",
             Value::Closure { .. } => "closure",
             Value::BuiltinFunction(_) => "bfn",
             Value::Stream(_) => "stream",
-            Value::Null => "null",
+            // Value::Null => "null",
         }
     }
 
@@ -165,7 +165,7 @@ impl Value {
             Value::Closure { .. } => "fn",
             Value::BuiltinFunction(_) => "fn",
             Value::Stream(_) => "stream",
-            Value::Null => "null",
+            // Value::Null => "null",
         }
     }
 
@@ -375,7 +375,7 @@ impl PartialEq for Value {
             (Char(a), Char(b)) => a == b,
             (Symbol(a), Symbol(b)) => a == b,
             (Bool(a), Bool(b)) => a == b,
-            (Null, Null) => true,
+            // (Null, Null) => true,
             (List(a), List(b)) => a == b,
             (IntList(a), IntList(b)) => a == b,
             (IntList(a), List(b)) | (List(b), IntList(a)) => {
@@ -530,7 +530,7 @@ impl fmt::Display for Value {
             },
             Value::BuiltinFunction(name) => write!(f, "bfn '{name}'"),
             Value::Stream(_) => write!(f, "<stream>"),
-            Value::Null => write!(f, "null"),
+            // Value::Null => write!(f, "null"),
         }
     }
 }

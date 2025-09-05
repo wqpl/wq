@@ -74,7 +74,7 @@ pub fn fmt(args: &[Value]) -> WqResult<Value> {
         Some(s) => {
             return Err(WqError::DomainError(format!(
                 "`fmt`: invalid template, expected 'str', got {}",
-                s.type_name_verbose()
+                s.type_name()
             )));
         }
         None => {

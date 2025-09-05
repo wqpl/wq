@@ -35,23 +35,23 @@ pub mod show_table {
 
             if let Some((headers, rows)) = parse_dict_of_lists(&wrapped_val) {
                 print_table(&headers, &rows);
-                return Ok(Value::Null);
+                return Ok(Value::unit());
             }
         }
 
         if let Some((headers, rows)) = parse_list_of_dicts(val) {
             print_table(&headers, &rows);
-            return Ok(Value::Null);
+            return Ok(Value::unit());
         }
 
         if let Some((headers, rows)) = parse_dict_of_lists(val) {
             print_table(&headers, &rows);
-            return Ok(Value::Null);
+            return Ok(Value::unit());
         }
 
         if let Some((headers, rows)) = parse_dict_of_dicts(val) {
             print_table(&headers, &rows);
-            return Ok(Value::Null);
+            return Ok(Value::unit());
         }
 
         Err(WqError::DomainError(
@@ -327,5 +327,5 @@ pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
     chart_ref.figures();
     stdout_println(chart_ref.to_string().as_str());
 
-    Ok(Value::Null)
+    Ok(Value::unit())
 }

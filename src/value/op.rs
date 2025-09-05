@@ -388,7 +388,7 @@ pub fn type_err1(op: &str, v: &Value) -> WqError {
     WqError::DomainError(format!(
         "`{op}`: cannot operate on {} of type {}",
         v,
-        v.type_name_verbose()
+        v.type_name()
     ))
 }
 
@@ -396,9 +396,9 @@ pub fn type_err2(op: &str, v1: &Value, v2: &Value) -> WqError {
     WqError::DomainError(format!(
         "`{op}`: cannot operate on {} of type {} and {} of type {}",
         v1,
-        v1.type_name_verbose(),
+        v1.type_name(),
         v2,
-        v2.type_name_verbose()
+        v2.type_name()
     ))
 }
 

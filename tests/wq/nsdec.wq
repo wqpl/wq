@@ -1,6 +1,6 @@
 nsdec:{[path]KEY:132;BS:32
   size:fsize path;fin:open[path;"r"];dec:alloc size;pos:0;chunk:fread[fin;BS]
-  W[not null? chunk;
+  W[not unit? chunk;
     N[count chunk;dec[pos+_n]:bxor[chunk[_n];KEY]];pos:pos+count chunk;chunk:fread[fin;BS]]
   echo decode[dec;"sjis"];fclose fin
 }

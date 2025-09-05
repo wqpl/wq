@@ -22,17 +22,20 @@ W[cond;...] N[n;echo _n]
 
 type *v
 +-- atom?
-|   +-- int
+|   |-- int?
 |   |-- float
 |   |-- char
 |   |-- symbol
 |   |-- bool
-|   |-- fn       {[a;b]a*b*b}[2;3]
-|   |-- bfn*
-|   |-- stream
-|   \-- null
+|   +-- fn?
+|   |   |-- fn(cfn*)  {[a;b]a*b*b}[2;3]
+|   |   |-- closure*
+|   |   \-- bfn*
+|   \-- stream?
 +-- list?
-|   +-- list
-|   \-- intlist* (1;2;3)[0;1]
+|   |-- list
+|   \-- intlist?*     (1;2;3)[0;1]
 +-- dict?
-\   \-- dict     (`a:1;`b:2)[`a]
+\   \-- dict          (`a:1;`b:2)[`a]
+
+str?: char, (char;char;...;char)

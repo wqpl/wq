@@ -14,7 +14,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`abs`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -26,7 +26,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`sgn`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -38,7 +38,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`sqrt`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -50,7 +50,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`exp`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -62,7 +62,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`ln`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -77,8 +77,8 @@ impl Value {
                 "`log`: cannot operate on {} and {} of types {} and {}",
                 v1,
                 v2,
-                v1.type_name_verbose(),
-                v2.type_name_verbose()
+                v1.type_name(),
+                v2.type_name()
             ))),
         })
     }
@@ -91,7 +91,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`floor`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -103,7 +103,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`ceil`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -115,7 +115,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`round`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -127,7 +127,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`sin`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -139,7 +139,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`cos`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -151,7 +151,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`tan`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -163,7 +163,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`sinh`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -175,7 +175,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`cosh`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -187,7 +187,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`tanh`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -199,7 +199,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`arcsin`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -211,7 +211,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`arccos`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -223,7 +223,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`arctan`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -235,7 +235,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`arcsinh`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -247,7 +247,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`arccosh`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }
@@ -259,7 +259,7 @@ impl Value {
             _ => Err(WqError::DomainError(format!(
                 "`arctanh`: cannot operate on {} of type {}",
                 v,
-                v.type_name_verbose()
+                v.type_name()
             ))),
         })
     }

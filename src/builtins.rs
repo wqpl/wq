@@ -13,6 +13,7 @@ mod logical;
 mod math;
 mod str;
 mod viz;
+mod wq_type;
 
 static INTS_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -64,20 +65,24 @@ impl Builtins {
         // alias
         self.add("echo", core::println);
         self.add("input", core::input);
-        self.add("type", core::type_of_simple);
-        self.add("typev", core::type_of_verbose);
-        self.add("symbol", core::to_symbol);
-        self.add("null?", core::is_null);
-        self.add("list?", core::is_list);
-        self.add("dict?", core::is_dict);
-        self.add("atom?", core::is_atom);
-        self.add("number?", core::is_number);
-        self.add("int?", core::is_int);
-        self.add("float?", core::is_float);
-        self.add("str?", core::is_str);
         self.add("raise", core::raise);
         #[cfg(not(target_arch = "wasm32"))]
         self.add("exec", core::exec);
+
+        // type
+        self.add("type", wq_type::wq_type_of);
+        self.add("typev", wq_type::wq_typev);
+        self.add("symbol", wq_type::to_symbol);
+        // self.add("null?", wq_type::is_null);
+        self.add("atom?", wq_type::is_atom);
+        self.add("int?", wq_type::is_int);
+        self.add("number?", wq_type::is_number);
+        self.add("fn?", wq_type::is_fn);
+        self.add("stream?", wq_type::is_stream);
+        self.add("list?", wq_type::is_list);
+        self.add("str?", wq_type::is_str);
+        self.add("unit?", wq_type::is_unit);
+        self.add("dict?", wq_type::is_dict);
 
         // Arithmetic
         self.add("abs", math::abs);

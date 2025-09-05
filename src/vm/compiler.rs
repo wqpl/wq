@@ -446,7 +446,8 @@ impl Compiler {
                 if let Some(e) = expr {
                     self.compile(e)?;
                 } else {
-                    self.instructions.push(Instruction::LoadConst(Value::Null));
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::unit()));
                 }
                 self.instructions.push(Instruction::Return);
             }
@@ -579,7 +580,8 @@ impl Compiler {
                 } else {
                     // when there is no false branch, the conditional
                     // expression should evaluate to null on the false path
-                    self.instructions.push(Instruction::LoadConst(Value::Null));
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::unit()));
                 }
                 let end = self.instructions.len();
                 self.instructions[jump_end_pos] = Instruction::Jump(end);
@@ -604,7 +606,8 @@ impl Compiler {
                         self.instructions[pos] = Instruction::Jump(continue_target);
                     }
                 }
-                self.instructions.push(Instruction::LoadConst(Value::Null));
+                self.instructions
+                    .push(Instruction::LoadConst(Value::unit()));
             }
             AstNode::ForLoop { count, body } => {
                 // Unroll constant loops only when there is no control flow in body
@@ -613,7 +616,8 @@ impl Compiler {
                         let limit = 16;
                         if *n <= limit {
                             if *n == 0 {
-                                self.instructions.push(Instruction::LoadConst(Value::Null));
+                                self.instructions
+                                    .push(Instruction::LoadConst(Value::unit()));
                             } else {
                                 for i in 0..*n {
                                     self.instructions
@@ -652,7 +656,8 @@ impl Compiler {
                             if *n > 0 {
                                 self.instructions.pop();
                             } else {
-                                self.instructions.push(Instruction::LoadConst(Value::Null));
+                                self.instructions
+                                    .push(Instruction::LoadConst(Value::unit()));
                             }
                             return Ok(());
                         }
@@ -670,7 +675,8 @@ impl Compiler {
                 self.instructions
                     .push(Instruction::LoadConst(Value::Int(0)));
                 self.emit_store("_n");
-                self.instructions.push(Instruction::LoadConst(Value::Null));
+                self.instructions
+                    .push(Instruction::LoadConst(Value::unit()));
                 self.emit_store(&result_var);
                 let start = self.instructions.len();
                 self.emit_load("_n");
@@ -707,7 +713,8 @@ impl Compiler {
             AstNode::Block(stmts) => {
                 if stmts.is_empty() {
                     // Empty blocks evaluate to null
-                    self.instructions.push(Instruction::LoadConst(Value::Null));
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::unit()));
                 } else {
                     for stmt in stmts {
                         self.compile(stmt)?;

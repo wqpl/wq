@@ -219,7 +219,7 @@ impl Vm {
         }
         self.pc = 0;
 
-        let mut frame = vec![Value::Null; local_count as usize];
+        let mut frame = vec![Value::unit(); local_count as usize];
         // let capture_count = captured.len();
         if let Some(p) = params {
             if args.len() != p.len() {
@@ -628,7 +628,7 @@ impl Vm {
                                     other => {
                                         return Err(WqError::VmError(format!(
                                             "cannot call local slot {slot}: expected function, found {}",
-                                            other.type_name_verbose(),
+                                            other.type_name(),
                                         )));
                                     }
                                 }
@@ -897,7 +897,7 @@ impl Vm {
                         other => {
                             return Err(WqError::VmError(format!(
                                 "cannot call '{name_owned}': expected fn, found {}",
-                                other.type_name_verbose(),
+                                other.type_name(),
                             )));
                         }
                     }
@@ -1048,7 +1048,7 @@ impl Vm {
                         other => {
                             return Err(WqError::VmError(format!(
                                 "cannot call value of type {:?} as a function",
-                                other.type_name_verbose(),
+                                other.type_name(),
                             )));
                         }
                     }
@@ -1207,7 +1207,7 @@ impl Vm {
                         other => {
                             return Err(WqError::VmError(format!(
                                 "invalid index assignment target: expected symbol, got {}",
-                                other.type_name_verbose(),
+                                other.type_name(),
                             )));
                         }
                     }
@@ -1271,8 +1271,8 @@ impl Vm {
                         },
                         other => {
                             return Err(WqError::DomainError(format!(
-                                "invalid index assignment target: expected Symbol, got {}",
-                                other.type_name_verbose(),
+                                "invalid index assignment target: expected symbol, got {}",
+                                other.type_name(),
                             )));
                         }
                     }
@@ -1395,7 +1395,7 @@ impl Vm {
                         _ => {
                             return Err(WqError::DomainError(format!(
                                 "control flow: invalid condition type, expected bool, got {}",
-                                v.type_name_verbose()
+                                v.type_name()
                             )));
                         }
                     };
@@ -1467,7 +1467,7 @@ impl Vm {
                     if !ok {
                         return Err(WqError::AssertionError("assertion failed".into()));
                     }
-                    self.stack.push(Value::Null);
+                    self.stack.push(Value::unit());
                 }
                 Instruction::Return => break,
                 Instruction::Try(len) => {
@@ -1723,10 +1723,13 @@ impl Vm {
                             Capture::Local(slot) => {
                                 if let Some(parent) = self.locals.last() {
                                     captured_vals.push(
-                                        parent.get(*slot as usize).cloned().unwrap_or(Value::Null),
+                                        parent
+                                            .get(*slot as usize)
+                                            .cloned()
+                                            .unwrap_or(Value::unit()),
                                     );
                                 } else {
-                                    captured_vals.push(Value::Null);
+                                    captured_vals.push(Value::unit());
                                 }
                             }
                             Capture::FromCapture(i) => {
@@ -1734,7 +1737,7 @@ impl Vm {
                                     .captures
                                     .last()
                                     .and_then(|c| c.get(*i as usize).cloned())
-                                    .unwrap_or(Value::Null);
+                                    .unwrap_or(Value::unit());
                                 captured_vals.push(val);
                             }
                             Capture::Global(name) => {
@@ -1799,7 +1802,7 @@ impl Vm {
                 }
             }
         }
-        Ok(self.stack.pop().unwrap_or(Value::Null))
+        Ok(self.stack.pop().unwrap_or(Value::unit()))
     }
 }
 

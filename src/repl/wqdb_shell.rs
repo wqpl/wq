@@ -209,10 +209,10 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                                     "{}: {} {}",
                                     name.red().bold(),
                                     v.to_string().yellow(),
-                                    v.type_name_verbose().green().underline()
+                                    v.type_name().green().underline()
                                 ));
                                 #[cfg(target_arch = "wasm32")]
-                                stderr_println(&format!("{name}: {v} {}", v.type_name_verbose()));
+                                stderr_println(&format!("{name}: {v} {}", v.type_name()));
                             }
                         } else {
                             for (i, v) in locals {
@@ -224,10 +224,10 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                                 stderr_println(&format!(
                                     "loc[{i}]: {} {}",
                                     v.to_string().yellow(),
-                                    v.type_name_verbose().green().underline()
+                                    v.type_name().green().underline()
                                 ));
                                 #[cfg(target_arch = "wasm32")]
-                                stderr_println(&format!("loc[{i}]: {v} {}", v.type_name_verbose()));
+                                stderr_println(&format!("loc[{i}]: {v} {}", v.type_name()));
                             }
                         }
                     }
@@ -246,10 +246,10 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                                     "{}: {} {}",
                                     name.red().bold(),
                                     v.to_string().yellow(),
-                                    v.type_name_verbose().green().underline()
+                                    v.type_name().green().underline()
                                 ));
                                 #[cfg(target_arch = "wasm32")]
-                                stderr_println(&format!("{name}: {v} {}", v.type_name_verbose()));
+                                stderr_println(&format!("{name}: {v} {}", v.type_name()));
                             }
                         }
                     }

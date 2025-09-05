@@ -55,7 +55,7 @@ pub fn input(args: &[Value]) -> WqResult<Value> {
     let res = stdin_with_highlight_off(|| stdin_readline(&prompt));
     match res {
         Ok(line) => Ok(Value::List(line.chars().map(Value::Char).collect())),
-        Err(StdinError::Eof) => Ok(Value::Null),
+        Err(StdinError::Eof) => Ok(Value::unit()),
         Err(StdinError::Interrupted) => Err(WqError::IoError("Input interrupted".into())),
         Err(StdinError::Other(e)) => Err(WqError::IoError(e)),
     }
@@ -168,7 +168,7 @@ fn as_bool_arg(fname: &str, v: &Value) -> WqResult<bool> {
     match v {
         Value::Bool(b) => Ok(*b),
         _ => Err(WqError::DomainError(format!(
-            "`{fname}`: optional second argument must be a boolean"
+            "`{fname}`: expected bool ar arg1"
         ))),
     }
 }
@@ -291,126 +291,6 @@ fn parse_str_to_i64(s: &str, base: u32) -> WqResult<Value> {
     Ok(Value::Int(val))
 }
 
-pub fn type_of_verbose(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("type", "1", args.len()));
-    }
-    Ok(Value::List(
-        args[0]
-            .type_name_verbose()
-            .to_string()
-            .chars()
-            .map(Value::Char)
-            .collect(),
-    ))
-}
-
-pub fn type_of_simple(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("type", "1", args.len()));
-    }
-    Ok(Value::List(
-        args[0]
-            .type_name_simple()
-            .to_string()
-            .chars()
-            .map(Value::Char)
-            .collect(),
-    ))
-}
-
-pub fn to_symbol(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("symbol", "1", args.len()));
-    }
-
-    let input = &args[0];
-    let name = match input {
-        Value::Symbol(s) => s.clone(),
-        Value::Char(c) => (*c).to_string(),
-        Value::List(items) if input.is_str() => {
-            let mut s = String::new();
-            for v in items {
-                if let Value::Char(c) = v {
-                    s.push(*c);
-                }
-            }
-            s
-        }
-        _ => {
-            return Err(WqError::DomainError(format!(
-                "`symbol`: expected 'str', got {}",
-                input.type_name_verbose()
-            )));
-        }
-    };
-
-    if name.is_empty()
-        || !name
-            .chars()
-            .all(|ch| ch.is_alphanumeric() || ch == '_' || ch == '?')
-    {
-        return Err(WqError::DomainError(format!("invalid symbol name: {name}")));
-    }
-
-    Ok(Value::Symbol(name))
-}
-
-pub fn is_null(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("null?", "1", args.len()));
-    }
-    Ok(Value::Bool(matches!(args[0], Value::Null)))
-}
-
-pub fn is_list(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("list?", "1", args.len()));
-    }
-    Ok(Value::Bool(args[0].is_list()))
-}
-
-pub fn is_dict(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("dict?", "1", args.len()));
-    }
-    Ok(Value::Bool(matches!(args[0], Value::Dict(_))))
-}
-
-pub fn is_atom(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("atom?", "1", args.len()));
-    }
-    Ok(Value::Bool(args[0].is_atom()))
-}
-pub fn is_int(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("int?", "1", args.len()));
-    }
-    Ok(Value::Bool(matches!(args[0], Value::Int(_))))
-}
-pub fn is_float(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("float?", "1", args.len()));
-    }
-    Ok(Value::Bool(matches!(args[0], Value::Float(_))))
-}
-pub fn is_number(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("number?", "1", args.len()));
-    }
-    Ok(Value::Bool(matches!(
-        args[0],
-        Value::Int(_) | Value::Float(_)
-    )))
-}
-pub fn is_str(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 1 {
-        return Err(arity_error("str?", "1", args.len()));
-    }
-    Ok(Value::Bool(args[0].is_str()))
-}
-
 pub fn raise(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
         return Err(arity_error("raise", "2", args.len()));
@@ -508,7 +388,7 @@ impl TryHash for Value {
             }
             _ => Err(WqError::DomainError(format!(
                 "`hash`: cannot hash {}",
-                self.type_name_verbose()
+                self.type_name()
             ))),
         }
     }
@@ -554,12 +434,5 @@ mod tests {
         let input = Value::List(vec![Value::Char('A'), Value::Char('B')]);
         let result = ord(&[input]).unwrap();
         assert_eq!(result, Value::IntList(vec![65, 66]));
-    }
-
-    #[test]
-    fn symbol_accepts_question_mark() {
-        let val = Value::List("a?".chars().map(Value::Char).collect());
-        let result = to_symbol(&[val]).unwrap();
-        assert_eq!(result, Value::Symbol("a?".to_string()));
     }
 }

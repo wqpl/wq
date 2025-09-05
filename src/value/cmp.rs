@@ -16,7 +16,7 @@ impl Value {
             (Value::Bool(x), Value::Bool(y)) => Some(x.cmp(y)),
             (Value::Char(x), Value::Char(y)) => Some(x.cmp(y)),
             (Value::Symbol(x), Value::Symbol(y)) => Some(x.cmp(y)),
-            (Value::Null, Value::Null) => Some(Ordering::Equal),
+            // (Value::Null, Value::Null) => Some(Ordering::Equal),
             _ => None,
         }
     }
@@ -30,9 +30,9 @@ impl Value {
             let ord = Self::cmp_atom(a, b).ok_or(WqError::DomainError(format!(
                 "Cannot compare {} of type {} and {} of type {}",
                 a,
-                a.type_name_verbose(),
+                a.type_name(),
                 b,
-                b.type_name_verbose()
+                b.type_name()
             )))?;
             Ok(Value::Bool(pred(ord)))
         })

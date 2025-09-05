@@ -170,7 +170,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                             "{}: {} {}",
                                             key.red().bold(),
                                             value.to_string().yellow(),
-                                            value.type_name_verbose().green().underline()
+                                            value.type_name().green().underline()
                                         );
                                     }
                                 }

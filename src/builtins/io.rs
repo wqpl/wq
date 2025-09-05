@@ -135,7 +135,7 @@ pub fn mkdir(args: &[Value]) -> WqResult<Value> {
         .try_str()
         .ok_or_else(|| WqError::DomainError("`mkdir`: expected 'str' at arg0".into()))?;
     fs::create_dir_all(&path).map_err(|e| WqError::IoError(e.to_string()))?;
-    Ok(Value::Null)
+    Ok(Value::unit())
 }
 
 pub fn fsize(args: &[Value]) -> WqResult<Value> {
@@ -160,14 +160,14 @@ pub fn fwrite(args: &[Value]) -> WqResult<Value> {
             w.write_all(&bytes)
                 .map_err(|e| WqError::IoError(e.to_string()))?;
             w.flush().map_err(|e| WqError::IoError(e.to_string()))?;
-            Ok(Value::Null)
+            Ok(Value::unit())
         } else {
             Err(WqError::IoError("`fwrite`: stream not writable".into()))
         }
     } else {
         Err(WqError::DomainError(format!(
             "`fwrite`: expected stream at arg0, got {}",
-            args[0].type_name_verbose()
+            args[0].type_name()
         )))
     }
 }
@@ -204,13 +204,13 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
                         .map_err(|e| WqError::IoError(e.to_string()))?;
                     if read == 0 {
                         // length mode and hit EOF => mimic line-read behavior: return null
-                        return Ok(Value::Null);
+                        return Ok(Value::unit());
                     }
                     buf.extend_from_slice(&tmp[..read]);
                 } else {
                     return Err(WqError::DomainError(format!(
                         "`fread`: invalid length, expected int, got {}",
-                        args[1].type_name_verbose()
+                        args[1].type_name()
                     )));
                 }
             } else {
@@ -225,7 +225,7 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
     } else {
         Err(WqError::DomainError(format!(
             "`fread`: expected stream at arg0, got {}",
-            args[0].type_name_verbose()
+            args[0].type_name()
         )))
     }
 }
@@ -233,7 +233,6 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
 pub fn freadt(args: &[Value]) -> WqResult<Value> {
     let bytes = fread(args)?;
     match bytes {
-        Value::Null => Ok(Value::Null),
         Value::IntList(b) => {
             let s = String::from_utf8(b.into_iter().map(|i| i as u8).collect())
                 .map_err(|e| WqError::IoError(e.to_string()))?;
@@ -255,7 +254,7 @@ pub fn freadtln(args: &[Value]) -> WqResult<Value> {
                 .read_line(&mut line)
                 .map_err(|e| WqError::IoError(e.to_string()))?;
             if n == 0 {
-                Ok(Value::Null)
+                Ok(Value::unit())
             } else {
                 if line.ends_with('\n') {
                     line.pop();
@@ -271,7 +270,7 @@ pub fn freadtln(args: &[Value]) -> WqResult<Value> {
     } else {
         Err(WqError::DomainError(format!(
             "`freadtln`: expected stream at arg0, got {}",
-            args[0].type_name_verbose()
+            args[0].type_name()
         )))
     }
 }
@@ -285,7 +284,7 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
     } else {
         return Err(WqError::DomainError(format!(
             "`fseek`: invalid offset, expected int, got {}",
-            args[1].type_name_verbose()
+            args[1].type_name()
         )));
     };
     let whence = if args.len() == 3 {
@@ -294,7 +293,7 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
         } else {
             return Err(WqError::DomainError(format!(
                 "`fseek`: invalid whence, expected int, got {}",
-                args[2].type_name_verbose()
+                args[2].type_name()
             )));
         }
     } else {
@@ -333,7 +332,7 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
     } else {
         Err(WqError::DomainError(format!(
             "`fseek`: expected stream at arg0, got {}",
-            args[0].type_name_verbose()
+            args[0].type_name()
         )))
     }
 }
@@ -365,7 +364,7 @@ pub fn ftell(args: &[Value]) -> WqResult<Value> {
     } else {
         Err(WqError::DomainError(format!(
             "`ftell`: expected stream at arg0, got {}",
-            args[0].type_name_verbose()
+            args[0].type_name()
         )))
     }
 }
@@ -379,11 +378,11 @@ pub fn fclose(args: &[Value]) -> WqResult<Value> {
         handle.reader = None;
         handle.writer = None;
         handle.child = None;
-        Ok(Value::Null)
+        Ok(Value::unit())
     } else {
         Err(WqError::DomainError(format!(
             "`fclose`: expected stream at arg0, got {}",
-            args[0].type_name_verbose()
+            args[0].type_name()
         )))
     }
 }
