@@ -176,7 +176,7 @@ impl VmEvaluator {
         #[cfg(target_arch = "wasm32")]
         if self.debug_level >= 2 {
             stderr_println("~ AST ~");
-            stderr_println(format!("{ast:?}").as_str());
+            stderr_println(format!("{ast}").as_str());
         }
 
         let mut compiler = Compiler::new();

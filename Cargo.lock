@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "wq"
-version = "0.7.0-a3"
+version = "0.7.0-a4"
 dependencies = [
  "anyhow",
  "assert_cmd",
