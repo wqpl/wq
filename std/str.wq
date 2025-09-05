@@ -16,7 +16,8 @@ wschr?:{[x](x |m?" ") |or (x |m?"\n") |or (x |m?"\r")}
 splitfn:{[delim;str_]
   @a type delim | m? "fn"
   acc:();temp:()
-  N[#str_;echo str_ _n;$.[delim str_ _n;
+  N[#str_;//echo str_ _n;
+    $.[delim str_ _n;
   //echo fmt["delim str_ _n = {}";delim str_ _n]
     $.[temp | m? ();@c]
     acc:acc,(,temp);temp:();@c]
