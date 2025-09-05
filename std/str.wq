@@ -30,4 +30,4 @@ splitfn:{[delim;str_]
 join:{[delim;strlist]acc:();N[#strlist;$.[_n |m?(#strlist-1);@r acc,strlist _n];acc:acc,strlist _n,","]}
 
 // dump all builtins
-// bfn[] | map{"\"",x,"\""} | join ","
+// bfn[] | map{"\"",x,"\""} | join "," | echo
