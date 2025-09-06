@@ -1,4 +1,4 @@
-wq (c) tttiw (l) mit
+wq (c)tttiw (l)mit
 
 wq               repl
 wq -h            usage help
@@ -13,7 +13,3 @@ wq[2] fib 90
 wqide
 =====
 https://illusory-dept.github.io/wqide/
-
-illusory-dept
-=============
-https://illusory-dept.github.io
