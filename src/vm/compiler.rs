@@ -41,6 +41,16 @@ fn has_ctrl(node: &AstNode) -> bool {
     }
 }
 
+// Convert a byte offset into (1-based) line and column within `src`.
+fn byte_to_line_col(src: &str, byte_pos: usize) -> (usize, usize) {
+    let b = byte_pos.min(src.len());
+    let prefix = &src[..b];
+    let line = prefix.chars().filter(|&c| c == '\n').count() + 1;
+    let last_nl = prefix.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let col = src[last_nl..b].chars().count() + 1;
+    (line, col)
+}
+
 pub struct Compiler {
     pub instructions: Vec<Instruction>,
     builtins: Builtins,
@@ -62,6 +72,13 @@ pub struct Compiler {
     // Debug: stream of function-body statement spans in encounter order
     fn_spans_stream: Vec<Vec<(usize, usize)>>,
     fn_spans_idx: usize,
+    // Pretty error reporting: full source text of the script being compiled
+    src_text: Option<String>,
+    // Pretty error reporting: current statement spans (byte offsets) and cursor
+    cur_stmt_spans: Vec<(usize, usize)>,
+    cur_stmt_idx: usize,
+    // Use top-level stmt spans only for the first Block compiled
+    top_spans_active: bool,
 }
 
 impl Default for Compiler {
@@ -86,6 +103,10 @@ impl Compiler {
             parent_fn_slot: None,
             fn_spans_stream: Vec::new(),
             fn_spans_idx: 0,
+            src_text: None,
+            cur_stmt_spans: Vec::new(),
+            cur_stmt_idx: 0,
+            top_spans_active: true,
         }
     }
 
@@ -100,6 +121,49 @@ impl Compiler {
         } else {
             Vec::new()
         }
+    }
+
+    // Pretty error reporting API
+    pub fn set_source(&mut self, src: String) {
+        self.src_text = Some(src);
+    }
+
+    pub fn set_stmt_spans(&mut self, spans: Vec<(usize, usize)>) {
+        self.cur_stmt_spans = spans;
+        self.cur_stmt_idx = 0;
+    }
+
+    fn syntax_error_here(&self, msg: &str) -> WqError {
+        if let (Some(src), Some((byte_start, byte_end))) = (
+            self.src_text.as_ref(),
+            self.cur_stmt_spans.get(self.cur_stmt_idx).cloned(),
+        ) {
+            let (line, column) = byte_to_line_col(src, byte_start);
+            let src_line = src.lines().nth(line.saturating_sub(1)).unwrap_or("");
+            let width = if byte_end > byte_start && byte_end <= src.len() && byte_start <= src.len()
+            {
+                src[byte_start..byte_end].chars().count().max(1)
+            } else {
+                1
+            };
+            let pointer = " ".repeat(column.saturating_sub(1)) + &"^".repeat(width);
+
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                use colored::Colorize;
+                return WqError::SyntaxError(format!(
+                    "{msg} \n{}\n{src_line}\n{pointer}",
+                    format!("At {line}:{column}").underline()
+                ));
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                return WqError::SyntaxError(format!(
+                    "{msg} \nAt {line}:{column}\n{src_line}\n{pointer}",
+                ));
+            }
+        }
+        WqError::SyntaxError(msg.to_string())
     }
 
     fn local_slot(&mut self, name: &str) -> u16 {
@@ -236,6 +300,11 @@ impl Compiler {
                     }
                     // Prepare spans stream for nested functions: child starts at next entry
                     let spans_for_fn = self.current_fn_spans();
+                    // Propagate pretty error context to child compiler
+                    if let Some(src) = &self.src_text {
+                        c.set_source(src.clone());
+                    }
+                    c.set_stmt_spans(spans_for_fn.clone());
                     c.fn_spans_stream = self.fn_spans_stream.clone();
                     c.fn_spans_idx = self.fn_spans_idx.saturating_add(1);
                     c.compile(body)?;
@@ -427,7 +496,7 @@ impl Compiler {
                     self.instructions.push(Instruction::Jump(0));
                     loop_info.break_jumps.push(pos);
                 } else {
-                    return Err(WqError::SyntaxError("@b outside loop".into()));
+                    return Err(self.syntax_error_here("@b outside loop"));
                 }
             }
             AstNode::Continue => {
@@ -436,12 +505,12 @@ impl Compiler {
                     self.instructions.push(Instruction::Jump(0));
                     loop_info.continue_jumps.push(pos);
                 } else {
-                    return Err(WqError::SyntaxError("@c outside loop".into()));
+                    return Err(self.syntax_error_here("@c outside loop"));
                 }
             }
             AstNode::Return(expr) => {
                 if self.fn_depth == 0 {
-                    return Err(WqError::SyntaxError("@r outside function".into()));
+                    return Err(self.syntax_error_here("@r outside function"));
                 }
                 if let Some(e) = expr {
                     self.compile(e)?;
@@ -488,9 +557,7 @@ impl Compiler {
                         self.instructions.push(Instruction::IndexAssign);
                     }
                 } else {
-                    return Err(WqError::SyntaxError(
-                        "Invalid index assignment target".into(),
-                    ));
+                    return Err(self.syntax_error_here("Invalid index assignment target"));
                 }
             }
             AstNode::Function { params, body } => {
@@ -532,6 +599,11 @@ impl Compiler {
                 }
                 // Prepare spans stream for nested functions: child starts at next entry
                 let spans_for_fn = self.current_fn_spans();
+                // Propagate pretty error context to child compiler
+                if let Some(src) = &self.src_text {
+                    c.set_source(src.clone());
+                }
+                c.set_stmt_spans(spans_for_fn.clone());
                 c.fn_spans_stream = self.fn_spans_stream.clone();
                 c.fn_spans_idx = self.fn_spans_idx.saturating_add(1);
                 c.compile(body)?;
@@ -717,9 +789,20 @@ impl Compiler {
                     self.instructions
                         .push(Instruction::LoadConst(Value::unit()));
                 } else {
-                    for stmt in stmts {
-                        self.compile(stmt)?;
-                        self.instructions.push(Instruction::Pop);
+                    if self.top_spans_active {
+                        for (i, stmt) in stmts.iter().enumerate() {
+                            if i < self.cur_stmt_spans.len() {
+                                self.cur_stmt_idx = i;
+                            }
+                            self.compile(stmt)?;
+                            self.instructions.push(Instruction::Pop);
+                        }
+                        self.top_spans_active = false;
+                    } else {
+                        for stmt in stmts {
+                            self.compile(stmt)?;
+                            self.instructions.push(Instruction::Pop);
+                        }
                     }
                     // remove last pop to keep result of final statement
                     self.instructions.pop();

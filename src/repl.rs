@@ -181,6 +181,8 @@ impl VmEvaluator {
 
         let mut compiler = Compiler::new();
         compiler.set_fn_spans(parser.fn_body_spans_all().clone());
+        compiler.set_source(input.to_string());
+        compiler.set_stmt_spans(parser.stmt_spans_top().to_vec());
         compiler.compile(&ast)?;
         compiler.fuse();
         compiler.instructions.push(Instruction::Return);
