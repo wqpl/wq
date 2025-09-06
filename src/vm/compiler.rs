@@ -243,10 +243,10 @@ impl Compiler {
                     self.fn_spans_idx = c.fn_spans_idx;
                     if self.fn_depth > 0 {
                         for instr in c.instructions.iter_mut() {
-                            if let Instruction::CallUser(n, argc) = instr {
-                                if n == name {
-                                    *instr = Instruction::CallLocal(slot, *argc);
-                                }
+                            if let Instruction::CallUser(n, argc) = instr
+                                && n == name
+                            {
+                                *instr = Instruction::CallLocal(slot, *argc);
                             }
                         }
                     }
@@ -611,56 +611,57 @@ impl Compiler {
             }
             AstNode::ForLoop { count, body } => {
                 // Unroll constant loops only when there is no control flow in body
-                if let AstNode::Literal(Value::Int(n)) = &**count {
-                    if *n >= 0 && !has_ctrl(body) {
-                        let limit = 16;
-                        if *n <= limit {
-                            if *n == 0 {
+                if let AstNode::Literal(Value::Int(n)) = &**count
+                    && *n >= 0
+                    && !has_ctrl(body)
+                {
+                    let limit = 16;
+                    if *n <= limit {
+                        if *n == 0 {
+                            self.instructions
+                                .push(Instruction::LoadConst(Value::unit()));
+                        } else {
+                            for i in 0..*n {
                                 self.instructions
-                                    .push(Instruction::LoadConst(Value::unit()));
-                            } else {
-                                for i in 0..*n {
-                                    self.instructions
-                                        .push(Instruction::LoadConst(Value::Int(i)));
-                                    self.emit_store("_n");
-                                    self.compile(body)?;
-                                    if i < *n - 1 {
-                                        self.instructions.push(Instruction::Pop);
-                                    }
-                                }
-                            }
-                            return Ok(());
-                        } else if *n <= 64 {
-                            let full_chunks = *n / 8;
-                            let remainder = *n % 8;
-                            for c in 0..full_chunks {
-                                for i in 0..8 {
-                                    let idx = c * 8 + i;
-                                    self.instructions
-                                        .push(Instruction::LoadConst(Value::Int(idx)));
-                                    self.emit_store("_n");
-                                    self.compile(body)?;
+                                    .push(Instruction::LoadConst(Value::Int(i)));
+                                self.emit_store("_n");
+                                self.compile(body)?;
+                                if i < *n - 1 {
                                     self.instructions.push(Instruction::Pop);
                                 }
                             }
-                            for i in 0..remainder {
-                                let idx = full_chunks * 8 + i;
+                        }
+                        return Ok(());
+                    } else if *n <= 64 {
+                        let full_chunks = *n / 8;
+                        let remainder = *n % 8;
+                        for c in 0..full_chunks {
+                            for i in 0..8 {
+                                let idx = c * 8 + i;
                                 self.instructions
                                     .push(Instruction::LoadConst(Value::Int(idx)));
                                 self.emit_store("_n");
                                 self.compile(body)?;
-                                if i < remainder - 1 {
-                                    self.instructions.push(Instruction::Pop);
-                                }
+                                self.instructions.push(Instruction::Pop);
                             }
-                            if *n > 0 {
-                                self.instructions.pop();
-                            } else {
-                                self.instructions
-                                    .push(Instruction::LoadConst(Value::unit()));
-                            }
-                            return Ok(());
                         }
+                        for i in 0..remainder {
+                            let idx = full_chunks * 8 + i;
+                            self.instructions
+                                .push(Instruction::LoadConst(Value::Int(idx)));
+                            self.emit_store("_n");
+                            self.compile(body)?;
+                            if i < remainder - 1 {
+                                self.instructions.push(Instruction::Pop);
+                            }
+                        }
+                        if *n > 0 {
+                            self.instructions.pop();
+                        } else {
+                            self.instructions
+                                .push(Instruction::LoadConst(Value::unit()));
+                        }
+                        return Ok(());
                     }
                 }
 
@@ -746,10 +747,10 @@ impl Compiler {
 
             // Recurse into nested code objects first
             for ins in code.iter_mut() {
-                if let LoadConst(CompiledFunction { instructions, .. }) = ins {
-                    if fuse_once(instructions, stats) {
-                        changed_any = true;
-                    }
+                if let LoadConst(CompiledFunction { instructions, .. }) = ins
+                    && fuse_once(instructions, stats)
+                {
+                    changed_any = true;
                 }
             }
 
@@ -813,41 +814,39 @@ impl Compiler {
                 }
 
                 // 4-op fusion: LL j; LC 0; GreaterThan; JIFalse T -> JumpIfLEZLocal(j, T)
-                if i + 3 < n {
-                    if let (
+                if i + 3 < n
+                    && let (
                         LoadLocal(slot),
                         LoadConst(Value::Int(0)),
                         BinaryOp(BinaryOperator::GreaterThan),
                         JumpIfFalse(pos),
                     ) = (&old[i], &old[i + 1], &old[i + 2], &old[i + 3])
-                    {
-                        out.push(JumpIfLEZLocal(*slot, *pos));
-                        origin.push(i);
-                        keep[i] = true;
-                        keep[i + 1] = false;
-                        keep[i + 2] = false;
-                        keep[i + 3] = false;
-                        stats.ll0_gt_jifalse += 1;
-                        changed_any = true;
-                        i += 4;
-                        continue;
-                    }
+                {
+                    out.push(JumpIfLEZLocal(*slot, *pos));
+                    origin.push(i);
+                    keep[i] = true;
+                    keep[i + 1] = false;
+                    keep[i + 2] = false;
+                    keep[i + 3] = false;
+                    stats.ll0_gt_jifalse += 1;
+                    changed_any = true;
+                    i += 4;
+                    continue;
                 }
 
                 // cmp+branch: LT; JIFalse -> JGE (stack-based)
-                if i + 1 < n {
-                    if let (BinaryOp(BinaryOperator::LessThan), JumpIfFalse(pos)) =
+                if i + 1 < n
+                    && let (BinaryOp(BinaryOperator::LessThan), JumpIfFalse(pos)) =
                         (&old[i], &old[i + 1])
-                    {
-                        out.push(JumpIfGE(*pos));
-                        origin.push(i);
-                        keep[i] = true;
-                        keep[i + 1] = false;
-                        stats.lt_jifalse += 1;
-                        changed_any = true;
-                        i += 2;
-                        continue;
-                    }
+                {
+                    out.push(JumpIfGE(*pos));
+                    origin.push(i);
+                    keep[i] = true;
+                    keep[i + 1] = false;
+                    stats.lt_jifalse += 1;
+                    changed_any = true;
+                    i += 2;
+                    continue;
                 }
 
                 out.push(old[i].clone());

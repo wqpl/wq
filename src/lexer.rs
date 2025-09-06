@@ -222,87 +222,87 @@ impl<'a> Lexer<'a> {
         let mut base: u32 = 10;
         let mut had_prefix = false;
 
-        if self.current_char == Some('0') {
-            if let Some(next_ch) = self.peek() {
-                match next_ch {
-                    'b' | 'B' => {
-                        base = 2;
-                        had_prefix = true;
-                    }
-                    'o' | 'O' => {
-                        base = 8;
-                        had_prefix = true;
-                    }
-                    'x' | 'X' => {
-                        base = 16;
-                        had_prefix = true;
-                    }
-                    _ => {}
+        if self.current_char == Some('0')
+            && let Some(next_ch) = self.peek()
+        {
+            match next_ch {
+                'b' | 'B' => {
+                    base = 2;
+                    had_prefix = true;
                 }
-                if had_prefix {
-                    // consume '0' and the base letter
-                    self.advance();
-                    self.advance();
+                'o' | 'O' => {
+                    base = 8;
+                    had_prefix = true;
+                }
+                'x' | 'X' => {
+                    base = 16;
+                    had_prefix = true;
+                }
+                _ => {}
+            }
+            if had_prefix {
+                // consume '0' and the base letter
+                self.advance();
+                self.advance();
 
-                    let is_digit_for_base = |c: char| -> bool {
-                        match base {
-                            2 => c == '0' || c == '1',
-                            8 => c.is_ascii_digit() && c <= '7',
-                            10 => c.is_ascii_digit(),
-                            16 => c.is_ascii_hexdigit(),
-                            _ => false,
-                        }
-                    };
-
-                    let mut prev_was_digit = false;
-                    let mut saw_digit = false;
-
-                    while let Some(ch) = self.current_char {
-                        if is_digit_for_base(ch) {
-                            raw_lit.push(ch);
-                            prev_was_digit = true;
-                            saw_digit = true;
-                            self.advance();
-                        } else if ch == '_' {
-                            // allow underscore only between two valid digits
-                            if prev_was_digit {
-                                if let Some(nc) = self.peek() {
-                                    if is_digit_for_base(*nc) {
-                                        self.advance(); // consume '_'
-                                        prev_was_digit = false;
-                                        continue;
-                                    }
-                                }
-                            }
-                            break;
-                        } else {
-                            // For non-decimal prefixed literals, stop on '.'/'e' as well.
-                            break;
-                        }
+                let is_digit_for_base = |c: char| -> bool {
+                    match base {
+                        2 => c == '0' || c == '1',
+                        8 => c.is_ascii_digit() && c <= '7',
+                        10 => c.is_ascii_digit(),
+                        16 => c.is_ascii_hexdigit(),
+                        _ => false,
                     }
+                };
 
-                    if !saw_digit {
+                let mut prev_was_digit = false;
+                let mut saw_digit = false;
+
+                while let Some(ch) = self.current_char {
+                    if is_digit_for_base(ch) {
+                        raw_lit.push(ch);
+                        prev_was_digit = true;
+                        saw_digit = true;
+                        self.advance();
+                    } else if ch == '_' {
+                        // allow underscore only between two valid digits
+                        if prev_was_digit
+                            && let Some(nc) = self.peek()
+                            && is_digit_for_base(*nc)
+                        {
+                            self.advance(); // consume '_'
+                            prev_was_digit = false;
+                            continue;
+                        }
+
+                        break;
+                    } else {
+                        // For non-decimal prefixed literals, stop on '.'/'e' as well.
+                        break;
+                    }
+                }
+
+                if !saw_digit {
+                    return Err(self.syntax_error_span(
+                        start_line,
+                        start_column,
+                        start_byte,
+                        self.byte_pos,
+                        "expected digits after base prefix",
+                    ));
+                }
+
+                let lit = raw_lit.replace('_', "");
+                match i64::from_str_radix(&lit, base) {
+                    Ok(n) => return Ok(TokenType::Integer(n)),
+                    Err(_) => {
                         return Err(self.syntax_error_span(
                             start_line,
                             start_column,
                             start_byte,
                             self.byte_pos,
-                            "expected digits after base prefix",
+                            "integer literal overflow",
                         ));
-                    }
-
-                    let lit = raw_lit.replace('_', "");
-                    match i64::from_str_radix(&lit, base) {
-                        Ok(n) => return Ok(TokenType::Integer(n)),
-                        Err(_) => {
-                            return Err(self.syntax_error_span(
-                                start_line,
-                                start_column,
-                                start_byte,
-                                self.byte_pos,
-                                "integer literal overflow",
-                            ));
-                        }
                     }
                 }
             }
@@ -320,13 +320,11 @@ impl<'a> Lexer<'a> {
                     .last()
                     .map(|c| c.is_ascii_digit())
                     .unwrap_or(false)
+                    && let Some(next_ch) = self.peek()
+                    && next_ch.is_ascii_digit()
                 {
-                    if let Some(next_ch) = self.peek() {
-                        if next_ch.is_ascii_digit() {
-                            self.advance(); // consume '_'
-                            continue;
-                        }
-                    }
+                    self.advance(); // consume '_'
+                    continue;
                 }
                 break;
             } else if ch == '.' && !is_float && !has_exp {
@@ -349,11 +347,9 @@ impl<'a> Lexer<'a> {
                 raw_lit.push(ch);
                 self.advance();
                 // optional +/-
-                if let Some(sign_ch) = self.current_char {
-                    if sign_ch == '+' || sign_ch == '-' {
-                        raw_lit.push(sign_ch);
-                        self.advance();
-                    }
+                if let Some(sign_ch @ ('+' | '-')) = self.current_char {
+                    raw_lit.push(sign_ch);
+                    self.advance();
                 }
             } else {
                 break;

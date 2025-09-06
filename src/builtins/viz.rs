@@ -61,139 +61,133 @@ pub mod show_table {
     }
 
     fn parse_list_of_dicts(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
-        if let Value::List(rows) = val {
-            if rows.iter().all(|r| matches!(r, Value::Dict(_))) {
-                let mut headers: Vec<String> = Vec::new();
-                for row in rows {
-                    if let Value::Dict(map) = row {
-                        for k in map.keys() {
-                            if !headers.contains(k) {
-                                headers.push(k.clone());
-                            }
+        if let Value::List(rows) = val
+            && rows.iter().all(|r| matches!(r, Value::Dict(_)))
+        {
+            let mut headers: Vec<String> = Vec::new();
+            for row in rows {
+                if let Value::Dict(map) = row {
+                    for k in map.keys() {
+                        if !headers.contains(k) {
+                            headers.push(k.clone());
                         }
                     }
                 }
-                headers.sort();
-
-                let mut data = Vec::new();
-                for row in rows {
-                    if let Value::Dict(map) = row {
-                        let mut r = Vec::new();
-                        for h in &headers {
-                            if let Some(v) = map.get(h) {
-                                r.push(v.to_string());
-                            } else {
-                                r.push(String::new());
-                            }
-                        }
-                        data.push(r);
-                    }
-                }
-
-                return Some((headers, data));
             }
+            headers.sort();
+            let mut data = Vec::new();
+            for row in rows {
+                if let Value::Dict(map) = row {
+                    let mut r = Vec::new();
+                    for h in &headers {
+                        if let Some(v) = map.get(h) {
+                            r.push(v.to_string());
+                        } else {
+                            r.push(String::new());
+                        }
+                    }
+                    data.push(r);
+                }
+            }
+            return Some((headers, data));
         }
         None
     }
 
     fn parse_dict_of_lists(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
-        if let Value::Dict(map) = val {
-            if map
+        if let Value::Dict(map) = val
+            && map
                 .values()
                 .all(|v| matches!(v, Value::List(_) | Value::IntList(_)))
-            {
-                let mut headers: Vec<String> = map.keys().cloned().collect();
-                headers.sort();
+        {
+            let mut headers: Vec<String> = map.keys().cloned().collect();
+            headers.sort();
+            let nrows = map
+                .values()
+                .filter_map(|v| match v {
+                    Value::List(items) => Some(items.len()),
+                    Value::IntList(items) => Some(items.len()),
+                    _ => None,
+                })
+                .max()
+                .unwrap_or(0);
 
-                let nrows = map
-                    .values()
-                    .filter_map(|v| match v {
-                        Value::List(items) => Some(items.len()),
-                        Value::IntList(items) => Some(items.len()),
-                        _ => None,
-                    })
-                    .max()
-                    .unwrap_or(0);
-
-                let mut data = Vec::new();
-                for i in 0..nrows {
-                    let mut row = Vec::new();
-                    for h in &headers {
-                        if let Some(value) = map.get(h) {
-                            match value {
-                                Value::List(items) => {
-                                    if let Some(v) = items.get(i) {
-                                        row.push(v.to_string());
-                                    } else {
-                                        row.push(String::new());
-                                    }
+            let mut data = Vec::new();
+            for i in 0..nrows {
+                let mut row = Vec::new();
+                for h in &headers {
+                    if let Some(value) = map.get(h) {
+                        match value {
+                            Value::List(items) => {
+                                if let Some(v) = items.get(i) {
+                                    row.push(v.to_string());
+                                } else {
+                                    row.push(String::new());
                                 }
-                                Value::IntList(items) => {
-                                    if let Some(v) = items.get(i) {
-                                        row.push(v.to_string());
-                                    } else {
-                                        row.push(String::new());
-                                    }
-                                }
-                                _ => row.push(String::new()),
                             }
-                        } else {
-                            row.push(String::new());
+                            Value::IntList(items) => {
+                                if let Some(v) = items.get(i) {
+                                    row.push(v.to_string());
+                                } else {
+                                    row.push(String::new());
+                                }
+                            }
+                            _ => row.push(String::new()),
                         }
+                    } else {
+                        row.push(String::new());
                     }
-                    data.push(row);
                 }
-
-                return Some((headers, data));
+                data.push(row);
             }
+            return Some((headers, data));
         }
         None
     }
 
     fn parse_dict_of_dicts(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
-        if let Value::Dict(map) = val {
-            if map.values().all(|v| matches!(v, Value::Dict(_))) {
-                let mut row_names: Vec<String> = map.keys().cloned().collect();
-                row_names.sort();
+        if let Value::Dict(map) = val
+            && map.values().all(|v| matches!(v, Value::Dict(_)))
+        {
+            let mut row_names: Vec<String> = map.keys().cloned().collect();
+            row_names.sort();
 
-                let mut columns: Vec<String> = Vec::new();
-                for v in map.values() {
-                    if let Value::Dict(inner) = v {
-                        for k in inner.keys() {
-                            if !columns.contains(k) {
-                                columns.push(k.clone());
-                            }
+            let mut columns: Vec<String> = Vec::new();
+            for v in map.values() {
+                if let Value::Dict(inner) = v {
+                    for k in inner.keys() {
+                        if !columns.contains(k) {
+                            columns.push(k.clone());
                         }
                     }
                 }
-                columns.sort();
+            }
+            columns.sort();
 
-                let mut headers = Vec::with_capacity(columns.len() + 1);
-                headers.push(String::new());
-                headers.extend(columns.clone());
+            let mut headers = Vec::with_capacity(columns.len() + 1);
+            headers.push(String::new());
+            headers.extend(columns.clone());
 
-                let mut data = Vec::new();
-                for row_name in &row_names {
-                    let mut row = Vec::new();
-                    row.push(row_name.clone());
-                    if let Some(Value::Dict(inner)) = map.get(row_name) {
-                        for col in &columns {
-                            if let Some(v) = inner.get(col) {
-                                row.push(v.to_string());
-                            } else {
-                                row.push(String::new());
-                            }
-                        }
-                    } else {
-                        for _ in &columns {
+            let mut data = Vec::new();
+            for row_name in &row_names {
+                let mut row = Vec::new();
+                row.push(row_name.clone());
+                if let Some(Value::Dict(inner)) = map.get(row_name) {
+                    for col in &columns {
+                        if let Some(v) = inner.get(col) {
+                            row.push(v.to_string());
+                        } else {
                             row.push(String::new());
                         }
                     }
-                    data.push(row);
+                } else {
+                    for _ in &columns {
+                        row.push(String::new());
+                    }
                 }
-
-                return Some((headers, data));
+                data.push(row);
             }
+            return Some((headers, data));
         }
         None
     }

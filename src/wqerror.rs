@@ -22,16 +22,16 @@ pub enum WqError {
 
 macro_rules! define_wq_errors {
     ( $( $code_ident:ident => ($variant:ident, $num:expr, $ctor:expr) ),+ $(,)? ) => {
-        #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-        #[repr(i32)]
-        enum WqErrCode { $( $code_ident = $num ),+ }
+        // #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+        // #[repr(i32)]
+        // enum WqErrCode { $( $code_ident = $num ),+ }
 
-        impl core::convert::TryFrom<i32> for WqErrCode {
-            type Error = ();
-            fn try_from(v: i32) -> Result<Self, ()> {
-                match v { $( $num => Ok(WqErrCode::$code_ident), )+ _ => Err(()) }
-            }
-        }
+        // impl core::convert::TryFrom<i32> for WqErrCode {
+        //     type Error = ();
+        //     fn try_from(v: i32) -> Result<Self, ()> {
+        //         match v { $( $num => Ok(WqErrCode::$code_ident), )+ _ => Err(()) }
+        //     }
+        // }
 
         impl WqError {
             /// Numeric error code (macro-provided for all known variants).

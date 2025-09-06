@@ -483,19 +483,19 @@ impl Parser {
     fn parse_comma(&mut self) -> WqResult<AstNode> {
         let mut items = Vec::new();
 
-        if let Some(token) = self.current_token() {
-            if token.token_type == TokenType::Comma {
-                // Leading comma list: ,a,b,c
-                while let Some(t) = self.current_token() {
-                    if t.token_type != TokenType::Comma {
-                        break;
-                    }
-                    self.advance();
-                    let expr = self.parse_comparison()?;
-                    items.push(expr);
+        if let Some(token) = self.current_token()
+            && token.token_type == TokenType::Comma
+        {
+            // Leading comma list: ,a,b,c
+            while let Some(t) = self.current_token() {
+                if t.token_type != TokenType::Comma {
+                    break;
                 }
-                return Ok(AstNode::List(items));
+                self.advance();
+                let expr = self.parse_comparison()?;
+                items.push(expr);
             }
+            return Ok(AstNode::List(items));
         }
 
         let mut expr = self.parse_comparison()?;
@@ -1018,12 +1018,10 @@ impl Parser {
                         token_type: TokenType::Symbol(_),
                         ..
                     }) = self.current_token()
+                        && let Some(next) = self.peek_token()
+                        && next.token_type == TokenType::Colon
                     {
-                        if let Some(next) = self.peek_token() {
-                            if next.token_type == TokenType::Colon {
-                                is_dict = true;
-                            }
-                        }
+                        is_dict = true;
                     }
 
                     if is_dict {
@@ -1053,46 +1051,46 @@ impl Parser {
         let mut params = None;
 
         // Optional parameter list: {[a;b]}
-        if let Some(tok) = self.current_token() {
-            if tok.token_type == TokenType::LeftBracket {
-                self.advance(); // '['
-                let mut names = Vec::new();
+        if let Some(tok) = self.current_token()
+            && tok.token_type == TokenType::LeftBracket
+        {
+            self.advance(); // '['
+            let mut names = Vec::new();
 
-                loop {
-                    // allow trivia inside params
-                    self.eat_trivia(true, true);
-                    match self.current_token().map(|t| (&t.token_type, t)) {
-                        Some((TokenType::Identifier(name), tok)) => {
-                            if self.builtins.has_function(name) {
-                                return Err(self.syntax_error(
+            loop {
+                // allow trivia inside params
+                self.eat_trivia(true, true);
+                match self.current_token().map(|t| (&t.token_type, t)) {
+                    Some((TokenType::Identifier(name), tok)) => {
+                        if self.builtins.has_function(name) {
+                            return Err(self.syntax_error(
                                     tok,
                                     &format!("cannot use `{name}` as a param because a builtin with the same name exists"),
                                 ));
-                            }
-                            names.push(name.clone());
-                            self.advance();
                         }
-                        Some((TokenType::Semicolon, _)) => {
-                            self.advance();
-                        }
-                        Some((TokenType::RightBracket, _)) => {
-                            self.advance();
-                            break;
-                        }
-                        Some((TokenType::Eof, _)) => {
-                            return Err(self.eof_error("unexpected end of input in parameter list"));
-                        }
-                        Some((_, bad)) => {
-                            return Err(self.syntax_error(bad, "expected identifier `;` or `]`"));
-                        }
-                        None => {
-                            return Err(self.eof_error("unexpected end of input in parameter list"));
-                        }
+                        names.push(name.clone());
+                        self.advance();
+                    }
+                    Some((TokenType::Semicolon, _)) => {
+                        self.advance();
+                    }
+                    Some((TokenType::RightBracket, _)) => {
+                        self.advance();
+                        break;
+                    }
+                    Some((TokenType::Eof, _)) => {
+                        return Err(self.eof_error("unexpected end of input in parameter list"));
+                    }
+                    Some((_, bad)) => {
+                        return Err(self.syntax_error(bad, "expected identifier `;` or `]`"));
+                    }
+                    None => {
+                        return Err(self.eof_error("unexpected end of input in parameter list"));
                     }
                 }
-
-                params = Some(names);
             }
+
+            params = Some(names);
         }
 
         // Start collecting spans for this function (including nested branches)

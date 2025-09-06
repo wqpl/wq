@@ -264,11 +264,10 @@ impl Vm {
         self.pc = saved_pc;
         self.inline_cache = saved_cache;
         // Pop debug frame and restore caller chunk
-        if pushed_dbg {
-            if let Some(fr) = self.call_stack.pop() {
-                self.current_chunk = fr.chunk;
-            }
+        if pushed_dbg && let Some(fr) = self.call_stack.pop() {
+            self.current_chunk = fr.chunk;
         }
+
         // Return the callee result (Ok or Err) after full restoration
         res
     }
@@ -308,12 +307,13 @@ impl Vm {
                         let c = &self.inline_cache[idx];
                         (c.version, c.value.as_ref())
                     };
-                    if cver == self.global_version {
-                        if let Some(v) = cval {
-                            self.stack.push(v.clone());
-                            continue;
-                        }
+                    if cver == self.global_version
+                        && let Some(v) = cval
+                    {
+                        self.stack.push(v.clone());
+                        continue;
                     }
+
                     let (val, ver) = if let Some(val) = self.lookup_global(name) {
                         (val, self.global_version)
                     } else if self.builtins.has_function(name) {

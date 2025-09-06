@@ -922,12 +922,12 @@ mod tests {
 
         // matrix
         let mat_shape = Value::List(vec![Value::Int(2), Value::Int(3)]);
-        let mat = alloc(&[mat_shape.clone()]).unwrap();
+        let mat = alloc(std::slice::from_ref(&mat_shape)).unwrap();
         assert_eq!(shape(&[mat]).unwrap(), Value::IntList(vec![2, 3]));
 
         // invalid shape
         let invalid_shape = Value::List(vec![Value::List(vec![Value::Int(2), Value::Int(2)])]);
-        let invalid = alloc(&[invalid_shape.clone()]);
+        let invalid = alloc(std::slice::from_ref(&invalid_shape));
         assert!(matches!(invalid, Err(WqError::DomainError(_))));
     }
 
@@ -941,7 +941,7 @@ mod tests {
     #[test]
     fn shape_string_and_mixed_list() {
         let s = Value::List(vec![Value::Char('h'), Value::Char('i')]);
-        assert_eq!(shape(&[s.clone()]).unwrap(), Value::Int(2));
+        assert_eq!(shape(std::slice::from_ref(&s)).unwrap(), Value::Int(2));
         let mixed = Value::List(vec![Value::Char('h'), Value::Int(2)]);
         assert_eq!(shape(&[mixed]).unwrap(), Value::Int(2));
     }

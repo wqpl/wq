@@ -84,11 +84,12 @@ impl LineTable {
             pc = self.pc_to_stmt_span.len().saturating_sub(1);
         }
         loop {
-            if let Some(s) = self.pc_to_stmt_span.get(pc) {
-                if s.file_id != u32::MAX {
-                    return *s;
-                }
+            if let Some(s) = self.pc_to_stmt_span.get(pc)
+                && s.file_id != u32::MAX
+            {
+                return *s;
             }
+
             if pc == 0 {
                 return Span::NONE;
             }

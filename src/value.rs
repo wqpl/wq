@@ -483,10 +483,10 @@ impl fmt::Display for Value {
                 }
 
                 // 3. boxed mode
-                if box_mode::is_boxed() {
-                    if let Some(b) = box_mode::format_boxed(items) {
-                        return write!(f, "{b}");
-                    }
+                if box_mode::is_boxed()
+                    && let Some(b) = box_mode::format_boxed(items)
+                {
+                    return write!(f, "{b}");
                 }
 
                 // 4. Singleton list - ,1

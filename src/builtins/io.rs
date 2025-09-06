@@ -493,7 +493,7 @@ mod tests {
         let h = open(&[str_val(&path), str_val("w+")]).unwrap();
         fwritet(&[h.clone(), str_val("hi")]).unwrap();
         fseek(&[h.clone(), Value::Int(0)]).unwrap();
-        let txt = freadt(&[h.clone()]).unwrap();
+        let txt = freadt(std::slice::from_ref(&h)).unwrap();
         assert_eq!(txt, str_val("hi"));
         let size = fsize(&[str_val(&path)]).unwrap();
         assert_eq!(size, Value::Int(2));
@@ -530,11 +530,11 @@ mod tests {
 
         let h = open(&[sv(path.to_str().unwrap()), sv("w+")]).unwrap();
         fwritet(&[h.clone(), sv("hello")]).unwrap();
-        let pos1 = ftell(&[h.clone()]).unwrap();
+        let pos1 = ftell(std::slice::from_ref(&h)).unwrap();
         assert_eq!(pos1, Value::Int(5));
 
         fseek(&[h.clone(), Value::Int(2)]).unwrap();
-        let pos2 = ftell(&[h.clone()]).unwrap();
+        let pos2 = ftell(std::slice::from_ref(&h)).unwrap();
         assert_eq!(pos2, Value::Int(2));
 
         fclose(&[h]).unwrap();

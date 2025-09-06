@@ -7,10 +7,10 @@ pub fn fold(node: AstNode) -> AstNode {
         Literal(_) | Variable(_) | Break | Continue => node,
         UnaryOp { operator, operand } => {
             let operand = Box::new(fold(*operand));
-            if let Literal(v) = operand.as_ref() {
-                if let Ok(res) = eval_unary(operator.clone(), v.clone()) {
-                    return Literal(res);
-                }
+            if let Literal(v) = operand.as_ref()
+                && let Ok(res) = eval_unary(operator.clone(), v.clone())
+            {
+                return Literal(res);
             }
             UnaryOp { operator, operand }
         }
@@ -21,10 +21,10 @@ pub fn fold(node: AstNode) -> AstNode {
         } => {
             let left = Box::new(fold(*left));
             let right = Box::new(fold(*right));
-            if let (Literal(lv), Literal(rv)) = (&*left, &*right) {
-                if let Ok(res) = eval_binary(operator.clone(), lv.clone(), rv.clone()) {
-                    return Literal(res);
-                }
+            if let (Literal(lv), Literal(rv)) = (&*left, &*right)
+                && let Ok(res) = eval_binary(operator.clone(), lv.clone(), rv.clone())
+            {
+                return Literal(res);
             }
             BinaryOp {
                 left,

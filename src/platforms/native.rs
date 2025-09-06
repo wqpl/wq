@@ -304,13 +304,14 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             Ok(report) => print_load_report_ui(&report),
                             Err(err) => {
                                 // Only treat EOF as a signal to continue buffering multi-line input
-                                if let hotchoco::LoadErrorKind::Eval(_, ref we) = err.kind {
-                                    if matches!(we, WqError::EofError(_)) {
-                                        buffer.push_str(input);
-                                        buffer.push('\n');
-                                        continue;
-                                    }
+                                if let hotchoco::LoadErrorKind::Eval(_, ref we) = err.kind
+                                    && matches!(we, WqError::EofError(_))
+                                {
+                                    buffer.push_str(input);
+                                    buffer.push('\n');
+                                    continue;
                                 }
+
                                 print_load_error_ui(&err, &mut vm, rtflags.bt);
                             }
                         }
@@ -546,19 +547,19 @@ fn xray_info(v: &crate::value::Value) -> String {
     use crate::value::Value;
 
     let count = v.len();
-    let depth = match blist::depth(&[v.clone()]) {
+    let depth = match blist::depth(std::slice::from_ref(v)) {
         Ok(s) => &s.to_string(),
         _ => "?",
     };
-    let shape = match blist::shape(&[v.clone()]) {
+    let shape = match blist::shape(std::slice::from_ref(v)) {
         Ok(s) => &s.to_string(),
         _ => "?",
     };
-    let rank = match blist::shape(&[v.clone()]) {
+    let rank = match blist::shape(std::slice::from_ref(v)) {
         Ok(s) => &s.len().to_string(),
         _ => "?",
     };
-    let uniform = match blist::is_uniform(&[v.clone()]) {
+    let uniform = match blist::is_uniform(std::slice::from_ref(v)) {
         Ok(Value::Bool(b)) => b,
         _ => false,
     };
