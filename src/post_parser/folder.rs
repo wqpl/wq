@@ -1,5 +1,6 @@
 use crate::astnode::{AstNode, BinaryOperator, UnaryOperator};
 use crate::value::{Value, WqResult};
+use indexmap::IndexMap;
 
 pub fn fold(node: AstNode) -> AstNode {
     use AstNode::*;
@@ -63,7 +64,18 @@ pub fn fold(node: AstNode) -> AstNode {
         Dict(pairs) => {
             let pairs: Vec<(String, AstNode)> =
                 pairs.into_iter().map(|(k, v)| (k, fold(v))).collect();
-            Dict(pairs)
+            // If all values are literals, fold into a literal dict value
+            if pairs.iter().all(|(_, v)| matches!(v, Literal(_))) {
+                let mut map: IndexMap<String, Value> = IndexMap::with_capacity(pairs.len());
+                for (k, v) in pairs {
+                    if let Literal(val) = v {
+                        map.insert(k, val);
+                    }
+                }
+                Literal(Value::Dict(map))
+            } else {
+                Dict(pairs)
+            }
         }
         Assignment { name, value } => Assignment {
             name,
@@ -107,19 +119,44 @@ pub fn fold(node: AstNode) -> AstNode {
             condition,
             true_branch,
             false_branch,
-        } => Conditional {
-            condition: Box::new(fold(*condition)),
-            true_branch: Box::new(fold(*true_branch)),
-            false_branch: false_branch.map(|b| Box::new(fold(*b))),
-        },
-        WhileLoop { condition, body } => WhileLoop {
-            condition: Box::new(fold(*condition)),
-            body: Box::new(fold(*body)),
-        },
-        ForLoop { count, body } => ForLoop {
-            count: Box::new(fold(*count)),
-            body: Box::new(fold(*body)),
-        },
+        } => {
+            let condition = Box::new(fold(*condition));
+            let true_branch = Box::new(fold(*true_branch));
+            let false_branch = false_branch.map(|b| Box::new(fold(*b)));
+            if let Literal(Value::Bool(b)) = condition.as_ref() {
+                return if *b {
+                    *true_branch
+                } else if let Some(fb) = false_branch {
+                    *fb
+                } else {
+                    Literal(Value::unit())
+                };
+            }
+            Conditional {
+                condition,
+                true_branch,
+                false_branch,
+            }
+        }
+        WhileLoop { condition, body } => {
+            let condition = Box::new(fold(*condition));
+            let body = Box::new(fold(*body));
+            if let Literal(Value::Bool(false)) = condition.as_ref() {
+                return Literal(Value::unit());
+            }
+            WhileLoop { condition, body }
+        }
+        ForLoop { count, body } => {
+            if let AstNode::Literal(Value::Int(n)) = count.as_ref()
+                && *n <= 0
+            {
+                return Literal(Value::unit());
+            }
+            ForLoop {
+                count: Box::new(fold(*count)),
+                body: Box::new(fold(*body)),
+            }
+        }
         Return(expr) => Return(expr.map(|e| Box::new(fold(*e)))),
         Assert(expr) => Assert(Box::new(fold(*expr))),
         Try(expr) => Try(Box::new(fold(*expr))),
