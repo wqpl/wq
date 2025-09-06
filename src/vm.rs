@@ -167,7 +167,7 @@ impl Vm {
         params: Option<Vec<String>>,
         local_count: u16,
         captured: Vec<Value>,
-        args: Vec<Value>,
+        argc: usize,
         callee_name: Option<&str>,
         dbg_chunk: Option<ChunkId>,
     ) -> WqResult<Value> {
@@ -220,27 +220,27 @@ impl Vm {
         self.pc = 0;
 
         let mut frame = vec![Value::unit(); local_count as usize];
-        // let capture_count = captured.len();
-        if let Some(p) = params {
-            if args.len() != p.len() {
+        // Validate arity using argc and then move args from caller stack directly
+        if let Some(p) = params.as_ref() {
+            if argc != p.len() {
                 return Err(WqError::ArityError(format!(
                     "function expects {} args, got {}",
                     p.len(),
-                    args.len()
+                    argc
                 )));
             }
-            for (i, arg) in args.into_iter().enumerate() {
-                frame[i] = arg;
-            }
-        } else {
-            if args.len() > 3 {
-                return Err(WqError::ArityError(
-                    "implicit function expects up to 3 args".to_string(),
-                ));
-            }
-            for (i, arg) in args.into_iter().enumerate() {
-                frame[i] = arg;
-            }
+        } else if argc > 3 {
+            return Err(WqError::ArityError(
+                "implicit function expects up to 3 args".to_string(),
+            ));
+        }
+        // Move arguments from the end of the caller's stack into callee's frame without allocating
+        // Maintain order: arg0..argN-1
+        for i in (0..argc).rev() {
+            let v = saved_stack.pop().ok_or_else(|| {
+                WqError::VmError("stack underflow while moving call arguments".into())
+            })?;
+            frame[i] = v;
         }
         self.locals.push(frame);
         self.captures.push(captured);
@@ -262,6 +262,7 @@ impl Vm {
         std::mem::swap(&mut self.stack, &mut saved_stack);
         self.instructions = saved_instructions;
         self.pc = saved_pc;
+        // Restore caller's inline cache
         self.inline_cache = saved_cache;
         // Pop debug frame and restore caller chunk
         if pushed_dbg && let Some(fr) = self.call_stack.pop() {
@@ -458,8 +459,7 @@ impl Vm {
                             "stack underflow: expected {argc} args for local function at slot {slot}",
                         )));
                     }
-                    let base = self.stack.len() - *argc;
-                    let args = self.stack.split_off(base);
+                    let argc_val = *argc;
 
                     // Walk frames top-down looking for the callable value
                     enum LocalCallable {
@@ -588,6 +588,7 @@ impl Vm {
                                     Value::Function { params, body } => {
                                         let mut c = Compiler::new();
                                         c.compile(body)?;
+                                        c.fuse();
                                         c.instructions.push(Instruction::Return);
                                         let locals_cnt = c.local_count();
                                         let instrs = std::mem::take(&mut c.instructions);
@@ -655,14 +656,16 @@ impl Vm {
                                 params,
                                 locals,
                                 captured,
-                                args,
+                                argc_val,
                                 name_hint.as_deref(),
                                 dbg_chunk,
                             )?;
                             self.stack.push(res);
                         }
                         LocalCallable::Builtin(name) => {
-                            let result = self.builtins.call(&name, &args)?;
+                            let base = self.stack.len() - argc_val;
+                            let result = self.builtins.call(&name, &self.stack[base..])?;
+                            self.stack.truncate(base);
                             self.stack.push(result);
                         }
                     }
@@ -676,7 +679,6 @@ impl Vm {
                         )));
                     }
                     let base = self.stack.len() - argc_val;
-                    let args = self.stack.split_off(base);
 
                     let (cver, cval) = {
                         let c = &self.inline_cache[idx];
@@ -779,7 +781,7 @@ impl Vm {
                                 params,
                                 locals,
                                 Vec::new(),
-                                args,
+                                argc_val,
                                 Some(&name_owned),
                                 chunk_for_call,
                             )?;
@@ -829,7 +831,7 @@ impl Vm {
                                 params,
                                 locals,
                                 captured,
-                                args,
+                                argc_val,
                                 Some(&name_owned),
                                 chunk_for_call,
                             )?;
@@ -838,6 +840,7 @@ impl Vm {
                         Value::Function { params, body } => {
                             let mut c = Compiler::new();
                             c.compile(&body)?;
+                            c.fuse();
                             c.instructions.push(Instruction::Return);
                             let locals = c.local_count();
                             let instrs = c.instructions.clone();
@@ -884,14 +887,15 @@ impl Vm {
                                 params,
                                 locals,
                                 Vec::new(),
-                                args,
+                                argc_val,
                                 Some(&name_owned),
                                 id_for_dbg,
                             )?;
                             self.stack.push(res);
                         }
                         Value::BuiltinFunction(name) => {
-                            let result = self.builtins.call(&name, &args)?;
+                            let result = self.builtins.call(&name, &self.stack[base..])?;
+                            self.stack.truncate(base);
                             self.stack.push(result);
                         }
                         other => {
@@ -908,11 +912,12 @@ impl Vm {
                             "stack underflow: expected {argc} args and a function",
                         )));
                     }
-                    let base = self.stack.len() - *argc;
-                    let args = self.stack.split_off(base);
-                    let func_val = self.stack.pop().ok_or_else(|| {
-                        WqError::VmError("stack underflow: missing function value for call".into())
-                    })?;
+                    let argc_val = *argc;
+                    let len = self.stack.len();
+                    let base = len - argc_val; // first arg index before removing function
+                    let func_index = base - 1; // function sits just before args
+                    // Move out function value while keeping args in place
+                    let func_val = self.stack.remove(func_index);
 
                     match func_val {
                         Value::CompiledFunction {
@@ -958,7 +963,7 @@ impl Vm {
                                 params,
                                 locals,
                                 Vec::new(),
-                                args,
+                                argc_val,
                                 None,
                                 chunk_for_call,
                             )?;
@@ -1008,7 +1013,7 @@ impl Vm {
                                 params,
                                 locals,
                                 captured,
-                                args,
+                                argc_val,
                                 None,
                                 chunk_for_call,
                             )?;
@@ -1017,6 +1022,7 @@ impl Vm {
                         Value::Function { params, body } => {
                             let mut c = Compiler::new();
                             c.compile(&body)?;
+                            c.fuse();
                             c.instructions.push(Instruction::Return);
                             let locals = c.local_count();
                             let instrs = c.instructions;
@@ -1035,14 +1041,17 @@ impl Vm {
                                 params,
                                 locals,
                                 Vec::new(),
-                                args,
+                                argc_val,
                                 Some("<anon>"),
                                 id_for_dbg,
                             )?;
                             self.stack.push(res);
                         }
                         Value::BuiltinFunction(name) => {
-                            let result = self.builtins.call(&name, &args)?;
+                            // Builtin: call using args slice and then drop args
+                            let base_after_remove = func_index; // args start here after removal
+                            let result = self.builtins.call(&name, &self.stack[base_after_remove..])?;
+                            self.stack.truncate(base_after_remove);
                             self.stack.push(result);
                         }
                         other => {
@@ -1497,207 +1506,214 @@ impl Vm {
                             "stack underflow: expected {argc} args and an object",
                         )));
                     }
-                    let base = self.stack.len() - *argc;
-                    let mut args = self.stack.split_off(base);
-                    let obj = self.stack.pop().unwrap();
+                    let argc_val = *argc;
+                    let len = self.stack.len();
+                    let base = len - argc_val;
+                    let obj_index = base - 1;
+                    let is_callable = matches!(
+                        self.stack.get(obj_index),
+                        Some(Value::CompiledFunction { .. })
+                            | Some(Value::Closure { .. })
+                            | Some(Value::Function { .. })
+                            | Some(Value::BuiltinFunction(_))
+                    );
 
-                    match obj {
-                        Value::CompiledFunction {
-                            params,
-                            locals,
-                            instructions,
-                            dbg_chunk,
-                            dbg_stmt_spans,
-                            dbg_local_names,
-                        } => {
-                            let mut chunk_for_call = dbg_chunk;
-                            if (self.wqdb.enabled || self.bt_mode) && chunk_for_call.is_none() {
-                                let file_id = self.debug_info.chunk(self.current_chunk).file_id;
-                                let id = self.debug_info.new_chunk(
-                                    "<fn>".to_string(),
-                                    file_id,
-                                    instructions.len(),
-                                );
-                                {
-                                    let base_offs = self.debug_src_offset();
-                                    let table = &mut self.debug_info.chunk_mut(id).line_table;
-                                    if let Some(spans) = dbg_stmt_spans.as_ref() {
-                                        apply_stmt_spans_exact_offs(
-                                            table,
-                                            &instructions,
-                                            file_id,
-                                            spans,
-                                            base_offs,
-                                        );
-                                    } else {
-                                        mark_stmt_heuristic(table, &instructions);
-                                    }
-                                }
-                                if let Some(names) = dbg_local_names.as_ref() {
-                                    self.debug_info.chunk_mut(id).local_names = Some(names.clone());
-                                } else if let Some(ps) = params.as_ref() {
-                                    self.debug_info.chunk_mut(id).local_names = Some(ps.clone());
-                                }
-                                chunk_for_call = Some(id);
-                            }
-                            let res = self.call_function(
-                                instructions,
+                    if is_callable {
+                        let obj = self.stack.remove(obj_index);
+                        match obj {
+                            Value::CompiledFunction {
                                 params,
                                 locals,
-                                Vec::new(),
-                                args,
-                                None,
-                                chunk_for_call,
-                            )?;
-                            self.stack.push(res);
-                        }
-                        Value::Closure {
-                            params,
-                            locals,
-                            captured,
-                            instructions,
-                            dbg_chunk,
-                            dbg_stmt_spans,
-                            dbg_local_names,
-                        } => {
-                            let mut chunk_for_call = dbg_chunk;
-                            if (self.wqdb.enabled || self.bt_mode) && chunk_for_call.is_none() {
-                                let file_id = self.debug_info.chunk(self.current_chunk).file_id;
-                                let id = self.debug_info.new_chunk(
-                                    "<fn>".to_string(),
-                                    file_id,
-                                    instructions.len(),
-                                );
-                                {
-                                    let base_offs = self.debug_src_offset();
-                                    let table = &mut self.debug_info.chunk_mut(id).line_table;
-                                    mark_stmt_heuristic(table, &instructions);
-                                    if let Some(spans) = dbg_stmt_spans.as_ref() {
-                                        let meta_len = instructions.len();
-                                        let mut pcs = Vec::new();
-                                        for pc in 0..meta_len {
-                                            if table.is_stmt(pc) {
-                                                pcs.push(pc);
-                                            }
-                                        }
-                                        let n = pcs.len().min(spans.len());
-                                        for i in 0..n {
-                                            table.mark_stmt(
-                                                pcs[i],
-                                                crate::wqdb::Span {
-                                                    file_id,
-                                                    start: (spans[i].0 + base_offs) as u32,
-                                                    end: (spans[i].1 + base_offs) as u32,
-                                                },
+                                instructions,
+                                dbg_chunk,
+                                dbg_stmt_spans,
+                                dbg_local_names,
+                            } => {
+                                let mut chunk_for_call = dbg_chunk;
+                                if (self.wqdb.enabled || self.bt_mode) && chunk_for_call.is_none() {
+                                    let file_id = self.debug_info.chunk(self.current_chunk).file_id;
+                                    let id = self.debug_info.new_chunk(
+                                        "<fn>".to_string(),
+                                        file_id,
+                                        instructions.len(),
+                                    );
+                                    {
+                                        let base_offs = self.debug_src_offset();
+                                        let table = &mut self.debug_info.chunk_mut(id).line_table;
+                                        if let Some(spans) = dbg_stmt_spans.as_ref() {
+                                            apply_stmt_spans_exact_offs(
+                                                table,
+                                                &instructions,
+                                                file_id,
+                                                spans,
+                                                base_offs,
                                             );
+                                        } else {
+                                            mark_stmt_heuristic(table, &instructions);
                                         }
                                     }
+                                    if let Some(names) = dbg_local_names.as_ref() {
+                                        self.debug_info.chunk_mut(id).local_names = Some(names.clone());
+                                    } else if let Some(ps) = params.as_ref() {
+                                        self.debug_info.chunk_mut(id).local_names = Some(ps.clone());
+                                    }
+                                    chunk_for_call = Some(id);
                                 }
-                                if let Some(names) = dbg_local_names.as_ref() {
-                                    self.debug_info.chunk_mut(id).local_names = Some(names.clone());
-                                } else if let Some(ps) = params.as_ref() {
-                                    self.debug_info.chunk_mut(id).local_names = Some(ps.clone());
-                                }
-                                chunk_for_call = Some(id);
+                                let res = self.call_function(
+                                    instructions,
+                                    params,
+                                    locals,
+                                    Vec::new(),
+                                    argc_val,
+                                    None,
+                                    chunk_for_call,
+                                )?;
+                                self.stack.push(res);
                             }
-                            let res = self.call_function(
-                                instructions,
+                            Value::Closure {
                                 params,
                                 locals,
                                 captured,
-                                args,
-                                None,
-                                chunk_for_call,
-                            )?;
-                            self.stack.push(res);
-                        }
-                        Value::Function { params, body } => {
-                            let mut c = Compiler::new();
-                            c.compile(&body)?;
-                            c.instructions.push(Instruction::Return);
-                            let locals = c.local_count();
-                            let instrs = c.instructions;
-                            let mut id_opt: Option<ChunkId> = None;
-                            if self.wqdb.enabled || self.bt_mode {
-                                let file_id = self.debug_info.chunk(self.current_chunk).file_id;
-                                let id = self.debug_info.new_chunk("<anon>", file_id, instrs.len());
-                                {
-                                    let table = &mut self.debug_info.chunk_mut(id).line_table;
-                                    mark_stmt_heuristic(table, &instrs);
+                                instructions,
+                                dbg_chunk,
+                                dbg_stmt_spans,
+                                dbg_local_names,
+                            } => {
+                                let mut chunk_for_call = dbg_chunk;
+                                if (self.wqdb.enabled || self.bt_mode) && chunk_for_call.is_none() {
+                                    let file_id = self.debug_info.chunk(self.current_chunk).file_id;
+                                    let id = self.debug_info.new_chunk(
+                                        "<fn>".to_string(),
+                                        file_id,
+                                        instructions.len(),
+                                    );
+                                    {
+                                        let base_offs = self.debug_src_offset();
+                                        let table = &mut self.debug_info.chunk_mut(id).line_table;
+                                        if let Some(spans) = dbg_stmt_spans.as_ref() {
+                                            apply_stmt_spans_exact_offs(
+                                                table,
+                                                &instructions,
+                                                file_id,
+                                                spans,
+                                                base_offs,
+                                            );
+                                        } else {
+                                            mark_stmt_heuristic(table, &instructions);
+                                        }
+                                    }
+                                    if let Some(names) = dbg_local_names.as_ref() {
+                                        self.debug_info.chunk_mut(id).local_names = Some(names.clone());
+                                    } else if let Some(ps) = params.as_ref() {
+                                        self.debug_info.chunk_mut(id).local_names = Some(ps.clone());
+                                    }
+                                    chunk_for_call = Some(id);
                                 }
-                                id_opt = Some(id);
+                                let res = self.call_function(
+                                    instructions,
+                                    params,
+                                    locals,
+                                    captured,
+                                    argc_val,
+                                    None,
+                                    chunk_for_call,
+                                )?;
+                                self.stack.push(res);
                             }
-                            let res = self.call_function(
-                                instrs,
-                                params,
-                                locals,
-                                Vec::new(),
-                                args,
-                                Some("<anon>"),
-                                id_opt,
-                            )?;
-                            self.stack.push(res);
+                            Value::Function { params, body } => {
+                                let mut c = Compiler::new();
+                                c.compile(&body)?;
+                                c.fuse();
+                                c.instructions.push(Instruction::Return);
+                                let locals = c.local_count();
+                                let instrs = c.instructions;
+                                let mut id_opt: Option<ChunkId> = None;
+                                if self.wqdb.enabled || self.bt_mode {
+                                    let file_id = self.debug_info.chunk(self.current_chunk).file_id;
+                                    let id = self.debug_info.new_chunk("<anon>", file_id, instrs.len());
+                                    {
+                                        let table = &mut self.debug_info.chunk_mut(id).line_table;
+                                        mark_stmt_heuristic(table, &instrs);
+                                    }
+                                    id_opt = Some(id);
+                                }
+                                let res = self.call_function(
+                                    instrs,
+                                    params,
+                                    locals,
+                                    Vec::new(),
+                                    argc_val,
+                                    Some("<anon>"),
+                                    id_opt,
+                                )?;
+                                self.stack.push(res);
+                            }
+                            Value::BuiltinFunction(name) => {
+                                let base_after_remove = obj_index;
+                                let result = self.builtins.call(&name, &self.stack[base_after_remove..])?;
+                                self.stack.truncate(base_after_remove);
+                                self.stack.push(result);
+                            }
+                            _ => unreachable!(),
                         }
-                        Value::BuiltinFunction(name) => {
-                            let result = self.builtins.call(&name, &args)?;
-                            self.stack.push(result);
-                        }
-                        other => {
-                            // treat as index
-                            let idx_val = if args.len() == 1 {
-                                args.pop().unwrap()
+                    } else {
+                        // Indexing path: use the original split_off to preserve exact semantics
+                        let mut args = self.stack.split_off(base);
+                        let obj = self.stack.pop().unwrap();
+                        let idx_val = if args.len() == 1 {
+                            args.pop().unwrap()
+                        } else {
+                            let all_ints = args.iter().all(|v| matches!(v, Value::Int(_)));
+                            if all_ints {
+                                let ints: Vec<i64> = args
+                                    .into_iter()
+                                    .map(|v| match v {
+                                        Value::Int(i) => i,
+                                        _ => unreachable!(),
+                                    })
+                                    .collect();
+                                Value::IntList(ints)
                             } else {
-                                let all_ints = args.iter().all(|v| matches!(v, Value::Int(_)));
-                                if all_ints {
-                                    let ints: Vec<i64> = args
-                                        .into_iter()
-                                        .map(|v| match v {
-                                            Value::Int(i) => i,
-                                            _ => unreachable!(),
-                                        })
-                                        .collect();
-                                    Value::IntList(ints)
-                                } else {
-                                    Value::List(args)
-                                }
-                            };
-                            match (idx_val, other) {
-                                (Value::Int(i), Value::IntList(items)) => {
-                                    let len = items.len() as i64;
-                                    let ii = if i < 0 { len + i } else { i };
-                                    if ii >= 0 && ii < len {
-                                        let idx = ii as usize;
-                                        self.stack.push(Value::Int(items[idx]));
-                                    } else {
-                                        return Err(WqError::IndexError(format!(
-                                            "invalid index: attempted to access index {i} in intlist of len {}",
-                                            items.len()
-                                        )));
-                                    }
-                                }
-                                (Value::Int(i), Value::List(items)) => {
-                                    let len = items.len() as i64;
-                                    let ii = if i < 0 { len + i } else { i };
-                                    if ii >= 0 && ii < len {
-                                        let idx = ii as usize;
-                                        let v = items.get(idx).cloned().unwrap();
-                                        self.stack.push(v);
-                                    } else {
-                                        return Err(WqError::IndexError(format!(
-                                            "invalid index: attempted to access index {i} in list of len {}",
-                                            items.len()
-                                        )));
-                                    }
-                                }
-                                (idx, objv) => match objv.index(&idx) {
-                                    Some(v) => self.stack.push(v),
-                                    None => {
-                                        return Err(WqError::IndexError(format!(
-                                            "invalid index: attempted to access index {idx} in `{objv}`"
-                                        )));
-                                    }
-                                },
+                                Value::List(args)
                             }
+                        };
+
+                        match (idx_val, obj) {
+                            (Value::Int(i), Value::IntList(items)) => {
+                                let len = items.len() as i64;
+                                let ii = if i < 0 { len + i } else { i };
+                                if ii >= 0 && ii < len {
+                                    let idx = ii as usize;
+                                    self.stack.push(Value::Int(items[idx]));
+                                } else {
+                                    return Err(WqError::IndexError(format!(
+                                        "invalid index: attempted to access index {i} in intlist of len {}",
+                                        items.len()
+                                    )));
+                                }
+                            }
+                            (Value::Int(i), Value::List(items)) => {
+                                let len = items.len() as i64;
+                                let ii = if i < 0 { len + i } else { i };
+                                if ii >= 0 && ii < len {
+                                    let idx = ii as usize;
+                                    let v = items.get(idx).cloned().unwrap();
+                                    self.stack.push(v);
+                                } else {
+                                    return Err(WqError::IndexError(format!(
+                                        "invalid index: attempted to access index {i} in list of len {}",
+                                        items.len()
+                                    )));
+                                }
+                            }
+                            (idx, objv) => match objv.index(&idx) {
+                                Some(v) => self.stack.push(v),
+                                None => {
+                                    return Err(WqError::IndexError(format!(
+                                        "invalid index: attempted to access index {idx} in `{objv}`"
+                                    )));
+                                }
+                            },
                         }
                     }
                 }
