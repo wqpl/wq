@@ -426,6 +426,17 @@ fn enter_repl(rtflags: RuntimeFlags) {
                 break;
             }
             Err(StdinError::Interrupted) => {
+                if !buffer.is_empty() {
+                    // Cancel current multi-line input
+                    buffer.clear();
+                    oneshot_time = false;
+                    oneshot_debug = None;
+                    oneshot_wqdb = false;
+                    system_msg_printer::stderr(
+                        "(cancelled pending input)".to_string(),
+                        system_msg_printer::MsgType::Info,
+                    );
+                }
                 continue;
             }
             Err(StdinError::Other(error)) => {
