@@ -1,5 +1,5 @@
-                   wq refcard
-==================================================
+wq refcard
+==========
 +     |plus       ,  enlist|cat    @a assert
 -  neg|minus      #  count |       @b break
 *     |mul        =        |eq     @c continue
@@ -16,7 +16,7 @@ W[cond;...] N[n;echo _n]
 ~ repl only ~
 !e  exit     !b    box mode   !hl   highlight
 !h  help     !bfn  builtins   !err  err codes
-!t  time     !g    globals    !r  reset
+!t  time     !g    globals    !r    reset
 !w  wqdb     !d !d0 ... !d4   debug level
 !t. !w. !d.  one-shot
 
@@ -26,7 +26,7 @@ type *v
 |   |-- float
 |   |-- char
 |   |-- symbol
-|   |-- bool
+|   |-- bool?
 |   +-- fn?
 |   |   |-- fn(cfn*)  {[a;b]a*b*b}[2;3]
 |   |   |-- closure*
