@@ -149,12 +149,19 @@ impl DebugInfo {
         self.by_name.insert(name_arc, id);
         id
     }
+
     pub fn chunk(&self, id: ChunkId) -> &ChunkMeta {
-        &self.chunks[&id]
+        self.chunks.get(&id).expect("chunk exists")
     }
+
+    pub fn chunk_opt(&self, id: ChunkId) -> Option<&ChunkMeta> {
+        self.chunks.get(&id)
+    }
+
     pub fn chunk_mut(&mut self, id: ChunkId) -> &mut ChunkMeta {
         self.chunks.get_mut(&id).expect("chunk exists")
     }
+
     pub fn file(&self, id: u32) -> Option<&Arc<SourceFile>> {
         self.files.get(&id)
     }
