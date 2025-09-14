@@ -28,14 +28,14 @@ type *v
 |   |-- symbol
 |   |-- bool?
 |   +-- fn?
-|   |   |-- fn(cfn*)  {[a;b]a*b*b}[2;3]
+|   |   |-- fn {[a;b]a*b*b}[2;3]
 |   |   |-- closure*
 |   |   \-- bfn*
 |   \-- stream?
 +-- list?
 |   |-- list
-|   \-- intlist?*     (1;2;3)[0;1]
+|   \-- intlist?* (1;2;3)[0;1]
 +-- dict?
-\   \-- dict          (`a:1;`b:2)[`a]
+\   \-- dict (`a:1;`b:2)[`a]
 
 str?: char, (char;char;...;char)
