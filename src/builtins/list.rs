@@ -6,7 +6,6 @@ use crate::{
     value::{Value, WqResult},
     wqerror::WqError,
 };
-// use std::cmp::Ordering;
 
 pub fn cat(args: &[Value]) -> WqResult<Value> {
     if args.len() != 2 {
@@ -197,155 +196,6 @@ pub fn is_uniform(args: &[Value]) -> WqResult<Value> {
     Ok(Value::Bool(res))
 }
 
-// pub fn alloc(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 1 {
-//         return Err(arity_error("alloc", "1", args.len()));
-//     }
-
-//     fn alloc_dims(dims: &[usize]) -> Value {
-//         if dims.len() == 1 {
-//             Value::IntList(vec![0; dims[0]])
-//         } else {
-//             let mut out = Vec::with_capacity(dims[0]);
-//             for _ in 0..dims[0] {
-//                 out.push(alloc_dims(&dims[1..]));
-//             }
-//             Value::List(out)
-//         }
-//     }
-
-//     fn alloc_shape(shape: &Value) -> WqResult<Value> {
-//         match shape {
-//             Value::Int(n) => {
-//                 if *n < 0 {
-//                     Err(WqError::DomainError("`alloc`: negative length".to_string()))
-//                 } else {
-//                     Ok(Value::IntList(vec![0; *n as usize]))
-//                 }
-//             }
-//             Value::IntList(dims) => {
-//                 if dims.iter().any(|&d| d < 0) {
-//                     return Err(WqError::DomainError("`alloc`: negative length".to_string()));
-//                 }
-//                 let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
-//                 Ok(alloc_dims(&dims))
-//             }
-//             Value::List(items) => {
-//                 if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
-//                     let dims: Vec<usize> = items
-//                         .iter()
-//                         .map(|v| {
-//                             if let Value::Int(n) = v {
-//                                 *n as usize
-//                             } else {
-//                                 unreachable!()
-//                             }
-//                         })
-//                         .collect();
-//                     Ok(alloc_dims(&dims))
-//                 } else {
-//                     let mut out = Vec::with_capacity(items.len());
-//                     for v in items {
-//                         out.push(alloc_shape(v)?);
-//                     }
-//                     Ok(Value::List(out))
-//                 }
-//             }
-//             _ => Err(WqError::DomainError(format!(
-//                 "`alloc`: invalid shape, expected int or list, got {}",
-//                 shape.type_name_verbose()
-//             ))),
-//         }
-//     }
-//     alloc_shape(&args[0])
-// }
-
-// pub fn iota(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 1 {
-//         return Err(arity_error("iota", "1", args.len()));
-//     }
-
-//     fn iota_dims(dims: &[usize], next: &mut i64) -> Value {
-//         if dims.is_empty() {
-//             Value::IntList(Vec::new())
-//         } else if dims.len() == 1 {
-//             let mut out = Vec::with_capacity(dims[0]);
-//             for _ in 0..dims[0] {
-//                 out.push(*next);
-//                 *next += 1;
-//             }
-//             Value::IntList(out)
-//         } else {
-//             let mut out = Vec::with_capacity(dims[0]);
-//             for _ in 0..dims[0] {
-//                 out.push(iota_dims(&dims[1..], next));
-//             }
-//             Value::List(out)
-//         }
-//     }
-
-//     fn iota_shape(shape: &Value) -> WqResult<Value> {
-//         match shape {
-//             Value::Int(n) => {
-//                 if *n < 0 {
-//                     Err(WqError::DomainError("`iota`: negative shape".into()))
-//                 } else {
-//                     let mut cache = IOTA_CACHE.lock().unwrap();
-//                     if let Some(v) = cache.get(n) {
-//                         return Ok(v.clone());
-//                     }
-//                     let items: Vec<i64> = (0..*n).collect();
-//                     let val = Value::IntList(items);
-//                     cache.insert(*n, val.clone());
-//                     Ok(val)
-//                 }
-//             }
-//             Value::IntList(dims) => {
-//                 if dims.iter().any(|&d| d < 0) {
-//                     return Err(WqError::DomainError("`iota`: negative shape".to_string()));
-//                 }
-//                 if dims.is_empty() {
-//                     return Ok(Value::Int(0));
-//                 }
-//                 let dims: Vec<usize> = dims.iter().map(|&d| d as usize).collect();
-//                 let mut next = 0i64;
-//                 Ok(iota_dims(&dims, &mut next))
-//             }
-//             Value::List(items) => {
-//                 if items.iter().all(|v| matches!(v, Value::Int(n) if *n >= 0)) {
-//                     if items.is_empty() {
-//                         Ok(Value::Int(0))
-//                     } else {
-//                         let dims: Vec<usize> = items
-//                             .iter()
-//                             .map(|v| {
-//                                 if let Value::Int(n) = v {
-//                                     *n as usize
-//                                 } else {
-//                                     unreachable!()
-//                                 }
-//                             })
-//                             .collect();
-//                         let mut next = 0i64;
-//                         Ok(iota_dims(&dims, &mut next))
-//                     }
-//                 } else {
-//                     let mut out = Vec::with_capacity(items.len());
-//                     for v in items {
-//                         out.push(iota_shape(v)?);
-//                     }
-//                     Ok(Value::List(out))
-//                 }
-//             }
-//             _ => Err(WqError::DomainError(format!(
-//                 "`iota`: invalid shape, expected int or list, got {}",
-//                 shape.type_name_verbose()
-//             ))),
-//         }
-//     }
-//     iota_shape(&args[0])
-// }
-
 fn parse_shape_dims(shape: &Value, fname: &str) -> WqResult<Vec<usize>> {
     match shape {
         Value::Int(n) => {
@@ -386,12 +236,6 @@ fn parse_shape_dims(shape: &Value, fname: &str) -> WqResult<Vec<usize>> {
         ))),
     }
 }
-
-// fn product(dims: &[usize]) -> usize {
-//     dims.iter()
-//         .copied()
-//         .fold(1usize, |a, b| a.saturating_mul(b))
-// }
 
 fn build_array_from_dims<F>(dims: &[usize], next: &mut F) -> Value
 where
@@ -568,117 +412,98 @@ pub fn reshape(args: &[Value]) -> WqResult<Value> {
 }
 
 pub fn range(args: &[Value]) -> WqResult<Value> {
-    if args.len() != 2 && args.len() != 3 {
-        return Err(arity_error("rg", "2 or 3", args.len()));
-    }
+    fn build_range(start: i64, end: i64, step: i64) -> WqResult<Value> {
+        if step == 0 {
+            return Err(WqError::Domain("`rg`: step must not be 0".into()));
+        }
 
-    // extract start
-    let start = match &args[0] {
-        Value::Int(n) => *n,
-        _ => {
-            return Err(WqError::Domain(format!(
-                "`rg`: invalid start, expected int, got {}",
-                args[0].type_name()
-            )));
-        }
-    };
-    // extract end
-    let end = match &args[1] {
-        Value::Int(n) => *n,
-        _ => {
-            return Err(WqError::Domain(format!(
-                "`rg`: invalid end, expected int, got {}",
-                args[1].type_name()
-            )));
-        }
-    };
-    // extract optional step (default = 1)
-    let step = if args.len() == 3 {
-        match &args[2] {
-            Value::Int(n) => *n,
-            _ => {
-                return Err(WqError::Domain(format!(
-                    "`rg`: invalid step, expected int, got {}",
-                    args[2].type_name()
-                )));
+        let mut items = Vec::new();
+        if step > 0 {
+            let mut cur = start;
+            while cur < end {
+                items.push(cur);
+                cur += step;
+            }
+        } else {
+            let mut cur = start;
+            while cur > end {
+                items.push(cur);
+                cur += step; // step is negative here
             }
         }
-    } else {
-        1
-    };
-    if step == 0 {
-        return Err(WqError::Domain("`rg`: step must not be 0".into()));
-    }
-    // build the sequence
-    let mut items = Vec::new();
-    if step > 0 {
-        let mut cur = start;
-        while cur < end {
-            items.push(cur);
-            cur += step;
-        }
-    } else {
-        let mut cur = start;
-        while cur > end {
-            items.push(cur);
-            cur += step; // step is negative here
-        }
+        Ok(Value::IntList(items))
     }
 
-    Ok(Value::IntList(items))
+    match args.len() {
+        1 => {
+            let end = match &args[0] {
+                Value::Int(n) => *n,
+                _ => {
+                    return Err(WqError::Domain(format!(
+                        "`rg`: invalid start, expected int, got {}",
+                        args[0].type_name()
+                    )));
+                }
+            };
+            build_range(0, end, 1)
+        }
+
+        2 => {
+            let start = match &args[0] {
+                Value::Int(n) => *n,
+                _ => {
+                    return Err(WqError::Domain(format!(
+                        "`rg`: invalid start, expected int, got {}",
+                        args[0].type_name()
+                    )));
+                }
+            };
+            let end = match &args[1] {
+                Value::Int(n) => *n,
+                _ => {
+                    return Err(WqError::Domain(format!(
+                        "`rg`: invalid end, expected int, got {}",
+                        args[1].type_name()
+                    )));
+                }
+            };
+            build_range(start, end, 1)
+        }
+
+        3 => {
+            let start = match &args[0] {
+                Value::Int(n) => *n,
+                _ => {
+                    return Err(WqError::Domain(format!(
+                        "`rg`: invalid start, expected int, got {}",
+                        args[0].type_name()
+                    )));
+                }
+            };
+            let end = match &args[1] {
+                Value::Int(n) => *n,
+                _ => {
+                    return Err(WqError::Domain(format!(
+                        "`rg`: invalid end, expected int, got {}",
+                        args[1].type_name()
+                    )));
+                }
+            };
+            let step = match &args[2] {
+                Value::Int(n) => *n,
+                _ => {
+                    return Err(WqError::Domain(format!(
+                        "`rg`: invalid step, expected int, got {}",
+                        args[2].type_name()
+                    )));
+                }
+            };
+            build_range(start, end, step)
+        }
+
+        _ => Err(arity_error("rg", "1, 2 or 3", args.len())),
+    }
 }
-
-// pub fn fst(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 1 {
-//         return Err(arity_error("fst", "1", args.len()));
-//     }
-//     match &args[0] {
-//         Value::List(items) => {
-//             if items.is_empty() {
-//                 Ok(Value::Null)
-//             } else {
-//                 Ok(items[0].clone())
-//             }
-//         }
-//         Value::IntList(items) => {
-//             if items.is_empty() {
-//                 Ok(Value::Null)
-//             } else {
-//                 Ok(Value::Int(items[0]))
-//             }
-//         }
-//         _ => Err(WqError::TypeError(format!(
-//             "`fst`: expected list at arg0, got {}",
-//             args[0].type_name_verbose()
-//         ))),
-//     }
-// }
-
-// pub fn lst(args: &[Value]) -> WqResult<Value> {
-//     if args.len() != 1 {
-//         return Err(arity_error("lst", "1", args.len()));
-//     }
-//     match &args[0] {
-//         Value::List(items) => {
-//             if items.is_empty() {
-//                 Ok(Value::Null)
-//             } else {
-//                 Ok(items[items.len() - 1].clone())
-//             }
-//         }
-//         Value::IntList(items) => {
-//             if items.is_empty() {
-//                 Ok(Value::Null)
-//             } else {
-//                 Ok(Value::Int(items[items.len() - 1]))
-//             }
-//         }
-//         _ => Err(WqError::TypeError(format!(
-//             "`lst`: expected list at arg0, got {}",
-//             args[0].type_name_verbose()
-//         ))),
-//     }
-// }
 
 pub fn reverse(args: &[Value]) -> WqResult<Value> {
     if args.len() != 1 {
