@@ -1,18 +1,17 @@
 #![cfg(target_arch = "wasm32")]
 
-use crate::desserts::icedtea::create_boxed_text;
-
-use crate::builtins::Builtins;
-use crate::repl::VmEvaluator;
-use crate::repl::repl_engine::ReplEngine;
-use crate::repl::stdio::{ReplStderr, ReplStdin, ReplStdout, StdinError, set_stderr, set_stdout};
-use crate::value::box_mode;
-use crate::wqerror::WqError;
 use js_sys::{Array, Reflect};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
+use wq::builtins::Builtins;
+use wq::create_boxed_text;
+use wq::repl::VmEvaluator;
+use wq::repl::repl_engine::ReplEngine;
+use wq::repl::stdio::{ReplStderr, ReplStdin, ReplStdout, StdinError, set_stderr, set_stdout};
+use wq::value::box_mode;
+use wq::wqerror::WqError;
 
 #[wasm_bindgen]
 pub async fn run_wasm(code: String, opts: JsValue) -> Result<JsValue, JsValue> {

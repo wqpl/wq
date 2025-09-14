@@ -83,7 +83,7 @@ impl Value {
             // elementwise over two lists (Vec<Value>)
             (Value::List(a), Value::List(b)) => {
                 if a.len() != b.len() {
-                    return Err(WqError::LengthError(format!(
+                    return Err(WqError::Length(format!(
                         "length mismatch ({}, {})",
                         a.len(),
                         b.len()
@@ -102,7 +102,7 @@ impl Value {
             // IntList and IntList -> elementwise, must match lengths
             (Value::IntList(a), Value::IntList(b)) => {
                 if a.len() != b.len() {
-                    return Err(WqError::LengthError(format!(
+                    return Err(WqError::Length(format!(
                         "length mismatch ({}, {})",
                         a.len(),
                         b.len()
@@ -121,7 +121,7 @@ impl Value {
             // IntList and List -> elementwise, must match lengths
             (Value::IntList(a), Value::List(b)) => {
                 if a.len() != b.len() {
-                    return Err(WqError::LengthError(format!(
+                    return Err(WqError::Length(format!(
                         "length mismatch ({}, {})",
                         a.len(),
                         b.len()
@@ -138,7 +138,7 @@ impl Value {
             }
             (Value::List(a), Value::IntList(b)) => {
                 if a.len() != b.len() {
-                    return Err(WqError::LengthError(format!(
+                    return Err(WqError::Length(format!(
                         "length mismatch ({}, {})",
                         a.len(),
                         b.len()

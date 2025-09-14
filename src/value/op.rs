@@ -5,13 +5,10 @@ use crate::{value::WqResult, wqerror::WqError};
 impl Value {
     pub fn neg(&self) -> WqResult<Value> {
         self.bc1(|v| match v {
-            Value::Int(n) => {
-                n.checked_neg()
-                    .map(Value::Int)
-                    .ok_or(WqError::ArithmeticOverflowError(
-                        "`-`: negation overflow".into(),
-                    ))
-            }
+            Value::Int(n) => n
+                .checked_neg()
+                .map(Value::Int)
+                .ok_or(WqError::ArithmeticOverflow("`-`: negation overflow".into())),
             Value::Float(f) => Ok(Value::Float(-f)),
             _ => Err(type_err1("-", v)),
         })
@@ -19,13 +16,10 @@ impl Value {
 
     pub fn add(&self, other: &Value) -> WqResult<Value> {
         self.bc2(other, |a, b| match (a, b) {
-            (Value::Int(x), Value::Int(y)) => {
-                x.checked_add(*y)
-                    .map(Value::Int)
-                    .ok_or(WqError::ArithmeticOverflowError(
-                        "`+`: addition overflow".into(),
-                    ))
-            }
+            (Value::Int(x), Value::Int(y)) => x
+                .checked_add(*y)
+                .map(Value::Int)
+                .ok_or(WqError::ArithmeticOverflow("`+`: addition overflow".into())),
             (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x + y)),
             (Value::Int(x), Value::Float(y)) => Ok(Value::Float(*x as f64 + *y)),
             (Value::Float(x), Value::Int(y)) => Ok(Value::Float(*x + *y as f64)),
@@ -38,7 +32,7 @@ impl Value {
             (Value::Int(x), Value::Int(y)) => {
                 x.checked_sub(*y)
                     .map(Value::Int)
-                    .ok_or(WqError::ArithmeticOverflowError(
+                    .ok_or(WqError::ArithmeticOverflow(
                         "`-`: subtraction overflow".into(),
                     ))
             }
@@ -54,7 +48,7 @@ impl Value {
             (Value::Int(x), Value::Int(y)) => {
                 x.checked_mul(*y)
                     .map(Value::Int)
-                    .ok_or(WqError::ArithmeticOverflowError(
+                    .ok_or(WqError::ArithmeticOverflow(
                         "`*`: multiplication overflow".into(),
                     ))
             }
@@ -68,13 +62,13 @@ impl Value {
     pub fn divide(&self, other: &Value) -> WqResult<Value> {
         self.bc2(other, |a, b| match (a, b) {
             (Value::Int(_), Value::Int(0)) => {
-                Err(WqError::ZeroDivisionError("`/`: division by 0".into()))
+                Err(WqError::ZeroDivision("`/`: division by 0".into()))
             }
             (Value::Float(_), Value::Int(0)) => {
-                Err(WqError::ZeroDivisionError("`/`: division by 0".into()))
+                Err(WqError::ZeroDivision("`/`: division by 0".into()))
             }
             (Value::Float(_), Value::Float(0.0)) => {
-                Err(WqError::ZeroDivisionError("`/`: division by 0".into()))
+                Err(WqError::ZeroDivision("`/`: division by 0".into()))
             }
 
             (Value::Int(x), Value::Int(y)) => Ok(Value::Float(*x as f64 / *y as f64)),
@@ -101,14 +95,12 @@ impl Value {
 
     pub fn modulo(&self, other: &Value) -> WqResult<Value> {
         self.bc2(other, |a, b| match (a, b) {
-            (Value::Int(_), Value::Int(0)) => {
-                Err(WqError::ZeroDivisionError("`%`: modulo by 0".into()))
-            }
+            (Value::Int(_), Value::Int(0)) => Err(WqError::ZeroDivision("`%`: modulo by 0".into())),
             (Value::Float(_), Value::Int(0)) => {
-                Err(WqError::ZeroDivisionError("`%`: modulo by 0".into()))
+                Err(WqError::ZeroDivision("`%`: modulo by 0".into()))
             }
             (Value::Float(_), Value::Float(y)) if *y == 0.0 => {
-                Err(WqError::ZeroDivisionError("`%`: modulo by 0".into()))
+                Err(WqError::ZeroDivision("`%`: modulo by 0".into()))
             }
 
             (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x % y)),
@@ -164,12 +156,11 @@ impl Value {
         // implicit 0^0=1
         self.bc2(other, |a, b| match (a, b) {
             (Value::Int(x), Value::Int(y)) if *y >= 0 => {
-                let uy = u32::try_from(*y).map_err(|_| {
-                    WqError::ArithmeticOverflowError("`^`: exponent too large".into())
-                })?;
+                let uy = u32::try_from(*y)
+                    .map_err(|_| WqError::ArithmeticOverflow("`^`: exponent too large".into()))?;
                 x.checked_pow(uy)
                     .map(Value::Int)
-                    .ok_or(WqError::ArithmeticOverflowError(
+                    .ok_or(WqError::ArithmeticOverflow(
                         "`^`: exponentiation overflow".into(),
                     ))
             }
@@ -315,9 +306,7 @@ impl Value {
                 let ch = u32::try_from(*i) // reject negatives/overflow
                     .ok()
                     .and_then(char::from_u32) // reject > 0x10FFFF and surrogates
-                    .ok_or_else(|| {
-                        WqError::DomainError("`chr`: invalid Unicode scalar value".into())
-                    })?;
+                    .ok_or_else(|| WqError::Domain("`chr`: invalid Unicode scalar value".into()))?;
                 Ok(Value::Char(ch))
             }
             _ => Err(type_err1("chr", v)),
@@ -342,9 +331,7 @@ impl Value {
                 let s = to_radix_string(*n, 16, with_prefix, "0x");
                 Ok(Value::List(s.chars().map(Value::Char).collect()))
             }
-            _ => Err(WqError::DomainError(format!(
-                "`hex`: cannot convert {v} to hex"
-            ))),
+            _ => Err(WqError::Domain(format!("`hex`: cannot convert {v} to hex"))),
         })
     }
 
@@ -354,7 +341,7 @@ impl Value {
                 let s = to_radix_string(*n, 2, with_prefix, "0b");
                 Ok(Value::List(s.chars().map(Value::Char).collect()))
             }
-            _ => Err(WqError::DomainError(format!(
+            _ => Err(WqError::Domain(format!(
                 "`bin`: cannot convert {v} to binary"
             ))),
         })
@@ -366,7 +353,7 @@ impl Value {
                 let s = to_radix_string(*n, 8, with_prefix, "0o");
                 Ok(Value::List(s.chars().map(Value::Char).collect()))
             }
-            _ => Err(WqError::DomainError(format!(
+            _ => Err(WqError::Domain(format!(
                 "`oct`: cannot convert {v} to octal"
             ))),
         })
@@ -400,7 +387,7 @@ impl Value {
 }
 
 pub fn type_err1(op: &str, v: &Value) -> WqError {
-    WqError::DomainError(format!(
+    WqError::Domain(format!(
         "`{op}`: cannot operate on {} of type {}",
         v,
         v.type_name()
@@ -408,7 +395,7 @@ pub fn type_err1(op: &str, v: &Value) -> WqError {
 }
 
 pub fn type_err2(op: &str, v1: &Value, v2: &Value) -> WqError {
-    WqError::DomainError(format!(
+    WqError::Domain(format!(
         "`{op}`: cannot operate on {} of type {} and {} of type {}",
         v1,
         v1.type_name(),
@@ -418,7 +405,7 @@ pub fn type_err2(op: &str, v1: &Value, v2: &Value) -> WqError {
 }
 
 fn zero_neg_pow_err() -> WqResult<Value> {
-    Err(WqError::ZeroDivisionError(
+    Err(WqError::ZeroDivision(
         "`^`: 0.0 cannot be raised to a negative power".into(),
     ))
 }

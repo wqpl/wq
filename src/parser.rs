@@ -78,7 +78,7 @@ impl Parser {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            WqError::SyntaxError(format!(
+            WqError::Syntax(format!(
                 "{msg} \n{}\n{src_line}\n{pointer}",
                 format!("At {line}:{column}").underline()
             ))
@@ -86,12 +86,12 @@ impl Parser {
 
         #[cfg(target_arch = "wasm32")]
         {
-            WqError::SyntaxError(format!("{msg} \nAt {line}:{column}\n{src_line}\n{pointer}",))
+            WqError::Syntax(format!("{msg} \nAt {line}:{column}\n{src_line}\n{pointer}",))
         }
     }
 
     fn eof_error(&self, msg: &str) -> WqError {
-        WqError::EofError(msg.to_string())
+        WqError::Eof(msg.to_string())
     }
 
     fn consume(&mut self, expected: TokenType) -> WqResult<()> {

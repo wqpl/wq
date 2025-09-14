@@ -154,9 +154,9 @@ impl DebugInfo {
         self.chunks.get(&id).expect("chunk exists")
     }
 
-    pub fn chunk_opt(&self, id: ChunkId) -> Option<&ChunkMeta> {
-        self.chunks.get(&id)
-    }
+    // pub fn chunk_opt(&self, id: ChunkId) -> Option<&ChunkMeta> {
+    //     self.chunks.get(&id)
+    // }
 
     pub fn chunk_mut(&mut self, id: ChunkId) -> &mut ChunkMeta {
         self.chunks.get_mut(&id).expect("chunk exists")
@@ -330,24 +330,25 @@ impl Wqdb {
             }
         }
     }
-    pub fn pause(&mut self, host: &mut dyn DebugHost) {
-        let loc = host.loc();
-        self.last_stmt = Some(loc);
-        self.step_count += 1;
 
-        // For step-in, clear mode after each step to implement single-step behavior
-        // For step-over and step-out, use the helper method
-        if self.mode == StepMode::In {
-            self.mode = StepMode::None;
-        } else {
-            self.maybe_clear_step_mode(host);
-        }
+    // pub fn pause(&mut self, host: &mut dyn DebugHost) {
+    //     let loc = host.loc();
+    //     self.last_stmt = Some(loc);
+    //     self.step_count += 1;
 
-        if let Some(cb) = self.on_pause {
-            cb(host);
-        }
-        self.temps.clear();
-    }
+    //     // For step-in, clear mode after each step to implement single-step behavior
+    //     // For step-over and step-out, use the helper method
+    //     if self.mode == StepMode::In {
+    //         self.mode = StepMode::None;
+    //     } else {
+    //         self.maybe_clear_step_mode(host);
+    //     }
+
+    //     if let Some(cb) = self.on_pause {
+    //         cb(host);
+    //     }
+    //     self.temps.clear();
+    // }
 
     pub fn note_pause(&mut self, loc: CodeLoc) {
         self.last_stmt = Some(loc);
@@ -373,19 +374,19 @@ impl Wqdb {
         self.step_count = 0;
     }
 
-    pub fn temp_break_next_stmt_in_chunk(&mut self, host: &dyn DebugHost) {
-        let here = host.loc();
-        let meta = host.di().chunk(here.chunk);
-        for pc in here.pc + 1..meta.len {
-            if meta.line_table.is_stmt(pc) {
-                self.temps.insert(CodeLoc {
-                    chunk: here.chunk,
-                    pc,
-                });
-                break;
-            }
-        }
-    }
+    // pub fn temp_break_next_stmt_in_chunk(&mut self, host: &dyn DebugHost) {
+    //     let here = host.loc();
+    //     let meta = host.di().chunk(here.chunk);
+    //     for pc in here.pc + 1..meta.len {
+    //         if meta.line_table.is_stmt(pc) {
+    //             self.temps.insert(CodeLoc {
+    //                 chunk: here.chunk,
+    //                 pc,
+    //             });
+    //             break;
+    //         }
+    //     }
+    // }
 
     pub fn add_temp_break(&mut self, loc: CodeLoc) {
         if crate::repl::get_debug_level() >= 2 {
@@ -397,26 +398,26 @@ impl Wqdb {
         self.temps.insert(loc);
     }
 
-    /// Check if we should maintain step-in mode based on current context
-    pub fn should_maintain_step_mode(&self, host: &dyn DebugHost) -> bool {
-        if self.mode != StepMode::In {
-            return false;
-        }
+    ///// Check if we should maintain step-in mode based on current context
+    // pub fn should_maintain_step_mode(&self, host: &dyn DebugHost) -> bool {
+    //     if self.mode != StepMode::In {
+    //         return false;
+    //     }
 
-        // Always maintain step-in mode unless we're at a return at the original call depth
-        if host.is_at_return() {
-            host.call_depth() > self.base_depth
-        } else {
-            true
-        }
-    }
+    //     // Always maintain step-in mode unless we're at a return at the original call depth
+    //     if host.is_at_return() {
+    //         host.call_depth() > self.base_depth
+    //     } else {
+    //         true
+    //     }
+    // }
 
-    /// Clear step mode only if appropriate based on context
-    pub fn maybe_clear_step_mode(&mut self, host: &dyn DebugHost) {
-        if !self.should_maintain_step_mode(host) {
-            self.mode = StepMode::None;
-        }
-    }
+    ///// Clear step mode only if appropriate based on context
+    // pub fn maybe_clear_step_mode(&mut self, host: &dyn DebugHost) {
+    //     if !self.should_maintain_step_mode(host) {
+    //         self.mode = StepMode::None;
+    //     }
+    // }
 }
 
 pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str) -> String {
@@ -521,7 +522,7 @@ pub fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::instruction
                 | I::StoreVarKeep(_)
                 | I::StoreLocal(_)
                 | I::StoreLocalKeep(_)
-                | I::CallBuiltin(_, _)
+                // | I::CallBuiltin(_, _)
                 | I::CallBuiltinId(_, _)
                 | I::CallLocal(_, _)
                 | I::CallUser(_, _)
@@ -668,8 +669,8 @@ pub fn apply_stmt_spans_exact(
             for (i, &pc) in cand.iter().enumerate() {
                 let is_call = matches!(
                     code.get(pc),
-                    Some(I::CallBuiltin(_, _))
-                        | Some(I::CallBuiltinId(_, _))
+                    Some(I::CallBuiltinId(_, _))
+                        // | Some(I::CallBuiltin(_, _))
                         | Some(I::CallLocal(_, _))
                         | Some(I::CallUser(_, _))
                         | Some(I::CallAnon(_))

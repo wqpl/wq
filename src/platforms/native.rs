@@ -1,20 +1,5 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use crate::apps::formatter::{FormatConfig, Formatter};
-use crate::builtins::Builtins;
-use crate::desserts::daydream::{
-    Command, ExecSource, FmtOpts, ParseOutcome, RuntimeFlags, parse_args,
-};
-use crate::desserts::hotchoco;
-use crate::desserts::icedtea::create_boxed_text;
-use crate::desserts::tshelper::TSHelper;
-use crate::repl::stdio::{
-    ReplStdin, StdinError, stdin_add_history, stdin_highlight_enabled, stdin_readline,
-    stdin_set_highlight,
-};
-use crate::repl::{VmEvaluator, repl_engine::ReplEngine};
-use crate::value::box_mode;
-use crate::wqerror::WqError;
 use colored::Colorize;
 use rand::Rng;
 use rustyline::Editor;
@@ -29,6 +14,22 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use wq::apps::formatter::{FormatConfig, Formatter};
+use wq::builtins::Builtins;
+use wq::create_boxed_text;
+use wq::desserts::daydream::{
+    Command, ExecSource, FmtOpts, ParseOutcome, RuntimeFlags, parse_args,
+};
+use wq::desserts::hotchoco;
+use wq::desserts::tshelper::TSHelper;
+use wq::repl::stdio::{
+    ReplStdin, StdinError, stdin_add_history, stdin_highlight_enabled, stdin_readline,
+    stdin_set_highlight,
+};
+use wq::repl::{VmEvaluator, repl_engine::ReplEngine};
+use wq::value::Value;
+use wq::value::box_mode;
+use wq::wqerror::WqError;
 
 pub fn start() {
     match parse_args(env::args_os().skip(1)) {
@@ -270,11 +271,11 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             continue;
                         }
                         "!wqdb" | "!w" => {
-                            vm.set_wqdb(!vm.is_wqdb_on());
+                            vm.set_wqdb(!vm.is_wqdb_enabled());
                             system_msg_printer::stdout(
                                 format!(
                                     "wqdb is now {}",
-                                    (if vm.is_wqdb_on() { "on" } else { "off" }).underline()
+                                    (if vm.is_wqdb_enabled() { "on" } else { "off" }).underline()
                                 ),
                                 system_msg_printer::MsgType::Info,
                             );
@@ -313,7 +314,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             Err(err) => {
                                 // Only treat EOF as a signal to continue buffering multi-line input
                                 if let hotchoco::LoadErrorKind::Eval(_, ref we) = err.kind
-                                    && matches!(we, WqError::EofError(_))
+                                    && matches!(we, WqError::Eof(_))
                                 {
                                     buffer.push_str(input);
                                     buffer.push('\n');
@@ -384,7 +385,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                         line_number += 1;
                     }
                     Err(error) => {
-                        if matches!(&error, WqError::EofError(_)) {
+                        if matches!(&error, WqError::Eof(_)) {
                             buffer.push('\n');
                             // one-shot time consumed
                             oneshot_time = false;
@@ -395,8 +396,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                 system_msg_printer::MsgType::Error,
                             );
                             // Only show backtrace for runtime errors; skip for parse/EOF errors
-                            if rtflags.bt
-                                && !matches!(&error, WqError::SyntaxError(_) | WqError::EofError(_))
+                            if rtflags.bt && !matches!(&error, WqError::Syntax(_) | WqError::Eof(_))
                             {
                                 vm.dbg_print_bt();
                             }
@@ -561,9 +561,8 @@ fn print_builtins() {
     }
 }
 
-fn xray_info(v: &crate::value::Value) -> String {
-    use crate::builtins::list as blist;
-    use crate::value::Value;
+fn xray_info(v: &Value) -> String {
+    use wq::builtins::list as blist;
 
     let count = v.len();
     let depth = match blist::depth(std::slice::from_ref(v)) {
@@ -682,7 +681,7 @@ fn print_load_error_ui<R: ReplEngine>(err: &hotchoco::LoadError, evaluator: &mut
                 format!("Error in {label}: {e}"),
                 system_msg_printer::MsgType::Error,
             );
-            if bt && !matches!(e, WqError::SyntaxError(_) | WqError::EofError(_)) {
+            if bt && !matches!(e, WqError::Syntax(_) | WqError::Eof(_)) {
                 evaluator.dbg_print_bt();
             }
         }

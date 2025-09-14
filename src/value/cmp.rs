@@ -27,7 +27,7 @@ impl Value {
         F: Fn(Ordering) -> bool + Copy,
     {
         self.bc2(other, |a, b| {
-            let ord = Self::cmp_atom(a, b).ok_or(WqError::DomainError(format!(
+            let ord = Self::cmp_atom(a, b).ok_or(WqError::Domain(format!(
                 "Cannot compare {} of type {} and {} of type {}",
                 a,
                 a.type_name(),

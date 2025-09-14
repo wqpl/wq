@@ -1,23 +1,25 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum WqError {
-    VmError(String),
+    Vm(String),
 
-    EofError(String),
-    ValueError(String),
-    DomainError(String),
-    LengthError(String),
-    SyntaxError(String),
-    ArityError(String),
-    IndexError(String),
-    AssertionError(String),
-    IoError(String),
-    EncodeError(String),
-    ExecError(String),
+    Eof(String),
+    Syntax(String),
+    Value(String),
+    Index(String),
+    Arity(String),
 
-    ArithmeticOverflowError(String),
-    ZeroDivisionError(String),
+    Domain(String),
+    Length(String),
 
-    UnknownError(String, i32),
+    ArithmeticOverflow(String),
+    ZeroDivision(String),
+
+    Assert(String),
+    Io(String),
+    Encode(String),
+    Exec(String),
+
+    Unknown(String, i32),
 }
 
 macro_rules! define_wq_errors {
@@ -37,7 +39,7 @@ macro_rules! define_wq_errors {
             /// Numeric error code (macro-provided for all known variants).
             pub fn code(&self) -> i32 {
                 match self {
-                    WqError::UnknownError(_, c) => *c,
+                    WqError::Unknown(_, c) => *c,
                     $( WqError::$variant(..) => $num, )+
                 }
             }
@@ -52,7 +54,7 @@ macro_rules! define_wq_errors {
             pub fn message(&self) -> &str {
                 match self {
                     $( WqError::$variant(msg) => msg, )+
-                    WqError::UnknownError(msg, _) => msg,
+                    WqError::Unknown(msg, _) => msg,
                 }
             }
 
@@ -85,45 +87,44 @@ macro_rules! define_wq_errors {
 }
 
 define_wq_errors! {
-    Vm => (VmError, -9999, WqError::VmError),
+    Vm => (Vm, -9999, WqError::Vm),
 
-    Eof => (EofError, -1, WqError::EofError),
-    Syntax => (SyntaxError, -2, WqError::SyntaxError),
-    Value => (ValueError, -3, WqError::ValueError),
-    Index => (IndexError, -4, WqError::IndexError),
-    Arity => (ArityError, -5, WqError::ArityError),
+    Eof => (Eof, -1, WqError::Eof),
+    Syntax => (Syntax, -2, WqError::Syntax),
+    Value => (Value, -3, WqError::Value),
+    Index => (Index, -4, WqError::Index),
+    Arity => (Arity, -5, WqError::Arity),
 
-    Domain => (DomainError, 1, WqError::DomainError),
-    Length => (LengthError, 2, WqError::LengthError),
+    Domain => (Domain, 1, WqError::Domain),
+    Length => (Length, 2, WqError::Length),
 
-    ArithmeticOverflow => (ArithmeticOverflowError, 100, WqError::ArithmeticOverflowError),
-    ZeroDivision => (ZeroDivisionError, 101, WqError::ZeroDivisionError),
+    ArithmeticOverflow => (ArithmeticOverflow, 100, WqError::ArithmeticOverflow),
+    ZeroDivision => (ZeroDivision, 101, WqError::ZeroDivision),
 
-    Assertion => (AssertionError, 200, WqError::AssertionError),
-    Io => (IoError, 201, WqError::IoError),
-    Encode => (EncodeError, 202, WqError::EncodeError),
-    Exec => (ExecError, 203, WqError::ExecError),
+    Assertion => (Assert, 200, WqError::Assert),
+    Io => (Io, 201, WqError::Io),
+    Encode => (Encode, 202, WqError::Encode),
+    Exec => (Exec, 203, WqError::Exec),
 }
 
 impl std::fmt::Display for WqError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use WqError::*;
         let (label, msg) = match self {
-            EofError(msg) => ("EOF ERROR", msg),
-            VmError(msg) => ("!!VM ERROR", msg),
-            SyntaxError(msg) => ("SYNTAX ERROR", msg),
-            ValueError(msg) => ("VALUE ERROR", msg),
-            DomainError(msg) => ("DOMAIN ERROR", msg),
-            LengthError(msg) => ("LENGTH ERROR", msg),
-            ArityError(msg) => ("ARITY ERROR", msg),
-            IndexError(msg) => ("INDEX ERROR", msg),
-            ExecError(msg) => ("EXEC ERROR", msg),
-            AssertionError(msg) => ("ASSERTION ERROR", msg),
-            IoError(msg) => ("IO ERROR", msg),
-            EncodeError(msg) => ("ENCODE ERROR", msg),
-            ArithmeticOverflowError(msg) => ("ARITHMETIC OVERFLOW ERROR", msg),
-            ZeroDivisionError(msg) => ("ZERO DIVISION ERROR", msg),
-            UnknownError(msg, _) => ("(UNKNOWN ERROR)", msg),
+            WqError::Eof(msg) => ("EOF ERROR", msg),
+            WqError::Vm(msg) => ("!!VM ERROR", msg),
+            WqError::Syntax(msg) => ("SYNTAX ERROR", msg),
+            WqError::Value(msg) => ("VALUE ERROR", msg),
+            WqError::Domain(msg) => ("DOMAIN ERROR", msg),
+            WqError::Length(msg) => ("LENGTH ERROR", msg),
+            WqError::Arity(msg) => ("ARITY ERROR", msg),
+            WqError::Index(msg) => ("INDEX ERROR", msg),
+            WqError::Exec(msg) => ("EXEC ERROR", msg),
+            WqError::Assert(msg) => ("ASSERTION ERROR", msg),
+            WqError::Io(msg) => ("IO ERROR", msg),
+            WqError::Encode(msg) => ("ENCODE ERROR", msg),
+            WqError::ArithmeticOverflow(msg) => ("ARITHMETIC OVERFLOW ERROR", msg),
+            WqError::ZeroDivision(msg) => ("ZERO DIVISION ERROR", msg),
+            WqError::Unknown(msg, _) => ("(UNKNOWN ERROR)", msg),
         };
         write!(f, "{label} ({}): {msg}", self.code())
     }

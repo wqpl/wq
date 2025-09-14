@@ -16,7 +16,7 @@ pub fn keys(args: &[Value]) -> WqResult<Value> {
             let list = ks.into_iter().map(Value::Symbol).collect();
             Ok(Value::List(list))
         }
-        _ => Err(WqError::DomainError(format!(
+        _ => Err(WqError::Domain(format!(
             "`keys`: expected dict, got {}",
             args[0].type_name()
         ))),

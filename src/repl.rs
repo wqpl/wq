@@ -56,7 +56,7 @@ impl ReplEngine for VmEvaluator {
     fn eval_string(&mut self, input: &str) -> Result<Value, WqError> {
         VmEvaluator::eval_string(self, input)
     }
-    fn get_environment(&self) -> Option<&std::collections::HashMap<String, Value>> {
+    fn get_environment(&self) -> Option<&HashMap<String, Value>> {
         VmEvaluator::get_environment(self)
     }
     fn clear_environment(&mut self) {
@@ -93,7 +93,7 @@ impl ReplEngine for VmEvaluator {
     fn get_debug_level(&mut self) -> u8 {
         VmEvaluator::get_debug_level(self)
     }
-    fn is_wqdb_on(&self) -> bool {
+    fn is_wqdb_enabled(&self) -> bool {
         self.vm.wqdb.enabled
     }
     fn reset_session(&mut self) {
@@ -282,9 +282,11 @@ impl VmEvaluator {
     pub fn arm_wqdb_next(&mut self) {
         self.wqdb_arm_next = true;
     }
+
     pub fn dbg_set_source(&mut self, path: &str, full_text: &str) {
         self.dbg_source_ctx = Some((path.to_string(), full_text.to_string()));
     }
+
     pub fn dbg_set_offset(&mut self, offset: usize) {
         self.dbg_source_offs = offset;
     }
@@ -323,7 +325,7 @@ mod tests {
     fn undefined_variable_errors() {
         let mut eval = VmEvaluator::new();
         let res = eval.eval_string("a");
-        assert!(matches!(res, Err(WqError::ValueError(_))));
+        assert!(matches!(res, Err(WqError::Value(_))));
     }
 
     #[test]
@@ -358,7 +360,7 @@ mod tests {
     fn assert_fails() {
         let mut eval = VmEvaluator::new();
         let res = eval.eval_string("@a 1=2;");
-        assert!(matches!(res, Err(WqError::AssertionError(_))));
+        assert!(matches!(res, Err(WqError::Assert(_))));
     }
 
     #[test]
@@ -370,14 +372,14 @@ mod tests {
 
         // Too many args should error
         let res = eval.eval_string("f[1;2;3;4]");
-        assert!(matches!(res, Err(WqError::ArityError(_))));
+        assert!(matches!(res, Err(WqError::Arity(_))));
     }
 
     #[test]
     fn arity_error_too_many_args() {
         let mut eval = VmEvaluator::new();
         let res = eval.eval_string("f:{[a;b;c]a+b+c};f[1;2;3;4]");
-        assert!(matches!(res, Err(WqError::ArityError(_))));
+        assert!(matches!(res, Err(WqError::Arity(_))));
     }
 
     #[test]
@@ -458,7 +460,7 @@ mod tests {
             assert_eq!(items.len(), 2);
             match &items[1] {
                 Value::Int(code) => {
-                    assert_eq!(*code, WqError::DomainError(String::new()).code() as i64);
+                    assert_eq!(*code, WqError::Domain(String::new()).code() as i64);
                 }
                 _ => panic!("expected error code"),
             }

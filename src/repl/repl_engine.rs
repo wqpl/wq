@@ -4,8 +4,6 @@ use super::stdio::ReplStdin;
 
 pub trait ReplEngine {
     fn eval_string(&mut self, input: &str) -> Result<Value, WqError>;
-    // fn set_debug(&mut self, flag: bool);
-    // fn is_debug(&self) -> bool;
     fn get_environment(&self) -> Option<&std::collections::HashMap<String, Value>>;
     fn clear_environment(&mut self);
     fn env_vars(&self) -> &std::collections::HashMap<String, Value>;
@@ -18,6 +16,6 @@ pub trait ReplEngine {
     fn set_wqdb(&mut self, flag: bool);
     fn set_debug_level(&mut self, level: u8);
     fn get_debug_level(&mut self) -> u8;
-    fn is_wqdb_on(&self) -> bool;
+    fn is_wqdb_enabled(&self) -> bool;
     fn reset_session(&mut self);
 }

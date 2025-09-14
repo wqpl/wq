@@ -151,19 +151,19 @@ impl Compiler {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 use colored::Colorize;
-                return WqError::SyntaxError(format!(
+                return WqError::Syntax(format!(
                     "{msg} \n{}\n{src_line}\n{pointer}",
                     format!("At {line}:{column}").underline()
                 ));
             }
             #[cfg(target_arch = "wasm32")]
             {
-                return WqError::SyntaxError(format!(
+                return WqError::Syntax(format!(
                     "{msg} \nAt {line}:{column}\n{src_line}\n{pointer}",
                 ));
             }
         }
-        WqError::SyntaxError(msg.to_string())
+        WqError::Syntax(msg.to_string())
     }
 
     fn local_slot(&mut self, name: &str) -> u16 {

@@ -21,16 +21,12 @@ fn value_to_bytes(v: &Value) -> WqResult<Vec<u8>> {
                 if let Value::Int(i) = x {
                     Ok(*i as u8)
                 } else {
-                    Err(WqError::DomainError(format!(
-                        "Cannot interpret {v} as bytes",
-                    )))
+                    Err(WqError::Domain(format!("Cannot interpret {v} as bytes",)))
                 }
             })
             .collect(),
         Value::Int(n) => Ok(vec![*n as u8]),
-        _ => Err(WqError::DomainError(format!(
-            "Cannot interpret {v} as bytes",
-        ))),
+        _ => Err(WqError::Domain(format!("Cannot interpret {v} as bytes",))),
     }
 }
 
@@ -40,11 +36,11 @@ pub fn open(args: &[Value]) -> WqResult<Value> {
     }
     let path = args[0]
         .try_str()
-        .ok_or_else(|| WqError::DomainError("`open`: expected 'str' at arg0".into()))?;
+        .ok_or_else(|| WqError::Domain("`open`: expected 'str' at arg0".into()))?;
     let mode = if args.len() == 2 {
         args[1]
             .try_str()
-            .ok_or_else(|| WqError::DomainError("`open`: expected 'str' at arg1".into()))?
+            .ok_or_else(|| WqError::Domain("`open`: expected 'str' at arg1".into()))?
     } else {
         "r".to_string()
     };
@@ -81,7 +77,7 @@ pub fn open(args: &[Value]) -> WqResult<Value> {
             write = true;
         }
         _ => {
-            return Err(WqError::DomainError(format!(
+            return Err(WqError::Domain(format!(
                 "`open`: invalid open mode `{mode}`"
             )));
         }
@@ -89,22 +85,21 @@ pub fn open(args: &[Value]) -> WqResult<Value> {
 
     let file = options
         .open(&path)
-        .map_err(|e| WqError::IoError(e.to_string()))?;
+        .map_err(|e| WqError::Io(e.to_string()))?;
 
     let reader = if read {
         Some(Box::new(BufReader::new(
-            file.try_clone()
-                .map_err(|e| WqError::IoError(e.to_string()))?,
+            file.try_clone().map_err(|e| WqError::Io(e.to_string()))?,
         )) as Box<dyn BufReadSeek + Send>)
     } else {
         None
     };
 
     let writer = if write {
-        Some(Box::new(
-            file.try_clone()
-                .map_err(|e| WqError::IoError(e.to_string()))?,
-        ) as Box<dyn WriteSeek + Send>)
+        Some(
+            Box::new(file.try_clone().map_err(|e| WqError::Io(e.to_string()))?)
+                as Box<dyn WriteSeek + Send>,
+        )
     } else {
         None
     };
@@ -123,7 +118,7 @@ pub fn fexists(args: &[Value]) -> WqResult<Value> {
     }
     let path = args[0]
         .try_str()
-        .ok_or_else(|| WqError::DomainError("`fexists?`: expected 'str' at arg0".into()))?;
+        .ok_or_else(|| WqError::Domain("`fexists?`: expected 'str' at arg0".into()))?;
     Ok(Value::Bool(Path::new(&path).exists()))
 }
 
@@ -133,8 +128,8 @@ pub fn mkdir(args: &[Value]) -> WqResult<Value> {
     }
     let path = args[0]
         .try_str()
-        .ok_or_else(|| WqError::DomainError("`mkdir`: expected 'str' at arg0".into()))?;
-    fs::create_dir_all(&path).map_err(|e| WqError::IoError(e.to_string()))?;
+        .ok_or_else(|| WqError::Domain("`mkdir`: expected 'str' at arg0".into()))?;
+    fs::create_dir_all(&path).map_err(|e| WqError::Io(e.to_string()))?;
     Ok(Value::unit())
 }
 
@@ -144,8 +139,8 @@ pub fn fsize(args: &[Value]) -> WqResult<Value> {
     }
     let path = args[0]
         .try_str()
-        .ok_or_else(|| WqError::DomainError("`fsize`: expected 'str' at arg0".into()))?;
-    let meta = fs::metadata(&path).map_err(|e| WqError::IoError(e.to_string()))?;
+        .ok_or_else(|| WqError::Domain("`fsize`: expected 'str' at arg0".into()))?;
+    let meta = fs::metadata(&path).map_err(|e| WqError::Io(e.to_string()))?;
     Ok(Value::Int(meta.len() as i64))
 }
 
@@ -158,14 +153,14 @@ pub fn fwrite(args: &[Value]) -> WqResult<Value> {
         if let Some(w) = handle.writer.as_mut() {
             let bytes = value_to_bytes(&args[1])?;
             w.write_all(&bytes)
-                .map_err(|e| WqError::IoError(e.to_string()))?;
-            w.flush().map_err(|e| WqError::IoError(e.to_string()))?;
+                .map_err(|e| WqError::Io(e.to_string()))?;
+            w.flush().map_err(|e| WqError::Io(e.to_string()))?;
             Ok(Value::unit())
         } else {
-            Err(WqError::IoError("`fwrite`: stream not writable".into()))
+            Err(WqError::Io("`fwrite`: stream not writable".into()))
         }
     } else {
-        Err(WqError::DomainError(format!(
+        Err(WqError::Domain(format!(
             "`fwrite`: expected stream at arg0, got {}",
             args[0].type_name()
         )))
@@ -178,7 +173,7 @@ pub fn fwritet(args: &[Value]) -> WqResult<Value> {
     }
     let s = args[1]
         .try_str()
-        .ok_or_else(|| WqError::DomainError("`open`: expected 'str' at arg1".into()))?;
+        .ok_or_else(|| WqError::Domain("`open`: expected 'str' at arg1".into()))?;
     fwrite(&[
         args[0].clone(),
         Value::IntList(s.into_bytes().into_iter().map(|b| b as i64).collect()),
@@ -196,19 +191,19 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
             if args.len() == 2 {
                 if let Value::Int(n) = args[1] {
                     if n < 0 {
-                        return Err(WqError::DomainError("`fread`: negative length".into()));
+                        return Err(WqError::Domain("`fread`: negative length".into()));
                     }
                     let mut tmp = vec![0u8; n as usize];
                     let read = reader
                         .read(&mut tmp)
-                        .map_err(|e| WqError::IoError(e.to_string()))?;
+                        .map_err(|e| WqError::Io(e.to_string()))?;
                     if read == 0 {
                         // length mode and hit EOF => mimic line-read behavior: return null
                         return Ok(Value::unit());
                     }
                     buf.extend_from_slice(&tmp[..read]);
                 } else {
-                    return Err(WqError::DomainError(format!(
+                    return Err(WqError::Domain(format!(
                         "`fread`: invalid length, expected int, got {}",
                         args[1].type_name()
                     )));
@@ -216,14 +211,14 @@ pub fn fread(args: &[Value]) -> WqResult<Value> {
             } else {
                 reader
                     .read_to_end(&mut buf)
-                    .map_err(|e| WqError::IoError(e.to_string()))?;
+                    .map_err(|e| WqError::Io(e.to_string()))?;
             }
             Ok(Value::IntList(buf.into_iter().map(|b| b as i64).collect()))
         } else {
-            Err(WqError::IoError("`fread`: stream not readable".into()))
+            Err(WqError::Io("`fread`: stream not readable".into()))
         }
     } else {
-        Err(WqError::DomainError(format!(
+        Err(WqError::Domain(format!(
             "`fread`: expected stream at arg0, got {}",
             args[0].type_name()
         )))
@@ -235,7 +230,7 @@ pub fn freadt(args: &[Value]) -> WqResult<Value> {
     match bytes {
         Value::IntList(b) => {
             let s = String::from_utf8(b.into_iter().map(|i| i as u8).collect())
-                .map_err(|e| WqError::IoError(e.to_string()))?;
+                .map_err(|e| WqError::Io(e.to_string()))?;
             Ok(Value::List(s.chars().map(Value::Char).collect()))
         }
         _ => unreachable!(),
@@ -252,7 +247,7 @@ pub fn freadtln(args: &[Value]) -> WqResult<Value> {
             let mut line = String::new();
             let n = reader
                 .read_line(&mut line)
-                .map_err(|e| WqError::IoError(e.to_string()))?;
+                .map_err(|e| WqError::Io(e.to_string()))?;
             if n == 0 {
                 Ok(Value::unit())
             } else {
@@ -265,10 +260,10 @@ pub fn freadtln(args: &[Value]) -> WqResult<Value> {
                 Ok(Value::List(line.chars().map(Value::Char).collect()))
             }
         } else {
-            Err(WqError::IoError("stream not readable".into()))
+            Err(WqError::Io("stream not readable".into()))
         }
     } else {
-        Err(WqError::DomainError(format!(
+        Err(WqError::Domain(format!(
             "`freadtln`: expected stream at arg0, got {}",
             args[0].type_name()
         )))
@@ -282,7 +277,7 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
     let offset = if let Value::Int(n) = args[1] {
         n
     } else {
-        return Err(WqError::DomainError(format!(
+        return Err(WqError::Domain(format!(
             "`fseek`: invalid offset, expected int, got {}",
             args[1].type_name()
         )));
@@ -291,7 +286,7 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
         if let Value::Int(w) = args[2] {
             w
         } else {
-            return Err(WqError::DomainError(format!(
+            return Err(WqError::Domain(format!(
                 "`fseek`: invalid whence, expected int, got {}",
                 args[2].type_name()
             )));
@@ -306,31 +301,27 @@ pub fn fseek(args: &[Value]) -> WqResult<Value> {
             1 => SeekFrom::Current(offset),
             2 => SeekFrom::End(offset),
             _ => {
-                return Err(WqError::DomainError(
+                return Err(WqError::Domain(
                     "`fseek`: invalid whence, expected 0, 1, or 2".into(),
                 ));
             }
         };
 
         if let Some(w) = handle.writer.as_mut() {
-            let pos = w
-                .seek(seek_from)
-                .map_err(|e| WqError::IoError(e.to_string()))?;
+            let pos = w.seek(seek_from).map_err(|e| WqError::Io(e.to_string()))?;
             if let Some(r) = handle.reader.as_mut() {
                 r.seek(SeekFrom::Start(pos))
-                    .map_err(|e| WqError::IoError(e.to_string()))?;
+                    .map_err(|e| WqError::Io(e.to_string()))?;
             }
             Ok(Value::Int(pos as i64))
         } else if let Some(r) = handle.reader.as_mut() {
-            let pos = r
-                .seek(seek_from)
-                .map_err(|e| WqError::IoError(e.to_string()))?;
+            let pos = r.seek(seek_from).map_err(|e| WqError::Io(e.to_string()))?;
             Ok(Value::Int(pos as i64))
         } else {
-            Err(WqError::IoError("`fseek`: stream not seekable".into()))
+            Err(WqError::Io("`fseek`: stream not seekable".into()))
         }
     } else {
-        Err(WqError::DomainError(format!(
+        Err(WqError::Domain(format!(
             "`fseek`: expected stream at arg0, got {}",
             args[0].type_name()
         )))
@@ -350,19 +341,19 @@ pub fn ftell(args: &[Value]) -> WqResult<Value> {
         if let Some(w) = handle.writer.as_mut() {
             let pos = w
                 .stream_position()
-                .map_err(|e| WqError::IoError(e.to_string()))?;
+                .map_err(|e| WqError::Io(e.to_string()))?;
             return Ok(Value::Int(pos as i64));
         }
         if let Some(r) = handle.reader.as_mut() {
             let pos = r
                 .stream_position()
-                .map_err(|e| WqError::IoError(e.to_string()))?;
+                .map_err(|e| WqError::Io(e.to_string()))?;
             return Ok(Value::Int(pos as i64));
         }
 
-        Err(WqError::IoError("`ftell`: stream not seekable".into()))
+        Err(WqError::Io("`ftell`: stream not seekable".into()))
     } else {
-        Err(WqError::DomainError(format!(
+        Err(WqError::Domain(format!(
             "`ftell`: expected stream at arg0, got {}",
             args[0].type_name()
         )))
@@ -380,7 +371,7 @@ pub fn fclose(args: &[Value]) -> WqResult<Value> {
         handle.child = None;
         Ok(Value::unit())
     } else {
-        Err(WqError::DomainError(format!(
+        Err(WqError::Domain(format!(
             "`fclose`: expected stream at arg0, got {}",
             args[0].type_name()
         )))
@@ -398,29 +389,27 @@ pub fn decode(args: &[Value]) -> WqResult<Value> {
     let bytes = value_to_bytes(&args[0])?;
     let codec = args[1]
         .try_str()
-        .ok_or_else(|| WqError::DomainError("`decode`: expected 'str' at arg1 (codec)".into()))?;
+        .ok_or_else(|| WqError::Domain("`decode`: expected 'str' at arg1 (codec)".into()))?;
     let mode = if args.len() == 3 {
         args[2]
             .try_str()
-            .ok_or_else(|| WqError::DomainError("`decode`: expected 'str' at arg2 (mode)".into()))?
+            .ok_or_else(|| WqError::Domain("`decode`: expected 'str' at arg2 (mode)".into()))?
     } else {
         "s".to_string()
     };
     let enc = find_encoding(&codec)
-        .ok_or_else(|| WqError::DomainError("`decode`: unsupported codec".into()))?;
+        .ok_or_else(|| WqError::Domain("`decode`: unsupported codec".into()))?;
     let (text, had_errors) = enc.decode_without_bom_handling(&bytes);
     let s = match mode.as_str() {
         "s" => {
             if had_errors {
-                return Err(WqError::EncodeError(
-                    "`decode`: strict mode decode error".into(),
-                ));
+                return Err(WqError::Encode("`decode`: strict mode decode error".into()));
             }
             text
         }
         "r" => text,
         _ => {
-            return Err(WqError::DomainError(
+            return Err(WqError::Domain(
                 "`decode`: invalid mode, expected \"s\" or \"r\"".into(),
             ));
         }
@@ -434,27 +423,25 @@ pub fn encode(args: &[Value]) -> WqResult<Value> {
     }
     let s = args[0]
         .try_str()
-        .ok_or_else(|| WqError::DomainError("`encode`: expected 'str' at arg0".into()))?;
+        .ok_or_else(|| WqError::Domain("`encode`: expected 'str' at arg0".into()))?;
     let codec = args[1]
         .try_str()
-        .ok_or_else(|| WqError::DomainError("`encode`: expected 'str' at arg1 (codec)".into()))?;
+        .ok_or_else(|| WqError::Domain("`encode`: expected 'str' at arg1 (codec)".into()))?;
     let mode = if args.len() == 3 {
         args[2]
             .try_str()
-            .ok_or_else(|| WqError::DomainError("`encode`: expected 'str' at arg2 (mode)".into()))?
+            .ok_or_else(|| WqError::Domain("`encode`: expected 'str' at arg2 (mode)".into()))?
     } else {
         "s".into()
     };
     let enc = find_encoding(&codec)
-        .ok_or_else(|| WqError::DomainError("`encode`: unsupported codec".into()))?;
+        .ok_or_else(|| WqError::Domain("`encode`: unsupported codec".into()))?;
 
     let out: Vec<u8> = match mode.as_str() {
         "s" => {
             let (cow, _enc_used, had_errors) = enc.encode(&s);
             if had_errors {
-                return Err(WqError::EncodeError(
-                    "`encode`: strict mode encode error".into(),
-                ));
+                return Err(WqError::Encode("`encode`: strict mode encode error".into()));
             }
             cow.into_owned()
         }
@@ -463,7 +450,7 @@ pub fn encode(args: &[Value]) -> WqResult<Value> {
             cow.into_owned()
         }
         _ => {
-            return Err(WqError::DomainError(
+            return Err(WqError::Domain(
                 "`encode`: invalid mode, expected \"s\" or \"r\"".into(),
             ));
         }
@@ -521,7 +508,7 @@ mod tests {
     #[test]
     fn open_missing_file_error() {
         let res = open(&[str_val("/no/such/file"), str_val("r")]);
-        assert!(matches!(res, Err(WqError::IoError(_))));
+        assert!(matches!(res, Err(WqError::Io(_))));
     }
     #[test]
     fn ftell_basic() {

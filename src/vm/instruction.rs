@@ -4,6 +4,7 @@ use crate::value::Value;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Capture {
     Local(u16),
+    #[allow(clippy::enum_variant_names)]
     FromCapture(u16),
     Global(String),
 }
@@ -38,7 +39,7 @@ pub enum Instruction {
     StoreLocalKeep(u16),
     BinaryOp(BinaryOperator),
     UnaryOp(UnaryOperator),
-    CallBuiltin(String, usize),
+    // CallBuiltin(String, usize),
     /// Builtin call resolved to an ID at compile time for faster dispatch
     CallBuiltinId(u8, usize),
     /// Call a function stored in a local slot

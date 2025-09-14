@@ -1,7 +1,6 @@
 pub mod bc;
 pub mod box_mode;
 pub mod cmp;
-pub mod list;
 pub mod math;
 pub mod op;
 pub mod str;
@@ -12,7 +11,6 @@ use std::io::{BufRead, Seek, Write};
 use std::process::Child;
 use std::sync::{Arc, Mutex};
 
-use crate::astnode::AstNode;
 use crate::vm;
 use crate::wqdb::ChunkId;
 use crate::wqerror::WqError;
@@ -32,10 +30,10 @@ pub enum Value {
     List(Vec<Value>),
     /// dict (symbol -> value mapping) - preserves insertion order
     Dict(IndexMap<String, Value>),
-    Function {
-        params: Option<Vec<String>>,
-        body: Box<AstNode>,
-    },
+    // Function {
+    //     params: Option<Vec<String>>,
+    //     body: Box<AstNode>,
+    // },
     /// pre-compiled function (no captures)
     CompiledFunction {
         params: Option<Vec<String>>,
@@ -141,8 +139,8 @@ impl Value {
             Value::IntList(_) => "intlist",
             Value::List(_) => "list",
             Value::Dict(_) => "dict",
-            Value::Function { .. } => "fn",
-            Value::CompiledFunction { .. } => "cfn",
+            // Value::Function { .. } => "fn",
+            Value::CompiledFunction { .. } => "fn",
             Value::Closure { .. } => "closure",
             Value::BuiltinFunction(_) => "bfn",
             Value::Stream(_) => "stream",
@@ -160,7 +158,7 @@ impl Value {
             Value::IntList(_) => "list",
             Value::List(_) => "list",
             Value::Dict(_) => "dict",
-            Value::Function { .. } => "fn",
+            // Value::Function { .. } => "fn",
             Value::CompiledFunction { .. } => "fn",
             Value::Closure { .. } => "fn",
             Value::BuiltinFunction(_) => "fn",
@@ -385,16 +383,16 @@ impl PartialEq for Value {
                 a.iter().zip(b).all(|(x, y)| matches!(y, Int(n) if n == x))
             }
             (Dict(a), Dict(b)) => a == b,
-            (
-                Function {
-                    params: pa,
-                    body: ba,
-                },
-                Function {
-                    params: pb,
-                    body: bb,
-                },
-            ) => pa == pb && ba == bb,
+            // (
+            //     Function {
+            //         params: pa,
+            //         body: ba,
+            //     },
+            //     Function {
+            //         params: pb,
+            //         body: bb,
+            //     },
+            // ) => pa == pb && ba == bb,
             (
                 CompiledFunction {
                     params: pa,
@@ -516,10 +514,10 @@ impl fmt::Display for Value {
                     write!(f, "({})", pairs.join(";"))
                 }
             }
-            Value::Function { params, .. } => match params {
-                Some(p) => write!(f, "{{[{}]...}}", p.join(";")),
-                None => write!(f, "{{...}}"),
-            },
+            // Value::Function { params, .. } => match params {
+            //     Some(p) => write!(f, "{{[{}]...}}", p.join(";")),
+            //     None => write!(f, "{{...}}"),
+            // },
             Value::CompiledFunction { params, .. } => match params {
                 Some(p) => write!(f, "{{[{}]...}}", p.join(";")),
                 None => write!(f, "{{...}}"),
@@ -629,7 +627,7 @@ mod tests {
 
         let a = Value::List(vec![Value::Int(1)]);
         let b = Value::List(vec![Value::Int(1), Value::Int(2)]);
-        assert!(matches!(a.eq(&b), Err(WqError::LengthError(_))));
+        assert!(matches!(a.eq(&b), Err(WqError::Length(_))));
 
         let list = Value::List(vec![Value::Int(1), Value::Int(2)]);
         assert_eq!(
@@ -677,7 +675,7 @@ mod tests {
 
         let c = Value::List(vec![Value::Bool(true)]);
         let d = Value::List(vec![Value::Bool(false), Value::Bool(true)]);
-        assert!(matches!(c.xor_bool(&d), Err(WqError::LengthError(_))));
+        assert!(matches!(c.xor_bool(&d), Err(WqError::Length(_))));
 
         assert_eq!(
             d.not_bool(),
@@ -696,7 +694,7 @@ mod tests {
 
         let c = Value::List(vec![Value::Int(5)]);
         let d = Value::List(vec![Value::Int(2), Value::Int(3)]);
-        assert!(matches!(c.modulo(&d), Err(WqError::LengthError(_))));
+        assert!(matches!(c.modulo(&d), Err(WqError::Length(_))));
     }
 
     #[test]

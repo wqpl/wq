@@ -11,7 +11,7 @@ impl Value {
             Value::Int(n) => n
                 .checked_abs()
                 .map(Value::Int)
-                .ok_or(WqError::ArithmeticOverflowError("`abs`: overflow".into())),
+                .ok_or(WqError::ArithmeticOverflow("`abs`: overflow".into())),
             Value::Float(f) => Ok(Value::Float(f.abs())),
             _ => Err(type_err1("abs", v)),
         })

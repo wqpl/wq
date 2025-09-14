@@ -2,7 +2,7 @@
 use colored::Colorize;
 
 use crate::{
-    desserts::icedtea::create_boxed_text,
+    create_boxed_text,
     wqdb::{CodeLoc, DebugHost, format_frame},
 };
 

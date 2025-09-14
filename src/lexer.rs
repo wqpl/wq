@@ -57,9 +57,6 @@ pub enum TokenType {
     Comma,
 
     // Special
-    Backtick,
-    Quote,
-    Whitespace,
     Newline,
 
     Eof,
@@ -168,7 +165,7 @@ impl<'a> Lexer<'a> {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            WqError::SyntaxError(format!(
+            WqError::Syntax(format!(
                 "{msg} \n{}\n{src_line}\n{pointer}",
                 format!("At {line}:{column}").underline()
             ))
@@ -176,7 +173,7 @@ impl<'a> Lexer<'a> {
 
         #[cfg(target_arch = "wasm32")]
         {
-            WqError::SyntaxError(format!("{msg} \nAt {line}:{column}\n{src_line}\n{pointer}",))
+            WqError::Syntax(format!("{msg} \nAt {line}:{column}\n{src_line}\n{pointer}",))
         }
     }
 
@@ -1168,14 +1165,14 @@ mod tests {
     fn unterminated_string_errors() {
         let mut lexer = Lexer::new("\"abc");
         let res = lexer.tokenize();
-        assert!(matches!(res, Err(WqError::SyntaxError(_))));
+        assert!(matches!(res, Err(WqError::Syntax(_))));
     }
 
     #[test]
     fn integer_overflow_errors() {
         let mut lexer = Lexer::new("9223372036854775808");
         let res = lexer.tokenize();
-        assert!(matches!(res, Err(WqError::SyntaxError(_))));
+        assert!(matches!(res, Err(WqError::Syntax(_))));
     }
 
     #[test]
@@ -1183,7 +1180,7 @@ mod tests {
         let big = "1".repeat(400) + ".0";
         let mut lexer = Lexer::new(&big);
         let res = lexer.tokenize();
-        assert!(matches!(res, Err(WqError::SyntaxError(_))));
+        assert!(matches!(res, Err(WqError::Syntax(_))));
     }
 
     #[test]

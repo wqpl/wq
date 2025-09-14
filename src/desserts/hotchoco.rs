@@ -346,7 +346,7 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
                     consumed_bytes = next_consumed;
                 }
                 Err(err) => {
-                    if matches!(&err, WqError::EofError(_)) {
+                    if matches!(&err, WqError::Eof(_)) {
                         // continue accumulating lines for this chunk
                         continue;
                     } else {

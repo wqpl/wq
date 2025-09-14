@@ -51,11 +51,11 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
         1 => match &args[0] {
             Value::Int(n) if *n > 0 => Ok(Value::Int(rng.random_range(0..*n))),
             Value::Float(f) if *f > 0.0 => Ok(Value::Float(rng.random_range(0.0..*f))),
-            Value::Int(_) | Value::Float(_) => Err(WqError::DomainError(format!(
+            Value::Int(_) | Value::Float(_) => Err(WqError::Domain(format!(
                 "`rand`: expected a positive number, got {}",
                 args[0].type_name()
             ))),
-            _ => Err(WqError::DomainError(format!(
+            _ => Err(WqError::Domain(format!(
                 "`rand`: expected numbers, got {}",
                 args[0].type_name()
             ))),
@@ -67,7 +67,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                     Value::Int(n) => *n as f64,
                     Value::Float(f) => *f,
                     _ => {
-                        return Err(WqError::DomainError(format!(
+                        return Err(WqError::Domain(format!(
                             "`rand`: expected numbers, got {}",
                             a.type_name()
                         )));
@@ -77,7 +77,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                     Value::Int(n) => *n as f64,
                     Value::Float(f) => *f,
                     _ => {
-                        return Err(WqError::DomainError(format!(
+                        return Err(WqError::Domain(format!(
                             "`rand`: expected numbers, got {}",
                             b.type_name()
                         )));
@@ -86,7 +86,7 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                 if af < bf {
                     Ok(Value::Float(rng.random_range(af..bf)))
                 } else {
-                    Err(WqError::DomainError(format!(
+                    Err(WqError::Domain(format!(
                         "`rand`: expected 'lower<upper', got '{af}>={bf}'"
                     )))
                 }

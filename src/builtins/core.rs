@@ -49,7 +49,7 @@ pub fn input(args: &[Value]) -> WqResult<Value> {
     let prompt = if args.len() == 1 {
         args[0]
             .try_str()
-            .ok_or_else(|| WqError::DomainError("`input`: expected 'str' at arg0".into()))?
+            .ok_or_else(|| WqError::Domain("`input`: expected 'str' at arg0".into()))?
     } else {
         String::new()
     };
@@ -58,8 +58,8 @@ pub fn input(args: &[Value]) -> WqResult<Value> {
     match res {
         Ok(line) => Ok(Value::List(line.chars().map(Value::Char).collect())),
         Err(StdinError::Eof) => Ok(Value::unit()),
-        Err(StdinError::Interrupted) => Err(WqError::IoError("Input interrupted".into())),
-        Err(StdinError::Other(e)) => Err(WqError::IoError(e)),
+        Err(StdinError::Interrupted) => Err(WqError::Io("Input interrupted".into())),
+        Err(StdinError::Other(e)) => Err(WqError::Io(e)),
     }
 }
 
@@ -84,7 +84,7 @@ pub fn exec(args: &[Value]) -> WqResult<Value> {
         .iter()
         .map(Value::try_str)
         .collect::<Option<Vec<_>>>()
-        .ok_or(WqError::DomainError("`exec`: expected 'str'".into()))?;
+        .ok_or(WqError::Domain("`exec`: expected 'str'".into()))?;
 
     #[cfg(windows)]
     let output = {
@@ -107,7 +107,7 @@ pub fn exec(args: &[Value]) -> WqResult<Value> {
             .arg("-Command")
             .arg(&command)
             .output()
-            .map_err(|e| WqError::ExecError(e.to_string()))?
+            .map_err(|e| WqError::Exec(e.to_string()))?
     };
 
     #[cfg(not(windows))]
@@ -117,14 +117,13 @@ pub fn exec(args: &[Value]) -> WqResult<Value> {
                 .arg("-c")
                 .arg(&parts[0])
                 .output()
-                .map_err(|e| WqError::ExecError(e.to_string()))?
+                .map_err(|e| WqError::Exec(e.to_string()))?
         } else {
             let mut cmd = Command::new(&parts[0]);
             if parts.len() > 1 {
                 cmd.args(&parts[1..]);
             }
-            cmd.output()
-                .map_err(|e| WqError::ExecError(e.to_string()))?
+            cmd.output().map_err(|e| WqError::Exec(e.to_string()))?
         }
     };
 
@@ -135,9 +134,7 @@ pub fn exec(args: &[Value]) -> WqResult<Value> {
             .code()
             .map(|c| c.to_string())
             .unwrap_or_else(|| "unknown".into());
-        return Err(WqError::ExecError(format!(
-            "`exec`: exec failed (exit {code})"
-        )));
+        return Err(WqError::Exec(format!("`exec`: exec failed (exit {code})")));
     }
     // decode
     let text = String::from_utf8_lossy(&output.stdout);
@@ -180,9 +177,7 @@ pub fn ord(args: &[Value]) -> WqResult<Value> {
 fn as_bool_arg(fname: &str, v: &Value) -> WqResult<bool> {
     match v {
         Value::Bool(b) => Ok(*b),
-        _ => Err(WqError::DomainError(format!(
-            "`{fname}`: expected bool ar arg1"
-        ))),
+        _ => Err(WqError::Domain(format!("`{fname}`: expected bool ar arg1"))),
     }
 }
 
@@ -219,7 +214,7 @@ pub fn int(args: &[Value]) -> WqResult<Value> {
         [v] => (v, None),
         [v, Value::Int(b)] if (2..=36).contains(b) => (v, Some(*b as u32)),
         [_, _] => {
-            return Err(WqError::DomainError(
+            return Err(WqError::Domain(
                 "`int`: base must be an integer in 2..=36".into(),
             ));
         }
@@ -232,7 +227,7 @@ pub fn int(args: &[Value]) -> WqResult<Value> {
         // base not allowed when converting an integer
         Value::Int(n) => {
             if base_opt.is_some() {
-                Err(WqError::DomainError(
+                Err(WqError::Domain(
                     "`int`: base not allowed when converting an integer".into(),
                 ))
             } else {
@@ -241,7 +236,7 @@ pub fn int(args: &[Value]) -> WqResult<Value> {
         }
         v => {
             let s = v.try_str().ok_or_else(|| {
-                WqError::DomainError("`int`: expected a char or a string (list of chars)".into())
+                WqError::Domain("`int`: expected a char or a string (list of chars)".into())
             })?;
             parse_str_to_i64(&s, base)
         }
@@ -253,7 +248,7 @@ pub fn int(args: &[Value]) -> WqResult<Value> {
 fn parse_str_to_i64(s: &str, base: u32) -> WqResult<Value> {
     let s = s.trim();
     if s.is_empty() {
-        return Err(WqError::DomainError("`int`: empty string".into()));
+        return Err(WqError::Domain("`int`: empty string".into()));
     }
 
     // sign
@@ -276,18 +271,17 @@ fn parse_str_to_i64(s: &str, base: u32) -> WqResult<Value> {
     // ignore underscores
     let digits: String = rest.chars().filter(|&c| c != '_').collect();
     if digits.is_empty() {
-        return Err(WqError::DomainError("`int`: invalid literal".into()));
+        return Err(WqError::Domain("`int`: invalid literal".into()));
     }
 
     // magnitude as u128 to support i64::MIN
-    let mag = u128::from_str_radix(&digits, base).map_err(|_| {
-        WqError::DomainError(format!("`int`: invalid literal `{s}` for base {base}"))
-    })?;
+    let mag = u128::from_str_radix(&digits, base)
+        .map_err(|_| WqError::Domain(format!("`int`: invalid literal `{s}` for base {base}")))?;
 
     let val = if neg {
         let limit = (i64::MAX as u128) + 1; // allowable magnitude for negative
         if mag > limit {
-            return Err(WqError::DomainError("`int`: overflow".into()));
+            return Err(WqError::Domain("`int`: overflow".into()));
         }
         if mag == limit {
             i64::MIN
@@ -296,7 +290,7 @@ fn parse_str_to_i64(s: &str, base: u32) -> WqResult<Value> {
         }
     } else {
         if mag > i64::MAX as u128 {
-            return Err(WqError::DomainError("`int`: overflow".into()));
+            return Err(WqError::Domain("`int`: overflow".into()));
         }
         mag as i64
     };
@@ -310,24 +304,24 @@ pub fn raise(args: &[Value]) -> WqResult<Value> {
     }
 
     match (&args[0], &args[1]) {
-        (_, Value::Int(code)) if *code <= 0 => Err(WqError::DomainError(
+        (_, Value::Int(code)) if *code <= 0 => Err(WqError::Domain(
             "`raise`: expected positive int at arg1 (err code)".into(),
         )),
         (m, Value::Int(code)) => {
             let msg = m
                 .try_str()
-                .ok_or_else(|| WqError::DomainError("`raise`: expected 'str' at arg0".into()))?
+                .ok_or_else(|| WqError::Domain("`raise`: expected 'str' at arg0".into()))?
                 .to_string();
 
             let code = *code as i32;
 
             // Prefer a built-in error if the code matches; otherwise, use CustomError
             let err = WqError::from_code_with_msg(code, msg.clone())
-                .unwrap_or(WqError::UnknownError(msg, code));
+                .unwrap_or(WqError::Unknown(msg, code));
 
             Err(err)
         }
-        _ => Err(WqError::DomainError(
+        _ => Err(WqError::Domain(
             "`raise`: expected positive int at arg1 (err code)".into(),
         )),
     }
@@ -363,7 +357,7 @@ impl TryHash for Value {
             Value::Float(f) => {
                 // floats are hashable unless nan; +0.0 and -0.0 hash differently
                 if f.is_nan() {
-                    return Err(WqError::DomainError("`hash`: cannot hash nan".into()));
+                    return Err(WqError::Domain("`hash`: cannot hash nan".into()));
                 }
                 4u8.hash(state);
                 f.to_bits().hash(state);
@@ -399,7 +393,7 @@ impl TryHash for Value {
 
                 Ok(())
             }
-            _ => Err(WqError::DomainError(format!(
+            _ => Err(WqError::Domain(format!(
                 "`hash`: cannot hash {}",
                 self.type_name()
             ))),

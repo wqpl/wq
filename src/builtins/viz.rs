@@ -54,7 +54,7 @@ pub mod show_table {
             return Ok(Value::unit());
         }
 
-        Err(WqError::DomainError(
+        Err(WqError::Domain(
             "`showt`: invalid table, expected (a dict), (a list of dicts), (a dict of lists), or (a dict of dicts)"
                 .to_string(),
         ))
@@ -267,7 +267,7 @@ pub fn asciiplot(args: &[Value]) -> WqResult<Value> {
                         .map(|(i, v)| (i as f32, v.to_float().unwrap() as f32))
                         .collect()
                 }
-                _ => return Err(WqError::DomainError(
+                _ => return Err(WqError::Domain(
                     "`asciiplot`: expected each arg to be (a list of numbers) or (a list of 2‑element numeric lists)"
                         .into(),
                 )),

@@ -27,7 +27,8 @@ impl Resolver {
         let mut res = Self::new();
         for (name, val) in env {
             match val {
-                Value::Function { .. } | Value::CompiledFunction { .. } => {
+                // Value::Function { .. } | Value::CompiledFunction { .. } => {
+                Value::CompiledFunction { .. } => {
                     res.known_funcs.insert(name.clone());
                     res.known_indexables.remove(name);
                 }

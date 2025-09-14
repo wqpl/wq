@@ -52,7 +52,7 @@ pub fn to_symbol(args: &[Value]) -> WqResult<Value> {
             s
         }
         _ => {
-            return Err(WqError::DomainError(format!(
+            return Err(WqError::Domain(format!(
                 "`symbol`: expected 'str', got {}",
                 input.type_name()
             )));
@@ -64,7 +64,7 @@ pub fn to_symbol(args: &[Value]) -> WqResult<Value> {
             .chars()
             .all(|ch| ch.is_alphanumeric() || ch == '_' || ch == '?')
     {
-        return Err(WqError::DomainError(format!("invalid symbol name: {name}")));
+        return Err(WqError::Domain(format!("invalid symbol name: {name}")));
     }
 
     Ok(Value::Symbol(name))
@@ -107,8 +107,8 @@ pub fn is_fn(args: &[Value]) -> WqResult<Value> {
     }
     Ok(Value::Bool(matches!(
         args[0],
-        Value::Function { .. }
-            | Value::CompiledFunction { .. }
+        Value::CompiledFunction { .. }
+        //  | Value::Function { .. }
             | Value::BuiltinFunction(_)
             | Value::Closure { .. }
     )))

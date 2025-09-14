@@ -350,14 +350,14 @@ fn parse_shape_dims(shape: &Value, fname: &str) -> WqResult<Vec<usize>> {
     match shape {
         Value::Int(n) => {
             if *n < 0 {
-                Err(WqError::DomainError(format!("`{fname}`: negative length")))
+                Err(WqError::Domain(format!("`{fname}`: negative length")))
             } else {
                 Ok(vec![*n as usize])
             }
         }
         Value::IntList(dims) => {
             if dims.iter().any(|&d| d < 0) {
-                Err(WqError::DomainError(format!("`{fname}`: negative length")))
+                Err(WqError::Domain(format!("`{fname}`: negative length")))
             } else {
                 Ok(dims.iter().map(|&d| d as usize).collect())
             }
@@ -375,12 +375,12 @@ fn parse_shape_dims(shape: &Value, fname: &str) -> WqResult<Vec<usize>> {
                     })
                     .collect())
             } else {
-                Err(WqError::DomainError(format!(
+                Err(WqError::Domain(format!(
                     "`{fname}`: shape must be a rank-1 list of non-negative ints (or an int)"
                 )))
             }
         }
-        _ => Err(WqError::DomainError(format!(
+        _ => Err(WqError::Domain(format!(
             "`{fname}`: invalid shape, expected int or rank-1 list of ints, got {}",
             shape.type_name()
         ))),
@@ -474,7 +474,7 @@ pub fn ints(args: &[Value]) -> WqResult<Value> {
 
     if let Value::Int(n) = args[0] {
         if n < 0 {
-            return Err(WqError::DomainError("`ints`: negative shape".into()));
+            return Err(WqError::Domain("`ints`: negative shape".into()));
         }
         let mut cache = INTS_CACHE.lock().unwrap();
         if let Some(v) = cache.get(&n) {
@@ -508,7 +508,7 @@ pub fn iota(args: &[Value]) -> WqResult<Value> {
         // 1D case: simple range 0..n-1
         Value::Int(n) => {
             if *n < 0 {
-                Err(WqError::DomainError("`iota`: negative length".into()))
+                Err(WqError::Domain("`iota`: negative length".into()))
             } else {
                 Ok(Value::IntList((0..*n).collect()))
             }
@@ -576,7 +576,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
     let start = match &args[0] {
         Value::Int(n) => *n,
         _ => {
-            return Err(WqError::DomainError(format!(
+            return Err(WqError::Domain(format!(
                 "`rg`: invalid start, expected int, got {}",
                 args[0].type_name()
             )));
@@ -586,7 +586,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
     let end = match &args[1] {
         Value::Int(n) => *n,
         _ => {
-            return Err(WqError::DomainError(format!(
+            return Err(WqError::Domain(format!(
                 "`rg`: invalid end, expected int, got {}",
                 args[1].type_name()
             )));
@@ -597,7 +597,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
         match &args[2] {
             Value::Int(n) => *n,
             _ => {
-                return Err(WqError::DomainError(format!(
+                return Err(WqError::Domain(format!(
                     "`rg`: invalid step, expected int, got {}",
                     args[2].type_name()
                 )));
@@ -607,7 +607,7 @@ pub fn range(args: &[Value]) -> WqResult<Value> {
         1
     };
     if step == 0 {
-        return Err(WqError::DomainError("`rg`: step must not be 0".into()));
+        return Err(WqError::Domain("`rg`: step must not be 0".into()));
     }
     // build the sequence
     let mut items = Vec::new();
@@ -695,7 +695,7 @@ pub fn reverse(args: &[Value]) -> WqResult<Value> {
             reversed.reverse();
             Ok(Value::IntList(reversed))
         }
-        _ => Err(WqError::DomainError(format!(
+        _ => Err(WqError::Domain(format!(
             "`reverse`: expected list at arg0, got {}",
             args[0].type_name()
         ))),
@@ -725,7 +725,7 @@ pub fn wq_where(args: &[Value]) -> WqResult<Value> {
                 Value::Bool(b) if *b => indices.push(Value::Int(i as i64)),
                 Value::Int(_) | Value::Bool(_) => {}
                 _ => {
-                    return Err(WqError::DomainError(format!(
+                    return Err(WqError::Domain(format!(
                         "`where`: expected T, where T is list of (int, bool or T), got {} in list",
                         item.type_name()
                     )));
@@ -768,7 +768,7 @@ pub fn wq_where(args: &[Value]) -> WqResult<Value> {
                 }
                 Ok(())
             }
-            _ => Err(WqError::DomainError(format!(
+            _ => Err(WqError::Domain(format!(
                 "`where`: expected T, where T is list of (int, bool or T), got {} in list",
                 v.type_name()
             ))),
@@ -800,7 +800,7 @@ pub fn wq_where(args: &[Value]) -> WqResult<Value> {
                 where_1d_list(items)
             }
         }
-        _ => Err(WqError::DomainError(format!(
+        _ => Err(WqError::Domain(format!(
             "`where`: expected T, where T is list of (int, bool or T), got {}",
             args[0].type_name()
         ))),
@@ -928,7 +928,7 @@ mod tests {
         // invalid shape
         let invalid_shape = Value::List(vec![Value::List(vec![Value::Int(2), Value::Int(2)])]);
         let invalid = alloc(std::slice::from_ref(&invalid_shape));
-        assert!(matches!(invalid, Err(WqError::DomainError(_))));
+        assert!(matches!(invalid, Err(WqError::Domain(_))));
     }
 
     #[test]

@@ -18,7 +18,7 @@ mod wq_type;
 static INTS_CACHE: Lazy<Mutex<HashMap<i64, Value>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn arity_error(func: &str, expected: &str, got: usize) -> WqError {
-    WqError::ArityError(format!("`{func}`: expected {expected} arg(s), got {got}"))
+    WqError::Arity(format!("`{func}`: expected {expected} arg(s), got {got}"))
 }
 
 /// builtin functions
@@ -193,9 +193,7 @@ impl Builtins {
         if let Some(id) = self.name_to_id.get(name) {
             self.call_id(*id, args)
         } else {
-            Err(WqError::ValueError(format!(
-                "Unknown builtin function: {name}",
-            )))
+            Err(WqError::Value(format!("Unknown builtin function: {name}",)))
         }
     }
 
@@ -203,7 +201,7 @@ impl Builtins {
         if let Some(&func) = self.functions.get(id) {
             func(args)
         } else {
-            Err(WqError::ValueError("invalid builtin id".into()))
+            Err(WqError::Value("invalid builtin id".into()))
         }
     }
 
