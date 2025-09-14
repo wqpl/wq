@@ -123,9 +123,7 @@ struct EmbeddedScript {
     /// used in angle-bracket loads (e.g., <prelude>)
     aliases: &'static [&'static str],
     /// Canonical filename (only for reference)
-    // todo!!!!!
-    #[allow(dead_code)]
-    filename: &'static str,
+    // filename: &'static str,
     content: &'static str,
 }
 
@@ -133,13 +131,13 @@ static EMBEDDED: &[EmbeddedScript] = &[
     EmbeddedScript {
         virtual_name: "<prelude.wq>",
         aliases: &["prelude"],
-        filename: "prelude.wq",
+        // filename: "prelude.wq",
         content: include_str!("../../std/prelude.wq"),
     },
     EmbeddedScript {
         virtual_name: "<str.wq>",
         aliases: &["str"],
-        filename: "str.wq",
+        // filename: "str.wq",
         content: include_str!("../../std/str.wq"),
     },
 ];
