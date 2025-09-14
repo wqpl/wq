@@ -91,9 +91,13 @@ fn enter_repl(rtflags: RuntimeFlags) {
 
     const WQ_VERSIOH: &str = env!("CARGO_PKG_VERSION");
     const GIT_REV: &str = env!("GIT_REV");
+
     const RUSTC_VER: &str = env!("RUSTC_VERSION");
     const RUSTC_HOST: &str = env!("RUSTC_HOST");
     const RUSTC_LLVM_VERSION: &str = env!("RUSTC_LLVM_VERSION");
+
+    const BUILD_OPT_LEVEL: &str = env!("BUILD_OPT_LEVEL");
+    // const BUILD_DEBUG: &str = env!("BUILD_DEBUG");
 
     println!(
         "{} ({GIT_REV}) {} {}",
@@ -102,7 +106,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
         "!highlight !help !exit".green()
     );
 
-    println!("{RUSTC_HOST}, {RUSTC_VER} [llvm {RUSTC_LLVM_VERSION}]");
+    println!("{RUSTC_VER} [llvm {RUSTC_LLVM_VERSION}], {RUSTC_HOST}, O{BUILD_OPT_LEVEL}");
 
     loop {
         // Prompt construction

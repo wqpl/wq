@@ -36,4 +36,12 @@ fn main() {
     println!("cargo:rustc-env=RUSTC_VERSION={}", rustc_version);
     println!("cargo:rustc-env=RUSTC_HOST={}", host);
     println!("cargo:rustc-env=RUSTC_LLVM_VERSION={}", llvm);
+
+    // profile =========================================================================================
+    if let Ok(opt) = std::env::var("OPT_LEVEL") {
+        println!("cargo:rustc-env=BUILD_OPT_LEVEL={opt}");
+    }
+    // if let Ok(dbg) = std::env::var("DEBUG") {
+    //     println!("cargo:rustc-env=BUILD_DEBUG={dbg}");
+    // }
 }
