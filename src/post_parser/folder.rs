@@ -1,15 +1,18 @@
-use crate::astnode::{AstNode, BinaryOperator, UnaryOperator};
-use crate::value::{Value, WqResult};
+use crate::{
+    astnode::AstNode,
+    value::{Value, eval_binary, eval_unary},
+};
+
 use indexmap::IndexMap;
 
 pub fn fold(node: AstNode) -> AstNode {
     use AstNode::*;
     match node {
-        Literal(_) | Variable(_) | Break | Continue => node,
+        Literal(_) | Variable(_) | Break | Continue | Ellipsis => node,
         UnaryOp { operator, operand } => {
             let operand = Box::new(fold(*operand));
             if let Literal(v) = operand.as_ref()
-                && let Ok(res) = eval_unary(operator.clone(), v.clone())
+                && let Ok(res) = eval_unary(&operator, v.clone())
             {
                 return Literal(res);
             }
@@ -23,7 +26,7 @@ pub fn fold(node: AstNode) -> AstNode {
             let left = Box::new(fold(*left));
             let right = Box::new(fold(*right));
             if let (Literal(lv), Literal(rv)) = (&*left, &*right)
-                && let Ok(res) = eval_binary(operator.clone(), lv.clone(), rv.clone())
+                && let Ok(res) = eval_binary(&operator, lv.clone(), rv.clone())
             {
                 return Literal(res);
             }
@@ -31,6 +34,96 @@ pub fn fold(node: AstNode) -> AstNode {
                 left,
                 operator,
                 right,
+            }
+        }
+        ComparisonChain { first, rest } => ComparisonChain {
+            first: Box::new(fold(*first)),
+            rest: rest
+                .into_iter()
+                .map(|(op, node)| (op, fold(node)))
+                .collect(),
+        },
+        Range {
+            start,
+            end,
+            step,
+            inclusive,
+        } => {
+            let start = Box::new(fold(*start));
+            let end = Box::new(fold(*end));
+            let step = step.map(|s| Box::new(fold(*s)));
+            if let (
+                AstNode::Literal(Value::Int(start_int)),
+                AstNode::Literal(Value::Int(end_int)),
+            ) = (&*start, &*end)
+            {
+                let step_val_opt = match step.as_deref() {
+                    Some(AstNode::Literal(Value::Int(s))) => Some(*s),
+                    Some(_) => None,
+                    None => Some(1),
+                };
+                if let Some(step_val) = step_val_opt {
+                    if step_val == 0 {
+                        return AstNode::Range {
+                            start,
+                            end,
+                            step,
+                            inclusive,
+                        };
+                    }
+                    // if step_val > 0 && start_int > end_int {
+                    //     step_val = -step_val;
+                    // }
+                    let mut cur = *start_int;
+                    let mut items: Vec<i64> = Vec::new();
+                    let advance = |c: i64, step: i64| c.checked_add(step);
+                    if step_val > 0 {
+                        while if inclusive {
+                            cur <= *end_int
+                        } else {
+                            cur < *end_int
+                        } {
+                            items.push(cur);
+                            cur = match advance(cur, step_val) {
+                                Some(next) => next,
+                                None => {
+                                    return AstNode::Range {
+                                        start,
+                                        end,
+                                        step,
+                                        inclusive,
+                                    };
+                                }
+                            };
+                        }
+                    } else {
+                        while if inclusive {
+                            cur >= *end_int
+                        } else {
+                            cur > *end_int
+                        } {
+                            items.push(cur);
+                            cur = match advance(cur, step_val) {
+                                Some(next) => next,
+                                None => {
+                                    return AstNode::Range {
+                                        start,
+                                        end,
+                                        step,
+                                        inclusive,
+                                    };
+                                }
+                            };
+                        }
+                    }
+                    return AstNode::Literal(Value::IntList(items));
+                }
+            }
+            AstNode::Range {
+                start,
+                end,
+                step,
+                inclusive,
             }
         }
         List(items) => {
@@ -42,21 +135,7 @@ pub fn fold(node: AstNode) -> AstNode {
                         values.push(v);
                     }
                 }
-                if values.iter().all(|v| matches!(v, Value::Int(_))) {
-                    let ints: Vec<i64> = values
-                        .into_iter()
-                        .map(|v| {
-                            if let Value::Int(i) = v {
-                                i
-                            } else {
-                                unreachable!()
-                            }
-                        })
-                        .collect();
-                    Literal(Value::IntList(ints))
-                } else {
-                    Literal(Value::List(values))
-                }
+                Literal(Value::from_items(values))
             } else {
                 List(items)
             }
@@ -79,6 +158,10 @@ pub fn fold(node: AstNode) -> AstNode {
         }
         Assignment { name, value } => Assignment {
             name,
+            value: Box::new(fold(*value)),
+        },
+        UnpackAssign { pattern, value } => UnpackAssign {
+            pattern,
             value: Box::new(fold(*value)),
         },
         Postfix {
@@ -138,62 +221,36 @@ pub fn fold(node: AstNode) -> AstNode {
                 false_branch,
             }
         }
-        WhileLoop { condition, body } => {
+        WLoop { condition, body } => {
             let condition = Box::new(fold(*condition));
             let body = Box::new(fold(*body));
             if let Literal(Value::Bool(false)) = condition.as_ref() {
                 return Literal(Value::unit());
             }
-            WhileLoop { condition, body }
+            WLoop { condition, body }
         }
-        ForLoop { count, body } => {
+        NLoop { count, body } => {
             if let AstNode::Literal(Value::Int(n)) = count.as_ref()
                 && *n <= 0
             {
                 return Literal(Value::unit());
             }
-            ForLoop {
+            NLoop {
                 count: Box::new(fold(*count)),
                 body: Box::new(fold(*body)),
             }
         }
         Return(expr) => Return(expr.map(|e| Box::new(fold(*e)))),
-        Assert(expr) => Assert(Box::new(fold(*expr))),
+        // Assert(expr) => Assert(Box::new(fold(*expr))),
         Try(expr) => Try(Box::new(fold(*expr))),
         Block(stmts) => Block(stmts.into_iter().map(fold).collect()),
     }
 }
 
-fn eval_unary(op: UnaryOperator, val: Value) -> WqResult<Value> {
-    use UnaryOperator::*;
-    match op {
-        Negate => val.neg(),
-        Count => Ok(Value::Int(val.len() as i64)),
-    }
-}
-
-fn eval_binary(op: BinaryOperator, left: Value, right: Value) -> WqResult<Value> {
-    use BinaryOperator::*;
-    match op {
-        Add => left.add(&right),
-        Subtract => left.subtract(&right),
-        Multiply => left.multiply(&right),
-        Power => left.power(&right),
-        Divide => left.divide(&right),
-        DivideDot => left.divide_dot(&right),
-        Modulo => left.modulo(&right),
-        ModuloDot => left.modulo_dot(&right),
-        Equal => left.eq(&right),
-        NotEqual => left.neq(&right),
-        LessThan => left.lt(&right),
-        LessThanOrEqual => left.leq(&right),
-        GreaterThan => left.gt(&right),
-        GreaterThanOrEqual => left.geq(&right),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::astnode::BinaryOperator;
+
     use super::*;
 
     #[test]
@@ -228,10 +285,29 @@ mod tests {
         };
         let folded = fold(ast);
         assert_eq!(folded, AstNode::Literal(Value::IntList(vec![4, 6, 8, 10])));
-        if let AstNode::Literal(val) = folded {
-            assert_eq!(val.type_name(), "intlist");
-        } else {
-            panic!("expected literal");
-        }
+    }
+
+    #[test]
+    fn folds_range_literal_half_open() {
+        let ast = AstNode::Range {
+            start: Box::new(AstNode::Literal(Value::Int(1))),
+            end: Box::new(AstNode::Literal(Value::Int(5))),
+            step: None,
+            inclusive: false,
+        };
+        let folded = fold(ast);
+        assert_eq!(folded, AstNode::Literal(Value::IntList(vec![1, 2, 3, 4])));
+    }
+
+    #[test]
+    fn folds_range_literal_inclusive_with_step() {
+        let ast = AstNode::Range {
+            start: Box::new(AstNode::Literal(Value::Int(1))),
+            end: Box::new(AstNode::Literal(Value::Int(5))),
+            step: Some(Box::new(AstNode::Literal(Value::Int(2)))),
+            inclusive: true,
+        };
+        let folded = fold(ast);
+        assert_eq!(folded, AstNode::Literal(Value::IntList(vec![1, 3, 5])));
     }
 }

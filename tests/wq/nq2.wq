@@ -1,0 +1,5 @@
+!l ../../e/nq2.wq
+echo fmt["n=1: {}";#nq 1]
+echo fmt["n=2: {}";#nq 2]
+echo fmt["n=4: {}";#nq 4]
+echo fmt["n=8: {}";#nq 8]

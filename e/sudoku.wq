@@ -1,0 +1,24 @@
+!p
+valid:{[g;r;c;v]in_row:#where eq0[g r;v] // row check
+  col:alloc 9;N[9; col[_n]:g[_n][c]];in_col:#where eq0[col;v] // col check
+  br:3*floor(r/3);bc:3*floor(c/3);box:alloc 0 // box check
+  N[3;rr:_n;N[3;cc:_n;box:box,g[br+rr][bc+cc]]];in_box:#where eq0[box;v]
+  (in_row=0)|and(in_col=0)|and(in_box=0)}
+// choose cell with minimum remaining values -> (r;c;cands)
+choose_mrv:{[g]best:();bestn:10
+   N[9;r:_n;N[9;c:_n;$.[g[r][c]=0;cands:alloc 0
+    N[9;v:_n+1;$.[valid[g;r;c;v];cands:cands,v]];n:#cands
+      $.[n<bestn;best:(r;c;cands);bestn:n]]]];best}
+sudoku:{[g]pick:choose_mrv g;$[unit? pick;@r g;r:pick 0;c:pick 1;cands:pick 2
+     N[#cands;v:cands _n;row:g r;row[c]:v;g2:g;g2[r]:row;out:sudoku g2
+       $.[not unit? out;@r out]]]}
+//example:((5;3;0;0;7;0;0;0;0);
+//         (6;0;0;1;9;5;0;0;0);
+//         (0;9;8;0;0;0;0;6;0);
+//         (8;0;0;0;6;0;0;0;3);
+//         (4;0;0;8;0;3;0;0;1);
+//         (7;0;0;0;2;0;0;0;6);
+//         (0;6;0;0;0;0;2;8;0);
+//         (0;0;0;4;1;9;0;0;5);
+//         (0;0;0;0;8;0;0;7;9))
+//echo sudoku example

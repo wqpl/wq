@@ -9,4 +9,4 @@ cowsay:{[msg]border:repeat["-";#msg+2]
   echo"                 ||-----w-|"
   echo"                 ||      ||"
 }
-cowsay"moooving on!"
+//cowsay "moooving on!"

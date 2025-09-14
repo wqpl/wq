@@ -1,12 +1,12 @@
-SYNOPSIS
-========
+synopsis ============================================================
+
   wq                     repl
   wq <script>            script exec
   wq exec [<inline>|-]   inline exec
   wq fmt <script>        format
 
-OPTIONS
-=======
+options =============================================================
+
 generic
   -h, --help         show this help
   -v, --version      show wq version

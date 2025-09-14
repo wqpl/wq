@@ -1,118 +1,13 @@
-// use std::fmt;
-use crate::value::WqResult;
-use crate::wqerror::WqError;
-use std::iter::Peekable;
-use std::str::Chars;
+use std::{iter::Peekable, str::Chars};
 
-#[cfg(not(target_arch = "wasm32"))]
-use colored::Colorize;
+use crate::{
+    token::{Token, TokenType},
+    value::WqResult,
+    wqerr::{WqErr, WqErrType},
+};
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TokenType {
-    // Literals
-    Integer(i64),
-    Float(f64),
-    Character(char),
-    String(String),
-    Symbol(String),
-
-    // Operators
-    Plus,
-    Minus,
-    Multiply,
-    Power,
-    Divide,
-    DivideDot,
-    Modulo,
-    ModuloDot,
-
-    // Assignment
-    Colon,
-
-    // Comparison operators
-    Equal,
-    NotEqual,
-    LessThan,
-    LessThanOrEqual,
-    GreaterThan,
-    GreaterThanOrEqual,
-
-    // Conditional
-    Dollar,
-    DollarDot,
-
-    Sharp,
-    Pipe,
-
-    // Delimiters
-    LeftParen,
-    RightParen,
-    LeftBracket,
-    RightBracket,
-    LeftBrace,
-    RightBrace,
-
-    // Separators
-    Semicolon,
-    Comma,
-
-    // Special
-    Newline,
-
-    Eof,
-
-    Identifier(String),
-
-    Inf,
-    Nan,
-
-    True,
-    False,
-
-    Comment(String),
-    AtBreak,
-    AtContinue,
-    AtReturn,
-    AtAssert,
-    AtTry,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Token {
-    pub token_type: TokenType,
-    pub position: usize,
-    pub line: usize,
-    pub column: usize,
-    // Byte offsets into the original source string (half-open [start, end))
-    pub byte_start: usize,
-    pub byte_end: usize,
-}
-
-impl Token {
-    pub fn new(
-        token_type: TokenType,
-        position: usize,
-        line: usize,
-        column: usize,
-        byte_start: usize,
-        byte_end: usize,
-    ) -> Self {
-        Token {
-            token_type,
-            position,
-            line,
-            column,
-            byte_start,
-            byte_end,
-        }
-    }
-}
-
-// impl fmt::Display for Token {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         write!(f, "{:?}@{}:{}", self.token_type, self.line, self.column)
-//     }
-// }
+use num_bigint::BigInt;
+use num_traits::Num;
 
 pub struct Lexer<'a> {
     input: Peekable<Chars<'a>>,
@@ -121,78 +16,138 @@ pub struct Lexer<'a> {
     line: usize,
     column: usize,
     current_char: Option<char>,
+    // 2-character lookahead window
+    la1: Option<char>,
+    la2: Option<char>,
     // Current byte position (immediately after `current_char`)
     byte_pos: usize,
+    // Optional global source context for better error spans
+    global_source: Option<&'a str>,
+    line_base: usize,
+    col_base: usize,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(input: &'a str) -> Self {
+        let mut input_iter = input.chars().peekable();
+        // Initialize the lookahead window
+        let la1 = input_iter.next();
+        let la2 = input_iter.next();
+
         let mut lexer = Lexer {
-            input: input.chars().peekable(),
+            input: input_iter,
             source: input,
             position: 0,
             line: 1,
             column: 0,
             current_char: None,
+            la1,
+            la2,
             byte_pos: 0,
+            global_source: None,
+            line_base: 0,
+            col_base: 0,
         };
         lexer.advance();
         lexer
     }
 
+    /// Provide a global source context and base byte offset for more accurate error spans -
+    /// When lexing a snippet within a larger file
+    pub fn with_ctx(mut self, global_source: &'a str, base_offset: usize) -> Self {
+        let base = base_offset.min(global_source.len());
+        let line_base = global_source[..base]
+            .bytes()
+            .filter(|b| *b == b'\n')
+            .count();
+        let col_base = if base == 0 {
+            0
+        } else {
+            match global_source[..base].rfind('\n') {
+                Some(i) => global_source[i + 1..base].chars().count(),
+                None => global_source[..base].chars().count(),
+            }
+        };
+        self.global_source = Some(global_source);
+        self.line_base = line_base;
+        self.col_base = col_base;
+        self
+    }
+
     fn syntax_error_span(
         &self,
-        line: usize,
-        column: usize,
+        _line: usize,
+        _column: usize,
         byte_start: usize,
         byte_end: usize,
-        msg: &str,
-    ) -> WqError {
-        let src_line = self
-            .source
-            .lines()
-            .nth(line.saturating_sub(1))
-            .unwrap_or("");
-        let width = if byte_end > byte_start
-            && byte_end <= self.source.len()
-            && byte_start <= self.source.len()
-        {
-            self.source[byte_start..byte_end].chars().count().max(1)
+        msg: &'static str,
+    ) -> WqErr {
+        let src = self.source;
+        let bs = byte_start.min(src.len());
+        let be = byte_end.min(src.len());
+        // find local line index & column from bytes
+        let pre = &src[..bs];
+        let local_line_idx = pre.bytes().filter(|b| *b == b'\n').count(); // 0-based
+        let line_start_byte = pre.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        // 1-based column within the local line
+        let mut disp_col = src[line_start_byte..bs].chars().count() + 1;
+        let width = if be > bs {
+            src[bs..be]
+                .chars()
+                .take_while(|&c| c != '\n')
+                .count()
+                .max(1)
         } else {
             1
         };
-        let pointer = " ".repeat(column.saturating_sub(1)) + &"^".repeat(width);
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            WqError::Syntax(format!(
-                "{msg} \n{}\n{src_line}\n{pointer}",
-                format!("At {line}:{column}").underline()
-            ))
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            WqError::Syntax(format!("{msg} \nAt {line}:{column}\n{src_line}\n{pointer}",))
-        }
+        let (disp_line, src_line) = if let Some(gs) = self.global_source {
+            let line_no = local_line_idx + 1 + self.line_base;
+            if local_line_idx == 0 {
+                disp_col += self.col_base;
+            }
+            (line_no, gs.lines().nth(line_no - 1).unwrap_or(""))
+        } else {
+            (
+                local_line_idx + 1,
+                src.lines().nth(local_line_idx).unwrap_or(""),
+            )
+        };
+        let pointer = " ".repeat(disp_col.saturating_sub(1)) + &"~".repeat(width);
+        WqErr::new(WqErrType::Syntax)
+            .src("lexer")
+            .msg(msg)
+            .attach_note(format!("at {disp_line}:{disp_col}\n{src_line}\n{pointer}",))
     }
 
     fn advance(&mut self) {
-        self.current_char = self.input.next();
-        if let Some(ch) = self.current_char {
-            self.position += 1;
-            self.byte_pos += ch.len_utf8();
-            if ch == '\n' {
+        // Consume the previous current_char, if any
+        if let Some(prev) = self.current_char {
+            self.byte_pos += prev.len_utf8();
+            if prev == '\n' {
                 self.line += 1;
                 self.column = 0;
             } else {
                 self.column += 1;
             }
         }
+        // Shift the lookahead window: current_char <- la1 <- la2 <- input.next()
+        self.current_char = self.la1;
+        self.la1 = self.la2;
+        self.la2 = self.input.next();
+
+        if self.current_char.is_some() {
+            self.position += 1;
+        }
     }
 
-    fn peek(&mut self) -> Option<&char> {
-        self.input.peek()
+    #[inline]
+    fn peek(&self) -> Option<char> {
+        self.la1
+    }
+
+    #[inline]
+    fn peek2(&self) -> Option<char> {
+        self.la2
     }
 
     fn skip_whitespace(&mut self) {
@@ -214,11 +169,9 @@ impl<'a> Lexer<'a> {
         let mut raw_lit = String::new(); // digits and optional `_`
         let mut is_float = false;
         let mut has_exp = false;
-
         // --- detect 0b / 0o / 0x prefix ---
         let mut base: u32 = 10;
         let mut had_prefix = false;
-
         if self.current_char == Some('0')
             && let Some(next_ch) = self.peek()
         {
@@ -241,7 +194,6 @@ impl<'a> Lexer<'a> {
                 // consume '0' and the base letter
                 self.advance();
                 self.advance();
-
                 let is_digit_for_base = |c: char| -> bool {
                     match base {
                         2 => c == '0' || c == '1',
@@ -251,10 +203,8 @@ impl<'a> Lexer<'a> {
                         _ => false,
                     }
                 };
-
                 let mut prev_was_digit = false;
                 let mut saw_digit = false;
-
                 while let Some(ch) = self.current_char {
                     if is_digit_for_base(ch) {
                         raw_lit.push(ch);
@@ -265,20 +215,18 @@ impl<'a> Lexer<'a> {
                         // allow underscore only between two valid digits
                         if prev_was_digit
                             && let Some(nc) = self.peek()
-                            && is_digit_for_base(*nc)
+                            && is_digit_for_base(nc)
                         {
                             self.advance(); // consume '_'
                             prev_was_digit = false;
                             continue;
                         }
-
                         break;
                     } else {
                         // For non-decimal prefixed literals, stop on '.'/'e' as well.
                         break;
                     }
                 }
-
                 if !saw_digit {
                     return Err(self.syntax_error_span(
                         start_line,
@@ -288,24 +236,26 @@ impl<'a> Lexer<'a> {
                         "expected digits after base prefix",
                     ));
                 }
-
                 let lit = raw_lit.replace('_', "");
-                match i64::from_str_radix(&lit, base) {
-                    Ok(n) => return Ok(TokenType::Integer(n)),
+                if let Ok(n) = i64::from_str_radix(&lit, base) {
+                    return Ok(TokenType::Integer(n));
+                }
+                match BigInt::from_str_radix(&lit, base) {
+                    Ok(big) => return Ok(TokenType::BigInteger(big)),
                     Err(_) => {
                         return Err(self.syntax_error_span(
                             start_line,
                             start_column,
                             start_byte,
                             self.byte_pos,
-                            "integer literal overflow",
+                            "invalid integer literal",
                         ));
                     }
                 }
             }
         }
 
-        // --- decimal (no prefix) path: keep your original float/int logic ---
+        // no prefix ===============================================================
         while let Some(ch) = self.current_char {
             if ch.is_ascii_digit() {
                 raw_lit.push(ch);
@@ -352,7 +302,6 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-
         let lit = raw_lit.replace('_', "");
         if is_float {
             match lit.parse::<f64>() {
@@ -368,20 +317,22 @@ impl<'a> Lexer<'a> {
         } else {
             match lit.parse::<i64>() {
                 Ok(n) => Ok(TokenType::Integer(n)),
-                Err(_) => Err(self.syntax_error_span(
-                    start_line,
-                    start_column,
-                    start_byte,
-                    self.byte_pos,
-                    "integer literal overflow",
-                )),
+                Err(_) => match lit.parse::<BigInt>() {
+                    Ok(big) => Ok(TokenType::BigInteger(big)),
+                    Err(_) => Err(self.syntax_error_span(
+                        start_line,
+                        start_column,
+                        start_byte,
+                        self.byte_pos,
+                        "invalid integer literal",
+                    )),
+                },
             }
         }
     }
 
     fn read_identifier(&mut self) -> String {
         let mut identifier = String::new();
-
         while let Some(ch) = self.current_char {
             if ch.is_alphanumeric() || ch == '_' || ch == '?' {
                 identifier.push(ch);
@@ -390,14 +341,17 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-
         identifier
     }
 
     fn read_symbol(&mut self) -> TokenType {
-        self.advance(); // Skip the backtick
+        self.advance(); // consume the backtick
         let symbol_name = self.read_identifier();
-        TokenType::Symbol(symbol_name)
+        if symbol_name.is_empty() {
+            TokenType::Backtick
+        } else {
+            TokenType::Symbol(symbol_name)
+        }
     }
 
     fn read_string_or_char(
@@ -406,138 +360,77 @@ impl<'a> Lexer<'a> {
         start_column: usize,
         start_byte: usize,
     ) -> WqResult<TokenType> {
-        self.advance(); // skip opening quote
-        let mut content = String::new();
+        // consume opening quote
+        self.advance();
+        let content_start_byte = self.byte_pos;
+        let mut raw = String::new();
         let mut closed = false;
-
         while let Some(ch) = self.current_char {
             match ch {
                 '\\' => {
-                    // have an escape; peek at the next char
-                    if self.peek().is_some() {
-                        // Consume the backslash
+                    // include backslash and the next char literally in raw
+                    raw.push('\\');
+                    self.advance();
+                    if let Some(next) = self.current_char {
+                        raw.push(next);
                         self.advance();
-                        // next is the escaped char
-                        match self.current_char.unwrap() {
-                            '"' => {
-                                content.push('"');
-                                self.advance();
-                            }
-                            '\\' => {
-                                content.push('\\');
-                                self.advance();
-                            }
-                            'n' => {
-                                content.push('\n');
-                                self.advance();
-                            }
-                            'u' => {
-                                self.advance(); // move to the next char after 'u'
-                                if self.current_char == Some('{') {
-                                    self.advance(); // consume '{'
-
-                                    let mut val: u32 = 0;
-                                    let mut digits = 0;
-
-                                    while let Some(c) = self.current_char {
-                                        if c == '}' {
-                                            break;
-                                        }
-                                        if let Some(d) = c.to_digit(16) {
-                                            val = (val << 4) | d;
-                                            digits += 1;
-                                            self.advance();
-                                        } else {
-                                            // handle invalid hex digit
-                                            return Err(self.syntax_error_span(
-                                                start_line,
-                                                start_column,
-                                                start_byte,
-                                                self.byte_pos,
-                                                "invalid unicode escape",
-                                            ));
-                                        }
-                                    }
-
-                                    // we must be on the closing '}'
-                                    if self.current_char != Some('}') || digits == 0 {
-                                        return Err(self.syntax_error_span(
-                                            start_line,
-                                            start_column,
-                                            start_byte,
-                                            self.byte_pos,
-                                            "invalid unicode escape",
-                                        ));
-                                    }
-                                    self.advance(); // consume '}'
-
-                                    if let Some(ch) = char::from_u32(val) {
-                                        content.push(ch);
-                                    } else {
-                                        return Err(self.syntax_error_span(
-                                            start_line,
-                                            start_column,
-                                            start_byte,
-                                            self.byte_pos,
-                                            "invalid unicode escape",
-                                        ));
-                                    }
-                                } else {
-                                    // not a \u{...} escape, keep it literally
-                                    content.push('\\');
-                                    content.push('u');
-                                }
-                            }
-                            other => {
-                                // unrecognized: keep the backslash + char
-                                content.push('\\');
-                                content.push(other);
-                                self.advance();
-                            }
-                        }
                     } else {
-                        // Trailing backslash before EOF; push it
-                        content.push('\\');
-                        self.advance();
+                        // EOF right after backslash -> unterminated string
                         break;
                     }
                 }
-
                 '"' => {
-                    // Only a terminator if not escaped
-                    self.advance(); // consume closing quote
+                    // terminator not preceded by a raw backslash in this step
+                    self.advance();
                     closed = true;
                     break;
                 }
-
-                _ => {
-                    content.push(ch);
+                other => {
+                    raw.push(other);
                     self.advance();
                 }
             }
         }
-
         if !closed {
             return Err(self.syntax_error_span(
                 start_line,
                 start_column,
                 start_byte,
                 self.byte_pos,
-                "unterminated string",
+                "string is not properly terminated",
             ));
         }
 
-        // Single‐char content -> Character, otherwise String
-        if content.chars().count() == 1 {
-            Ok(TokenType::Character(content.chars().next().unwrap()))
-        } else {
-            Ok(TokenType::String(content))
+        // Now unescape the raw inner content using the shared helper
+        match crate::escape::unescape_string_inner(&raw) {
+            Ok(content) => {
+                if content.chars().count() == 1 {
+                    Ok(TokenType::Character(content.chars().next().unwrap()))
+                } else {
+                    Ok(TokenType::String(content))
+                }
+            }
+            Err(err) => {
+                // Map to a syntax error with a reasonable message
+                use crate::escape::UnescapeErrorKind::*;
+                let msg = match err.kind {
+                    InvalidUnicodeEscape => "invalid unicode escape",
+                    InvalidUnicodeScalar => "invalid unicode escape",
+                };
+                let err_byte_start = content_start_byte.saturating_add(err.index);
+                Err(self.syntax_error_span(
+                    start_line,
+                    start_column,
+                    err_byte_start,
+                    err_byte_start + 1,
+                    msg,
+                ))
+            }
         }
     }
 
     fn read_comment(&mut self) -> TokenType {
         let mut comment = String::new();
-
         while let Some(ch) = self.current_char {
             if ch == '\n' {
                 break;
@@ -545,31 +438,79 @@ impl<'a> Lexer<'a> {
             comment.push(ch);
             self.advance();
         }
-
         TokenType::Comment(comment)
+    }
+
+    // Read a raw string starting at the '"' (caller should have just consumed the 'r').
+    // - No escape processing; backslashes are literal
+    // - Always produces TokenType::String (never Character), even if length is 1
+    fn read_raw_string(
+        &mut self,
+        start_line: usize,
+        start_column: usize,
+        start_byte: usize,
+    ) -> WqResult<TokenType> {
+        self.skip_whitespace();
+        if self.current_char != Some('"') {
+            return Err(self.syntax_error_span(
+                start_line,
+                start_column,
+                start_byte,
+                self.byte_pos,
+                "expected '\"' after raw string prefix",
+            ));
+        }
+        self.advance(); // consume opening quote
+        let mut raw = String::new();
+        let mut closed = false;
+        while let Some(ch) = self.current_char {
+            match ch {
+                '"' => {
+                    self.advance();
+                    closed = true;
+                    break;
+                }
+                other => {
+                    raw.push(other);
+                    self.advance();
+                }
+            }
+        }
+        if !closed {
+            return Err(self.syntax_error_span(
+                start_line,
+                start_column,
+                start_byte,
+                self.byte_pos,
+                "string is not properly terminated",
+            ));
+        }
+        Ok(TokenType::String(raw))
     }
 
     pub fn next_token(&mut self) -> WqResult<Token> {
         loop {
             let token_line = self.line;
-            let token_column = self.column;
+            let token_column = self.column + 1;
             let token_position = self.position;
-            let token_byte_start = match self.current_char {
-                Some(ch) => self.byte_pos.saturating_sub(ch.len_utf8()),
-                None => self.byte_pos,
+            let token_byte_start = self.byte_pos;
+
+            let emit = |t: TokenType, byte_end: usize| -> WqResult<Token> {
+                Ok(Token::new(
+                    t,
+                    token_position,
+                    token_line,
+                    token_column,
+                    token_byte_start,
+                    byte_end, // current end
+                ))
             };
 
-            match self.current_char {
-                None => {
-                    return Ok(Token::new(
-                        TokenType::Eof,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
-                }
+            let ch = self.current_char;
+            let nxt = self.peek();
+
+            match ch {
+                None => return emit(TokenType::Eof, self.byte_pos),
 
                 Some(' ') | Some('\t') | Some('\r') => {
                     self.skip_whitespace();
@@ -578,238 +519,116 @@ impl<'a> Lexer<'a> {
 
                 Some('\n') => {
                     self.advance();
-                    return Ok(Token::new(
-                        TokenType::Newline,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(TokenType::Newline, self.byte_pos);
                 }
+
+                Some('*') => match nxt {
+                    Some('*') => {
+                        self.advance();
+                        self.advance();
+                        return emit(TokenType::Matmul, self.byte_pos);
+                    }
+                    _ => {
+                        self.advance();
+                        return emit(TokenType::Multiply, self.byte_pos);
+                    }
+                },
 
                 Some('/') => {
-                    if self.peek() == Some(&'/') {
-                        self.advance(); // consume first /
-                        let comment = self.read_comment();
-                        return Ok(Token::new(
-                            comment,
-                            token_position,
-                            token_line,
-                            token_column,
-                            token_byte_start,
-                            self.byte_pos,
-                        ));
-                    } else if self.peek() == Some(&'.') {
-                        self.advance(); // consume '/'
-                        self.advance(); // consume '.'
-                        return Ok(Token::new(
-                            TokenType::DivideDot,
-                            token_position,
-                            token_line,
-                            token_column,
-                            token_byte_start,
-                            self.byte_pos,
-                        ));
-                    } else {
-                        self.advance();
-                        return Ok(Token::new(
-                            TokenType::Divide,
-                            token_position,
-                            token_line,
-                            token_column,
-                            token_byte_start,
-                            self.byte_pos,
-                        ));
+                    match nxt {
+                        Some('/') => {
+                            self.advance(); // consume first '/'
+                            let comment = self.read_comment();
+                            return emit(comment, self.byte_pos);
+                        }
+                        Some('.') => {
+                            self.advance();
+                            self.advance(); // '/.'
+                            return emit(TokenType::DivideDot, self.byte_pos);
+                        }
+                        _ => {
+                            self.advance();
+                            return emit(TokenType::Divide, self.byte_pos);
+                        }
                     }
-                }
-
-                Some('+') => {
-                    self.advance();
-                    return Ok(Token::new(
-                        TokenType::Plus,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
-                }
-
-                Some('-') => {
-                    self.advance();
-                    return Ok(Token::new(
-                        TokenType::Minus,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
-                }
-
-                Some('*') => {
-                    self.advance();
-                    return Ok(Token::new(
-                        TokenType::Multiply,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
-                }
-
-                Some('^') => {
-                    self.advance();
-                    return Ok(Token::new(
-                        TokenType::Power,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
                 }
 
                 Some('%') => {
-                    if self.peek() == Some(&'.') {
+                    if nxt == Some('.') {
                         self.advance();
                         self.advance();
-                        return Ok(Token::new(
-                            TokenType::ModuloDot,
-                            token_position,
-                            token_line,
-                            token_column,
-                            token_byte_start,
-                            self.byte_pos,
-                        ));
+                        return emit(TokenType::ModuloDot, self.byte_pos);
                     } else {
                         self.advance();
-                        return Ok(Token::new(
-                            TokenType::Modulo,
-                            token_position,
-                            token_line,
-                            token_column,
-                            token_byte_start,
-                            self.byte_pos,
-                        ));
-                    }
-                }
-
-                Some(':') => {
-                    self.advance();
-                    return Ok(Token::new(
-                        TokenType::Colon,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
-                }
-
-                Some('=') => {
-                    self.advance();
-                    return Ok(Token::new(
-                        TokenType::Equal,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
-                }
-
-                Some('~') => {
-                    self.advance();
-                    return Ok(Token::new(
-                        TokenType::NotEqual,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
-                }
-
-                Some('<') => {
-                    if self.peek() == Some(&'=') {
-                        self.advance(); // consume '<'
-                        self.advance(); // consume '='
-                        return Ok(Token::new(
-                            TokenType::LessThanOrEqual,
-                            token_position,
-                            token_line,
-                            token_column,
-                            token_byte_start,
-                            self.byte_pos,
-                        ));
-                    } else {
-                        self.advance();
-                        return Ok(Token::new(
-                            TokenType::LessThan,
-                            token_position,
-                            token_line,
-                            token_column,
-                            token_byte_start,
-                            self.byte_pos,
-                        ));
-                    }
-                }
-
-                Some('>') => {
-                    if self.peek() == Some(&'=') {
-                        self.advance(); // consume '>'
-                        self.advance(); // consume '='
-                        return Ok(Token::new(
-                            TokenType::GreaterThanOrEqual,
-                            token_position,
-                            token_line,
-                            token_column,
-                            token_byte_start,
-                            self.byte_pos,
-                        ));
-                    } else {
-                        self.advance();
-                        return Ok(Token::new(
-                            TokenType::GreaterThan,
-                            token_position,
-                            token_line,
-                            token_column,
-                            token_byte_start,
-                            self.byte_pos,
-                        ));
+                        return emit(TokenType::Modulo, self.byte_pos);
                     }
                 }
 
                 Some('$') => {
-                    if self.peek() == Some(&'.') {
-                        self.advance(); // consume '$'
-                        self.advance(); // consume '.'
-                        return Ok(Token::new(
-                            TokenType::DollarDot,
-                            token_position,
-                            token_line,
-                            token_column,
-                            token_byte_start,
-                            self.byte_pos,
-                        ));
+                    if nxt == Some('.') {
+                        self.advance();
+                        self.advance();
+                        return emit(TokenType::DollarDot, self.byte_pos);
                     } else {
                         self.advance();
-                        return Ok(Token::new(
-                            TokenType::Dollar,
-                            token_position,
-                            token_line,
-                            token_column,
-                            token_byte_start,
-                            self.byte_pos,
-                        ));
+                        return emit(TokenType::Dollar, self.byte_pos);
+                    }
+                }
+
+                Some('<') => {
+                    if nxt == Some('=') {
+                        self.advance();
+                        self.advance();
+                        return emit(TokenType::LessThanOrEqual, self.byte_pos);
+                    } else {
+                        self.advance();
+                        return emit(TokenType::LessThan, self.byte_pos);
+                    }
+                }
+
+                Some('>') => {
+                    if nxt == Some('=') {
+                        self.advance();
+                        self.advance();
+                        return emit(TokenType::GreaterThanOrEqual, self.byte_pos);
+                    } else {
+                        self.advance();
+                        return emit(TokenType::GreaterThan, self.byte_pos);
+                    }
+                }
+
+                Some('.') => {
+                    // We need 2-char lookahead here.
+                    let n1 = nxt;
+                    let n2 = self.peek2();
+                    match (n1, n2) {
+                        (Some('.'), Some('.')) => {
+                            self.advance();
+                            self.advance();
+                            self.advance();
+                            return emit(TokenType::Ellipsis, self.byte_pos);
+                        }
+                        (Some('.'), Some('=')) => {
+                            self.advance();
+                            self.advance();
+                            self.advance();
+                            return emit(TokenType::RangeInclusive, self.byte_pos);
+                        }
+                        (Some('.'), _) => {
+                            self.advance();
+                            self.advance();
+                            return emit(TokenType::Range, self.byte_pos);
+                        }
+                        _ => {
+                            // Unknown single '.': consume and skip
+                            self.advance();
+                            continue;
+                        }
                     }
                 }
 
                 Some('@') => {
-                    self.advance();
+                    self.advance(); // consume '@'
                     let tok = match self.current_char {
                         Some('b') => {
                             self.advance();
@@ -823,210 +642,132 @@ impl<'a> Lexer<'a> {
                             self.advance();
                             TokenType::AtReturn
                         }
-                        Some('a') => {
-                            self.advance();
-                            TokenType::AtAssert
-                        }
                         Some('t') => {
                             self.advance();
                             TokenType::AtTry
                         }
-                        _ => {
-                            // unknown @ sequence - skip
-                            continue;
+                        Some('f') => {
+                            self.advance();
+                            TokenType::AtFormat
                         }
+                        // @l followed by a quoted string is a raw string; lex it now
+                        Some('l') => {
+                            self.advance();
+                            // Expect a '"' and then consume as raw string
+                            let t =
+                                self.read_raw_string(token_line, token_column, token_byte_start)?;
+                            return emit(t, self.byte_pos);
+                        }
+                        _ => continue, // unknown @ sequence — skip
                     };
-                    return Ok(Token::new(
-                        tok,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(tok, self.byte_pos);
                 }
 
+                // Symbols that are always a single token
+                Some('+') => {
+                    self.advance();
+                    return emit(TokenType::Plus, self.byte_pos);
+                }
+                Some('-') => {
+                    self.advance();
+                    return emit(TokenType::Minus, self.byte_pos);
+                }
+
+                Some('^') => {
+                    self.advance();
+                    return emit(TokenType::Power, self.byte_pos);
+                }
+                Some(':') => {
+                    self.advance();
+                    return emit(TokenType::Colon, self.byte_pos);
+                }
+                Some('=') => {
+                    self.advance();
+                    return emit(TokenType::Equal, self.byte_pos);
+                }
+                Some('~') => {
+                    self.advance();
+                    return emit(TokenType::NotEqual, self.byte_pos);
+                }
                 Some('#') => {
                     self.advance();
-                    return Ok(Token::new(
-                        TokenType::Sharp,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(TokenType::Sharp, self.byte_pos);
                 }
-
                 Some('|') => {
                     self.advance();
-                    return Ok(Token::new(
-                        TokenType::Pipe,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(TokenType::Pipe, self.byte_pos);
                 }
-
                 Some('(') => {
                     self.advance();
-                    return Ok(Token::new(
-                        TokenType::LeftParen,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(TokenType::LeftParen, self.byte_pos);
                 }
-
                 Some(')') => {
                     self.advance();
-                    return Ok(Token::new(
-                        TokenType::RightParen,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(TokenType::RightParen, self.byte_pos);
                 }
-
                 Some('[') => {
                     self.advance();
-                    return Ok(Token::new(
-                        TokenType::LeftBracket,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(TokenType::LeftBracket, self.byte_pos);
                 }
-
                 Some(']') => {
                     self.advance();
-                    return Ok(Token::new(
-                        TokenType::RightBracket,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(TokenType::RightBracket, self.byte_pos);
                 }
-
                 Some('{') => {
                     self.advance();
-                    return Ok(Token::new(
-                        TokenType::LeftBrace,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(TokenType::LeftBrace, self.byte_pos);
                 }
-
                 Some('}') => {
                     self.advance();
-                    return Ok(Token::new(
-                        TokenType::RightBrace,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(TokenType::RightBrace, self.byte_pos);
                 }
-
                 Some(';') => {
                     self.advance();
-                    return Ok(Token::new(
-                        TokenType::Semicolon,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(TokenType::Semicolon, self.byte_pos);
                 }
-
                 Some(',') => {
                     self.advance();
-                    return Ok(Token::new(
-                        TokenType::Comma,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(TokenType::Comma, self.byte_pos);
+                }
+                Some('\'') => {
+                    self.advance();
+                    return emit(TokenType::Apostrophe, self.byte_pos);
                 }
 
+                // Backtick-quoted symbol
                 Some('`') => {
                     let symbol = self.read_symbol();
-                    return Ok(Token::new(
-                        symbol,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(symbol, self.byte_pos);
                 }
 
+                // Strings / chars
                 Some('"') => {
-                    let string_or_char =
-                        self.read_string_or_char(token_line, token_column, token_byte_start)?;
-                    return Ok(Token::new(
-                        string_or_char,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    let t = self.read_string_or_char(token_line, token_column, token_byte_start)?;
+                    return emit(t, self.byte_pos);
                 }
 
-                Some(ch) if ch.is_ascii_digit() => {
+                // Numbers
+                Some(c) if c.is_ascii_digit() => {
                     let number = self.read_number(token_line, token_column, token_byte_start)?;
-                    return Ok(Token::new(
-                        number,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(number, self.byte_pos);
                 }
 
-                Some(ch) if ch.is_alphabetic() || ch == '_' => {
-                    let identifier = self.read_identifier();
-
-                    // Check for literals and identifiers
-                    let token_type = match identifier.as_str() {
+                // Identifiers and keywords
+                Some(c) if c.is_alphabetic() || c == '_' => {
+                    // Otherwise, read an identifier and map to keywords if any.
+                    let ident = self.read_identifier();
+                    let tt = match ident.as_str() {
                         "true" => TokenType::True,
                         "false" => TokenType::False,
                         "inf" => TokenType::Inf,
                         "nan" => TokenType::Nan,
-                        _ => TokenType::Identifier(identifier),
+                        _ => TokenType::Identifier(ident),
                     };
-
-                    return Ok(Token::new(
-                        token_type,
-                        token_position,
-                        token_line,
-                        token_column,
-                        token_byte_start,
-                        self.byte_pos,
-                    ));
+                    return emit(tt, self.byte_pos);
                 }
 
-                Some(_ch) => {
-                    // Unknown char. skip
+                // Unknown byte: consume and skip
+                Some(_) => {
                     self.advance();
                     continue;
                 }
@@ -1036,7 +777,6 @@ impl<'a> Lexer<'a> {
 
     pub fn tokenize(&mut self) -> WqResult<Vec<Token>> {
         let mut tokens = Vec::new();
-
         loop {
             let token = self.next_token()?;
             let is_eof = token.token_type == TokenType::Eof;
@@ -1045,7 +785,6 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-
         Ok(tokens)
     }
 }
@@ -1053,6 +792,7 @@ impl<'a> Lexer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use num_bigint::BigInt;
 
     #[test]
     fn test_tokenize_numbers() {
@@ -1065,6 +805,18 @@ mod tests {
         assert_eq!(tokens[3].token_type, TokenType::Integer(5));
         assert_eq!(tokens[4].token_type, TokenType::Float(1000.0));
         assert_eq!(tokens[5].token_type, TokenType::Float(0.02));
+    }
+
+    #[test]
+    fn test_tokenize_bigint_literal() {
+        let big = BigInt::from(i64::MAX) + BigInt::from(1);
+        let literal = big.to_string();
+        let mut lexer = Lexer::new(&literal);
+        let tokens = lexer.tokenize().unwrap();
+        match &tokens[0].token_type {
+            TokenType::BigInteger(n) => assert_eq!(*n, big),
+            other => panic!("expected BigInteger token, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1142,6 +894,17 @@ mod tests {
     }
 
     #[test]
+    fn test_tokenize_range_builder() {
+        let mut lexer = Lexer::new("1..=2..3");
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].token_type, TokenType::Integer(1));
+        assert_eq!(tokens[1].token_type, TokenType::RangeInclusive);
+        assert_eq!(tokens[2].token_type, TokenType::Integer(2));
+        assert_eq!(tokens[3].token_type, TokenType::Range);
+        assert_eq!(tokens[4].token_type, TokenType::Integer(3));
+    }
+
+    #[test]
     fn test_identifier_with_question_mark() {
         let mut lexer = Lexer::new("a?:1 a? a???");
         let tokens = lexer.tokenize().unwrap();
@@ -1165,14 +928,14 @@ mod tests {
     fn unterminated_string_errors() {
         let mut lexer = Lexer::new("\"abc");
         let res = lexer.tokenize();
-        assert!(matches!(res, Err(WqError::Syntax(_))));
+        assert!(res.is_err());
     }
 
     #[test]
     fn integer_overflow_errors() {
         let mut lexer = Lexer::new("9223372036854775808");
-        let res = lexer.tokenize();
-        assert!(matches!(res, Err(WqError::Syntax(_))));
+        let res = lexer.tokenize().unwrap();
+        assert!(matches!(res[0].token_type, TokenType::BigInteger(_)));
     }
 
     #[test]
@@ -1180,7 +943,7 @@ mod tests {
         let big = "1".repeat(400) + ".0";
         let mut lexer = Lexer::new(&big);
         let res = lexer.tokenize();
-        assert!(matches!(res, Err(WqError::Syntax(_))));
+        assert!(res.is_err());
     }
 
     #[test]
@@ -1188,5 +951,19 @@ mod tests {
         let mut lexer = Lexer::new("@t 1");
         let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens[0].token_type, TokenType::AtTry);
+    }
+
+    #[test]
+    fn test_raw_string_basic() {
+        let mut lexer = Lexer::new("@l\"\\n\"");
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].token_type, TokenType::String("\\n".to_string()));
+    }
+
+    #[test]
+    fn test_raw_string_unterminated_errors() {
+        let mut lexer = Lexer::new("@l\"abc");
+        let res = lexer.tokenize();
+        assert!(res.is_err());
     }
 }

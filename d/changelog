@@ -1,35 +1,36 @@
-0.7.0
-=====
-pipe |
-wqdb
-xray mode
-and more
+1.0.0 ===============================================================
+** higher-order builtins
+** bigint
+*  unpack assign
+*  range (`1..10..2`)
+*  asciiplot rework
+*  better error reporting
 
-0.6.0
-=====
-@t
-open fexists? mkdir
-fsize fwrite fwritet fread freadt
-freadtln fseek fclose decode encode
-hex bin
-closure
+0.7.0 ===============================================================
+** wqdb
+** backtrace
+** pipe operator
+*  xray mode
 
-0.4.0
-=====
-in input eval chr ord shape
-/. %. ^ inf nan
-help <builtin>
-resolver
+0.6.0 ===============================================================
+** closure
+** io/encoding builtins
+*  @t
 
-0.3.1
-=====
-@b       break
-@c       continue
-@r 1     return
-@a 1=2   assert
-a:{}();null? a
-format["{}+1=1";0;]
+0.4.0 ===============================================================
+** resolver
+*  /. %. ^ inf nan
 
-0.1.0
-=====
-2025.7.19
+0.3.1 ===============================================================
+** @b @c @r @a
+*  asciiplot
+
+0.2.0 ===============================================================
+** w-loop, n-loop
+** dict
+*  math fns, rand
+*  boxed display
+*  time (\t)
+
+0.1.0 ===============================================================
+  2025.7.19

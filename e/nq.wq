@@ -1,0 +1,11 @@
+nq_:{[row;pos;usedc;usedd1;usedd2;n]
+  $[row=n;,pos;res:();N[n;c:_n;d1:row+c;d2:row-c+n-1;free:(usedc[c]=0)|and(usedd1[d1]=0)|and(usedd2[d2]=0)
+    $.[free;usedc[c]:1;usedd1[d1]:1;usedd2[d2]:1;res:res,nq_[row+1;pos,c;usedc;usedd1;usedd2;n]
+      usedc[c]:0;usedd1[d1]:0;usedd2[d2]:0]];res]}
+nq:{[n]usedc:alloc n;span:2*n-1;usedd1:alloc span;usedd2:alloc span
+  nq_[0;alloc 0;usedc;usedd1;usedd2;n]}
+
+//echo fmt["n=1: {}";#nq 1]
+//echo fmt["n=2: {}";#nq 2]
+//echo fmt["n=4: {}";#nq 4]
+//echo fmt["n=8: {}";#nq 8]

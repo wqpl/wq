@@ -1,22 +1,8 @@
-!p
-rpn:{[expr]stack:()
-  N[count expr;tok:expr[_n];plus:tok="+";minus:tok="-";mult:tok="*";div:tok="%"
-    $.[plus;
-      len:count stack;b:last stack;stack:take[len-1;stack]
-      len:count stack;a:last stack;stack:take[len-1;stack]
-      stack:stack,a+b]
-    $.[minus;
-      len:count stack;b:last stack;stack:take[len-1;stack]
-      len:count stack;a:last stack;stack:take[len-1;stack]
-      stack:stack,a-b]
-    $.[mult;
-      len:count stack;b:last stack;stack:take[len-1;stack]
-      len:count stack;a:last stack;stack:take[len-1;stack]
-      stack:stack,a*b]
-    $.[div;
-      len:count stack;b:last stack;stack:take[len-1;stack]
-      len:count stack;a:last stack;stack:take[len-1;stack]
-      stack:stack,a/b]
-    tmp1:or[plus;minus];tmp2:or[mult;div];isop:or[tmp1;tmp2]
-    $.[not isop;stack:stack,tok]];last stack}
-echo rpn(3;4;"+";2;"*";1;"-")
+pop:{x[0..#x-1]}
+rpn:{[expr]sta:();N[#expr;tok:expr _n;plu:tok="+";mi_:tok="-";mul:tok="*";div:tok="%"
+    $.[plu;b:sta[-1];sta:pop sta;a:sta[-1];sta:pop sta;sta:sta,a+b;@c]
+    $.[mi_;b:sta[-1];sta:pop sta;a:sta[-1];sta:pop sta;sta:sta,a-b;@c]
+    $.[mul;b:sta[-1];sta:pop sta;a:sta[-1];sta:pop sta;sta:sta,a*b;@c]
+    $.[div;b:sta[-1];sta:pop sta;a:sta[-1];sta:pop sta;sta:sta,a/b;@c]
+    sta:sta,tok];sta[-1]}
+//echo rpn(3;4;"+";2;"*";1;"-")

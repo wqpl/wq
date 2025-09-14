@@ -1,7 +1,7 @@
 nsdec:{[path]KEY:132;BS:32
-  size:fsize path;fin:open[path;"r"];dec:alloc size;pos:0;chunk:fread[fin;BS]
+  size:fsize path;fin:open path;dec:alloc size;pos:0;chunk:fread[fin;BS]
   W[not unit? chunk;
-    N[#chunk;dec[pos+_n]:bxor[chunk[_n];KEY]];pos:pos+#chunk;chunk:fread[fin;BS]]
-  echo decode[dec;"sjis"];fclose fin
+    N[#chunk;dec[pos+_n]:chunk _n|bxor KEY];pos:pos+#chunk;chunk:fread[fin;BS]]
+  fclose fin;dec|decode "sjis";
 }
-nsdec"tests/wq/data/hellosjis.dat"
+echo nsdec "tests/wq/data/hellosjis.dat"

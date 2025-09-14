@@ -3,4 +3,8 @@ source: tests/wqsnap.rs
 expression: output
 input_file: tests/wq/assert.wq
 ---
-("(UNKNOWN ERROR) (114514): wow";114514)
+("raise (15): wow\n@ bfn 'raise'\n";15)
+raise (15): wow
+@ bfn 'raise'
+
+15

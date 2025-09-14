@@ -1,0 +1,11 @@
+---
+source: tests/wqsnap.rs
+expression: output
+input_file: tests/wq/eq.wq
+---
+false
+false
+true
+false
+true
+false

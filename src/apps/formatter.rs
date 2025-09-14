@@ -1,8 +1,9 @@
-use crate::lexer::Lexer;
-
-use crate::astnode::{AstNode, BinaryOperator, UnaryOperator};
-use crate::parser::Parser;
-use crate::value::WqResult;
+use crate::{
+    astnode::{AstNode, UnpackItem, binary_op_display, unary_op_display},
+    lexer::Lexer,
+    parser::Parser,
+    value::WqResult,
+};
 
 #[derive(Debug, Clone)]
 pub struct FormatConfig {
@@ -24,27 +25,7 @@ impl Default for FormatConfig {
 }
 
 fn escape_for_lexer(s: &str, delim: char) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push(delim);
-    for ch in s.chars() {
-        match ch {
-            c if c == delim => {
-                out.push('\\');
-                out.push(delim);
-            }
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            c if c.is_control() => {
-                // Use the unicode form your lexer supports
-                use core::fmt::Write as _;
-                // lowercase hex to match your tokenizer’s reader (flexible anyway)
-                let _ = write!(out, "\\u{{{:x}}}", c as u32);
-            }
-            c => out.push(c),
-        }
-    }
-    out.push(delim);
-    out
+    crate::escape::quote_string(s, delim)
 }
 
 pub struct Formatter {
@@ -152,6 +133,7 @@ impl Formatter {
 
     fn format_node(&self, node: &AstNode, level: usize) -> String {
         match node {
+            AstNode::Ellipsis => "...".to_string(),
             AstNode::Postfix {
                 object,
                 items,
@@ -161,7 +143,7 @@ impl Formatter {
                 format!("{}[{}]", self.format_node(object, level), args_str)
             }
             AstNode::Literal(v) => {
-                if let Some(s) = v.try_str() {
+                if let Ok(s) = v.try_to_string() {
                     escape_for_lexer(&s, '"')
                 } else {
                     v.to_string()
@@ -173,22 +155,7 @@ impl Formatter {
                 operator,
                 right,
             } => {
-                let op = match operator {
-                    BinaryOperator::Add => "+",
-                    BinaryOperator::Subtract => "-",
-                    BinaryOperator::Multiply => "*",
-                    BinaryOperator::Power => "^",
-                    BinaryOperator::Divide => "/",
-                    BinaryOperator::DivideDot => "/.",
-                    BinaryOperator::Modulo => "%",
-                    BinaryOperator::ModuloDot => "%.",
-                    BinaryOperator::Equal => "=",
-                    BinaryOperator::NotEqual => "~",
-                    BinaryOperator::LessThan => "<",
-                    BinaryOperator::LessThanOrEqual => "<=",
-                    BinaryOperator::GreaterThan => ">",
-                    BinaryOperator::GreaterThanOrEqual => ">=",
-                };
+                let op = binary_op_display(operator);
                 if self.opts.one_line_wizard {
                     format!(
                         "{}{}{}",
@@ -205,18 +172,67 @@ impl Formatter {
                     )
                 }
             }
+            AstNode::ComparisonChain { first, rest } => {
+                let mut out = self.format_node(first, level);
+                for (op, node) in rest {
+                    let op_str = binary_op_display(op);
+                    if self.opts.one_line_wizard {
+                        out.push_str(op_str);
+                        out.push_str(&self.format_node(node, level));
+                    } else {
+                        out.push(' ');
+                        out.push_str(op_str);
+                        out.push(' ');
+                        out.push_str(&self.format_node(node, level));
+                    }
+                }
+                out
+            }
             AstNode::UnaryOp { operator, operand } => {
-                let op = match operator {
-                    UnaryOperator::Negate => "-",
-                    UnaryOperator::Count => "#",
-                };
+                let op = unary_op_display(operator);
                 format!("{}{}", op, self.format_node(operand, level))
+            }
+            AstNode::Range {
+                start,
+                end,
+                step,
+                inclusive,
+            } => {
+                let mut out = format!(
+                    "{}{}{}",
+                    self.format_node(start, level),
+                    if *inclusive { "..=" } else { ".." },
+                    self.format_node(end, level)
+                );
+                if let Some(step) = step {
+                    out.push_str("..");
+                    out.push_str(&self.format_node(step, level));
+                }
+                out
             }
             AstNode::Assignment { name, value } => {
                 if self.opts.one_line_wizard {
                     format!("{}:{}", name, self.format_node(value, level))
                 } else {
                     format!("{}: {}", name, self.format_node(value, level))
+                }
+            }
+            AstNode::UnpackAssign { pattern, value } => {
+                let left = {
+                    let mut parts = Vec::with_capacity(pattern.len());
+                    for p in pattern {
+                        match p {
+                            UnpackItem::Bind(n) => parts.push(n.clone()),
+                            UnpackItem::Skip => parts.push("_".into()),
+                            UnpackItem::Ellipsis => parts.push("...".into()),
+                        }
+                    }
+                    format!("({})", parts.join(";"))
+                };
+                if self.opts.one_line_wizard {
+                    format!("{}:{}", left, self.format_node(value, level))
+                } else {
+                    format!("{}: {}", left, self.format_node(value, level))
                 }
             }
             AstNode::List(items) => {
@@ -346,7 +362,7 @@ impl Formatter {
                     format!("$.[{cond};\n{t}{}", self.closing_bracket(level))
                 }
             }
-            AstNode::WhileLoop { condition, body } => {
+            AstNode::WLoop { condition, body } => {
                 let cond = self.format_node(condition, level);
                 let body = self.format_inline_block_or_stmt(body, level + 1);
                 if self.opts.one_line_wizard {
@@ -355,7 +371,7 @@ impl Formatter {
                     format!("W[{cond};\n{body}{}", self.closing_bracket(level))
                 }
             }
-            AstNode::ForLoop { count, body } => {
+            AstNode::NLoop { count, body } => {
                 let cnt = self.format_node(count, level);
                 let body = self.format_inline_block_or_stmt(body, level + 1);
                 if self.opts.one_line_wizard {
@@ -376,13 +392,6 @@ impl Formatter {
                 }
                 None => "@r".to_string(),
             },
-            AstNode::Assert(e) => {
-                if self.opts.one_line_wizard {
-                    format!("@a{}", self.format_node(e, level))
-                } else {
-                    format!("@a {}", self.format_node(e, level))
-                }
-            }
             AstNode::Try(e) => {
                 if self.opts.one_line_wizard {
                     format!("@t{}", self.format_node(e, level))
@@ -427,15 +436,12 @@ impl Formatter {
     pub fn format_script(&self, content: &str) -> WqResult<String> {
         let mut result = String::new();
         let mut buffer = String::new();
-
         for (i, line) in content.lines().enumerate() {
             let trimmed = line.trim();
-
             // skip comments and empty lines (they are not preserved by the formatter)
             if trimmed.is_empty() || trimmed.starts_with("//") {
                 continue;
             }
-
             // special cmds
             if trimmed.starts_with("!") || (i == 0 && trimmed.starts_with("#!")) {
                 if !buffer.trim().is_empty() {
@@ -450,11 +456,9 @@ impl Formatter {
                 buffer.push('\n');
             }
         }
-
         if !buffer.trim().is_empty() {
             result.push_str(&self.format_source(&buffer)?);
         }
-
         Ok(result.trim_end().to_string())
     }
 }

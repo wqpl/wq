@@ -1,198 +1,209 @@
 use crate::{
-    value::{Value, WqResult},
-    wqerror::WqError,
+    value::{
+        Excerpt, Value,
+        bc::BcResult,
+        wqerr_ext::{expected_numeric1, expected_numeric2},
+    },
+    wqerr::{WqErr, WqErrType},
 };
 
-use super::op::{type_err1, type_err2};
+use num_bigint::BigInt;
+use num_traits::{Signed, Zero};
+
+#[inline]
+fn guard_nan<F>(res: f64, err: F) -> Result<f64, WqErr>
+where
+    F: FnOnce() -> WqErr,
+{
+    if res.is_nan() { Err(err()) } else { Ok(res) }
+}
+
+#[inline]
+fn math_nan_err1(op: &str, arg: &Value) -> WqErr {
+    WqErr::new(WqErrType::Domain)
+        .msg(format!("{op} is not defined for given value"))
+        .attach_note("builtin math functions are defined on real set")
+        .attach_note(format!("got {}", arg.excerpt()))
+}
+
+#[inline]
+fn math_nan_err2(op: &str, lhs: &Value, rhs: &Value) -> WqErr {
+    WqErr::new(WqErrType::Domain)
+        .msg(format!("{op} is not defined for given values"))
+        .attach_note("builtin math functions are defined on real set")
+        .attach_note(format!("got {} for lhs", lhs.excerpt()))
+        .attach_note(format!("got {} for rhs", rhs.excerpt()))
+}
+
+#[inline]
+fn unary_float_math<F>(op: &str, arg: &Value, func: F) -> Result<Value, WqErr>
+where
+    F: FnOnce(f64) -> f64,
+{
+    let input = arg.as_f64().ok_or_else(|| expected_numeric1(arg))?;
+    guard_nan(func(input), || math_nan_err1(op, arg)).map(Value::Float)
+}
+
+#[inline]
+fn unary_float_to_int<F>(op: &str, arg: &Value, func: F) -> Result<Value, WqErr>
+where
+    F: FnOnce(f64) -> f64,
+{
+    unary_float_math(op, arg, func).map(|res| match res {
+        Value::Float(f) => Value::Int(f as i64),
+        other => other,
+    })
+}
+
+#[inline]
+fn binary_float_math<F>(op: &str, lhs: &Value, rhs: &Value, func: F) -> Result<Value, WqErr>
+where
+    F: FnOnce(f64, f64) -> f64,
+{
+    let left = match lhs.as_f64() {
+        Some(v) => v,
+        None => return Err(expected_numeric2(lhs, rhs)),
+    };
+    let right = match rhs.as_f64() {
+        Some(v) => v,
+        None => return Err(expected_numeric2(lhs, rhs)),
+    };
+    guard_nan(func(left, right), || math_nan_err2(op, lhs, rhs)).map(Value::Float)
+}
 
 impl Value {
-    pub fn abs(&self) -> WqResult<Value> {
+    pub fn abs(&self) -> BcResult<Value> {
         self.bc1(|v| match v {
-            Value::Int(n) => n
-                .checked_abs()
-                .map(Value::Int)
-                .ok_or(WqError::ArithmeticOverflow("`abs`: overflow".into())),
-            Value::Float(f) => Ok(Value::Float(f.abs())),
-            _ => Err(type_err1("abs", v)),
+            Value::Int(n) => Ok(match n.checked_abs() {
+                Some(m) => Value::Int(m),
+                None => Value::from_bigint(BigInt::from(*n).abs()),
+            }),
+            Value::BigInt(n) => Ok(Value::from_bigint(n.abs())),
+            Value::Float(_) => unary_float_math("abs", v, |x| x.abs()),
+            _ => Err(expected_numeric1(v)),
         })
     }
 
-    pub fn sgn(&self) -> WqResult<Value> {
+    pub fn sgn(&self) -> BcResult<Value> {
         self.bc1(|v| match v {
             Value::Int(n) => Ok(Value::Int(n.signum())),
-            Value::Float(f) => Ok(Value::Float(f.signum())),
-            _ => Err(type_err1("sgn", v)),
+            Value::BigInt(n) => Ok(Value::Int(if n.is_zero() {
+                0
+            } else if n.is_positive() {
+                1
+            } else {
+                -1
+            })),
+            Value::Float(_) => unary_float_math("sgn", v, |x| x.signum()),
+            _ => Err(expected_numeric1(v)),
         })
     }
 
-    pub fn sqrt(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).sqrt())),
-            Value::Float(f) => Ok(Value::Float(f.sqrt())),
-            _ => Err(type_err1("sqrt", v)),
+    pub fn sqrt(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("sqrt", v, |x| x.sqrt()))
+    }
+
+    pub fn exp(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("exp", v, |x| x.exp()))
+    }
+
+    pub fn ln(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("ln", v, |x| x.ln()))
+    }
+
+    pub fn log2(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("log2", v, |x| x.log2()))
+    }
+
+    pub fn log10(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("log10", v, |x| x.log10()))
+    }
+
+    pub fn log(&self, other: &Value) -> BcResult<Value> {
+        self.bc2(other, |v1, v2| {
+            binary_float_math("log", v1, v2, |x, y| x.log(y))
         })
     }
 
-    pub fn exp(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).exp())),
-            Value::Float(f) => Ok(Value::Float(f.exp())),
-            _ => Err(type_err1("exp", v)),
+    pub fn arctan2(&self, other: &Value) -> BcResult<Value> {
+        self.bc2(other, |v1, v2| {
+            binary_float_math("arctan2", v1, v2, |x, y| x.atan2(y))
         })
     }
 
-    pub fn ln(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).ln())),
-            Value::Float(f) => Ok(Value::Float(f.ln())),
-            _ => Err(type_err1("ln", v)),
-        })
-    }
-
-    pub fn log2(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).log2())),
-            Value::Float(f) => Ok(Value::Float(f.log2())),
-            _ => Err(type_err1("log2", v)),
-        })
-    }
-
-    pub fn log10(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).log10())),
-            Value::Float(f) => Ok(Value::Float(f.log10())),
-            _ => Err(type_err1("log10", v)),
-        })
-    }
-
-    pub fn log(&self, other: &Value) -> WqResult<Value> {
-        self.bc2(other, |v1, v2| match (v1, v2) {
-            (Value::Int(n1), Value::Int(n2)) => Ok(Value::Float((*n1 as f64).log(*n2 as f64))),
-            (Value::Int(n1), Value::Float(n2)) => Ok(Value::Float((*n1 as f64).log(*n2))),
-            (Value::Float(n1), Value::Int(n2)) => Ok(Value::Float(n1.log(*n2 as f64))),
-            (Value::Float(f1), Value::Float(f2)) => Ok(Value::Float(f1.log(*f2))),
-            _ => Err(type_err2("log", v1, v2)),
-        })
-    }
-
-    pub fn floor(&self) -> WqResult<Value> {
+    pub fn floor(&self) -> BcResult<Value> {
         self.bc1(|v| match v {
             Value::Int(n) => Ok(Value::Int(*n)),
+            Value::BigInt(n) => Ok(Value::BigInt(n.clone())),
             // cast to i64
-            Value::Float(f) => Ok(Value::Int(f.floor() as i64)),
-            _ => Err(type_err1("floor", v)),
+            Value::Float(_) => unary_float_to_int("floor", v, |x| x.floor()),
+            _ => Err(expected_numeric1(v)),
         })
     }
 
-    pub fn ceil(&self) -> WqResult<Value> {
+    pub fn ceil(&self) -> BcResult<Value> {
         self.bc1(|v| match v {
             Value::Int(n) => Ok(Value::Int(*n)),
-            Value::Float(f) => Ok(Value::Int(f.ceil() as i64)),
-            _ => Err(type_err1("ceil", v)),
+            Value::BigInt(n) => Ok(Value::BigInt(n.clone())),
+            Value::Float(_) => unary_float_to_int("ceil", v, |x| x.ceil()),
+            _ => Err(expected_numeric1(v)),
         })
     }
 
-    pub fn round(&self) -> WqResult<Value> {
+    pub fn round(&self) -> BcResult<Value> {
         self.bc1(|v| match v {
             Value::Int(n) => Ok(Value::Int(*n)),
-            Value::Float(f) => Ok(Value::Int(f.round() as i64)),
-            _ => Err(type_err1("round", v)),
+            Value::BigInt(n) => Ok(Value::BigInt(n.clone())),
+            Value::Float(_) => unary_float_to_int("round", v, |x| x.round()),
+            _ => Err(expected_numeric1(v)),
         })
     }
 
-    pub fn sin(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).sin())),
-            Value::Float(f) => Ok(Value::Float(f.sin())),
-            _ => Err(type_err1("sin", v)),
-        })
+    pub fn sin(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("sin", v, |x| x.sin()))
     }
 
-    pub fn cos(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).cos())),
-            Value::Float(f) => Ok(Value::Float(f.cos())),
-            _ => Err(type_err1("cos", v)),
-        })
+    pub fn cos(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("cos", v, |x| x.cos()))
     }
 
-    pub fn tan(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).tan())),
-            Value::Float(f) => Ok(Value::Float(f.tan())),
-            _ => Err(type_err1("tan", v)),
-        })
+    pub fn tan(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("tan", v, |x| x.tan()))
     }
 
-    pub fn sinh(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).sinh())),
-            Value::Float(f) => Ok(Value::Float(f.sinh())),
-            _ => Err(type_err1("sinh", v)),
-        })
+    pub fn sinh(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("sinh", v, |x| x.sinh()))
     }
 
-    pub fn cosh(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).cosh())),
-            Value::Float(f) => Ok(Value::Float(f.cosh())),
-            _ => Err(type_err1("cosh", v)),
-        })
+    pub fn cosh(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("cosh", v, |x| x.cosh()))
     }
 
-    pub fn tanh(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).tanh())),
-            Value::Float(f) => Ok(Value::Float(f.tanh())),
-            _ => Err(type_err1("tanh", v)),
-        })
+    pub fn tanh(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("tanh", v, |x| x.tanh()))
     }
 
-    pub fn arcsin(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).asin())),
-            Value::Float(f) => Ok(Value::Float(f.asin())),
-            _ => Err(type_err1("arcsin", v)),
-        })
+    pub fn arcsin(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("arcsin", v, |x| x.asin()))
     }
 
-    pub fn arccos(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).acos())),
-            Value::Float(f) => Ok(Value::Float(f.acos())),
-            _ => Err(type_err1("arccos", v)),
-        })
+    pub fn arccos(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("arccos", v, |x| x.acos()))
     }
 
-    pub fn arctan(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).atan())),
-            Value::Float(f) => Ok(Value::Float(f.atan())),
-            _ => Err(type_err1("arctan", v)),
-        })
+    pub fn arctan(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("arctan", v, |x| x.atan()))
     }
 
-    pub fn arcsinh(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).asinh())),
-            Value::Float(f) => Ok(Value::Float(f.asinh())),
-            _ => Err(type_err1("arcsinh", v)),
-        })
+    pub fn arcsinh(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("arcsinh", v, |x| x.asinh()))
     }
 
-    pub fn arccosh(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).acosh())),
-            Value::Float(f) => Ok(Value::Float(f.acosh())),
-            _ => Err(type_err1("arccosh", v)),
-        })
+    pub fn arccosh(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("arccosh", v, |x| x.acosh()))
     }
 
-    pub fn arctanh(&self) -> WqResult<Value> {
-        self.bc1(|v| match v {
-            Value::Int(n) => Ok(Value::Float((*n as f64).atanh())),
-            Value::Float(f) => Ok(Value::Float(f.atanh())),
-            _ => Err(type_err1("arctanh", v)),
-        })
+    pub fn arctanh(&self) -> BcResult<Value> {
+        self.bc1(|v| unary_float_math("arctanh", v, |x| x.atanh()))
     }
 }

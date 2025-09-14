@@ -1,0 +1,11 @@
+// no diff from nq
+nq_:{[r;p;oc;rd;fd;n]$[r=n;@r,p;re:()
+  N[n;c:_n;d1:r+c;d2:r-c+n-1;$.[oc[c]=0|and(rd[d1]=0)|and(fd[d2]=0)
+    oc[c]:1;rd[d1]:1;fd[d2]:1;re:re,nq_[r+1;p,c;oc;rd;fd;n]
+    oc[c]:0;rd[d1]:0;fd[d2]:0]];re]}
+nq:{[n]oc:alloc n;s:2*n-1;nq_[0;alloc 0;oc;alloc s;alloc s;n]}
+
+//echo fmt["n=1: {}";#nq 1]
+//echo fmt["n=2: {}";#nq 2]
+//echo fmt["n=4: {}";#nq 4]
+//echo fmt["n=8: {}";#nq 8]

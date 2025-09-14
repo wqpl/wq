@@ -1,12 +1,10 @@
-use crate::{value::Value, wqerror::WqError};
-
-use super::stdio::ReplStdin;
+use crate::{repl::stdio::ReplStdin, value::Value, vm::GlobalMap, wqerr::WqErr};
 
 pub trait ReplEngine {
-    fn eval_string(&mut self, input: &str) -> Result<Value, WqError>;
-    fn get_environment(&self) -> Option<&std::collections::HashMap<String, Value>>;
+    fn eval_string(&mut self, input: &str) -> Result<Value, WqErr>;
+    fn get_environment(&self) -> Option<&GlobalMap>;
     fn clear_environment(&mut self);
-    fn env_vars(&self) -> &std::collections::HashMap<String, Value>;
+    fn env_vars(&self) -> &GlobalMap;
     fn set_stdin(&mut self, stdin: Box<dyn ReplStdin>);
     fn arm_wqdb_next(&mut self);
     fn dbg_set_source(&mut self, path: &str, full_text: &str);

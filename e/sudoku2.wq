@@ -1,0 +1,19 @@
+// no diff from sudoku
+!p
+va:{[g;r;c;v]ir:#where eq0[g r;v];co:alloc 9;N[9;co[_n]:g[_n]c];ic:#where eq0[co;v]
+  br:3*floor(r/3);bc:3*floor(c/3);b:alloc 0
+  N[3;rr:_n;N[3;cc:_n;b:b,g[br+rr][bc+cc]]];ib:#where eq0[b;v];ir=0|and(ic=0)|and(ib=0)}
+c:{b:();bn:10;N[9;r:_n;N[9;c:_n;$.[x[r][c]=0;ca:alloc 0
+    N[9;v:_n+1;$.[va[x;r;c;v];ca:ca,v]];n:#ca;$.[n<bn;b:(r;c;ca);bn:n]]]];b}
+s:{p:c x;$[unit? p;@r x;r:p 0;c:p 1;ca:p 2
+  N[#ca;v:ca _n;ro:x r;ro[c]:v;g2:x;g2[r]:ro;o:s g2;$.[not unit? o;@r o]]]}
+//e:((5;3;0;0;7;0;0;0;0);
+//   (6;0;0;1;9;5;0;0;0);
+//   (0;9;8;0;0;0;0;6;0);
+//   (8;0;0;0;6;0;0;0;3);
+//   (4;0;0;8;0;3;0;0;1);
+//   (7;0;0;0;2;0;0;0;6);
+//   (0;6;0;0;0;0;2;8;0);
+//   (0;0;0;4;1;9;0;0;5);
+//   (0;0;0;0;8;0;0;7;9))
+//echo s e

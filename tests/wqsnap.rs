@@ -30,19 +30,15 @@ fn is_excluded(path: &Path) -> bool {
 
 #[test]
 fn wq_snapshots() {
-    // Requires: insta = { version = "1", features = ["glob"] }
     insta::glob!("wq/*.wq", |path| {
         if is_excluded(path) {
             eprintln!("(skipped) {}", path.display());
             return;
         }
-
         let output = run_wq(path).expect("wq run failed");
-
-        // Stabilize
         insta::with_settings!({
             filters => vec![
-                (r"\r\n", "\n"), // normalize line endings
+                (r"\r\n", "\n"),
                 (r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b", "<TIMESTAMP>"),
                 (r"0x[0-9a-fA-F]+", "<ADDR>"),
                 (r"(?:/|[A-Za-z]:\\)[^\s\n]+/target/[^\s\n]+", "<TARGET_PATH>"),

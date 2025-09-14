@@ -1,0 +1,50 @@
+a:(1;(2;3);(4;(5;6)))
+b:(10;(20;30);(40;(50;60)))
+echo2:{echo (x;y)}
+
+// MAP, default depth=1
+// Expected: 1 (2;3) (4;(5;6))
+map[echo;a];echo()
+map[1;echo;a];echo()
+
+// Expected: 1 2 3 4 (5;6)
+map[2;echo;a];echo()
+
+// Expected: 1 2 3 4 5 6
+map[3;echo;a];echo()
+map[4;echo;a];echo()
+map[inf;echo;a];echo()
+
+// MAP, depth=-inf: apply f to the root only
+// Expected: (1;(2;3);(4;(5;6)))
+map[0;echo;a];echo()
+
+// MAP, negative depth
+// Expected (same as depth=2): 1 2 3 4 (5;6)
+map[-1;echo;a];echo()
+
+// Expected (same as depth=0): (1;(2;3);(4;(5;6)))
+map[-99;echo;a];echo()
+map[-inf;echo;a];echo()
+
+// ZIPW, default depth=1
+// Expected: (1;10) ((2;3);(20;30)) ((4;(5;6));(40;(50;60)))
+zipw[echo2;a;b];echo()
+zipw[1;echo2;a;b];echo()
+
+// Expected: (1;10) (2;20) (3;30) (4;40) ((5;6);(50;60))
+zipw[2;echo2;a;b];echo()
+
+// Expected: (1;10) (2;20) (3;30) (4;40) (5;50) (6;60)
+zipw[3;echo2;a;b];echo()
+zipw[4;echo2;a;b];echo()
+zipw[inf;echo2;a;b];echo()
+
+// Expected: ((1;(2;3);(4;(5;6)));(10;(20;30);(40;(50;60))))
+zipw[0;echo2;a;b];echo()
+
+// Expected: (1;10) (2;20) (3;30) (4;40) ((5;6);(50;60))
+zipw[-1;echo2;a;b];echo()
+
+// Expected (same as depth=0): ((1;(2;3);(4;(5;6)));(10;(20;30);(40;(50;60))))
+zipw[-inf;echo2;a;b];echo()

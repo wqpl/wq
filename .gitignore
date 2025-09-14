@@ -1,14 +1,2 @@
-# macos
 .DS_Store
-
-# cargo
 /target
-
-# editors
-/.zed
-
-# tools
-/.ropeproject
-
-# others
-/drafts

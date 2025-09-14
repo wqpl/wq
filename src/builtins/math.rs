@@ -1,64 +1,73 @@
-use rand::Rng;
-
-use super::arity_error;
 use crate::{
+    builtins::{BuiltinEnum, wqerr_ext::check_arity},
     value::{Value, WqResult},
-    wqerror::WqError,
+    vm::Vm,
+    wqerr::{WqErr, WqErrType},
 };
 
-macro_rules! def_math_fn {
-    // unary
-    ($name:ident => |$a:ident| $body:expr) => {
-        pub fn $name(args: &[Value]) -> WqResult<Value> {
-            if args.len() != 1 {
-                return Err(arity_error(stringify!($name), "1", args.len()));
-            }
-            let $a = &args[0];
-            $body
-        }
-    };
-    // binary
-    ($name:ident => |$a:ident, $b:ident| $body:expr) => {
-        pub fn $name(args: &[Value]) -> WqResult<Value> {
-            if args.len() != 2 {
-                return Err(arity_error(stringify!($name), "2", args.len()));
-            }
-            let ($a, $b) = (&args[0], &args[1]);
-            $body
+use rand::Rng;
+
+macro_rules! def_unary_math_fn {
+    ($fn_name:ident, $enum_variant:ident, $method:ident) => {
+        pub fn $fn_name(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
+            check_arity(BuiltinEnum::$enum_variant, [1], args)?;
+            args[0]
+                .$method()
+                .map_err(|e| e.into_wqerror().src(BuiltinEnum::$enum_variant))
         }
     };
 }
 
-// Shorthand to define many unary "method-forwards" at once
-macro_rules! def_unary_math_fns {
-    ($($name:ident),+ $(,)?) => {
-        $( def_math_fn!($name => |x| x.$name()); )+
-    }
+def_unary_math_fn!(neg, Neg, neg);
+def_unary_math_fn!(abs, Abs, abs);
+def_unary_math_fn!(sgn, Sgn, sgn);
+def_unary_math_fn!(sqrt, Sqrt, sqrt);
+def_unary_math_fn!(exp, Exp, exp);
+def_unary_math_fn!(ln, Ln, ln);
+def_unary_math_fn!(log2, Log2, log2);
+def_unary_math_fn!(log10, Log10, log10);
+def_unary_math_fn!(floor, Floor, floor);
+def_unary_math_fn!(ceil, Ceil, ceil);
+def_unary_math_fn!(round, Round, round);
+def_unary_math_fn!(sin, Sin, sin);
+def_unary_math_fn!(cos, Cos, cos);
+def_unary_math_fn!(tan, Tan, tan);
+def_unary_math_fn!(arcsin, Arcsin, arcsin);
+def_unary_math_fn!(arccos, Arccos, arccos);
+def_unary_math_fn!(arctan, Arctan, arctan);
+def_unary_math_fn!(sinh, Sinh, sinh);
+def_unary_math_fn!(cosh, Cosh, cosh);
+def_unary_math_fn!(tanh, Tanh, tanh);
+def_unary_math_fn!(arcsinh, Arcsinh, arcsinh);
+def_unary_math_fn!(arccosh, Arccosh, arccosh);
+def_unary_math_fn!(arctanh, Arctanh, arctanh);
+
+macro_rules! def_binary_math_fn {
+    ($fn_name:ident, $enum_variant:ident, $method:ident) => {
+        pub fn $fn_name(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
+            check_arity(BuiltinEnum::$enum_variant, [2], args)?;
+            args[0]
+                .$method(&args[1])
+                .map_err(|e| e.into_wqerror().src(BuiltinEnum::$enum_variant))
+        }
+    };
 }
 
-def_unary_math_fns!(
-    neg, abs, sgn, sqrt, exp, ln, log2, log10, floor, ceil, round, sin, cos, tan, arcsin, arccos,
-    arctan, sinh, cosh, tanh, arcsinh, arccosh, arctanh
-);
+def_binary_math_fn!(log, Log, log);
+def_binary_math_fn!(arctan2, Arctan2, arctan2);
 
-// Example of a binary like atan2 (y, x)
-def_math_fn!(log => |y, x| y.log(x));
-
-pub fn rand(args: &[Value]) -> WqResult<Value> {
+pub fn rand(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
+    check_arity(BuiltinEnum::Rand, [0, 1, 2], args)?;
     let mut rng = rand::rng();
     match args.len() {
         0 => Ok(Value::Float(rng.random())),
         1 => match &args[0] {
             Value::Int(n) if *n > 0 => Ok(Value::Int(rng.random_range(0..*n))),
             Value::Float(f) if *f > 0.0 => Ok(Value::Float(rng.random_range(0.0..*f))),
-            Value::Int(_) | Value::Float(_) => Err(WqError::Domain(format!(
-                "`rand`: expected a positive number, got {}",
-                args[0].type_name()
-            ))),
-            _ => Err(WqError::Domain(format!(
-                "`rand`: expected numbers, got {}",
-                args[0].type_name()
-            ))),
+            _ => Err(WqErr::new(WqErrType::Domain)
+                .src(BuiltinEnum::Rand)
+                .msg("expected positive int or float")
+                .at_arg(0)),
         },
         2 => match (&args[0], &args[1]) {
             (Value::Int(a), Value::Int(b)) if a < b => Ok(Value::Int(rng.random_range(*a..*b))),
@@ -67,31 +76,33 @@ pub fn rand(args: &[Value]) -> WqResult<Value> {
                     Value::Int(n) => *n as f64,
                     Value::Float(f) => *f,
                     _ => {
-                        return Err(WqError::Domain(format!(
-                            "`rand`: expected numbers, got {}",
-                            a.type_name()
-                        )));
+                        return Err(WqErr::new(WqErrType::Domain)
+                            .src(BuiltinEnum::Rand)
+                            .msg("expected positive int or float")
+                            .at_arg(0));
                     }
                 };
                 let bf = match b {
                     Value::Int(n) => *n as f64,
                     Value::Float(f) => *f,
                     _ => {
-                        return Err(WqError::Domain(format!(
-                            "`rand`: expected numbers, got {}",
-                            b.type_name()
-                        )));
+                        return Err(WqErr::new(WqErrType::Domain)
+                            .src(BuiltinEnum::Rand)
+                            .msg("expected positive int or float")
+                            .at_arg(1));
                     }
                 };
                 if af < bf {
                     Ok(Value::Float(rng.random_range(af..bf)))
                 } else {
-                    Err(WqError::Domain(format!(
-                        "`rand`: expected 'lower<upper', got '{af}>={bf}'"
-                    )))
+                    Err(WqErr::new(WqErrType::Domain)
+                        .src(BuiltinEnum::Rand)
+                        .msg("expected lower < upper")
+                        .attach_note(format!("got {af} for lower"))
+                        .attach_note(format!("got {bf} for upper")))
                 }
             }
         },
-        other => Err(arity_error("rand", "0, 1 or 2", other)),
+        _ => unreachable!(),
     }
 }

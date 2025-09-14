@@ -1,0 +1,21 @@
+!p
+valid:{[g;r;c;v]in_row:#where eq0[g r;v] // row check
+  col:alloc 9;N[9; col[_n]:g[_n][c]];in_col:#where eq0[col;v] // col check
+  br:3*floor(r/3);bc:3*floor(c/3);box:alloc 0 // box check
+  N[3;rr:_n;N[3;cc:_n;box:box,g[br+rr][bc+cc]]];in_box:#where eq0[box;v]
+  (in_row=0)|and(in_col=0)|and(in_box=0)}
+solve_idx:{[g;k]$[k=81;@r g;0];r:floor(k/9);c:k%9;v:g[r][c]
+  $[v>0;@r solve_idx[g; k+1];0];N[9;cand:_n+1;$.[valid[g;r;c;cand];
+    row:g[r];row[c]:cand;g2:g;g2[r]:row;out:solve_idx[g2;k+1]
+    $.[not unit? out; @r out]]]}
+sudoku_:{[grid]solve_idx[grid;0]}
+//example:((5;3;0;0;7;0;0;0;0);
+//         (6;0;0;1;9;5;0;0;0);
+//         (0;9;8;0;0;0;0;6;0);
+//         (8;0;0;0;6;0;0;0;3);
+//         (4;0;0;8;0;3;0;0;1);
+//         (7;0;0;0;2;0;0;0;6);
+//         (0;6;0;0;0;0;2;8;0);
+//         (0;0;0;4;1;9;0;0;5);
+//         (0;0;0;0;8;0;0;7;9))
+//echo sudoku_ example

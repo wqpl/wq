@@ -1,2 +1,5 @@
-fib:{fib_:{[n;a;b]$[n=0;a;fib_[n-1;b;a+b]]};fib_[x;0;1]}
+!l ../../e/fib.wq
 echo fib 90
+echo fib2 90
+echo fib3 90
+echo fib4 90

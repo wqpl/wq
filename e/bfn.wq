@@ -1,0 +1,2 @@
+!l <str>
+bfn[]|map{"\"",x,"\""}|join","|echo

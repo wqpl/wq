@@ -1,62 +1,23 @@
-use super::instruction::{Capture, Instruction};
-use crate::astnode::{AstNode, BinaryOperator};
-use crate::builtins::Builtins;
-use crate::value::{Value, WqResult};
-use crate::wqerror::WqError;
+use std::{convert::TryFrom, sync::Arc};
+
+use crate::{
+    astnode::{AstNode, BinaryOperator, UnpackItem},
+    builtins::Builtins,
+    value::{IntoWqValue, Value, WqResult},
+    vm::instruction::{Capture, Instruction},
+    wqerr::{WqErr, WqErrType},
+};
+
 use indexmap::{IndexMap, IndexSet};
-
-#[derive(Default)]
-struct LoopInfo {
-    break_jumps: Vec<usize>,
-    continue_jumps: Vec<usize>,
-}
-
-fn has_ctrl(node: &AstNode) -> bool {
-    match node {
-        AstNode::Break | AstNode::Continue | AstNode::Return(_) => true,
-        AstNode::Block(stmts) => stmts.iter().any(has_ctrl),
-        AstNode::Conditional {
-            true_branch,
-            false_branch,
-            ..
-        } => has_ctrl(true_branch) || false_branch.as_ref().is_some_and(|b| has_ctrl(b)),
-        AstNode::WhileLoop { body, .. }
-        | AstNode::ForLoop { body, .. }
-        | AstNode::Function { body, .. } => has_ctrl(body),
-        AstNode::UnaryOp { operand, .. } => has_ctrl(operand),
-        AstNode::Postfix { object, items, .. } => has_ctrl(object) || items.iter().any(has_ctrl),
-        AstNode::BinaryOp { left, right, .. } => has_ctrl(left) || has_ctrl(right),
-        AstNode::Call { args, .. } | AstNode::CallAnonymous { args, .. } | AstNode::List(args) => {
-            args.iter().any(has_ctrl)
-        }
-        AstNode::Dict(pairs) => pairs.iter().any(|(_, v)| has_ctrl(v)),
-        AstNode::Index { object, index } => has_ctrl(object) || has_ctrl(index),
-        AstNode::IndexAssign {
-            object,
-            index,
-            value,
-        } => has_ctrl(object) || has_ctrl(index) || has_ctrl(value),
-        AstNode::Assignment { value, .. } => has_ctrl(value),
-        _ => false,
-    }
-}
-
-// Convert a byte offset into (1-based) line and column within `src`.
-fn byte_to_line_col(src: &str, byte_pos: usize) -> (usize, usize) {
-    let b = byte_pos.min(src.len());
-    let prefix = &src[..b];
-    let line = prefix.chars().filter(|&c| c == '\n').count() + 1;
-    let last_nl = prefix.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let col = src[last_nl..b].chars().count() + 1;
-    (line, col)
-}
+// uuid no longer used; internal gensym provides unique names for temps
 
 pub struct Compiler {
     pub instructions: Vec<Instruction>,
     builtins: Builtins,
-    loop_id: usize,
     loop_stack: Vec<LoopInfo>,
     fn_depth: usize,
+    // Monotonic ID seed for generating unique internal names (e.g., N-loop temps)
+    gensym: usize,
     // mapping of names defined in this function to final slot index
     locals: IndexMap<String, u16>,
     // mapping of captured names to their index in the captured vector
@@ -65,10 +26,8 @@ pub struct Compiler {
     fn_locals: IndexSet<String>,
     // information on what to capture when creating the closure
     captures: Vec<Capture>,
-    // if this compiler was created for a function assigned to a name in the parent scope,
-    // record that name and its parent-slot to support recursion rewrites
-    parent_fn_name: Option<String>,
-    parent_fn_slot: Option<u16>,
+    // if this compiler builds the body of a function assigned to a name
+    defining_name: Option<String>,
     // Debug: stream of function-body statement spans in encounter order
     fn_spans_stream: Vec<Vec<(usize, usize)>>,
     fn_spans_idx: usize,
@@ -87,20 +46,25 @@ impl Default for Compiler {
     }
 }
 
+#[derive(Default)]
+struct LoopInfo {
+    break_jumps: Vec<usize>,
+    continue_jumps: Vec<usize>,
+}
+
 impl Compiler {
     pub fn new() -> Self {
         Self {
             instructions: Vec::new(),
             builtins: Builtins::new(),
-            loop_id: 0,
             loop_stack: Vec::new(),
             fn_depth: 0,
+            gensym: 0,
             locals: IndexMap::new(),
             capture_map: IndexMap::new(),
             fn_locals: IndexSet::new(),
             captures: Vec::new(),
-            parent_fn_name: None,
-            parent_fn_slot: None,
+            defining_name: None,
             fn_spans_stream: Vec::new(),
             fn_spans_idx: 0,
             src_text: None,
@@ -110,163 +74,44 @@ impl Compiler {
         }
     }
 
-    pub fn set_fn_spans(&mut self, spans: Vec<Vec<(usize, usize)>>) {
-        self.fn_spans_stream = spans;
-        self.fn_spans_idx = 0;
-    }
-
-    fn current_fn_spans(&self) -> Vec<(usize, usize)> {
-        if self.fn_spans_idx < self.fn_spans_stream.len() {
-            self.fn_spans_stream[self.fn_spans_idx].clone()
-        } else {
-            Vec::new()
-        }
-    }
-
-    // Pretty error reporting API
-    pub fn set_source(&mut self, src: String) {
-        self.src_text = Some(src);
-    }
-
-    pub fn set_stmt_spans(&mut self, spans: Vec<(usize, usize)>) {
-        self.cur_stmt_spans = spans;
-        self.cur_stmt_idx = 0;
-    }
-
-    fn syntax_error_here(&self, msg: &str) -> WqError {
-        if let (Some(src), Some((byte_start, byte_end))) = (
-            self.src_text.as_ref(),
-            self.cur_stmt_spans.get(self.cur_stmt_idx).cloned(),
-        ) {
-            let (line, column) = byte_to_line_col(src, byte_start);
-            let src_line = src.lines().nth(line.saturating_sub(1)).unwrap_or("");
-            let width = if byte_end > byte_start && byte_end <= src.len() && byte_start <= src.len()
-            {
-                src[byte_start..byte_end].chars().count().max(1)
-            } else {
-                1
-            };
-            let pointer = " ".repeat(column.saturating_sub(1)) + &"^".repeat(width);
-
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                use colored::Colorize;
-                return WqError::Syntax(format!(
-                    "{msg} \n{}\n{src_line}\n{pointer}",
-                    format!("At {line}:{column}").underline()
-                ));
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                return WqError::Syntax(format!(
-                    "{msg} \nAt {line}:{column}\n{src_line}\n{pointer}",
-                ));
-            }
-        }
-        WqError::Syntax(msg.to_string())
-    }
-
-    fn local_slot(&mut self, name: &str) -> u16 {
-        if let Some(&i) = self.locals.get(name) {
-            i
-        } else {
-            let idx = self.locals.len() as u16;
-            self.locals.insert(name.to_string(), idx);
-            idx
-        }
-    }
-
-    fn is_local(&self, name: &str) -> bool {
-        self.locals.contains_key(name)
-    }
-
-    pub fn local_count(&self) -> u16 {
-        self.locals.len() as u16
-    }
-
-    fn local_names_vec(&self) -> Vec<String> {
-        let mut names = vec![String::new(); self.local_count() as usize];
-        for (name, &idx) in self.locals.iter() {
-            if (idx as usize) < names.len() {
-                names[idx as usize] = name.clone();
-            }
-        }
-        names
-    }
-
-    fn emit_load(&mut self, name: &str) {
-        if self.fn_depth > 0 {
-            if self.is_local(name) {
-                let idx = self.locals[name];
-                self.instructions.push(Instruction::LoadLocal(idx));
-                return;
-            }
-            if let Some(idx) = self.capture_map.get(name) {
-                self.instructions.push(Instruction::LoadCapture(*idx));
-                return;
-            }
-            // capture globals by value
-            let idx = self.capture_map.len() as u16;
-            self.capture_map.insert(name.to_string(), idx);
-            self.captures.push(Capture::Global(name.to_string()));
-            self.instructions.push(Instruction::LoadCapture(idx));
-            return;
-        }
-        self.instructions
-            .push(Instruction::LoadVar(name.to_string()));
-    }
-
-    fn emit_store(&mut self, name: &str) {
-        if self.fn_depth > 0 {
-            let idx = self.local_slot(name);
-            self.instructions.push(Instruction::StoreLocal(idx));
-        } else {
-            self.instructions
-                .push(Instruction::StoreVar(name.to_string()));
-        }
-    }
-
-    fn emit_store_keep(&mut self, name: &str) {
-        if self.fn_depth > 0 {
-            let idx = self.local_slot(name);
-            self.instructions.push(Instruction::StoreLocalKeep(idx));
-        } else {
-            self.instructions
-                .push(Instruction::StoreVarKeep(name.to_string()));
-        }
-    }
-
     pub fn compile(&mut self, node: &AstNode) -> WqResult<()> {
         match node {
             AstNode::Literal(v) => self.instructions.push(Instruction::LoadConst(v.clone())),
             AstNode::Variable(name) => self.emit_load(name),
+            AstNode::Ellipsis => {
+                return Err(self.syntax_err_here(
+                    "'...' placeholder is only valid in unpack assignment pattern",
+                ));
+            }
             AstNode::Assignment { name, value } => {
                 if let AstNode::Function { params, body } = &**value {
                     // Reserve slot for recursion when in a local scope
-                    let slot = if self.fn_depth > 0 {
-                        self.local_slot(name)
-                    } else {
-                        0
-                    };
+                    if self.fn_depth > 0 {
+                        self.local_slot(name);
+                    }
                     let mut c = Compiler::new();
                     c.fn_depth = self.fn_depth + 1;
-                    // record recursion context
-                    c.parent_fn_name = Some(name.clone());
+                    c.defining_name = Some(name.clone());
                     // prepare captures from current locals if inside a function
                     if self.fn_depth > 0 {
-                        // collect parent locals sorted by slot index, excluding the name being defined (avoid self-capture)
-                        let mut pairs: Vec<(String, u16)> = self
-                            .locals
-                            .iter()
-                            .filter(|(k, _)| k.as_str() != name.as_str())
-                            .map(|(k, &v)| (k.clone(), v))
-                            .collect();
+                        // collect parent locals sorted by slot index
+                        let mut pairs: Vec<(String, u16)> =
+                            self.locals.iter().map(|(k, &v)| (k.clone(), v)).collect();
                         pairs.sort_by_key(|(_, idx)| *idx);
                         for (i, (k, v)) in pairs.iter().enumerate() {
+                            if k == name {
+                                continue;
+                            }
                             c.capture_map.insert(k.clone(), i as u16);
-                            c.captures.push(Capture::Local(*v));
+                            // let shared = self.fn_locals.contains(k);
+                            // let capture = if shared {
+                            //     Capture::LocalShared(*v)
+                            // } else {
+                            //     Capture::Local(*v)
+                            // };
+                            let capture = Capture::Local(*v);
+                            c.captures.push(capture);
                         }
-
                         // Re-expose captured names to the child,
                         // so the child can capture them from our capture vector
                         // without falling back to globals.
@@ -285,9 +130,6 @@ impl Compiler {
                             c.capture_map.insert(k.clone(), idx);
                             c.captures.push(Capture::FromCapture(i_parent));
                         }
-
-                        // record recursion slot for nested functions
-                        c.parent_fn_slot = Some(slot);
                     }
                     if let Some(ps) = params {
                         for p in ps {
@@ -310,37 +152,32 @@ impl Compiler {
                     c.compile(body)?;
                     // Advance our index past what child consumed
                     self.fn_spans_idx = c.fn_spans_idx;
-                    if self.fn_depth > 0 {
-                        for instr in c.instructions.iter_mut() {
-                            if let Instruction::CallUser(n, argc) = instr
-                                && n == name
-                            {
-                                *instr = Instruction::CallLocal(slot, *argc);
-                            }
-                        }
-                    }
                     let locals = c.local_count();
                     let dbg_local_names = c.local_names_vec();
                     let mut func_instructions = c.instructions;
                     func_instructions.push(Instruction::Return);
+                    let func_arc: Arc<[Instruction]> = func_instructions.into();
+                    let params_arc = params.as_ref().map(|p| Arc::<[String]>::from(p.clone()));
+                    let spans_arc: Arc<[(usize, usize)]> = Arc::from(spans_for_fn.clone());
+                    let local_names_arc: Arc<[String]> = Arc::from(dbg_local_names.clone());
                     if !c.captures.is_empty() {
                         self.instructions.push(Instruction::LoadClosure {
-                            params: params.clone(),
+                            params: params_arc.clone(),
                             locals,
                             captures: c.captures.clone(),
-                            instructions: func_instructions,
-                            dbg_stmt_spans: spans_for_fn,
-                            dbg_local_names,
+                            instructions: func_arc,
+                            dbg_stmt_spans: spans_arc,
+                            dbg_local_names: local_names_arc,
                         });
                     } else {
                         self.instructions
                             .push(Instruction::LoadConst(Value::CompiledFunction {
-                                params: params.clone(),
+                                params: params_arc,
                                 locals,
-                                instructions: func_instructions,
+                                instructions: func_arc,
                                 dbg_chunk: None,
-                                dbg_stmt_spans: Some(spans_for_fn),
-                                dbg_local_names: Some(dbg_local_names),
+                                dbg_stmt_spans: Some(spans_arc),
+                                dbg_local_names: Some(local_names_arc),
                             }));
                     }
                     // Store and keep the value on the stack for expression result
@@ -354,6 +191,70 @@ impl Compiler {
                     self.emit_store_keep(name);
                 }
             }
+            AstNode::UnpackAssign { pattern, value } => {
+                // Evaluate RHS once and keep it in a temp slot, then assign accordingly.
+                let tmp_id = {
+                    let v = self.gensym;
+                    self.gensym = self.gensym.wrapping_add(1);
+                    v
+                };
+                let tmp_name = format!("__unpack_{tmp_id}");
+                self.compile(value)?;
+                // Store and keep the full RHS on stack for expr result
+                self.emit_store_keep(&tmp_name);
+                // Find ellipsis position (if any)
+                let ellipsis_idx = pattern
+                    .iter()
+                    .position(|p| matches!(p, UnpackItem::Ellipsis));
+                if let Some(ei) = ellipsis_idx {
+                    // Prefix: indices [0 .. ei)
+                    for (i, item) in pattern.iter().enumerate().take(ei) {
+                        if let UnpackItem::Bind(name) = item {
+                            self.emit_load(&tmp_name);
+                            self.instructions
+                                .push(Instruction::LoadConst(i.into_wq_value()));
+                            self.instructions.push(Instruction::Index);
+                            self.emit_store(name);
+                        }
+                    }
+                    // Suffix: align last T items with tail of RHS
+                    let t = pattern.len().saturating_sub(ei + 1);
+                    for (suf_idx, item) in pattern.iter().enumerate().skip(ei + 1) {
+                        if let UnpackItem::Bind(name) = item {
+                            // Stack sequence: obj, idx
+                            // Compute idx = count(TMP) - T + (suf_idx - (ei+1))
+                            let s = (suf_idx - (ei + 1)).into_wq_value();
+                            // Push object first
+                            self.emit_load(&tmp_name);
+                            // Then compute index while keeping obj below
+                            self.emit_load(&tmp_name); // arg for count
+                            self.instructions
+                                .push(Instruction::CallBuiltinId(Builtins::LEN, 1u16)); // -> len
+                            self.instructions
+                                .push(Instruction::LoadConst(t.into_wq_value()));
+                            self.instructions
+                                .push(Instruction::BinaryOp(BinaryOperator::Subtract));
+                            self.instructions.push(Instruction::LoadConst(s));
+                            self.instructions
+                                .push(Instruction::BinaryOp(BinaryOperator::Add));
+                            // Index and store
+                            self.instructions.push(Instruction::Index);
+                            self.emit_store(name);
+                        }
+                    }
+                } else {
+                    // Simple positional unpack
+                    for (i, item) in pattern.iter().enumerate() {
+                        if let UnpackItem::Bind(name) = item {
+                            self.emit_load(&tmp_name);
+                            self.instructions
+                                .push(Instruction::LoadConst(i.into_wq_value()));
+                            self.instructions.push(Instruction::Index);
+                            self.emit_store(name);
+                        }
+                    }
+                }
+            }
             AstNode::BinaryOp {
                 left,
                 operator,
@@ -361,13 +262,41 @@ impl Compiler {
             } => {
                 self.compile(left)?;
                 self.compile(right)?;
-                self.instructions
-                    .push(Instruction::BinaryOp(operator.clone()));
+                self.instructions.push(Instruction::BinaryOp(*operator));
+            }
+            AstNode::ComparisonChain { first, rest } => {
+                self.compile(first)?;
+                let mut ops: Vec<BinaryOperator> = Vec::with_capacity(rest.len());
+                for (op, node) in rest {
+                    self.compile(node)?;
+                    ops.push(*op);
+                }
+                self.instructions.push(Instruction::CmpChain(ops));
+            }
+            AstNode::Range {
+                start,
+                end,
+                step,
+                inclusive,
+            } => {
+                self.compile(start)?;
+                self.compile(end)?;
+                if let Some(step_expr) = step {
+                    self.compile(step_expr)?;
+                    self.instructions.push(Instruction::MakeRange {
+                        inclusive: *inclusive,
+                        has_step: true,
+                    });
+                } else {
+                    self.instructions.push(Instruction::MakeRange {
+                        inclusive: *inclusive,
+                        has_step: false,
+                    });
+                }
             }
             AstNode::UnaryOp { operator, operand } => {
                 self.compile(operand)?;
-                self.instructions
-                    .push(Instruction::UnaryOp(operator.clone()));
+                self.instructions.push(Instruction::UnaryOp(*operator));
             }
             AstNode::List(elements) => {
                 for elem in elements {
@@ -389,10 +318,15 @@ impl Compiler {
                     for arg in args {
                         self.compile(arg)?;
                     }
-                    self.instructions
-                        .push(Instruction::CallBuiltinId(id as u8, args.len()));
-                } else if self.fn_depth > 0 && self.is_local(name) {
-                    if self.fn_locals.contains(name) {
+                    self.instructions.push(Instruction::CallBuiltinId(
+                        id.try_into().expect("builtin id overflow"),
+                        args.len().try_into().expect("argc overflow"),
+                    ));
+                } else if self.fn_depth > 0 {
+                    // Inside a function
+                    //  locals => CallLocal
+                    //  everything else => emit_load => LoadSelf/LoadCapture/LoadVar
+                    if self.is_local(name) && self.fn_locals.contains(name) {
                         for arg in args {
                             self.compile(arg)?;
                         }
@@ -406,23 +340,6 @@ impl Compiler {
                         }
                         self.instructions.push(Instruction::CallOrIndex(args.len()));
                     }
-                } else if self.fn_depth > 0
-                    && self.parent_fn_name.as_ref().is_some_and(|n| n == name)
-                    && self.parent_fn_slot.is_some()
-                {
-                    for arg in args {
-                        self.compile(arg)?;
-                    }
-                    self.instructions.push(Instruction::CallLocal(
-                        self.parent_fn_slot.unwrap(),
-                        args.len(),
-                    ));
-                } else if self.fn_depth > 0 && self.capture_map.contains_key(name) {
-                    self.emit_load(name);
-                    for arg in args {
-                        self.compile(arg)?;
-                    }
-                    self.instructions.push(Instruction::CallOrIndex(args.len()));
                 } else {
                     for arg in args {
                         self.compile(arg)?;
@@ -453,33 +370,10 @@ impl Compiler {
                     for item in items {
                         self.compile(item)?;
                     }
-                    self.instructions
-                        .push(Instruction::CallBuiltinId(id as u8, items.len()));
-                } else if let AstNode::Variable(vname) = object.as_ref() {
-                    // Recursive reference to the *enclosing* function name, only if it's not shadowed
-                    if self.parent_fn_name.as_ref().is_some_and(|n| n == vname)
-                        && !self.is_local(vname)
-                        && !self.capture_map.contains_key(vname)
-                    {
-                        for item in items {
-                            self.compile(item)?;
-                        }
-                        if let Some(slot) = self.parent_fn_slot {
-                            self.instructions
-                                .push(Instruction::CallLocal(slot, items.len()));
-                        } else {
-                            self.instructions
-                                .push(Instruction::CallUser(vname.clone(), items.len()));
-                        }
-                    } else {
-                        // Non-builtin: compile the callee first, then the args
-                        self.compile(object)?;
-                        for item in items {
-                            self.compile(item)?;
-                        }
-                        self.instructions
-                            .push(Instruction::CallOrIndex(items.len()));
-                    }
+                    self.instructions.push(Instruction::CallBuiltinId(
+                        u16::try_from(id).expect("builtin id overflow"),
+                        u16::try_from(items.len()).expect("argc overflow"),
+                    ));
                 } else {
                     // Non-builtin: compile the callee first, then the args
                     self.compile(object)?;
@@ -496,7 +390,7 @@ impl Compiler {
                     self.instructions.push(Instruction::Jump(0));
                     loop_info.break_jumps.push(pos);
                 } else {
-                    return Err(self.syntax_error_here("@b outside loop"));
+                    return Err(self.syntax_err_here("@b outside loop"));
                 }
             }
             AstNode::Continue => {
@@ -505,12 +399,12 @@ impl Compiler {
                     self.instructions.push(Instruction::Jump(0));
                     loop_info.continue_jumps.push(pos);
                 } else {
-                    return Err(self.syntax_error_here("@c outside loop"));
+                    return Err(self.syntax_err_here("@c outside loop"));
                 }
             }
             AstNode::Return(expr) => {
                 if self.fn_depth == 0 {
-                    return Err(self.syntax_error_here("@r outside function"));
+                    return Err(self.syntax_err_here("@r outside function"));
                 }
                 if let Some(e) = expr {
                     self.compile(e)?;
@@ -519,10 +413,6 @@ impl Compiler {
                         .push(Instruction::LoadConst(Value::unit()));
                 }
                 self.instructions.push(Instruction::Return);
-            }
-            AstNode::Assert(expr) => {
-                self.compile(expr)?;
-                self.instructions.push(Instruction::Assert);
             }
             AstNode::Try(expr) => {
                 let pos = self.instructions.len();
@@ -557,7 +447,7 @@ impl Compiler {
                         self.instructions.push(Instruction::IndexAssign);
                     }
                 } else {
-                    return Err(self.syntax_error_here("Invalid index assignment target"));
+                    return Err(self.syntax_err_here("Invalid index assignment target"));
                 }
             }
             AstNode::Function { params, body } => {
@@ -568,10 +458,18 @@ impl Compiler {
                         self.locals.iter().map(|(k, &v)| (k.clone(), v)).collect();
                     pairs.sort_by_key(|(_, idx)| *idx);
                     for (i, (k, v)) in pairs.iter().enumerate() {
+                        if self.defining_name.as_ref().is_some_and(|n| n == k) {
+                            continue;
+                        }
                         c.capture_map.insert(k.clone(), i as u16);
-                        c.captures.push(Capture::Local(*v));
+                        // let capture = if self.fn_locals.contains(k) {
+                        //     Capture::LocalShared(*v)
+                        // } else {
+                        //     Capture::Local(*v)
+                        // };
+                        let capture = Capture::Local(*v);
+                        c.captures.push(capture);
                     }
-
                     // Re-expose captured names to the child
                     let mut parent_caps: Vec<(String, u16)> = self
                         .capture_map
@@ -612,24 +510,28 @@ impl Compiler {
                 let dbg_local_names = c.local_names_vec();
                 let mut func_instructions = c.instructions;
                 func_instructions.push(Instruction::Return);
+                let func_arc: Arc<[Instruction]> = func_instructions.into();
+                let params_arc = params.as_ref().map(|p| Arc::<[String]>::from(p.clone()));
+                let spans_arc: Arc<[(usize, usize)]> = Arc::from(spans_for_fn.clone());
+                let local_names_arc: Arc<[String]> = Arc::from(dbg_local_names.clone());
                 if !c.captures.is_empty() {
                     self.instructions.push(Instruction::LoadClosure {
-                        params: params.clone(),
+                        params: params_arc.clone(),
                         locals,
                         captures: c.captures.clone(),
-                        instructions: func_instructions,
-                        dbg_stmt_spans: spans_for_fn,
-                        dbg_local_names,
+                        instructions: func_arc,
+                        dbg_stmt_spans: spans_arc,
+                        dbg_local_names: local_names_arc,
                     });
                 } else {
                     self.instructions
                         .push(Instruction::LoadConst(Value::CompiledFunction {
-                            params: params.clone(),
+                            params: params_arc,
                             locals,
-                            instructions: func_instructions,
+                            instructions: func_arc,
                             dbg_chunk: None,
-                            dbg_stmt_spans: Some(spans_for_fn),
-                            dbg_local_names: Some(dbg_local_names),
+                            dbg_stmt_spans: Some(spans_arc),
+                            dbg_local_names: Some(local_names_arc),
                         }));
                 }
             }
@@ -658,7 +560,7 @@ impl Compiler {
                 let end = self.instructions.len();
                 self.instructions[jump_end_pos] = Instruction::Jump(end);
             }
-            AstNode::WhileLoop { condition, body } => {
+            AstNode::WLoop { condition, body } => {
                 let start = self.instructions.len();
                 self.compile(condition)?;
                 let jump_pos = self.instructions.len();
@@ -681,7 +583,7 @@ impl Compiler {
                 self.instructions
                     .push(Instruction::LoadConst(Value::unit()));
             }
-            AstNode::ForLoop { count, body } => {
+            AstNode::NLoop { count, body } => {
                 // Unroll constant loops only when there is no control flow in body
                 if let AstNode::Literal(Value::Int(n)) = &**count
                     && *n >= 0
@@ -736,13 +638,14 @@ impl Compiler {
                         return Ok(());
                     }
                 }
-
-                let id = self.loop_id;
-                self.loop_id += 1;
-                let count_var = format!("__count{id}");
-                let result_var = format!("__for_result{id}");
-                let old_var = format!("__old_n{id}");
-
+                let id = {
+                    let v = self.gensym;
+                    self.gensym = self.gensym.wrapping_add(1);
+                    v
+                };
+                let count_var = format!("--vm-n-loop-count-{id}");
+                let result_var = format!("--vm-n-loop-res-{id}");
+                let old_var = format!("--vm-n-loop-old-{id}");
                 self.compile(count)?; // -> count on stack
                 self.emit_store(&count_var);
                 self.instructions
@@ -812,180 +715,185 @@ impl Compiler {
         Ok(())
     }
 
-    pub fn fuse(&mut self) {
-        #[derive(Default, Clone)]
-        struct Stats {
-            slk_pop: usize,
-            svk_pop: usize,
-            idx_local_pop: usize,
-            idx_global_pop: usize,
-            lt_jifalse: usize,
-            ll0_gt_jifalse: usize,
+    pub fn set_fn_spans(&mut self, spans: Vec<Vec<(usize, usize)>>) {
+        self.fn_spans_stream = spans;
+        self.fn_spans_idx = 0;
+    }
+
+    fn current_fn_spans(&self) -> Vec<(usize, usize)> {
+        if self.fn_spans_idx < self.fn_spans_stream.len() {
+            self.fn_spans_stream[self.fn_spans_idx].clone()
+        } else {
+            Vec::new()
         }
+    }
 
-        fn fuse_once(code: &mut Vec<Instruction>, stats: &mut Stats) -> bool {
-            use Instruction::*;
-            use Value::CompiledFunction;
-            let mut changed_any = false;
+    // Pretty error reporting API
+    pub fn set_source(&mut self, src: String) {
+        self.src_text = Some(src);
+    }
 
-            // Recurse into nested code objects first
-            for ins in code.iter_mut() {
-                if let LoadConst(CompiledFunction { instructions, .. }) = ins
-                    && fuse_once(instructions, stats)
-                {
-                    changed_any = true;
-                }
-            }
+    pub fn set_stmt_spans(&mut self, spans: Vec<(usize, usize)>) {
+        self.cur_stmt_spans = spans;
+        self.cur_stmt_idx = 0;
+    }
 
-            let old: Vec<Instruction> = code.clone();
-            let n = old.len();
-            if n == 0 {
-                return changed_any;
-            }
+    fn syntax_err_here(&self, msg: impl Into<String>) -> WqErr {
+        let msg = msg.into();
+        let e = WqErr::new(WqErrType::Syntax).src("compiler").msg(msg);
 
-            let mut keep = vec![true; n];
-            let mut out: Vec<Instruction> = Vec::with_capacity(n);
-            let mut origin: Vec<usize> = Vec::with_capacity(n);
-
-            let mut i = 0;
-            while i < n {
-                // Early: eliminate StoreKeep; Pop and IndexAssign*; Pop
-                if i + 1 < n {
-                    match (&old[i], &old[i + 1]) {
-                        (StoreLocalKeep(slot), Pop) => {
-                            out.push(StoreLocal(*slot));
-                            origin.push(i);
-                            keep[i] = true;
-                            keep[i + 1] = false;
-                            stats.slk_pop += 1;
-                            changed_any = true;
-                            i += 2;
-                            continue;
-                        }
-                        (StoreVarKeep(name), Pop) => {
-                            out.push(StoreVar(name.clone()));
-                            origin.push(i);
-                            keep[i] = true;
-                            keep[i + 1] = false;
-                            stats.svk_pop += 1;
-                            changed_any = true;
-                            i += 2;
-                            continue;
-                        }
-                        (IndexAssignLocal(slot), Pop) => {
-                            out.push(IndexAssignLocalDrop(*slot));
-                            origin.push(i);
-                            keep[i] = true;
-                            keep[i + 1] = false;
-                            stats.idx_local_pop += 1;
-                            changed_any = true;
-                            i += 2;
-                            continue;
-                        }
-                        (IndexAssign, Pop) => {
-                            out.push(IndexAssignDrop);
-                            origin.push(i);
-                            keep[i] = true;
-                            keep[i + 1] = false;
-                            stats.idx_global_pop += 1;
-                            changed_any = true;
-                            i += 2;
-                            continue;
-                        }
-                        _ => {}
-                    }
-                }
-
-                // 4-op fusion: LL j; LC 0; GreaterThan; JIFalse T -> JumpIfLEZLocal(j, T)
-                if i + 3 < n
-                    && let (
-                        LoadLocal(slot),
-                        LoadConst(Value::Int(0)),
-                        BinaryOp(BinaryOperator::GreaterThan),
-                        JumpIfFalse(pos),
-                    ) = (&old[i], &old[i + 1], &old[i + 2], &old[i + 3])
-                {
-                    out.push(JumpIfLEZLocal(*slot, *pos));
-                    origin.push(i);
-                    keep[i] = true;
-                    keep[i + 1] = false;
-                    keep[i + 2] = false;
-                    keep[i + 3] = false;
-                    stats.ll0_gt_jifalse += 1;
-                    changed_any = true;
-                    i += 4;
-                    continue;
-                }
-
-                // cmp+branch: LT; JIFalse -> JGE (stack-based)
-                if i + 1 < n
-                    && let (BinaryOp(BinaryOperator::LessThan), JumpIfFalse(pos)) =
-                        (&old[i], &old[i + 1])
-                {
-                    out.push(JumpIfGE(*pos));
-                    origin.push(i);
-                    keep[i] = true;
-                    keep[i + 1] = false;
-                    stats.lt_jifalse += 1;
-                    changed_any = true;
-                    i += 2;
-                    continue;
-                }
-
-                out.push(old[i].clone());
-                origin.push(i);
-                keep[i] = true;
-                i += 1;
-            }
-
-            if changed_any {
-                // Build mapping from old index -> new index of first kept instruction at or after old index
-                let mut old_to_new: Vec<usize> = vec![out.len(); n + 1];
-                let mut next_kept = vec![n; n + 1];
-                let mut next = n;
-                for idx in (0..n).rev() {
-                    if keep[idx] {
-                        next = idx;
-                    }
-                    next_kept[idx] = next;
-                }
-                next_kept[n] = n;
-                let mut kept_to_new: Vec<isize> = vec![-1; n];
-                for (new_idx, &orig) in origin.iter().enumerate() {
-                    kept_to_new[orig] = new_idx as isize;
-                }
-                for old_idx in 0..=n {
-                    let nk = next_kept[old_idx.min(n)];
-                    if nk < n {
-                        old_to_new[old_idx] = kept_to_new[nk] as usize;
-                    } else {
-                        old_to_new[old_idx] = out.len();
-                    }
-                }
-                // Remap jump targets to new indices
-                for ins in &mut out {
-                    match ins {
-                        Jump(pos) | JumpIfFalse(pos) | JumpIfGE(pos) => {
-                            *pos = old_to_new[*pos];
-                        }
-                        JumpIfLEZLocal(_, pos) => {
-                            *pos = old_to_new[*pos];
-                        }
-                        _ => {}
-                    }
-                }
-                *code = out;
-            }
-
-            changed_any
+        if let (Some(src), Some((byte_start, byte_end))) = (
+            self.src_text.as_ref(),
+            self.cur_stmt_spans.get(self.cur_stmt_idx).cloned(),
+        ) {
+            let (line, column) = byte_to_line_col(src, byte_start);
+            let src_line = src.lines().nth(line.saturating_sub(1)).unwrap_or("");
+            let width = if byte_end > byte_start && byte_end <= src.len() && byte_start <= src.len()
+            {
+                src[byte_start..byte_end].chars().count().max(1)
+            } else {
+                1
+            };
+            let pointer = " ".repeat(column.saturating_sub(1)) + &"~".repeat(width);
+            e.attach_note(format!("at {line}:{column}\n{src_line}\n{pointer}",))
+        } else {
+            e
         }
+    }
 
-        let mut stats = Stats::default();
-        loop {
-            let changed = fuse_once(&mut self.instructions, &mut stats);
-            if !changed {
-                break;
+    fn local_slot(&mut self, name: &str) -> u16 {
+        if let Some(&i) = self.locals.get(name) {
+            i
+        } else {
+            let idx = self.locals.len() as u16;
+            self.locals.insert(name.to_string(), idx);
+            idx
+        }
+    }
+
+    fn is_local(&self, name: &str) -> bool {
+        self.locals.contains_key(name)
+    }
+
+    pub fn local_count(&self) -> u16 {
+        self.locals.len() as u16
+    }
+
+    fn local_names_vec(&self) -> Vec<String> {
+        let mut names = vec![String::new(); self.local_count() as usize];
+        for (name, &idx) in self.locals.iter() {
+            if (idx as usize) < names.len() {
+                names[idx as usize] = name.clone();
             }
+        }
+        names
+    }
+
+    fn emit_load(&mut self, name: &str) {
+        if self.fn_depth > 0 {
+            if self.is_local(name) {
+                let idx = self.locals[name];
+                self.instructions.push(Instruction::LoadLocal(idx));
+                return;
+            }
+            if self.defining_name.as_ref().is_some_and(|n| n == name) {
+                self.instructions.push(Instruction::LoadSelf);
+                return;
+            }
+            if let Some(idx) = self.capture_map.get(name) {
+                self.instructions.push(Instruction::LoadCapture(*idx));
+                return;
+            }
+            // If the name refers to a builtin function, do not capture it.
+            // Emit a global load so it resolves via builtin lookup at runtime.
+            if self.builtins.has_function(name) {
+                self.instructions
+                    .push(Instruction::LoadVar(name.to_string()));
+                return;
+            }
+            // capture globals by value
+            let idx = self.capture_map.len() as u16;
+            self.capture_map.insert(name.to_string(), idx);
+            self.captures.push(Capture::Global(name.to_string()));
+            self.instructions.push(Instruction::LoadCapture(idx));
+            return;
+        }
+        self.instructions
+            .push(Instruction::LoadVar(name.to_string()));
+    }
+
+    fn emit_store(&mut self, name: &str) {
+        if self.fn_depth > 0 {
+            let idx = self.local_slot(name);
+            self.instructions.push(Instruction::StoreLocal(idx));
+        } else {
+            self.instructions
+                .push(Instruction::StoreVar(name.to_string()));
+        }
+    }
+
+    fn emit_store_keep(&mut self, name: &str) {
+        if self.fn_depth > 0 {
+            let idx = self.local_slot(name);
+            self.instructions.push(Instruction::StoreLocalKeep(idx));
+        } else {
+            self.instructions
+                .push(Instruction::StoreVarKeep(name.to_string()));
         }
     }
 }
+
+fn has_ctrl(node: &AstNode) -> bool {
+    match node {
+        AstNode::Break | AstNode::Continue | AstNode::Return(_) => true,
+        AstNode::Block(stmts) => stmts.iter().any(has_ctrl),
+        AstNode::Conditional {
+            true_branch,
+            false_branch,
+            ..
+        } => has_ctrl(true_branch) || false_branch.as_ref().is_some_and(|b| has_ctrl(b)),
+        AstNode::WLoop { body, .. }
+        | AstNode::NLoop { body, .. }
+        | AstNode::Function { body, .. } => has_ctrl(body),
+        AstNode::UnaryOp { operand, .. } => has_ctrl(operand),
+        AstNode::Postfix { object, items, .. } => has_ctrl(object) || items.iter().any(has_ctrl),
+        AstNode::BinaryOp { left, right, .. } => has_ctrl(left) || has_ctrl(right),
+        AstNode::ComparisonChain { first, rest } => {
+            has_ctrl(first) || rest.iter().any(|(_, node)| has_ctrl(node))
+        }
+        AstNode::Call { args, .. } | AstNode::CallAnonymous { args, .. } | AstNode::List(args) => {
+            args.iter().any(has_ctrl)
+        }
+        AstNode::Dict(pairs) => pairs.iter().any(|(_, v)| has_ctrl(v)),
+        AstNode::Index { object, index } => has_ctrl(object) || has_ctrl(index),
+        AstNode::IndexAssign {
+            object,
+            index,
+            value,
+        } => has_ctrl(object) || has_ctrl(index) || has_ctrl(value),
+        AstNode::Assignment { value, .. } => has_ctrl(value),
+        AstNode::UnpackAssign { value, .. } => has_ctrl(value),
+        AstNode::Range {
+            start, end, step, ..
+        } => has_ctrl(start) || has_ctrl(end) || step.as_ref().is_some_and(|s| has_ctrl(s)),
+        _ => false,
+    }
+}
+
+// Convert a byte offset into (1-based) line and column within `src`.
+fn byte_to_line_col(src: &str, byte_pos: usize) -> (usize, usize) {
+    let b = byte_pos.min(src.len());
+    let prefix = &src[..b];
+    let line = prefix.chars().filter(|&c| c == '\n').count() + 1;
+    let last_nl = prefix.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let col = src[last_nl..b].chars().count() + 1;
+    (line, col)
+}
+
+// fn int_overflow_err(e: TryFromIntError) -> WqError {
+//     WqError::IntOverflow(WqErrCtx {
+//         msg: e.to_string().into(),
+//         hint: None,
+//         source: Some(Cow::Borrowed("compiler")),
+//     })
+// }

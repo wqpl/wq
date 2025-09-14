@@ -1,25 +1,14 @@
-Contributions are always welcome!
+  contributions are always welcome!
 
-Issues
-======
-(1) Include steps to reproduce
+issue =========================================================
+* include steps to reproduce
 
-Features
-========
-(1) Open an issue first
-(2) Explain the value
+feature =======================================================
+* open an issue first
+* explain the value
 
-PR
-==
-(1) Rust:
-    cargo clippy -- -D warnings
-    cargo fmt
-
-(2) Tests:
-    cargo test
-
-(3) Commit msg: concise, clean
-
-(4) PR: clarify what’s changed and why
-
-(5) Add your name (and optionally your email) to the `AUTHORS` file at project root
+code ============================================================
+* cargo fmt && cargo clippy -- -D warnings && cargo test
+* commit msg: concise, clean
+* PR: clarify what’s changed and why
+* add your name (and optionally email) to the `AUTHORS` file at project root

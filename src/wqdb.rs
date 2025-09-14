@@ -1,10 +1,9 @@
-use crate::repl::get_debug_level;
-use crate::value::Value;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
-#[cfg(not(target_arch = "wasm32"))]
-use colored::Colorize;
+use crate::{colored::Colorize, repl::get_debug_level, value::Value};
 
 #[derive(Clone)]
 pub struct SourceFile {
@@ -13,6 +12,7 @@ pub struct SourceFile {
     pub text: Arc<str>,
     pub line_starts: Arc<Vec<usize>>,
 }
+
 impl SourceFile {
     pub fn new(id: u32, path: impl Into<Arc<str>>, text: impl Into<Arc<str>>) -> Self {
         let text: Arc<str> = text.into();
@@ -29,6 +29,7 @@ impl SourceFile {
             line_starts: Arc::new(offs),
         }
     }
+
     pub fn line_col(&self, byte_off: usize) -> (usize, usize) {
         let i = match self.line_starts.binary_search(&byte_off) {
             Ok(i) => i,
@@ -37,6 +38,7 @@ impl SourceFile {
         let start = self.line_starts[i];
         (i + 1, byte_off - start + 1)
     }
+
     pub fn line_snippet(&self, line1: usize) -> &str {
         let i = line1.saturating_sub(1);
         let s = *self.line_starts.get(i).unwrap_or(&0);
@@ -51,6 +53,7 @@ pub struct Span {
     pub start: u32,
     pub end: u32,
 }
+
 impl Span {
     pub const NONE: Span = Span {
         file_id: u32::MAX,
@@ -67,6 +70,7 @@ pub struct LineTable {
     pub pc_to_stmt_span: Vec<Span>,
     pub is_stmt_pc: Vec<bool>,
 }
+
 impl LineTable {
     pub fn ensure(&mut self, n: usize) {
         if self.pc_to_stmt_span.len() < n {
@@ -74,11 +78,13 @@ impl LineTable {
             self.is_stmt_pc.resize(n, false);
         }
     }
+
     pub fn mark_stmt(&mut self, last_pc: usize, span: Span) {
         self.ensure(last_pc + 1);
         self.pc_to_stmt_span[last_pc] = span;
         self.is_stmt_pc[last_pc] = true;
     }
+
     pub fn span_at(&self, mut pc: usize) -> Span {
         if pc >= self.pc_to_stmt_span.len() {
             pc = self.pc_to_stmt_span.len().saturating_sub(1);
@@ -96,6 +102,7 @@ impl LineTable {
             pc -= 1;
         }
     }
+
     pub fn is_stmt(&self, pc: usize) -> bool {
         self.is_stmt_pc.get(pc).copied().unwrap_or(false)
     }
@@ -119,10 +126,12 @@ pub struct DebugInfo {
     next_chunk: u32,
     next_file: u32,
 }
+
 impl DebugInfo {
     pub fn register_file(&mut self, file: SourceFile) {
         self.files.insert(file.id, Arc::new(file));
     }
+
     pub fn new_file(&mut self, path: impl Into<Arc<str>>, text: impl Into<Arc<str>>) -> u32 {
         let id = self.next_file;
         self.next_file += 1;
@@ -130,6 +139,7 @@ impl DebugInfo {
         self.register_file(sf);
         id
     }
+
     pub fn new_chunk(&mut self, name: impl Into<Arc<str>>, file_id: u32, len: usize) -> ChunkId {
         let id = ChunkId(self.next_chunk);
         self.next_chunk += 1;
@@ -162,6 +172,22 @@ impl DebugInfo {
         self.chunks.get_mut(&id).expect("chunk exists")
     }
 
+    pub fn rename_chunk(&mut self, id: ChunkId, new_name: impl Into<Arc<str>>) {
+        let new_name: Arc<str> = new_name.into();
+        let meta = self.chunks.get_mut(&id).expect("chunk exists");
+        if meta.name.as_ref() == new_name.as_ref() {
+            return;
+        }
+        let old_name = meta.name.clone();
+        meta.name = new_name.clone();
+        if let Some(chunk_id) = self.by_name.get(old_name.as_ref())
+            && *chunk_id == id
+        {
+            self.by_name.remove(old_name.as_ref());
+        }
+        self.by_name.insert(new_name, id);
+    }
+
     pub fn file(&self, id: u32) -> Option<&Arc<SourceFile>> {
         self.files.get(&id)
     }
@@ -188,12 +214,10 @@ impl DebugInfo {
                 }
             }
         }
-
         // If we found exact matches, return them
         if !out.is_empty() {
             return out;
         }
-
         // Fallback for heuristic statements (those with Span::NONE): use a simple approach
         // based on the fact that statements roughly correspond to source lines in order
         for (candidate, meta) in heuristic_candidates {
@@ -204,18 +228,15 @@ impl DebugInfo {
                     stmt_index += 1;
                 }
             }
-
             // Simple mapping: statement N roughly corresponds to line N+2
             // (accounting for function header at line 1)
             let estimated_line = stmt_index + 2;
-
             // Allow some tolerance for the mapping
             if estimated_line >= line_1based.saturating_sub(1) && estimated_line <= line_1based + 1
             {
                 out.push(candidate);
             }
         }
-
         out
     }
 }
@@ -244,6 +265,7 @@ pub struct Wqdb {
     step_count: u64,
     pub on_pause: Option<fn(&mut dyn DebugHost)>,
 }
+
 impl Default for Wqdb {
     fn default() -> Self {
         Self {
@@ -289,12 +311,12 @@ impl Wqdb {
     pub fn clear_mode(&mut self) {
         self.mode = StepMode::None;
     }
+
     #[inline]
     pub fn should_pause_at(&self, di: &DebugInfo, here: CodeLoc, call_depth: usize) -> bool {
         if !self.enabled {
             return false;
         }
-
         if self.last_stmt.is_none() && here.pc == 0 && call_depth == 0 {
             return true;
         }
@@ -318,7 +340,6 @@ impl Wqdb {
         }
         let meta = di.chunk(here.chunk);
         let is_stmt = meta.line_table.is_stmt(here.pc);
-
         match self.mode {
             StepMode::None => false,
             StepMode::In => is_stmt && Some(here) != self.last_stmt,
@@ -331,62 +352,32 @@ impl Wqdb {
         }
     }
 
-    // pub fn pause(&mut self, host: &mut dyn DebugHost) {
-    //     let loc = host.loc();
-    //     self.last_stmt = Some(loc);
-    //     self.step_count += 1;
-
-    //     // For step-in, clear mode after each step to implement single-step behavior
-    //     // For step-over and step-out, use the helper method
-    //     if self.mode == StepMode::In {
-    //         self.mode = StepMode::None;
-    //     } else {
-    //         self.maybe_clear_step_mode(host);
-    //     }
-
-    //     if let Some(cb) = self.on_pause {
-    //         cb(host);
-    //     }
-    //     self.temps.clear();
-    // }
-
     pub fn note_pause(&mut self, loc: CodeLoc) {
         self.last_stmt = Some(loc);
         self.step_count += 1;
         self.temps.clear();
         // Don't clear step mode here - let the stepping methods manage mode transitions
     }
+
     pub fn req_in(&mut self, depth: usize) {
         self.mode = StepMode::In;
         self.base_depth = depth;
         // Keep last_stmt so subsequent step-in advances to a new source span
         self.step_count = 0;
     }
+
     pub fn req_over(&mut self, depth: usize) {
         self.mode = StepMode::Over;
         self.base_depth = depth;
         self.step_count = 0;
         // Don't reset last_stmt for step-over to avoid revisiting same statement
     }
+
     pub fn req_out(&mut self, depth: usize) {
         self.mode = StepMode::Out;
         self.base_depth = depth;
         self.step_count = 0;
     }
-
-    // pub fn temp_break_next_stmt_in_chunk(&mut self, host: &dyn DebugHost) {
-    //     let here = host.loc();
-    //     let meta = host.di().chunk(here.chunk);
-    //     for pc in here.pc + 1..meta.len {
-    //         if meta.line_table.is_stmt(pc) {
-    //             self.temps.insert(CodeLoc {
-    //                 chunk: here.chunk,
-    //                 pc,
-    //             });
-    //             break;
-    //         }
-    //     }
-    // }
 
     pub fn add_temp_break(&mut self, loc: CodeLoc) {
         if crate::repl::get_debug_level() >= 2 {
@@ -397,33 +388,17 @@ impl Wqdb {
         }
         self.temps.insert(loc);
     }
-
-    ///// Check if we should maintain step-in mode based on current context
-    // pub fn should_maintain_step_mode(&self, host: &dyn DebugHost) -> bool {
-    //     if self.mode != StepMode::In {
-    //         return false;
-    //     }
-
-    //     // Always maintain step-in mode unless we're at a return at the original call depth
-    //     if host.is_at_return() {
-    //         host.call_depth() > self.base_depth
-    //     } else {
-    //         true
-    //     }
-    // }
-
-    ///// Clear step mode only if appropriate based on context
-    // pub fn maybe_clear_step_mode(&mut self, host: &dyn DebugHost) {
-    //     if !self.should_maintain_step_mode(host) {
-    //         self.mode = StepMode::None;
-    //     }
-    // }
 }
 
-pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str) -> String {
+pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> String {
     let meta = di.chunk(loc.chunk);
     let mut span = meta.line_table.span_at(loc.pc);
-
+    let bullet = if is_last { '●' } else { '○' };
+    let gutter = if is_last {
+        "  ".to_string()
+    } else {
+        "│ ".bright_yellow().to_string()
+    };
     // Check if this is an uncertain location before trying file lookup
     if span.file_id == u32::MAX {
         // Try a more helpful fallback: use the first statement in this chunk
@@ -443,72 +418,59 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str) -> String {
         // If still unknown, but we know the file for this chunk, show its path
         if span.file_id == u32::MAX {
             if let Some(sf) = di.file(meta.file_id) {
-                #[cfg(not(target_arch = "wasm32"))]
-                return format!("At {name} ({}:?:?)\n   ? -> ?\n", sf.path)
-                    .underline()
+                let mut out = format!("{bullet} at {name}, {}:?:?\n", sf.path)
                     .bright_yellow()
                     .to_string();
-                #[cfg(target_arch = "wasm32")]
-                return format!("At {name} ({}:?:?)\n   ? -> ?\n", sf.path);
+                out.push_str(&gutter);
+                out.push_str(&format!("{:>4} -> ?\n", "?"));
+                return out;
             }
-            // Last resort
-            #[cfg(not(target_arch = "wasm32"))]
-            return format!("At {name} (?:?:?)\n   ? -> ?\n")
-                .underline()
+            let mut out = format!("{bullet} at {name}, ?:?:?\n")
                 .bright_yellow()
                 .to_string();
-            #[cfg(target_arch = "wasm32")]
-            return format!("At {name} (?:?:?)\n   ? -> ?\n");
+            out.push_str(&gutter);
+            out.push_str(&format!("{:>4} -> ?\n", "?"));
+            return out;
         }
     }
-
     if let Some(sf) = di.file(span.file_id) {
         let (l, c) = sf.line_col(span.start as usize);
-        #[cfg(not(target_arch = "wasm32"))]
-        let mut out = format!("At {} ({}:{}:{})\n", name, sf.path, l, c)
-            .underline()
+        let mut out = format!("{bullet} at {name}, {}:{}:{}\n", sf.path, l, c)
             .bright_yellow()
             .to_string();
-        #[cfg(target_arch = "wasm32")]
-        let mut out = format!("At {} ({}:{}:{})\n", name, sf.path, l, c);
         // Clamp 1-based line numbers correctly within [1, total]
         let total = sf.line_starts.len();
         let lo_ln = if l > 1 { l - 1 } else { 1 };
         let hi_ln = if l < total { l + 1 } else { total };
         for ln in lo_ln..=hi_ln {
             if ln == l {
-                #[cfg(not(target_arch = "wasm32"))]
+                out.push_str(&gutter);
                 out.push_str(
                     &format!("{:>4} -> {}\n", ln, sf.line_snippet(ln).trim())
                         .green()
                         .bold()
                         .to_string(),
                 );
-                #[cfg(target_arch = "wasm32")]
-                out.push_str(&format!("{:>4} -> {}\n", ln, sf.line_snippet(ln).trim()));
             } else {
+                out.push_str(&gutter);
                 out.push_str(&format!("{:>4}    {}\n", ln, sf.line_snippet(ln).trim()));
             }
         }
-        out.to_string()
+        out
     } else {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            format!("At {} (chunk {:?} pc {})\n", name, meta.id, loc.pc)
-                .underline()
-                .yellow()
-                .to_string()
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            format!("At {} (chunk {:?} pc {})\n", name, meta.id, loc.pc)
-        }
+        // Unknown file but known chunk
+        let mut out = format!("{bullet} at {}, chunk {:?}, pc {}\n", name, meta.id, loc.pc)
+            .yellow()
+            .to_string();
+        out.push_str(&gutter);
+        out.push_str(&format!("{:>4} -> ?\n", "?"));
+        out
     }
 }
 
 /// Heuristic statement markers: mark likely statement boundaries even without precise spans.
 pub fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::instruction::Instruction]) {
-    use crate::vm::instruction::Instruction as I;
+    use crate::vm::instruction::Instruction::*;
     if get_debug_level() >= 4 {
         eprintln!(
             "[wqdb]: mark_stmt_heuristic called with {} instructions",
@@ -518,33 +480,33 @@ pub fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::instruction
     for (pc, op) in code.iter().enumerate() {
         let is_stmt = matches!(
             op,
-            I::StoreVar(_)
-                | I::StoreVarKeep(_)
-                | I::StoreLocal(_)
-                | I::StoreLocalKeep(_)
-                // | I::CallBuiltin(_, _)
-                | I::CallBuiltinId(_, _)
-                | I::CallLocal(_, _)
-                | I::CallUser(_, _)
-                | I::CallAnon(_)
-                | I::CallOrIndex(_)
-                | I::Index
-                | I::IndexAssign
-                | I::IndexAssignLocal(_)
-                | I::IndexAssignDrop
-                | I::IndexAssignLocalDrop(_)
-                | I::JumpIfFalse(_)
-                | I::JumpIfGE(_)
-                | I::JumpIfLEZLocal(_, _)
-                | I::Return
-                | I::Assert
+            StoreVar(_)
+                | StoreVarKeep(_)
+                | StoreLocal(_)
+                | StoreLocalKeep(_)
+                // | CallBuiltin(_, _)
+                | CallBuiltinId(_, _)
+                | CallLocal(_, _)
+                | CallUser(_, _)
+                | CallAnon(_)
+                | CallOrIndex(_)
+                | Index
+                | IndexAssign
+                | IndexAssignLocal(_)
+                | IndexAssignDrop
+                | IndexAssignLocalDrop(_)
+                | JumpIfFalse(_)
+                | JumpIfGE(_)
+                | JumpIfLEZLocal(_, _)
+                | Return
+                // | Assert
                 // Avoid marking plain stack pops as separate statements to reduce duplicates in loops
-                | I::Try(_)
-                | I::BinaryOp(_)
-                | I::UnaryOp(_)
-                | I::LoadVar(_)
-                | I::LoadConst(_)
-                | I::LoadClosure { .. }
+                | Try(_)
+                | BinaryOp(_)
+                | UnaryOp(_)
+                | LoadVar(_)
+                | LoadConst(_)
+                | LoadClosure { .. }
         );
         if is_stmt {
             if get_debug_level() >= 4 {
@@ -559,7 +521,7 @@ pub fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::instruction
 /// Uses heuristics only to pick candidate PCs, then clears all markers and
 /// marks exactly one PC per span in order. Falls back to heuristic marking
 /// when spans are insufficient for complex control structures.
-pub fn apply_stmt_spans_exact(
+fn apply_stmt_spans_exact(
     table: &mut LineTable,
     code: &[crate::vm::instruction::Instruction],
     file_id: u32,
@@ -578,7 +540,6 @@ pub fn apply_stmt_spans_exact(
         );
         eprintln!("[wqdb]: spans(sorted) = {spans_sorted:?}");
     }
-
     // If we have insufficient spans for the instruction count, use hybrid approach:
     // Keep all heuristic statements but add span info where available
     if spans_sorted.is_empty() || spans_sorted.len() * 10 < code.len() {
@@ -591,7 +552,6 @@ pub fn apply_stmt_spans_exact(
         }
         // Mark all heuristic candidates first
         mark_stmt_heuristic(table, code);
-
         // Then add span information for the statements we do have spans for
         let mut cand: Vec<usize> = Vec::new();
         for pc in 0..code.len() {
@@ -599,7 +559,6 @@ pub fn apply_stmt_spans_exact(
                 cand.push(pc);
             }
         }
-
         if !spans_sorted.is_empty() && !cand.is_empty() {
             // Best-effort mapping even with sparse spans: distribute spans across candidates
             for (i, &pc) in cand.iter().enumerate() {
@@ -613,19 +572,11 @@ pub fn apply_stmt_spans_exact(
                 };
             }
         }
-
         return;
     }
-
     if get_debug_level() >= 4 {
         eprintln!("[wqdb]: proceeding with exact span mapping (overlay mode)");
     }
-
-    // First, find candidate PCs using heuristics.
-    // IMPORTANT: we DO NOT clear existing stmt markers here. We keep all
-    // heuristic statement PCs so stepping can still pause on fine-grained
-    // boundaries (e.g., inside unrolled loops). We only overlay span info
-    // on top of existing candidates so the UI arrow points to useful lines.
     mark_stmt_heuristic(table, code);
     let len = code.len();
     let mut cand: Vec<usize> = Vec::new();
@@ -634,9 +585,7 @@ pub fn apply_stmt_spans_exact(
             cand.push(pc);
         }
     }
-
     table.ensure(len);
-
     if !spans_sorted.is_empty() && !cand.is_empty() {
         // Heuristic: detect container span (first span fully covering all others)
         let mut spans_for_map: Vec<(usize, usize)> = spans_sorted.clone();
@@ -656,25 +605,23 @@ pub fn apply_stmt_spans_exact(
                 }
             }
         }
-
         if has_container {
             // Split into body spans and container span
             let container_span = Some(spans_for_map[spans_for_map.len() - 1]);
             let body_spans: Vec<(usize, usize)> = spans_for_map[..spans_for_map.len() - 1].to_vec();
-
             // Classify candidate PCs as call vs other to improve loop/body alignment.
-            use crate::vm::instruction::Instruction as I;
+            use crate::vm::instruction::Instruction::*;
             let mut call_idx: Vec<usize> = Vec::new();
             let mut other_idx: Vec<usize> = Vec::new();
             for (i, &pc) in cand.iter().enumerate() {
                 let is_call = matches!(
                     code.get(pc),
-                    Some(I::CallBuiltinId(_, _))
-                        // | Some(I::CallBuiltin(_, _))
-                        | Some(I::CallLocal(_, _))
-                        | Some(I::CallUser(_, _))
-                        | Some(I::CallAnon(_))
-                        | Some(I::CallOrIndex(_))
+                    Some(CallBuiltinId(_, _))
+                        // | Some(CallBuiltin(_, _))
+                        | Some(CallLocal(_, _))
+                        | Some(CallUser(_, _))
+                        | Some(CallAnon(_))
+                        | Some(CallOrIndex(_))
                 );
                 if is_call {
                     call_idx.push(i);
@@ -682,7 +629,6 @@ pub fn apply_stmt_spans_exact(
                     other_idx.push(i);
                 }
             }
-
             // Map calls round-robin across body spans to create a cyclic feel inside loops.
             if !body_spans.is_empty() {
                 for (j, &i) in call_idx.iter().enumerate() {
@@ -706,7 +652,6 @@ pub fn apply_stmt_spans_exact(
                     };
                 }
             }
-
             // Map remaining (non-call) PCs to the container span.
             if let Some((start, end)) = container_span {
                 for &i in &other_idx {
@@ -758,11 +703,11 @@ pub fn register_function_chunks(
     base_offset: usize,
 ) {
     use crate::value::Value;
-    use crate::vm::instruction::Instruction as I;
+    use crate::vm::instruction::Instruction::*;
     let mut i = 0usize;
     while i < code.len() {
         let ins = &code[i];
-        if let I::LoadConst(Value::CompiledFunction {
+        if let LoadConst(Value::CompiledFunction {
             instructions,
             dbg_chunk,
             dbg_stmt_spans,
@@ -775,17 +720,23 @@ pub fn register_function_chunks(
                 let chunk = di.new_chunk("<fn>", file_id, instructions.len());
                 let table = &mut di.chunk_mut(chunk).line_table;
                 if let Some(spans) = dbg_stmt_spans {
-                    apply_stmt_spans_exact_offs(table, instructions, file_id, spans, base_offset);
+                    apply_stmt_spans_exact_offs(
+                        table,
+                        instructions,
+                        file_id,
+                        spans.as_ref(),
+                        base_offset,
+                    );
                 } else {
                     mark_stmt_heuristic(table, instructions);
                 }
                 // Record local names if available
                 if let Some(names) = dbg_local_names {
-                    di.chunk_mut(chunk).local_names = Some(names.clone());
+                    di.chunk_mut(chunk).local_names = Some(names.iter().cloned().collect());
                 }
                 // Heuristic: if the next instruction stores this function into a variable,
                 // use that name for the chunk and register it for lookup by name.
-                if let Some(I::StoreVar(name) | I::StoreVarKeep(name)) = code.get(i + 1) {
+                if let Some(StoreVar(name) | StoreVarKeep(name)) = code.get(i + 1) {
                     let name_arc: std::sync::Arc<str> = std::sync::Arc::from(name.as_str());
                     di.chunk_mut(chunk).name = name_arc.clone();
                     di.by_name.insert(name_arc, chunk);
