@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use wq::{
+use wqpl::{
     apps::formatter::{FormatConfig, Formatter},
     builtins::Builtins,
     colored::Colorize,
@@ -777,7 +777,7 @@ fn print_load_error_ui<R: ReplEngine>(err: &hotchoco::LoadError, evaluator: &mut
 }
 
 mod system_msg_printer {
-    use wq::colored::Colorize;
+    use wqpl::colored::Colorize;
 
     pub enum MsgType {
         Info,
