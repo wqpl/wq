@@ -7,6 +7,10 @@ description = "The wq programming language"
 repository = "https://codeberg.org/wqpl/wq"
 license = "MIT"
 
+[[bin]]
+name = "wq"
+path = "src/main.rs"
+
 [profile.lyrical]
 inherits = "release"
 lto = "fat"
