@@ -1,15 +1,14 @@
-1.0.0 ===============================================================
-** higher-order builtins
-** bigint
-*  unpack assign
-*  range (`1..10..2`)
-*  asciiplot rework
-*  better error reporting
-
 0.7.0 ===============================================================
 ** wqdb
 ** backtrace
-** pipe operator
+** higher-order builtins
+** bigint
+*  asciiplot rework
+*  pipe operator
+*  unpack assign
+*  range (`1..10..2`)
+*  operator **
+*  better error reporting
 *  xray mode
 
 0.6.0 ===============================================================
