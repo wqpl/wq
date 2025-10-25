@@ -45,9 +45,7 @@ impl Vm {
                 }
             }
             let idx = self.pc;
-            // advance program counter
             self.pc += 1;
-            // Borrow current instruction by reference to avoid cloning per step
             let op = &self.instructions[idx];
             // let op = unsafe { self.instructions.get_unchecked(idx) };
             match op {
@@ -842,9 +840,9 @@ impl Vm {
                         {
                             let base_offs = self.debug_src_offset();
                             let table = &mut self.debug_info.chunk_mut(id).line_table;
-                            // Prefer exact span mapping when available, shifted by the
-                            // current script's base byte offset so backtraces point to
-                            // the correct location in the full source.
+                            // Prefer exact span mapping when available.
+                            // shifted by the current script's base byte offset,
+                            // so backtraces point to the correct location in the full source
                             if !dbg_stmt_spans.is_empty() {
                                 apply_stmt_spans_exact_offs(
                                     table,

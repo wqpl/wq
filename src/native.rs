@@ -91,7 +91,6 @@ fn enter_repl(rtflags: RuntimeFlags) {
     // Unified loader state for directive lines handled by hotchoco
     let repl_loading = RefCell::new(HashSet::new());
     const WQ_VERSIOH: &str = env!("CARGO_PKG_VERSION");
-    const GIT_REV: &str = env!("GIT_REV");
     const RUSTC_VER: &str = env!("RUSTC_VERSION");
     const RUSTC_HOST: &str = env!("RUSTC_HOST");
     const RUSTC_LLVM_VERSION: &str = env!("RUSTC_LLVM_VERSION");
@@ -101,19 +100,18 @@ fn enter_repl(rtflags: RuntimeFlags) {
         Err(_) => "?".into(),
     };
     println!(
-        "{} {} {}",
+        "{} {} {} {}",
         format!("wq {WQ_VERSIOH}").magenta(),
+        format!("(o{BUILD_OPT_LEVEL})").dimmed(),
         "(c)tttiw (l)MIT".blue(),
         "!highlight !help !exit".green()
     );
     println!(
         "{}",
         &format!(
-            "{} {GIT_REV}\n{} {RUSTC_HOST}\n{} {RUSTC_VER} [llvm {RUSTC_LLVM_VERSION}]\n{} {BUILD_OPT_LEVEL}\n{} {cwd}",
-            "rev:  ".dimmed(),
+            "{} {RUSTC_HOST}\n{} {RUSTC_VER} [llvm {RUSTC_LLVM_VERSION}]\n{} {cwd}",
             "host: ".dimmed(),
             "rustc:".dimmed(),
-            "O:    ".dimmed(),
             "cwd:  ".dimmed()
         ),
     );

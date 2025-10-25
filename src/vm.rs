@@ -156,10 +156,6 @@ impl Slot {
 impl Vm {
     #[inline]
     fn is_internal_ephemeral(&self, name: &str) -> bool {
-        // Loop-counter and internal per-iteration temporaries updated very frequently.
-        // Skipping global_version bumps for these prevents flushing all LoadVar caches
-        // on every loop iteration while remaining correct when paired with
-        // non-caching loads for these names in the executor.
         name == "_n" || name.starts_with("--vm-n-loop-old-") || name.starts_with("--vm-n-loop-res-")
     }
     pub fn new(instructions: Vec<Instruction>) -> Self {
@@ -250,8 +246,6 @@ impl Vm {
             }
         }
         self.globals.insert(name.to_string(), value);
-        // Frequent updates to ephemeral loop vars (_n, --vm-n-loop-old-*, --vm-n-loop-res-*)
-        // should not invalidate all inline caches; keep version stable for them.
         if !self.is_internal_ephemeral(name) {
             self.global_version += 1;
         }

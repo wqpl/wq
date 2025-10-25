@@ -1,15 +1,6 @@
 use std::{env, process::Command};
 
 fn main() {
-    // wq git rev ====================================================================================
-    let git_rev_out = Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .expect("Failed to execute git");
-    let git_rev_text = String::from_utf8(git_rev_out.stdout).expect("Invalid UTF-8 from git");
-    println!("cargo:rustc-env=GIT_REV={}", git_rev_text.trim());
-
-    // rustc =========================================================================================
     let rustc = env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
     let rustc_out = Command::new(&rustc)
         .arg("-vV")
@@ -41,7 +32,4 @@ fn main() {
     if let Ok(opt) = std::env::var("OPT_LEVEL") {
         println!("cargo:rustc-env=BUILD_OPT_LEVEL={opt}");
     }
-    // if let Ok(dbg) = std::env::var("DEBUG") {
-    //     println!("cargo:rustc-env=BUILD_DEBUG={dbg}");
-    // }
 }
