@@ -291,7 +291,11 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             );
                             continue;
                         }
-                        cmd if cmd.starts_with("!help") || cmd.starts_with("!h") => {
+                        cmd if cmd.starts_with("!help ")
+                            || cmd.starts_with("!h ")
+                            || cmd == "!help"
+                            || cmd == "!h" =>
+                        {
                             // Show usage and arity for a builtin when provided: `!h <name>`
                             let mut parts = cmd.split_whitespace();
                             let _ = parts.next(); // skip !h/!help
@@ -301,26 +305,32 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                     let id = id as u16;
                                     let usage = Builtins::usage_from_id(id).unwrap_or("?");
                                     let arity = Builtins::arity_from_id(id).unwrap_or("?");
-                                    println!("{usage} ({arity})");
+                                    println!("{usage} (arity {arity})");
                                 } else {
                                     system_msg_printer::stdout(
-                                        format!("unknown builtin: {name}"),
+                                        format!("unknown builtin '{name}'"),
                                         system_msg_printer::MsgType::Info,
                                     );
                                 }
-                                continue;
+                            } else {
+                                println!("{}", include_str!("../d/refcard"));
                             }
-                            println!("{}", include_str!("../d/refcard"));
                             continue;
                         }
                         cmd if cmd.starts_with("!d") => {
-                            let rest = cmd.trim_start_matches("!d");
+                            let rest = cmd.strip_prefix("!d").unwrap_or_default().trim();
                             if let Some(level_str) = rest.strip_prefix('.') {
                                 // one-time: !d.<level>
                                 if let Ok(level) = level_str.parse::<u8>() {
                                     oneshot_debug = Some(level);
                                     system_msg_printer::stdout(
                                         format!("debug level will be {level} for next eval"),
+                                        system_msg_printer::MsgType::Info,
+                                    );
+                                } else {
+                                    oneshot_debug = Some(1);
+                                    system_msg_printer::stdout(
+                                        "debug level will be 1 for next eval",
                                         system_msg_printer::MsgType::Info,
                                     );
                                 }
@@ -341,6 +351,11 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                 system_msg_printer::stdout(
                                     format!("debug level is now {}", level.to_string().underline()),
                                     system_msg_printer::MsgType::Info,
+                                );
+                            } else {
+                                system_msg_printer::stderr(
+                                    format!("invalid magic command '{cmd}'"),
+                                    system_msg_printer::MsgType::Error,
                                 );
                             }
                             continue;

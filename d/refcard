@@ -1,31 +1,19 @@
-wq refcard ================================
-  +       plus         =           eq
-  -  neg, minus        ~           neq
-  *       mul          <           lt
-  **      matmul       <=          le
-  /       div          >           gt
-  /.      safe div     >=          ge
-  %       mod          #   count
-  %.      safe mod     ,   enlist, cat
-  ^       power        :           assign
-  |       pipe
-  @f"{1+1}=2"          @l"\n"
-  $[c;t;f1;f2..]       @b break
-  $.[c;t1;t2...]       @c continue
-  W[c;...]             @r return
-  N[n;echo _n]         @t try
-magic cmd =================================
-  !l  load             !p  load prelude
-repl only :
-  !hl   highlight      !h  help (!h abs)
-  !e    exit           !b  boxed display
-  !bfn  builtins       !r  reset
-  !t    time           !g  global bindings
-  !w    wqdb
-  !d  !d0 ... !d4  debug level
-  !t. !w. !d.      one-time
-type ======================================
-+-- atom (atom?)
+========================== wq 0.7.0 refcard ==========================
++       plus      =           eq      !hl   highlight
+-  neg  minus     ~           neq     !h    help // !h abs
+*       mul       <           lt      !e    exit
+**      matmul    <=          le      !l    *load
+/       div       >           gt      !p    *load prelude
+/.      safe div  >=          ge      !b    boxed display
+%       mod       #   count           !bfn  builtins
+%.      safe mod  ,   enlist  cat     !g    global bindings
+^       power     :           assign  !r    reset
+|       pipe                          !t    time // !t.
+$[c;t;f1;f2..]    @b break            !w    wqdb // !w.
+$.[c;t1;t2...]    @c continue         !d    debug level // !d.
+W[c;...]          @r return                 0:off 1:ins 2:ast 3:tok
+N[n;echo _n]      @t try              *: available in scripts
++-- atom // atom?
 |   |-- int       1 0xBEEF 0o233 0b1111
 |   |-- bigint    0x8000_0000_0000_0000
 |   |-- float     3.14 1e2 nan inf
@@ -38,6 +26,8 @@ type ======================================
 |   \-- stream
 +-- list
 |   |-- list      (1;2.3;"a")[0;1]
-|   \-- intlist   (1;2;3) ()
+|   |             "str" @f"{1+1}=2" @l"\n"
+|   |-- intlist   (1;2;3) 1..10 1..=11..2
+|   \             () // unit?
 +-- dict
 \   \-- dict      (`a:1;`b:2)[`a;`b;1] (`)

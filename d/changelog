@@ -3,10 +3,11 @@
 ** backtrace
 ** higher-order builtins
 ** bigint
+*  repl highlight
 *  asciiplot rework
 *  pipe operator
 *  unpack assign
-*  range (`1..10..2`)
+*  range 1..10..2
 *  operator **
 *  @f @l
 *  better error reporting
@@ -33,4 +34,4 @@
 *  time (\t)
 
 0.1.0 ===============================================================
-  2025.7.19
+*  2025.7.19

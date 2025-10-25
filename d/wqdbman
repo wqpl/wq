@@ -9,6 +9,6 @@ wqdb refcard ==============================
   gb, globals   dump globals
   lb, locals    dump locals
   bt            show backtrace
-  p, peek <n>   peek +-n lines (def:3)
-  i, ins <n>    peek +-n insts (def:5)
+  p, peek <n>   peek +-n lines (def=3)
+  i, ins <n>    peek +-n insts (def=5)
   h, help       show this help
