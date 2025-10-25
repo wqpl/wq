@@ -1,6 +1,6 @@
 [package]
 name = "wqpl"
-version = "0.7.0-rc1"
+version = "0.7.0-rc2"
 edition = "2024"
 build = "build.rs"
 description = "The wq programming language"
