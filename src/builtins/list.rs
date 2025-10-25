@@ -356,7 +356,7 @@ pub fn find(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                             return;
                         }
                     }
-                    // Recurse deeper if we haven't reached max depth and item didn't match
+                    // Recurse deeper if max depth hasn't been reached and item didn't match
                     // (don't recurse into matched items)
                     if !is_match && current_depth < max_depth {
                         path.push(idx as i64);
@@ -408,8 +408,6 @@ pub fn find(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                             return;
                         }
                     }
-                    // Recurse deeper if we haven't reached max depth and item didn't match
-                    // (don't recurse into matched items)
                     if !is_match && current_depth < max_depth {
                         path.push(idx as i64);
                         search_recursive(

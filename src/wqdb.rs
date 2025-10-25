@@ -214,7 +214,6 @@ impl DebugInfo {
                 }
             }
         }
-        // If we found exact matches, return them
         if !out.is_empty() {
             return out;
         }
@@ -415,7 +414,6 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
                 span = s2;
             }
         }
-        // If still unknown, but we know the file for this chunk, show its path
         if span.file_id == u32::MAX {
             if let Some(sf) = di.file(meta.file_id) {
                 let mut out = format!("{bullet} at {name}, {}:?:?\n", sf.path)
@@ -468,7 +466,6 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
     }
 }
 
-/// Heuristic statement markers: mark likely statement boundaries even without precise spans.
 pub fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::instruction::Instruction]) {
     use crate::vm::instruction::Instruction::*;
     if get_debug_level() >= 4 {
@@ -540,8 +537,6 @@ fn apply_stmt_spans_exact(
         );
         eprintln!("[wqdb]: spans(sorted) = {spans_sorted:?}");
     }
-    // If we have insufficient spans for the instruction count, use hybrid approach:
-    // Keep all heuristic statements but add span info where available
     if spans_sorted.is_empty() || spans_sorted.len() * 10 < code.len() {
         if get_debug_level() >= 4 {
             eprintln!(
@@ -550,9 +545,7 @@ fn apply_stmt_spans_exact(
                 code.len()
             );
         }
-        // Mark all heuristic candidates first
         mark_stmt_heuristic(table, code);
-        // Then add span information for the statements we do have spans for
         let mut cand: Vec<usize> = Vec::new();
         for pc in 0..code.len() {
             if table.is_stmt(pc) {
@@ -560,7 +553,6 @@ fn apply_stmt_spans_exact(
             }
         }
         if !spans_sorted.is_empty() && !cand.is_empty() {
-            // Best-effort mapping even with sparse spans: distribute spans across candidates
             for (i, &pc) in cand.iter().enumerate() {
                 let span_idx = (i * spans_sorted.len()) / cand.len();
                 let span_idx = span_idx.min(spans_sorted.len() - 1);
@@ -734,15 +726,11 @@ pub fn register_function_chunks(
                 if let Some(names) = dbg_local_names {
                     di.chunk_mut(chunk).local_names = Some(names.iter().cloned().collect());
                 }
-                // Heuristic: if the next instruction stores this function into a variable,
-                // use that name for the chunk and register it for lookup by name.
                 if let Some(StoreVar(name) | StoreVarKeep(name)) = code.get(i + 1) {
                     let name_arc: std::sync::Arc<str> = std::sync::Arc::from(name.as_str());
                     di.chunk_mut(chunk).name = name_arc.clone();
                     di.by_name.insert(name_arc, chunk);
                 }
-                // Note: we cannot mutate dbg_chunk through &ins; will be set when this function is stored/used next compile pass
-                // This will at least register the code for tracebacks/stepping by ChunkId.
                 let _ = chunk; // silence unused if cfg changes
             }
         }

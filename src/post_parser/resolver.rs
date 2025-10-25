@@ -68,8 +68,6 @@ impl Resolver {
                 AstNode::Assignment { name, value }
             }
             AstNode::UnpackAssign { pattern, value } => {
-                // Resolve RHS first; we do not attempt to statically mark `names` as
-                // funcs/indexables because RHS may be dynamic.
                 let value = Box::new(self.resolve_node(*value));
                 AstNode::UnpackAssign { pattern, value }
             }

@@ -4,7 +4,7 @@ use std::{fs, path::Path, process::Command};
 
 fn run_wq(path: &Path) -> Result<String> {
     let out = Command::cargo_bin("wq")
-        .context("cargo_bin('wq') failed — is [[bin]] wq defined in this workspace?")?
+        .context("cargo_bin('wq') failed")?
         .arg(path)
         .output()
         .with_context(|| format!("running wq on {}", path.display()))?;

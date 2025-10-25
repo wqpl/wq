@@ -114,7 +114,7 @@ pub fn fmt(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                 }
                 Some(Value::Char('}')) => {
                     // "{}" -> substitute next argument
-                    // SAFETY: safe because of the pre-check using `needed`.
+                    // safe because of the pre-check using `needed`.
                     push_value_as_chars(&mut out, &args[arg_idx + 1]);
                     arg_idx += 1;
                     i += 2;

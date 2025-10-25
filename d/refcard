@@ -9,6 +9,7 @@ wq refcard ================================
   %.      safe mod     ,   enlist, cat
   ^       power        :           assign
   |       pipe
+  @f"{1+1}=2"          @l"\n"
   $[c;t;f1;f2..]       @b break
   $.[c;t1;t2...]       @c continue
   W[c;...]             @r return

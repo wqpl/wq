@@ -441,9 +441,9 @@ impl<'a> Lexer<'a> {
         TokenType::Comment(comment)
     }
 
-    // Read a raw string starting at the '"' (caller should have just consumed the 'r').
-    // - No escape processing; backslashes are literal
-    // - Always produces TokenType::String (never Character), even if length is 1
+    // Read a raw string starting at the '"'
+    // * No escape processing
+    // * Always produces TokenType::String
     fn read_raw_string(
         &mut self,
         start_line: usize,
@@ -598,7 +598,6 @@ impl<'a> Lexer<'a> {
                 }
 
                 Some('.') => {
-                    // We need 2-char lookahead here.
                     let n1 = nxt;
                     let n2 = self.peek2();
                     match (n1, n2) {

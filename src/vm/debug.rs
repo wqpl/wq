@@ -168,9 +168,6 @@ impl DebugHost for Vm {
             eprintln!("[wqdb]: dbg_step_in called at PC {}", self.pc);
         }
         self.wqdb.req_in(self.call_depth());
-
-        // For step-in, we rely purely on the step mode logic in should_pause_at
-        // No temporary breakpoints needed - the step mode will pause at the next statement
         if crate::repl::get_debug_level() >= 2 {
             eprintln!("[wqdb]: step-in mode on, will pause at next statement");
         }
@@ -188,7 +185,7 @@ impl DebugHost for Vm {
             pc: self.pc,
         };
         let meta = self.debug_info.chunk(here.chunk);
-        // If we're at a Return instruction, set up temp breaks in the caller
+        // At a Return instruction, set up temp breaks in the caller
         if self.is_at_return() {
             if !self.call_stack.is_empty() {
                 let caller_frame = &self.call_stack[self.call_stack.len() - 1];
@@ -207,8 +204,8 @@ impl DebugHost for Vm {
             return;
         }
 
-        // 1) Always add a forward-only temp break at the next stmt in this chunk
-        //    to guarantee progress when we're at the last stmt of a function.
+        // Add a forward-only temp break at the next stmt in this chunk
+        // To guarantee progress at the last stmt of a function
         for pc in here.pc + 1..meta.len {
             if meta.line_table.is_stmt(pc) {
                 self.wqdb.add_temp_break(CodeLoc {
@@ -218,8 +215,8 @@ impl DebugHost for Vm {
                 break;
             }
         }
-        // If we look like we're on a loop header (cond -> exit),
-        // also pause at the first stmt *inside* the body.
+        // If on a loop header (cond -> exit)
+        // Pause at the first stmt inside the body
         let code = &self.instructions;
         // Find a nearby conditional jump with a forward target (typical loop header)
         let mut cond_pc_and_exit: Option<(usize, usize)> = None;
@@ -236,8 +233,8 @@ impl DebugHost for Vm {
                 break;
             }
         }
-        // If we're at a Return instruction, set up temp breaks in the caller
-        // and clear step mode so we can continue properly
+        // If at a Return instruction, set up temp breaks in the caller
+        // And clear step mode to continue properly
         if self.is_at_return() {
             if !self.call_stack.is_empty() {
                 let caller_frame = &self.call_stack[self.call_stack.len() - 1];
@@ -253,7 +250,6 @@ impl DebugHost for Vm {
                     }
                 }
             }
-            // Clear step mode since we're about to return
             self.wqdb.clear_mode();
             return;
         }
@@ -272,8 +268,6 @@ impl DebugHost for Vm {
     }
 
     fn dbg_step_out(&mut self) {
-        // If we're at a Return instruction, set up temp breaks in the caller
-        // And clear step mode so we can continue properly
         if self.is_at_return() {
             if !self.call_stack.is_empty() {
                 let caller_frame = &self.call_stack[self.call_stack.len() - 1];
@@ -289,12 +283,10 @@ impl DebugHost for Vm {
                     }
                 }
             }
-            // Clear step mode since we're about to return
             self.wqdb.clear_mode();
             return;
         }
         self.wqdb.req_out(self.call_depth());
-        // Add temp break in caller frame if we have one
         if !self.call_stack.is_empty() {
             let caller_frame = &self.call_stack[self.call_stack.len() - 1];
             let caller_meta = self.debug_info.chunk(caller_frame.chunk);

@@ -8,6 +8,7 @@
 *  unpack assign
 *  range (`1..10..2`)
 *  operator **
+*  @f @l
 *  better error reporting
 *  xray mode
 

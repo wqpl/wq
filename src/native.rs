@@ -161,28 +161,6 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             print_goodbye();
                             break;
                         }
-                        cmd if cmd.starts_with("!help") || cmd.starts_with("!h") => {
-                            // Show usage and arity for a builtin when provided: `!h <name>`
-                            let mut parts = cmd.split_whitespace();
-                            let _ = parts.next(); // skip !h/!help
-                            if let Some(name) = parts.next() {
-                                let b = Builtins::new();
-                                if let Some(id) = b.get_id(name) {
-                                    let id = id as u16;
-                                    let usage = Builtins::usage_from_id(id).unwrap_or("?");
-                                    let arity = Builtins::arity_from_id(id).unwrap_or("?");
-                                    println!("{usage} ({arity})");
-                                } else {
-                                    system_msg_printer::stdout(
-                                        format!("unknown builtin: {name}"),
-                                        system_msg_printer::MsgType::Info,
-                                    );
-                                }
-                                continue;
-                            }
-                            println!("{}", include_str!("../d/refcard"));
-                            continue;
-                        }
                         "!highlight" | "!hl" => {
                             stdin_set_highlight(!stdin_highlight_enabled());
                             continue;
@@ -277,38 +255,6 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             );
                             continue;
                         }
-                        cmd if cmd.starts_with("!d") => {
-                            let rest = cmd.trim_start_matches("!d");
-                            if let Some(level_str) = rest.strip_prefix('.') {
-                                // one-time: !d.<level>
-                                if let Ok(level) = level_str.parse::<u8>() {
-                                    oneshot_debug = Some(level);
-                                    system_msg_printer::stdout(
-                                        format!("debug level will be {level} for next eval"),
-                                        system_msg_printer::MsgType::Info,
-                                    );
-                                }
-                            } else if rest.is_empty() {
-                                match vm.get_debug_level() {
-                                    0 => vm.set_debug_level(1),
-                                    _ => vm.set_debug_level(0),
-                                }
-                                system_msg_printer::stdout(
-                                    format!(
-                                        "debug level is now {}",
-                                        vm.get_debug_level().to_string().underline()
-                                    ),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                            } else if let Ok(level) = rest.parse::<u8>() {
-                                vm.set_debug_level(level);
-                                system_msg_printer::stdout(
-                                    format!("debug level is now {}", level.to_string().underline()),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                            }
-                            continue;
-                        }
                         "!time" | "!t" => {
                             time_mode = !time_mode;
                             system_msg_printer::stdout(
@@ -344,6 +290,67 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             system_msg_printer::stdout(
                                 "wqdb will be on for next eval".to_string(),
                                 system_msg_printer::MsgType::Info,
+                            );
+                            continue;
+                        }
+                        cmd if cmd.starts_with("!help") || cmd.starts_with("!h") => {
+                            // Show usage and arity for a builtin when provided: `!h <name>`
+                            let mut parts = cmd.split_whitespace();
+                            let _ = parts.next(); // skip !h/!help
+                            if let Some(name) = parts.next() {
+                                let b = Builtins::new();
+                                if let Some(id) = b.get_id(name) {
+                                    let id = id as u16;
+                                    let usage = Builtins::usage_from_id(id).unwrap_or("?");
+                                    let arity = Builtins::arity_from_id(id).unwrap_or("?");
+                                    println!("{usage} ({arity})");
+                                } else {
+                                    system_msg_printer::stdout(
+                                        format!("unknown builtin: {name}"),
+                                        system_msg_printer::MsgType::Info,
+                                    );
+                                }
+                                continue;
+                            }
+                            println!("{}", include_str!("../d/refcard"));
+                            continue;
+                        }
+                        cmd if cmd.starts_with("!d") => {
+                            let rest = cmd.trim_start_matches("!d");
+                            if let Some(level_str) = rest.strip_prefix('.') {
+                                // one-time: !d.<level>
+                                if let Ok(level) = level_str.parse::<u8>() {
+                                    oneshot_debug = Some(level);
+                                    system_msg_printer::stdout(
+                                        format!("debug level will be {level} for next eval"),
+                                        system_msg_printer::MsgType::Info,
+                                    );
+                                }
+                            } else if rest.is_empty() {
+                                match vm.get_debug_level() {
+                                    0 => vm.set_debug_level(1),
+                                    _ => vm.set_debug_level(0),
+                                }
+                                system_msg_printer::stdout(
+                                    format!(
+                                        "debug level is now {}",
+                                        vm.get_debug_level().to_string().underline()
+                                    ),
+                                    system_msg_printer::MsgType::Info,
+                                );
+                            } else if let Ok(level) = rest.parse::<u8>() {
+                                vm.set_debug_level(level);
+                                system_msg_printer::stdout(
+                                    format!("debug level is now {}", level.to_string().underline()),
+                                    system_msg_printer::MsgType::Info,
+                                );
+                            }
+                            continue;
+                        }
+                        cmd if cmd.starts_with("!") => {
+                            system_msg_printer::stderr(
+                                format!("unknown magic command '{cmd}'"),
+                                system_msg_printer::MsgType::Error,
                             );
                             continue;
                         }
@@ -785,7 +792,8 @@ mod system_msg_printer {
         Success,
     }
 
-    fn format_msg(msg: String, msg_type: MsgType) -> String {
+    fn format_msg(msg: impl Into<String>, msg_type: MsgType) -> String {
+        let msg = msg.into();
         let mut lines = msg.lines();
         let mut formatted = String::new();
         if let Some(first) = lines.next() {
@@ -804,11 +812,11 @@ mod system_msg_printer {
         }
     }
 
-    pub fn stdout(msg: String, msg_type: MsgType) {
+    pub fn stdout(msg: impl Into<String>, msg_type: MsgType) {
         println!("{}", format_msg(msg, msg_type));
     }
 
-    pub fn stderr(msg: String, msg_type: MsgType) {
+    pub fn stderr(msg: impl Into<String>, msg_type: MsgType) {
         eprintln!("{}", format_msg(msg, msg_type));
     }
 }

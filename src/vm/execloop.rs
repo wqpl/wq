@@ -53,9 +53,6 @@ impl Vm {
             match op {
                 Instruction::LoadConst(v) => self.stack.push(v.clone()),
                 Instruction::LoadVar(name) => {
-                    // For ephemeral loop variables (e.g., `_n`, internal N-loop temps),
-                    // bypass the inline cache to avoid stale reads when we intentionally
-                    // don't bump the global version for their stores.
                     let use_cache = !self.is_internal_ephemeral(name);
                     if use_cache
                         && self.inline_cache[idx].version == self.global_version
@@ -259,8 +256,6 @@ impl Vm {
 
                     let callable = {
                         let mut found: Option<LocalCallable> = None;
-
-                        // Phase 1: peek immutably and clone what we need
                         for fi in (0..self.locals.len()).rev() {
                             let peeked = if let Some(v) = self.locals[fi].get(slot_usize) {
                                 peek_local_callable(slot, v)?
@@ -274,7 +269,6 @@ impl Vm {
                                     break;
                                 }
                                 PeekLocal::Func(p) => {
-                                    // Phase 2: we’re free to call &mut self methods now
                                     let dbg_new = self.ensure_dbg_chunk_with_spans(
                                         "<fn>",
                                         p.dbg_chunk,
@@ -283,8 +277,6 @@ impl Vm {
                                         &p.names,
                                         &p.params,
                                     );
-
-                                    // If we minted a new chunk, write it back to the original Value
                                     if dbg_new != p.dbg_chunk
                                         && let Some(slot_ref) = self
                                             .locals
@@ -402,7 +394,6 @@ impl Vm {
                         }
                     }
                     let func = self.resolve_user_callable(idx, &name)?;
-                    // For builtins we can operate directly on the caller stack slice:
                     if let Value::BuiltinFunction(bname) = &func {
                         let out = self.builtin_from_stack_by_name(bname, argc)?;
                         self.stack.push(out);
@@ -1008,15 +999,10 @@ impl Vm {
         (func)(self, args)
     }
 
-    // Data we need to compute dbg chunks and then call
-
-    // todo: remove
     pub fn call_value(&mut self, func: &Value, args: &[Value]) -> WqResult<Value> {
-        // preserve the builtin fast path without allocating
         if let Value::BuiltinFunction(name) = func {
             return self.call_builtin(name, args);
         }
-        // otherwise, move a vec once into the stack path
         self.call_value_with_args(func, args.to_vec())
     }
 
@@ -1101,9 +1087,6 @@ impl Vm {
         let argc = usize::from(argc);
         ensure_stack_len(&self.stack, argc, || Cow::Borrowed("builtin args"))?;
         let base = self.stack.len() - argc;
-        // SAFETY: we only take a temporary read-only view over the existing
-        // stack tail. The builtin is allowed to read `args` but we truncate
-        // the stack only after the call returns, so the slice stays valid.
         let ptr = unsafe { self.stack.as_ptr().add(base) };
         let args = unsafe { std::slice::from_raw_parts(ptr, argc) };
         let out = self.call_builtin_id(id, args)?;
@@ -1115,7 +1098,6 @@ impl Vm {
     fn builtin_from_stack_by_name(&mut self, name: &str, argc: usize) -> WqResult<Value> {
         ensure_stack_len(&self.stack, argc, || Cow::Borrowed("builtin args"))?;
         let base = self.stack.len() - argc;
-        // SAFETY: identical reasoning as in `builtin_from_stack_by_id` above.
         let ptr = unsafe { self.stack.as_ptr().add(base) };
         let args = unsafe { std::slice::from_raw_parts(ptr, argc) };
         let out = self.call_builtin(name, args)?;
@@ -1156,8 +1138,6 @@ impl Vm {
     // {
     //     ensure_stack_len(&self.stack, argc, || Cow::Borrowed("builtin args"))?;
     //     let base = self.stack.len() - argc;
-
-    //     // Move the scratch buffer out so we can borrow &mut self in `f`.
     //     let mut buf = std::mem::take(&mut self.args_scratch);
     //     buf.clear(); // keep capacity, no alloc
     //     buf.extend(self.stack.drain(base..)); // moves tail into buf

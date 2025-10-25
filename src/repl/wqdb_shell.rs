@@ -1,6 +1,8 @@
 use crate::{
     colored::Colorize,
-    repl::stdio::{StdinError, stderr_println, stdin_readline, stdin_with_highlight_off},
+    repl::stdio::{
+        StdinError, stderr_print, stderr_println, stdin_readline, stdin_with_highlight_off,
+    },
     wqdb::{CodeLoc, DebugHost, format_frame},
 };
 
@@ -182,7 +184,7 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                         let count = frames.len();
                         for (idx, (loc, name)) in frames.iter().enumerate() {
                             let is_last = idx + 1 == count;
-                            eprint!("{}", format_frame(di, *loc, name, is_last));
+                            stderr_print(format_frame(di, *loc, name, is_last));
                         }
                     }
                     "rs" => {
@@ -353,7 +355,7 @@ fn print_current_context(host: &mut dyn DebugHost) {
     let meta = di.chunk(loc.chunk);
     let span_here = meta.line_table.span_at(loc.pc);
     if span_here.file_id != u32::MAX {
-        eprint!("{}", format_frame(di, loc, &name, true));
+        stderr_print(format_frame(di, loc, &name, true));
         return;
     }
     // Find next statement at or after current pc
@@ -368,10 +370,10 @@ fn print_current_context(host: &mut dyn DebugHost) {
         }
     }
     if let Some(nl) = next_loc {
-        eprint!("{}", format_frame(di, nl, &name, true));
+        stderr_print(format_frame(di, nl, &name, true));
     } else {
         // Fallback to previous behavior
-        eprint!("{}", format_frame(di, loc, &name, true));
+        stderr_print(format_frame(di, loc, &name, true));
     }
 }
 

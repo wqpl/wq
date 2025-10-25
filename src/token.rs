@@ -111,8 +111,6 @@ impl Token {
 pub fn fmt_tokens_table(tokens: &[Token]) -> String {
     // Column order matches your example
     let headers = ["type", "pos", "line", "col", "start", "end"];
-
-    // Collect rows as strings first so we can measure widths
     let mut rows: Vec<[String; 6]> = Vec::with_capacity(tokens.len());
     for t in tokens {
         rows.push([

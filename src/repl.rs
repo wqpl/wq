@@ -13,7 +13,7 @@ use crate::{
     post_parser::{folder, resolver::Resolver},
     repl::{
         repl_engine::ReplEngine,
-        stdio::{ReplStdin, set_stdin, stderr_println},
+        stdio::{ReplStdin, set_stdin, stderr_print, stderr_println},
     },
     token::fmt_tokens_table,
     value::{Value, WqResult},
@@ -314,7 +314,7 @@ impl VmEvaluator {
         let di = &self.vm.debug_info;
         for (idx, (loc, name)) in frames.iter().enumerate() {
             let is_last = idx + 1 == frames.len();
-            stderr_println(wqdb::format_frame(di, *loc, name, is_last));
+            stderr_print(wqdb::format_frame(di, *loc, name, is_last));
         }
     }
 
