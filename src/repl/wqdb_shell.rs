@@ -6,29 +6,23 @@ use crate::{
     wqdb::{CodeLoc, DebugHost, format_frame},
 };
 
-/// Enter the wqdb shell after a crash to allow post-mortem inspection.
-/// Prints a short notice, then reuses the interactive shell.
-pub fn wqdb_shell_after_crash(host: &mut dyn DebugHost) {
+/// Enter wqdb shell after a crash for inspection.
+/// Print a short notice, then reuse the interactive shell.
+pub fn wqdb_shell_after_err(host: &mut dyn DebugHost) {
     stderr_println(format!(
         "{}: {}",
         "wqdb".bold().bright_magenta(),
         "error occurred".red(),
     ));
-    // Reuse the regular shell loop; stepping/continue won’t resume execution after crash
     wqdb_shell(host);
 }
 
 pub fn wqdb_shell(host: &mut dyn DebugHost) {
     let mut dbg_line = 1usize;
-    // Print current context
-    // stderr_println(&format!(
-    //     "{}[{}] ",
-    //     "wqdb".bold().bright_magenta(),
-    //     dbg_line.to_string().bright_blue()
-    // ));
     print_current_context(host);
     peek_instructions(host, 1);
     loop {
+        #[cfg(not(target_os = "windows"))]
         let prompt = format!(
             "{}[{}] ",
             "wqdb".bold().bright_magenta(),
@@ -178,7 +172,6 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                     //     }
                     // }
                     "bt" => {
-                        // print a simple backtrace from the current paused state
                         let frames = host.bt_frames();
                         let di = host.di();
                         let count = frames.len();
@@ -200,19 +193,15 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                         peek_instructions(host, n);
                     }
                     "lb" | "locals" => {
-                        // Print current frame locals using debug names when available
                         let locals = host.dbg_locals();
                         if locals.is_empty() {
                             stderr_println("no locals");
                             continue;
                         }
-
                         let di = host.di();
                         let loc = host.loc();
                         let meta = di.chunk(loc.chunk);
-
                         let mut rows: Vec<(String, String, &str)> = Vec::new();
-
                         match &meta.local_names {
                             Some(names) => {
                                 for (i, v) in locals {
@@ -229,19 +218,15 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                                 }
                             }
                         }
-
                         // Measure column widths
                         let mut name_w = "name".len();
                         let mut value_w = "value".len();
                         let mut type_w = "type".len();
-
                         for (name, value, ty) in &rows {
                             name_w = name_w.max(name.len());
                             value_w = value_w.max(value.len());
                             type_w = type_w.max(ty.len());
                         }
-
-                        // Print header and rule
                         stderr_println(format!(
                             "{:<name_w$}  {:<value_w$}  {:<type_w$}",
                             "name",
@@ -260,8 +245,6 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                             value_w = value_w,
                             type_w = type_w
                         ));
-
-                        // Print rows
                         for (name, value, ty) in rows {
                             stderr_println(format!(
                                 "{:<name_w$}  {:<value_w$}  {:<type_w$}",
@@ -275,25 +258,19 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                         }
                     }
                     "gb" | "globals" => {
-                        // Print global environment variables
                         let globals = host.dbg_globals();
                         if globals.is_empty() {
                             stderr_println("no globals");
                             continue;
                         }
-
-                        // Compute widths
                         let mut name_w = "name".len();
                         let mut value_w = "value".len();
                         let mut type_w = "type".len();
-
                         for (name, v) in &globals {
                             name_w = name_w.max(name.len());
                             value_w = value_w.max(v.to_string().len());
                             type_w = type_w.max(v.type_name().len());
                         }
-
-                        // Print header
                         stderr_println(format!(
                             "{:<name_w$}  {:<value_w$}  {:<type_w$}",
                             "name",
@@ -312,8 +289,6 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                             value_w = value_w,
                             type_w = type_w
                         ));
-
-                        // Print rows
                         for (name, v) in &globals {
                             stderr_println(format!(
                                 "{:<name_w$}  {:<value_w$}  {:<type_w$}",
@@ -326,7 +301,6 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                             ));
                         }
                     }
-
                     "h" | "help" => {
                         stderr_println(include_str!("../../d/wqdbman"));
                     }
@@ -350,8 +324,8 @@ fn print_current_context(host: &mut dyn DebugHost) {
     let di = host.di();
     let loc = host.loc();
     let name = di.chunk(loc.chunk).name.to_string();
-    // If current PC does not have a mapped span yet (e.g., pc 0), try to
-    // present the next statement span to show a useful context.
+    // If current PC does not have a mapped span yet (e.g., pc 0),
+    // Try to present the next statement span to show a useful context.
     let meta = di.chunk(loc.chunk);
     let span_here = meta.line_table.span_at(loc.pc);
     if span_here.file_id != u32::MAX {

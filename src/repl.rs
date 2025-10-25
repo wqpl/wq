@@ -13,7 +13,7 @@ use crate::{
     post_parser::{folder, resolver::Resolver},
     repl::{
         repl_engine::ReplEngine,
-        stdio::{ReplStdin, set_stdin, stderr_print, stderr_println},
+        stdio::{ReplStdin, set_stdin, stderr_println},
     },
     token::fmt_tokens_table,
     value::{Value, WqResult},
@@ -314,7 +314,7 @@ impl VmEvaluator {
         let di = &self.vm.debug_info;
         for (idx, (loc, name)) in frames.iter().enumerate() {
             let is_last = idx + 1 == frames.len();
-            stderr_print(wqdb::format_frame(di, *loc, name, is_last));
+            stderr_println(wqdb::format_frame(di, *loc, name, is_last));
         }
     }
 
@@ -331,10 +331,8 @@ fn repl_on_pause(host: &mut dyn DebugHost) {
     wqdb_shell::wqdb_shell(host);
 }
 
-/// Enter wqdb post-mortem shell after a crash while keeping the session alive.
-/// This exposes the inner VM as a DebugHost to the wqdb shell for inspection.
-pub fn enter_wqdb_post_mortem(eval: &mut VmEvaluator) {
-    wqdb_shell::wqdb_shell_after_crash(&mut eval.vm);
+pub fn enter_wqdb_after_err(eval: &mut VmEvaluator) {
+    wqdb_shell::wqdb_shell_after_err(&mut eval.vm);
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@
 use std::{
     cell::RefCell,
     collections::HashSet,
-    error, fmt, fs, io,
+    fs, io,
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -45,9 +45,7 @@ where
     T: ReplEngine,
 {
     let mut loader = Loader::new(evaluator, bt, silent);
-    // Snapshot before
     let before: GlobalMap = loader.evaluator.env_vars().clone();
-    // Use a virtual label and delegate to the same streaming evaluator
     let display_label = "<repl>".to_string();
     let _frame = loader.push_frame(display_label.clone());
     loader.evaluator.dbg_set_source(&display_label, content);
@@ -77,9 +75,9 @@ pub struct LoadReport {
 
 #[derive(Debug)]
 pub enum LoadErrorKind {
-    Cycle(PathBuf),           // cycle detected while loading path
-    Io(PathBuf, io::Error),   // cannot read path: io_error
-    Eval(String, Box<WqErr>), // eval error in label: wq_error
+    Cycle(PathBuf),
+    Io(PathBuf, io::Error),
+    Eval(String, Box<WqErr>),
 }
 
 #[derive(Debug)]
@@ -95,28 +93,35 @@ impl LoadError {
             stack: stack.to_vec(),
         }
     }
-}
 
-impl fmt::Display for LoadErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LoadErrorKind::Cycle(path) => {
-                write!(f, "cycle detected while loading {}", path.display())
-            }
-            LoadErrorKind::Io(path, e) => write!(f, "cannot read {}: {}", path.display(), e),
-            LoadErrorKind::Eval(label, e) => write!(f, "eval error in {label}: {e}"),
+    pub fn is_runtime(&self) -> bool {
+        match &self.kind {
+            LoadErrorKind::Eval(_, e) => e.err_type.is_runtime(),
+            _ => false,
         }
     }
 }
 
-impl fmt::Display for LoadError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.kind)
-    }
-}
+// impl fmt::Display for LoadErrorKind {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         match self {
+//             LoadErrorKind::Cycle(path) => {
+//                 write!(f, "cannot load {}: cycling", path.display())
+//             }
+//             LoadErrorKind::Io(path, e) => write!(f, "cannot read {}: {}", path.display(), e),
+//             LoadErrorKind::Eval(label, e) => write!(f, "eval error at {label}: {e}"),
+//         }
+//     }
+// }
 
-impl error::Error for LoadError {}
-impl error::Error for LoadErrorKind {}
+// impl fmt::Display for LoadError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(f, "{}", self.kind)
+//     }
+// }
+
+// impl error::Error for LoadError {}
+// impl error::Error for LoadErrorKind {}
 
 // Embedded registry =============================================================================
 
@@ -178,9 +183,8 @@ pub struct Loader<'a, T: ReplEngine> {
     evaluator: &'a mut T,
     bt: bool,
     silent: bool,
-    stack: Rc<RefCell<Vec<String>>>, // import stack for diagnostics (RAII-friendly)
-    warnings: Vec<String>,           // accumulated, returned in LoadReport
-    // Last successfully loaded label (file path or embedded virtual name)
+    stack: Rc<RefCell<Vec<String>>>,
+    warnings: Vec<String>,
     last_loaded_label: Option<String>,
     embedded_loaded: Rc<RefCell<HashSet<&'static str>>>,
 }
@@ -212,7 +216,6 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
             ));
         }
         let _guard = CycleGuard::new(loading, canonical.clone());
-        // Read from filesystem (embedded is triggered by directives only)
         let content = fs::read_to_string(path).map_err(|e| {
             LoadError::with_stack(
                 LoadErrorKind::Io(path.to_path_buf(), e),
@@ -221,20 +224,15 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
         })?;
         let display_label = path.display().to_string();
         let _frame = self.push_frame(display_label.clone());
-        // snapshot before
         let before: GlobalMap = self.evaluator.env_vars().clone();
-        // register source for debugger
         self.evaluator.dbg_set_source(&display_label, &content);
-        // stream-eval with meta directives and precomputed line offsets
         self.eval_streaming(
             &content,
             path.parent().unwrap_or_else(|| Path::new("")),
             &display_label,
             loading,
         )?;
-        // diff & report comparing full values
         let (new_bindings, overridden) = diff_bindings(self.evaluator.env_vars(), &before);
-        // record this as last loaded label
         self.last_loaded_label = Some(display_label.clone());
         Ok(LoadReport {
             label: display_label,
@@ -324,7 +322,6 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
             // Preserve original line to keep byte positions
             buffer.push_str(raw_line);
             buffer.push('\n');
-            // Skip evaluation on pure comment/blank lines
             if trimmed_all.is_empty() || trimmed_all.starts_with("//") {
                 continue;
             }
@@ -400,7 +397,7 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
             self.last_loaded_label = Some(script.virtual_name.to_string());
             Ok(())
         } else {
-            // Not embedded: fall back to a literal file and record a warning.
+            // fall back to a literal file and record a warning.
             self.warnings.push(format!(
                 "'{name}' is not found in embedded scripts; attempting to load as a file",
             ));

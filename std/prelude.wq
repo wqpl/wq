@@ -14,7 +14,10 @@ take:{[n;list]list[0..n]}
 drop:{[n;list]list[n..#list]}
 
 prod:{[xs]fold[{x*y};xs]}
+delta:{[x]$.[#x<=1;@r x];t:alloc(#x-1);N[#t;t[_n]:x[_n+1]-x[_n]];t}
 
 repeat:{[s;n]acc:();N[n;acc:acc,s];acc}
 replicate:{[f;n]N[#(l:alloc n);l[_n]:f[]];l}
-delta:{[x]$.[#x<=1;@r x];t:alloc(#x-1);N[#t;t[_n]:x[_n+1]-x[_n]];t}
+split:{[d;xs]acc:();temp:();N[#xs;$.[xs _n=d;
+  $.[unit? temp;@c];acc:acc,(,temp);temp:();@c];temp:temp,xs _n];acc:acc,temp}
+join:{[d;xs]fold[{x,d,y};xs]}

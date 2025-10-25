@@ -1,2 +1,2 @@
-!l <str>
+!p
 bfn[]|map{"\"",x,"\""}|join","|echo

@@ -742,9 +742,18 @@ impl Vm {
                         }
                         Err(e) => {
                             self.stack.truncate(stack_start);
-
+                            let mut err_list = vec![e.err_type.to_string().into_wq_value()];
+                            if let Some(m) = e.msg {
+                                err_list.push(m.into_wq_value());
+                            }
+                            if let Some(s) = e.src {
+                                err_list.push(s.into_wq_value());
+                            }
+                            for note in e.notes {
+                                err_list.push(note.into_wq_value());
+                            }
                             self.stack.push(Value::List(vec![
-                                e.to_string().into_wq_value(),
+                                Value::List(err_list),
                                 e.err_type.to_code().into_wq_value(),
                             ]));
                         }

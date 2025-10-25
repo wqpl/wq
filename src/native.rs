@@ -21,7 +21,7 @@ use wqpl::{
     repl::{
         VmEvaluator,
         box_mode::format_boxed,
-        enter_wqdb_post_mortem,
+        enter_wqdb_after_err,
         repl_engine::ReplEngine,
         stdio::{
             ReplStdin, StdinError, stdin_add_history, stdin_highlight_enabled, stdin_readline,
@@ -170,17 +170,14 @@ fn enter_repl(rtflags: RuntimeFlags) {
                         "!gb" | "!g" => {
                             match vm.get_environment() {
                                 Some(env) => {
-                                    // Compute widths
                                     let mut name_w = "name".len();
                                     let mut value_w = "value".len();
                                     let mut type_w = "type".len();
-
                                     for (name, v) in env {
                                         name_w = name_w.max(name.len());
                                         value_w = value_w.max(v.to_string().len());
                                         type_w = type_w.max(v.type_name().len());
                                     }
-
                                     eprintln!(
                                         "{:<name_w$}  {:<value_w$}  {:<type_w$}",
                                         "name",
@@ -190,7 +187,6 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                         value_w = value_w,
                                         type_w = type_w
                                     );
-
                                     eprintln!(
                                         "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
                                         "",
@@ -200,7 +196,6 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                         value_w = value_w,
                                         type_w = type_w
                                     );
-
                                     // Print rows
                                     for (name, v) in env {
                                         eprintln!(
@@ -354,17 +349,10 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                 );
                             } else {
                                 system_msg_printer::stderr(
-                                    format!("invalid magic command '{cmd}'"),
+                                    format!("invalid debug level '{rest}'"),
                                     system_msg_printer::MsgType::Error,
                                 );
                             }
-                            continue;
-                        }
-                        cmd if cmd.starts_with("!") => {
-                            system_msg_printer::stderr(
-                                format!("unknown magic command '{cmd}'"),
-                                system_msg_printer::MsgType::Error,
-                            );
                             continue;
                         }
                         "" => {
@@ -374,8 +362,6 @@ fn enter_repl(rtflags: RuntimeFlags) {
                         _ => {}
                     }
                 }
-                // If this is a directive line, hand it to hotchoco
-                // eprintln!("input={input}");
                 if buffer.is_empty() {
                     let t = input.trim_start();
                     if t.starts_with("!") {
@@ -388,7 +374,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             false,
                             rtflags.bt,
                         ) {
-                            Ok(report) => print_load_report_ui(&report),
+                            Ok(report) => print_load_report(&report),
                             Err(err) => {
                                 // Only treat EOF as a signal to continue buffering multi-line input
                                 if let hotchoco::LoadErrorKind::Eval(_, we) = &err.kind
@@ -398,7 +384,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                     buffer.push('\n');
                                     continue;
                                 }
-                                print_load_error_ui(&err, &mut vm, rtflags.bt);
+                                print_load_error(&err, &mut vm, rtflags.bt);
                             }
                         }
                         // move on to next prompt
@@ -475,9 +461,8 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             if rtflags.bt && error.err_type.is_runtime() {
                                 vm.dbg_print_bt();
                             }
-                            // If wqdb was active for this eval, enter post-mortem shell
-                            if wqdb_active_for_eval {
-                                enter_wqdb_post_mortem(&mut vm);
+                            if wqdb_active_for_eval && error.err_type.is_runtime() {
+                                enter_wqdb_after_err(&mut vm);
                             }
                             if let Some(st) = start_t {
                                 let d = st.elapsed();
@@ -522,22 +507,14 @@ fn exec_script<P: AsRef<Path>>(filename: P, rtflags: RuntimeFlags) {
     let mut vm = VmEvaluator::new();
     vm.set_debug_level(rtflags.debug_level);
     vm.set_stdin(Box::new(RustylineInput::new().unwrap()));
-    // if wqdb_mode {
-    // Enter wqdb persistently for script execution
     vm.set_wqdb(rtflags.wqdb);
-    // vm.arm_wqdb_next();
-    // }
     let loading = RefCell::new(HashSet::new());
-    // Use the loader to execute the script with proper debug source tracking
     match hotchoco::repl_load_script(&mut vm, filename, &loading, true, rtflags.bt) {
-        Ok(_) => {
-            // script exec should not print load report
-            // print_load_report_ui(&report)
-        }
+        Ok(_) => {}
         Err(err) => {
-            print_load_error_ui(&err, &mut vm, rtflags.bt);
-            if vm.is_wqdb_enabled() {
-                enter_wqdb_post_mortem(&mut vm);
+            print_load_error(&err, &mut vm, rtflags.bt);
+            if vm.is_wqdb_enabled() && err.is_runtime() {
+                enter_wqdb_after_err(&mut vm);
             }
         }
     }
@@ -551,13 +528,11 @@ fn exec_cmd(content: &str, rtflags: RuntimeFlags) {
     let loading = RefCell::new(HashSet::new());
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     match hotchoco::repl_eval_inline(&mut vm, content, &cwd, &loading, true, rtflags.bt) {
-        Ok(_report) => {
-            // silent
-        }
+        Ok(_report) => {}
         Err(err) => {
-            print_load_error_ui(&err, &mut vm, rtflags.bt);
-            if vm.is_wqdb_enabled() {
-                enter_wqdb_post_mortem(&mut vm);
+            print_load_error(&err, &mut vm, rtflags.bt);
+            if vm.is_wqdb_enabled() && err.is_runtime() {
+                enter_wqdb_after_err(&mut vm);
             }
         }
     }
@@ -622,68 +597,59 @@ fn dump_builtins() {
     println!();
 }
 
-fn two_col_item_values(pairs: &[(&str, String)], gutter: usize) -> String {
-    if pairs.is_empty() {
-        return String::new();
-    }
-
-    // Max key widths per column (even = left, odd = right)
-    let left_key_w = pairs
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| i % 2 == 0)
-        .map(|(_, (k, _))| k.len())
-        .max()
-        .unwrap_or(0);
-    let right_key_w = pairs
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| i % 2 == 1)
-        .map(|(_, (k, _))| k.len())
-        .max()
-        .unwrap_or(0);
-
-    // Label widths (including ": ")
-    let left_label_w = left_key_w + 2; // ": "
-    let right_label_w = right_key_w + 2;
-
-    // Build left cells with aligned value starts
-    let mut left_cells: Vec<String> = Vec::new();
-    for (i, (k, v)) in pairs.iter().enumerate() {
-        if i % 2 == 0 {
-            let label = format!("{}: ", k);
-            left_cells.push(format!("{:<lw$}{}", label, v, lw = left_label_w));
-        }
-    }
-
-    // Pad left cells so the right column always starts at the same x
-    let left_col_w = left_cells.iter().map(|s| s.len()).max().unwrap_or(0);
-
-    let mut out = String::new();
-    let rows = pairs.len().div_ceil(2);
-    for r in 0..rows {
-        let li = 2 * r;
-        let ri = li + 1;
-
-        // left cell: label-padded (values aligned) then cell-padded (column width)
-        let left_label = format!("{}: ", pairs[li].0);
-        let left_cell = format!("{:<lw$}{}", left_label, pairs[li].1, lw = left_label_w);
-        let left_pad = format!("{:<cw$}", left_cell, cw = left_col_w);
-
-        if ri < pairs.len() {
-            // right cell: align value start within the right column
-            let right_label = format!("{}: ", pairs[ri].0);
-            let right_cell = format!("{:<rw$}{}", right_label, pairs[ri].1, rw = right_label_w);
-            let _ = writeln!(out, "{}{}{}", left_pad, " ".repeat(gutter), right_cell);
-        } else {
-            let _ = writeln!(out, "{}", left_pad);
-        }
-    }
-
-    out
-}
-
 fn xray_info(v: &Value) -> String {
+    fn two_col_item_values(pairs: &[(&str, String)], gutter: usize) -> String {
+        if pairs.is_empty() {
+            return String::new();
+        }
+        // Max key widths per column (even = left, odd = right)
+        let left_key_w = pairs
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % 2 == 0)
+            .map(|(_, (k, _))| k.len())
+            .max()
+            .unwrap_or(0);
+        let right_key_w = pairs
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % 2 == 1)
+            .map(|(_, (k, _))| k.len())
+            .max()
+            .unwrap_or(0);
+        // Label widths (including ": ")
+        let left_label_w = left_key_w + 2; // ": "
+        let right_label_w = right_key_w + 2;
+        // Build left cells with aligned value starts
+        let mut left_cells: Vec<String> = Vec::new();
+        for (i, (k, v)) in pairs.iter().enumerate() {
+            if i % 2 == 0 {
+                let label = format!("{}: ", k);
+                left_cells.push(format!("{:<lw$}{}", label, v, lw = left_label_w));
+            }
+        }
+        let left_col_w = left_cells.iter().map(|s| s.len()).max().unwrap_or(0);
+        let mut out = String::new();
+        let rows = pairs.len().div_ceil(2);
+        for r in 0..rows {
+            let li = 2 * r;
+            let ri = li + 1;
+            // left cell: label-padded (values aligned) then cell-padded (column width)
+            let left_label = format!("{}: ", pairs[li].0);
+            let left_cell = format!("{:<lw$}{}", left_label, pairs[li].1, lw = left_label_w);
+            let left_pad = format!("{:<cw$}", left_cell, cw = left_col_w);
+            if ri < pairs.len() {
+                // right cell: align value start within the right column
+                let right_label = format!("{}: ", pairs[ri].0);
+                let right_cell = format!("{:<rw$}{}", right_label, pairs[ri].1, rw = right_label_w);
+                let _ = writeln!(out, "{}{}{}", left_pad, " ".repeat(gutter), right_cell);
+            } else {
+                let _ = writeln!(out, "{}", left_pad);
+            }
+        }
+        out
+    }
+
     let pairs = [
         ("count", format!("{}", v.len())),
         ("depth", format!("{}", v.depth())),
@@ -731,7 +697,7 @@ impl ReplStdin for RustylineInput {
     }
 }
 
-fn print_load_report_ui(report: &hotchoco::LoadReport) {
+fn print_load_report(report: &hotchoco::LoadReport) {
     for w in &report.warnings {
         system_msg_printer::stderr(format!("warning: {w}"), system_msg_printer::MsgType::Info);
     }
@@ -764,23 +730,23 @@ fn print_load_report_ui(report: &hotchoco::LoadReport) {
     }
 }
 
-fn print_load_error_ui<R: ReplEngine>(err: &hotchoco::LoadError, evaluator: &mut R, bt: bool) {
+fn print_load_error<R: ReplEngine>(err: &hotchoco::LoadError, evaluator: &mut R, bt: bool) {
     match &err.kind {
         hotchoco::LoadErrorKind::Cycle(path) => {
             system_msg_printer::stderr(
-                format!("Cannot load {}: cycling", path.display()),
+                format!("[hotchoco] cannot load {}: cycling", path.display()),
                 system_msg_printer::MsgType::Error,
             );
         }
         hotchoco::LoadErrorKind::Io(path, e) => {
             system_msg_printer::stderr(
-                format!("Cannot load {}: {}", path.display(), e),
+                format!("[hotchoco] cannot load {}: {}", path.display(), e),
                 system_msg_printer::MsgType::Error,
             );
         }
         hotchoco::LoadErrorKind::Eval(label, e) => {
             system_msg_printer::stderr(
-                format!("Error in {label}: {e}"),
+                format!("[hotchoco] eval error at {label}\n{e}"),
                 system_msg_printer::MsgType::Error,
             );
             if bt && e.err_type.is_runtime() {
@@ -790,7 +756,7 @@ fn print_load_error_ui<R: ReplEngine>(err: &hotchoco::LoadError, evaluator: &mut
     }
     if !err.stack.is_empty() {
         system_msg_printer::stderr(
-            format!("import stack: {}", err.stack.join(" -> ")),
+            format!("[hotchoco] import stack: {}", err.stack.join(" -> ")),
             system_msg_printer::MsgType::Info,
         );
     }

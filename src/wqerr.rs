@@ -78,7 +78,7 @@ impl WqErrType {
             W::Vm => "vm-error",
             W::Eof => "eof-err",
             W::Syntax => "syntax-err",
-            W::NotBound => "not-bound-err",
+            W::NotBound => "binding-err",
             W::Index => "index-err",
             W::Call => "call-err",
             W::Arity => "arity-err",
@@ -87,7 +87,7 @@ impl WqErrType {
             W::NumericOverflow => "numeric-overflow",
             W::ZeroDiv => "zero-div-err",
             W::Io => "io-err",
-            W::Encode => "encode-err",
+            W::Encode => "encoding-err",
             W::Exec => "exec-err",
             W::Raise => "raise",
         }
@@ -97,43 +97,10 @@ impl WqErrType {
         use WqErrType::*;
         match self {
             Vm => 1,
-            Eof => 2,
-            Syntax => 3,
-            NotBound => 4,
-            Index => 5,
-            Call => 6,
-            Arity => 7,
-            Domain => 8,
-            Length => 9,
-            NumericOverflow => 10,
-            ZeroDiv => 11,
-            Io => 12,
-            Encode => 13,
-            Exec => 14,
-            Raise => 15,
+            Eof | Syntax => 2,
+            NotBound | Index | Call | Arity | Domain | Length | NumericOverflow | ZeroDiv | Io
+            | Encode | Exec | Raise => 3,
         }
-    }
-
-    pub const fn from_code(code: u16) -> Option<Self> {
-        use WqErrType::*;
-        Some(match code {
-            1 => Vm,
-            2 => Eof,
-            3 => Syntax,
-            4 => NotBound,
-            5 => Index,
-            6 => Call,
-            7 => Arity,
-            8 => Domain,
-            9 => Length,
-            10 => NumericOverflow,
-            11 => ZeroDiv,
-            12 => Io,
-            13 => Encode,
-            14 => Exec,
-            15 => Raise,
-            _ => return None,
-        })
     }
 }
 
@@ -145,35 +112,30 @@ impl std::fmt::Display for WqErrType {
 
 impl std::fmt::Display for WqErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} ({}): ",
-            self.err_type.name().bold().underline(),
-            self.err_type.to_code()
-        )?;
+        let mut output = String::new();
+        use std::fmt::Write;
+
+        write!(output, "{}: ", self.err_type.name().bold().underline())?;
         if let Some(m) = &self.msg {
-            write!(f, "{m}")?;
+            write!(output, "{m}")?;
         }
-        writeln!(f)?;
+        writeln!(output)?;
         if let Some(s) = &self.src {
-            writeln!(f, "@ {s}")?;
+            writeln!(output, "@ {s}")?;
         }
         if !self.notes.is_empty() {
-            // writeln!(f, "notes:")?;
             for note in self.notes.iter() {
-                // let prefix = format!("  {}. ", i + 1); // e.g. "  1. "
                 let prefix = "● ";
-                let cont = " ".repeat(prefix.chars().count()); // same width, spaces only
-
+                let cont = " ".repeat(prefix.chars().count());
                 let mut lines = note.lines();
                 if let Some(first) = lines.next() {
-                    writeln!(f, "{}{}", prefix, first)?;
+                    writeln!(output, "{}{}", prefix, first)?;
                 }
                 for line in lines {
-                    writeln!(f, "{}{}", cont, line)?;
+                    writeln!(output, "{}{}", cont, line)?;
                 }
             }
         }
-        Ok(())
+        write!(f, "{}", output.trim_end_matches('\n'))
     }
 }

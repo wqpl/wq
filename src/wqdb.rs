@@ -416,52 +416,57 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
         }
         if span.file_id == u32::MAX {
             if let Some(sf) = di.file(meta.file_id) {
-                let mut out = format!("{bullet} at {name}, {}:?:?\n", sf.path)
+                let mut out = format!("{bullet} at {name}, {}:?:?", sf.path)
                     .bright_yellow()
                     .to_string();
+                out.push('\n');
                 out.push_str(&gutter);
-                out.push_str(&format!("{:>4} -> ?\n", "?"));
+                out.push_str(&format!("{:>4} -> ?", "?"));
                 return out;
             }
-            let mut out = format!("{bullet} at {name}, ?:?:?\n")
+            let mut out = format!("{bullet} at {name}, ?:?:?")
                 .bright_yellow()
                 .to_string();
+            out.push('\n');
             out.push_str(&gutter);
-            out.push_str(&format!("{:>4} -> ?\n", "?"));
+            out.push_str(&format!("{:>4} -> ?", "?"));
             return out;
         }
     }
     if let Some(sf) = di.file(span.file_id) {
         let (l, c) = sf.line_col(span.start as usize);
-        let mut out = format!("{bullet} at {name}, {}:{}:{}\n", sf.path, l, c)
+        let mut out = format!("{bullet} at {name}, {}:{}:{}", sf.path, l, c)
             .bright_yellow()
             .to_string();
+        out.push('\n');
         // Clamp 1-based line numbers correctly within [1, total]
         let total = sf.line_starts.len();
         let lo_ln = if l > 1 { l - 1 } else { 1 };
         let hi_ln = if l < total { l + 1 } else { total };
         for ln in lo_ln..=hi_ln {
+            out.push_str(&gutter);
             if ln == l {
-                out.push_str(&gutter);
                 out.push_str(
-                    &format!("{:>4} -> {}\n", ln, sf.line_snippet(ln).trim())
+                    &format!("{:>4} -> {}", ln, sf.line_snippet(ln).trim())
                         .green()
                         .bold()
                         .to_string(),
                 );
             } else {
-                out.push_str(&gutter);
-                out.push_str(&format!("{:>4}    {}\n", ln, sf.line_snippet(ln).trim()));
+                out.push_str(&format!("{:>4}    {}", ln, sf.line_snippet(ln).trim()));
             }
+            out.push('\n');
         }
+        out.pop(); // Remove the last newline
         out
     } else {
         // Unknown file but known chunk
-        let mut out = format!("{bullet} at {}, chunk {:?}, pc {}\n", name, meta.id, loc.pc)
+        let mut out = format!("{bullet} at {}, chunk {:?}, pc {}", name, meta.id, loc.pc)
             .yellow()
             .to_string();
+        out.push('\n');
         out.push_str(&gutter);
-        out.push_str(&format!("{:>4} -> ?\n", "?"));
+        out.push_str(&format!("{:>4} -> ?", "?"));
         out
     }
 }

@@ -1,11 +1,10 @@
-#[cfg(target_arch = "wasm32")]
-use std::cell::RefCell;
+#[cfg(not(target_arch = "wasm32"))]
+use once_cell::sync::Lazy;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Mutex;
 
-// Use sync Lazy for native; wasm uses thread-local cells instead
-#[cfg(not(target_arch = "wasm32"))]
-use once_cell::sync::Lazy;
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
 
 #[derive(Debug)]
 pub enum StdinError {
