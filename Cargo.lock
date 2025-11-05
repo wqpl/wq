@@ -1022,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "wqpl"
-version = "0.7.0-rc2"
+version = "0.7.0"
 dependencies = [
  "ahash",
  "anyhow",
