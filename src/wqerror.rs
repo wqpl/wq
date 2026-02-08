@@ -1,15 +1,15 @@
 use crate::colored::Colorize;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct WqErr {
-    pub err_type: WqErrType,
+pub struct WqError {
+    pub err_type: WqErrorType,
     pub src: Option<String>,
     pub msg: Option<String>,
     pub notes: Vec<String>,
 }
 
-impl WqErr {
-    pub fn new(err_type: WqErrType) -> Self {
+impl WqError {
+    pub fn new(err_type: WqErrorType) -> Self {
         Self {
             err_type,
             src: None,
@@ -40,7 +40,7 @@ impl WqErr {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum WqErrType {
+pub enum WqErrorType {
     Vm,
 
     Eof,
@@ -62,18 +62,18 @@ pub enum WqErrType {
     Raise,
 }
 
-impl WqErrType {
+impl WqErrorType {
     pub const fn is_runtime(&self) -> bool {
         !self.is_compile_time()
     }
 
     pub const fn is_compile_time(&self) -> bool {
-        use WqErrType as W;
+        use WqErrorType as W;
         matches!(self, W::Eof | W::Syntax)
     }
 
     pub const fn name(&self) -> &'static str {
-        use WqErrType as W;
+        use WqErrorType as W;
         match self {
             W::Vm => "vm-error",
             W::Eof => "eof-err",
@@ -94,7 +94,7 @@ impl WqErrType {
     }
 
     pub const fn to_code(&self) -> u16 {
-        use WqErrType::*;
+        use WqErrorType::*;
         match self {
             Vm => 1,
             Eof | Syntax => 2,
@@ -104,13 +104,13 @@ impl WqErrType {
     }
 }
 
-impl std::fmt::Display for WqErrType {
+impl std::fmt::Display for WqErrorType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.name())
     }
 }
 
-impl std::fmt::Display for WqErr {
+impl std::fmt::Display for WqError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut output = String::new();
         use std::fmt::Write;

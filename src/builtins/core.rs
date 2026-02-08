@@ -1,14 +1,12 @@
 use crate::{
     builtins::{
-        BuiltinEnum, Builtins,
-        wqerr_ext::{check_arity, type_mismatch},
+        BuiltinEnum,
+        wqerror_helper::{check_arity, type_mismatch},
     },
-    repl::stdio::{
-        StdinError, stdin_readline, stdin_with_highlight_off, stdout_print, stdout_println,
-    },
+    stdio::{StdinError, stdin_readline, stdin_with_highlight_off, stdout_print, stdout_println},
     value::{Excerpt, Value, WqResult, into_wq_str},
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use num_bigint::BigInt;
@@ -57,15 +55,15 @@ pub fn input(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         Ok(line) => Ok(into_wq_str(line)),
         Err(StdinError::Eof) => Ok(Value::unit()),
         Err(StdinError::Interrupted) => Ok(Value::unit()),
-        Err(StdinError::Other(e)) => Err(WqErr::new(WqErrType::Io)
+        Err(StdinError::Other(e)) => Err(WqError::new(WqErrorType::Io)
             .src(BuiltinEnum::Input)
             .attach_note(format!("original error: {}", e))),
     }
 }
 
-pub fn bfn(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
+pub fn bfn(vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     check_arity(BuiltinEnum::Bfn, [0], args)?;
-    let mut funcs = Builtins::new().list_functions();
+    let mut funcs = vm.builtins.list_functions();
     funcs.sort();
     let funcstr = funcs.into_iter().map(into_wq_str).collect();
     Ok(Value::List(funcstr))
@@ -86,8 +84,8 @@ pub fn ord(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
 }
 
 pub fn int(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
-    fn unexpected_base() -> WqErr {
-        WqErr::new(WqErrType::Domain)
+    fn unexpected_base() -> WqError {
+        WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Int)
             .msg("unexpected base")
             .attach_note("base should not be provided when converting int")
@@ -100,7 +98,7 @@ pub fn int(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         [v] => (v, None),
         [v, Value::Int(b)] if (2..=36).contains(b) => (v, Some(u32::try_from(*b).unwrap())),
         [_, v2] => {
-            return Err(WqErr::new(WqErrType::Domain)
+            return Err(WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Int)
                 .msg("expected valid base")
                 .attach_note("valid base is int in 2..=36")
@@ -156,14 +154,14 @@ pub fn int(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
             // ignore underscores
             let digits: String = rest.chars().filter(|&c| c != '_').collect();
             if digits.is_empty() {
-                return Err(WqErr::new(WqErrType::Domain)
+                return Err(WqError::new(WqErrorType::Domain)
                     .src(BuiltinEnum::Int)
                     .msg("expected valid int literal")
                     .at_arg(0)
                     .attach_note("digits are required after optional sign or prefix"));
             }
             let mut mag = BigInt::from_str_radix(&digits, base).map_err(|e| {
-                WqErr::new(WqErrType::Domain)
+                WqError::new(WqErrorType::Domain)
                     .src(BuiltinEnum::Int)
                     .msg("expected valid int literal")
                     .at_arg(0)
@@ -231,12 +229,12 @@ pub fn hex(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
 pub fn raise(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     check_arity(BuiltinEnum::Raise, [0, 1], args)?;
     match args.len() {
-        0 => Err(WqErr::new(WqErrType::Raise).src(BuiltinEnum::Raise)),
+        0 => Err(WqError::new(WqErrorType::Raise).src(BuiltinEnum::Raise)),
         1 => {
             let msg = args[0]
                 .try_to_string()
                 .map_err(|e| e.src(BuiltinEnum::Raise))?;
-            Err(WqErr::new(WqErrType::Raise)
+            Err(WqError::new(WqErrorType::Raise)
                 .src(BuiltinEnum::Raise)
                 .msg(msg))
         }
@@ -249,7 +247,7 @@ pub fn exec(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     use crate::value::IntoWqValue as _;
 
     if args.is_empty() {
-        return Err(WqErr::new(WqErrType::Arity)
+        return Err(WqError::new(WqErrorType::Arity)
             .src(BuiltinEnum::Exec)
             .msg("expected 1 or more args")
             .attach_note("require at least the program name"));
@@ -269,7 +267,7 @@ pub fn exec(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     // Set stdin to null
     use std::process::Stdio;
     let output = cmd.stdin(Stdio::null()).output().map_err(|e| {
-        WqErr::new(WqErrType::Exec)
+        WqError::new(WqErrorType::Exec)
             .src(BuiltinEnum::Exec)
             .msg(format!("cannot spawn '{}': {e}", parts[0]))
     })?;
@@ -285,7 +283,7 @@ pub fn exec(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
             err.truncate(8_192);
             err.push_str("...");
         }
-        return Err(WqErr::new(WqErrType::Exec)
+        return Err(WqError::new(WqErrorType::Exec)
             .src(BuiltinEnum::Exec)
             .msg("exec failed")
             .attach_note(format!("exit code: {code}"))

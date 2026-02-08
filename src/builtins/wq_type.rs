@@ -1,8 +1,8 @@
 use crate::{
-    builtins::{BuiltinEnum as BE, wqerr_ext::check_arity},
+    builtins::{BuiltinEnum as BE, wqerror_helper::check_arity},
     value::{Value, WqResult, into_wq_str},
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 pub fn type_of(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
@@ -14,7 +14,7 @@ pub fn to_symbol(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     check_arity(BE::Symbol, [1], args)?;
     let input = &args[0];
     if input.is_empty() {
-        return Err(WqErr::new(WqErrType::Domain)
+        return Err(WqError::new(WqErrorType::Domain)
             .src(BE::Symbol)
             .msg("symbol cannot be empty"));
     }

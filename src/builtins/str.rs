@@ -3,11 +3,11 @@ use std::borrow::Cow;
 use crate::{
     builtins::{
         BuiltinEnum as BE,
-        wqerr_ext::{check_arity, type_mismatch},
+        wqerror_helper::{check_arity, type_mismatch},
     },
     value::{IntoWqValue, Value, WqResult},
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use unicode_segmentation::UnicodeSegmentation;
@@ -52,7 +52,7 @@ pub fn fmt(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                         i += 2;
                     }
                     _ => {
-                        return Err(WqErr::new(WqErrType::Domain)
+                        return Err(WqError::new(WqErrorType::Domain)
                             .src(BE::Fmt)
                             .msg("unescaped '{'; use '{{' for a literal or '{}' for a placeholder")
                             .attach_note(format!("at template pos {i}"))
@@ -63,7 +63,7 @@ pub fn fmt(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                 match fmt_chars.get(i + 1) {
                     Some(Value::Char('}')) => i += 2, // "}}" -> literal
                     _ => {
-                        return Err(WqErr::new(WqErrType::Domain)
+                        return Err(WqError::new(WqErrorType::Domain)
                             .src(BE::Fmt)
                             .msg("unescaped '{'; use '{{' for a literal or '{}' for a placeholder")
                             .attach_note(format!("at template pos {i}"))
@@ -81,18 +81,18 @@ pub fn fmt(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     // Runtime check
     let fmt_chars = match args.first() {
         Some(s) => s.as_char_list().ok_or_else(|| {
-            WqErr::new(WqErrType::Domain)
+            WqError::new(WqErrorType::Domain)
                 .src(BE::Fmt)
                 .msg("expected char or list<char>")
                 .at_arg(0)
         })?,
-        None => return Err(WqErr::new(WqErrType::Arity).msg("expected at least 1 arg, got 0")),
+        None => return Err(WqError::new(WqErrorType::Arity).msg("expected at least 1 arg, got 0")),
     };
     // Pre-count placeholders for arity errors
     let needed = count_placeholders(&fmt_chars)?;
     let provided = args.len().saturating_sub(1);
     if provided != needed {
-        return Err(WqErr::new(WqErrType::Arity)
+        return Err(WqError::new(WqErrorType::Arity)
             .src(BE::Fmt)
             .msg(format!("expected {needed}, got {provided}")));
     }

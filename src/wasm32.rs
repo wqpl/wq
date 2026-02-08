@@ -6,20 +6,18 @@ use std::{
 };
 
 use crate::{
+    apps::evaluator::default::DefaultEvaluator,
     builtins::Builtins,
     // create_boxed_text,
-    repl::box_mode::format_boxed,
-    repl::{
-        VmEvaluator,
-        stdio::{ReplStderr, ReplStdin, ReplStdout, StdinError, set_stderr, set_stdin, set_stdout},
-    },
-    wqerr::WqErrType,
+    helpers::box_mode::format_boxed,
+    stdio::{StdinError, WqStderr, WqStdin, WqStdout, set_stderr, set_stdin, set_stdout},
+    wqerror::WqErrorType,
 };
 
 use js_sys::Function;
 use wasm_bindgen::prelude::*;
 
-// ===================== JS stream adapters =====================
+// JS stream adapters ====================================================================================
 
 struct JsStdout {
     cb: Function,
@@ -39,25 +37,29 @@ unsafe impl Send for JsStdout {}
 unsafe impl Send for JsStderr {}
 unsafe impl Send for JsStdin {}
 
-impl ReplStdout for JsStdout {
+impl WqStdout for JsStdout {
     fn print(&mut self, s: &str) {
         let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(s));
     }
     fn println(&mut self, s: &str) {
-        let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(s));
+        let mut out = s.to_owned();
+        out.push('\n');
+        let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(&out));
     }
 }
 
-impl ReplStderr for JsStderr {
+impl WqStderr for JsStderr {
     fn eprint(&mut self, s: &str) {
         let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(s));
     }
     fn eprintln(&mut self, s: &str) {
-        let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(s));
+        let mut out = s.to_owned();
+        out.push('\n');
+        let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(&out));
     }
 }
 
-impl ReplStdin for JsStdin {
+impl WqStdin for JsStdin {
     fn readline(&mut self, prompt: &str) -> Result<String, StdinError> {
         match self.cb.call1(&JsValue::NULL, &JsValue::from_str(prompt)) {
             Ok(val) => {
@@ -82,7 +84,7 @@ impl ReplStdin for JsStdin {
     }
 }
 
-// ===================== Global std stream setters =====================
+// Global std stream setters ===============================================================
 
 #[wasm_bindgen]
 pub fn set_stdout_callback(cb: Option<Function>) {
@@ -118,7 +120,7 @@ pub fn set_stdin_callback(cb: Option<Function>) {
     }
 }
 
-// ===================== Session API =====================
+// wq Session API ====================================================================================
 
 thread_local! {
     static BOX_MODE: Cell<bool> = const { Cell::new(false) };
@@ -126,7 +128,7 @@ thread_local! {
 
 #[wasm_bindgen]
 pub struct WqSession {
-    vm: RefCell<VmEvaluator>,
+    vm: RefCell<DefaultEvaluator>,
 }
 
 #[wasm_bindgen]
@@ -134,7 +136,7 @@ impl WqSession {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WqSession {
         WqSession {
-            vm: RefCell::new(VmEvaluator::new()),
+            vm: RefCell::new(DefaultEvaluator::new()),
         }
     }
 
@@ -165,12 +167,24 @@ impl WqSession {
         }
     }
 
-    pub fn set_debug_level(&self, level: u8) {
-        self.vm.borrow_mut().set_debug_level(level);
+    pub fn set_debug_flags(&self, spec: &str) -> Result<(), JsValue> {
+        match crate::debug_flags::DebugFlags::parse(spec) {
+            Ok(flags) => {
+                self.vm.borrow_mut().set_debug_flags(flags);
+                Ok(())
+            }
+            Err(e) => Err(JsValue::from_str(&e)),
+        }
     }
 
-    pub fn get_debug_level(&self) -> u8 {
-        self.vm.borrow().get_debug_level()
+    pub fn get_debug_flags(&self) -> String {
+        let flags = self.vm.borrow().get_debug_flags();
+        let names = flags.display_names();
+        if names.is_empty() {
+            "off".to_string()
+        } else {
+            names.join(",")
+        }
     }
 
     pub fn get_bt_mode(&self) {
@@ -277,7 +291,6 @@ pub fn get_wq_ver() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-/// Help/refcard as a boxed string (web expects a string to append)
 #[wasm_bindgen]
 pub fn get_help_doc() -> String {
     // create_boxed_text(include_str!("../d/refcard"), 2)
@@ -297,24 +310,27 @@ pub fn get_builtins() -> String {
 pub fn get_err_codes() -> String {
     let mut out = String::new();
     let all: &[(u16, &str)] = &[
-        (WqErrType::Vm.to_code(), WqErrType::Vm.name()),
-        (WqErrType::Eof.to_code(), WqErrType::Eof.name()),
-        (WqErrType::Syntax.to_code(), WqErrType::Syntax.name()),
-        (WqErrType::NotBound.to_code(), WqErrType::NotBound.name()),
-        (WqErrType::Index.to_code(), WqErrType::Index.name()),
-        (WqErrType::Call.to_code(), WqErrType::Call.name()),
-        (WqErrType::Arity.to_code(), WqErrType::Arity.name()),
-        (WqErrType::Domain.to_code(), WqErrType::Domain.name()),
-        (WqErrType::Length.to_code(), WqErrType::Length.name()),
+        (WqErrorType::Vm.to_code(), WqErrorType::Vm.name()),
+        (WqErrorType::Eof.to_code(), WqErrorType::Eof.name()),
+        (WqErrorType::Syntax.to_code(), WqErrorType::Syntax.name()),
         (
-            WqErrType::NumericOverflow.to_code(),
-            WqErrType::NumericOverflow.name(),
+            WqErrorType::NotBound.to_code(),
+            WqErrorType::NotBound.name(),
         ),
-        (WqErrType::ZeroDiv.to_code(), WqErrType::ZeroDiv.name()),
-        (WqErrType::Io.to_code(), WqErrType::Io.name()),
-        (WqErrType::Encode.to_code(), WqErrType::Encode.name()),
-        (WqErrType::Exec.to_code(), WqErrType::Exec.name()),
-        (WqErrType::Raise.to_code(), WqErrType::Raise.name()),
+        (WqErrorType::Index.to_code(), WqErrorType::Index.name()),
+        (WqErrorType::Call.to_code(), WqErrorType::Call.name()),
+        (WqErrorType::Arity.to_code(), WqErrorType::Arity.name()),
+        (WqErrorType::Domain.to_code(), WqErrorType::Domain.name()),
+        (WqErrorType::Length.to_code(), WqErrorType::Length.name()),
+        (
+            WqErrorType::NumericOverflow.to_code(),
+            WqErrorType::NumericOverflow.name(),
+        ),
+        (WqErrorType::ZeroDiv.to_code(), WqErrorType::ZeroDiv.name()),
+        (WqErrorType::Io.to_code(), WqErrorType::Io.name()),
+        (WqErrorType::Encode.to_code(), WqErrorType::Encode.name()),
+        (WqErrorType::Exec.to_code(), WqErrorType::Exec.name()),
+        (WqErrorType::Raise.to_code(), WqErrorType::Raise.name()),
     ];
     // width calc
     let w_code = all
@@ -354,5 +370,3 @@ fn col_wrap(items: &[String], columns: usize, gutter: usize) -> String {
     }
     out
 }
-
-// (no explicit env formatter type-bound to internal GlobalMap to avoid visibility issues)

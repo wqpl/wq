@@ -36,6 +36,11 @@ impl Value {
     /// Index into a list or dict
     pub fn index(&self, key: &Value) -> Option<Value> {
         match (self, key) {
+            // atom[x] ================================================================
+            (atom, Value::Int(i)) if atom.is_atom() => normalize_idx(*i, 1).map(|_| atom.clone()),
+            (atom, Value::BigInt(i)) if atom.is_atom() => {
+                normalize_idx(i.to_i64()?, 1).map(|_| atom.clone())
+            }
             // list[x] ================================================================
             (Value::List(items), Value::Int(i)) => {
                 let idx = normalize_idx(*i, items.len())?;

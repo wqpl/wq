@@ -1,15 +1,15 @@
 use crate::{
-    builtins::{BuiltinEnum as BE, wqerr_ext::check_arity},
-    repl::stdio::stdout_println,
+    builtins::{BuiltinEnum as BE, wqerror_helper::check_arity},
+    stdio::stdout_println,
     value::{Value, WqResult},
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use indexmap::IndexMap;
 
 pub fn show_table(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
-    check_arity(BE::Showt, [1], args)?;
+    check_arity(BE::Showtable, [1], args)?;
     let val = &args[0];
     if let Value::Dict(map) = val {
         let mut wrapped: IndexMap<String, Value> = IndexMap::new();
@@ -38,7 +38,7 @@ pub fn show_table(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         print_table(&headers, &rows);
         return Ok(Value::unit());
     }
-    Err(WqErr::new(WqErrType::Domain).src(BE::Showt).msg("invalid table, expected (a dict), (a list of dicts), (a dict of lists), or (a dict of dicts)"))
+    Err(WqError::new(WqErrorType::Domain).src(BE::Showtable).msg("invalid table, expected (a dict), (a list of dicts), (a dict of lists), or (a dict of dicts)"))
 }
 
 fn parse_list_of_dicts(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {

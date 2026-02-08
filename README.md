@@ -1,6 +1,7 @@
 ```plaintext
 wq (c)tttiw (l)MIT
-https://codeberg.org/wqpl
+Site   https://wq-pl.com
+Source https://codeberg.org/wqpl
 
 wq               repl
 wq -h            usage help
@@ -21,5 +22,5 @@ fib 90
 ```
 
 ```plaintext
-bugs/questions/suggestions -> https://codeberg.org/wqpl/wq/issues
+bug reports/questions/suggestions -> https://codeberg.org/wqpl/wq/issues
 ```

@@ -10,13 +10,13 @@ use std::{
 use crate::{
     builtins::{
         BuiltinEnum as BE,
-        wqerr_ext::{check_arity, type_mismatch},
+        wqerror_helper::{check_arity, type_mismatch},
     },
     value::{
         BufReadSeek, Excerpt, IntoWqValue, StreamHandle, Value, WqResult, WriteSeek, into_wq_str,
     },
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use indexmap::IndexMap;
@@ -50,24 +50,24 @@ impl OpenFlags {
     }
 }
 
-fn io_err(e: impl Error, src: BE) -> WqErr {
-    WqErr::new(WqErrType::Io).src(src).msg(e)
+fn io_err(e: impl Error, src: BE) -> WqError {
+    WqError::new(WqErrorType::Io).src(src).msg(e)
 }
 
-fn stream_not_readable(src: BE) -> WqErr {
-    WqErr::new(WqErrType::Io)
+fn stream_not_readable(src: BE) -> WqError {
+    WqError::new(WqErrorType::Io)
         .src(src)
         .msg("this stream is not readable")
 }
 
-fn stream_not_writeable(src: BE) -> WqErr {
-    WqErr::new(WqErrType::Io)
+fn stream_not_writeable(src: BE) -> WqError {
+    WqError::new(WqErrorType::Io)
         .src(src)
         .msg("this stream is not writeable")
 }
 
-fn stream_not_seekable(src: BE) -> WqErr {
-    WqErr::new(WqErrType::Io)
+fn stream_not_seekable(src: BE) -> WqError {
+    WqError::new(WqErrorType::Io)
         .src(src)
         .msg("this stream is not seekable")
 }
@@ -328,7 +328,7 @@ pub fn fseek(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         {
             w
         } else {
-            return Err(WqErr::new(WqErrType::Domain)
+            return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Fseek)
                 .msg("expected valid whence")
                 .at_arg(2)
@@ -339,7 +339,7 @@ pub fn fseek(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         0
     };
     if offset < 0 && whence == 0 {
-        return Err(WqErr::new(WqErrType::Domain)
+        return Err(WqError::new(WqErrorType::Domain)
             .src(BE::Fseek)
             .msg("offset must be non-negative when whence is 0")
             .at_arg(1)

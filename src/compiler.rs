@@ -1,15 +1,16 @@
+mod fuse;
+
 use std::{convert::TryFrom, sync::Arc};
 
 use crate::{
-    astnode::{AstNode, BinaryOperator, UnpackItem},
+    astnode::{AstNode, BinaryOperator, UnaryOperator, UnpackItem},
     builtins::Builtins,
     value::{IntoWqValue, Value, WqResult},
     vm::instruction::{Capture, Instruction},
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use indexmap::{IndexMap, IndexSet};
-// uuid no longer used; internal gensym provides unique names for temps
 
 pub struct Compiler {
     pub instructions: Vec<Instruction>,
@@ -54,9 +55,13 @@ struct LoopInfo {
 
 impl Compiler {
     pub fn new() -> Self {
+        Self::new_with_builtins(Builtins::new())
+    }
+
+    pub fn new_with_builtins(builtins: Builtins) -> Self {
         Self {
             instructions: Vec::new(),
-            builtins: Builtins::new(),
+            builtins,
             loop_stack: Vec::new(),
             fn_depth: 0,
             gensym: 0,
@@ -561,14 +566,23 @@ impl Compiler {
                 self.instructions[jump_end_pos] = Instruction::Jump(end);
             }
             AstNode::WLoop { condition, body } => {
+                let id = {
+                    let v = self.gensym;
+                    self.gensym = self.gensym.wrapping_add(1);
+                    v
+                };
+                let result_var = format!("--vm-w-loop-res-{id}");
+                self.instructions
+                    .push(Instruction::LoadConst(Value::unit()));
+                self.emit_store(&result_var);
                 let start = self.instructions.len();
                 self.compile(condition)?;
                 let jump_pos = self.instructions.len();
                 self.instructions.push(Instruction::JumpIfFalse(0));
                 self.loop_stack.push(LoopInfo::default());
                 self.compile(body)?;
+                self.emit_store(&result_var);
                 let continue_target = self.instructions.len();
-                self.instructions.push(Instruction::Pop);
                 self.instructions.push(Instruction::Jump(start));
                 let end = self.instructions.len();
                 self.instructions[jump_pos] = Instruction::JumpIfFalse(end);
@@ -580,8 +594,7 @@ impl Compiler {
                         self.instructions[pos] = Instruction::Jump(continue_target);
                     }
                 }
-                self.instructions
-                    .push(Instruction::LoadConst(Value::unit()));
+                self.emit_load(&result_var);
             }
             AstNode::NLoop { count, body } => {
                 // Unroll constant loops only when there is no control flow in body
@@ -686,6 +699,64 @@ impl Compiler {
                 }
                 self.emit_load(&result_var);
             }
+            AstNode::FLoop { iterable, body } => {
+                let id = {
+                    let v = self.gensym;
+                    self.gensym = self.gensym.wrapping_add(1);
+                    v
+                };
+                let iter_var = format!("--vm-f-loop-iter-{id}");
+                let count_var = format!("--vm-f-loop-count-{id}");
+                let result_var = format!("--vm-f-loop-res-{id}");
+                let old_var = format!("--vm-f-loop-old-{id}");
+                self.compile(iterable)?;
+                self.emit_store(&iter_var);
+                self.emit_load(&iter_var);
+                self.instructions
+                    .push(Instruction::UnaryOp(UnaryOperator::Count));
+                self.emit_store(&count_var);
+                self.instructions
+                    .push(Instruction::LoadConst(Value::Int(0)));
+                self.emit_store("_n");
+                self.instructions
+                    .push(Instruction::LoadConst(Value::unit()));
+                self.emit_store(&result_var);
+                let start = self.instructions.len();
+                self.emit_load("_n");
+                self.emit_load(&count_var);
+                self.instructions
+                    .push(Instruction::BinaryOp(BinaryOperator::LessThan));
+                let jump_pos = self.instructions.len();
+                self.instructions.push(Instruction::JumpIfFalse(0));
+                self.emit_load("_n");
+                self.emit_store(&old_var);
+                self.emit_load(&iter_var);
+                self.emit_load("_n");
+                self.instructions.push(Instruction::Index);
+                self.emit_store("_f");
+                self.loop_stack.push(LoopInfo::default());
+                self.compile(body)?;
+                self.emit_store(&result_var);
+                let continue_target = self.instructions.len();
+                self.emit_load(&old_var);
+                self.instructions
+                    .push(Instruction::LoadConst(Value::Int(1)));
+                self.instructions
+                    .push(Instruction::BinaryOp(BinaryOperator::Add));
+                self.emit_store("_n");
+                self.instructions.push(Instruction::Jump(start));
+                let end = self.instructions.len();
+                self.instructions[jump_pos] = Instruction::JumpIfFalse(end);
+                if let Some(info) = self.loop_stack.pop() {
+                    for pos in info.break_jumps {
+                        self.instructions[pos] = Instruction::Jump(end);
+                    }
+                    for pos in info.continue_jumps {
+                        self.instructions[pos] = Instruction::Jump(continue_target);
+                    }
+                }
+                self.emit_load(&result_var);
+            }
             AstNode::Block(stmts) => {
                 if stmts.is_empty() {
                     // Empty blocks evaluate to null
@@ -708,6 +779,29 @@ impl Compiler {
                         }
                     }
                     // remove last pop to keep result of final statement
+                    self.instructions.pop();
+                }
+            }
+            AstNode::BlockExpr(stmts) => {
+                if stmts.is_empty() {
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::unit()));
+                } else {
+                    if self.top_spans_active {
+                        for (i, stmt) in stmts.iter().enumerate() {
+                            if i < self.cur_stmt_spans.len() {
+                                self.cur_stmt_idx = i;
+                            }
+                            self.compile(stmt)?;
+                            self.instructions.push(Instruction::Pop);
+                        }
+                        self.top_spans_active = false;
+                    } else {
+                        for stmt in stmts {
+                            self.compile(stmt)?;
+                            self.instructions.push(Instruction::Pop);
+                        }
+                    }
                     self.instructions.pop();
                 }
             }
@@ -738,9 +832,9 @@ impl Compiler {
         self.cur_stmt_idx = 0;
     }
 
-    fn syntax_err_here(&self, msg: impl Into<String>) -> WqErr {
+    fn syntax_err_here(&self, msg: impl Into<String>) -> WqError {
         let msg = msg.into();
-        let e = WqErr::new(WqErrType::Syntax).src("compiler").msg(msg);
+        let e = WqError::new(WqErrorType::Syntax).src("compiler").msg(msg);
 
         if let (Some(src), Some((byte_start, byte_end))) = (
             self.src_text.as_ref(),
@@ -847,6 +941,7 @@ fn has_ctrl(node: &AstNode) -> bool {
     match node {
         AstNode::Break | AstNode::Continue | AstNode::Return(_) => true,
         AstNode::Block(stmts) => stmts.iter().any(has_ctrl),
+        AstNode::BlockExpr(stmts) => stmts.iter().any(has_ctrl),
         AstNode::Conditional {
             true_branch,
             false_branch,
@@ -854,6 +949,7 @@ fn has_ctrl(node: &AstNode) -> bool {
         } => has_ctrl(true_branch) || false_branch.as_ref().is_some_and(|b| has_ctrl(b)),
         AstNode::WLoop { body, .. }
         | AstNode::NLoop { body, .. }
+        | AstNode::FLoop { body, .. }
         | AstNode::Function { body, .. } => has_ctrl(body),
         AstNode::UnaryOp { operand, .. } => has_ctrl(operand),
         AstNode::Postfix { object, items, .. } => has_ctrl(object) || items.iter().any(has_ctrl),

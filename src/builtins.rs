@@ -1,7 +1,7 @@
 mod core;
 mod dict;
 mod encoding;
-mod ho;
+mod higher_order;
 mod io;
 mod list;
 mod list_gen;
@@ -11,21 +11,68 @@ mod math;
 mod str;
 mod viz;
 mod wq_type;
-mod wqerr_ext;
+mod wqerror_helper;
 
 use crate::{
     value::{Value, WqResult, bc::BcResult},
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use ahash::AHashMap;
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum BuiltinGroup {
+    Intrinsic,
+    CorePure,
+    CoreIo,
+    Exec,
+    Dict,
+    HigherOrder,
+    Encoding,
+    FileIo,
+    List,
+    ListGen,
+    Logical,
+    Math,
+    Rand,
+    Mat,
+    Str,
+    Viz,
+    Type,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum BuiltinPreset {
+    All,
+    Pure,
+    Minimal,
+    Constrained,
+}
+
+impl BuiltinPreset {
+    pub fn names() -> &'static [&'static str] {
+        &["all", "pure", "minimal", "constrained"]
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "all" => Some(BuiltinPreset::All),
+            "pure" => Some(BuiltinPreset::Pure),
+            "minimal" | "min" => Some(BuiltinPreset::Minimal),
+            "constrained" | "cons" => Some(BuiltinPreset::Constrained),
+            _ => None,
+        }
+    }
+}
+
 /// builtin functions
 pub type BuiltinFn = fn(&mut Vm, &[Value]) -> WqResult<Value>;
+#[derive(Clone)]
 pub struct Builtins {
     functions: Vec<BuiltinFn>,
     name_to_id: AHashMap<String, usize>,
+    enabled: Vec<bool>,
 }
 
 impl Default for Builtins {
@@ -36,12 +83,65 @@ impl Default for Builtins {
 
 impl Builtins {
     pub fn new() -> Self {
+        Self::with_preset(BuiltinPreset::All)
+    }
+
+    pub fn with_preset(preset: BuiltinPreset) -> Self {
         let mut builtins = Builtins {
             functions: Vec::new(),
             name_to_id: AHashMap::new(),
+            enabled: Vec::new(),
         };
         builtins.register_functions();
+        builtins.apply_preset(preset);
         builtins
+    }
+
+    pub fn apply_preset(&mut self, preset: BuiltinPreset) {
+        let total = self.functions.len();
+        debug_assert_eq!(BUILTIN_GROUPS.len(), total, "builtin group map out of sync");
+        self.enabled = vec![false; total];
+        for (idx, group) in BUILTIN_GROUPS.iter().enumerate() {
+            let enabled = match preset {
+                BuiltinPreset::All => true,
+                BuiltinPreset::Minimal => *group == BuiltinGroup::Intrinsic,
+                BuiltinPreset::Pure => !matches!(
+                    group,
+                    BuiltinGroup::CoreIo
+                        | BuiltinGroup::Exec
+                        | BuiltinGroup::FileIo
+                        | BuiltinGroup::Viz
+                        | BuiltinGroup::Rand
+                ),
+                BuiltinPreset::Constrained => {
+                    !matches!(group, BuiltinGroup::Exec | BuiltinGroup::FileIo)
+                }
+            };
+            if enabled {
+                self.enabled[idx] = true;
+            }
+        }
+        self.force_intrinsics();
+    }
+
+    pub fn is_enabled_id(&self, id: u16) -> bool {
+        self.enabled.get(id as usize).copied().unwrap_or(false)
+    }
+
+    pub fn is_enabled_name(&self, name: &str) -> bool {
+        self.name_to_id
+            .get(name)
+            .and_then(|id| self.enabled.get(*id))
+            .copied()
+            .unwrap_or(false)
+    }
+
+    pub fn is_known_name(&self, name: &str) -> bool {
+        self.name_to_id.contains_key(name)
+    }
+
+    pub fn is_disabled_name(&self, name: &str) -> bool {
+        self.is_known_name(name) && !self.is_enabled_name(name)
     }
 
     fn add(&mut self, name: &str, func: BuiltinFn) {
@@ -51,19 +151,48 @@ impl Builtins {
     }
 
     pub fn has_function(&self, name: &str) -> bool {
-        self.name_to_id.contains_key(name)
+        self.is_enabled_name(name)
     }
 
     pub fn get_id(&self, name: &str) -> Option<usize> {
-        self.name_to_id.get(name).cloned()
+        self.name_to_id
+            .get(name)
+            .copied()
+            .filter(|id| self.enabled.get(*id).copied().unwrap_or(false))
     }
 
     pub fn get_fn_by_id(&self, id: usize) -> Option<&BuiltinFn> {
-        self.functions.get(id)
+        match self.enabled.get(id) {
+            Some(true) => self.functions.get(id),
+            _ => None,
+        }
     }
 
     pub fn list_functions(&self) -> Vec<String> {
+        self.name_to_id
+            .iter()
+            .filter_map(|(name, id)| {
+                if self.enabled.get(*id).copied().unwrap_or(false) {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub fn list_functions_all(&self) -> Vec<String> {
         self.name_to_id.keys().cloned().collect()
+    }
+
+    fn force_intrinsics(&mut self) {
+        for (idx, group) in BUILTIN_GROUPS.iter().enumerate() {
+            if *group == BuiltinGroup::Intrinsic
+                && let Some(slot) = self.enabled.get_mut(idx)
+            {
+                *slot = true;
+            }
+        }
     }
 }
 
@@ -201,10 +330,10 @@ declare_builtins! {
 
 
     // Higher-order =========================================================
-    (MAP, Map, "map", "map[f;xs], map[d;f;xs]", "2, 3", ho::map),
-    (ZIPW, ZipW, "zipw", "zipw[f;xs;ys], zipw[d;f;xs;ys]", "3, 4", ho::zipw),
-    (FOLD, Fold, "fold", "fold[f;xs], fold[f;acc;xs]", "2, 3", ho::fold),
-    (SCAN, Scan, "scan", "scan[f;xs], scan[f;acc;xs]", "2, 3", ho::scan),
+    (MAP, Map, "map", "map[f;xs], map[d;f;xs]", "2, 3", higher_order::map),
+    (ZIPW, ZipW, "zipw", "zipw[f;xs;ys], zipw[d;f;xs;ys]", "3, 4", higher_order::zipw),
+    (FOLD, Fold, "fold", "fold[f;xs], fold[f;acc;xs]", "2, 3", higher_order::fold),
+    (SCAN, Scan, "scan", "scan[f;xs], scan[f;acc;xs]", "2, 3", higher_order::scan),
 
     // IO =========================================================
     (DECODE, Decode, "decode", "decode[codec;bytes], decode[codec;mode;bytes]", "2, 3", encoding::decode),
@@ -306,7 +435,7 @@ declare_builtins! {
     (TRIM_E, TrimE, "trime", "trime[s]", "1", str::trim_end),
 
     // Visualization =========================================================
-    (SHOWT, Showt, "showt", "showt[table]", "1", viz::show_table::show_table),
+    (SHOWTABLE, Showtable, "showtable", "showtable[table]", "1", viz::show_table::show_table),
     (ASCIIPLOT, Asciiplot, "asciiplot", "asciiplot[data+], asciiplot[data+;opts]", "1+", viz::asciiplot::asciiplot),
 
     // Type =========================================================
@@ -316,12 +445,141 @@ declare_builtins! {
     (UNIT_Q, UnitQ, "unit?", "unit?[x]", "1", wq_type::is_unit),
 }
 
+const BUILTIN_GROUPS: &[BuiltinGroup] = &[
+    // Core =========================================================
+    BuiltinGroup::CoreIo,   // print
+    BuiltinGroup::CoreIo,   // echo
+    BuiltinGroup::CoreIo,   // input
+    BuiltinGroup::CorePure, // bfn
+    BuiltinGroup::CorePure, // chr
+    BuiltinGroup::CorePure, // ord
+    BuiltinGroup::CorePure, // int
+    BuiltinGroup::CorePure, // bin
+    BuiltinGroup::CorePure, // oct
+    BuiltinGroup::CorePure, // hex
+    BuiltinGroup::CorePure, // raise
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::Exec, // exec
+    // Dict =========================================================
+    BuiltinGroup::Dict, // keys
+    BuiltinGroup::Dict, // haskey?
+    BuiltinGroup::Dict, // itk
+    BuiltinGroup::Dict, // kti
+    // Higher-order =========================================================
+    BuiltinGroup::HigherOrder, // map
+    BuiltinGroup::HigherOrder, // zipw
+    BuiltinGroup::HigherOrder, // fold
+    BuiltinGroup::HigherOrder, // scan
+    // IO (encoding) =========================================================
+    BuiltinGroup::Encoding, // decode
+    BuiltinGroup::Encoding, // encode
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // open
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // fexists?
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // mkdir
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // fsize
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // fwrite
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // fwritet
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // fread
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // freadt
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // freadtln
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // fseek
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // ftell
+    #[cfg(not(target_arch = "wasm32"))]
+    BuiltinGroup::FileIo, // fclose
+    // List =========================================================
+    BuiltinGroup::Intrinsic, // len
+    BuiltinGroup::List,      // shape
+    BuiltinGroup::List,      // depth
+    BuiltinGroup::List,      // uniform?
+    BuiltinGroup::List,      // sum
+    BuiltinGroup::List,      // min
+    BuiltinGroup::List,      // max
+    BuiltinGroup::List,      // flatten
+    BuiltinGroup::List,      // reverse
+    BuiltinGroup::List,      // sort
+    BuiltinGroup::List,      // filter
+    BuiltinGroup::List,      // find
+    BuiltinGroup::ListGen,   // alloc
+    BuiltinGroup::ListGen,   // till
+    BuiltinGroup::ListGen,   // iota
+    BuiltinGroup::ListGen,   // reshape
+    BuiltinGroup::ListGen,   // where
+    // Logical ======================================================
+    BuiltinGroup::Logical, // not
+    BuiltinGroup::Logical, // and
+    BuiltinGroup::Logical, // or
+    BuiltinGroup::Logical, // xor
+    BuiltinGroup::Logical, // bnot
+    BuiltinGroup::Logical, // band
+    BuiltinGroup::Logical, // bor
+    BuiltinGroup::Logical, // bxor
+    BuiltinGroup::Logical, // shl
+    BuiltinGroup::Logical, // shr
+    // Math =========================================================
+    BuiltinGroup::Math, // neg
+    BuiltinGroup::Math, // abs
+    BuiltinGroup::Math, // sgn
+    BuiltinGroup::Math, // sqrt
+    BuiltinGroup::Math, // exp
+    BuiltinGroup::Math, // ln
+    BuiltinGroup::Math, // log2
+    BuiltinGroup::Math, // log10
+    BuiltinGroup::Math, // floor
+    BuiltinGroup::Math, // ceil
+    BuiltinGroup::Math, // round
+    BuiltinGroup::Math, // sin
+    BuiltinGroup::Math, // cos
+    BuiltinGroup::Math, // tan
+    BuiltinGroup::Math, // arcsin
+    BuiltinGroup::Math, // arccos
+    BuiltinGroup::Math, // arctan
+    BuiltinGroup::Math, // sinh
+    BuiltinGroup::Math, // cosh
+    BuiltinGroup::Math, // tanh
+    BuiltinGroup::Math, // arcsinh
+    BuiltinGroup::Math, // arccosh
+    BuiltinGroup::Math, // arctanh
+    BuiltinGroup::Math, // log
+    BuiltinGroup::Math, // arctan2
+    BuiltinGroup::Rand, // rand
+    // Matrix =========================================================
+    BuiltinGroup::Mat, // transpose
+    // Str =========================================================
+    BuiltinGroup::Str,       // str
+    BuiltinGroup::Intrinsic, // fmt
+    BuiltinGroup::Str,       // graphemes
+    BuiltinGroup::Str,       // ws?
+    BuiltinGroup::Str,       // words
+    BuiltinGroup::Str,       // trim
+    BuiltinGroup::Str,       // trims
+    BuiltinGroup::Str,       // trime
+    // Visualization =========================================================
+    BuiltinGroup::Viz, // showt
+    BuiltinGroup::Viz, // asciiplot
+    // Type =========================================================
+    BuiltinGroup::Type, // type
+    BuiltinGroup::Type, // symbol
+    BuiltinGroup::Type, // atom?
+    BuiltinGroup::Type, // unit?
+];
+
 fn fold_value<F>(src: BuiltinEnum, args: &[Value], f: F) -> WqResult<Value>
 where
     F: Fn(&Value, &Value) -> BcResult<Value>,
 {
     if args.len() < 2 {
-        return Err(WqErr::new(WqErrType::Arity)
+        return Err(WqError::new(WqErrorType::Arity)
             .msg(format!("expected 2 or more args, got {}", args.len())));
     }
     let mut acc = args[0].clone();

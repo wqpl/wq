@@ -3,7 +3,7 @@ use std::{iter::Peekable, str::Chars};
 use crate::{
     token::{Token, TokenType},
     value::WqResult,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use num_bigint::BigInt;
@@ -81,7 +81,7 @@ impl<'a> Lexer<'a> {
         byte_start: usize,
         byte_end: usize,
         msg: &'static str,
-    ) -> WqErr {
+    ) -> WqError {
         let src = self.source;
         let bs = byte_start.min(src.len());
         let be = byte_end.min(src.len());
@@ -113,7 +113,7 @@ impl<'a> Lexer<'a> {
             )
         };
         let pointer = " ".repeat(disp_col.saturating_sub(1)) + &"~".repeat(width);
-        WqErr::new(WqErrType::Syntax)
+        WqError::new(WqErrorType::Syntax)
             .src("lexer")
             .msg(msg)
             .attach_note(format!("at {disp_line}:{disp_col}\n{src_line}\n{pointer}",))
@@ -565,7 +565,11 @@ impl<'a> Lexer<'a> {
                 }
 
                 Some('$') => {
-                    if nxt == Some('.') {
+                    if nxt == Some('$') {
+                        self.advance();
+                        self.advance();
+                        return emit(TokenType::DollarDollar, self.byte_pos);
+                    } else if nxt == Some('.') {
                         self.advance();
                         self.advance();
                         return emit(TokenType::DollarDot, self.byte_pos);
@@ -657,7 +661,7 @@ impl<'a> Lexer<'a> {
                                 self.read_raw_string(token_line, token_column, token_byte_start)?;
                             return emit(t, self.byte_pos);
                         }
-                        _ => continue, // unknown @ sequence — skip
+                        _ => continue, // unknown @ sequence, skip
                     };
                     return emit(tok, self.byte_pos);
                 }
@@ -765,10 +769,19 @@ impl<'a> Lexer<'a> {
                     return emit(tt, self.byte_pos);
                 }
 
-                // Unknown byte: consume and skip
+                // Unknown byte
                 Some(_) => {
+                    // self.advance();
+                    let err = self.syntax_error_span(
+                        token_line,
+                        token_column,
+                        token_byte_start,
+                        self.byte_pos,
+                        "unrecognized character",
+                    );
                     self.advance();
-                    continue;
+                    return Err(err);
+                    // continue;
                 }
             }
         }

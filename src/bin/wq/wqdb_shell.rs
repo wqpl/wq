@@ -1,8 +1,6 @@
-use crate::{
-    colored::Colorize,
-    repl::stdio::{
-        StdinError, stderr_print, stderr_println, stdin_readline, stdin_with_highlight_off,
-    },
+use colored::Colorize;
+use wqpl::{
+    stdio::{StdinError, stderr_print, stderr_println, stdin_readline, stdin_with_highlight_off},
     wqdb::{CodeLoc, DebugHost, format_frame},
 };
 
@@ -302,7 +300,7 @@ pub fn wqdb_shell(host: &mut dyn DebugHost) {
                         }
                     }
                     "h" | "help" => {
-                        stderr_println(include_str!("../../d/wqdbman"));
+                        stderr_println(include_str!("../../../d/wqdb"));
                     }
                     other => {
                         stderr_println(

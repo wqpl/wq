@@ -1,12 +1,12 @@
 use crate::{
     value::{Value, WqResult},
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use indexmap::IndexMap;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum BcErr {
+pub enum BcError {
     Length {
         path: Vec<usize>,
         left: usize,
@@ -17,20 +17,20 @@ pub enum BcErr {
         left: String,
         right: String,
     },
-    WqErr {
+    Wq {
         path: Vec<usize>,
-        wqerr: WqErr,
+        wqerror: WqError,
     },
 }
 
-pub type BcResult<T> = Result<T, BcErr>;
+pub type BcResult<T> = Result<T, BcError>;
 
-impl BcErr {
+impl BcError {
     /// Prepend an index as error bubbles up.
     #[inline]
     pub fn at(mut self, idx: usize) -> Self {
         match &mut self {
-            BcErr::Length { path, .. } | BcErr::WqErr { path, .. } | BcErr::Key { path, .. } => {
+            BcError::Length { path, .. } | BcError::Wq { path, .. } | BcError::Key { path, .. } => {
                 path.insert(0, idx)
             }
         }
@@ -39,8 +39,8 @@ impl BcErr {
 }
 
 #[inline]
-fn bc_len_mismatch(left: usize, right: usize, path: &[usize]) -> BcErr {
-    BcErr::Length {
+fn bc_len_mismatch(left: usize, right: usize, path: &[usize]) -> BcError {
+    BcError::Length {
         path: path.to_vec(),
         left,
         right,
@@ -52,21 +52,21 @@ trait WqToBc<T> {
     fn bc_at_path(self, path: &[usize]) -> BcResult<T>;
 }
 
-impl<T> WqToBc<T> for Result<T, WqErr> {
+impl<T> WqToBc<T> for Result<T, WqError> {
     #[inline]
     fn bc_at_path(self, path: &[usize]) -> BcResult<T> {
-        self.map_err(|wqerr| BcErr::WqErr {
+        self.map_err(|wqerr| BcError::Wq {
             path: path.to_vec(),
-            wqerr,
+            wqerror: wqerr,
         })
     }
 }
 
-impl BcErr {
-    pub fn into_wqerror(self) -> WqErr {
+impl BcError {
+    pub fn into_wqerror(self) -> WqError {
         match self {
-            BcErr::Length { path, left, right } => {
-                let e = WqErr::new(WqErrType::Length)
+            BcError::Length { path, left, right } => {
+                let e = WqError::new(WqErrorType::Length)
                     .msg(format!("length mismatch: left {}, right {}", left, right));
                 if path.is_empty() {
                     return e;
@@ -78,8 +78,8 @@ impl BcErr {
                     .join("");
                 e.attach_note(format!("at {path_str}"))
             }
-            BcErr::Key { path, left, right } => {
-                let e = WqErr::new(WqErrType::Length)
+            BcError::Key { path, left, right } => {
+                let e = WqError::new(WqErrorType::Length)
                     .msg(format!("key mismatch: left {}, right {}", left, right));
                 if path.is_empty() {
                     return e;
@@ -91,16 +91,16 @@ impl BcErr {
                     .join("");
                 e.attach_note(format!("at {path_str}"))
             }
-            BcErr::WqErr { path, wqerr } => {
+            BcError::Wq { path, wqerror } => {
                 if path.is_empty() {
-                    return wqerr;
+                    return wqerror;
                 }
                 let path_str: String = path
                     .iter()
                     .map(|i| format!("[{i}]"))
                     .collect::<Vec<_>>()
                     .join("");
-                wqerr.attach_note(format!("at {path_str}"))
+                wqerror.attach_note(format!("at {path_str}"))
             }
         }
     }
@@ -354,7 +354,7 @@ impl Value {
                 let mut out = IndexMap::with_capacity(dx.len());
                 for (i, ((kx, vx), (ky, vy))) in dx.iter().zip(dy.iter()).enumerate() {
                     if kx != ky {
-                        return Err(BcErr::Key {
+                        return Err(BcError::Key {
                             path: path.to_vec(),
                             left: kx.clone(),
                             right: ky.clone(),

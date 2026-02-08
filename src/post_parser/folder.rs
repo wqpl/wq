@@ -240,10 +240,15 @@ pub fn fold(node: AstNode) -> AstNode {
                 body: Box::new(fold(*body)),
             }
         }
+        FLoop { iterable, body } => FLoop {
+            iterable: Box::new(fold(*iterable)),
+            body: Box::new(fold(*body)),
+        },
         Return(expr) => Return(expr.map(|e| Box::new(fold(*e)))),
         // Assert(expr) => Assert(Box::new(fold(*expr))),
         Try(expr) => Try(Box::new(fold(*expr))),
         Block(stmts) => Block(stmts.into_iter().map(fold).collect()),
+        BlockExpr(stmts) => BlockExpr(stmts.into_iter().map(fold).collect()),
     }
 }
 

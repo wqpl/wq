@@ -4,7 +4,7 @@ use crate::{
     lexer::Lexer,
     token::{Token, TokenType},
     value::{IntoWqValue, Value, WqResult},
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 pub struct Parser {
@@ -32,11 +32,19 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(tokens: Vec<Token>, source: String) -> Self {
+        Self::new_with_builtins(tokens, source, crate::builtins::Builtins::new())
+    }
+
+    pub fn new_with_builtins(
+        tokens: Vec<Token>,
+        source: String,
+        builtins: crate::builtins::Builtins,
+    ) -> Self {
         Parser {
             tokens,
             current: 0,
             source,
-            builtins: crate::builtins::Builtins::new(),
+            builtins,
             stmt_spans: Vec::new(),
             fn_spans: Vec::new(),
             fn_span_stack: Vec::new(),
@@ -54,6 +62,23 @@ impl Parser {
         base_offset: usize,
     ) -> Self {
         let mut p = Parser::new(tokens, source);
+        p.apply_ctx(global_source, base_offset);
+        p
+    }
+
+    pub fn new_with_ctx_and_builtins(
+        tokens: Vec<Token>,
+        source: String,
+        global_source: Option<String>,
+        base_offset: usize,
+        builtins: crate::builtins::Builtins,
+    ) -> Self {
+        let mut p = Parser::new_with_builtins(tokens, source, builtins);
+        p.apply_ctx(global_source, base_offset);
+        p
+    }
+
+    fn apply_ctx(&mut self, global_source: Option<String>, base_offset: usize) {
         if let Some(gs) = &global_source {
             let base = base_offset.min(gs.len());
             // Count lines before the offset in the global source
@@ -67,11 +92,10 @@ impl Parser {
                     None => gs[..base].chars().count(),
                 }
             };
-            p.global_source = global_source;
-            p.line_base = line_base;
-            p.col_base = col_base;
+            self.global_source = global_source;
+            self.line_base = line_base;
+            self.col_base = col_base;
         }
-        p
     }
 
     // helpers ====================================================================================
@@ -94,7 +118,7 @@ impl Parser {
         }
     }
 
-    fn syntax_err(&self, token: &Token, msg: impl Into<String>) -> WqErr {
+    fn syntax_err(&self, token: &Token, msg: impl Into<String>) -> WqError {
         let msg = msg.into();
         // Derive display context: prefer global source + adjusted line/column if available
         let (line, column, src_line) = if let Some(gs) = &self.global_source {
@@ -130,14 +154,14 @@ impl Parser {
             1
         };
         let pointer = " ".repeat(column.saturating_sub(1)) + &"~".repeat(width);
-        WqErr::new(WqErrType::Syntax)
+        WqError::new(WqErrorType::Syntax)
             .src("parser")
             .msg(msg)
             .attach_note(format!("at {line}:{column}\n{src_line}\n{pointer}",))
     }
 
-    fn eof_error(&self, msg: impl Into<String>) -> WqErr {
-        WqErr::new(WqErrType::Eof).src("parser").msg(msg.into())
+    fn eof_error(&self, msg: impl Into<String>) -> WqError {
+        WqError::new(WqErrorType::Eof).src("parser").msg(msg.into())
     }
 
     fn consume(&mut self, expected: TokenType) -> WqResult<()> {
@@ -263,7 +287,7 @@ impl Parser {
     }
 
     #[inline]
-    fn missing_rhs(&self, op_tok: &Token, ctx: &str) -> WqErr {
+    fn missing_rhs(&self, op_tok: &Token, ctx: &str) -> WqError {
         self.syntax_err(op_tok, format!("expected expression after {ctx}"))
     }
 
@@ -828,6 +852,10 @@ impl Parser {
                 | Some(TokenType::Identifier(_))
                 // no minus allowed here
                 | Some(TokenType::Sharp)
+                | Some(TokenType::Dollar)
+                | Some(TokenType::DollarDot)
+                | Some(TokenType::DollarDollar)
+                | Some(TokenType::AtFormat)
                 | Some(TokenType::LeftParen) => {
                     let arg = self.parse_unary()?;
                     expr = AstNode::Postfix {
@@ -990,6 +1018,7 @@ impl Parser {
                 }
                 TokenType::Dollar => self.parse_conditional(),
                 TokenType::DollarDot => self.parse_conditional_dot(),
+                TokenType::DollarDollar => self.parse_conditional_chain(),
 
                 TokenType::AtBreak => {
                     self.advance();
@@ -1048,6 +1077,12 @@ impl Parser {
                         } else if val == "N" {
                             self.advance();
                             return self.parse_for();
+                        } else if val == "F" {
+                            self.advance();
+                            return self.parse_for_each();
+                        } else if val == "B" {
+                            self.advance();
+                            return self.parse_block_expr();
                         }
                     }
                     Ok(AstNode::Variable(val))
@@ -1203,7 +1238,7 @@ impl Parser {
                     }
                 }
                 if depth != 0 {
-                    return Err(WqErr::new(WqErrType::Syntax)
+                    return Err(WqError::new(WqErrorType::Syntax)
                         .src("parser")
                         .msg("unterminated expression in f-string"));
                 }
@@ -1221,7 +1256,7 @@ impl Parser {
                     template.push_str("}}");
                     i += 2;
                 } else {
-                    return Err(WqErr::new(WqErrType::Syntax)
+                    return Err(WqError::new(WqErrorType::Syntax)
                         .src("parser")
                         .msg("unmatched '}' in f-string"));
                 }
@@ -1421,6 +1456,87 @@ impl Parser {
         })
     }
 
+    fn parse_conditional_chain(&mut self) -> WqResult<AstNode> {
+        self.advance(); // '$$'
+        self.consume(TokenType::LeftBracket)?;
+        let header_start_idx = self.current.saturating_sub(2); // '$$' and '[' consumed
+        let mut items: Vec<AstNode> = Vec::new();
+        loop {
+            if items.is_empty() {
+                self.eat_trivia(true, true);
+            } else {
+                self.eat_trivia(false, true);
+            }
+            if self.is_token(&TokenType::RightBracket) {
+                break;
+            }
+            if self.is_token(&TokenType::Eof) {
+                return Err(self.eof_error("unexpected end of input in $$[...]"));
+            }
+            let item = if self.is_token(&TokenType::Semicolon) || self.is_token(&TokenType::Newline)
+            {
+                AstNode::Block(Vec::new())
+            } else {
+                self.parse_expression()?
+            };
+            items.push(item);
+            self.eat_trivia(false, true);
+            if self.is_token(&TokenType::RightBracket) {
+                break;
+            }
+            self.require_control_separator("$$[condition;true;...;default]")?;
+        }
+        if items.is_empty() {
+            return Err(self.syntax_err(self.current_token().unwrap(), "'$$': expected condition"));
+        }
+        if items.len() == 1 {
+            return Err(self.syntax_err(
+                self.current_token().unwrap(),
+                "'$$': expected condition/branch pairs",
+            ));
+        }
+        self.consume(TokenType::RightBracket)?;
+        if items.len().is_multiple_of(2) {
+            items.push(AstNode::Block(Vec::new()));
+        }
+        let default_branch = items.pop().unwrap();
+        let mut pairs = Vec::new();
+        let mut iter = items.into_iter();
+        while let Some(cond) = iter.next() {
+            let true_branch = iter.next().ok_or_else(|| {
+                self.syntax_err(
+                    self.current_token().unwrap(),
+                    "'$$': expected condition/branch pairs",
+                )
+            })?;
+            pairs.push((cond, true_branch));
+        }
+        let mut acc = default_branch;
+        for (cond, true_branch) in pairs.into_iter().rev() {
+            acc = AstNode::Conditional {
+                condition: Box::new(cond),
+                true_branch: Box::new(true_branch),
+                false_branch: Some(Box::new(acc)),
+            };
+        }
+        let header_end_idx = self.current.saturating_sub(1);
+        self.record_stmt_span_idx(header_start_idx, header_end_idx);
+        Ok(acc)
+    }
+
+    fn parse_block_expr(&mut self) -> WqResult<AstNode> {
+        let header_start_idx = self.current.saturating_sub(2); // 'B' and '[' consumed
+        let body = self.parse_branch_sequence(&[TokenType::RightBracket])?;
+        self.consume(TokenType::RightBracket)?;
+        let header_end_idx = self.current.saturating_sub(1);
+        self.record_stmt_span_idx(header_start_idx, header_end_idx);
+        let stmts = match body {
+            AstNode::Block(stmts) => stmts,
+            other => vec![other],
+        };
+        Ok(AstNode::BlockExpr(stmts))
+    }
+
     fn parse_while(&mut self) -> WqResult<AstNode> {
         // called after Identifier("W") and '[' consumed in parse_primary()
         // Record a span for the whole 'W[cond;body]' starting at 'W'
@@ -1450,6 +1566,22 @@ impl Parser {
         self.record_stmt_span_idx(header_start_idx, header_end_idx);
         Ok(AstNode::NLoop {
             count: Box::new(count_expr),
+            body: Box::new(body),
+        })
+    }
+
+    fn parse_for_each(&mut self) -> WqResult<AstNode> {
+        // called after Identifier("F") and '[' consumed
+        let header_start_idx = self.current.saturating_sub(2); // 'F' and '[' consumed
+        self.eat_trivia(true, true);
+        let iterable = self.parse_expression()?;
+        self.require_control_separator("F[iterable;body]")?;
+        let body = self.parse_branch_sequence(&[TokenType::RightBracket])?;
+        self.consume(TokenType::RightBracket)?;
+        let header_end_idx = self.current.saturating_sub(1);
+        self.record_stmt_span_idx(header_start_idx, header_end_idx);
+        Ok(AstNode::FLoop {
+            iterable: Box::new(iterable),
             body: Box::new(body),
         })
     }
@@ -1828,6 +1960,22 @@ mod tests {
     }
 
     #[test]
+    fn test_conditional_chain() {
+        let ast = parse_string("$$[x>0;1;x<0;-1;0]").unwrap();
+        assert!(matches!(ast, AstNode::Conditional { .. }));
+        let ast = parse_string("$$[true;;0]").unwrap();
+        assert!(matches!(ast, AstNode::Conditional { .. }));
+    }
+
+    #[test]
+    fn test_block_expr() {
+        let ast = parse_string("B[a:1;a]").unwrap();
+        assert!(matches!(ast, AstNode::BlockExpr(_)));
+        let ast = parse_string("B[]").unwrap();
+        assert!(matches!(ast, AstNode::BlockExpr(_)));
+    }
+
+    #[test]
     fn test_multiline_while() {
         let ast = parse_string("W[true;\necho n;\n]").unwrap();
         assert!(matches!(ast, AstNode::WLoop { .. }));
@@ -1837,6 +1985,12 @@ mod tests {
     fn test_multiline_for() {
         let ast = parse_string("N[3;\necho n\n]").unwrap();
         assert!(matches!(ast, AstNode::NLoop { .. }));
+    }
+
+    #[test]
+    fn test_multiline_for_each() {
+        let ast = parse_string("F[(1;2;3);\necho _f\n]").unwrap();
+        assert!(matches!(ast, AstNode::FLoop { .. }));
     }
 
     #[test]

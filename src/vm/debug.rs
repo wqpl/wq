@@ -1,4 +1,5 @@
 use crate::{
+    debug_flags::{DebugFlags, get_debug_flags},
     value::Value,
     vm::{Vm, instruction::Instruction},
     wqdb::{
@@ -164,11 +165,11 @@ impl DebugHost for Vm {
     }
 
     fn dbg_step_in(&mut self) {
-        if crate::repl::get_debug_level() >= 2 {
+        if get_debug_flags().contains(DebugFlags::WQDB_1) {
             eprintln!("[wqdb]: dbg_step_in called at PC {}", self.pc);
         }
         self.wqdb.req_in(self.call_depth());
-        if crate::repl::get_debug_level() >= 2 {
+        if get_debug_flags().contains(DebugFlags::WQDB_1) {
             eprintln!("[wqdb]: step-in mode on, will pause at next statement");
         }
     }
@@ -345,9 +346,13 @@ impl DebugHost for Vm {
     }
 
     fn dbg_globals(&self) -> Vec<(String, Value)> {
-        self.globals
+        self.global_slot_map
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .filter_map(|(name, slot)| {
+                self.global_slots
+                    .get(*slot)
+                    .map(|val| (name.clone(), val.clone()))
+            })
             .collect()
     }
 

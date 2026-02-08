@@ -1,11 +1,11 @@
 use crate::{
-    builtins::{BuiltinEnum, wqerr_ext::check_arity},
+    builtins::{BuiltinEnum, wqerror_helper::check_arity},
     value::{Value, WqResult},
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
-use rand::Rng;
+use rand::RngExt;
 
 macro_rules! def_unary_math_fn {
     ($fn_name:ident, $enum_variant:ident, $method:ident) => {
@@ -64,7 +64,7 @@ pub fn rand(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         1 => match &args[0] {
             Value::Int(n) if *n > 0 => Ok(Value::Int(rng.random_range(0..*n))),
             Value::Float(f) if *f > 0.0 => Ok(Value::Float(rng.random_range(0.0..*f))),
-            _ => Err(WqErr::new(WqErrType::Domain)
+            _ => Err(WqError::new(WqErrorType::Domain)
                 .src(BuiltinEnum::Rand)
                 .msg("expected positive int or float")
                 .at_arg(0)),
@@ -76,7 +76,7 @@ pub fn rand(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                     Value::Int(n) => *n as f64,
                     Value::Float(f) => *f,
                     _ => {
-                        return Err(WqErr::new(WqErrType::Domain)
+                        return Err(WqError::new(WqErrorType::Domain)
                             .src(BuiltinEnum::Rand)
                             .msg("expected positive int or float")
                             .at_arg(0));
@@ -86,7 +86,7 @@ pub fn rand(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                     Value::Int(n) => *n as f64,
                     Value::Float(f) => *f,
                     _ => {
-                        return Err(WqErr::new(WqErrType::Domain)
+                        return Err(WqError::new(WqErrorType::Domain)
                             .src(BuiltinEnum::Rand)
                             .msg("expected positive int or float")
                             .at_arg(1));
@@ -95,7 +95,7 @@ pub fn rand(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                 if af < bf {
                     Ok(Value::Float(rng.random_range(af..bf)))
                 } else {
-                    Err(WqErr::new(WqErrType::Domain)
+                    Err(WqError::new(WqErrorType::Domain)
                         .src(BuiltinEnum::Rand)
                         .msg("expected lower < upper")
                         .attach_note(format!("got {af} for lower"))

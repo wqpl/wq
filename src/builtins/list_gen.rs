@@ -1,8 +1,8 @@
 use crate::{
-    builtins::{BuiltinEnum as BE, wqerr_ext::check_arity},
+    builtins::{BuiltinEnum as BE, wqerror_helper::check_arity},
     value::{Excerpt as _, Value, WqResult},
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 pub fn alloc(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
@@ -16,7 +16,7 @@ pub fn till(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     check_arity(BE::Till, [1], args)?;
     if let Value::Int(n) = args[0] {
         if n < 0 {
-            return Err(WqErr::new(WqErrType::Domain)
+            return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Till)
                 .msg("invalid shape")
                 .attach_note("shape is positive int or list<positive int>"));
@@ -51,7 +51,7 @@ pub fn iota(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         let mut out = Vec::with_capacity(n);
         for i in 0..n {
             prefix.push(i.try_into().map_err(|e| {
-                WqErr::new(WqErrType::NumericOverflow)
+                WqError::new(WqErrorType::NumericOverflow)
                     .src(BE::Iota)
                     .attach_note(e)
             })?);
@@ -66,7 +66,7 @@ pub fn iota(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         // 1D case: simple range 0..n-1
         Value::Int(n) => {
             if *n < 0 {
-                Err(WqErr::new(WqErrType::Domain)
+                Err(WqError::new(WqErrorType::Domain)
                     .src(BE::Iota)
                     .msg("invalid shape")
                     .attach_note("shape is positive int or list<positive int>"))
@@ -120,7 +120,7 @@ pub fn wq_where(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     }
 
     fn fail_type<T>(got: &Value, path: &[i64]) -> WqResult<T> {
-        Err(WqErr::new(WqErrType::Domain)
+        Err(WqError::new(WqErrorType::Domain)
             .src(BE::Where)
             .msg(format!("expected {EXP}"))
             .at_arg(0)
@@ -146,12 +146,12 @@ pub fn wq_where(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         for (i, item) in items.iter().enumerate() {
             match item {
                 Value::Int(n) if *n != 0 => indices.push(i.try_into().map_err(|e| {
-                    WqErr::new(WqErrType::NumericOverflow)
+                    WqError::new(WqErrorType::NumericOverflow)
                         .src(BE::Where)
                         .attach_note(e)
                 })?),
                 Value::Bool(b) if *b => indices.push(i.try_into().map_err(|e| {
-                    WqErr::new(WqErrType::NumericOverflow)
+                    WqError::new(WqErrorType::NumericOverflow)
                         .src(BE::Where)
                         .attach_note(e)
                 })?),
@@ -161,7 +161,7 @@ pub fn wq_where(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                     return fail_type::<Value>(
                         item,
                         &[i.try_into().map_err(|e| {
-                            WqErr::new(WqErrType::NumericOverflow)
+                            WqError::new(WqErrorType::NumericOverflow)
                                 .src(BE::Where)
                                 .attach_note(e)
                         })?],
@@ -178,7 +178,7 @@ pub fn wq_where(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
             Value::List(items) => {
                 for (i, item) in items.iter().enumerate() {
                     prefix.push(i.try_into().map_err(|e| {
-                        WqErr::new(WqErrType::NumericOverflow)
+                        WqError::new(WqErrorType::NumericOverflow)
                             .src(BE::Where)
                             .attach_note(e)
                     })?);
@@ -192,7 +192,7 @@ pub fn wq_where(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                     if n != 0 {
                         let mut coord = prefix.clone();
                         coord.push(i.try_into().map_err(|e| {
-                            WqErr::new(WqErrType::NumericOverflow)
+                            WqError::new(WqErrorType::NumericOverflow)
                                 .src(BE::Where)
                                 .attach_note(e)
                         })?);
@@ -226,7 +226,7 @@ pub fn wq_where(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
             for (i, n) in items.iter().enumerate() {
                 if *n != 0 {
                     indices.push(i.try_into().map_err(|e| {
-                        WqErr::new(WqErrType::NumericOverflow)
+                        WqError::new(WqErrorType::NumericOverflow)
                             .src(BE::Where)
                             .attach_note(e)
                     })?);
@@ -248,7 +248,7 @@ pub fn wq_where(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                 where_1d_list(items)
             }
         }
-        other => Err(WqErr::new(WqErrType::Domain)
+        other => Err(WqError::new(WqErrorType::Domain)
             .msg(format!("expected {EXP}"))
             .at_arg(0)
             .attach_note(format!(
@@ -264,7 +264,7 @@ fn parse_shape(v: &Value) -> WqResult<Vec<usize>> {
     match v {
         Value::Int(n) => {
             if *n < 0 {
-                Err(WqErr::new(WqErrType::Domain).msg(EXP))
+                Err(WqError::new(WqErrorType::Domain).msg(EXP))
             } else {
                 Ok(vec![*n as usize])
             }
@@ -274,7 +274,7 @@ fn parse_shape(v: &Value) -> WqResult<Vec<usize>> {
             .enumerate()
             .map(|(i, &d)| {
                 if d < 0 {
-                    Err(WqErr::new(WqErrType::Domain)
+                    Err(WqError::new(WqErrorType::Domain)
                         .msg(EXP)
                         .attach_note(format!("at index {i}"))
                         .attach_note(format!("value excerpt is {}", d.excerpt())))
@@ -288,13 +288,13 @@ fn parse_shape(v: &Value) -> WqResult<Vec<usize>> {
             .enumerate()
             .map(|(i, v)| match &v {
                 Value::Int(n) if *n > 0 => Ok(*n as usize),
-                _ => Err(WqErr::new(WqErrType::Domain)
+                _ => Err(WqError::new(WqErrorType::Domain)
                     .msg(EXP)
                     .attach_note(format!("at index {i}"))
                     .attach_note(format!("value excerpt is {}", v.excerpt()))),
             })
             .collect(),
-        _ => Err(WqErr::new(WqErrType::Domain).msg(EXP)),
+        _ => Err(WqError::new(WqErrorType::Domain).msg(EXP)),
     }
 }
 

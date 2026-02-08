@@ -3,11 +3,11 @@ use std::fmt::Display;
 use crate::{
     builtins::BuiltinEnum,
     value::{Value, WqResult},
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
-pub fn type_mismatch(builtin: BuiltinEnum, pos: usize, expected: &str, got: &Value) -> WqErr {
-    WqErr::new(WqErrType::Domain)
+pub fn type_mismatch(builtin: BuiltinEnum, pos: usize, expected: &str, got: &Value) -> WqError {
+    WqError::new(WqErrorType::Domain)
         .src(builtin)
         .msg(format!("expected {expected}"))
         .at_arg(pos)
@@ -42,7 +42,7 @@ pub fn check_arity(
         } else {
             "args"
         };
-        return Err(WqErr::new(WqErrType::Arity)
+        return Err(WqError::new(WqErrorType::Arity)
             .src(builtin)
             .msg(format!("expected {expected} {plural}, got {n}"))
             .attach_note(builtin.usage()));
@@ -56,7 +56,7 @@ impl Display for BuiltinEnum {
     }
 }
 
-impl WqErr {
+impl WqError {
     pub fn at_arg(mut self, pos: usize) -> Self {
         self = self.attach_note(format!("at arg #{}", pos));
         self

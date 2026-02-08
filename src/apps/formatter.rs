@@ -116,7 +116,8 @@ impl Formatter {
             | Call { .. }
             | CallAnonymous { .. }
             | Postfix { .. }
-            | Index { .. } => false,
+            | Index { .. }
+            | BlockExpr(_) => false,
             // Everything else: wrap to be safe in space-call syntax
             _ => true,
         }
@@ -380,6 +381,15 @@ impl Formatter {
                     format!("N[{cnt};\n{body}{}", self.closing_bracket(level))
                 }
             }
+            AstNode::FLoop { iterable, body } => {
+                let it = self.format_node(iterable, level);
+                let body = self.format_inline_block_or_stmt(body, level + 1);
+                if self.opts.one_line_wizard {
+                    format!("F[{it};{body}]")
+                } else {
+                    format!("F[{it};\n{body}{}", self.closing_bracket(level))
+                }
+            }
             AstNode::Break => "@b".to_string(),
             AstNode::Continue => "@c".to_string(),
             AstNode::Return(expr) => match expr {
@@ -416,6 +426,28 @@ impl Formatter {
                         res.push_str(&self.format_node(stmt, level));
                     }
                     res
+                }
+            }
+            AstNode::BlockExpr(stmts) => {
+                if stmts.is_empty() {
+                    "B[]".to_string()
+                } else if self.opts.one_line_wizard {
+                    let body = stmts
+                        .iter()
+                        .map(|s| self.format_node(s, level))
+                        .collect::<Vec<_>>()
+                        .join(";");
+                    format!("B[{body}]")
+                } else {
+                    let mut body = String::new();
+                    for (i, stmt) in stmts.iter().enumerate() {
+                        if i > 0 {
+                            body.push('\n');
+                        }
+                        body.push_str(&self.indent(level + 1));
+                        body.push_str(&self.format_node(stmt, level + 1));
+                    }
+                    format!("B[\n{body}{}", self.closing_bracket(level))
                 }
             }
         }

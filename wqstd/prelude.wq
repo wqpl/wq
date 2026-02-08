@@ -1,4 +1,4 @@
-// Copyright 2025 tttiw
+// Copyright 2026 tttiw
 
 assert:{[x;msg]$.[not x;raise["assertion failed: ",msg]]}
 

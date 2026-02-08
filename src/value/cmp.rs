@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::{
     value::{Excerpt, Value, bc::BcResult},
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use num_bigint::BigInt;
@@ -41,7 +41,7 @@ impl Value {
     {
         self.bc2(other, |a, b| {
             let ord = cmp_atom(a, b).ok_or(
-                WqErr::new(WqErrType::Domain)
+                WqError::new(WqErrorType::Domain)
                     .msg(format!(
                         "cannot compare {} and {}",
                         a.type_name(),

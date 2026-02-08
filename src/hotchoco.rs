@@ -9,9 +9,9 @@ use std::{
 };
 
 use crate::{
-    repl::repl_engine::ReplEngine,
+    apps::evaluator::Evaluator,
     vm::GlobalMap,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 // Public API =============================================================================
@@ -24,7 +24,7 @@ pub fn repl_load_script<T, P>(
     bt: bool,
 ) -> Result<LoadReport, LoadError>
 where
-    T: ReplEngine,
+    T: Evaluator,
     P: AsRef<Path>,
 {
     let mut loader = Loader::new(evaluator, bt, silent);
@@ -42,7 +42,7 @@ pub fn repl_eval_inline<T>(
     bt: bool,
 ) -> Result<LoadReport, LoadError>
 where
-    T: ReplEngine,
+    T: Evaluator,
 {
     let mut loader = Loader::new(evaluator, bt, silent);
     let before: GlobalMap = loader.evaluator.env_vars().clone();
@@ -60,6 +60,7 @@ where
         new_bindings,
         overridden,
         warnings: std::mem::take(&mut loader.warnings),
+        result: loader.last_result.take(),
     })
 }
 
@@ -71,13 +72,15 @@ pub struct LoadReport {
     pub new_bindings: Vec<String>,
     pub overridden: Vec<String>,
     pub warnings: Vec<String>,
+    pub result: Option<crate::value::Value>,
 }
 
 #[derive(Debug)]
 pub enum LoadErrorKind {
     Cycle(PathBuf),
     Io(PathBuf, io::Error),
-    Eval(String, Box<WqErr>),
+    Eval(String, Box<WqError>),
+    Directive(String),
 }
 
 #[derive(Debug)]
@@ -140,14 +143,14 @@ static EMBEDDED: &[EmbeddedScript] = &[
         virtual_name: "<prelude.wq>",
         aliases: &["prelude"],
         // filename: "prelude.wq",
-        content: include_str!("../std/prelude.wq"),
+        content: include_str!("../wqstd/prelude.wq"),
     },
-    EmbeddedScript {
-        virtual_name: "<str.wq>",
-        aliases: &["str"],
-        // filename: "str.wq",
-        content: include_str!("../std/str.wq"),
-    },
+    // EmbeddedScript {
+    //     virtual_name: "<str.wq>",
+    //     aliases: &["str"],
+    //     // filename: "str.wq",
+    //     content: include_str!("../std/str.wq"),
+    // },
 ];
 
 fn lookup_embedded_by_alias(name: &str) -> Option<&'static EmbeddedScript> {
@@ -179,17 +182,18 @@ impl<'a> Drop for CycleGuard<'a> {
 
 // Loader =============================================================================
 
-pub struct Loader<'a, T: ReplEngine> {
+pub struct Loader<'a, T: Evaluator> {
     evaluator: &'a mut T,
     bt: bool,
     silent: bool,
     stack: Rc<RefCell<Vec<String>>>,
     warnings: Vec<String>,
     last_loaded_label: Option<String>,
+    last_result: Option<crate::value::Value>,
     embedded_loaded: Rc<RefCell<HashSet<&'static str>>>,
 }
 
-impl<'a, T: ReplEngine> Loader<'a, T> {
+impl<'a, T: Evaluator> Loader<'a, T> {
     pub fn new(evaluator: &'a mut T, bt: bool, silent: bool) -> Self {
         Self {
             evaluator,
@@ -198,6 +202,7 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
             stack: Rc::new(RefCell::new(Vec::new())),
             warnings: Vec::new(),
             last_loaded_label: None,
+            last_result: None,
             embedded_loaded: Rc::new(RefCell::new(HashSet::new())),
         }
     }
@@ -239,6 +244,7 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
             new_bindings,
             overridden,
             warnings: std::mem::take(&mut self.warnings),
+            result: self.last_result.take(),
         })
     }
 
@@ -273,7 +279,7 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
             let trimmed_leading = raw_line.trim_start();
             let trimmed_all = raw_line.trim();
             // Meta directives only when the buffer has no code
-            if !buffer_has_code {
+            if !buffer_has_code && trimmed_leading.starts_with('!') {
                 match parse_meta_directive(trimmed_leading) {
                     Some(Directive::PreludeAlias) => {
                         // alias for !load <prelude>
@@ -311,12 +317,20 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
                         let child = nested.load_script(&sub_path, loading)?;
                         self.warnings.extend(child.warnings);
                         self.last_loaded_label = Some(child.label);
+                        if let Some(result) = child.result {
+                            self.last_result = Some(result);
+                        }
                         // Restore parent file source context
                         self.evaluator.dbg_set_source(display_label, content);
                         self.evaluator.dbg_set_offset(consumed_bytes);
                         continue;
                     }
-                    None => {}
+                    None => {
+                        return Err(LoadError::with_stack(
+                            LoadErrorKind::Directive(trimmed_leading.to_string()),
+                            &self.stack.borrow(),
+                        ));
+                    }
                 }
             }
             // Preserve original line to keep byte positions
@@ -328,13 +342,14 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
             buffer_has_code = true;
             self.evaluator.dbg_set_offset(consumed_bytes);
             match self.evaluator.eval_string(&buffer) {
-                Ok(_) => {
+                Ok(result) => {
+                    self.last_result = Some(result);
                     buffer.clear();
                     buffer_has_code = false;
                     consumed_bytes = next_consumed;
                 }
                 Err(err) => {
-                    if err.err_type == WqErrType::Eof {
+                    if err.err_type == WqErrorType::Eof {
                         // continue accumulating lines for this chunk
                         continue;
                     } else {
@@ -349,11 +364,16 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
         // Flush any trailing chunk
         if !buffer.trim().is_empty() {
             self.evaluator.dbg_set_offset(consumed_bytes);
-            if let Err(err) = self.evaluator.eval_string(&buffer) {
-                return Err(LoadError::with_stack(
-                    LoadErrorKind::Eval(display_label.to_string(), Box::new(err)),
-                    &self.stack.borrow(),
-                ));
+            match self.evaluator.eval_string(&buffer) {
+                Ok(result) => {
+                    self.last_result = Some(result);
+                }
+                Err(err) => {
+                    return Err(LoadError::with_stack(
+                        LoadErrorKind::Eval(display_label.to_string(), Box::new(err)),
+                        &self.stack.borrow(),
+                    ));
+                }
             }
         }
         Ok(())
@@ -380,13 +400,18 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
             self.evaluator
                 .dbg_set_source(script.virtual_name, script.content);
             self.evaluator.dbg_set_offset(0);
-            if let Err(err) = self.evaluator.eval_string(script.content) {
-                // Create the error while the current frame is present
-                let err = LoadError::with_stack(
-                    LoadErrorKind::Eval(script.virtual_name.to_string(), Box::new(err)),
-                    &self.stack.borrow(),
-                );
-                return Err(err);
+            match self.evaluator.eval_string(script.content) {
+                Ok(result) => {
+                    self.last_result = Some(result);
+                }
+                Err(err) => {
+                    // Create the error while the current frame is present
+                    let err = LoadError::with_stack(
+                        LoadErrorKind::Eval(script.virtual_name.to_string(), Box::new(err)),
+                        &self.stack.borrow(),
+                    );
+                    return Err(err);
+                }
             }
             // Restore parent file source context
             self.evaluator.dbg_set_source(parent_label, parent_content);
@@ -408,6 +433,9 @@ impl<'a, T: ReplEngine> Loader<'a, T> {
             let child = nested.load_script(&sub_path, loading)?;
             self.warnings.extend(child.warnings);
             self.last_loaded_label = Some(child.label);
+            if let Some(result) = child.result {
+                self.last_result = Some(result);
+            }
             // Restore parent file source context
             self.evaluator.dbg_set_source(parent_label, parent_content);
             self.evaluator.dbg_set_offset(restore_offset);
@@ -430,7 +458,7 @@ impl Drop for StackFrameGuard {
     }
 }
 
-impl<'a, T: ReplEngine> Loader<'a, T> {
+impl<'a, T: Evaluator> Loader<'a, T> {
     fn push_frame(&self, label: String) -> StackFrameGuard {
         let mut st = self.stack.borrow_mut();
         let prev_len = st.len();

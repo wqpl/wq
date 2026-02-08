@@ -1,65 +1,6 @@
 use crate::value::Value;
 
 impl Value {
-    // pub fn cat(&self, other: &Value) -> Value {
-    //     match (self, other) {
-    //         (Value::IntList(a), Value::IntList(b)) => {
-    //             let mut res = a.clone();
-    //             res.extend(b.clone());
-    //             Value::IntList(res)
-    //         }
-    //         (Value::IntList(a), Value::Int(bv)) => {
-    //             let mut res = a.clone();
-    //             res.push(*bv);
-    //             Value::IntList(res)
-    //         }
-    //         (Value::Int(av), Value::IntList(b)) => {
-    //             let mut res = Vec::with_capacity(b.len() + 1);
-    //             res.push(*av);
-    //             res.extend(b.clone());
-    //             Value::IntList(res)
-    //         }
-    //         (Value::IntList(a), Value::List(b)) => {
-    //             let mut res: Vec<Value> = a.iter().copied().map(Value::Int).collect();
-    //             res.extend(b.clone());
-    //             Value::List(res)
-    //         }
-    //         (Value::List(a), Value::IntList(b)) => {
-    //             let mut res = a.clone();
-    //             res.extend(b.iter().copied().map(Value::Int));
-    //             Value::List(res)
-    //         }
-    //         (Value::List(a), Value::List(b)) => {
-    //             let mut res = a.clone();
-    //             res.extend(b.clone());
-    //             Value::List(res)
-    //         }
-    //         (Value::List(a), b) => {
-    //             let mut res = a.clone();
-    //             res.push(b.clone());
-    //             Value::List(res)
-    //         }
-    //         (Value::IntList(a), b) => {
-    //             let mut res: Vec<Value> = a.iter().cloned().map(Value::Int).collect();
-    //             res.push(b.clone());
-    //             Value::List(res)
-    //         }
-    //         (a, Value::List(b)) => {
-    //             let mut res = vec![a.clone()];
-    //             res.extend(b.clone());
-    //             Value::List(res)
-    //         }
-    //         (a, Value::IntList(b)) => {
-    //             let mut res = Vec::with_capacity(b.len() + 1);
-    //             res.push(a.clone());
-    //             res.extend(b.iter().copied().map(Value::Int));
-    //             Value::List(res)
-    //         }
-    //         (Value::Int(a), Value::Int(b)) => Value::IntList(vec![*a, *b]),
-    //         (a, b) => Value::List(vec![a.clone(), b.clone()]),
-    //     }
-    // }
-
     pub fn cat(self, other: Value) -> Value {
         match (self, other) {
             (Value::IntList(mut a), Value::IntList(b)) => {
@@ -134,24 +75,4 @@ impl Value {
         }
         out
     }
-
-    // pub fn into_flatten(self) -> Vec<Value> {
-    //     let mut out = Vec::new();
-    //     let mut stack: Vec<Value> = vec![self];
-    //     while let Some(cur) = stack.pop() {
-    //         match cur {
-    //             Value::List(mut items) => {
-    //                 // preserve order
-    //                 for v in items.drain(..).rev() {
-    //                     stack.push(v);
-    //                 }
-    //             }
-    //             Value::IntList(items) => {
-    //                 out.extend(items.into_iter().map(Value::Int));
-    //             }
-    //             other => out.push(other),
-    //         }
-    //     }
-    //     out
-    // }
 }

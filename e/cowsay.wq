@@ -1,4 +1,5 @@
-!p
+//!p
+repeat:{[s;n]acc:();N[n;acc:acc,s];acc}
 cowsay:{[msg]border:repeat["-";#msg+2]
   echo(" ",border)
   echo("< ",str msg," >")

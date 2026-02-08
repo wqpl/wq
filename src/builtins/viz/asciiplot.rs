@@ -3,15 +3,15 @@ use std::cmp::{max, min};
 use crate::{
     builtins::BuiltinEnum as BE,
     colored::{Color, Colorize},
-    repl::stdio::stdout_println,
+    stdio::stdout_println,
     value::{Value, WqResult},
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 pub fn asciiplot(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqErr::new(WqErrType::Arity)
+        return Err(WqError::new(WqErrorType::Arity)
             .src(BE::Asciiplot)
             .msg("expected 1 or more args")
             .attach_note(BE::Asciiplot.usage()));
@@ -68,7 +68,7 @@ pub fn asciiplot(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                 parsed.push(ParsedSeries { xy });
             }
             _ => {
-                return Err(WqErr::new(WqErrType::Domain).
+                return Err(WqError::new(WqErrorType::Domain).
                     src(BE::Asciiplot).
                     msg("expected each arg to be (a list of numbers) or (a list of 2‑element numeric lists)").attach_note(
                         "e.g. (1;2;3), ((1;2);(2;4))"));
@@ -76,7 +76,7 @@ pub fn asciiplot(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         }
     }
     if parsed.is_empty() {
-        return Err(WqErr::new(WqErrType::Domain).src(BE::Asciiplot).msg("expected each arg to be (a list of numbers) or (a list of 2‑element numeric lists)").attach_note(
+        return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg("expected each arg to be (a list of numbers) or (a list of 2‑element numeric lists)").attach_note(
                 "e.g. (1;2;3), ((1;2);(2;4))"));
     }
     let all_series: Vec<Vec<(f64, f64)>> = parsed.iter().map(|p| p.xy.clone()).collect();
@@ -299,8 +299,8 @@ fn render_ascii_plot(series_list: &[Vec<(f64, f64)>], opts: &PlotOptions) -> Str
         let row = (height as f64 - 1.0 - t * (height as f64 - 1.0)).round() as isize;
         min(height as isize - 1, max(0, row)) as usize
     } else {
-        0usize
-    }; // dummy
+        height - 1
+    };
     let x0_col = if x0_in {
         let t = (0.0 - xmin) / xspan;
         let col = (t * (width as f64 - 1.0)).round() as isize;
@@ -361,18 +361,16 @@ fn render_ascii_plot(series_list: &[Vec<(f64, f64)>], opts: &PlotOptions) -> Str
         }
     }
     if opts.axes {
-        if y0_in {
-            for x in 0..width {
-                set_cell_layer(
-                    &mut grid,
-                    x as isize,
-                    y0_row as isize,
-                    '-',
-                    Layer::Axis,
-                    None,
-                    opts.color,
-                );
-            }
+        for x in 0..width {
+            set_cell_layer(
+                &mut grid,
+                x as isize,
+                y0_row as isize,
+                '-',
+                Layer::Axis,
+                None,
+                opts.color,
+            );
         }
         if x0_in {
             for y in 0..height {

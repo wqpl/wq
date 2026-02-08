@@ -96,12 +96,18 @@ pub enum AstNode {
         count: Box<AstNode>,
         body: Box<AstNode>,
     },
+    FLoop {
+        iterable: Box<AstNode>,
+        body: Box<AstNode>,
+    },
     Break,
     Continue,
     Return(Option<Box<AstNode>>),
     Try(Box<AstNode>),
     /// Sequence of statements
     Block(Vec<AstNode>),
+    /// Block expression from B[...]
+    BlockExpr(Vec<AstNode>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -167,6 +173,7 @@ fn group(depth: usize, parts: impl IntoIterator<Item = String>) -> String {
         let s = p.as_str();
         if first {
             // color the first element the same as parentheses
+            #[cfg_attr(target_arch = "wasm32", allow(clippy::unnecessary_to_owned))]
             out.push_str(&s.color(color).bold().to_string());
         } else {
             out.push_str(s);
@@ -411,6 +418,14 @@ impl AstNode {
                     body.sexpr_with_depth(depth + 1),
                 ],
             ),
+            FLoop { iterable, body } => group(
+                depth,
+                [
+                    "F-LOOP".into(),
+                    iterable.sexpr_with_depth(depth + 1),
+                    body.sexpr_with_depth(depth + 1),
+                ],
+            ),
             Break => group(depth, ["@b".into()]),
             Continue => group(depth, ["@c".into()]),
             Return(opt) => {
@@ -424,6 +439,12 @@ impl AstNode {
             Block(stmts) => {
                 let mut parts = Vec::with_capacity(stmts.len() + 1);
                 parts.push("BLOCK".into());
+                parts.extend(stmts.iter().map(|s| s.sexpr_with_depth(depth + 1)));
+                group(depth, parts)
+            }
+            BlockExpr(stmts) => {
+                let mut parts = Vec::with_capacity(stmts.len() + 1);
+                parts.push("B".into());
                 parts.extend(stmts.iter().map(|s| s.sexpr_with_depth(depth + 1)));
                 group(depth, parts)
             }

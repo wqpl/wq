@@ -25,7 +25,7 @@ impl std::fmt::Display for StdinError {
 
 impl std::error::Error for StdinError {}
 
-pub trait ReplStdin: Send {
+pub trait WqStdin: Send {
     fn readline(&mut self, prompt: &str) -> Result<String, StdinError>;
     fn add_history(&mut self, _line: &str) {}
     fn set_highlight(&mut self, _on: bool) {}
@@ -33,13 +33,13 @@ pub trait ReplStdin: Send {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub static STDIN: Lazy<Mutex<Option<Box<dyn ReplStdin>>>> = Lazy::new(|| Mutex::new(None));
+pub static STDIN: Lazy<Mutex<Option<Box<dyn WqStdin>>>> = Lazy::new(|| Mutex::new(None));
 #[cfg(target_arch = "wasm32")]
 thread_local! {
-    pub static STDIN: RefCell<Option<Box<dyn ReplStdin>>> = RefCell::new(None);
+    pub static STDIN: RefCell<Option<Box<dyn WqStdin>>> = RefCell::new(None);
 }
 
-pub fn set_stdin(reader: Box<dyn ReplStdin>) {
+pub fn set_stdin(reader: Box<dyn WqStdin>) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         *STDIN.lock().unwrap() = Some(reader);
@@ -134,19 +134,19 @@ where
     f()
 }
 
-pub trait ReplStdout: Send {
+pub trait WqStdout: Send {
     fn print(&mut self, s: &str);
     fn println(&mut self, s: &str);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub static STDOUT: Lazy<Mutex<Option<Box<dyn ReplStdout>>>> = Lazy::new(|| Mutex::new(None));
+pub static STDOUT: Lazy<Mutex<Option<Box<dyn WqStdout>>>> = Lazy::new(|| Mutex::new(None));
 #[cfg(target_arch = "wasm32")]
 thread_local! {
-    pub static STDOUT: RefCell<Option<Box<dyn ReplStdout>>> = RefCell::new(None);
+    pub static STDOUT: RefCell<Option<Box<dyn WqStdout>>> = RefCell::new(None);
 }
 
-pub fn set_stdout(writer: Option<Box<dyn ReplStdout>>) {
+pub fn set_stdout(writer: Option<Box<dyn WqStdout>>) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         *STDOUT.lock().unwrap() = writer;
@@ -201,19 +201,19 @@ pub fn stdout_println(s: impl AsRef<str>) {
     });
 }
 
-pub trait ReplStderr: Send {
+pub trait WqStderr: Send {
     fn eprint(&mut self, s: &str);
     fn eprintln(&mut self, s: &str);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub static STDERR: Lazy<Mutex<Option<Box<dyn ReplStderr>>>> = Lazy::new(|| Mutex::new(None));
+pub static STDERR: Lazy<Mutex<Option<Box<dyn WqStderr>>>> = Lazy::new(|| Mutex::new(None));
 #[cfg(target_arch = "wasm32")]
 thread_local! {
-    pub static STDERR: RefCell<Option<Box<dyn ReplStderr>>> = RefCell::new(None);
+    pub static STDERR: RefCell<Option<Box<dyn WqStderr>>> = RefCell::new(None);
 }
 
-pub fn set_stderr(writer: Option<Box<dyn ReplStderr>>) {
+pub fn set_stderr(writer: Option<Box<dyn WqStderr>>) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         *STDERR.lock().unwrap() = writer;

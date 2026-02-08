@@ -3,7 +3,11 @@ use std::{
     sync::Arc,
 };
 
-use crate::{colored::Colorize, repl::get_debug_level, value::Value};
+use crate::{
+    colored::Colorize,
+    debug_flags::{DebugFlags, get_debug_flags},
+    value::Value,
+};
 
 #[derive(Clone)]
 pub struct SourceFile {
@@ -320,7 +324,7 @@ impl Wqdb {
             return true;
         }
         if self.breaks.contains(&here) {
-            if crate::repl::get_debug_level() >= 2 {
+            if get_debug_flags().contains(DebugFlags::WQDB_1) {
                 eprintln!(
                     "[wqdb]: pausing at persistent breakpoint: chunk {:?} pc {}",
                     here.chunk, here.pc
@@ -329,7 +333,7 @@ impl Wqdb {
             return true;
         }
         if self.temps.contains(&here) {
-            if crate::repl::get_debug_level() >= 2 {
+            if get_debug_flags().contains(DebugFlags::WQDB_1) {
                 eprintln!(
                     "[wqdb]: pausing at temp breakpoint: chunk {:?} pc {}",
                     here.chunk, here.pc
@@ -379,7 +383,7 @@ impl Wqdb {
     }
 
     pub fn add_temp_break(&mut self, loc: CodeLoc) {
-        if crate::repl::get_debug_level() >= 2 {
+        if get_debug_flags().contains(DebugFlags::WQDB_1) {
             eprintln!(
                 "[wqdb]: adding temp break at chunk {:?} pc {}",
                 loc.chunk, loc.pc
@@ -446,6 +450,7 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
         for ln in lo_ln..=hi_ln {
             out.push_str(&gutter);
             if ln == l {
+                #[cfg_attr(target_arch = "wasm32", allow(clippy::unnecessary_to_owned))]
                 out.push_str(
                     &format!("{:>4} -> {}", ln, sf.line_snippet(ln).trim())
                         .green()
@@ -457,7 +462,7 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
             }
             out.push('\n');
         }
-        out.pop(); // Remove the last newline
+        // out.pop(); // Remove the last newline
         out
     } else {
         // Unknown file but known chunk
@@ -473,7 +478,7 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
 
 pub fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::instruction::Instruction]) {
     use crate::vm::instruction::Instruction::*;
-    if get_debug_level() >= 4 {
+    if get_debug_flags().contains(DebugFlags::WQDB_2) {
         eprintln!(
             "[wqdb]: mark_stmt_heuristic called with {} instructions",
             code.len()
@@ -511,7 +516,7 @@ pub fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::instruction
                 | LoadClosure { .. }
         );
         if is_stmt {
-            if get_debug_level() >= 4 {
+            if get_debug_flags().contains(DebugFlags::WQDB_2) {
                 eprintln!("[wqdb]: marking PC {pc} as statement: {op:?}");
             }
             table.mark_stmt(pc, Span::NONE);
@@ -533,7 +538,7 @@ fn apply_stmt_spans_exact(
     let mut spans_sorted: Vec<(usize, usize)> = spans.to_vec();
     spans_sorted.sort_by_key(|(s, _)| *s);
     spans_sorted.dedup();
-    if get_debug_level() >= 4 {
+    if get_debug_flags().contains(DebugFlags::WQDB_2) {
         eprintln!(
             "[wqdb]: apply_stmt_spans_exact called with {} instructions, {} spans ({} unique, sorted)",
             code.len(),
@@ -543,7 +548,7 @@ fn apply_stmt_spans_exact(
         eprintln!("[wqdb]: spans(sorted) = {spans_sorted:?}");
     }
     if spans_sorted.is_empty() || spans_sorted.len() * 10 < code.len() {
-        if get_debug_level() >= 4 {
+        if get_debug_flags().contains(DebugFlags::WQDB_2) {
             eprintln!(
                 "[wqdb]: using heuristic fallback (spans.len() * 10 = {} < code.len() = {})",
                 spans_sorted.len() * 10,
@@ -571,7 +576,7 @@ fn apply_stmt_spans_exact(
         }
         return;
     }
-    if get_debug_level() >= 4 {
+    if get_debug_flags().contains(DebugFlags::WQDB_2) {
         eprintln!("[wqdb]: proceeding with exact span mapping (overlay mode)");
     }
     mark_stmt_heuristic(table, code);
@@ -595,7 +600,7 @@ fn apply_stmt_spans_exact(
                 let container = spans_for_map.remove(0);
                 spans_for_map.push(container);
                 has_container = true;
-                if get_debug_level() >= 4 {
+                if get_debug_flags().contains(DebugFlags::WQDB_2) {
                     eprintln!(
                         "[wqdb]: detected container span; remapped to end: {spans_for_map:?}"
                     );

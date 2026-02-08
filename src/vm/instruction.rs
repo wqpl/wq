@@ -439,25 +439,6 @@ impl InstPrettyDumper {
         }
     }
 
-    // fn highlight_opcode(&self, text: &str) -> String {
-    //     if !self.colorize {
-    //         return text.to_string();
-    //     }
-    //     let mut split_pos = text.len();
-    //     for (idx, ch) in text.char_indices() {
-    //         if ch == '(' || ch == ' ' {
-    //             split_pos = idx;
-    //             break;
-    //         }
-    //     }
-    //     let (head, tail) = text.split_at(split_pos);
-    //     if head.is_empty() {
-    //         text.to_string()
-    //     } else {
-    //         format!("{}{}", head.green(), tail)
-    //     }
-    // }
-
     fn highlight_inst(&self, inst: &Instruction) -> String {
         let s = format!("{inst:?}");
         // Split off the opcode token to style only it

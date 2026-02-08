@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
 
 use crate::{
-    builtins::{BuiltinEnum as BE, wqerr_ext::check_arity},
+    builtins::{BuiltinEnum as BE, wqerror_helper::check_arity},
     value::{IntoWqValue, Value, WqResult, cmp::cmp_atom},
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use num_bigint::BigInt;
@@ -64,7 +64,7 @@ pub fn sum(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                     }
                     Ok(acc)
                 }
-                _ => Err(WqErr::new(WqErrType::Domain)
+                _ => Err(WqError::new(WqErrorType::Domain)
                     .src(BE::Sum)
                     .msg("expected atom or list")
                     .at_arg(0)),
@@ -82,7 +82,7 @@ pub fn sum(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
 
 pub fn min(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqErr::new(WqErrType::Arity)
+        return Err(WqError::new(WqErrorType::Arity)
             .src(BE::Min)
             .msg("expected at least 1 argument"));
     }
@@ -124,11 +124,13 @@ pub fn min(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                         if let Some(ord) = cmp_atom(atom, current) {
                             if ord == Ordering::Less { atom } else { current }
                         } else {
-                            return Err(WqErr::new(WqErrType::Domain).src(BE::Min).msg(format!(
-                                "cannot compare {} and {}",
-                                atom.type_name(),
-                                current.type_name()
-                            )));
+                            return Err(WqError::new(WqErrorType::Domain).src(BE::Min).msg(
+                                format!(
+                                    "cannot compare {} and {}",
+                                    atom.type_name(),
+                                    current.type_name()
+                                ),
+                            ));
                         }
                     }
                 });
@@ -140,7 +142,7 @@ pub fn min(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
 
 pub fn max(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     if args.is_empty() {
-        return Err(WqErr::new(WqErrType::Arity)
+        return Err(WqError::new(WqErrorType::Arity)
             .src(BE::Max)
             .msg("expected at least 1 argument"));
     }
@@ -186,11 +188,13 @@ pub fn max(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                                 current
                             }
                         } else {
-                            return Err(WqErr::new(WqErrType::Domain).src(BE::Max).msg(format!(
-                                "cannot compare {} and {}",
-                                atom.type_name(),
-                                current.type_name()
-                            )));
+                            return Err(WqError::new(WqErrorType::Domain).src(BE::Max).msg(
+                                format!(
+                                    "cannot compare {} and {}",
+                                    atom.type_name(),
+                                    current.type_name()
+                                ),
+                            ));
                         }
                     }
                 });
@@ -276,7 +280,7 @@ pub fn filter(vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                     Value::Bool(true) => result.push(val),
                     Value::Bool(false) => {}
                     _ => {
-                        return Err(WqErr::new(WqErrType::Domain)
+                        return Err(WqError::new(WqErrorType::Domain)
                             .src(BE::Filter)
                             .msg("predicate must return bool"));
                     }
@@ -292,7 +296,7 @@ pub fn filter(vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                     Value::Bool(true) => result.push(item.clone()),
                     Value::Bool(false) => {}
                     _ => {
-                        return Err(WqErr::new(WqErrType::Domain)
+                        return Err(WqError::new(WqErrorType::Domain)
                             .src(BE::Filter)
                             .msg("predicate must return bool"));
                     }
@@ -308,7 +312,7 @@ pub fn filter(vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                     Value::Bool(true) => result.push(value.clone()),
                     Value::Bool(false) => {}
                     _ => {
-                        return Err(WqErr::new(WqErrType::Domain)
+                        return Err(WqError::new(WqErrorType::Domain)
                             .src(BE::Filter)
                             .msg("predicate must return bool"));
                     }
@@ -439,7 +443,7 @@ pub fn find(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                 Value::Int(n) if *n >= 0 => *n,
                 Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
                 _ => {
-                    return Err(WqErr::new(WqErrType::Domain)
+                    return Err(WqError::new(WqErrorType::Domain)
                         .src(BE::Find)
                         .msg("threshold must be non-negative int or inf")
                         .at_arg(1));
@@ -452,7 +456,7 @@ pub fn find(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                 Value::Int(n) if *n >= 0 => *n,
                 Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
                 _ => {
-                    return Err(WqErr::new(WqErrType::Domain)
+                    return Err(WqError::new(WqErrorType::Domain)
                         .src(BE::Find)
                         .msg("threshold must be non-negative int or inf")
                         .at_arg(1));
@@ -462,7 +466,7 @@ pub fn find(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
                 Value::Int(n) if *n >= 0 => *n,
                 Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
                 _ => {
-                    return Err(WqErr::new(WqErrType::Domain)
+                    return Err(WqError::new(WqErrorType::Domain)
                         .src(BE::Find)
                         .msg("depth must be non-negative int or inf")
                         .at_arg(2));

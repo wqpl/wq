@@ -2,33 +2,33 @@ use crate::{
     value::{
         Excerpt, Value,
         bc::BcResult,
-        wqerr_ext::{expected_numeric1, expected_numeric2},
+        wqerror_helper::{expected_numeric1, expected_numeric2},
     },
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use num_bigint::BigInt;
 use num_traits::{Signed, Zero};
 
 #[inline]
-fn guard_nan<F>(res: f64, err: F) -> Result<f64, WqErr>
+fn guard_nan<F>(res: f64, err: F) -> Result<f64, WqError>
 where
-    F: FnOnce() -> WqErr,
+    F: FnOnce() -> WqError,
 {
     if res.is_nan() { Err(err()) } else { Ok(res) }
 }
 
 #[inline]
-fn math_nan_err1(op: &str, arg: &Value) -> WqErr {
-    WqErr::new(WqErrType::Domain)
+fn math_nan_err1(op: &str, arg: &Value) -> WqError {
+    WqError::new(WqErrorType::Domain)
         .msg(format!("{op} is not defined for given value"))
         .attach_note("builtin math functions are defined on real set")
         .attach_note(format!("got {}", arg.excerpt()))
 }
 
 #[inline]
-fn math_nan_err2(op: &str, lhs: &Value, rhs: &Value) -> WqErr {
-    WqErr::new(WqErrType::Domain)
+fn math_nan_err2(op: &str, lhs: &Value, rhs: &Value) -> WqError {
+    WqError::new(WqErrorType::Domain)
         .msg(format!("{op} is not defined for given values"))
         .attach_note("builtin math functions are defined on real set")
         .attach_note(format!("got {} for lhs", lhs.excerpt()))
@@ -36,7 +36,7 @@ fn math_nan_err2(op: &str, lhs: &Value, rhs: &Value) -> WqErr {
 }
 
 #[inline]
-fn unary_float_math<F>(op: &str, arg: &Value, func: F) -> Result<Value, WqErr>
+fn unary_float_math<F>(op: &str, arg: &Value, func: F) -> Result<Value, WqError>
 where
     F: FnOnce(f64) -> f64,
 {
@@ -45,7 +45,7 @@ where
 }
 
 #[inline]
-fn unary_float_to_int<F>(op: &str, arg: &Value, func: F) -> Result<Value, WqErr>
+fn unary_float_to_int<F>(op: &str, arg: &Value, func: F) -> Result<Value, WqError>
 where
     F: FnOnce(f64) -> f64,
 {
@@ -56,7 +56,7 @@ where
 }
 
 #[inline]
-fn binary_float_math<F>(op: &str, lhs: &Value, rhs: &Value, func: F) -> Result<Value, WqErr>
+fn binary_float_math<F>(op: &str, lhs: &Value, rhs: &Value, func: F) -> Result<Value, WqError>
 where
     F: FnOnce(f64, f64) -> f64,
 {

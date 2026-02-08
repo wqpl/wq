@@ -1,18 +1,22 @@
-```plaintext
-contributions are always welcome!
+# Contributing
 
+Contributions are always welcome!
 https://codeberg.org/wqpl
 
-issue =========================================================
-* include steps to reproduce
+## Issues
 
-feature =======================================================
-* open an issue first
-* explain the value
+- Include steps to reproduce
 
-code ==========================================================
-* cargo fmt && cargo clippy -- -D warnings && cargo test
-* commit msg: concise, clean
-* PR: clarify what’s changed and why
-* add your name (and optionally email) to the `AUTHORS` file at project root
-```
+## Features
+
+- Open an issue
+- Explain the value
+
+## Code
+
+- `cargo fmt`
+- `cargo clippy -- -D warnings`
+- `cargo test`
+- Commit messages: concise, clean
+- PR: Clarify what has changed and why
+- Add your name (and optionally email) to `AUTHORS` at project root

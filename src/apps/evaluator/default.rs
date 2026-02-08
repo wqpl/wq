@@ -1,47 +1,29 @@
-pub mod box_mode;
-pub mod repl_engine;
-pub mod stdio;
-pub mod tshelper;
-pub mod wqdb_shell;
-
-use std::sync::atomic::{AtomicU8, Ordering};
-
 use crate::{
+    apps::evaluator::Evaluator,
+    builtins::BuiltinPreset,
     colored::Colorize,
+    compiler::Compiler,
+    debug_flags::{DebugFlags, set_debug_flags},
+    interpreters::{InterpreterKind, default::DefaultInterpreter, sample::SampleInterpreter},
     lexer::Lexer,
     parser::Parser,
     post_parser::{folder, resolver::Resolver},
-    repl::{
-        repl_engine::ReplEngine,
-        stdio::{ReplStdin, set_stdin, stderr_println},
-    },
+    stdio::{WqStdin, set_stdin, stderr_println},
     token::fmt_tokens_table,
     value::{Value, WqResult},
     vm::{
         GlobalMap, Vm,
-        compiler::Compiler,
         instruction::{InstPrettyDumper, Instruction},
     },
     wqdb::{
         self, DebugHost, apply_stmt_spans_exact_offs, mark_stmt_heuristic, register_function_chunks,
     },
-    wqerr::WqErr,
+    wqerror::WqError,
 };
 
-// Global verbose level for debug logging across modules (0=off, 1=inst, 2=inst+ast+debug logs, 3=+tokens)
-static DEBUG_LEVEL: AtomicU8 = AtomicU8::new(0);
-
-pub fn set_debug_level(level: u8) {
-    DEBUG_LEVEL.store(level, Ordering::Relaxed);
-}
-
-pub fn get_debug_level() -> u8 {
-    DEBUG_LEVEL.load(Ordering::Relaxed)
-}
-
-pub struct VmEvaluator {
+pub struct DefaultEvaluator {
     vm: Vm,
-    debug_level: u8,
+    debug_flags: DebugFlags,
     // Arm entering the wqdb on the next eval call
     wqdb_arm_next: bool,
     // Optional debug source context for next eval (path, full_text)
@@ -50,21 +32,16 @@ pub struct VmEvaluator {
     dbg_source_offs: usize,
     // Backtrace mode (minimal debug mapping for errors)
     bt_mode: bool,
+    interpreter: InterpreterKind,
 }
 
-impl Default for VmEvaluator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ReplEngine for VmEvaluator {
-    fn eval_string(&mut self, input: &str) -> Result<Value, WqErr> {
-        VmEvaluator::eval_string(self, input)
+impl Evaluator for DefaultEvaluator {
+    fn eval_string(&mut self, input: &str) -> Result<Value, WqError> {
+        DefaultEvaluator::eval_string(self, input)
     }
 
     fn get_environment(&self) -> Option<&GlobalMap> {
-        VmEvaluator::get_environment(self)
+        DefaultEvaluator::get_environment(self)
     }
 
     fn clear_environment(&mut self) {
@@ -75,40 +52,40 @@ impl ReplEngine for VmEvaluator {
         self.environment()
     }
 
-    fn set_stdin(&mut self, stdin: Box<dyn ReplStdin>) {
+    fn set_stdin(&mut self, stdin: Box<dyn WqStdin>) {
         set_stdin(stdin);
     }
 
     fn arm_wqdb_next(&mut self) {
-        VmEvaluator::arm_wqdb_next(self)
+        DefaultEvaluator::arm_wqdb_next(self)
     }
 
     fn dbg_set_source(&mut self, path: &str, full_text: &str) {
-        VmEvaluator::dbg_set_source(self, path, full_text)
+        DefaultEvaluator::dbg_set_source(self, path, full_text)
     }
 
     fn dbg_set_offset(&mut self, offset: usize) {
-        VmEvaluator::dbg_set_offset(self, offset)
+        DefaultEvaluator::dbg_set_offset(self, offset)
     }
 
     fn dbg_print_bt(&mut self) {
-        VmEvaluator::dbg_print_bt(self)
+        DefaultEvaluator::dbg_print_bt(self)
     }
 
     fn set_bt_mode(&mut self, flag: bool) {
-        VmEvaluator::set_bt_mode(self, flag)
+        DefaultEvaluator::set_bt_mode(self, flag)
     }
 
     fn set_wqdb(&mut self, flag: bool) {
-        VmEvaluator::set_wqdb(self, flag)
+        DefaultEvaluator::set_wqdb(self, flag)
     }
 
-    fn set_debug_level(&mut self, level: u8) {
-        VmEvaluator::set_debug_level(self, level)
+    fn set_debug_flags(&mut self, flags: DebugFlags) {
+        DefaultEvaluator::set_debug_flags(self, flags)
     }
 
-    fn get_debug_level(&mut self) -> u8 {
-        VmEvaluator::get_debug_level(self)
+    fn get_debug_flags(&mut self) -> DebugFlags {
+        DefaultEvaluator::get_debug_flags(self)
     }
 
     fn is_wqdb_enabled(&self) -> bool {
@@ -116,32 +93,50 @@ impl ReplEngine for VmEvaluator {
     }
 
     fn reset_session(&mut self) {
-        VmEvaluator::reset_session(self)
+        DefaultEvaluator::reset_session(self)
     }
 }
 
-impl VmEvaluator {
+impl DefaultEvaluator {
     /// Create a new evaluator with an empty environment.
     pub fn new() -> Self {
         let mut vm = Vm::new(Vec::new());
         vm.set_bt_mode(true);
-        VmEvaluator {
+        DefaultEvaluator {
             vm,
-            debug_level: 0,
+            debug_flags: DebugFlags::empty(),
             wqdb_arm_next: false,
             dbg_source_ctx: None,
             dbg_source_offs: 0,
             bt_mode: true,
+            interpreter: InterpreterKind::Default,
         }
     }
 
-    pub fn get_debug_level(&self) -> u8 {
-        self.debug_level
+    pub fn set_interpreter(&mut self, kind: InterpreterKind) {
+        self.interpreter = kind;
     }
 
-    pub fn set_debug_level(&mut self, level: u8) {
-        self.debug_level = level;
-        set_debug_level(level);
+    pub fn set_interpreter_by_name(&mut self, name: &str) -> Result<&'static str, String> {
+        if let Some(kind) = InterpreterKind::from_name(name) {
+            self.set_interpreter(kind);
+            Ok(kind.name())
+        } else {
+            Err(format!("unknown interpreter '{name}'"))
+        }
+    }
+
+    pub fn interpreter_name(&self) -> &'static str {
+        self.interpreter.name()
+    }
+
+    pub fn get_debug_flags(&self) -> DebugFlags {
+        self.debug_flags
+    }
+
+    pub fn set_debug_flags(&mut self, flags: DebugFlags) {
+        self.debug_flags = flags;
+        set_debug_flags(flags);
     }
 
     pub fn get_bt_mode(&self) -> bool {
@@ -156,12 +151,28 @@ impl VmEvaluator {
     pub fn set_wqdb(&mut self, flag: bool) {
         self.vm.wqdb.enabled = flag;
         if self.vm.wqdb.enabled {
-            self.vm.wqdb.on_pause = Some(repl_on_pause);
             self.wqdb_arm_next = true;
         } else {
             self.vm.wqdb.clear_mode();
-            self.vm.wqdb.on_pause = None;
+            // Don't clear on_pause - keep the callback registered for re-enabling
         }
+    }
+
+    pub fn set_pause_callback(&mut self, cb: Option<fn(&mut dyn DebugHost)>) {
+        self.vm.wqdb.on_pause = cb;
+    }
+
+    pub fn builtins(&self) -> &crate::builtins::Builtins {
+        &self.vm.builtins
+    }
+
+    pub fn set_builtins_preset(&mut self, preset: BuiltinPreset) {
+        self.vm.builtins.apply_preset(preset);
+    }
+
+    /// Get mutable access to the VM for debugger integration
+    pub fn vm_mut(&mut self) -> &mut Vm {
+        &mut self.vm
     }
 
     /// Evaluate a string of source code and return the resulting value.
@@ -179,37 +190,39 @@ impl VmEvaluator {
             Lexer::new(input)
         };
         let tokens = lexer.tokenize()?;
-        if self.debug_level >= 3 {
-            let header = "~ tok ~".bold().underline().to_string();
+        if self.debug_flags.contains(DebugFlags::TOKEN) {
+            let header = "TOKENS".bold().underline().to_string();
             stderr_println(header);
             stderr_println(fmt_tokens_table(&tokens));
             stderr_println("");
         }
 
         // Use global debug source + offset when available to improve error spans
+        let builtins = self.vm.builtins.clone();
         let mut parser = if let Some((_, full_text)) = self.dbg_source_ctx.as_ref() {
-            Parser::new_with_ctx(
+            Parser::new_with_ctx_and_builtins(
                 tokens,
                 input.to_string(),
                 Some(full_text.clone()),
                 self.dbg_source_offs,
+                builtins.clone(),
             )
         } else {
-            Parser::new(tokens, input.to_string())
+            Parser::new_with_builtins(tokens, input.to_string(), builtins.clone())
         };
         let ast = parser.parse()?;
-        let mut resolver = Resolver::from_env(self.environment());
+        let mut resolver = Resolver::from_env_and_builtins(self.environment(), builtins.clone());
         let ast = resolver.resolve(ast);
         let ast = folder::fold(ast);
 
-        if self.debug_level >= 2 {
-            let header = "~ ast ~".bold().underline().to_string();
+        if self.debug_flags.contains(DebugFlags::AST) {
+            let header = "AST".bold().underline().to_string();
             stderr_println(header);
             stderr_println(format!("{ast}").as_str());
             stderr_println("");
         }
 
-        let mut compiler = Compiler::new();
+        let mut compiler = Compiler::new_with_builtins(builtins);
         compiler.set_fn_spans(parser.fn_body_spans_all().clone());
         compiler.set_source(input.to_string());
         compiler.set_stmt_spans(parser.stmt_spans_top().to_vec());
@@ -217,8 +230,8 @@ impl VmEvaluator {
         compiler.fuse();
         compiler.instructions.push(Instruction::Return);
 
-        if self.debug_level >= 1 {
-            let header = "~ inst ~".bold().underline().to_string();
+        if self.debug_flags.contains(DebugFlags::INST) {
+            let header = "INSTRUCTIONS".bold().underline().to_string();
             stderr_println(header);
             let lines = InstPrettyDumper::new(true, true).render(&compiler.instructions);
             for line in lines {
@@ -266,14 +279,15 @@ impl VmEvaluator {
                 );
             }
         }
-        // If wqdb is enabled (persistently or armed just once), attach hook and step-in
+        // If wqdb is enabled (persistently or armed just once), step-in
+        // Note: on_pause callback must be set externally via set_pause_callback()
         if self.vm.wqdb.enabled || _enter_wqdb {
-            if self.vm.wqdb.on_pause.is_none() {
-                self.vm.wqdb.on_pause = Some(repl_on_pause);
-            }
             self.vm.dbg_step_in();
         }
-        self.vm.run()
+        match self.interpreter {
+            InterpreterKind::Sample => self.vm.run_with_interpreter(&mut SampleInterpreter),
+            InterpreterKind::Default => self.vm.run_with_interpreter(&mut DefaultInterpreter),
+        }
     }
 
     /// Access the environment holding user-defined bindings.
@@ -326,51 +340,72 @@ impl VmEvaluator {
     }
 }
 
-/// REPL pause hook: run the interactive wqdb shell
-fn repl_on_pause(host: &mut dyn DebugHost) {
-    wqdb_shell::wqdb_shell(host);
-}
-
-pub fn enter_wqdb_after_err(eval: &mut VmEvaluator) {
-    wqdb_shell::wqdb_shell_after_err(&mut eval.vm);
+impl Default for DefaultEvaluator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::value::Value;
+    use crate::{apps::evaluator::default::DefaultEvaluator, value::Value};
 
     #[test]
     fn undefined_variable_errors() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("a");
         assert!(res.is_err());
     }
 
     #[test]
     fn empty_conditional_branches_dont_panic() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("$[true;;]");
         assert!(res.is_ok());
     }
 
     #[test]
+    fn conditional_chain_picks_first_true() {
+        let mut eval = DefaultEvaluator::new();
+        let res = eval.eval_string("x:0;$$[x>0;1;x<0;-1;0]").unwrap();
+        assert_eq!(res, Value::Int(0));
+        let res = eval.eval_string("x:-2;$$[x>0;1;x<0;-1]").unwrap();
+        assert_eq!(res, Value::Int(-1));
+    }
+
+    #[test]
+    fn block_expr_evaluates_last_statement() {
+        let mut eval = DefaultEvaluator::new();
+        let res = eval.eval_string("x:B[a:1;a+1];x").unwrap();
+        assert_eq!(res, Value::Int(2));
+    }
+
+    #[test]
+    fn for_each_sets_f() {
+        let mut eval = DefaultEvaluator::new();
+        let res = eval
+            .eval_string("acc:0;F[(1;2;3);acc:acc+_f;];acc")
+            .unwrap();
+        assert_eq!(res, Value::Int(6));
+    }
+
+    #[test]
     fn empty_loop_body_dont_panic() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("N[3;]");
         assert!(res.is_ok());
     }
 
     #[test]
     fn break_and_continue() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("n:0;N[5;$[n=2;@c;];n:n+1;];n").unwrap();
         assert_eq!(res, Value::Int(2));
     }
 
     #[test]
     fn return_in_function() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("f:{@r 3;1};f[]").unwrap();
         assert_eq!(res, Value::Int(3));
     }
@@ -384,7 +419,7 @@ mod tests {
 
     #[test]
     fn implicit_arg_order_and_arity() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         // Test argument order with three implicit parameters
         let res = eval.eval_string("f:{100*x+10*y+z};f[1;2;3]").unwrap();
         assert_eq!(res, Value::Int(123));
@@ -396,14 +431,14 @@ mod tests {
 
     #[test]
     fn arity_error_too_many_args() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("f:{[a;b;c]a+b+c};f[1;2;3;4]");
         assert!(res.is_err());
     }
 
     #[test]
     fn intlist_literal_inferred_and_list_interop() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("(1;2;3)").unwrap();
         assert_eq!(res, Value::IntList(vec![1, 2, 3]));
 
@@ -424,7 +459,7 @@ mod tests {
 
     #[test]
     fn nested_function_calls_access_locals() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let code = "fib:{fib_:{[n;a;b]$[n=0;a;fib_[n-1;b;a+b]]};fib_[x;0;1]};fib 10";
         let res = eval.eval_string(code).unwrap();
         assert_eq!(res, Value::Int(55));
@@ -432,7 +467,7 @@ mod tests {
 
     #[test]
     fn local_function_compiles_once_and_works_twice() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         // Define a local function 'g' inside 'h' and call it twice
         let code = "h:{g:{[n]n+1}; g 1 + g 2}; h[]";
         let res = eval.eval_string(code).unwrap();
@@ -441,7 +476,7 @@ mod tests {
 
     #[test]
     fn builtin_arg_order_preserved() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         // 'take' takes (list, n) and returns first n items
         let res = eval.eval_string("log[100;10]").unwrap();
         assert_eq!(res, Value::Float(2.0));
@@ -449,14 +484,14 @@ mod tests {
 
     #[test]
     fn range_builder_half_open_default_step() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("1..10").unwrap();
         assert_eq!(res, Value::IntList(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]));
     }
 
     #[test]
     fn range_builder_inclusive_with_step() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("1..=11..2").unwrap();
         assert_eq!(res, Value::IntList(vec![1, 3, 5, 7, 9, 11]));
     }
@@ -475,28 +510,28 @@ mod tests {
 
     #[test]
     fn builtin_function_can_be_passed_and_called() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("a:{[x]x[]};a[rand]").unwrap();
         assert!(matches!(res, Value::Float(_)));
     }
 
     #[test]
     fn closure_captures_global_by_value() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("a:3;f:{a};a:4;f[]").unwrap();
         assert_eq!(res, Value::Int(3));
     }
 
     #[test]
     fn closure_captures_local_by_value() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("f:{a:4;f2:{a};a:5;f2};f[][]").unwrap();
         assert_eq!(res, Value::Int(4));
     }
 
     #[test]
     fn closure_debug_info_includes_span() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         eval.eval_string("b:{a:1;c:{}}").unwrap();
         eval.eval_string("b[]").unwrap();
         let di = &eval.vm.debug_info;
@@ -518,7 +553,7 @@ mod tests {
 
     #[test]
     fn eval_f_string_and_raw() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("@f\"{1+2}\"").unwrap();
         assert_eq!(res, Value::List("3".chars().map(Value::Char).collect()));
 
@@ -552,7 +587,7 @@ mod tests {
 
     #[test]
     fn long_chain_of_negation_does_not_overflow() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let hyphens = "-".repeat(10000);
         let expr = format!("{hyphens}10");
         let res = eval.eval_string(&expr).unwrap();
@@ -561,7 +596,7 @@ mod tests {
 
     #[test]
     fn passed_function_resolves_correctly() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("a:{2*x};b:{x[3]};b[a]").unwrap();
         assert_eq!(res, Value::Int(6));
         let res = eval.eval_string("a:iota 10;b[a]").unwrap();
@@ -570,14 +605,14 @@ mod tests {
 
     #[test]
     fn recursive_function_with_postfix() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("a:{[n]$[n<4;a[n+1];n]};a 0").unwrap();
         assert_eq!(res, Value::Int(4));
     }
 
     #[test]
     fn backtrace_includes_names_for_captured_function_calls() {
-        let mut eval = VmEvaluator::new();
+        let mut eval = DefaultEvaluator::new();
 
         eval.dbg_set_source("wq[1]", "a:{1/0}");
         eval.dbg_set_offset(0);

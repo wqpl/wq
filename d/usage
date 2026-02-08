@@ -1,18 +1,36 @@
-synopsis ============================================================
+Synopsis
+========
   wq                     repl
-  wq <script>            script exec
-  wq exec [<inline>|-]   inline exec
+  wq <script path>       script exec
+  wq exec [<code>|-]     inline exec
   wq fmt <script>        format
 
-option ==============================================================
-  generic
-    -h, --help         show this help
-    -v, --version      show wq version
-  runtime
-    -d[|<l>]           exec with debug level l (l=1,2,3), def=1
-    -w, --wqdb         exec with wqdb
-    --no-bt            disable backtrace
-  fmt
-    --nlcd             NewLine for Closing Delimiter
-    --nbc              prefer No Bracket form for Calls
-    --olw              One Line Wizard
+Options
+=======
+1. Generic
+  -h, --help          show this help
+  -v, --version       show wq version
+
+2. Runtime
+  -d, --debug [<f/a>] config debug flags, def=inst
+  -w, --wqdb          exec with wqdb
+  -p, --print         print final evaluation result
+  --no-bt             disable backtrace
+  --interp <name>     specify interpreter (name=default,sample)
+  --builtins <preset> specify builtins preset
+
+  debug flags         token ast inst wqdb-1 wqdb-2
+  debug aliases       0=off 1=inst 2=inst,ast 3=inst,ast,token
+                      4=inst,ast,token,wqdb-1,wqdb-2
+
+3. fmt
+    --nlcd           Newline after closing delimiters
+    --nbc            No bracket calls
+    --olw            One line wizard
+
+Examples
+========
+1. Run a script:
+  wq /path/to/script.wq
+2. Run code & dump instructions & print final evaluation:
+  wq exec "echo(1+1)" -d1 -p

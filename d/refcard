@@ -1,18 +1,19 @@
-========================== wq 0.7.0 refcard ==========================
-+       plus      =           eq      !hl   highlight
--  neg  minus     ~           neq     !h    help // !h abs
-*       mul       <           lt      !e    exit
-**      matmul    <=          le      !l    *load
-/       div       >           gt      !p    *load prelude
-/.      safe div  >=          ge      !b    boxed display
-%       mod       #   count           !bfn  builtins
-%.      safe mod  ,   enlist  cat     !g    global bindings
-^       power     :           assign  !r    reset
-|       pipe                          !t    time // !t.
-$[c;t;f1;f2..]    @b break            !w    wqdb // !w.
-$.[c;t1;t2...]    @c continue         !d    debug level // !d.
-W[c;...]          @r return                 0:off 1:ins 2:ast 3:tok
-N[n;echo _n]      @t try              *: available in scripts
+wq 0.8.0 refcard
+================
++       plus      =           eq      !l    load
+-  neg  minus     ~           neq     !p    load prelude
+*       mul       <           lt      !e    * exit
+**      matmul    <=          le      !hl   * highlight
+/       div       >           gt      !h    * help // !h abs
+/.      safe div  >=          ge      !b    * boxed display
+%       mod       #   count           !bfn  * builtins
+%.      safe mod  ,   enlist  cat     !g    * global bindings
+^       power     :           assign  !r    * reset
+|       pipe                          !t    * time // !t.
+$ [c;t;f1;f2..]   @b break            !w    * wqdb // !w.
+$.[c;t1;t2...]    @c continue         !d    * debug flags // !d inst,ast
+W [c;...]         @r return                 aliases: 0 off 1 inst 2 +ast 3 +token 4 +wqdb
+N [n;echo _n]     @t try              *: repl only .: one-shot
 +-- atom // atom?
 |   |-- int       1 0xBEEF 0o233 0b1111
 |   |-- bigint    0x8000_0000_0000_0000

@@ -1,8 +1,8 @@
 use crate::{
-    builtins::{BuiltinEnum as BE, wqerr_ext::check_arity},
+    builtins::{BuiltinEnum as BE, wqerror_helper::check_arity},
     value::{Value, WqResult, mat::index_path},
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 /// Transpose a matrix or higher-dimensional array.
@@ -13,7 +13,7 @@ pub fn transpose(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     check_arity(BE::Transpose, [1], args)?;
     let v = &args[0];
     let shape = v.shape_uniform().ok_or_else(|| {
-        WqErr::new(WqErrType::Domain)
+        WqError::new(WqErrorType::Domain)
             .src(BE::Transpose)
             .msg("could not determine shape")
             .at_arg(0)
@@ -47,7 +47,7 @@ fn transpose_2d(v: &Value, m: usize, n: usize) -> WqResult<Value> {
         let mut col = Vec::with_capacity(m);
         for i in 0..m {
             let elem = index_path(v, &[i, j]).ok_or_else(|| {
-                WqErr::new(WqErrType::Domain)
+                WqError::new(WqErrorType::Domain)
                     .src(BE::Transpose)
                     .msg(format!("could not access element at [{}, {}]", i, j))
             })?;
@@ -69,7 +69,7 @@ fn transpose_batched(v: &Value, shape: &[usize]) -> WqResult<Value> {
     let mut result = Vec::with_capacity(batch_size);
     for i in 0..batch_size {
         let elem = index_path(v, &[i]).ok_or_else(|| {
-            WqErr::new(WqErrType::Domain)
+            WqError::new(WqErrorType::Domain)
                 .src(BE::Transpose)
                 .msg(format!("could not access batch element at [{}]", i))
         })?;

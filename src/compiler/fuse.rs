@@ -1,7 +1,5 @@
 use crate::{
-    astnode::BinaryOperator,
-    value::Value,
-    vm::{compiler::Compiler, instruction::Instruction},
+    astnode::BinaryOperator, compiler::Compiler, value::Value, vm::instruction::Instruction,
 };
 
 impl Compiler {
@@ -143,10 +141,8 @@ fn has_fusable_patterns(code: &[Instruction]) -> bool {
         }
         // BinaryOp(Divide); CallBuiltinId(FLOOR, 1) -> FloorDiv
         if i + 1 < n
-            && let (
-                BinaryOp(crate::astnode::BinaryOperator::Divide),
-                CallBuiltinId(id, argc),
-            ) = (&code[i], &code[i + 1])
+            && let (BinaryOp(crate::astnode::BinaryOperator::Divide), CallBuiltinId(id, argc)) =
+                (&code[i], &code[i + 1])
             && *argc == 1
             && *id == crate::builtins::Builtins::FLOOR
         {

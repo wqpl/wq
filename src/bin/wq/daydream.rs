@@ -5,11 +5,16 @@
 
 use std::{ffi::OsString, path::PathBuf};
 
+use wqpl::debug_flags::DebugFlags;
+
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeFlags {
     pub wqdb: bool,
-    pub bt: bool,        // default: true
-    pub debug_level: u8, // default: 0
+    pub bt: bool, // default: true
+    pub debug_flags: DebugFlags,
+    pub interpreter: Option<String>,
+    pub builtins: Option<String>,
+    pub print: bool, // default: false
 }
 
 impl RuntimeFlags {
@@ -17,7 +22,10 @@ impl RuntimeFlags {
         Self {
             wqdb: false,
             bt: true,
-            debug_level: 0,
+            debug_flags: DebugFlags::empty(),
+            interpreter: None,
+            builtins: None,
+            print: false,
         }
     }
 }
@@ -135,8 +143,18 @@ where
         }
         // Flags
         match s.as_ref() {
+            "-p" | "--print" => {
+                runtime.print = true;
+            }
             "-w" | "--wqdb" => {
                 runtime.wqdb = true;
+            }
+            "--builtins" => {
+                if let Some(preset) = it.next() {
+                    runtime.builtins = Some(preset.to_string_lossy().into_owned());
+                } else {
+                    unknown.push(s.into_owned());
+                }
             }
             "--no-bt" => {
                 runtime.bt = false;
@@ -150,27 +168,33 @@ where
             "--olw" => {
                 fmt_opts.olw = true;
             }
-            "-d" => {
-                // -d <n> or default to 1
-                let parsed = it
-                    .peek()
-                    .and_then(|p| p.to_str())
-                    .and_then(|t| t.parse::<u8>().ok());
-                if let Some(n) = parsed {
-                    it.next();
-                    runtime.debug_level = n;
+            "--interp" | "--interpreter" => {
+                if let Some(val) = it.peek().and_then(|p| p.to_str())
+                    && !val.starts_with('-')
+                {
+                    runtime.interpreter = Some(it.next().unwrap().to_string_lossy().into_owned());
                 } else {
-                    runtime.debug_level = 1;
+                    return Error {
+                        msg: format!("{s}: missing interpreter name"),
+                        code: 2,
+                    };
                 }
             }
+            "-d" | "--debug" => match parse_debug_arg(it.peek().and_then(|p| p.to_str())) {
+                Ok(Some(flags)) => {
+                    it.next();
+                    runtime.debug_flags = flags;
+                }
+                Ok(None) => {
+                    runtime.debug_flags = DebugFlags::from_alias(1).expect("debug alias 1 exists");
+                }
+                Err(e) => return Error { msg: e, code: 2 },
+            },
             _ if s.starts_with("-d") => {
-                // -dN
-                let num = &s[2..];
-                match num.parse::<u8>() {
-                    std::result::Result::Ok(n) => runtime.debug_level = n,
-                    Err(_) => {
-                        unknown.push(s.into_owned());
-                    }
+                let val = &s[2..];
+                match DebugFlags::parse(val) {
+                    Ok(flags) => runtime.debug_flags = flags,
+                    Err(e) => return Error { msg: e, code: 2 },
                 }
             }
             other => unknown.push(other.to_string()),
@@ -195,7 +219,12 @@ where
             };
         }
         // Disallow runtime flags in fmt mode
-        if runtime.wqdb || !runtime.bt || runtime.debug_level > 0 {
+        if runtime.wqdb
+            || !runtime.bt
+            || !runtime.debug_flags.is_empty()
+            || runtime.interpreter.is_some()
+            || runtime.builtins.is_some()
+        {
             return Error {
                 msg: "fmt: runtime flags are not supported".to_string(),
                 code: 2,
@@ -238,6 +267,24 @@ where
         runtime,
         command: cmd,
     })
+}
+
+fn parse_debug_arg(next: Option<&str>) -> Result<Option<DebugFlags>, String> {
+    match next {
+        Some(val) if !val.starts_with('-') => match DebugFlags::parse(val) {
+            Ok(flags) => Ok(Some(flags)),
+            Err(e) => {
+                // Heuristic: if it looks like an intended debug flag spec, return the error.
+                // Otherwise, assume it's a positional argument (script) and return Ok(None).
+                if val.contains(',') || val.chars().all(|c| c.is_ascii_digit()) {
+                    Err(e)
+                } else {
+                    Ok(None)
+                }
+            }
+        },
+        _ => Ok(None),
+    }
 }
 
 #[cfg(test)]
@@ -317,15 +364,37 @@ mod tests {
     }
 
     #[test]
+    fn interpreter_flag_parses() {
+        let p = ok(parse_args(v(&["--interp", "sample", "a.wq"])));
+        assert_eq!(p.runtime.interpreter.as_deref(), Some("sample"));
+    }
+
+    #[test]
     fn debug_forms_and_last_wins() {
         let p = ok(parse_args(v(&["-d3", "a.wq"])));
-        assert_eq!(p.runtime.debug_level, 3);
-        let p = ok(parse_args(v(&["-d", "7", "a.wq"])));
-        assert_eq!(p.runtime.debug_level, 7);
+        assert_eq!(p.runtime.debug_flags, DebugFlags::from_alias(3).unwrap());
+        assert!(matches!(
+            parse_args(v(&["-d", "7", "a.wq"])),
+            ParseOutcome::Error { .. }
+        ));
         let p = ok(parse_args(v(&["-d", "a.wq"])));
-        assert_eq!(p.runtime.debug_level, 1);
-        let p = ok(parse_args(v(&["-d1", "-d9", "a.wq"])));
-        assert_eq!(p.runtime.debug_level, 9);
+        assert_eq!(p.runtime.debug_flags, DebugFlags::from_alias(1).unwrap());
+        assert!(matches!(
+            parse_args(v(&["-d1", "-d9", "a.wq"])),
+            ParseOutcome::Error { .. }
+        ));
+    }
+
+    #[test]
+    fn debug_names_parse() {
+        let p = ok(parse_args(v(&["--debug", "token,inst,wqdb-1", "a.wq"])));
+        let expected = DebugFlags::from_names(["token", "inst", "wqdb-1"]);
+        assert_eq!(p.runtime.debug_flags, expected);
+    }
+
+    #[test]
+    fn debug_help_names_stay_in_sync() {
+        assert_eq!(wqpl::debug_flags::DEBUG_FLAG_NAMES.len(), 5);
     }
 
     #[test]

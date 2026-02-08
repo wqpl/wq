@@ -1,5 +1,5 @@
 use crate::{
-    builtins::{BuiltinEnum as BE, wqerr_ext::check_arity, fold_value},
+    builtins::{BuiltinEnum as BE, fold_value, wqerror_helper::check_arity},
     value::{Value, WqResult},
     vm::Vm,
 };

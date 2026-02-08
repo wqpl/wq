@@ -1,6 +1,6 @@
 use crate::{
     value::{Value, WqResult},
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 struct MmCtx<'a> {
@@ -88,7 +88,7 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
         }
         idx.push(kk);
         index_path(ctx.a, &idx)
-            .ok_or_else(|| WqErr::new(WqErrType::Domain).msg("invalid index while reading A"))
+            .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid index while reading A"))
     };
 
     // Helper to fetch B(b..., k, j?)
@@ -104,11 +104,11 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
                 t.push(kk);
                 t
             })
-            .ok_or_else(|| WqErr::new(WqErrType::Domain).msg("invalid index while reading B"));
+            .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid index while reading B"));
         }
         idx.push(j.expect("col index required"));
         index_path(ctx.b, &idx)
-            .ok_or_else(|| WqErr::new(WqErrType::Domain).msg("invalid index while reading B"))
+            .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid index while reading B"))
     };
 
     // Cases following NumPy-like matmul squeeze rules for 1D inputs
@@ -211,17 +211,17 @@ impl Value {
     pub fn mm(&self, other: &Value) -> WqResult<Value> {
         // Reject non-uniform shapes
         if !self.is_uniform() || !other.is_uniform() {
-            return Err(WqErr::new(WqErrType::Domain)
+            return Err(WqError::new(WqErrorType::Domain)
                 .msg("left operand must be uniform")
                 .got2(self, other));
         }
 
-        let a_shape = self
-            .shape_uniform()
-            .ok_or_else(|| WqErr::new(WqErrType::Domain).msg("could not determine left shape"))?;
-        let b_shape = other
-            .shape_uniform()
-            .ok_or_else(|| WqErr::new(WqErrType::Domain).msg("could not determine right shape"))?;
+        let a_shape = self.shape_uniform().ok_or_else(|| {
+            WqError::new(WqErrorType::Domain).msg("could not determine left shape")
+        })?;
+        let b_shape = other.shape_uniform().ok_or_else(|| {
+            WqError::new(WqErrorType::Domain).msg("could not determine right shape")
+        })?;
 
         let a_rank = a_shape.len();
         let b_rank = b_shape.len();
@@ -252,14 +252,14 @@ impl Value {
         };
 
         if k_a != k_b {
-            return Err(WqErr::new(WqErrType::Length)
+            return Err(WqError::new(WqErrorType::Length)
                 .msg("inner dimensions must match (K)")
                 .attach_note(format!("left K={}, right K={}", k_a, k_b)));
         }
         let k = k_a;
 
         let out_batch = broadcast_shapes(a_batch, b_batch).ok_or_else(|| {
-            WqErr::new(WqErrType::Length)
+            WqError::new(WqErrorType::Length)
                 .msg("batch dimensions are not broadcast-compatible")
                 .attach_note(format!(
                     "left batch={:?}, right batch={:?}",

@@ -7,7 +7,7 @@ pub mod mat;
 pub mod math;
 pub mod op;
 
-mod wqerr_ext;
+mod wqerror_helper;
 
 use std::{
     borrow::Cow,
@@ -20,7 +20,7 @@ use crate::{
     astnode::{BinaryOperator, UnaryOperator},
     vm,
     wqdb::ChunkId,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use indexmap::IndexMap;
@@ -28,7 +28,7 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use unicode_segmentation::UnicodeSegmentation as _;
 
-pub type WqResult<T> = Result<T, WqErr>;
+pub type WqResult<T> = Result<T, WqError>;
 
 /// Heap cell shared between frames and closures for captured locals.
 pub type ValueCell = Arc<Mutex<Value>>;
@@ -178,13 +178,15 @@ impl Value {
                     if let Value::Char(c) = v {
                         s.push(*c);
                     } else {
-                        return Err(WqErr::new(WqErrType::Domain).msg(EXP).offending_elem(v, i));
+                        return Err(WqError::new(WqErrorType::Domain)
+                            .msg(EXP)
+                            .offending_elem(v, i));
                     }
                 }
                 Ok(s)
             }
             _ if self.is_unit() => Ok(String::new()),
-            _ => Err(WqErr::new(WqErrType::Domain).msg(EXP).got1(self)),
+            _ => Err(WqError::new(WqErrorType::Domain).msg(EXP).got1(self)),
         }
     }
 
@@ -197,7 +199,7 @@ impl Value {
                 .enumerate()
                 .map(|(i, &n)| {
                     u8::try_from(n).map_err(|_| {
-                        WqErr::new(WqErrType::Domain)
+                        WqError::new(WqErrorType::Domain)
                             .msg(EXP)
                             .offending_elem(&Value::Int(n), i)
                     })
@@ -207,22 +209,29 @@ impl Value {
                 .iter()
                 .enumerate()
                 .map(|(i, v)| match v {
-                    Value::Int(n) => u8::try_from(*n)
-                        .map_err(|_| WqErr::new(WqErrType::Domain).msg(EXP).offending_elem(v, i)),
-                    Value::BigInt(n) => n
-                        .to_u8()
-                        .ok_or_else(|| WqErr::new(WqErrType::Domain).msg(EXP).offending_elem(v, i)),
-                    _ => Err(WqErr::new(WqErrType::Domain).msg(EXP).offending_elem(v, i)),
+                    Value::Int(n) => u8::try_from(*n).map_err(|_| {
+                        WqError::new(WqErrorType::Domain)
+                            .msg(EXP)
+                            .offending_elem(v, i)
+                    }),
+                    Value::BigInt(n) => n.to_u8().ok_or_else(|| {
+                        WqError::new(WqErrorType::Domain)
+                            .msg(EXP)
+                            .offending_elem(v, i)
+                    }),
+                    _ => Err(WqError::new(WqErrorType::Domain)
+                        .msg(EXP)
+                        .offending_elem(v, i)),
                 })
                 .collect(),
             Value::Int(n) => u8::try_from(*n)
                 .map(|b| vec![b])
-                .map_err(|_| WqErr::new(WqErrType::Domain).msg(EXP).got1(self)),
+                .map_err(|_| WqError::new(WqErrorType::Domain).msg(EXP).got1(self)),
             Value::BigInt(n) => n
                 .to_u8()
                 .map(|b| vec![b])
-                .ok_or_else(|| WqErr::new(WqErrType::Domain).msg(EXP).got1(self)),
-            _ => Err(WqErr::new(WqErrType::Domain).msg(EXP).got1(self)),
+                .ok_or_else(|| WqError::new(WqErrorType::Domain).msg(EXP).got1(self)),
+            _ => Err(WqError::new(WqErrorType::Domain).msg(EXP).got1(self)),
         }
     }
 
@@ -583,7 +592,7 @@ impl<T: std::fmt::Display> Excerpt for T {
 
 #[cfg(test)]
 mod tests {
-    use crate::value::bc::BcErr;
+    use crate::value::bc::BcError;
 
     use super::*;
 
@@ -691,7 +700,7 @@ mod tests {
 
         let c = Value::List(vec![Value::Bool(true)]);
         let d = Value::List(vec![Value::Bool(false), Value::Bool(true)]);
-        assert!(matches!(c.xor_bool(&d), Err(BcErr::Length { .. })));
+        assert!(matches!(c.xor_bool(&d), Err(BcError::Length { .. })));
 
         assert_eq!(
             d.not_bool(),
@@ -710,7 +719,7 @@ mod tests {
 
         let c = Value::List(vec![Value::Int(5)]);
         let d = Value::List(vec![Value::Int(2), Value::Int(3)]);
-        assert!(matches!(c.modulo(&d), Err(BcErr::Length { .. })));
+        assert!(matches!(c.modulo(&d), Err(BcError::Length { .. })));
     }
 
     #[test]

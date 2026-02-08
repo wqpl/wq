@@ -2,35 +2,35 @@ use crate::{
     value::{
         Value, WqResult,
         bc::BcResult,
-        wqerr_ext::{
+        wqerror_helper::{
             expected_bool1, expected_bool2, expected_integer1, expected_integer2,
             expected_numeric1, expected_numeric2,
         },
     },
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use indexmap::indexmap;
 use num_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive, Zero};
 
-fn zero_div_err(msg: Option<&'static str>) -> WqErr {
+fn zero_div_err(msg: Option<&'static str>) -> WqError {
     let msg = msg.unwrap_or("cannot divide by 0").to_string();
-    WqErr::new(WqErrType::ZeroDiv).msg(msg)
+    WqError::new(WqErrorType::ZeroDiv).msg(msg)
 }
 
-fn bigint_too_big_for_float() -> WqErr {
-    WqErr::new(WqErrType::NumericOverflow).msg("provided bigint cannot be converted to float")
+fn bigint_too_big_for_float() -> WqError {
+    WqError::new(WqErrorType::NumericOverflow).msg("provided bigint cannot be converted to float")
 }
 
-fn invalid_shift(v: &Value) -> WqErr {
-    WqErr::new(WqErrType::Domain)
+fn invalid_shift(v: &Value) -> WqError {
+    WqError::new(WqErrorType::Domain)
         .msg("shift must be in 0..4_294_967_295")
         .got1(v)
 }
 
-fn invalid_unicode(v: &Value) -> WqErr {
-    WqErr::new(WqErrType::Domain)
+fn invalid_unicode(v: &Value) -> WqError {
+    WqError::new(WqErrorType::Domain)
         .msg("invalid Unicode scalar value")
         .attach_note("valid Unicode code points are 0x0000..=0xD7FF, 0xE000..=0x10FFFF")
         .got1(v)
@@ -237,8 +237,8 @@ impl Value {
             Err(zero_div_err(Some("0 cannot be raised to a negative power")))
         }
 
-        fn exponent_too_large_err() -> WqErr {
-            WqErr::new(WqErrType::Domain).msg("exponent cannot exceed 4_294_967_295")
+        fn exponent_too_large_err() -> WqError {
+            WqError::new(WqErrorType::Domain).msg("exponent cannot exceed 4_294_967_295")
         }
 
         // implicit 0^0=1
@@ -499,7 +499,7 @@ impl Value {
             //     codes.extend(s.chars().map(|c| i64::from(u32::from(c))));
             //     Ok(Value::IntList(codes))
             // }
-            _ => Err(WqErr::new(WqErrType::Domain)
+            _ => Err(WqError::new(WqErrorType::Domain)
                 .msg("expected char or list<char>")
                 .got1(v)),
         })
@@ -546,32 +546,6 @@ impl Value {
             _ => Err(expected_integer1(v)),
         })
     }
-
-    // Comparison
-
-    //     pub fn min_value(&self, other: &Value) -> WqResult<Value> {
-    //         self.bc2(other, |a, b| {
-    //             match Self::cmp_atom(a, b) {
-    //                     Some(Ordering::Greater) => Ok(b.clone()),
-    //                     Some(_) /* Less|Equal  */ => Ok(a.clone()),
-    //                     _ => Err(WqError::DomainError(format!(
-    //                         "`min`: cannot compare {a} and {b}"
-    //                     )))
-    //                 }
-    //         })
-    //     }
-
-    //     pub fn max_value(&self, other: &Value) -> WqResult<Value> {
-    //         self.bc2(other, |a, b| {
-    //             match Self::cmp_atom(a, b) {
-    //                     Some(Ordering::Less) => Ok(b.clone()),
-    //                     Some(_) /* Greater|Equal */ => Ok(a.clone()),
-    //                     _ => Err(WqError::DomainError(format!(
-    //                         "`min`: cannot compare {a} and {b}"
-    //                     )))
-    //                 }
-    //         })
-    //     }
 }
 
 /// Build a signed string in the given radix with optional prefix.

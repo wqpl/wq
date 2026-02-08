@@ -1,7 +1,7 @@
 use crate::{
     builtins::{
         BuiltinEnum,
-        wqerr_ext::{check_arity, type_mismatch},
+        wqerror_helper::{check_arity, type_mismatch},
     },
     value::{Value, WqResult},
     vm::Vm,

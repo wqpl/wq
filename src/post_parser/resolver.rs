@@ -13,8 +13,12 @@ pub struct Resolver {
 
 impl Resolver {
     pub fn new() -> Self {
+        Self::with_builtins(Builtins::new())
+    }
+
+    pub fn with_builtins(builtins: Builtins) -> Self {
         Self {
-            builtins: Builtins::new(),
+            builtins,
             known_funcs: HashSet::new(),
             known_indexables: HashSet::new(),
             in_func: 0,
@@ -23,7 +27,7 @@ impl Resolver {
 
     /// Create a resolver that knows about functions and indexables defined in `env`.
     pub fn from_env(env: &GlobalMap) -> Self {
-        let mut res = Self::new();
+        let mut res = Self::with_builtins(Builtins::new());
         for (name, val) in env {
             match val {
                 // Value::Function { .. } | Value::CompiledFunction { .. } => {
@@ -38,6 +42,24 @@ impl Resolver {
                 _ => {
                     // Unknown/other runtime values; leave as-is.
                 }
+            }
+        }
+        res
+    }
+
+    pub fn from_env_and_builtins(env: &GlobalMap, builtins: Builtins) -> Self {
+        let mut res = Self::with_builtins(builtins);
+        for (name, val) in env {
+            match val {
+                Value::CompiledFunction { .. } => {
+                    res.known_funcs.insert(name.clone());
+                    res.known_indexables.remove(name);
+                }
+                Value::List(..) | Value::Dict(..) => {
+                    res.known_indexables.insert(name.clone());
+                    res.known_funcs.remove(name);
+                }
+                _ => {}
             }
         }
         res
@@ -189,11 +211,18 @@ impl Resolver {
                 count: Box::new(self.resolve_node(*count)),
                 body: Box::new(self.resolve_node(*body)),
             },
+            AstNode::FLoop { iterable, body } => AstNode::FLoop {
+                iterable: Box::new(self.resolve_node(*iterable)),
+                body: Box::new(self.resolve_node(*body)),
+            },
             AstNode::Return(expr) => AstNode::Return(expr.map(|e| Box::new(self.resolve_node(*e)))),
             // AstNode::Assert(e) => AstNode::Assert(Box::new(self.resolve_node(*e))),
             AstNode::Try(e) => AstNode::Try(Box::new(self.resolve_node(*e))),
             AstNode::Block(stmts) => {
                 AstNode::Block(stmts.into_iter().map(|s| self.resolve_node(s)).collect())
+            }
+            AstNode::BlockExpr(stmts) => {
+                AstNode::BlockExpr(stmts.into_iter().map(|s| self.resolve_node(s)).collect())
             }
             other => other,
         }

@@ -1,8 +1,8 @@
 use crate::{
-    builtins::{BuiltinEnum as BE, wqerr_ext::check_arity},
+    builtins::{BuiltinEnum as BE, wqerror_helper::check_arity},
     value::{IntoWqValue as _, Value, WqResult},
     vm::Vm,
-    wqerr::{WqErr, WqErrType},
+    wqerror::{WqError, WqErrorType},
 };
 
 use encoding_rs::Encoding;
@@ -29,7 +29,7 @@ pub fn decode(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     };
 
     let enc = find_encoding(&codec).ok_or_else(|| {
-        WqErr::new(WqErrType::Encode)
+        WqError::new(WqErrorType::Encode)
             .src(BE::Decode)
             .msg(format!("unsupported codec '{codec}'"))
     })?;
@@ -37,7 +37,7 @@ pub fn decode(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     let s = match mode.as_str() {
         "s" => {
             if had_errors {
-                return Err(WqErr::new(WqErrType::Encode)
+                return Err(WqError::new(WqErrorType::Encode)
                     .src(BE::Decode)
                     .msg("strict mode decode error"));
             }
@@ -45,7 +45,7 @@ pub fn decode(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         }
         "r" => text,
         _ => {
-            return Err(WqErr::new(WqErrType::Domain)
+            return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Decode)
                 .msg("expected valid decode mode")
                 .attach_note("valid mode is s (strict) or r (replace)"));
@@ -71,7 +71,7 @@ pub fn encode(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         _ => unreachable!(),
     };
     let enc = find_encoding(&codec).ok_or_else(|| {
-        WqErr::new(WqErrType::Encode)
+        WqError::new(WqErrorType::Encode)
             .src(BE::Encode)
             .msg(format!("unsupported codec '{codec}'"))
     })?;
@@ -79,7 +79,7 @@ pub fn encode(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
         "s" => {
             let (cow, _enc_used, had_errors) = enc.encode(&s);
             if had_errors {
-                return Err(WqErr::new(WqErrType::Encode)
+                return Err(WqError::new(WqErrorType::Encode)
                     .src(BE::Encode)
                     .msg("strict mode encode error"));
             }
@@ -90,7 +90,7 @@ pub fn encode(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
             cow.into_owned()
         }
         _ => {
-            return Err(WqErr::new(WqErrType::Domain)
+            return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Encode)
                 .msg("expected valid decode mode")
                 .attach_note("valid mode is s (strict) or r (replace)"));

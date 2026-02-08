@@ -1,5 +1,3 @@
-#![cfg(not(target_arch = "wasm32"))]
-
 use std::{
     cell::RefCell,
     collections::HashSet,
@@ -12,34 +10,46 @@ use std::{
     time::{Duration, Instant},
 };
 
+use wqpl::debug_flags::DebugFlags;
 use wqpl::{
-    apps::formatter::{FormatConfig, Formatter},
-    builtins::Builtins,
-    colored::Colorize,
-    daydream::{Command, ExecSource, FmtOpts, ParseOutcome, RuntimeFlags, parse_args},
+    apps::{
+        evaluator::{Evaluator, default::DefaultEvaluator},
+        formatter::{FormatConfig, Formatter},
+    },
+    builtins::{BuiltinPreset, Builtins},
+    helpers::box_mode::format_boxed,
     hotchoco,
-    repl::{
-        VmEvaluator,
-        box_mode::format_boxed,
-        enter_wqdb_after_err,
-        repl_engine::ReplEngine,
-        stdio::{
-            ReplStdin, StdinError, stdin_add_history, stdin_highlight_enabled, stdin_readline,
-            stdin_set_highlight,
-        },
-        tshelper::TSHelper,
+    interpreters::INTERPRETER_NAMES,
+    stdio::{
+        StdinError, WqStdin, stdin_add_history, stdin_highlight_enabled, stdin_readline,
+        stdin_set_highlight,
     },
     value::Value,
-    wqerr::WqErrType,
+    wqerror::WqErrorType,
 };
 
-use rand::Rng;
+use crate::daydream::{Command, ExecSource, FmtOpts, ParseOutcome, RuntimeFlags, parse_args};
+use wqpl::wqdb::DebugHost;
+
+/// Callback for wqdb pause hook - called by the VM when debugger pauses
+fn wqdb_pause_handler(host: &mut dyn DebugHost) {
+    crate::wqdb_shell::wqdb_shell(host);
+}
+
+/// Enter wqdb shell after an error occurs
+fn enter_wqdb_after_err(eval: &mut DefaultEvaluator) {
+    crate::wqdb_shell::wqdb_shell_after_err(eval.vm_mut());
+}
+use crate::tshelper::TSHelper;
+
+use colored::Colorize;
+use rand::RngExt;
 use rustyline::{Editor, error::ReadlineError, history::FileHistory};
 
 pub fn main() {
     match parse_args(env::args_os().skip(1)) {
         ParseOutcome::ShowHelp => {
-            println!("{}", include_str!("../d/usage"));
+            println!("{}", include_str!("../../../d/usage"));
         }
         ParseOutcome::ShowVersion => {
             println!("wq {}", env!("CARGO_PKG_VERSION"));
@@ -74,19 +84,22 @@ pub fn main() {
 }
 
 fn enter_repl(rtflags: RuntimeFlags) {
-    let mut vm = VmEvaluator::new();
+    let mut evaluator = DefaultEvaluator::new();
+    evaluator.set_pause_callback(Some(wqdb_pause_handler));
     let mut time_mode = false;
     let mut xray_mode = false;
     let mut box_mode = false;
-    vm.set_debug_level(rtflags.debug_level);
-    vm.set_bt_mode(rtflags.bt);
-    vm.set_wqdb(rtflags.wqdb);
-    vm.set_stdin(Box::new(RustylineInput::new().unwrap()));
+    evaluator.set_debug_flags(rtflags.debug_flags);
+    evaluator.set_bt_mode(rtflags.bt);
+    evaluator.set_wqdb(rtflags.wqdb);
+    apply_builtins_flag(&mut evaluator, &rtflags);
+    apply_interpreter_flag(&mut evaluator, &rtflags);
+    evaluator.set_stdin(Box::new(RustylineInput::new().unwrap()));
     let mut line_number = 1;
     let mut buffer = String::new();
     // one-time controls for next input
     let mut oneshot_time = false;
-    let mut oneshot_debug: Option<u8> = None;
+    let mut oneshot_debug: Option<DebugFlags> = None;
     let mut oneshot_wqdb = false;
     // Unified loader state for directive lines handled by hotchoco
     let repl_loading = RefCell::new(HashSet::new());
@@ -106,15 +119,37 @@ fn enter_repl(rtflags: RuntimeFlags) {
         "(c)tttiw (l)MIT".blue(),
         "!highlight !help !exit".green()
     );
+
+    // let host_label = "host:".dimmed();
+    // let rustc_label = "rustc:".dimmed();
+    // let cwd_label = "cwd:".dimmed();
+    // let interp_label = "interpreter:".dimmed();
+    // let builtins_label = "builtins:".dimmed();
+    let label_width = 14;
+
     println!(
         "{}",
         &format!(
-            "{} {RUSTC_HOST}\n{} {RUSTC_VER} [llvm {RUSTC_LLVM_VERSION}]\n{} {cwd}",
-            "host: ".dimmed(),
-            "rustc:".dimmed(),
-            "cwd:  ".dimmed()
+            "{:>label_width$} {RUSTC_HOST}\n{:>label_width$} {RUSTC_VER} [llvm {RUSTC_LLVM_VERSION}]\n{:>label_width$} {cwd}",
+            "host:".green().dimmed(),
+            "rustc:".blue().dimmed(),
+            "cwd:".red().dimmed()
         ),
     );
+    println!(
+        "{:>label_width$} {}",
+        "interpreter:".yellow().dimmed(),
+        evaluator.interpreter_name()
+    );
+
+    if let Some(builtin) = rtflags.builtins.as_deref() {
+        println!(
+            "{:>label_width$} {}",
+            "builtins:".yellow().dimmed(),
+            builtin
+        );
+    }
+
     loop {
         let prompt = if buffer.is_empty() {
             if cfg!(windows) {
@@ -141,7 +176,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                 // Handle repl commands only if buffer is empty
                 if buffer.is_empty() {
                     match input {
-                        "!exit" | "!e" => {
+                        "!exit" | "!e" | "!!" => {
                             system_msg_printer::stdout(
                                 "bye..".to_string(),
                                 system_msg_printer::MsgType::Info,
@@ -163,12 +198,40 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             stdin_set_highlight(!stdin_highlight_enabled());
                             continue;
                         }
-                        "!builtins" | "!bfn" => {
-                            dump_builtins();
+                        cmd if cmd == "!builtins"
+                            || cmd == "!bfn"
+                            || cmd == "!"
+                            || cmd.starts_with("!builtins ")
+                            || cmd.starts_with("!bfn ") =>
+                        {
+                            let mut parts = cmd.split_whitespace();
+                            let _ = parts.next();
+                            if let Some(preset) = parts.next() {
+                                match BuiltinPreset::from_name(preset) {
+                                    Some(preset) => {
+                                        evaluator.set_builtins_preset(preset);
+                                        system_msg_printer::stdout(
+                                            format!("builtins preset set to {preset:?}"),
+                                            system_msg_printer::MsgType::Info,
+                                        );
+                                    }
+                                    None => {
+                                        let names = BuiltinPreset::names().join(", ");
+                                        system_msg_printer::stderr(
+                                            format!(
+                                                "unknown builtin preset '{preset}'; available: {names}"
+                                            ),
+                                            system_msg_printer::MsgType::Error,
+                                        );
+                                    }
+                                }
+                            } else {
+                                dump_builtins(evaluator.builtins());
+                            }
                             continue;
                         }
                         "!gb" | "!g" => {
-                            match vm.get_environment() {
+                            match evaluator.get_environment() {
                                 Some(env) => {
                                     let mut name_w = "name".len();
                                     let mut value_w = "value".len();
@@ -219,7 +282,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             continue;
                         }
                         "!reset" | "!r" => {
-                            vm.reset_session();
+                            evaluator.reset_session();
                             system_msg_printer::stdout(
                                 "session reset".to_string(),
                                 system_msg_printer::MsgType::Info,
@@ -230,7 +293,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             box_mode = !box_mode;
                             system_msg_printer::stdout(
                                 format!(
-                                    "boxed display is now {}",
+                                    "boxed display changed to {}",
                                     (if box_mode { "on" } else { "off" }).underline()
                                 ),
                                 system_msg_printer::MsgType::Info,
@@ -241,9 +304,71 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             xray_mode = !xray_mode;
                             system_msg_printer::stdout(
                                 format!(
-                                    "xray is now {}",
+                                    "xray changed to {}",
                                     (if xray_mode { "on" } else { "off" }).underline()
                                 ),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            continue;
+                        }
+                        cmd if cmd == "!interp" || cmd == "!interps" || cmd == "!interpreter" => {
+                            let current = evaluator.interpreter_name();
+                            let mut list = Vec::new();
+                            for name in &INTERPRETER_NAMES {
+                                if *name == current {
+                                    list.push(format!("{name} (current)"));
+                                } else {
+                                    list.push((*name).to_string());
+                                }
+                            }
+                            system_msg_printer::stdout(
+                                format!("interpreters: {}", list.join(", ")),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            continue;
+                        }
+                        cmd if cmd.starts_with("!in ")
+                            || cmd.starts_with("!interp ")
+                            || cmd.starts_with("!interpreter ") =>
+                        {
+                            let mut parts = cmd.split_whitespace();
+                            let _ = parts.next();
+                            if let Some(name) = parts.next() {
+                                match evaluator.set_interpreter_by_name(name) {
+                                    Ok(selected) => {
+                                        system_msg_printer::stdout(
+                                            format!("interpreter set to {selected}"),
+                                            system_msg_printer::MsgType::Info,
+                                        );
+                                    }
+                                    Err(err) => {
+                                        let list = &INTERPRETER_NAMES.join(", ");
+                                        system_msg_printer::stderr(
+                                            format!("{err}; available: {list}"),
+                                            system_msg_printer::MsgType::Error,
+                                        );
+                                    }
+                                }
+                            } else {
+                                system_msg_printer::stderr(
+                                    "missing interpreter name".to_string(),
+                                    system_msg_printer::MsgType::Error,
+                                );
+                            }
+                            continue;
+                        }
+                        "!def" | "!default" => {
+                            let _ = evaluator.set_interpreter_by_name("default");
+                            system_msg_printer::stdout(
+                                "interpreter set to default".to_string(),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            continue;
+                        }
+                        "!sample" => {
+                            let _ = evaluator.set_interpreter_by_name("sample");
+                            system_msg_printer::stdout(
+                                "interpreter set to sample".to_string(),
                                 system_msg_printer::MsgType::Info,
                             );
                             continue;
@@ -252,7 +377,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             time_mode = !time_mode;
                             system_msg_printer::stdout(
                                 format!(
-                                    "time mode is now {}",
+                                    "time mode changed to {}",
                                     (if time_mode { "on" } else { "off" }).underline()
                                 ),
                                 system_msg_printer::MsgType::Info,
@@ -268,11 +393,16 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             continue;
                         }
                         "!wqdb" | "!w" => {
-                            vm.set_wqdb(!vm.is_wqdb_enabled());
+                            evaluator.set_wqdb(!evaluator.is_wqdb_enabled());
                             system_msg_printer::stdout(
                                 format!(
-                                    "wqdb is now {}",
-                                    (if vm.is_wqdb_enabled() { "on" } else { "off" }).underline()
+                                    "wqdb changed to {}",
+                                    (if evaluator.is_wqdb_enabled() {
+                                        "on"
+                                    } else {
+                                        "off"
+                                    })
+                                    .underline()
                                 ),
                                 system_msg_printer::MsgType::Info,
                             );
@@ -295,12 +425,19 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             let mut parts = cmd.split_whitespace();
                             let _ = parts.next(); // skip !h/!help
                             if let Some(name) = parts.next() {
-                                let b = Builtins::new();
-                                if let Some(id) = b.get_id(name) {
-                                    let id = id as u16;
-                                    let usage = Builtins::usage_from_id(id).unwrap_or("?");
-                                    let arity = Builtins::arity_from_id(id).unwrap_or("?");
-                                    println!("{usage} (arity {arity})");
+                                let b = evaluator.builtins();
+                                if b.is_enabled_name(name) {
+                                    if let Some(id) = b.get_id(name) {
+                                        let id = id as u16;
+                                        let usage = Builtins::usage_from_id(id).unwrap_or("?");
+                                        let arity = Builtins::arity_from_id(id).unwrap_or("?");
+                                        println!("{usage} (arity {arity})");
+                                    } else {
+                                        system_msg_printer::stdout(
+                                            format!("unknown builtin '{name}'"),
+                                            system_msg_printer::MsgType::Info,
+                                        );
+                                    }
                                 } else {
                                     system_msg_printer::stdout(
                                         format!("unknown builtin '{name}'"),
@@ -308,50 +445,102 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                     );
                                 }
                             } else {
-                                println!("{}", include_str!("../d/refcard"));
+                                println!("{}", include_str!("../../../d/refcard"));
+                            }
+                            continue;
+                        }
+                        "!debug" => {
+                            system_msg_printer::stdout(
+                                debug_help_table(evaluator.get_debug_flags()),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            continue;
+                        }
+                        "!d" => {
+                            let next = if evaluator.get_debug_flags().is_empty() {
+                                DebugFlags::from_alias(1).expect("debug alias 1 exists")
+                            } else {
+                                DebugFlags::empty()
+                            };
+                            evaluator.set_debug_flags(next);
+                            system_msg_printer::stdout(
+                                format!(
+                                    "debug flags changed to {}",
+                                    format_debug_flags(next).underline()
+                                ),
+                                system_msg_printer::MsgType::Info,
+                            );
+                            continue;
+                        }
+                        cmd if cmd.starts_with("!d.") || cmd.starts_with("!debug.") => {
+                            let rest = cmd
+                                .split_once('.')
+                                .map(|(_, rest)| rest.trim())
+                                .unwrap_or_default();
+                            match DebugFlags::parse(rest) {
+                                Ok(flags) => {
+                                    oneshot_debug = Some(flags);
+                                    system_msg_printer::stdout(
+                                        format!(
+                                            "debug flags will be {} for next eval",
+                                            format_debug_flags(flags).underline()
+                                        ),
+                                        system_msg_printer::MsgType::Info,
+                                    );
+                                }
+                                Err(e) => {
+                                    system_msg_printer::stderr(
+                                        e,
+                                        system_msg_printer::MsgType::Error,
+                                    );
+                                }
+                            }
+                            continue;
+                        }
+                        cmd if cmd.starts_with("!d ") || cmd.starts_with("!debug ") => {
+                            let rest = cmd
+                                .split_once(' ')
+                                .map(|(_, rest)| rest.trim())
+                                .unwrap_or_default();
+                            match DebugFlags::parse(rest) {
+                                Ok(flags) => {
+                                    evaluator.set_debug_flags(flags);
+                                    system_msg_printer::stdout(
+                                        format!(
+                                            "debug flags changed to {}",
+                                            format_debug_flags(flags).underline()
+                                        ),
+                                        system_msg_printer::MsgType::Info,
+                                    );
+                                }
+                                Err(e) => {
+                                    system_msg_printer::stderr(
+                                        e,
+                                        system_msg_printer::MsgType::Error,
+                                    );
+                                }
                             }
                             continue;
                         }
                         cmd if cmd.starts_with("!d") => {
                             let rest = cmd.strip_prefix("!d").unwrap_or_default().trim();
-                            if let Some(level_str) = rest.strip_prefix('.') {
-                                // one-time: !d.<level>
-                                if let Ok(level) = level_str.parse::<u8>() {
-                                    oneshot_debug = Some(level);
+                            match DebugFlags::parse(rest) {
+                                Ok(flags) => {
+                                    evaluator.set_debug_flags(flags);
                                     system_msg_printer::stdout(
-                                        format!("debug level will be {level} for next eval"),
-                                        system_msg_printer::MsgType::Info,
-                                    );
-                                } else {
-                                    oneshot_debug = Some(1);
-                                    system_msg_printer::stdout(
-                                        "debug level will be 1 for next eval",
+                                        format!(
+                                            "debug flags changed to {}",
+                                            format_debug_flags(flags).underline()
+                                        ),
                                         system_msg_printer::MsgType::Info,
                                     );
                                 }
-                            } else if rest.is_empty() {
-                                match vm.get_debug_level() {
-                                    0 => vm.set_debug_level(1),
-                                    _ => vm.set_debug_level(0),
+                                Err(e) => {
+                                    system_msg_printer::stderr(
+                                        e,
+                                        system_msg_printer::MsgType::Error,
+                                    );
                                 }
-                                system_msg_printer::stdout(
-                                    format!(
-                                        "debug level is now {}",
-                                        vm.get_debug_level().to_string().underline()
-                                    ),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                            } else if let Ok(level) = rest.parse::<u8>() {
-                                vm.set_debug_level(level);
-                                system_msg_printer::stdout(
-                                    format!("debug level is now {}", level.to_string().underline()),
-                                    system_msg_printer::MsgType::Info,
-                                );
-                            } else {
-                                system_msg_printer::stderr(
-                                    format!("invalid debug level '{rest}'"),
-                                    system_msg_printer::MsgType::Error,
-                                );
                             }
                             continue;
                         }
@@ -362,44 +551,87 @@ fn enter_repl(rtflags: RuntimeFlags) {
                         _ => {}
                     }
                 }
+                let mut input_for_eval = input;
                 if buffer.is_empty() {
-                    let t = input.trim_start();
+                    if let Some((first, rest)) = input_for_eval.split_once('\n') {
+                        if first.trim_start().starts_with("#!") {
+                            if rest.trim().is_empty() {
+                                continue;
+                            }
+                            input_for_eval = rest;
+                        }
+                    } else if input_for_eval.trim_start().starts_with("#!") {
+                        continue;
+                    }
+                    let t = input_for_eval.trim_start();
                     if t.starts_with("!") {
                         let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
                         match hotchoco::repl_eval_inline(
-                            &mut vm,
-                            input,
+                            &mut evaluator,
+                            input_for_eval,
                             &cwd,
                             &repl_loading,
                             false,
                             rtflags.bt,
                         ) {
-                            Ok(report) => print_load_report(&report),
+                            Ok(report) => {
+                                // let has_eval_code = input_for_eval.lines().any(|line| {
+                                //     let trimmed = line.trim_start();
+                                //     if trimmed.is_empty() || trimmed.starts_with("//") {
+                                //         return false;
+                                //     }
+                                //     if trimmed.starts_with("#!") || trimmed.starts_with("!") {
+                                //         return false;
+                                //     }
+                                //     true
+                                // });
+                                print_load_report(&report);
+                                // if has_eval_code {
+                                if let Some(result) = report.result {
+                                    let resstr = if box_mode {
+                                        format_boxed(&result)
+                                    } else {
+                                        format!("{result}")
+                                    };
+                                    system_msg_printer::stdout(
+                                        resstr,
+                                        system_msg_printer::MsgType::Success,
+                                    );
+                                    if xray_mode && !result.is_atom() {
+                                        let info = xray_info(&result);
+                                        system_msg_printer::stdout(
+                                            info,
+                                            system_msg_printer::MsgType::Info,
+                                        );
+                                    }
+                                    // }
+                                }
+                            }
                             Err(err) => {
                                 // Only treat EOF as a signal to continue buffering multi-line input
                                 if let hotchoco::LoadErrorKind::Eval(_, we) = &err.kind
-                                    && we.err_type == WqErrType::Eof
+                                    && we.err_type == WqErrorType::Eof
                                 {
-                                    buffer.push_str(input);
+                                    buffer.push_str(input_for_eval);
                                     buffer.push('\n');
                                     continue;
                                 }
-                                print_load_error(&err, &mut vm, rtflags.bt);
+                                print_load_error(&err, &mut evaluator, rtflags.bt);
                             }
                         }
                         // move on to next prompt
                         continue;
                     }
                 }
-                buffer.push_str(input);
+                buffer.push_str(input_for_eval);
                 let src_eval = buffer.trim();
                 // Prepare for one-time cmds
-                let prev_dbg_level = vm.get_debug_level();
-                if let Some(level) = oneshot_debug.take() {
-                    vm.set_debug_level(level);
+                let prev_dbg_flags = evaluator.get_debug_flags();
+                if let Some(flags) = oneshot_debug.take() {
+                    evaluator.set_debug_flags(flags);
                 }
                 if oneshot_wqdb {
-                    vm.set_wqdb(true);
+                    evaluator.set_wqdb(true);
                 }
                 let start_t = if time_mode || oneshot_time {
                     Some(Instant::now())
@@ -409,18 +641,18 @@ fn enter_repl(rtflags: RuntimeFlags) {
                 // eval
                 // Ensure interactive inputs map to a unique source label per iteration
                 let source_label = format!("wq[{}]", line_number);
-                vm.dbg_set_source(&source_label, src_eval);
-                vm.dbg_set_offset(0);
+                evaluator.dbg_set_source(&source_label, src_eval);
+                evaluator.dbg_set_offset(0);
                 // Note whether wqdb was active for this evaluation (persistent or one-time)
-                let wqdb_active_for_eval = vm.is_wqdb_enabled() || oneshot_wqdb;
-                let attempt = vm.eval_string(src_eval);
+                let wqdb_active_for_eval = evaluator.is_wqdb_enabled() || oneshot_wqdb;
+                let attempt = evaluator.eval_string(src_eval);
                 // reset one-time cmds and wqdb
                 if oneshot_wqdb {
-                    vm.set_wqdb(false);
+                    evaluator.set_wqdb(false);
                     oneshot_wqdb = false;
                 }
                 // reset one-time dbg level
-                vm.set_debug_level(prev_dbg_level);
+                evaluator.set_debug_flags(prev_dbg_flags);
                 // handle eval result
                 match attempt {
                     Ok(result) => {
@@ -447,7 +679,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                         line_number += 1;
                     }
                     Err(error) => {
-                        if error.err_type == WqErrType::Eof {
+                        if error.err_type == WqErrorType::Eof {
                             buffer.push('\n');
                             // one-time time consumed
                             oneshot_time = false;
@@ -459,10 +691,10 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             );
                             // Only show backtrace for runtime errors; skip for parse/EOF errors
                             if rtflags.bt && error.err_type.is_runtime() {
-                                vm.dbg_print_bt();
+                                evaluator.dbg_print_bt();
                             }
                             if wqdb_active_for_eval && error.err_type.is_runtime() {
-                                enter_wqdb_after_err(&mut vm);
+                                enter_wqdb_after_err(&mut evaluator);
                             }
                             if let Some(st) = start_t {
                                 let d = st.elapsed();
@@ -504,35 +736,53 @@ fn enter_repl(rtflags: RuntimeFlags) {
 }
 
 fn exec_script<P: AsRef<Path>>(filename: P, rtflags: RuntimeFlags) {
-    let mut vm = VmEvaluator::new();
-    vm.set_debug_level(rtflags.debug_level);
-    vm.set_stdin(Box::new(RustylineInput::new().unwrap()));
-    vm.set_wqdb(rtflags.wqdb);
+    let mut evaluator = DefaultEvaluator::new();
+    evaluator.set_pause_callback(Some(wqdb_pause_handler));
+    evaluator.set_debug_flags(rtflags.debug_flags);
+    evaluator.set_stdin(Box::new(RustylineInput::new().unwrap()));
+    evaluator.set_wqdb(rtflags.wqdb);
+    apply_builtins_flag(&mut evaluator, &rtflags);
+    apply_interpreter_flag(&mut evaluator, &rtflags);
     let loading = RefCell::new(HashSet::new());
-    match hotchoco::repl_load_script(&mut vm, filename, &loading, true, rtflags.bt) {
-        Ok(_) => {}
+    match hotchoco::repl_load_script(&mut evaluator, filename, &loading, true, rtflags.bt) {
+        Ok(report) => {
+            if rtflags.print
+                && let Some(result) = report.result
+            {
+                println!("{result}");
+            }
+        }
         Err(err) => {
-            print_load_error(&err, &mut vm, rtflags.bt);
-            if vm.is_wqdb_enabled() && err.is_runtime() {
-                enter_wqdb_after_err(&mut vm);
+            print_load_error(&err, &mut evaluator, rtflags.bt);
+            if evaluator.is_wqdb_enabled() && err.is_runtime() {
+                enter_wqdb_after_err(&mut evaluator);
             }
         }
     }
 }
 
 fn exec_cmd(content: &str, rtflags: RuntimeFlags) {
-    let mut vm = VmEvaluator::new();
-    vm.set_debug_level(rtflags.debug_level);
-    vm.set_stdin(Box::new(RustylineInput::new().unwrap()));
-    vm.set_wqdb(rtflags.wqdb);
+    let mut evaluator = DefaultEvaluator::new();
+    evaluator.set_pause_callback(Some(wqdb_pause_handler));
+    evaluator.set_debug_flags(rtflags.debug_flags);
+    evaluator.set_stdin(Box::new(RustylineInput::new().unwrap()));
+    evaluator.set_wqdb(rtflags.wqdb);
+    apply_builtins_flag(&mut evaluator, &rtflags);
+    apply_interpreter_flag(&mut evaluator, &rtflags);
     let loading = RefCell::new(HashSet::new());
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    match hotchoco::repl_eval_inline(&mut vm, content, &cwd, &loading, true, rtflags.bt) {
-        Ok(_report) => {}
+    match hotchoco::repl_eval_inline(&mut evaluator, content, &cwd, &loading, true, rtflags.bt) {
+        Ok(report) => {
+            if rtflags.print
+                && let Some(result) = report.result
+            {
+                println!("{result}");
+            }
+        }
         Err(err) => {
-            print_load_error(&err, &mut vm, rtflags.bt);
-            if vm.is_wqdb_enabled() && err.is_runtime() {
-                enter_wqdb_after_err(&mut vm);
+            print_load_error(&err, &mut evaluator, rtflags.bt);
+            if evaluator.is_wqdb_enabled() && err.is_runtime() {
+                enter_wqdb_after_err(&mut evaluator);
             }
         }
     }
@@ -583,8 +833,8 @@ fn print_goodbye() {
     println!();
 }
 
-fn dump_builtins() {
-    let mut funcs = Builtins::new().list_functions();
+fn dump_builtins(builtins: &Builtins) {
+    let mut funcs = builtins.list_functions();
     funcs.sort();
     let max_len = funcs.iter().map(|s| s.len()).max().unwrap_or(0);
     let columns = 6;
@@ -595,6 +845,112 @@ fn dump_builtins() {
         }
     }
     println!();
+}
+
+fn apply_interpreter_flag(evaluator: &mut DefaultEvaluator, rtflags: &RuntimeFlags) {
+    if let Some(name) = rtflags.interpreter.as_deref()
+        && let Err(err) = evaluator.set_interpreter_by_name(name)
+    {
+        let list = &INTERPRETER_NAMES.join(", ");
+        eprintln!("{err}; available: {list}");
+        std::process::exit(2);
+    }
+}
+
+fn apply_builtins_flag(evaluator: &mut DefaultEvaluator, rtflags: &RuntimeFlags) {
+    if let Some(preset) = rtflags.builtins.as_deref() {
+        match BuiltinPreset::from_name(preset) {
+            Some(preset) => evaluator.set_builtins_preset(preset),
+            None => {
+                let names = BuiltinPreset::names().join(", ");
+                eprintln!("unknown builtin preset '{preset}'; available: {names}");
+                std::process::exit(2);
+            }
+        }
+    }
+}
+
+fn format_debug_flags(flags: DebugFlags) -> String {
+    let names = flags.display_names();
+    if names.is_empty() {
+        "off".to_string()
+    } else {
+        names.join(",")
+    }
+}
+
+fn debug_help_table(active: DebugFlags) -> String {
+    let rows = [
+        ("active", format_debug_flags(active)),
+        ("0", "off".to_string()),
+        ("1", "inst".to_string()),
+        ("2", "inst,ast".to_string()),
+        ("3", "inst,ast,token".to_string()),
+        ("4", "inst,ast,token,wqdb-1,wqdb-2".to_string()),
+    ];
+    let left_w = rows.iter().map(|(l, _)| l.len()).max().unwrap_or(0);
+    let right_w = rows.iter().map(|(_, r)| r.len()).max().unwrap_or(0);
+    let rule = format!("+-{:-<left_w$}-+-{:-<right_w$}-+", "", "");
+    let mut out = String::new();
+    out.push_str(&rule);
+    out.push('\n');
+    out.push_str(&format!("| {:<left_w$} | {:<right_w$} |", "spec", "flags"));
+    out.push('\n');
+    out.push_str(&rule);
+    out.push('\n');
+    for (left, right) in rows {
+        out.push_str(&format!("| {:<left_w$} | {:<right_w$} |", left, right));
+        out.push('\n');
+    }
+    out.push_str(&rule);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_debug_spec_supports_named_flags() {
+        let flags = DebugFlags::parse("inst,token,wqdb-1").unwrap();
+        assert!(flags.contains(DebugFlags::INST));
+        assert!(flags.contains(DebugFlags::TOKEN));
+        assert!(flags.contains(DebugFlags::WQDB_1));
+        assert!(!flags.contains(DebugFlags::AST));
+    }
+
+    #[test]
+    fn parse_debug_spec_supports_oneshot_default_alias() {
+        let flags = DebugFlags::parse("").unwrap();
+        assert_eq!(flags, DebugFlags::from_alias(1).unwrap());
+    }
+
+    #[test]
+    fn parse_debug_spec_rejects_invalid_numeric_alias() {
+        assert!(DebugFlags::parse("7").is_err());
+    }
+
+    #[test]
+    fn debug_alias_table_lists_supported_aliases() {
+        let table = debug_help_table(DebugFlags::empty());
+        assert!(table.contains("| 0      | off"));
+        assert!(table.contains("| 4      | inst,ast,token,wqdb-1,wqdb-2 |"));
+    }
+
+    #[test]
+    fn debug_help_table_is_tabular() {
+        let table = debug_help_table(DebugFlags::from_names(["token", "inst"]));
+        assert!(table.contains("| spec   |"));
+        assert!(table.contains("active"));
+        assert!(table.contains("token,inst"));
+        assert!(table.contains("inst,ast,token,wqdb-1,wqdb-2"));
+    }
+
+    #[test]
+    fn parse_debug_spec_supports_compact_alias_shortcut() {
+        let flags = DebugFlags::parse("1").unwrap();
+        assert_eq!(flags, DebugFlags::from_alias(1).unwrap());
+    }
 }
 
 fn xray_info(v: &Value) -> String {
@@ -672,7 +1028,7 @@ impl RustylineInput {
     }
 }
 
-impl ReplStdin for RustylineInput {
+impl WqStdin for RustylineInput {
     fn readline(&mut self, prompt: &str) -> Result<String, StdinError> {
         match self.rl.readline(prompt) {
             Ok(line) => Ok(line),
@@ -730,7 +1086,7 @@ fn print_load_report(report: &hotchoco::LoadReport) {
     }
 }
 
-fn print_load_error<R: ReplEngine>(err: &hotchoco::LoadError, evaluator: &mut R, bt: bool) {
+fn print_load_error<R: Evaluator>(err: &hotchoco::LoadError, evaluator: &mut R, bt: bool) {
     match &err.kind {
         hotchoco::LoadErrorKind::Cycle(path) => {
             system_msg_printer::stderr(
@@ -753,6 +1109,12 @@ fn print_load_error<R: ReplEngine>(err: &hotchoco::LoadError, evaluator: &mut R,
                 evaluator.dbg_print_bt();
             }
         }
+        hotchoco::LoadErrorKind::Directive(cmd) => {
+            system_msg_printer::stderr(
+                format!("[hotchoco] unknown directive: {cmd}"),
+                system_msg_printer::MsgType::Error,
+            );
+        }
     }
     if !err.stack.is_empty() {
         system_msg_printer::stderr(
@@ -763,7 +1125,7 @@ fn print_load_error<R: ReplEngine>(err: &hotchoco::LoadError, evaluator: &mut R,
 }
 
 mod system_msg_printer {
-    use wqpl::colored::Colorize;
+    use colored::Colorize;
 
     pub enum MsgType {
         Info,
