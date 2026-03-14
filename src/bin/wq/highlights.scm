@@ -25,8 +25,11 @@
 ;; control flow
 ((conditional "$"  @keyword))
 ((conditional_dot "$." @keyword))
+((conditional_chain "$$" @keyword))
 ((w_loop "W" @keyword))
-((n_loop   "N" @keyword))
+((n_loop "N" @keyword))
+((f_loop "F" @keyword))
+((block_form "B" @keyword))
 
 (return_form   "@r"  @keyword.return)
 (break_form    "@b"   @keyword)
