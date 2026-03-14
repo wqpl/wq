@@ -510,9 +510,16 @@ impl Parser {
 
     fn parse_pipe(&mut self) -> WqResult<AstNode> {
         let mut left = self.parse_comma()?;
-        while let Some(token) = self.current_token().cloned() {
+        loop {
+            let checkpoint = self.current;
+            self.eat_trivia(true, true);
+            let Some(token) = self.current_token().cloned() else {
+                self.current = checkpoint;
+                break;
+            };
             if token.token_type == TokenType::Pipe {
                 self.advance();
+                self.eat_trivia(true, true);
                 self.ensure_rhs(&token, "'|' operator")?;
                 let right = self.parse_postfix()?;
                 left = match right {
@@ -548,6 +555,7 @@ impl Parser {
                     }
                 };
             } else {
+                self.current = checkpoint;
                 break;
             }
         }
@@ -2066,6 +2074,54 @@ mod tests {
                     args: vec![AstNode::Variable("b".into())],
                 },
             ]),
+        );
+    }
+
+    #[test]
+    fn test_pipe_allows_newlines_between_items() {
+        let ast = parse_string("a |\n iota |\n f[x]").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::Postfix {
+                object: Box::new(AstNode::Variable("f".into())),
+                items: vec![
+                    AstNode::Variable("x".into()),
+                    AstNode::Call {
+                        name: "iota".into(),
+                        args: vec![AstNode::Variable("a".into())],
+                    },
+                ],
+                explicit_call: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_pipe_allows_newline_before_pipe() {
+        let ast = parse_string("iota 10\n|filter{x%2=0}").unwrap();
+        assert_eq!(
+            ast,
+            AstNode::Call {
+                name: "filter".into(),
+                args: vec![
+                    AstNode::Function {
+                        params: None,
+                        body: Box::new(AstNode::BinaryOp {
+                            left: Box::new(AstNode::BinaryOp {
+                                left: Box::new(AstNode::Variable("x".into())),
+                                operator: BinaryOperator::Modulo,
+                                right: Box::new(AstNode::Literal(Value::Int(2))),
+                            }),
+                            operator: BinaryOperator::Equal,
+                            right: Box::new(AstNode::Literal(Value::Int(0))),
+                        }),
+                    },
+                    AstNode::Call {
+                        name: "iota".into(),
+                        args: vec![AstNode::Literal(Value::Int(10))],
+                    },
+                ],
+            }
         );
     }
 }
