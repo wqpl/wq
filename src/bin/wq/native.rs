@@ -293,7 +293,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             box_mode = !box_mode;
                             system_msg_printer::stdout(
                                 format!(
-                                    "boxed display changed to {}",
+                                    "boxed display -> {}",
                                     (if box_mode { "on" } else { "off" }).underline()
                                 ),
                                 system_msg_printer::MsgType::Info,
@@ -304,7 +304,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             xray_mode = !xray_mode;
                             system_msg_printer::stdout(
                                 format!(
-                                    "xray changed to {}",
+                                    "xray -> {}",
                                     (if xray_mode { "on" } else { "off" }).underline()
                                 ),
                                 system_msg_printer::MsgType::Info,
@@ -377,7 +377,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             time_mode = !time_mode;
                             system_msg_printer::stdout(
                                 format!(
-                                    "time mode changed to {}",
+                                    "time mode -> {}",
                                     (if time_mode { "on" } else { "off" }).underline()
                                 ),
                                 system_msg_printer::MsgType::Info,
@@ -396,7 +396,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             evaluator.set_wqdb(!evaluator.is_wqdb_enabled());
                             system_msg_printer::stdout(
                                 format!(
-                                    "wqdb changed to {}",
+                                    "wqdb -> {}",
                                     (if evaluator.is_wqdb_enabled() {
                                         "on"
                                     } else {
@@ -464,10 +464,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             };
                             evaluator.set_debug_flags(next);
                             system_msg_printer::stdout(
-                                format!(
-                                    "debug flags changed to {}",
-                                    format_debug_flags(next).underline()
-                                ),
+                                format!("debug flags -> {}", format_debug_flags(next).underline()),
                                 system_msg_printer::MsgType::Info,
                             );
                             continue;
@@ -507,7 +504,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                     evaluator.set_debug_flags(flags);
                                     system_msg_printer::stdout(
                                         format!(
-                                            "debug flags changed to {}",
+                                            "debug flags -> {}",
                                             format_debug_flags(flags).underline()
                                         ),
                                         system_msg_printer::MsgType::Info,
@@ -529,7 +526,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                     evaluator.set_debug_flags(flags);
                                     system_msg_printer::stdout(
                                         format!(
-                                            "debug flags changed to {}",
+                                            "debug flags -> {}",
                                             format_debug_flags(flags).underline()
                                         ),
                                         system_msg_printer::MsgType::Info,
