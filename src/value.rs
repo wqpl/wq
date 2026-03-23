@@ -33,43 +33,49 @@ pub type WqResult<T> = Result<T, WqError>;
 /// Heap cell shared between frames and closures for captured locals.
 pub type ValueCell = Arc<Mutex<Value>>;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionData {
+    pub params: Option<Arc<[String]>>,
+    pub locals: u16,
+    /// Shared immutable instruction array
+    pub instructions: Arc<[vm::instruction::Instruction]>,
+    /// Debug chunk id for this function's code
+    pub dbg_chunk: Option<ChunkId>,
+    /// Statement spans for the function body (byte start,end in source)
+    pub dbg_stmt_spans: Option<Arc<[(usize, usize)]>>,
+    /// Local variable names by slot index (for wqdb)
+    pub dbg_local_names: Option<Arc<[String]>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClosureData {
+    pub params: Option<Arc<[String]>>,
+    pub locals: u16,
+    pub captured: Vec<ValueCell>,
+    /// Shared immutable instruction array
+    pub instructions: Arc<[vm::instruction::Instruction]>,
+    /// Debug chunk id for this function's code
+    pub dbg_chunk: Option<ChunkId>,
+    /// Statement spans for the function body (byte start,end in source)
+    pub dbg_stmt_spans: Option<Arc<[(usize, usize)]>>,
+    /// Local variable names by slot index (for wqdb)
+    pub dbg_local_names: Option<Arc<[String]>>,
+}
+
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
-    BigInt(BigInt),
+    BigInt(Box<BigInt>),
     Float(f64),
     Char(char),
     Symbol(String),
     Bool(bool),
     IntList(Vec<i64>),
     List(Vec<Value>),
-    Dict(IndexMap<String, Value>),
-    CompiledFunction {
-        params: Option<Arc<[String]>>,
-        locals: u16,
-        /// Shared immutable instruction array
-        instructions: Arc<[vm::instruction::Instruction]>,
-        /// Debug chunk id for this function's code
-        dbg_chunk: Option<ChunkId>,
-        /// Statement spans for the function body (byte start,end in source)
-        dbg_stmt_spans: Option<Arc<[(usize, usize)]>>,
-        /// Local variable names by slot index (for wqdb)
-        dbg_local_names: Option<Arc<[String]>>,
-    },
+    Dict(Box<IndexMap<String, Value>>),
+    CompiledFunction(Arc<FunctionData>),
     /// closure with captured cells (upvalues)
-    Closure {
-        params: Option<Arc<[String]>>,
-        locals: u16,
-        captured: Vec<ValueCell>,
-        /// Shared immutable instruction array
-        instructions: Arc<[vm::instruction::Instruction]>,
-        /// Debug chunk id for this function's code
-        dbg_chunk: Option<ChunkId>,
-        /// Statement spans for the function body (byte start,end in source)
-        dbg_stmt_spans: Option<Arc<[(usize, usize)]>>,
-        /// Local variable names by slot index (for wqdb)
-        dbg_local_names: Option<Arc<[String]>>,
-    },
+    Closure(Arc<ClosureData>),
     BuiltinFunction(String),
     Stream(Arc<Mutex<StreamHandle>>),
 }
@@ -307,7 +313,9 @@ impl Value {
     // }
 
     pub fn from_bigint(n: BigInt) -> Value {
-        n.to_i64().map(Value::Int).unwrap_or(Value::BigInt(n))
+        n.to_i64()
+            .map(Value::Int)
+            .unwrap_or_else(|| Value::BigInt(Box::new(n)))
     }
 
     /// Construct a list value from items, promoting to IntList if all items are ints.
@@ -334,8 +342,8 @@ impl PartialEq for Value {
         match (self, other) {
             (Int(a), Int(b)) => a == b,
             (BigInt(a), BigInt(b)) => a == b,
-            (Int(a), BigInt(b)) => num_bigint::BigInt::from(*a) == *b,
-            (BigInt(a), Int(b)) => *a == num_bigint::BigInt::from(*b),
+            (Int(a), BigInt(b)) => num_bigint::BigInt::from(*a) == **b,
+            (BigInt(a), Int(b)) => **a == num_bigint::BigInt::from(*b),
             (Float(a), Float(b)) => a == b,
             (Char(a), Char(b)) => a == b,
             (Symbol(a), Symbol(b)) => a == b,
@@ -350,31 +358,16 @@ impl PartialEq for Value {
                 a.iter().zip(b).all(|(x, y)| matches!(y, Int(n) if n == x))
             }
             (Dict(a), Dict(b)) => a == b,
-            (
-                CompiledFunction {
-                    instructions: ia, ..
-                },
-                CompiledFunction {
-                    instructions: ib, ..
-                },
-            ) => Arc::ptr_eq(ia, ib),
-            (
-                Closure {
-                    instructions: ia,
-                    captured: ca,
-                    ..
-                },
-                Closure {
-                    instructions: ib,
-                    captured: cb,
-                    ..
-                },
-            ) => {
-                if !Arc::ptr_eq(ia, ib) || ca.len() != cb.len() {
+            (CompiledFunction(a), CompiledFunction(b)) => Arc::ptr_eq(a, b),
+            (Closure(a), Closure(b)) => {
+                if !Arc::ptr_eq(&a.instructions, &b.instructions)
+                    || a.captured.len() != b.captured.len()
+                {
                     return false;
                 }
-                ca.iter()
-                    .zip(cb.iter())
+                a.captured
+                    .iter()
+                    .zip(b.captured.iter())
                     .all(|(lhs, rhs)| Arc::ptr_eq(lhs, rhs))
             }
             (BuiltinFunction(a), BuiltinFunction(b)) => a == b,
@@ -442,17 +435,17 @@ impl fmt::Display for Value {
                     write!(f, "(`)")
                 } else {
                     let mut pairs = Vec::new();
-                    for (k, v) in map {
+                    for (k, v) in &**map {
                         pairs.push(format!("`{k}:{v}"));
                     }
                     write!(f, "({})", pairs.join(";"))
                 }
             }
-            Value::CompiledFunction { params, .. } => match params {
+            Value::CompiledFunction(func) => match &func.params {
                 Some(p) => write!(f, "{{[{}]...}}", p.join(";")),
                 None => write!(f, "{{...}}"),
             },
-            Value::Closure { params, .. } => match params {
+            Value::Closure(c) => match &c.params {
                 Some(p) => write!(f, "{{[{}]...}}", p.join(";")),
                 None => write!(f, "{{...}}"),
             },
@@ -553,7 +546,7 @@ impl IntoWqValue for usize {
     fn into_wq_value(self) -> Value {
         match i64::try_from(self) {
             Ok(n) => Value::Int(n),
-            Err(_) => Value::BigInt(BigInt::from(self)),
+            Err(_) => Value::BigInt(Box::new(BigInt::from(self))),
         }
     }
 }
@@ -568,7 +561,7 @@ impl IntoWqValue for u64 {
     fn into_wq_value(self) -> Value {
         match i64::try_from(self) {
             Ok(n) => Value::Int(n),
-            Err(_) => Value::BigInt(BigInt::from(self)),
+            Err(_) => Value::BigInt(Box::new(BigInt::from(self))),
         }
     }
 }
@@ -629,7 +622,7 @@ mod tests {
 
         let mut map = IndexMap::new();
         map.insert("a".to_string(), Value::Int(1));
-        let mut dict = Value::Dict(map);
+        let mut dict = Value::Dict(Box::new(map));
         assert_eq!(
             dict.assign_by_index(&Value::Symbol("a".into()), Value::Int(2)),
             Some(())
@@ -758,7 +751,7 @@ mod tests {
         let mut map = IndexMap::new();
         map.insert("a".to_string(), Value::Int(1));
         map.insert("b".to_string(), Value::Int(2));
-        let dict = Value::Dict(map);
+        let dict = Value::Dict(Box::new(map));
         let keys = Value::List(vec![Value::Symbol("b".into()), Value::Symbol("a".into())]);
         assert_eq!(
             dict.index(&keys),
@@ -772,7 +765,7 @@ mod tests {
         map.insert("a".to_string(), Value::Int(1));
         map.insert("b".to_string(), Value::Int(2));
         map.insert("c".to_string(), Value::Int(3));
-        let mut dict = Value::Dict(map);
+        let mut dict = Value::Dict(Box::new(map));
 
         assert_eq!(dict.index(&Value::Int(1)), Some(Value::Int(2)));
         assert_eq!(dict.index(&Value::Int(-1)), Some(Value::Int(3)));

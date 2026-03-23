@@ -20,19 +20,22 @@ pub enum Capture {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ClosurePayload {
+    pub params: Option<Arc<[String]>>,
+    pub locals: u16,
+    pub captures: Vec<Capture>,
+    pub instructions: Arc<[Instruction]>,
+    /// Statement spans for the function body (byte start,end in source)
+    pub dbg_stmt_spans: Arc<[(usize, usize)]>,
+    /// Local variable names by slot index (for wqdb)
+    pub dbg_local_names: Arc<[String]>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
     LoadConst(Value),
     /// Load a closure capturing current local slots
-    LoadClosure {
-        params: Option<Arc<[String]>>,
-        locals: u16,
-        captures: Vec<Capture>,
-        instructions: Arc<[Instruction]>,
-        /// Statement spans for the function body (byte start,end in source)
-        dbg_stmt_spans: Arc<[(usize, usize)]>,
-        /// Local variable names by slot index (for wqdb)
-        dbg_local_names: Arc<[String]>,
-    },
+    LoadClosure(Box<ClosurePayload>),
     /// Load a global variable or builtin by name
     LoadVar(String),
     /// Load a captured value by index from the current closure frame
@@ -51,7 +54,7 @@ pub enum Instruction {
     StoreLocalKeep(u16),
     BinaryOp(BinaryOperator),
     /// Evaluate a chain of comparison operators; expects N+1 operands
-    CmpChain(Vec<BinaryOperator>),
+    CmpChain(Box<[BinaryOperator]>),
     UnaryOp(UnaryOperator),
     /// Compute floor(left / right)
     FloorDiv,
@@ -64,6 +67,10 @@ pub enum Instruction {
     CallAnon(usize),
     /// Call if the object is a function, otherwise index
     CallOrIndex(usize),
+    /// Call or index a local variable, avoiding cloning if indexing
+    CallOrIndexLocal(u16, usize),
+    /// Call or index a global variable, avoiding cloning if indexing
+    CallOrIndexVar(String, usize),
     MakeList(usize),
     MakeDict(usize),
     MakeRange {
@@ -71,11 +78,11 @@ pub enum Instruction {
         has_step: bool,
     },
     Index,
-    IndexAssign,
+    IndexLoadLocal(u16),
+    IndexLoadVar(String),
+    IndexAssignVar(String),
     IndexAssignLocal(u16),
-    /// Like IndexAssign, but does not push the assigned value
-    IndexAssignDrop,
-    /// Like IndexAssignLocal, but does not push the assigned value
+    IndexAssignVarDrop(String),
     IndexAssignLocalDrop(u16),
     Jump(usize),
     JumpIfFalse(usize),
@@ -129,7 +136,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /*is_special*/) {
         I::LoadConst(_)
         | I::LoadLocal(_)
         | I::LoadCapture(_)
-        | I::LoadClosure { .. }
+        | I::LoadClosure(_)
         | I::LoadVar(_) => (Load, false),
         I::LoadSelf => (Load, true), // special: bold this one
 
@@ -143,6 +150,8 @@ fn classify(inst: &Instruction) -> (InstClass, bool /*is_special*/) {
         I::CallBuiltinId(_, _)
         | I::CallLocal(_, _)
         | I::CallOrIndex(_)
+        | I::CallOrIndexLocal(_, _)
+        | I::CallOrIndexVar(_, _)
         | I::CallAnon(_)
         | I::CallUser(_, _) => (Call, false),
 
@@ -167,7 +176,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /*is_special*/) {
         I::UnaryOp(_) | I::BinaryOp(_) | I::CmpChain(_) | I::FloorDiv => (Op, false),
 
         // Indexing
-        I::Index | I::IndexAssign | I::IndexAssignLocal(_) | I::IndexAssignDrop | I::IndexAssignLocalDrop(_) => {
+        I::Index | I::IndexLoadLocal(_) | I::IndexLoadVar(_) | I::IndexAssignVar(_) | I::IndexAssignVarDrop(_) | I::IndexAssignLocal(_) | I::IndexAssignLocalDrop(_) => {
             (Indexing, false)
         }
 
@@ -263,53 +272,40 @@ impl InstPrettyDumper {
         captures_spec: Option<&[Capture]>,
     ) {
         match inst {
-            Instruction::LoadConst(Value::CompiledFunction {
-                params,
-                locals,
-                instructions,
-                dbg_local_names,
-                ..
-            }) => {
+            Instruction::LoadConst(Value::CompiledFunction(f)) => {
                 let opcode = self.style_opcode_with_class("LoadConst", InstClass::Load, false);
                 let header = format!(
                     "{opcode}(CompiledFunction): params={} locals={} names={}",
-                    Self::format_params(params.as_deref()),
-                    locals,
-                    Self::format_names(dbg_local_names.as_deref()),
+                    Self::format_params(f.params.as_deref()),
+                    f.locals,
+                    Self::format_names(f.dbg_local_names.as_deref()),
                 );
                 self.push_line(indent, header);
                 self.push_line(indent, "{".to_string());
                 self.dump_chunk(
-                    instructions.as_ref(),
+                    f.instructions.as_ref(),
                     indent + 2,
-                    dbg_local_names.as_deref(),
+                    f.dbg_local_names.as_deref(),
                     None,
                 );
                 self.push_line(indent, "}".to_string());
             }
-            Instruction::LoadClosure {
-                params,
-                locals,
-                captures,
-                instructions,
-                dbg_local_names,
-                ..
-            } => {
+            Instruction::LoadClosure(payload) => {
                 let opcode = self.style_opcode_with_class("LoadClosure", InstClass::Load, false);
                 let header = format!(
                     "{opcode}: params={} locals={} captures={} names={}",
-                    Self::format_params(params.as_deref()),
-                    locals,
-                    Self::format_captures(captures),
-                    Self::format_names(Some(dbg_local_names.as_ref())),
+                    Self::format_params(payload.params.as_deref()),
+                    payload.locals,
+                    Self::format_captures(&payload.captures),
+                    Self::format_names(Some(payload.dbg_local_names.as_ref())),
                 );
                 self.push_line(indent, header);
                 self.push_line(indent, "{".to_string());
                 self.dump_chunk(
-                    instructions.as_ref(),
+                    payload.instructions.as_ref(),
                     indent + 2,
-                    Some(dbg_local_names.as_ref()),
-                    Some(captures.as_ref()),
+                    Some(payload.dbg_local_names.as_ref()),
+                    Some(payload.captures.as_ref()),
                 );
                 self.push_line(indent, "}".to_string());
             }
@@ -367,6 +363,8 @@ impl InstPrettyDumper {
             Instruction::LoadLocal(slot)
             | Instruction::StoreLocal(slot)
             | Instruction::StoreLocalKeep(slot)
+            | Instruction::IndexLoadLocal(slot)
+            | Instruction::CallOrIndexLocal(slot, _)
             | Instruction::IndexAssignLocal(slot)
             | Instruction::JumpIfLEZLocal(slot, _)
             | Instruction::Inc1Local(slot)
@@ -439,7 +437,7 @@ impl InstPrettyDumper {
         }
     }
 
-    fn highlight_inst(&self, inst: &Instruction) -> String {
+    pub fn highlight_inst(&self, inst: &Instruction) -> String {
         let s = format!("{inst:?}");
         // Split off the opcode token to style only it
         let mut split_pos = s.len();

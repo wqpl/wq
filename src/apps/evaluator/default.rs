@@ -4,7 +4,10 @@ use crate::{
     colored::Colorize,
     compiler::Compiler,
     debug_flags::{DebugFlags, set_debug_flags},
-    interpreters::{InterpreterKind, default::DefaultInterpreter, sample::SampleInterpreter},
+    interpreters::{
+        InterpreterKind, default::DefaultInterpreter, profiler::ProfilerInterpreter,
+        sample::SampleInterpreter,
+    },
     lexer::Lexer,
     parser::Parser,
     post_parser::{folder, resolver::Resolver},
@@ -166,8 +169,13 @@ impl DefaultEvaluator {
         &self.vm.builtins
     }
 
+    pub fn builtins_preset(&self) -> BuiltinPreset {
+        self.vm.builtins_preset
+    }
+
     pub fn set_builtins_preset(&mut self, preset: BuiltinPreset) {
         self.vm.builtins.apply_preset(preset);
+        self.vm.builtins_preset = preset;
     }
 
     /// Get mutable access to the VM for debugger integration
@@ -287,6 +295,9 @@ impl DefaultEvaluator {
         match self.interpreter {
             InterpreterKind::Sample => self.vm.run_with_interpreter(&mut SampleInterpreter),
             InterpreterKind::Default => self.vm.run_with_interpreter(&mut DefaultInterpreter),
+            InterpreterKind::Profiler => self
+                .vm
+                .run_with_interpreter(&mut ProfilerInterpreter::default()),
         }
     }
 
@@ -394,6 +405,13 @@ mod tests {
         let mut eval = DefaultEvaluator::new();
         let res = eval.eval_string("N[3;]");
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn empty_unit_pop_is_fused_out_in_loops() {
+        let mut eval = DefaultEvaluator::new();
+        let res = eval.eval_string("a:0;N[3;a:a+1;];a").unwrap();
+        assert_eq!(res, Value::Int(3));
     }
 
     #[test]

@@ -986,7 +986,7 @@ impl Parser {
                 TokenType::BigInteger(n) => {
                     let v = n.clone();
                     self.advance();
-                    Ok(AstNode::Literal(Value::BigInt(v)))
+                    Ok(AstNode::Literal(Value::BigInt(Box::new(v))))
                 }
                 TokenType::Float(f) => {
                     let v = *f;

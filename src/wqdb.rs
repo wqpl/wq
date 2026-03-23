@@ -498,9 +498,9 @@ pub fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::instruction
                 | CallAnon(_)
                 | CallOrIndex(_)
                 | Index
-                | IndexAssign
+                | IndexAssignVar(_)
                 | IndexAssignLocal(_)
-                | IndexAssignDrop
+                | IndexAssignVarDrop(_)
                 | IndexAssignLocalDrop(_)
                 | JumpIfFalse(_)
                 | JumpIfGE(_)
@@ -709,31 +709,24 @@ pub fn register_function_chunks(
     let mut i = 0usize;
     while i < code.len() {
         let ins = &code[i];
-        if let LoadConst(Value::CompiledFunction {
-            instructions,
-            dbg_chunk,
-            dbg_stmt_spans,
-            dbg_local_names,
-            ..
-        }) = ins
-        {
+        if let LoadConst(Value::CompiledFunction(f)) = ins {
             // Assign a chunk if missing
-            if dbg_chunk.is_none() {
-                let chunk = di.new_chunk("<fn>", file_id, instructions.len());
+            if f.dbg_chunk.is_none() {
+                let chunk = di.new_chunk("<fn>", file_id, f.instructions.len());
                 let table = &mut di.chunk_mut(chunk).line_table;
-                if let Some(spans) = dbg_stmt_spans {
+                if let Some(spans) = &f.dbg_stmt_spans {
                     apply_stmt_spans_exact_offs(
                         table,
-                        instructions,
+                        &f.instructions,
                         file_id,
                         spans.as_ref(),
                         base_offset,
                     );
                 } else {
-                    mark_stmt_heuristic(table, instructions);
+                    mark_stmt_heuristic(table, &f.instructions);
                 }
                 // Record local names if available
-                if let Some(names) = dbg_local_names {
+                if let Some(names) = &f.dbg_local_names {
                     di.chunk_mut(chunk).local_names = Some(names.iter().cloned().collect());
                 }
                 if let Some(StoreVar(name) | StoreVarKeep(name)) = code.get(i + 1) {

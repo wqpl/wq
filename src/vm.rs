@@ -8,9 +8,9 @@ mod slot;
 use std::{borrow::Cow, sync::Arc};
 
 use crate::{
-    builtins::Builtins,
+    builtins::{BuiltinPreset, Builtins},
     interpreters::Interpreter,
-    value::{Value, ValueCell, WqResult},
+    value::{ClosureData, FunctionData, Value, ValueCell, WqResult},
     vm::{call::CallTarget, debug::Backtrace, instruction::Instruction, slot::Slot},
     wqdb::{ChunkId, DebugInfo, Wqdb},
     wqerror::{WqError, WqErrorType},
@@ -34,6 +34,7 @@ pub struct Vm {
     pub(crate) global_slots_dirty: bool,
     pub(crate) globals_dirty: bool,
     pub(crate) builtins: Builtins,
+    pub(crate) builtins_preset: BuiltinPreset,
     /// Stack of local slot frames
     pub(crate) locals: Vec<Vec<Slot>>,
     /// Stack of capture vectors (per frame), for closures
@@ -66,7 +67,6 @@ pub(crate) struct Frame {
 #[derive(Clone, Default)]
 pub(crate) struct InlineCache {
     pub(crate) version: u64,
-    pub(crate) value: Option<Value>,
     pub(crate) call_target: Option<CallTarget>,
     pub(crate) slot: Option<usize>,
 }
@@ -85,6 +85,7 @@ impl Vm {
             global_slots_dirty: false,
             globals_dirty: false,
             builtins: Builtins::new(),
+            builtins_preset: BuiltinPreset::DEFAULT,
             locals: Vec::new(),
             captures: Vec::new(),
             inline_cache: vec![InlineCache::default(); len],
@@ -145,11 +146,6 @@ impl Vm {
 }
 
 impl Vm {
-    #[inline]
-    pub(crate) fn is_internal_ephemeral(&self, name: &str) -> bool {
-        name == "_n" || name.starts_with("--vm-n-loop-old-") || name.starts_with("--vm-n-loop-res-")
-    }
-
     pub fn current_chunk_id(&self) -> ChunkId {
         self.current_chunk
     }
@@ -242,34 +238,34 @@ impl Vm {
     pub(crate) fn assign_global_and_slot(&mut self, name: &str, mut value: Value) -> usize {
         self.sync_global_slots_if_dirty();
         if self.wqdb.enabled || self.bt_mode {
-            match &mut value {
-                Value::CompiledFunction {
-                    params,
-                    instructions,
-                    dbg_chunk,
-                    dbg_stmt_spans,
-                    dbg_local_names,
-                    ..
+            if let Value::CompiledFunction(f) = &value {
+                let chunk = self.ensure_dbg_chunk_with_spans(
+                    name,
+                    f.dbg_chunk,
+                    f.instructions.as_ref(),
+                    &f.dbg_stmt_spans,
+                    &f.dbg_local_names,
+                    &f.params,
+                );
+                if f.dbg_chunk != chunk {
+                    let mut new_f = FunctionData::clone(f);
+                    new_f.dbg_chunk = chunk;
+                    value = Value::CompiledFunction(std::sync::Arc::new(new_f));
                 }
-                | Value::Closure {
-                    params,
-                    instructions,
-                    dbg_chunk,
-                    dbg_stmt_spans,
-                    dbg_local_names,
-                    ..
-                } => {
-                    let chunk = self.ensure_dbg_chunk_with_spans(
-                        name,
-                        *dbg_chunk,
-                        instructions.as_ref(),
-                        dbg_stmt_spans,
-                        dbg_local_names,
-                        params,
-                    );
-                    *dbg_chunk = chunk;
+            } else if let Value::Closure(c) = &value {
+                let chunk = self.ensure_dbg_chunk_with_spans(
+                    name,
+                    c.dbg_chunk,
+                    c.instructions.as_ref(),
+                    &c.dbg_stmt_spans,
+                    &c.dbg_local_names,
+                    &c.params,
+                );
+                if c.dbg_chunk != chunk {
+                    let mut new_c = ClosureData::clone(c);
+                    new_c.dbg_chunk = chunk;
+                    value = Value::Closure(std::sync::Arc::new(new_c));
                 }
-                _ => {}
             }
         }
         self.globals_dirty = true;
@@ -293,34 +289,34 @@ impl Vm {
     pub(crate) fn assign_global_at_slot(&mut self, name: &str, slot: usize, mut value: Value) {
         self.sync_global_slots_if_dirty();
         if self.wqdb.enabled || self.bt_mode {
-            match &mut value {
-                Value::CompiledFunction {
-                    params,
-                    instructions,
-                    dbg_chunk,
-                    dbg_stmt_spans,
-                    dbg_local_names,
-                    ..
+            if let Value::CompiledFunction(f) = &value {
+                let chunk = self.ensure_dbg_chunk_with_spans(
+                    name,
+                    f.dbg_chunk,
+                    f.instructions.as_ref(),
+                    &f.dbg_stmt_spans,
+                    &f.dbg_local_names,
+                    &f.params,
+                );
+                if f.dbg_chunk != chunk {
+                    let mut new_f = FunctionData::clone(f);
+                    new_f.dbg_chunk = chunk;
+                    value = Value::CompiledFunction(std::sync::Arc::new(new_f));
                 }
-                | Value::Closure {
-                    params,
-                    instructions,
-                    dbg_chunk,
-                    dbg_stmt_spans,
-                    dbg_local_names,
-                    ..
-                } => {
-                    let chunk = self.ensure_dbg_chunk_with_spans(
-                        name,
-                        *dbg_chunk,
-                        instructions.as_ref(),
-                        dbg_stmt_spans,
-                        dbg_local_names,
-                        params,
-                    );
-                    *dbg_chunk = chunk;
+            } else if let Value::Closure(c) = &value {
+                let chunk = self.ensure_dbg_chunk_with_spans(
+                    name,
+                    c.dbg_chunk,
+                    c.instructions.as_ref(),
+                    &c.dbg_stmt_spans,
+                    &c.dbg_local_names,
+                    &c.params,
+                );
+                if c.dbg_chunk != chunk {
+                    let mut new_c = ClosureData::clone(c);
+                    new_c.dbg_chunk = chunk;
+                    value = Value::Closure(std::sync::Arc::new(new_c));
                 }
-                _ => {}
             }
         }
         if let Some(dest) = self.global_slots.get_mut(slot) {

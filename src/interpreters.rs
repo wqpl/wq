@@ -1,4 +1,5 @@
 pub mod default;
+pub mod profiler;
 pub mod sample;
 
 use crate::{
@@ -21,23 +22,27 @@ pub trait Interpreter {
 pub enum InterpreterKind {
     Default,
     Sample,
+    Profiler,
 }
 
-pub const INTERPRETER_NAMES: [&str; 2] = ["default", "sample"];
-
 impl InterpreterKind {
+    pub fn names() -> &'static [&'static str] {
+        &["default", "sample", "profiler"]
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             InterpreterKind::Default => "default",
             InterpreterKind::Sample => "sample",
+            InterpreterKind::Profiler => "profiler",
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
         match name.trim().to_ascii_lowercase().as_str() {
-            "default" | "def" | "definterp" => Some(InterpreterKind::Default),
-            "sample" => Some(InterpreterKind::Sample),
-
+            "default" | "def" | "d" => Some(InterpreterKind::Default),
+            "sample" | "s" => Some(InterpreterKind::Sample),
+            "profiler" | "p" => Some(InterpreterKind::Profiler),
             _ => None,
         }
     }

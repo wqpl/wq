@@ -10,7 +10,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use wqpl::debug_flags::DebugFlags;
 use wqpl::{
     apps::{
         evaluator::{Evaluator, default::DefaultEvaluator},
@@ -19,7 +18,6 @@ use wqpl::{
     builtins::{BuiltinPreset, Builtins},
     helpers::box_mode::format_boxed,
     hotchoco,
-    interpreters::INTERPRETER_NAMES,
     stdio::{
         StdinError, WqStdin, stdin_add_history, stdin_highlight_enabled, stdin_readline,
         stdin_set_highlight,
@@ -27,6 +25,7 @@ use wqpl::{
     value::Value,
     wqerror::WqErrorType,
 };
+use wqpl::{debug_flags::DebugFlags, interpreters::InterpreterKind};
 
 use crate::daydream::{Command, ExecSource, FmtOpts, ParseOutcome, RuntimeFlags, parse_args};
 use wqpl::wqdb::DebugHost;
@@ -142,13 +141,11 @@ fn enter_repl(rtflags: RuntimeFlags) {
         evaluator.interpreter_name()
     );
 
-    if let Some(builtin) = rtflags.builtins.as_deref() {
-        println!(
-            "{:>label_width$} {}",
-            "builtins:".yellow().dimmed(),
-            builtin
-        );
-    }
+    println!(
+        "{:>label_width$} {}",
+        "builtins:".yellow().dimmed(),
+        evaluator.builtins_preset().name()
+    );
 
     loop {
         let prompt = if buffer.is_empty() {
@@ -198,34 +195,38 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             stdin_set_highlight(!stdin_highlight_enabled());
                             continue;
                         }
-                        cmd if cmd == "!builtins"
-                            || cmd == "!bfn"
-                            || cmd == "!"
-                            || cmd.starts_with("!builtins ")
-                            || cmd.starts_with("!bfn ") =>
-                        {
+                        cmd if cmd == "!bfn" || cmd == "!" || cmd.starts_with("!bfn ") => {
                             let mut parts = cmd.split_whitespace();
                             let _ = parts.next();
+                            let names = BuiltinPreset::names().join(", ");
                             if let Some(preset) = parts.next() {
                                 match BuiltinPreset::from_name(preset) {
                                     Some(preset) => {
                                         evaluator.set_builtins_preset(preset);
                                         system_msg_printer::stdout(
-                                            format!("builtins preset set to {preset:?}"),
+                                            format!("bfn -> {}", preset.name()),
                                             system_msg_printer::MsgType::Info,
                                         );
                                     }
                                     None => {
-                                        let names = BuiltinPreset::names().join(", ");
                                         system_msg_printer::stderr(
                                             format!(
-                                                "unknown builtin preset '{preset}'; available: {names}"
+                                                "unknown bfn preset '{preset}'; available: {names}"
                                             ),
                                             system_msg_printer::MsgType::Error,
                                         );
                                     }
                                 }
                             } else {
+                                let current = evaluator.builtins_preset();
+                                let names = BuiltinPreset::names().join(", ");
+                                system_msg_printer::stderr(
+                                    format!(
+                                        "active preset: {}\navailable: {names}",
+                                        current.name().bold().underline()
+                                    ),
+                                    system_msg_printer::MsgType::Info,
+                                );
                                 dump_builtins(evaluator.builtins());
                             }
                             continue;
@@ -311,10 +312,10 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             );
                             continue;
                         }
-                        cmd if cmd == "!interp" || cmd == "!interps" || cmd == "!interpreter" => {
+                        cmd if cmd == "!i" || cmd == "!interpreter" => {
                             let current = evaluator.interpreter_name();
                             let mut list = Vec::new();
-                            for name in &INTERPRETER_NAMES {
+                            for name in InterpreterKind::names() {
                                 if *name == current {
                                     list.push(format!("{name} (current)"));
                                 } else {
@@ -327,10 +328,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             );
                             continue;
                         }
-                        cmd if cmd.starts_with("!in ")
-                            || cmd.starts_with("!interp ")
-                            || cmd.starts_with("!interpreter ") =>
-                        {
+                        cmd if cmd.starts_with("!i ") || cmd.starts_with("!interpreter ") => {
                             let mut parts = cmd.split_whitespace();
                             let _ = parts.next();
                             if let Some(name) = parts.next() {
@@ -342,7 +340,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                                         );
                                     }
                                     Err(err) => {
-                                        let list = &INTERPRETER_NAMES.join(", ");
+                                        let list = InterpreterKind::names().join(", ");
                                         system_msg_printer::stderr(
                                             format!("{err}; available: {list}"),
                                             system_msg_printer::MsgType::Error,
@@ -357,22 +355,7 @@ fn enter_repl(rtflags: RuntimeFlags) {
                             }
                             continue;
                         }
-                        "!def" | "!default" => {
-                            let _ = evaluator.set_interpreter_by_name("default");
-                            system_msg_printer::stdout(
-                                "interpreter set to default".to_string(),
-                                system_msg_printer::MsgType::Info,
-                            );
-                            continue;
-                        }
-                        "!sample" => {
-                            let _ = evaluator.set_interpreter_by_name("sample");
-                            system_msg_printer::stdout(
-                                "interpreter set to sample".to_string(),
-                                system_msg_printer::MsgType::Info,
-                            );
-                            continue;
-                        }
+
                         "!time" | "!t" => {
                             time_mode = !time_mode;
                             system_msg_printer::stdout(
@@ -848,7 +831,7 @@ fn apply_interpreter_flag(evaluator: &mut DefaultEvaluator, rtflags: &RuntimeFla
     if let Some(name) = rtflags.interpreter.as_deref()
         && let Err(err) = evaluator.set_interpreter_by_name(name)
     {
-        let list = &INTERPRETER_NAMES.join(", ");
+        let list = InterpreterKind::names().join(", ");
         eprintln!("{err}; available: {list}");
         std::process::exit(2);
     }

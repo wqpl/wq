@@ -16,6 +16,7 @@ pub struct Compiler {
     pub instructions: Vec<Instruction>,
     builtins: Builtins,
     loop_stack: Vec<LoopInfo>,
+    value_needed: bool,
     fn_depth: usize,
     // Monotonic ID seed for generating unique internal names (e.g., N-loop temps)
     gensym: usize,
@@ -63,6 +64,7 @@ impl Compiler {
             instructions: Vec::new(),
             builtins,
             loop_stack: Vec::new(),
+            value_needed: true,
             fn_depth: 0,
             gensym: 0,
             locals: IndexMap::new(),
@@ -80,6 +82,18 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, node: &AstNode) -> WqResult<()> {
+        self.compile_in_context(node, true)
+    }
+
+    fn compile_in_context(&mut self, node: &AstNode, value_needed: bool) -> WqResult<()> {
+        let old_value_needed = self.value_needed;
+        self.value_needed = value_needed;
+        let result = self.compile_node(node);
+        self.value_needed = old_value_needed;
+        result
+    }
+
+    fn compile_node(&mut self, node: &AstNode) -> WqResult<()> {
         match node {
             AstNode::Literal(v) => self.instructions.push(Instruction::LoadConst(v.clone())),
             AstNode::Variable(name) => self.emit_load(name),
@@ -166,24 +180,28 @@ impl Compiler {
                     let spans_arc: Arc<[(usize, usize)]> = Arc::from(spans_for_fn.clone());
                     let local_names_arc: Arc<[String]> = Arc::from(dbg_local_names.clone());
                     if !c.captures.is_empty() {
-                        self.instructions.push(Instruction::LoadClosure {
-                            params: params_arc.clone(),
-                            locals,
-                            captures: c.captures.clone(),
-                            instructions: func_arc,
-                            dbg_stmt_spans: spans_arc,
-                            dbg_local_names: local_names_arc,
-                        });
+                        self.instructions.push(Instruction::LoadClosure(Box::new(
+                            crate::vm::instruction::ClosurePayload {
+                                params: params_arc.clone(),
+                                locals,
+                                captures: c.captures.clone(),
+                                instructions: func_arc,
+                                dbg_stmt_spans: spans_arc,
+                                dbg_local_names: local_names_arc,
+                            },
+                        )));
                     } else {
                         self.instructions
-                            .push(Instruction::LoadConst(Value::CompiledFunction {
-                                params: params_arc,
-                                locals,
-                                instructions: func_arc,
-                                dbg_chunk: None,
-                                dbg_stmt_spans: Some(spans_arc),
-                                dbg_local_names: Some(local_names_arc),
-                            }));
+                            .push(Instruction::LoadConst(Value::CompiledFunction(Arc::new(
+                                crate::value::FunctionData {
+                                    params: params_arc,
+                                    locals,
+                                    instructions: func_arc,
+                                    dbg_chunk: None,
+                                    dbg_stmt_spans: Some(spans_arc),
+                                    dbg_local_names: Some(local_names_arc),
+                                },
+                            ))));
                     }
                     // Store and keep the value on the stack for expression result
                     self.emit_store_keep(name);
@@ -276,7 +294,7 @@ impl Compiler {
                     self.compile(node)?;
                     ops.push(*op);
                 }
-                self.instructions.push(Instruction::CmpChain(ops));
+                self.instructions.push(Instruction::CmpChain(ops.into_boxed_slice()));
             }
             AstNode::Range {
                 start,
@@ -381,12 +399,33 @@ impl Compiler {
                     ));
                 } else {
                     // Non-builtin: compile the callee first, then the args
-                    self.compile(object)?;
-                    for item in items {
-                        self.compile(item)?;
+                    let mut optimized = false;
+                    if let AstNode::Variable(name) = object.as_ref() {
+                        if self.is_local(name) {
+                            let slot = self.locals[name];
+                            for item in items {
+                                self.compile(item)?;
+                            }
+                            self.instructions
+                                .push(Instruction::CallOrIndexLocal(slot, items.len()));
+                            optimized = true;
+                        } else if self.fn_depth == 0 {
+                            for item in items {
+                                self.compile(item)?;
+                            }
+                            self.instructions
+                                .push(Instruction::CallOrIndexVar(name.clone(), items.len()));
+                            optimized = true;
+                        }
                     }
-                    self.instructions
-                        .push(Instruction::CallOrIndex(items.len()));
+                    if !optimized {
+                        self.compile(object)?;
+                        for item in items {
+                            self.compile(item)?;
+                        }
+                        self.instructions
+                            .push(Instruction::CallOrIndex(items.len()));
+                    }
                 }
             }
             AstNode::Break => {
@@ -429,9 +468,25 @@ impl Compiler {
                 }
             }
             AstNode::Index { object, index } => {
-                self.compile(object)?;
-                self.compile(index)?;
-                self.instructions.push(Instruction::Index);
+                let mut optimized = false;
+                if let AstNode::Variable(name) = &**object {
+                    if self.is_local(name) {
+                        let slot = self.locals[name];
+                        self.compile(index)?;
+                        self.instructions.push(Instruction::IndexLoadLocal(slot));
+                        optimized = true;
+                    } else if self.fn_depth == 0 {
+                        self.compile(index)?;
+                        self.instructions
+                            .push(Instruction::IndexLoadVar(name.clone()));
+                        optimized = true;
+                    }
+                }
+                if !optimized {
+                    self.compile(object)?;
+                    self.compile(index)?;
+                    self.instructions.push(Instruction::Index);
+                }
             }
             AstNode::IndexAssign {
                 object,
@@ -445,11 +500,9 @@ impl Compiler {
                         self.compile(value)?;
                         self.instructions.push(Instruction::IndexAssignLocal(slot));
                     } else {
-                        self.instructions
-                            .push(Instruction::LoadConst(Value::Symbol(name.clone())));
                         self.compile(index)?;
                         self.compile(value)?;
-                        self.instructions.push(Instruction::IndexAssign);
+                        self.instructions.push(Instruction::IndexAssignVar(name.clone()));
                     }
                 } else {
                     return Err(self.syntax_err_here("Invalid index assignment target"));
@@ -520,24 +573,28 @@ impl Compiler {
                 let spans_arc: Arc<[(usize, usize)]> = Arc::from(spans_for_fn.clone());
                 let local_names_arc: Arc<[String]> = Arc::from(dbg_local_names.clone());
                 if !c.captures.is_empty() {
-                    self.instructions.push(Instruction::LoadClosure {
-                        params: params_arc.clone(),
-                        locals,
-                        captures: c.captures.clone(),
-                        instructions: func_arc,
-                        dbg_stmt_spans: spans_arc,
-                        dbg_local_names: local_names_arc,
-                    });
+                    self.instructions.push(Instruction::LoadClosure(Box::new(
+                        crate::vm::instruction::ClosurePayload {
+                            params: params_arc.clone(),
+                            locals,
+                            captures: c.captures.clone(),
+                            instructions: func_arc,
+                            dbg_stmt_spans: spans_arc,
+                            dbg_local_names: local_names_arc,
+                        },
+                    )));
                 } else {
                     self.instructions
-                        .push(Instruction::LoadConst(Value::CompiledFunction {
-                            params: params_arc,
-                            locals,
-                            instructions: func_arc,
-                            dbg_chunk: None,
-                            dbg_stmt_spans: Some(spans_arc),
-                            dbg_local_names: Some(local_names_arc),
-                        }));
+                        .push(Instruction::LoadConst(Value::CompiledFunction(Arc::new(
+                            crate::value::FunctionData {
+                                params: params_arc,
+                                locals,
+                                instructions: func_arc,
+                                dbg_chunk: None,
+                                dbg_stmt_spans: Some(spans_arc),
+                                dbg_local_names: Some(local_names_arc),
+                            },
+                        ))));
                 }
             }
             AstNode::Conditional {
@@ -548,14 +605,14 @@ impl Compiler {
                 self.compile(condition)?;
                 let jump_if_false_pos = self.instructions.len();
                 self.instructions.push(Instruction::JumpIfFalse(0));
-                self.compile(true_branch)?;
+                self.compile_in_context(true_branch, self.value_needed)?;
                 let jump_end_pos = self.instructions.len();
                 self.instructions.push(Instruction::Jump(0));
                 // patch jump_if_false to here
                 let else_start = self.instructions.len();
                 self.instructions[jump_if_false_pos] = Instruction::JumpIfFalse(else_start);
                 if let Some(fb) = false_branch {
-                    self.compile(fb)?;
+                    self.compile_in_context(fb, self.value_needed)?;
                 } else {
                     // when there is no false branch, the conditional
                     // expression should evaluate to null on the false path
@@ -566,22 +623,45 @@ impl Compiler {
                 self.instructions[jump_end_pos] = Instruction::Jump(end);
             }
             AstNode::WLoop { condition, body } => {
-                let id = {
-                    let v = self.gensym;
-                    self.gensym = self.gensym.wrapping_add(1);
-                    v
+                if self.value_needed
+                    && pure_const_body(body)
+                    && let Some(value) = const_body_value(body)
+                {
+                    let start = self.instructions.len();
+                    self.compile(condition)?;
+                    let jump_pos = self.instructions.len();
+                    self.instructions.push(Instruction::JumpIfFalse(0));
+                    self.instructions.push(Instruction::Jump(start));
+                    let end = self.instructions.len();
+                    self.instructions[jump_pos] = Instruction::JumpIfFalse(end);
+                    self.instructions.push(Instruction::LoadConst(value));
+                    return Ok(());
+                }
+                let result_var = if self.value_needed {
+                    let id = {
+                        let v = self.gensym;
+                        self.gensym = self.gensym.wrapping_add(1);
+                        v
+                    };
+                    let result_var = format!("--vm-w-loop-res-{id}");
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::unit()));
+                    self.emit_store(&result_var);
+                    Some(result_var)
+                } else {
+                    None
                 };
-                let result_var = format!("--vm-w-loop-res-{id}");
-                self.instructions
-                    .push(Instruction::LoadConst(Value::unit()));
-                self.emit_store(&result_var);
                 let start = self.instructions.len();
                 self.compile(condition)?;
                 let jump_pos = self.instructions.len();
                 self.instructions.push(Instruction::JumpIfFalse(0));
                 self.loop_stack.push(LoopInfo::default());
-                self.compile(body)?;
-                self.emit_store(&result_var);
+                self.compile_in_context(body, self.value_needed)?;
+                if let Some(result_var) = &result_var {
+                    self.emit_store(result_var);
+                } else {
+                    self.instructions.push(Instruction::Pop);
+                }
                 let continue_target = self.instructions.len();
                 self.instructions.push(Instruction::Jump(start));
                 let end = self.instructions.len();
@@ -594,9 +674,23 @@ impl Compiler {
                         self.instructions[pos] = Instruction::Jump(continue_target);
                     }
                 }
-                self.emit_load(&result_var);
+                if let Some(result_var) = &result_var {
+                    self.emit_load(result_var);
+                } else {
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::unit()));
+                }
             }
             AstNode::NLoop { count, body } => {
+                if self.value_needed
+                    && pure_const_body(body)
+                    && let Some(value) = const_body_value(body)
+                {
+                    self.compile(count)?;
+                    self.instructions.push(Instruction::Pop);
+                    self.instructions.push(Instruction::LoadConst(value));
+                    return Ok(());
+                }
                 // Unroll constant loops only when there is no control flow in body
                 if let AstNode::Literal(Value::Int(n)) = &**count
                     && *n >= 0
@@ -612,7 +706,7 @@ impl Compiler {
                                 self.instructions
                                     .push(Instruction::LoadConst(Value::Int(i)));
                                 self.emit_store("_n");
-                                self.compile(body)?;
+                                self.compile_in_context(body, self.value_needed)?;
                                 if i < *n - 1 {
                                     self.instructions.push(Instruction::Pop);
                                 }
@@ -628,7 +722,7 @@ impl Compiler {
                                 self.instructions
                                     .push(Instruction::LoadConst(Value::Int(idx)));
                                 self.emit_store("_n");
-                                self.compile(body)?;
+                                self.compile_in_context(body, self.value_needed)?;
                                 self.instructions.push(Instruction::Pop);
                             }
                         }
@@ -637,7 +731,7 @@ impl Compiler {
                             self.instructions
                                 .push(Instruction::LoadConst(Value::Int(idx)));
                             self.emit_store("_n");
-                            self.compile(body)?;
+                            self.compile_in_context(body, self.value_needed)?;
                             if i < remainder - 1 {
                                 self.instructions.push(Instruction::Pop);
                             }
@@ -657,16 +751,18 @@ impl Compiler {
                     v
                 };
                 let count_var = format!("--vm-n-loop-count-{id}");
-                let result_var = format!("--vm-n-loop-res-{id}");
+                let result_var = self.value_needed.then(|| format!("--vm-n-loop-res-{id}"));
                 let old_var = format!("--vm-n-loop-old-{id}");
                 self.compile(count)?; // -> count on stack
                 self.emit_store(&count_var);
                 self.instructions
                     .push(Instruction::LoadConst(Value::Int(0)));
                 self.emit_store("_n");
-                self.instructions
-                    .push(Instruction::LoadConst(Value::unit()));
-                self.emit_store(&result_var);
+                if let Some(result_var) = &result_var {
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::unit()));
+                    self.emit_store(result_var);
+                }
                 let start = self.instructions.len();
                 self.emit_load("_n");
                 self.emit_load(&count_var);
@@ -677,8 +773,12 @@ impl Compiler {
                 self.emit_load("_n");
                 self.emit_store(&old_var);
                 self.loop_stack.push(LoopInfo::default());
-                self.compile(body)?;
-                self.emit_store(&result_var);
+                self.compile_in_context(body, self.value_needed)?;
+                if let Some(result_var) = &result_var {
+                    self.emit_store(result_var);
+                } else {
+                    self.instructions.push(Instruction::Pop);
+                }
                 let continue_target = self.instructions.len();
                 self.emit_load(&old_var);
                 self.instructions
@@ -697,9 +797,23 @@ impl Compiler {
                         self.instructions[pos] = Instruction::Jump(continue_target);
                     }
                 }
-                self.emit_load(&result_var);
+                if let Some(result_var) = &result_var {
+                    self.emit_load(result_var);
+                } else {
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::unit()));
+                }
             }
             AstNode::FLoop { iterable, body } => {
+                if self.value_needed
+                    && pure_const_body(body)
+                    && let Some(value) = const_body_value(body)
+                {
+                    self.compile(iterable)?;
+                    self.instructions.push(Instruction::Pop);
+                    self.instructions.push(Instruction::LoadConst(value));
+                    return Ok(());
+                }
                 let id = {
                     let v = self.gensym;
                     self.gensym = self.gensym.wrapping_add(1);
@@ -707,7 +821,7 @@ impl Compiler {
                 };
                 let iter_var = format!("--vm-f-loop-iter-{id}");
                 let count_var = format!("--vm-f-loop-count-{id}");
-                let result_var = format!("--vm-f-loop-res-{id}");
+                let result_var = self.value_needed.then(|| format!("--vm-f-loop-res-{id}"));
                 let old_var = format!("--vm-f-loop-old-{id}");
                 self.compile(iterable)?;
                 self.emit_store(&iter_var);
@@ -718,9 +832,11 @@ impl Compiler {
                 self.instructions
                     .push(Instruction::LoadConst(Value::Int(0)));
                 self.emit_store("_n");
-                self.instructions
-                    .push(Instruction::LoadConst(Value::unit()));
-                self.emit_store(&result_var);
+                if let Some(result_var) = &result_var {
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::unit()));
+                    self.emit_store(result_var);
+                }
                 let start = self.instructions.len();
                 self.emit_load("_n");
                 self.emit_load(&count_var);
@@ -735,8 +851,12 @@ impl Compiler {
                 self.instructions.push(Instruction::Index);
                 self.emit_store("_f");
                 self.loop_stack.push(LoopInfo::default());
-                self.compile(body)?;
-                self.emit_store(&result_var);
+                self.compile_in_context(body, self.value_needed)?;
+                if let Some(result_var) = &result_var {
+                    self.emit_store(result_var);
+                } else {
+                    self.instructions.push(Instruction::Pop);
+                }
                 let continue_target = self.instructions.len();
                 self.emit_load(&old_var);
                 self.instructions
@@ -755,7 +875,12 @@ impl Compiler {
                         self.instructions[pos] = Instruction::Jump(continue_target);
                     }
                 }
-                self.emit_load(&result_var);
+                if let Some(result_var) = &result_var {
+                    self.emit_load(result_var);
+                } else {
+                    self.instructions
+                        .push(Instruction::LoadConst(Value::unit()));
+                }
             }
             AstNode::Block(stmts) => {
                 if stmts.is_empty() {
@@ -764,22 +889,28 @@ impl Compiler {
                         .push(Instruction::LoadConst(Value::unit()));
                 } else {
                     if self.top_spans_active {
-                        for (i, stmt) in stmts.iter().enumerate() {
+                        for (i, stmt) in
+                            stmts.iter().enumerate().take(stmts.len().saturating_sub(1))
+                        {
                             if i < self.cur_stmt_spans.len() {
                                 self.cur_stmt_idx = i;
                             }
-                            self.compile(stmt)?;
+                            self.compile_in_context(stmt, false)?;
                             self.instructions.push(Instruction::Pop);
                         }
                         self.top_spans_active = false;
                     } else {
-                        for stmt in stmts {
-                            self.compile(stmt)?;
+                        for stmt in stmts.iter().take(stmts.len().saturating_sub(1)) {
+                            self.compile_in_context(stmt, false)?;
                             self.instructions.push(Instruction::Pop);
                         }
                     }
-                    // remove last pop to keep result of final statement
-                    self.instructions.pop();
+                    if let Some(last) = stmts.last() {
+                        self.compile_in_context(last, self.value_needed)?;
+                    } else {
+                        self.instructions
+                            .push(Instruction::LoadConst(Value::unit()));
+                    }
                 }
             }
             AstNode::BlockExpr(stmts) => {
@@ -788,21 +919,26 @@ impl Compiler {
                         .push(Instruction::LoadConst(Value::unit()));
                 } else {
                     if self.top_spans_active {
-                        for (i, stmt) in stmts.iter().enumerate() {
+                        for (i, stmt) in
+                            stmts.iter().enumerate().take(stmts.len().saturating_sub(1))
+                        {
                             if i < self.cur_stmt_spans.len() {
                                 self.cur_stmt_idx = i;
                             }
-                            self.compile(stmt)?;
+                            self.compile_in_context(stmt, false)?;
                             self.instructions.push(Instruction::Pop);
                         }
                         self.top_spans_active = false;
                     } else {
-                        for stmt in stmts {
-                            self.compile(stmt)?;
+                        for stmt in stmts.iter().take(stmts.len().saturating_sub(1)) {
+                            self.compile_in_context(stmt, false)?;
                             self.instructions.push(Instruction::Pop);
                         }
                     }
-                    self.instructions.pop();
+                    self.compile_in_context(
+                        stmts.last().expect("non-empty block expr"),
+                        self.value_needed,
+                    )?;
                 }
             }
         }
@@ -972,6 +1108,28 @@ fn has_ctrl(node: &AstNode) -> bool {
         AstNode::Range {
             start, end, step, ..
         } => has_ctrl(start) || has_ctrl(end) || step.as_ref().is_some_and(|s| has_ctrl(s)),
+        _ => false,
+    }
+}
+
+fn const_body_value(node: &AstNode) -> Option<Value> {
+    match node {
+        AstNode::Literal(value) => Some(value.clone()),
+        AstNode::Block(stmts) | AstNode::BlockExpr(stmts) => {
+            stmts.last().and_then(const_body_value)
+        }
+        _ => None,
+    }
+}
+
+fn pure_const_body(node: &AstNode) -> bool {
+    if has_ctrl(node) {
+        return false;
+    }
+
+    match node {
+        AstNode::Literal(_) => true,
+        AstNode::Block(stmts) | AstNode::BlockExpr(stmts) => stmts.iter().all(pure_const_body),
         _ => false,
     }
 }

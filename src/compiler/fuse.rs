@@ -45,7 +45,8 @@ fn has_fusable_patterns(code: &[Instruction]) -> bool {
                 (StoreLocalKeep(_), Pop)
                 | (StoreVarKeep(_), Pop)
                 | (IndexAssignLocal(_), Pop)
-                | (IndexAssign, Pop) => return true,
+                | (IndexAssignVar(_), Pop)
+                | (LoadLocal(_), Index) => return true,
                 _ => {}
             }
         }
@@ -171,38 +172,21 @@ fn fuse_once(code: &mut Vec<Instruction>, stats: &mut Stats) -> bool {
     // Recurse into nested non-capturing functions using copy-on-write:
     // scan for patterns first; only clone and fuse when beneficial.
     for ins in code.iter_mut() {
-        if let LoadConst(Value::CompiledFunction { instructions, .. }) = ins
-            && has_fusable_patterns(instructions)
+        if let LoadConst(Value::CompiledFunction(f)) = ins
+            && has_fusable_patterns(&f.instructions)
         {
-            let mut nested = instructions.to_vec();
+            let mut nested = f.instructions.to_vec();
             if fuse_once(&mut nested, stats) {
-                *ins = LoadConst(Value::CompiledFunction {
-                    params: match ins {
-                        LoadConst(Value::CompiledFunction { params, .. }) => params.clone(),
-                        _ => None,
+                *ins = LoadConst(Value::CompiledFunction(std::sync::Arc::new(
+                    crate::value::FunctionData {
+                        params: f.params.clone(),
+                        locals: f.locals,
+                        instructions: std::sync::Arc::<[Instruction]>::from(nested),
+                        dbg_chunk: f.dbg_chunk,
+                        dbg_stmt_spans: f.dbg_stmt_spans.clone(),
+                        dbg_local_names: f.dbg_local_names.clone(),
                     },
-                    locals: match ins {
-                        LoadConst(Value::CompiledFunction { locals, .. }) => *locals,
-                        _ => 0,
-                    },
-                    instructions: std::sync::Arc::<[Instruction]>::from(nested),
-                    dbg_chunk: match ins {
-                        LoadConst(Value::CompiledFunction { dbg_chunk, .. }) => *dbg_chunk,
-                        _ => None,
-                    },
-                    dbg_stmt_spans: match ins {
-                        LoadConst(Value::CompiledFunction { dbg_stmt_spans, .. }) => {
-                            dbg_stmt_spans.clone()
-                        }
-                        _ => None,
-                    },
-                    dbg_local_names: match ins {
-                        LoadConst(Value::CompiledFunction {
-                            dbg_local_names, ..
-                        }) => dbg_local_names.clone(),
-                        _ => None,
-                    },
-                });
+                )));
                 changed_any = true;
             }
         }
@@ -220,6 +204,14 @@ fn fuse_once(code: &mut Vec<Instruction>, stats: &mut Stats) -> bool {
         // Early: eliminate StoreKeep; Pop and IndexAssign*; Pop
         if i + 1 < n {
             match (&old[i], &old[i + 1]) {
+                // Purge LoadConst(IntList([])); Pop
+                (LoadConst(Value::IntList(items)), Pop) if items.is_empty() => {
+                    keep[i] = false;
+                    keep[i + 1] = false;
+                    changed_any = true;
+                    i += 2;
+                    continue;
+                }
                 (StoreLocalKeep(slot), Pop) => {
                     out.push(StoreLocal(*slot));
                     origin.push(i);
@@ -250,8 +242,8 @@ fn fuse_once(code: &mut Vec<Instruction>, stats: &mut Stats) -> bool {
                     i += 2;
                     continue;
                 }
-                (IndexAssign, Pop) => {
-                    out.push(IndexAssignDrop);
+                (IndexAssignVar(name), Pop) => {
+                    out.push(IndexAssignVarDrop(name.clone()));
                     origin.push(i);
                     keep[i] = true;
                     keep[i + 1] = false;

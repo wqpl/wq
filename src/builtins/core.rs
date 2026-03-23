@@ -336,7 +336,7 @@ mod tests {
         let value = into_wq_str(big.to_string());
         let result = int(&mut vm, &[value]).unwrap();
         match result {
-            Value::BigInt(n) => assert_eq!(n, big),
+            Value::BigInt(n) => assert_eq!(*n, big),
             other => panic!("expected bigint result, got {other:?}"),
         }
     }

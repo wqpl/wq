@@ -168,7 +168,7 @@ impl Value {
                     path.pop();
                     out.insert(k.clone(), vv);
                 }
-                Ok(Value::Dict(out))
+                Ok(Value::Dict(Box::new(out)))
             }
             _ => f(self).bc_at_path(path),
         }
@@ -247,7 +247,7 @@ impl Value {
                         path.pop();
                         out.insert(k.clone(), vv);
                     }
-                    Ok(Value::Dict(out))
+                    Ok(Value::Dict(Box::new(out)))
                 }
                 _ => op(self, other).bc_at_path(path),
             };
@@ -285,7 +285,7 @@ impl Value {
                         path.pop();
                         out.insert(k.clone(), vv);
                     }
-                    Ok(Value::Dict(out))
+                    Ok(Value::Dict(Box::new(out)))
                 }
                 _ => op(self, other).bc_at_path(path),
             };
@@ -365,7 +365,7 @@ impl Value {
                     path.pop();
                     out.insert(kx.clone(), v);
                 }
-                Ok(Value::Dict(out))
+                Ok(Value::Dict(Box::new(out)))
             }
             (Value::Dict(dx), Value::List(ys)) => {
                 if dx.len() != ys.len() {
@@ -377,7 +377,7 @@ impl Value {
                     out.insert(k.clone(), xv.bc2_until_with_path(yv, is_leaf, op, path)?);
                     path.pop();
                 }
-                Ok(Value::Dict(out))
+                Ok(Value::Dict(Box::new(out)))
             }
             (Value::List(xs), Value::Dict(dy)) => {
                 if xs.len() != dy.len() {
@@ -389,7 +389,7 @@ impl Value {
                     out.insert(k.clone(), xv.bc2_until_with_path(yv, is_leaf, op, path)?);
                     path.pop();
                 }
-                Ok(Value::Dict(out))
+                Ok(Value::Dict(Box::new(out)))
             }
             (Value::Dict(dx), Value::IntList(ys)) => {
                 if dx.len() != ys.len() {
@@ -402,7 +402,7 @@ impl Value {
                     out.insert(k.clone(), xv.bc2_until_with_path(&rhs, is_leaf, op, path)?);
                     path.pop();
                 }
-                Ok(Value::Dict(out))
+                Ok(Value::Dict(Box::new(out)))
             }
             (Value::IntList(xs), Value::Dict(dy)) => {
                 if xs.len() != dy.len() {
@@ -415,7 +415,7 @@ impl Value {
                     out.insert(k.clone(), lhs.bc2_until_with_path(yv, is_leaf, op, path)?);
                     path.pop();
                 }
-                Ok(Value::Dict(out))
+                Ok(Value::Dict(Box::new(out)))
             }
             (Value::Dict(dx), y) => {
                 let mut out = IndexMap::with_capacity(dx.len());
@@ -424,7 +424,7 @@ impl Value {
                     out.insert(k.clone(), xv.bc2_until_with_path(y, is_leaf, op, path)?);
                     path.pop();
                 }
-                Ok(Value::Dict(out))
+                Ok(Value::Dict(Box::new(out)))
             }
             (x, Value::Dict(dy)) => {
                 let mut out = IndexMap::with_capacity(dy.len());
@@ -433,7 +433,7 @@ impl Value {
                     out.insert(k.clone(), x.bc2_until_with_path(yv, is_leaf, op, path)?);
                     path.pop();
                 }
-                Ok(Value::Dict(out))
+                Ok(Value::Dict(Box::new(out)))
             }
             _ => op(self, other).bc_at_path(path),
         }

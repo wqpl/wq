@@ -149,7 +149,7 @@ where
             "-w" | "--wqdb" => {
                 runtime.wqdb = true;
             }
-            "--builtins" => {
+            "-b" | "--builtins" => {
                 if let Some(preset) = it.next() {
                     runtime.builtins = Some(preset.to_string_lossy().into_owned());
                 } else {
@@ -168,7 +168,7 @@ where
             "--olw" => {
                 fmt_opts.olw = true;
             }
-            "--interp" | "--interpreter" => {
+            "-i" | "--interpreter" => {
                 if let Some(val) = it.peek().and_then(|p| p.to_str())
                     && !val.starts_with('-')
                 {
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn interpreter_flag_parses() {
-        let p = ok(parse_args(v(&["--interp", "sample", "a.wq"])));
+        let p = ok(parse_args(v(&["-i", "sample", "a.wq"])));
         assert_eq!(p.runtime.interpreter.as_deref(), Some("sample"));
     }
 

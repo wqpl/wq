@@ -39,10 +39,10 @@ fn invalid_unicode(v: &Value) -> WqError {
 impl Value {
     pub fn neg(&self) -> BcResult<Value> {
         self.bc1(|v| match v {
-            Value::BigInt(n) => Ok(Value::BigInt(-n.clone())),
+            Value::BigInt(n) => Ok(Value::BigInt(Box::new(-&**n))),
             Value::Int(n) => Ok(match n.checked_neg() {
                 Some(v) => Value::Int(v),
-                None => Value::BigInt(-BigInt::from(*n)),
+                None => Value::BigInt(Box::new(-BigInt::from(*n))),
             }),
             Value::Float(f) => Ok(Value::Float(-f)),
             _ => Err(expected_numeric1(v)),
@@ -51,9 +51,9 @@ impl Value {
 
     pub fn add(&self, other: &Value) -> BcResult<Value> {
         self.bc2(other, |a, b| match (a, b) {
-            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(x + y)),
-            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(x + BigInt::from(*y))),
-            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) + y)),
+            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x + &**y)),
+            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(&**x + BigInt::from(*y))),
+            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) + &**y)),
             (Value::Int(x), Value::Int(y)) => Ok(match x.checked_add(*y) {
                 Some(sum) => Value::Int(sum),
                 None => Value::from_bigint(BigInt::from(*x) + BigInt::from(*y)),
@@ -75,9 +75,9 @@ impl Value {
 
     pub fn subtract(&self, other: &Value) -> BcResult<Value> {
         self.bc2(other, |a, b| match (a, b) {
-            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(x - y)),
-            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(x - BigInt::from(*y))),
-            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) - y)),
+            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x - &**y)),
+            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(&**x - BigInt::from(*y))),
+            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) - &**y)),
             (Value::Int(x), Value::Int(y)) => Ok(match x.checked_sub(*y) {
                 Some(diff) => Value::Int(diff),
                 None => Value::from_bigint(BigInt::from(*x) - BigInt::from(*y)),
@@ -99,9 +99,9 @@ impl Value {
 
     pub fn multiply(&self, other: &Value) -> BcResult<Value> {
         self.bc2(other, |a, b| match (a, b) {
-            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(x * y)),
-            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(x * BigInt::from(*y))),
-            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) * y)),
+            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x * &**y)),
+            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(&**x * BigInt::from(*y))),
+            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) * &**y)),
             (Value::Int(x), Value::Int(y)) => Ok(match x.checked_mul(*y) {
                 Some(prod) => Value::Int(prod),
                 None => Value::from_bigint(BigInt::from(*x) * BigInt::from(*y)),
@@ -189,9 +189,9 @@ impl Value {
             (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x % y)),
             (Value::Int(x), Value::Float(y)) => Ok(Value::Float(*x as f64 % y)),
             (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x % *y as f64)),
-            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(x % y)),
-            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(x % BigInt::from(*y))),
-            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) % y)),
+            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x % &**y)),
+            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(&**x % BigInt::from(*y))),
+            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) % &**y)),
             (Value::BigInt(x), Value::Float(y)) => x
                 .to_f64()
                 .map(|xf| Value::Float(xf % *y))
@@ -294,10 +294,10 @@ impl Value {
                     let theta = PI * *exp;
                     let re = a_mag * theta.cos();
                     let im = a_mag * theta.sin();
-                    Ok(Value::Dict(indexmap! {
+                    Ok(Value::Dict(Box::new(indexmap! {
                         "re".into() => Value::Float(re),
                         "im".into() => Value::Float(im)
-                    }))
+                    })))
                 } else {
                     Ok(Value::Float(r))
                 }
@@ -329,10 +329,10 @@ impl Value {
                     let theta = PI * *y;
                     let re = mag * theta.cos();
                     let im = mag * theta.sin();
-                    Ok(Value::Dict(indexmap! {
+                    Ok(Value::Dict(Box::new(indexmap! {
                         "re".into() => Value::Float(re),
                         "im".into() => Value::Float(im)
-                    }))
+                    })))
                 } else {
                     Ok(Value::Float(r))
                 }
@@ -348,10 +348,10 @@ impl Value {
                     let theta = PI * *y;
                     let re = mag * theta.cos();
                     let im = mag * theta.sin();
-                    Ok(Value::Dict(indexmap! {
+                    Ok(Value::Dict(Box::new(indexmap! {
                         "re".into() => Value::Float(re),
                         "im".into() => Value::Float(im)
-                    }))
+                    })))
                 } else {
                     Ok(Value::Float(r))
                 }
@@ -368,9 +368,9 @@ impl Value {
     pub fn band(&self, other: &Value) -> BcResult<Value> {
         self.bc2(other, |a, b| match (a, b) {
             (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x & y)),
-            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(x & y)),
-            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(x & BigInt::from(*y))),
-            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) & y)),
+            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x & &**y)),
+            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(&**x & BigInt::from(*y))),
+            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) & &**y)),
             _ => Err(expected_integer2(a, b)),
         })
     }
@@ -378,9 +378,9 @@ impl Value {
     pub fn bor(&self, other: &Value) -> BcResult<Value> {
         self.bc2(other, |a, b| match (a, b) {
             (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x | y)),
-            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(x | y)),
-            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(x | BigInt::from(*y))),
-            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) | y)),
+            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x | &**y)),
+            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(&**x | BigInt::from(*y))),
+            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) | &**y)),
             _ => Err(expected_integer2(a, b)),
         })
     }
@@ -388,9 +388,9 @@ impl Value {
     pub fn bxor(&self, other: &Value) -> BcResult<Value> {
         self.bc2(other, |a, b| match (a, b) {
             (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x ^ y)),
-            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(x ^ y)),
-            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(x ^ BigInt::from(*y))),
-            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) ^ y)),
+            (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x ^ &**y)),
+            (Value::BigInt(x), Value::Int(y)) => Ok(Value::from_bigint(&**x ^ BigInt::from(*y))),
+            (Value::Int(x), Value::BigInt(y)) => Ok(Value::from_bigint(BigInt::from(*x) ^ &**y)),
             _ => Err(expected_integer2(a, b)),
         })
     }
@@ -398,7 +398,7 @@ impl Value {
     pub fn bnot(&self) -> BcResult<Value> {
         self.bc1(|v| match v {
             Value::Int(x) => Ok(Value::Int(!x)),
-            Value::BigInt(x) => Ok(Value::from_bigint(!x)),
+            Value::BigInt(x) => Ok(Value::from_bigint(!&**x)),
             _ => Err(expected_integer1(v)),
         })
     }
@@ -409,7 +409,7 @@ impl Value {
         self.bc2(other, |a, b| match (a, b) {
             (Value::Int(x), Value::Int(s)) if *s >= 0 => Ok(Value::Int(x.wrapping_shl(*s as u32))),
             (Value::BigInt(x), Value::Int(s)) if *s >= 0 => {
-                Ok(Value::from_bigint(x << (*s as u32)))
+                Ok(Value::from_bigint(&**x << (*s as u32)))
             }
             (Value::Int(x), Value::BigInt(s)) => {
                 let shift = s.to_u32().ok_or_else(|| invalid_shift(b))?;
@@ -417,7 +417,7 @@ impl Value {
             }
             (Value::BigInt(x), Value::BigInt(s)) => {
                 let shift = s.to_u32().ok_or_else(|| invalid_shift(b))?;
-                Ok(Value::from_bigint(x << shift))
+                Ok(Value::from_bigint(&**x << shift))
             }
             _ => Err(expected_integer2(a, b)),
         })
@@ -427,7 +427,7 @@ impl Value {
         self.bc2(other, |a, b| match (a, b) {
             (Value::Int(x), Value::Int(s)) if *s >= 0 => Ok(Value::Int(x.wrapping_shr(*s as u32))),
             (Value::BigInt(x), Value::Int(s)) if *s >= 0 => {
-                Ok(Value::from_bigint(x >> (*s as u32)))
+                Ok(Value::from_bigint(&**x >> (*s as u32)))
             }
             (Value::Int(x), Value::BigInt(s)) => {
                 let shift = s.to_u32().ok_or_else(|| invalid_shift(b))?;
@@ -435,7 +435,7 @@ impl Value {
             }
             (Value::BigInt(x), Value::BigInt(s)) => {
                 let shift = s.to_u32().ok_or_else(|| invalid_shift(b))?;
-                Ok(Value::from_bigint(x >> shift))
+                Ok(Value::from_bigint(&**x >> shift))
             }
             _ => Err(expected_integer2(a, b)),
         })
@@ -604,7 +604,7 @@ mod tests {
         match result {
             Value::BigInt(ref n) => {
                 let expected = BigInt::from(i64::MAX) + BigInt::from(1);
-                assert_eq!(*n, expected);
+                assert_eq!(&**n, &expected);
             }
             other => panic!("expected bigint result, got {other:?}"),
         }

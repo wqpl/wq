@@ -235,12 +235,37 @@ impl Resolver {
         match object {
             AstNode::List(_) | AstNode::Dict(_) => true,
             AstNode::Variable(name) => self.known_indexables.contains(name),
+            AstNode::Call { name, .. } => Self::returns_atom_or_list(name),
             _ => false,
         }
     }
 
     fn is_indexable_ast(&self, node: &AstNode) -> bool {
-        matches!(node, AstNode::List(_) | AstNode::Dict(_))
+        match node {
+            AstNode::List(_) | AstNode::Dict(_) => true,
+            AstNode::Call { name, .. } => Self::returns_atom_or_list(name),
+            _ => false,
+        }
+    }
+
+    fn returns_atom_or_list(name: &str) -> bool {
+        matches!(
+            name,
+            "keys"
+                | "map"
+                | "zipw"
+                | "filter"
+                | "flatten"
+                | "reverse"
+                | "sort"
+                | "alloc"
+                | "till"
+                | "iota"
+                | "reshape"
+                | "where"
+                | "words"
+                | "freadtln"
+        )
     }
 
     fn should_call(&self, object: &AstNode) -> bool {

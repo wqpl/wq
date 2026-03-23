@@ -12,16 +12,18 @@ Options
   -v, --version       show wq version
 
 2. Runtime
-  -d, --debug [<f/a>] config debug flags, def=inst
-  -w, --wqdb          exec with wqdb
   -p, --print         print final evaluation result
+  -d, --debug [<f/a>] config debug flags, def=inst
+  -i, --interpreter <name>     specify interpreter
+  -b, --builtins <name> specify builtins preset
+  -w, --wqdb          exec with wqdb
   --no-bt             disable backtrace
-  --interp <name>     specify interpreter (name=default,sample)
-  --builtins <preset> specify builtins preset
 
   debug flags         token ast inst wqdb-1 wqdb-2
   debug aliases       0=off 1=inst 2=inst,ast 3=inst,ast,token
                       4=inst,ast,token,wqdb-1,wqdb-2
+  interpreters        [d]efault, [p]rofiler, [s]ample
+  builtins            [a]ll, [c]onstrained, [p]ure, [m]inimal
 
 3. fmt
     --nlcd           Newline after closing delimiters
@@ -34,3 +36,5 @@ Examples
   wq /path/to/script.wq
 2. Run code & dump instructions & print final evaluation:
   wq exec "echo(1+1)" -d1 -p
+3. Ditto + dump AST + profiler
+  wq exec "echo(1+1)" -i p -d2 -p

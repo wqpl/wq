@@ -13,14 +13,14 @@ pub fn show_table(_vm: &mut Vm, args: &[Value]) -> WqResult<Value> {
     let val = &args[0];
     if let Value::Dict(map) = val {
         let mut wrapped: IndexMap<String, Value> = IndexMap::new();
-        for (k, v) in map {
+        for (k, v) in map.iter() {
             if matches!(v, Value::List(_) | Value::IntList(_)) {
                 wrapped.insert(k.clone(), v.clone());
             } else {
                 wrapped.insert(k.clone(), Value::List(vec![v.clone()]));
             }
         }
-        let wrapped_val = Value::Dict(wrapped);
+        let wrapped_val = Value::Dict(Box::new(wrapped));
         if let Some((headers, rows)) = parse_dict_of_lists(&wrapped_val) {
             print_table(&headers, &rows);
             return Ok(Value::unit());

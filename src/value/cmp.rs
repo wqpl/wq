@@ -12,14 +12,14 @@ use num_traits::ToPrimitive;
 pub fn cmp_atom(a: &Value, b: &Value) -> Option<Ordering> {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => Some(x.cmp(y)),
-        (Value::BigInt(x), Value::BigInt(y)) => Some(x.cmp(y)),
+        (Value::BigInt(x), Value::BigInt(y)) => Some((**x).cmp(&**y)),
         (Value::BigInt(x), Value::Int(y)) => {
             let rhs = BigInt::from(*y);
-            Some(x.cmp(&rhs))
+            Some((**x).cmp(&rhs))
         }
         (Value::Int(x), Value::BigInt(y)) => {
             let lhs = BigInt::from(*x);
-            Some(lhs.cmp(y))
+            Some(lhs.cmp(&**y))
         }
         (Value::Float(x), Value::Float(y)) => x.partial_cmp(y),
         (Value::Int(x), Value::Float(y)) => (*x as f64).partial_cmp(y),

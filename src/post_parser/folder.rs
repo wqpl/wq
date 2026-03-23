@@ -151,7 +151,7 @@ pub fn fold(node: AstNode) -> AstNode {
                         map.insert(k, val);
                     }
                 }
-                Literal(Value::Dict(map))
+                Literal(Value::Dict(Box::new(map)))
             } else {
                 Dict(pairs)
             }

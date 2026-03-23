@@ -1,5 +1,5 @@
 mod cmpchain;
-pub mod fastpath;
+mod fastpath;
 
 use std::{
     borrow::Cow,
@@ -34,13 +34,41 @@ use indexmap::IndexMap;
 
 pub struct DefaultInterpreter;
 
+pub(crate) trait ProfilerHooks {
+    fn before_instruction(&mut self, _vm: &Vm, _idx: usize, _op: &Instruction) {}
+
+    fn on_load_var_cache_hit(&mut self, _slot_cached: bool) {}
+
+    fn on_load_var_cache_miss(&mut self) {}
+
+    fn on_call_user_cache_hit(&mut self) {}
+
+    fn on_call_user_cache_miss(&mut self) {}
+
+    fn on_list_alloc(&mut self, _len: usize) {}
+
+    fn on_dict_alloc(&mut self, _len: usize) {}
+
+    fn on_range_alloc(&mut self, _len: usize) {}
+
+    fn on_closure_capture_alloc(&mut self, _len: usize) {}
+
+    fn on_return(&mut self, _vm: &Vm) {}
+}
+
+#[derive(Default)]
+pub(crate) struct NoopProfilerHooks;
+
+impl ProfilerHooks for NoopProfilerHooks {}
+
 impl Interpreter for DefaultInterpreter {
     fn execute(&mut self, vm: &mut Vm, limit: usize) -> WqResult<Value> {
         if limit > vm.instructions.len() {
             return Err(vm_err(format!("limit out of bounds: {limit}")));
         }
+        let mut hooks = NoopProfilerHooks;
         while vm.pc < limit {
-            if !self.execute_one(vm, limit)? {
+            if !self.execute_one_with_hooks(vm, limit, &mut hooks)? {
                 break;
             }
         }
@@ -49,7 +77,17 @@ impl Interpreter for DefaultInterpreter {
 }
 
 impl DefaultInterpreter {
-    pub(crate) fn execute_one(&mut self, vm: &mut Vm, limit: usize) -> WqResult<bool> {
+    // pub(crate) fn execute_one(&mut self, vm: &mut Vm, limit: usize) -> WqResult<bool> {
+    //     let mut hooks = NoopProfilerHooks;
+    //     self.execute_one_with_hooks(vm, limit, &mut hooks)
+    // }
+
+    pub(crate) fn execute_one_with_hooks<H: ProfilerHooks>(
+        &mut self,
+        vm: &mut Vm,
+        limit: usize,
+        hooks: &mut H,
+    ) -> WqResult<bool> {
         if vm.pc >= limit {
             return Ok(false);
         }
@@ -70,41 +108,30 @@ impl DefaultInterpreter {
         }
         let idx = vm.pc;
         vm.pc += 1;
-        let op = &vm.instructions[idx];
-        // let op = unsafe { vm.instructions.get_unchecked(idx) };
+        // Decouple lifetime to avoid borrowing vm during instruction execution
+        let op_ptr = &vm.instructions[idx] as *const Instruction;
+        let op = unsafe { &*op_ptr };
+        hooks.before_instruction(vm, idx, op);
         match op {
             Instruction::LoadConst(v) => vm.stack.push(v.clone()),
             Instruction::LoadVar(name) => {
-                let use_cache = !vm.is_internal_ephemeral(name);
-                if use_cache {
-                    let cache = &vm.inline_cache[idx];
-                    if let Some(slot) = cache.slot {
-                        if cache.version == vm.global_slot_version(slot)
-                            && let Some(val) = vm.global_slot_value(slot)
-                        {
-                            vm.stack.push(val.clone());
-                            return Ok(true);
-                        }
-                    } else if cache.version == u64::MAX
-                        && let Some(v) = cache.value.as_ref()
-                    {
-                        vm.stack.push(v.clone());
-                        return Ok(true);
-                    }
+                let cache = &vm.inline_cache[idx];
+                if let Some(slot) = cache.slot
+                    && let Some(val) = vm.global_slot_value(slot)
+                {
+                    vm.stack.push(val.clone());
+                    hooks.on_load_var_cache_hit(true);
+                    return Ok(true);
                 }
 
+                hooks.on_load_var_cache_miss();
                 if let Some(slot) = vm.lookup_global_slot(name) {
                     let val = vm
                         .global_slot_value(slot)
                         .ok_or_else(|| vm_err("invalid global slot"))?
                         .clone();
-                    let ver = vm.global_slot_version(slot);
-                    if use_cache {
-                        let cache = &mut vm.inline_cache[idx];
-                        cache.version = ver;
-                        cache.value = None;
-                        cache.slot = Some(slot);
-                    }
+                    let cache = &mut vm.inline_cache[idx];
+                    cache.slot = Some(slot);
                     vm.stack.push(val);
                     return Ok(true);
                 }
@@ -128,26 +155,24 @@ impl DefaultInterpreter {
                 )));
             }
             Instruction::StoreVar(name) => {
-                let name = name.clone();
                 let val = pop1_stack(&mut vm.stack, || {
                     Cow::Owned(format!("store into variable '{name}'"))
                 })?;
                 if let Some(slot) = vm.inline_cache[idx].slot {
-                    vm.assign_global_at_slot(&name, slot, val);
+                    vm.assign_global_at_slot(name, slot, val);
                 } else {
-                    let slot = vm.assign_global_and_slot(&name, val);
+                    let slot = vm.assign_global_and_slot(name, val);
                     vm.inline_cache[idx].slot = Some(slot);
                 }
             }
             Instruction::StoreVarKeep(name) => {
-                let name = name.clone();
                 let val = last_clone_stack(&vm.stack, || {
                     Cow::Owned(format!("store into variable '{name}'"))
                 })?;
                 if let Some(slot) = vm.inline_cache[idx].slot {
-                    vm.assign_global_at_slot(&name, slot, val);
+                    vm.assign_global_at_slot(name, slot, val);
                 } else {
-                    let slot = vm.assign_global_and_slot(&name, val);
+                    let slot = vm.assign_global_and_slot(name, val);
                     vm.inline_cache[idx].slot = Some(slot);
                 }
             }
@@ -196,7 +221,10 @@ impl DefaultInterpreter {
             Instruction::Pop => {
                 vm.stack.pop();
             }
-            Instruction::Return => return Ok(false),
+            Instruction::Return => {
+                hooks.on_return(vm);
+                return Ok(false);
+            }
 
             Instruction::BinaryOp(op) => {
                 let op = *op;
@@ -210,20 +238,15 @@ impl DefaultInterpreter {
                 vm.stack.push(result);
             }
             Instruction::CmpChain(ops) => {
-                let ops = ops.as_slice();
+                let ops = ops.as_ref();
                 let need = ops.len() + 1;
                 ensure_stack_len(&vm.stack, need, || {
                     Cow::Owned(format!("comparison chain of length {}", ops.len()))
                 })?;
-                let mut values = Vec::with_capacity(need);
-                for _ in 0..need {
-                    // ensure_stack_len guarantees pop succeeds
-                    if let Some(v) = vm.stack.pop() {
-                        values.push(v);
-                    }
-                }
-                values.reverse();
-                let result = eval_cmp_chain(ops, &values)?;
+                let base = vm.stack.len() - need;
+
+                let result = eval_cmp_chain(ops, &vm.stack[base..])?;
+                vm.stack.truncate(base);
                 vm.stack.push(result);
             }
             Instruction::UnaryOp(op) => {
@@ -254,27 +277,33 @@ impl DefaultInterpreter {
                 let base = vm.stack.len() - count;
                 let mut items = Vec::with_capacity(count);
                 items.extend(vm.stack.drain(base..));
+                hooks.on_list_alloc(count);
                 vm.stack.push(Value::from_items(items));
             }
             Instruction::MakeDict(n) => {
                 let count = *n;
-                let mut pairs = Vec::with_capacity(count);
+                ensure_stack_len(&vm.stack, count * 2, || {
+                    Cow::Borrowed("dict key-value pairs")
+                })?;
+                let base = vm.stack.len() - count * 2;
+                let mut map = IndexMap::with_capacity(count);
+                let mut iter = vm.stack.drain(base..);
+
                 for _ in 0..count {
-                    let val = pop1_stack(&mut vm.stack, || Cow::Borrowed("dict value"))?;
-                    let key = match pop1_stack(&mut vm.stack, || Cow::Borrowed("dict key"))? {
-                        Value::Symbol(k) => k,
+                    let key = iter.next().unwrap();
+                    let val = iter.next().unwrap();
+                    match key {
+                        Value::Symbol(k) => {
+                            map.insert(k, val);
+                        }
                         other => {
                             return Err(vm_err("invalid dict key, expected symbol").got1(&other));
                         }
-                    };
-                    pairs.push((key, val));
+                    }
                 }
-                let mut map = IndexMap::with_capacity(count);
-                while let Some((k, v)) = pairs.pop() {
-                    // reverse the pop order
-                    map.insert(k, v);
-                }
-                vm.stack.push(Value::Dict(map));
+                drop(iter); // explicitly finish drain
+                hooks.on_dict_alloc(count);
+                vm.stack.push(Value::Dict(Box::new(map)));
             }
             Instruction::MakeRange {
                 inclusive,
@@ -291,6 +320,7 @@ impl DefaultInterpreter {
                 let start_val = pop1_stack(&mut vm.stack, || Cow::Borrowed("range start"))?;
                 let res = make_range(&start_val, &end_val, step_val.as_ref(), inclusive)
                     .map_err(|e| e.src("vm"))?;
+                hooks.on_range_alloc(range_alloc_len(&res));
                 vm.stack.push(res);
             }
 
@@ -338,10 +368,19 @@ impl DefaultInterpreter {
                                         vm.locals.get_mut(fi).and_then(|f| f.get_mut(slot_usize))
                                 {
                                     slot_ref.with_mut(|value| {
-                                        if let Value::CompiledFunction { dbg_chunk, .. }
-                                        | Value::Closure { dbg_chunk, .. } = value
+                                        if let Value::CompiledFunction(f) = value {
+                                            if f.dbg_chunk != dbg_new {
+                                                let mut new_f =
+                                                    crate::value::FunctionData::clone(f);
+                                                new_f.dbg_chunk = dbg_new;
+                                                *value = Value::CompiledFunction(Arc::new(new_f));
+                                            }
+                                        } else if let Value::Closure(c) = value
+                                            && c.dbg_chunk != dbg_new
                                         {
-                                            *dbg_chunk = dbg_new;
+                                            let mut new_c = crate::value::ClosureData::clone(c);
+                                            new_c.dbg_chunk = dbg_new;
+                                            *value = Value::Closure(Arc::new(new_c));
                                         }
                                     });
                                 }
@@ -395,9 +434,8 @@ impl DefaultInterpreter {
             }
             Instruction::CallUser(name, argc) => {
                 let argc = *argc;
-                let name = name.clone();
                 ensure_stack_len(&vm.stack, argc, || Cow::Owned(format!("fn '{name}' args")))?;
-                if let Some(slot) = vm.lookup_global_slot(&name) {
+                if let Some(slot) = vm.lookup_global_slot(name) {
                     let name_version = vm.global_slot_version(slot);
                     if vm.inline_cache[idx].version == name_version
                         && let Some(ref target) = vm.inline_cache[idx].call_target
@@ -424,6 +462,7 @@ impl DefaultInterpreter {
                                     self,
                                 )?;
                                 vm.stack.push(res);
+                                hooks.on_call_user_cache_hit();
                                 return Ok(true);
                             }
                             CallTarget::Closure(ResolvedClosure {
@@ -453,7 +492,8 @@ impl DefaultInterpreter {
                         }
                     }
                 }
-                let func = vm.resolve_user_callable(idx, &name)?;
+                hooks.on_call_user_cache_miss();
+                let func = vm.resolve_user_callable(idx, name)?;
                 if let Value::BuiltinFunction(bname) = &func {
                     let out = vm.builtin_from_stack_by_name(bname, argc)?;
                     vm.stack.push(out);
@@ -479,6 +519,166 @@ impl DefaultInterpreter {
                     .ok_or_else(|| vm_err("stack underflow while retrieving callable"))?;
                 let res = vm.call_value_with_args(&func, args)?;
                 vm.stack.push(res);
+            }
+            Instruction::CallOrIndexLocal(slot, argc) => {
+                let argc = *argc;
+                let slot_usize = *slot as usize;
+                ensure_stack_len(&vm.stack, argc, || Cow::Borrowed("args"))?;
+                let len = vm.stack.len();
+                let base = len - argc;
+
+                let is_call = {
+                    let frame = vm.locals.last().ok_or_else(|| vm_err("no local frame"))?;
+                    let slot_ref = frame
+                        .get(slot_usize)
+                        .ok_or_else(|| vm_err(format!("invalid local slot {slot_usize}")))?;
+                    slot_ref.with_ref(Value::is_callable)
+                };
+
+                if is_call {
+                    let mut args = Vec::with_capacity(argc);
+                    args.extend(vm.stack.drain(base..));
+                    // Function calls need to take ownership or a clone for execution.
+                    let func = {
+                        let frame = vm.locals.last().unwrap();
+                        frame.get(slot_usize).unwrap().read()
+                    };
+                    let res = vm.call_value_with_args(&func, args)?;
+                    vm.stack.push(res);
+                } else {
+                    let mut args = Vec::with_capacity(argc);
+                    args.extend(vm.stack.drain(base..));
+                    let idx_val = if args.len() == 1 {
+                        args.pop().unwrap()
+                    } else {
+                        Value::from_items(args)
+                    };
+
+                    let res = {
+                        let frame = vm.locals.last().unwrap();
+                        let slot_ref = frame.get(slot_usize).unwrap();
+                        slot_ref.with_ref(|obj| obj.index(&idx_val))
+                    };
+
+                    match res {
+                        Some(v) => vm.stack.push(v),
+                        None => {
+                            let obj_excerpt = {
+                                let frame = vm.locals.last().unwrap();
+                                let slot_ref = frame.get(slot_usize).unwrap();
+                                slot_ref.with_ref(|obj| obj.excerpt())
+                            };
+                            return Err(index_err("invalid index")
+                                .attach_note(format!("index: '{}'", idx_val.excerpt()))
+                                .attach_note(format!("target: '{}'", obj_excerpt)));
+                        }
+                    }
+                }
+            }
+            Instruction::CallOrIndexVar(name, argc) => {
+                let argc = *argc;
+                ensure_stack_len(&vm.stack, argc, || Cow::Borrowed("args"))?;
+
+                let mut slot_opt = vm.inline_cache[idx].slot;
+                if slot_opt.is_none()
+                    && let Some(slot) = vm.lookup_global_slot(name)
+                {
+                    vm.inline_cache[idx].slot = Some(slot);
+                    slot_opt = Some(slot);
+                }
+
+                let global_val_opt = if let Some(slot) = slot_opt {
+                    vm.global_slot_value(slot).cloned()
+                } else {
+                    vm.lookup_global(name)
+                };
+
+                if let Some(global_val) = global_val_opt {
+                    let is_call = Value::is_callable(&global_val);
+
+                    let len = vm.stack.len();
+                    let base = len - argc;
+                    let mut args = Vec::with_capacity(argc);
+                    args.extend(vm.stack.drain(base..));
+
+                    if is_call {
+                        let res = vm.call_value_with_args(&global_val, args)?;
+                        vm.stack.push(res);
+                    } else {
+                        let idx_val = if args.len() == 1 {
+                            args.pop().unwrap()
+                        } else {
+                            Value::from_items(args)
+                        };
+                        match global_val.index(&idx_val) {
+                            Some(v) => vm.stack.push(v),
+                            None => {
+                                let target_excerpt = global_val.excerpt();
+                                return Err(index_err("invalid index")
+                                    .attach_note(format!("index: '{}'", idx_val.excerpt()))
+                                    .attach_note(format!("target: '{}'", target_excerpt)));
+                            }
+                        }
+                    }
+                } else {
+                    if vm.builtins.has_function(name) {
+                        let res = vm.builtin_from_stack_by_name(name, argc)?;
+                        vm.stack.push(res);
+                    } else if vm.builtins.is_disabled_name(name) {
+                        return Err(not_bound_err(format!(
+                            "'{name}' has not been bound to a value"
+                        ))
+                        .attach_note(format!(
+                            "a builtin named '{name}' exists but is disabled in the current preset"
+                        )));
+                    } else {
+                        return Err(not_bound_err(format!(
+                            "'{name}' has not been bound to a value"
+                        )));
+                    }
+                }
+            }
+            Instruction::IndexLoadVar(name) => {
+                let idx_val = pop1_stack(&mut vm.stack, || Cow::Borrowed("index"))?;
+
+                let mut slot_opt = vm.inline_cache[idx].slot;
+                if slot_opt.is_none()
+                    && let Some(slot) = vm.lookup_global_slot(name)
+                {
+                    vm.inline_cache[idx].slot = Some(slot);
+                    slot_opt = Some(slot);
+                }
+
+                let global_val_opt = if let Some(slot) = slot_opt {
+                    vm.global_slot_value(slot).cloned()
+                } else {
+                    vm.lookup_global(name)
+                };
+
+                if let Some(global_val) = global_val_opt {
+                    match global_val.index(&idx_val) {
+                        Some(v) => vm.stack.push(v),
+                        None => {
+                            let target_excerpt = global_val.excerpt();
+                            return Err(index_err("invalid index")
+                                .attach_note(format!("index: '{}'", idx_val.excerpt()))
+                                .attach_note(format!("target: '{}'", target_excerpt)));
+                        }
+                    }
+                } else {
+                    if vm.builtins.is_disabled_name(name) {
+                        return Err(not_bound_err(format!(
+                            "'{name}' has not been bound to a value"
+                        ))
+                        .attach_note(format!(
+                            "a builtin named '{name}' exists but is disabled in the current preset"
+                        )));
+                    } else {
+                        return Err(not_bound_err(format!(
+                            "'{name}' has not been bound to a value"
+                        )));
+                    }
+                }
             }
             Instruction::CallOrIndex(argc) => {
                 let argc = *argc;
@@ -531,65 +731,60 @@ impl DefaultInterpreter {
                     }
                 }
             }
-            Instruction::IndexAssign => {
-                let val = pop1_stack(&mut vm.stack, || Cow::Borrowed("index assignment value"))?;
-                let idx = pop1_stack(&mut vm.stack, || Cow::Borrowed("index for assignment"))?;
-                let obj_name = pop1_stack(&mut vm.stack, || {
-                    Cow::Borrowed("target object name for index assignment")
-                })?;
-                match obj_name {
-                    Value::Symbol(name) => {
-                        let assigned = vm
-                            .with_global_slot_mut(&name, |obj| {
-                                obj.assign_by_index(&idx, val.clone())
-                            })
-                            .ok_or_else(|| {
-                                not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!(
-                                        "when trying to assign to '{name}[{idx}]'"
-                                    ))
-                            })?;
-                        if assigned.is_some() {
-                            vm.stack.push(val);
-                        } else {
-                            return Err(index_err(format!("invalid index '{idx}'"))
-                                .attach_note(format!("when trying to assign to {name}[{idx}]")));
-                        }
-                    }
-                    other => {
-                        return Err(
-                            vm_err("invalid index assignment target, expected symbol").got1(&other)
-                        );
+            Instruction::IndexLoadLocal(slot) => {
+                let slot = *slot as usize;
+                let idx = pop1_stack(&mut vm.stack, || Cow::Borrowed("index"))?;
+
+                let res = {
+                    let frame = vm.locals.last().ok_or_else(|| vm_err("no local frame"))?;
+                    let slot_ref = frame
+                        .get(slot)
+                        .ok_or_else(|| vm_err(format!("invalid local slot {slot}")))?;
+                    slot_ref.with_ref(|obj| obj.index(&idx))
+                };
+
+                match res {
+                    Some(v) => vm.stack.push(v),
+                    None => {
+                        let obj_excerpt = {
+                            let frame = vm.locals.last().unwrap();
+                            let slot_ref = frame.get(slot).unwrap();
+                            slot_ref.with_ref(|obj| obj.excerpt())
+                        };
+                        return Err(index_err("invalid index")
+                            .attach_note(format!("index: '{}'", idx.excerpt()))
+                            .attach_note(format!("target: '{}'", obj_excerpt)));
                     }
                 }
             }
-            Instruction::IndexAssignDrop => {
+            Instruction::IndexAssignVar(name) => {
                 let val = pop1_stack(&mut vm.stack, || Cow::Borrowed("index assignment value"))?;
                 let idx = pop1_stack(&mut vm.stack, || Cow::Borrowed("index for assignment"))?;
-                let obj_name = pop1_stack(&mut vm.stack, || {
-                    Cow::Borrowed("target object name for index assignment")
-                })?;
-                match obj_name {
-                    Value::Symbol(name) => {
-                        let assigned = vm
-                            .with_global_slot_mut(&name, |obj| obj.assign_by_index(&idx, val))
-                            .ok_or_else(|| {
-                                not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!(
-                                        "when trying to assign to '{name}[{idx}]'"
-                                    ))
-                            })?;
-                        if assigned.is_none() {
-                            return Err(index_err(format!("invalid index '{idx}'"))
-                                .attach_note(format!("when trying to assign to {name}[{idx}]")));
-                        }
-                        // Drop result
-                    }
-                    other => {
-                        return Err(
-                            vm_err("invalid index assignment target, expected symbol").got1(&other)
-                        );
-                    }
+                let assigned = vm
+                    .with_global_slot_mut(name, |obj| obj.assign_by_index(&idx, val.clone()))
+                    .ok_or_else(|| {
+                        not_bound_err(format!("'{name}' has not been bound to a value"))
+                            .attach_note(format!("when trying to assign to '{name}[{idx}]'"))
+                    })?;
+                if assigned.is_some() {
+                    vm.stack.push(val);
+                } else {
+                    return Err(index_err(format!("invalid index '{idx}'"))
+                        .attach_note(format!("when trying to assign to {name}[{idx}]")));
+                }
+            }
+            Instruction::IndexAssignVarDrop(name) => {
+                let val = pop1_stack(&mut vm.stack, || Cow::Borrowed("index assignment value"))?;
+                let idx = pop1_stack(&mut vm.stack, || Cow::Borrowed("index for assignment"))?;
+                let assigned = vm
+                    .with_global_slot_mut(name, |obj| obj.assign_by_index(&idx, val))
+                    .ok_or_else(|| {
+                        not_bound_err(format!("'{name}' has not been bound to a value"))
+                            .attach_note(format!("when trying to assign to '{name}[{idx}]'"))
+                    })?;
+                if assigned.is_none() {
+                    return Err(index_err(format!("invalid index '{idx}'"))
+                        .attach_note(format!("when trying to assign to {name}[{idx}]")));
                 }
             }
             Instruction::IndexAssignLocal(slot) => {
@@ -718,13 +913,12 @@ impl DefaultInterpreter {
             }
 
             Instruction::Inc1Var(name) => {
-                let name = name.clone();
                 let one = Value::Int(1);
                 let cur = if let Some(slot) = vm.inline_cache[idx].slot {
                     vm.global_slot_value(slot)
                         .ok_or_else(|| vm_err("invalid global slot"))?
                         .clone()
-                } else if let Some(slot) = vm.lookup_global_slot(&name) {
+                } else if let Some(slot) = vm.lookup_global_slot(name) {
                     vm.inline_cache[idx].slot = Some(slot);
                     vm.global_slot_value(slot)
                         .ok_or_else(|| vm_err("invalid global slot"))?
@@ -740,17 +934,15 @@ impl DefaultInterpreter {
                     eval_binary(&BinaryOperator::Add, cur, one)?
                 };
                 if let Some(slot) = vm.inline_cache[idx].slot {
-                    vm.assign_global_at_slot(&name, slot, new_val);
+                    vm.assign_global_at_slot(name, slot, new_val);
                 } else {
-                    vm.assign_global(&name, new_val);
+                    vm.assign_global(name, new_val);
                 }
             }
 
             Instruction::Inc1VarFromVar { src, dst } => {
-                let src = src.clone();
-                let dst = dst.clone();
                 let one = Value::Int(1);
-                let cur = if let Some(slot) = vm.lookup_global_slot(&src) {
+                let cur = if let Some(slot) = vm.lookup_global_slot(src) {
                     vm.global_slot_value(slot)
                         .ok_or_else(|| vm_err("invalid global slot"))?
                         .clone()
@@ -765,23 +957,22 @@ impl DefaultInterpreter {
                     eval_binary(&BinaryOperator::Add, cur, one)?
                 };
                 if let Some(slot) = vm.inline_cache[idx].slot {
-                    vm.assign_global_at_slot(&dst, slot, new_val);
-                } else if let Some(slot) = vm.lookup_global_slot(&dst) {
+                    vm.assign_global_at_slot(dst, slot, new_val);
+                } else if let Some(slot) = vm.lookup_global_slot(dst) {
                     vm.inline_cache[idx].slot = Some(slot);
-                    vm.assign_global_at_slot(&dst, slot, new_val);
+                    vm.assign_global_at_slot(dst, slot, new_val);
                 } else {
-                    vm.assign_global(&dst, new_val);
+                    vm.assign_global(dst, new_val);
                 }
             }
 
             Instruction::Inc1VarKeep(name) => {
-                let name = name.clone();
                 let one = Value::Int(1);
                 let cur = if let Some(slot) = vm.inline_cache[idx].slot {
                     vm.global_slot_value(slot)
                         .ok_or_else(|| vm_err("invalid global slot"))?
                         .clone()
-                } else if let Some(slot) = vm.lookup_global_slot(&name) {
+                } else if let Some(slot) = vm.lookup_global_slot(name) {
                     vm.inline_cache[idx].slot = Some(slot);
                     vm.global_slot_value(slot)
                         .ok_or_else(|| vm_err("invalid global slot"))?
@@ -797,9 +988,9 @@ impl DefaultInterpreter {
                     eval_binary(&BinaryOperator::Add, cur, one)?
                 };
                 if let Some(slot) = vm.inline_cache[idx].slot {
-                    vm.assign_global_at_slot(&name, slot, new_val.clone());
+                    vm.assign_global_at_slot(name, slot, new_val.clone());
                 } else {
-                    vm.assign_global(&name, new_val.clone());
+                    vm.assign_global(name, new_val.clone());
                 }
                 vm.stack.push(new_val);
             }
@@ -873,15 +1064,9 @@ impl DefaultInterpreter {
                     .ok_or_else(|| vm_err("LoadSelf outside fn"))?;
                 vm.stack.push(me.clone());
             }
-            Instruction::LoadClosure {
-                params,
-                locals,
-                captures,
-                instructions,
-                dbg_stmt_spans,
-                dbg_local_names,
-            } => {
-                let locals = *locals;
+            Instruction::LoadClosure(payload) => {
+                let locals = payload.locals;
+                let captures = &payload.captures;
                 let mut captured_vals = Vec::with_capacity(captures.len());
                 for cap in captures {
                     match cap {
@@ -919,6 +1104,10 @@ impl DefaultInterpreter {
                 }
                 // Register a debug chunk for this closure's code (wqdb or bt mode)
                 let mut chunk_opt: Option<ChunkId> = None;
+                let instructions = &payload.instructions;
+                let dbg_stmt_spans = &payload.dbg_stmt_spans;
+                let dbg_local_names = &payload.dbg_local_names;
+                let params = &payload.params;
                 if vm.wqdb.enabled || vm.bt_mode {
                     let file_id = vm.debug_info.chunk(vm.current_chunk).file_id;
                     let id = vm.debug_info.new_chunk("<fn>", file_id, instructions.len());
@@ -946,15 +1135,17 @@ impl DefaultInterpreter {
                     }
                     chunk_opt = Some(id);
                 }
-                vm.stack.push(Value::Closure {
-                    params: params.clone(),
-                    locals,
-                    captured: captured_vals,
-                    instructions: instructions.clone(),
-                    dbg_chunk: chunk_opt,
-                    dbg_stmt_spans: Some(dbg_stmt_spans.clone()),
-                    dbg_local_names: Some(dbg_local_names.clone()),
-                });
+                hooks.on_closure_capture_alloc(captured_vals.len());
+                vm.stack
+                    .push(Value::Closure(Arc::new(crate::value::ClosureData {
+                        params: params.clone(),
+                        locals,
+                        captured: captured_vals,
+                        instructions: instructions.clone(),
+                        dbg_chunk: chunk_opt,
+                        dbg_stmt_spans: Some(dbg_stmt_spans.clone()),
+                        dbg_local_names: Some(dbg_local_names.clone()),
+                    })));
             }
         }
         Ok(true)
@@ -1001,7 +1192,29 @@ fn make_range(
     // }
 
     let mut cur = start_int;
-    let mut items: Vec<i64> = Vec::new();
+
+    let capacity = if step_int > 0 && end_int >= start_int {
+        let diff = end_int.abs_diff(start_int);
+        let steps = diff / step_int as u64;
+        let mut cap = usize::try_from(steps).unwrap_or(0);
+        if inclusive || diff % (step_int as u64) != 0 {
+            cap += 1;
+        }
+        cap
+    } else if step_int < 0 && start_int >= end_int {
+        let diff = start_int.abs_diff(end_int);
+        let steps = diff / step_int.unsigned_abs();
+        let mut cap = usize::try_from(steps).unwrap_or(0);
+        if inclusive || diff % step_int.unsigned_abs() != 0 {
+            cap += 1;
+        }
+        cap
+    } else {
+        0
+    };
+
+    let mut items: Vec<i64> = Vec::with_capacity(capacity);
+
     if step_int > 0 {
         while if inclusive {
             cur <= end_int
@@ -1026,6 +1239,15 @@ fn make_range(
         }
     }
     Ok(Value::IntList(items))
+}
+
+#[inline]
+pub(crate) fn range_alloc_len(value: &Value) -> usize {
+    match value {
+        Value::IntList(items) => items.len(),
+        Value::List(items) => items.len(),
+        _ => 0,
+    }
 }
 
 #[inline]

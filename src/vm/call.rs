@@ -92,42 +92,27 @@ pub(crate) enum PeekLocal {
 #[inline]
 pub(crate) fn peek_local_callable(slot: u16, v: &Slot) -> WqResult<PeekLocal> {
     v.with_ref(|value| match value {
-        Value::CompiledFunction {
-            params,
-            locals,
-            instructions,
-            dbg_chunk,
-            dbg_stmt_spans,
-            dbg_local_names,
-        } => Ok(PeekLocal::Func(PeekFunc {
+        Value::CompiledFunction(f) => Ok(PeekLocal::Func(PeekFunc {
             is_closure: false,
             value: value.clone(),
-            params: params.clone(),
-            locals: *locals,
-            instructions: instructions.clone(),
-            dbg_chunk: *dbg_chunk,
-            spans: dbg_stmt_spans.clone(),
-            names: dbg_local_names.clone(),
+            params: f.params.clone(),
+            locals: f.locals,
+            instructions: f.instructions.clone(),
+            dbg_chunk: f.dbg_chunk,
+            spans: f.dbg_stmt_spans.clone(),
+            names: f.dbg_local_names.clone(),
             captured: Vec::new(),
         })),
-        Value::Closure {
-            params,
-            locals,
-            captured,
-            instructions,
-            dbg_chunk,
-            dbg_stmt_spans,
-            dbg_local_names,
-        } => Ok(PeekLocal::Func(PeekFunc {
+        Value::Closure(c) => Ok(PeekLocal::Func(PeekFunc {
             is_closure: true,
             value: value.clone(),
-            params: params.clone(),
-            locals: *locals,
-            instructions: instructions.clone(),
-            dbg_chunk: *dbg_chunk,
-            spans: dbg_stmt_spans.clone(),
-            names: dbg_local_names.clone(),
-            captured: captured.clone(),
+            params: c.params.clone(),
+            locals: c.locals,
+            instructions: c.instructions.clone(),
+            dbg_chunk: c.dbg_chunk,
+            spans: c.dbg_stmt_spans.clone(),
+            names: c.dbg_local_names.clone(),
+            captured: c.captured.clone(),
         })),
         Value::BuiltinFunction(name) => Ok(PeekLocal::Builtin(name.clone())),
         other => Err(call_err(format!(
@@ -323,41 +308,28 @@ impl Vm {
         let argc = args.len();
         self.stack.append(&mut args); // moves, no clones
         match func {
-            Value::CompiledFunction {
-                params,
-                locals,
-                instructions,
-                dbg_chunk,
-                ..
-            } => self.call_function_with(
+            Value::CompiledFunction(f) => self.call_function_with(
                 CallSpec {
-                    instructions: instructions.clone(),
-                    params: params.clone(),
-                    locals: *locals,
+                    instructions: f.instructions.clone(),
+                    params: f.params.clone(),
+                    locals: f.locals,
                     captured: Vec::new(),
                     argc,
                     callee_name: None,
-                    dbg_chunk: *dbg_chunk,
+                    dbg_chunk: f.dbg_chunk,
                     callee: func.clone(),
                 },
                 interpreter,
             ),
-            Value::Closure {
-                params,
-                locals,
-                captured,
-                instructions,
-                dbg_chunk,
-                ..
-            } => self.call_function_with(
+            Value::Closure(c) => self.call_function_with(
                 CallSpec {
-                    instructions: instructions.clone(),
-                    params: params.clone(),
-                    locals: *locals,
-                    captured: captured.clone(),
+                    instructions: c.instructions.clone(),
+                    params: c.params.clone(),
+                    locals: c.locals,
+                    captured: c.captured.clone(),
                     argc,
                     callee_name: None,
-                    dbg_chunk: *dbg_chunk,
+                    dbg_chunk: c.dbg_chunk,
                     callee: func.clone(),
                 },
                 interpreter,
@@ -483,39 +455,27 @@ impl Vm {
         };
 
         Ok(match func_val {
-            Value::CompiledFunction {
-                params,
-                locals,
-                instructions,
-                dbg_chunk,
-                dbg_stmt_spans,
-                dbg_local_names,
-            } => {
+            Value::CompiledFunction(f) => {
                 let dbg_chunk = self.ensure_dbg_chunk_with_spans(
                     name,
-                    dbg_chunk,
-                    instructions.as_ref(),
-                    &dbg_stmt_spans,
-                    &dbg_local_names,
-                    &params,
+                    f.dbg_chunk,
+                    f.instructions.as_ref(),
+                    &f.dbg_stmt_spans,
+                    &f.dbg_local_names,
+                    &f.params,
                 );
-                let value = Value::CompiledFunction {
-                    params: params.clone(),
-                    locals,
-                    instructions: instructions.clone(),
-                    dbg_chunk,
-                    dbg_stmt_spans,
-                    dbg_local_names,
-                };
+                let mut new_f = crate::value::FunctionData::clone(&f);
+                new_f.dbg_chunk = dbg_chunk;
+                let value = Value::CompiledFunction(std::sync::Arc::new(new_f));
                 if let Some(slot) = slot {
                     let name_version = self.global_slot_version(slot);
                     self.cache_compiled(
                         idx,
                         ResolvedCfn {
                             value: value.clone(),
-                            params,
-                            locals,
-                            code: instructions,
+                            params: f.params.clone(),
+                            locals: f.locals,
+                            code: f.instructions.clone(),
                             dbg_chunk,
                         },
                         name_version,
@@ -523,42 +483,28 @@ impl Vm {
                 }
                 value
             }
-            Value::Closure {
-                params,
-                locals,
-                captured,
-                instructions,
-                dbg_chunk,
-                dbg_stmt_spans,
-                dbg_local_names,
-            } => {
+            Value::Closure(c) => {
                 let dbg_chunk = self.ensure_dbg_chunk_with_spans(
                     name,
-                    dbg_chunk,
-                    instructions.as_ref(),
-                    &dbg_stmt_spans,
-                    &dbg_local_names,
-                    &params,
+                    c.dbg_chunk,
+                    c.instructions.as_ref(),
+                    &c.dbg_stmt_spans,
+                    &c.dbg_local_names,
+                    &c.params,
                 );
-                let value = Value::Closure {
-                    params: params.clone(),
-                    locals,
-                    captured: captured.clone(),
-                    instructions: instructions.clone(),
-                    dbg_chunk,
-                    dbg_stmt_spans,
-                    dbg_local_names,
-                };
+                let mut new_c = crate::value::ClosureData::clone(&c);
+                new_c.dbg_chunk = dbg_chunk;
+                let value = Value::Closure(std::sync::Arc::new(new_c));
                 if let Some(slot) = slot {
                     let name_version = self.global_slot_version(slot);
                     self.cache_closure(
                         idx,
                         ResolvedClosure {
                             value: value.clone(),
-                            params,
-                            locals,
-                            captured,
-                            code: instructions,
+                            params: c.params.clone(),
+                            locals: c.locals,
+                            captured: c.captured.clone(),
+                            code: c.instructions.clone(),
                             dbg_chunk,
                         },
                         name_version,
