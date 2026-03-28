@@ -6,6 +6,7 @@
 - `F[v;...]`
 - `B[...]`
 - Debug level rework
+- Bulk index assign
 
 # 0.7.0
 

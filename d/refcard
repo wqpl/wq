@@ -1,19 +1,35 @@
 wq 0.8.0 refcard
-================
-+       plus      =           eq      !l    load
--  neg  minus     ~           neq     !p    load prelude
-*       mul       <           lt      !e    * exit
-**      matmul    <=          le      !hl   * highlight
-/       div       >           gt      !h    * help // !h abs
-/.      safe div  >=          ge      !b    * boxed display
-%       mod       #   count           !bfn  * builtins
-%.      safe mod  ,   enlist  cat     !g    * global bindings
-^       power     :           assign  !r    * reset
-|       pipe                          !t    * time // !t.
-$ [c;t;f1;f2..]   @b break            !w    * wqdb // !w.
-$.[c;t1;t2...]    @c continue         !d    * debug flags // !d inst,ast
-W [c;...]         @r return                 aliases: 0 off 1 inst 2 +ast 3 +token 4 +wqdb
-N [n;echo _n]     @t try              *: repl only .: one-shot
+=============================================================
++       plus      =           eq      $[c;t;f1;f2..]
+-  neg  minus     ~           neq     $.[c;t1;t2...]
+*       mul       <           lt      $$[c1;t1;c2;t2;...;def]
+**      matmul    <=          le      W[c;...]
+/       div       >           gt      N[n;_n]
+/.      safe div  >=          ge      F[v;_n;_f]
+%       mod       #   count           B[...]
+%.      safe mod  ,   enlist  cat     @b  break
+^       power     :           assign  @c  continue
+|       pipe
+@r [v]  return    @t <expr>   try
+
+!h [bfn]       help           !l [path]  load script
+!hl            highlight      !p         load prelude
+!e, !!         exit
+
+!bfn [preset]  builtins
+!i <name>      interpreter
+!g             global bindings
+!r             reset
+
+!b             boxed display
+!t             time
+!w             wqdb
+!d [f/a]       debug
+   debug flags   token ast inst wqdb-1 wqdb-2
+   debug aliases 0=off 1=inst 2=inst,ast 3=inst,ast,token
+                 4=inst,ast,token,wqdb-1,wqdb-2
+!t. !w. !d.: one-shot
+
 +-- atom // atom?
 |   |-- int       1 0xBEEF 0o233 0b1111
 |   |-- bigint    0x8000_0000_0000_0000

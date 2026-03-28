@@ -1,23 +1,25 @@
-Synopsis
+wq 0.8.0
+
+Commands
 ========
-  wq                     repl
-  wq <script path>       script exec
-  wq exec [<code>|-]     inline exec
-  wq fmt <script>        format
+  wq                       repl
+  wq <script path>         script exec
+  wq exec [<code>|-]       inline exec
+  wq fmt <script>          format
 
 Options
 =======
 1. Generic
-  -h, --help          show this help
-  -v, --version       show wq version
+  -h, --help               show this help
+  -v, -V, --version        show wq version
 
 2. Runtime
-  -p, --print         print final evaluation result
-  -d, --debug [<f/a>] config debug flags, def=inst
-  -i, --interpreter <name>     specify interpreter
-  -b, --builtins <name> specify builtins preset
-  -w, --wqdb          exec with wqdb
-  --no-bt             disable backtrace
+  -p, --print              print final evaluation result
+  -d, --debug [<f/a>]      config debug flags, def=inst
+  -i, --interpreter <name> select interpreter
+  -b, --builtins <preset>  select builtins preset
+  -w, --wqdb               use wqdb
+  --no-bt                  disable backtrace
 
   debug flags         token ast inst wqdb-1 wqdb-2
   debug aliases       0=off 1=inst 2=inst,ast 3=inst,ast,token
@@ -26,9 +28,9 @@ Options
   builtins            [a]ll, [c]onstrained, [p]ure, [m]inimal
 
 3. fmt
-    --nlcd           Newline after closing delimiters
-    --nbc            No bracket calls
-    --olw            One line wizard
+    --nlcd            Newline after closing delimiters
+    --nbc             No bracket calls
+    --olw             One line wizard
 
 Examples
 ========
