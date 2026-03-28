@@ -8,8 +8,8 @@ bitlen:{[n]l:0;m:1;W[m<n;m:m*2;l:l+1];l}
 bitrev:{[i;bits]r:0;j:i;cnt:0
   W[cnt<bits;r:r*2+j%2;j:floor(j/2);cnt:cnt+1];r}
 to_complex:{[x]n:#x;y:alloc n;N[n;y[_n]:(x[_n];0.0)];y}
-bitrev_copy:{[a]n:#a;y:alloc n;b:bitlen n
-  N[n;i:_n;j:bitrev[i;b];y[j]:a i];y}
+bitrev_copy:{[a]n:#a;y:alloc n;b:bitlen n;j:alloc n
+  N[n;j[_n]:bitrev[_n;b]];y[j]:a;y}
 fft_radix2:{[x]n:#x;a:bitrev_copy to_complex x;len_:2
   W[len_<=n;step_angle:-2.0*PI/len_;w_step:(cos step_angle;sin step_angle);b:0
     W[b<n;j:0;w:(1.0;0.0);half:floor(len_/2)
