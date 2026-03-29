@@ -1,0 +1,51 @@
+// Atom × Atom
+1=.1 | echo
+
+// Atom × Container (broadcast_left)
+1=.(1.0;2.0) | echo
+1=.(1;2) | echo
+1=.(`a:1;`b:2) | echo
+"a"=."ab" | echo
+1=.S(1;2) | echo
+
+// Container × Atom (broadcast_right)
+(1.0;2.0)=.1 | echo
+(1;2)=.1 | echo
+(`a:1;`b:2)=.1 | echo
+"ab"=."a" | echo
+S(1;2)=.1 | echo
+
+// Same-type container pairs
+(1.0;2.0)=.(1.0;2.0) | echo
+(1;2)=.(1;2) | echo
+(`a:1;`b:2)=.(`a:1;`b:2) | echo
+S(1;2)=.S(1;2) | echo
+"ab"=."ab" | echo
+
+// IntList/List
+(1;2)=.(1.0;2.0) | echo
+(1.0;2.0)=.(1;2) | echo
+
+// Set crosses
+S(1;2)=.(1.0;2.0) | echo
+(1.0;2.0)=.S(1;2) | echo
+S(1;2)=.(1;2) | echo
+(1;2)=.S(1;2) | echo
+
+// Dict crosses
+(`a:1;`b:2)=.(1.0;2.0) | echo
+(1.0;2.0)=.(`a:1;`b:2) | echo
+(`a:1;`b:2)=.(1;2) | echo
+(1;2)=.(`a:1;`b:2) | echo
+(`a:1;`b:2)=.S(1;2) | echo
+S(1;2)=.(`a:1;`b:2) | echo
+
+// String crosses
+"ab"=.(1;2) | echo
+(1;2)=."ab" | echo
+"ab"=.(1.0;"b") | echo
+(1.0;"b")=."ab" | echo
+"ab"=.(`a:1;`b:2) | echo
+(`a:1;`b:2)=."ab" | echo
+"ab"=.S(1;2) | echo
+S(1;2)=."ab" | echo

@@ -1,0 +1,1701 @@
+use std::collections::{HashMap, HashSet};
+
+use crate::astnode::{AstNode, AstSpan, Parameter, PipeKind};
+use crate::builtins::Builtins;
+use crate::compiler::function_ref_capture_names;
+use crate::symbol::{DefKind, SymbolIndex};
+use crate::value::{IntoWqValue, Value};
+use crate::vm::GlobalMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BindingFact {
+    Unknown,
+    Callable,
+    Indexable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum BindingId {
+    Symbol(usize),
+    Runtime(String),
+    Synthetic(usize),
+}
+
+#[derive(Clone)]
+struct ResolverSnapshot {
+    scopes: Vec<HashMap<String, BindingId>>,
+    binding_facts: HashMap<BindingId, BindingFact>,
+}
+
+/// Expression resolver that lowers certain postfix patterns into explicit
+/// Call/CallAnonymous/Index nodes.
+pub(crate) struct Resolver {
+    builtins: Builtins,
+    runtime_seed_facts: HashMap<String, BindingFact>,
+    scopes: Vec<HashMap<String, BindingId>>,
+    binding_facts: HashMap<BindingId, BindingFact>,
+    symbol_defs_by_span: HashMap<(String, AstSpan), usize>,
+    symbol_def_names: Vec<String>,
+    gensym: usize,
+    binding_gensym: usize,
+}
+
+impl Resolver {
+    pub(crate) fn new() -> Self {
+        Self::with_builtins(Builtins::new())
+    }
+
+    pub(crate) fn with_builtins(builtins: Builtins) -> Self {
+        Self {
+            builtins,
+            runtime_seed_facts: HashMap::new(),
+            scopes: Vec::new(),
+            binding_facts: HashMap::new(),
+            symbol_defs_by_span: HashMap::new(),
+            symbol_def_names: Vec::new(),
+            gensym: 0,
+            binding_gensym: 0,
+        }
+    }
+
+    pub(crate) fn from_env(env: GlobalMap, builtins: Builtins) -> Self {
+        let mut res = Self::with_builtins(builtins);
+        for (name, val) in env {
+            let fact = Self::fact_from_value(&val);
+            if fact != BindingFact::Unknown {
+                res.runtime_seed_facts.insert(name, fact);
+            }
+        }
+        res
+    }
+
+    pub(crate) fn resolve(&mut self, node: AstNode) -> AstNode {
+        let symbols = SymbolIndex::analyze(&node, &self.builtins);
+        self.load_symbols(&symbols);
+        self.resolve_node(node)
+    }
+
+    fn resolve_node(&mut self, node: AstNode) -> AstNode {
+        match node {
+            AstNode::Assignment {
+                name,
+                op,
+                value,
+                span,
+                name_span,
+            } => {
+                let binding = self.binding_for_named_def(&name, name_span);
+                let mut captured_by_ref = None;
+                let value = if let AstNode::Function { params, body } = *value {
+                    self.bind_current_scope(name.clone(), binding.clone());
+                    self.set_binding_fact(&binding, BindingFact::Callable);
+
+                    let value =
+                        self.resolve_function(params, *body, Some((name.clone(), binding.clone())));
+
+                    if let AstNode::Function { params, body } = &value {
+                        captured_by_ref = Some(function_ref_capture_names(
+                            body,
+                            params.as_deref(),
+                            Some(name.as_str()),
+                        ));
+                    }
+
+                    Box::new(value)
+                } else {
+                    Box::new(self.resolve_node(*value))
+                };
+
+                self.bind_current_scope(name.clone(), binding.clone());
+                self.set_binding_fact(&binding, self.fact_from_ast(&value));
+                if let Some(captured_by_ref) = captured_by_ref {
+                    self.invalidate_bindings_named(captured_by_ref);
+                }
+
+                AstNode::Assignment {
+                    name,
+                    op,
+                    value,
+                    span,
+                    name_span,
+                }
+            }
+            AstNode::OuterAssignment {
+                name,
+                op,
+                value,
+                span,
+                name_span,
+            } => {
+                let value = Box::new(self.resolve_node(*value));
+                if let Some(binding) = self.lookup_outer_binding(&name) {
+                    self.set_binding_fact(&binding, self.fact_from_ast(&value));
+                }
+                AstNode::OuterAssignment {
+                    name,
+                    op,
+                    value,
+                    span,
+                    name_span,
+                }
+            }
+            AstNode::Postfix {
+                object,
+                items,
+                explicit_call,
+                span,
+            } => {
+                let object = Box::new(self.resolve_node(*object));
+                let items: Vec<_> = items.into_iter().map(|n| self.resolve_node(n)).collect();
+                // 1) If explicitly called or definitely callable, lower to Call /
+                //    CallAnonymous.
+                if explicit_call || self.should_call(&object) {
+                    if let AstNode::Variable(name, var_span) = *object.clone() {
+                        return AstNode::CallName {
+                            name,
+                            args: items,
+                            span,
+                            name_span: var_span,
+                        };
+                    } else {
+                        return AstNode::CallAnonymous {
+                            object,
+                            args: items,
+                            span,
+                        };
+                    }
+                }
+                // 2) If definitely indexable and no named args, lower to Index. Named args
+                //    force the call-path so the VM can error.
+                let has_named_args = items.iter().any(|n| matches!(n, AstNode::NamedArg { .. }));
+                if !has_named_args && self.should_index(&object, &items) {
+                    let idx = if items.len() == 1 {
+                        Box::new(items.into_iter().next().unwrap())
+                    } else {
+                        Box::new(AstNode::List(items))
+                    };
+                    return AstNode::Index {
+                        object,
+                        index: idx,
+                        span,
+                    };
+                }
+                // 3) Otherwise, preserve Postfix
+                AstNode::Postfix {
+                    object,
+                    items,
+                    explicit_call: false,
+                    span,
+                }
+            }
+            AstNode::Pipe {
+                input,
+                effect,
+                kind,
+                span,
+            } => {
+                let input = self.resolve_node(*input);
+                let effect = self.resolve_node(*effect);
+                match kind {
+                    PipeKind::Pipe => Self::apply_pipe_rhs(effect, input, true, span),
+                    PipeKind::PipePipe => Self::apply_pipe_rhs(effect, input, false, span),
+                    PipeKind::PipeDot => {
+                        let effect = Self::apply_pipe_rhs(effect, AstNode::PipeInput, true, span);
+                        AstNode::PipeTap {
+                            input: Box::new(input),
+                            effect: Box::new(effect),
+                            span,
+                        }
+                    }
+                    PipeKind::PipePipeDot => {
+                        let effect = Self::apply_pipe_rhs(effect, AstNode::PipeInput, false, span);
+                        AstNode::PipeTap {
+                            input: Box::new(input),
+                            effect: Box::new(effect),
+                            span,
+                        }
+                    }
+                }
+            }
+            AstNode::PipeTap {
+                input,
+                effect,
+                span,
+            } => AstNode::PipeTap {
+                input: Box::new(self.resolve_node(*input)),
+                effect: Box::new(self.resolve_node(*effect)),
+                span,
+            },
+            AstNode::BinaryOp {
+                left,
+                operator,
+                right,
+            } => AstNode::BinaryOp {
+                left: Box::new(self.resolve_node(*left)),
+                operator,
+                right: Box::new(self.resolve_node(*right)),
+            },
+            AstNode::ComparisonChain { first, rest } => AstNode::ComparisonChain {
+                first: Box::new(self.resolve_node(*first)),
+                rest: rest
+                    .into_iter()
+                    .map(|(op, node)| (op, self.resolve_node(node)))
+                    .collect(),
+            },
+            AstNode::Range {
+                start,
+                end,
+                step,
+                inclusive,
+            } => AstNode::Range {
+                start: Box::new(self.resolve_node(*start)),
+                end: Box::new(self.resolve_node(*end)),
+                step: step.map(|s| Box::new(self.resolve_node(*s))),
+                inclusive,
+            },
+            AstNode::UnaryOp {
+                operator,
+                operand,
+                span,
+            } => AstNode::UnaryOp {
+                operator,
+                operand: Box::new(self.resolve_node(*operand)),
+                span,
+            },
+            AstNode::Group { expr, span } => AstNode::Group {
+                expr: Box::new(self.resolve_node(*expr)),
+                span,
+            },
+            AstNode::Cat(items) => {
+                AstNode::Cat(items.into_iter().map(|n| self.resolve_node(n)).collect())
+            }
+            AstNode::List(items) => {
+                AstNode::List(items.into_iter().map(|n| self.resolve_node(n)).collect())
+            }
+            AstNode::Dict(pairs) => AstNode::Dict(
+                pairs
+                    .into_iter()
+                    .map(|(k, v)| (k, self.resolve_node(v)))
+                    .collect(),
+            ),
+            AstNode::CallName {
+                name,
+                args,
+                span,
+                name_span,
+            } => AstNode::CallName {
+                name,
+                args: args.into_iter().map(|n| self.resolve_node(n)).collect(),
+                span,
+                name_span,
+            },
+            AstNode::CallAnonymous { object, args, span } => AstNode::CallAnonymous {
+                object: Box::new(self.resolve_node(*object)),
+                args: args.into_iter().map(|n| self.resolve_node(n)).collect(),
+                span,
+            },
+            AstNode::Index {
+                object,
+                index,
+                span,
+            } => AstNode::Index {
+                object: Box::new(self.resolve_node(*object)),
+                index: Box::new(self.resolve_node(*index)),
+                span,
+            },
+            AstNode::MutatingIndex {
+                object,
+                index,
+                span,
+            } => {
+                let object = Box::new(self.resolve_node(*object));
+                let index = Box::new(self.resolve_node(*index));
+                if !matches!(
+                    object.as_ref(),
+                    AstNode::Variable(_, _) | AstNode::OuterVariable(_, _)
+                ) {
+                    return AstNode::Error(
+                        crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
+                            .src("resolver")
+                            .msg("mutating index target must be a variable"),
+                        span,
+                    );
+                }
+                AstNode::MutatingIndex {
+                    object,
+                    index,
+                    span,
+                }
+            }
+            AstNode::IndexAssign {
+                object,
+                index,
+                op,
+                value,
+                span,
+            } => AstNode::IndexAssign {
+                object: Box::new(self.resolve_node(*object)),
+                index: Box::new(self.resolve_node(*index)),
+                op,
+                value: Box::new(self.resolve_node(*value)),
+                span,
+            },
+            AstNode::MutatingIndexAssign {
+                object,
+                index,
+                value,
+                span,
+            } => {
+                let object = Box::new(self.resolve_node(*object));
+                let index = Box::new(self.resolve_node(*index));
+                let value = Box::new(self.resolve_node(*value));
+                if !matches!(
+                    object.as_ref(),
+                    AstNode::Variable(_, _) | AstNode::OuterVariable(_, _)
+                ) {
+                    return AstNode::Error(
+                        crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
+                            .src("resolver")
+                            .msg("mutating index target must be a variable"),
+                        span,
+                    );
+                }
+                AstNode::MutatingIndexAssign {
+                    object,
+                    index,
+                    value,
+                    span,
+                }
+            }
+            AstNode::Function { params, body } => self.resolve_function(params, *body, None),
+            AstNode::ConditionalDot {
+                condition,
+                true_branch,
+                span,
+            } => AstNode::Conditional {
+                condition: Box::new(self.resolve_node(*condition)),
+                true_branch: Box::new(self.resolve_node(*true_branch)),
+                false_branch: None,
+                span,
+            },
+            AstNode::Conditional {
+                condition,
+                true_branch,
+                false_branch,
+                span,
+            } => {
+                let condition = Box::new(self.resolve_node(*condition));
+                let branch_base = self.snapshot();
+                let (true_branch, true_state) =
+                    self.resolve_from_snapshot(&branch_base, *true_branch);
+                let (false_branch, false_state) = if let Some(false_branch) = false_branch {
+                    let (false_branch, false_state) =
+                        self.resolve_from_snapshot(&branch_base, *false_branch);
+                    (Some(Box::new(false_branch)), false_state)
+                } else {
+                    (None, branch_base.clone())
+                };
+                let merged_state = self.merge_snapshots(&true_state, &false_state);
+                self.restore(merged_state);
+                AstNode::Conditional {
+                    condition,
+                    true_branch: Box::new(true_branch),
+                    false_branch,
+                    span,
+                }
+            }
+            AstNode::ConditionalChain {
+                pairs,
+                default_branch,
+                span,
+            } => {
+                let resolved_pairs: Vec<(AstNode, AstNode)> = pairs
+                    .into_iter()
+                    .map(|(cond, branch)| (self.resolve_node(cond), self.resolve_node(branch)))
+                    .collect();
+                let resolved_default = Box::new(self.resolve_node(*default_branch));
+                // Desugar into nested Conditional nodes
+                let mut acc = *resolved_default;
+                for (cond, branch) in resolved_pairs.into_iter().rev() {
+                    acc = AstNode::Conditional {
+                        condition: Box::new(cond),
+                        true_branch: Box::new(branch),
+                        false_branch: Some(Box::new(acc)),
+                        span,
+                    };
+                }
+                acc
+            }
+            AstNode::WLoop {
+                condition,
+                body,
+                span,
+            } => {
+                let condition = Box::new(self.resolve_node(*condition));
+                let loop_base = self.snapshot();
+                let (body, body_state) = self.resolve_from_snapshot(&loop_base, *body);
+                let merged_state = self.merge_snapshots(&loop_base, &body_state);
+                self.restore(merged_state);
+                AstNode::WLoop {
+                    condition,
+                    body: Box::new(body),
+                    span,
+                }
+            }
+            AstNode::NLoop { count, body, span } => {
+                let count = Box::new(self.resolve_node(*count));
+                let loop_base = self.snapshot();
+                let (body, body_state) = self.resolve_from_snapshot(&loop_base, *body);
+                let merged_state = self.merge_snapshots(&loop_base, &body_state);
+                self.restore(merged_state);
+                AstNode::NLoop {
+                    count,
+                    body: Box::new(body),
+                    span,
+                }
+            }
+            AstNode::Debug { expr, span } => AstNode::Debug {
+                expr: Box::new(self.resolve_node(*expr)),
+                span,
+            },
+            AstNode::Pause { span } => AstNode::Pause { span },
+            AstNode::Return(expr) => AstNode::Return(expr.map(|e| Box::new(self.resolve_node(*e)))),
+            // AstNode::Assert(e) => AstNode::Assert(Box::new(self.resolve_node(*e))),
+            AstNode::Try(e) => AstNode::Try(Box::new(self.resolve_node(*e))),
+            AstNode::Block(stmts) => {
+                AstNode::Block(stmts.into_iter().map(|s| self.resolve_node(s)).collect())
+            }
+            AstNode::BlockExpr(stmts, span) => AstNode::BlockExpr(
+                stmts.into_iter().map(|s| self.resolve_node(s)).collect(),
+                span,
+            ),
+            AstNode::UnpackAssignment { lhs, op, rhs, span } => {
+                let rhs = Box::new(self.resolve_node(*rhs));
+                let lhs = lhs.into_iter().map(|n| self.resolve_node(n)).collect();
+                self.expand_unpack_assignment(lhs, op, *rhs, span)
+            }
+            AstNode::FString { parts, span } => {
+                let mut template = String::new();
+                let mut args: Vec<AstNode> = Vec::new();
+                for part in parts {
+                    match part {
+                        crate::astnode::FStringPart::Text(t) => {
+                            template.push_str(&t);
+                        }
+                        crate::astnode::FStringPart::Expr {
+                            expr,
+                            encoded_spec,
+                            spec_exprs,
+                            ..
+                        } => {
+                            let resolved_expr = self.resolve_node(expr);
+                            for spec_expr in spec_exprs {
+                                args.push(self.resolve_node(spec_expr));
+                            }
+                            if let Some(enc) = encoded_spec {
+                                template.push_str("{!");
+                                template.push_str(&enc);
+                                template.push('}');
+                            } else {
+                                template.push_str("{}");
+                            }
+                            args.push(resolved_expr);
+                        }
+                    }
+                }
+                let mut fmt_args = Vec::with_capacity(1 + args.len());
+                fmt_args.push(AstNode::Literal(template.into_wq_value(), None));
+                fmt_args.extend(args);
+                AstNode::CallName {
+                    name: crate::builtins::BuiltinEnum::Fmt.name().into(),
+                    args: fmt_args,
+                    span,
+                    name_span: None,
+                }
+            }
+            AstNode::NamedArg { name, value, span } => AstNode::NamedArg {
+                name,
+                value: Box::new(self.resolve_node(*value)),
+                span,
+            },
+            AstNode::PipeInput => AstNode::PipeInput,
+            AstNode::OuterVariable(name, span) => AstNode::OuterVariable(name, span),
+            other => other,
+        }
+    }
+
+    fn expand_unpack_assignment(
+        &mut self,
+        lhs: Vec<AstNode>,
+        op: Option<crate::astnode::BinaryOperator>,
+        rhs: AstNode,
+        span: AstSpan,
+    ) -> AstNode {
+        // Optimization: if rhs is a literal list/dict and no augmented op,
+        // expand directly without creating a temporary.
+        if op.is_none() {
+            let values_opt = match &rhs {
+                AstNode::List(items) => Some(items.clone()),
+                AstNode::Dict(pairs) => Some(pairs.iter().map(|(_, v)| v.clone()).collect()),
+                _ => None,
+            };
+
+            if let Some(values) = values_opt
+                && let Some(stmts) = self.try_lower_literal_unpack(&lhs, values, span)
+            {
+                return AstNode::Block(stmts);
+            }
+        }
+
+        let tmp_name = format!("--resolver-unpack-{}", self.gensym);
+        self.gensym += 1;
+        let mut stmts = vec![AstNode::Assignment {
+            name: tmp_name.clone(),
+            op: None,
+            value: Box::new(rhs),
+            span,
+            name_span: span,
+        }];
+        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis));
+        for (pos, item) in lhs.iter().enumerate() {
+            if matches!(item, AstNode::Ellipsis) {
+                break;
+            }
+            stmts.extend(self.make_unpack_assign(item, &tmp_name, pos as i64, span, op));
+        }
+        if let Some(ei) = ellipsis_idx {
+            for (offset, item) in lhs.iter().skip(ei + 1).enumerate() {
+                let pos = -1 - (offset as i64);
+                stmts.extend(self.make_unpack_assign(item, &tmp_name, pos, span, op));
+            }
+        }
+        AstNode::Block(stmts)
+    }
+
+    /// Try to lower an unpack assignment when RHS is a literal list/dict.
+    /// Returns `None` if the expansion would change evaluation order semantics
+    /// or if lengths are incompatible, so the caller should fall back to
+    /// temp+index.
+    fn try_lower_literal_unpack(
+        &mut self,
+        lhs: &[AstNode],
+        values: Vec<AstNode>,
+        span: AstSpan,
+    ) -> Option<Vec<AstNode>> {
+        let bound_names = collect_bound_names(lhs);
+        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis));
+
+        // Length check
+        match ellipsis_idx {
+            None => {
+                if lhs.len() > values.len() {
+                    return None;
+                }
+            }
+            Some(ei) => {
+                let suffix_len = lhs.len() - ei - 1;
+                if ei > values.len() || suffix_len > values.len() {
+                    return None;
+                }
+            }
+        }
+
+        // Safety check: no value may reference a variable bound at a prior
+        // position, because sequential assignment would see the updated value.
+        for (i, value) in values.iter().enumerate() {
+            let mut forbidden = HashSet::new();
+            for (pos, name) in &bound_names {
+                if *pos < i {
+                    forbidden.insert(name.as_str());
+                }
+            }
+            if expr_uses_vars(value, &forbidden) {
+                return None;
+            }
+        }
+
+        let mut stmts = Vec::new();
+        self.lower_literal_unpack_items(lhs, &values, span, &mut stmts, &bound_names)?;
+        Some(stmts)
+    }
+
+    fn lower_literal_unpack_items(
+        &mut self,
+        lhs: &[AstNode],
+        values: &[AstNode],
+        span: AstSpan,
+        stmts: &mut Vec<AstNode>,
+        bound_names: &[(usize, String)],
+    ) -> Option<()> {
+        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis));
+
+        // Prefix items
+        for (i, item) in lhs.iter().enumerate() {
+            if matches!(item, AstNode::Ellipsis) {
+                break;
+            }
+            let value = values.get(i)?.clone();
+            self.lower_literal_unpack_item(item, value, span, stmts, bound_names, i);
+        }
+
+        // Suffix items (after ellipsis)
+        if let Some(ei) = ellipsis_idx {
+            let suffix_len = lhs.len() - ei - 1;
+            for (offset, item) in lhs.iter().skip(ei + 1).enumerate() {
+                let idx = values.len() - suffix_len + offset;
+                let value = values.get(idx)?.clone();
+                self.lower_literal_unpack_item(item, value, span, stmts, bound_names, idx);
+            }
+        }
+
+        Some(())
+    }
+
+    fn lower_literal_unpack_item(
+        &mut self,
+        item: &AstNode,
+        value: AstNode,
+        span: AstSpan,
+        stmts: &mut Vec<AstNode>,
+        bound_names: &[(usize, String)],
+        pos: usize,
+    ) {
+        match item {
+            AstNode::Variable(name, item_span) if name == "_" => {}
+            AstNode::Variable(name, item_span) => {
+                stmts.push(AstNode::Assignment {
+                    name: name.clone(),
+                    op: None,
+                    value: Box::new(value),
+                    span: *item_span,
+                    name_span: *item_span,
+                });
+            }
+            AstNode::Index { object, index, .. } => {
+                stmts.push(AstNode::IndexAssign {
+                    object: object.clone(),
+                    index: index.clone(),
+                    op: None,
+                    value: Box::new(value),
+                    span,
+                });
+            }
+            AstNode::Postfix {
+                object,
+                items,
+                explicit_call: false,
+                ..
+            } => {
+                let index = if items.len() == 1 {
+                    Box::new(items[0].clone())
+                } else {
+                    Box::new(AstNode::List(items.clone()))
+                };
+                stmts.push(AstNode::IndexAssign {
+                    object: object.clone(),
+                    index,
+                    op: None,
+                    value: Box::new(value),
+                    span,
+                });
+            }
+            AstNode::Ellipsis => {}
+            AstNode::List(inner_items) => {
+                // Try recursive optimization if value is also a literal list/dict
+                let sub_values_opt = match &value {
+                    AstNode::List(inner) => Some(inner.clone()),
+                    AstNode::Dict(pairs) => Some(pairs.iter().map(|(_, v)| v.clone()).collect()),
+                    _ => None,
+                };
+
+                if let Some(sub_values) = sub_values_opt {
+                    let mut prior_forbidden = HashSet::new();
+                    for (p, name) in bound_names {
+                        if *p < pos {
+                            prior_forbidden.insert(name.as_str());
+                        }
+                    }
+                    if let Some(sub_stmts) = self.try_lower_literal_unpack_nested(
+                        inner_items,
+                        sub_values,
+                        span,
+                        &prior_forbidden,
+                    ) {
+                        stmts.extend(sub_stmts);
+                        return;
+                    }
+                }
+
+                // Fallback: temp + index for this nested pattern
+                let sub_tmp = format!("--resolver-unpack-{}", self.gensym);
+                self.gensym += 1;
+                stmts.push(AstNode::Assignment {
+                    name: sub_tmp.clone(),
+                    op: None,
+                    value: Box::new(value),
+                    span,
+                    name_span: span,
+                });
+                let ellipsis_idx = inner_items
+                    .iter()
+                    .position(|n| matches!(n, AstNode::Ellipsis));
+                for (pos, item) in inner_items.iter().enumerate() {
+                    if matches!(item, AstNode::Ellipsis) {
+                        break;
+                    }
+                    stmts.extend(self.make_unpack_assign(item, &sub_tmp, pos as i64, span, None));
+                }
+                if let Some(ei) = ellipsis_idx {
+                    for (offset, item) in inner_items.iter().skip(ei + 1).enumerate() {
+                        let pos = -1 - (offset as i64);
+                        stmts.extend(self.make_unpack_assign(item, &sub_tmp, pos, span, None));
+                    }
+                }
+            }
+            _ => {
+                stmts.push(AstNode::Error(
+                    crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
+                        .src("resolver")
+                        .msg("invalid unpack assignment target"),
+                    span,
+                ));
+            }
+        }
+    }
+
+    /// Like `try_lower_literal_unpack` but with an additional set of names
+    /// that must not be referenced because they were bound in an outer
+    /// pattern at a prior position.
+    fn try_lower_literal_unpack_nested(
+        &mut self,
+        lhs: &[AstNode],
+        values: Vec<AstNode>,
+        span: AstSpan,
+        prior_forbidden: &HashSet<&str>,
+    ) -> Option<Vec<AstNode>> {
+        let bound_names = collect_bound_names(lhs);
+        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis));
+
+        match ellipsis_idx {
+            None => {
+                if lhs.len() > values.len() {
+                    return None;
+                }
+            }
+            Some(ei) => {
+                let suffix_len = lhs.len() - ei - 1;
+                if ei > values.len() || suffix_len > values.len() {
+                    return None;
+                }
+            }
+        }
+
+        for (i, value) in values.iter().enumerate() {
+            let mut forbidden = prior_forbidden.clone();
+            for (pos, name) in &bound_names {
+                if *pos < i {
+                    forbidden.insert(name.as_str());
+                }
+            }
+            if expr_uses_vars(value, &forbidden) {
+                return None;
+            }
+        }
+
+        let mut stmts = Vec::new();
+        self.lower_literal_unpack_items(lhs, &values, span, &mut stmts, &bound_names)?;
+        Some(stmts)
+    }
+
+    fn make_unpack_assign(
+        &mut self,
+        item: &AstNode,
+        tmp_name: &str,
+        pos: i64,
+        span: AstSpan,
+        aug_op: Option<crate::astnode::BinaryOperator>,
+    ) -> Vec<AstNode> {
+        let rhs_value = AstNode::Postfix {
+            object: Box::new(AstNode::Variable(tmp_name.into(), None)),
+            items: vec![AstNode::Literal(Value::Int(pos), None)],
+            explicit_call: false,
+            span: None,
+        };
+        match item {
+            AstNode::Variable(name, item_span) if name == "_" => vec![],
+            AstNode::Variable(name, item_span) => vec![AstNode::Assignment {
+                name: name.clone(),
+                op: aug_op,
+                value: Box::new(rhs_value),
+                span: *item_span,
+                name_span: *item_span,
+            }],
+            AstNode::Index { object, index, .. } => vec![AstNode::IndexAssign {
+                object: object.clone(),
+                index: index.clone(),
+                op: aug_op,
+                value: Box::new(rhs_value),
+                span,
+            }],
+            AstNode::Postfix {
+                object,
+                items,
+                explicit_call: false,
+                ..
+            } => {
+                let index = if items.len() == 1 {
+                    Box::new(items[0].clone())
+                } else {
+                    Box::new(AstNode::List(items.clone()))
+                };
+                vec![AstNode::IndexAssign {
+                    object: object.clone(),
+                    index,
+                    op: aug_op,
+                    value: Box::new(rhs_value),
+                    span,
+                }]
+            }
+            AstNode::Ellipsis => vec![],
+            AstNode::List(inner_items) => {
+                let sub_tmp = format!("--resolver-unpack-{}", self.gensym);
+                self.gensym += 1;
+                let mut stmts = vec![AstNode::Assignment {
+                    name: sub_tmp.clone(),
+                    op: None,
+                    value: Box::new(rhs_value),
+                    span,
+                    name_span: span,
+                }];
+                let ellipsis_idx = inner_items
+                    .iter()
+                    .position(|n| matches!(n, AstNode::Ellipsis));
+                for (pos, item) in inner_items.iter().enumerate() {
+                    if matches!(item, AstNode::Ellipsis) {
+                        break;
+                    }
+                    stmts.extend(self.make_unpack_assign(item, &sub_tmp, pos as i64, span, None));
+                }
+                if let Some(ei) = ellipsis_idx {
+                    for (offset, item) in inner_items.iter().skip(ei + 1).enumerate() {
+                        let pos = -1 - (offset as i64);
+                        stmts.extend(self.make_unpack_assign(item, &sub_tmp, pos, span, None));
+                    }
+                }
+                stmts
+            }
+            _ => vec![AstNode::Error(
+                crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Syntax)
+                    .src("resolver")
+                    .msg("invalid unpack assignment target"),
+                span,
+            )],
+        }
+    }
+
+    fn should_index(&self, object: &AstNode, items: &[AstNode]) -> bool {
+        if items.is_empty() {
+            return false;
+        }
+        match object {
+            AstNode::List(_) | AstNode::Dict(_) => true,
+            AstNode::Variable(name, span) => {
+                self.lookup_fact(name, *span, false) == BindingFact::Indexable
+            }
+            AstNode::OuterVariable(name, span) => {
+                self.lookup_fact(name, *span, true) == BindingFact::Indexable
+            }
+            AstNode::CallName { name, .. } => Self::returns_atom_or_list(name),
+            _ => false,
+        }
+    }
+
+    fn returns_atom_or_list(name: &str) -> bool {
+        matches!(
+            name,
+            "keys"
+                | "map"
+                | "zipw"
+                | "filter"
+                | "flatten"
+                | "reverse"
+                | "sort"
+                | "split"
+                | "splitw"
+                | "pop"
+                | "remove"
+                | "insert"
+                | "alloc"
+                | "till"
+                | "iota"
+                | "reshape"
+                | "where"
+                | "words"
+                | "freadtln"
+                | "freadtlns"
+        )
+    }
+
+    fn should_call(&self, object: &AstNode) -> bool {
+        match object {
+            AstNode::Variable(name, span) => {
+                self.lookup_fact(name, *span, false) == BindingFact::Callable
+            }
+            AstNode::OuterVariable(name, span) => {
+                self.lookup_fact(name, *span, true) == BindingFact::Callable
+            }
+            AstNode::Function { .. } => true,
+            _ => false,
+        }
+    }
+
+    fn invalidate_bindings_named(&mut self, names: impl IntoIterator<Item = String>) {
+        let names: HashSet<_> = names.into_iter().collect();
+        self.binding_facts.retain(|binding, _| match binding {
+            BindingId::Runtime(name) => !names.contains(name),
+            BindingId::Symbol(idx) => !names.contains(&self.symbol_def_names[*idx]),
+            BindingId::Synthetic(_) => true,
+        });
+    }
+
+    fn load_symbols(&mut self, symbols: &SymbolIndex) {
+        self.scopes.clear();
+        self.binding_facts.clear();
+        self.symbol_defs_by_span.clear();
+        self.symbol_def_names = symbols.defs.iter().map(|def| def.name.clone()).collect();
+
+        let mut root_scope = HashMap::new();
+        for (idx, def) in symbols.defs.iter().enumerate() {
+            if let Some(name_span) = def.name_span {
+                self.symbol_defs_by_span
+                    .insert((def.name.clone(), Some(name_span)), idx);
+            }
+            if def.kind == DefKind::Builtin {
+                let binding = BindingId::Symbol(idx);
+                root_scope.insert(def.name.clone(), binding.clone());
+                self.binding_facts.insert(binding, BindingFact::Callable);
+            }
+        }
+        for (name, fact) in &self.runtime_seed_facts {
+            let binding = BindingId::Runtime(name.clone());
+            root_scope.insert(name.clone(), binding.clone());
+            self.binding_facts.insert(binding, *fact);
+        }
+        self.scopes.push(root_scope);
+    }
+
+    fn resolve_function(
+        &mut self,
+        params: Option<Vec<Parameter>>,
+        body: AstNode,
+        recursive_binding: Option<(String, BindingId)>,
+    ) -> AstNode {
+        self.scopes.push(HashMap::new());
+        if let Some((name, binding)) = recursive_binding {
+            self.bind_current_scope(name, binding);
+        }
+        if let Some(params_ref) = params.as_ref() {
+            for p in params_ref {
+                let pname = p.name();
+                let pspan = p.span();
+                let binding = self.binding_for_named_def(pname, pspan);
+                self.bind_current_scope(pname.to_string(), binding.clone());
+                self.set_binding_fact(&binding, BindingFact::Unknown);
+            }
+        } else {
+            for name in ["x", "y", "z"] {
+                let binding = self.next_synthetic_binding();
+                self.bind_current_scope(name.to_string(), binding.clone());
+                self.set_binding_fact(&binding, BindingFact::Unknown);
+            }
+        }
+        // Resolve default expressions in named params
+        let params = params.map(|ps| {
+            ps.into_iter()
+                .map(|p| match p {
+                    Parameter::Named {
+                        name,
+                        span,
+                        default: Some(default_expr),
+                    } => Parameter::Named {
+                        name,
+                        span,
+                        default: Some(Box::new(self.resolve_node(*default_expr))),
+                    },
+                    other => other,
+                })
+                .collect()
+        });
+        let body = Box::new(self.resolve_node(body));
+        self.scopes.pop();
+        AstNode::Function { params, body }
+    }
+
+    fn resolve_from_snapshot(
+        &mut self,
+        snapshot: &ResolverSnapshot,
+        node: AstNode,
+    ) -> (AstNode, ResolverSnapshot) {
+        self.restore(snapshot.clone());
+        let node = self.resolve_node(node);
+        let out = self.snapshot();
+        (node, out)
+    }
+
+    fn snapshot(&self) -> ResolverSnapshot {
+        ResolverSnapshot {
+            scopes: self.scopes.clone(),
+            binding_facts: self.binding_facts.clone(),
+        }
+    }
+
+    fn restore(&mut self, snapshot: ResolverSnapshot) {
+        self.scopes = snapshot.scopes;
+        self.binding_facts = snapshot.binding_facts;
+    }
+
+    fn merge_snapshots(
+        &mut self,
+        left: &ResolverSnapshot,
+        right: &ResolverSnapshot,
+    ) -> ResolverSnapshot {
+        debug_assert_eq!(left.scopes.len(), right.scopes.len());
+
+        let mut scopes = Vec::with_capacity(left.scopes.len());
+        let mut binding_facts = HashMap::new();
+        for (left_scope, right_scope) in left.scopes.iter().zip(&right.scopes) {
+            let mut merged_scope = HashMap::new();
+            let mut names: HashSet<String> = left_scope.keys().cloned().collect();
+            names.extend(right_scope.keys().cloned());
+            for name in names {
+                match (left_scope.get(&name), right_scope.get(&name)) {
+                    (Some(left_binding), Some(right_binding)) if left_binding == right_binding => {
+                        let fact = Self::join_facts(
+                            Self::fact_in_snapshot(left, left_binding),
+                            Self::fact_in_snapshot(right, right_binding),
+                        );
+                        merged_scope.insert(name, left_binding.clone());
+                        binding_facts.insert(left_binding.clone(), fact);
+                    }
+                    (Some(left_binding), Some(right_binding)) => {
+                        let merged_binding = self.next_synthetic_binding();
+                        let fact = Self::join_facts(
+                            Self::fact_in_snapshot(left, left_binding),
+                            Self::fact_in_snapshot(right, right_binding),
+                        );
+                        merged_scope.insert(name, merged_binding.clone());
+                        binding_facts.insert(merged_binding, fact);
+                    }
+                    (Some(left_binding), None) => {
+                        let merged_binding = self.next_synthetic_binding();
+                        let fact = Self::join_facts(
+                            Self::fact_in_snapshot(left, left_binding),
+                            BindingFact::Unknown,
+                        );
+                        merged_scope.insert(name, merged_binding.clone());
+                        binding_facts.insert(merged_binding, fact);
+                    }
+                    (None, Some(right_binding)) => {
+                        let merged_binding = self.next_synthetic_binding();
+                        let fact = Self::join_facts(
+                            BindingFact::Unknown,
+                            Self::fact_in_snapshot(right, right_binding),
+                        );
+                        merged_scope.insert(name, merged_binding.clone());
+                        binding_facts.insert(merged_binding, fact);
+                    }
+                    (None, None) => unreachable!(),
+                }
+            }
+            scopes.push(merged_scope);
+        }
+        ResolverSnapshot {
+            scopes,
+            binding_facts,
+        }
+    }
+
+    fn join_facts(left: BindingFact, right: BindingFact) -> BindingFact {
+        if left == right {
+            left
+        } else {
+            BindingFact::Unknown
+        }
+    }
+
+    fn fact_in_snapshot(snapshot: &ResolverSnapshot, binding: &BindingId) -> BindingFact {
+        snapshot
+            .binding_facts
+            .get(binding)
+            .copied()
+            .unwrap_or(BindingFact::Unknown)
+    }
+
+    fn bind_current_scope(&mut self, name: String, binding: BindingId) {
+        self.scopes
+            .last_mut()
+            .expect("resolver must always have a root scope")
+            .insert(name, binding);
+    }
+
+    fn binding_for_named_def(&mut self, name: &str, span: AstSpan) -> BindingId {
+        self.symbol_defs_by_span
+            .get(&(name.to_string(), span))
+            .copied()
+            .map(BindingId::Symbol)
+            .unwrap_or_else(|| self.next_synthetic_binding())
+    }
+
+    fn next_synthetic_binding(&mut self) -> BindingId {
+        let id = self.binding_gensym;
+        self.binding_gensym += 1;
+        BindingId::Synthetic(id)
+    }
+
+    fn lookup_binding(&self, name: &str) -> Option<BindingId> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).cloned())
+    }
+
+    fn lookup_outer_binding(&self, name: &str) -> Option<BindingId> {
+        if self.scopes.len() <= 1 {
+            return None;
+        }
+        self.scopes[..self.scopes.len() - 1]
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).cloned())
+    }
+
+    fn lookup_fact(&self, name: &str, _span: AstSpan, outer: bool) -> BindingFact {
+        let binding = if outer {
+            self.lookup_outer_binding(name)
+        } else {
+            self.lookup_binding(name)
+        };
+        binding
+            .as_ref()
+            .and_then(|binding| self.binding_facts.get(binding).copied())
+            .unwrap_or(BindingFact::Unknown)
+    }
+
+    fn set_binding_fact(&mut self, binding: &BindingId, fact: BindingFact) {
+        self.binding_facts.insert(binding.clone(), fact);
+    }
+
+    fn fact_from_ast(&self, node: &AstNode) -> BindingFact {
+        match node {
+            AstNode::Function { .. } => BindingFact::Callable,
+            AstNode::Cat(_) | AstNode::List(_) | AstNode::Dict(_) => BindingFact::Indexable,
+            AstNode::Literal(value, _) => Self::fact_from_value(value),
+            AstNode::Group { expr, .. } => self.fact_from_ast(expr),
+            AstNode::Variable(name, span) => self.lookup_fact(name, *span, false),
+            AstNode::OuterVariable(name, span) => self.lookup_fact(name, *span, true),
+            AstNode::CallName { name, .. } if Self::returns_atom_or_list(name) => {
+                BindingFact::Indexable
+            }
+            _ => BindingFact::Unknown,
+        }
+    }
+
+    fn fact_from_value(value: &Value) -> BindingFact {
+        match value {
+            Value::CompiledFunction(_) | Value::Closure(_) | Value::BuiltinFunction(_) => {
+                BindingFact::Callable
+            }
+            Value::List(_) | Value::Dict(_) => BindingFact::Indexable,
+            _ => BindingFact::Unknown,
+        }
+    }
+
+    fn apply_pipe_rhs(
+        right: AstNode,
+        input: AstNode,
+        insert_at_start: bool,
+        span: AstSpan,
+    ) -> AstNode {
+        let insert = |items: &mut Vec<AstNode>, input| {
+            if insert_at_start {
+                items.insert(0, input);
+            } else {
+                items.push(input);
+            }
+        };
+
+        match right {
+            AstNode::Variable(name, var_span) => {
+                let new_span = match (span, var_span) {
+                    (None, None) => None,
+                    _ => {
+                        let name_start = var_span
+                            .map(|s| s.0)
+                            .unwrap_or_else(|| span.map(|s| s.0).unwrap_or(0));
+                        let name_end = span.map(|s| s.1).unwrap_or(name_start);
+                        Some((name_start, name_end))
+                    }
+                };
+                AstNode::Postfix {
+                    object: Box::new(AstNode::Variable(name, var_span)),
+                    items: vec![input],
+                    explicit_call: false,
+                    span: new_span,
+                }
+            }
+            AstNode::Function { params, body } => AstNode::CallAnonymous {
+                object: Box::new(AstNode::Function { params, body }),
+                args: vec![input],
+                span,
+            },
+            AstNode::CallName {
+                name,
+                mut args,
+                span: effect_span,
+                name_span,
+            } => {
+                insert(&mut args, input);
+                let new_span = match (span, effect_span) {
+                    (None, None) => None,
+                    _ => {
+                        let name_start = effect_span
+                            .map(|s| s.0)
+                            .unwrap_or_else(|| span.map(|s| s.0).unwrap_or(0));
+                        let name_end = span.map(|s| s.1).unwrap_or(name_start);
+                        Some((name_start, name_end))
+                    }
+                };
+                AstNode::CallName {
+                    name,
+                    args,
+                    span: new_span,
+                    name_span,
+                }
+            }
+            AstNode::CallAnonymous {
+                object,
+                mut args,
+                span: effect_span,
+                ..
+            } => {
+                insert(&mut args, input);
+                let new_span = match (span, effect_span) {
+                    (None, None) => None,
+                    _ => {
+                        let name_start = effect_span
+                            .map(|s| s.0)
+                            .unwrap_or_else(|| span.map(|s| s.0).unwrap_or(0));
+                        let name_end = span.map(|s| s.1).unwrap_or(name_start);
+                        Some((name_start, name_end))
+                    }
+                };
+                AstNode::CallAnonymous {
+                    object,
+                    args,
+                    span: new_span,
+                }
+            }
+            AstNode::Postfix {
+                object,
+                mut items,
+                explicit_call: _,
+                span: effect_span,
+                ..
+            } => {
+                insert(&mut items, input);
+                let new_span = match (span, effect_span) {
+                    (None, None) => None,
+                    _ => {
+                        let name_start = if let AstNode::Variable(_, var_span) = object.as_ref() {
+                            var_span
+                                .map(|s| s.0)
+                                .unwrap_or_else(|| effect_span.map(|s| s.0).unwrap_or(0))
+                        } else {
+                            effect_span.map(|s| s.0).unwrap_or(0)
+                        };
+                        let name_end = span.map(|s| s.1).unwrap_or(name_start);
+                        Some((name_start, name_end))
+                    }
+                };
+                AstNode::Postfix {
+                    object,
+                    items,
+                    explicit_call: false,
+                    span: new_span,
+                }
+            }
+            AstNode::Pause { .. }
+            | AstNode::Break
+            | AstNode::Continue
+            | AstNode::Return(_)
+            | AstNode::Assert { .. }
+            | AstNode::Debug { .. }
+            | AstNode::Try(_) => Self::pipe_effect_rhs(right, input, span),
+            _ => AstNode::Postfix {
+                object: Box::new(right),
+                items: vec![input],
+                explicit_call: false,
+                span,
+            },
+        }
+    }
+
+    fn pipe_effect_rhs(effect: AstNode, input: AstNode, span: AstSpan) -> AstNode {
+        match effect {
+            AstNode::Return(None) => AstNode::Return(Some(Box::new(input))),
+            effect => AstNode::PipeTap {
+                input: Box::new(input),
+                effect: Box::new(effect),
+                span,
+            },
+        }
+    }
+}
+
+impl Default for Resolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Collect bound variable names from an unpack-assignment lhs.
+/// Each entry is `(position, name)`. For nested lists the outer
+/// position is used so that dependency checks work correctly.
+fn collect_bound_names(items: &[AstNode]) -> Vec<(usize, String)> {
+    let mut names = Vec::new();
+    for (i, item) in items.iter().enumerate() {
+        match item {
+            AstNode::Variable(name, _) if name != "_" => {
+                names.push((i, name.clone()));
+            }
+            AstNode::List(inner) => {
+                for (_, inner_name) in collect_bound_names(inner) {
+                    names.push((i, inner_name));
+                }
+            }
+            _ => {}
+        }
+    }
+    names
+}
+
+/// Return `true` if `node` contains a reference to any variable whose name
+/// is in `vars`.
+fn expr_uses_vars(node: &AstNode, vars: &HashSet<&str>) -> bool {
+    match node {
+        AstNode::Variable(name, _) | AstNode::OuterVariable(name, _) => {
+            vars.contains(name.as_str())
+        }
+        AstNode::BinaryOp { left, right, .. } => {
+            expr_uses_vars(left, vars) || expr_uses_vars(right, vars)
+        }
+        AstNode::ComparisonChain { first, rest } => {
+            expr_uses_vars(first, vars) || rest.iter().any(|(_, n)| expr_uses_vars(n, vars))
+        }
+        AstNode::UnaryOp { operand, .. } => expr_uses_vars(operand, vars),
+        AstNode::Group { expr, .. } => expr_uses_vars(expr, vars),
+        AstNode::Range {
+            start, end, step, ..
+        } => {
+            expr_uses_vars(start, vars)
+                || expr_uses_vars(end, vars)
+                || step.as_ref().is_some_and(|s| expr_uses_vars(s, vars))
+        }
+        AstNode::Assignment { value, .. } | AstNode::OuterAssignment { value, .. } => {
+            expr_uses_vars(value, vars)
+        }
+        AstNode::Cat(items) | AstNode::List(items) => {
+            items.iter().any(|item| expr_uses_vars(item, vars))
+        }
+        AstNode::Dict(pairs) => pairs.iter().any(|(_, v)| expr_uses_vars(v, vars)),
+        AstNode::Postfix { object, items, .. } => {
+            expr_uses_vars(object, vars) || items.iter().any(|item| expr_uses_vars(item, vars))
+        }
+        AstNode::Pipe { input, effect, .. } => {
+            expr_uses_vars(input, vars) || expr_uses_vars(effect, vars)
+        }
+        AstNode::PipeTap { input, effect, .. } => {
+            expr_uses_vars(input, vars) || expr_uses_vars(effect, vars)
+        }
+        AstNode::CallName { args, .. } => args.iter().any(|arg| expr_uses_vars(arg, vars)),
+        AstNode::CallAnonymous { object, args, .. } => {
+            expr_uses_vars(object, vars) || args.iter().any(|arg| expr_uses_vars(arg, vars))
+        }
+        AstNode::Index { object, index, .. } => {
+            expr_uses_vars(object, vars) || expr_uses_vars(index, vars)
+        }
+        AstNode::IndexAssign {
+            object,
+            index,
+            value,
+            ..
+        } => {
+            expr_uses_vars(object, vars)
+                || expr_uses_vars(index, vars)
+                || expr_uses_vars(value, vars)
+        }
+        AstNode::Function { body, .. } => expr_uses_vars(body, vars),
+        AstNode::Conditional {
+            condition,
+            true_branch,
+            false_branch,
+            ..
+        } => {
+            expr_uses_vars(condition, vars)
+                || expr_uses_vars(true_branch, vars)
+                || false_branch
+                    .as_ref()
+                    .is_some_and(|b| expr_uses_vars(b, vars))
+        }
+        AstNode::ConditionalDot {
+            condition,
+            true_branch,
+            ..
+        } => expr_uses_vars(condition, vars) || expr_uses_vars(true_branch, vars),
+        AstNode::ConditionalChain {
+            pairs,
+            default_branch,
+            ..
+        } => {
+            pairs
+                .iter()
+                .any(|(cond, branch)| expr_uses_vars(cond, vars) || expr_uses_vars(branch, vars))
+                || expr_uses_vars(default_branch, vars)
+        }
+        AstNode::WLoop {
+            condition, body, ..
+        } => expr_uses_vars(condition, vars) || expr_uses_vars(body, vars),
+        AstNode::NLoop { count, body, .. } => {
+            expr_uses_vars(count, vars) || expr_uses_vars(body, vars)
+        }
+        AstNode::Return(expr) => expr.as_ref().is_some_and(|e| expr_uses_vars(e, vars)),
+        AstNode::Assert { expr, .. } | AstNode::Debug { expr, .. } => expr_uses_vars(expr, vars),
+        AstNode::Try(expr) => expr_uses_vars(expr, vars),
+        AstNode::Block(items) | AstNode::BlockExpr(items, ..) => {
+            items.iter().any(|item| expr_uses_vars(item, vars))
+        }
+        AstNode::FString { parts, .. } => parts.iter().any(|p| match p {
+            crate::astnode::FStringPart::Text(_) => false,
+            crate::astnode::FStringPart::Expr {
+                expr, spec_exprs, ..
+            } => expr_uses_vars(expr, vars) || spec_exprs.iter().any(|e| expr_uses_vars(e, vars)),
+        }),
+        AstNode::UnpackAssignment { lhs, rhs, .. } => {
+            lhs.iter().any(|item| expr_uses_vars(item, vars)) || expr_uses_vars(rhs, vars)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+    use crate::vm::GlobalMap;
+
+    fn resolve_src(src: &str) -> AstNode {
+        let tokens = Lexer::new(src).tokenize().expect("tokenize");
+        let mut parser = Parser::new_with_builtins(tokens, src.to_string(), Builtins::new());
+        let ast = parser.parse().expect("parse");
+        Resolver::with_builtins(Builtins::new()).resolve(ast)
+    }
+
+    fn resolve_src_with_env(src: &str, env: GlobalMap) -> AstNode {
+        let tokens = Lexer::new(src).tokenize().expect("tokenize");
+        let mut parser = Parser::new_with_builtins(tokens, src.to_string(), Builtins::new());
+        let ast = parser.parse().expect("parse");
+        Resolver::from_env(env, Builtins::new()).resolve(ast)
+    }
+
+    fn stmt(ast: &AstNode, idx: usize) -> &AstNode {
+        match ast {
+            AstNode::Block(stmts) => &stmts[idx],
+            other => panic!("expected block, got {other:?}"),
+        }
+    }
+
+    fn contains_call_name(node: &AstNode, target: &str) -> bool {
+        match node {
+            AstNode::CallName { name, args, .. } => {
+                name == target || args.iter().any(|arg| contains_call_name(arg, target))
+            }
+            AstNode::CallAnonymous { object, args, .. } => {
+                contains_call_name(object, target)
+                    || args.iter().any(|arg| contains_call_name(arg, target))
+            }
+            AstNode::Assignment { value, .. }
+            | AstNode::OuterAssignment { value, .. }
+            | AstNode::Debug { expr: value, .. }
+            | AstNode::Assert { expr: value, .. } => contains_call_name(value, target),
+            AstNode::Postfix { object, items, .. } => {
+                contains_call_name(object, target)
+                    || items.iter().any(|item| contains_call_name(item, target))
+            }
+            AstNode::Index { object, index, .. } | AstNode::MutatingIndex { object, index, .. } => {
+                contains_call_name(object, target) || contains_call_name(index, target)
+            }
+            AstNode::IndexAssign {
+                object,
+                index,
+                value,
+                ..
+            }
+            | AstNode::MutatingIndexAssign {
+                object,
+                index,
+                value,
+                ..
+            } => {
+                contains_call_name(object, target)
+                    || contains_call_name(index, target)
+                    || contains_call_name(value, target)
+            }
+            AstNode::BinaryOp { left, right, .. } => {
+                contains_call_name(left, target) || contains_call_name(right, target)
+            }
+            AstNode::ComparisonChain { first, rest } => {
+                contains_call_name(first, target)
+                    || rest
+                        .iter()
+                        .any(|(_, node)| contains_call_name(node, target))
+            }
+            AstNode::UnaryOp { operand, .. }
+            | AstNode::Group { expr: operand, .. }
+            | AstNode::Try(operand) => contains_call_name(operand, target),
+            AstNode::Range {
+                start, end, step, ..
+            } => {
+                contains_call_name(start, target)
+                    || contains_call_name(end, target)
+                    || step
+                        .as_ref()
+                        .is_some_and(|step| contains_call_name(step, target))
+            }
+            AstNode::Cat(items) | AstNode::List(items) | AstNode::Block(items) => {
+                items.iter().any(|item| contains_call_name(item, target))
+            }
+            AstNode::BlockExpr(items, _) => {
+                items.iter().any(|item| contains_call_name(item, target))
+            }
+            AstNode::Dict(pairs) => pairs
+                .iter()
+                .any(|(_, value)| contains_call_name(value, target)),
+            AstNode::Function { body, .. }
+            | AstNode::WLoop { body, .. }
+            | AstNode::NLoop { body, .. } => contains_call_name(body, target),
+            AstNode::Conditional {
+                condition,
+                true_branch,
+                false_branch,
+                ..
+            } => {
+                contains_call_name(condition, target)
+                    || contains_call_name(true_branch, target)
+                    || false_branch
+                        .as_ref()
+                        .is_some_and(|branch| contains_call_name(branch, target))
+            }
+            AstNode::ConditionalDot {
+                condition,
+                true_branch,
+                ..
+            } => contains_call_name(condition, target) || contains_call_name(true_branch, target),
+            AstNode::ConditionalChain {
+                pairs,
+                default_branch,
+                ..
+            } => {
+                pairs.iter().any(|(condition, branch)| {
+                    contains_call_name(condition, target) || contains_call_name(branch, target)
+                }) || contains_call_name(default_branch, target)
+            }
+            AstNode::Pipe { input, effect, .. } | AstNode::PipeTap { input, effect, .. } => {
+                contains_call_name(input, target) || contains_call_name(effect, target)
+            }
+            AstNode::Return(expr) => expr
+                .as_ref()
+                .is_some_and(|expr| contains_call_name(expr, target)),
+            AstNode::FString { parts, .. } => parts.iter().any(|part| match part {
+                crate::astnode::FStringPart::Text(_) => false,
+                crate::astnode::FStringPart::Expr {
+                    expr, spec_exprs, ..
+                } => {
+                    contains_call_name(expr, target)
+                        || spec_exprs
+                            .iter()
+                            .any(|expr| contains_call_name(expr, target))
+                }
+            }),
+            AstNode::UnpackAssignment { lhs, rhs, .. } => {
+                lhs.iter().any(|item| contains_call_name(item, target))
+                    || contains_call_name(rhs, target)
+            }
+            AstNode::NamedArg { value, .. } => contains_call_name(value, target),
+            AstNode::Literal(..)
+            | AstNode::Variable(..)
+            | AstNode::OuterVariable(..)
+            | AstNode::Pause { .. }
+            | AstNode::PipeInput
+            | AstNode::Break
+            | AstNode::Continue
+            | AstNode::Ellipsis
+            | AstNode::Error(..)
+            | AstNode::Set(..) => false,
+        }
+    }
+
+    #[test]
+    fn indexable_alias_from_runtime_env_lowers_postfix_to_index() {
+        let mut env = GlobalMap::default();
+        env.insert(
+            "ys".into(),
+            Value::List(Arc::new(vec![Value::Int(1), Value::Int(2)])),
+        );
+        let ast = resolve_src_with_env("xs:ys; xs[0]", env);
+
+        match stmt(&ast, 1) {
+            AstNode::Index { object, index, .. } => {
+                assert!(matches!(object.as_ref(), AstNode::Variable(name, _) if name == "xs"));
+                assert!(matches!(index.as_ref(), AstNode::Literal(Value::Int(0), _)));
+            }
+            other => panic!("expected index lowering, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn index_lowering_preserves_postfix_span() {
+        let src = "xs:(1;2;3); xs[0]";
+        let ast = resolve_src(src);
+        let expected_start = src.find("xs[0]").expect("index source");
+        let expected = Some((expected_start, expected_start + "xs[0]".len()));
+
+        match stmt(&ast, 1) {
+            AstNode::Index { span, .. } => assert_eq!(*span, expected),
+            other => panic!("expected index lowering, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn function_local_rebinding_does_not_leak_to_outer_postfix() {
+        let ast = resolve_src("f:{x:(1;2)}; x[0]");
+
+        assert!(matches!(stmt(&ast, 1), AstNode::Postfix { .. }));
+    }
+
+    #[test]
+    fn branch_fact_conflict_keeps_postfix_dynamic() {
+        let ast = resolve_src("$[true;f:{x};f:(1;2)]; f[0]");
+
+        assert!(matches!(stmt(&ast, 1), AstNode::Postfix { .. }));
+    }
+
+    #[test]
+    fn named_function_recursion_lowers_to_call_name() {
+        let ast = resolve_src("fact:{[n]$[n=0;1;n*fact[n-1]]}");
+
+        assert!(contains_call_name(&ast, "fact"));
+    }
+}

@@ -1,6 +1,0 @@
-nsdec:{[path]KEY:132;BS:32
-  size:fsize path;fin:open path;dec:alloc size;pos:0;chunk:fread[fin;BS]
-  W[not unit? chunk;dec[pos..pos+#chunk]:bxor[chunk;KEY];pos:pos+#chunk;chunk:fread[fin;BS]]
-  fclose fin;dec|decode "sjis";
-}
-echo nsdec "tests/wq/data/hellosjis.dat"

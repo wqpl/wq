@@ -1,0 +1,8 @@
+name = "bt"
+source_glob = "hotchoco/bt/*.wq"
+exclude_marker = "//exclude"
+
+[[modes]]
+name = "print"
+flags = ["-p"]
+capture = "stdout+stderr"

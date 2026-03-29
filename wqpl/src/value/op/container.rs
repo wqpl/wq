@@ -1,0 +1,210 @@
+use std::sync::Arc;
+
+use crate::value::Value;
+
+impl Value {
+    pub(crate) fn cat(self, other: Value) -> Value {
+        // Fast path: if both sides are char-sequences (String, List<Char>, or Char),
+        // produce a unified String result. This also handles mixed String/List<Char>
+        // concatenation which would otherwise fall through to generic List arms.
+
+        if self.is_string_like() && other.is_string_like() {
+            if self.is_unit() && other.is_unit() {
+                return Value::unit();
+            }
+
+            let mut s = self.to_rust_string_with_note().expect("valid string");
+            s.push_str(&other.to_rust_string_with_note().expect("valid string"));
+            return Value::String(Arc::from(s));
+        }
+
+        match (self, other) {
+            (Value::IntList(mut a), Value::IntList(b)) => {
+                Arc::make_mut(&mut a).extend(b.iter().copied());
+                Value::IntList(a)
+            }
+            (Value::IntList(mut a), Value::Int(bv)) => {
+                Arc::make_mut(&mut a).push(bv);
+                Value::IntList(a)
+            }
+            (Value::Int(av), Value::IntList(b)) => {
+                let mut res = Vec::with_capacity(b.len() + 1);
+                res.push(av);
+                res.extend(b.iter().copied());
+                Value::IntList(Arc::new(res))
+            }
+            (Value::IntList(a), Value::List(b)) => {
+                let mut res: Vec<Value> = a.iter().copied().map(Value::Int).collect();
+                res.extend(b.iter().cloned());
+                Value::List(Arc::new(res))
+            }
+            (Value::List(mut a), Value::IntList(b)) => {
+                Arc::make_mut(&mut a).extend(b.iter().copied().map(Value::Int));
+                Value::List(a)
+            }
+            (Value::List(mut a), Value::List(b)) => {
+                Arc::make_mut(&mut a).extend(b.iter().cloned());
+                Value::List(a)
+            }
+            (Value::Set(mut a), Value::Set(b)) => {
+                Arc::make_mut(&mut a).extend(b.iter().cloned());
+                Value::Set(a)
+            }
+            (Value::Set(mut a), Value::List(b)) => {
+                Arc::make_mut(&mut a).extend(b.iter().cloned());
+                Value::Set(a)
+            }
+            (Value::Set(mut a), Value::IntList(b)) => {
+                Arc::make_mut(&mut a).extend(b.iter().copied().map(Value::Int));
+                Value::Set(a)
+            }
+            (Value::Set(mut a), b) => {
+                Arc::make_mut(&mut a).insert(b);
+                Value::Set(a)
+            }
+            (Value::List(mut a), Value::Set(b)) => {
+                Arc::make_mut(&mut a).extend(b.iter().cloned());
+                Value::List(a)
+            }
+            (Value::List(mut a), b) => {
+                Arc::make_mut(&mut a).push(b);
+                Value::List(a)
+            }
+            (Value::IntList(a), Value::Set(b)) => {
+                if b.iter().all(|v| matches!(v, Value::Int(_))) {
+                    let mut res = Vec::with_capacity(a.len() + b.len());
+                    res.extend(a.iter().copied());
+                    res.extend(b.iter().filter_map(|v| match v {
+                        Value::Int(i) => Some(*i),
+                        _ => None,
+                    }));
+                    Value::IntList(Arc::new(res))
+                } else {
+                    let mut res: Vec<Value> = a.iter().copied().map(Value::Int).collect();
+                    res.extend(b.iter().cloned());
+                    Value::List(Arc::new(res))
+                }
+            }
+            (Value::IntList(a), b) => {
+                let mut res: Vec<Value> = a.iter().copied().map(Value::Int).collect();
+                res.push(b);
+                Value::List(Arc::new(res))
+            }
+            (a, Value::List(b)) => {
+                let mut res = Vec::with_capacity(b.len() + 1);
+                res.push(a);
+                res.extend(b.iter().cloned());
+                Value::List(Arc::new(res))
+            }
+            (a, Value::IntList(b)) => {
+                let mut res = Vec::with_capacity(b.len() + 1);
+                res.push(a);
+                res.extend(b.iter().copied().map(Value::Int));
+                Value::List(Arc::new(res))
+            }
+            (a, Value::Set(mut b)) => {
+                Arc::make_mut(&mut b).shift_insert(0, a);
+                Value::Set(b)
+            }
+            (Value::Int(a), Value::Int(b)) => Value::IntList(Arc::new(vec![a, b])),
+            (a, b) => Value::List(Arc::new(vec![a, b])),
+        }
+    }
+
+    /// Concatenate many values at once, pre-allocating the target collection
+    /// based on total length rather than growing incrementally.
+    pub(crate) fn cat_many(values: Vec<Value>) -> Value {
+        if values.is_empty() {
+            return Value::unit();
+        }
+        if values.len() == 1 {
+            return values.into_iter().next().expect("len==1");
+        }
+
+        // All string-like: pre-allocate a single String buffer.
+        if values.iter().all(|v| v.is_string_like()) {
+            let strings: Vec<String> = values
+                .into_iter()
+                .filter_map(|v| v.to_rust_string_with_note().ok())
+                .collect();
+            let total_len: usize = strings.iter().map(|s| s.len()).sum();
+            let mut s = String::with_capacity(total_len);
+            for part in strings {
+                s.push_str(&part);
+            }
+            if s.is_empty() {
+                return Value::unit();
+            }
+            return Value::String(Arc::from(s));
+        }
+
+        // All Int / IntList: pre-allocate a single IntList.
+        if values
+            .iter()
+            .all(|v| matches!(v, Value::Int(_) | Value::IntList(_)))
+        {
+            let total_len: usize = values.iter().map(|v| v.len()).sum();
+            let mut res = Vec::with_capacity(total_len);
+            for v in values {
+                match v {
+                    Value::Int(i) => res.push(i),
+                    Value::IntList(l) => res.extend(l.iter().copied()),
+                    _ => unreachable!(),
+                }
+            }
+            return Value::IntList(Arc::new(res));
+        }
+
+        // All List / IntList / Set: pre-allocate a single List.
+        if values
+            .iter()
+            .all(|v| matches!(v, Value::List(_) | Value::IntList(_) | Value::Set(_)))
+        {
+            let total_len: usize = values.iter().map(|v| v.len()).sum();
+            let mut res: Vec<Value> = Vec::with_capacity(total_len);
+            for v in values {
+                match v {
+                    Value::List(l) => res.extend(l.iter().cloned()),
+                    Value::IntList(l) => res.extend(l.iter().copied().map(Value::Int)),
+                    Value::Set(s) => res.extend(s.iter().cloned()),
+                    _ => unreachable!(),
+                }
+            }
+            return Value::List(Arc::new(res));
+        }
+
+        // Fallback: fold using the existing cat logic.
+        values
+            .into_iter()
+            .reduce(|acc, v| acc.cat(v))
+            .unwrap_or_else(Value::unit)
+    }
+
+    pub(crate) fn flatten(&self) -> Vec<Value> {
+        let mut out = Vec::new();
+        let mut stack: Vec<&Value> = vec![self];
+        while let Some(cur) = stack.pop() {
+            match cur {
+                Value::List(items) => {
+                    // push in reverse to preserve original order
+                    for v in items.iter().rev() {
+                        stack.push(v);
+                    }
+                }
+                Value::String(s) => {
+                    out.extend(s.chars().map(Value::Char));
+                }
+                Value::IntList(items) => {
+                    out.extend(items.iter().copied().map(Value::Int));
+                }
+                Value::Set(items) => {
+                    for v in items.iter().rev() {
+                        stack.push(v);
+                    }
+                }
+                other => out.push(other.clone()),
+            }
+        }
+        out
+    }
+}

@@ -1,0 +1,2 @@
+buggy:{raise["wow"]}
+$[@t buggy[];"some";"none"]

@@ -1,0 +1,10 @@
+z:complex[1;2]
+echo (-1)^0.5
+echo sqrt(-1)
+echo ln(-1)
+echo z*complex[3;4]
+echo z^2
+echo sin z
+echo re z
+echo im z
+echo conj z

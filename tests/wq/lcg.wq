@@ -1,2 +1,0 @@
-lcg:{A:1664525;C:1013904223;M:4294967296;seed:42;out:alloc x;N[x;seed:(A*seed+C)%M;out[_n]:seed];out}
-echo lcg 4

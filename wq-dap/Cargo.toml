@@ -1,0 +1,11 @@
+[package]
+name = "wq-dap"
+version.workspace = true
+edition = "2024"
+license = "MIT"
+description = "wq's internal fork of `emmy_dap_types`"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+thiserror = "1.*"

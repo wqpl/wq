@@ -1,0 +1,59 @@
+# Must-dos
+
+- Use `cargo run -p wq-cli -- --help` to understand CLI usage
+  - eg. `cargo run -p wq-cli -- exec 'inline code' -d ast,inst -p`
+- Read `e/*.wq`, `lexer.rs`, `parser.rs` to understand wq grammar
+  - `lhs:rhs` is assignment
+  - `a=b` is equality
+  - call/index is `target[expr1;expr2...]`. Notice the brackets and semicolons
+  - `+` is broadcasting add
+  - binary `,` is cat
+  - leading `,` is enlist
+  - `|` is pipe, which inserts lhs as the first arg to a rhs call
+  - `\` or `bor[...]` (backslash) is bitwise or.
+  - `\|` (backslash pipe) is short-circuit bool or.
+  - `or[...]` is eager bool or.
+  - `(1)` is not a list. It is simply atom `1`
+  - `@r expr` is return
+  - `@s <expr>` creates a symbolic CAS structure.
+    - After using `@s` to create one, apply operations directly instead of stacking `@s`.
+      - e.g. `diff integrate @s 1/(x^3-2)`
+    - A bare `x^3-2` without `@s` is evaluation and is not related to CAS.
+  - postfix binds tighter than operators, `echo 1+2` <=> `(echo 1)+2` => prints `1`, evals to `()/*unit*/+2` => evals to `2`. Does not evaluate to `3` and print `3`.
+- Ensure `cargo clippy -- -D warnings` passes.
+  - You are not allowed to use `#[allow(...)]` to pass clippy.
+    - An exception is dead code, where you are allowed to use `#[allow(...)]` instead of deleting it
+  - If you can't pass clippy by fixing code for any reason, you must ask the user whether it's fine to use `#[allow(...)]`
+  - If you find passing clippy requiring a large-scope edit, pause and ask the user.
+- Do not run formatting commands.
+- Delevopment should be test-driven. Choose between unit tests and snapshot tests depending on situation.
+  - Integration/snapshot tests use `hotchoco.py`.
+    - This tests semantics, formatter, backtraces, etc.
+    - `python hotchoco.py run`, when you touched:
+      - lexer/parser/compiler/vm/interpreter
+      - anything that affected semantics
+    - If a new major module is added, you may create a new test config for it.
+    - Important: You need to build the CLI before running the suite
+  - Key commands: `python hotchoco.py run`, `python hotchoco.py show --no-pager`, `python hotchoco.py accept`.
+  - See `python hotchoco.py --help` for details.
+- Do not commit unless the user explicitly asks for it.
+  - If the user asks for it, commit your changes according to the commit message requirements in `CONTRIBUTING.md`.
+- Unless the user explicitly requested, you are not allowed to build/run with `release` profile.
+- You are not allowed to use `awd` or `sed` to edit the codebase.
+- prohibited without explicit user permission:
+  - Python/Perl... scripts (especially regex-based replacements) for batch editing
+  - `sed`, `awk`, or any similar text-processing utilities for code changes
+  - `git checkout`, `git restore`, `git reset`, or any other destructive git mutations
+  - `cargo clean`, or any other destructive cargo commands
+  - Any cargo commands that trigger a complete rebuild
+  - `rm` or any file deletion commands, except `trash`
+- Preferred approach: Make edits manually, one precise change at a time. If batch editing is unavoidable, ask the user for permission first.
+  - When performing a batch edit, you must back up the target files first (eg. copy it as `.bak`) so it can be restored without git operations.
+- When you are not sure of the user's intent, prefer asking the user instead of guessing.
+- Avoid `panic!` outside tests. Prefer `unreachable!` or `debug_assert!` instead.
+- Avoid `unwrap()`. Prefer `expect()`.
+- Use `a.rs + a/` instead of `a/mod.rs` for modules with submodules.
+  - Prefer no modifiers (i.e., private) over `pub(super)`.
+  - Prefer `pub(super)` over `pub(crate)`.
+  - Prefer `pub(crate)` over `pub`.
+  - Avoid `pub` if it is not intended to be public API.

@@ -1,0 +1,1326 @@
+use std::sync::Arc;
+
+use num_bigint::BigInt;
+use num_traits::{One, Signed, ToPrimitive, Zero};
+
+use crate::session::dbglog::DebugLogFlags;
+use crate::value::{Value, WqResult};
+
+use super::{
+    cas_err, cas_product, collect_single_poly_var, ensure_expr_arg, eval_exact_numeric_div,
+    eval_numeric_binary, eval_numeric_binary_gcd, eval_numeric_call, extract_algebraic_content,
+    factor_expr, numeric_is_negative, numeric_is_one,
+    numeric_is_zero, poly_add, poly_degree, poly_divide, poly_from_expr, poly_gcd, poly_is_zero,
+    poly_mul, poly_to_expr, poly_trim, sort_canonical, split_off_results, square_free_factor,
+    try_cancel_affine_over_factor, try_eval_with_const_resolve, try_exact_polynomial_division,
+};
+use super::rewrite::push_flattened;
+
+/// Stack frame for iterative simplify.
+enum SimplifyFrame {
+    Expr(Value),
+    Add(usize),
+    Mul(usize),
+    Pow,
+    Div,
+    Neg,
+    Sub,
+    Call { name: String, n: usize },
+    Eq,
+}
+
+pub(super) fn cas_neg(arg: Value) -> WqResult<Value> {
+    cas_mul(vec![Value::Int(-1), arg])
+}
+
+pub(super) fn cas_sub(lhs: Value, rhs: Value) -> WqResult<Value> {
+    cas_add(vec![lhs, cas_neg(rhs)?])
+}
+
+pub(crate) fn cas_div(lhs: Value, rhs: Value) -> WqResult<Value> {
+    cas_trace!(DebugLogFlags::CAS, "[cas_div] {lhs} / {rhs}");
+    let lhs = simplify_cas_value(&lhs)?;
+    let rhs = simplify_cas_value(&rhs)?;
+    if !lhs.is_cas_expr() && !rhs.is_cas_expr() {
+        return eval_exact_numeric_div(&lhs, &rhs);
+    }
+    if let Some(quotient) = try_exact_polynomial_division(&lhs, &rhs)? {
+        return Ok(quotient);
+    }
+    if let Some(cancelled) = try_cancel_affine_over_factor(&lhs, &rhs)? {
+        return Ok(cancelled);
+    }
+    if !rhs.is_cas_expr() {
+        let factored = factor_expr(&lhs)?;
+        if let Some(("*", args)) = factored.cas_op_parts() {
+            let mut numeric = Value::Int(1);
+            let mut symbolic = Vec::new();
+            for arg in args {
+                if !arg.is_cas_expr() {
+                    numeric = eval_numeric_binary("*", &numeric, arg)?;
+                } else {
+                    symbolic.push(arg.clone());
+                }
+            }
+            if let Ok(new_numeric) = eval_exact_numeric_div(&numeric, &rhs) {
+                if numeric_is_one(&new_numeric) && symbolic.len() == 1 {
+                    return Ok(symbolic.into_iter().next().unwrap());
+                }
+                let mut out = Vec::new();
+                if !numeric_is_one(&new_numeric) {
+                    out.push(new_numeric);
+                }
+                out.extend(symbolic);
+                return cas_mul(out);
+            }
+        }
+    }
+    // Try simplifying: C / (A*S + B) = (C/A) / (S + B/A)
+    // This clears nested radicals when A involves a reciprocal.
+    // Only apply when A is not a trivial integer (avoid rewriting 1/(1-x^2)).
+    if let Some(("+", add_args)) = rhs.cas_op_parts()
+        && add_args.len() == 2
+    {
+        for (i, j) in [(0, 1), (1, 0)] {
+            let const_term = &add_args[i];
+            let other = &add_args[j];
+            if !const_term.is_cas_expr()
+                && let Some(("*", mul_args)) = other.cas_op_parts()
+                && let Some((first_mul, rest_mul)) = mul_args.split_first()
+                && !first_mul.is_cas_expr()
+            {
+                // Skip trivial integer coefficients (-1, 1, etc.)
+                let is_trivial_int = matches!(first_mul, Value::Int(n) if *n == 1 || *n == -1);
+                if !is_trivial_int {
+                    let a = first_mul;
+                    let s = if rest_mul.len() == 1 {
+                        rest_mul[0].clone()
+                    } else {
+                        Value::from_cas_op("*", rest_mul.to_vec())
+                    };
+                    let b = const_term;
+                    let new_lhs = cas_div(lhs, a.clone())?;
+                    let new_rhs_second = cas_div(b.clone(), a.clone())?;
+                    let new_rhs = cas_add(vec![s, new_rhs_second])?;
+                    return cas_div(new_lhs, new_rhs);
+                }
+            }
+        }
+    }
+    if !rhs.is_cas_expr() {
+        let recip = eval_exact_numeric_div(&Value::Int(1), &rhs)?;
+        cas_mul(vec![lhs, recip])
+    } else {
+        cas_mul(vec![lhs, cas_pow(rhs, Value::Int(-1))?])
+    }
+}
+
+/// Find the greatest common numeric divisor of all terms in a sum.
+/// Each term is assumed to be in the form `coeff * core` from `split_add_term`.
+/// Returns None if no common factor > 1 exists.
+pub(super) fn common_numeric_gcd(terms: &[Value]) -> Option<Value> {
+    let mut common: Option<Value> = None;
+    for term in terms {
+        let (coeff, _) = split_add_term(term);
+        if numeric_is_zero(&coeff) {
+            continue;
+        }
+        let abs = if numeric_is_negative(&coeff) {
+            eval_numeric_binary("*", &coeff, &Value::Int(-1)).ok()?
+        } else {
+            coeff.clone()
+        };
+        common = Some(match common.take() {
+            None => abs,
+            Some(prev) => eval_numeric_binary_gcd(&prev, &abs).unwrap_or_else(|_| Value::Int(1)),
+        });
+    }
+    common.filter(|c| !numeric_is_one(c) && !numeric_is_zero(c))
+}
+
+pub(super) fn split_add_term(term: &Value) -> (Value, Option<Value>) {
+    // Pure numeric term (Int, BigInt, Fraction) → no symbolic core
+    if !term.is_cas_expr() && !term.is_algebraic_number() {
+        return (term.clone(), None);
+    }
+    // Standalone Algebraic value: extract rational content as coefficient,
+    // keep the primitive algebraic as core.
+    if let Value::Algebraic(a) = term {
+        let content = extract_algebraic_content(a);
+        if numeric_is_one(&content) {
+            return (Value::Int(1), Some(term.clone()));
+        }
+        if let Ok(reduced) = cas_div(term.clone(), content.clone()) {
+            return (content, Some(reduced));
+        }
+        return (content, None);
+    }
+    // Product (* a b ...): first non-CAS scalar factor becomes the coefficient.
+    if let Some(("*", args)) = term.cas_op_parts()
+        && let Some((first, rest)) = args.split_first()
+        && !first.is_cas_expr()
+    {
+        // If the first factor is Algebraic, peel off its rational content
+        if let Value::Algebraic(a) = first {
+            let content = extract_algebraic_content(a);
+            if !numeric_is_one(&content)
+                && let Ok(reduced) = cas_div(first.clone(), content.clone())
+            {
+                let mut new_args = vec![reduced];
+                new_args.extend(rest.iter().cloned());
+                let core = Value::from_cas_op("*", new_args);
+                return (content, Some(core));
+            }
+        }
+        let core = match rest {
+            [] => None,
+            [single] => Some(single.clone()),
+            _ => Some(Value::from_cas_op("*", rest.to_vec())),
+        };
+        return (first.clone(), core);
+    }
+    // All other cases (+, ^, Call, etc.): the whole expression is the core.
+    (Value::Int(1), Some(term.clone()))
+}
+
+pub(super) fn rebuild_scaled_term(coeff: Value, core: Option<Value>) -> WqResult<Value> {
+    match core {
+        None => Ok(coeff),
+        Some(core) if numeric_is_one(&coeff) => Ok(core),
+        Some(core) => cas_mul(vec![coeff, core]),
+    }
+}
+
+pub(super) fn split_mul_factor(factor: &Value) -> (Value, Value) {
+    if let Some(("^", [base, exp])) = factor.cas_op_parts() {
+        return (base.clone(), exp.clone());
+    }
+    (factor.clone(), Value::Int(1))
+}
+
+/// Combine rational terms sharing the same polynomial variable.
+/// Input: `grouped` after rational core normalization.
+/// Terms with core `(^ D -1)` (i.e. `1/D`) where D is polynomial in some var
+/// are combined into `(∑ Nᵢ·∏_{j≠i} Dⱼ) / (∏ Dᵢ)`.
+fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
+    use std::collections::HashMap;
+    // Separate rational terms (core = (^ D -1)) by variable
+    let mut rational_by_var: HashMap<String, Vec<(Value, Value)>> = HashMap::new();
+    let mut keep = Vec::new();
+    for (core, coeff) in grouped.drain(..) {
+        // Single (^ D -1) core
+        if let Some(("^", [d, e])) = core.cas_op_parts()
+            && e.exact_int_is(-1)
+        {
+            let mut var: Option<String> = None;
+            if collect_single_poly_var(d, &mut var)
+                && let Some(ref v) = var
+                && let Ok(d_poly) = poly_from_expr(d, v)
+                && poly_degree(&d_poly) >= 1
+                && coeff_ok_in_var(&coeff, v)
+            {
+                rational_by_var
+                    .entry(v.clone())
+                    .or_default()
+                    .push((d.clone(), coeff));
+                continue;
+            }
+            keep.push((core, coeff));
+            continue;
+        }
+        // Multi-factor core: (* (^ D1 -1) (^ D2 -1) …)
+        if let Some(("*", args)) = core.cas_op_parts()
+            && args.iter().all(|a| {
+                a.cas_op_parts()
+                    .is_some_and(|(op, a2)| op == "^" && a2.len() == 2 && a2[1].exact_int_is(-1))
+            })
+            && args.len() >= 2
+        {
+            let mut var: Option<String> = None;
+            let mut ok = true;
+            for arg in args.iter() {
+                if let Some(("^", [d, _])) = arg.cas_op_parts()
+                    && !collect_single_poly_var(d, &mut var)
+                {
+                    ok = false;
+                    break;
+                }
+            }
+            if ok
+                && let Some(ref v) = var
+                && coeff_ok_in_var(&coeff, v)
+            {
+                // Merge denominators into one: D = (* D1 D2 …)
+                let mut d_parts = Vec::with_capacity(args.len());
+                for arg in args.iter() {
+                    if let Some(("^", [d, _])) = arg.cas_op_parts() {
+                        d_parts.push(d.clone());
+                    }
+                }
+                let d = cas_product(d_parts);
+                rational_by_var
+                    .entry(v.clone())
+                    .or_default()
+                    .push((d, coeff));
+                continue;
+            }
+        }
+        keep.push((core, coeff));
+    }
+
+    // Combine each variable group
+    for (var, terms) in rational_by_var {
+        if terms.len() < 2 {
+            for (d, coeff) in terms {
+                keep.push((Value::from_cas_op("^", vec![d, Value::Int(-1)]), coeff));
+            }
+            continue;
+        }
+
+        // Convert to polynomials.  Reconstruct each rational term N/D,
+        // simplify it to give cas_mul a chance to merge matching powers
+        // (e.g. two half-powers → integer power), then re-extract the
+        // numerator and denominator.
+        let mut d_polys: Vec<Vec<Value>> = Vec::with_capacity(terms.len());
+        let mut n_polys: Vec<Vec<Value>> = Vec::with_capacity(terms.len());
+        let mut succeeded = Vec::with_capacity(terms.len());
+        for (i, (d, n)) in terms.iter().enumerate() {
+            let d_poly = poly_from_expr(d, &var).unwrap_or_else(|_| vec![Value::Int(1)]);
+            match poly_from_expr(n, &var) {
+                Ok(p) => {
+                    d_polys.push(d_poly);
+                    n_polys.push(p);
+                    succeeded.push(i);
+                }
+                Err(_) => {
+                    keep.push((
+                        Value::from_cas_op("^", vec![d.clone(), Value::Int(-1)]),
+                        n.clone(),
+                    ));
+                }
+            }
+        }
+        if d_polys.len() < 2 {
+            for i in succeeded {
+                let (d, n) = &terms[i];
+                keep.push((
+                    Value::from_cas_op("^", vec![d.clone(), Value::Int(-1)]),
+                    n.clone(),
+                ));
+            }
+            continue;
+        }
+
+        // Common denominator: ∏ Dᵢ
+        let mut d_common = vec![Value::Int(1)];
+        for d_poly in &d_polys {
+            d_common = poly_mul(&d_common, d_poly)?;
+        }
+
+        // Combined numerator: ∑ (Nᵢ · ∏_{j≠i} Dⱼ)
+        let mut n_common = vec![Value::Int(0)];
+        for (i, n_poly) in n_polys.iter().enumerate() {
+            let mut other_d = vec![Value::Int(1)];
+            for (j, d_poly) in d_polys.iter().enumerate() {
+                if i != j {
+                    other_d = poly_mul(&other_d, d_poly)?;
+                }
+            }
+            let term_num = poly_mul(n_poly, &other_d)?;
+            n_common = poly_add(&n_common, &term_num)?;
+        }
+
+        // Cancel a common scalar factor: if N is constant c ≠ 0,1 and every
+        // coefficient of D is divisible by c, cancel c from both sides.
+        // This handles cases like (∜2²/2) / (∜2²·(x⁴/2 − 1)) → 1/(x⁴−2).
+        if poly_degree(&n_common) == 0 && poly_degree(&d_common) >= 1 {
+            let n_const = &n_common[0];
+            if !numeric_is_one(n_const) && !numeric_is_zero(n_const) {
+                let mut can_cancel = true;
+                let mut new_d = Vec::with_capacity(d_common.len());
+                for c in d_common.iter() {
+                    if numeric_is_zero(c) {
+                        new_d.push(Value::Int(0));
+                    } else if let Ok(q) = eval_exact_numeric_div(c, n_const) {
+                        new_d.push(q);
+                    } else {
+                        can_cancel = false;
+                        break;
+                    }
+                }
+                if can_cancel {
+                    n_common = vec![Value::Int(1)];
+                    d_common = new_d;
+                }
+            }
+        }
+
+        // Cancel a common polynomial factor via poly_gcd.  This handles cases
+        // like (4x²+4∛2x+4∛2²) / (4x⁵+…−8∛2²) → 1/(x³−2) where numerator
+        // and denominator share a non-trivial polynomial factor.
+        if poly_degree(&n_common) >= 1 && poly_degree(&d_common) >= 1 {
+            let g = poly_gcd(&n_common, &d_common)?;
+            if poly_degree(&g) >= 1 {
+                let (q_n, r_n) = poly_divide(&n_common, &g)?;
+                let (q_d, r_d) = poly_divide(&d_common, &g)?;
+                if poly_is_zero(&r_n) && poly_is_zero(&r_d) {
+                    n_common = q_n;
+                    d_common = q_d;
+                }
+            }
+        }
+
+        // Build combined expression: N/D
+        let n_expr = poly_to_expr(&n_common, &var)?;
+        let d_expr = poly_to_expr(&d_common, &var)?;
+        let combined = cas_div(n_expr, d_expr)?;
+
+        // Decompose back to (core, coeff) for cas_add output
+        let (coeff, core_opt) = split_add_term(&combined);
+        match core_opt {
+            Some(core) => keep.push((core, coeff)),
+            None => {
+                // Pure constant — wrap so rebuild_scaled_term(c, Some(1)) = c*1 = c
+                keep.push((Value::Int(1), coeff));
+            }
+        }
+    }
+
+    *grouped = keep;
+    Ok(())
+}
+
+/// Combine log terms with matching prefactors: c·ln|A| + (-c)·ln|B| →
+/// c·ln|A/B|.
+fn combine_log_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
+    let mut i: isize = 0;
+    while i < grouped.len() as isize {
+        let (core_i, coeff_i) = (&grouped[i as usize].0, grouped[i as usize].1.clone());
+        let (pref_i, arg_i) = match extract_ln_abs_pref(core_i) {
+            Some(p) => p,
+            None => {
+                i += 1;
+                continue;
+            }
+        };
+
+        let neg_coeff_i = eval_numeric_binary("*", &coeff_i, &Value::Int(-1))?;
+        let mut found = false;
+        let mut j = i + 1;
+        while j < grouped.len() as isize {
+            let (core_j, coeff_j) = (&grouped[j as usize].0, grouped[j as usize].1.clone());
+            if coeff_j == neg_coeff_i
+                && let Some((pref_j, arg_j)) = extract_ln_abs_pref(core_j)
+                && pref_i == pref_j
+            {
+                // Combine: coeff_i * pref * ln|arg_i/arg_j|
+                let ratio = cas_div(arg_i.clone(), arg_j.clone())?;
+                let ln_combined =
+                    Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![ratio])]);
+                let new_core = if pref_i == Value::Int(1) {
+                    ln_combined
+                } else {
+                    Value::from_cas_op("*", vec![pref_i.clone(), ln_combined])
+                };
+                grouped[i as usize] = (new_core, coeff_i);
+                grouped.remove(j as usize);
+                found = true;
+                break;
+            }
+            j += 1;
+        }
+        if !found {
+            i += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Extract (prefactor, argument) from a core that is pref * ln|abs[arg]|.
+/// Returns None if the core doesn't match this pattern.
+fn extract_ln_abs_pref(core: &Value) -> Option<(Value, Value)> {
+    // Direct ln|abs[arg]| call
+    if let Some(("ln", [ln_arg])) = core.cas_call_parts()
+        && let Some(("abs", [abs_arg])) = ln_arg.cas_call_parts()
+    {
+        return Some((Value::Int(1), abs_arg.clone()));
+    }
+    // Product: pref * ln|abs[arg]|
+    if let Some(("*", args)) = core.cas_op_parts()
+        && args.len() == 2
+    {
+        let (pref, rest) = if args[0].cas_call_parts().is_some() {
+            (&args[1], &args[0])
+        } else {
+            (&args[0], &args[1])
+        };
+        if !rest.is_cas_expr() {
+            // pref is the ln term, rest is the coefficient — swap
+            if let Some(("ln", [ln_arg])) = pref.cas_call_parts()
+                && let Some(("abs", [abs_arg])) = ln_arg.cas_call_parts()
+            {
+                return Some((rest.clone(), abs_arg.clone()));
+            }
+        } else if let Some(("ln", [ln_arg])) = rest.cas_call_parts()
+            && let Some(("abs", [abs_arg])) = ln_arg.cas_call_parts()
+        {
+            return Some((pref.clone(), abs_arg.clone()));
+        }
+    }
+    None
+}
+
+/// Check that `coeff` (the numerator of a rational term) is a polynomial
+/// in the given variable.  Returns true when `poly_from_expr` would succeed.
+fn coeff_ok_in_var(coeff: &Value, var: &str) -> bool {
+    detect_poly_var(coeff).is_none_or(|v| v == var)
+}
+
+pub(super) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
+    let mut flat = Vec::with_capacity(args.len());
+    for arg in args {
+        push_flattened(&mut flat, "+", simplify_cas_value(&arg)?);
+    }
+
+    let mut numeric: Option<Value> = None;
+    let mut grouped: Vec<(Value, Value)> = Vec::new();
+    for arg in flat {
+        let (coeff, core) = split_add_term(&arg);
+        if let Some(core) = core {
+            let mut merged = false;
+            for (existing_core, existing_coeff) in &mut grouped {
+                if *existing_core == core {
+                    *existing_coeff = eval_numeric_binary("+", existing_coeff, &coeff)?;
+                    merged = true;
+                    break;
+                }
+            }
+            if !merged {
+                grouped.push((core, coeff));
+            }
+        } else {
+            numeric = Some(match numeric.take() {
+                Some(acc) => eval_numeric_binary("+", &acc, &coeff)?,
+                None => coeff,
+            });
+        }
+    }
+
+    // Normalize rational cores: (* N (^ D1 -1) (^ D2 -1) …) →
+    // extract N into coefficient, keep the (^ Di -1) factors as core structure.
+    // For multiple Di, the combined denominator (* D1 D2 …) is handled by
+    // combine_rational_terms below.
+    for (core, coeff) in &mut grouped {
+        if let Some(("*", args)) = core.cas_op_parts()
+            && args.len() >= 2
+        {
+            let mut denom_count = 0;
+            let mut num_parts: Vec<Value> = Vec::new();
+            let mut denom_parts: Vec<Value> = Vec::new();
+            for arg in args.iter() {
+                if let Some(("^", [_, e])) = arg.cas_op_parts()
+                    && e.exact_int_is(-1)
+                {
+                    denom_count += 1;
+                    denom_parts.push(arg.clone());
+                } else {
+                    num_parts.push(arg.clone());
+                }
+            }
+            if denom_count >= 1 {
+                let numer = cas_product(num_parts);
+                let new_coeff = eval_numeric_binary("*", coeff, &numer)
+                    .or_else(|_| cas_mul(vec![coeff.clone(), numer]))?;
+                *core = cas_product(denom_parts);
+                *coeff = new_coeff;
+            }
+        }
+    }
+
+    // Re-merge groups that now share the same core after normalization
+    let mut merged_grouped: Vec<(Value, Value)> = Vec::new();
+    for (core, coeff) in grouped {
+        let mut merged = false;
+        for (existing_core, existing_coeff) in &mut merged_grouped {
+            if *existing_core == core {
+                *existing_coeff = eval_numeric_binary("+", existing_coeff, &coeff)?;
+                merged = true;
+                break;
+            }
+        }
+        if !merged {
+            merged_grouped.push((core, coeff));
+        }
+    }
+    grouped = merged_grouped;
+
+    // Combine rational terms with different denominators: N1/D1 + N2/D2 →
+    // (N1·D2+N2·D1)/(D1·D2)
+    combine_rational_terms(&mut grouped)?;
+
+    // Combine log terms: c·ln|A| - c·ln|B| → c·ln|A/B|
+    combine_log_terms(&mut grouped)?;
+
+    let mut out = Vec::with_capacity(grouped.len() + 1);
+    if let Some(ref num) = numeric
+        && !numeric_is_zero(num)
+    {
+        out.push(num.clone());
+    }
+    for (core, coeff) in grouped {
+        if numeric_is_zero(&coeff) {
+            continue;
+        }
+        out.push(rebuild_scaled_term(coeff, Some(core))?);
+    }
+    // Extract common numeric factor from sums involving algebraic terms.
+    // Guarded by has_algebraic to avoid interfering with factor_expr
+    // for purely numeric/rational expressions.
+    let has_algebraic = out.iter().any(|t| {
+        t.is_algebraic_number()
+            || matches!(t.cas_op_parts(), Some(("*", a)) if a.iter().any(|x| x.is_algebraic_number()))
+    });
+    if out.len() > 1
+        && has_algebraic
+        && let Some(gcd) = common_numeric_gcd(&out)
+    {
+        let mut new_out = Vec::with_capacity(out.len());
+        for term in out {
+            new_out.push(cas_div(term, gcd.clone())?);
+        }
+        let inner = match new_out.len() {
+            0 => Value::Int(0),
+            1 => new_out.into_iter().next().unwrap(),
+            _ => Value::from_cas_op("+", new_out),
+        };
+        return cas_mul(vec![gcd, inner]);
+    }
+    sort_canonical(&mut out);
+    match out.len() {
+        0 => Ok(Value::Int(0)),
+        1 => Ok(out.into_iter().next().expect("single simplified sum term")),
+        _ => Ok(Value::from_cas_op("+", out)),
+    }
+}
+
+pub(super) fn cas_mul(args: Vec<Value>) -> WqResult<Value> {
+    let mut flat = Vec::with_capacity(args.len());
+    for arg in args {
+        push_flattened(&mut flat, "*", simplify_cas_value(&arg)?);
+    }
+
+    let mut numeric: Option<Value> = None;
+    let mut grouped: Vec<(Value, Value)> = Vec::new();
+    for arg in flat {
+        if !arg.is_cas_expr() {
+            if numeric_is_zero(&arg) {
+                return Ok(Value::Int(0));
+            }
+            numeric = Some(match numeric.take() {
+                Some(acc) => eval_numeric_binary("*", &acc, &arg)?,
+                None => arg,
+            });
+            continue;
+        }
+
+        let (base, power) = split_mul_factor(&arg);
+
+        let mut merged = false;
+        for (existing_base, existing_power) in &mut grouped {
+            if *existing_base == base {
+                *existing_power = eval_numeric_binary("+", existing_power, &power)?;
+                merged = true;
+                break;
+            }
+        }
+        if !merged {
+            grouped.push((base, power));
+        }
+    }
+
+    // Combine products of matching inverse square roots:
+    // a^(-1/2) * b^(-1/2) -> (a*b)^(-1/2)
+    // This helps cancel nested ratio square-roots generated by inverse-trig
+    // chain rules.
+    if grouped.len() >= 2 {
+        let mut i = 0usize;
+        while i < grouped.len() {
+            if !grouped[i].1.exact_neg_half() {
+                i += 1;
+                continue;
+            }
+            let mut merged_here = false;
+            let mut j = i + 1;
+            while j < grouped.len() {
+                if grouped[j].1 == grouped[i].1 {
+                    let merged_base = simplify_cas_value(&cas_product(vec![
+                        grouped[i].0.clone(),
+                        grouped[j].0.clone(),
+                    ]))?;
+                    grouped[i].0 = merged_base;
+                    grouped.remove(j);
+                    merged_here = true;
+                    break;
+                }
+                j += 1;
+            }
+            if !merged_here {
+                i += 1;
+            }
+        }
+    }
+
+    // Fold algebraic factors that share the same field into the numeric
+    // coefficient so that e.g. (-36·α²) * (108·α²)^(-1) simplifies to -1/3.
+    if let Some(num) = numeric.clone()
+        && let Value::Algebraic(num_a) = &num
+    {
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for i in 0..grouped.len() {
+                if let Value::Algebraic(base_a) = &grouped[i].0
+                    && num_a.same_field(base_a)
+                {
+                    let base_pow = if numeric_is_one(&grouped[i].1) {
+                        Value::Algebraic(Arc::new((**base_a).clone()))
+                    } else if let Some(n) = grouped[i].1.exact_int()
+                        && let Ok(n_i64) = i64::try_from(n)
+                    {
+                        crate::value::algebraic::algebraic_pow(base_a, n_i64)?
+                    } else {
+                        continue;
+                    };
+                    numeric = Some(eval_numeric_binary("*", &num, &base_pow)?);
+                    grouped.remove(i);
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    } else if numeric.is_some() && !numeric.as_ref().is_some_and(|n| n.is_algebraic_number()) {
+        // Fold Algebraic bases with integer exponents into a plain numeric
+        // coefficient, e.g. 31 * α² → Algebraic([0, 0, 31]).  This allows
+        // down-stream poly_from_expr to see a single Algebraic value instead
+        // of a CAS product.
+        let mut num = numeric.take().unwrap();
+        let mut i = 0;
+        while i < grouped.len() {
+            if let Value::Algebraic(base_a) = &grouped[i].0
+                && let Some(n) = grouped[i].1.exact_int()
+                && let Ok(n_i64) = i64::try_from(n)
+            {
+                let base_pow = if n_i64 == 1 {
+                    Value::Algebraic(Arc::new((**base_a).clone()))
+                } else {
+                    crate::value::algebraic::algebraic_pow(base_a, n_i64)?
+                };
+                num = eval_numeric_binary("*", &num, &base_pow)?;
+                grouped.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        numeric = Some(num);
+    }
+
+    let mut out = Vec::with_capacity(grouped.len() + 1);
+    if let Some(num) = numeric {
+        if numeric_is_zero(&num) {
+            return Ok(Value::Int(0));
+        }
+        if !numeric_is_one(&num) {
+            out.push(num);
+        }
+    }
+    for (base, power) in grouped {
+        if numeric_is_zero(&power) {
+            continue;
+        }
+        if numeric_is_one(&power) {
+            out.push(base);
+        } else {
+            out.push(cas_pow(base, power)?);
+        }
+    }
+    sort_canonical(&mut out);
+    match out.len() {
+        0 => Ok(Value::Int(1)),
+        1 => Ok(out
+            .into_iter()
+            .next()
+            .expect("single simplified product factor")),
+        _ => Ok(Value::from_cas_op("*", out)),
+    }
+}
+
+/// Check whether `n` is a perfect `q`-th power (n = m^q for some integer m).
+fn is_perfect_power(n: &BigInt, q: &BigInt) -> bool {
+    if n.is_zero() || n.is_one() {
+        return true;
+    }
+    if n.is_negative() {
+        return false;
+    }
+    if let (Some(n_f), Some(q_u)) = (n.to_f64(), q.to_u32()) {
+        let root_f = n_f.powf(1.0 / q_u as f64);
+        let candidate = root_f.round() as i64;
+        for c in [candidate - 1, candidate, candidate + 1] {
+            if c > 0 {
+                let c_bi = BigInt::from(c);
+                if c_bi.pow(q_u) == *n {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Factor `n` into `p^q * r` where `r` is q-th-power-free.
+/// Uses trial division up to the q-th root of n.
+pub(crate) fn extract_perfect_power_factor(n: &BigInt, q: u32) -> (BigInt, BigInt) {
+    if n.is_zero() || n.is_one() {
+        return (n.clone(), BigInt::one());
+    }
+    let mut p = BigInt::one();
+    let mut r = n.clone();
+    let limit: i64 = r
+        .abs()
+        .to_f64()
+        .map(|f| (f.powf(1.0 / q as f64).ceil() as i64).max(1))
+        .unwrap_or(1);
+    let mut k = BigInt::from(2);
+    let limit_bi = BigInt::from(limit);
+    while k <= limit_bi {
+        let k_pow = k.pow(q);
+        if k_pow > r {
+            break;
+        }
+        while (&r % &k_pow).is_zero() {
+            p *= &k;
+            r /= &k_pow;
+        }
+        k += 1;
+    }
+    (p, r)
+}
+
+fn is_monomial_poly(coeffs: &[Value]) -> bool {
+    let deg = poly_degree(coeffs);
+    if deg == 0 {
+        return false;
+    }
+    // Only the leading coefficient should be non-zero
+    for (i, c) in coeffs.iter().enumerate() {
+        if i == deg {
+            continue;
+        }
+        if !numeric_is_zero(c) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Detect the single polynomial variable in an expression.
+fn detect_poly_var(expr: &Value) -> Option<String> {
+    let mut found = None;
+    if collect_single_poly_var(expr, &mut found) {
+        found
+    } else {
+        None
+    }
+}
+
+/// Try to simplify sqrt(polynomial) by extracting square factors.
+/// If poly = outside² · inside, returns outside * sqrt(inside) (or inverse).
+fn try_simplify_sqrt_poly(coeffs: &[Value], var: &str, is_sqrt: bool) -> WqResult<Option<Value>> {
+    let factors = square_free_factor(coeffs)?;
+    // Check if any factor has multiplicity >= 2
+    let has_reduction = factors.iter().any(|(_, m)| *m >= 2);
+    if !has_reduction {
+        return Ok(None);
+    }
+    // Skip pure monomial squares like x^2, x^4 — rewrite_cas handles those
+    // with proper abs() semantics via the sqrt(square) → abs rewrite rule.
+    if factors.len() == 1 && factors[0].1 == 2 && is_monomial_poly(&factors[0].0) {
+        return Ok(None);
+    }
+
+    let mut outside = vec![Value::Int(1)];
+    let mut inside = vec![Value::Int(1)];
+    for (factor, mult) in factors {
+        let out_pow = mult / 2;
+        let in_pow = mult % 2;
+        if out_pow > 0 {
+            let factor_pow = {
+                let mut p = factor.clone();
+                for _ in 1..out_pow {
+                    p = poly_mul(&p, &factor)?;
+                }
+                p
+            };
+            outside = poly_mul(&outside, &factor_pow)?;
+        }
+        if in_pow > 0 {
+            inside = poly_mul(&inside, &factor)?;
+        }
+    }
+    poly_trim(&mut outside);
+    poly_trim(&mut inside);
+
+    let out_expr = poly_to_expr(&outside, var)?;
+    let in_deg = poly_degree(&inside);
+
+    if in_deg == 0 {
+        // Perfect square: sqrt(outside²) = outside (positive branch)
+        // Monomial squares like x^2 are already filtered above and left
+        // for rewrite_cas. Non-monomial squares like (x^2+1)^2 are always
+        // non-negative, so the abs is dropped.
+        return Ok(Some(out_expr));
+    }
+
+    // Build out * sqrt(in) or out / sqrt(in)
+    let in_expr = poly_to_expr(&inside, var)?;
+    let sqrt_in = Value::from_cas_op(
+        "^",
+        vec![
+            in_expr,
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        ],
+    );
+    let result = if is_sqrt {
+        cas_mul(vec![out_expr, sqrt_in])?
+    } else {
+        let inv_sqrt = Value::from_cas_op("^", vec![sqrt_in, Value::Int(-1)]);
+        cas_mul(vec![out_expr, inv_sqrt])?
+    };
+    Ok(Some(simplify_cas_value(&result)?))
+}
+
+pub(crate) fn cas_pow(base: Value, exp: Value) -> WqResult<Value> {
+    let base = simplify_cas_value(&base)?;
+    let exp = simplify_cas_value(&exp)?;
+    // Algebraic values can't be numerically evaluated — keep symbolic
+    if !base.is_cas_expr() && !exp.is_cas_expr() && !base.is_algebraic_number() {
+        // For fractional powers of rationals, keep symbolic unless it's a
+        // perfect power (e.g. (4)^(1/2) = 2 stays numeric, but (3/4)^(1/2)
+        // becomes symbolic to avoid float pollution).
+        if let (Some((bn, bd)), Some((en, ed))) = (base.rational_parts(), exp.rational_parts())
+            && !ed.is_one()
+        {
+            let is_exact = is_perfect_power(&bn, &ed) && is_perfect_power(&bd, &ed);
+            if !is_exact {
+                if let Some(q) = ed.to_u32() {
+                    // Extract perfect q-th powers: (a/b)^(1/q)
+                    // Compute N = a * b^(q-1), then factor N = p^q * r
+                    let n = &bn * &bd.pow(q - 1);
+                    let (p, r) = extract_perfect_power_factor(&n, q);
+                    if !p.is_one() || r != n {
+                        let p_val = Value::from_bigint(p);
+                        let bd_val = Value::from_bigint(bd);
+                        let rat_part = eval_exact_numeric_div(&p_val, &bd_val)?;
+                        let radical = Value::from_cas_op(
+                            "^",
+                            vec![
+                                Value::from_bigint(r),
+                                Value::from_fraction_parts(BigInt::one(), BigInt::from(q)),
+                            ],
+                        );
+                        let base_simp = cas_mul(vec![rat_part, radical])?;
+                        if en.is_one() {
+                            return Ok(base_simp);
+                        }
+                        return cas_pow(base_simp, Value::from_bigint(en));
+                    }
+                }
+                return Ok(Value::from_cas_op(
+                    "^",
+                    vec![
+                        Value::from_fraction_parts(bn, bd),
+                        Value::from_fraction_parts(en, ed),
+                    ],
+                ));
+            }
+        }
+        return eval_numeric_binary("^", &base, &exp);
+    }
+    if numeric_is_zero(&exp) {
+        return Ok(Value::Int(1));
+    }
+    if numeric_is_one(&exp) {
+        return Ok(base);
+    }
+    if numeric_is_zero(&base) {
+        return Ok(Value::Int(0));
+    }
+    if numeric_is_one(&base) {
+        return Ok(Value::Int(1));
+    }
+    if let Value::Algebraic(a) = &base {
+        if let Some(n) = exp.as_i64() {
+            return crate::value::algebraic::algebraic_pow(a, n);
+        }
+        if let Some((num, den)) = exp.rational_parts()
+            && let Ok(result) = crate::value::algebraic::algebraic_rational_pow(a, &num, &den)
+        {
+            return Ok(result);
+        }
+    }
+    if let Some(("^", [inner_base, inner_exp])) = base.cas_op_parts()
+        && inner_exp.rational_parts().is_some()
+        && exp.exact_int().is_some()
+    {
+        return cas_pow(
+            inner_base.clone(),
+            eval_numeric_binary("*", inner_exp, &exp)?,
+        );
+    }
+    // Distribute integer exponent over product: (a*b*...)^n = a^n * b^n * ...
+    if let Some(("*", args)) = base.cas_op_parts()
+        && exp.exact_int().is_some()
+    {
+        let mut new_args = Vec::with_capacity(args.len());
+        for arg in args {
+            new_args.push(cas_pow(arg.clone(), exp.clone())?);
+        }
+        return cas_mul(new_args);
+    }
+    // Expand (sum)^2 = sum of squares + 2 * sum of distinct products
+    if let Some(("+", args)) = base.cas_op_parts()
+        && exp.exact_int_is(2)
+    {
+        let mut terms = Vec::new();
+        for i in 0..args.len() {
+            terms.push(cas_pow(args[i].clone(), Value::Int(2))?);
+            for j in (i + 1)..args.len() {
+                terms.push(cas_mul(vec![
+                    Value::Int(2),
+                    args[i].clone(),
+                    args[j].clone(),
+                ])?);
+            }
+        }
+        return cas_add(terms);
+    }
+    // Simplify sqrt(polynomial): extract square factors from under the sqrt.
+    // e.g. sqrt(x^4+2x^2+1) = x^2+1, sqrt(x^3+2x^2+x) = (x+1)*sqrt(x)
+    if (exp.exact_half() || exp.exact_neg_half())
+        && let Some(var) = detect_poly_var(&base)
+        && let Ok(coeffs) = poly_from_expr(&base, &var)
+        && poly_degree(&coeffs) >= 1
+        && let Some(simplified) = try_simplify_sqrt_poly(&coeffs, &var, exp.exact_half())?
+    {
+        return Ok(simplified);
+    }
+    Ok(Value::from_cas_op("^", vec![base, exp]))
+}
+
+/// If `value` is an Algebraic with a denested field, return the normalized
+/// form.
+fn try_normalize_algebraic(value: &Value) -> Option<Value> {
+    if let Value::Algebraic(a) = value
+        && let Some(normalized) = crate::value::algebraic::normalize_algebraic_field(a)
+    {
+        Some(Value::Algebraic(Arc::new(normalized)).unwrap_algebraic_constant())
+    } else {
+        None
+    }
+}
+
+pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
+    // Normalize algebraic field before processing (e.g. Q(∛(1/108)) → Q(∛2))
+    if let Some(normalized) = try_normalize_algebraic(value) {
+        return Ok(normalized);
+    }
+    if !value.is_cas_expr() || value.cas_var_name().is_some() {
+        return Ok(value.unwrap_algebraic_constant());
+    }
+
+    let mut stack = vec![SimplifyFrame::Expr(value.clone())];
+    let mut results: Vec<Value> = Vec::new();
+
+    while let Some(frame) = stack.pop() {
+        match frame {
+            SimplifyFrame::Expr(expr) => {
+                if !expr.is_cas_expr() || expr.cas_var_name().is_some() {
+                    // Normalize algebraic values (e.g. Q(∛(1/108)) → Q(∛2))
+                    if let Some(normalized) = try_normalize_algebraic(&expr) {
+                        results.push(normalized);
+                        continue;
+                    }
+                    results.push(expr.unwrap_algebraic_constant());
+                    continue;
+                }
+
+                if let Some((lhs, rhs)) = expr.cas_eq_parts() {
+                    stack.push(SimplifyFrame::Eq);
+                    stack.push(SimplifyFrame::Expr(rhs.clone()));
+                    stack.push(SimplifyFrame::Expr(lhs.clone()));
+                    continue;
+                }
+
+                if let Some((op, args)) = expr.cas_op_parts() {
+                    match (op, args) {
+                        ("+", args) => {
+                            stack.push(SimplifyFrame::Add(args.len()));
+                            for arg in args.iter().rev() {
+                                stack.push(SimplifyFrame::Expr(arg.clone()));
+                            }
+                        }
+                        ("*", args) => {
+                            stack.push(SimplifyFrame::Mul(args.len()));
+                            for arg in args.iter().rev() {
+                                stack.push(SimplifyFrame::Expr(arg.clone()));
+                            }
+                        }
+                        ("-", [arg]) => {
+                            stack.push(SimplifyFrame::Neg);
+                            stack.push(SimplifyFrame::Expr(arg.clone()));
+                        }
+                        ("-", [lhs, rhs]) => {
+                            stack.push(SimplifyFrame::Sub);
+                            stack.push(SimplifyFrame::Expr(rhs.clone()));
+                            stack.push(SimplifyFrame::Expr(lhs.clone()));
+                        }
+                        ("/", [lhs, rhs]) => {
+                            stack.push(SimplifyFrame::Div);
+                            stack.push(SimplifyFrame::Expr(rhs.clone()));
+                            stack.push(SimplifyFrame::Expr(lhs.clone()));
+                        }
+                        ("^", [base, exp]) => {
+                            stack.push(SimplifyFrame::Pow);
+                            stack.push(SimplifyFrame::Expr(exp.clone()));
+                            stack.push(SimplifyFrame::Expr(base.clone()));
+                        }
+                        _ => {
+                            results.push(expr.clone());
+                        }
+                    }
+                    continue;
+                }
+
+                if let Some((name, args)) = expr.cas_call_parts() {
+                    let n = args.len();
+                    stack.push(SimplifyFrame::Call {
+                        name: name.to_string(),
+                        n,
+                    });
+                    for arg in args.iter().rev() {
+                        stack.push(SimplifyFrame::Expr(arg.clone()));
+                    }
+                    continue;
+                }
+
+                results.push(expr.clone());
+            }
+            SimplifyFrame::Add(n) => {
+                let children = split_off_results(&mut results, n)?;
+                results.push(cas_add(children)?);
+            }
+            SimplifyFrame::Mul(n) => {
+                let children = split_off_results(&mut results, n)?;
+                results.push(cas_mul(children)?);
+            }
+            SimplifyFrame::Pow => {
+                let exp = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing exponent for ^"))?;
+                let base = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing base for ^"))?;
+                results.push(cas_pow(base, exp)?);
+            }
+            SimplifyFrame::Div => {
+                let rhs = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing rhs for /"))?;
+                let lhs = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing lhs for /"))?;
+                results.push(cas_div(lhs, rhs)?);
+            }
+            SimplifyFrame::Neg => {
+                let arg = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing arg for unary -"))?;
+                results.push(cas_neg(arg)?);
+            }
+            SimplifyFrame::Sub => {
+                let rhs = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing rhs for -"))?;
+                let lhs = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing lhs for -"))?;
+                results.push(cas_sub(lhs, rhs)?);
+            }
+            SimplifyFrame::Call { name, n } => {
+                let args = split_off_results(&mut results, n)?;
+                if name == "sqrt"
+                    && let [arg] = args.as_slice()
+                {
+                    results.push(cas_pow(
+                        arg.clone(),
+                        Value::from_fraction_parts(BigInt::one(), BigInt::from(2)),
+                    )?);
+                } else if args.iter().all(|arg| !arg.is_cas_expr())
+                    && let Some(value) = eval_numeric_call(&name, &args)?
+                {
+                    results.push(value);
+                } else if name == "-"
+                    && let [arg] = args.as_slice()
+                {
+                    // Unary minus call → negation (normalises to Int/Fraction)
+                    results.push(cas_neg(arg.clone())?);
+                } else if name == "exp"
+                    && let [arg] = args.as_slice()
+                {
+                    // Keep exp[n] symbolic as e or e^n
+                    let e = Value::from_cas_const("e");
+                    if numeric_is_zero(arg) {
+                        results.push(Value::Int(1));
+                    } else if numeric_is_one(arg) {
+                        results.push(e);
+                    } else {
+                        results.push(cas_pow(e, arg.clone())?);
+                    }
+                } else if name == "ln"
+                    && let [arg] = args.as_slice()
+                {
+                    if arg.cas_const_name() == Some("e") {
+                        results.push(Value::Int(1));
+                    } else if numeric_is_one(arg) {
+                        // ln(1) = 0
+                        results.push(Value::Int(0));
+                    } else {
+                        results.push(Value::from_cas_call("ln", args));
+                    }
+                } else if name == "abs"
+                    && let [arg] = args.as_slice()
+                {
+                    // abs(∞) = ∞, abs(-∞) = ∞
+                    if arg.cas_const_name() == Some("oo") || arg.cas_const_name() == Some("_oo") {
+                        results.push(Value::from_cas_const("oo"));
+                    } else {
+                        results.push(Value::from_cas_call("abs", args));
+                    }
+                } else if let Some(value) = try_eval_with_const_resolve(&name, &args)? {
+                    results.push(value);
+                } else {
+                    results.push(Value::from_cas_call(&name, args));
+                }
+            }
+            SimplifyFrame::Eq => {
+                let rhs = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing rhs for eq"))?;
+                let lhs = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing lhs for eq"))?;
+                results.push(Value::from_cas_eq(lhs, rhs));
+            }
+        }
+    }
+
+    let result = results
+        .pop()
+        .ok_or_else(|| cas_err("simplify: empty result stack"))?;
+
+    Ok(result)
+}
+
+pub(crate) fn cas_binary_expr(op: &str, lhs: &Value, rhs: &Value) -> WqResult<Value> {
+    ensure_expr_arg(lhs, op)?;
+    ensure_expr_arg(rhs, op)?;
+    simplify_cas_value(&Value::from_cas_op(op, vec![lhs.clone(), rhs.clone()]))
+}
+
+pub(crate) fn cas_unary_expr(op: &str, arg: &Value) -> WqResult<Value> {
+    ensure_expr_arg(arg, op)?;
+    simplify_cas_value(&Value::from_cas_op(op, vec![arg.clone()]))
+}
+
+pub(crate) fn cas_call_expr(name: &str, args: &[Value]) -> WqResult<Value> {
+    for arg in args {
+        ensure_expr_arg(arg, name)?;
+    }
+    simplify_cas_value(&Value::from_cas_call(name, args.to_vec()))
+}
+
+pub(super) fn var_name_from_value(value: &Value) -> WqResult<String> {
+    if let Some(name) = value.cas_var_name() {
+        return Ok(name.to_string());
+    }
+    if let Value::Tag(name) = value {
+        return Ok(name.to_string());
+    }
+    value
+        .to_rust_string_with_note()
+        .map_err(|_| cas_err("expected symbolic variable, symbol, or string").got1(value))
+}
+
+pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<Value> {
+    if let Some((lhs, rhs)) = expr.cas_eq_parts() {
+        return Ok(Value::from_cas_eq(
+            substitute_expr(lhs, var, val)?,
+            substitute_expr(rhs, var, val)?,
+        ));
+    }
+    if let Some(name) = expr.cas_var_name() {
+        return Ok(if name == var {
+            val.clone()
+        } else {
+            expr.clone()
+        });
+    }
+    if expr.cas_const_name().is_some() {
+        return Ok(expr.clone());
+    }
+    if !expr.is_cas_expr() {
+        return Ok(expr.clone());
+    }
+    if let Some((op, args)) = expr.cas_op_parts() {
+        return match (op, args) {
+            ("+", args) => {
+                let mut out = Vec::with_capacity(args.len());
+                for arg in args {
+                    out.push(substitute_expr(arg, var, val)?);
+                }
+                cas_add(out)
+            }
+            ("*", args) => {
+                let mut out = Vec::with_capacity(args.len());
+                for arg in args {
+                    out.push(substitute_expr(arg, var, val)?);
+                }
+                cas_mul(out)
+            }
+            ("^", [base, exp]) => cas_pow(
+                substitute_expr(base, var, val)?,
+                substitute_expr(exp, var, val)?,
+            ),
+            _ => Ok(expr.clone()),
+        };
+    }
+    if let Some((name, args)) = expr.cas_call_parts() {
+        let mut out = Vec::with_capacity(args.len());
+        for arg in args {
+            out.push(substitute_expr(arg, var, val)?);
+        }
+        return simplify_cas_value(&Value::from_cas_call(name, out));
+    }
+    Ok(expr.clone())
+}
+
+pub(crate) fn substitute_cas(expr: &Value, var: &Value, val: &Value) -> WqResult<Value> {
+    let var = var_name_from_value(var)?;
+    if val.is_cas_equation() {
+        return Err(
+            cas_err("substitute expects a replacement expression or value, got equation").got1(val),
+        );
+    }
+    let expr = simplify_cas_value(expr)?;
+    simplify_cas_value(&substitute_expr(&expr, &var, val)?)
+}

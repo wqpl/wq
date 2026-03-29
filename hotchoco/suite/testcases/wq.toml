@@ -1,0 +1,13 @@
+name = "wq"
+source_glob = "hotchoco/wq/*.wq"
+exclude_marker = "//exclude"
+
+[[modes]]
+name = "exec"
+flags = ["-p"]
+capture = "stdout+stderr"
+
+# [[modes]]
+# name = "exec-o"
+# flags = ["-p", "--no-bt"]
+# capture = "stdout+stderr"

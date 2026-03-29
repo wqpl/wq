@@ -1,0 +1,8 @@
+edition = "2024"
+
+group_imports = "StdExternalCrate"
+imports_granularity = "Module"
+
+format_macro_matchers = true
+
+wrap_comments = true

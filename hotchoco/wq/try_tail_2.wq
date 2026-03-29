@@ -1,0 +1,22 @@
+f:{
+    @t (@r 1);
+    echo["This should not print"];
+    @r 2
+}
+
+g:{
+    @t (echo["Inside try"]);
+    echo["After try"]
+}
+
+h:{
+    @t (@r g[]);
+    echo["Should not print in h either"]
+}
+
+echo["Testing f"];
+echo[f[]];
+echo["Testing g"];
+g[];
+echo["Testing h"];
+h[];

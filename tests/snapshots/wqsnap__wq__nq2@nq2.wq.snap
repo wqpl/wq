@@ -1,9 +1,0 @@
----
-source: tests/wqsnap.rs
-expression: output
-input_file: tests/wq/nq2.wq
----
-n=1: 1
-n=2: 0
-n=4: 2
-n=8: 92

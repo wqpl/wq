@@ -1,0 +1,41 @@
+f1:{[a;`c;`d]echo a;echo c;echo d}
+f1[1;`c:2;`d:3]
+
+f2:{[a;b;`c;`d]echo a;echo b;echo c;echo d}
+f2[1;`d:4;2;`c:3]
+
+f3:{[a;`c:99;`d]echo a;echo c;echo d}
+f3[1]
+f3[1;`c:42]
+f3[1;`c:()]
+
+f4:{[`a:10;`b:20]echo a;echo b}
+f4[]
+
+x:100
+f5:{[`c:x]echo c}
+f5[]
+x:-1
+f5[]
+
+outer:{x:1;f:{[`c:'x]echo c};f[];x:2;f[]};outer[]
+
+f7:{[a;b;`c;`d:0]echo a;echo b;echo c;echo d}
+f7[`d:9;1;`c:8;2]
+
+base:100
+add_base:{[`x:0]base+x}
+add_base[]  // 100
+add_base[`x:7]  // 107
+
+t:split["a,b,c";","];echo@f"{t!?}"
+
+t:split["a b c d";`m:2];echo@f"{t!?}"
+
+echo splitw[(1;2;3;4;5);{x>3};`m:1]
+
+f8:{[a;b]a+b}
+f8[3;4]
+
+f9:{x+y}
+f9[3;4]

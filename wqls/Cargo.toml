@@ -1,0 +1,19 @@
+[package]
+name = "wqls"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "wq language server"
+
+[[bin]]
+name = "wqls"
+path = "src/main.rs"
+
+[dependencies]
+wqpl.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "macros"] }
+tower-lsp = "0.20"
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

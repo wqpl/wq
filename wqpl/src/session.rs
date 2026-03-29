@@ -1,0 +1,652 @@
+pub mod dbglog;
+pub mod stdio;
+
+use colored::Colorize;
+
+use crate::builtins::BuiltinPreset;
+use crate::compiler::Compiler;
+use crate::interpret::InterpreterKind;
+use crate::interpret::profiler::ProfilerInterpreter;
+use crate::interpret::sample::SampleInterpreter;
+use crate::interpret::vanilla::VanillaInterpreter;
+use crate::lexer::Lexer;
+use crate::parser::resolve::Resolver;
+use crate::parser::{Parser, fold};
+use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
+use crate::session::stdio::wqstderr_println;
+use crate::symbol::SymbolIndex;
+use crate::token::fmt_tokens_table;
+use crate::value::{Value, WqResult};
+use crate::vm::inst::{InstPrettyDumper, Instruction};
+use crate::vm::{GlobalMap, Vm};
+use crate::wqdb::build::{
+    apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
+    register_function_chunks,
+};
+use crate::wqdb::data::DebugInfo;
+use crate::wqdb::{self};
+use crate::wqerror::WqErrorType;
+
+pub struct Session {
+    vm: Vm,
+    // debug_flags: DebugFlags,
+    dry_mode: bool,
+    // Arm entering the wqdb on the next eval call
+    wqdb_arm_next: bool,
+    // Optional debug source context for next eval (path, full_text)
+    dbg_source_ctx: Option<(String, String)>,
+    // Byte offset into dbg_source_ctx where current snippet starts
+    dbg_source_offs: usize,
+    // Backtrace mode (minimal debug mapping for errors)
+    bt_mode: bool,
+    interpreter: InterpreterKind,
+}
+
+impl Session {
+    /// Create a new evaluator with an empty environment.
+    pub fn new() -> Self {
+        let mut vm = Vm::new(Vec::new());
+        vm.set_bt_mode(true);
+        Session {
+            vm,
+            // debug_flags: DebugFlags::empty(),
+            dry_mode: false,
+            wqdb_arm_next: false,
+            dbg_source_ctx: None,
+            dbg_source_offs: 0,
+            bt_mode: true,
+            interpreter: InterpreterKind::Vanilla,
+        }
+    }
+
+    pub fn env_vars(&self) -> GlobalMap {
+        self.environment()
+    }
+
+    pub fn is_wqdb_enabled(&self) -> bool {
+        self.vm.wqdb.enabled
+    }
+
+    pub fn reset_session(&mut self) {
+        self.vm.reset_globals();
+        self.vm.debug_info = DebugInfo::default();
+        let on_pause = self.vm.wqdb.on_pause;
+        self.vm.wqdb = wqdb::Wqdb::default();
+        self.vm.wqdb.on_pause = on_pause;
+    }
+
+    pub fn set_interpreter(&mut self, kind: InterpreterKind) {
+        self.interpreter = kind;
+    }
+
+    pub fn set_interpreter_by_name(&mut self, name: &str) -> Result<&'static str, String> {
+        if let Some(kind) = InterpreterKind::from_name(name) {
+            self.set_interpreter(kind);
+            Ok(kind.name())
+        } else {
+            Err(format!("unknown interpreter '{name}'"))
+        }
+    }
+
+    pub fn interpreter_name(&self) -> &'static str {
+        self.interpreter.name()
+    }
+
+    pub fn set_dry_mode(&mut self, flag: bool) {
+        self.dry_mode = flag;
+    }
+
+    pub fn get_bt_mode(&self) -> bool {
+        self.bt_mode
+    }
+
+    pub fn set_bt_mode(&mut self, flag: bool) {
+        self.bt_mode = flag;
+        self.vm.set_bt_mode(flag);
+    }
+
+    pub fn set_wqdb(&mut self, flag: bool) {
+        self.vm.wqdb.enabled = flag;
+        if self.vm.wqdb.enabled {
+            self.wqdb_arm_next = true;
+        } else {
+            self.vm.wqdb.clear_mode();
+            // Don't clear on_pause - keep the callback registered for
+            // re-enabling
+        }
+    }
+
+    pub fn set_pause_callback(&mut self, cb: Option<fn(&mut Vm)>) {
+        self.vm.wqdb.on_pause = cb;
+    }
+
+    pub fn set_wqdb_batch_cmds(&mut self, cmds: Vec<String>) {
+        self.vm.wqdb.batch_cmds = cmds;
+    }
+
+    pub fn builtins(&self) -> &crate::builtins::Builtins {
+        &self.vm.builtins
+    }
+
+    pub fn builtins_preset(&self) -> BuiltinPreset {
+        self.vm.builtins_preset
+    }
+
+    pub fn set_builtins_preset(&mut self, preset: BuiltinPreset) {
+        self.vm.builtins.apply_preset(preset);
+        self.vm.builtins_preset = preset;
+    }
+
+    /// Get mutable access to the VM for debugger integration
+    pub fn vm_mut(&mut self) -> &mut Vm {
+        &mut self.vm
+    }
+
+    /// Evaluate a string of source code and return the resulting value.
+    pub fn eval_string(&mut self, input: &str) -> WqResult<Value> {
+        // If a wqdb entry was armed, record it for the upcoming run.
+        let mut lexer = if let Some((_, full_text)) = self.dbg_source_ctx.as_ref() {
+            Lexer::new(input).with_ctx(full_text, self.dbg_source_offs)
+        } else {
+            Lexer::new(input)
+        };
+        if let Some((path, _)) = self.dbg_source_ctx.as_ref() {
+            lexer.set_source_path(path.clone());
+        }
+        let tokens = lexer.tokenize()?;
+        if get_debug_log_flags().contains(DebugLogFlags::TOKEN) {
+            let header = "TOKEN".bold().underline().to_string();
+            wqstderr_println(header);
+            wqstderr_println(fmt_tokens_table(&tokens));
+            wqstderr_println("");
+        }
+
+        // Use global debug source + offset when available to improve error spans
+        let builtins = self.vm.builtins.clone();
+        let mut parser = if let Some((_, full_text)) = self.dbg_source_ctx.as_ref() {
+            Parser::new_with_ctx(
+                tokens,
+                input.to_string(),
+                Some(full_text.clone()),
+                self.dbg_source_offs,
+                builtins.clone(),
+            )
+        } else {
+            Parser::new_with_builtins(tokens, input.to_string(), builtins.clone())
+        };
+        if let Some((path, _)) = self.dbg_source_ctx.as_ref() {
+            parser.set_source_path(path.clone());
+        }
+        let ast_src = self
+            .dbg_source_ctx
+            .as_ref()
+            .map(|(_, t)| t.as_str())
+            .unwrap_or(input);
+
+        let ast = parser.parse()?;
+        if let Some(eof_err) = parser.eof_error() {
+            return Err(eof_err.clone());
+        }
+        if get_debug_log_flags().contains(DebugLogFlags::AST) {
+            let header = "AST (original)".bold().underline().to_string();
+            wqstderr_println(header);
+            wqstderr_println(ast.sexpr_pretty_with_source(ast_src));
+            wqstderr_println("");
+        }
+
+        let mut resolver = Resolver::from_env(self.environment(), builtins.clone());
+        let ast = resolver.resolve(ast);
+        if get_debug_log_flags().contains(DebugLogFlags::AST_VERBOSE) {
+            let header = "AST @ resolver".bold().underline().to_string();
+            wqstderr_println(header);
+            wqstderr_println(ast.sexpr_pretty_with_source(ast_src));
+            wqstderr_println("");
+        }
+
+        let ast = fold::fold(ast);
+        if get_debug_log_flags().contains(DebugLogFlags::AST_VERBOSE) {
+            let header = "AST @ folder".bold().underline().to_string();
+            wqstderr_println(header);
+            wqstderr_println(ast.sexpr_pretty_with_source(ast_src));
+            wqstderr_println("");
+        }
+
+        if get_debug_log_flags().contains(DebugLogFlags::AST_VERBOSE) {
+            let header = "AST (final)".bold().underline().to_string();
+            wqstderr_println(header);
+            wqstderr_println(ast.sexpr_pretty_with_source(ast_src));
+            wqstderr_println("");
+        }
+
+        let mut compiler = Compiler::new_with_builtins(builtins);
+        compiler.set_fn_spans(parser.fn_body_spans_all().clone());
+        compiler.set_source(input.to_string());
+        if let Some((path, _)) = self.dbg_source_ctx.as_ref() {
+            compiler.set_source_path(path.clone());
+        }
+        compiler.set_stmt_spans(parser.stmt_spans_top().to_vec());
+        compiler.compile(&ast)?;
+        compiler.instructions.push(Instruction::Return);
+        if get_debug_log_flags().contains(DebugLogFlags::INST_VERBOSE) {
+            let header = "INST (original)".bold().underline().to_string();
+            wqstderr_println(header);
+            let lines = InstPrettyDumper::new(true, true)
+                .with_pc()
+                .render(&compiler.instructions);
+            for line in lines {
+                wqstderr_println(line);
+            }
+            wqstderr_println("");
+        }
+
+        compiler.propagate_constants();
+        if get_debug_log_flags().contains(DebugLogFlags::INST_VERBOSE) {
+            let header = "INST @ const-prop".bold().underline().to_string();
+            wqstderr_println(header);
+            let lines = InstPrettyDumper::new(true, true)
+                .with_pc()
+                .render(&compiler.instructions);
+            for line in lines {
+                wqstderr_println(line);
+            }
+            wqstderr_println("");
+        }
+
+        compiler.rewrite_tail_calls();
+        if get_debug_log_flags().contains(DebugLogFlags::INST_VERBOSE) {
+            let header = "INST @ tail-call".bold().underline().to_string();
+            wqstderr_println(header);
+            let lines = InstPrettyDumper::new(true, true)
+                .with_pc()
+                .render(&compiler.instructions);
+            for line in lines {
+                wqstderr_println(line);
+            }
+            wqstderr_println("");
+        }
+
+        compiler.fuse();
+        if get_debug_log_flags().contains(DebugLogFlags::INST_VERBOSE) {
+            let header = "INST @ fuse".bold().underline().to_string();
+            wqstderr_println(header);
+            let lines = InstPrettyDumper::new(true, true)
+                .with_pc()
+                .render(&compiler.instructions);
+            for line in lines {
+                wqstderr_println(line);
+            }
+            wqstderr_println("");
+        }
+
+        if get_debug_log_flags().contains(DebugLogFlags::INST) {
+            let header = "INST (final)".bold().underline().to_string();
+            wqstderr_println(header);
+            let lines = InstPrettyDumper::new(true, true)
+                .with_pc()
+                .render(&compiler.instructions);
+            for line in lines {
+                wqstderr_println(line);
+            }
+            wqstderr_println("");
+        }
+
+        if self.dry_mode {
+            return Ok(Value::unit());
+        }
+
+        self.vm.clear_last_bt();
+        self.vm.set_runtime_debug_info(compiler.has_runtime_debug);
+        self.vm.reset_inst_and_state(compiler.instructions);
+        // Prepare debug artifacts when wqdb or backtrace mode is on
+        let temp_wqdb_on = if self.wqdb_arm_next {
+            self.wqdb_arm_next = false;
+            true
+        } else {
+            false
+        };
+
+        if self.vm.debug_artifacts_enabled() || temp_wqdb_on {
+            // Prepare debug mapping for this top-level script
+            let (src_path, src_text) = if let Some((p, t)) = self.dbg_source_ctx.as_ref() {
+                (p.clone(), t.clone())
+            } else {
+                ("<eval>".to_string(), input.to_string())
+            };
+            self.vm.script_prepare_debug(&src_path, &src_text);
+            // Set base offset into the source file for this snippet
+            self.vm.set_debug_src_offset(self.dbg_source_offs);
+            // Mark statements using a combination of parser spans and heuristics
+            {
+                let chunk = self.vm.current_chunk_id();
+                // Compute file_id first to avoid borrow conflicts
+                let file_id = self.vm.debug_info.chunk(chunk).file_id;
+                // First mark all likely statement PCs
+                {
+                    let code = &self.vm.instructions;
+                    let line_table = &mut self.vm.debug_info.chunk_mut(chunk).line_table;
+                    if !compiler.dbg_pc_spans.is_empty() && !compiler.dbg_stmt_marks.is_empty() {
+                        let mut pc_spans = compiler.dbg_pc_spans.clone();
+                        pc_spans.resize(code.len(), None);
+                        apply_stmt_debug_exact_offs(
+                            line_table,
+                            file_id,
+                            &pc_spans,
+                            &compiler.dbg_stmt_marks,
+                            self.dbg_source_offs,
+                        );
+                    } else {
+                        mark_stmt_heuristic(line_table, code);
+                        // Overlay exact mapping for top-level spans across candidates
+                        apply_stmt_spans_exact_offs(
+                            line_table,
+                            code,
+                            file_id,
+                            parser.stmt_spans_top(),
+                            self.dbg_source_offs,
+                        );
+                    }
+                }
+                // Recursively register chunks for nested non-capturing functions
+                let instructions = std::sync::Arc::make_mut(&mut self.vm.instructions);
+                register_function_chunks(
+                    &mut self.vm.debug_info,
+                    file_id,
+                    instructions,
+                    self.dbg_source_offs,
+                );
+            }
+        }
+        // Drop AST and parser before execution to release Arc refs to
+        // literal constants that would otherwise inflate strong counts
+        // and cause unnecessary COW deep clones during mutation.
+        drop(ast);
+        drop(parser);
+        // If wqdb is enabled (persistently or armed just once), step-in
+        // Note: on_pause callback must be set externally via set_pause_callback()
+        if temp_wqdb_on || self.vm.wqdb.enabled {
+            self.vm.dbg_step_in();
+        }
+        self.vm.interpreter_kind = self.interpreter;
+        let result = match self.interpreter {
+            InterpreterKind::Sample => self.vm.run_with_interpreter(&mut SampleInterpreter),
+            InterpreterKind::Vanilla => self.vm.run_with_interpreter(&mut VanillaInterpreter),
+            InterpreterKind::Profiler => self
+                .vm
+                .run_with_interpreter(&mut ProfilerInterpreter::default()),
+        };
+        if get_debug_log_flags().contains(DebugLogFlags::VALUE)
+            && let Ok(v) = &result
+        {
+            wqstderr_println(format!("{v:?}"));
+        }
+        result
+    }
+
+    /// Parse and analyze symbols in `input` without executing.
+    /// Returns a `SymbolIndex` that can be queried for definitions and uses.
+    pub fn analyze_symbols(&self, input: &str) -> WqResult<SymbolIndex> {
+        let tokens = Lexer::new(input).with_skip_directives(true).tokenize()?;
+        let mut parser =
+            Parser::new_with_builtins(tokens, input.to_string(), self.vm.builtins.clone());
+        let ast = parser.parse()?;
+        let ast = Resolver::with_builtins(self.vm.builtins.clone()).resolve(ast);
+        let mut index = SymbolIndex::analyze(&ast, &self.vm.builtins);
+        if let Some(eof_err) = parser.eof_error() {
+            let span = eof_err.span.unwrap_or((input.len(), input.len()));
+            index.errors.push((span, eof_err.clone()));
+        }
+        Ok(index)
+    }
+
+    /// Tokenize input with recovery, returning all tokens including error
+    /// tokens. Useful for diagnostics and completions on syntactically
+    /// broken code.
+    pub fn tokenize_recovery(&self, input: &str) -> Vec<crate::token::Token> {
+        crate::lexer::Lexer::new(input)
+            .with_skip_directives(true)
+            .tokenize_recovery()
+    }
+
+    /// Parse `input` and return both the AST and the green CST.
+    ///
+    /// The CST round-trips byte-for-byte: `cst.text() == input` for any
+    /// input the lexer accepts. Parse errors are recovered into
+    /// [`crate::astnode::AstNode::Error`] in the AST and into
+    /// [`crate::cst::SyntaxKind::ErrorNode`] subtrees in the CST, so a
+    /// partial parse still yields a usable green tree.
+    ///
+    /// This is the entry point that the language server (and, eventually,
+    /// the formatter) uses for every document. Cost is the same as
+    /// [`Self::analyze_symbols`] plus one `Arc` clone of the lexer's token
+    /// stream.
+    pub fn parse_with_cst(
+        &self,
+        input: &str,
+    ) -> WqResult<(crate::astnode::AstNode, crate::cst::GreenNode)> {
+        let tokens = Lexer::new(input).with_skip_directives(true).tokenize()?;
+        let mut parser =
+            Parser::new_with_builtins(tokens, input.to_string(), self.vm.builtins.clone());
+        parser.enable_cst();
+        let ast = parser.parse()?;
+        let cst = parser
+            .take_cst()
+            .expect("enable_cst was just called, so take_cst yields Some");
+        Ok((ast, cst))
+    }
+
+    pub fn parse_with_cst_using_cache(
+        &self,
+        input: &str,
+        previous: &crate::cst::GreenNode,
+    ) -> WqResult<(crate::astnode::AstNode, crate::cst::GreenNode)> {
+        let previous_text = previous.text();
+        let (old_start, old_end, new_start, new_end) =
+            compute_dirty_byte_range(&previous_text, input);
+        let tokens = Lexer::new(input).with_skip_directives(true).tokenize()?;
+        let mut parser =
+            Parser::new_with_builtins(tokens, input.to_string(), self.vm.builtins.clone());
+        parser.enable_cst_with_cache(previous, old_start, old_end, new_start, new_end);
+        let ast = parser.parse()?;
+        let cst = parser
+            .take_cst()
+            .expect("enable_cst_with_cache was just called, so take_cst yields Some");
+        Ok((ast, cst))
+    }
+
+    /// Build a snapshot of the environment from slots.
+    pub fn environment(&self) -> GlobalMap {
+        self.vm.global_env()
+    }
+
+    /// Clear all global bindings.
+    pub fn clear_environment(&mut self) {
+        self.vm.global_slots.clear();
+        self.vm.global_slot_versions.clear();
+        self.vm.global_slot_map.clear();
+    }
+
+    /// Check whether `input` forms a syntactically complete wq snippet.
+    /// Returns `false` when the lexer or parser signals an EOF error,
+    /// indicating more input is expected.
+    pub fn is_complete_input(input: &str) -> bool {
+        let mut lexer = Lexer::new(input);
+        let tokens = match lexer.tokenize() {
+            Ok(t) => t,
+            Err(e) => return e.err_type != WqErrorType::Eof,
+        };
+        let mut parser = Parser::new(tokens, input.to_string());
+        match parser.parse() {
+            Ok(_) => parser.eof_error().is_none(),
+            Err(e) => e.err_type != WqErrorType::Eof,
+        }
+    }
+
+    // Arm wqdb for the next eval.
+    // pub fn arm_wqdb_next(&mut self) {
+    //     self.wqdb_arm_next = true;
+    // }
+
+    pub fn dbg_set_source(&mut self, path: &str, full_text: &str) {
+        self.dbg_source_ctx = Some((path.to_string(), full_text.to_string()));
+    }
+
+    pub fn dbg_set_offset(&mut self, offset: usize) {
+        self.dbg_source_offs = offset;
+    }
+
+    pub fn dbg_print_bt(&mut self) {
+        // try captured (innermost) first; else fall back to asking live VM
+        let frames = self
+            .vm
+            .take_last_bt()
+            .unwrap_or_else(|| self.vm.bt_frames());
+        let di = &self.vm.debug_info;
+        for (idx, (loc, name)) in frames.iter().enumerate() {
+            let is_current = idx == 0;
+            wqstderr_println(wqdb::format_frame(di, *loc, name, is_current));
+        }
+    }
+
+    /// Assign a value to a global variable by name via the slot-based global
+    /// table.
+    pub fn assign_global(&mut self, name: &str, value: Value) {
+        self.vm.assign_global_and_slot(name, value);
+    }
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn compute_dirty_byte_range(old: &str, new: &str) -> (usize, usize, usize, usize) {
+    let old_bytes = old.as_bytes();
+    let new_bytes = new.as_bytes();
+
+    let mut prefix = 0usize;
+    while prefix < old_bytes.len()
+        && prefix < new_bytes.len()
+        && old_bytes[prefix] == new_bytes[prefix]
+    {
+        prefix += 1;
+    }
+
+    let mut old_end = old_bytes.len();
+    let mut new_end = new_bytes.len();
+    while old_end > prefix && new_end > prefix && old_bytes[old_end - 1] == new_bytes[new_end - 1] {
+        old_end -= 1;
+        new_end -= 1;
+    }
+
+    (prefix, old_end, prefix, new_end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cst::GreenChild;
+
+    fn root_nodes(root: &crate::cst::GreenNode) -> Vec<crate::cst::GreenNode> {
+        root.children()
+            .iter()
+            .filter_map(|child| match child {
+                GreenChild::Node(node) => Some(node.clone()),
+                GreenChild::Token(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_assign_global_new_var() {
+        let mut session = Session::new();
+        session.assign_global("x", Value::Int(42));
+        assert_eq!(session.env_vars().get("x"), Some(&Value::Int(42)));
+    }
+
+    #[test]
+    fn test_assign_global_overwrite() {
+        let mut session = Session::new();
+        session.assign_global("x", Value::Int(1));
+        session.assign_global("x", Value::Int(2));
+        assert_eq!(session.env_vars().get("x"), Some(&Value::Int(2)));
+    }
+
+    #[test]
+    fn test_assign_global_visible_in_eval() {
+        let mut session = Session::new();
+        let result = session.eval_string("1 + 1").unwrap();
+        session.assign_global("_", result);
+        let underscore = session.eval_string("_").unwrap();
+        assert_eq!(underscore, Value::Int(2));
+    }
+
+    #[test]
+    fn test_reset_session_clears_globals() {
+        let mut session = Session::new();
+        session.eval_string("a:1").unwrap();
+        assert_eq!(session.env_vars().get("a"), Some(&Value::Int(1)));
+        session.reset_session();
+        assert!(session.env_vars().get("a").is_none());
+        // Accessing a after reset should error, not crash with invalid slot
+        let result = session.eval_string("a");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("has not been bound to a value"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_reset_session_preserves_on_pause() {
+        let mut session = Session::new();
+        fn dummy_pause(_vm: &mut crate::vm::Vm) {}
+        session.set_pause_callback(Some(dummy_pause));
+        assert!(session.vm.wqdb.on_pause.is_some());
+        session.reset_session();
+        assert!(
+            session.vm.wqdb.on_pause.is_some(),
+            "on_pause callback should survive reset_session"
+        );
+    }
+
+    #[test]
+    fn test_cached_parse_reuses_unchanged_root_statements() {
+        let session = Session::new();
+        let src = "a:1\nb:2\nc:3\n";
+        let (_, first) = session.parse_with_cst(src).expect("initial parse");
+        let (_, second) = session
+            .parse_with_cst_using_cache(src, &first)
+            .expect("cached parse");
+
+        let first_nodes = root_nodes(&first);
+        let second_nodes = root_nodes(&second);
+        assert_eq!(first_nodes.len(), second_nodes.len());
+        assert!(
+            first_nodes
+                .iter()
+                .zip(second_nodes.iter())
+                .all(|(lhs, rhs)| lhs.ptr_eq(rhs)),
+            "expected unchanged root statements to be reused",
+        );
+    }
+
+    #[test]
+    fn test_cached_parse_reuses_unchanged_prefix_and_suffix_statements() {
+        let session = Session::new();
+        let old_src = "a:1\nb:2\nc:3\n";
+        let new_src = "a:1\nb:20\nc:3\n";
+        let (_, first) = session.parse_with_cst(old_src).expect("initial parse");
+        let (_, second) = session
+            .parse_with_cst_using_cache(new_src, &first)
+            .expect("cached parse");
+
+        let first_nodes = root_nodes(&first);
+        let second_nodes = root_nodes(&second);
+        assert_eq!(first_nodes.len(), second_nodes.len());
+        assert!(first_nodes[0].ptr_eq(&second_nodes[0]));
+        assert!(!first_nodes[1].ptr_eq(&second_nodes[1]));
+        assert!(first_nodes[2].ptr_eq(&second_nodes[2]));
+    }
+}

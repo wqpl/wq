@@ -1,0 +1,5 @@
+!l ../../e/fib.wq
+echo fib1 80
+echo fib2 80
+echo fib3 80
+echo fib4 80

@@ -1,0 +1,11 @@
+primes:{
+  (p;l;i):(x+1|iota|>[1];floor[sqrt[x]];2)
+  W[i<=l
+    $.[p[i]
+      j:i^2
+      p[(x-j)/%i+1|iota|*[i]|+[j]]:false]
+    i:$[i=2
+      3
+      i+2]]
+  where[p]}
+primes[100][-10..0] // 53 59 61 67 71 73 79 83 89 97

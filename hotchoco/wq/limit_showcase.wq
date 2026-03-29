@@ -1,0 +1,60 @@
+// Direct substitution
+echo limit[@s x; @s x; 0]
+echo limit[@s x+1; @s x; 2]
+echo limit[@s x^2; @s x; 3]
+echo limit[@s sin[x]; @s x; 0]
+echo limit[@s ln[x]; @s x; 2]
+
+// Algebraic cancellation
+echo limit[@s x/x; @s x; 0]
+echo limit[@s (x^2-1)/(x-1); @s x; 1]
+
+// L'Hôpital's rule (0/0)
+echo limit[@s sin[x]/x; @s x; 0]
+echo limit[@s tan[x]/x; @s x; 0]
+echo limit[@s (1-cos[x])/x; @s x; 0]
+echo limit[@s (exp[x]-1)/x; @s x; 0]
+
+// Limits at infinity
+echo limit[@s 1/x; @s x; @s oo]
+echo limit[@s (x+1)/(x-1); @s x; @s oo]
+echo limit[@s (x+1)/(x^2-1); @s x; @s oo]
+echo limit[@s exp[x]; @s x; @s oo]
+echo limit[@s exp[-x]; @s x; @s oo]
+echo limit[@s exp[x]; @s x; @s _oo]
+echo limit[@s (1+1/x)^x; @s x; @s oo]
+echo limit[@s x*exp[-x]; @s x; @s oo]
+
+// L'Hôpital's rule (∞/∞)
+echo limit[@s x/exp[x]; @s x; @s oo]
+
+// Series expansion
+echo limit[@s (tan[x]-x)/x^3; @s x; 0]
+echo limit[@s (sin[x]-x)/x^3; @s x; 0]
+echo limit[@s (cos[x]-1)/x^2; @s x; 0]
+echo limit[@s (exp[x]-1-x)/x^2; @s x; 0]
+
+// Known limits
+echo limit[@s ln[1+x]/x; @s x; 0]
+
+// Pole limits
+echo limit[@s 1/x; @s x; 0; "+"]
+echo limit[@s 1/x; @s x; 0; "-"]
+echo limit[@s 1/x; @s x; 0]
+echo limit[@s 1/x^2; @s x; 0; "+"]
+echo limit[@s 1/x^2; @s x; 0]
+echo limit[@s -1/x; @s x; 0; "+"]
+
+// Definite integrals
+echo integrate[@s x; @s x; 0; 1]
+echo integrate[@s x^2; @s x; 0; 2]
+echo integrate[@s sin[x]; @s x; 0; 3.14159]
+echo integrate[@s 1/x; @s x; 1; 2]
+echo integrate[@s exp[x]; @s x; 0; 1]
+echo integrate[@s 1/sqrt[x]; @s x; 0; 1]
+
+// Improper integrals
+echo integrate[@s exp[-x]; @s x; 0; @s oo]
+echo integrate[@s 1/x^2; @s x; 1; @s oo]
+echo integrate[@s 1/x; @s x; 1; @s oo]
+echo integrate[@s 1/x; @s x; 0; 1]

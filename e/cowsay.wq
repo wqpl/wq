@@ -1,5 +1,3 @@
-//!p
-repeat:{[s;n]acc:();N[n;acc:acc,s];acc}
 cowsay:{[msg]border:repeat["-";#msg+2]
   echo(" ",border)
   echo("< ",str msg," >")
@@ -8,6 +6,5 @@ cowsay:{[msg]border:repeat["-";#msg+2]
   echo"         \\  (oo)\\_______"
   echo"             (__)\\       )\\/\\"
   echo"                 ||-----w-|"
-  echo"                 ||      ||"
-}
-//cowsay "moooving on!"
+  echo"                 ||      ||"}
+cowsay "moooving on!"

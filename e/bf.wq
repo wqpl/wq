@@ -1,16 +1,14 @@
-pop:{x[0..#x-1]}
-build_map:{[code]len_:#code;jump:alloc len_;stack:()
-  N[len_;ch:code _n;$.[ch="[";stack:stack,_n]
-    $.[ch="]";open_:stack[-1];stack:pop stack;jump[open_]:_n;jump[_n]:open_]];jump}
-bf:{[code]tape:alloc 30000;ptr:0;jump:build_map code;ip:0;len_:#code;W[ip<len_;op:code ip
-    $.[op=">";ptr:ptr+1;$.[ptr>=#tape;tape:tape,0]]
-    $.[op="<";ptr:ptr-1;$.[ptr<0;tape:0,tape;ptr:0]]
-    $.[op="+";tape[ptr]:tape[ptr]+1]
-    $.[op="-";tape[ptr]:tape[ptr]-1]
+buildmap:{[code]jump:alloc(l:#code);stack:()
+  N[l;ch:code _n;$.[ch="[";stack,:_n]
+    $.[ch="]";open_:stack[-1];(stack;jump open_;jump _n):(stack[!];_n;open_)]];jump}
+bf:{[code]tape:alloc 30000;ptr:0;jump:buildmap code;ip:0;
+  W[ip<#code;op:code ip
+    $.[op=">";ptr+:1;$.[ptr>=#tape;tape,:0]]
+    $.[op="<";ptr-:1;$.[ptr<0;tape:0,tape;ptr:0]]
+    $.[op="+";tape ptr+:1]
+    $.[op="-";tape ptr-:1]
     $.[op=".";print chr tape ptr]
-    $.[op=",";inp:input"input";$[#inp>0;tape[ptr]:ord inp 0;tape[ptr]:0]
-      echo fmt["tape[ptr]={}";tape ptr]]
-    $.[op="[";$.[tape[ptr]=0;ip:jump ip]]
-    $.[op="]";$.[tape[ptr]~0;ip:jump ip]];ip:ip+1]}
-//code:"// >++++++++[<+++++++++>-]<.>++++[<+++++++>-]<+.+++++++..+++.>>++++++[<+++++++>-]<++.------------.>++++++[<+++++++++>-]<+.<.+++.------.--------.>>>++++[<++++++++>-]<+."
-//bf code
+    $.[op=",";inp:input"[bf] ";tape ptr:$[#inp>0;ord inp 0;0];echo@f"tape[ptr]={tape ptr}"]
+    $.[op="[";$.[tape ptr=0;ip:jump ip]]
+    $.[op="]";$.[tape ptr~0;ip:jump ip]];ip+:1];echo""}
+bf">++++++++[<+++++++++>-]<.>++++[<+++++++>-]<+.+++++++..+++.>>++++++[<+++++++>-]<++.------------.>++++++[<+++++++++>-]<+.<.+++.------.--------.>>>++++[<++++++++>-]<+."

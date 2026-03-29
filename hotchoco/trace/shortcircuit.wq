@@ -1,0 +1,4 @@
+a:1;b:0
+@d ((a<0)&|(10/b))  // short-circuit: 10/b never evaluated
+a:5;b:2
+@d ((a>0)&|(b<0))  // no short-circuit: a>0 is true, proceed to check b<0

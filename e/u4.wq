@@ -1,10 +1,8 @@
-!p
-HEX:"0123456789abcdef";hexbyte:{[b]HEX[shr[b;4]],HEX[band[b;15]]}
-u4_:{bytes:alloc 16;N[16;bytes[_n]:rand 256]
-  bytes[6]:bor[band[bytes[6];15];64];bytes[8]:bor[band[bytes[8];63];128]
-  chars:alloc 32;N[16;j:2*_n;t:hexbyte[bytes[_n]];chars[j]:t[0];chars[j+1]:t[1]]
-  part1:take[8;chars];rest:drop[8;chars];part2:take[4;rest]; rest:drop[4;rest]
-  part3:take[4;rest];rest:drop[4;rest];part4:take[4;rest]
-  part5:drop[4;rest];part1,"-",part2,"-",part3,"-",part4,"-",part5}
-u4:{l:alloc x;N[x;l[_n]:u4_[]];l}
-//echo u4 4
+HEX:"0123456789abcdef"
+hb:{(x|shr 4|HEX;x|band 15|HEX)}
+u4:{bs:alloc 16|map{rand 256}
+  bs 6:bs 6|band 15|bor 64;bs 8:bs 8|band 63|bor 128
+  cs:alloc 32;N[16;(cs[2*_n];cs[2*_n+1]):hb bs _n];cs[!8;12;16;20]:"-";cs}
+t:u4[]
+t 14="4"|echo
+t 19|int 16|bin|{x[0..4]="0b10"}|echo

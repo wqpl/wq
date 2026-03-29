@@ -1,0 +1,63 @@
+// quoted fields, escaped quotes (""), newlines inside quotes, empty fields
+parse_csv:{[csv]
+  rows:()
+  cols:()
+  field:()
+  in_quote:false
+  i:0
+  W[i<#csv
+    c:csv[i]
+    next:""
+    $.[i+1<#csv
+      next:csv[i+1]]
+    esc:and[in_quote;c="\"";next="\""]
+    handled:false
+    $.[and[in_quote;esc;~handled]
+      B[field,:("\"")
+        i+:1
+        handled:true]]
+    $.[and[in_quote;~esc;c="\"";~handled]
+      B[in_quote:false
+        handled:true]]
+    $.[and[in_quote;~esc;~handled]
+      field,:c]
+    $.[and[~in_quote;c="\"";~handled]
+      B[in_quote:true
+        handled:true]]
+    $.[and[~in_quote;c=",";~handled]
+      B[cols,:(,field)
+        field:()
+        handled:true]]
+    $.[and[~in_quote;c="\n";~handled]
+      B[cols,:(,field)
+        rows,:(,cols)
+        cols:()
+        field:()
+        handled:true]]
+    $.[and[~in_quote;~handled]
+      field,:c]
+    i+:1]
+  cols,:(,field)
+  rows,:(,cols)
+  rows}
+
+// -- demos --
+csv1:"name,age\nAlice,30\nBob,25"
+csv2:"\"hello, world\",123"
+csv3:"a,\"b,c\",d"
+csv4:"\"hello \"\"world\"\"\",123"
+csv5:",,"
+csv6:"\"line1\nline2\",tail"
+
+echo["--- Test 1: basic ---"]
+echo[parse_csv[csv1]]
+echo["--- Test 2: quoted field with comma ---"]
+echo[parse_csv[csv2]]
+echo["--- Test 3: mixed quoted / unquoted ---"]
+echo[parse_csv[csv3]]
+echo["--- Test 4: escaped quotes inside field ---"]
+echo[parse_csv[csv4]]
+echo["--- Test 5: empty fields ---"]
+echo[parse_csv[csv5]]
+echo["--- Test 6: newline inside quoted field ---"]
+echo[parse_csv[csv6]]

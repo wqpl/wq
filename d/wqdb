@@ -1,15 +1,14 @@
-wqdb
-====
-  c, continue   continue
-  n, next       step over
-  s, step       step in
-  fin, finish   step out
-  b <ln>        add breakpoint
-  ib            show breakpoints
-  rs            reset breakpoints
-  gb, globals   dump globals
-  lb, locals    dump locals
-  bt            show backtrace
-  p, peek <n>   peek +-n lines (def=3)
-  i, ins <n>    peek +-n insts (def=5)
-  h, help       show this help
+wqdb =======================================
+c, continue   continue
+n, next       step over
+s, step       step in
+fin, finish   step out
+b <pc>        add breakpoint in current chunk
+ib            show breakpoints
+rs            reset breakpoints
+gb, globals   dump globals
+lb, locals    dump locals
+bt            show backtrace
+p, peek <n>   peek +-n lines (def=3)
+i, ins <n>    peek +-n insts (def=5)
+h, help       show this help

@@ -1,9 +1,4 @@
-fib:{fib_:{[n;a;b]$[n=0;a;fib_[n-1;b;a+b]]};fib_[x;0;1]}
-//echo fib 90
-
-fib2:{(f_:{$[x=0;y;f_[x-1;z;y+z]]})[x;0;1]}
-//echo fib2 90
-
-fib3:{[n]a:0;b:1;N[n;(a;b):(b;a+b)];a}
-
-fib4:{[n]_fib:{[k]$.[k=0;@r(0;1)];(a;b):_fib floor[k/2];c:a*(2*b-a);d:a*a+b*b;$[k%2=0;(c;d);(d;c+d)]};_fib[n]0}
+fib1:{_:{[n;a;b]$[n=0;a;_[n-1;b;a+b]]};_[x;0;1]}/*fib1 999*/
+fib2:{(_:{$[x=0;y;_[x-1;z;y+z]]})[x;0;1]}/*fib2 999*/
+fib3:{a:0;b:1;N[x;(a;b):(b;a+b)];a}/*fib3 999*/
+fib4:{_:{[k]$.[k=0;@r(0;1)];(a;b):_[k/%2];c:(2*b-a)*a;d:a^2+b^2;$[k%2=0;(c;d);(d;c+d)]};_[x]0}/*fib4 999*/

@@ -1,0 +1,9 @@
+wordwrap:{[cs;w]
+  W[#cs>w;idx_:w-1
+    W[cs idx_~" "|and idx_>=0;idx_-:1]
+    seg:$[idx_<=0;cs[!0..w];t:cs[!0..idx_];cs[!0];t]
+    echo seg];$.[~U cs;echo cs]}
+"abcd efghi jklm"|repeat 100|wordwrap 10
+
+wrap_file:{[path;w]line:freadtln(h:open path)
+  W[~U line;line|wordwrap w;line:freadtln h];fclose h}

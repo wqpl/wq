@@ -1,0 +1,50 @@
+// Propositional logic truth table generator
+(OP_END;OP_AND;OP_OR;OP_NOT;OP_XOR;OP_IMPLY;OP_EQUAL;OP_LPAR;OP_RPAR;OP_VAR):0..=9
+alpha?:{[c]oc:ord c;and[oc>=97;oc<=122]|or and[oc>=65;oc<=90]}
+prec:{[op]$$[op=OP_NOT;6;op=OP_AND;5;op=OP_XOR;4;op=OP_OR;3;op=OP_IMPLY;2;op=OP_EQUAL;1;-1]}
+mknode:{[op;left;right;name](`op:op;`left:left;`right:right;`var:name)}
+mkleaf:{[op;name]mknode[op;();();name]}
+mkunary:{[op;left;name]mknode[op;left;();name]}
+tokenize:{[s]t:();N[#s;ch:s _n;$$[ch=" ";0
+  ch="&";t,:mkleaf[OP_AND;""];  ch="|";t,:mkleaf[OP_OR;""]
+  ch="^";t,:mkleaf[OP_XOR;""];  ch="~";t,:mkleaf[OP_NOT;""]
+  ch="(";t,:mkleaf[OP_LPAR;""]; ch=")";t,:mkleaf[OP_RPAR;""]
+  ch=">";t,:mkleaf[OP_IMPLY;""];ch="=";t,:mkleaf[OP_EQUAL;""]
+  alpha? ch;t,:mkleaf[OP_VAR;ch];raise@f"Illegal character: {ch}"]];t,:mkleaf[OP_END;""]}
+parse: /* Shunting-yard parser: returns AST node */{[toks](ops;nodes):2|alloc();N[#toks;t:toks _n
+  $$[t`op=OP_VAR; nodes,:mkleaf[OP_VAR;t`var];t`op=OP_NOT; ops,:OP_NOT
+     t`op=OP_LPAR;ops,:OP_LPAR;t`op=OP_RPAR;B[W[#ops>0;top:ops[!];$$[top=OP_LPAR;@b
+      top=OP_NOT;nodes,:mknode[top;nodes[!];();""]
+      top~OP_LPAR;B[right:nodes[!];left:nodes[!];nodes,:mknode[top;left;right;""]]]]]
+     t`op=OP_END;0;or[t`op=OP_AND;t`op=OP_OR;t`op=OP_XOR;t`op=OP_IMPLY;t`op=OP_EQUAL];B[p:prec t`op;more:T
+       W[and[more;#ops>0];top:ops[-1];$$[top=OP_LPAR;more:F;top~OP_LPAR;B[pt:prec top
+         $[pt<p;more:F;ops[!];right:nodes[!];left:nodes[!];nodes,:mknode[top;left;right;""]]]]];ops,:t`op]]]
+  W[#ops>0;top:ops[!];/* pop remaining ops */$.[top=OP_LPAR;raise"Mismatched Parentheses"]
+    $.[top=OP_NOT;nodes,:mknode[top;nodes[!];();""]]
+    $.[top~OP_LPAR;right:nodes[!];left:nodes[!];nodes,:mknode[top;left;right;""]]];nodes[!]}
+collect_vars:{[node;vars]$.[U node;@r vars];$.[and[U node`left;U node`right];v:node`var;exist:F
+    N[#vars;$.[vars _n=v;exist:T]];$.[~exist;vars,:v];@r vars]
+  vars:collect_vars[node`left;vars];collect_vars[node`right;vars]}
+evaluate:{[node;vals;vars]$.[U node;@r F]
+  $.[and[U node`left;U node`right];v:node`var;N[#vars;$.[vars _n=v;@r vals _n]];@r F]
+  left:$[U node`left;F;evaluate[node`left;vals;vars]];/*@d left*/
+  right:$[U node`right;F;evaluate[node`right;vals;vars]];/*@d right*/
+  $$[node`op=OP_AND;and[left;right];     node`op=OP_OR;or[left;right]
+     node`op=OP_NOT;not left;            node`op=OP_XOR;bxor[left;right]
+     node`op=OP_IMPLY;or[not left;right];node`op=OP_EQUAL;left=right;F]}
+print_table:{[str_;expr;vars]n:#vars;echo@f"R = {str_}"
+  N[n;print@f"| {vars _n} "];echo"| R |";N[shl[1;n];i:_n;vals:alloc n
+    N[n;vals _n:shr[i;n-1-_n]&1|bool;print@f"| {$[vals _n;1;0]} "]
+  res:evaluate[expr;vals;vars];echo@f"| {$[res;1;0]} |"]}
+print_ast:{[node;d;isleft]$.[U node;@r 0];print_ast[node`right;d+1;F]
+  prefix:"";N[d-1;prefix:@f"{prefix}│   "];$.[d>0;prefix:@f"{prefix}{$[isleft;"└";"├"]}---"]
+  label:$$[node`op=OP_VAR;@f"VAR('{node`var}')";node`op=OP_AND;"AND(&)"
+           node`op=OP_OR;"OR(|)";               node`op=OP_XOR;"XOR(^)"
+           node`op=OP_NOT;"NOT(~)";             node`op=OP_IMPLY;"IMPLY(>)"
+           node`op=OP_EQUAL;"EQUAL(=)";         "UNKNOWN"]
+  echo@f"{prefix}{label}";print_ast[node`left;d+1;T]}
+//--main--
+//inp:input"Input the Boolean Expression: "
+inp:"A&B|C^B"
+toks:tokenize inp;expr:parse toks;vars:collect_vars[expr;()]
+print_table[inp;expr;vars];echo"";print_ast[expr;0;F];echo""

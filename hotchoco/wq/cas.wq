@@ -1,0 +1,50 @@
+//test simplify polynomial by combining like terms
+simplify[@s x+x+1] | echo
+
+//test rewrite sum of logs into log of product
+rewrite[@s ln[x]+ln[y]] | echo
+
+//test differentiate a quadratic polynomial with explicit variable
+diff[@s x^2+2*x+1;@sx] | echo
+
+//test differentiate with implicit variable
+diff[@s x^2+2*x+1] | echo
+
+//test substitute a numeric value into an expression
+substitute[@s x^2+1;@sx;5] | echo
+
+//test expand a binomial square
+expand[@s (x+1)^2] | echo
+
+//test factor out a common term
+factor[@s x^2+x] | echo
+
+//test integrate a power function with explicit variable
+integrate[@s x^2;@sx] | echo
+
+//test integrate with implicit variable
+integrate[@s x^2] | echo
+
+//test integrate sine function
+integrate[@s sin[x];@sx] | echo
+
+//test integrate sine with implicit variable
+integrate[@s sin[x]] | echo
+
+//test solve equation with explicit target variable
+solve[@s x^2=1;@sx] | echo
+
+//test solve equation with implicit target variable
+solve[@s x^2=1] | echo
+
+//test solve monomial equation of degree three
+solve[@s x^3=8] | echo
+
+//test solve a system of linear equations
+solve_system[@s(2*x+y=5;x-y=1);@s(x;y)] | echo
+
+//test brent root finding on a quadratic
+brent[@s x^2-2;1;2] | echo
+
+//test newton root finding on a quadratic
+newton[@s x^2-2;1] | echo

@@ -1,0 +1,29 @@
+# Suite-wide configuration
+wq_binary = "target/debug/wq"
+timeout_seconds = 60
+strip_ansi = true
+
+# Regex filters applied to all output before comparison
+[[filters]]
+pattern = '\r\n'
+replacement = '\n'
+
+[[filters]]
+pattern = '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z'
+replacement = '<TIMESTAMP>'
+
+[[filters]]
+pattern = '0x[0-9a-fA-F]{8,}'
+replacement = '<ADDR>'
+
+[[filters]]
+pattern = "thread '[^']*' \\(\\d+\\)"
+replacement = "thread '<NAME>' (<THREAD_ID>)"
+
+[[filters]]
+pattern = '(?:/|[A-Za-z]:\\\\)[^\s\n]+/hotchoco/[^\s\n]+'
+replacement = '<TEST_PATH>'
+
+[[filters]]
+pattern = '(?:/|[A-Za-z]:\\\\)[^\s\n]+/wq-cli/[^\s\n]+'
+replacement = '<TEST_PATH>'

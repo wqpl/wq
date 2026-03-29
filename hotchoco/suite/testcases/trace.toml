@@ -1,0 +1,8 @@
+name = "trace"
+source_glob = "hotchoco/trace/*.wq"
+exclude_marker = "//exclude"
+
+[[modes]]
+name = "exec"
+flags = ["-p"]
+capture = "stdout+stderr"

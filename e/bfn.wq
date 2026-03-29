@@ -1,2 +1,2 @@
 !p
-bfn[]|map{"\"",x,"\""}|join","|echo
+echo dumpbfn[]

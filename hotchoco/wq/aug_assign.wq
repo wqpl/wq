@@ -1,0 +1,10 @@
+a:10
+a+:5
+a-:2
+echo a
+
+l:(1;2;3)
+l[1]*:10
+echo l
+
+f:{tape:10,20,30;ptr:1;g:{'tape['ptr]+:1};g[];g[];tape};echo f[]

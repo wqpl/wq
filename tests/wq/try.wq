@@ -1,6 +1,0 @@
-buggy:{raise["wow"]}
-a:@t buggy[]
-(err;code):a
-echo a
-echo err
-echo code

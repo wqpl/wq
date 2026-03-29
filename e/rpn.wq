@@ -1,8 +1,7 @@
-pop:{x[0..#x-1]}
-rpn:{[expr]sta:();N[#expr;tok:expr _n;plu:tok="+";mi_:tok="-";mul:tok="*";div:tok="%"
-    $.[plu;b:sta[-1];sta:pop sta;a:sta[-1];sta:pop sta;sta:sta,a+b;@c]
-    $.[mi_;b:sta[-1];sta:pop sta;a:sta[-1];sta:pop sta;sta:sta,a-b;@c]
-    $.[mul;b:sta[-1];sta:pop sta;a:sta[-1];sta:pop sta;sta:sta,a*b;@c]
-    $.[div;b:sta[-1];sta:pop sta;a:sta[-1];sta:pop sta;sta:sta,a/b;@c]
-    sta:sta,tok];sta[-1]}
-//echo rpn(3;4;"+";2;"*";1;"-")
+rpn:{[p]sta:();bpop:{'sta[!-2;-1]|fold x};upop:{'sta[!]|x};apop:{'sta[!0..#'sta]|fold x}
+  p|map{'sta,:$$[x="+";'bpop(+);x="-";'bpop(-);x="*";'bpop(*);x="%";'bpop(/);x="_";'upop(-);x="+/";'apop(+);x]};sta[!]}
+
+((3;4;"+";2;"*";1;"-")/* 13 */
+ (3;4;"+";"_")/* -7 */
+ (1;2;3;4;"+/")/* 10 */
+ (10;2;3;"+/";"_")/* -15 */)|map rpn

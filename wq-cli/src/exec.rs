@@ -1,0 +1,84 @@
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+use wqpl::session::stdio::set_wqstdin;
+use wqpl::session::{Session, dbglog};
+
+use crate::arg::RuntimeFlags;
+use crate::load::{eval_inline_with_load, load_script};
+use crate::msg::{print_dry_run_status, print_load_error};
+use crate::repl::input::RustylineInput;
+use crate::wqdb::enter_wqdb_after_err;
+use crate::{apply_builtins_flag, apply_interpreter_flag, wqdb_pause_handler};
+
+pub fn exec_script<P: AsRef<Path>>(filename: P, rtflags: RuntimeFlags) {
+    let mut evaluator = Session::new();
+    evaluator.set_pause_callback(Some(wqdb_pause_handler));
+    dbglog::set_debug_log_flags(rtflags.debug_flags);
+    evaluator.set_bt_mode(rtflags.bt);
+    set_wqstdin(Box::new(RustylineInput::new().unwrap()));
+    evaluator.set_wqdb(rtflags.wqdb);
+    if !rtflags.wqdb_cmds.is_empty() {
+        evaluator.set_wqdb_batch_cmds(rtflags.wqdb_cmds.clone());
+    }
+    evaluator.set_dry_mode(rtflags.dry);
+    apply_builtins_flag(&mut evaluator, &rtflags);
+    apply_interpreter_flag(&mut evaluator, &rtflags);
+    let loading = RefCell::new(HashSet::new());
+    match load_script(&mut evaluator, filename, &loading, true) {
+        Ok(report) => {
+            if rtflags.print
+                && !rtflags.dry
+                && let Some(result) = report.result
+            {
+                println!("{result}");
+            }
+            if rtflags.dry {
+                print_dry_run_status();
+            }
+        }
+        Err(err) => {
+            print_load_error(&err, &mut evaluator);
+            if evaluator.is_wqdb_enabled() && err.is_runtime() {
+                enter_wqdb_after_err(&mut evaluator);
+            }
+        }
+    }
+}
+
+pub fn exec_cmd(content: &str, rtflags: RuntimeFlags) {
+    let mut session = Session::new();
+    session.set_pause_callback(Some(wqdb_pause_handler));
+    dbglog::set_debug_log_flags(rtflags.debug_flags);
+    session.set_bt_mode(rtflags.bt);
+    set_wqstdin(Box::new(RustylineInput::new().unwrap()));
+    session.set_wqdb(rtflags.wqdb);
+    if !rtflags.wqdb_cmds.is_empty() {
+        session.set_wqdb_batch_cmds(rtflags.wqdb_cmds.clone());
+    }
+    session.set_dry_mode(rtflags.dry);
+    apply_builtins_flag(&mut session, &rtflags);
+    apply_interpreter_flag(&mut session, &rtflags);
+    let loading = RefCell::new(HashSet::new());
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    match eval_inline_with_load(&mut session, content, &cwd, &loading, true) {
+        Ok(report) => {
+            if rtflags.print
+                && !rtflags.dry
+                && let Some(result) = report.result
+            {
+                println!("{result}");
+            }
+            if rtflags.dry {
+                print_dry_run_status();
+            }
+        }
+        Err(err) => {
+            print_load_error(&err, &mut session);
+            if session.is_wqdb_enabled() && err.is_runtime() {
+                enter_wqdb_after_err(&mut session);
+            }
+        }
+    }
+}

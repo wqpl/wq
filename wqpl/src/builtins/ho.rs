@@ -1,0 +1,1106 @@
+use std::sync::Arc;
+
+use crate::builtins::{
+    BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
+};
+use crate::value::bc::{Bc1Stop, Bc2Stop};
+use crate::value::{Value, WqResult};
+use crate::vm::Vm;
+use crate::wqerror::{WqError, WqErrorType};
+
+/// apply[fs;x] — apply each function in fs to x, returning a list of results.
+/// If fs is a single function (not a list), returns f[x] unwrapped.
+pub(super) fn apply(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Apply, [2, 2], &args)?;
+    let (fs, x) = (&args[0], &args[1]);
+    match fs {
+        Value::List(items) => {
+            let mut results = Vec::with_capacity(items.len());
+            for f in items.iter() {
+                results.push(vm.call(f, BuiltinFnArgs::from(x.clone()))?);
+            }
+            Ok(Value::from_items(results))
+        }
+        _ => vm.call(fs, BuiltinFnArgs::from(x.clone())),
+    }
+}
+
+/// map[xs;f;d?]
+pub(super) fn map(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    #[inline]
+    fn eff_layers(raw_d: &Value, total_depth: i64) -> Option<i64> {
+        match raw_d {
+            // non-negative: go min(d, D) layers
+            Value::Int(n) if *n >= 0 => Some((*n).min(total_depth)),
+            // negative: "cut |d| from xs.depth()" -> L = max(0, D + d)
+            Value::Int(n) => Some((total_depth + *n).max(0)),
+            // +inf: go fully (atoms only) -> L = D
+            Value::Float(n) if n.is_infinite() && n.is_sign_positive() => Some(total_depth),
+            // -inf: apply at root -> L = 0
+            Value::Float(n) if n.is_infinite() && n.is_sign_negative() => Some(0),
+            _ => None,
+        }
+    }
+
+    fn _map(vm: &mut Vm, xs: &Value, f: &Value, d: &Value) -> WqResult<Value> {
+        let el = match eff_layers(d, xs.depth()) {
+            Some(l) => l,
+            None => return Err(type_mismatch(BE::Map, 0, "int, inf or -inf", d)),
+        };
+        // atoms are always leaves; stop after traversing L layers from the root
+        let stop = Bc1Stop::AtomOrDepth(el);
+        let op1 = |v: &Value| vm.call(f, BuiltinFnArgs::from(v.clone()));
+        xs.bc1_until(stop, op1)
+            .map_err(|e| e.into_wqerror().src(BE::Map))
+    }
+
+    check_arity(BE::Map, [2, 3], &args)?;
+    match args.len() {
+        2 => {
+            let (xs, f) = (&args[0], &args[1]);
+            _map(vm, xs, f, &Value::Int(1))
+        }
+        3 => {
+            let (xs, f, d) = (&args[0], &args[1], &args[2]);
+            _map(vm, xs, f, d)
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[inline]
+fn eff_layers(raw_d: &Value, total_depth: i64) -> Option<i64> {
+    match raw_d {
+        Value::Int(n) if *n >= 0 => Some((*n).min(total_depth)),
+        Value::Int(n) => Some((total_depth + *n).max(0)),
+        Value::Float(n) if n.is_infinite() && n.is_sign_positive() => Some(total_depth),
+        Value::Float(n) if n.is_infinite() && n.is_sign_negative() => Some(0),
+        _ => None,
+    }
+}
+
+fn any_all_at_depth(
+    vm: &mut Vm,
+    func: &Value,
+    xs: &Value,
+    depth_from_root: i64,
+    max_depth: i64,
+    mode_any: bool,
+    src: BE,
+) -> WqResult<bool> {
+    if depth_from_root >= max_depth || xs.is_atom() {
+        let pred = vm.call(func, BuiltinFnArgs::from(xs.clone()))?;
+        return match pred {
+            Value::Bool(b) => Ok(b),
+            _ => Err(WqError::new(WqErrorType::Domain)
+                .src(src)
+                .msg("predicate must return bool")),
+        };
+    }
+
+    match xs {
+        Value::List(items) => {
+            for item in items.iter() {
+                let result = any_all_at_depth(
+                    vm,
+                    func,
+                    item,
+                    depth_from_root + 1,
+                    max_depth,
+                    mode_any,
+                    src,
+                )?;
+                if mode_any && result {
+                    return Ok(true);
+                }
+                if !mode_any && !result {
+                    return Ok(false);
+                }
+            }
+            Ok(!mode_any)
+        }
+        Value::IntList(items) => {
+            for &item in items.iter() {
+                let pred = vm.call(func, BuiltinFnArgs::from(Value::Int(item)))?;
+                let result = match pred {
+                    Value::Bool(b) => b,
+                    _ => {
+                        return Err(WqError::new(WqErrorType::Domain)
+                            .src(src)
+                            .msg("predicate must return bool"));
+                    }
+                };
+                if mode_any && result {
+                    return Ok(true);
+                }
+                if !mode_any && !result {
+                    return Ok(false);
+                }
+            }
+            Ok(!mode_any)
+        }
+        Value::Dict(map) => {
+            for item in map.values() {
+                let result = any_all_at_depth(
+                    vm,
+                    func,
+                    item,
+                    depth_from_root + 1,
+                    max_depth,
+                    mode_any,
+                    src,
+                )?;
+                if mode_any && result {
+                    return Ok(true);
+                }
+                if !mode_any && !result {
+                    return Ok(false);
+                }
+            }
+            Ok(!mode_any)
+        }
+        other => {
+            let pred = vm.call(func, BuiltinFnArgs::from(other.clone()))?;
+            match pred {
+                Value::Bool(b) => Ok(b),
+                _ => Err(WqError::new(WqErrorType::Domain)
+                    .src(src)
+                    .msg("predicate must return bool")),
+            }
+        }
+    }
+}
+
+/// any[xs;f;d?]
+pub(super) fn any(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Any, [2, 3], &args)?;
+    let (xs, f, d) = match args.len() {
+        2 => (&args[0], &args[1], &Value::Int(1)),
+        3 => (&args[0], &args[1], &args[2]),
+        _ => unreachable!(),
+    };
+    let max_depth = match eff_layers(d, xs.depth()) {
+        Some(l) => l,
+        None => return Err(type_mismatch(BE::Any, 0, "int, inf or -inf", d)),
+    };
+    Ok(Value::Bool(any_all_at_depth(
+        vm,
+        f,
+        xs,
+        0,
+        max_depth,
+        true,
+        BE::Any,
+    )?))
+}
+
+/// all[xs;f;d?]
+pub(super) fn all(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::All, [2, 3], &args)?;
+    let (xs, f, d) = match args.len() {
+        2 => (&args[0], &args[1], &Value::Int(1)),
+        3 => (&args[0], &args[1], &args[2]),
+        _ => unreachable!(),
+    };
+    let max_depth = match eff_layers(d, xs.depth()) {
+        Some(l) => l,
+        None => return Err(type_mismatch(BE::All, 0, "int, inf or -inf", d)),
+    };
+    Ok(Value::Bool(any_all_at_depth(
+        vm,
+        f,
+        xs,
+        0,
+        max_depth,
+        false,
+        BE::All,
+    )?))
+}
+
+/// fold[xs;f;acc?]
+pub(super) fn fold(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Fold, [2, 3], &args)?;
+    let n = args.len();
+    let mut iter = args.into_iter();
+    let xs = iter.next().unwrap();
+    let f = iter.next().unwrap();
+
+    match n {
+        2 => match xs {
+            Value::IntList(items) => {
+                if items.is_empty() {
+                    return Ok(Value::unit());
+                }
+                let mut acc = Value::Int(items[0]);
+                for &x in &items[1..] {
+                    let mut ca = BuiltinFnArgs::new();
+                    ca.push(acc);
+                    ca.push(Value::Int(x));
+                    acc = vm.call(&f, ca)?;
+                }
+                Ok(acc)
+            }
+            Value::List(items) => {
+                if items.is_empty() {
+                    return Ok(Value::unit());
+                }
+                let mut list_iter = items.iter();
+                let mut acc = list_iter.next().unwrap().clone();
+                for it in list_iter {
+                    let mut ca = BuiltinFnArgs::new();
+                    ca.push(acc);
+                    ca.push(it.clone());
+                    acc = vm.call(&f, ca)?;
+                }
+                Ok(acc)
+            }
+            Value::Dict(map) => {
+                if map.is_empty() {
+                    return Ok(Value::unit());
+                }
+                let mut val_iter = map.values();
+                let mut acc = val_iter.next().unwrap().clone();
+                for it in val_iter {
+                    let mut ca = BuiltinFnArgs::new();
+                    ca.push(acc);
+                    ca.push(it.clone());
+                    acc = vm.call(&f, ca)?;
+                }
+                Ok(acc)
+            }
+            other => Ok(other),
+        },
+        3 => {
+            let mut acc = iter.next().unwrap();
+            match xs {
+                Value::IntList(items) => {
+                    for &x in items.iter() {
+                        let mut ca = BuiltinFnArgs::new();
+                        ca.push(acc);
+                        ca.push(Value::Int(x));
+                        acc = vm.call(&f, ca)?;
+                    }
+                    Ok(acc)
+                }
+                Value::List(items) => {
+                    for it in items.iter() {
+                        let mut ca = BuiltinFnArgs::new();
+                        ca.push(acc);
+                        ca.push(it.clone());
+                        acc = vm.call(&f, ca)?;
+                    }
+                    Ok(acc)
+                }
+                Value::Dict(map) => {
+                    for it in map.values() {
+                        let mut ca = BuiltinFnArgs::new();
+                        ca.push(acc);
+                        ca.push(it.clone());
+                        acc = vm.call(&f, ca)?;
+                    }
+                    Ok(acc)
+                }
+                other => Ok(other),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// scan[xs;f;acc?]
+pub(super) fn scan(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Scan, [2, 3], &args)?;
+    let n = args.len();
+    let mut iter = args.into_iter();
+    let xs = iter.next().unwrap();
+    let f = iter.next().unwrap();
+
+    match n {
+        2 => match xs {
+            Value::IntList(xs) => {
+                if xs.is_empty() {
+                    return Ok(Value::unit());
+                }
+                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                let mut acc = Value::Int(xs[0]);
+                results.push(acc.clone());
+                for &x in &xs[1..] {
+                    let mut ca = BuiltinFnArgs::new();
+                    ca.push(acc);
+                    ca.push(Value::Int(x));
+                    acc = vm.call(&f, ca)?;
+                    results.push(acc.clone());
+                }
+                Ok(Value::from_items(results))
+            }
+            Value::List(xs) => {
+                if xs.is_empty() {
+                    return Ok(Value::unit());
+                }
+                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                let mut acc = xs[0].clone();
+                results.push(acc.clone());
+                for x in &xs[1..] {
+                    let mut ca = BuiltinFnArgs::new();
+                    ca.push(acc);
+                    ca.push(x.clone());
+                    acc = vm.call(&f, ca)?;
+                    results.push(acc.clone());
+                }
+                Ok(Value::from_items(results))
+            }
+            Value::Dict(map) => {
+                if map.is_empty() {
+                    return Ok(Value::unit());
+                }
+                let mut results: Vec<Value> = Vec::with_capacity(map.len());
+                let mut val_iter = map.values();
+                let mut acc = val_iter.next().unwrap().clone();
+                results.push(acc.clone());
+                for v in val_iter {
+                    let mut ca = BuiltinFnArgs::new();
+                    ca.push(acc);
+                    ca.push(v.clone());
+                    acc = vm.call(&f, ca)?;
+                    results.push(acc.clone());
+                }
+                Ok(Value::from_items(results))
+            }
+            other => Ok(other),
+        },
+        3 => {
+            let mut acc = iter.next().unwrap();
+            match xs {
+                Value::IntList(xs) => {
+                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                    for &x in xs.iter() {
+                        let mut ca = BuiltinFnArgs::new();
+                        ca.push(acc);
+                        ca.push(Value::Int(x));
+                        acc = vm.call(&f, ca)?;
+                        results.push(acc.clone());
+                    }
+                    Ok(Value::from_items(results))
+                }
+                Value::List(xs) => {
+                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                    for x in xs.iter() {
+                        let mut ca = BuiltinFnArgs::new();
+                        ca.push(acc);
+                        ca.push(x.clone());
+                        acc = vm.call(&f, ca)?;
+                        results.push(acc.clone());
+                    }
+                    Ok(Value::List(Arc::new(results)))
+                }
+                Value::Dict(map) => {
+                    let mut results: Vec<Value> = Vec::with_capacity(map.len());
+                    for v in map.values() {
+                        let mut ca = BuiltinFnArgs::new();
+                        ca.push(acc);
+                        ca.push(v.clone());
+                        acc = vm.call(&f, ca)?;
+                        results.push(acc.clone());
+                    }
+                    Ok(Value::from_items(results))
+                }
+                other => Ok(other),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// rscan[xs;f;acc?]
+pub(super) fn rscan(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::RScan, [2, 3], &args)?;
+    let n = args.len();
+    let mut iter = args.into_iter();
+    let xs = iter.next().unwrap();
+    let f = iter.next().unwrap();
+
+    match n {
+        2 => match xs {
+            Value::IntList(xs) => {
+                if xs.is_empty() {
+                    return Ok(Value::unit());
+                }
+                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                let mut acc = Value::Int(*xs.last().unwrap());
+                results.push(acc.clone());
+                for &x in xs.iter().rev().skip(1) {
+                    let mut ca = BuiltinFnArgs::new();
+                    ca.push(acc);
+                    ca.push(Value::Int(x));
+                    acc = vm.call(&f, ca)?;
+                    results.push(acc.clone());
+                }
+                results.reverse();
+                Ok(Value::from_items(results))
+            }
+            Value::List(xs) => {
+                if xs.is_empty() {
+                    return Ok(Value::unit());
+                }
+                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                let mut acc = xs.last().unwrap().clone();
+                results.push(acc.clone());
+                for x in xs.iter().rev().skip(1) {
+                    let mut ca = BuiltinFnArgs::new();
+                    ca.push(acc);
+                    ca.push(x.clone());
+                    acc = vm.call(&f, ca)?;
+                    results.push(acc.clone());
+                }
+                results.reverse();
+                Ok(Value::from_items(results))
+            }
+            Value::Dict(map) => {
+                if map.is_empty() {
+                    return Ok(Value::unit());
+                }
+                let mut results: Vec<Value> = Vec::with_capacity(map.len());
+                let mut val_iter = map.values().rev();
+                let mut acc = val_iter.next().unwrap().clone();
+                results.push(acc.clone());
+                for v in val_iter {
+                    let mut ca = BuiltinFnArgs::new();
+                    ca.push(acc);
+                    ca.push(v.clone());
+                    acc = vm.call(&f, ca)?;
+                    results.push(acc.clone());
+                }
+                results.reverse();
+                Ok(Value::from_items(results))
+            }
+            other => Ok(other),
+        },
+        3 => {
+            let mut acc = iter.next().unwrap();
+            match xs {
+                Value::IntList(xs) => {
+                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                    for &x in xs.iter().rev() {
+                        let mut ca = BuiltinFnArgs::new();
+                        ca.push(acc);
+                        ca.push(Value::Int(x));
+                        acc = vm.call(&f, ca)?;
+                        results.push(acc.clone());
+                    }
+                    results.reverse();
+                    Ok(Value::from_items(results))
+                }
+                Value::List(xs) => {
+                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                    for x in xs.iter().rev() {
+                        let mut ca = BuiltinFnArgs::new();
+                        ca.push(acc);
+                        ca.push(x.clone());
+                        acc = vm.call(&f, ca)?;
+                        results.push(acc.clone());
+                    }
+                    results.reverse();
+                    Ok(Value::List(Arc::new(results)))
+                }
+                Value::Dict(map) => {
+                    let mut results: Vec<Value> = Vec::with_capacity(map.len());
+                    for v in map.values().rev() {
+                        let mut ca = BuiltinFnArgs::new();
+                        ca.push(acc);
+                        ca.push(v.clone());
+                        acc = vm.call(&f, ca)?;
+                        results.push(acc.clone());
+                    }
+                    results.reverse();
+                    Ok(Value::from_items(results))
+                }
+                other => Ok(other),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// filter[xs;f]
+pub(super) fn filter(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Filter, [2], &args)?;
+    let mut iter = args.into_iter();
+    let xs = iter.next().unwrap();
+    let func = iter.next().unwrap();
+    match xs {
+        Value::IntList(items) => {
+            let mut result = Vec::new();
+            for &item in items.iter() {
+                let val = Value::Int(item);
+                let pred = vm.call(&func, BuiltinFnArgs::from(val.clone()))?;
+                match pred {
+                    Value::Bool(true) => result.push(val),
+                    Value::Bool(false) => {}
+                    _ => {
+                        return Err(WqError::new(WqErrorType::Domain)
+                            .src(BE::Filter)
+                            .msg("predicate must return bool"));
+                    }
+                }
+            }
+            Ok(Value::from_items(result))
+        }
+        Value::List(items) => {
+            let mut result = Vec::new();
+            for item in items.iter() {
+                let pred = vm.call(&func, BuiltinFnArgs::from(item.clone()))?;
+                match pred {
+                    Value::Bool(true) => result.push(item.clone()),
+                    Value::Bool(false) => {}
+                    _ => {
+                        return Err(WqError::new(WqErrorType::Domain)
+                            .src(BE::Filter)
+                            .msg("predicate must return bool"));
+                    }
+                }
+            }
+            Ok(Value::from_items(result))
+        }
+        Value::Dict(map) => {
+            let mut result = Vec::new();
+            for value in map.values() {
+                let pred = vm.call(&func, BuiltinFnArgs::from(value.clone()))?;
+                match pred {
+                    Value::Bool(true) => result.push(value.clone()),
+                    Value::Bool(false) => {}
+                    _ => {
+                        return Err(WqError::new(WqErrorType::Domain)
+                            .src(BE::Filter)
+                            .msg("predicate must return bool"));
+                    }
+                }
+            }
+            Ok(Value::from_items(result))
+        }
+        other => Ok(other),
+    }
+}
+
+/// zipw[xs;ys;f;d?]
+pub(super) fn zipw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    #[inline]
+    fn eff_layers_2(raw_d: &Value, dx: i64, dy: i64) -> Option<i64> {
+        let dmax = dx.max(dy);
+        match raw_d {
+            // non-negative: go min(d, Dmax) layers
+            Value::Int(n) if *n >= 0 => Some((*n).min(dmax)),
+            // negative: cut |d| from max depth, L = max(0, Dmax + d)
+            Value::Int(n) => Some((dmax + *n).max(0)),
+            // +inf: go fully
+            Value::Float(n) if n.is_infinite() && n.is_sign_positive() => Some(dmax),
+            // -inf: treat as atom (apply at root)
+            Value::Float(n) if n.is_infinite() && n.is_sign_negative() => Some(0),
+            _ => None,
+        }
+    }
+
+    fn _zipw(vm: &mut Vm, xs: &Value, ys: &Value, f: &Value, d: &Value) -> WqResult<Value> {
+        let el = match eff_layers_2(d, xs.depth(), ys.depth()) {
+            Some(l) => l,
+            None => return Err(type_mismatch(BE::ZipW, 0, "int, inf or -inf", d)),
+        };
+        // atoms are always leaves; stop after traversing L layers from the root
+        let stop = Bc2Stop::BothAtomOrDepth(el);
+        let op2 = |a: &Value, b: &Value| {
+            let mut ca = BuiltinFnArgs::new();
+            ca.push(a.clone());
+            ca.push(b.clone());
+            vm.call(f, ca)
+        };
+        xs.bc2_until(ys, stop, op2)
+            .map_err(|e| e.into_wqerror().src(BE::ZipW))
+    }
+
+    check_arity(BE::ZipW, [3, 4], &args)?;
+    match args.len() {
+        3 => {
+            let (xs, ys, f) = (&args[0], &args[1], &args[2]);
+            _zipw(vm, xs, ys, f, &Value::Int(1))
+        }
+        4 => {
+            let (xs, ys, f, d) = (&args[0], &args[1], &args[2], &args[3]);
+            _zipw(vm, xs, ys, f, d)
+        }
+        _ => unreachable!(),
+    }
+}
+
+///splitw[xs;f;`m]
+pub(super) fn splitw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    const MAXSPLIT_ARG: &str = "m";
+    check_arity_named(BE::SplitW, [2], &args, &[MAXSPLIT_ARG])?;
+    let maxsplit = crate::builtins::list::parse_maxsplit(args.named(MAXSPLIT_ARG), BE::SplitW)?;
+    let mut iter = args.into_iter();
+    let val = iter.next().unwrap();
+    let func = iter.next().unwrap();
+    let limit = maxsplit.unwrap_or(usize::MAX);
+    let mut splits_done = 0;
+
+    // Direct String handling — avoid List<Char> allocation.
+    if let Value::String(s) = &val {
+        let mut chunks = Vec::new();
+        let mut current = String::new();
+        for c in s.chars() {
+            let ch_val = Value::Char(c);
+            let pred = vm.call(&func, BuiltinFnArgs::from(ch_val))?;
+            match pred.try_to_rust_bool() {
+                Some(true) if splits_done < limit => {
+                    chunks.push(current);
+                    current = String::new();
+                    splits_done += 1;
+                }
+                Some(true) => current.push(c),
+                Some(false) => current.push(c),
+                _ => {
+                    return Err(WqError::new(WqErrorType::Domain)
+                        .src(BE::SplitW)
+                        .msg("predicate must return bool"));
+                }
+            }
+        }
+        chunks.push(current);
+        return Ok(Value::value_from_str_chunks(chunks));
+    }
+
+    // Normalize String to List<Char> for uniform handling
+    match &val {
+        l @ Value::List(items) if l.is_string_like() => {
+            let mut chunks = Vec::new();
+            let mut current = String::new();
+            for item in items.iter() {
+                let pred = vm.call(&func, BuiltinFnArgs::from(item.clone()))?;
+                match pred.try_to_rust_bool() {
+                    Some(true) if splits_done < limit => {
+                        chunks.push(current);
+                        current = String::new();
+                        splits_done += 1;
+                    }
+                    Some(true) => {
+                        let Value::Char(ch) = item else {
+                            unreachable!()
+                        };
+                        current.push(*ch);
+                    }
+                    Some(false) => {
+                        let Value::Char(ch) = item else {
+                            unreachable!()
+                        };
+                        current.push(*ch);
+                    }
+                    _ => {
+                        return Err(WqError::new(WqErrorType::Domain)
+                            .src(BE::SplitW)
+                            .msg("predicate must return bool"));
+                    }
+                }
+            }
+            chunks.push(current);
+            Ok(Value::value_from_str_chunks(chunks))
+        }
+        Value::IntList(items) => {
+            let mut chunks = Vec::new();
+            let mut current = Vec::new();
+            for &item in items.iter() {
+                let value = Value::Int(item);
+                let pred = vm.call(&func, BuiltinFnArgs::from(value))?;
+                match pred.try_to_rust_bool() {
+                    Some(true) if splits_done < limit => {
+                        chunks.push(Value::IntList(Arc::new(std::mem::take(&mut current))));
+                        splits_done += 1;
+                    }
+                    Some(true) => current.push(item),
+                    Some(false) => current.push(item),
+                    _ => {
+                        return Err(WqError::new(WqErrorType::Domain)
+                            .src(BE::SplitW)
+                            .msg("predicate must return bool"));
+                    }
+                }
+            }
+            chunks.push(Value::IntList(Arc::new(current)));
+            Ok(Value::List(Arc::new(chunks)))
+        }
+        Value::List(items) => {
+            let mut chunks = Vec::new();
+            let mut current = Vec::new();
+            for item in items.iter() {
+                let pred = vm.call(&func, BuiltinFnArgs::from(item.clone()))?;
+                match pred.try_to_rust_bool() {
+                    Some(true) if splits_done < limit => {
+                        chunks.push(Value::List(Arc::new(std::mem::take(&mut current))));
+                        splits_done += 1;
+                    }
+                    Some(true) => current.push(item.clone()),
+                    Some(false) => current.push(item.clone()),
+                    _ => {
+                        return Err(WqError::new(WqErrorType::Domain)
+                            .src(BE::SplitW)
+                            .msg("predicate must return bool"));
+                    }
+                }
+            }
+            chunks.push(Value::List(Arc::new(current)));
+            Ok(Value::List(Arc::new(chunks)))
+        }
+        other => Err(WqError::new(WqErrorType::Domain)
+            .src(BE::SplitW)
+            .msg("expected string or list")
+            .at_arg(1)
+            .got1(other)),
+    }
+}
+
+struct FindWithCtx<'a> {
+    func: &'a Value,
+    max_depth: i64,
+    threshold: i64,
+    reverse: bool,
+    src: BE,
+}
+
+fn findwith_search(
+    vm: &mut Vm,
+    xs: &Value,
+    current_depth: i64,
+    results: &mut Vec<Value>,
+    path: &mut Vec<i64>,
+    ctx: &FindWithCtx<'_>,
+) -> WqResult<()> {
+    if results.len() >= ctx.threshold as usize {
+        return Ok(());
+    }
+
+    let is_match = |vm: &mut Vm, item: &Value| -> WqResult<bool> {
+        let pred = vm.call(ctx.func, BuiltinFnArgs::from(item.clone()))?;
+        match pred {
+            Value::Bool(b) => Ok(b),
+            _ => Err(WqError::new(WqErrorType::Domain)
+                .src(ctx.src)
+                .msg("predicate must return bool")),
+        }
+    };
+
+    match xs {
+        Value::List(items) => {
+            let indices: Vec<usize> = if ctx.reverse {
+                (0..items.len()).rev().collect()
+            } else {
+                (0..items.len()).collect()
+            };
+            for idx in indices {
+                if results.len() >= ctx.threshold as usize {
+                    return Ok(());
+                }
+                let item = &items[idx];
+                if is_match(vm, item)? {
+                    path.push(idx as i64);
+                    results.push(Value::IntList(Arc::new(path.clone())));
+                    path.pop();
+                    if results.len() >= ctx.threshold as usize {
+                        return Ok(());
+                    }
+                } else if current_depth < ctx.max_depth {
+                    path.push(idx as i64);
+                    findwith_search(vm, item, current_depth + 1, results, path, ctx)?;
+                    path.pop();
+                }
+            }
+        }
+        Value::IntList(items) => {
+            let indices: Vec<usize> = if ctx.reverse {
+                (0..items.len()).rev().collect()
+            } else {
+                (0..items.len()).collect()
+            };
+            for idx in indices {
+                if results.len() >= ctx.threshold as usize {
+                    return Ok(());
+                }
+                let item_val = Value::Int(items[idx]);
+                if is_match(vm, &item_val)? {
+                    path.push(idx as i64);
+                    results.push(Value::IntList(Arc::new(path.clone())));
+                    path.pop();
+                    if results.len() >= ctx.threshold as usize {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        Value::Dict(map) => {
+            let values: Vec<_> = map.values().collect();
+            let indices: Vec<usize> = if ctx.reverse {
+                (0..values.len()).rev().collect()
+            } else {
+                (0..values.len()).collect()
+            };
+            for idx in indices {
+                if results.len() >= ctx.threshold as usize {
+                    return Ok(());
+                }
+                let item = values[idx];
+                if is_match(vm, item)? {
+                    path.push(idx as i64);
+                    results.push(Value::IntList(Arc::new(path.clone())));
+                    path.pop();
+                    if results.len() >= ctx.threshold as usize {
+                        return Ok(());
+                    }
+                } else if current_depth < ctx.max_depth {
+                    path.push(idx as i64);
+                    findwith_search(vm, item, current_depth + 1, results, path, ctx)?;
+                    path.pop();
+                }
+            }
+        }
+        _ => {
+            if is_match(vm, xs)? {
+                results.push(Value::IntList(Arc::new(path.clone())));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// findw[xs;f;threshold?;d?]
+pub(super) fn findw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::FindW, [2, 3, 4], &args)?;
+    let n = args.len();
+    let mut iter = args.into_iter();
+    let xs = iter.next().unwrap();
+    let func = iter.next().unwrap();
+
+    let (threshold, depth) = match n {
+        2 => (1i64, 1i64),
+        3 => {
+            let threshold = match &iter.next().unwrap() {
+                Value::Int(n) if *n >= 0 => *n,
+                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
+                _ => {
+                    return Err(WqError::new(WqErrorType::Domain)
+                        .src(BE::FindW)
+                        .msg("threshold must be non-negative int or inf")
+                        .at_arg(2));
+                }
+            };
+            (threshold, 1)
+        }
+        4 => {
+            let thresh_val = iter.next().unwrap();
+            let depth_val = iter.next().unwrap();
+            let threshold = match &thresh_val {
+                Value::Int(n) if *n >= 0 => *n,
+                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
+                _ => {
+                    return Err(WqError::new(WqErrorType::Domain)
+                        .src(BE::FindW)
+                        .msg("threshold must be non-negative int or inf")
+                        .at_arg(2));
+                }
+            };
+            let depth = match &depth_val {
+                Value::Int(n) if *n >= 0 => *n,
+                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
+                _ => {
+                    return Err(WqError::new(WqErrorType::Domain)
+                        .src(BE::FindW)
+                        .msg("depth must be non-negative int or inf")
+                        .at_arg(3));
+                }
+            };
+            (threshold, depth)
+        }
+        _ => unreachable!(),
+    };
+
+    let mut results = Vec::new();
+    let mut path = Vec::new();
+    let ctx = FindWithCtx {
+        func: &func,
+        max_depth: depth,
+        threshold,
+        reverse: false,
+        src: BE::FindW,
+    };
+    findwith_search(vm, &xs, 0, &mut results, &mut path, &ctx)?;
+    if results.is_empty() {
+        Ok(Value::unit())
+    } else if results.len() == 1 {
+        Ok(results.into_iter().next().unwrap())
+    } else {
+        Ok(Value::List(Arc::new(results)))
+    }
+}
+
+/// rfindw[xs;f;threshold?;d?]
+pub(super) fn rfindw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::RFindW, [2, 3, 4], &args)?;
+    let n = args.len();
+    let mut iter = args.into_iter();
+    let xs = iter.next().unwrap();
+    let func = iter.next().unwrap();
+
+    let (threshold, depth) = match n {
+        2 => (1i64, 1i64),
+        3 => {
+            let threshold = match &iter.next().unwrap() {
+                Value::Int(n) if *n >= 0 => *n,
+                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
+                _ => {
+                    return Err(WqError::new(WqErrorType::Domain)
+                        .src(BE::RFindW)
+                        .msg("threshold must be non-negative int or inf")
+                        .at_arg(2));
+                }
+            };
+            (threshold, 1)
+        }
+        4 => {
+            let thresh_val = iter.next().unwrap();
+            let depth_val = iter.next().unwrap();
+            let threshold = match &thresh_val {
+                Value::Int(n) if *n >= 0 => *n,
+                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
+                _ => {
+                    return Err(WqError::new(WqErrorType::Domain)
+                        .src(BE::RFindW)
+                        .msg("threshold must be non-negative int or inf")
+                        .at_arg(2));
+                }
+            };
+            let depth = match &depth_val {
+                Value::Int(n) if *n >= 0 => *n,
+                Value::Float(f) if f.is_infinite() && f.is_sign_positive() => i64::MAX,
+                _ => {
+                    return Err(WqError::new(WqErrorType::Domain)
+                        .src(BE::RFindW)
+                        .msg("depth must be non-negative int or inf")
+                        .at_arg(3));
+                }
+            };
+            (threshold, depth)
+        }
+        _ => unreachable!(),
+    };
+
+    let mut results = Vec::new();
+    let mut path = Vec::new();
+    let ctx = FindWithCtx {
+        func: &func,
+        max_depth: depth,
+        threshold,
+        reverse: true,
+        src: BE::RFindW,
+    };
+    findwith_search(vm, &xs, 0, &mut results, &mut path, &ctx)?;
+    if results.is_empty() {
+        Ok(Value::unit())
+    } else if results.len() == 1 {
+        Ok(results.into_iter().next().unwrap())
+    } else {
+        Ok(Value::List(Arc::new(results)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use smallvec::smallvec;
+
+    use super::*;
+    use crate::value::func::FunctionData;
+    use crate::vm::Vm;
+    use crate::vm::inst::Instruction;
+
+    fn make_fn(params: Option<&[&str]>, locals: u16, instructions: Vec<Instruction>) -> Value {
+        Value::CompiledFunction(Arc::new(FunctionData {
+            params: params.map(|names| {
+                Arc::<[String]>::from(names.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+            }),
+            named_params: None,
+            locals,
+            instructions: instructions.into(),
+            dbg_chunk: None,
+            dbg_stmt_spans: None,
+            dbg_source_base_offset: 0,
+            dbg_pc_spans: None,
+            dbg_stmt_marks: None,
+            dbg_local_names: None,
+            dbg_provenance: None,
+        }))
+    }
+
+    #[test]
+    fn map_pure_fast_path_correctness() {
+        let mut vm = Vm::new(vec![]);
+        // map[1..4;{x+1}] should use the pure fast-path and still return (2;3;4)
+        let xs = Value::IntList(Arc::new(vec![1, 2, 3]));
+        let f = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::LoadLocal(0),
+                Instruction::load_const(Value::Int(1)),
+                Instruction::BinaryOp(Box::new(crate::vm::inst::BinaryOpData {
+                    op: crate::astnode::BinaryOperator::Add,
+                    left: crate::vm::inst::Operand::Stack,
+                    right: crate::vm::inst::Operand::Stack,
+                })),
+                Instruction::Return,
+            ],
+        );
+        let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).unwrap();
+        assert_eq!(result, Value::IntList(Arc::new(vec![2, 3, 4])));
+    }
+
+    #[test]
+    fn filter_pure_fast_path_correctness() {
+        let mut vm = Vm::new(vec![]);
+        // filter[1..5;{x>2}] should use the pure fast-path and still return (3;4)
+        let xs = Value::IntList(Arc::new(vec![1, 2, 3, 4]));
+        let f = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::LoadLocal(0),
+                Instruction::load_const(Value::Int(2)),
+                Instruction::BinaryOp(Box::new(crate::vm::inst::BinaryOpData {
+                    op: crate::astnode::BinaryOperator::Gt,
+                    left: crate::vm::inst::Operand::Stack,
+                    right: crate::vm::inst::Operand::Stack,
+                })),
+                Instruction::Return,
+            ],
+        );
+        let result = filter(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).unwrap();
+        assert_eq!(result, Value::IntList(Arc::new(vec![3, 4])));
+    }
+
+    #[test]
+    fn zipw_pure_fast_path_correctness() {
+        let mut vm = Vm::new(vec![]);
+        // zipw[(1;2;3);(4;5;6);{x+y}] should use the pure fast-path
+        let xs = Value::IntList(Arc::new(vec![1, 2, 3]));
+        let ys = Value::IntList(Arc::new(vec![4, 5, 6]));
+        let f = make_fn(
+            Some(&["x", "y"]),
+            2,
+            vec![
+                Instruction::LoadLocal(0),
+                Instruction::LoadLocal(1),
+                Instruction::BinaryOp(Box::new(crate::vm::inst::BinaryOpData {
+                    op: crate::astnode::BinaryOperator::Add,
+                    left: crate::vm::inst::Operand::Stack,
+                    right: crate::vm::inst::Operand::Stack,
+                })),
+                Instruction::Return,
+            ],
+        );
+        let result = zipw(&mut vm, BuiltinFnArgs::from(smallvec![xs, ys, f])).unwrap();
+        assert_eq!(result, Value::IntList(Arc::new(vec![5, 7, 9])));
+    }
+}

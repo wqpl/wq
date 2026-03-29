@@ -1,0 +1,8 @@
+// Copyright 2026 tttiw
+
+flip:{[f]{[x;y]f[y;x]}}
+enlist:{[x],x}
+prod:{[xs]xs|fold{x*y}}
+delta2:{[x]$.[#x<=1;@r x];t:alloc(#x-1);N[#t;t _n:x(_n+1)-x _n];t}
+join:{[d;xs]fold[{x,d,y};xs]}
+dumpbfn:{bfn[]|map{"\"",x,"\""}|join","|echo}

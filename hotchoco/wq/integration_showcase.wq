@@ -1,0 +1,328 @@
+// Basic Antiderivatives
+echo integrate @s x^2
+echo diff integrate @s x^2
+
+echo integrate @s 1/x
+echo diff integrate @s 1/x
+
+echo integrate @s exp[x]
+echo diff integrate @s exp[x]
+
+echo integrate @s sin[x]
+echo diff integrate @s sin[x]
+
+echo integrate @s cos[x]
+echo diff integrate @s cos[x]
+
+echo integrate @s tan[x]
+echo diff integrate @s tan[x]
+
+echo integrate @s ln[x]
+echo diff integrate @s ln[x]
+
+echo integrate @s arcsin[x]
+echo diff integrate @s arcsin[x]
+
+echo integrate @s arctan[x]
+echo diff integrate @s arctan[x]
+
+// Linear Argument Substitution
+echo integrate @s sin[2*x+1]
+echo diff integrate @s sin[2*x+1]
+
+echo integrate @s exp[3*x]
+echo diff integrate @s exp[3*x]
+
+// Trigonometric Powers
+echo integrate @s sin[x]^2
+echo diff integrate @s sin[x]^2
+
+echo integrate @s cos[x]^3
+echo diff integrate @s cos[x]^3
+
+echo integrate @s sin[x]^3
+echo diff integrate @s sin[x]^3
+
+echo integrate @s tan[x]^2
+echo diff integrate @s tan[x]^2
+
+echo integrate @s sec[x]^2
+echo diff integrate @s sec[x]^2
+
+echo integrate @s sec[x]^3
+echo diff integrate @s sec[x]^3
+
+echo integrate @s csc[x]^2
+echo diff integrate @s csc[x]^2
+
+echo integrate @s cot[x]
+echo diff integrate @s cot[x]
+
+// Trigonometric Product-to-Sum
+echo integrate @s sin[2*x]*cos[3*x]
+echo diff integrate @s sin[2*x]*cos[3*x]
+
+echo integrate @s sin[2*x]*sin[3*x]
+echo diff integrate @s sin[2*x]*sin[3*x]
+
+echo integrate @s sin[x]^2*cos[x]^3
+echo diff integrate @s sin[x]^2*cos[x]^3
+
+// u-Substitution
+echo integrate @s 2*x*cos[x^2]
+echo diff integrate @s 2*x*cos[x^2]
+
+echo integrate @s exp[x]*cos[exp[x]]
+echo diff integrate @s exp[x]*cos[exp[x]]
+
+// Rational Functions
+echo integrate @s 1/(x-1)
+echo diff integrate @s 1/(x-1)
+
+echo integrate @s 1/(x-1)^2
+echo diff integrate @s 1/(x-1)^2
+
+echo integrate @s 1/(x-1)^3
+echo diff integrate @s 1/(x-1)^3
+
+echo integrate @s 1/(x^2-1)
+echo diff integrate @s 1/(x^2-1)
+
+echo integrate @s 1/(x^2+1)
+echo diff integrate @s 1/(x^2+1)
+
+echo integrate @s x/(x^2+1)
+echo diff integrate @s x/(x^2+1)
+
+echo integrate @s 1/(x^2+4)
+echo diff integrate @s 1/(x^2+4)
+
+echo integrate @s 1/(x^2-4)
+echo diff integrate @s 1/(x^2-4)
+
+echo integrate @s 1/x^3
+echo diff integrate @s 1/x^3
+
+echo integrate @s 1/(x^3+1)
+echo diff integrate @s 1/(x^3+1)
+
+echo integrate @s 1/(x^3+x+1)
+echo diff integrate @s 1/(x^3+x+1)
+
+echo integrate @s 1/(x^3-2)
+echo diff integrate @s 1/(x^3-2)
+
+echo integrate @s 1/(x^4+1)
+echo diff integrate @s 1/(x^4+1)
+
+echo integrate @s 1/(x^4+4)
+echo diff integrate @s 1/(x^4+4)
+
+echo integrate @s 1/(x^4+x^2+1)
+echo diff integrate @s 1/(x^4+x^2+1)
+
+echo integrate @s 1/(x^2+1)^2
+echo diff integrate @s 1/(x^2+1)^2
+
+echo integrate @s x/(x^2+1)^2
+echo diff integrate @s x/(x^2+1)^2
+
+// Exponential × Polynomial
+echo integrate @s x*exp[x]
+echo diff integrate @s x*exp[x]
+
+echo integrate @s x^2*exp[x]
+echo diff integrate @s x^2*exp[x]
+
+echo integrate @s x*exp[2*x]
+echo diff integrate @s x*exp[2*x]
+
+// Integration by Parts
+echo integrate @s x*ln[x]
+echo diff integrate @s x*ln[x]
+
+echo integrate @s x*sin[x]
+echo diff integrate @s x*sin[x]
+
+echo integrate @s exp[x]*sin[x]
+echo diff integrate @s exp[x]*sin[x]
+
+echo integrate @s exp[2*x]*sin[3*x]
+echo diff integrate @s exp[2*x]*sin[3*x]
+
+echo integrate @s exp[2*x]*cos[3*x]
+echo diff integrate @s exp[2*x]*cos[3*x]
+
+// Tabular Integration
+echo integrate @s x^3*exp[2*x]
+echo diff integrate @s x^3*exp[2*x]
+
+echo integrate @s x^2*sin[x]
+echo diff integrate @s x^2*sin[x]
+
+echo integrate @s x^2*cos[x]
+echo diff integrate @s x^2*cos[x]
+
+echo integrate @s x^2*sinh[x]
+echo diff integrate @s x^2*sinh[x]
+
+echo integrate @s x^2*cosh[x]
+echo diff integrate @s x^2*cosh[x]
+
+// Hyperbolic
+echo integrate @s sinh[x]
+echo diff integrate @s sinh[x]
+
+echo integrate @s cosh[x]
+echo diff integrate @s cosh[x]
+
+// Inverse Hyperbolic
+echo integrate @s arcsinh[x]
+echo diff integrate @s arcsinh[x]
+
+echo integrate @s arctanh[x]
+echo diff integrate @s arctanh[x]
+
+// Irrational Integrands
+echo integrate @s 1/sqrt[x^2+1]
+echo diff integrate @s 1/sqrt[x^2+1]
+
+echo integrate @s 1/sqrt[1-x^2]
+echo diff integrate @s 1/sqrt[1-x^2]
+
+echo integrate @s 1/sqrt[x^2-1]
+echo diff integrate @s 1/sqrt[x^2-1]
+
+echo integrate @s sqrt[x^2+1]
+echo diff integrate @s sqrt[x^2+1]
+
+echo integrate @s sqrt[x^2-1]
+echo diff integrate @s sqrt[x^2-1]
+
+echo integrate @s x*sqrt[x^2+1]
+echo diff integrate @s x*sqrt[x^2+1]
+
+echo integrate @s sqrt[x]
+echo diff integrate @s sqrt[x]
+
+echo integrate @s x^2/sqrt[x^2+1]
+echo diff integrate @s x^2/sqrt[x^2+1]
+
+// Shifted Quadratic via Completed Square
+echo integrate @s 1/sqrt[x^2+2*x+5]
+echo diff integrate @s 1/sqrt[x^2+2*x+5]
+
+// Euler Substitution
+echo integrate @s x^2*sqrt[x^2+1]
+echo diff integrate @s x^2*sqrt[x^2+1]
+
+// Special Functions
+echo integrate @s si[x]
+echo diff integrate @s si[x]
+
+echo integrate @s ci[x]
+echo diff integrate @s ci[x]
+
+echo integrate @s ei[x]
+echo diff integrate @s ei[x]
+
+echo integrate @s erf[x]
+echo diff integrate @s erf[x]
+
+// Generalized Functions
+echo integrate @s abs[x]
+echo diff integrate @s abs[x]
+
+echo integrate @s sgn[x]
+echo diff integrate @s sgn[x]
+
+echo integrate @s heaviside[x]
+echo diff integrate @s heaviside[x]
+
+// Liouville Integration
+echo integrate @s (x^4+2*x)*exp[x^3/3]
+echo diff integrate @s (x^4+2*x)*exp[x^3/3]
+
+echo integrate @s (1/(x-1))*exp[2*x]
+echo diff integrate @s (1/(x-1))*exp[2*x]
+
+echo integrate @s exp[x]/x
+echo diff integrate @s exp[x]/x
+
+// Liouville General Rational
+echo integrate @s (2*x^2-1)/x^2*exp[x^2]
+echo diff integrate @s (2*x^2-1)/x^2*exp[x^2]
+
+echo integrate @s (2*x^3-2*x^2-1)/(x-1)^2*exp[x^2]
+echo diff integrate @s (2*x^3-2*x^2-1)/(x-1)^2*exp[x^2]
+
+echo integrate @s (x^4+x^2-2*x)/(x^2+1)^2*exp[x^3/3]
+echo diff integrate @s (x^4+x^2-2*x)/(x^2+1)^2*exp[x^3/3]
+
+echo integrate @s (2*x^2-2*x-2)/(x-1)^3*exp[x^2]
+echo diff integrate @s (2*x^2-2*x-2)/(x-1)^3*exp[x^2]
+
+echo integrate @s (2*x^4+3*x^2-1)/x^2*exp[x^2]
+echo diff integrate @s (2*x^4+3*x^2-1)/x^2*exp[x^2]
+
+// Liouville — Ei Special Pattern
+echo integrate @s exp[x^2]/x
+echo diff integrate @s exp[x^2]/x
+
+echo integrate @s 3*exp[x^3]/x
+echo diff integrate @s 3*exp[x^3]/x
+
+echo integrate @s exp[2*x^2]/x
+echo diff integrate @s exp[2*x^2]/x
+
+// Gaussian Integrals
+echo integrate @s exp[-x^2]
+echo diff integrate @s exp[-x^2]
+
+echo integrate @s exp[-2*x^2]
+echo diff integrate @s exp[-2*x^2]
+
+echo integrate @s 3*exp[-x^2]
+echo diff integrate @s 3*exp[-x^2]
+
+// Irrational — sqrt(Cubic) and sqrt(Quartic) Reduction
+echo integrate @s sqrt[x^3+2*x^2+x]
+echo diff integrate @s sqrt[x^3+2*x^2+x]
+
+echo integrate @s sqrt[x^4+2*x^3+x^2]
+echo diff integrate @s sqrt[x^4+2*x^3+x^2]
+
+echo integrate @s sqrt[(x^2+1)^2]
+echo diff integrate @s sqrt[(x^2+1)^2]
+
+// Irrational — Polynomial × sqrt(linear)
+echo integrate @s (x-1)*sqrt[x+2]
+echo diff integrate @s (x-1)*sqrt[x+2]
+
+echo integrate @s x/sqrt[3*x+1]
+echo diff integrate @s x/sqrt[3*x+1]
+
+echo integrate @s sqrt[x^3-3*x+2]
+echo diff integrate @s sqrt[x^3-3*x+2]
+
+// Irrational — Binomial Integrals
+echo integrate @s x^2*sqrt[x^3+1]
+echo diff integrate @s x^2*sqrt[x^3+1]
+
+echo integrate @s x^3*sqrt[x^4+1]
+echo diff integrate @s x^3*sqrt[x^4+1]
+
+echo integrate @s x*sqrt[2*x^2+1]
+echo diff integrate @s x*sqrt[2*x^2+1]
+
+
+// new 1
+
+echo integrate @s 1/(x^5-2)
+echo diff integrate @s 1/(x^5-2) // wip
+
+echo integrate @s 1/(x*sqrt[x^2+1])
+echo diff integrate @s 1/(x*sqrt[x^2+1])
+
+echo integrate @s sqrt[x^3+1]
+echo diff integrate @s sqrt[x^3+1] // wip

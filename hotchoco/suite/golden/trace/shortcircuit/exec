@@ -1,0 +1,6 @@
+false
+[<TEST_PATH> @d ((a<0)&|(10/b)) = false (bool)
+└─ a<0 = false (bool)
+[<TEST_PATH> @d ((a>0)&|(b<0)) = false (bool)
+├─ a>0 = true (bool)
+└─ b<0 = false (bool)

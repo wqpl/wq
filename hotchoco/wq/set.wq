@@ -1,0 +1,52 @@
+// Set literal syntax and basic operations
+S(1;2;3)|echo
+S(1;1;2;3)|echo
+S()|echo
+S(42)|echo
+
+// Membership tests with sets
+in?[2;S(1;2;3)]|echo
+in?[5;S(1;2;3)]|echo
+disjoint?[S(1;2);S(3;4)]|echo
+disjoint?[S(1;2);S(2;3)]|echo
+
+// Set-theoretic operators (dot-prefixed)
+(S(1;2) .& S(2;3))|echo
+(S(1;2) .\ S(2;3))|echo
+(S(1;2) .^ S(2;3))|echo
+(S(1;2;3) .- S(2;3;4))|echo
+(S(1;2) .<= S(1;2;3))|echo
+(S(1;2) .< S(1;2;3))|echo
+(S(1;2;3) .>= S(1;2))|echo
+(S(1;2;3) .> S(1;2))|echo
+
+// Broadcasting: plain bitwise ops on sets produce sets
+S(1;2) & 1|echo
+S(1;2) \ 0|echo
+
+// Type name
+type[S(1;2;3)]|echo
+
+#S(1;2;3)|echo
+
+// Set indexing
+S(1;2;3)[0]|echo
+S(1;2;3)[-1]|echo
+S(1;2;3)[0;2]|echo
+
+// Augmented assign on sets
+s:S(1;2)
+s.&:S(2;3)
+s|echo
+
+t:S(1;2)
+t.\:S(3;4)
+t|echo
+
+u:S(1;2;3)
+u.-:S(1)
+u|echo
+
+v:S(1;2)
+v.^:S(2;3)
+v|echo

@@ -1,0 +1,47 @@
+make_deque:{[]
+  // mutable state
+  data:alloc 4;head:0;tail:0;sz:0/* number of elements */;cap:4/* ring buffer capacity */
+  // -- private --
+  grow:{[]old_data:'data;old_cap:'cap;old_sz:'sz;new_cap:old_cap*2;new_data:alloc new_cap
+    i:'head;j:0
+    N[old_sz;new_data j:old_data i;i:(i+1)%old_cap;j+:1]
+    'data:new_data;'cap:new_cap;'head:0;'tail:old_sz}
+  shrink:{[]old_sz:'sz;old_cap:'cap;
+    $.[old_sz>=old_cap/%4;@r()];new_cap:max[old_cap/%2;4]
+    $.[new_cap<old_sz;new_cap:old_sz];$.[new_cap>=old_cap;@r()]
+    new_data:alloc new_cap;i:'head;j:0
+    N[old_sz;new_data j:'data i;i:(i+1)%old_cap;j+:1]
+    'data:new_data;'cap:new_cap;'head:0;'tail:old_sz}
+  // -- public --
+  push_back:{[val]$.['sz='cap;'grow[]];'data'tail:val;'tail:('tail+1)%'cap;'sz+:1}
+    push_front:{[val]$.['sz='cap;'grow[]];'head:('head-1+'cap)%'cap;'data'head:val;'sz+:1}
+  pop_back:{[]$.['sz=0;raise"pop on empty deque"];'tail:('tail-1+'cap)%'cap;val:'data'tail
+    'sz-:1;$.['sz<'cap/%4;'shrink[]];val}
+  pop_front:{[]$.['sz=0;raise"pop on empty deque"];val:'data'head;'head:('head+1)%'cap
+    'sz-:1;$.['sz<'cap/%4;'shrink[]];val}
+  // get element by logical index (0 <= idx < sz). negative index counts from end
+  get:{[idx]$.[idx<0;idx+:'sz];$.[or[idx<0;idx>='sz];raise"index out of bounds"]
+    'data[('head+idx)%'cap]}
+    // set element by logical index
+    set_:{[idx;val]$.[idx<0;idx+:'sz];$.[or[idx<0;idx>='sz];raise"index out of bounds"]
+    'data[('head+idx)%'cap]:val}
+    deque_len:{[]'sz};empty?:{[]'sz=0};capacity:{[]'cap}
+  to_list:{[]res:alloc'sz;i:0;N['sz;res i:'get i;i+:1];res}
+  // return methods as a dict
+  (`push_back:push_back;`push_front:push_front;`pop_back:pop_back;`pop_front:pop_front;
+    `get:get;`set:set_;`len:deque_len;`empty?:empty?;`capacity:capacity;`to_list:to_list)}
+
+d: make_deque[]
+d[`push_back][10]
+d[`push_back][20]
+d[`push_front][5]
+d[`push_front][2]
+echo d[`to_list][]    // (2;5;10;20)
+echo d[`pop_back][]   // 20
+echo d[`pop_front][]  // 2
+echo d[`len][]        // 2
+d[`set][0; 99]
+echo d[`get][0]       // 99
+echo d[`get][-1]      // 10
+echo d[`empty?][]     // false
+echo d[`capacity][]   // 4

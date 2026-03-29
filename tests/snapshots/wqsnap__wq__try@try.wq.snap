@@ -1,8 +1,0 @@
----
-source: tests/wqsnap.rs
-expression: output
-input_file: tests/wq/try.wq
----
-(("raise";"wow";"bfn 'raise'");3)
-("raise";"wow";"bfn 'raise'")
-3

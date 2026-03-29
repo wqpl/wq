@@ -1,0 +1,10 @@
+name = "fmt"
+source_glob = "e/*.wq"
+exclude_marker = "//fmt exclude"
+output_extension = ".wq"
+
+[[modes]]
+name = "fmt-default"
+subcommand = "fmt"
+flags = []
+capture = "stdout"

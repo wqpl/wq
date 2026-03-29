@@ -1,0 +1,10 @@
+14
+[<TEST_PATH> @d (f[a+b]+c) = 31 (int)
+└─ f[a+b] = 26 (int)
+   ├─ a+b = 13 (int)
+   └─ x*2 = 26 (int)
+[<TEST_PATH> @d (f[a]-f[b]) = 14 (int)
+├─ f[a] = 20 (int)
+│  └─ x*2 = 20 (int)
+└─ f[b] = 6 (int)
+   └─ x*2 = 6 (int)

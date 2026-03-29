@@ -1,53 +1,22 @@
-[package]
-name = "wqpl"
-version = "0.8.0"
+[workspace]
+members = ["wqpl", "wq-cli", "wq-wasm", "wqls", "wq-dap", "wq-rl"]
+resolver = "3"
+
+[workspace.package]
+version = "0.9.0-preview1"
 edition = "2024"
-build = "build.rs"
-default-run = "wq"
-description = "The wq Programming Language"
-repository = "https://codeberg.org/wqpl/wq"
 license = "MIT"
+repository = "https://codeberg.org/wqpl/wq"
+description = "The wq Programming Language"
 
-[[bin]]
-name = "wq"
-path = "src/bin/wq/main.rs"
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[profile.l]
+[profile.R]
 inherits = "release"
-lto = "fat"
+lto = "thin"
 codegen-units = 1
-panic = "abort"
+strip = true
 
-[dependencies]
-rand = "0.10.0"
-once_cell = "1.21.3"
-rgb = "0.8.52"
-indexmap = "2.13.0"
-encoding_rs = "0.8.35"
-ahash = "0.8"
-num-bigint = "0.4.6"
-num-traits = "0.2.19"
-unicode-segmentation = "1.12.0"
-
-[dev-dependencies]
-insta = { version = "1", features = ["glob", "filters"] }
-assert_cmd = "2"
-anyhow = "1"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[workspace.dependencies]
 colored = "3.1.1"
-rustyline = "17"
-tree-sitter = "0.26"
-tree-sitter-highlight = "0.26"
-tree-sitter-wq = "0.8.0-b1"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
-getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window", "console"] }
+rand = "0.10.1"
+wqpl = { version = "0.9.0-preview1", path = "wqpl" }
+wq-dap = { version = "0.9.0-preview1", path = "wq-dap" }

@@ -1,50 +1,10 @@
-wq 0.8.0 refcard
-=============================================================
-+       plus      =           eq      $[c;t;f1;f2..]
--  neg  minus     ~           neq     $.[c;t1;t2...]
-*       mul       <           lt      $$[c1;t1;c2;t2;...;def]
-**      matmul    <=          le      W[c;...]
-/       div       >           gt      N[n;_n]
-/.      safe div  >=          ge      F[v;_n;_f]
-%       mod       #   count           B[...]
-%.      safe mod  ,   enlist  cat     @b  break
-^       power     :           assign  @c  continue
-|       pipe
-@r [v]  return    @t <expr>   try
-
-!h [bfn]       help           !l [path]  load script
-!hl            highlight      !p         load prelude
-!e, !!         exit
-
-!bfn [preset]  builtins
-!i <name>      interpreter
-!g             global bindings
-!r             reset
-
-!b             boxed display
-!t             time
-!w             wqdb
-!d [f/a]       debug
-   debug flags   token ast inst wqdb-1 wqdb-2
-   debug aliases 0=off 1=inst 2=inst,ast 3=inst,ast,token
-                 4=inst,ast,token,wqdb-1,wqdb-2
-!t. !w. !d.: one-shot
-
-+-- atom // atom?
-|   |-- int       1 0xBEEF 0o233 0b1111
-|   |-- bigint    0x8000_0000_0000_0000
-|   |-- float     3.14 1e2 nan inf
-|   |-- char      "c" "\u{2373}"
-|   |-- symbol    `1a?
-|   |-- bool      true false
-|   |-- fn        {[a;b]a*b*b}[2;3]
-|   |-- closure
-|   |-- bfn       echo
-|   \-- stream
-+-- list
-|   |-- list      (1;2.3;"a")[0;1]
-|   |             "str" @f"{1+1}=2" @l"\n"
-|   |-- intlist   (1;2;3) 1..10 1..=11..2
-|   \             () // unit?
-+-- dict
-\   \-- dict      (`a:1;`b:2)[`a;`b;1] (`)
++   -   *   /   %   ^    --wq--   0.9.0
+:   ,   |   |.  ||  ||.  $ [c;t;f1....]
+=   ~   <   >   <=  >=   $.[c;t1......]
+=.  ~.  /.  ^.  <<  >>   $$[c1;t1....d]
+&   \   ^\  /%  **  ..   W [c;........]
+&&  \\  .&  .\  .^  ..=  N [n;..._n...]
+@a  @b  @c  @d  @f  ...  B [..........]
+@l  @p  @r  @s  @t  '    {[..]....}[..]
+(1;2..) (`a:1;`b:...) "" S(1;2..)[....]
+A D E F I M R T U V Z   (c)tttiw (l)MIT

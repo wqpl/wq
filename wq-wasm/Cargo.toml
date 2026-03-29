@@ -1,0 +1,20 @@
+[package]
+name = "wq-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The wq Programming Language, for wasm"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wqpl.workspace = true
+getrandom03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "console"] }
+colored.workspace = true
