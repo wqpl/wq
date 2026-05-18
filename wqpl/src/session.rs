@@ -3,6 +3,7 @@ pub mod stdio;
 
 use colored::Colorize;
 
+use crate::astnode::AstNode;
 use crate::builtins::BuiltinPreset;
 use crate::compiler::Compiler;
 use crate::interpret::InterpreterKind;
@@ -187,36 +188,24 @@ impl Session {
         if let Some(eof_err) = parser.eof_error() {
             return Err(eof_err.clone());
         }
-        if get_debug_log_flags().contains(DebugLogFlags::AST) {
-            let header = "AST (original)".bold().underline().to_string();
-            wqstderr_println(header);
-            wqstderr_println(ast.sexpr_pretty_with_source(ast_src));
-            wqstderr_println("");
-        }
+
+        let dump_ast = |s: &str, ast: &AstNode, flag: u16| {
+            if get_debug_log_flags().contains(flag) {
+                let header = s.bold().underline().to_string();
+                wqstderr_println(header);
+                wqstderr_println(ast.sexpr_pretty_with_source(ast_src));
+                wqstderr_println("");
+            }
+        };
+
+        dump_ast("AST - original", &ast, DebugLogFlags::AST);
 
         let mut resolver = Resolver::from_env(self.environment(), builtins.clone());
         let ast = resolver.resolve(ast);
-        if get_debug_log_flags().contains(DebugLogFlags::AST_VERBOSE) {
-            let header = "AST @ resolver".bold().underline().to_string();
-            wqstderr_println(header);
-            wqstderr_println(ast.sexpr_pretty_with_source(ast_src));
-            wqstderr_println("");
-        }
+        dump_ast("AST @ resolve", &ast, DebugLogFlags::AST_VERBOSE);
 
         let ast = fold::fold(ast);
-        if get_debug_log_flags().contains(DebugLogFlags::AST_VERBOSE) {
-            let header = "AST @ folder".bold().underline().to_string();
-            wqstderr_println(header);
-            wqstderr_println(ast.sexpr_pretty_with_source(ast_src));
-            wqstderr_println("");
-        }
-
-        if get_debug_log_flags().contains(DebugLogFlags::AST_VERBOSE) {
-            let header = "AST (final)".bold().underline().to_string();
-            wqstderr_println(header);
-            wqstderr_println(ast.sexpr_pretty_with_source(ast_src));
-            wqstderr_println("");
-        }
+        dump_ast("AST @ fold - final", &ast, DebugLogFlags::AST_VERBOSE);
 
         let mut compiler = Compiler::new_with_builtins(builtins);
         compiler.set_fn_spans(parser.fn_body_spans_all().clone());
@@ -227,68 +216,45 @@ impl Session {
         compiler.set_stmt_spans(parser.stmt_spans_top().to_vec());
         compiler.compile(&ast)?;
         compiler.instructions.push(Instruction::Return);
-        if get_debug_log_flags().contains(DebugLogFlags::INST_VERBOSE) {
-            let header = "INST (original)".bold().underline().to_string();
-            wqstderr_println(header);
-            let lines = InstPrettyDumper::new(true, true)
-                .with_pc()
-                .render(&compiler.instructions);
-            for line in lines {
-                wqstderr_println(line);
+
+        let dump_inst = |s: &str, inst: &Vec<Instruction>, flag: u16| {
+            if get_debug_log_flags().contains(flag) {
+                let header = s.bold().underline().to_string();
+                wqstderr_println(header);
+                let lines = InstPrettyDumper::new(true, true).with_pc().render(inst);
+                for line in lines {
+                    wqstderr_println(line);
+                }
+                wqstderr_println("");
             }
-            wqstderr_println("");
-        }
+        };
+
+        dump_inst(
+            "Inst - original",
+            &compiler.instructions,
+            DebugLogFlags::INST_VERBOSE,
+        );
 
         compiler.propagate_constants();
-        if get_debug_log_flags().contains(DebugLogFlags::INST_VERBOSE) {
-            let header = "INST @ const-prop".bold().underline().to_string();
-            wqstderr_println(header);
-            let lines = InstPrettyDumper::new(true, true)
-                .with_pc()
-                .render(&compiler.instructions);
-            for line in lines {
-                wqstderr_println(line);
-            }
-            wqstderr_println("");
-        }
+        dump_inst(
+            "Inst @ constprop",
+            &compiler.instructions,
+            DebugLogFlags::INST_VERBOSE,
+        );
 
         compiler.rewrite_tail_calls();
-        if get_debug_log_flags().contains(DebugLogFlags::INST_VERBOSE) {
-            let header = "INST @ tail-call".bold().underline().to_string();
-            wqstderr_println(header);
-            let lines = InstPrettyDumper::new(true, true)
-                .with_pc()
-                .render(&compiler.instructions);
-            for line in lines {
-                wqstderr_println(line);
-            }
-            wqstderr_println("");
-        }
+        dump_inst(
+            "Inst @ tailcall",
+            &compiler.instructions,
+            DebugLogFlags::INST_VERBOSE,
+        );
 
         compiler.fuse();
-        if get_debug_log_flags().contains(DebugLogFlags::INST_VERBOSE) {
-            let header = "INST @ fuse".bold().underline().to_string();
-            wqstderr_println(header);
-            let lines = InstPrettyDumper::new(true, true)
-                .with_pc()
-                .render(&compiler.instructions);
-            for line in lines {
-                wqstderr_println(line);
-            }
-            wqstderr_println("");
-        }
-
-        if get_debug_log_flags().contains(DebugLogFlags::INST) {
-            let header = "INST (final)".bold().underline().to_string();
-            wqstderr_println(header);
-            let lines = InstPrettyDumper::new(true, true)
-                .with_pc()
-                .render(&compiler.instructions);
-            for line in lines {
-                wqstderr_println(line);
-            }
-            wqstderr_println("");
-        }
+        dump_inst(
+            "Inst @ fuse - final",
+            &compiler.instructions,
+            DebugLogFlags::INST,
+        );
 
         if self.dry_mode {
             return Ok(Value::unit());
