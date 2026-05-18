@@ -209,6 +209,7 @@ pub enum AstNode {
         span: AstSpan,
     },
     Pause {
+        expr: Option<Box<AstNode>>,
         span: AstSpan,
     },
     Try(Box<AstNode>),
@@ -1028,7 +1029,14 @@ impl AstNode {
                 let child = expr.pretty_with_depth(depth + 1, src);
                 pretty_group(depth, head, vec![child], color)
             }
-            Pause { .. } => pretty_leaf("@p", &note, color),
+            Pause { expr, .. } => {
+                let mut children = Vec::new();
+                if let Some(expr) = expr {
+                    children.push(expr.pretty_with_depth(depth + 1, src));
+                }
+                let head = format!("@p{note}");
+                pretty_group(depth, head, children, color)
+            }
             Try(expr) => {
                 let head = format!("@t{note}");
                 let child = expr.pretty_with_depth(depth + 1, src);

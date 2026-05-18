@@ -458,7 +458,10 @@ impl Resolver {
                 expr: Box::new(self.resolve_node(*expr)),
                 span,
             },
-            AstNode::Pause { span } => AstNode::Pause { span },
+            AstNode::Pause { expr, span } => AstNode::Pause {
+                expr: expr.map(|expr| Box::new(self.resolve_node(*expr))),
+                span,
+            },
             AstNode::Return(expr) => AstNode::Return(expr.map(|e| Box::new(self.resolve_node(*e)))),
             // AstNode::Assert(e) => AstNode::Assert(Box::new(self.resolve_node(*e))),
             AstNode::Try(e) => AstNode::Try(Box::new(self.resolve_node(*e))),
@@ -1324,6 +1327,17 @@ impl Resolver {
                     span: new_span,
                 }
             }
+            AstNode::Pause {
+                expr: None,
+                span: pause_span,
+            } => Self::pipe_effect_rhs(
+                AstNode::Pause {
+                    expr: Some(Box::new(AstNode::PipeInput)),
+                    span: pause_span,
+                },
+                input,
+                span,
+            ),
             AstNode::Pause { .. }
             | AstNode::Break
             | AstNode::Continue
@@ -1470,6 +1484,7 @@ fn expr_uses_vars(node: &AstNode, vars: &HashSet<&str>) -> bool {
         }
         AstNode::Return(expr) => expr.as_ref().is_some_and(|e| expr_uses_vars(e, vars)),
         AstNode::Assert { expr, .. } | AstNode::Debug { expr, .. } => expr_uses_vars(expr, vars),
+        AstNode::Pause { expr, .. } => expr.as_ref().is_some_and(|expr| expr_uses_vars(expr, vars)),
         AstNode::Try(expr) => expr_uses_vars(expr, vars),
         AstNode::Block(items) | AstNode::BlockExpr(items, ..) => {
             items.iter().any(|item| expr_uses_vars(item, vars))
@@ -1530,6 +1545,9 @@ mod tests {
             | AstNode::OuterAssignment { value, .. }
             | AstNode::Debug { expr: value, .. }
             | AstNode::Assert { expr: value, .. } => contains_call_name(value, target),
+            AstNode::Pause { expr, .. } => expr
+                .as_ref()
+                .is_some_and(|expr| contains_call_name(expr, target)),
             AstNode::Postfix { object, items, .. } => {
                 contains_call_name(object, target)
                     || items.iter().any(|item| contains_call_name(item, target))
@@ -1637,7 +1655,6 @@ mod tests {
             AstNode::Literal(..)
             | AstNode::Variable(..)
             | AstNode::OuterVariable(..)
-            | AstNode::Pause { .. }
             | AstNode::PipeInput
             | AstNode::Break
             | AstNode::Continue

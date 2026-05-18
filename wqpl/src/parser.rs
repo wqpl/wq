@@ -269,6 +269,45 @@ impl Parser {
         )
     }
 
+    fn ends_optional_probe_operand(tt: &TokenType) -> bool {
+        matches!(
+            tt,
+            TokenType::Semicolon
+                | TokenType::RightBracket
+                | TokenType::RightParen
+                | TokenType::RightBrace
+                | TokenType::Newline
+                | TokenType::Pipe
+                | TokenType::PipeDot
+                | TokenType::PipePipe
+                | TokenType::PipePipeDot
+                | TokenType::Comma
+                | TokenType::Eof
+        )
+    }
+
+    fn current_token_ends_optional_probe_operand(&self) -> bool {
+        let mut offset = 0;
+        while let Some(tok) = self.tokens.get(self.current + offset) {
+            match tok.token_type {
+                TokenType::Comment(_) => offset += 1,
+                _ => return Self::ends_optional_probe_operand(&tok.token_type),
+            }
+        }
+        true
+    }
+
+    fn token_after_current_ends_optional_probe_operand(&self) -> bool {
+        let mut offset = 1;
+        while let Some(tok) = self.tokens.get(self.current + offset) {
+            match tok.token_type {
+                TokenType::Comment(_) => offset += 1,
+                _ => return Self::ends_optional_probe_operand(&tok.token_type),
+            }
+        }
+        true
+    }
+
     fn advance(&mut self) -> Option<&Token> {
         if self.current < self.tokens.len() {
             // Flush trivia + this token into the CST before advancing the
@@ -1991,6 +2030,16 @@ impl Parser {
     }
 
     fn parse_pipe_rhs_expr(&mut self) -> WqResult<AstNode> {
+        if let Some(token) = self.current_token().cloned()
+            && token.token_type == TokenType::AtDebug
+            && self.token_after_current_ends_optional_probe_operand()
+        {
+            self.advance();
+            return Ok(AstNode::Debug {
+                expr: Box::new(AstNode::PipeInput),
+                span: Some((token.byte_start, token.byte_end)),
+            });
+        }
         self.parse_postfix_internal(Self::parse_comparison)
     }
 
@@ -2375,8 +2424,19 @@ impl Parser {
                 TokenType::AtPause => {
                     let start = token.byte_start;
                     self.advance();
+                    let expr = if self.current_token_ends_optional_probe_operand() {
+                        None
+                    } else {
+                        Some(Box::new(self.parse_unary()?))
+                    };
+                    let end = if expr.is_some() {
+                        self.last_consumed_byte_end()
+                    } else {
+                        token.byte_end
+                    };
                     Ok(AstNode::Pause {
-                        span: Some((start, self.last_consumed_byte_end())),
+                        expr,
+                        span: Some((start, end)),
                     })
                 }
                 TokenType::AtTry => {
@@ -2675,8 +2735,7 @@ impl Parser {
             | AstNode::PipeInput
             | AstNode::Break
             | AstNode::Continue
-            | AstNode::Return(None)
-            | AstNode::Pause { .. } => {}
+            | AstNode::Return(None) => {}
             AstNode::NamedArg { value, span, .. } => {
                 Self::offset_spans(value, offset);
                 if let Some(span) = span {
@@ -2825,6 +2884,15 @@ impl Parser {
                     span.1 += offset;
                 }
                 Self::offset_spans(expr, offset);
+            }
+            AstNode::Pause { expr, span } => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
+                if let Some(expr) = expr {
+                    Self::offset_spans(expr, offset);
+                }
             }
             AstNode::FString { parts, span, .. } => {
                 if let Some(span) = span {
@@ -4975,6 +5043,9 @@ mod cst_integration_tests {
             }
             AstNode::Return(Some(e)) | AstNode::Try(e) => out.push(e),
             AstNode::Assert { expr, .. } | AstNode::Debug { expr, .. } => out.push(expr),
+            AstNode::Pause {
+                expr: Some(expr), ..
+            } => out.push(expr),
             AstNode::NamedArg { value, .. } => out.push(value),
             AstNode::Literal(_, _)
             | AstNode::Variable(_, _)
@@ -4982,7 +5053,7 @@ mod cst_integration_tests {
             | AstNode::Break
             | AstNode::Continue
             | AstNode::Return(None)
-            | AstNode::Pause { .. }
+            | AstNode::Pause { expr: None, .. }
             | AstNode::PipeInput
             | AstNode::Ellipsis
             | AstNode::Error(_, _) => {}

@@ -909,13 +909,17 @@ impl Compiler {
                     *slot = *span;
                 }
             }
-            AstNode::Pause { span } => {
+            AstNode::Pause { expr, span } => {
+                let has_expr = expr.is_some();
+                if let Some(expr) = expr {
+                    self.compile_expr(expr)?;
+                }
                 let pc = self.instructions.len();
                 self.push_inst(Instruction::Pause);
                 if let Some(slot) = self.dbg_pc_spans.get_mut(pc) {
                     *slot = *span;
                 }
-                if self.value_needed {
+                if !has_expr && self.value_needed {
                     self.emit_load_const(Value::unit());
                 }
             }
@@ -2246,7 +2250,12 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
             expr: Box::new(replace_pipe_input(expr, temp_name)),
             span: *span,
         },
-        AstNode::Pause { span } => AstNode::Pause { span: *span },
+        AstNode::Pause { expr, span } => AstNode::Pause {
+            expr: expr
+                .as_ref()
+                .map(|expr| Box::new(replace_pipe_input(expr, temp_name))),
+            span: *span,
+        },
         AstNode::Try(expr) => AstNode::Try(Box::new(replace_pipe_input(expr, temp_name))),
         AstNode::Block(stmts) => AstNode::Block(
             stmts
@@ -2499,7 +2508,11 @@ fn collect_capture_needs(
         AstNode::Debug { expr, .. } => {
             collect_capture_needs(expr, locals, needs, defining_name);
         }
-        AstNode::Pause { .. } => {}
+        AstNode::Pause { expr, .. } => {
+            if let Some(expr) = expr {
+                collect_capture_needs(expr, locals, needs, defining_name);
+            }
+        }
         AstNode::Try(expr) => {
             collect_capture_needs(expr, locals, needs, defining_name);
         }
@@ -2611,6 +2624,57 @@ mod tests {
             .iter()
             .position(|local| local == name)
             .expect("expected local slot") as u16
+    }
+
+    #[test]
+    fn pause_with_operand_compiles_as_value_transparent_probe() {
+        let insts = compile_source("@p 1");
+
+        assert_eq!(insts.len(), 2);
+        assert!(matches!(&insts[0], Instruction::LoadConst(value) if **value == Value::Int(1)));
+        assert!(matches!(insts[1], Instruction::Pause));
+    }
+
+    #[test]
+    fn bare_pause_allows_trailing_comment() {
+        let insts = compile_source("@p /* probe */; 1");
+
+        assert!(insts.iter().any(|inst| matches!(inst, Instruction::Pause)));
+    }
+
+    #[test]
+    fn bare_pause_pipe_rhs_loads_pipe_value_before_pause() {
+        let insts = compile_source("1|@p|+[2]");
+
+        assert!(
+            insts.windows(2).any(|pair| matches!(
+                (&pair[0], &pair[1]),
+                (Instruction::LoadVar(name), Instruction::Pause)
+                    if name.as_ref().starts_with("--vm-pipe-tap-")
+            ) || matches!(
+                (&pair[0], &pair[1]),
+                (Instruction::LoadConst(value), Instruction::Pause) if **value == Value::Int(1)
+            )),
+            "expected pipe value to be loaded before @p: {insts:#?}"
+        );
+    }
+
+    #[test]
+    fn bare_debug_pipe_rhs_loads_pipe_value_before_debug() {
+        let insts = compile_source("1|@d|+[2]");
+
+        assert!(
+            insts.windows(3).any(|triple| matches!(
+                (&triple[0], &triple[1], &triple[2]),
+                (Instruction::TraceBegin, Instruction::LoadVar(name), Instruction::Debug)
+                    if name.as_ref().starts_with("--vm-pipe-tap-")
+            ) || matches!(
+                (&triple[0], &triple[1], &triple[2]),
+                (Instruction::TraceBegin, Instruction::LoadConst(value), Instruction::Debug)
+                    if **value == Value::Int(1)
+            )),
+            "expected pipe value to be loaded inside @d trace: {insts:#?}"
+        );
     }
 
     #[test]

@@ -578,7 +578,11 @@ impl SymbolAnalyzer {
             AstNode::Assert { expr, .. } | AstNode::Debug { expr, .. } => {
                 self.analyze(expr);
             }
-            AstNode::Pause { .. } => {}
+            AstNode::Pause { expr, .. } => {
+                if let Some(expr) = expr {
+                    self.analyze(expr);
+                }
+            }
             AstNode::Try(expr) => {
                 self.analyze(expr);
             }

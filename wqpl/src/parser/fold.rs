@@ -477,7 +477,10 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             expr: Box::new(fold(*expr)),
             span,
         },
-        Pause { span } => Pause { span },
+        Pause { expr, span } => Pause {
+            expr: expr.map(|expr| Box::new(fold(*expr))),
+            span,
+        },
         Return(expr) => Return(expr.map(|e| Box::new(fold(*e)))),
         Try(expr) => Try(Box::new(fold(*expr))),
         Block(stmts) => Block(stmts.into_iter().map(fold).collect()),
