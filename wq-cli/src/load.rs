@@ -312,7 +312,7 @@ pub fn eval_inline_with_load(
 ) -> Result<LoadReport, LoadError> {
     let mut loader = Loader::new(session, silent);
     let before: GlobalMap = loader.session.env_vars();
-    let display_label = "<repl>".to_string();
+    let display_label = "<script>".to_string();
     let _frame = loader.push_frame(display_label.clone());
     loader.session.dbg_set_source(&display_label, content);
     loader.session.dbg_set_offset(0);

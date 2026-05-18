@@ -417,7 +417,7 @@ mod tests {
     fn pause_breakpoints_do_not_pause_before_executing_pause_instruction() {
         let mut di = DebugInfo::default();
         let file_id = di.new_file("wq[@p]", "@p\n");
-        let chunk = di.new_chunk("<repl>", file_id, 2);
+        let chunk = di.new_chunk("<script>", file_id, 2);
         di.chunk_mut(chunk).line_table.set_stmt_mark(
             1,
             Span {
