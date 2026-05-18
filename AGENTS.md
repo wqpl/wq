@@ -29,13 +29,13 @@
 - Delevopment should be test-driven. Choose between unit tests and snapshot tests depending on situation.
   - Integration/snapshot tests use `hotchoco.py`.
     - This tests semantics, formatter, backtraces, etc.
-    - `python hotchoco.py run`, when you touched:
+    - `python3 hotchoco.py run`, when you touched:
       - lexer/parser/compiler/vm/interpreter
       - anything that affected semantics
     - If a new major module is added, you may create a new test config for it.
     - Important: You need to build the CLI before running the suite
-  - Key commands: `python hotchoco.py run`, `python hotchoco.py show --no-pager`, `python hotchoco.py accept`.
-  - See `python hotchoco.py --help` for details.
+  - Key commands: `python3 hotchoco.py run`, `python3 hotchoco.py show --no-pager`, `python3 hotchoco.py accept`.
+  - See `python3 hotchoco.py --help` for details.
 - Do not commit unless the user explicitly asks for it.
   - If the user asks for it, commit your changes according to the commit message requirements in `CONTRIBUTING.md`.
 - Unless the user explicitly requested, you are not allowed to build/run with `release` profile.
