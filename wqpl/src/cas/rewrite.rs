@@ -1,14 +1,13 @@
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive};
 
-use crate::session::dbglog::DebugLogFlags;
-use crate::value::{Value, WqResult};
-
 use super::{
     cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub, collect_single_poly_var,
     common_numeric_gcd, eval_numeric_binary, expand_expr, factor_expr, numeric_is_negative,
     numeric_is_one, poly_from_expr, rebuild_scaled_term, simplify_cas_value, split_add_term,
 };
+use crate::session::dbglog::DebugLogFlags;
+use crate::value::{Value, WqResult};
 
 pub(super) fn push_flattened(out: &mut Vec<Value>, op: &str, value: Value) {
     if let Some((inner_op, inner_args)) = value.cas_op_parts()

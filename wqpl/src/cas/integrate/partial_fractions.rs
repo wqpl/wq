@@ -2,9 +2,7 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use super::split_off_numeric;
-use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_sub, numeric_is_one, simplify_cas_value,
-};
+use crate::cas::{cas_add, cas_div, cas_mul, cas_sub, numeric_is_one, simplify_cas_value};
 use crate::value::{Value, WqResult};
 
 pub(super) fn integrate_by_partial_fractions(expr: &Value, var: &str) -> WqResult<Option<Value>> {

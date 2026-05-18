@@ -2,8 +2,8 @@ use num_bigint::BigInt;
 
 use crate::cas::{
     cas_add, cas_debug_log_depth, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_product,
-    cas_sub, eval_numeric_binary, numeric_is_one, rewrite_cas,
-    rewrite_loop, simplify_cas_value, var_name_from_value,
+    cas_sub, eval_numeric_binary, numeric_is_one, rewrite_cas, rewrite_loop, simplify_cas_value,
+    var_name_from_value,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};

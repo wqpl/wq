@@ -23,8 +23,7 @@ use num_traits::ToPrimitive;
 
 use crate::cas::{
     cas_add, cas_div, cas_mul, cas_neg, cas_pow, cas_product, cas_sub, eval_exact_numeric_div,
-    eval_numeric_binary, numeric_is_zero, poly_trim, simplify_cas_value,
-    substitute_expr,
+    eval_numeric_binary, numeric_is_zero, poly_trim, simplify_cas_value, substitute_expr,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};

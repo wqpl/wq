@@ -6,8 +6,8 @@
 //!   ∫ 1/sqrt(x³ + a) dx  →  first-kind elliptic integral
 
 use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_pow, numeric_is_one,
-    numeric_is_zero, poly_degree, poly_from_expr, simplify_cas_value,
+    cas_add, cas_div, cas_mul, cas_pow, numeric_is_one, numeric_is_zero, poly_degree,
+    poly_from_expr, simplify_cas_value,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};

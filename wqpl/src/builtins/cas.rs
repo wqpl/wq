@@ -1,12 +1,10 @@
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
 use crate::cas::diff::diff_cas;
 use crate::cas::integrate::{definite_integrate_cas, integrate_cas};
-use crate::cas::limit::limit_cas;
-use crate::cas::limit::parse_limit_direction;
+use crate::cas::limit::{limit_cas, parse_limit_direction};
 use crate::cas::{
     eval_numeric_cas, expand_cas, factor_cas, infer_single_cas_var, normalize_root_objective_cas,
-    rewrite_cas, simplify_cas_value, solve_cas, solve_system_cas,
-    substitute_cas,
+    rewrite_cas, simplify_cas_value, solve_cas, solve_system_cas, substitute_cas,
 };
 use crate::value::{Value, WqResult};
 use crate::vm::Vm;

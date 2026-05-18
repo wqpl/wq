@@ -3,10 +3,10 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 use num_traits::{One, ToPrimitive};
 
-use super::limit::{self, LimitDirection};
 use super::format_expr;
-use crate::value::cas::{CasData, CasKind};
+use super::limit::{self, LimitDirection};
 use crate::value::Value;
+use crate::value::cas::{CasData, CasKind};
 
 impl Value {
     pub fn is_cas(&self) -> bool {

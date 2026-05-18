@@ -1,8 +1,6 @@
 use super::{integrate_expr_with_depth, split_off_numeric};
 use crate::cas::diff::diff_expr;
-use crate::cas::{
-    cas_div, cas_mul, cas_product, numeric_is_one, simplify_cas_value,
-};
+use crate::cas::{cas_div, cas_mul, cas_product, numeric_is_one, simplify_cas_value};
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};
 

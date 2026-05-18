@@ -3,7 +3,7 @@
 
 #![allow(clippy::excessive_precision)]
 
-use super::polevl::{p1evl, polevl, EUL};
+use super::polevl::{EUL, p1evl, polevl};
 
 // Coefficients for |x| ≤ 4 (rational approximation)
 #[rustfmt::skip]

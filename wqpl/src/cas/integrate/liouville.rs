@@ -640,9 +640,7 @@ fn try_liouville_ei_pattern(
                 return Ok(None);
             }
         }
-        Some(("^", [base, e]))
-            if base.cas_var_name() == Some(var) && e.exact_int_is(-1) =>
-        {
+        Some(("^", [base, e])) if base.cas_var_name() == Some(var) && e.exact_int_is(-1) => {
             (Value::Int(1), true)
         }
         _ => return Ok(None),

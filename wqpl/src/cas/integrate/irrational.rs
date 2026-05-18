@@ -13,9 +13,9 @@ use num_traits::ToPrimitive;
 use super::trig::binomial_coeff;
 use crate::cas::{
     cas_add, cas_debug_log_depth, cas_div, cas_mul, cas_pow, cas_product, cas_sub,
-    eval_exact_numeric_div, eval_numeric_binary,
-    numeric_is_negative, numeric_is_one, numeric_is_zero, poly_degree, poly_divide, poly_from_expr,
-    poly_gcd, poly_is_zero, poly_mul, poly_to_expr, poly_trim, simplify_cas_value, substitute_expr,
+    eval_exact_numeric_div, eval_numeric_binary, numeric_is_negative, numeric_is_one,
+    numeric_is_zero, poly_degree, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul,
+    poly_to_expr, poly_trim, simplify_cas_value, substitute_expr,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};
@@ -1350,15 +1350,9 @@ mod tests {
 
     #[test]
     fn test_exact_half() {
-        assert!(Value::from_fraction_parts(
-            BigInt::from(1),
-            BigInt::from(2)
-        ).exact_half());
+        assert!(Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)).exact_half());
         assert!(!Value::Int(1).exact_half());
-        assert!(Value::from_fraction_parts(
-            BigInt::from(-1),
-            BigInt::from(2)
-        ).exact_neg_half());
+        assert!(Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2)).exact_neg_half());
     }
 
     // ── Square factor extraction tests ──

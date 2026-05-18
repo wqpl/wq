@@ -3,7 +3,7 @@
 
 #![allow(clippy::excessive_precision)]
 
-use super::polevl::{p1evl, polevl, EUL};
+use super::polevl::{EUL, p1evl, polevl};
 
 // 0 < x ≤ 2
 #[rustfmt::skip]

@@ -1,13 +1,12 @@
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use crate::session::dbglog::DebugLogFlags;
-use crate::value::{Value, WqResult};
-
 use super::{
     cas_add, cas_err, cas_mul, cas_pow, eval_exact_numeric_div, eval_numeric_binary,
     numeric_is_negative, numeric_is_one, numeric_is_zero, simplify_cas_value, split_mul_factor,
 };
+use crate::session::dbglog::DebugLogFlags;
+use crate::value::{Value, WqResult};
 
 fn expand_mul_into_terms(terms: Vec<Value>, factor: Value) -> WqResult<Vec<Value>> {
     let factor_terms = if let Some(("+", args)) = factor.cas_op_parts() {

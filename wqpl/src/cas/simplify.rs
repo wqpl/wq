@@ -3,9 +3,7 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use crate::session::dbglog::DebugLogFlags;
-use crate::value::{Value, WqResult};
-
+use super::rewrite::push_flattened;
 use super::{
     cas_err, cas_product, collect_single_poly_var, contains_cas_var, ensure_expr_arg,
     eval_exact_numeric_div, eval_numeric_binary, eval_numeric_binary_gcd, eval_numeric_call,
@@ -14,7 +12,8 @@ use super::{
     poly_mul, poly_to_expr, poly_trim, sort_canonical, split_off_results, square_free_factor,
     try_cancel_affine_over_factor, try_eval_with_const_resolve, try_exact_polynomial_division,
 };
-use super::rewrite::push_flattened;
+use crate::session::dbglog::DebugLogFlags;
+use crate::value::{Value, WqResult};
 
 /// Stack frame for iterative simplify.
 enum SimplifyFrame {
@@ -321,10 +320,16 @@ fn rational_integer_power(value: &Value, exp: &BigInt) -> Option<Value> {
             return None;
         }
         let power = (-exp).to_u32()?;
-        Some(Value::from_fraction_parts(denom.pow(power), numer.pow(power)))
+        Some(Value::from_fraction_parts(
+            denom.pow(power),
+            numer.pow(power),
+        ))
     } else {
         let power = exp.to_u32()?;
-        Some(Value::from_fraction_parts(numer.pow(power), denom.pow(power)))
+        Some(Value::from_fraction_parts(
+            numer.pow(power),
+            denom.pow(power),
+        ))
     }
 }
 
@@ -374,11 +379,8 @@ fn push_radical_factor(
         .position(|existing| existing.base == factor.base && existing.denom == factor.denom)
     {
         let existing = factors.remove(pos);
-        let Some((normalized, factor_scale)) = normalize_radical_factor(
-            existing.base,
-            existing.denom,
-            existing.exp + factor.exp,
-        )?
+        let Some((normalized, factor_scale)) =
+            normalize_radical_factor(existing.base, existing.denom, existing.exp + factor.exp)?
         else {
             return Ok(None);
         };
@@ -860,11 +862,7 @@ fn try_collapse_numerator_over_single_inverse(factors: &[Value]) -> WqResult<Opt
     }))
 }
 
-fn push_rational_term(
-    terms: &mut Vec<(Value, Value)>,
-    denom: Value,
-    numer: Value,
-) -> WqResult<()> {
+fn push_rational_term(terms: &mut Vec<(Value, Value)>, denom: Value, numer: Value) -> WqResult<()> {
     for (existing_denom, existing_numer) in terms.iter_mut() {
         if *existing_denom == denom || existing_denom.to_string() == denom.to_string() {
             *existing_numer = factor_expr(&cas_add(vec![existing_numer.clone(), numer])?)?;
