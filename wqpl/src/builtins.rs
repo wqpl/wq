@@ -762,7 +762,7 @@ declare_builtins! {
     (ASCIIPLOT, Asciiplot, "asciiplot",
         concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim",
             "`symbols;`labels;`mode;`axes;`color;`grid;",
-            "`samples;`theme;`complex_mode;`ascii;",
+            "`samples;`theme;`complex;`ascii;",
             "`title;`xlabel;`ylabel;`caption]"), "1..", viz::asciiplot, BuiltinGroup::Viz),
 
     // Intrinsic ====================================================

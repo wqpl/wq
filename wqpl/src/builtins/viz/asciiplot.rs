@@ -14,7 +14,7 @@ pub(crate) fn asciiplot(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     check_named_args(&args, BE::Asciiplot, &[
         "size", "width", "height", "xlim", "ylim",
         "symbols", "labels", "mode", "axes", "color", "grid",
-        "samples", "theme", "complex_mode", "ascii",
+        "samples", "theme", "complex", "ascii",
         "title", "xlabel", "ylabel", "caption",
     ])?;
     if args.is_empty() {
@@ -572,7 +572,7 @@ impl PlotOptions {
         {
             self.theme = Some(s);
         }
-        if let Some(v) = args.named("complex_mode")
+        if let Some(v) = args.named("complex")
             && let Ok(s) = v.to_rust_string_with_note()
         {
             self.complex_mode = s;

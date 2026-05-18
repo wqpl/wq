@@ -4,10 +4,10 @@
 asciiplot[(`fn:arccos;`xlim:(-1;1));(`fn:arcsin;`xlim:(-1;1))]
 
 // Complex-valued functions: plot absolute value across negative x
-asciiplot[sqrt;`complex_mode:"abs";`size:(40;10)]
+asciiplot[sqrt;`complex:"abs";`size:(40;10)]
 
 // Complex plane: parametric plot of sqrt(x)
-asciiplot[sqrt;`complex_mode:"plane";`size:(40;10)]
+asciiplot[sqrt;`complex:"plane";`size:(40;10)]
 
 // Theta function: delta builtin
 asciiplot[delta;`xlim:(-2;2);`size:(40;5);`samples:81]
