@@ -344,7 +344,9 @@ impl Interpreter for VanillaInterpreter {
                             .map_err(|e| e.src(format!("binary op {op:?} right operand")))?;
                         let left = resolve_operand(vm, idx, &data.left, 0, hooks)
                             .map_err(|e| e.src(format!("binary op {op:?} left operand")))?;
-                        vm.stack.push(eval_binary(&op, &left, &right)?);
+                        let result = eval_binary(&op, &left, &right)?;
+                        hooks.on_binary_result(&op, &result);
+                        vm.stack.push(result);
                     }
                     Instruction::Cat(n) => {
                         let count = *n;
@@ -352,13 +354,16 @@ impl Interpreter for VanillaInterpreter {
                         let base = vm.stack.len() - count;
                         let mut items = Vec::with_capacity(count);
                         items.extend(vm.stack.drain(base..));
+                        hooks.on_cat_alloc(&|| count);
                         vm.stack.push(Value::cat_many(items));
                     }
                     Instruction::UnaryOp(data) => {
                         let op = data.op;
                         let val = resolve_operand(vm, idx, &data.operand, 0, hooks)
                             .map_err(|e| e.src(format!("unary op {op:?}")))?;
-                        vm.stack.push(eval_unary(&op, &val)?);
+                        let result = eval_unary(&op, &val)?;
+                        hooks.on_unary_result(&op, &result);
+                        vm.stack.push(result);
                     }
 
                     Instruction::CallBuiltinId(id, argc) => {
@@ -898,6 +903,7 @@ impl Interpreter for VanillaInterpreter {
                         for v in vm.stack.drain(base..) {
                             set.insert(v);
                         }
+                        hooks.on_set_alloc(&|| count);
                         vm.stack.push(Value::Set(Arc::new(set)));
                     }
                     Instruction::MakeRange {

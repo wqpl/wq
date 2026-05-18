@@ -2,6 +2,7 @@ pub mod profiler;
 pub mod sample;
 pub mod vanilla;
 
+use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::interpret::profiler::ProfilerInterpreter;
 use crate::interpret::sample::SampleInterpreter;
 use crate::interpret::vanilla::VanillaInterpreter;
@@ -67,8 +68,13 @@ pub(crate) trait InterpreterHook: 'static {
     fn on_load_var_cache_miss(&self) {}
     fn on_call_user_cache_hit(&self) {}
     fn on_call_user_cache_miss(&self) {}
+    fn on_binary_result(&self, _op: &BinaryOperator, _result: &Value) {}
+    fn on_unary_result(&self, _op: &UnaryOperator, _result: &Value) {}
+    fn on_builtin_result(&self, _name: &str, _argc: usize, _result: &Value) {}
+    fn on_cat_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_list_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_dict_alloc(&self, _len: &dyn Fn() -> usize) {}
+    fn on_set_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_range_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_closure_capture_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_return(&self, _vm: &Vm) {}

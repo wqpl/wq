@@ -717,11 +717,18 @@ impl Vm {
         id: u16,
         args: crate::builtins::BuiltinFnArgs,
     ) -> WqResult<Value> {
+        let argc = args.len();
         let func = *self
             .builtins
             .get_fn_by_id(usize::from(id))
             .ok_or_else(|| vm_err("invalid builtin id"))?;
-        (func)(self, args)
+        let result = (func)(self, args)?;
+        if let Some(name) = Builtins::name_from_id(id)
+            && let Some(hooks) = self.hooks
+        {
+            unsafe { hooks.as_ref() }.on_builtin_result(name, argc, &result);
+        }
+        Ok(result)
     }
 
     #[inline]

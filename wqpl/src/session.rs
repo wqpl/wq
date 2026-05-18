@@ -41,6 +41,7 @@ pub struct Session {
     // Backtrace mode (minimal debug mapping for errors)
     bt_mode: bool,
     interpreter: InterpreterKind,
+    profiler: ProfilerInterpreter,
 }
 
 impl Session {
@@ -57,6 +58,7 @@ impl Session {
             dbg_source_offs: 0,
             bt_mode: true,
             interpreter: InterpreterKind::Vanilla,
+            profiler: ProfilerInterpreter::default(),
         }
     }
 
@@ -336,9 +338,7 @@ impl Session {
         let result = match self.interpreter {
             InterpreterKind::Sample => self.vm.run_with_interpreter(&mut SampleInterpreter),
             InterpreterKind::Vanilla => self.vm.run_with_interpreter(&mut VanillaInterpreter),
-            InterpreterKind::Profiler => self
-                .vm
-                .run_with_interpreter(&mut ProfilerInterpreter::default()),
+            InterpreterKind::Profiler => self.vm.run_with_interpreter(&mut self.profiler),
         };
         if get_debug_log_flags().contains(DebugLogFlags::VALUE)
             && let Ok(v) = &result
