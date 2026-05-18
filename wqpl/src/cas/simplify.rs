@@ -862,14 +862,25 @@ fn try_collapse_numerator_over_single_inverse(factors: &[Value]) -> WqResult<Opt
     }))
 }
 
-fn push_rational_term(terms: &mut Vec<(Value, Value)>, denom: Value, numer: Value) -> WqResult<()> {
-    for (existing_denom, existing_numer) in terms.iter_mut() {
-        if *existing_denom == denom || existing_denom.to_string() == denom.to_string() {
-            *existing_numer = factor_expr(&cas_add(vec![existing_numer.clone(), numer])?)?;
+struct RationalTerm {
+    denom: Value,
+    numer: Value,
+    core: Value,
+}
+
+fn push_rational_term(
+    terms: &mut Vec<RationalTerm>,
+    denom: Value,
+    numer: Value,
+    core: Value,
+) -> WqResult<()> {
+    for existing in terms.iter_mut() {
+        if existing.denom == denom || existing.denom.to_string() == denom.to_string() {
+            existing.numer = factor_expr(&cas_add(vec![existing.numer.clone(), numer])?)?;
             return Ok(());
         }
     }
-    terms.push((denom, numer));
+    terms.push(RationalTerm { denom, numer, core });
     Ok(())
 }
 
@@ -880,7 +891,7 @@ fn push_rational_term(terms: &mut Vec<(Value, Value)>, denom: Value, numer: Valu
 fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
     use std::collections::HashMap;
     // Separate rational terms (core = (^ D -1)) by variable
-    let mut rational_by_var: HashMap<String, Vec<(Value, Value)>> = HashMap::new();
+    let mut rational_by_var: HashMap<String, Vec<RationalTerm>> = HashMap::new();
     let mut keep = Vec::new();
     for (core, coeff) in grouped.drain(..) {
         // Single (^ D -1) core
@@ -895,7 +906,12 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
                 && poly_degree(&d_poly) >= 1
                 && coeff_ok_in_var(&coeff, v)
             {
-                push_rational_term(rational_by_var.entry(v.clone()).or_default(), d_norm, coeff)?;
+                push_rational_term(
+                    rational_by_var.entry(v.clone()).or_default(),
+                    d_norm,
+                    coeff,
+                    core,
+                )?;
                 continue;
             }
             keep.push((core, coeff));
@@ -932,7 +948,12 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
                 }
                 let d = cas_product(d_parts);
                 let d = normalized_poly_expr(&d, v)?.unwrap_or(d);
-                push_rational_term(rational_by_var.entry(v.clone()).or_default(), d, coeff)?;
+                push_rational_term(
+                    rational_by_var.entry(v.clone()).or_default(),
+                    d,
+                    coeff,
+                    core,
+                )?;
                 continue;
             }
         }
@@ -942,8 +963,8 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
     // Combine each variable group
     for (var, terms) in rational_by_var {
         if terms.len() < 2 {
-            for (d, coeff) in terms {
-                keep.push((Value::from_cas_op("^", vec![d, Value::Int(-1)]), coeff));
+            for term in terms {
+                keep.push((term.core, term.numer));
             }
             continue;
         }
@@ -955,11 +976,11 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
         let mut d_polys: Vec<Vec<Value>> = Vec::with_capacity(terms.len());
         let mut n_polys: Vec<Vec<Value>> = Vec::with_capacity(terms.len());
         let mut succeeded = Vec::with_capacity(terms.len());
-        for (i, (d, n)) in terms.iter().enumerate() {
-            let mut d_poly =
-                poly_from_expr_relaxed_constants(d, &var).unwrap_or_else(|_| vec![Value::Int(1)]);
+        for (i, term) in terms.iter().enumerate() {
+            let mut d_poly = poly_from_expr_relaxed_constants(&term.denom, &var)
+                .unwrap_or_else(|_| vec![Value::Int(1)]);
             normalize_poly_coeffs(&mut d_poly)?;
-            match poly_from_expr_relaxed_constants(n, &var) {
+            match poly_from_expr_relaxed_constants(&term.numer, &var) {
                 Ok(mut p) => {
                     normalize_poly_coeffs(&mut p)?;
                     d_polys.push(d_poly);
@@ -967,20 +988,14 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
                     succeeded.push(i);
                 }
                 Err(_) => {
-                    keep.push((
-                        Value::from_cas_op("^", vec![d.clone(), Value::Int(-1)]),
-                        n.clone(),
-                    ));
+                    keep.push((term.core.clone(), term.numer.clone()));
                 }
             }
         }
         if d_polys.len() < 2 {
             for i in succeeded {
-                let (d, n) = &terms[i];
-                keep.push((
-                    Value::from_cas_op("^", vec![d.clone(), Value::Int(-1)]),
-                    n.clone(),
-                ));
+                let term = &terms[i];
+                keep.push((term.core.clone(), term.numer.clone()));
             }
             continue;
         }
