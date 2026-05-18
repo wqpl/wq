@@ -1,7 +1,9 @@
 use colored::Colorize;
 
+use crate::astnode::BinaryOperator;
 use crate::value::{Excerpt, Value};
 use crate::vm::Vm;
+use crate::vm::inst::{BinaryOpData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
 use crate::wqerror::WqError;
 
@@ -78,6 +80,10 @@ pub(super) fn render_debug_line(vm: &Vm, pc: usize, value: &Value) -> String {
 ///
 /// [`is_trace_interesting`]: crate::vm::inst::Instruction::is_trace_interesting
 pub(super) fn record_trace_probe(vm: &mut Vm, pc: usize) {
+    if is_synthetic_n_loop_probe(vm, pc) {
+        return;
+    }
+
     let Some(value) = vm.stack.last() else {
         return;
     };
@@ -95,6 +101,49 @@ pub(super) fn record_trace_probe(vm: &mut Vm, pc: usize) {
         type_name,
         call_depth,
     });
+}
+
+fn is_synthetic_n_loop_probe(vm: &Vm, pc: usize) -> bool {
+    let Some(Instruction::BinaryOp(data)) = vm.instructions.get(pc) else {
+        return false;
+    };
+
+    is_synthetic_n_loop_guard(vm, data) || is_synthetic_n_loop_increment(vm, data)
+}
+
+fn is_synthetic_n_loop_guard(vm: &Vm, data: &BinaryOpData) -> bool {
+    data.op == BinaryOperator::Lt
+        && trace_operand_name(vm, &data.left) == Some("_n")
+        && trace_operand_name(vm, &data.right).is_some_and(is_n_loop_count_name)
+}
+
+fn is_synthetic_n_loop_increment(vm: &Vm, data: &BinaryOpData) -> bool {
+    data.op == BinaryOperator::Add
+        && trace_operand_name(vm, &data.left).is_some_and(is_n_loop_old_name)
+        && operand_is_const_int(&data.right, 1)
+}
+
+fn trace_operand_name<'a>(vm: &'a Vm, operand: &'a Operand) -> Option<&'a str> {
+    match operand {
+        Operand::Local(slot) => vm.local_slot_name(usize::from(*slot)),
+        Operand::Var(name) => Some(name.as_ref()),
+        _ => None,
+    }
+}
+
+fn operand_is_const_int(operand: &Operand, expected: i64) -> bool {
+    matches!(
+        operand,
+        Operand::Const(value) if matches!(value.as_ref(), Value::Int(n) if *n == expected)
+    )
+}
+
+fn is_n_loop_count_name(name: &str) -> bool {
+    name.starts_with("--vm-n-loop-count-")
+}
+
+fn is_n_loop_old_name(name: &str) -> bool {
+    name.starts_with("--vm-n-loop-old-")
 }
 
 struct TraceNode {
@@ -224,4 +273,59 @@ pub(super) fn attach_pc_source_ctx(vm: &Vm, pc: usize, err: WqError) -> WqError 
             .source_ctx(sf.text.to_string(), sf.path.to_string());
     }
     err
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vm_with_local_names(inst: Instruction, names: &[&str]) -> Vm {
+        let mut vm = Vm::new(vec![inst]);
+        let file_id = vm.debug_info.new_file("<trace-test>", "");
+        let chunk = vm.debug_info.new_chunk("<trace-test>", file_id, 1);
+        vm.debug_info.chunk_mut(chunk).local_names =
+            Some(names.iter().map(|name| (*name).to_string()).collect());
+        vm.current_chunk = chunk;
+        vm
+    }
+
+    #[test]
+    fn synthetic_n_loop_guard_is_not_traced() {
+        let inst = Instruction::binary_op(BinaryOperator::Lt, Operand::Local(0), Operand::Local(1));
+        let vm = vm_with_local_names(inst, &["_n", "--vm-n-loop-count-0"]);
+
+        assert!(is_synthetic_n_loop_probe(&vm, 0));
+    }
+
+    #[test]
+    fn top_level_synthetic_n_loop_guard_is_not_traced() {
+        let inst = Instruction::binary_op(
+            BinaryOperator::Lt,
+            Operand::Var("_n".into()),
+            Operand::Var("--vm-n-loop-count-0".into()),
+        );
+        let vm = Vm::new(vec![inst]);
+
+        assert!(is_synthetic_n_loop_probe(&vm, 0));
+    }
+
+    #[test]
+    fn synthetic_n_loop_increment_is_not_traced() {
+        let inst = Instruction::binary_op(
+            BinaryOperator::Add,
+            Operand::Local(0),
+            Operand::const_val(Value::Int(1)),
+        );
+        let vm = vm_with_local_names(inst, &["--vm-n-loop-old-0"]);
+
+        assert!(is_synthetic_n_loop_probe(&vm, 0));
+    }
+
+    #[test]
+    fn user_comparison_with_n_is_still_traced() {
+        let inst = Instruction::binary_op(BinaryOperator::Lt, Operand::Local(0), Operand::Local(1));
+        let vm = vm_with_local_names(inst, &["_n", "limit"]);
+
+        assert!(!is_synthetic_n_loop_probe(&vm, 0));
+    }
 }
