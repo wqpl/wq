@@ -764,4 +764,27 @@ mod tests {
             derivative
         );
     }
+
+    #[test]
+    fn diff_integrate_one_over_x5_minus_2_roundtrips() {
+        use crate::cas::integrate::integrate_cas;
+
+        let integrand = Value::from_cas_op(
+            "^",
+            vec![
+                Value::from_cas_op(
+                    "+",
+                    vec![
+                        Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(5)]),
+                        Value::Int(-2),
+                    ],
+                ),
+                Value::Int(-1),
+            ],
+        );
+        let integral = integrate_cas(&integrand, &Value::from_cas_var("x")).unwrap();
+        let derivative = diff_cas(&integral, &Value::from_cas_var("x")).unwrap();
+
+        assert_eq!(derivative.to_string(), "(x^5 - 2)^-1");
+    }
 }

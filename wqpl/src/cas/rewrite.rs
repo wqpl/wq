@@ -1,5 +1,5 @@
 use num_bigint::BigInt;
-use num_traits::{One, Signed};
+use num_traits::{One, Signed, ToPrimitive};
 
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};
@@ -498,6 +498,13 @@ fn is_provably_positive(expr: &Value) -> bool {
     }
 }
 
+fn exact_int_value_is(value: &Value, expected: i64) -> bool {
+    value
+        .exact_int()
+        .and_then(|int| int.to_i64())
+        .is_some_and(|int| int == expected)
+}
+
 /// (+ (* A B) (* (* -1 A) C)) → (* A (+ B (* -1 C))).
 /// The second term must have coefficient -1 so that after A is factored,
 /// the inner sum is B - C.
@@ -512,7 +519,8 @@ fn try_factor_binary_product(args: &[Value]) -> WqResult<Option<Value>> {
             continue;
         };
         let (coeff_neg, core_neg) = split_add_term(&args[neg_i]);
-        if !coeff_neg.exact_int_is(-1) {
+        let coeff_neg_is_plain_int = coeff_neg.exact_int_is(-1);
+        if !coeff_neg_is_plain_int && !exact_int_value_is(&coeff_neg, -1) {
             continue;
         }
         // Both cores should be products sharing a common factor
@@ -538,6 +546,9 @@ fn try_factor_binary_product(args: &[Value]) -> WqResult<Option<Value>> {
             }
             if factors_neg.contains(fa) {
                 let common = fa.clone();
+                if !coeff_neg_is_plain_int && common.cas_call_parts().is_none() {
+                    continue;
+                }
                 let rem_pos: Vec<Value> = factors_pos
                     .iter()
                     .filter(|f| *f != &common)

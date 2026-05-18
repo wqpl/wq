@@ -7,9 +7,9 @@ use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};
 
 use super::{
-    cas_err, cas_product, collect_single_poly_var, ensure_expr_arg, eval_exact_numeric_div,
-    eval_numeric_binary, eval_numeric_binary_gcd, eval_numeric_call, extract_algebraic_content,
-    factor_expr, numeric_is_negative, numeric_is_one,
+    cas_err, cas_product, collect_single_poly_var, contains_cas_var, ensure_expr_arg,
+    eval_exact_numeric_div, eval_numeric_binary, eval_numeric_binary_gcd, eval_numeric_call,
+    expand_expr, extract_algebraic_content, factor_expr, numeric_is_negative, numeric_is_one,
     numeric_is_zero, poly_add, poly_degree, poly_divide, poly_from_expr, poly_gcd, poly_is_zero,
     poly_mul, poly_to_expr, poly_trim, sort_canonical, split_off_results, square_free_factor,
     try_cancel_affine_over_factor, try_eval_with_const_resolve, try_exact_polynomial_division,
@@ -198,6 +198,683 @@ pub(super) fn split_mul_factor(factor: &Value) -> (Value, Value) {
     (factor.clone(), Value::Int(1))
 }
 
+/// Exact linear form for variable-free radical coefficients such as
+/// `2^(1/5)*(5^(1/2)+1)`, used before polynomial rational recombination.
+#[derive(Clone, PartialEq, Eq)]
+struct RadicalFactor {
+    base: Value,
+    denom: BigInt,
+    exp: BigInt,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct RadicalMono {
+    factors: Vec<RadicalFactor>,
+}
+
+struct RadicalLinear {
+    terms: Vec<(RadicalMono, Value)>,
+}
+
+impl RadicalMono {
+    fn one() -> Self {
+        Self {
+            factors: Vec::new(),
+        }
+    }
+}
+
+impl RadicalLinear {
+    fn zero() -> Self {
+        Self { terms: Vec::new() }
+    }
+
+    fn one() -> Self {
+        Self::constant(Value::Int(1))
+    }
+
+    fn constant(coeff: Value) -> Self {
+        if numeric_is_zero(&coeff) {
+            Self::zero()
+        } else {
+            Self {
+                terms: vec![(RadicalMono::one(), coeff)],
+            }
+        }
+    }
+
+    fn single(mono: RadicalMono, coeff: Value) -> Self {
+        if numeric_is_zero(&coeff) {
+            Self::zero()
+        } else {
+            Self {
+                terms: vec![(mono, coeff)],
+            }
+        }
+    }
+
+    fn add_term(&mut self, mono: RadicalMono, coeff: Value) -> WqResult<()> {
+        if numeric_is_zero(&coeff) {
+            return Ok(());
+        }
+        if let Some(i) = self
+            .terms
+            .iter()
+            .position(|(existing_mono, _)| existing_mono == &mono)
+        {
+            let new_coeff = eval_numeric_binary("+", &self.terms[i].1, &coeff)?;
+            if numeric_is_zero(&new_coeff) {
+                self.terms.remove(i);
+            } else {
+                self.terms[i].1 = new_coeff;
+            }
+            return Ok(());
+        }
+        self.terms.push((mono, coeff));
+        Ok(())
+    }
+
+    fn add(&self, rhs: &Self) -> WqResult<Self> {
+        let mut out = Self::zero();
+        for (mono, coeff) in self.terms.iter().chain(rhs.terms.iter()) {
+            out.add_term(mono.clone(), coeff.clone())?;
+        }
+        Ok(out)
+    }
+
+    fn mul(&self, rhs: &Self) -> WqResult<Option<Self>> {
+        let mut out = Self::zero();
+        for (lhs_mono, lhs_coeff) in &self.terms {
+            for (rhs_mono, rhs_coeff) in &rhs.terms {
+                let Some((mono, scale)) = multiply_radical_monomials(lhs_mono, rhs_mono)? else {
+                    return Ok(None);
+                };
+                let coeff = eval_numeric_binary(
+                    "*",
+                    &eval_numeric_binary("*", lhs_coeff, rhs_coeff)?,
+                    &scale,
+                )?;
+                out.add_term(mono, coeff)?;
+            }
+        }
+        Ok(Some(out))
+    }
+}
+
+fn bigint_floor_div_rem(numer: &BigInt, denom: &BigInt) -> (BigInt, BigInt) {
+    let quotient = numer / denom;
+    let remainder = numer % denom;
+    if remainder.is_negative() {
+        (quotient - BigInt::one(), remainder + denom)
+    } else {
+        (quotient, remainder)
+    }
+}
+
+fn rational_integer_power(value: &Value, exp: &BigInt) -> Option<Value> {
+    if exp.is_zero() {
+        return Some(Value::Int(1));
+    }
+    let (numer, denom) = value.rational_parts()?;
+    if exp.is_negative() {
+        if numer.is_zero() {
+            return None;
+        }
+        let power = (-exp).to_u32()?;
+        Some(Value::from_fraction_parts(denom.pow(power), numer.pow(power)))
+    } else {
+        let power = exp.to_u32()?;
+        Some(Value::from_fraction_parts(numer.pow(power), denom.pow(power)))
+    }
+}
+
+fn normalize_radical_factor(
+    base: Value,
+    denom: BigInt,
+    exp: BigInt,
+) -> WqResult<Option<(RadicalFactor, Value)>> {
+    if denom.is_zero() {
+        return Ok(None);
+    }
+    let denom = denom.abs();
+    let (whole, rem) = bigint_floor_div_rem(&exp, &denom);
+    let Some(scale) = rational_integer_power(&base, &whole) else {
+        return Ok(None);
+    };
+    if rem.is_zero() {
+        return Ok(Some((
+            RadicalFactor {
+                base,
+                denom,
+                exp: BigInt::zero(),
+            },
+            scale,
+        )));
+    }
+    Ok(Some((
+        RadicalFactor {
+            base,
+            denom,
+            exp: rem,
+        },
+        scale,
+    )))
+}
+
+fn push_radical_factor(
+    factors: &mut Vec<RadicalFactor>,
+    factor: RadicalFactor,
+    scale: &mut Value,
+) -> WqResult<Option<()>> {
+    if factor.exp.is_zero() {
+        return Ok(Some(()));
+    }
+    if let Some(pos) = factors
+        .iter()
+        .position(|existing| existing.base == factor.base && existing.denom == factor.denom)
+    {
+        let existing = factors.remove(pos);
+        let Some((normalized, factor_scale)) = normalize_radical_factor(
+            existing.base,
+            existing.denom,
+            existing.exp + factor.exp,
+        )?
+        else {
+            return Ok(None);
+        };
+        *scale = eval_numeric_binary("*", scale, &factor_scale)?;
+        if !normalized.exp.is_zero() {
+            factors.push(normalized);
+        }
+    } else {
+        let Some((normalized, factor_scale)) =
+            normalize_radical_factor(factor.base, factor.denom, factor.exp)?
+        else {
+            return Ok(None);
+        };
+        *scale = eval_numeric_binary("*", scale, &factor_scale)?;
+        if !normalized.exp.is_zero() {
+            factors.push(normalized);
+        }
+    }
+    factors.sort_by_cached_key(|factor| {
+        (
+            factor.base.to_string(),
+            factor.denom.to_string(),
+            factor.exp.to_string(),
+        )
+    });
+    Ok(Some(()))
+}
+
+fn multiply_radical_monomials(
+    lhs: &RadicalMono,
+    rhs: &RadicalMono,
+) -> WqResult<Option<(RadicalMono, Value)>> {
+    let mut factors = lhs.factors.clone();
+    let mut scale = Value::Int(1);
+    for factor in &rhs.factors {
+        if push_radical_factor(&mut factors, factor.clone(), &mut scale)?.is_none() {
+            return Ok(None);
+        }
+    }
+    Ok(Some((RadicalMono { factors }, scale)))
+}
+
+fn radical_from_rational_power(
+    base: &Value,
+    numer: BigInt,
+    denom: BigInt,
+) -> WqResult<Option<RadicalLinear>> {
+    if denom.is_zero() || base.rational_parts().is_none() {
+        return Ok(None);
+    }
+    if denom.is_one() {
+        let Some(coeff) = rational_integer_power(base, &numer) else {
+            return Ok(None);
+        };
+        return Ok(Some(RadicalLinear::constant(coeff)));
+    }
+    if numeric_is_negative(base) && (&denom % BigInt::from(2)).is_zero() {
+        return Ok(None);
+    }
+    let Some((factor, scale)) = normalize_radical_factor(base.clone(), denom, numer)? else {
+        return Ok(None);
+    };
+    if factor.exp.is_zero() {
+        return Ok(Some(RadicalLinear::constant(scale)));
+    }
+    Ok(Some(RadicalLinear::single(
+        RadicalMono {
+            factors: vec![factor],
+        },
+        scale,
+    )))
+}
+
+fn radical_monomial_pow(
+    mono: &RadicalMono,
+    numer: &BigInt,
+    denom: &BigInt,
+) -> WqResult<Option<(RadicalMono, Value)>> {
+    let mut out = RadicalMono::one();
+    let mut scale = Value::Int(1);
+    for factor in &mono.factors {
+        let combined_denom = &factor.denom * denom;
+        let combined_exp = &factor.exp * numer;
+        let Some((normalized, factor_scale)) =
+            normalize_radical_factor(factor.base.clone(), combined_denom, combined_exp)?
+        else {
+            return Ok(None);
+        };
+        scale = eval_numeric_binary("*", &scale, &factor_scale)?;
+        if push_radical_factor(&mut out.factors, normalized, &mut scale)?.is_none() {
+            return Ok(None);
+        }
+    }
+    Ok(Some((out, scale)))
+}
+
+fn radical_linear_pow(
+    linear: &RadicalLinear,
+    numer: &BigInt,
+    denom: &BigInt,
+) -> WqResult<Option<RadicalLinear>> {
+    if linear.terms.len() == 1 {
+        let (mono, coeff) = &linear.terms[0];
+        let Some(coeff_pow) = radical_from_rational_power(coeff, numer.clone(), denom.clone())?
+        else {
+            return Ok(None);
+        };
+        let Some((mono_pow, scale)) = radical_monomial_pow(mono, numer, denom)? else {
+            return Ok(None);
+        };
+        let mono_linear = RadicalLinear::single(mono_pow, scale);
+        return coeff_pow.mul(&mono_linear);
+    }
+
+    if !denom.is_one() || numer.is_negative() {
+        return Ok(None);
+    }
+    let Some(power) = numer.to_usize() else {
+        return Ok(None);
+    };
+    if power > 8 {
+        return Ok(None);
+    }
+    let mut out = RadicalLinear::one();
+    for _ in 0..power {
+        let Some(next) = out.mul(linear)? else {
+            return Ok(None);
+        };
+        out = next;
+    }
+    Ok(Some(out))
+}
+
+fn radical_linear_from_algebraic(
+    alg: &crate::value::algebraic::AlgebraicData,
+) -> WqResult<Option<RadicalLinear>> {
+    let deg = alg.degree();
+    if deg == 0 || alg.poly[1..deg].iter().any(|coeff| !coeff.is_zero()) {
+        return Ok(None);
+    }
+    let constant = &alg.poly[0];
+    let leading = &alg.poly[deg];
+    if constant.is_zero() || leading.is_zero() {
+        return Ok(None);
+    }
+    let base = Value::from_fraction_parts(-constant.clone(), leading.clone());
+    if numeric_is_negative(&base) {
+        return Ok(None);
+    }
+
+    let mut out = RadicalLinear::zero();
+    for (power, coeff) in alg.coeffs.iter().enumerate() {
+        if numeric_is_zero(coeff) {
+            continue;
+        }
+        let Some(coeff_linear) = radical_linear_from_expr(coeff)? else {
+            return Ok(None);
+        };
+        let Some(radical_linear) =
+            radical_from_rational_power(&base, BigInt::from(power), BigInt::from(deg))?
+        else {
+            return Ok(None);
+        };
+        let Some(term) = coeff_linear.mul(&radical_linear)? else {
+            return Ok(None);
+        };
+        out = out.add(&term)?;
+    }
+    Ok(Some(out))
+}
+
+fn radical_linear_from_expr(expr: &Value) -> WqResult<Option<RadicalLinear>> {
+    if let Value::Algebraic(alg) = expr {
+        return radical_linear_from_algebraic(alg);
+    }
+    if !expr.is_cas_expr() {
+        return Ok(expr
+            .rational_parts()
+            .map(|_| RadicalLinear::constant(expr.clone())));
+    }
+    if expr.cas_var_name().is_some() || expr.cas_const_name().is_some() {
+        return Ok(None);
+    }
+    let Some((op, args)) = expr.cas_op_parts() else {
+        return Ok(None);
+    };
+    match (op, args) {
+        ("+", args) => {
+            let mut out = RadicalLinear::zero();
+            for arg in args {
+                let Some(part) = radical_linear_from_expr(arg)? else {
+                    return Ok(None);
+                };
+                out = out.add(&part)?;
+            }
+            Ok(Some(out))
+        }
+        ("*", args) => {
+            let mut out = RadicalLinear::one();
+            for arg in args {
+                let Some(part) = radical_linear_from_expr(arg)? else {
+                    return Ok(None);
+                };
+                let Some(product) = out.mul(&part)? else {
+                    return Ok(None);
+                };
+                out = product;
+            }
+            Ok(Some(out))
+        }
+        ("^", [base, exp]) => {
+            let Some((numer, denom)) = exp.rational_parts() else {
+                return Ok(None);
+            };
+            if !base.is_cas_expr() {
+                return radical_from_rational_power(base, numer, denom);
+            }
+            let Some(base_linear) = radical_linear_from_expr(base)? else {
+                return Ok(None);
+            };
+            radical_linear_pow(&base_linear, &numer, &denom)
+        }
+        _ => Ok(None),
+    }
+}
+
+fn radical_linear_to_value(linear: &RadicalLinear) -> WqResult<Value> {
+    let mut terms = Vec::with_capacity(linear.terms.len());
+    for (mono, coeff) in &linear.terms {
+        let mut factors = Vec::with_capacity(mono.factors.len() + 1);
+        if !numeric_is_one(coeff) || mono.factors.is_empty() {
+            factors.push(coeff.clone());
+        }
+        for factor in &mono.factors {
+            factors.push(Value::from_cas_op(
+                "^",
+                vec![
+                    factor.base.clone(),
+                    Value::from_fraction_parts(factor.exp.clone(), factor.denom.clone()),
+                ],
+            ));
+        }
+        terms.push(cas_mul(factors)?);
+    }
+    cas_add(terms)
+}
+
+fn normalize_radical_constant(expr: &Value) -> WqResult<Option<Value>> {
+    let Some(linear) = radical_linear_from_expr(expr)? else {
+        return Ok(None);
+    };
+    Ok(Some(radical_linear_to_value(&linear)?))
+}
+
+fn contains_any_symbolic_var(expr: &Value) -> bool {
+    if expr.cas_var_name().is_some() {
+        return true;
+    }
+    if let Some((_, args)) = expr.cas_op_parts() {
+        return args.iter().any(contains_any_symbolic_var);
+    }
+    if let Some((_, args)) = expr.cas_call_parts() {
+        return args.iter().any(contains_any_symbolic_var);
+    }
+    if let Some((lhs, rhs)) = expr.cas_eq_parts() {
+        return contains_any_symbolic_var(lhs) || contains_any_symbolic_var(rhs);
+    }
+    false
+}
+
+fn contains_negative_power_expr(expr: &Value) -> bool {
+    if let Some(("^", [_, exp])) = expr.cas_op_parts()
+        && exp.rational_parts().is_some_and(|(n, _)| n.is_negative())
+    {
+        return true;
+    }
+    if let Some((_, args)) = expr.cas_op_parts() {
+        return args.iter().any(contains_negative_power_expr);
+    }
+    if let Some((_, args)) = expr.cas_call_parts() {
+        return args.iter().any(contains_negative_power_expr);
+    }
+    if let Some((lhs, rhs)) = expr.cas_eq_parts() {
+        return contains_negative_power_expr(lhs) || contains_negative_power_expr(rhs);
+    }
+    false
+}
+
+fn normalize_relaxed_poly_coeff(expr: &Value) -> WqResult<Value> {
+    let simplified = factor_expr(&simplify_cas_value(expr)?)?;
+    if simplified.is_cas_expr()
+        && let Some(normalized) = normalize_radical_constant(&simplified)?
+    {
+        factor_expr(&simplify_cas_value(&normalized)?)
+    } else {
+        Ok(simplified)
+    }
+}
+
+fn poly_from_expr_relaxed_constants(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
+    if let Ok(coeffs) = poly_from_expr(expr, var) {
+        return Ok(coeffs);
+    }
+    if let Some(name) = expr.cas_var_name() {
+        if name == var {
+            return Ok(vec![Value::Int(0), Value::Int(1)]);
+        }
+        return Err(cas_err(format!(
+            "solve currently supports a single variable '{var}' only"
+        )));
+    }
+    if !expr.is_cas_expr() {
+        return Ok(vec![expr.clone()]);
+    }
+    if !contains_any_symbolic_var(expr) && !contains_negative_power_expr(expr) {
+        return Ok(vec![normalize_relaxed_poly_coeff(expr)?]);
+    }
+    if let Some((op, args)) = expr.cas_op_parts() {
+        return match (op, args) {
+            ("+", args) => {
+                let mut acc = vec![Value::Int(0)];
+                for arg in args {
+                    acc = poly_add(&acc, &poly_from_expr_relaxed_constants(arg, var)?)?;
+                }
+                Ok(acc)
+            }
+            ("*", args) => {
+                let mut acc = vec![Value::Int(1)];
+                for arg in args {
+                    acc = poly_mul(&acc, &poly_from_expr_relaxed_constants(arg, var)?)?;
+                }
+                Ok(acc)
+            }
+            ("^", [base, exp]) => {
+                if base.cas_var_name() == Some(var) {
+                    let n = exp.exact_int().and_then(|n| n.to_usize()).ok_or_else(|| {
+                        cas_err("solve currently supports non-negative integer powers only")
+                    })?;
+                    let mut coeffs = vec![Value::Int(0); n + 1];
+                    coeffs[n] = Value::Int(1);
+                    Ok(coeffs)
+                } else if !contains_any_symbolic_var(base) {
+                    let Some(n) = exp.exact_int() else {
+                        return Err(cas_err(
+                            "solve currently supports polynomial expressions with exact numeric coefficients",
+                        ));
+                    };
+                    if n.is_negative() || contains_negative_power_expr(base) {
+                        return Err(cas_err(
+                            "solve currently supports polynomial expressions with exact numeric coefficients",
+                        ));
+                    }
+                    Ok(vec![normalize_relaxed_poly_coeff(expr)?])
+                } else {
+                    Err(cas_err(
+                        "solve currently supports polynomial expressions with exact numeric coefficients",
+                    ))
+                }
+            }
+            _ => Err(cas_err(
+                "solve currently supports polynomial expressions with exact numeric coefficients",
+            )),
+        };
+    }
+    Err(cas_err("solve expected a symbolic polynomial expression").got1(expr))
+}
+
+fn normalize_poly_coeffs(coeffs: &mut Vec<Value>) -> WqResult<()> {
+    for coeff in coeffs.iter_mut() {
+        *coeff = normalize_relaxed_poly_coeff(coeff)?;
+    }
+    poly_trim(coeffs);
+    Ok(())
+}
+
+fn normalized_poly_expr(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+    let mut coeffs = match poly_from_expr_relaxed_constants(expr, var) {
+        Ok(coeffs) => coeffs,
+        Err(_) => return Ok(None),
+    };
+    normalize_poly_coeffs(&mut coeffs)?;
+    Ok(Some(poly_to_expr(&coeffs, var)?))
+}
+
+fn normalized_inverse_base(expr: &Value) -> WqResult<Option<Value>> {
+    let mut var = None;
+    if !collect_single_poly_var(expr, &mut var) {
+        return Ok(None);
+    }
+    let Some(var) = var else {
+        return Ok(None);
+    };
+    let Some(normalized) = normalized_poly_expr(expr, &var)? else {
+        return Ok(None);
+    };
+    if normalized == *expr {
+        Ok(None)
+    } else {
+        Ok(Some(normalized))
+    }
+}
+
+fn try_collapse_numerator_over_single_inverse(factors: &[Value]) -> WqResult<Option<Value>> {
+    let mut inverse = None;
+    let mut denom = None;
+    for (i, factor) in factors.iter().enumerate() {
+        if let Some(("^", [base, exp])) = factor.cas_op_parts()
+            && exp.exact_int_is(-1)
+        {
+            if inverse.is_some() {
+                return Ok(None);
+            }
+            inverse = Some((i, factor.clone()));
+            denom = Some(base.clone());
+        }
+    }
+    let (inverse_idx, inverse_factor) = match inverse {
+        Some(parts) => parts,
+        None => return Ok(None),
+    };
+    let Some(denom) = denom else {
+        return Ok(None);
+    };
+    let mut var = None;
+    if !collect_single_poly_var(&denom, &mut var) {
+        return Ok(None);
+    }
+    let Some(var) = var else {
+        return Ok(None);
+    };
+
+    let numer_parts: Vec<_> = factors
+        .iter()
+        .enumerate()
+        .filter_map(|(i, factor)| {
+            if i == inverse_idx {
+                None
+            } else {
+                Some(factor.clone())
+            }
+        })
+        .collect();
+    let numer = cas_product(numer_parts);
+    if !contains_cas_var(&numer, &var) {
+        return Ok(None);
+    }
+
+    let mut expanded = numer;
+    for _ in 0..3 {
+        let next = simplify_cas_value(&expand_expr(&expanded)?)?;
+        if next == expanded {
+            break;
+        }
+        expanded = next;
+        if !contains_cas_var(&expanded, &var) {
+            break;
+        }
+    }
+    if contains_cas_var(&expanded, &var) {
+        return Ok(None);
+    }
+    if numeric_is_zero(&expanded) {
+        return Ok(Some(Value::Int(0)));
+    }
+
+    let mut rebuilt = Vec::with_capacity(2);
+    if !numeric_is_one(&expanded) {
+        rebuilt.push(expanded);
+    }
+    rebuilt.push(inverse_factor);
+    sort_canonical(&mut rebuilt);
+    Ok(Some(match rebuilt.len() {
+        0 => Value::Int(1),
+        1 => rebuilt
+            .into_iter()
+            .next()
+            .expect("single collapsed product factor"),
+        _ => Value::from_cas_op("*", rebuilt),
+    }))
+}
+
+fn push_rational_term(
+    terms: &mut Vec<(Value, Value)>,
+    denom: Value,
+    numer: Value,
+) -> WqResult<()> {
+    for (existing_denom, existing_numer) in terms.iter_mut() {
+        if *existing_denom == denom || existing_denom.to_string() == denom.to_string() {
+            *existing_numer = factor_expr(&cas_add(vec![existing_numer.clone(), numer])?)?;
+            return Ok(());
+        }
+    }
+    terms.push((denom, numer));
+    Ok(())
+}
+
 /// Combine rational terms sharing the same polynomial variable.
 /// Input: `grouped` after rational core normalization.
 /// Terms with core `(^ D -1)` (i.e. `1/D`) where D is polynomial in some var
@@ -215,14 +892,12 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
             let mut var: Option<String> = None;
             if collect_single_poly_var(d, &mut var)
                 && let Some(ref v) = var
-                && let Ok(d_poly) = poly_from_expr(d, v)
+                && let Ok(Some(d_norm)) = normalized_poly_expr(d, v)
+                && let Ok(d_poly) = poly_from_expr_relaxed_constants(&d_norm, v)
                 && poly_degree(&d_poly) >= 1
                 && coeff_ok_in_var(&coeff, v)
             {
-                rational_by_var
-                    .entry(v.clone())
-                    .or_default()
-                    .push((d.clone(), coeff));
+                push_rational_term(rational_by_var.entry(v.clone()).or_default(), d_norm, coeff)?;
                 continue;
             }
             keep.push((core, coeff));
@@ -258,10 +933,8 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
                     }
                 }
                 let d = cas_product(d_parts);
-                rational_by_var
-                    .entry(v.clone())
-                    .or_default()
-                    .push((d, coeff));
+                let d = normalized_poly_expr(&d, v)?.unwrap_or(d);
+                push_rational_term(rational_by_var.entry(v.clone()).or_default(), d, coeff)?;
                 continue;
             }
         }
@@ -285,9 +958,12 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
         let mut n_polys: Vec<Vec<Value>> = Vec::with_capacity(terms.len());
         let mut succeeded = Vec::with_capacity(terms.len());
         for (i, (d, n)) in terms.iter().enumerate() {
-            let d_poly = poly_from_expr(d, &var).unwrap_or_else(|_| vec![Value::Int(1)]);
-            match poly_from_expr(n, &var) {
-                Ok(p) => {
+            let mut d_poly =
+                poly_from_expr_relaxed_constants(d, &var).unwrap_or_else(|_| vec![Value::Int(1)]);
+            normalize_poly_coeffs(&mut d_poly)?;
+            match poly_from_expr_relaxed_constants(n, &var) {
+                Ok(mut p) => {
+                    normalize_poly_coeffs(&mut p)?;
                     d_polys.push(d_poly);
                     n_polys.push(p);
                     succeeded.push(i);
@@ -316,6 +992,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
         for d_poly in &d_polys {
             d_common = poly_mul(&d_common, d_poly)?;
         }
+        normalize_poly_coeffs(&mut d_common)?;
 
         // Combined numerator: ∑ (Nᵢ · ∏_{j≠i} Dⱼ)
         let mut n_common = vec![Value::Int(0)];
@@ -329,6 +1006,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
             let term_num = poly_mul(n_poly, &other_d)?;
             n_common = poly_add(&n_common, &term_num)?;
         }
+        normalize_poly_coeffs(&mut n_common)?;
 
         // Cancel a common scalar factor: if N is constant c ≠ 0,1 and every
         // coefficient of D is divisible by c, cancel c from both sides.
@@ -371,7 +1049,23 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
         }
 
         // Build combined expression: N/D
-        let n_expr = poly_to_expr(&n_common, &var)?;
+        let mut n_expr = poly_to_expr(&n_common, &var)?;
+        if contains_cas_var(&n_expr, &var) {
+            let mut expanded = n_expr.clone();
+            for _ in 0..3 {
+                let next = simplify_cas_value(&expand_expr(&expanded)?)?;
+                if next == expanded {
+                    break;
+                }
+                expanded = next;
+                if !contains_cas_var(&expanded, &var) {
+                    break;
+                }
+            }
+            if !contains_cas_var(&expanded, &var) {
+                n_expr = expanded;
+            }
+        }
         let d_expr = poly_to_expr(&d_common, &var)?;
         let combined = cas_div(n_expr, d_expr)?;
 
@@ -623,7 +1317,12 @@ pub(super) fn cas_mul(args: Vec<Value>) -> WqResult<Value> {
             continue;
         }
 
-        let (base, power) = split_mul_factor(&arg);
+        let (mut base, power) = split_mul_factor(&arg);
+        if power.exact_int().is_some_and(|int| int.is_negative())
+            && let Some(normalized) = normalized_inverse_base(&base)?
+        {
+            base = normalized;
+        }
 
         let mut merged = false;
         for (existing_base, existing_power) in &mut grouped {
@@ -743,6 +1442,9 @@ pub(super) fn cas_mul(args: Vec<Value>) -> WqResult<Value> {
             out.push(cas_pow(base, power)?);
         }
     }
+    if let Some(collapsed) = try_collapse_numerator_over_single_inverse(&out)? {
+        return Ok(collapsed);
+    }
     sort_canonical(&mut out);
     match out.len() {
         0 => Ok(Value::Int(1)),
@@ -821,6 +1523,13 @@ fn is_monomial_poly(coeffs: &[Value]) -> bool {
         }
     }
     true
+}
+
+fn exact_int_value_is(value: &Value, expected: i64) -> bool {
+    value
+        .exact_int()
+        .and_then(|int| int.to_i64())
+        .is_some_and(|int| int == expected)
 }
 
 /// Detect the single polynomial variable in an expression.
@@ -989,7 +1698,7 @@ pub(crate) fn cas_pow(base: Value, exp: Value) -> WqResult<Value> {
     }
     // Expand (sum)^2 = sum of squares + 2 * sum of distinct products
     if let Some(("+", args)) = base.cas_op_parts()
-        && exp.exact_int_is(2)
+        && exact_int_value_is(&exp, 2)
     {
         let mut terms = Vec::new();
         for i in 0..args.len() {

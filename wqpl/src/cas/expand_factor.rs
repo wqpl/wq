@@ -334,6 +334,14 @@ fn bigint_abs_gcd(lhs: BigInt, rhs: BigInt) -> BigInt {
 }
 
 fn common_numeric_factor(coeffs: &[Value]) -> Option<Value> {
+    if let Some(first) = coeffs.first()
+        && !numeric_is_zero(first)
+        && !numeric_is_one(first)
+        && coeffs.iter().all(|coeff| coeff == first)
+    {
+        return Some(first.clone());
+    }
+
     fn bigint_lcm(lhs: &BigInt, rhs: &BigInt) -> BigInt {
         if lhs.is_zero() || rhs.is_zero() {
             return BigInt::zero();

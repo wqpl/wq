@@ -1,5 +1,5 @@
 use num_bigint::BigInt;
-use num_traits::ToPrimitive;
+use num_traits::{Signed, ToPrimitive};
 
 use super::{
     cas_add, cas_err, cas_pow, contains_cas_var, eval_exact_numeric_div, eval_numeric_binary,
@@ -439,6 +439,40 @@ pub(super) fn collect_single_poly_var(expr: &Value, found: &mut Option<String>) 
     true
 }
 
+fn contains_any_cas_var(expr: &Value) -> bool {
+    if expr.cas_var_name().is_some() {
+        return true;
+    }
+    if let Some((_, args)) = expr.cas_op_parts() {
+        return args.iter().any(contains_any_cas_var);
+    }
+    if let Some((_, args)) = expr.cas_call_parts() {
+        return args.iter().any(contains_any_cas_var);
+    }
+    if let Some((lhs, rhs)) = expr.cas_eq_parts() {
+        return contains_any_cas_var(lhs) || contains_any_cas_var(rhs);
+    }
+    false
+}
+
+fn contains_negative_power(expr: &Value) -> bool {
+    if let Some(("^", [_, exp])) = expr.cas_op_parts()
+        && exp.rational_parts().is_some_and(|(n, _)| n.is_negative())
+    {
+        return true;
+    }
+    if let Some((_, args)) = expr.cas_op_parts() {
+        return args.iter().any(contains_negative_power);
+    }
+    if let Some((_, args)) = expr.cas_call_parts() {
+        return args.iter().any(contains_negative_power);
+    }
+    if let Some((lhs, rhs)) = expr.cas_eq_parts() {
+        return contains_negative_power(lhs) || contains_negative_power(rhs);
+    }
+    false
+}
+
 pub(super) fn try_exact_polynomial_division(lhs: &Value, rhs: &Value) -> WqResult<Option<Value>> {
     let mut var = None;
     if !collect_single_poly_var(lhs, &mut var) || !collect_single_poly_var(rhs, &mut var) {
@@ -478,6 +512,9 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
     if !expr.is_cas_expr() {
         return Ok(vec![expr.clone()]);
     }
+    if !contains_any_cas_var(expr) && !contains_negative_power(expr) {
+        return Ok(vec![simplify_cas_value(expr)?]);
+    }
     if let Some((op, args)) = expr.cas_op_parts() {
         return match (op, args) {
             ("+", args) => {
@@ -509,6 +546,11 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
                             "solve currently supports polynomial expressions with exact numeric coefficients",
                         ));
                     };
+                    if n.is_negative() || contains_negative_power(base) {
+                        return Err(cas_err(
+                            "solve currently supports polynomial expressions with exact numeric coefficients",
+                        ));
+                    }
                     // Try to evaluate the constant power to a numeric or
                     // algebraic value so that polynomial arithmetic below
                     // (poly_mul/poly_add/poly_gcd) works with clean coeffs.
