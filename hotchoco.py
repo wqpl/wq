@@ -2,10 +2,10 @@
 """wq integration snapshot test suite
 
 Usage:
-    python hotchoco.py run [--group G] [--test T[/MODE]]
-    python hotchoco.py diff [--group G] [--test T[/MODE]]
+    python hotchoco.py run [--group G] [--test T[/MODE]|G/T/MODE]
+    python hotchoco.py diff [--group G] [--test T[/MODE]|G/T/MODE]
     python hotchoco.py review [--group G] [--test T]
-    python hotchoco.py accept --all|--group G|--test T[/MODE]
+    python hotchoco.py accept --all|--group G|--test T[/MODE]|G/T/MODE
     python hotchoco.py status [--verbose]
     python hotchoco.py show [--no-pager] [--group G] [--test T]
     python hotchoco.py clean
@@ -318,20 +318,32 @@ def filter_tests(
     group: str | None = None,
     test_sel: str | None = None,
 ) -> list[dict]:
-    """Filter test definitions by group and/or test selector."""
+    """Filter test definitions by group and/or test selector.
+
+    Test selectors accept any id suffix that appears in output:
+      - test
+      - test/mode
+      - group/test/mode
+    """
     result = []
     for t in tests:
+        if test_sel:
+            parts = test_sel.split("/")
+            if len(parts) == 3:
+                selector_group, test_name, modes = parts
+                mode_names = set(modes.split(","))
+                if t["group"] != selector_group:
+                    continue
+            elif len(parts) == 2:
+                test_name, modes = parts
+                mode_names = set(modes.split(","))
+            else:
+                test_name = parts[0]
+                mode_names = None
+            if t["test"] != test_name or (mode_names and t["mode"] not in mode_names):
+                continue
         if group and t["group"] != group:
             continue
-        if test_sel:
-            # Parse test selector: "fib" or "fib/print" or "fib/print,ast"
-            parts = test_sel.split("/")
-            test_name = parts[0]
-            mode_names = set(parts[1].split(",")) if len(parts) > 1 else None
-            if t["test"] != test_name:
-                continue
-            if mode_names and t["mode"] not in mode_names:
-                continue
         result.append(t)
     return result
 
@@ -345,18 +357,34 @@ def filter_summary(
     result = {}
     for key, val in summary.items():
         g, t, m = key.split("/")
-        if group and g != group:
-            continue
         if test_sel:
             parts = test_sel.split("/")
-            test_name = parts[0]
-            mode_names = set(parts[1].split(",")) if len(parts) > 1 else None
-            if t != test_name:
+            if len(parts) == 3:
+                selector_group, test_name, modes = parts
+                mode_names = set(modes.split(","))
+                if g != selector_group:
+                    continue
+            elif len(parts) == 2:
+                test_name, modes = parts
+                mode_names = set(modes.split(","))
+            else:
+                test_name = parts[0]
+                mode_names = None
+            if t != test_name or (mode_names and m not in mode_names):
                 continue
-            if mode_names and m not in mode_names:
-                continue
+        if group and g != group:
+            continue
         result[key] = val
     return result
+
+
+def selector_label(group: str | None, test_sel: str | None) -> str:
+    parts = []
+    if group:
+        parts.append(f"group '{group}'")
+    if test_sel:
+        parts.append(f"test '{test_sel}'")
+    return " and ".join(parts) if parts else "selection"
 
 
 # ── CLI commands ────────────────────────────────────────────────────────────
@@ -367,7 +395,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     tests = discover_testcases(config)
     tests = filter_tests(tests, args.group, args.test)
     if not tests:
-        print("No tests matched.")
+        print(f"No tests matched {selector_label(args.group, args.test)}.")
         return
 
     output_dir, summary = run_tests(tests, config)
@@ -435,6 +463,9 @@ def cmd_run(args: argparse.Namespace) -> None:
 def cmd_diff(args: argparse.Namespace) -> None:
     output_dir, summary = load_summary(None)
     summary = filter_summary(summary, args.group, args.test)
+    if not summary:
+        print(f"No tests matched {selector_label(args.group, args.test)}.")
+        return
 
     changed = {k: v for k, v in summary.items() if v["status"] != "pass"}
     if not changed:
@@ -463,6 +494,9 @@ def cmd_diff(args: argparse.Namespace) -> None:
 def cmd_show(args: argparse.Namespace) -> None:
     output_dir, summary = load_summary(None)
     summary = filter_summary(summary, args.group, args.test)
+    if not summary:
+        print(f"No tests matched {selector_label(args.group, args.test)}.")
+        return
 
     changed = [(k, v) for k, v in sorted(summary.items()) if v["status"] != "pass"]
     if not changed:
@@ -512,6 +546,10 @@ def cmd_accept(args: argparse.Namespace) -> None:
         print("Or use 'python hotchoco.py review' for interactive mode.")
         sys.exit(1)
 
+    if not summary:
+        print(f"No tests matched {selector_label(args.group, args.test)}.")
+        sys.exit(1)
+
     accepted = 0
     for key, val in summary.items():
         if val["status"] == "pass":
@@ -527,6 +565,8 @@ def cmd_accept(args: argparse.Namespace) -> None:
     if accepted:
         (output_dir / "summary.json").write_text(json.dumps(summary, indent=2))
         print(f"\nAccepted {accepted} change(s).")
+    elif args.group or args.test:
+        print(f"No changes to accept ({len(summary)} selected test(s) already pass).")
     else:
         print("No changes to accept (all tests pass).")
 
@@ -539,6 +579,9 @@ def cmd_status(args: argparse.Namespace) -> None:
 
     summary = json.loads((output_dir / "summary.json").read_text())
     summary = filter_summary(summary, args.group, args.test)
+    if not summary:
+        print(f"No tests matched {selector_label(args.group, args.test)}.")
+        return
 
     passed = sum(1 for v in summary.values() if v["status"] == "pass")
     failed = sum(1 for v in summary.values() if v["status"] == "fail")
@@ -589,6 +632,9 @@ def cmd_clean(args: argparse.Namespace) -> None:
 def cmd_review(args: argparse.Namespace) -> None:
     output_dir, summary = load_summary(None)
     summary = filter_summary(summary, args.group, args.test)
+    if not summary:
+        print(f"No tests matched {selector_label(args.group, args.test)}.")
+        return
 
     changed = [(k, v) for k, v in sorted(summary.items()) if v["status"] != "pass"]
     if not changed:
@@ -700,13 +746,19 @@ def main() -> None:
     # run
     p_run = sub.add_parser("run", help="Run tests and compare against golden/")
     p_run.add_argument("--group", "-g", help="Test group to run")
-    p_run.add_argument("--test", "-t", help="Test to run (e.g. 'fib' or 'fib/print')")
+    p_run.add_argument(
+        "--test",
+        "-t",
+        help="Test to run (e.g. 'fib', 'fib/print', or 'wq/fib/exec')",
+    )
 
     # diff
     p_diff = sub.add_parser("diff", help="Show diffs from last run")
     p_diff.add_argument("--group", "-g", help="Filter by group")
     p_diff.add_argument(
-        "--test", "-t", help="Filter by test (e.g. 'fib' or 'fib/print')"
+        "--test",
+        "-t",
+        help="Filter by test (e.g. 'fib', 'fib/print', or 'wq/fib/exec')",
     )
 
     # show
@@ -714,14 +766,18 @@ def main() -> None:
     p_show.add_argument("--no-pager", action="store_true", help="Print to stdout")
     p_show.add_argument("--group", "-g", help="Filter by group")
     p_show.add_argument(
-        "--test", "-t", help="Filter by test (e.g. 'fib' or 'fib/print')"
+        "--test",
+        "-t",
+        help="Filter by test (e.g. 'fib', 'fib/print', or 'wq/fib/exec')",
     )
 
     # review
     p_review = sub.add_parser("review", help="Interactive review of changed tests")
     p_review.add_argument("--group", "-g", help="Filter by group")
     p_review.add_argument(
-        "--test", "-t", help="Filter by test (e.g. 'fib' or 'fib/print')"
+        "--test",
+        "-t",
+        help="Filter by test (e.g. 'fib', 'fib/print', or 'wq/fib/exec')",
     )
 
     # accept
@@ -729,7 +785,9 @@ def main() -> None:
     p_accept.add_argument("--all", action="store_true", help="Accept all changes")
     p_accept.add_argument("--group", "-g", help="Accept changes in one group")
     p_accept.add_argument(
-        "--test", "-t", help="Accept one test (e.g. 'fib' or 'fib/print')"
+        "--test",
+        "-t",
+        help="Accept one test (e.g. 'fib', 'fib/print', or 'wq/fib/exec')",
     )
 
     # status
@@ -738,7 +796,11 @@ def main() -> None:
         "--verbose", "-v", action="store_true", help="Per-test details"
     )
     p_status.add_argument("--group", "-g", help="Filter by group")
-    p_status.add_argument("--test", "-t", help="Filter by test")
+    p_status.add_argument(
+        "--test",
+        "-t",
+        help="Filter by test (e.g. 'fib', 'fib/print', or 'wq/fib/exec')",
+    )
 
     # clean
     sub.add_parser("clean", help="Remove all but the latest output directory")
