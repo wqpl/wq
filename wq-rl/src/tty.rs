@@ -89,6 +89,8 @@ pub trait Renderer {
             grapheme_cluster_mode: self.grapheme_cluster_mode(),
             prompt_size,
             default_prompt,
+            input_area_top_padding: 0,
+            input_area_bottom_padding: 0,
             cursor,
             end,
             has_info: info.is_some(),

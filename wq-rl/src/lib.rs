@@ -784,6 +784,7 @@ impl<H: Helper, I: History> Editor<H, I> {
         // Move to end, in case cursor was in the middle of the line, so that
         // next thing application prints goes after the input
         s.edit_move_buffer_end(CmdKind::ForcedRefresh)?;
+        s.move_cursor_to_end()?;
 
         if cfg!(windows) {
             let _ = original_mode; // silent warning

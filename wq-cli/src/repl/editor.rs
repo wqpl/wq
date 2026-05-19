@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 
 use wq_rl::completion::{Completer, Pair};
-use wq_rl::highlight::{CmdKind, Highlighter as RLHighlighter};
+use wq_rl::highlight::{CmdKind, Highlighter as RLHighlighter, InputAreaStyle};
 use wq_rl::hint::Hinter;
 use wq_rl::validate::{ValidationContext, ValidationResult, Validator};
 use wq_rl::{Context as RLContext, Helper};
@@ -14,6 +14,9 @@ use wqpl::session::Session;
 use wqpl::session::dbglog::DEBUG_LOG_FLAG_NAMES;
 
 const RESET: &str = "\x1b[0m";
+const REPL_INPUT_BG: &str = "\x1b[48;5;236m";
+const REPL_INPUT_RESET: &str = "\x1b[0m";
+const REPL_INPUT_TOKEN_RESET: &str = "\x1b[22;23;24;39m";
 
 pub struct WqReplHighlighter {
     highlighter: Highlighter,
@@ -262,7 +265,7 @@ impl WqReplHighlighter {
         }
     }
 
-    fn colorize(&self, line: &str) -> String {
+    fn colorize_with_reset(&self, line: &str, reset: &str) -> String {
         let bytes = line.as_bytes();
         let mut out = String::with_capacity(line.len() + 16);
         let mut stack: Vec<HighlightName> = Vec::new();
@@ -279,7 +282,11 @@ impl WqReplHighlighter {
                         let (on, off) = Self::style_for_name(name);
                         out.push_str(on);
                         out.push_str(s);
-                        out.push_str(off);
+                        if reset.is_empty() {
+                            out.push_str(off);
+                        } else {
+                            out.push_str(reset);
+                        }
                     } else {
                         out.push_str(s);
                     }
@@ -287,6 +294,14 @@ impl WqReplHighlighter {
             }
         }
         out
+    }
+
+    fn colorize(&self, line: &str) -> String {
+        self.colorize_with_reset(line, "")
+    }
+
+    fn colorize_input(&self, line: &str) -> String {
+        self.colorize_with_reset(line, REPL_INPUT_TOKEN_RESET)
     }
 
     pub fn highlight_text(&self, text: &str) -> String {
@@ -604,11 +619,28 @@ impl Validator for WqReplHighlighter {
 }
 
 impl RLHighlighter for WqReplHighlighter {
+    fn input_area_style(&self) -> Option<InputAreaStyle> {
+        if cfg!(unix) {
+            Some(InputAreaStyle {
+                background: REPL_INPUT_BG,
+                reset: REPL_INPUT_RESET,
+                horizontal_padding: 1,
+                vertical_padding: 1,
+            })
+        } else {
+            None
+        }
+    }
+
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
         if !self.enabled() {
             return std::borrow::Cow::Borrowed(line);
         }
-        Cow::Owned(self.colorize(line))
+        if cfg!(unix) {
+            Cow::Owned(self.colorize_input(line))
+        } else {
+            Cow::Owned(self.colorize(line))
+        }
     }
 
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
@@ -616,11 +648,19 @@ impl RLHighlighter for WqReplHighlighter {
         prompt: &'p str,
         _default: bool,
     ) -> Cow<'b, str> {
-        Cow::Borrowed(prompt)
+        if cfg!(unix) {
+            Cow::Owned(prompt.replace(RESET, REPL_INPUT_TOKEN_RESET))
+        } else {
+            Cow::Borrowed(prompt)
+        }
     }
 
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
-        Cow::Borrowed(hint)
+        if cfg!(unix) {
+            Cow::Owned(format!("\x1b[38;5;244m{hint}\x1b[39m"))
+        } else {
+            Cow::Borrowed(hint)
+        }
     }
 
     fn highlight_candidate<'c>(

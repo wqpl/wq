@@ -29,7 +29,7 @@ use utf8parse::{Parser, Receiver};
 use super::{Event, RawMode, RawReader, Renderer, Term, width};
 use crate::config::{Behavior, BellStyle, ColorMode, Config};
 use crate::error::Signal;
-use crate::highlight::Highlighter;
+use crate::highlight::{Highlighter, InputAreaStyle};
 use crate::keys::{KeyCode as K, KeyEvent, KeyEvent as E, Modifiers as M};
 use crate::layout::{GraphemeClusterMode, Layout, Position, Unit};
 use crate::line_buffer::LineBuffer;
@@ -972,7 +972,7 @@ impl PosixRenderer {
     fn clear_old_rows(&mut self, layout: &Layout) {
         use std::fmt::Write as _;
         let current_row = layout.cursor.row;
-        let old_rows = layout.end.row;
+        let old_rows = layout.display_end().row;
         // old_rows < cursor_row if the prompt spans multiple lines and if
         // this is the default State.
         let cursor_row_movement = old_rows.saturating_sub(current_row);
@@ -986,6 +986,38 @@ impl PosixRenderer {
         }
         // clear the line
         self.buffer.push_str("\r\x1b[K");
+    }
+
+    fn push_input_area_prefix(&mut self, style: InputAreaStyle) {
+        self.buffer.push_str(style.background);
+        for _ in 0..style.horizontal_padding {
+            self.buffer.push(' ');
+        }
+    }
+
+    fn push_input_area_suffix(&mut self, style: InputAreaStyle) {
+        self.buffer.push_str("\x1b[K");
+        self.buffer.push_str(style.reset);
+    }
+
+    fn push_input_area_blank(&mut self, style: InputAreaStyle) {
+        self.buffer.push_str(style.background);
+        self.buffer.push_str("\x1b[K");
+        self.buffer.push_str(style.reset);
+    }
+
+    fn push_input_area_top_padding(&mut self, style: InputAreaStyle) {
+        for _ in 0..style.vertical_padding {
+            self.push_input_area_blank(style);
+            self.buffer.push('\n');
+        }
+    }
+
+    fn push_input_area_bottom_padding(&mut self, style: InputAreaStyle) {
+        for _ in 0..style.vertical_padding {
+            self.buffer.push('\n');
+            self.push_input_area_blank(style);
+        }
     }
 }
 
@@ -1051,10 +1083,16 @@ impl Renderer for PosixRenderer {
 
         let default_prompt = new_layout.default_prompt;
         let cursor = new_layout.cursor;
-        let end_pos = new_layout.end;
+        let end_pos = new_layout.display_end();
+        let input_area_style = highlighter.and_then(|h| h.input_area_style());
 
         if let Some(old_layout) = old_layout {
             self.clear_old_rows(old_layout);
+        }
+
+        if let Some(style) = input_area_style {
+            self.push_input_area_top_padding(style);
+            self.push_input_area_prefix(style);
         }
 
         if let Some(highlighter) = highlighter {
@@ -1069,13 +1107,25 @@ impl Renderer for PosixRenderer {
             }
             if let Some(cp) = continuation_prompt {
                 for part in parts {
+                    if let Some(style) = input_area_style {
+                        self.push_input_area_suffix(style);
+                    }
                     self.buffer.push('\n');
+                    if let Some(style) = input_area_style {
+                        self.push_input_area_prefix(style);
+                    }
                     self.buffer.push_str(cp);
                     self.buffer.push_str(part);
                 }
             } else {
                 for part in parts {
+                    if let Some(style) = input_area_style {
+                        self.push_input_area_suffix(style);
+                    }
                     self.buffer.push('\n');
+                    if let Some(style) = input_area_style {
+                        self.push_input_area_prefix(style);
+                    }
                     self.buffer.push_str(part);
                 }
             }
@@ -1089,13 +1139,25 @@ impl Renderer for PosixRenderer {
             }
             if let Some(cp) = continuation_prompt {
                 for part in parts {
+                    if let Some(style) = input_area_style {
+                        self.push_input_area_suffix(style);
+                    }
                     self.buffer.push('\n');
+                    if let Some(style) = input_area_style {
+                        self.push_input_area_prefix(style);
+                    }
                     self.buffer.push_str(cp);
                     self.buffer.push_str(part);
                 }
             } else {
                 for part in parts {
+                    if let Some(style) = input_area_style {
+                        self.push_input_area_suffix(style);
+                    }
                     self.buffer.push('\n');
+                    if let Some(style) = input_area_style {
+                        self.push_input_area_prefix(style);
+                    }
                     self.buffer.push_str(part);
                 }
             }
@@ -1108,8 +1170,13 @@ impl Renderer for PosixRenderer {
                 self.buffer.push_str(hint);
             }
         }
+        if let Some(style) = input_area_style {
+            self.push_input_area_suffix(style);
+            self.push_input_area_bottom_padding(style);
+        }
         // we have to generate our own newline on line wrap
-        if end_pos.col == 0
+        if input_area_style.is_none()
+            && end_pos.col == 0
             && end_pos.row > 0
             && !hint.map_or_else(|| line.ends_with('\n'), |h| h.ends_with('\n'))
         {
@@ -1756,8 +1823,22 @@ mod termios_ {
 mod test {
     use super::{AltFd, Position, PosixRenderer, PosixTerminal, Renderer as _};
     use crate::config::BellStyle;
+    use crate::highlight::{Highlighter, InputAreaStyle};
     use crate::layout::GraphemeClusterMode;
     use crate::line_buffer::{LineBuffer, NoListener};
+
+    struct TestInputArea;
+
+    impl Highlighter for TestInputArea {
+        fn input_area_style(&self) -> Option<InputAreaStyle> {
+            Some(InputAreaStyle {
+                background: "\x1b[48;5;236m",
+                reset: "\x1b[0m",
+                horizontal_padding: 1,
+                vertical_padding: 1,
+            })
+        }
+    }
 
     #[test]
     #[ignore]
@@ -1830,6 +1911,47 @@ mod test {
         #[rustfmt::skip]
         assert_eq!(
             "\r\u{1b}[K> aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\u{1b}[1C",
+            out.buffer
+        );
+    }
+
+    #[test]
+    fn input_area_style_adds_padding_and_background() {
+        let mut out = PosixRenderer::new(
+            AltFd(libc::STDOUT_FILENO),
+            4,
+            true,
+            true,
+            GraphemeClusterMode::default(),
+            BellStyle::default(),
+        );
+        let prompt = "> ";
+        let style = TestInputArea
+            .input_area_style()
+            .expect("test highlighter has input area style");
+        let mut prompt_size =
+            out.calculate_position(prompt, Position::default(), Position::default());
+        prompt_size.row += style.vertical_padding;
+        prompt_size.col += style.horizontal_padding;
+
+        let line = LineBuffer::init("abc", 3);
+        let mut layout = out.compute_layout(prompt_size, None, true, &line, None);
+        layout.input_area_top_padding = style.vertical_padding;
+        layout.input_area_bottom_padding = style.vertical_padding;
+
+        out.refresh_line(
+            prompt,
+            None,
+            &line,
+            None,
+            None,
+            &layout,
+            Some(&TestInputArea),
+        )
+        .unwrap();
+
+        assert_eq!(
+            "\x1b[48;5;236m\x1b[K\x1b[0m\n\x1b[48;5;236m > abc\x1b[K\x1b[0m\n\x1b[48;5;236m\x1b[K\x1b[0m\x1b[1A\r\x1b[6C",
             out.buffer
         );
     }

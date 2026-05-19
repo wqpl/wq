@@ -111,6 +111,10 @@ pub struct Layout {
     /// Prompt Unicode/visible width and height
     pub prompt_size: Position,
     pub default_prompt: bool,
+    /// Blank rows drawn above the input block.
+    pub input_area_top_padding: Unit,
+    /// Blank rows drawn below the input block.
+    pub input_area_bottom_padding: Unit,
     /// Cursor position (relative to the start of the prompt)
     pub cursor: Position,
     /// Number of rows used so far (from start of prompt to end of input)
@@ -125,9 +129,22 @@ impl Layout {
             grapheme_cluster_mode,
             prompt_size: Position::default(),
             default_prompt: false,
+            input_area_top_padding: 0,
+            input_area_bottom_padding: 0,
             cursor: Position::default(),
             end: Position::default(),
             has_info: false,
+        }
+    }
+
+    pub fn display_end(&self) -> Position {
+        if self.input_area_bottom_padding == 0 {
+            self.end
+        } else {
+            Position {
+                col: 0,
+                row: self.end.row + self.input_area_bottom_padding,
+            }
         }
     }
 

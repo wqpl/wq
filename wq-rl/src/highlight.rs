@@ -4,6 +4,20 @@ use std::borrow::Cow::{self, Borrowed, Owned};
 use std::cell::Cell;
 
 use crate::config::CompletionType;
+use crate::layout::Unit;
+
+/// Optional styling for a readline input block.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InputAreaStyle {
+    /// ANSI sequence applied before drawing input-area cells.
+    pub background: &'static str,
+    /// ANSI sequence applied after drawing input-area cells.
+    pub reset: &'static str,
+    /// Visible left padding before the prompt and continuation prompt.
+    pub horizontal_padding: Unit,
+    /// Blank rows above and below the edited input.
+    pub vertical_padding: Unit,
+}
 
 /// Describe which kind of action has been triggering the call to
 /// [`Highlighter`].
@@ -23,6 +37,11 @@ pub enum CmdKind {
 /// Currently, the highlighted version *must* have the same display width as
 /// the original input.
 pub trait Highlighter {
+    /// Returns optional styling for the readline input block.
+    fn input_area_style(&self) -> Option<InputAreaStyle> {
+        None
+    }
+
     /// Takes the currently edited `line` with the cursor `pos`ition and
     /// returns the highlighted version (with ANSI color).
     ///

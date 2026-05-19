@@ -9,7 +9,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 use super::{Context, Helper, Prompt, Result};
 use crate::KillRing;
 use crate::error::{ReadlineError, Signal};
-use crate::highlight::{CmdKind, Highlighter};
+use crate::highlight::{CmdKind, Highlighter, InputAreaStyle};
 use crate::hint::Hint;
 use crate::history::SearchDirection;
 use crate::keymap::{
@@ -91,6 +91,32 @@ impl<'out, 'prompt, H: Helper, P: Prompt + ?Sized> State<'out, 'prompt, H, P> {
         }
     }
 
+    fn input_area_style(&self) -> Option<InputAreaStyle> {
+        self.highlighter().and_then(|h| h.input_area_style())
+    }
+
+    fn input_area_prompt_size(&self, mut prompt_size: Position) -> Position {
+        if let Some(style) = self.input_area_style() {
+            prompt_size.row += style.vertical_padding;
+            prompt_size.col += style.horizontal_padding;
+        }
+        prompt_size
+    }
+
+    fn input_area_continuation_size(&self, mut continuation_size: Position) -> Position {
+        if let Some(style) = self.input_area_style() {
+            continuation_size.col += style.horizontal_padding;
+        }
+        continuation_size
+    }
+
+    fn apply_input_area_layout(&self, layout: &mut Layout) {
+        if let Some(style) = self.input_area_style() {
+            layout.input_area_top_padding = style.vertical_padding;
+            layout.input_area_bottom_padding = style.vertical_padding;
+        }
+    }
+
     pub fn next_cmd(
         &mut self,
         input_state: &mut InputState,
@@ -150,8 +176,8 @@ impl<'out, 'prompt, H: Helper, P: Prompt + ?Sized> State<'out, 'prompt, H, P> {
         // calculate the desired position of the cursor
         let cursor = self.out.calculate_position(
             &self.line[..self.line.pos()],
-            self.prompt_size,
-            Position::default(),
+            self.input_area_prompt_size(self.prompt_size),
+            self.input_area_continuation_size(Position::default()),
         );
         if self.layout.cursor == cursor {
             return Ok(());
@@ -169,11 +195,12 @@ impl<'out, 'prompt, H: Helper, P: Prompt + ?Sized> State<'out, 'prompt, H, P> {
     }
 
     pub fn move_cursor_to_end(&mut self) -> Result<()> {
-        if self.layout.cursor == self.layout.end {
+        let end = self.layout.display_end();
+        if self.layout.cursor == end {
             return Ok(());
         }
-        self.out.move_cursor(self.layout.cursor, self.layout.end)?;
-        self.layout.cursor = self.layout.end;
+        self.out.move_cursor(self.layout.cursor, end)?;
+        self.layout.cursor = end;
         Ok(())
     }
 
@@ -205,8 +232,11 @@ impl<'out, 'prompt, H: Helper, P: Prompt + ?Sized> State<'out, 'prompt, H, P> {
         };
 
         let continuation_prompt = self.continuation_prompt.as_deref();
+        let prompt_size = self.input_area_prompt_size(prompt_size);
         let continuation_size = if continuation_prompt.is_some() {
-            Some(self.continuation_prompt_size)
+            Some(self.input_area_continuation_size(
+                self.continuation_prompt_size,
+            ))
         } else {
             None
         };
@@ -221,13 +251,14 @@ impl<'out, 'prompt, H: Helper, P: Prompt + ?Sized> State<'out, 'prompt, H, P> {
                 highlighter,
             )?;
         } else {
-            let new_layout = self.out.compute_layout(
+            let mut new_layout = self.out.compute_layout(
                 prompt_size,
                 continuation_size,
                 default_prompt,
                 &self.line,
                 info,
             );
+            self.apply_input_area_layout(&mut new_layout);
 
             debug!(target: "rustyline", "old layout: {:?}", self.layout);
             debug!(target: "rustyline", "new layout: {new_layout:?}");
