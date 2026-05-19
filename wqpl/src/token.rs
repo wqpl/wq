@@ -94,6 +94,7 @@ pub enum TokenType {
     AtReturn,
     AtDebug,
     AtPause,
+    AtDepth(i64),
     // @s ... symbolic quote
     AtSymbolic,
     AtTry,

@@ -271,11 +271,13 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             object,
             items,
             explicit_call,
+            depth,
             span,
         } => Postfix {
             object: Box::new(fold(*object)),
             items: items.into_iter().map(fold).collect(),
             explicit_call,
+            depth,
             span,
         },
         Pipe {

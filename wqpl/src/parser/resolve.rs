@@ -143,10 +143,20 @@ impl Resolver {
                 object,
                 items,
                 explicit_call,
+                depth,
                 span,
             } => {
                 let object = Box::new(self.resolve_node(*object));
                 let items: Vec<_> = items.into_iter().map(|n| self.resolve_node(n)).collect();
+                if depth.is_some() {
+                    return AstNode::Postfix {
+                        object,
+                        items,
+                        explicit_call: true,
+                        depth,
+                        span,
+                    };
+                }
                 // 1) If explicitly called or definitely callable, lower to Call /
                 //    CallAnonymous.
                 if explicit_call || self.should_call(&object) {
@@ -185,6 +195,7 @@ impl Resolver {
                     object,
                     items,
                     explicit_call: false,
+                    depth: None,
                     span,
                 }
             }
@@ -822,6 +833,7 @@ impl Resolver {
             object: Box::new(AstNode::Variable(tmp_name.into(), None)),
             items: vec![AstNode::Literal(Value::Int(pos), None)],
             explicit_call: false,
+            depth: None,
             span: None,
         };
         match item {
@@ -1243,6 +1255,7 @@ impl Resolver {
                     object: Box::new(AstNode::Variable(name, var_span)),
                     items: vec![input],
                     explicit_call: false,
+                    depth: None,
                     span: new_span,
                 }
             }
@@ -1302,6 +1315,7 @@ impl Resolver {
                 object,
                 mut items,
                 explicit_call: _,
+                depth,
                 span: effect_span,
                 ..
             } => {
@@ -1324,6 +1338,7 @@ impl Resolver {
                     object,
                     items,
                     explicit_call: false,
+                    depth,
                     span: new_span,
                 }
             }
@@ -1349,6 +1364,7 @@ impl Resolver {
                 object: Box::new(right),
                 items: vec![input],
                 explicit_call: false,
+                depth: None,
                 span,
             },
         }

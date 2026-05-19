@@ -100,6 +100,7 @@ pub enum AstNode {
         object: Box<AstNode>,
         items: Vec<AstNode>,
         explicit_call: bool,
+        depth: Option<i64>,
         span: AstSpan,
     },
     /// Placeholder used while compiling tap-pipe effects.
@@ -796,14 +797,15 @@ impl AstNode {
                 object,
                 items,
                 explicit_call,
+                depth: depth_modifier,
                 ..
             } => {
                 let head = format!(
-                    "{}{note}",
-                    if *explicit_call {
-                        "POSTFIX*"
-                    } else {
-                        "POSTFIX"
+                    "{}{}{note}",
+                    if *explicit_call { "POSTFIX*" } else { "POSTFIX" },
+                    match depth_modifier {
+                        Some(depth) => format!("@{depth}"),
+                        None => String::new(),
                     }
                 );
                 let mut children = vec![object.pretty_with_depth(depth + 1, src)];

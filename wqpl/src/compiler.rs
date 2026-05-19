@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::astnode::{AstNode, BinaryOperator, Parameter};
-use crate::builtins::Builtins;
+use crate::astnode::{AstNode, AstSpan, BinaryOperator, Parameter};
+use crate::builtins::{BuiltinDepthSugar, Builtins};
 use crate::value::func::FunctionData;
 use crate::value::{Value, WqResult};
 use crate::vm::inst::{Capture, DebugStmtMark, Instruction, MutationOp, Operand, StoreTarget};
@@ -139,6 +139,59 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn expand_depth_sugar_args(
+        &self,
+        name: &str,
+        sugar: BuiltinDepthSugar,
+        mut args: Vec<AstNode>,
+        depth: i64,
+        span: AstSpan,
+    ) -> WqResult<Vec<AstNode>> {
+        let depth_arg = || AstNode::Literal(Value::Int(depth), None);
+        match sugar {
+            BuiltinDepthSugar::Append { non_depth_argc } => {
+                let expected = usize::from(non_depth_argc);
+                if args.len() != expected {
+                    return Err(self.syntax_err_at(
+                        span,
+                        format!("{name}@{depth} expects {expected} non-depth arguments"),
+                    ));
+                }
+                args.push(depth_arg());
+                Ok(args)
+            }
+            BuiltinDepthSugar::AppendDefaultInt {
+                required_argc,
+                optional_argc,
+                default,
+            } => {
+                let required = usize::from(required_argc);
+                let optional = usize::from(optional_argc);
+                match args.len() {
+                    n if n == required => {
+                        args.push(AstNode::Literal(Value::Int(default), None));
+                        args.push(depth_arg());
+                        Ok(args)
+                    }
+                    n if n == optional => {
+                        args.push(depth_arg());
+                        Ok(args)
+                    }
+                    _ => Err(self.syntax_err_at(
+                        span,
+                        format!(
+                            "{name}@{depth} expects {required} or {optional} non-depth arguments"
+                        ),
+                    )),
+                }
+            }
+            BuiltinDepthSugar::None => Err(self.syntax_err_at(
+                span,
+                format!("depth modifier can only be used on depth-aware builtins, got '{name}'"),
+            )),
+        }
     }
 
     /// Allocate local slots for function parameters (including the hidden
@@ -785,9 +838,35 @@ impl Compiler {
                 object,
                 items,
                 explicit_call: _,
+                depth,
                 span,
             } => {
                 let start = self.instructions.len();
+                if let Some(depth) = depth {
+                    let AstNode::Variable(name, _) = object.as_ref() else {
+                        return Err(self.syntax_err_at(
+                            *span,
+                            "depth modifier can only be used on depth-aware builtins",
+                        ));
+                    };
+                    let id = self.builtins.get_id(name).ok_or_else(|| {
+                        self.syntax_err_at(
+                            *span,
+                            format!("depth modifier can only be used on depth-aware builtins, got '{name}'"),
+                        )
+                    })?;
+                    let sugar = self.builtins.depth_sugar_from_id(id);
+                    let args =
+                        self.expand_depth_sugar_args(name, sugar, items.to_vec(), *depth, *span)?;
+                    self.compile_call_args(&args)?;
+                    self.instructions.push(Instruction::CallBuiltinId(
+                        u16::try_from(id).expect("builtin id overflow"),
+                        u16::try_from(args.len()).expect("argc overflow"),
+                    ));
+                    let end = self.instructions.len();
+                    self.fill_span_range(start, end, *span);
+                    return Ok(());
+                }
                 let builtin_id = match object.as_ref() {
                     AstNode::Variable(name, _) => self.builtins.get_id(name),
                     _ => None,
@@ -2127,6 +2206,7 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
             object,
             items,
             explicit_call,
+            depth,
             span,
         } => AstNode::Postfix {
             object: Box::new(replace_pipe_input(object, temp_name)),
@@ -2135,6 +2215,7 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
                 .map(|item| replace_pipe_input(item, temp_name))
                 .collect(),
             explicit_call: *explicit_call,
+            depth: *depth,
             span: *span,
         },
         AstNode::Pipe {
@@ -2599,6 +2680,12 @@ mod tests {
         compiler.compile(&ast).expect_err("expected compile error")
     }
 
+    fn builtin_id(name: &str) -> u16 {
+        crate::builtins::Builtins::new()
+            .get_id(name)
+            .unwrap_or_else(|| panic!("missing builtin {name}")) as u16
+    }
+
     fn compiled_function_in(insts: &[Instruction]) -> Arc<FunctionData> {
         for inst in insts {
             if let Instruction::LoadConst(value) = inst
@@ -2783,7 +2870,59 @@ mod tests {
         assert_eq!(dynamic_dispatches, 2);
         assert!(
             !top.iter()
-                .any(|inst| matches!(inst, Instruction::CallUser(name, 1) if name.as_ref() == "f"))
+            .any(|inst| matches!(inst, Instruction::CallUser(name, 1) if name.as_ref() == "f"))
+        );
+    }
+
+    #[test]
+    fn depth_modifier_compiles_pipe_call_as_builtin_depth_arg() {
+        let top = compile_source("(1;2)|has?@1[2]");
+        let has_id = builtin_id("has?");
+
+        assert!(
+            top.iter().any(
+                |inst| matches!(inst, Instruction::CallBuiltinId(id, argc)
+                    if *id == has_id && *argc == 3)
+            ),
+            "expected has? call with inserted depth argument: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn depth_modifier_uses_builtin_metadata_for_aliases() {
+        let top = compile_source("(1;2)|M@1[{x+1}]");
+        let map_alias_id = builtin_id("M");
+
+        assert!(
+            top.iter().any(
+                |inst| matches!(inst, Instruction::CallBuiltinId(id, argc)
+                    if *id == map_alias_id && *argc == 3)
+            ),
+            "expected M alias call with inserted depth argument: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn depth_modifier_adds_findw_default_threshold() {
+        let top = compile_source("(1;2)|findw@2[{x=2}]");
+        let findw_id = builtin_id("findw");
+
+        assert!(
+            top.iter().any(
+                |inst| matches!(inst, Instruction::CallBuiltinId(id, argc)
+                    if *id == findw_id && *argc == 4)
+            ),
+            "expected findw call with threshold and depth arguments: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn depth_modifier_rejects_non_depth_builtin() {
+        let err = compile_source_err("echo@1[2]");
+        let display = err.to_string();
+        assert!(
+            display.contains("depth-aware builtins"),
+            "unexpected error: {display}",
         );
     }
 

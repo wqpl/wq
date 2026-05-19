@@ -288,6 +288,20 @@ impl From<Vec<Value>> for BuiltinFnArgs {
 
 /// builtin functions
 pub type BuiltinFn = fn(&mut Vm, BuiltinFnArgs) -> WqResult<Value>;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(crate) enum BuiltinDepthSugar {
+    None,
+    Append {
+        non_depth_argc: u16,
+    },
+    AppendDefaultInt {
+        required_argc: u16,
+        optional_argc: u16,
+        default: i64,
+    },
+}
+
 #[derive(Clone)]
 pub struct Builtins {
     functions: Vec<BuiltinFn>,
@@ -486,8 +500,17 @@ macro_rules! __decl_builtins_group {
     };
 }
 
+macro_rules! __builtin_depth_sugar {
+    () => {
+        BuiltinDepthSugar::None
+    };
+    ($depth:expr) => {
+        $depth
+    };
+}
+
 macro_rules! __declare_builtins_impl {
-    ($($(#[$m:meta])? ($CONST:ident, $VAR:ident, $name:expr, $usage:expr, $arity:tt, $func:path, $group:path),)+) => {
+    ($($(#[$m:meta])? ($CONST:ident, $VAR:ident, $name:expr, $usage:expr, $arity:tt, $func:path, $group:path $(, $depth_sugar:expr)?),)+) => {
         #[repr(u16)]
         #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
         pub enum BuiltinEnum { $( $(#[$m])? $VAR ),+ }
@@ -507,6 +530,9 @@ macro_rules! __declare_builtins_impl {
         }
 
         pub const BUILTIN_GROUPS: &[BuiltinGroup] = &[$($(#[$m])? $group ),+];
+        pub(crate) const BUILTIN_DEPTH_SUGAR: &[BuiltinDepthSugar] = &[
+            $($(#[$m])? __builtin_depth_sugar!($($depth_sugar)?),)+
+        ];
 
         impl Builtins {
             $($(#[$m])? pub const $CONST: u16 = BuiltinEnum::$VAR as u16;)+
@@ -514,6 +540,7 @@ macro_rules! __declare_builtins_impl {
             pub const NAMES: &'static [&'static str] = &[$($(#[$m])? $name ),+];
             pub const USAGES: &'static [&'static str] = &[$($(#[$m])? $usage ),+];
             pub const ARITIES: &'static [&'static str] = &[$($(#[$m])? $arity ),+];
+            pub(crate) const DEPTH_SUGAR: &'static [BuiltinDepthSugar] = BUILTIN_DEPTH_SUGAR;
 
             #[inline]
             pub fn name_from_id(id: u16) -> Option<&'static str> {
@@ -528,6 +555,17 @@ macro_rules! __declare_builtins_impl {
             #[inline]
             pub fn arity_from_id(id: u16) -> Option<&'static str> {
                 Self::ARITIES.get(id as usize).copied()
+            }
+
+            #[inline]
+            pub(crate) fn depth_sugar_from_id(&self, id: usize) -> BuiltinDepthSugar {
+                if !self.enabled.get(id).copied().unwrap_or(false) {
+                    return BuiltinDepthSugar::None;
+                }
+                Self::DEPTH_SUGAR
+                    .get(id)
+                    .copied()
+                    .unwrap_or(BuiltinDepthSugar::None)
             }
 
             fn register_functions(&mut self) {
@@ -600,9 +638,9 @@ declare_builtins! {
     (V, V, "V", "V[xs]", "1", list::reverse, BuiltinGroup::List), // alias of reverse
     (SORT, Sort, "sort", "sort[xs]", "1", list::sort, BuiltinGroup::List),
     (SPLIT, Split, "split", "split[xs;opts?]", "1 2", list::split, BuiltinGroup::List),
-    (FIND, Find, "find", "find[xs;elem;threshold?;d?]", "2 3 4", list::find, BuiltinGroup::List),
-    (RFIND, RFind, "rfind", "rfind[xs;elem;threshold?;d?]", "2 3 4", list::rfind, BuiltinGroup::List),
-    (ZIP, Zip, "zip", "zip[xs;ys;d?]", "2 3", list::zip, BuiltinGroup::List),
+    (FIND, Find, "find", "find[xs;elem;threshold?;d?]", "2 3 4", list::find, BuiltinGroup::List, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
+    (RFIND, RFind, "rfind", "rfind[xs;elem;threshold?;d?]", "2 3 4", list::rfind, BuiltinGroup::List, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
+    (ZIP, Zip, "zip", "zip[xs;ys;d?]", "2 3", list::zip, BuiltinGroup::List, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
 
     // List Gen =========================================================
     (ALLOC, Alloc, "alloc", "alloc[shape], alloc[shape;x]", "1 2", listgen::alloc, BuiltinGroup::ListGen),
@@ -617,21 +655,21 @@ declare_builtins! {
     // Higher-order =========================================================
     (APPLY, Apply, "apply", "apply[fs;x]", "2", ho::apply, BuiltinGroup::HigherOrder),
     (A, A, "A", "A[fs;x]", "2", ho::apply, BuiltinGroup::HigherOrder), // alias of apply
-    (MAP, Map, "map", "map[xs;f;d?]", "2 3", ho::map, BuiltinGroup::HigherOrder),
-    (M, M, "M", "M[xs;f;d?]", "2 3", ho::map, BuiltinGroup::HigherOrder), // alias of map
+    (MAP, Map, "map", "map[xs;f;d?]", "2 3", ho::map, BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (M, M, "M", "M[xs;f;d?]", "2 3", ho::map, BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }), // alias of map
     (FOLD, Fold, "fold", "fold[xs;f;i?]", "2 3", ho::fold, BuiltinGroup::HigherOrder),
     // (F, F, "F", "F[xs;f;acc?]", "2 3", ho::fold, BuiltinGroup::HigherOrder), // alias of fold; F is now for false
     (REDUCE, Reduce, "reduce", "reduce[xs;f;i?]", "2 3", ho::fold, BuiltinGroup::HigherOrder), // alias of fold
     (SCAN, Scan, "scan", "scan[xs;f;acc?]", "2 3", ho::scan, BuiltinGroup::HigherOrder),
     (RSCAN, RScan, "rscan", "rscan[xs;f;acc?]", "2 3", ho::rscan, BuiltinGroup::HigherOrder),
-    (ANY, Any, "any", "any[xs;f;d?]", "2 3", ho::any, BuiltinGroup::HigherOrder),
-    (ALL, All, "all", "all[xs;f;d?]", "2 3", ho::all, BuiltinGroup::HigherOrder),
+    (ANY, Any, "any", "any[xs;f;d?]", "2 3", ho::any, BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (ALL, All, "all", "all[xs;f;d?]", "2 3", ho::all, BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
     (FILTER, Filter, "filter", "filter[xs;f]", "2", ho::filter, BuiltinGroup::List),
 
-    (ZIPW, ZipW, "zipw", "zipw[xs;ys;f;d?]", "3 4", ho::zipw, BuiltinGroup::HigherOrder),
+    (ZIPW, ZipW, "zipw", "zipw[xs;ys;f;d?]", "3 4", ho::zipw, BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 3 }),
     (SPLITW, SplitW, "splitw", "splitw[xs;f;opts?]", "2 3", ho::splitw, BuiltinGroup::HigherOrder),
-    (FINDW, FindW, "findw", "findw[xs;f;threshold?;d?]", "2 3 4", ho::findw, BuiltinGroup::HigherOrder),
-    (RFINDW, RFindW, "rfindw", "rfindw[xs;f;threshold?;d?]", "2 3 4", ho::rfindw, BuiltinGroup::HigherOrder),
+    (FINDW, FindW, "findw", "findw[xs;f;threshold?;d?]", "2 3 4", ho::findw, BuiltinGroup::HigherOrder, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
+    (RFINDW, RFindW, "rfindw", "rfindw[xs;f;threshold?;d?]", "2 3 4", ho::rfindw, BuiltinGroup::HigherOrder, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
 
     // Dict =========================================================
     (KEYS, Keys, "keys", "keys[dct]", "1", dict::keys, BuiltinGroup::Dict),
@@ -640,7 +678,8 @@ declare_builtins! {
 
     // Set ==========================================================
     (CARPRODUCT, Carproduct, "car", "car[xs;ys]", "2", set::carproduct, BuiltinGroup::Set),
-    (IN_Q, InQ, "in?", "in?[x;xs]", "2", set::in_, BuiltinGroup::Set),
+    (IN_Q, InQ, "in?", "in?[x;xs;d?]", "2 3", set::in_, BuiltinGroup::Set, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (HAS_Q, HasQ, "has?", "has?[xs;x;d?]", "2 3", set::has, BuiltinGroup::Set, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
     (DISJOINT_Q, DisjointQ, "disjoint?", "disjoint?[xs;ys]", "2", set::disjoint, BuiltinGroup::Set),
     (MULTIPLICITY, Multiplicity, "multiplicity", "multiplicity[x;xs]", "2", set::multiplicity, BuiltinGroup::Set),
 

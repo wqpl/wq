@@ -1910,6 +1910,7 @@ impl Parser {
         // that adds a postfix wraps everything since this checkpoint.
         let cp_outer = self.cst_checkpoint();
         let mut expr = self.parse_primary()?;
+        let mut pending_depth: Option<(i64, Token)> = None;
         loop {
             // ignore comments but do not skip newlines.
             while matches!(
@@ -1917,6 +1918,17 @@ impl Parser {
                 Some(TokenType::Comment(_))
             ) {
                 self.advance();
+            }
+
+            if let Some(token) = self.current_token().cloned()
+                && let TokenType::AtDepth(depth) = token.token_type
+            {
+                if pending_depth.is_some() {
+                    return Err(self.syntax_err(&token, "duplicate depth modifier"));
+                }
+                pending_depth = Some((depth, token));
+                self.advance();
+                continue;
             }
 
             let is_operator = Self::is_operator_node(&expr);
@@ -1936,6 +1948,12 @@ impl Parser {
                     self.cst_finish_node();
                     let end_byte = self.tokens[self.current.saturating_sub(1)].byte_end;
                     if is_mutating {
+                        if let Some((_, token)) = pending_depth {
+                            return Err(self.syntax_err(
+                                &token,
+                                "depth modifier must be followed by a call",
+                            ));
+                        }
                         let index = if items.len() == 1 {
                             Box::new(items.into_iter().next().expect("len == 1"))
                         } else {
@@ -1953,6 +1971,7 @@ impl Parser {
                             object: Box::new(expr),
                             items,
                             explicit_call: _call_flag,
+                            depth: pending_depth.take().map(|(depth, _)| depth),
                             span: Some((start_byte, end_byte)),
                         };
                         self.cst_start_node_at(cp_outer, SyntaxKind::PostfixExpr);
@@ -1967,6 +1986,7 @@ impl Parser {
                         object: Box::new(expr),
                         items: vec![arg],
                         explicit_call: false,
+                        depth: pending_depth.take().map(|(depth, _)| depth),
                         span: Some((start_byte, end_byte)),
                     };
                     self.cst_start_node_at(cp_outer, SyntaxKind::PostfixExpr);
@@ -1994,6 +2014,7 @@ impl Parser {
                         object: Box::new(expr),
                         items: vec![arg],
                         explicit_call: false,
+                        depth: pending_depth.take().map(|(depth, _)| depth),
                         span: Some((start_byte, end_byte)),
                     };
                     self.cst_start_node_at(cp_outer, SyntaxKind::PostfixExpr);
@@ -2014,6 +2035,7 @@ impl Parser {
                         object: Box::new(expr),
                         items: vec![arg],
                         explicit_call: true,
+                        depth: pending_depth.take().map(|(depth, _)| depth),
                         span: Some((start_byte, end_byte)),
                     };
                     self.cst_start_node_at(cp_outer, SyntaxKind::PostfixExpr);
@@ -2021,6 +2043,9 @@ impl Parser {
                 }
                 _ => break,
             }
+        }
+        if let Some((_, token)) = pending_depth {
+            return Err(self.syntax_err(&token, "depth modifier must be followed by a call"));
         }
         Ok(expr)
     }
@@ -4710,6 +4735,31 @@ mod cst_integration_tests {
         assert_eq!(first.kind(), SyntaxKind::LBrack);
         assert_eq!(last.kind(), SyntaxKind::RBrack);
         assert_eq!(arglist.text(), "[1;2]");
+    }
+
+    #[test]
+    fn depth_modifier_attaches_to_postfix_call() {
+        let src = "has?@1[(1;2);2]";
+        let (ast, cst) = parse_with_cst(src);
+        let AstNode::Postfix {
+            object,
+            items,
+            depth,
+            ..
+        } = ast
+        else {
+            panic!("expected Postfix, got {ast:?}");
+        };
+        assert!(matches!(object.as_ref(), AstNode::Variable(name, _) if name == "has?"));
+        assert_eq!(items.len(), 2);
+        assert_eq!(depth, Some(1));
+
+        let root = SyntaxNode::new_root(cst);
+        assert!(
+            root.descendants_with_tokens()
+                .any(|elem| elem.kind() == SyntaxKind::AtDepth),
+            "expected AtDepth token in CST",
+        );
     }
 
     #[test]

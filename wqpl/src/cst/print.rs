@@ -28,8 +28,8 @@ fn kind_color(kind: SyntaxKind) -> Color {
         Ident | Apostrophe => Color::Blue,
 
         // Keywords / directives
-        AtAssert | AtBreak | AtContinue | AtReturn | AtDebug | AtPause | AtSymbolic | AtTry
-        | Dollar | DollarDot | DollarDollar => Color::Green,
+        AtAssert | AtBreak | AtContinue | AtReturn | AtDebug | AtPause | AtDepth | AtSymbolic
+        | AtTry | Dollar | DollarDot | DollarDollar => Color::Green,
 
         // Operators
         Plus | Minus | Star | Slash | SlashDot | Percent | Power | PowerDot | Matmul | FloorDiv

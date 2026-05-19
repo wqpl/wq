@@ -54,6 +54,7 @@ pub enum SyntaxKind {
     AtReturn,
     AtDebug,
     AtPause,
+    AtDepth,
     AtSymbolic,
     AtTry,
 
@@ -265,6 +266,7 @@ impl SyntaxKind {
             AtReturn => "AT_RETURN",
             AtDebug => "AT_DEBUG",
             AtPause => "AT_PAUSE",
+            AtDepth => "AT_DEPTH",
             AtSymbolic => "AT_SYMBOLIC",
             AtTry => "AT_TRY",
 

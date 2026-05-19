@@ -64,6 +64,7 @@ pub fn syntax_kind_of_token(tt: &TokenType) -> SyntaxKind {
         T::AtReturn => K::AtReturn,
         T::AtDebug => K::AtDebug,
         T::AtPause => K::AtPause,
+        T::AtDepth(_) => K::AtDepth,
         T::AtSymbolic => K::AtSymbolic,
         T::AtTry => K::AtTry,
 

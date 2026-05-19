@@ -350,6 +350,7 @@ impl Highlighter {
             TokenType::AtAssert
             | TokenType::AtBreak
             | TokenType::AtContinue
+            | TokenType::AtDepth(_)
             | TokenType::AtPause
             | TokenType::AtSymbolic
             | TokenType::AtTry => Some(HighlightName::Keyword),

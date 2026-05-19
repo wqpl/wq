@@ -393,18 +393,43 @@ impl<'a> LowerCtx<'a> {
     // ===== postfix / mutating index =====
 
     fn postfix(&self, node: &SyntaxNode) -> Doc {
+        enum Tail {
+            Depth(Doc),
+            ArgList(Doc),
+            Arg(Doc),
+        }
+
         // Children in source order:
         //   * the object node (always first)
+        //   * optional `@N` depth tokens
         //   * either an `ArgList` node (bracket form) or one or more non-ArgList nodes
         //     (space-call form)
         //
         // We normalize both forms to `obj[args]`.
-        let children: Vec<SyntaxNode> = node.children().collect();
-        if children.is_empty() {
-            return Doc::nil();
+        let mut object: Option<Doc> = None;
+        let mut tails: Vec<Tail> = Vec::new();
+        let mut has_explicit_arglist = false;
+        for elem in node.children_with_tokens() {
+            match elem {
+                SyntaxElement::Token(t) if t.kind().is_trivia() => {}
+                SyntaxElement::Token(t) if t.kind() == SyntaxKind::AtDepth => {
+                    tails.push(Tail::Depth(Doc::text(t.text().to_string())));
+                }
+                SyntaxElement::Token(_) => {}
+                SyntaxElement::Node(n) if object.is_none() => {
+                    object = Some(self.node(&n));
+                }
+                SyntaxElement::Node(n) if n.kind() == SyntaxKind::ArgList => {
+                    has_explicit_arglist = true;
+                    tails.push(Tail::ArgList(self.node(&n)));
+                }
+                SyntaxElement::Node(n) => tails.push(Tail::Arg(self.node(&n))),
+            }
         }
-        let object = self.node(&children[0]);
-        if children.len() == 1 {
+        let Some(object) = object else {
+            return Doc::nil();
+        };
+        if tails.is_empty() {
             // Should be unreachable — a PostfixExpr always has at least one
             // postfix argument or ArgList — but render the object alone if
             // we somehow get here.
@@ -412,35 +437,39 @@ impl<'a> LowerCtx<'a> {
         }
         // If the remaining children include an ArgList, treat it as the
         // bracket form. Otherwise synthesize one from the space-call args.
-        let mut tail_docs: Vec<Doc> = Vec::new();
-        let mut has_explicit_arglist = false;
-        for child in &children[1..] {
-            if child.kind() == SyntaxKind::ArgList {
-                has_explicit_arglist = true;
-                tail_docs.push(self.node(child));
-            } else {
-                tail_docs.push(self.node(child));
-            }
-        }
         if has_explicit_arglist {
             // Concat object with all explicit ArgLists in order. This
             // handles `f[1][2][3]` correctly.
             let mut out = object;
-            for d in tail_docs {
-                out = out + d;
+            for tail in tails {
+                out = out
+                    + match tail {
+                        Tail::Depth(doc) | Tail::ArgList(doc) | Tail::Arg(doc) => doc,
+                    };
             }
             out
         } else {
+            let mut head = object;
+            let mut tail_docs: Vec<Doc> = Vec::new();
+            for tail in tails {
+                match tail {
+                    Tail::Depth(doc) => head = head + doc,
+                    Tail::ArgList(doc) | Tail::Arg(doc) => tail_docs.push(doc),
+                }
+            }
             // Space-call form: wrap the space-args in synthetic brackets.
             // Single-arg form stays tight — `f[multilinearg]` keeps `f[`
             // and `]` adjacent to the argument even when the argument
             // breaks across lines.
+            if tail_docs.is_empty() {
+                return head;
+            }
             if tail_docs.len() == 1 {
                 let arg = tail_docs.into_iter().next().expect("len == 1");
-                object + Doc::text("[") + arg + Doc::text("]")
+                head + Doc::text("[") + arg + Doc::text("]")
             } else {
                 let body = self.semicolon_joined(tail_docs);
-                object
+                head
                     + Doc::bracket(
                         Doc::text("["),
                         body,
