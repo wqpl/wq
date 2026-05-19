@@ -2870,7 +2870,7 @@ mod tests {
         assert_eq!(dynamic_dispatches, 2);
         assert!(
             !top.iter()
-            .any(|inst| matches!(inst, Instruction::CallUser(name, 1) if name.as_ref() == "f"))
+                .any(|inst| matches!(inst, Instruction::CallUser(name, 1) if name.as_ref() == "f"))
         );
     }
 
@@ -2880,10 +2880,9 @@ mod tests {
         let has_id = builtin_id("has?");
 
         assert!(
-            top.iter().any(
-                |inst| matches!(inst, Instruction::CallBuiltinId(id, argc)
-                    if *id == has_id && *argc == 3)
-            ),
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::CallBuiltinId(id, argc)
+                    if *id == has_id && *argc == 3)),
             "expected has? call with inserted depth argument: {top:#?}",
         );
     }
@@ -2894,10 +2893,9 @@ mod tests {
         let map_alias_id = builtin_id("M");
 
         assert!(
-            top.iter().any(
-                |inst| matches!(inst, Instruction::CallBuiltinId(id, argc)
-                    if *id == map_alias_id && *argc == 3)
-            ),
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::CallBuiltinId(id, argc)
+                    if *id == map_alias_id && *argc == 3)),
             "expected M alias call with inserted depth argument: {top:#?}",
         );
     }
@@ -2908,10 +2906,9 @@ mod tests {
         let findw_id = builtin_id("findw");
 
         assert!(
-            top.iter().any(
-                |inst| matches!(inst, Instruction::CallBuiltinId(id, argc)
-                    if *id == findw_id && *argc == 4)
-            ),
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::CallBuiltinId(id, argc)
+                    if *id == findw_id && *argc == 4)),
             "expected findw call with threshold and depth arguments: {top:#?}",
         );
     }

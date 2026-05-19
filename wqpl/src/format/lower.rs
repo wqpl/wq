@@ -469,14 +469,13 @@ impl<'a> LowerCtx<'a> {
                 head + Doc::text("[") + arg + Doc::text("]")
             } else {
                 let body = self.semicolon_joined(tail_docs);
-                head
-                    + Doc::bracket(
-                        Doc::text("["),
-                        body,
-                        Doc::text("]"),
-                        self.indent(),
-                        self.config.nlcd,
-                    )
+                head + Doc::bracket(
+                    Doc::text("["),
+                    body,
+                    Doc::text("]"),
+                    self.indent(),
+                    self.config.nlcd,
+                )
             }
         }
     }

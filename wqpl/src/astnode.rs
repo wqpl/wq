@@ -802,7 +802,11 @@ impl AstNode {
             } => {
                 let head = format!(
                     "{}{}{note}",
-                    if *explicit_call { "POSTFIX*" } else { "POSTFIX" },
+                    if *explicit_call {
+                        "POSTFIX*"
+                    } else {
+                        "POSTFIX"
+                    },
                     match depth_modifier {
                         Some(depth) => format!("@{depth}"),
                         None => String::new(),

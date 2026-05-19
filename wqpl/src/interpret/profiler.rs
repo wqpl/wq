@@ -83,7 +83,12 @@ impl Drop for ProfilerInterpreter {
             stats.max_call_depth
         );
         print_count_table("Top opcodes", &stats.op_counts, stats.total_ops, 12);
-        print_count_table("Top instruction forms", &stats.inst_counts, stats.total_ops, 16);
+        print_count_table(
+            "Top instruction forms",
+            &stats.inst_counts,
+            stats.total_ops,
+            16,
+        );
 
         let total_var_lookups = stats.load_var_cache_hits
             + stats.load_var_const_cache_hits
@@ -130,7 +135,8 @@ impl Drop for ProfilerInterpreter {
             eprintln!(
                 "{}: {} events, {} aggregate items",
                 "Instruction allocations".underline(),
-                total_alloc_events, total_alloc_units
+                total_alloc_events,
+                total_alloc_units
             );
             print_alloc_line(
                 "cat operands",
@@ -245,17 +251,23 @@ impl InterpreterHook for ProfilerInterpreter {
 
     fn on_binary_result(&self, op: &BinaryOperator, result: &Value) {
         let label = format!("binary {op:?}");
-        self.stats.borrow_mut().record_sequence_output(label, result);
+        self.stats
+            .borrow_mut()
+            .record_sequence_output(label, result);
     }
 
     fn on_unary_result(&self, op: &UnaryOperator, result: &Value) {
         let label = format!("unary {op:?}");
-        self.stats.borrow_mut().record_sequence_output(label, result);
+        self.stats
+            .borrow_mut()
+            .record_sequence_output(label, result);
     }
 
     fn on_builtin_result(&self, name: &str, argc: usize, result: &Value) {
         let label = format!("builtin {name}/{argc}");
-        self.stats.borrow_mut().record_sequence_output(label, result);
+        self.stats
+            .borrow_mut()
+            .record_sequence_output(label, result);
     }
 
     fn on_cat_alloc(&self, len: &dyn Fn() -> usize) {
@@ -334,12 +346,7 @@ fn pct(n: usize, d: usize) -> f64 {
     }
 }
 
-fn print_count_table(
-    title: &str,
-    counts: &HashMap<String, usize>,
-    total: usize,
-    limit: usize,
-) {
+fn print_count_table(title: &str, counts: &HashMap<String, usize>, total: usize, limit: usize) {
     if counts.is_empty() {
         return;
     }
@@ -584,7 +591,11 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         I::Pause => "Pause".to_string(),
         I::Try(_) => "Try".to_string(),
         I::PrepareNamedArgs(meta) => {
-            format!("PrepareNamedArgs(pos={}, named={})", meta.pos_count, meta.named.len())
+            format!(
+                "PrepareNamedArgs(pos={}, named={})",
+                meta.pos_count,
+                meta.named.len()
+            )
         }
         I::LoadNamedArgsProvided(bit) => format!("LoadNamedArgsProvided({bit})"),
     }
@@ -699,8 +710,7 @@ mod tests {
 
     #[test]
     fn profiler_kind_reuses_outer_collector_for_nested_calls() {
-        let (value, profiler) =
-            run_profiled_with_kind("f:{x+1};f[41]", InterpreterKind::Profiler);
+        let (value, profiler) = run_profiled_with_kind("f:{x+1};f[41]", InterpreterKind::Profiler);
 
         assert_eq!(value, Value::Int(42));
         assert!(
