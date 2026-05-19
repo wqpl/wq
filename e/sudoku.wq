@@ -1,5 +1,5 @@
 va:{[g;r;c;v](br;bc):(r;c)/%3*3
-  (g r;g|M{x c};til 9|M{g[x/%3+br][x%3+bc]})|has?@1[v]|not}
+  (g r;g|M{x c};til 9|M{g[x/%3+br][x%3+bc]})|has?@1[v]|~}
 ch:{b:();bn:10;N[81;$.[x[r:_n/%9][c:_n%9]=0;ca:()
   til 11|M{[y]$.[va[x;r;c;y];'ca,:y]};$.[(n:#ca)<bn;(b;bn):((r;c;ca);n)]]];b}
 s:{$.[U(p:ch x);@rx];(r;c;ca):p[0..=2]

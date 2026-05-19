@@ -548,6 +548,13 @@ mod tests {
     }
 
     #[test]
+    fn pipe_into_tilde_uses_unary_not() {
+        let mut session = Session::new();
+        assert_eq!(session.eval_string("true|~").unwrap(), Value::Bool(false));
+        assert_eq!(session.eval_string("1|~").unwrap(), Value::Int(!1));
+    }
+
+    #[test]
     fn test_reset_session_clears_globals() {
         let mut session = Session::new();
         session.eval_string("a:1").unwrap();

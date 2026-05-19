@@ -817,7 +817,7 @@ declare_builtins! {
     (OP_MATMUL, OpMatmul, "**", "**[xs;ys+]", "2..", op::op_matmul, BuiltinGroup::Intrinsic),
     (OP_EQUAL, OpEqual, "=", "=[xs;ys+]", "2..", op::op_equal, BuiltinGroup::Intrinsic),
     (OP_EQUALDOT, OpEqualDot, "=.", "=.[xs;ys+]", "2..", op::op_equaldot, BuiltinGroup::Intrinsic),
-    (OP_NOTEQUAL, OpNotEqual, "~", "~[xs;ys+]", "2..", op::op_notequal, BuiltinGroup::Intrinsic),
+    (OP_NOTEQUAL, OpNotEqual, "~", "~[x], ~[xs;ys+]", "1..", op::op_notequal, BuiltinGroup::Intrinsic),
     (OP_NOTEQUALDOT, OpNotEqualDot, "~.", "~.[xs;ys+]", "2..", op::op_notequaldot, BuiltinGroup::Intrinsic),
     (OP_LT, OpLt, "<", "<[xs;ys+]", "2..", op::op_lt, BuiltinGroup::Intrinsic),
     (OP_LTE, OpLte, "<=", "<=[xs;ys+]", "2..", op::op_lte, BuiltinGroup::Intrinsic),

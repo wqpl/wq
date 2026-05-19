@@ -84,7 +84,16 @@ pub(super) fn op_equaldot(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> 
 }
 
 pub(super) fn op_notequal(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_cmp_op(BuiltinEnum::OpNotEqual, &args, BinaryOperator::NotEqual)
+    if args.is_empty() {
+        return Err(WqError::new(WqErrorType::Arity)
+            .src(BuiltinEnum::OpNotEqual)
+            .msg("expected 1 or more args, got 0"));
+    }
+    if args.len() == 1 {
+        eval_unary(&UnaryOperator::Not, &args[0]).map_err(|e| e.src(BuiltinEnum::OpNotEqual))
+    } else {
+        fold_cmp_op(BuiltinEnum::OpNotEqual, &args, BinaryOperator::NotEqual)
+    }
 }
 
 pub(super) fn op_notequaldot(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
@@ -195,4 +204,35 @@ pub(super) fn op_floordiv(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> 
 pub(super) fn op_sharp(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::OpSharp, [1], &args)?;
     eval_unary(&UnaryOperator::Count, &args[0]).map_err(|e| e.src(BuiltinEnum::OpSharp))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn op_notequal_one_arg_uses_unary_not() {
+        let mut vm = Vm::new(vec![]);
+        assert_eq!(
+            op_notequal(&mut vm, BuiltinFnArgs::from(Value::Bool(true))).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            op_notequal(&mut vm, BuiltinFnArgs::from(Value::Int(1))).unwrap(),
+            Value::Int(!1)
+        );
+    }
+
+    #[test]
+    fn op_notequal_multiple_args_still_compares() {
+        let mut vm = Vm::new(vec![]);
+        assert_eq!(
+            op_notequal(
+                &mut vm,
+                BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)])
+            )
+            .unwrap(),
+            Value::Bool(true)
+        );
+    }
 }
