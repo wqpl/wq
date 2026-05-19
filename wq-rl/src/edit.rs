@@ -234,9 +234,7 @@ impl<'out, 'prompt, H: Helper, P: Prompt + ?Sized> State<'out, 'prompt, H, P> {
         let continuation_prompt = self.continuation_prompt.as_deref();
         let prompt_size = self.input_area_prompt_size(prompt_size);
         let continuation_size = if continuation_prompt.is_some() {
-            Some(self.input_area_continuation_size(
-                self.continuation_prompt_size,
-            ))
+            Some(self.input_area_continuation_size(self.continuation_prompt_size))
         } else {
             None
         };

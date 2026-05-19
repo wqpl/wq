@@ -121,7 +121,11 @@ impl Drop for ProfilerInterpreter {
                 stats.call_user_cache_hits,
                 stats.call_user_cache_misses,
                 pct(stats.call_user_cache_hits, total_user_calls),
-                format_hit_miss_bar(stats.call_user_cache_hits, total_user_calls, RATIO_BAR_WIDTH)
+                format_hit_miss_bar(
+                    stats.call_user_cache_hits,
+                    total_user_calls,
+                    RATIO_BAR_WIDTH
+                )
             );
         }
 
