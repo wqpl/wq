@@ -11,6 +11,10 @@ use crate::value::{Value, WqResult};
 use crate::vm::Vm;
 use crate::vm::inst::Instruction;
 
+const COUNT_BAR_WIDTH: usize = 24;
+const HIST_BAR_WIDTH: usize = 10;
+const RATIO_BAR_WIDTH: usize = 18;
+
 #[derive(Default)]
 struct ProfileStats {
     op_counts: HashMap<String, usize>,
@@ -96,10 +100,11 @@ impl Drop for ProfilerInterpreter {
         if total_var_lookups > 0 {
             let total_hits = stats.load_var_cache_hits + stats.load_var_const_cache_hits;
             eprintln!(
-                "Global cache: {} hits / {} misses ({:.2}%)",
+                "Global cache: {} hits / {} misses ({:.2}%) {}",
                 total_hits,
                 stats.load_var_cache_misses,
-                pct(total_hits, total_var_lookups)
+                pct(total_hits, total_var_lookups),
+                format_hit_miss_bar(total_hits, total_var_lookups, RATIO_BAR_WIDTH)
             );
             if stats.load_var_const_cache_hits > 0 {
                 eprintln!(
@@ -112,10 +117,11 @@ impl Drop for ProfilerInterpreter {
         let total_user_calls = stats.call_user_cache_hits + stats.call_user_cache_misses;
         if total_user_calls > 0 {
             eprintln!(
-                "Call cache: {} hits / {} misses ({:.2}%)",
+                "Call cache: {} hits / {} misses ({:.2}%) {}",
                 stats.call_user_cache_hits,
                 stats.call_user_cache_misses,
-                pct(stats.call_user_cache_hits, total_user_calls)
+                pct(stats.call_user_cache_hits, total_user_calls),
+                format_hit_miss_bar(stats.call_user_cache_hits, total_user_calls, RATIO_BAR_WIDTH)
             );
         }
 
@@ -355,8 +361,15 @@ fn print_count_table(title: &str, counts: &HashMap<String, usize>, total: usize,
         b_count.cmp(a_count).then_with(|| a_name.cmp(b_name))
     });
     eprintln!("{}", title.underline());
+    let max_count = sorted.first().map(|(_, count)| **count).unwrap_or(0);
     for (name, count) in sorted.into_iter().take(limit) {
-        eprintln!("{:>6} {:>6.2}%  {}", count, pct(*count, total), name);
+        eprintln!(
+            "{:>6} {:>6.2}% {} {}",
+            count,
+            pct(*count, total),
+            format_count_bar(*count, max_count, COUNT_BAR_WIDTH),
+            name
+        );
     }
 }
 
@@ -407,12 +420,60 @@ fn format_len_hist(lens: &BTreeMap<usize, usize>, limit: usize) -> String {
     sorted.sort_by(|(a_len, a_count), (b_len, b_count)| {
         b_count.cmp(a_count).then_with(|| a_len.cmp(b_len))
     });
+    let max_count = sorted.first().map(|(_, count)| **count).unwrap_or(0);
     let parts = sorted
         .into_iter()
         .take(limit)
-        .map(|(len, count)| format!("{len}:{count}"))
+        .map(|(len, count)| {
+            format!(
+                "{len}:{count} {}",
+                format_count_bar(*count, max_count, HIST_BAR_WIDTH)
+            )
+        })
         .collect::<Vec<_>>();
-    format!("sizes {}", parts.join(", "))
+    format!("sizes {}", parts.join("  "))
+}
+
+fn format_count_bar(value: usize, max: usize, width: usize) -> String {
+    let filled = scaled_len(value, max, width);
+    let empty = width.saturating_sub(filled);
+    let filled_bar = "+".repeat(filled);
+    format!(
+        "[{}{}]",
+        colorize_heat(&filled_bar, value, max),
+        " ".repeat(empty).dimmed()
+    )
+}
+
+fn format_hit_miss_bar(hits: usize, total: usize, width: usize) -> String {
+    let hit_width = scaled_len(hits, total, width);
+    let miss_width = width.saturating_sub(hit_width);
+    format!(
+        "[{}{}]",
+        "+".repeat(hit_width).green().bold(),
+        "-".repeat(miss_width).red()
+    )
+}
+
+fn scaled_len(value: usize, max: usize, width: usize) -> usize {
+    if value == 0 || max == 0 || width == 0 {
+        return 0;
+    }
+    value.saturating_mul(width).div_ceil(max).clamp(1, width)
+}
+
+fn colorize_heat(text: &str, value: usize, max: usize) -> ColoredString {
+    if max == 0 || value == 0 {
+        return text.normal();
+    }
+    let share = pct(value, max);
+    if share >= 66.0 {
+        text.red().bold()
+    } else if share >= 33.0 {
+        text.yellow()
+    } else {
+        text.green()
+    }
 }
 
 fn sequence_kind(value: &Value) -> Option<&'static str> {
@@ -665,6 +726,34 @@ mod tests {
     fn profiler_defaults_to_summary_mode() {
         let profiler = ProfilerInterpreter::default();
         assert!(!profiler.trace);
+    }
+
+    #[test]
+    fn profile_count_bar_scales_to_width() {
+        colored::control::set_override(false);
+        assert_eq!(format_count_bar(5, 10, 10), "[+++++     ]");
+        colored::control::unset_override();
+    }
+
+    #[test]
+    fn profile_hit_miss_bar_splits_hits_and_misses() {
+        colored::control::set_override(false);
+        assert_eq!(format_hit_miss_bar(3, 4, 8), "[++++++--]");
+        colored::control::unset_override();
+    }
+
+    #[test]
+    fn profile_len_hist_includes_size_bars() {
+        let mut lens = std::collections::BTreeMap::new();
+        lens.insert(2, 1);
+        lens.insert(4, 3);
+
+        colored::control::set_override(false);
+        assert_eq!(
+            format_len_hist(&lens, 2),
+            "sizes 4:3 [++++++++++]  2:1 [++++      ]"
+        );
+        colored::control::unset_override();
     }
 
     #[test]
