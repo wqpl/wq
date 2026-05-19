@@ -245,17 +245,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
     sync_global_hints(&session);
     sync_repl_hints();
 
-    let mut needs_separator = false;
-
     loop {
-        if needs_separator {
-            let term_w = terminal_size()
-                .map(|(Width(w), _)| w as usize)
-                .unwrap_or(80);
-            println!("{}", "─".repeat(term_w).dimmed());
-            needs_separator = false;
-        }
-
         let prompt = if cfg!(windows) {
             format!("wq[{line_number}] ")
         } else {
@@ -756,7 +746,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                             print_load_error(&err, &mut session);
                         }
                     }
-                    needs_separator = true;
+
                     continue;
                 }
                 let src_eval = input_for_eval.trim();
@@ -829,7 +819,6 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     }
                 }
                 line_number += 1;
-                needs_separator = true;
             }
             Err(WqStdinError::Eof) => {
                 break;
