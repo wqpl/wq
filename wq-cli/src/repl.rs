@@ -744,7 +744,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                                     &highlighter,
                                     show_type,
                                 );
-                                system_msg_out(resstr, MsgType::Success);
+                                print_repl_result_msg(resstr);
                                 if xray_mode {
                                     let info = xray_info(&result);
                                     system_msg_out(info, MsgType::Info);
@@ -800,7 +800,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                                 &highlighter,
                                 show_type,
                             );
-                            system_msg_out(resstr, MsgType::Success);
+                            print_repl_result_msg(resstr);
                             if xray_mode {
                                 let info = xray_info(&result);
                                 system_msg_out(info, MsgType::Info);
@@ -1135,6 +1135,12 @@ fn format_repl_result(result: &Value, box_mode: bool, highlighter: &WqReplHighli
     } else {
         format_table_value(result).unwrap_or_else(|| format_boxed(result))
     }
+}
+
+fn print_repl_result_msg(msg: String) {
+    println!();
+    system_msg_out(msg, MsgType::Success);
+    println!();
 }
 
 fn vis_width(s: &str) -> usize {
