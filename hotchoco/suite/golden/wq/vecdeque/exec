@@ -1,9 +1,23 @@
-(2;5;10;20)
-20
-2
-2
-99
-10
-false
-4
+new | logical=() | raw=(0;0;0;0) | head=0 tail=0 sz=0 cap=4
+push_back 10 | logical=,10 | raw=(10;0;0;0) | head=0 tail=1 sz=1 cap=4
+push_back 20 | logical=(10;20) | raw=(10;20;0;0) | head=0 tail=2 sz=2 cap=4
+push_front 5 wraps head | logical=(5;10;20) | raw=(10;20;0;5) | head=3 tail=2 sz=3 cap=4
+push_front 2 fills ring | logical=(2;5;10;20) | raw=(10;20;2;5) | head=2 tail=2 sz=4 cap=4
+ok logical order after wrap
+push_back 30 grows | logical=(2;5;10;20;30) | raw=(2;5;10;20;30;0;0;0) | head=0 tail=5 sz=5 cap=8
+ok capacity after grow
+ok pop_back
+pop_back 30 | logical=(2;5;10;20) | raw=(2;5;10;20;30;0;0;0) | head=0 tail=4 sz=4 cap=8
+ok pop_front
+pop_front 2 | logical=(5;10;20) | raw=(2;5;10;20;30;0;0;0) | head=1 tail=4 sz=3 cap=8
+set index 0 to 99 | logical=(99;10;20) | raw=(2;99;10;20;30;0;0;0) | head=1 tail=4 sz=3 cap=8
+ok get front
+ok get back with negative index
+ok pop_front
+pop_front 99 | logical=(10;20) | raw=(2;99;10;20;30;0;0;0) | head=2 tail=4 sz=2 cap=8
+ok pop_front triggers shrink
+pop_front 10 shrinks | logical=,20 | raw=(20;0;0;0) | head=0 tail=1 sz=1 cap=4
+ok pop_front
+pop_front 20 | logical=() | raw=(20;0;0;0) | head=1 tail=1 sz=0 cap=4
+ok empty
 ()
