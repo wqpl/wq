@@ -327,7 +327,7 @@ impl SymbolAnalyzer {
                     self.analyze(value);
                     return;
                 }
-                if let AstNode::Function { params, body } = &**value {
+                if let AstNode::Function { params, body, .. } = &**value {
                     // Named function: name is visible in body for recursion.
                     let param_names = params
                         .as_ref()
@@ -482,7 +482,7 @@ impl SymbolAnalyzer {
                 self.analyze(index);
                 self.analyze(value);
             }
-            AstNode::Function { params, body } => {
+            AstNode::Function { params, body, .. } => {
                 // Anonymous function: create a synthetic def so inner assignments
                 // can be nested under it in the symbol tree.
                 let lambda_span = body.span();

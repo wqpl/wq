@@ -2526,6 +2526,12 @@ impl Parser {
                     let start = token.clone();
                     let start_byte = start.byte_start;
                     self.advance();
+                    if matches!(
+                        self.current_token().map(|t| &t.token_type),
+                        Some(TokenType::LeftBrace)
+                    ) {
+                        return self.parse_function(true);
+                    }
                     let (name, end_byte) = match self.current_token().map(|t| (&t.token_type, t)) {
                         Some((TokenType::Identifier(name), t)) => {
                             let name = name.clone();
@@ -2547,7 +2553,7 @@ impl Parser {
                     Ok(AstNode::OuterVariable(name, Some((start_byte, end_byte))))
                 }
                 TokenType::AtSymbolic => self.parse_symbolic_quote(),
-                TokenType::LeftBrace => self.parse_function(),
+                TokenType::LeftBrace => self.parse_function(false),
                 TokenType::LeftParen => {
                     let lparen_start = token.byte_start;
                     self.advance(); // '('
@@ -3105,7 +3111,7 @@ impl Parser {
                 Self::offset_spans(index, offset);
                 Self::offset_spans(value, offset);
             }
-            AstNode::Function { params, body } => {
+            AstNode::Function { params, body, .. } => {
                 if let Some(ps) = params {
                     for p in ps.iter_mut() {
                         match p {
@@ -3458,7 +3464,7 @@ impl Parser {
 
     // fn ====================================================================================
 
-    fn parse_function(&mut self) -> WqResult<AstNode> {
+    fn parse_function(&mut self, ref_capture: bool) -> WqResult<AstNode> {
         self.advance(); // '{'
         let mut params = None;
         // Optional parameter list: {[a;b]}
@@ -3571,6 +3577,7 @@ impl Parser {
         self.fn_spans[slot] = spans;
         Ok(AstNode::Function {
             params,
+            ref_capture,
             body: Box::new(body),
         })
     }

@@ -168,6 +168,7 @@ pub enum AstNode {
     /// Function def
     Function {
         params: Option<Vec<Parameter>>, // None for implicit params (x, y, z)
+        ref_capture: bool,
         body: Box<AstNode>,
     },
     /// Conditional expression
@@ -641,7 +642,7 @@ impl AstNode {
             }
             Set(_, span) => *span,
             Index { span, .. } => *span,
-            Function { params, body } => {
+            Function { params, body, .. } => {
                 let mut s = body.span();
                 if let Some(ps) = params {
                     for p in ps {
@@ -925,7 +926,11 @@ impl AstNode {
                 ];
                 pretty_group(depth, head, children, color)
             }
-            Function { params, body } => {
+            Function {
+                params,
+                ref_capture,
+                body,
+            } => {
                 let params_p = match params {
                     Some(ps) if !ps.is_empty() => {
                         let first = pretty_leaf(&atom_ident(ps[0].name()), "", Color::White);
@@ -958,7 +963,11 @@ impl AstNode {
                     Some(_) => pretty_group(depth + 1, String::new(), vec![], Color::White),
                     None => pretty_group(depth + 1, "implicit".to_string(), vec![], Color::White),
                 };
-                let head = format!("FN{note}");
+                let head = if *ref_capture {
+                    format!("FN'{note}")
+                } else {
+                    format!("FN{note}")
+                };
                 let children = vec![params_p, body.pretty_with_depth(depth + 1, src)];
                 pretty_group(depth, head, children, color)
             }

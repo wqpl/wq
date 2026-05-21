@@ -394,8 +394,13 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             value: Box::new(fold(*value)),
             span,
         },
-        Function { params, body } => Function {
+        Function {
             params,
+            ref_capture,
+            body,
+        } => Function {
+            params,
+            ref_capture,
             body: Box::new(fold(*body)),
         },
         Conditional {

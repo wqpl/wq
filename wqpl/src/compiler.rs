@@ -29,6 +29,8 @@ pub(crate) struct Compiler {
     capture_map: IndexMap<String, u16>,
     // mapping of outer bindings captured explicitly by reference
     ref_capture_map: IndexMap<String, u16>,
+    // bare names in a `'{...}` function that should behave like explicit `'name`
+    ref_default_names: IndexSet<String>,
     // names of locals known to be functions
     fn_locals: IndexSet<String>,
     // information on what to capture when creating the closure
@@ -74,6 +76,7 @@ impl Compiler {
             locals: IndexMap::new(),
             capture_map: IndexMap::new(),
             ref_capture_map: IndexMap::new(),
+            ref_default_names: IndexSet::new(),
             fn_locals: IndexSet::new(),
             captures: Vec::new(),
             backward_jump_targets: BTreeSet::new(),
@@ -543,25 +546,40 @@ impl Compiler {
                         self.compile_expr(value)?;
                         self.instructions.push(Instruction::Cat(2));
                     } else {
-                        let left = if self.is_local(name) {
-                            Operand::Local(self.local_slot(name))
-                        } else {
-                            Operand::Var(name.clone().into())
-                        };
+                        let left = self.operand_for_name(name);
                         let right = self.compile_expr_as_operand(value)?;
                         self.instructions
                             .push(Instruction::binary_op(*op, left, right));
                     }
                     self.emit_store_keep(name);
-                } else if let AstNode::Function { params, body } = &**value {
+                } else if let AstNode::Function {
+                    params,
+                    ref_capture,
+                    body,
+                } = &**value
+                {
                     // Reserve slot for recursion when in a local scope
                     if self.fn_depth > 0 {
                         self.local_slot(name);
                     }
-                    let capture_needs = function_capture_needs(body, params.as_deref(), Some(name));
+                    let mut capture_needs =
+                        function_capture_needs(body, params.as_deref(), *ref_capture, Some(name));
+                    if *ref_capture {
+                        let available = self.ref_default_available_names();
+                        collect_ref_default_assignment_needs(
+                            body,
+                            params.as_deref(),
+                            &available,
+                            Some(name),
+                            &mut capture_needs,
+                        );
+                    }
                     let mut c = Compiler::new();
                     c.fn_depth = self.fn_depth + 1;
                     c.defining_name = Some(name.clone());
+                    if *ref_capture {
+                        c.ref_default_names = capture_needs.by_ref.clone();
+                    }
                     // prepare captures from current locals if inside a function
                     if self.fn_depth > 0 {
                         self.seed_child_captures(&mut c, &capture_needs, Some(name));
@@ -889,6 +907,16 @@ impl Compiler {
                             self.instructions
                                 .push(Instruction::PostfixLocal(slot, items.len()));
                             optimized = true;
+                        } else if self.is_ref_default_name(name) {
+                            self.compile_call_args(items)?;
+                            if let Some(idx) = self.ref_capture_map.get(name).copied() {
+                                self.instructions
+                                    .push(Instruction::PostfixCapture(idx, items.len()));
+                            } else {
+                                self.instructions
+                                    .push(Instruction::PostfixVar(name.clone().into(), items.len()));
+                            }
+                            optimized = true;
                         } else if let Some(idx) = self.capture_map.get(name).copied() {
                             self.compile_call_args(items)?;
                             self.instructions
@@ -1024,6 +1052,10 @@ impl Compiler {
                         self.compile_expr(index)?;
                         self.instructions.push(Instruction::IndexLoadLocal(slot));
                         optimized = true;
+                    } else if self.is_ref_default_name(name) {
+                        self.compile_expr(index)?;
+                        self.push_ref_default_index_load(name);
+                        optimized = true;
                     } else if self.fn_depth == 0 {
                         self.compile_expr(index)?;
                         self.instructions
@@ -1067,6 +1099,8 @@ impl Compiler {
                         if self.fn_depth > 0 && self.is_local(name) {
                             let slot = self.local_slot(name);
                             self.instructions.push(Instruction::IndexLoadLocal(slot));
+                        } else if self.is_ref_default_name(name) {
+                            self.push_ref_default_index_load(name);
                         } else {
                             self.instructions
                                 .push(Instruction::IndexLoadVar(name.clone().into()));
@@ -1085,6 +1119,8 @@ impl Compiler {
                         if self.fn_depth > 0 && self.is_local(name) {
                             let slot = self.local_slot(name);
                             self.instructions.push(Instruction::IndexAssignLocal(slot));
+                        } else if self.is_ref_default_name(name) {
+                            self.push_ref_default_index_assign(name);
                         } else {
                             self.instructions
                                 .push(Instruction::IndexAssignVar(name.clone().into()));
@@ -1095,6 +1131,10 @@ impl Compiler {
                             self.compile_expr(index)?;
                             self.compile_expr(value)?;
                             self.instructions.push(Instruction::IndexAssignLocal(slot));
+                        } else if self.is_ref_default_name(name) {
+                            self.compile_expr(index)?;
+                            self.compile_expr(value)?;
+                            self.push_ref_default_index_assign(name);
                         } else {
                             self.compile_expr(index)?;
                             self.compile_expr(value)?;
@@ -1154,10 +1194,28 @@ impl Compiler {
                 }
                 _ => return Err(self.syntax_err_here("Invalid index assignment target")),
             },
-            AstNode::Function { params, body } => {
-                let capture_needs = function_capture_needs(body, params.as_deref(), None);
+            AstNode::Function {
+                params,
+                ref_capture,
+                body,
+            } => {
+                let mut capture_needs =
+                    function_capture_needs(body, params.as_deref(), *ref_capture, None);
+                if *ref_capture {
+                    let available = self.ref_default_available_names();
+                    collect_ref_default_assignment_needs(
+                        body,
+                        params.as_deref(),
+                        &available,
+                        None,
+                        &mut capture_needs,
+                    );
+                }
                 let mut c = Compiler::new();
                 c.fn_depth = self.fn_depth + 1;
+                if *ref_capture {
+                    c.ref_default_names = capture_needs.by_ref.clone();
+                }
                 if self.fn_depth > 0 {
                     self.seed_child_captures(&mut c, &capture_needs, self.defining_name.as_deref());
                 }
@@ -1589,6 +1647,12 @@ impl Compiler {
             AstNode::Variable(name, _) => {
                 if self.fn_depth > 0 && self.is_local(name) {
                     Ok(StoreTarget::Local(self.locals[name]))
+                } else if self.is_ref_default_name(name) {
+                    if let Some(idx) = self.ref_capture_map.get(name) {
+                        Ok(StoreTarget::Capture(*idx))
+                    } else {
+                        Ok(StoreTarget::Var(name.clone().into()))
+                    }
                 } else {
                     Ok(StoreTarget::Var(name.clone().into()))
                 }
@@ -1667,6 +1731,52 @@ impl Compiler {
         self.locals.contains_key(name)
     }
 
+    fn is_ref_default_name(&self, name: &str) -> bool {
+        self.fn_depth > 0 && self.ref_default_names.contains(name)
+    }
+
+    fn ref_default_operand(&self, name: &str) -> Option<Operand> {
+        if !self.is_ref_default_name(name) {
+            return None;
+        }
+        if let Some(idx) = self.ref_capture_map.get(name) {
+            Some(Operand::Capture(*idx))
+        } else {
+            Some(Operand::Var(name.to_string().into()))
+        }
+    }
+
+    fn push_ref_default_load(&mut self, name: &str) -> bool {
+        if !self.is_ref_default_name(name) {
+            return false;
+        }
+        if let Some(idx) = self.ref_capture_map.get(name) {
+            self.instructions.push(Instruction::LoadCapture(*idx));
+        } else {
+            self.instructions
+                .push(Instruction::LoadVar(name.to_string().into()));
+        }
+        true
+    }
+
+    fn push_ref_default_index_load(&mut self, name: &str) {
+        if let Some(idx) = self.ref_capture_map.get(name) {
+            self.instructions.push(Instruction::IndexLoadCapture(*idx));
+        } else {
+            self.instructions
+                .push(Instruction::IndexLoadVar(name.to_string().into()));
+        }
+    }
+
+    fn push_ref_default_index_assign(&mut self, name: &str) {
+        if let Some(idx) = self.ref_capture_map.get(name) {
+            self.instructions.push(Instruction::IndexAssignCapture(*idx));
+        } else {
+            self.instructions
+                .push(Instruction::IndexAssignVar(name.to_string().into()));
+        }
+    }
+
     pub(crate) fn local_count(&self) -> u16 {
         self.locals.len() as u16
     }
@@ -1678,6 +1788,14 @@ impl Compiler {
                 names[idx as usize] = name.clone();
             }
         }
+        names
+    }
+
+    fn ref_default_available_names(&self) -> IndexSet<String> {
+        let mut names = IndexSet::new();
+        names.extend(self.locals.keys().cloned());
+        names.extend(self.capture_map.keys().cloned());
+        names.extend(self.ref_capture_map.keys().cloned());
         names
     }
 
@@ -1765,6 +1883,9 @@ impl Compiler {
                 self.instructions.push(Instruction::LoadSelf);
                 return;
             }
+            if self.push_ref_default_load(name) {
+                return;
+            }
             if let Some(idx) = self.capture_map.get(name) {
                 self.instructions.push(Instruction::LoadCapture(*idx));
                 return;
@@ -1795,6 +1916,9 @@ impl Compiler {
             }
             if self.defining_name.as_ref().is_some_and(|n| n == name) {
                 return Operand::Self_;
+            }
+            if let Some(operand) = self.ref_default_operand(name) {
+                return operand;
             }
             if let Some(idx) = self.capture_map.get(name) {
                 return Operand::Capture(*idx);
@@ -1864,6 +1988,7 @@ impl Compiler {
             || self.defining_name.as_ref().is_some_and(|n| n == name)
             || self.capture_map.contains_key(name)
             || self.ref_capture_map.contains_key(name)
+            || self.is_ref_default_name(name)
         {
             self.emit_load_const(Value::unit());
             self.emit_store(&old_var);
@@ -1949,6 +2074,16 @@ impl Compiler {
 
     fn emit_store(&mut self, name: &str) {
         if self.fn_depth > 0 {
+            if self.is_ref_default_name(name) {
+                if let Some(idx) = self.ref_capture_map.get(name) {
+                    self.instructions.push(Instruction::StoreCaptureKeep(*idx));
+                    self.instructions.push(Instruction::Pop);
+                } else {
+                    self.instructions
+                        .push(Instruction::StoreVar(name.to_string().into()));
+                }
+                return;
+            }
             let idx = self.local_slot(name);
             self.instructions.push(Instruction::StoreLocal(idx));
         } else {
@@ -1959,6 +2094,15 @@ impl Compiler {
 
     fn emit_store_keep(&mut self, name: &str) {
         if self.fn_depth > 0 {
+            if self.is_ref_default_name(name) {
+                if let Some(idx) = self.ref_capture_map.get(name) {
+                    self.instructions.push(Instruction::StoreCaptureKeep(*idx));
+                } else {
+                    self.instructions
+                        .push(Instruction::StoreVarKeep(name.to_string().into()));
+                }
+                return;
+            }
             let idx = self.local_slot(name);
             self.instructions.push(Instruction::StoreLocalKeep(idx));
         } else {
@@ -2002,6 +2146,198 @@ enum LoopVarRestore {
 struct CaptureNeeds {
     by_value: IndexSet<String>,
     by_ref: IndexSet<String>,
+}
+
+fn collect_ref_default_assignment_needs(
+    node: &AstNode,
+    params: ParamList<'_>,
+    available: &IndexSet<String>,
+    defining_name: Option<&str>,
+    needs: &mut CaptureNeeds,
+) {
+    let mut excluded = IndexSet::new();
+    if let Some(params) = params {
+        excluded.extend(params.iter().map(|p| p.name().to_string()));
+    } else {
+        excluded.extend(["x".to_string(), "y".to_string(), "z".to_string()]);
+    }
+    if let Some(name) = defining_name {
+        excluded.insert(name.to_string());
+    }
+    collect_ref_default_assignment_needs_inner(node, available, &excluded, needs);
+}
+
+fn collect_ref_default_assignment_needs_inner(
+    node: &AstNode,
+    available: &IndexSet<String>,
+    excluded: &IndexSet<String>,
+    needs: &mut CaptureNeeds,
+) {
+    match node {
+        AstNode::Error(..)
+        | AstNode::Literal(..)
+        | AstNode::Variable(..)
+        | AstNode::OuterVariable(..)
+        | AstNode::Ellipsis
+        | AstNode::PipeInput
+        | AstNode::Break
+        | AstNode::Continue
+        | AstNode::Function { .. } => {}
+        AstNode::Assignment { name, value, .. } => {
+            if available.contains(name) && !excluded.contains(name) {
+                needs.by_ref.insert(name.clone());
+            }
+            collect_ref_default_assignment_needs_inner(value, available, excluded, needs);
+        }
+        AstNode::OuterAssignment { value, .. } => {
+            collect_ref_default_assignment_needs_inner(value, available, excluded, needs);
+        }
+        AstNode::BinaryOp { left, right, .. } => {
+            collect_ref_default_assignment_needs_inner(left, available, excluded, needs);
+            collect_ref_default_assignment_needs_inner(right, available, excluded, needs);
+        }
+        AstNode::ComparisonChain { first, rest } => {
+            collect_ref_default_assignment_needs_inner(first, available, excluded, needs);
+            for (_, node) in rest {
+                collect_ref_default_assignment_needs_inner(node, available, excluded, needs);
+            }
+        }
+        AstNode::UnaryOp { operand, .. } | AstNode::Group { expr: operand, .. } => {
+            collect_ref_default_assignment_needs_inner(operand, available, excluded, needs);
+        }
+        AstNode::Range {
+            start, end, step, ..
+        } => {
+            collect_ref_default_assignment_needs_inner(start, available, excluded, needs);
+            collect_ref_default_assignment_needs_inner(end, available, excluded, needs);
+            if let Some(step) = step {
+                collect_ref_default_assignment_needs_inner(step, available, excluded, needs);
+            }
+        }
+        AstNode::Cat(items) | AstNode::List(items) | AstNode::Block(items) => {
+            for item in items {
+                collect_ref_default_assignment_needs_inner(item, available, excluded, needs);
+            }
+        }
+        AstNode::Dict(pairs) => {
+            for (_, value) in pairs {
+                collect_ref_default_assignment_needs_inner(value, available, excluded, needs);
+            }
+        }
+        AstNode::Set(items, _) | AstNode::BlockExpr(items, _) => {
+            for item in items {
+                collect_ref_default_assignment_needs_inner(item, available, excluded, needs);
+            }
+        }
+        AstNode::Postfix { object, items, .. } => {
+            collect_ref_default_assignment_needs_inner(object, available, excluded, needs);
+            for item in items {
+                collect_ref_default_assignment_needs_inner(item, available, excluded, needs);
+            }
+        }
+        AstNode::Pipe { input, effect, .. } | AstNode::PipeTap { input, effect, .. } => {
+            collect_ref_default_assignment_needs_inner(input, available, excluded, needs);
+            collect_ref_default_assignment_needs_inner(effect, available, excluded, needs);
+        }
+        AstNode::CallName { args, .. } => {
+            for arg in args {
+                collect_ref_default_assignment_needs_inner(arg, available, excluded, needs);
+            }
+        }
+        AstNode::CallAnonymous { object, args, .. } => {
+            collect_ref_default_assignment_needs_inner(object, available, excluded, needs);
+            for arg in args {
+                collect_ref_default_assignment_needs_inner(arg, available, excluded, needs);
+            }
+        }
+        AstNode::Index { object, index, .. } | AstNode::MutatingIndex { object, index, .. } => {
+            collect_ref_default_assignment_needs_inner(object, available, excluded, needs);
+            collect_ref_default_assignment_needs_inner(index, available, excluded, needs);
+        }
+        AstNode::IndexAssign {
+            object,
+            index,
+            value,
+            ..
+        }
+        | AstNode::MutatingIndexAssign {
+            object,
+            index,
+            value,
+            ..
+        } => {
+            collect_ref_default_assignment_needs_inner(object, available, excluded, needs);
+            collect_ref_default_assignment_needs_inner(index, available, excluded, needs);
+            collect_ref_default_assignment_needs_inner(value, available, excluded, needs);
+        }
+        AstNode::NamedArg { value, .. }
+        | AstNode::Assert { expr: value, .. }
+        | AstNode::Debug { expr: value, .. } => {
+            collect_ref_default_assignment_needs_inner(value, available, excluded, needs);
+        }
+        AstNode::Pause { expr, .. } | AstNode::Return(expr) => {
+            if let Some(expr) = expr {
+                collect_ref_default_assignment_needs_inner(expr, available, excluded, needs);
+            }
+        }
+        AstNode::Try(expr) => {
+            collect_ref_default_assignment_needs_inner(expr, available, excluded, needs);
+        }
+        AstNode::Conditional {
+            condition,
+            true_branch,
+            false_branch,
+            ..
+        } => {
+            collect_ref_default_assignment_needs_inner(condition, available, excluded, needs);
+            collect_ref_default_assignment_needs_inner(true_branch, available, excluded, needs);
+            if let Some(false_branch) = false_branch {
+                collect_ref_default_assignment_needs_inner(
+                    false_branch,
+                    available,
+                    excluded,
+                    needs,
+                );
+            }
+        }
+        AstNode::ConditionalChain {
+            pairs,
+            default_branch,
+            ..
+        } => {
+            for (condition, branch) in pairs {
+                collect_ref_default_assignment_needs_inner(condition, available, excluded, needs);
+                collect_ref_default_assignment_needs_inner(branch, available, excluded, needs);
+            }
+            collect_ref_default_assignment_needs_inner(default_branch, available, excluded, needs);
+        }
+        AstNode::ConditionalDot {
+            condition,
+            true_branch,
+            ..
+        } => {
+            collect_ref_default_assignment_needs_inner(condition, available, excluded, needs);
+            collect_ref_default_assignment_needs_inner(true_branch, available, excluded, needs);
+        }
+        AstNode::WLoop {
+            condition, body, ..
+        } => {
+            collect_ref_default_assignment_needs_inner(condition, available, excluded, needs);
+            collect_ref_default_assignment_needs_inner(body, available, excluded, needs);
+        }
+        AstNode::NLoop { count, body, .. } => {
+            collect_ref_default_assignment_needs_inner(count, available, excluded, needs);
+            collect_ref_default_assignment_needs_inner(body, available, excluded, needs);
+        }
+        AstNode::UnpackAssignment { .. } => {
+            unreachable!(
+                "UnpackAssignment should have been resolved before collect_ref_default_assignment_needs"
+            )
+        }
+        AstNode::FString { .. } => {
+            unreachable!("FString should have been resolved before collect_ref_default_assignment_needs")
+        }
+    }
 }
 
 fn has_ctrl(node: &AstNode) -> bool {
@@ -2282,8 +2618,13 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
             value: Box::new(replace_pipe_input(value, temp_name)),
             span: *span,
         },
-        AstNode::Function { params, body } => AstNode::Function {
+        AstNode::Function {
+            params,
+            ref_capture,
+            body,
+        } => AstNode::Function {
             params: params.clone(),
+            ref_capture: *ref_capture,
             body: Box::new(replace_pipe_input(body, temp_name)),
         },
         AstNode::Conditional {
@@ -2374,6 +2715,7 @@ type ParamList<'a> = Option<&'a [Parameter]>;
 fn function_capture_needs(
     body: &AstNode,
     params: ParamList<'_>,
+    ref_capture: bool,
     defining_name: Option<&str>,
 ) -> CaptureNeeds {
     let mut locals = IndexSet::new();
@@ -2388,7 +2730,7 @@ fn function_capture_needs(
     }
 
     let mut needs = CaptureNeeds::default();
-    collect_capture_needs(body, &mut locals, &mut needs, defining_name);
+    collect_capture_needs(body, &mut locals, &mut needs, ref_capture, defining_name);
     // Scan default expressions in named params for captures too
     if let Some(params) = params {
         for p in params {
@@ -2397,7 +2739,13 @@ fn function_capture_needs(
                 ..
             } = p
             {
-                collect_capture_needs(default_expr, &mut locals, &mut needs, defining_name);
+                collect_capture_needs(
+                    default_expr,
+                    &mut locals,
+                    &mut needs,
+                    ref_capture,
+                    defining_name,
+                );
             }
         }
     }
@@ -2407,15 +2755,17 @@ fn function_capture_needs(
 pub(crate) fn function_ref_capture_names(
     body: &AstNode,
     params: ParamList<'_>,
+    ref_capture: bool,
     defining_name: Option<&str>,
 ) -> IndexSet<String> {
-    function_capture_needs(body, params, defining_name).by_ref
+    function_capture_needs(body, params, ref_capture, defining_name).by_ref
 }
 
 fn collect_capture_needs(
     node: &AstNode,
     locals: &mut IndexSet<String>,
     needs: &mut CaptureNeeds,
+    ref_capture: bool,
     defining_name: Option<&str>,
 ) {
     match node {
@@ -2427,15 +2777,19 @@ fn collect_capture_needs(
         | AstNode::Continue => {}
         AstNode::Variable(name, _) => {
             if !scope_has(locals, name) && defining_name != Some(name.as_str()) {
-                needs.by_value.insert(name.clone());
+                if ref_capture {
+                    needs.by_ref.insert(name.clone());
+                } else {
+                    needs.by_value.insert(name.clone());
+                }
             }
         }
         AstNode::OuterVariable(name, _) => {
             needs.by_ref.insert(name.clone());
         }
         AstNode::MutatingIndex { object, index, .. } => {
-            collect_capture_needs(object, locals, needs, defining_name);
-            collect_capture_needs(index, locals, needs, defining_name);
+            collect_capture_needs(object, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(index, locals, needs, ref_capture, defining_name);
         }
         AstNode::MutatingIndexAssign {
             object,
@@ -2443,94 +2797,113 @@ fn collect_capture_needs(
             value,
             ..
         } => {
-            collect_capture_needs(object, locals, needs, defining_name);
-            collect_capture_needs(index, locals, needs, defining_name);
-            collect_capture_needs(value, locals, needs, defining_name);
+            collect_capture_needs(object, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(index, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(value, locals, needs, ref_capture, defining_name);
         }
         AstNode::BinaryOp { left, right, .. } => {
-            collect_capture_needs(left, locals, needs, defining_name);
-            collect_capture_needs(right, locals, needs, defining_name);
+            collect_capture_needs(left, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(right, locals, needs, ref_capture, defining_name);
         }
         AstNode::ComparisonChain { first, rest } => {
-            collect_capture_needs(first, locals, needs, defining_name);
+            collect_capture_needs(first, locals, needs, ref_capture, defining_name);
             for (_, node) in rest {
-                collect_capture_needs(node, locals, needs, defining_name);
+                collect_capture_needs(node, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::UnaryOp { operand, .. } => {
-            collect_capture_needs(operand, locals, needs, defining_name);
+            collect_capture_needs(operand, locals, needs, ref_capture, defining_name);
         }
         AstNode::Range {
             start, end, step, ..
         } => {
-            collect_capture_needs(start, locals, needs, defining_name);
-            collect_capture_needs(end, locals, needs, defining_name);
+            collect_capture_needs(start, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(end, locals, needs, ref_capture, defining_name);
             if let Some(step) = step {
-                collect_capture_needs(step, locals, needs, defining_name);
+                collect_capture_needs(step, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::Assignment {
             name, op, value, ..
         } => {
             if op.is_none()
-                && let AstNode::Function { params, body } = &**value
+                && let AstNode::Function {
+                    params,
+                    ref_capture: child_ref_capture,
+                    body,
+                } = &**value
             {
                 locals.insert(name.clone());
-                let nested_needs = function_capture_needs(body, params.as_deref(), Some(name));
+                let nested_needs =
+                    function_capture_needs(body, params.as_deref(), *child_ref_capture, Some(name));
                 merge_child_capture_needs(needs, locals, nested_needs, defining_name);
                 return;
             }
 
-            collect_capture_needs(value, locals, needs, defining_name);
+            if op.is_some() && !scope_has(locals, name) && defining_name != Some(name.as_str()) {
+                if ref_capture {
+                    needs.by_ref.insert(name.clone());
+                } else {
+                    needs.by_value.insert(name.clone());
+                }
+            }
+            collect_capture_needs(value, locals, needs, ref_capture, defining_name);
             locals.insert(name.clone());
         }
         AstNode::OuterAssignment { name, value, .. } => {
-            collect_capture_needs(value, locals, needs, defining_name);
+            collect_capture_needs(value, locals, needs, ref_capture, defining_name);
             needs.by_ref.insert(name.clone());
         }
         AstNode::Cat(items) | AstNode::List(items) => {
             for item in items {
-                collect_capture_needs(item, locals, needs, defining_name);
+                collect_capture_needs(item, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::Dict(pairs) => {
             for (_, value) in pairs {
-                collect_capture_needs(value, locals, needs, defining_name);
+                collect_capture_needs(value, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::Set(items, _) => {
             for item in items {
-                collect_capture_needs(item, locals, needs, defining_name);
+                collect_capture_needs(item, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::Postfix { object, items, .. } => {
-            collect_capture_needs(object, locals, needs, defining_name);
+            collect_capture_needs(object, locals, needs, ref_capture, defining_name);
             for item in items {
-                collect_capture_needs(item, locals, needs, defining_name);
+                collect_capture_needs(item, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::Pipe { input, effect, .. } => {
-            collect_capture_needs(input, locals, needs, defining_name);
-            collect_capture_needs(effect, locals, needs, defining_name);
+            collect_capture_needs(input, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(effect, locals, needs, ref_capture, defining_name);
         }
         AstNode::PipeTap { input, effect, .. } => {
-            collect_capture_needs(input, locals, needs, defining_name);
-            collect_capture_needs(effect, locals, needs, defining_name);
+            collect_capture_needs(input, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(effect, locals, needs, ref_capture, defining_name);
         }
-        AstNode::CallName { args, .. } => {
+        AstNode::CallName { name, args, .. } => {
+            if !scope_has(locals, name) && defining_name != Some(name.as_str()) {
+                if ref_capture {
+                    needs.by_ref.insert(name.clone());
+                } else {
+                    needs.by_value.insert(name.clone());
+                }
+            }
             for arg in args {
-                collect_capture_needs(arg, locals, needs, defining_name);
+                collect_capture_needs(arg, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::CallAnonymous { object, args, .. } => {
-            collect_capture_needs(object, locals, needs, defining_name);
+            collect_capture_needs(object, locals, needs, ref_capture, defining_name);
             for arg in args {
-                collect_capture_needs(arg, locals, needs, defining_name);
+                collect_capture_needs(arg, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::Index { object, index, .. } => {
-            collect_capture_needs(object, locals, needs, defining_name);
-            collect_capture_needs(index, locals, needs, defining_name);
+            collect_capture_needs(object, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(index, locals, needs, ref_capture, defining_name);
         }
         AstNode::IndexAssign {
             object,
@@ -2538,15 +2911,19 @@ fn collect_capture_needs(
             value,
             ..
         } => {
-            collect_capture_needs(object, locals, needs, defining_name);
-            collect_capture_needs(index, locals, needs, defining_name);
-            collect_capture_needs(value, locals, needs, defining_name);
+            collect_capture_needs(object, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(index, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(value, locals, needs, ref_capture, defining_name);
         }
         AstNode::NamedArg { name: _, value, .. } => {
-            collect_capture_needs(value, locals, needs, defining_name);
+            collect_capture_needs(value, locals, needs, ref_capture, defining_name);
         }
-        AstNode::Function { params, body } => {
-            let nested_needs = function_capture_needs(body, params.as_deref(), None);
+        AstNode::Function {
+            params,
+            ref_capture: child_ref_capture,
+            body,
+        } => {
+            let nested_needs = function_capture_needs(body, params.as_deref(), *child_ref_capture, None);
             merge_child_capture_needs(needs, locals, nested_needs, defining_name);
         }
         AstNode::Conditional {
@@ -2555,10 +2932,10 @@ fn collect_capture_needs(
             false_branch,
             ..
         } => {
-            collect_capture_needs(condition, locals, needs, defining_name);
-            collect_capture_needs(true_branch, locals, needs, defining_name);
+            collect_capture_needs(condition, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(true_branch, locals, needs, ref_capture, defining_name);
             if let Some(false_branch) = false_branch {
-                collect_capture_needs(false_branch, locals, needs, defining_name);
+                collect_capture_needs(false_branch, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::ConditionalChain { .. } => {
@@ -2570,40 +2947,40 @@ fn collect_capture_needs(
         AstNode::WLoop {
             condition, body, ..
         } => {
-            collect_capture_needs(condition, locals, needs, defining_name);
-            collect_capture_needs(body, locals, needs, defining_name);
+            collect_capture_needs(condition, locals, needs, ref_capture, defining_name);
+            collect_capture_needs(body, locals, needs, ref_capture, defining_name);
         }
         AstNode::NLoop { count, body, .. } => {
-            collect_capture_needs(count, locals, needs, defining_name);
+            collect_capture_needs(count, locals, needs, ref_capture, defining_name);
             locals.insert("_n".to_string());
-            collect_capture_needs(body, locals, needs, defining_name);
+            collect_capture_needs(body, locals, needs, ref_capture, defining_name);
         }
         AstNode::Return(expr) => {
             if let Some(expr) = expr {
-                collect_capture_needs(expr, locals, needs, defining_name);
+                collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::Assert { expr, .. } => {
-            collect_capture_needs(expr, locals, needs, defining_name);
+            collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
         }
         AstNode::Debug { expr, .. } => {
-            collect_capture_needs(expr, locals, needs, defining_name);
+            collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
         }
         AstNode::Pause { expr, .. } => {
             if let Some(expr) = expr {
-                collect_capture_needs(expr, locals, needs, defining_name);
+                collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::Try(expr) => {
-            collect_capture_needs(expr, locals, needs, defining_name);
+            collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
         }
         AstNode::Block(stmts) | AstNode::BlockExpr(stmts, _) => {
             for stmt in stmts {
-                collect_capture_needs(stmt, locals, needs, defining_name);
+                collect_capture_needs(stmt, locals, needs, ref_capture, defining_name);
             }
         }
         AstNode::Group { expr, .. } => {
-            collect_capture_needs(expr, locals, needs, defining_name);
+            collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
         }
         AstNode::UnpackAssignment { .. } => {
             unreachable!("UnpackAssignment should have been resolved before collect_capture_needs")

@@ -86,17 +86,32 @@ impl Resolver {
             } => {
                 let binding = self.binding_for_named_def(&name, name_span);
                 let mut captured_by_ref = None;
-                let value = if let AstNode::Function { params, body } = *value {
+                let value = if let AstNode::Function {
+                    params,
+                    ref_capture,
+                    body,
+                } = *value
+                {
                     self.bind_current_scope(name.clone(), binding.clone());
                     self.set_binding_fact(&binding, BindingFact::Callable);
 
-                    let value =
-                        self.resolve_function(params, *body, Some((name.clone(), binding.clone())));
+                    let value = self.resolve_function(
+                        params,
+                        ref_capture,
+                        *body,
+                        Some((name.clone(), binding.clone())),
+                    );
 
-                    if let AstNode::Function { params, body } = &value {
+                    if let AstNode::Function {
+                        params,
+                        ref_capture,
+                        body,
+                    } = &value
+                    {
                         captured_by_ref = Some(function_ref_capture_names(
                             body,
                             params.as_deref(),
+                            *ref_capture,
                             Some(name.as_str()),
                         ));
                     }
@@ -378,7 +393,11 @@ impl Resolver {
                     span,
                 }
             }
-            AstNode::Function { params, body } => self.resolve_function(params, *body, None),
+            AstNode::Function {
+                params,
+                ref_capture,
+                body,
+            } => self.resolve_function(params, ref_capture, *body, None),
             AstNode::ConditionalDot {
                 condition,
                 true_branch,
@@ -1002,6 +1021,7 @@ impl Resolver {
     fn resolve_function(
         &mut self,
         params: Option<Vec<Parameter>>,
+        ref_capture: bool,
         body: AstNode,
         recursive_binding: Option<(String, BindingId)>,
     ) -> AstNode {
@@ -1043,7 +1063,11 @@ impl Resolver {
         });
         let body = Box::new(self.resolve_node(body));
         self.scopes.pop();
-        AstNode::Function { params, body }
+        AstNode::Function {
+            params,
+            ref_capture,
+            body,
+        }
     }
 
     fn resolve_from_snapshot(
@@ -1259,8 +1283,16 @@ impl Resolver {
                     span: new_span,
                 }
             }
-            AstNode::Function { params, body } => AstNode::CallAnonymous {
-                object: Box::new(AstNode::Function { params, body }),
+            AstNode::Function {
+                params,
+                ref_capture,
+                body,
+            } => AstNode::CallAnonymous {
+                object: Box::new(AstNode::Function {
+                    params,
+                    ref_capture,
+                    body,
+                }),
                 args: vec![input],
                 span,
             },

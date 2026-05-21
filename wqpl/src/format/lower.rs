@@ -510,6 +510,7 @@ impl<'a> LowerCtx<'a> {
         // comments and blank lines inside the body are preserved.
         let mut param_doc: Option<Doc> = None;
         let mut body_elems: Vec<SyntaxElement> = Vec::new();
+        let mut prefix = String::new();
         let mut saw_param_or_open = false;
         for elem in node.children_with_tokens() {
             match &elem {
@@ -519,7 +520,11 @@ impl<'a> LowerCtx<'a> {
                     }
                     SyntaxKind::RBrace => {}
                     _ if saw_param_or_open => body_elems.push(elem),
-                    _ => {} // trivia outside the braces (shouldn't happen)
+                    _ => {
+                        if !t.kind().is_trivia() {
+                            prefix.push_str(t.text());
+                        }
+                    }
                 },
                 SyntaxElement::Node(n) => {
                     if n.kind() == SyntaxKind::ParamList && param_doc.is_none() {
@@ -542,12 +547,13 @@ impl<'a> LowerCtx<'a> {
         let body_has_trivia = body_elems.iter().any(
             |e| matches!(e, SyntaxElement::Token(t) if matches!(t.kind(), SyntaxKind::Comment)),
         );
+        let open = Doc::text(format!("{prefix}{{"));
         if self.config.one_line_wizard {
             let body = self.lower_stmt_sequence(body_elems);
-            return Doc::text("{") + params + body + Doc::text("}");
+            return open + params + body + Doc::text("}");
         }
         if stmt_count == 0 && !body_has_trivia {
-            return Doc::text("{") + params + Doc::text("}");
+            return open + params + Doc::text("}");
         }
         // Single-statement, no comment trivia: keep inline `{stmt}` if it
         // fits the configured width.
@@ -559,7 +565,7 @@ impl<'a> LowerCtx<'a> {
                     _ => None,
                 })
                 .expect("stmt_count == 1");
-            let opening = Doc::text("{") + params.clone();
+            let opening = open.clone() + params.clone();
             return Doc::group(
                 opening
                     + Doc::nest(self.indent(), Doc::line_soft() + stmt)
@@ -574,7 +580,7 @@ impl<'a> LowerCtx<'a> {
         // Opening `{`, optional params, newline, indented body, newline,
         // closing `}`. Hard newlines ensure the body never flattens.
         let body = self.lower_stmt_sequence(body_elems);
-        let opening = Doc::text("{") + params;
+        let opening = open + params;
         Doc::group(
             opening
                 + Doc::nest(self.indent(), Doc::line_hard() + body)
@@ -773,6 +779,11 @@ mod tests {
         let root = SyntaxNode::new_root(g);
         let doc = lower(&root, &cfg);
         assert_eq!(render(&doc, 80), "{[x;y]x+y}");
+    }
+
+    #[test]
+    fn ref_default_function_preserves_prefix() {
+        assert_eq!(fmt("'{[]a}", 80), "'{[]a}");
     }
 
     #[test]

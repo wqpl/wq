@@ -8,37 +8,37 @@ make_deque:{[]
   sz:0 /* number of elements */
   cap:4 /* ring buffer capacity */
   // -- private --
-  check:{[]
-    $.[or['cap<4;'sz<0]
+  check:'{[]
+    $.[or[cap<4;sz<0]
       raise["deque invariant: bad cap or size"]]
-    $.[or['sz>'cap;or['head<0;'head>='cap]]
+    $.[or[sz>cap;or[head<0;head>=cap]]
       raise["deque invariant: bad head or size"]]
-    $.[or['tail<0;'tail>='cap]
+    $.[or[tail<0;tail>=cap]
       raise["deque invariant: bad tail"]]
-    $.[not['tail=(('head+'sz)%'cap)]
+    $.[not[tail=((head+sz)%cap)]
       raise["deque invariant: bad tail position"]]}
-  grow:{[]
-    'check[]
-    old_data:'data
-    old_cap:'cap
-    old_sz:'sz
+  grow:'{[]
+    check[]
+    old_data:data
+    old_cap:cap
+    old_sz:sz
     new_cap:old_cap*2
     new_data:alloc[new_cap]
-    i:'head
+    i:head
     j:0
     N[old_sz
       new_data[j]:old_data[i]
       i:(i+1)%old_cap
       j+:1]
-    'data:new_data
-    'cap:new_cap
-    'head:0
-    'tail:old_sz
-    'check[]}
-  shrink:{[]
-    'check[]
-    old_sz:'sz
-    old_cap:'cap
+    data:new_data
+    cap:new_cap
+    head:0
+    tail:old_sz
+    check[]}
+  shrink:'{[]
+    check[]
+    old_sz:sz
+    old_cap:cap
     $.[old_sz>=old_cap/%4
       @r ()]
     new_cap:max[old_cap/%2;4]
@@ -47,93 +47,93 @@ make_deque:{[]
     $.[new_cap>=old_cap
       @r ()]
     new_data:alloc[new_cap]
-    i:'head
+    i:head
     j:0
     N[old_sz
-      new_data[j]:'data[i]
+      new_data[j]:data[i]
       i:(i+1)%old_cap
       j+:1]
-    'data:new_data
-    'cap:new_cap
-    'head:0
-    'tail:old_sz
-    'check[]}
+    data:new_data
+    cap:new_cap
+    head:0
+    tail:old_sz
+    check[]}
   // -- public --
-  push_back:{[val]
-    'check[]
-    $.['sz='cap
-      'grow[]]
-    'data['tail]:val
-    'tail:('tail+1)%'cap
-    'sz+:1
-    'check[]}
-  push_front:{[val]
-    'check[]
-    $.['sz='cap
-      'grow[]]
-    'head:('head-1+'cap)%'cap
-    'data['head]:val
-    'sz+:1
-    'check[]}
-  pop_back:{[]
-    'check[]
-    $.['sz=0
+  push_back:'{[val]
+    check[]
+    $.[sz=cap
+      grow[]]
+    data[tail]:val
+    tail:(tail+1)%cap
+    sz+:1
+    check[]}
+  push_front:'{[val]
+    check[]
+    $.[sz=cap
+      grow[]]
+    head:(head-1+cap)%cap
+    data[head]:val
+    sz+:1
+    check[]}
+  pop_back:'{[]
+    check[]
+    $.[sz=0
       raise["pop on empty deque"]]
-    'tail:('tail-1+'cap)%'cap
-    val:'data['tail]
-    'sz-:1
-    $.['sz<'cap/%4
-      'shrink[]]
-    'check[]
+    tail:(tail-1+cap)%cap
+    val:data[tail]
+    sz-:1
+    $.[sz<cap/%4
+      shrink[]]
+    check[]
     val}
-  pop_front:{[]
-    'check[]
-    $.['sz=0
+  pop_front:'{[]
+    check[]
+    $.[sz=0
       raise["pop on empty deque"]]
-    val:'data['head]
-    'head:('head+1)%'cap
-    'sz-:1
-    $.['sz<'cap/%4
-      'shrink[]]
-    'check[]
+    val:data[head]
+    head:(head+1)%cap
+    sz-:1
+    $.[sz<cap/%4
+      shrink[]]
+    check[]
     val}
   // get element by logical index (0 <= idx < sz). negative index counts from end
-  get:{[idx]
-    'check[]
+  get:'{[idx]
+    check[]
     $.[idx<0
-      idx+:'sz]
-    $.[or[idx<0;idx>='sz]
+      idx+:sz]
+    $.[or[idx<0;idx>=sz]
       raise["index out of bounds"]]
-    'data[('head+idx)%'cap]}
+    data[(head+idx)%cap]}
   // set element by logical index
-  set_:{[idx;val]
-    'check[]
+  set_:'{[idx;val]
+    check[]
     $.[idx<0
-      idx+:'sz]
-    $.[or[idx<0;idx>='sz]
+      idx+:sz]
+    $.[or[idx<0;idx>=sz]
       raise["index out of bounds"]]
-    'data[('head+idx)%'cap]:val
-    'check[]}
-  deque_len:{[]
-    'check[]
-    'sz}
-  empty?:{[]
-    'check[]
-    'sz=0}
-  capacity:{[]
-    'check[]
-    'cap}
-  to_list:{[]
-    'check[]
-    res:alloc['sz]
+    data[(head+idx)%cap]:val
+    check[]}
+  deque_len:'{[]
+    check[]
+    sz}
+  empty?:'{[]
+    check[]
+    sz=0}
+  capacity:'{[]
+    check[]
+    cap}
+  to_list:'{[]
+    check[]
+    res:alloc[sz]
     i:0
-    N['sz
-      res[i]:'get[i]
+    N[sz
+      res[i]:get[i]
       i+:1]
     res}
-  state:{[]
-    'check[]
-    (`list:'to_list[];`data:'data;`head:'head;`tail:'tail;`sz:'sz;`cap:'cap)}
+  state:'{[]
+    check[]
+    (`list:to_list[];`data:data;`head:head;`tail:tail;`sz:sz;`cap:cap)}
   // return methods as a dict
   (
     `push_back:push_back;

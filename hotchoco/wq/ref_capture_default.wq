@@ -1,0 +1,27 @@
+a:1
+f:'{[]a}
+a:2
+f[] |echo
+
+c:0
+inc:'{[]c+:1}
+inc[]
+inc[]
+c |echo
+
+make_counter:{[]
+  x:3
+  reset:'{[]x:0}
+  inc:'{[]x+:1}
+  get:'{[]x}
+  (`reset:reset;`inc:inc;`get:get)}
+
+d:make_counter[]
+d[`inc][]
+d[`reset][]
+d[`inc][]
+d[`get][] |echo
+
+tmp_test:'{[]tmp:a+1;tmp}
+a:4
+tmp_test[] |echo
