@@ -228,16 +228,33 @@ impl WqReplHighlighter {
     }
 
     fn colorize_input(&self, line: &str) -> String {
+        let ref_capture_spans = self.ref_capture_spans(line);
         self.highlighter
-            .highlight_ansi_with_reset(line, REPL_INPUT_TOKEN_RESET)
+            .highlight_ansi_with_ref_captures_and_reset(
+                line,
+                &ref_capture_spans,
+                REPL_INPUT_TOKEN_RESET,
+            )
     }
 
     pub fn highlight_text(&self, text: &str) -> String {
         if self.enabled() {
-            self.highlighter.highlight_ansi(text)
+            let ref_capture_spans = self.ref_capture_spans(text);
+            self.highlighter
+                .highlight_ansi_with_ref_captures_and_reset(text, &ref_capture_spans, "")
         } else {
             text.to_string()
         }
+    }
+
+    fn ref_capture_spans(&self, text: &str) -> Vec<(usize, usize)> {
+        if !text.contains('\'') {
+            return Vec::new();
+        }
+        Session::new()
+            .analyze_symbols(text)
+            .map(|index| index.ref_capture_spans())
+            .unwrap_or_default()
     }
 }
 
@@ -567,7 +584,7 @@ impl RLHighlighter for WqReplHighlighter {
         if cfg!(unix) {
             Cow::Owned(self.colorize_input(line))
         } else {
-            Cow::Owned(self.highlighter.highlight_ansi(line))
+            Cow::Owned(self.highlight_text(line))
         }
     }
 
@@ -601,5 +618,47 @@ impl RLHighlighter for WqReplHighlighter {
 
     fn highlight_char(&self, _line: &str, _pos: usize, _kind: CmdKind) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn highlight_text_marks_ref_capture_deeper_blue() {
+        let h = WqReplHighlighter::new();
+        let src = "a:1; f:'{[] a}; f[]";
+        let out = h.highlight_text(src);
+
+        assert!(out.contains("\x1b[1;38;5;33ma"));
+        assert_eq!(strip_ansi(&out), src);
+    }
+
+    #[test]
+    fn colorize_input_preserves_repl_token_reset() {
+        let h = WqReplHighlighter::new();
+        let src = "a:1; f:'{[] a}; f[]";
+        let out = h.colorize_input(src);
+
+        assert!(out.contains("\x1b[1;38;5;33ma\x1b[22;23;24;39m"));
+        assert_eq!(strip_ansi(&out), src);
     }
 }

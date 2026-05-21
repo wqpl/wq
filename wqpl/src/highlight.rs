@@ -42,6 +42,7 @@ pub enum HighlightName {
     TypeBuiltin,
     Variable,
     VariableOuter,
+    VariableRefCapture,
     VariableBuiltin,
     VariableParameter,
     Meta,
@@ -83,9 +84,10 @@ pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) 
         HighlightName::PunctuationDelimiter => ("\x1b[38;5;243m", ANSI_RESET),
         HighlightName::PunctuationSpecial => ("\x1b[38;5;170m", ANSI_RESET),
         HighlightName::String => ("\x1b[38;5;113m", ANSI_RESET),
-        HighlightName::Tag => ("\x1b[4;38;5;113m", ANSI_RESET),
+        HighlightName::Tag => ("\x1b[38;5;113m", ANSI_RESET),
         HighlightName::Variable => ("\x1b[38;5;117m", ANSI_RESET),
         HighlightName::VariableOuter => ("\x1b[38;5;199m", ANSI_RESET),
+        HighlightName::VariableRefCapture => ("\x1b[38;5;33m", ANSI_RESET),
         HighlightName::VariableBuiltin => ("\x1b[4;38;5;111m", ANSI_RESET),
         HighlightName::VariableParameter => ("\x1b[4;38;5;215m", ANSI_RESET),
         HighlightName::Meta => ("\x1b[38;5;228m", ANSI_RESET),
@@ -149,10 +151,18 @@ impl Highlighter {
 
     /// Highlight a slice of wq source code.
     pub fn highlight(&self, src: &str) -> Vec<HighlightEvent> {
+        self.highlight_with_ref_captures(src, &[])
+    }
+
+    pub fn highlight_with_ref_captures(
+        &self,
+        src: &str,
+        ref_capture_spans: &[(usize, usize)],
+    ) -> Vec<HighlightEvent> {
         let mut lexer = Lexer::new(src).with_skip_directives(true);
         let tokens = lexer.tokenize_recovery();
         let keyword_spans = Self::keyword_spans_from_tokens(&tokens);
-        Self::events_from_tokens(&tokens, &self.builtins, &keyword_spans)
+        Self::events_from_tokens(&tokens, &self.builtins, &keyword_spans, ref_capture_spans)
     }
 
     pub fn highlight_ansi(&self, src: &str) -> String {
@@ -161,6 +171,19 @@ impl Highlighter {
 
     pub fn highlight_ansi_with_reset(&self, src: &str, reset: &str) -> String {
         render_ansi(src, self.highlight(src), reset)
+    }
+
+    pub fn highlight_ansi_with_ref_captures_and_reset(
+        &self,
+        src: &str,
+        ref_capture_spans: &[(usize, usize)],
+        reset: &str,
+    ) -> String {
+        render_ansi(
+            src,
+            self.highlight_with_ref_captures(src, ref_capture_spans),
+            reset,
+        )
     }
 
     /// Mirror the parser's special-treatment logic for `W`, `N`, and `S`:
@@ -254,6 +277,7 @@ impl Highlighter {
         tokens: &[Token],
         builtins: &Builtins,
         keyword_spans: &HashSet<(usize, usize)>,
+        ref_capture_spans: &[(usize, usize)],
     ) -> Vec<HighlightEvent> {
         let mut events = Vec::with_capacity(tokens.len() * 2);
         let mut last_end: usize = 0;
@@ -333,10 +357,16 @@ impl Highlighter {
                                     }
                                     let mut inner_lexer = Lexer::new(source);
                                     let inner_tokens = inner_lexer.tokenize_recovery();
+                                    let inner_ref_capture_spans = Self::nested_ref_capture_spans(
+                                        ref_capture_spans,
+                                        *start,
+                                        *end,
+                                    );
                                     let inner_events = Self::events_from_tokens(
                                         &inner_tokens,
                                         builtins,
                                         &HashSet::new(),
+                                        &inner_ref_capture_spans,
                                     );
                                     for ev in inner_events {
                                         match ev {
@@ -371,7 +401,11 @@ impl Highlighter {
                         }
                     }
                     _ => {
-                        let name = Self::name_for_token(tok, builtins, keyword_spans);
+                        let name = if Self::is_ref_capture_identifier(tok, ref_capture_spans) {
+                            Some(HighlightName::VariableRefCapture)
+                        } else {
+                            Self::name_for_token(tok, builtins, keyword_spans)
+                        };
                         match name {
                             Some(n) => {
                                 events.push(HighlightEvent::HighlightStart(n));
@@ -396,6 +430,33 @@ impl Highlighter {
         }
 
         events
+    }
+
+    fn nested_ref_capture_spans(
+        ref_capture_spans: &[(usize, usize)],
+        start: usize,
+        end: usize,
+    ) -> Vec<(usize, usize)> {
+        ref_capture_spans
+            .iter()
+            .filter_map(|(span_start, span_end)| {
+                if *span_start < end && start < *span_end {
+                    Some((
+                        span_start.saturating_sub(start),
+                        (*span_end).min(end).saturating_sub(start),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn is_ref_capture_identifier(tok: &Token, ref_capture_spans: &[(usize, usize)]) -> bool {
+        matches!(tok.token_type, TokenType::Identifier(_))
+            && ref_capture_spans
+                .iter()
+                .any(|(start, end)| *start < tok.byte_end && tok.byte_start < *end)
     }
 
     fn name_for_token(
@@ -804,6 +865,20 @@ mod tests {
         let out = h.highlight_ansi(src);
 
         assert!(out.contains("\x1b[38;5;220m1"));
+        assert_eq!(strip_ansi(&out), src);
+    }
+
+    #[test]
+    fn ref_capture_spans_use_special_highlight() {
+        let src = "a:1; f:'{[] a}; f[]";
+        let h = Highlighter::new();
+        let events = h.highlight_with_ref_captures(src, &[(12, 13)]);
+        let regions = named_regions(&events, src);
+
+        assert!(regions.contains(&("a".to_string(), Some(HighlightName::VariableRefCapture))));
+
+        let out = h.highlight_ansi_with_ref_captures_and_reset(src, &[(12, 13)], "");
+        assert!(out.contains("\x1b[1;38;5;33ma"));
         assert_eq!(strip_ansi(&out), src);
     }
 }

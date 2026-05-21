@@ -28,9 +28,10 @@ pub fn legend() -> SemanticTokensLegend {
 fn token_type_index(name: HighlightName) -> Option<u32> {
     Some(match name {
         HighlightName::Comment => 0,
-        HighlightName::Variable | HighlightName::VariableOuter | HighlightName::VariableBuiltin => {
-            1
-        }
+        HighlightName::Variable
+        | HighlightName::VariableOuter
+        | HighlightName::VariableRefCapture
+        | HighlightName::VariableBuiltin => 1,
         HighlightName::Constant
         | HighlightName::ConstantBuiltin
         | HighlightName::Boolean
