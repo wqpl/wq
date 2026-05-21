@@ -4,6 +4,8 @@ use crate::builtins::Builtins;
 use crate::lexer::Lexer;
 use crate::token::{Token, TokenType};
 
+pub const ANSI_RESET: &str = "\x1b[0m";
+
 /// Capture names that mirror `highlights.scm`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HighlightName {
@@ -54,6 +56,79 @@ pub enum HighlightEvent {
     Source { start: usize, end: usize },
 }
 
+#[inline]
+pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) {
+    match name {
+        HighlightName::Comment => ("\x1b[3;38;5;249m", ANSI_RESET),
+        HighlightName::Constant => ("\x1b[38;5;220m", ANSI_RESET),
+        HighlightName::ConstantBuiltin => ("\x1b[1;38;5;220m", ANSI_RESET),
+        HighlightName::Function => ("\x1b[38;5;75m", ANSI_RESET),
+        HighlightName::FunctionCall => ("\x1b[1;38;5;75m", ANSI_RESET),
+        HighlightName::FunctionBuiltin => ("\x1b[4;38;5;75m", ANSI_RESET),
+        HighlightName::Keyword => ("\x1b[38;5;199m", ANSI_RESET),
+        HighlightName::KeywordReturn => ("\x1b[38;5;220m", ANSI_RESET),
+        HighlightName::KeywordDebug => ("\x1b[38;5;210m", ANSI_RESET),
+        HighlightName::Number => ("\x1b[38;5;220m", ANSI_RESET),
+        HighlightName::Boolean => ("\x1b[38;5;220m", ANSI_RESET),
+        HighlightName::Operator => ("\x1b[38;5;208m", ANSI_RESET),
+        HighlightName::OperatorPipe => ("\x1b[38;5;170m", ANSI_RESET),
+        HighlightName::Punctuation => ("\x1b[38;5;245m", ANSI_RESET),
+        HighlightName::PunctuationBracket => ("\x1b[38;5;245m", ANSI_RESET),
+        HighlightName::PunctuationBracket1 => ("\x1b[38;5;196m", ANSI_RESET),
+        HighlightName::PunctuationBracket2 => ("\x1b[38;5;208m", ANSI_RESET),
+        HighlightName::PunctuationBracket3 => ("\x1b[38;5;220m", ANSI_RESET),
+        HighlightName::PunctuationBracket4 => ("\x1b[38;5;82m", ANSI_RESET),
+        HighlightName::PunctuationBracket5 => ("\x1b[38;5;75m", ANSI_RESET),
+        HighlightName::PunctuationBracket6 => ("\x1b[38;5;199m", ANSI_RESET),
+        HighlightName::PunctuationDelimiter => ("\x1b[38;5;243m", ANSI_RESET),
+        HighlightName::PunctuationSpecial => ("\x1b[38;5;170m", ANSI_RESET),
+        HighlightName::String => ("\x1b[38;5;113m", ANSI_RESET),
+        HighlightName::Tag => ("\x1b[4;38;5;113m", ANSI_RESET),
+        HighlightName::Variable => ("\x1b[38;5;117m", ANSI_RESET),
+        HighlightName::VariableOuter => ("\x1b[38;5;199m", ANSI_RESET),
+        HighlightName::VariableBuiltin => ("\x1b[4;38;5;111m", ANSI_RESET),
+        HighlightName::VariableParameter => ("\x1b[4;38;5;215m", ANSI_RESET),
+        HighlightName::Meta => ("\x1b[38;5;228m", ANSI_RESET),
+        _ => (ANSI_RESET, ANSI_RESET),
+    }
+}
+
+pub fn render_ansi(
+    src: &str,
+    events: impl IntoIterator<Item = HighlightEvent>,
+    reset: &str,
+) -> String {
+    let bytes = src.as_bytes();
+    let mut out = String::with_capacity(src.len() + 16);
+    let mut stack: Vec<HighlightName> = Vec::new();
+
+    for ev in events {
+        match ev {
+            HighlightEvent::HighlightStart(h) => stack.push(h),
+            HighlightEvent::HighlightEnd => {
+                stack.pop();
+            }
+            HighlightEvent::Source { start, end } => {
+                let s = std::str::from_utf8(&bytes[start..end]).unwrap_or("");
+                if let Some(&name) = stack.last() {
+                    let (on, off) = ansi_style_for_name(name);
+                    out.push_str(on);
+                    out.push_str(s);
+                    if reset.is_empty() {
+                        out.push_str(off);
+                    } else {
+                        out.push_str(reset);
+                    }
+                } else {
+                    out.push_str(s);
+                }
+            }
+        }
+    }
+
+    out
+}
+
 /// A lightweight syntax highlighter that works directly on the wq lexer.
 pub struct Highlighter {
     builtins: Builtins,
@@ -78,6 +153,14 @@ impl Highlighter {
         let tokens = lexer.tokenize_recovery();
         let keyword_spans = Self::keyword_spans_from_tokens(&tokens);
         Self::events_from_tokens(&tokens, &self.builtins, &keyword_spans)
+    }
+
+    pub fn highlight_ansi(&self, src: &str) -> String {
+        self.highlight_ansi_with_reset(src, "")
+    }
+
+    pub fn highlight_ansi_with_reset(&self, src: &str, reset: &str) -> String {
+        render_ansi(src, self.highlight(src), reset)
     }
 
     /// Mirror the parser's special-treatment logic for `W`, `N`, and `S`:
@@ -716,34 +799,11 @@ mod tests {
 
     #[test]
     fn test_colorize_roundtrip() {
-        // Simulate what TSHelper::colorize does.
         let src = "echo @f\"hello {x + 1}\"";
         let h = Highlighter::new();
-        let events = h.highlight(src);
+        let out = h.highlight_ansi(src);
 
-        let mut out = String::new();
-        let bytes = src.as_bytes();
-        let mut stack: Vec<HighlightName> = Vec::new();
-        for ev in events {
-            match ev {
-                HighlightEvent::HighlightStart(n) => stack.push(n),
-                HighlightEvent::HighlightEnd => {
-                    stack.pop();
-                }
-                HighlightEvent::Source { start, end } => {
-                    let s = std::str::from_utf8(&bytes[start..end]).unwrap_or("");
-                    if let Some(&_name) = stack.last() {
-                        // In real code this would wrap with ANSI codes.
-                        // We add a dummy prefix so strip_ansi has work to do.
-                        out.push_str("\x1b[38;5;1m");
-                        out.push_str(s);
-                        out.push_str("\x1b[0m");
-                    } else {
-                        out.push_str(s);
-                    }
-                }
-            }
-        }
+        assert!(out.contains("\x1b[38;5;220m1"));
         assert_eq!(strip_ansi(&out), src);
     }
 }

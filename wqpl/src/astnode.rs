@@ -1,5 +1,6 @@
 use colored::{Color, Colorize};
 
+use crate::highlight::Highlighter as SyntaxHighlighter;
 use crate::value::Value;
 use crate::wqerror::WqError;
 
@@ -407,14 +408,20 @@ fn extract_snippet(src: &str, start: usize, end: usize, max_len: usize) -> Strin
     s
 }
 
-fn fmt_span_note(src: &str, span: Option<(usize, usize)>) -> String {
+struct PrettySource<'a> {
+    text: &'a str,
+    highlighter: SyntaxHighlighter,
+}
+
+fn fmt_span_note(src: &PrettySource<'_>, span: Option<(usize, usize)>) -> String {
     let (start, end) = match span {
         Some(s) => s,
         None => return String::new(),
     };
-    let (sl, sc) = offset_to_line_col(src, start);
-    let (el, ec) = offset_to_line_col(src, end);
-    let snippet = extract_snippet(src, start, end, 20);
+    let (sl, sc) = offset_to_line_col(src.text, start);
+    let (el, ec) = offset_to_line_col(src.text, end);
+    let snippet = extract_snippet(src.text, start, end, 20);
+    let snippet = src.highlighter.highlight_ansi(&snippet);
     format!(" [{sl}:{sc}-{el}:{ec}] {snippet}")
 }
 
@@ -673,10 +680,14 @@ impl AstNode {
     }
 
     pub(crate) fn sexpr_pretty_with_source(&self, src: &str) -> String {
-        self.pretty_with_depth(0, Some(src)).multi
+        let src = PrettySource {
+            text: src,
+            highlighter: SyntaxHighlighter::new(),
+        };
+        self.pretty_with_depth(0, Some(&src)).multi
     }
 
-    fn pretty_with_depth(&self, depth: usize, src: Option<&str>) -> Pretty {
+    fn pretty_with_depth(&self, depth: usize, src: Option<&PrettySource<'_>>) -> Pretty {
         let note = src
             .map(|s| fmt_span_note(s, self.span()))
             .unwrap_or_default();
@@ -1118,5 +1129,47 @@ impl AstNode {
             }
             Error(..) => pretty_leaf("ERROR", &note, color),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn source_snippets_in_ast_notes_are_syntax_highlighted() {
+        let ast = AstNode::BinaryOp {
+            left: Box::new(AstNode::Literal(Value::Int(1), Some((0, 1)))),
+            operator: BinaryOperator::Add,
+            right: Box::new(AstNode::Literal(Value::Int(2), Some((2, 3)))),
+        };
+
+        let pretty = ast.sexpr_pretty_with_source("1+2");
+
+        assert!(
+            pretty.contains(" [1:1-1:4] \x1b[38;5;220m1"),
+            "expected root source note snippet to be ANSI highlighted, got: {pretty:?}"
+        );
+        assert!(
+            strip_ansi(&pretty).contains(" [1:1-1:4] 1+2"),
+            "visible source note text changed, got: {pretty:?}"
+        );
     }
 }

@@ -8,7 +8,7 @@ use wq_rl::hint::Hinter;
 use wq_rl::validate::{ValidationContext, ValidationResult, Validator};
 use wq_rl::{Context as RLContext, Helper};
 use wqpl::builtins::BuiltinPreset;
-use wqpl::highlight::{HighlightEvent, HighlightName, Highlighter};
+use wqpl::highlight::Highlighter;
 use wqpl::interpret::InterpreterKind;
 use wqpl::session::Session;
 use wqpl::session::dbglog::DEBUG_LOG_FLAG_NAMES;
@@ -227,86 +227,14 @@ impl WqReplHighlighter {
         false
     }
 
-    #[inline]
-    fn style_for_name(name: HighlightName) -> (&'static str, &'static str) {
-        match name {
-            HighlightName::Comment => ("\x1b[3;38;5;249m", RESET),
-            HighlightName::Constant => ("\x1b[38;5;220m", RESET),
-            HighlightName::ConstantBuiltin => ("\x1b[1;38;5;220m", RESET),
-            HighlightName::Function => ("\x1b[38;5;75m", RESET),
-            HighlightName::FunctionCall => ("\x1b[1;38;5;75m", RESET),
-            HighlightName::FunctionBuiltin => ("\x1b[4;38;5;75m", RESET),
-            HighlightName::Keyword => ("\x1b[38;5;199m", RESET),
-            HighlightName::KeywordReturn => ("\x1b[38;5;220m", RESET),
-            HighlightName::KeywordDebug => ("\x1b[38;5;210m", RESET),
-            HighlightName::Number => ("\x1b[38;5;220m", RESET),
-            HighlightName::Boolean => ("\x1b[38;5;220m", RESET),
-            HighlightName::Operator => ("\x1b[38;5;208m", RESET),
-            HighlightName::OperatorPipe => ("\x1b[38;5;170m", RESET),
-            HighlightName::Punctuation => ("\x1b[38;5;245m", RESET),
-            HighlightName::PunctuationBracket => ("\x1b[38;5;245m", RESET),
-            HighlightName::PunctuationBracket1 => ("\x1b[38;5;196m", RESET),
-            HighlightName::PunctuationBracket2 => ("\x1b[38;5;208m", RESET),
-            HighlightName::PunctuationBracket3 => ("\x1b[38;5;220m", RESET),
-            HighlightName::PunctuationBracket4 => ("\x1b[38;5;82m", RESET),
-            HighlightName::PunctuationBracket5 => ("\x1b[38;5;75m", RESET),
-            HighlightName::PunctuationBracket6 => ("\x1b[38;5;199m", RESET),
-            HighlightName::PunctuationDelimiter => ("\x1b[38;5;243m", RESET),
-            HighlightName::PunctuationSpecial => ("\x1b[38;5;170m", RESET),
-            HighlightName::String => ("\x1b[38;5;113m", RESET),
-            HighlightName::Tag => ("\x1b[4;38;5;113m", RESET),
-            HighlightName::Variable => ("\x1b[38;5;117m", RESET),
-            HighlightName::VariableOuter => ("\x1b[38;5;199m", RESET),
-            HighlightName::VariableBuiltin => ("\x1b[4;38;5;111m", RESET),
-            HighlightName::VariableParameter => ("\x1b[4;38;5;215m", RESET),
-            HighlightName::Meta => ("\x1b[38;5;228m", RESET),
-            // Fallbacks for names not explicitly mapped above
-            _ => (RESET, RESET),
-        }
-    }
-
-    fn colorize_with_reset(&self, line: &str, reset: &str) -> String {
-        let bytes = line.as_bytes();
-        let mut out = String::with_capacity(line.len() + 16);
-        let mut stack: Vec<HighlightName> = Vec::new();
-
-        for ev in self.highlighter.highlight(line) {
-            match ev {
-                HighlightEvent::HighlightStart(h) => stack.push(h),
-                HighlightEvent::HighlightEnd => {
-                    stack.pop();
-                }
-                HighlightEvent::Source { start, end } => {
-                    let s = std::str::from_utf8(&bytes[start..end]).unwrap_or("");
-                    if let Some(&name) = stack.last() {
-                        let (on, off) = Self::style_for_name(name);
-                        out.push_str(on);
-                        out.push_str(s);
-                        if reset.is_empty() {
-                            out.push_str(off);
-                        } else {
-                            out.push_str(reset);
-                        }
-                    } else {
-                        out.push_str(s);
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    fn colorize(&self, line: &str) -> String {
-        self.colorize_with_reset(line, "")
-    }
-
     fn colorize_input(&self, line: &str) -> String {
-        self.colorize_with_reset(line, REPL_INPUT_TOKEN_RESET)
+        self.highlighter
+            .highlight_ansi_with_reset(line, REPL_INPUT_TOKEN_RESET)
     }
 
     pub fn highlight_text(&self, text: &str) -> String {
         if self.enabled() {
-            self.colorize(text)
+            self.highlighter.highlight_ansi(text)
         } else {
             text.to_string()
         }
@@ -639,7 +567,7 @@ impl RLHighlighter for WqReplHighlighter {
         if cfg!(unix) {
             Cow::Owned(self.colorize_input(line))
         } else {
-            Cow::Owned(self.colorize(line))
+            Cow::Owned(self.highlighter.highlight_ansi(line))
         }
     }
 
