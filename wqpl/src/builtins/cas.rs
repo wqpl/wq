@@ -593,6 +593,18 @@ fn factor_polynomial_complex(poly: &[Value]) -> WqResult<Vec<Vec<Value>>> {
     Ok(result)
 }
 
+fn factor_poly_complex_coeff(value: &Value) -> WqResult<num_complex::Complex64> {
+    if let Some(z) = value.as_complex64() {
+        return Ok(z);
+    }
+    let numeric = eval_numeric_cas(value)?;
+    numeric.as_complex64().ok_or_else(|| {
+        WqError::new(WqErrorType::Domain)
+            .msg("factor_poly complex factorization expects numeric coefficients")
+            .got1(value)
+    })
+}
+
 /// Factor a quadratic ax²+bx+c over C using the quadratic formula.
 /// Handles negative discriminants by producing Complex roots.
 fn factor_quadratic_complex(poly: &[Value]) -> WqResult<Vec<Vec<Value>>> {
@@ -602,22 +614,18 @@ fn factor_quadratic_complex(poly: &[Value]) -> WqResult<Vec<Vec<Value>>> {
     let b = poly.get(1).cloned().unwrap_or(Value::Int(0));
     let c = poly.first().cloned().unwrap_or(Value::Int(0));
 
-    // Compute discriminant as f64 for complex sqrt
-    let a_f = a.as_f64().unwrap_or(1.0);
-    let b_f = b.as_f64().unwrap_or(0.0);
-    let c_f = c.as_f64().unwrap_or(0.0);
-    let d = b_f * b_f - 4.0 * a_f * c_f;
+    let a = factor_poly_complex_coeff(&a)?;
+    let b = factor_poly_complex_coeff(&b)?;
+    let c = factor_poly_complex_coeff(&c)?;
+    if a.norm() <= 1e-12 {
+        return Err(WqError::new(WqErrorType::Domain)
+            .msg("factor_poly quadratic factorization requires a non-zero leading coefficient"));
+    }
 
-    let sqrt_d = if d >= 0.0 {
-        Complex64::new(d.sqrt(), 0.0)
-    } else {
-        Complex64::new(0.0, (-d).sqrt())
-    };
-
-    let two_a = 2.0 * a_f;
-    let neg_b = -b_f;
-    let r1 = Complex64::new((neg_b + sqrt_d.re) / two_a, sqrt_d.im / two_a);
-    let r2 = Complex64::new((neg_b - sqrt_d.re) / two_a, -sqrt_d.im / two_a);
+    let sqrt_d = (b * b - 4.0 * a * c).sqrt();
+    let two_a = 2.0 * a;
+    let r1 = (-b + sqrt_d) / two_a;
+    let r2 = (-b - sqrt_d) / two_a;
 
     // Build (x - r1) = [Value::Complex(-r1), Value::Int(1)]
     let neg_r1 = Value::from_complex64(Complex64::new(-r1.re, -r1.im));
@@ -660,5 +668,34 @@ fn poly_to_expr_complex(coeffs: &[Value], var: &str) -> Value {
         0 => Value::Int(0),
         1 => terms.into_iter().next().unwrap(),
         _ => Value::from_cas_op("+", terms),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn complex_quadratic_factorization_uses_algebraic_coefficients() {
+        let sqrt2 =
+            simplify_cas_value(&Value::from_cas_call("sqrt", vec![Value::Int(2)]))
+                .expect("sqrt[2] should simplify");
+        let factors = factor_quadratic_complex(&[Value::Int(1), sqrt2, Value::Int(1)])
+            .expect("quadratic should factor over complex numbers");
+
+        assert_eq!(factors.len(), 2);
+        let first = factors[0][0]
+            .as_complex64()
+            .expect("first factor constant should be complex");
+        let second = factors[1][0]
+            .as_complex64()
+            .expect("second factor constant should be complex");
+        let expected = 0.5_f64.sqrt();
+
+        assert!((first.re - expected).abs() < 1e-12, "{first:?}");
+        assert!((second.re - expected).abs() < 1e-12, "{second:?}");
+        assert!((first.im.abs() - expected).abs() < 1e-12, "{first:?}");
+        assert!((second.im.abs() - expected).abs() < 1e-12, "{second:?}");
+        assert!((first.im + second.im).abs() < 1e-12, "{first:?} {second:?}");
     }
 }

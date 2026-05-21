@@ -186,6 +186,14 @@ fn f64_or_err(v: &Value, orig: &Value) -> WqResult<f64> {
         .ok_or_else(|| cas_err("expected numeric result in CAS evaluation").got1(orig))
 }
 
+fn eval_numeric_coeff_as_f64(coeff: &Value) -> WqResult<f64> {
+    if let Some(value) = coeff.as_f64() {
+        Ok(value)
+    } else {
+        f64_or_err(&eval_numeric_cas(coeff)?, coeff)
+    }
+}
+
 /// Evaluate a CAS expression to a single Float, approximating Algebraic
 /// values by the midpoint of their isolating interval.
 ///
@@ -202,12 +210,7 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
         let mut result = 0.0f64;
         let mut alpha_pow = 1.0f64;
         for c in a.coeffs.iter() {
-            let cf = c.as_f64().unwrap_or_else(|| {
-                eval_numeric_cas(c)
-                    .ok()
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0)
-            });
+            let cf = eval_numeric_coeff_as_f64(c)?;
             result += cf * alpha_pow;
             alpha_pow *= alpha;
         }

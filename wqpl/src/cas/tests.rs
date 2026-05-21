@@ -3,6 +3,7 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 
 use super::*;
+use crate::value::algebraic::AlgebraicData;
 use crate::value::Value;
 
 fn contains_op(value: &Value, needle: &str) -> bool {
@@ -444,6 +445,23 @@ fn numeric_heaviside_neg() {
     let result =
         simplify_cas_value(&Value::from_cas_call("heaviside", vec![Value::float(-3.0)])).unwrap();
     assert_eq!(result, Value::float(0.0));
+}
+
+#[test]
+fn numeric_rejects_non_numeric_algebraic_coefficients() {
+    let malformed = Value::Algebraic(Arc::new(AlgebraicData {
+        poly: Arc::new([BigInt::from(-2), BigInt::from(0), BigInt::from(1)]),
+        interval: (1.0, 2.0),
+        coeffs: Arc::new([Value::from_cas_var("x")]),
+    }));
+
+    let err = eval_numeric_cas(&malformed).expect_err("symbolic coefficient should fail");
+    assert!(
+        err.msg
+            .as_deref()
+            .is_some_and(|msg| msg.contains("contains variable")),
+        "unexpected error: {err:?}",
+    );
 }
 
 #[test]
