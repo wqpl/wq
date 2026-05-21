@@ -49,10 +49,14 @@ impl Interpreter for VanillaInterpreter {
             Some(ptr) => unsafe { ptr.as_ref() },
             None => &NO_OP_HOOK,
         };
+        let mut instructions = Arc::clone(&vm.instructions);
         let mut limit = limit;
-        let mut inst_ptr = vm.instructions.as_ptr();
         let mut last_probe_pc: Option<usize> = None;
         'exec: loop {
+            if !Arc::ptr_eq(&instructions, &vm.instructions) {
+                instructions = Arc::clone(&vm.instructions);
+                limit = instructions.len();
+            }
             while vm.pc < limit {
                 // Record a probe for the previously executed interesting
                 // instruction.  We record *here* (one iteration late) so that
@@ -80,9 +84,7 @@ impl Interpreter for VanillaInterpreter {
                 }
                 let idx = vm.pc;
                 vm.pc += 1;
-                // Decouple lifetime to avoid borrowing vm during instruction execution
-                let op_ptr = &vm.instructions[idx] as *const Instruction;
-                let op = unsafe { &*op_ptr };
+                let op = &instructions[idx];
                 // Mark for trace probe BEFORE dispatch.  Some call arms
                 // `continue 'exec` after a synchronous push, skipping any
                 // post-match check — the next iteration's top-of-loop flush
@@ -486,7 +488,7 @@ impl Interpreter for VanillaInterpreter {
                                     dbg_chunk,
                                     callee: value,
                                 })?;
-                                continue;
+                                continue 'exec;
                             }
                             LocalCallable::Builtin(name) => {
                                 let result = vm.invoke_bfn_name(&name, argc)?;
@@ -1024,9 +1026,9 @@ impl Interpreter for VanillaInterpreter {
                 }
             }
 
-            if vm.instructions.as_ptr() != inst_ptr {
-                inst_ptr = vm.instructions.as_ptr();
-                limit = vm.instructions.len();
+            if !Arc::ptr_eq(&instructions, &vm.instructions) {
+                instructions = Arc::clone(&vm.instructions);
+                limit = instructions.len();
                 continue;
             }
 
@@ -1216,8 +1218,10 @@ mod tests {
     use std::sync::Arc;
 
     use crate::astnode::BinaryOperator;
+    use crate::builtins::BuiltinFnArgs;
     use crate::interpret::Interpreter;
     use crate::interpret::vanilla::VanillaInterpreter;
+    use crate::value::func::FunctionData;
     use crate::value::Value;
     use crate::vm::Vm;
     use crate::vm::inst::{Instruction, Operand};
@@ -1259,6 +1263,54 @@ mod tests {
         let mut vm = Vm::new(insts);
         let mut interpreter = VanillaInterpreter;
         interpreter.interpret(&mut vm, len).expect("execute")
+    }
+
+    fn make_fn(params: Option<&[&str]>, locals: u16, instructions: Vec<Instruction>) -> Value {
+        Value::CompiledFunction(Arc::new(FunctionData {
+            params: params.map(|names| {
+                Arc::<[String]>::from(names.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+            }),
+            named_params: None,
+            locals,
+            instructions: instructions.into(),
+            dbg_chunk: None,
+            dbg_stmt_spans: None,
+            dbg_source_base_offset: 0,
+            dbg_pc_spans: None,
+            dbg_stmt_marks: None,
+            dbg_local_names: None,
+            dbg_provenance: None,
+        }))
+    }
+
+    #[test]
+    fn tail_call_local_refreshes_instruction_snapshot() {
+        let callee = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::LoadLocal(0),
+                Instruction::load_const(Value::Int(1)),
+                Instruction::binary_op(BinaryOperator::Add, Operand::Stack, Operand::Stack),
+                Instruction::Return,
+            ],
+        );
+        let caller = make_fn(
+            Some(&["f"]),
+            1,
+            vec![
+                Instruction::load_const(Value::Int(41)),
+                Instruction::TailCallLocal(0, 1),
+                Instruction::Return,
+            ],
+        );
+        let mut vm = Vm::new(Vec::new());
+
+        let result = vm
+            .call(&caller, BuiltinFnArgs::from(callee))
+            .expect("tail call through local function");
+
+        assert_eq!(result, Value::Int(42));
     }
 
     #[test]
