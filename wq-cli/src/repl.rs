@@ -1412,8 +1412,8 @@ fn debug_help_table(active: DebugLogFlags) -> String {
         (
             "names",
             DebugLogFlags::from_names([
-                "token", "cst", "ast", "ast-v", "inst", "inst-v", "wqdb", "wqdb-v", "value",
-                "cas", "cas-v",
+                "token", "cst", "ast", "ast-v", "inst", "inst-v", "wqdb", "wqdb-v", "value", "cas",
+                "cas-v",
             ])
             .display_names()
             .join(","),

@@ -1221,8 +1221,8 @@ mod tests {
     use crate::builtins::BuiltinFnArgs;
     use crate::interpret::Interpreter;
     use crate::interpret::vanilla::VanillaInterpreter;
-    use crate::value::func::FunctionData;
     use crate::value::Value;
+    use crate::value::func::FunctionData;
     use crate::vm::Vm;
     use crate::vm::inst::{Instruction, Operand};
 

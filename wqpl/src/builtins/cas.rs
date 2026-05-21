@@ -677,9 +677,8 @@ mod tests {
 
     #[test]
     fn complex_quadratic_factorization_uses_algebraic_coefficients() {
-        let sqrt2 =
-            simplify_cas_value(&Value::from_cas_call("sqrt", vec![Value::Int(2)]))
-                .expect("sqrt[2] should simplify");
+        let sqrt2 = simplify_cas_value(&Value::from_cas_call("sqrt", vec![Value::Int(2)]))
+            .expect("sqrt[2] should simplify");
         let factors = factor_quadratic_complex(&[Value::Int(1), sqrt2, Value::Int(1)])
             .expect("quadratic should factor over complex numbers");
 

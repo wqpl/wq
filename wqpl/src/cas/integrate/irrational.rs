@@ -174,11 +174,8 @@ fn reciprocal_quartic_transform(poly: &[Value], root: &Value) -> WqResult<Vec<Va
             let power = 4 - k;
             let binom = Value::from_bigint(BigInt::from(binomial_coeff(i, k)));
             let root_power = pow_value(root, (i - k) as u32)?;
-            let term = eval_numeric_binary(
-                "*",
-                &eval_numeric_binary("*", coeff, &binom)?,
-                &root_power,
-            )?;
+            let term =
+                eval_numeric_binary("*", &eval_numeric_binary("*", coeff, &binom)?, &root_power)?;
             out[power] = eval_numeric_binary("+", &out[power], &term)?;
         }
     }

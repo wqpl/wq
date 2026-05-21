@@ -913,8 +913,10 @@ impl Compiler {
                                 self.instructions
                                     .push(Instruction::PostfixCapture(idx, items.len()));
                             } else {
-                                self.instructions
-                                    .push(Instruction::PostfixVar(name.clone().into(), items.len()));
+                                self.instructions.push(Instruction::PostfixVar(
+                                    name.clone().into(),
+                                    items.len(),
+                                ));
                             }
                             optimized = true;
                         } else if let Some(idx) = self.capture_map.get(name).copied() {
@@ -1770,7 +1772,8 @@ impl Compiler {
 
     fn push_ref_default_index_assign(&mut self, name: &str) {
         if let Some(idx) = self.ref_capture_map.get(name) {
-            self.instructions.push(Instruction::IndexAssignCapture(*idx));
+            self.instructions
+                .push(Instruction::IndexAssignCapture(*idx));
         } else {
             self.instructions
                 .push(Instruction::IndexAssignVar(name.to_string().into()));
@@ -2335,7 +2338,9 @@ fn collect_ref_default_assignment_needs_inner(
             )
         }
         AstNode::FString { .. } => {
-            unreachable!("FString should have been resolved before collect_ref_default_assignment_needs")
+            unreachable!(
+                "FString should have been resolved before collect_ref_default_assignment_needs"
+            )
         }
     }
 }
@@ -2923,7 +2928,8 @@ fn collect_capture_needs(
             ref_capture: child_ref_capture,
             body,
         } => {
-            let nested_needs = function_capture_needs(body, params.as_deref(), *child_ref_capture, None);
+            let nested_needs =
+                function_capture_needs(body, params.as_deref(), *child_ref_capture, None);
             merge_child_capture_needs(needs, locals, nested_needs, defining_name);
         }
         AstNode::Conditional {

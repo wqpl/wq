@@ -3,8 +3,8 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 
 use super::*;
-use crate::value::algebraic::AlgebraicData;
 use crate::value::Value;
+use crate::value::algebraic::AlgebraicData;
 
 fn contains_op(value: &Value, needle: &str) -> bool {
     if let Some((op, args)) = value.cas_op_parts() {
