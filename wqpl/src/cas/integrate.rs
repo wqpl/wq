@@ -1743,4 +1743,30 @@ mod tests {
         assert!(s.contains("ellik"), "expected ellik in result: {s}");
         assert!(s.contains("arccos"), "expected arccos in result: {s}");
     }
+
+    #[test]
+    fn integrate_one_over_sqrt_x4_plus_x() {
+        // x^4+x has rational root 0.  With x=1/t:
+        // int dx/sqrt(x^4+x) = -int dt/sqrt(t^3+1), reusing the cubic path.
+        let inner = Value::from_cas_op(
+            "+",
+            vec![
+                Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(4)]),
+                Value::from_cas_var("x"),
+            ],
+        );
+        let expr = Value::from_cas_op(
+            "^",
+            vec![
+                inner,
+                Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2)),
+            ],
+        );
+        let result = integrate_cas(&expr, &Value::from_cas_var("x"))
+            .expect("quartic inverse radical should reduce to cubic path");
+        let s = result.to_string();
+        assert!(!s.contains("unsupported"), "got unsupported: {s}");
+        assert!(s.contains("ellik"), "expected ellik in result: {s}");
+        assert!(s.contains("arccos"), "expected arccos in result: {s}");
+    }
 }

@@ -10,6 +10,7 @@
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
+use super::rational::find_rational_root_value;
 use super::trig::binomial_coeff;
 use crate::cas::{
     cas_add, cas_debug_log_depth, cas_div, cas_mul, cas_pow, cas_product, cas_sub,
@@ -111,13 +112,78 @@ fn try_irrational(expr: &Value, var: &str) -> WqResult<Option<Value>> {
         }
     }
 
-    // Euler substitution for general sqrt(quadratic) cases
+    // Quartic reciprocal reduction to the cubic elliptic path.
+    if let Some(result) = try_quartic_inverse_reduction(expr, var)? {
+        return Ok(Some(result));
+    }
+
     // Try square factor extraction for higher-degree polynomials under sqrt
     if let Some(result) = try_sqrt_reduction(expr, var)? {
         return Ok(Some(result));
     }
 
+    // Euler substitution for general sqrt(quadratic) cases.
     try_euler_substitution(expr, var)
+}
+
+/// Reduce int dx/sqrt(P4(x)) to a cubic-root integral when P4 has a rational
+/// root r.  With x = r + 1/t, P4(x) = C3(t)/t^4 and dx/sqrt(P4(x)) =
+/// -dt/sqrt(C3(t)).
+fn try_quartic_inverse_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+    let Some(("^", [base, exp])) = expr.cas_op_parts() else {
+        return Ok(None);
+    };
+    if !exp.exact_neg_half() {
+        return Ok(None);
+    }
+    let poly = match poly_from_expr(base, var) {
+        Ok(poly) if poly_degree(&poly) == 4 => poly,
+        _ => return Ok(None),
+    };
+    let Some(root) = find_rational_root_value(&poly) else {
+        return Ok(None);
+    };
+
+    let transformed_poly = reciprocal_quartic_transform(&poly, &root)?;
+    if poly_degree(&transformed_poly) < 1 {
+        return Ok(None);
+    }
+
+    let t_var = "--cas-quartic-t";
+    let transformed_base = poly_to_expr(&transformed_poly, t_var)?;
+    let transformed = cas_pow(
+        transformed_base,
+        Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2)),
+    )?;
+    let integrated = super::integrate_expr_with_depth(&transformed, t_var, 0)?;
+    let signed = cas_mul(vec![Value::Int(-1), integrated])?;
+
+    let x_minus_root = cas_sub(Value::from_cas_var(var), root)?;
+    let t_back = cas_div(Value::Int(1), x_minus_root)?;
+    let back_subbed = substitute_expr(&signed, t_var, &t_back)?;
+    simplify_cas_value(&back_subbed).map(Some)
+}
+
+fn reciprocal_quartic_transform(poly: &[Value], root: &Value) -> WqResult<Vec<Value>> {
+    let mut out = vec![Value::Int(0); 4];
+    for (i, coeff) in poly.iter().enumerate().take(5) {
+        if numeric_is_zero(coeff) {
+            continue;
+        }
+        for k in 1..=i {
+            let power = 4 - k;
+            let binom = Value::from_bigint(BigInt::from(binomial_coeff(i, k)));
+            let root_power = pow_value(root, (i - k) as u32)?;
+            let term = eval_numeric_binary(
+                "*",
+                &eval_numeric_binary("*", coeff, &binom)?,
+                &root_power,
+            )?;
+            out[power] = eval_numeric_binary("+", &out[power], &term)?;
+        }
+    }
+    poly_trim(&mut out);
+    Ok(out)
 }
 
 /// Extract factors with multiplicity ≥ 2 from a polynomial under sqrt.
@@ -1353,6 +1419,24 @@ mod tests {
         assert!(Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)).exact_half());
         assert!(!Value::Int(1).exact_half());
         assert!(Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2)).exact_neg_half());
+    }
+
+    #[test]
+    fn test_reciprocal_quartic_transform_nonzero_root() {
+        // x^4 - x^3 has root 1. With x = 1 + 1/t, P4(x) = (t+1)^3/t^4.
+        let poly = vec![
+            Value::Int(0),
+            Value::Int(0),
+            Value::Int(0),
+            Value::Int(-1),
+            Value::Int(1),
+        ];
+        let transformed = super::reciprocal_quartic_transform(&poly, &Value::Int(1))
+            .expect("nonzero-root reciprocal transform should succeed");
+        assert_eq!(
+            transformed,
+            vec![Value::Int(1), Value::Int(3), Value::Int(3), Value::Int(1)]
+        );
     }
 
     // ── Square factor extraction tests ──

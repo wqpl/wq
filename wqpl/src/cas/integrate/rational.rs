@@ -1398,13 +1398,11 @@ fn factor_by_radical_formula(poly: &[Value]) -> WqResult<Option<Vec<Vec<Value>>>
     }
 }
 
-/// Find a rational root of a polynomial using the Rational Root Theorem.
-/// Returns Some([c, 1] = x - root) if found.
-fn find_rational_root(poly: &[Value]) -> Option<Vec<Value>> {
+/// Find a rational root value of a polynomial using the Rational Root Theorem.
+pub(super) fn find_rational_root_value(poly: &[Value]) -> Option<Value> {
     // Special case: if constant term is 0, x=0 is a root
     if poly.first().is_some_and(numeric_is_zero) {
-        // Factor out x: linear factor is [0, 1] = x - 0
-        return Some(vec![Value::Int(0), Value::Int(1)]);
+        return Some(Value::Int(0));
     }
 
     // Get constant term (c0) and leading coefficient (cn)
@@ -1436,15 +1434,21 @@ fn find_rational_root(poly: &[Value]) -> Option<Vec<Value>> {
                 // Evaluate polynomial at root
                 let result = poly_evaluate(poly, &root_val).ok()?;
                 if numeric_is_zero(&result) {
-                    // Build linear factor: x - root → [c, 1] where c = -root
-                    let c = eval_numeric_binary("*", &root_val, &Value::Int(-1)).ok()?;
-                    return Some(vec![c, Value::Int(1)]);
+                    return Some(root_val);
                 }
             }
         }
     }
 
     None
+}
+
+/// Find a rational root of a polynomial using the Rational Root Theorem.
+/// Returns Some([c, 1] = x - root) if found.
+fn find_rational_root(poly: &[Value]) -> Option<Vec<Value>> {
+    let root = find_rational_root_value(poly)?;
+    let c = eval_numeric_binary("*", &root, &Value::Int(-1)).ok()?;
+    Some(vec![c, Value::Int(1)])
 }
 
 /// Get all positive integer divisors of a Value (if it represents an integer).
