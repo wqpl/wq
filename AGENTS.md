@@ -57,3 +57,9 @@
   - Prefer `pub(super)` over `pub(crate)`.
   - Prefer `pub(crate)` over `pub`.
   - Avoid `pub` if it is not intended to be public API.
+- Use these newer Rust features when they improve code style:
+
+| Feature         | Stabilized in | Release date | Notes                                                                                                 |
+| --------------- | ------------- | ------------ | ----------------------------------------------------------------------------------------------------- |
+| let chains      | Rust 1.88.0   | 2025-06-26   | Stable only in Rust 2024 edition. Allows `if let ... && let ... && condition` and similar in `while`. |
+| `if let` guards | Rust 1.95.0   | 2026-04-16   | Stabilizes `if let` guards on `match` arms, e.g. `pat if let Some(x) = expr => ...`.                  |
