@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use colored::Colorize;
 use wqpl::session::Session;
 use wqpl::symbol::UseKind;
 
@@ -51,22 +52,39 @@ pub fn run_symbols<P: AsRef<Path>>(path: P, name: &str) {
 }
 
 fn print_symbol_result(src: &str, result: &wqpl::symbol::SymbolQueryResult) {
+    let ref_capture_count = result
+        .uses
+        .iter()
+        .filter(|loc| loc.kind.is_ref_capture())
+        .count();
+    let ref_capture_note = if ref_capture_count == 0 {
+        String::new()
+    } else {
+        format!(
+            "  {}",
+            format!("ref captures: {ref_capture_count}")
+                .magenta()
+                .bold()
+        )
+    };
     match result.def_span {
         Some((start, _)) => {
             let (line, col) = line_col(src, start);
-            println!("{} @ {}:{}", result.name, line, col);
+            println!("{} @ {}:{}{}", result.name, line, col, ref_capture_note);
         }
         None => {
-            println!("{} @ <synthetic>", result.name);
+            println!("{} @ <synthetic>{}", result.name, ref_capture_note);
         }
     }
     for loc in &result.uses {
         let (l, c) = line_col(src, loc.span.0);
         let kind_str = match loc.kind {
-            UseKind::Read => "read  ",
-            UseKind::Write => "write ",
-            UseKind::OuterRead => "outer-read  ",
-            UseKind::OuterWrite => "outer-write ",
+            UseKind::Read => "read       ".normal(),
+            UseKind::Write => "write      ".normal(),
+            UseKind::OuterRead => "outer-ref-r".magenta().bold(),
+            UseKind::OuterWrite => "outer-ref-w".magenta().bold(),
+            UseKind::RefCaptureRead => "ref-read   ".magenta().bold(),
+            UseKind::RefCaptureWrite => "ref-write  ".magenta().bold(),
         };
         let snippet = snippet_at(src, loc.span);
         println!("  {} {}:{}  {}", kind_str, l, c, snippet);

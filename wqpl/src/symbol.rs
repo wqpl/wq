@@ -22,6 +22,31 @@ pub enum UseKind {
     Write,
     OuterRead,
     OuterWrite,
+    RefCaptureRead,
+    RefCaptureWrite,
+}
+
+impl UseKind {
+    pub fn is_read(self) -> bool {
+        matches!(
+            self,
+            Self::Read | Self::OuterRead | Self::RefCaptureRead
+        )
+    }
+
+    pub fn is_write(self) -> bool {
+        matches!(
+            self,
+            Self::Write | Self::OuterWrite | Self::RefCaptureWrite
+        )
+    }
+
+    pub fn is_ref_capture(self) -> bool {
+        matches!(
+            self,
+            Self::OuterRead | Self::OuterWrite | Self::RefCaptureRead | Self::RefCaptureWrite
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +130,25 @@ impl SymbolIndex {
             .map(|(_, v)| v.clone())
     }
 
+    pub fn def_has_ref_capture(&self, def_idx: usize) -> bool {
+        self.ref_capture_count(def_idx) > 0
+    }
+
+    pub fn ref_capture_count(&self, def_idx: usize) -> usize {
+        self.uses
+            .iter()
+            .filter(|u| u.def_idx == Some(def_idx) && u.kind.is_ref_capture())
+            .count()
+    }
+
+    pub fn ref_capture_spans(&self) -> Vec<(usize, usize)> {
+        self.uses
+            .iter()
+            .filter(|u| u.kind.is_ref_capture())
+            .filter_map(|u| u.span)
+            .collect()
+    }
+
     fn gather_result(&self, def_idx: usize, name: &str) -> SymbolQueryResult {
         let def = &self.defs[def_idx];
         let mut uses = Vec::new();
@@ -163,6 +207,7 @@ struct SymbolAnalyzer {
     literals: Vec<((usize, usize), Value)>,
     errors: Vec<((usize, usize), WqError)>,
     func_stack: Vec<usize>,
+    ref_capture_stack: Vec<bool>,
 }
 
 impl SymbolAnalyzer {
@@ -191,6 +236,7 @@ impl SymbolAnalyzer {
             literals: Vec::new(),
             errors: Vec::new(),
             func_stack: Vec::new(),
+            ref_capture_stack: Vec::new(),
         }
     }
 
@@ -229,6 +275,36 @@ impl SymbolAnalyzer {
             }
         }
         None
+    }
+
+    fn resolve_ref_capture_read(&self, name: &str) -> Option<usize> {
+        if !self.is_ref_capture_scope() || self.current_scope().contains_key(name) {
+            return None;
+        }
+        let def_idx = self.resolve_outer(name)?;
+        let def = self.defs.get(def_idx)?;
+        (def.kind != DefKind::Builtin).then_some(def_idx)
+    }
+
+    fn resolve_ref_capture_write(&self, name: &str, plain_assignment: bool) -> Option<usize> {
+        let def_idx = self.resolve_ref_capture_read(name)?;
+        let def = self.defs.get(def_idx)?;
+        if plain_assignment && def.parent.is_none() {
+            return None;
+        }
+        Some(def_idx)
+    }
+
+    fn is_ref_capture_scope(&self) -> bool {
+        self.ref_capture_stack.last().copied().unwrap_or(false)
+    }
+
+    fn read_use(&self, name: &str) -> (UseKind, Option<usize>) {
+        if let Some(def_idx) = self.resolve_ref_capture_read(name) {
+            (UseKind::RefCaptureRead, Some(def_idx))
+        } else {
+            (UseKind::Read, self.resolve(name))
+        }
     }
 
     fn bind(&mut self, name: &str, def_idx: usize) {
@@ -284,8 +360,8 @@ impl SymbolAnalyzer {
                 }
             }
             AstNode::Variable(name, span) => {
-                let def_idx = self.resolve(name);
-                self.add_use(name, *span, UseKind::Read, def_idx);
+                let (kind, def_idx) = self.read_use(name);
+                self.add_use(name, *span, kind, def_idx);
             }
             AstNode::OuterVariable(name, span) => {
                 let def_idx = self.resolve_outer(name);
@@ -318,7 +394,7 @@ impl SymbolAnalyzer {
             }
             AstNode::Assignment {
                 name,
-                op: _,
+                op,
                 value,
                 span,
                 name_span,
@@ -327,7 +403,12 @@ impl SymbolAnalyzer {
                     self.analyze(value);
                     return;
                 }
-                if let AstNode::Function { params, body, .. } = &**value {
+                if let AstNode::Function {
+                    params,
+                    ref_capture,
+                    body,
+                } = &**value
+                {
                     // Named function: name is visible in body for recursion.
                     let param_names = params
                         .as_ref()
@@ -345,6 +426,7 @@ impl SymbolAnalyzer {
 
                     self.push_scope();
                     self.bind(name, func_def_idx);
+                    self.ref_capture_stack.push(*ref_capture);
 
                     self.func_stack.push(func_def_idx);
                     if let Some(ps) = params {
@@ -376,22 +458,29 @@ impl SymbolAnalyzer {
                     }
                     self.analyze(body);
                     self.func_stack.pop();
+                    self.ref_capture_stack.pop();
                     self.pop_scope();
 
                     self.add_use(name, *name_span, UseKind::Write, Some(func_def_idx));
                 } else {
                     self.analyze(value);
-                    let parent = self.func_stack.last().copied();
-                    let def_idx = self.add_def(
-                        name,
-                        *name_span,
-                        *name_span,
-                        DefKind::Assignment,
-                        None,
-                        parent,
-                    );
-                    self.bind(name, def_idx);
-                    self.add_use(name, *name_span, UseKind::Write, Some(def_idx));
+                    if let Some(def_idx) =
+                        self.resolve_ref_capture_write(name, op.is_none())
+                    {
+                        self.add_use(name, *name_span, UseKind::RefCaptureWrite, Some(def_idx));
+                    } else {
+                        let parent = self.func_stack.last().copied();
+                        let def_idx = self.add_def(
+                            name,
+                            *name_span,
+                            *name_span,
+                            DefKind::Assignment,
+                            None,
+                            parent,
+                        );
+                        self.bind(name, def_idx);
+                        self.add_use(name, *name_span, UseKind::Write, Some(def_idx));
+                    }
                 }
             }
             AstNode::OuterAssignment {
@@ -442,8 +531,8 @@ impl SymbolAnalyzer {
                 span: _,
                 name_span,
             } => {
-                let def_idx = self.resolve(name);
-                self.add_use(name, *name_span, UseKind::Read, def_idx);
+                let (kind, def_idx) = self.read_use(name);
+                self.add_use(name, *name_span, kind, def_idx);
                 for arg in args {
                     self.analyze(arg);
                 }
@@ -482,7 +571,11 @@ impl SymbolAnalyzer {
                 self.analyze(index);
                 self.analyze(value);
             }
-            AstNode::Function { params, body, .. } => {
+            AstNode::Function {
+                params,
+                ref_capture,
+                body,
+            } => {
                 // Anonymous function: create a synthetic def so inner assignments
                 // can be nested under it in the symbol tree.
                 let lambda_span = body.span();
@@ -491,6 +584,7 @@ impl SymbolAnalyzer {
                     self.add_def("{...}", lambda_span, None, DefKind::Function, None, parent);
                 self.func_stack.push(lambda_idx);
                 self.push_scope();
+                self.ref_capture_stack.push(*ref_capture);
                 if let Some(ps) = params {
                     for p in ps {
                         let pname = p.name();
@@ -519,6 +613,7 @@ impl SymbolAnalyzer {
                     }
                 }
                 self.analyze(body);
+                self.ref_capture_stack.pop();
                 self.pop_scope();
                 self.func_stack.pop();
             }
@@ -754,6 +849,56 @@ mod tests {
         let res = index.query_at(9).unwrap(); // on 'a' inside '
         assert_eq!(res.name, "a");
         assert_eq!(res.def_span, Some((0, 1)));
+    }
+
+    #[test]
+    fn ref_default_read_marks_ref_capture() {
+        let ast = parse("a:1; f:'{[] a}; f[]");
+        let index = SymbolIndex::analyze(&ast, &crate::builtins::Builtins::new());
+        let res = index.query_at(12).unwrap();
+        assert_eq!(res.name, "a");
+        assert_eq!(res.def_span, Some((0, 1)));
+        assert_eq!(spans_of(&res, UseKind::RefCaptureRead), vec![(12, 13)]);
+
+        let def_idx = index
+            .defs
+            .iter()
+            .position(|d| d.name == "a" && d.name_span == Some((0, 1)))
+            .unwrap();
+        assert!(index.def_has_ref_capture(def_idx));
+        assert_eq!(index.ref_capture_spans(), vec![(12, 13)]);
+    }
+
+    #[test]
+    fn ref_default_write_marks_outer_locals() {
+        let src = "outer:{[] a:1; inner:'{[] a:2}; inner[]; a}; outer[]";
+        let ast = parse(src);
+        let index = SymbolIndex::analyze(&ast, &crate::builtins::Builtins::new());
+        let outer_a = src.find("a:1").unwrap();
+        let inner_a = src.find("a:2").unwrap();
+        let res = index.query_at(outer_a).unwrap();
+
+        assert_eq!(res.name, "a");
+        assert_eq!(
+            spans_of(&res, UseKind::RefCaptureWrite),
+            vec![(inner_a, inner_a + 1)]
+        );
+    }
+
+    #[test]
+    fn ref_default_top_level_plain_assignment_stays_local() {
+        let ast = parse("a:1; f:'{[] a:2}; f[]; a");
+        let index = SymbolIndex::analyze(&ast, &crate::builtins::Builtins::new());
+        let res = index.query_at(0).unwrap();
+        assert!(spans_of(&res, UseKind::RefCaptureWrite).is_empty());
+    }
+
+    #[test]
+    fn ref_default_augmented_assignment_marks_ref_capture() {
+        let ast = parse("a:1; f:'{[] a+:2}; f[]; a");
+        let index = SymbolIndex::analyze(&ast, &crate::builtins::Builtins::new());
+        let res = index.query_at(0).unwrap();
+        assert_eq!(spans_of(&res, UseKind::RefCaptureWrite), vec![(12, 13)]);
     }
 
     #[test]

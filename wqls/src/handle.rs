@@ -9,7 +9,7 @@ use wqpl::cst::GreenNode;
 // use wqpl::format::{FormatConfig, Formatter};
 use wqpl::highlight::Highlighter;
 use wqpl::session::Session;
-use wqpl::symbol::DefKind;
+use wqpl::symbol::{DefKind, SymbolDef, SymbolIndex};
 use wqpl::wqerror::WqError;
 
 // const PARSER_INTERNAL_PREFIX: &str = "--";
@@ -256,7 +256,16 @@ impl LanguageServer for Backend {
         let content = self.get_document(uri)?;
         let highlighter = Highlighter::new();
         let events = highlighter.highlight(&content);
-        let tokens = crate::token::semantic_tokens_from_events(&content, &events);
+        let session = Session::new();
+        let ref_capture_spans = session
+            .analyze_symbols(&content)
+            .map(|index| index.ref_capture_spans())
+            .unwrap_or_default();
+        let tokens = crate::token::semantic_tokens_from_events_with_ref_captures(
+            &content,
+            &events,
+            &ref_capture_spans,
+        );
         Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
             result_id: None,
             data: tokens,
@@ -306,12 +315,13 @@ impl LanguageServer for Backend {
                 }
 
                 fn build_symbol(
+                    index: &SymbolIndex,
                     defs: &[(usize, &wqpl::symbol::SymbolDef)],
                     idx: usize,
                     children_map: &HashMap<usize, Vec<usize>>,
                     content: &str,
                 ) -> DocumentSymbol {
-                    let def = defs[idx].1;
+                    let (def_idx, def) = defs[idx];
                     let span = def.span.unwrap();
                     let start = byte_offset_to_position(content, span.0);
                     let end = byte_offset_to_position(content, span.1);
@@ -330,33 +340,16 @@ impl LanguageServer for Backend {
                         }
                         _ => (Range { start, end }, Range { start, end }),
                     };
-                    let kind = match def.kind {
-                        DefKind::Assignment => SymbolKind::VARIABLE,
-                        DefKind::Function => SymbolKind::FUNCTION,
-                        DefKind::Parameter => SymbolKind::CONSTANT,
-                        DefKind::ImplicitParam => SymbolKind::VARIABLE,
-                        DefKind::LoopCounter => SymbolKind::VARIABLE,
-                        DefKind::Builtin => unreachable!(),
-                    };
-                    let detail = if def.kind == DefKind::Function {
-                        def.params.as_ref().map(|ps| {
-                            if ps.is_empty() {
-                                "[]".to_string()
-                            } else {
-                                format!("[{}]", ps.join(";"))
-                            }
-                        })
-                    } else {
-                        None
-                    };
+                    let kind = symbol_kind(def.kind);
+                    let detail = symbol_detail(index, def_idx, def);
                     let children = children_map.get(&idx).map(|child_idxs| {
                         child_idxs
                             .iter()
-                            .map(|&c| build_symbol(defs, c, children_map, content))
+                            .map(|&c| build_symbol(index, defs, c, children_map, content))
                             .collect()
                     });
                     DocumentSymbol {
-                        name: def.name.clone(),
+                        name: symbol_display_name(index, def_idx, def),
                         detail,
                         kind,
                         tags: None,
@@ -369,7 +362,7 @@ impl LanguageServer for Backend {
 
                 top_level
                     .into_iter()
-                    .map(|idx| build_symbol(&valid_defs, idx, &children_map, &content))
+                    .map(|idx| build_symbol(&index, &valid_defs, idx, &children_map, &content))
                     .collect()
             }
             Err(_) => Vec::new(),
@@ -505,10 +498,22 @@ impl LanguageServer for Backend {
         let session = Session::new();
         let mut name = None;
         let mut user_params = None;
+        let mut ref_capture_at_cursor = false;
+        let mut ref_capture_count = 0usize;
 
         // Try symbol index first
         if let Ok(index) = session.analyze_symbols(&content) {
             if let Some(result) = index.query_at(byte_offset) {
+                ref_capture_at_cursor = result.uses.iter().any(|loc| {
+                    loc.kind.is_ref_capture()
+                        && loc.span.0 <= byte_offset
+                        && byte_offset < loc.span.1
+                });
+                ref_capture_count = result
+                    .uses
+                    .iter()
+                    .filter(|loc| loc.kind.is_ref_capture())
+                    .count();
                 name = Some(result.name.clone());
                 user_params = result.params;
             } else if let Some(val) = index.query_literal_at(byte_offset) {
@@ -553,6 +558,11 @@ impl LanguageServer for Backend {
 
         if let Some(name) = name {
             let mut text = format!("**{}**", name);
+            if ref_capture_at_cursor {
+                text.push_str("\n\n`ref capture`");
+            } else if ref_capture_count > 0 {
+                text.push_str(&format!("\n\nref captures: `{}`", ref_capture_count));
+            }
 
             let builtins = session.builtins();
             if builtins.is_known_name(&name)
@@ -658,13 +668,10 @@ impl LanguageServer for Backend {
             }
 
             for u in &result.uses {
-                let kind = match u.kind {
-                    wqpl::symbol::UseKind::Read | wqpl::symbol::UseKind::OuterRead => {
-                        DocumentHighlightKind::READ
-                    }
-                    wqpl::symbol::UseKind::Write | wqpl::symbol::UseKind::OuterWrite => {
-                        DocumentHighlightKind::WRITE
-                    }
+                let kind = if u.kind.is_write() {
+                    DocumentHighlightKind::WRITE
+                } else {
+                    DocumentHighlightKind::READ
                 };
                 highlights.push(DocumentHighlight {
                     range: Range {
@@ -694,7 +701,7 @@ impl LanguageServer for Backend {
         for (uri, doc) in docs.iter() {
             let session = Session::new();
             if let Ok(index) = session.analyze_symbols(&doc.text) {
-                for def in &index.defs {
+                for (def_idx, def) in index.defs.iter().enumerate() {
                     if def.kind != DefKind::Builtin
                         // && !def.name.starts_with(PARSER_INTERNAL_PREFIX)
                         && def.name.to_lowercase().contains(&query)
@@ -702,19 +709,12 @@ impl LanguageServer for Backend {
                     {
                         let start = byte_offset_to_position(&doc.text, span.0);
                         let end = byte_offset_to_position(&doc.text, span.1);
-                        let kind = match def.kind {
-                            DefKind::Assignment => SymbolKind::VARIABLE,
-                            DefKind::Function => SymbolKind::FUNCTION,
-                            DefKind::Parameter => SymbolKind::CONSTANT,
-                            DefKind::ImplicitParam => SymbolKind::VARIABLE,
-                            DefKind::LoopCounter => SymbolKind::VARIABLE,
-                            DefKind::Builtin => unreachable!(),
-                        };
+                        let kind = symbol_kind(def.kind);
                         let container_name = def
                             .parent
                             .and_then(|p| index.defs.get(p).map(|d| d.name.clone()));
                         symbols.push(SymbolInformation {
-                            name: def.name.clone(),
+                            name: symbol_display_name(&index, def_idx, def),
                             kind,
                             tags: None,
                             deprecated: None,
@@ -921,6 +921,46 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 }
+
+fn symbol_kind(kind: DefKind) -> SymbolKind {
+    match kind {
+        DefKind::Assignment => SymbolKind::VARIABLE,
+        DefKind::Function => SymbolKind::FUNCTION,
+        DefKind::Parameter => SymbolKind::CONSTANT,
+        DefKind::ImplicitParam => SymbolKind::VARIABLE,
+        DefKind::LoopCounter => SymbolKind::VARIABLE,
+        DefKind::Builtin => unreachable!(),
+    }
+}
+
+fn symbol_display_name(index: &SymbolIndex, def_idx: usize, def: &SymbolDef) -> String {
+    if index.def_has_ref_capture(def_idx) {
+        format!("{} [ref]", def.name)
+    } else {
+        def.name.clone()
+    }
+}
+
+fn symbol_detail(index: &SymbolIndex, def_idx: usize, def: &SymbolDef) -> Option<String> {
+    let mut parts = Vec::new();
+    if def.kind == DefKind::Function
+        && let Some(params) = &def.params
+    {
+        if params.is_empty() {
+            parts.push("[]".to_string());
+        } else {
+            parts.push(format!("[{}]", params.join(";")));
+        }
+    }
+
+    let ref_capture_count = index.ref_capture_count(def_idx);
+    if ref_capture_count > 0 {
+        parts.push(format!("ref captures: {ref_capture_count}"));
+    }
+
+    (!parts.is_empty()).then(|| parts.join(" | "))
+}
+
 /// Returns true if the cursor is inside a zone where completions should not
 /// be offered: shebang / `!` directive lines, comments, or plain string
 /// literals.  Format-string `{expr}` braced expressions are allowed.

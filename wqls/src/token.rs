@@ -1,5 +1,9 @@
-use tower_lsp::lsp_types::{SemanticToken, SemanticTokenType, SemanticTokensLegend};
+use tower_lsp::lsp_types::{
+    SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokensLegend,
+};
 use wqpl::highlight::HighlightName;
+
+const REF_CAPTURE_MODIFIER_BIT: u32 = 1;
 
 pub fn legend() -> SemanticTokensLegend {
     SemanticTokensLegend {
@@ -17,7 +21,7 @@ pub fn legend() -> SemanticTokensLegend {
             SemanticTokenType::TYPE,
             SemanticTokenType::PARAMETER,
         ],
-        token_modifiers: vec![],
+        token_modifiers: vec![SemanticTokenModifier::new("refCapture")],
     }
 }
 
@@ -63,9 +67,10 @@ fn byte_offset_to_position(src: &str, offset: usize) -> tower_lsp::lsp_types::Po
     tower_lsp::lsp_types::Position { line, character }
 }
 
-pub fn semantic_tokens_from_events(
+pub fn semantic_tokens_from_events_with_ref_captures(
     src: &str,
     events: &[wqpl::highlight::HighlightEvent],
+    ref_capture_spans: &[(usize, usize)],
 ) -> Vec<SemanticToken> {
     let mut tokens = Vec::new();
     let mut stack: Vec<HighlightName> = Vec::new();
@@ -100,7 +105,15 @@ pub fn semantic_tokens_from_events(
                         delta_start,
                         length,
                         token_type,
-                        token_modifiers_bitset: 0,
+                        token_modifiers_bitset: if intersects_any(
+                            ref_capture_spans,
+                            *start,
+                            *end,
+                        ) {
+                            REF_CAPTURE_MODIFIER_BIT
+                        } else {
+                            0
+                        },
                     });
 
                     last_line = start_pos.line;
@@ -111,6 +124,10 @@ pub fn semantic_tokens_from_events(
     }
 
     tokens
+}
+
+fn intersects_any(spans: &[(usize, usize)], start: usize, end: usize) -> bool {
+    spans.iter().any(|(s, e)| *s < end && start < *e)
 }
 
 #[cfg(test)]
@@ -164,7 +181,7 @@ mod tests {
             HighlightEvent::Source { start: 2, end: 3 },
             HighlightEvent::HighlightEnd,
         ];
-        let tokens = semantic_tokens_from_events(src, &events);
+        let tokens = semantic_tokens_from_events_with_ref_captures(src, &events, &[]);
         assert_eq!(tokens.len(), 2);
 
         // Variable "a" at line 0, char 0, length 1
@@ -178,5 +195,21 @@ mod tests {
         assert_eq!(tokens[1].delta_start, 2);
         assert_eq!(tokens[1].length, 1);
         assert_eq!(tokens[1].token_type, 6); // NUMBER
+    }
+
+    #[test]
+    fn ref_capture_modifier_marks_overlapping_token() {
+        let src = "a 1";
+        let events = vec![
+            HighlightEvent::HighlightStart(HighlightName::Variable),
+            HighlightEvent::Source { start: 0, end: 1 },
+            HighlightEvent::HighlightEnd,
+            HighlightEvent::HighlightStart(HighlightName::Number),
+            HighlightEvent::Source { start: 2, end: 3 },
+            HighlightEvent::HighlightEnd,
+        ];
+        let tokens = semantic_tokens_from_events_with_ref_captures(src, &events, &[(0, 1)]);
+        assert_eq!(tokens[0].token_modifiers_bitset, REF_CAPTURE_MODIFIER_BIT);
+        assert_eq!(tokens[1].token_modifiers_bitset, 0);
     }
 }
