@@ -180,6 +180,10 @@ impl Session {
         if let Some((path, _)) = self.dbg_source_ctx.as_ref() {
             parser.set_source_path(path.clone());
         }
+        let dump_cst = get_debug_log_flags().contains(DebugLogFlags::CST);
+        if dump_cst {
+            parser.enable_cst();
+        }
         let ast_src = self
             .dbg_source_ctx
             .as_ref()
@@ -189,6 +193,15 @@ impl Session {
         let ast = parser.parse()?;
         if let Some(eof_err) = parser.eof_error() {
             return Err(eof_err.clone());
+        }
+        if dump_cst {
+            let cst = parser
+                .take_cst()
+                .expect("enable_cst was just called, so take_cst yields Some");
+            let header = "CST".bold().underline().to_string();
+            wqstderr_println(header);
+            wqstderr_println(crate::cst::SyntaxNode::new_root(cst).pretty_print());
+            wqstderr_println("");
         }
 
         let dump_ast = |s: &str, ast: &AstNode, flag: u16| {

@@ -226,6 +226,7 @@ fn parse_debug(s: &str) -> Result<DebugLogFlags, String> {
 
 fn print_debug_help() {
     let token = "token".red();
+    let cst = "cst".cyan();
     let ast = "ast".yellow();
     let ast_v = "ast-v".bright_yellow();
     let inst = "inst".green();
@@ -239,7 +240,7 @@ fn print_debug_help() {
     println!();
     println!("{}", "Debug flags".bold().underline());
     println!(
-        "  {token}, {ast}, {ast_v}, {inst}, {inst_v}, {wqdb_1}, {wqdb_2}, {value}, {cas}, {cas_v}"
+        "  {token}, {cst}, {ast}, {ast_v}, {inst}, {inst_v}, {wqdb_1}, {wqdb_2}, {value}, {cas}, {cas_v}"
     );
 
     println!();
@@ -531,8 +532,8 @@ mod tests {
 
     #[test]
     fn debug_names_parse() {
-        let (rt, _) = ok(parse_args(v(&["--debug", "token,inst,wqdb", "a.wq"])));
-        let expected = DebugLogFlags::from_names(["token", "inst", "wqdb"]);
+        let (rt, _) = ok(parse_args(v(&["--debug", "token,cst,inst,wqdb", "a.wq"])));
+        let expected = DebugLogFlags::from_names(["token", "cst", "inst", "wqdb"]);
         assert_eq!(rt.debug_flags, expected);
     }
 

@@ -1409,6 +1409,15 @@ fn format_debug_flags(flags: DebugLogFlags) -> String {
 fn debug_help_table(active: DebugLogFlags) -> String {
     let rows = [
         ("active", format_debug_flags(active)),
+        (
+            "names",
+            DebugLogFlags::from_names([
+                "token", "cst", "ast", "ast-v", "inst", "inst-v", "wqdb", "wqdb-v", "value",
+                "cas", "cas-v",
+            ])
+            .display_names()
+            .join(","),
+        ),
         ("0", "off".to_string()),
         ("1", "inst".to_string()),
         ("2", "ast,inst".to_string()),

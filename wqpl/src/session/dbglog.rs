@@ -22,6 +22,8 @@ impl DebugLogFlags {
     pub const CAS: u16 = 1 << 8;
     pub const CAS_VERBOSE: u16 = 1 << 9;
 
+    pub const CST: u16 = 1 << 10;
+
     pub const fn empty() -> Self {
         Self { bits: 0 }
     }
@@ -118,8 +120,9 @@ impl DebugLogFlags {
     }
 }
 
-pub const DEBUG_LOG_FLAG_NAMES: [(&[&str], u16); 10] = [
+pub const DEBUG_LOG_FLAG_NAMES: [(&[&str], u16); 11] = [
     (&["token", "t"], DebugLogFlags::TOKEN),
+    (&["cst"], DebugLogFlags::CST),
     (&["ast", "a"], DebugLogFlags::AST),
     (&["ast-v", "av"], DebugLogFlags::AST_VERBOSE),
     (&["inst", "i"], DebugLogFlags::INST),
@@ -159,4 +162,17 @@ pub fn set_debug_log_flags(flags: DebugLogFlags) {
 
 pub fn get_debug_log_flags() -> DebugLogFlags {
     DebugLogFlags::from_bits(DEBUG_LOG_FLAGS.load(Ordering::Relaxed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cst_flag_parses_and_displays() {
+        let flags = DebugLogFlags::parse("cst").expect("parse cst debug flag");
+
+        assert!(flags.contains(DebugLogFlags::CST));
+        assert_eq!(flags.display_names(), vec!["cst"]);
+    }
 }
