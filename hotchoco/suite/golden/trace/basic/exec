@@ -1,7 +1,10 @@
 (3;3)
-[<TEST_PATH> @d (a+b*c) = 7 (int)
+[<TEST_PATH>
+@d (a+b*c) = 7 (int)
 └─ b*c = 6 (int)
-[<TEST_PATH> @d ((a-b)*c) = -3 (int)
+[<TEST_PATH>
+@d ((a-b)*c) = -3 (int)
 └─ a-b = -1 (int)
-[<TEST_PATH> @d (a+b;c) = (3;3) (intlist)
+[<TEST_PATH>
+@d (a+b;c) = (3;3) (intlist)
 └─ a+b = 3 (int)

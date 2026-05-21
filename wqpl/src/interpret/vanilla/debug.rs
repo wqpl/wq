@@ -1,6 +1,5 @@
-use colored::Colorize;
-
 use crate::astnode::BinaryOperator;
+use crate::highlight::Highlighter;
 use crate::value::{Excerpt, Value};
 use crate::vm::Vm;
 use crate::vm::inst::{BinaryOpData, Instruction, Operand};
@@ -49,6 +48,16 @@ pub(super) fn format_debug_expr(source: &str, start: usize, end: usize) -> Strin
 }
 
 pub(super) fn render_debug_line(vm: &Vm, pc: usize, value: &Value) -> String {
+    let highlighter = Highlighter::new();
+    render_debug_line_with_highlighter(vm, pc, value, &highlighter)
+}
+
+fn render_debug_line_with_highlighter(
+    vm: &Vm,
+    pc: usize,
+    value: &Value,
+    highlighter: &Highlighter,
+) -> String {
     let chunk = vm.current_chunk;
     let meta = vm.debug_info.chunk(chunk);
     let span = meta.line_table.span_at(pc);
@@ -59,10 +68,10 @@ pub(super) fn render_debug_line(vm: &Vm, pc: usize, value: &Value) -> String {
         let end = span.end as usize;
         let (line, col) = file.line_col(start);
         let expr = format_debug_expr(file.text.as_ref(), start, end);
+        let expr = highlighter.highlight_ansi(&expr);
         format!(
-            "[{path}:{line}:{col}] {expr} = {value} ({type})",
+            "[{path}:{line}:{col}]\n{expr} = {value} ({type})",
             path = file.path,
-            expr = expr.underline(),
             type = value.type_name()
         )
     } else {
@@ -201,7 +210,8 @@ pub(super) fn render_trace_line(
     final_value: &Value,
     records: &[TraceRecord],
 ) -> String {
-    let head = render_debug_line(vm, debug_pc, final_value);
+    let highlighter = Highlighter::new();
+    let head = render_debug_line_with_highlighter(vm, debug_pc, final_value, &highlighter);
     if records.is_empty() {
         return head;
     }
@@ -220,11 +230,17 @@ pub(super) fn render_trace_line(
         return head;
     }
     let mut out = head;
-    render_children(vm, &children, "", &mut out);
+    render_children(vm, &children, "", &mut out, &highlighter);
     out
 }
 
-fn render_children(vm: &Vm, nodes: &[TraceNode], prefix: &str, out: &mut String) {
+fn render_children(
+    vm: &Vm,
+    nodes: &[TraceNode],
+    prefix: &str,
+    out: &mut String,
+    highlighter: &Highlighter,
+) {
     let last_i = nodes.len().saturating_sub(1);
     for (i, node) in nodes.iter().enumerate() {
         let is_last = i == last_i;
@@ -233,30 +249,28 @@ fn render_children(vm: &Vm, nodes: &[TraceNode], prefix: &str, out: &mut String)
         out.push('\n');
         out.push_str(prefix);
         out.push_str(connector);
-        out.push_str(&format_trace_node(vm, &node.record));
+        out.push_str(&format_trace_node(vm, &node.record, highlighter));
         let mut next_prefix = String::with_capacity(prefix.len() + child_prefix.len());
         next_prefix.push_str(prefix);
         next_prefix.push_str(child_prefix);
-        render_children(vm, &node.children, &next_prefix, out);
+        render_children(vm, &node.children, &next_prefix, out, highlighter);
     }
 }
 
-fn format_trace_node(vm: &Vm, rec: &TraceRecord) -> String {
+fn format_trace_node(vm: &Vm, rec: &TraceRecord, highlighter: &Highlighter) -> String {
     let file = vm.debug_info().file(rec.span.file_id);
     let expr = match file {
-        Some(f) => format_debug_expr(
-            f.text.as_ref(),
-            rec.span.start as usize,
-            rec.span.end as usize,
-        ),
+        Some(f) => {
+            let expr = format_debug_expr(
+                f.text.as_ref(),
+                rec.span.start as usize,
+                rec.span.end as usize,
+            );
+            highlighter.highlight_ansi(&expr)
+        }
         None => "<expr>".to_string(),
     };
-    format!(
-        "{} = {} ({})",
-        expr.underline(),
-        rec.value_excerpt,
-        rec.type_name
-    )
+    format!("{} = {} ({})", expr, rec.value_excerpt, rec.type_name)
 }
 
 /// Attach source context from the current PC to a `WqError`, if debug info is
@@ -278,6 +292,24 @@ pub(super) fn attach_pc_source_ctx(vm: &Vm, pc: usize, err: WqError) -> WqError 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wqdb::data::Span;
+
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
 
     fn vm_with_local_names(inst: Instruction, names: &[&str]) -> Vm {
         let mut vm = Vm::new(vec![inst]);
@@ -327,5 +359,80 @@ mod tests {
         let vm = vm_with_local_names(inst, &["_n", "limit"]);
 
         assert!(!is_synthetic_n_loop_probe(&vm, 0));
+    }
+
+    #[test]
+    fn render_trace_line_highlights_snippets_without_underlines() {
+        let source = "@d 1+2";
+        let mut vm = Vm::new(vec![Instruction::Return]);
+        let file_id = vm.debug_info.new_file("<trace-test>", source);
+        let chunk = vm.debug_info.new_chunk("<trace-test>", file_id, 1);
+        vm.current_chunk = chunk;
+        vm.debug_info.chunk_mut(chunk).line_table.set_exact_span(
+            0,
+            Span {
+                file_id,
+                start: 3,
+                end: 6,
+            },
+        );
+
+        let records = [
+            TraceRecord {
+                span: Span {
+                    file_id,
+                    start: 3,
+                    end: 4,
+                },
+                value_excerpt: "1".to_string(),
+                type_name: "int",
+                call_depth: 0,
+            },
+            TraceRecord {
+                span: Span {
+                    file_id,
+                    start: 5,
+                    end: 6,
+                },
+                value_excerpt: "2".to_string(),
+                type_name: "int",
+                call_depth: 0,
+            },
+            TraceRecord {
+                span: Span {
+                    file_id,
+                    start: 3,
+                    end: 6,
+                },
+                value_excerpt: "3".to_string(),
+                type_name: "int",
+                call_depth: 0,
+            },
+        ];
+
+        colored::control::set_override(true);
+        let rendered = render_trace_line(&vm, 0, &Value::Int(3), &records);
+        colored::control::unset_override();
+
+        assert!(
+            rendered.contains("\x1b[38;5;220m1\x1b[0m\x1b[38;5;208m+\x1b[0m"),
+            "expected highlighted expression snippet, got: {rendered:?}"
+        );
+        assert!(
+            rendered.contains("├─ \x1b[38;5;220m1\x1b[0m = 1 (int)"),
+            "expected highlighted child trace snippet, got: {rendered:?}"
+        );
+        assert!(
+            !rendered.contains("\x1b[4m") && !rendered.contains("\x1b[4;"),
+            "trace snippets should not be underlined, got: {rendered:?}"
+        );
+        assert!(
+            strip_ansi(&rendered).contains("[<trace-test>:1:4] 1+2 = 3 (int)"),
+            "visible header changed, got: {rendered:?}"
+        );
+        assert!(
+            strip_ansi(&rendered).contains("├─ 1 = 1 (int)"),
+            "visible trace tree changed, got: {rendered:?}"
+        );
     }
 }
