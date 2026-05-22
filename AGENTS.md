@@ -5,7 +5,17 @@
 - Read `e/*.wq`, `lexer.rs`, `parser.rs` to understand wq grammar
   - `lhs:rhs` is assignment
   - `a=b` is equality
+  - list is `(1;2;3)`
+    - wrong: `(1 2 3)`
   - call/index is `target[expr1;expr2...]`. Notice the brackets and semicolons
+  - postfix:
+    - `fn arg` calls
+      - `fn1 fn2 arg` chains
+      - wrong: `fn arg1 arg2`
+    - `container index` indexes
+    - `atom anything` multiplies
+      - `2 3` -> `6`
+      - `2 (1;2;3)` -> `(2;4;6)`
   - `+` is broadcasting add
   - binary `,` is cat
   - leading `,` is enlist
@@ -39,8 +49,7 @@
 - Do not commit unless the user explicitly asks for it.
   - If the user asks for it, commit your changes according to the commit message requirements in `CONTRIBUTING.md`.
 - Unless the user explicitly requested, you are not allowed to build/run with `release` profile.
-- You are not allowed to use `awd` or `sed` to edit the codebase.
-- prohibited without explicit user permission:
+- Prohibited without explicit user permission:
   - Python/Perl... scripts (especially regex-based replacements) for batch editing
   - `sed`, `awk`, or any similar text-processing utilities for code changes
   - `git checkout`, `git restore`, `git reset`, or any other destructive git mutations
@@ -57,6 +66,7 @@
   - Prefer `pub(super)` over `pub(crate)`.
   - Prefer `pub(crate)` over `pub`.
   - Avoid `pub` if it is not intended to be public API.
+- If you touched Python code, run ruff.
 - Use these newer Rust features when they improve code style:
 
 | Feature         | Stabilized in | Release date | Notes                                                                                                 |
