@@ -6,7 +6,6 @@ is_upper:{and[x>="A";x<="Z"]}
 is_lower:{and[x>="a";x<="z"]}
 is_alpha:{or[is_upper[x];is_lower[x]]}
 is_id_char:{or[is_upper[x];is_lower[x];is_digit[x]]}
-
 lex:{[s]
   tokens:()
   i:0
