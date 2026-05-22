@@ -919,7 +919,7 @@ mod tests {
         assert!(regions.contains(&("a".to_string(), Some(HighlightName::VariableRefCapture))));
 
         let out = h.highlight_ansi_with_ref_captures_and_reset(src, &[(12, 13)], "");
-        assert!(out.contains("\x1b[1;38;5;33ma"));
+        assert!(out.contains("\x1b[38;5;33ma"));
         assert_eq!(strip_ansi(&out), src);
     }
 
