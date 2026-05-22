@@ -15,6 +15,7 @@ pub struct BoxPrintConfig {
     pub boxed: bool,
     pub xray: bool,
     pub color: bool,
+    pub axis: bool,
 }
 
 impl Default for BoxPrintConfig {
@@ -23,6 +24,7 @@ impl Default for BoxPrintConfig {
             boxed: true,
             xray: false,
             color: true,
+            axis: true,
         }
     }
 }
@@ -36,6 +38,9 @@ impl BoxPrintConfig {
         if self.xray {
             parts.push("xray");
         }
+        if self.axis {
+            parts.push("axis");
+        }
         if self.color {
             parts.push("color");
         }
@@ -47,10 +52,11 @@ impl BoxPrintConfig {
     }
 
     pub fn toggle_box(&mut self) {
-        if self.boxed || self.xray || self.color {
+        if self.boxed || self.xray || self.axis || self.color {
             *self = Self {
                 boxed: false,
                 xray: false,
+                axis: false,
                 color: false,
             };
         } else {
@@ -80,6 +86,7 @@ pub fn apply_box_spec(config: &mut BoxPrintConfig, spec: &str) -> Result<(), Str
                 *config = BoxPrintConfig {
                     boxed: false,
                     xray: false,
+                    axis: false,
                     color: false,
                 };
                 rewrite = true;
@@ -90,10 +97,11 @@ pub fn apply_box_spec(config: &mut BoxPrintConfig, spec: &str) -> Result<(), Str
         match feature {
             "box" => config.boxed = enabled,
             "xray" => config.xray = enabled,
+            "axis" => config.axis = enabled,
             "color" => config.color = enabled,
             _ => {
                 return Err(format!(
-                    "unknown box mode '{part}'\nAvailable: box, xray, color; prefix with + or - to modify"
+                    "unknown box mode '{part}'\nAvailable: box, axis, xray, color; prefix with + or - to modify"
                 ));
             }
         }
@@ -633,43 +641,48 @@ mod tests {
         let (rt, _) = ok(parse_args(v(&["a.wq"])));
         assert!(rt.box_print.boxed);
         assert!(!rt.box_print.xray);
+        assert!(rt.box_print.axis);
         assert!(rt.box_print.color);
-        assert_eq!(rt.box_print.summary(), "[box,color]");
+        assert_eq!(rt.box_print.summary(), "[box,axis,color]");
 
         let (rt, _) = ok(parse_args(v(&["--box", "xray", "a.wq"])));
         assert!(!rt.box_print.boxed);
         assert!(rt.box_print.xray);
+        assert!(!rt.box_print.axis);
         assert!(!rt.box_print.color);
         assert_eq!(rt.box_print.summary(), "[xray]");
 
         let (rt, _) = ok(parse_args(v(&["--box", "+xray,-color", "a.wq"])));
         assert!(rt.box_print.boxed);
         assert!(rt.box_print.xray);
+        assert!(rt.box_print.axis);
         assert!(!rt.box_print.color);
 
         let (rt, _) = ok(parse_args(v(&["--box", "box,color", "a.wq"])));
         assert!(rt.box_print.boxed);
         assert!(!rt.box_print.xray);
+        assert!(!rt.box_print.axis);
         assert!(rt.box_print.color);
 
         let (rt, _) = ok(parse_args(v(&["--box", "-box", "a.wq"])));
         assert!(!rt.box_print.boxed);
         assert!(!rt.box_print.xray);
+        assert!(rt.box_print.axis);
         assert!(rt.box_print.color);
-        assert_eq!(rt.box_print.summary(), "[color]");
+        assert_eq!(rt.box_print.summary(), "[axis,color]");
         assert_eq!(is_err(parse_args(v(&["--box", "sparkle", "a.wq"]))), 2);
 
         let mut config = BoxPrintConfig::default();
         config.toggle_box();
         assert_eq!(config.summary(), "[]");
         config.toggle_box();
-        assert_eq!(config.summary(), "[box,color]");
+        assert_eq!(config.summary(), "[box,axis,color]");
         apply_box_spec(&mut config, "box").unwrap();
         assert_eq!(config.summary(), "[box]");
         config.toggle_box();
         assert_eq!(config.summary(), "[]");
         config.toggle_box();
-        assert_eq!(config.summary(), "[box,color]");
+        assert_eq!(config.summary(), "[box,axis,color]");
     }
 
     #[test]

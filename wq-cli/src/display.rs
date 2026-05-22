@@ -10,7 +10,7 @@ use crate::arg::BoxPrintConfig;
 
 fn box_format_options(config: &BoxPrintConfig) -> BoxFormatOptions {
     BoxFormatOptions {
-        axes: true,
+        axes: config.axis,
         color: color_enabled(config),
     }
 }
