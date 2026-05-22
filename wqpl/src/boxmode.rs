@@ -183,7 +183,7 @@ fn axis_index_role(axis: usize, index: usize) -> CellRole {
 
 fn dims_label(dims: &[usize]) -> String {
     if dims.is_empty() {
-        return "()".to_string();
+        return String::new();
     }
     dims.iter()
         .map(usize::to_string)
@@ -517,7 +517,7 @@ mod tests {
                 Value::List(Arc::new(vec![Value::Int(3), Value::Int(4)])),
             ])),
         ]));
-        assert_eq!(format_boxed(&v), "0 () 1\n1  3 (3 2) 3 (3 4)");
+        assert_eq!(format_boxed(&v), "0   1\n1 3 (3 2) 3 (3 4)");
     }
 
     #[test]
@@ -531,7 +531,7 @@ mod tests {
                 Value::List(Arc::new(vec![Value::Int(3), Value::Int(4)])),
             ])),
         ]));
-        assert_eq!(format_boxed(&v), "0 () 1\n1  2 2 3\n2  3 4 5 (3 4)");
+        assert_eq!(format_boxed(&v), "0   1\n1 2 2 3\n2 3 4 5 (3 4)");
     }
 
     #[test]
@@ -548,7 +548,7 @@ mod tests {
         let v = Value::List(Arc::new(rows));
         assert_eq!(
             format_boxed(&v),
-            " 0 () 0\n 1  1 1\n 2  1 2\n 3  1 3\n 4  1 4\n 5  1 5\n 6  1 6\n 7  1 7\n 8  1 8\n 9  1 9\n10  1 10\n11  1 11"
+            " 0   0\n 1 1 1\n 2 1 2\n 3 1 3\n 4 1 4\n 5 1 5\n 6 1 6\n 7 1 7\n 8 1 8\n 9 1 9\n10 1 10\n11 1 11"
         );
     }
 
