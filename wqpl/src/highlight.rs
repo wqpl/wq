@@ -57,6 +57,12 @@ pub enum HighlightEvent {
     Source { start: usize, end: usize },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticHighlightSpan {
+    pub span: (usize, usize),
+    pub name: HighlightName,
+}
+
 #[inline]
 pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) {
     match name {
@@ -65,7 +71,7 @@ pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) 
         HighlightName::ConstantBuiltin => ("\x1b[1;38;5;220m", ANSI_RESET),
         HighlightName::Function => ("\x1b[38;5;75m", ANSI_RESET),
         HighlightName::FunctionCall => ("\x1b[1;38;5;75m", ANSI_RESET),
-        HighlightName::FunctionBuiltin => ("\x1b[4;38;5;75m", ANSI_RESET),
+        HighlightName::FunctionBuiltin => ("\x1b[4;38;5;213m", ANSI_RESET),
         HighlightName::Keyword => ("\x1b[38;5;199m", ANSI_RESET),
         HighlightName::KeywordReturn => ("\x1b[38;5;220m", ANSI_RESET),
         HighlightName::KeywordDebug => ("\x1b[38;5;210m", ANSI_RESET),
@@ -75,21 +81,21 @@ pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) 
         HighlightName::OperatorPipe => ("\x1b[38;5;170m", ANSI_RESET),
         HighlightName::Punctuation => ("\x1b[38;5;245m", ANSI_RESET),
         HighlightName::PunctuationBracket => ("\x1b[38;5;245m", ANSI_RESET),
-        HighlightName::PunctuationBracket1 => ("\x1b[38;5;196m", ANSI_RESET),
-        HighlightName::PunctuationBracket2 => ("\x1b[38;5;208m", ANSI_RESET),
-        HighlightName::PunctuationBracket3 => ("\x1b[38;5;220m", ANSI_RESET),
-        HighlightName::PunctuationBracket4 => ("\x1b[38;5;82m", ANSI_RESET),
-        HighlightName::PunctuationBracket5 => ("\x1b[38;5;75m", ANSI_RESET),
-        HighlightName::PunctuationBracket6 => ("\x1b[38;5;199m", ANSI_RESET),
+        HighlightName::PunctuationBracket1 => ("\x1b[38;5;203m", ANSI_RESET),
+        HighlightName::PunctuationBracket2 => ("\x1b[38;5;215m", ANSI_RESET),
+        HighlightName::PunctuationBracket3 => ("\x1b[38;5;222m", ANSI_RESET),
+        HighlightName::PunctuationBracket4 => ("\x1b[38;5;114m", ANSI_RESET),
+        HighlightName::PunctuationBracket5 => ("\x1b[38;5;111m", ANSI_RESET),
+        HighlightName::PunctuationBracket6 => ("\x1b[38;5;183m", ANSI_RESET),
         HighlightName::PunctuationDelimiter => ("\x1b[38;5;243m", ANSI_RESET),
         HighlightName::PunctuationSpecial => ("\x1b[38;5;170m", ANSI_RESET),
         HighlightName::String => ("\x1b[38;5;113m", ANSI_RESET),
         HighlightName::Tag => ("\x1b[38;5;113m", ANSI_RESET),
         HighlightName::Variable => ("\x1b[38;5;117m", ANSI_RESET),
         HighlightName::VariableOuter => ("\x1b[38;5;199m", ANSI_RESET),
-        HighlightName::VariableRefCapture => ("\x1b[38;5;33m", ANSI_RESET),
-        HighlightName::VariableBuiltin => ("\x1b[4;38;5;111m", ANSI_RESET),
-        HighlightName::VariableParameter => ("\x1b[4;38;5;215m", ANSI_RESET),
+        HighlightName::VariableRefCapture => ("\x1b[38;5;39m", ANSI_RESET),
+        HighlightName::VariableBuiltin => ("\x1b[4;38;5;213m", ANSI_RESET),
+        HighlightName::VariableParameter => ("\x1b[38;5;215m", ANSI_RESET),
         HighlightName::Meta => ("\x1b[38;5;228m", ANSI_RESET),
         _ => (ANSI_RESET, ANSI_RESET),
     }
@@ -159,10 +165,25 @@ impl Highlighter {
         src: &str,
         ref_capture_spans: &[(usize, usize)],
     ) -> Vec<HighlightEvent> {
+        let spans: Vec<_> = ref_capture_spans
+            .iter()
+            .map(|span| SemanticHighlightSpan {
+                span: *span,
+                name: HighlightName::VariableRefCapture,
+            })
+            .collect();
+        self.highlight_with_semantic_spans(src, &spans)
+    }
+
+    pub fn highlight_with_semantic_spans(
+        &self,
+        src: &str,
+        semantic_spans: &[SemanticHighlightSpan],
+    ) -> Vec<HighlightEvent> {
         let mut lexer = Lexer::new(src).with_skip_directives(true);
         let tokens = lexer.tokenize_recovery();
         let keyword_spans = Self::keyword_spans_from_tokens(&tokens);
-        Self::events_from_tokens(&tokens, &self.builtins, &keyword_spans, ref_capture_spans)
+        Self::events_from_tokens(&tokens, &self.builtins, &keyword_spans, semantic_spans)
     }
 
     pub fn highlight_ansi(&self, src: &str) -> String {
@@ -182,6 +203,19 @@ impl Highlighter {
         render_ansi(
             src,
             self.highlight_with_ref_captures(src, ref_capture_spans),
+            reset,
+        )
+    }
+
+    pub fn highlight_ansi_with_semantic_spans_and_reset(
+        &self,
+        src: &str,
+        semantic_spans: &[SemanticHighlightSpan],
+        reset: &str,
+    ) -> String {
+        render_ansi(
+            src,
+            self.highlight_with_semantic_spans(src, semantic_spans),
             reset,
         )
     }
@@ -277,7 +311,7 @@ impl Highlighter {
         tokens: &[Token],
         builtins: &Builtins,
         keyword_spans: &HashSet<(usize, usize)>,
-        ref_capture_spans: &[(usize, usize)],
+        semantic_spans: &[SemanticHighlightSpan],
     ) -> Vec<HighlightEvent> {
         let mut events = Vec::with_capacity(tokens.len() * 2);
         let mut last_end: usize = 0;
@@ -357,16 +391,13 @@ impl Highlighter {
                                     }
                                     let mut inner_lexer = Lexer::new(source);
                                     let inner_tokens = inner_lexer.tokenize_recovery();
-                                    let inner_ref_capture_spans = Self::nested_ref_capture_spans(
-                                        ref_capture_spans,
-                                        *start,
-                                        *end,
-                                    );
+                                    let inner_semantic_spans =
+                                        Self::nested_semantic_spans(semantic_spans, *start, *end);
                                     let inner_events = Self::events_from_tokens(
                                         &inner_tokens,
                                         builtins,
                                         &HashSet::new(),
-                                        &inner_ref_capture_spans,
+                                        &inner_semantic_spans,
                                     );
                                     for ev in inner_events {
                                         match ev {
@@ -401,11 +432,8 @@ impl Highlighter {
                         }
                     }
                     _ => {
-                        let name = if Self::is_ref_capture_identifier(tok, ref_capture_spans) {
-                            Some(HighlightName::VariableRefCapture)
-                        } else {
-                            Self::name_for_token(tok, builtins, keyword_spans)
-                        };
+                        let name = Self::semantic_name_for_identifier(tok, semantic_spans)
+                            .or_else(|| Self::name_for_token(tok, builtins, keyword_spans));
                         match name {
                             Some(n) => {
                                 events.push(HighlightEvent::HighlightStart(n));
@@ -432,19 +460,23 @@ impl Highlighter {
         events
     }
 
-    fn nested_ref_capture_spans(
-        ref_capture_spans: &[(usize, usize)],
+    fn nested_semantic_spans(
+        semantic_spans: &[SemanticHighlightSpan],
         start: usize,
         end: usize,
-    ) -> Vec<(usize, usize)> {
-        ref_capture_spans
+    ) -> Vec<SemanticHighlightSpan> {
+        semantic_spans
             .iter()
-            .filter_map(|(span_start, span_end)| {
-                if *span_start < end && start < *span_end {
-                    Some((
-                        span_start.saturating_sub(start),
-                        (*span_end).min(end).saturating_sub(start),
-                    ))
+            .filter_map(|semantic_span| {
+                let (span_start, span_end) = semantic_span.span;
+                if span_start < end && start < span_end {
+                    Some(SemanticHighlightSpan {
+                        span: (
+                            span_start.saturating_sub(start),
+                            span_end.min(end).saturating_sub(start),
+                        ),
+                        name: semantic_span.name,
+                    })
                 } else {
                     None
                 }
@@ -452,11 +484,20 @@ impl Highlighter {
             .collect()
     }
 
-    fn is_ref_capture_identifier(tok: &Token, ref_capture_spans: &[(usize, usize)]) -> bool {
-        matches!(tok.token_type, TokenType::Identifier(_))
-            && ref_capture_spans
-                .iter()
-                .any(|(start, end)| *start < tok.byte_end && tok.byte_start < *end)
+    fn semantic_name_for_identifier(
+        tok: &Token,
+        semantic_spans: &[SemanticHighlightSpan],
+    ) -> Option<HighlightName> {
+        if !matches!(tok.token_type, TokenType::Identifier(_)) {
+            return None;
+        }
+        semantic_spans
+            .iter()
+            .find(|semantic_span| {
+                let (start, end) = semantic_span.span;
+                start < tok.byte_end && tok.byte_start < end
+            })
+            .map(|semantic_span| semantic_span.name)
     }
 
     fn name_for_token(
@@ -880,5 +921,24 @@ mod tests {
         let out = h.highlight_ansi_with_ref_captures_and_reset(src, &[(12, 13)], "");
         assert!(out.contains("\x1b[1;38;5;33ma"));
         assert_eq!(strip_ansi(&out), src);
+    }
+
+    #[test]
+    fn semantic_spans_emit_variable_parameter() {
+        let src = "f:{[x] x+1}";
+        let h = Highlighter::new();
+        let spans = [
+            SemanticHighlightSpan {
+                span: (4, 5),
+                name: HighlightName::VariableParameter,
+            },
+            SemanticHighlightSpan {
+                span: (7, 8),
+                name: HighlightName::VariableParameter,
+            },
+        ];
+        let regions = named_regions(&h.highlight_with_semantic_spans(src, &spans), src);
+
+        assert!(regions.contains(&("x".to_string(), Some(HighlightName::VariableParameter))));
     }
 }

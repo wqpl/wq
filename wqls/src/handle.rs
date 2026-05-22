@@ -9,7 +9,7 @@ use wqpl::cst::GreenNode;
 // use wqpl::format::{FormatConfig, Formatter};
 use wqpl::highlight::Highlighter;
 use wqpl::session::Session;
-use wqpl::symbol::{DefKind, SymbolDef, SymbolIndex};
+use wqpl::symbol::{DefKind, SymbolDef, SymbolIndex, SymbolProvenance, SymbolProvenanceKind};
 use wqpl::wqerror::WqError;
 
 // const PARSER_INTERNAL_PREFIX: &str = "--";
@@ -255,16 +255,21 @@ impl LanguageServer for Backend {
         tracing::debug!(%uri, "semantic_tokens_full");
         let content = self.get_document(uri)?;
         let highlighter = Highlighter::new();
-        let events = highlighter.highlight(&content);
         let session = Session::new();
-        let ref_capture_spans = session
-            .analyze_symbols(&content)
-            .map(|index| index.ref_capture_spans())
+        let symbol_index = session.analyze_symbols(&content).ok();
+        let semantic_spans = symbol_index
+            .as_ref()
+            .map(|index| index.semantic_highlight_spans())
             .unwrap_or_default();
-        let tokens = crate::token::semantic_tokens_from_events_with_ref_captures(
+        let variable_infos = symbol_index
+            .as_ref()
+            .map(variable_token_infos)
+            .unwrap_or_default();
+        let events = highlighter.highlight_with_semantic_spans(&content, &semantic_spans);
+        let tokens = crate::token::semantic_tokens_from_events_with_variable_info(
             &content,
             &events,
-            &ref_capture_spans,
+            &variable_infos,
         );
         Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
             result_id: None,
@@ -500,6 +505,7 @@ impl LanguageServer for Backend {
         let mut user_params = None;
         let mut ref_capture_at_cursor = false;
         let mut ref_capture_count = 0usize;
+        let mut provenance = None;
 
         // Try symbol index first
         if let Ok(index) = session.analyze_symbols(&content) {
@@ -516,6 +522,9 @@ impl LanguageServer for Backend {
                     .count();
                 name = Some(result.name.clone());
                 user_params = result.params;
+                provenance = index
+                    .def_provenance(result.def_idx)
+                    .map(|provenance| provenance_label(&provenance));
             } else if let Some(val) = index.query_literal_at(byte_offset) {
                 let mut text = format!("**{}**", val.type_name());
                 match &val {
@@ -562,6 +571,9 @@ impl LanguageServer for Backend {
                 text.push_str("\n\n`ref capture`");
             } else if ref_capture_count > 0 {
                 text.push_str(&format!("\n\nref captures: `{}`", ref_capture_count));
+            }
+            if let Some(provenance) = provenance {
+                text.push_str(&format!("\n\nprovenance: `{}`", provenance));
             }
 
             let builtins = session.builtins();
@@ -952,6 +964,11 @@ fn symbol_detail(index: &SymbolIndex, def_idx: usize, def: &SymbolDef) -> Option
             parts.push(format!("[{}]", params.join(";")));
         }
     }
+    if def.kind != DefKind::Function
+        && let Some(provenance) = index.def_provenance(def_idx)
+    {
+        parts.push(provenance_label(&provenance));
+    }
 
     let ref_capture_count = index.ref_capture_count(def_idx);
     if ref_capture_count > 0 {
@@ -959,6 +976,61 @@ fn symbol_detail(index: &SymbolIndex, def_idx: usize, def: &SymbolDef) -> Option
     }
 
     (!parts.is_empty()).then(|| parts.join(" | "))
+}
+
+fn variable_token_infos(index: &SymbolIndex) -> Vec<crate::token::VariableTokenInfo> {
+    index
+        .occurrences()
+        .into_iter()
+        .filter_map(|occurrence| {
+            let provenance = match index.def_provenance(occurrence.def_idx)?.kind {
+                SymbolProvenanceKind::Global => crate::token::VariableProvenance::Global,
+                SymbolProvenanceKind::Local => crate::token::VariableProvenance::Local,
+                SymbolProvenanceKind::Parameter => crate::token::VariableProvenance::Parameter,
+                SymbolProvenanceKind::ImplicitParameter => {
+                    crate::token::VariableProvenance::ImplicitParameter
+                }
+                SymbolProvenanceKind::LoopCounter => crate::token::VariableProvenance::LoopCounter,
+                SymbolProvenanceKind::Builtin => return None,
+            };
+            let def = index.defs.get(occurrence.def_idx)?;
+            if def.kind == DefKind::Function {
+                return None;
+            }
+            Some(crate::token::VariableTokenInfo {
+                span: occurrence.span,
+                provenance,
+                ref_capture: occurrence.kind.is_ref_capture(),
+            })
+        })
+        .collect()
+}
+
+fn provenance_label(provenance: &SymbolProvenance) -> String {
+    match provenance.kind {
+        SymbolProvenanceKind::Builtin => "builtin".to_string(),
+        SymbolProvenanceKind::Global => "global".to_string(),
+        SymbolProvenanceKind::Local => provenance
+            .origin
+            .as_ref()
+            .map(|origin| format!("local in {origin}"))
+            .unwrap_or_else(|| "local".to_string()),
+        SymbolProvenanceKind::Parameter => provenance
+            .origin
+            .as_ref()
+            .map(|origin| format!("parameter of {origin}"))
+            .unwrap_or_else(|| "parameter".to_string()),
+        SymbolProvenanceKind::ImplicitParameter => provenance
+            .origin
+            .as_ref()
+            .map(|origin| format!("implicit parameter of {origin}"))
+            .unwrap_or_else(|| "implicit parameter".to_string()),
+        SymbolProvenanceKind::LoopCounter => provenance
+            .origin
+            .as_ref()
+            .map(|origin| format!("loop counter in {origin}"))
+            .unwrap_or_else(|| "loop counter".to_string()),
+    }
 }
 
 /// Returns true if the cursor is inside a zone where completions should not
@@ -1277,5 +1349,27 @@ mod tests {
         assert_eq!(find_call_context("sum[1;2;3]", 5), Some(("sum", 0)));
         assert_eq!(find_call_context("fib[n-1]", 6), Some(("fib", 0)));
         assert_eq!(find_call_context("map[xs;f]", 7), Some(("map", 1)));
+    }
+
+    #[test]
+    fn variable_token_infos_include_provenance() {
+        let session = Session::new();
+        let index = session
+            .analyze_symbols("g:1; f:{[x] y:2; x+y+g}")
+            .expect("symbol analysis");
+        let infos = variable_token_infos(&index);
+
+        assert!(infos.iter().any(|info| {
+            info.span == (17, 18)
+                && info.provenance == crate::token::VariableProvenance::Parameter
+        }));
+        assert!(infos.iter().any(|info| {
+            info.span == (19, 20)
+                && info.provenance == crate::token::VariableProvenance::Local
+        }));
+        assert!(infos.iter().any(|info| {
+            info.span == (21, 22)
+                && info.provenance == crate::token::VariableProvenance::Global
+        }));
     }
 }

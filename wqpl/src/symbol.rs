@@ -26,6 +26,29 @@ pub enum UseKind {
     RefCaptureWrite,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymbolProvenanceKind {
+    Builtin,
+    Global,
+    Local,
+    Parameter,
+    ImplicitParameter,
+    LoopCounter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SymbolProvenance {
+    pub kind: SymbolProvenanceKind,
+    pub origin: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SymbolOccurrence {
+    pub span: (usize, usize),
+    pub def_idx: usize,
+    pub kind: UseKind,
+}
+
 impl UseKind {
     pub fn is_read(self) -> bool {
         matches!(
@@ -149,6 +172,81 @@ impl SymbolIndex {
             .collect()
     }
 
+    pub fn semantic_highlight_spans(&self) -> Vec<crate::highlight::SemanticHighlightSpan> {
+        self.occurrences()
+            .into_iter()
+            .filter_map(|occurrence| {
+                let def = self.defs.get(occurrence.def_idx)?;
+                let name = if occurrence.kind.is_ref_capture() {
+                    crate::highlight::HighlightName::VariableRefCapture
+                } else if matches!(def.kind, DefKind::Parameter | DefKind::ImplicitParam) {
+                    crate::highlight::HighlightName::VariableParameter
+                } else {
+                    return None;
+                };
+                Some(crate::highlight::SemanticHighlightSpan {
+                    span: occurrence.span,
+                    name,
+                })
+            })
+            .collect()
+    }
+
+    pub fn occurrences(&self) -> Vec<SymbolOccurrence> {
+        let mut occurrences = Vec::new();
+        for (def_idx, def) in self.defs.iter().enumerate() {
+            let def_kind = if def.kind == DefKind::Assignment || def.kind == DefKind::Function {
+                UseKind::Write
+            } else {
+                UseKind::Read
+            };
+            if let Some(span) = def.name_span
+                && !self.uses.iter().any(|u| {
+                    u.def_idx == Some(def_idx) && u.span == Some(span) && u.kind == def_kind
+                })
+            {
+                occurrences.push(SymbolOccurrence {
+                    span,
+                    def_idx,
+                    kind: def_kind,
+                });
+            }
+        }
+
+        for use_ in &self.uses {
+            if let (Some(def_idx), Some(span)) = (use_.def_idx, use_.span) {
+                occurrences.push(SymbolOccurrence {
+                    span,
+                    def_idx,
+                    kind: use_.kind,
+                });
+            }
+        }
+        occurrences
+    }
+
+    pub fn def_provenance(&self, def_idx: usize) -> Option<SymbolProvenance> {
+        let def = self.defs.get(def_idx)?;
+        let origin = def
+            .parent
+            .and_then(|parent| self.defs.get(parent))
+            .map(|parent| parent.name.clone());
+        let kind = match def.kind {
+            DefKind::Builtin => SymbolProvenanceKind::Builtin,
+            DefKind::Assignment | DefKind::Function => {
+                if def.parent.is_some() {
+                    SymbolProvenanceKind::Local
+                } else {
+                    SymbolProvenanceKind::Global
+                }
+            }
+            DefKind::Parameter => SymbolProvenanceKind::Parameter,
+            DefKind::ImplicitParam => SymbolProvenanceKind::ImplicitParameter,
+            DefKind::LoopCounter => SymbolProvenanceKind::LoopCounter,
+        };
+        Some(SymbolProvenance { kind, origin })
+    }
+
     fn gather_result(&self, def_idx: usize, name: &str) -> SymbolQueryResult {
         let def = &self.defs[def_idx];
         let mut uses = Vec::new();
@@ -178,6 +276,7 @@ impl SymbolIndex {
             }
         }
         SymbolQueryResult {
+            def_idx,
             name: name.to_string(),
             def_span: def.name_span,
             uses,
@@ -194,6 +293,7 @@ pub struct SymbolLocation {
 
 #[derive(Debug, Clone)]
 pub struct SymbolQueryResult {
+    pub def_idx: usize,
     pub name: String,
     pub def_span: Option<(usize, usize)>,
     pub uses: Vec<SymbolLocation>,
@@ -657,7 +757,8 @@ impl SymbolAnalyzer {
             AstNode::NLoop { count, body, .. } => {
                 self.analyze(count);
                 let def_idx = self.current_scope().get("_n").copied().unwrap_or_else(|| {
-                    let idx = self.add_def("_n", None, None, DefKind::LoopCounter, None, None);
+                    let parent = self.func_stack.last().copied();
+                    let idx = self.add_def("_n", None, None, DefKind::LoopCounter, None, parent);
                     self.bind("_n", idx);
                     idx
                 });
@@ -816,6 +917,47 @@ mod tests {
         assert_eq!(spans_of(&res_f, UseKind::Write), vec![(0, 1)]);
         // Call f[2] is a read of f
         assert_eq!(spans_of(&res_f, UseKind::Read), vec![(13, 14)]);
+    }
+
+    #[test]
+    fn occurrences_carry_parameter_and_origin_provenance() {
+        let ast = parse("f:{[x] x+1}; g:{[] y:2; y}; z:3");
+        let index = SymbolIndex::analyze(&ast, &crate::builtins::Builtins::new());
+
+        let x_idx = index
+            .defs
+            .iter()
+            .position(|d| d.name == "x" && d.kind == DefKind::Parameter)
+            .expect("x parameter def");
+        let x_occurrences: Vec<_> = index
+            .occurrences()
+            .into_iter()
+            .filter(|occurrence| occurrence.def_idx == x_idx)
+            .map(|occurrence| occurrence.span)
+            .collect();
+        assert_eq!(x_occurrences, vec![(4, 5), (7, 8)]);
+
+        let x_provenance = index.def_provenance(x_idx).expect("x provenance");
+        assert_eq!(x_provenance.kind, SymbolProvenanceKind::Parameter);
+        assert_eq!(x_provenance.origin.as_deref(), Some("f"));
+
+        let y_idx = index
+            .defs
+            .iter()
+            .position(|d| d.name == "y" && d.kind == DefKind::Assignment)
+            .expect("y local def");
+        let y_provenance = index.def_provenance(y_idx).expect("y provenance");
+        assert_eq!(y_provenance.kind, SymbolProvenanceKind::Local);
+        assert_eq!(y_provenance.origin.as_deref(), Some("g"));
+
+        let z_idx = index
+            .defs
+            .iter()
+            .position(|d| d.name == "z" && d.kind == DefKind::Assignment)
+            .expect("z global def");
+        let z_provenance = index.def_provenance(z_idx).expect("z provenance");
+        assert_eq!(z_provenance.kind, SymbolProvenanceKind::Global);
+        assert_eq!(z_provenance.origin, None);
     }
 
     #[test]

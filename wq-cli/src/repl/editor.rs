@@ -228,32 +228,32 @@ impl WqReplHighlighter {
     }
 
     fn colorize_input(&self, line: &str) -> String {
-        let ref_capture_spans = self.ref_capture_spans(line);
+        let semantic_spans = self.semantic_highlight_spans(line);
         self.highlighter
-            .highlight_ansi_with_ref_captures_and_reset(
+            .highlight_ansi_with_semantic_spans_and_reset(
                 line,
-                &ref_capture_spans,
+                &semantic_spans,
                 REPL_INPUT_TOKEN_RESET,
             )
     }
 
     pub fn highlight_text(&self, text: &str) -> String {
         if self.enabled() {
-            let ref_capture_spans = self.ref_capture_spans(text);
+            let semantic_spans = self.semantic_highlight_spans(text);
             self.highlighter
-                .highlight_ansi_with_ref_captures_and_reset(text, &ref_capture_spans, "")
+                .highlight_ansi_with_semantic_spans_and_reset(text, &semantic_spans, "")
         } else {
             text.to_string()
         }
     }
 
-    fn ref_capture_spans(&self, text: &str) -> Vec<(usize, usize)> {
-        if !text.contains('\'') {
+    fn semantic_highlight_spans(&self, text: &str) -> Vec<wqpl::highlight::SemanticHighlightSpan> {
+        if !text.contains('{') && !text.contains('\'') {
             return Vec::new();
         }
         Session::new()
             .analyze_symbols(text)
-            .map(|index| index.ref_capture_spans())
+            .map(|index| index.semantic_highlight_spans())
             .unwrap_or_default()
     }
 }
@@ -659,6 +659,16 @@ mod tests {
         let out = h.colorize_input(src);
 
         assert!(out.contains("\x1b[1;38;5;33ma\x1b[22;23;24;39m"));
+        assert_eq!(strip_ansi(&out), src);
+    }
+
+    #[test]
+    fn highlight_text_marks_parameters() {
+        let h = WqReplHighlighter::new();
+        let src = "f:{[x] x+1}";
+        let out = h.highlight_text(src);
+
+        assert!(out.contains("\x1b[4;38;5;215mx"));
         assert_eq!(strip_ansi(&out), src);
     }
 }

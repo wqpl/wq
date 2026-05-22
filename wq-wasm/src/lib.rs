@@ -456,15 +456,15 @@ pub fn set_ansi_styles_enabled(on: bool) {
 #[wasm_bindgen]
 pub fn highlight_wq(src: &str) -> String {
     let highlighter = Highlighter::new();
-    let ref_capture_spans = if src.contains('\'') {
+    let semantic_spans = if src.contains('{') || src.contains('\'') {
         Session::new()
             .analyze_symbols(src)
-            .map(|index| index.ref_capture_spans())
+            .map(|index| index.semantic_highlight_spans())
             .unwrap_or_default()
     } else {
         Vec::new()
     };
-    let events = highlighter.highlight_with_ref_captures(src, &ref_capture_spans);
+    let events = highlighter.highlight_with_semantic_spans(src, &semantic_spans);
     let mut out = String::with_capacity(src.len() * 2);
     let bytes = src.as_bytes();
     let mut stack: Vec<HighlightName> = Vec::new();
