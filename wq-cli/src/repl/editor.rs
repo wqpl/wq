@@ -648,7 +648,7 @@ mod tests {
         let src = "a:1; f:'{[] a}; f[]";
         let out = h.highlight_text(src);
 
-        assert!(out.contains("\x1b[1;38;5;33ma"));
+        assert!(out.contains("\x1b[38;5;39ma"));
         assert_eq!(strip_ansi(&out), src);
     }
 
@@ -658,7 +658,7 @@ mod tests {
         let src = "a:1; f:'{[] a}; f[]";
         let out = h.colorize_input(src);
 
-        assert!(out.contains("\x1b[1;38;5;33ma\x1b[22;23;24;39m"));
+        assert!(out.contains("\x1b[38;5;39ma\x1b[22;23;24;39m"));
         assert_eq!(strip_ansi(&out), src);
     }
 
@@ -668,7 +668,7 @@ mod tests {
         let src = "f:{[x] x+1}";
         let out = h.highlight_text(src);
 
-        assert!(out.contains("\x1b[4;38;5;215mx"));
+        assert!(out.contains("\x1b[38;5;215mx"));
         assert_eq!(strip_ansi(&out), src);
     }
 }
