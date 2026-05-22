@@ -9,10 +9,9 @@ make_deque:{[]
     $.[or[tail<0;tail>=cap];raise"deque invariant: bad tail"]
     $.[not[tail=((head+sz)%cap)];raise"deque invariant: bad tail position"]}
   grow:'{[]check[];old_data:data;old_cap:cap;old_sz:sz;new_cap:old_cap*2;new_data:alloc new_cap
-    i:head;j:0
-    N[old_sz;new_data j:old_data i;i:(i+1)%old_cap;j+:1]
+    i:head;j:0;N[old_sz;new_data j:old_data i;i:(i+1)%old_cap;j+:1]
     data:new_data;cap:new_cap;head:0;tail:old_sz;check[]}
-  shrink:'{[]check[];old_sz:sz;old_cap:cap;
+  shrink:'{[]check[];old_sz:sz;old_cap:cap
     $.[old_sz>=old_cap/%4;@r()];new_cap:max[old_cap/%2;4]
     $.[new_cap<old_sz;new_cap:old_sz];$.[new_cap>=old_cap;@r()]
     new_data:alloc new_cap;i:head;j:0
