@@ -46,45 +46,12 @@ impl Value {
                 Arc::make_mut(&mut a).extend(b.iter().cloned());
                 Value::List(a)
             }
-            (Value::Set(mut a), Value::Set(b)) => {
-                Arc::make_mut(&mut a).extend(b.iter().cloned());
-                Value::Set(a)
-            }
-            (Value::Set(mut a), Value::List(b)) => {
-                Arc::make_mut(&mut a).extend(b.iter().cloned());
-                Value::Set(a)
-            }
-            (Value::Set(mut a), Value::IntList(b)) => {
-                Arc::make_mut(&mut a).extend(b.iter().copied().map(Value::Int));
-                Value::Set(a)
-            }
-            (Value::Set(mut a), b) => {
-                Arc::make_mut(&mut a).insert(b);
-                Value::Set(a)
-            }
-            (Value::List(mut a), Value::Set(b)) => {
-                Arc::make_mut(&mut a).extend(b.iter().cloned());
-                Value::List(a)
-            }
+
             (Value::List(mut a), b) => {
                 Arc::make_mut(&mut a).push(b);
                 Value::List(a)
             }
-            (Value::IntList(a), Value::Set(b)) => {
-                if b.iter().all(|v| matches!(v, Value::Int(_))) {
-                    let mut res = Vec::with_capacity(a.len() + b.len());
-                    res.extend(a.iter().copied());
-                    res.extend(b.iter().filter_map(|v| match v {
-                        Value::Int(i) => Some(*i),
-                        _ => None,
-                    }));
-                    Value::IntList(Arc::new(res))
-                } else {
-                    let mut res: Vec<Value> = a.iter().copied().map(Value::Int).collect();
-                    res.extend(b.iter().cloned());
-                    Value::List(Arc::new(res))
-                }
-            }
+
             (Value::IntList(a), b) => {
                 let mut res: Vec<Value> = a.iter().copied().map(Value::Int).collect();
                 res.push(b);
@@ -102,10 +69,7 @@ impl Value {
                 res.extend(b.iter().copied().map(Value::Int));
                 Value::List(Arc::new(res))
             }
-            (a, Value::Set(mut b)) => {
-                Arc::make_mut(&mut b).shift_insert(0, a);
-                Value::Set(b)
-            }
+
             (Value::Int(a), Value::Int(b)) => Value::IntList(Arc::new(vec![a, b])),
             (a, b) => Value::List(Arc::new(vec![a, b])),
         }
@@ -158,7 +122,7 @@ impl Value {
         // All List / IntList / Set: pre-allocate a single List.
         if values
             .iter()
-            .all(|v| matches!(v, Value::List(_) | Value::IntList(_) | Value::Set(_)))
+            .all(|v| matches!(v, Value::List(_) | Value::IntList(_)))
         {
             let total_len: usize = values.iter().map(|v| v.len()).sum();
             let mut res: Vec<Value> = Vec::with_capacity(total_len);
@@ -166,7 +130,7 @@ impl Value {
                 match v {
                     Value::List(l) => res.extend(l.iter().cloned()),
                     Value::IntList(l) => res.extend(l.iter().copied().map(Value::Int)),
-                    Value::Set(s) => res.extend(s.iter().cloned()),
+
                     _ => unreachable!(),
                 }
             }
@@ -197,11 +161,7 @@ impl Value {
                 Value::IntList(items) => {
                     out.extend(items.iter().copied().map(Value::Int));
                 }
-                Value::Set(items) => {
-                    for v in items.iter().rev() {
-                        stack.push(v);
-                    }
-                }
+
                 other => out.push(other.clone()),
             }
         }

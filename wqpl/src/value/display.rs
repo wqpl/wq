@@ -113,14 +113,7 @@ impl fmt::Display for Value {
                     write!(f, "({})", pairs.join(";"))
                 }
             }
-            Value::Set(items) => {
-                if items.is_empty() {
-                    write!(f, "S()")
-                } else {
-                    let strs: Vec<String> = items.iter().map(|v| v.to_string()).collect();
-                    write!(f, "S({})", strs.join(";"))
-                }
-            }
+
             Value::CompiledFunction(func) => {
                 let mut parts: Vec<String> = Vec::new();
                 if let Some(p) = &func.params {

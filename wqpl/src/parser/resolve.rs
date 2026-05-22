@@ -1707,8 +1707,7 @@ mod tests {
             | AstNode::Break
             | AstNode::Continue
             | AstNode::Ellipsis
-            | AstNode::Error(..)
-            | AstNode::Set(..) => false,
+            | AstNode::Error(..) => false,
         }
     }
 

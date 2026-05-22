@@ -51,17 +51,11 @@ pub struct SymbolOccurrence {
 
 impl UseKind {
     pub fn is_read(self) -> bool {
-        matches!(
-            self,
-            Self::Read | Self::OuterRead | Self::RefCaptureRead
-        )
+        matches!(self, Self::Read | Self::OuterRead | Self::RefCaptureRead)
     }
 
     pub fn is_write(self) -> bool {
-        matches!(
-            self,
-            Self::Write | Self::OuterWrite | Self::RefCaptureWrite
-        )
+        matches!(self, Self::Write | Self::OuterWrite | Self::RefCaptureWrite)
     }
 
     pub fn is_ref_capture(self) -> bool {
@@ -564,9 +558,7 @@ impl SymbolAnalyzer {
                     self.add_use(name, *name_span, UseKind::Write, Some(func_def_idx));
                 } else {
                     self.analyze(value);
-                    if let Some(def_idx) =
-                        self.resolve_ref_capture_write(name, op.is_none())
-                    {
+                    if let Some(def_idx) = self.resolve_ref_capture_write(name, op.is_none()) {
                         self.add_use(name, *name_span, UseKind::RefCaptureWrite, Some(def_idx));
                     } else {
                         let parent = self.func_stack.last().copied();
@@ -605,11 +597,7 @@ impl SymbolAnalyzer {
                     self.analyze(v);
                 }
             }
-            AstNode::Set(items, _) => {
-                for item in items {
-                    self.analyze(item);
-                }
-            }
+
             AstNode::Postfix { object, items, .. } => {
                 self.analyze(object);
                 for item in items {

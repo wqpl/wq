@@ -164,7 +164,7 @@ pub(crate) enum Instruction {
     TailPostfixVar(Arc<str>, usize),
     MakeList(usize),
     MakeDict(usize),
-    MakeSet(usize),
+
     MakeRange {
         inclusive: bool,
         has_step: bool,
@@ -350,7 +350,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         | I::IndexAssignCaptureDrop(_) => (Indexing, false),
 
         // Constructors
-        I::MakeList(_) | I::MakeDict(_) | I::MakeSet(_) | I::MakeRange { .. } | I::Cat(_) => (Construct, false),
+        I::MakeList(_) | I::MakeDict(_) | I::MakeRange { .. } | I::Cat(_) => (Construct, false),
 
         // Try
         I::Try(_) => (Try, false),

@@ -34,16 +34,6 @@ pub enum TokenType {
     BitXor,
     FloorDiv,
 
-    DotAmpersand,
-    DotBackslash,
-    DotCaret,
-    DotMinus,
-
-    DotAmpersandColon,
-    DotBackslashColon,
-    DotCaretColon,
-    DotMinusColon,
-
     PlusColon,
     MinusColon,
     MultiplyColon,
@@ -72,10 +62,7 @@ pub enum TokenType {
     LessThanOrEqual,
     GreaterThan,
     GreaterThanOrEqual,
-    DotLessThan,
-    DotLessThanOrEqual,
-    DotGreaterThan,
-    DotGreaterThanOrEqual,
+
     Sharp,
     Pipe,
     PipeDot,

@@ -14,7 +14,7 @@
 //! green. The notable normalizations are:
 //!
 //! * Space-call form `f x y` is rewritten to bracket-call `f[x[y]]`.
-//! * Inside `[...]` / `(...)` / `(`...`)` / `S(...)` the contents are joined by
+//! * Inside `[...]` / `(...)` / `(`...`)` the contents are joined by
 //!   `;` (no whitespace) when flat, by `;\n  ` when broken.
 //! * Function bodies and control-form bodies break across newlines, with
 //!   children indented by [`FormatConfig::indent_size`].
@@ -154,7 +154,6 @@ impl<'a> LowerCtx<'a> {
             SyntaxKind::ListExpr => self.list_or_dict(node, /* dict = */ false),
             SyntaxKind::DictExpr => self.list_or_dict(node, /* dict = */ true),
             SyntaxKind::DictPair => self.dict_pair(node),
-            SyntaxKind::SetExpr => self.set(node),
 
             SyntaxKind::PostfixExpr => self.postfix(node),
             SyntaxKind::MutatingIndexExpr => self.mutating_index(node),
@@ -336,21 +335,6 @@ impl<'a> LowerCtx<'a> {
         }
         let _ = saw_colon; // sanity; ignored at this stage
         out
-    }
-
-    fn set(&self, node: &SyntaxNode) -> Doc {
-        let items: Vec<Doc> = node.children().map(|n| self.node(&n)).collect();
-        if items.is_empty() {
-            return Doc::text("S()");
-        }
-        let body = self.semicolon_joined(items);
-        Doc::bracket(
-            Doc::text("S("),
-            body,
-            Doc::text(")"),
-            self.indent(),
-            self.config.nlcd,
-        )
     }
 
     fn arglist(&self, node: &SyntaxNode) -> Doc {

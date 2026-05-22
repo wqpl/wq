@@ -35,9 +35,6 @@ struct ProfileStats {
     dict_alloc_events: usize,
     dict_alloc_items: usize,
     dict_alloc_lens: BTreeMap<usize, usize>,
-    set_alloc_events: usize,
-    set_alloc_items: usize,
-    set_alloc_lens: BTreeMap<usize, usize>,
     range_alloc_events: usize,
     range_alloc_items: usize,
     range_alloc_lens: BTreeMap<usize, usize>,
@@ -131,13 +128,11 @@ impl Drop for ProfilerInterpreter {
 
         let total_alloc_events = stats.list_alloc_events
             + stats.dict_alloc_events
-            + stats.set_alloc_events
             + stats.range_alloc_events
             + stats.closure_capture_alloc_events
             + stats.cat_alloc_events;
         let total_alloc_units = stats.list_alloc_items
             + stats.dict_alloc_items
-            + stats.set_alloc_items
             + stats.range_alloc_items
             + stats.closure_capture_cells
             + stats.cat_alloc_items;
@@ -165,12 +160,6 @@ impl Drop for ProfilerInterpreter {
                 stats.dict_alloc_events,
                 stats.dict_alloc_items,
                 &stats.dict_alloc_lens,
-            );
-            print_alloc_line(
-                "set",
-                stats.set_alloc_events,
-                stats.set_alloc_items,
-                &stats.set_alloc_lens,
             );
             print_alloc_line(
                 "range",
@@ -302,14 +291,6 @@ impl InterpreterHook for ProfilerInterpreter {
         stats.dict_alloc_events += 1;
         stats.dict_alloc_items += len;
         *stats.dict_alloc_lens.entry(len).or_insert(0) += 1;
-    }
-
-    fn on_set_alloc(&self, len: &dyn Fn() -> usize) {
-        let len = len();
-        let mut stats = self.stats.borrow_mut();
-        stats.set_alloc_events += 1;
-        stats.set_alloc_items += len;
-        *stats.set_alloc_lens.entry(len).or_insert(0) += 1;
     }
 
     fn on_range_alloc(&self, len: &dyn Fn() -> usize) {
@@ -486,7 +467,7 @@ fn sequence_kind(value: &Value) -> Option<&'static str> {
         Value::List(_) => Some("list"),
         Value::String(_) => Some("string"),
         Value::Dict(_) => Some("dict"),
-        Value::Set(_) => Some("set"),
+
         _ => None,
     }
 }
@@ -507,7 +488,6 @@ fn value_kind(value: &Value) -> &'static str {
         Value::String(_) => "string",
         Value::Cas(_) => "cas",
         Value::Dict(_) => "dict",
-        Value::Set(_) => "set",
         Value::CompiledFunction(_) => "fn",
         Value::Closure(_) => "closure",
         Value::BuiltinFunction(_) => "bfn",
@@ -553,7 +533,7 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::TailPostfixVar(_, _) => "TailPostfixVar",
         I::MakeList(_) => "MakeList",
         I::MakeDict(_) => "MakeDict",
-        I::MakeSet(_) => "MakeSet",
+
         I::MakeRange { .. } => "MakeRange",
         I::Index => "Index",
         I::IndexLoadLocal(_) => "IndexLoadLocal",
@@ -628,7 +608,7 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         I::TailPostfixVar(name, argc) => format!("TailPostfixVar({name}/{argc})"),
         I::MakeList(count) => format!("MakeList({count})"),
         I::MakeDict(count) => format!("MakeDict({count})"),
-        I::MakeSet(count) => format!("MakeSet({count})"),
+
         I::MakeRange {
             inclusive,
             has_step,

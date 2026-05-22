@@ -94,8 +94,6 @@ pub enum AstNode {
     Cat(Vec<AstNode>),
     /// Dictionary construction
     Dict(Vec<(String, AstNode)>),
-    /// Set construction
-    Set(Vec<AstNode>, AstSpan),
     /// Generic postfix expression
     Postfix {
         object: Box<AstNode>,
@@ -275,16 +273,6 @@ pub enum BinaryOperator {
     Shr,
     BitXor,
     FloorDiv,
-
-    SetIntersection, // .&
-    SetUnion,        // .\
-    SetSymDiff,      // .^.
-    SetDifference,   // .-
-
-    SetSubset,     // .<
-    SetSubsetEq,   // .<=
-    SetSuperset,   // .>
-    SetSupersetEq, // .>=
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -334,14 +322,6 @@ pub(crate) fn binary_op_display(op: &BinaryOperator) -> &'static str {
         Gt => ">",
         Gte => ">=",
         Cat => ",",
-        SetIntersection => ".&",
-        SetUnion => r".\",
-        SetSymDiff => ".^",
-        SetDifference => ".-",
-        SetSubset => ".<",
-        SetSubsetEq => ".<=",
-        SetSuperset => ".>",
-        SetSupersetEq => ".>=",
     }
 }
 
@@ -480,7 +460,7 @@ fn node_color(node: &AstNode) -> Color {
         | Continue
         | Return(..)
         | Try(..) => Color::Green,
-        Cat(..) | List(..) | Dict(..) | Set(..) | Block(..) | BlockExpr(..) => Color::White,
+        Cat(..) | List(..) | Dict(..) | Block(..) | BlockExpr(..) => Color::White,
         Index { .. } | MutatingIndex { .. } => Color::BrightBlue,
         Assert { .. } | Debug { .. } | Pause { .. } | PipeInput | Ellipsis => Color::BrightRed,
         UnpackAssignment { .. } => Color::Red,
@@ -640,7 +620,7 @@ impl AstNode {
                     )
                 }
             }
-            Set(_, span) => *span,
+
             Index { span, .. } => *span,
             Function { params, body, .. } => {
                 let mut s = body.span();
@@ -1128,14 +1108,7 @@ impl AstNode {
                     .collect();
                 pretty_group(depth, head, children, color)
             }
-            Set(items, _) => {
-                let head = format!("SET{note}");
-                let children: Vec<Pretty> = items
-                    .iter()
-                    .map(|i| i.pretty_with_depth(depth + 1, src))
-                    .collect();
-                pretty_group(depth, head, children, color)
-            }
+
             Error(..) => pretty_leaf("ERROR", &note, color),
         }
     }

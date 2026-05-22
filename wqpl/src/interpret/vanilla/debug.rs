@@ -427,7 +427,7 @@ mod tests {
             "trace snippets should not be underlined, got: {rendered:?}"
         );
         assert!(
-            strip_ansi(&rendered).contains("[<trace-test>:1:4] 1+2 = 3 (int)"),
+            strip_ansi(&rendered).contains("[<trace-test>:1:4]\n1+2 = 3 (int)"),
             "visible header changed, got: {rendered:?}"
         );
         assert!(

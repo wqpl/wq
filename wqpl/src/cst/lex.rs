@@ -84,10 +84,6 @@ pub fn syntax_kind_of_token(tt: &TokenType) -> SyntaxKind {
         T::Modulo => K::Percent,
         T::Matmul => K::Matmul,
         T::FloorDiv => K::FloorDiv,
-        T::DotAmpersand => K::DotAmp,
-        T::DotBackslash => K::DotBackslash,
-        T::DotCaret => K::DotCaret,
-        T::DotMinus => K::DotMinus,
 
         // Bitwise / boolean.
         T::BoolAnd => K::BoolAnd,
@@ -116,10 +112,7 @@ pub fn syntax_kind_of_token(tt: &TokenType) -> SyntaxKind {
         T::ShrColon => K::ShrColon,
         T::BitXorColon => K::BitXorColon,
         T::FloorDivColon => K::FloorDivColon,
-        T::DotAmpersandColon => K::DotAmpColon,
-        T::DotBackslashColon => K::DotBackslashColon,
-        T::DotCaretColon => K::DotCaretColon,
-        T::DotMinusColon => K::DotMinusColon,
+
         T::Colon => K::Colon,
 
         // Comparison.
@@ -131,10 +124,6 @@ pub fn syntax_kind_of_token(tt: &TokenType) -> SyntaxKind {
         T::LessThanOrEqual => K::Le,
         T::GreaterThan => K::Gt,
         T::GreaterThanOrEqual => K::Ge,
-        T::DotLessThan => K::DotLt,
-        T::DotLessThanOrEqual => K::DotLe,
-        T::DotGreaterThan => K::DotGt,
-        T::DotGreaterThanOrEqual => K::DotGe,
 
         // Misc.
         T::Sharp => K::Hash,

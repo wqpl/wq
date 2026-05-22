@@ -226,21 +226,7 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
                 Dict(pairs)
             }
         }
-        Set(items, span) => {
-            let items: Vec<AstNode> = items.into_iter().map(fold).collect();
-            // If all items are literals, fold into a literal set value
-            if items.iter().all(|n| matches!(n, Literal(..))) {
-                let mut set = indexmap::IndexSet::with_capacity(items.len());
-                for item in items {
-                    if let Literal(v, _) = item {
-                        set.insert(v);
-                    }
-                }
-                Literal(Value::Set(Arc::new(set)), span)
-            } else {
-                Set(items, span)
-            }
-        }
+
         Assignment {
             name,
             op,

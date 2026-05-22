@@ -1077,72 +1077,7 @@ impl<'a> Lexer<'a> {
                             self.advance();
                             return emit(TokenType::Range, self.byte_pos);
                         }
-                        (Some('&'), Some(':')) => {
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotAmpersandColon, self.byte_pos);
-                        }
-                        (Some('&'), _) => {
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotAmpersand, self.byte_pos);
-                        }
-                        (Some('\\'), Some(':')) => {
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotBackslashColon, self.byte_pos);
-                        }
-                        (Some('\\'), _) => {
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotBackslash, self.byte_pos);
-                        }
-                        (Some('^'), Some(':')) => {
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotCaretColon, self.byte_pos);
-                        }
-                        (Some('^'), _) => {
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotCaret, self.byte_pos);
-                        }
-                        (Some('-'), Some(':')) => {
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotMinusColon, self.byte_pos);
-                        }
-                        (Some('-'), _) => {
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotMinus, self.byte_pos);
-                        }
-                        (Some('<'), Some('=')) => {
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotLessThanOrEqual, self.byte_pos);
-                        }
-                        (Some('<'), _) => {
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotLessThan, self.byte_pos);
-                        }
-                        (Some('>'), Some('=')) => {
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotGreaterThanOrEqual, self.byte_pos);
-                        }
-                        (Some('>'), _) => {
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::DotGreaterThan, self.byte_pos);
-                        }
+
                         _ => {
                             // Unknown single '.': consume and skip
                             self.advance();

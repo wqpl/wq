@@ -243,10 +243,7 @@ pub(super) fn repeat(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
             }
             Ok(Value::List(Arc::new(res)))
         }
-        Value::Set(items) => {
-            // Repeating a set is idempotent; just clone it.
-            Ok(Value::Set(items.clone()))
-        }
+
         other => {
             let mut res = Vec::with_capacity(count);
             for _ in 0..count {

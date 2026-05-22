@@ -1162,11 +1162,6 @@ impl Parser {
                 TokenType::ShrColon => Some(BinaryOperator::Shr),
                 TokenType::BitXorColon => Some(BinaryOperator::BitXor),
                 TokenType::FloorDivColon => Some(BinaryOperator::FloorDiv),
-
-                TokenType::DotAmpersandColon => Some(BinaryOperator::SetIntersection),
-                TokenType::DotBackslashColon => Some(BinaryOperator::SetUnion),
-                TokenType::DotCaretColon => Some(BinaryOperator::SetSymDiff),
-                TokenType::DotMinusColon => Some(BinaryOperator::SetDifference),
                 _ => break,
             };
 
@@ -1514,10 +1509,6 @@ impl Parser {
                 TokenType::LessThanOrEqual => (BinaryOperator::Lte, token),
                 TokenType::GreaterThan => (BinaryOperator::Gt, token),
                 TokenType::GreaterThanOrEqual => (BinaryOperator::Gte, token),
-                TokenType::DotLessThan => (BinaryOperator::SetSubset, token),
-                TokenType::DotLessThanOrEqual => (BinaryOperator::SetSubsetEq, token),
-                TokenType::DotGreaterThan => (BinaryOperator::SetSuperset, token),
-                TokenType::DotGreaterThanOrEqual => (BinaryOperator::SetSupersetEq, token),
                 _ => break,
             };
             self.advance();
@@ -1554,7 +1545,6 @@ impl Parser {
         while let Some(token) = self.current_token().cloned() {
             let (op, op_tok) = match token.token_type {
                 TokenType::BitOr => (BinaryOperator::BitOr, token),
-                TokenType::DotBackslash => (BinaryOperator::SetUnion, token),
                 _ => break,
             };
             self.advance();
@@ -1577,7 +1567,6 @@ impl Parser {
         while let Some(token) = self.current_token().cloned() {
             let (op, op_tok) = match token.token_type {
                 TokenType::BitXor => (BinaryOperator::BitXor, token),
-                TokenType::DotCaret => (BinaryOperator::SetSymDiff, token),
                 _ => break,
             };
             self.advance();
@@ -1600,7 +1589,6 @@ impl Parser {
         while let Some(token) = self.current_token().cloned() {
             let (op, op_tok) = match token.token_type {
                 TokenType::BitAnd => (BinaryOperator::BitAnd, token),
-                TokenType::DotAmpersand => (BinaryOperator::SetIntersection, token),
                 _ => break,
             };
             self.advance();
@@ -1647,7 +1635,6 @@ impl Parser {
             let (op, op_tok) = match token.token_type {
                 TokenType::Plus => (BinaryOperator::Add, token),
                 TokenType::Minus => (BinaryOperator::Subtract, token),
-                TokenType::DotMinus => (BinaryOperator::SetDifference, token),
                 _ => break,
             };
             self.advance();
@@ -2181,50 +2168,6 @@ impl Parser {
         result
     }
 
-    /// `header_start_byte` is the byte position of the leading `S`. The
-    /// caller (`parse_primary_inner`) has it at hand from the identifier
-    /// token it just consumed; passing it explicitly keeps the span
-    /// derivation byte-based and avoids the old `self.current - 2`
-    /// token-index dance.
-    fn parse_set_literal(&mut self, header_start_byte: usize) -> WqResult<AstNode> {
-        self.bracket_depth += 1;
-        let result = (|| {
-            let mut elements = Vec::new();
-            loop {
-                self.eat_trivia(true, true);
-                if self.is_token(&TokenType::RightParen) {
-                    self.advance();
-                    break;
-                }
-                if self.is_token(&TokenType::Eof) {
-                    return Err(self.eof_error_here("unexpected end of input in set literal"));
-                }
-                let expr = self.parse_expression()?;
-                elements.push(expr);
-                self.eat_trivia(false, true);
-                if self.is_token(&TokenType::RightParen) {
-                    self.advance();
-                    break;
-                }
-                self.require_control_separator("set literal")?;
-                self.eat_trivia(true, true);
-                if self.is_token(&TokenType::RightParen) {
-                    self.advance();
-                    break;
-                }
-                if self.is_token(&TokenType::Eof) {
-                    return Err(self.eof_error_here("unexpected end of input in set literal"));
-                }
-            }
-            Ok(AstNode::Set(
-                elements,
-                Some((header_start_byte, self.last_consumed_byte_end())),
-            ))
-        })();
-        self.bracket_depth -= 1;
-        result
-    }
-
     fn parse_primary(&mut self) -> WqResult<AstNode> {
         // Single CST checkpoint at the syntactic start of the primary. After
         // the inner dispatch returns, we wrap the consumed tokens in the
@@ -2263,7 +2206,6 @@ impl Parser {
             AstNode::BlockExpr(..) => SyntaxKind::BlockExpr,
             AstNode::List(..) => SyntaxKind::ListExpr,
             AstNode::Dict(..) => SyntaxKind::DictExpr,
-            AstNode::Set(..) => SyntaxKind::SetExpr,
             AstNode::Group { .. } => SyntaxKind::ParenExpr,
             AstNode::FString { .. } => SyntaxKind::FStringExpr,
             AstNode::Return(..) => SyntaxKind::ReturnExpr,
@@ -2511,15 +2453,7 @@ impl Parser {
                     ) {
                         self.advance();
                     }
-                    if let Some(Token {
-                        token_type: TokenType::LeftParen,
-                        ..
-                    }) = self.current_token()
-                        && val == "S"
-                    {
-                        self.advance();
-                        return self.parse_set_literal(header_start_byte);
-                    }
+
                     Ok(AstNode::Variable(val, Some(span)))
                 }
                 TokenType::Apostrophe => {
@@ -3064,15 +2998,7 @@ impl Parser {
                     Self::offset_spans(v, offset);
                 }
             }
-            AstNode::Set(items, span) => {
-                if let Some(span) = span {
-                    span.0 += offset;
-                    span.1 += offset;
-                }
-                for item in items {
-                    Self::offset_spans(item, offset);
-                }
-            }
+
             AstNode::Index {
                 object,
                 index,
@@ -3371,11 +3297,7 @@ impl Parser {
                     | BinaryOperator::Lt
                     | BinaryOperator::Lte
                     | BinaryOperator::Gt
-                    | BinaryOperator::Gte
-                    | BinaryOperator::SetSubset
-                    | BinaryOperator::SetSubsetEq
-                    | BinaryOperator::SetSuperset
-                    | BinaryOperator::SetSupersetEq,
+                    | BinaryOperator::Gte,
                 ..
             } => Err(mk_err(
                 node_span,
@@ -4657,7 +4579,7 @@ mod cst_integration_tests {
     fn structural_wraps_match_construct_kinds() {
         // Build a snippet exercising every wrap kind we've added in Phase 2B
         // and assert each kind shows up at least once in the green tree.
-        let src = r#"a:1+2; xs|sum; (1;2); (`k:1); S(1;2;3); {[x;y]x+y}; W[c;b]; N[3;@b]; B[1]; $[c;t;f]; $.[c;t]; $$[c;t;d]; foo[1;2]; foo!arg; bar:2"#;
+        let src = r#"a:1+2; xs|sum; (1;2); (`k:1); {[x;y]x+y}; W[c;b]; N[3;@b]; B[1]; $[c;t;f]; $.[c;t]; $$[c;t;d]; foo[1;2]; foo!arg; bar:2"#;
         let (_, cst) = parse_with_cst(src);
         let root = SyntaxNode::new_root(cst);
         let mut seen = std::collections::HashSet::new();
@@ -4671,7 +4593,6 @@ mod cst_integration_tests {
             SyntaxKind::ListExpr,
             SyntaxKind::DictExpr,
             SyntaxKind::DictPair,
-            SyntaxKind::SetExpr,
             SyntaxKind::FunctionExpr,
             SyntaxKind::ParamList,
             SyntaxKind::Param,
@@ -4821,7 +4742,6 @@ mod cst_integration_tests {
             | AstNode::UnaryOp { span, .. }
             | AstNode::Group { span, .. }
             | AstNode::BlockExpr(_, span)
-            | AstNode::Set(_, span)
             | AstNode::Conditional { span, .. }
             | AstNode::ConditionalDot { span, .. }
             | AstNode::ConditionalChain { span, .. }
@@ -4937,7 +4857,7 @@ mod cst_integration_tests {
             AstNode::List(..) => "List",
             AstNode::Cat(..) => "Cat",
             AstNode::Dict(..) => "Dict",
-            AstNode::Set(..) => "Set",
+
             AstNode::Group { .. } => "Group",
             AstNode::FString { .. } => "FString",
             AstNode::Return(..) => "Return",
@@ -4980,7 +4900,7 @@ mod cst_integration_tests {
             AstNode::Block(items) | AstNode::List(items) | AstNode::Cat(items) => {
                 out.extend(items.iter())
             }
-            AstNode::BlockExpr(items, _) | AstNode::Set(items, _) => out.extend(items.iter()),
+            AstNode::BlockExpr(items, _) => out.extend(items.iter()),
             AstNode::Dict(pairs) => out.extend(pairs.iter().map(|(_, v)| v)),
             AstNode::Assignment { value, .. } | AstNode::OuterAssignment { value, .. } => {
                 out.push(value)

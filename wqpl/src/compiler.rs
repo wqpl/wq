@@ -806,12 +806,7 @@ impl Compiler {
                 }
                 self.instructions.push(Instruction::MakeDict(pairs.len()));
             }
-            AstNode::Set(elements, _) => {
-                for elem in elements {
-                    self.compile_expr(elem)?;
-                }
-                self.instructions.push(Instruction::MakeSet(elements.len()));
-            }
+
             AstNode::CallName {
                 name, args, span, ..
             } => {
@@ -2227,7 +2222,7 @@ fn collect_ref_default_assignment_needs_inner(
                 collect_ref_default_assignment_needs_inner(value, available, excluded, needs);
             }
         }
-        AstNode::Set(items, _) | AstNode::BlockExpr(items, _) => {
+        AstNode::BlockExpr(items, _) => {
             for item in items {
                 collect_ref_default_assignment_needs_inner(item, available, excluded, needs);
             }
@@ -2373,7 +2368,6 @@ fn has_ctrl(node: &AstNode) -> bool {
         | AstNode::Cat(args)
         | AstNode::List(args) => args.iter().any(has_ctrl),
         AstNode::Dict(pairs) => pairs.iter().any(|(_, v)| has_ctrl(v)),
-        AstNode::Set(items, _) => items.iter().any(has_ctrl),
         AstNode::ConditionalChain { .. } => {
             unreachable!("ConditionalChain should have been resolved before compilation")
         }
@@ -2536,13 +2530,7 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
                 .map(|(k, v)| (k.clone(), replace_pipe_input(v, temp_name)))
                 .collect(),
         ),
-        AstNode::Set(items, span) => AstNode::Set(
-            items
-                .iter()
-                .map(|item| replace_pipe_input(item, temp_name))
-                .collect(),
-            *span,
-        ),
+
         AstNode::Postfix {
             object,
             items,
@@ -2869,11 +2857,7 @@ fn collect_capture_needs(
                 collect_capture_needs(value, locals, needs, ref_capture, defining_name);
             }
         }
-        AstNode::Set(items, _) => {
-            for item in items {
-                collect_capture_needs(item, locals, needs, ref_capture, defining_name);
-            }
-        }
+
         AstNode::Postfix { object, items, .. } => {
             collect_capture_needs(object, locals, needs, ref_capture, defining_name);
             for item in items {

@@ -193,17 +193,7 @@ impl Value {
                 }
                 Ok(Value::from_items(out))
             }
-            Value::Set(a) => {
-                let mut out = indexmap::IndexSet::with_capacity(a.len());
-                for (i, x) in a.iter().enumerate() {
-                    path.push(i);
-                    out.insert(f(x).bc_at_path(path)?);
-                    path.pop();
-                }
-                Ok(Value::Set(Arc::new(out)))
-            }
-            // `is_atom()` gate above ensures we only enter this match for
-            // List|IntList|Dict|String|Set — all five are handled.
+
             _ => unreachable!("bc1: is_atom guard excludes other variants"),
         }
     }
@@ -265,17 +255,7 @@ where
             }
             Ok(Value::from_items(out))
         }
-        Value::Set(items) => {
-            let mut out = indexmap::IndexSet::with_capacity(items.len());
-            for (i, y) in items.iter().enumerate() {
-                path.push(i);
-                out.insert(atom.bc2_until_with_path(y, stop, op, path)?);
-                path.pop();
-            }
-            Ok(Value::Set(Arc::new(out)))
-        }
-        // `container` is !is_atom() (checked by caller), so it must be
-        // one of the five containers above.
+
         _ => unreachable!("broadcast_left: container kind not handled"),
     }
 }
@@ -332,29 +312,20 @@ where
             }
             Ok(Value::from_items(out))
         }
-        Value::Set(items) => {
-            let mut out = indexmap::IndexSet::with_capacity(items.len());
-            for (i, x) in items.iter().enumerate() {
-                path.push(i);
-                out.insert(x.bc2_until_with_path(atom, stop, op, path)?);
-                path.pop();
-            }
-            Ok(Value::Set(Arc::new(out)))
-        }
+
         _ => unreachable!("broadcast_right: container kind not handled"),
     }
 }
 
 /// Both operands are containers — zip element-wise, with String decomposed
 /// into chars and Dict key-ordering preserved.
-///          Atom        List     IntList    String      Dict       Set
-///          ────        ────     ───────    ──────      ────       ───
-/// Atom      op        bc → L     bc → L     bc → L     bc → D     bc → E
-/// List      bc → L   zip → L    zip → L    zip → L    zip → D    zip → L
-/// IntList   bc → L   zip → L    zip → L    zip → L    zip → D    zip → L
-/// String    bc → L   zip → L    zip → L    zip → L    zip → D    zip → L
-/// Dict      bc → D   zip → D    zip → D    zip → D    zip → D*   zip → D
-/// Set       bc → E   zip → L    zip → L    zip → L    zip → D    zip → E
+///          Atom        List     IntList    String      Dict
+///          ────        ────     ───────    ──────      ────
+/// Atom      op        bc → L     bc → L     bc → L     bc → D
+/// List      bc → L   zip → L    zip → L    zip → L    zip → D
+/// IntList   bc → L   zip → L    zip → L    zip → L    zip → D
+/// String    bc → L   zip → L    zip → L    zip → L    zip → D
+/// Dict      bc → D   zip → D    zip → D    zip → D    zip → D*
 fn zip_containers<F>(
     left: &Value,
     right: &Value,
@@ -426,18 +397,6 @@ where
                 out.insert(kx.clone(), v);
             }
             Ok(Value::Dict(Arc::new(out)))
-        }
-        (Value::Set(a), Value::Set(b)) => {
-            if a.len() != b.len() {
-                return Err(bc_len_mismatch(a.len(), b.len(), path));
-            }
-            let mut out = indexmap::IndexSet::with_capacity(a.len());
-            for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
-                path.push(i);
-                out.insert(x.bc2_until_with_path(y, stop, op, path)?);
-                path.pop();
-            }
-            Ok(Value::Set(Arc::new(out)))
         }
 
         // ── IntList x List = 2 ─────────────────────
@@ -601,110 +560,7 @@ where
             }
             Ok(Value::Dict(Arc::new(out)))
         }
-        (Value::Dict(dx), Value::Set(s)) => {
-            if dx.len() != s.len() {
-                return Err(bc_len_mismatch(dx.len(), s.len(), path));
-            }
-            let mut out = IndexMap::with_capacity(dx.len());
-            for (i, ((k, xv), yv)) in dx.iter().zip(s.iter()).enumerate() {
-                path.push(i);
-                out.insert(k.clone(), xv.bc2_until_with_path(yv, stop, op, path)?);
-                path.pop();
-            }
-            Ok(Value::Dict(Arc::new(out)))
-        }
-        (Value::Set(s), Value::Dict(dy)) => {
-            if s.len() != dy.len() {
-                return Err(bc_len_mismatch(s.len(), dy.len(), path));
-            }
-            let mut out = IndexMap::with_capacity(dy.len());
-            for (i, (xv, (k, yv))) in s.iter().zip(dy.iter()).enumerate() {
-                path.push(i);
-                out.insert(k.clone(), xv.bc2_until_with_path(yv, stop, op, path)?);
-                path.pop();
-            }
-            Ok(Value::Dict(Arc::new(out)))
-        }
 
-        // ── Set x List, IntList, String = 6 ─────────────
-        (Value::Set(a), Value::List(b)) => {
-            if a.len() != b.len() {
-                return Err(bc_len_mismatch(a.len(), b.len(), path));
-            }
-            let mut out = Vec::with_capacity(a.len());
-            for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
-                path.push(i);
-                out.push(x.bc2_until_with_path(y, stop, op, path)?);
-                path.pop();
-            }
-            Ok(Value::from_items(out))
-        }
-        (Value::List(a), Value::Set(b)) => {
-            if a.len() != b.len() {
-                return Err(bc_len_mismatch(a.len(), b.len(), path));
-            }
-            let mut out = Vec::with_capacity(a.len());
-            for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
-                path.push(i);
-                out.push(x.bc2_until_with_path(y, stop, op, path)?);
-                path.pop();
-            }
-            Ok(Value::from_items(out))
-        }
-        (Value::Set(a), Value::IntList(b)) => {
-            if a.len() != b.len() {
-                return Err(bc_len_mismatch(a.len(), b.len(), path));
-            }
-            let mut out = Vec::with_capacity(a.len());
-            for (i, (x, &y)) in a.iter().zip(b.iter()).enumerate() {
-                path.push(i);
-                let rhs = Value::Int(y);
-                out.push(x.bc2_until_with_path(&rhs, stop, op, path)?);
-                path.pop();
-            }
-            Ok(Value::from_items(out))
-        }
-        (Value::IntList(a), Value::Set(b)) => {
-            if a.len() != b.len() {
-                return Err(bc_len_mismatch(a.len(), b.len(), path));
-            }
-            let mut out = Vec::with_capacity(a.len());
-            for (i, (&x, y)) in a.iter().zip(b.iter()).enumerate() {
-                path.push(i);
-                let lhs = Value::Int(x);
-                out.push(lhs.bc2_until_with_path(y, stop, op, path)?);
-                path.pop();
-            }
-            Ok(Value::from_items(out))
-        }
-        (Value::String(a), Value::Set(b)) => {
-            if a.chars().count() != b.len() {
-                return Err(bc_len_mismatch(a.chars().count(), b.len(), path));
-            }
-            let mut out = Vec::with_capacity(a.chars().count());
-            for (i, (c, y)) in a.chars().zip(b.iter()).enumerate() {
-                path.push(i);
-                let ch = Value::Char(c);
-                out.push(ch.bc2_until_with_path(y, stop, op, path)?);
-                path.pop();
-            }
-            Ok(Value::from_items(out))
-        }
-        (Value::Set(a), Value::String(b)) => {
-            if a.len() != b.chars().count() {
-                return Err(bc_len_mismatch(a.len(), b.chars().count(), path));
-            }
-            let mut out = Vec::with_capacity(a.len());
-            for (i, (x, c)) in a.iter().zip(b.chars()).enumerate() {
-                path.push(i);
-                let ch = Value::Char(c);
-                out.push(x.bc2_until_with_path(&ch, stop, op, path)?);
-                path.pop();
-            }
-            Ok(Value::from_items(out))
-        }
-
-        // 5 x 5 = 25 container pairs
         _ => unreachable!("zip_containers: missing container pair"),
     }
 }

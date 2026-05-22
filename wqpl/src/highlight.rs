@@ -232,7 +232,7 @@ impl Highlighter {
             };
             let target = match name.as_str() {
                 "W" | "N" => TokenType::LeftBracket,
-                "S" => TokenType::LeftParen,
+
                 _ => continue,
             };
             let mut j = i + 1;
@@ -561,10 +561,6 @@ impl Highlighter {
             | TokenType::ShrColon
             | TokenType::BitXorColon
             | TokenType::FloorDivColon
-            | TokenType::DotAmpersandColon
-            | TokenType::DotBackslashColon
-            | TokenType::DotCaretColon
-            | TokenType::DotMinusColon
             | TokenType::Plus
             | TokenType::Minus
             | TokenType::Multiply
@@ -593,15 +589,7 @@ impl Highlighter {
             | TokenType::Sharp
             | TokenType::Range
             | TokenType::RangeInclusive
-            | TokenType::Ellipsis
-            | TokenType::DotAmpersand
-            | TokenType::DotBackslash
-            | TokenType::DotCaret
-            | TokenType::DotMinus
-            | TokenType::DotLessThan
-            | TokenType::DotLessThanOrEqual
-            | TokenType::DotGreaterThan
-            | TokenType::DotGreaterThanOrEqual => Some(HighlightName::Operator),
+            | TokenType::Ellipsis => Some(HighlightName::Operator),
 
             TokenType::Pipe | TokenType::PipeDot | TokenType::PipePipe | TokenType::PipePipeDot => {
                 Some(HighlightName::OperatorPipe)
@@ -746,15 +734,6 @@ mod tests {
     }
 
     #[test]
-    fn test_s_set_keyword_highlight() {
-        let src = "S(1,2)";
-        let h = Highlighter::new();
-        let events = h.highlight(src);
-        let regions = named_regions(&events, src);
-        assert_eq!(regions[0], ("S".to_string(), Some(HighlightName::Keyword)));
-    }
-
-    #[test]
     fn test_w_as_variable_when_not_loop() {
         let src = "W + 1";
         let h = Highlighter::new();
@@ -770,15 +749,6 @@ mod tests {
         let events = h.highlight(src);
         let regions = named_regions(&events, src);
         assert_eq!(regions[0], ("N".to_string(), Some(HighlightName::Variable)));
-    }
-
-    #[test]
-    fn test_s_as_variable_when_not_set() {
-        let src = "S + 1";
-        let h = Highlighter::new();
-        let events = h.highlight(src);
-        let regions = named_regions(&events, src);
-        assert_eq!(regions[0], ("S".to_string(), Some(HighlightName::Variable)));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use smallvec::SmallVec;
 
 use crate::interpret::{Interpreter, InterpreterHook, NO_OP_HOOK};
@@ -897,17 +897,7 @@ impl Interpreter for VanillaInterpreter {
                         hooks.on_dict_alloc(&|| count);
                         vm.stack.push(Value::Dict(Arc::new(map)));
                     }
-                    Instruction::MakeSet(n) => {
-                        let count = *n;
-                        ensure_stack_len(&vm.stack, count, || "set elements".into())?;
-                        let base = vm.stack.len() - count;
-                        let mut set = IndexSet::with_capacity(count);
-                        for v in vm.stack.drain(base..) {
-                            set.insert(v);
-                        }
-                        hooks.on_set_alloc(&|| count);
-                        vm.stack.push(Value::Set(Arc::new(set)));
-                    }
+
                     Instruction::MakeRange {
                         inclusive,
                         has_step,

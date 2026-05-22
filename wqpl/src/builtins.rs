@@ -677,7 +677,17 @@ declare_builtins! {
     (KEY_TO_IDX, KeyToIdx, "kti", "kti[dct;k]", "2", dict::key_to_idx, BuiltinGroup::Dict),
 
     // Set ==========================================================
-    (CARPRODUCT, Carproduct, "car", "car[xs;ys]", "2", set::carproduct, BuiltinGroup::Set),
+    (UNIQUE, Unique, "unique", "unique[xs]", "1", set::unique, BuiltinGroup::Set),
+    (UNION, Union, "union", "union[xs;ys]", "2", set::r#union, BuiltinGroup::Set),
+    (INTERSECT, Intersect, "intersect", "intersect[xs;ys]", "2", set::intersect, BuiltinGroup::Set),
+    (WITHOUT, Without, "without", "without[xs;ys]", "2", set::without, BuiltinGroup::Set),
+    (SYMDIFF, Symdiff, "symdiff", "symdiff[xs;ys]", "2", set::symdiff, BuiltinGroup::Set),
+    (SUBSET_Q, SubsetQ, "subset?", "subset?[xs;ys]", "2", set::subset, BuiltinGroup::Set),
+    (PROPER_SUBSET_Q, ProperSubsetQ, "proper_subset?", "proper_subset?[xs;ys]", "2", set::proper_subset, BuiltinGroup::Set),
+    (SUPERSET_Q, SupersetQ, "superset?", "superset?[xs;ys]", "2", set::superset, BuiltinGroup::Set),
+    (PROPER_SUPERSET_Q, ProperSupersetQ, "proper_superset?", "proper_superset?[xs;ys]", "2", set::proper_superset, BuiltinGroup::Set),
+    (MEMBER_Q, MemberQ, "member?", "member?[xs;ys]", "2", set::member, BuiltinGroup::Set),
+    (CART, Cart, "cart", "cart[xs;ys]", "2", set::carproduct, BuiltinGroup::Set),
     (IN_Q, InQ, "in?", "in?[x;xs;d?]", "2 3", set::in_, BuiltinGroup::Set, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
     (HAS_Q, HasQ, "has?", "has?[xs;x;d?]", "2 3", set::has, BuiltinGroup::Set, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
     (DISJOINT_Q, DisjointQ, "disjoint?", "disjoint?[xs;ys]", "2", set::disjoint, BuiltinGroup::Set),
@@ -793,7 +803,6 @@ declare_builtins! {
     (UNIT_Q, UnitQ, "unit?", "unit?[x]", "1", wqtype::is_unit, BuiltinGroup::Type),
     (U, U, "U", "U[x]", "1", wqtype::is_unit, BuiltinGroup::Type), // alias of unit?
     (TO_LIST, ToList, "list", "list[x]", "1", wqtype::to_list, BuiltinGroup::Type),
-    (TO_SET, ToSet, "set", "set[x]", "1", wqtype::to_set, BuiltinGroup::Type),
     (TO_DICT, ToDict, "dict", "dict[x]", "1", wqtype::to_dict, BuiltinGroup::Type),
 
     // Visualization =========================================================

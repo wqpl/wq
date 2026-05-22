@@ -1,52 +1,42 @@
-// Set literal syntax and basic operations
-S(1;2;3)|echo
-S(1;1;2;3)|echo
-S()|echo
-S(42)|echo
+// Set-like list operations
+unique[(1;2;3)]|echo
+unique[(1;1;2;3)]|echo
+unique[()]|echo
+unique[42]|echo
 
-// Membership tests with sets
-in?[2;S(1;2;3)]|echo
-in?[5;S(1;2;3)]|echo
-disjoint?[S(1;2);S(3;4)]|echo
-disjoint?[S(1;2);S(2;3)]|echo
+// Membership tests with normal containers
+in?[2;(1;2;3)]|echo
+in?[5;(1;2;3)]|echo
+member?[(1;2;3);(1;3)]|echo
+member?[2;(1;3)]|echo
+disjoint?[(1;2);(3;4)]|echo
+disjoint?[(1;2);(2;3)]|echo
 
-// Set-theoretic operators (dot-prefixed)
-(S(1;2) .& S(2;3))|echo
-(S(1;2) .\ S(2;3))|echo
-(S(1;2) .^ S(2;3))|echo
-(S(1;2;3) .- S(2;3;4))|echo
-(S(1;2) .<= S(1;2;3))|echo
-(S(1;2) .< S(1;2;3))|echo
-(S(1;2;3) .>= S(1;2))|echo
-(S(1;2;3) .> S(1;2))|echo
+// Set-like algebra keeps first-seen order and returns normal lists
+intersect[(1;2);(2;3)]|echo
+union[(1;2);(2;3)]|echo
+symdiff[(1;2);(2;3)]|echo
+without[(1;2;3);(2;3;4)]|echo
+without[(1;1;2;3);(2)]|echo
+subset?[(1;2);(1;2;3)]|echo
+proper_subset?[(1;2);(1;2;3)]|echo
+superset?[(1;2;3);(1;2)]|echo
+proper_superset?[(1;2;3);(1;2)]|echo
 
-// Broadcasting: plain bitwise ops on sets produce sets
-S(1;2) & 1|echo
-S(1;2) \ 0|echo
+// Strings participate as character lists
+unique["banana"]|echo
+union["ab";"bc"]|echo
+intersect["banana";"can"]|echo
+without["banana";"an"]|echo
 
-// Type name
-type[S(1;2;3)]|echo
+// Dicts participate by keys
+unique[(`a:1;`b:2;`a:3)]|echo
+intersect[(`a:1;`b:2);(`b:0;`c:0)]|echo
 
-#S(1;2;3)|echo
-
-// Set indexing
-S(1;2;3)[0]|echo
-S(1;2;3)[-1]|echo
-S(1;2;3)[0;2]|echo
-
-// Augmented assign on sets
-s:S(1;2)
-s.&:S(2;3)
-s|echo
-
-t:S(1;2)
-t.\:S(3;4)
-t|echo
-
-u:S(1;2;3)
-u.-:S(1)
-u|echo
-
-v:S(1;2)
-v.^:S(2;3)
-v|echo
+// Type, count, indexing, and cartesian product stay list-native
+type[unique[(1;2;3)]]|echo
+#unique[(1;2;3)]|echo
+unique[(1;2;3)][0]|echo
+unique[(1;2;3)][-1]|echo
+unique[(1;2;3)][0;2]|echo
+cart[(1;2);(3;4)]|echo

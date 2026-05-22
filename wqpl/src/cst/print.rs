@@ -33,12 +33,11 @@ fn kind_color(kind: SyntaxKind) -> Color {
 
         // Operators
         Plus | Minus | Star | Slash | SlashDot | Percent | Power | PowerDot | Matmul | FloorDiv
-        | DotAmp | DotBackslash | DotCaret | DotMinus | BoolAnd | BoolOr | BitAnd | BitOr | Shl
-        | Shr | BitXor | PlusColon | MinusColon | StarColon | SlashColon | SlashDotColon
-        | PercentColon | PowerColon | PowerDotColon | CommaColon | BoolAndColon | BoolOrColon
-        | BitAndColon | BitOrColon | ShlColon | ShrColon | BitXorColon | FloorDivColon
-        | DotAmpColon | DotBackslashColon | DotCaretColon | DotMinusColon | EqEq | EqDot
-        | NotEq | NotEqDot | Lt | Le | Gt | Ge | DotLt | DotLe | DotGt | DotGe => Color::Yellow,
+        | BoolAnd | BoolOr | BitAnd | BitOr | Shl | Shr | BitXor | PlusColon | MinusColon
+        | StarColon | SlashColon | SlashDotColon | PercentColon | PowerColon | PowerDotColon
+        | CommaColon | BoolAndColon | BoolOrColon | BitAndColon | BitOrColon | ShlColon
+        | ShrColon | BitXorColon | FloorDivColon | EqEq | EqDot | NotEq | NotEqDot | Lt | Le
+        | Gt | Ge => Color::Yellow,
 
         // Punctuation / brackets
         Colon | Hash | Pipe | PipeDot | PipePipe | PipePipeDot | RangeOp | RangeIncOp | LParen
@@ -59,7 +58,7 @@ fn kind_color(kind: SyntaxKind) -> Color {
         | IndexAssignExpr
         | MutatingIndexAssignExpr => Color::Red,
         MutatingIndexExpr => Color::BrightBlue,
-        ListExpr | DictExpr | SetExpr | ParenExpr | BlockExpr => Color::White,
+        ListExpr | DictExpr | ParenExpr | BlockExpr => Color::White,
         PostfixExpr | NamedArgExpr | ArgList => Color::Magenta,
         FStringExpr => Color::Cyan,
         CondExpr | CondDotExpr | CondChainExpr | WLoopExpr | NLoopExpr | FunctionExpr

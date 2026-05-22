@@ -28,7 +28,7 @@ impl Value {
             Value::String(v) => Arc::strong_count(v),
             Value::Cas(v) => Arc::strong_count(v),
             Value::Dict(v) => Arc::strong_count(v),
-            Value::Set(v) => Arc::strong_count(v),
+
             Value::CompiledFunction(v) => Arc::strong_count(v),
             Value::Closure(v) => Arc::strong_count(v),
             Value::Stream(v) => Arc::strong_count(v),
@@ -53,7 +53,7 @@ impl Value {
             Value::String(v) => Arc::weak_count(v),
             Value::Cas(v) => Arc::weak_count(v),
             Value::Dict(v) => Arc::weak_count(v),
-            Value::Set(v) => Arc::weak_count(v),
+
             Value::CompiledFunction(v) => Arc::weak_count(v),
             Value::Closure(v) => Arc::weak_count(v),
             Value::Stream(v) => Arc::weak_count(v),
@@ -103,24 +103,6 @@ impl Value {
                     }
                     let mut dims = Vec::with_capacity(first.len() + 1);
                     dims.push(map.len());
-                    dims.extend(first);
-                    Some(dims)
-                }
-            }
-            Value::Set(items) => {
-                if items.is_empty() {
-                    Some(vec![0])
-                } else {
-                    let mut iter = items.iter();
-                    let first = iter.next().unwrap().shape_uniform()?;
-                    for v in iter {
-                        let s = v.shape_uniform()?;
-                        if s != first {
-                            return None;
-                        }
-                    }
-                    let mut dims = Vec::with_capacity(first.len() + 1);
-                    dims.push(items.len());
                     dims.extend(first);
                     Some(dims)
                 }
@@ -176,20 +158,6 @@ impl Value {
                     let mut max_child = 0i64;
                     for (_, v) in map.iter() {
                         let d = v.depth();
-                        if d > max_child {
-                            max_child = d;
-                        }
-                    }
-                    1 + max_child
-                }
-            }
-            Value::Set(items) => {
-                if items.is_empty() {
-                    1
-                } else {
-                    let mut max_child = 0i64;
-                    for it in items.iter() {
-                        let d = it.depth();
                         if d > max_child {
                             max_child = d;
                         }

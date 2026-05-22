@@ -104,31 +104,12 @@ pub(super) fn to_list(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         return Ok(input);
     }
     match input {
-        Value::Set(items) => Ok(Value::List(Arc::new(items.iter().cloned().collect()))),
         Value::Dict(map) => Ok(Value::List(Arc::new(
             map.iter()
                 .map(|(k, v)| Value::List(Arc::new(vec![Value::Tag(k.clone()), v.clone()])))
                 .collect(),
         ))),
         atom => Ok(Value::List(Arc::new(vec![atom]))),
-    }
-}
-
-pub(super) fn to_set(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::ToSet, [1], &args)?;
-    let input = args.into_iter().next().unwrap();
-    if matches!(&input, Value::Set(_)) {
-        return Ok(input);
-    }
-    match input {
-        Value::List(items) => Ok(Value::Set(Arc::new(items.iter().cloned().collect()))),
-        Value::IntList(items) => Ok(Value::Set(Arc::new(
-            items.iter().copied().map(Value::Int).collect(),
-        ))),
-        Value::Dict(map) => Ok(Value::Set(Arc::new(
-            map.keys().cloned().map(Value::Tag).collect(),
-        ))),
-        atom => Ok(Value::Set(Arc::new(indexmap::IndexSet::from_iter([atom])))),
     }
 }
 
@@ -169,10 +150,7 @@ pub(super) fn to_dict(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
             .iter()
             .map(extract_entry)
             .collect::<WqResult<Vec<_>>>()?,
-        Value::Set(items) => items
-            .iter()
-            .map(extract_entry)
-            .collect::<WqResult<Vec<_>>>()?,
+
         other => {
             return Err(
                 crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Domain).msg(format!(

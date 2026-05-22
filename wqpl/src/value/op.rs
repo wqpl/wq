@@ -2,7 +2,6 @@ pub mod arith;
 pub mod bit;
 pub mod container;
 pub mod logic;
-pub mod set;
 
 use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::value::convert::IntoWqValue;
@@ -67,14 +66,6 @@ pub(crate) fn eval_binary(op: &BinaryOperator, left: &Value, right: &Value) -> W
         Shl => left.shl(right).map_err(|e| e.src(bp!("<<"))),
         Shr => left.shr(right).map_err(|e| e.src(bp!(">>"))),
         FloorDiv => left.floor_div(right).map_err(|e| e.src(bp!("/%"))),
-        SetIntersection => left.set_intersection(right).map_err(|e| e.src(bp!(".&"))),
-        SetUnion => left.set_union(right).map_err(|e| e.src(bp!(r".\"))),
-        SetSymDiff => left.set_sym_diff(right).map_err(|e| e.src(bp!(".^"))),
-        SetDifference => left.set_difference(right).map_err(|e| e.src(bp!(".-"))),
-        SetSubset => left.set_subset(right).map_err(|e| e.src(bp!(".<"))),
-        SetSubsetEq => left.set_subset_eq(right).map_err(|e| e.src(bp!(".<="))),
-        SetSuperset => left.set_superset(right).map_err(|e| e.src(bp!(".>"))),
-        SetSupersetEq => left.set_superset_eq(right).map_err(|e| e.src(bp!(".>="))),
     }
 }
 

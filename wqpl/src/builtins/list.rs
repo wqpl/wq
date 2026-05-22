@@ -101,17 +101,7 @@ pub(super) fn sum(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
                 }
                 Ok(acc)
             }
-            Value::Set(items) => {
-                let mut iter = items.iter();
-                let mut acc = match iter.next() {
-                    Some(v) => v.clone(),
-                    None => return Ok(Value::Int(0)),
-                };
-                for v in iter {
-                    acc = acc.add(v).map_err(|e| e.src(BE::Sum))?;
-                }
-                Ok(acc)
-            }
+
             _ => Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Sum)
                 .msg("expected atom or list")
@@ -217,17 +207,7 @@ pub(super) fn product(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
                 }
                 Ok(acc)
             }
-            Value::Set(items) => {
-                let mut iter = items.iter();
-                let mut acc = match iter.next() {
-                    Some(v) => v.clone(),
-                    None => return Ok(Value::Int(1)),
-                };
-                for v in iter {
-                    acc = acc.multiply(v).map_err(|e| e.src(BE::Product))?;
-                }
-                Ok(acc)
-            }
+
             _ => Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Product)
                 .msg("expected atom or list")
@@ -272,7 +252,7 @@ pub(super) fn min(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
                 return Ok(min_int.map(Value::Int).unwrap_or_else(Value::unit));
             }
             Value::Dict(items) => items.values().collect(),
-            Value::Set(items) => items.iter().collect(),
+
             _atom => return Ok(args.into_iter().next().unwrap()),
         }
     } else {
@@ -340,7 +320,7 @@ pub(super) fn max(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
                 return Ok(max_int.map(Value::Int).unwrap_or_else(Value::unit));
             }
             Value::Dict(items) => items.values().collect(),
-            Value::Set(items) => items.iter().collect(),
+
             _atom => return Ok(args.into_iter().next().unwrap()),
         }
     } else {
@@ -407,11 +387,7 @@ pub(super) fn reverse(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
             Arc::make_mut(&mut reversed).reverse();
             Ok(Value::Dict(reversed))
         }
-        Value::Set(items) => {
-            let mut reversed: Vec<Value> = items.iter().cloned().collect();
-            reversed.reverse();
-            Ok(Value::Set(Arc::new(reversed.into_iter().collect())))
-        }
+
         _ => Ok(v),
     }
 }
@@ -459,23 +435,7 @@ pub(super) fn sort(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
             });
             Value::Dict(sorted)
         }
-        Value::Set(items) => {
-            let mut sorted: Vec<Value> = items.iter().cloned().collect();
-            let cmp = |a: &Value, b: &Value| {
-                if let (Ok(sa), Ok(sb)) =
-                    (a.to_rust_string_with_note(), b.to_rust_string_with_note())
-                {
-                    return sa.cmp(&sb);
-                }
-                cmp_atom(a, b).unwrap_or(Ordering::Equal)
-            };
-            if sorted.len() > 2000 {
-                sorted.par_sort_by(cmp);
-            } else {
-                sorted.sort_by(cmp);
-            }
-            Value::Set(Arc::new(sorted.into_iter().collect()))
-        }
+
         _ => v,
     };
     Ok(res)
@@ -787,27 +747,7 @@ fn find_search(
                 }
             }
         }
-        Value::Set(items) => {
-            let indices: Vec<usize> = if ctx.reverse {
-                (0..items.len()).rev().collect()
-            } else {
-                (0..items.len()).collect()
-            };
-            for idx in indices {
-                if results.len() >= ctx.threshold as usize {
-                    return;
-                }
-                let item = &items[idx];
-                if ctx.elem == item {
-                    path.push(idx as i64);
-                    results.push(Value::IntList(Arc::new(path.clone())));
-                    path.pop();
-                    if results.len() >= ctx.threshold as usize {
-                        return;
-                    }
-                }
-            }
-        }
+
         _ => {
             if ctx.elem == xs {
                 results.push(Value::IntList(Arc::new(path.clone())));

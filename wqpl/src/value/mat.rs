@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use indexmap::IndexSet;
 use num_bigint::BigInt;
 use rayon::prelude::*;
 
@@ -117,7 +116,6 @@ const TILE_K: usize = 64;
 enum ValueSeq<'a> {
     List(&'a [Value]),
     IntList(&'a [i64]),
-    Set(&'a IndexSet<Value>),
 }
 
 impl<'a> ValueSeq<'a> {
@@ -125,7 +123,6 @@ impl<'a> ValueSeq<'a> {
         match v {
             Value::List(items) => Some(ValueSeq::List(items.as_slice())),
             Value::IntList(items) => Some(ValueSeq::IntList(items.as_slice())),
-            Value::Set(items) => Some(ValueSeq::Set(items.as_ref())),
             _ => None,
         }
     }
@@ -135,7 +132,6 @@ impl<'a> ValueSeq<'a> {
         match self {
             ValueSeq::List(items) => items.get(idx).cloned(),
             ValueSeq::IntList(items) => items.get(idx).map(|&x| Value::Int(x)),
-            ValueSeq::Set(items) => items.get_index(idx).cloned(),
         }
     }
 }
@@ -178,11 +174,7 @@ pub(crate) fn index_path(v: &Value, idxs: &[usize]) -> Option<Value> {
                 items.get(i0).copied().map(Value::Int)
             }
         }
-        Value::Set(items) => {
-            let i0 = *idxs.first()?;
-            let next = items.get_index(i0)?;
-            index_path(next, &idxs[1..])
-        }
+
         _ => None,
     }
 }
@@ -246,10 +238,7 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
                     .iter()
                     .map(ValueSeq::from_value)
                     .collect::<Option<Vec<_>>>(),
-                Value::Set(items) => items
-                    .iter()
-                    .map(ValueSeq::from_value)
-                    .collect::<Option<Vec<_>>>(),
+
                 _ => None,
             }
             .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("A rows must be sequences"))?;
@@ -287,10 +276,7 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
                     .iter()
                     .map(ValueSeq::from_value)
                     .collect::<Option<Vec<_>>>(),
-                Value::Set(items) => items
-                    .iter()
-                    .map(ValueSeq::from_value)
-                    .collect::<Option<Vec<_>>>(),
+
                 _ => None,
             }
             .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("B rows must be sequences"))?;
@@ -329,10 +315,7 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
                     .iter()
                     .map(ValueSeq::from_value)
                     .collect::<Option<Vec<_>>>(),
-                Value::Set(items) => items
-                    .iter()
-                    .map(ValueSeq::from_value)
-                    .collect::<Option<Vec<_>>>(),
+
                 _ => None,
             }
             .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("A rows must be sequences"))?;
@@ -341,10 +324,7 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
                     .iter()
                     .map(ValueSeq::from_value)
                     .collect::<Option<Vec<_>>>(),
-                Value::Set(items) => items
-                    .iter()
-                    .map(ValueSeq::from_value)
-                    .collect::<Option<Vec<_>>>(),
+
                 _ => None,
             }
             .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("B rows must be sequences"))?;
@@ -727,8 +707,6 @@ impl Value {
 mod tests {
     use std::sync::Arc;
 
-    use indexmap::IndexSet;
-
     use crate::value::Value;
 
     fn il(v: &[i64]) -> Value {
@@ -780,30 +758,5 @@ mod tests {
         let exp1 = mat(&[&[111, 122], &[151, 166]]);
         let expect = Value::List(Arc::new(vec![exp0, exp1]));
         assert_eq!(res, expect);
-    }
-
-    #[test]
-    fn mm_set_set_dot() {
-        let a = Value::Set(Arc::new(IndexSet::from_iter([
-            Value::Int(1),
-            Value::Int(2),
-        ])));
-        let b = Value::Set(Arc::new(IndexSet::from_iter([
-            Value::Int(2),
-            Value::Int(3),
-        ])));
-        let res = a.mm(&b).expect("set set dot");
-        assert_eq!(res, Value::Int(8));
-    }
-
-    #[test]
-    fn mm_set_list_dot() {
-        let a = Value::Set(Arc::new(IndexSet::from_iter([
-            Value::Int(1),
-            Value::Int(2),
-        ])));
-        let b = il(&[2, 3]);
-        let res = a.mm(&b).expect("set list dot");
-        assert_eq!(res, Value::Int(8));
     }
 }

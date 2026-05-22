@@ -1,4 +1,3 @@
-use std::hash::Hasher;
 use std::sync::Arc;
 
 use num_traits::ToPrimitive;
@@ -90,22 +89,7 @@ impl std::hash::Hash for Value {
                 fd.numer().hash(state);
                 fd.denom().hash(state);
             }
-            Value::Set(s) => {
-                19u8.hash(state);
-                s.len().hash(state);
-                let mut hashes: Vec<u64> = s
-                    .iter()
-                    .map(|item| {
-                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                        item.hash(&mut hasher);
-                        hasher.finish()
-                    })
-                    .collect();
-                hashes.sort();
-                for h in hashes {
-                    h.hash(state);
-                }
-            }
+
             Value::CompiledFunction(fd) => {
                 8u8.hash(state);
                 Arc::as_ptr(fd).hash(state);
@@ -237,7 +221,6 @@ impl PartialEq for Value {
                         .zip(b.iter())
                         .all(|(c, v)| matches!(v, Char(ch) if *ch == c))
             }
-            (Set(a), Set(b)) => a.len() == b.len() && a.iter().all(|va| b.contains(va)),
             (BuiltinFunction(a), BuiltinFunction(b)) => a == b,
             (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
             (Algebraic(a), Algebraic(b)) => {
@@ -256,7 +239,7 @@ mod hash_tests {
 
     use std::hash::{Hash, Hasher};
 
-    use indexmap::{IndexMap, IndexSet};
+    use indexmap::IndexMap;
 
     use super::*;
 
@@ -272,12 +255,10 @@ mod hash_tests {
         let empty_list = Value::List(Arc::new(vec![]));
         let empty_intlist = Value::IntList(Arc::new(vec![]));
         let empty_dict = Value::Dict(Arc::new(IndexMap::new()));
-        let empty_set = Value::Set(Arc::new(IndexSet::new()));
 
         assert_eq!(hash_value(&empty_string), hash_value(&empty_list));
         assert_eq!(hash_value(&empty_string), hash_value(&empty_intlist));
         assert_eq!(hash_value(&empty_string), hash_value(&empty_dict));
-        assert_eq!(hash_value(&empty_string), hash_value(&empty_set));
     }
 
     #[test]
@@ -286,12 +267,10 @@ mod hash_tests {
         let empty_list = Value::List(Arc::new(vec![]));
         let empty_intlist = Value::IntList(Arc::new(vec![]));
         let empty_dict = Value::Dict(Arc::new(IndexMap::new()));
-        let empty_set = Value::Set(Arc::new(IndexSet::new()));
 
         assert_eq!(empty_string, empty_list);
         assert_eq!(empty_string, empty_intlist);
         assert_eq!(empty_string, empty_dict);
-        assert_eq!(empty_string, empty_set);
     }
 
     #[test]
@@ -308,21 +287,6 @@ mod hash_tests {
 
         assert_eq!(dict_a, dict_b);
         assert_eq!(hash_value(&dict_a), hash_value(&dict_b));
-    }
-
-    #[test]
-    fn set_unordered_eq_and_hash() {
-        let set_a = Value::Set(Arc::new(IndexSet::from_iter([
-            Value::Int(1),
-            Value::Int(2),
-        ])));
-        let set_b = Value::Set(Arc::new(IndexSet::from_iter([
-            Value::Int(2),
-            Value::Int(1),
-        ])));
-
-        assert_eq!(set_a, set_b);
-        assert_eq!(hash_value(&set_a), hash_value(&set_b));
     }
 
     #[test]

@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 pub(crate) use convert::IntoWqValue;
 pub use display::Excerpt;
 pub(crate) use display::into_wq_string;
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_rational::Ratio;
@@ -53,7 +53,6 @@ pub enum Value {
     /// Symbolic algebra expression.
     Cas(Arc<CasData>),
     Dict(Arc<IndexMap<Arc<str>, Value>>),
-    Set(Arc<IndexSet<Value>>),
     CompiledFunction(Arc<FunctionData>),
     /// closure with captured cells (upvalues)
     Closure(Arc<ClosureData>),
@@ -69,7 +68,7 @@ impl Value {
             Value::IntList(items) => items.len(),
             Value::String(s) => s.chars().count(),
             Value::Dict(map) => map.len(),
-            Value::Set(items) => items.len(),
+
             _ => 1, // Atoms have length 1
         }
     }
@@ -102,7 +101,7 @@ impl Value {
     pub fn is_atom(&self) -> bool {
         !matches!(
             self,
-            Value::IntList(_) | Value::List(_) | Value::Dict(_) | Value::String(_) | Value::Set(_)
+            Value::IntList(_) | Value::List(_) | Value::Dict(_) | Value::String(_)
         )
     }
 
@@ -277,47 +276,12 @@ impl Value {
             Value::Dict(_) if self.is_unit() => "dict (unit)",
             Value::Dict(_) => "dict",
 
-            Value::Set(_) => "set",
-
             Value::CompiledFunction { .. } => "fn",
             Value::Closure { .. } => "closure",
             Value::BuiltinFunction(_) => "bfn",
 
             Value::Stream(_) => "stream",
         }
-    }
-}
-
-/// If at least one operand is a Set, call `op` with borrowed references.
-/// When an operand is an atom, promotes it to a temporary singleton set.
-/// Returns `None` if neither operand is a Set.
-pub(crate) fn with_sets_as_refs<T>(
-    a: &Value,
-    b: &Value,
-    op: impl FnOnce(&IndexSet<Value>, &IndexSet<Value>) -> T,
-) -> Option<T> {
-    if !matches!(a, Value::Set(_)) && !matches!(b, Value::Set(_)) {
-        return None;
-    }
-    match (a, b) {
-        (Value::Set(a_s), Value::Set(b_s)) => Some(op(a_s, b_s)),
-        (Value::Set(a_s), atom) => {
-            let b_s = {
-                let mut s = IndexSet::new();
-                s.insert(atom.clone());
-                s
-            };
-            Some(op(a_s, &b_s))
-        }
-        (atom, Value::Set(b_s)) => {
-            let a_s = {
-                let mut s = IndexSet::new();
-                s.insert(atom.clone());
-                s
-            };
-            Some(op(&a_s, b_s))
-        }
-        _ => unreachable!(),
     }
 }
 
@@ -342,12 +306,6 @@ pub(crate) fn expected_integer1(v: &Value) -> WqError {
 pub(crate) fn expected_integer2(lhs: &Value, rhs: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
         .msg("expected int or bigint")
-        .got2(lhs, rhs)
-}
-
-pub(crate) fn expected_set2(lhs: &Value, rhs: &Value) -> WqError {
-    WqError::new(WqErrorType::Domain)
-        .msg("expected set")
         .got2(lhs, rhs)
 }
 

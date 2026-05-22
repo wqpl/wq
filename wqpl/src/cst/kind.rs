@@ -63,7 +63,7 @@ pub enum SyntaxKind {
     DollarDot,
     DollarDollar,
 
-    // ===== arithmetic / set operators =====
+    // ===== arithmetic operators =====
     Plus,
     Minus,
     Star,
@@ -74,10 +74,6 @@ pub enum SyntaxKind {
     PowerDot,
     Matmul,
     FloorDiv,
-    DotAmp,
-    DotBackslash,
-    DotCaret,
-    DotMinus,
 
     // ===== bitwise / boolean =====
     BoolAnd,
@@ -106,10 +102,6 @@ pub enum SyntaxKind {
     ShrColon,
     BitXorColon,
     FloorDivColon,
-    DotAmpColon,
-    DotBackslashColon,
-    DotCaretColon,
-    DotMinusColon,
 
     Colon,
 
@@ -122,10 +114,6 @@ pub enum SyntaxKind {
     Le,
     Gt,
     Ge,
-    DotLt,
-    DotLe,
-    DotGt,
-    DotGe,
 
     // ===== pipes / range / misc =====
     Hash,
@@ -178,7 +166,7 @@ pub enum SyntaxKind {
     ListExpr,
     DictExpr,
     DictPair,
-    SetExpr,
+
     ParenExpr,
     PostfixExpr,
     /// Named argument at a call site: `<backtick>name: value`
@@ -283,10 +271,7 @@ impl SyntaxKind {
             PowerDot => "POWER_DOT",
             Matmul => "MATMUL",
             FloorDiv => "FLOOR_DIV",
-            DotAmp => "DOT_AMP",
-            DotBackslash => "DOT_BACKSLASH",
-            DotCaret => "DOT_CARET",
-            DotMinus => "DOT_MINUS",
+
             BoolAnd => "BOOL_AND",
             BoolOr => "BOOL_OR",
             BitAnd => "BIT_AND",
@@ -311,10 +296,7 @@ impl SyntaxKind {
             ShrColon => "SHR_COLON",
             BitXorColon => "BIT_XOR_COLON",
             FloorDivColon => "FLOOR_DIV_COLON",
-            DotAmpColon => "DOT_AMP_COLON",
-            DotBackslashColon => "DOT_BACKSLASH_COLON",
-            DotCaretColon => "DOT_CARET_COLON",
-            DotMinusColon => "DOT_MINUS_COLON",
+
             Colon => "COLON",
             EqEq => "EQ_EQ",
             EqDot => "EQ_DOT",
@@ -324,10 +306,7 @@ impl SyntaxKind {
             Le => "LE",
             Gt => "GT",
             Ge => "GE",
-            DotLt => "DOT_LT",
-            DotLe => "DOT_LE",
-            DotGt => "DOT_GT",
-            DotGe => "DOT_GE",
+
             Hash => "HASH",
             Pipe => "PIPE",
             PipeDot => "PIPE_DOT",
@@ -364,7 +343,7 @@ impl SyntaxKind {
             ListExpr => "LIST_EXPR",
             DictExpr => "DICT_EXPR",
             DictPair => "DICT_PAIR",
-            SetExpr => "SET_EXPR",
+
             ParenExpr => "PAREN_EXPR",
             PostfixExpr => "POSTFIX_EXPR",
             NamedArgExpr => "NAMED_ARG_EXPR",

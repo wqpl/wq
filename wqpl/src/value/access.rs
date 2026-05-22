@@ -56,15 +56,6 @@ impl Value {
                 Some(Value::from_items(result))
             }
 
-            // set[x;y;z] =============================================================
-            Value::Set(items) => {
-                let idxs = normalize_list_indices(keys, items.len())?;
-                let mut result = Vec::with_capacity(idxs.len());
-                for idx in idxs {
-                    result.push(items.get_index(idx)?.clone());
-                }
-                Some(Value::from_items(result))
-            }
             // Fallback to scalar index path (e.g. atom multiply) =====================
             other => {
                 if keys.len() == 1 {
@@ -141,18 +132,6 @@ impl Value {
                         Some(Value::from_items(result))
                     }
                     _ => None,
-                }),
-
-            // set[x] ================================================================
-            (Value::Set(items), key) => resolve_single_idx(key, items.len())
-                .and_then(|idx| items.get_index(idx).cloned())
-                .or_else(|| {
-                    let idxs = resolve_many_idx(key, items.len())?;
-                    let mut result = Vec::with_capacity(idxs.len());
-                    for idx in idxs {
-                        result.push(items.get_index(idx)?.clone());
-                    }
-                    Some(Value::from_items(result))
                 }),
 
             // complex[x] =============================================================
@@ -353,44 +332,7 @@ impl Value {
                     }
                 }
             },
-            Value::Set(items) => {
-                if let Some(idx) = resolve_single_idx(key, items.len()) {
-                    let items = Arc::make_mut(items);
-                    items.shift_remove_index(idx);
-                    items.shift_insert(idx, value);
-                    // If the new value already existed elsewhere in the set,
-                    // shift_insert returns false and the set size shrinks.
-                    // We accept this as set semantics.
-                    return Some(());
-                }
-                let idxs = resolve_many_idx(key, items.len())?;
-                // Process from back to front so earlier indices remain stable.
-                let values = match value {
-                    Value::List(vals) => {
-                        if idxs.len() != vals.len() {
-                            return None;
-                        }
-                        vals.iter().cloned().rev().collect::<Vec<_>>()
-                    }
-                    Value::IntList(vals) => {
-                        if idxs.len() != vals.len() {
-                            return None;
-                        }
-                        vals.iter()
-                            .copied()
-                            .rev()
-                            .map(Value::Int)
-                            .collect::<Vec<_>>()
-                    }
-                    atom => vec![atom; idxs.len()],
-                };
-                let items = Arc::make_mut(items);
-                for (&idx, val) in idxs.iter().rev().zip(values.iter()) {
-                    items.shift_remove_index(idx);
-                    items.shift_insert(idx, val.clone());
-                }
-                Some(())
-            }
+
             _ => None,
         }
     }
@@ -456,26 +398,13 @@ fn normalize_list_indices(idxs: &[Value], len: usize) -> Option<Vec<usize>> {
     normalize_many(raw, len)
 }
 
-/// Resolve bulk indices from `Value::IntList`, `Value::List`, or `Value::Set`.
+/// Resolve bulk indices from `Value::IntList` or `Value::List`.
 fn resolve_many_idx(key: &Value, len: usize) -> Option<Vec<usize>> {
     match key {
         Value::IntList(idxs) => normalize_many(idxs.iter().copied(), len),
         Value::List(idxs) => normalize_list_indices(idxs, len),
-        Value::Set(idxs) => normalize_set_indices(idxs, len),
         _ => None,
     }
-}
-
-fn normalize_set_indices(idxs: &indexmap::IndexSet<Value>, len: usize) -> Option<Vec<usize>> {
-    let raw = idxs
-        .iter()
-        .map(|v| match v {
-            Value::Int(i) => Some(*i),
-            Value::BigInt(b) => b.to_i64(),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>()?;
-    normalize_many(raw, len)
 }
 
 fn collect_exact_ints(values: &[Value]) -> Option<Vec<i64>> {
@@ -725,13 +654,7 @@ pub(crate) fn insert_in_place(
             }
             Ok(data.clone())
         }
-        Value::Set(items) => {
-            // For sets, insertion position is ignored; we simply insert values.
-            for v in list_insert_items(xs) {
-                Arc::make_mut(items).insert(v);
-            }
-            Ok(data.clone())
-        }
+
         other => Err(WqError::new(WqErrorType::Domain)
             .msg("expected string, list, or dict")
             .got1(other)),
@@ -807,20 +730,7 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
                 Value::from_items(removed)
             }
         }
-        Value::Set(items) => {
-            let take = n.min(items.len());
-            let mut removed = Vec::with_capacity(take);
-            for _ in 0..take {
-                let value = Arc::make_mut(items).pop().expect("set index should exist");
-                removed.push(value);
-            }
-            removed.reverse();
-            if n == 1 {
-                removed.into_iter().next().unwrap_or_else(Value::unit)
-            } else {
-                Value::from_items(removed)
-            }
-        }
+
         atom => {
             let popped = atom.clone();
             *atom = Value::unit();
@@ -908,33 +818,7 @@ pub(crate) fn remove_in_place(data: &mut Value, idx: &Value) -> WqResult<Value> 
                 Ok(removed.into_iter().next().unwrap_or_else(Value::unit))
             }
         }
-        Value::Set(items) => {
-            if let Some(pos) = resolve_single_idx(idx, items.len()) {
-                let removed = Arc::make_mut(items)
-                    .shift_remove_index(pos)
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove index"))?;
-                return Ok(removed);
-            }
-            let (positions, is_multi) = parse_remove_positions(idx, items.len())?;
-            if is_multi {
-                ensure_unique_positions(&positions, "remove indices")?;
-                let removed = positions
-                    .iter()
-                    .map(|&i| items[i].clone())
-                    .collect::<Vec<_>>();
-                let mut sorted = positions;
-                sorted.sort_unstable_by(|a, b| b.cmp(a));
-                for pos in sorted {
-                    Arc::make_mut(items).shift_remove_index(pos);
-                }
-                Ok(Value::from_items(removed))
-            } else {
-                let removed = Arc::make_mut(items)
-                    .shift_remove_index(positions[0])
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove index"))?;
-                Ok(removed)
-            }
-        }
+
         atom => {
             let (positions, is_multi) = parse_remove_positions(idx, 1)?;
             if is_multi {
@@ -1310,7 +1194,7 @@ fn insert_string_chunks(base: &[char], mut ops: Vec<(usize, String)>) -> String 
 
 #[cfg(test)]
 mod tests {
-    use indexmap::{IndexMap, IndexSet};
+    use indexmap::IndexMap;
     use num_bigint::BigInt;
 
     use super::*;
@@ -1548,14 +1432,6 @@ mod tests {
         );
     }
 
-    fn sample_set() -> Value {
-        Value::Set(Arc::new(IndexSet::from_iter([
-            Value::Int(10),
-            Value::Int(20),
-            Value::Int(30),
-        ])))
-    }
-
     #[test]
     fn index_many_list() {
         let list = Value::List(Arc::new(vec![
@@ -1578,103 +1454,6 @@ mod tests {
             dict.index_many(&keys),
             Some(Value::IntList(Arc::new(vec![1, 2])))
         );
-    }
-
-    #[test]
-    fn index_many_set() {
-        let s = sample_set();
-        let keys = vec![Value::Int(0), Value::Int(2)];
-        assert_eq!(
-            s.index_many(&keys),
-            Some(Value::IntList(Arc::new(vec![10, 30])))
-        );
-    }
-
-    #[test]
-    fn set_index_single() {
-        let s = sample_set();
-        assert_eq!(s.index(&Value::Int(0)), Some(Value::Int(10)));
-        assert_eq!(s.index(&Value::Int(1)), Some(Value::Int(20)));
-        assert_eq!(s.index(&Value::Int(2)), Some(Value::Int(30)));
-        assert_eq!(s.index(&Value::Int(3)), None);
-    }
-
-    #[test]
-    fn set_index_negative() {
-        let s = sample_set();
-        assert_eq!(s.index(&Value::Int(-1)), Some(Value::Int(30)));
-        assert_eq!(s.index(&Value::Int(-2)), Some(Value::Int(20)));
-        assert_eq!(s.index(&Value::Int(-3)), Some(Value::Int(10)));
-        assert_eq!(s.index(&Value::Int(-4)), None);
-    }
-
-    #[test]
-    fn set_index_bulk() {
-        let s = sample_set();
-        let keys = Value::IntList(Arc::new(vec![0, 2]));
-        let result = s.index(&keys).expect("valid indices");
-        assert_eq!(
-            result,
-            Value::List(Arc::new(vec![Value::Int(10), Value::Int(30)]))
-        );
-    }
-
-    #[test]
-    fn set_index_with_set_key() {
-        let s = sample_set();
-        let keys = Value::Set(Arc::new(IndexSet::from_iter([
-            Value::Int(0),
-            Value::Int(2),
-        ])));
-        let result = s.index(&keys).expect("valid indices");
-        assert_eq!(
-            result,
-            Value::List(Arc::new(vec![Value::Int(10), Value::Int(30)]))
-        );
-    }
-
-    #[test]
-    fn set_index_out_of_bounds() {
-        let s = sample_set();
-        assert_eq!(s.index(&Value::Int(5)), None);
-    }
-
-    #[test]
-    fn set_assign_single() {
-        let mut s = sample_set();
-        assert_eq!(s.assign_by_index(&Value::Int(1), Value::Int(99)), Some(()));
-        assert_eq!(s.index(&Value::Int(1)), Some(Value::Int(99)));
-    }
-
-    #[test]
-    fn set_assign_single_new_value_reorders() {
-        let mut s = sample_set();
-        // Replacing with a value that already exists may reorder
-        assert_eq!(s.assign_by_index(&Value::Int(1), Value::Int(30)), Some(()));
-        // After replacement, 30 should still be present
-        let mut found = false;
-        for i in 0..3 {
-            if s.index(&Value::Int(i)) == Some(Value::Int(30)) {
-                found = true;
-                break;
-            }
-        }
-        assert!(found, "30 should still be in the set");
-    }
-
-    #[test]
-    fn set_assign_bulk() {
-        let mut s = sample_set();
-        let keys = Value::IntList(Arc::new(vec![0, 2]));
-        let vals = Value::List(Arc::new(vec![Value::Int(100), Value::Int(300)]));
-        assert_eq!(s.assign_by_index(&keys, vals), Some(()));
-        assert_eq!(s.index(&Value::Int(0)), Some(Value::Int(100)));
-    }
-
-    #[test]
-    fn set_assign_bad_index_returns_none() {
-        let mut s = sample_set();
-        assert_eq!(s.assign_by_index(&Value::Int(5), Value::Int(99)), None);
     }
 
     #[test]

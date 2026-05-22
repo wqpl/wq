@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 
 use crate::compiler::Compiler;
 use crate::value::cmp::eval_cmp_chain;
@@ -382,14 +382,7 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(result);
             fallthrough(pc, state)
         }
-        I::MakeSet(count) => {
-            let result = state
-                .pop_many(*count)
-                .map(|values| Value::Set(Arc::new(IndexSet::from_iter(values))))
-                .and_then(trackable_value);
-            state.push(result);
-            fallthrough(pc, state)
-        }
+
         I::MakeRange { has_step, .. } => {
             if *has_step {
                 state.pop();

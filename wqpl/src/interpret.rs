@@ -74,7 +74,6 @@ pub(crate) trait InterpreterHook: 'static {
     fn on_cat_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_list_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_dict_alloc(&self, _len: &dyn Fn() -> usize) {}
-    fn on_set_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_range_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_closure_capture_alloc(&self, _len: &dyn Fn() -> usize) {}
     fn on_return(&self, _vm: &Vm) {}
