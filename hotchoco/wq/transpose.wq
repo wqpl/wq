@@ -1,0 +1,11 @@
+a:R[0..24;(2;3;4)]
+b:transpose[a;(2;0;1)]
+echo shape b
+echo ((b 0) 0) 0
+echo ((b 1) 2) 0
+echo ((b 2) 3) 1
+
+m:R[1..13;(3;4)]
+echo transpose[m;(0;0)]
+echo transpose[m;(1;0)]
+echo transpose[m;(0;1)]

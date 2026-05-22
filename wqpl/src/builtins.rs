@@ -772,8 +772,8 @@ declare_builtins! {
     (FACTOR_POLY, FactorPoly, "factor_poly", "factor_poly[expr], factor_poly[expr;var], factor_poly[expr;1], factor_poly[expr;1;var]", "1 2 3", cas::factor_poly, BuiltinGroup::Cas),
 
     // Matrix =========================================================
-    (TRANSPOSE, Transpose, "transpose", "transpose[x]", "1", mat::transpose, BuiltinGroup::Mat),
-    // (T, T, "T", "T[x]", "1", mat::transpose, BuiltinGroup::Mat), // alias of transpose
+    (TRANSPOSE, Transpose, "transpose", "transpose[x;axes?]", "1 2", mat::transpose, BuiltinGroup::Mat),
+    (TP, TP, "TP", "TP[x;axes?]", "1 2", mat::transpose, BuiltinGroup::Mat), // alias of transpose
 
     // String =========================================================
     (STR, Str, "str", "str[x]", "1", string::to_str, BuiltinGroup::Str),
