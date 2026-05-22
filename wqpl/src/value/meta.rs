@@ -2,6 +2,19 @@ use std::sync::Arc;
 
 use crate::value::{IntoWqValue, Value};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ShapeMeta {
+    Uniform(Vec<usize>),
+    Ragged,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ValueMeta {
+    pub(crate) len: usize,
+    pub(crate) depth: i64,
+    pub(crate) shape: ShapeMeta,
+}
+
 impl Value {
     pub fn strong_count(&self) -> usize {
         #[deny(clippy::wildcard_enum_match_arm)]
@@ -195,5 +208,17 @@ impl Value {
 
     pub fn is_uniform(&self) -> bool {
         self.shape_uniform().is_some()
+    }
+
+    pub(crate) fn display_meta(&self) -> ValueMeta {
+        let shape = match self.shape_uniform() {
+            Some(dims) => ShapeMeta::Uniform(dims),
+            None => ShapeMeta::Ragged,
+        };
+        ValueMeta {
+            len: self.len(),
+            depth: self.depth(),
+            shape,
+        }
     }
 }

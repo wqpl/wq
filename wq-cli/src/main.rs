@@ -1,5 +1,6 @@
 mod arg;
 mod dap;
+mod display;
 mod exec;
 mod load;
 mod msg;

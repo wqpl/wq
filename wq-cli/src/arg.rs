@@ -10,6 +10,97 @@ use wqpl::session::dbglog::DebugLogFlags;
 
 pub const DEFAULT_STACK_SIZE_MB: usize = 12;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BoxPrintConfig {
+    pub boxed: bool,
+    pub xray: bool,
+    pub color: bool,
+}
+
+impl Default for BoxPrintConfig {
+    fn default() -> Self {
+        Self {
+            boxed: true,
+            xray: false,
+            color: true,
+        }
+    }
+}
+
+impl BoxPrintConfig {
+    pub fn summary(&self) -> String {
+        let mut parts = Vec::new();
+        if self.boxed {
+            parts.push("box");
+        }
+        if self.xray {
+            parts.push("xray");
+        }
+        if self.color {
+            parts.push("color");
+        }
+        format!("[{}]", parts.join(","))
+    }
+
+    pub fn shows_xray(&self) -> bool {
+        self.xray
+    }
+
+    pub fn toggle_box(&mut self) {
+        if self.boxed || self.xray || self.color {
+            *self = Self {
+                boxed: false,
+                xray: false,
+                color: false,
+            };
+        } else {
+            *self = Self::default();
+        }
+    }
+
+    pub fn toggle_xray(&mut self) {
+        self.xray = !self.xray;
+    }
+}
+
+pub fn apply_box_spec(config: &mut BoxPrintConfig, spec: &str) -> Result<(), String> {
+    let mut rewrite = false;
+    for raw_part in spec.split(',') {
+        let part = raw_part.trim();
+        if part.is_empty() {
+            continue;
+        }
+
+        let (enabled, feature) = if let Some(feature) = part.strip_prefix('+') {
+            (true, feature)
+        } else if let Some(feature) = part.strip_prefix('-') {
+            (false, feature)
+        } else {
+            if !rewrite {
+                *config = BoxPrintConfig {
+                    boxed: false,
+                    xray: false,
+                    color: false,
+                };
+                rewrite = true;
+            }
+            (true, part)
+        };
+
+        match feature {
+            "box" => config.boxed = enabled,
+            "xray" => config.xray = enabled,
+            "color" => config.color = enabled,
+            _ => {
+                return Err(format!(
+                    "unknown box mode '{part}'\nAvailable: box, xray, color; prefix with + or - to modify"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeFlags {
     pub wqdb: bool,
@@ -23,6 +114,7 @@ pub struct RuntimeFlags {
     pub stack_size_mb: usize, // default: 12
     pub run_notebook: bool,   // default: false
     pub experimental: Vec<String>,
+    pub box_print: BoxPrintConfig,
 }
 
 impl Default for RuntimeFlags {
@@ -45,6 +137,7 @@ impl RuntimeFlags {
             stack_size_mb: DEFAULT_STACK_SIZE_MB,
             run_notebook: false,
             experimental: Vec::new(),
+            box_print: BoxPrintConfig::default(),
         }
     }
 }
@@ -166,6 +259,15 @@ struct RuntimeOpts {
         global = true
     )]
     debug: Option<DebugLogFlags>,
+
+    /// Configure result display (box, xray, color; +/- modifies)
+    #[arg(
+        long = "box",
+        value_name = "SPEC",
+        allow_hyphen_values = true,
+        global = true
+    )]
+    box_display: Option<String>,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -390,6 +492,15 @@ where
     rt.interpreter = cli.runtime.interpreter;
     rt.debug_flags = cli.runtime.debug.unwrap_or_default();
     rt.run_notebook = cli.runtime.run_notebook;
+    if let Some(spec) = cli.runtime.box_display
+        && let Err(message) = apply_box_spec(&mut rt.box_print, &spec)
+    {
+        let err = CliArgs::command().error(clap::error::ErrorKind::InvalidValue, message);
+        if !silent {
+            let _ = err.print();
+        }
+        return Err(2);
+    }
 
     let cmd = if let Some(sub) = cli.command {
         match sub {
@@ -515,6 +626,50 @@ mod tests {
     fn dry_flag_parses() {
         let (rt, _) = ok(parse_args(v(&["--dry", "a.wq"])));
         assert!(rt.dry);
+    }
+
+    #[test]
+    fn box_flag_parses_display_spec() {
+        let (rt, _) = ok(parse_args(v(&["a.wq"])));
+        assert!(rt.box_print.boxed);
+        assert!(!rt.box_print.xray);
+        assert!(rt.box_print.color);
+        assert_eq!(rt.box_print.summary(), "[box,color]");
+
+        let (rt, _) = ok(parse_args(v(&["--box", "xray", "a.wq"])));
+        assert!(!rt.box_print.boxed);
+        assert!(rt.box_print.xray);
+        assert!(!rt.box_print.color);
+        assert_eq!(rt.box_print.summary(), "[xray]");
+
+        let (rt, _) = ok(parse_args(v(&["--box", "+xray,-color", "a.wq"])));
+        assert!(rt.box_print.boxed);
+        assert!(rt.box_print.xray);
+        assert!(!rt.box_print.color);
+
+        let (rt, _) = ok(parse_args(v(&["--box", "box,color", "a.wq"])));
+        assert!(rt.box_print.boxed);
+        assert!(!rt.box_print.xray);
+        assert!(rt.box_print.color);
+
+        let (rt, _) = ok(parse_args(v(&["--box", "-box", "a.wq"])));
+        assert!(!rt.box_print.boxed);
+        assert!(!rt.box_print.xray);
+        assert!(rt.box_print.color);
+        assert_eq!(rt.box_print.summary(), "[color]");
+        assert_eq!(is_err(parse_args(v(&["--box", "sparkle", "a.wq"]))), 2);
+
+        let mut config = BoxPrintConfig::default();
+        config.toggle_box();
+        assert_eq!(config.summary(), "[]");
+        config.toggle_box();
+        assert_eq!(config.summary(), "[box,color]");
+        apply_box_spec(&mut config, "box").unwrap();
+        assert_eq!(config.summary(), "[box]");
+        config.toggle_box();
+        assert_eq!(config.summary(), "[]");
+        config.toggle_box();
+        assert_eq!(config.summary(), "[box,color]");
     }
 
     #[test]

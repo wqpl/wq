@@ -3,7 +3,6 @@ pub mod input;
 
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -12,7 +11,6 @@ use std::{env, thread};
 use colored::Colorize as _;
 use rand::RngExt as _;
 use terminal_size::{Width, terminal_size};
-use wqpl::boxmode::format_boxed;
 use wqpl::builtins::{BuiltinPreset, Builtins};
 use wqpl::format::{FormatConfig, Formatter};
 use wqpl::interpret::InterpreterKind;
@@ -23,14 +21,15 @@ use wqpl::session::stdio::{
     wqstdin_hints_enabled, wqstdin_readline, wqstdin_set_builtin_hints, wqstdin_set_global_hints,
     wqstdin_set_highlight, wqstdin_set_hints_enabled, wqstdin_set_repl_hints,
 };
-use wqpl::value::display::format_table_value;
 use wqpl::value::{Excerpt, Value};
 
-use crate::arg::{FmtOpts, RuntimeFlags};
+use crate::arg::{BoxPrintConfig, FmtOpts, RuntimeFlags, apply_box_spec};
+use crate::display::{format_non_cas_result, format_xray_info};
 use crate::load::eval_inline_with_load;
 use crate::msg::{
-    MsgType, print_dry_run_status, print_load_error, print_load_report, system_msg_err,
-    system_msg_out,
+    MsgType, print_dry_run_status as raw_print_dry_run_status,
+    print_load_error as raw_print_load_error, print_load_report as raw_print_load_report,
+    system_msg_err as raw_system_msg_err, system_msg_out as raw_system_msg_out,
 };
 use crate::repl::editor::WqReplHighlighter;
 use crate::repl::input::RustylineInput;
@@ -51,6 +50,7 @@ enum ReplCommand {
     Gb,
     Reset,
     Box,
+    BoxSet(String),
     Backtrace,
     Xray,
     Interpreter(Option<String>),
@@ -121,6 +121,10 @@ impl ReplCommand {
             _ => {
                 if let Some(rest) = trimmed.strip_prefix("!fmt ") {
                     Self::Fmt(Some(rest.to_string()))
+                } else if let Some(rest) = trimmed.strip_prefix("!box ") {
+                    Self::BoxSet(rest.to_string())
+                } else if let Some(rest) = trimmed.strip_prefix("!b ") {
+                    Self::BoxSet(rest.to_string())
                 } else if trimmed == "!bfn" || trimmed == "!" {
                     Self::Bfn(None)
                 } else if let Some(rest) = trimmed.strip_prefix("!bfn ") {
@@ -178,10 +182,12 @@ impl ReplCommand {
             ("!g", "show global bindings"),
             ("!reset", "reset session"),
             ("!r", "reset session"),
-            ("!box", "toggle boxed display"),
-            ("!b", "toggle boxed display"),
-            ("!box?", "show boxed display status"),
-            ("!b?", "show boxed display status"),
+            ("!box", "toggle box display"),
+            ("!b", "toggle box display"),
+            ("!box <spec>", "set display config"),
+            ("!b <spec>", "set display config"),
+            ("!box?", "show display config"),
+            ("!b?", "show display config"),
             ("!backtrace", "toggle backtrace"),
             ("!bt", "toggle backtrace"),
             ("!backtrace?", "show backtrace status"),
@@ -219,8 +225,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
     let mut session = Session::new();
     session.set_pause_callback(Some(wqdb_pause_handler));
     let mut time_mode = false;
-    let mut xray_mode = false;
-    let mut box_mode = true;
+    let mut box_config = rtflags.box_print;
     let mut dry_mode = rtflags.dry;
     let mut show_type = true;
     let mut fmt_state = ReplFmtState::default();
@@ -403,14 +408,23 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::Box => {
-                        box_mode = !box_mode;
+                        box_config.toggle_box();
                         system_msg_out(
-                            format!(
-                                "boxed display -> {}",
-                                (if box_mode { "on" } else { "off" }).underline()
-                            ),
+                            format!("box -> {}", box_config.summary().underline()),
                             MsgType::Info,
                         );
+                        continue;
+                    }
+                    ReplCommand::BoxSet(spec) => {
+                        match apply_box_spec(&mut box_config, &spec) {
+                            Ok(()) => {
+                                system_msg_out(
+                                    format!("box -> {}", box_config.summary().underline()),
+                                    MsgType::Info,
+                                );
+                            }
+                            Err(err) => system_msg_err(err, MsgType::Error),
+                        }
                         continue;
                     }
                     ReplCommand::Backtrace => {
@@ -426,12 +440,9 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::Xray => {
-                        xray_mode = !xray_mode;
+                        box_config.toggle_xray();
                         system_msg_out(
-                            format!(
-                                "xray -> {}",
-                                (if xray_mode { "on" } else { "off" }).underline()
-                            ),
+                            format!("box -> {}", box_config.summary().underline()),
                             MsgType::Info,
                         );
                         continue;
@@ -601,10 +612,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     }
                     ReplCommand::BoxQuery => {
                         system_msg_out(
-                            format!(
-                                "boxed display: {}",
-                                (if box_mode { "on" } else { "off" }).underline()
-                            ),
+                            format!("box: {}", box_config.summary().underline()),
                             MsgType::Info,
                         );
                         continue;
@@ -624,7 +632,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         system_msg_out(
                             format!(
                                 "xray: {}",
-                                (if xray_mode { "on" } else { "off" }).underline()
+                                (if box_config.shows_xray() { "on" } else { "off" }).underline()
                             ),
                             MsgType::Info,
                         );
@@ -730,13 +738,13 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                             {
                                 let resstr = format_repl_result_with_type(
                                     &result,
-                                    box_mode,
+                                    &box_config,
                                     &highlighter,
                                     show_type,
                                 );
                                 print_repl_result_msg(resstr);
-                                if xray_mode {
-                                    let info = xray_info(&result);
+                                if box_config.shows_xray() {
+                                    let info = format_xray_info(&result, &box_config);
                                     system_msg_out(info, MsgType::Info);
                                 }
                             }
@@ -786,13 +794,13 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         } else {
                             let resstr = format_repl_result_with_type(
                                 &result,
-                                box_mode,
+                                &box_config,
                                 &highlighter,
                                 show_type,
                             );
                             print_repl_result_msg(resstr);
-                            if xray_mode {
-                                let info = xray_info(&result);
+                            if box_config.shows_xray() {
+                                let info = format_xray_info(&result, &box_config);
                                 system_msg_out(info, MsgType::Info);
                             }
                         }
@@ -1115,20 +1123,50 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
     }
 }
 
-fn format_repl_result(result: &Value, box_mode: bool, highlighter: &WqReplHighlighter) -> String {
+fn format_repl_result(
+    result: &Value,
+    box_config: &BoxPrintConfig,
+    highlighter: &WqReplHighlighter,
+) -> String {
     if result.is_cas() {
         let expr = format!("{result}");
         highlighter.highlight_text(&expr)
-    } else if !box_mode {
-        format!("{result}")
     } else {
-        format_table_value(result).unwrap_or_else(|| format_boxed(result))
+        format_non_cas_result(result, box_config)
     }
 }
 
 fn print_repl_result_msg(msg: String) {
-    println!();
     system_msg_out(msg, MsgType::Success);
+}
+
+fn system_msg_out(msg: impl Into<String>, msg_type: MsgType) {
+    println!();
+    raw_system_msg_out(msg, msg_type);
+    println!();
+}
+
+fn system_msg_err(msg: impl Into<String>, msg_type: MsgType) {
+    eprintln!();
+    raw_system_msg_err(msg, msg_type);
+    eprintln!();
+}
+
+fn print_load_report(report: &crate::load::report::LoadReport) {
+    println!();
+    raw_print_load_report(report);
+    println!();
+}
+
+fn print_load_error(err: &crate::load::report::LoadError, session: &mut Session) {
+    eprintln!();
+    raw_print_load_error(err, session);
+    eprintln!();
+}
+
+fn print_dry_run_status() {
+    println!();
+    raw_print_dry_run_status();
     println!();
 }
 
@@ -1179,11 +1217,11 @@ fn wrap_text(s: &str, width: usize) -> Vec<String> {
 
 fn format_repl_result_with_type(
     result: &Value,
-    box_mode: bool,
+    box_config: &BoxPrintConfig,
     highlighter: &WqReplHighlighter,
     show_type: bool,
 ) -> String {
-    let mut resstr = format_repl_result(result, box_mode, highlighter);
+    let mut resstr = format_repl_result(result, box_config, highlighter);
     if !show_type {
         return resstr;
     }
@@ -1326,75 +1364,6 @@ fn print_goodbye() {
     }
     print!("\r{}", "\u{258D} goodbye!        ".cyan());
     println!();
-}
-
-fn xray_info(v: &Value) -> String {
-    fn two_col_item_values(pairs: &[(&str, String)], gutter: usize) -> String {
-        if pairs.is_empty() {
-            return String::new();
-        }
-        // Max key widths per column (even = left, odd = right)
-        let left_key_w = pairs
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| i % 2 == 0)
-            .map(|(_, (k, _))| k.len())
-            .max()
-            .unwrap_or(0);
-        let right_key_w = pairs
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| i % 2 == 1)
-            .map(|(_, (k, _))| k.len())
-            .max()
-            .unwrap_or(0);
-        // Label widths (including ": ")
-        let left_label_w = left_key_w + 2; // ": "
-        let right_label_w = right_key_w + 2;
-        // Build left cells with aligned value starts
-        let mut left_cells: Vec<String> = Vec::new();
-        for (i, (k, v)) in pairs.iter().enumerate() {
-            if i % 2 == 0 {
-                let label = format!("{}: ", k);
-                left_cells.push(format!("{:<lw$}{}", label, v, lw = left_label_w));
-            }
-        }
-        let left_col_w = left_cells.iter().map(|s| s.len()).max().unwrap_or(0);
-        let mut out = String::new();
-        let rows = pairs.len().div_ceil(2);
-        for r in 0..rows {
-            let li = 2 * r;
-            let ri = li + 1;
-            // left cell: label-padded (values aligned) then cell-padded (column width)
-            let left_label = format!("{}: ", pairs[li].0);
-            let left_cell = format!("{:<lw$}{}", left_label, pairs[li].1, lw = left_label_w);
-            let left_pad = format!("{:<cw$}", left_cell, cw = left_col_w);
-            if ri < pairs.len() {
-                // right cell: align value start within the right column
-                let right_label = format!("{}: ", pairs[ri].0);
-                let right_cell = format!("{:<rw$}{}", right_label, pairs[ri].1, rw = right_label_w);
-                let _ = writeln!(out, "{}{}{}", left_pad, " ".repeat(gutter), right_cell);
-            } else {
-                let _ = writeln!(out, "{}", left_pad);
-            }
-        }
-        out
-    }
-
-    let pairs = [
-        ("strong", format!("{}", v.strong_count())),
-        ("weak", format!("{}", v.weak_count())),
-        ("len", format!("{}", v.len())),
-        ("depth", format!("{}", v.depth())),
-        ("shape", format!("{}", v.shape())),
-        ("axes", format!("{}", v.axes())),
-        ("uniform?", format!("{}", v.is_uniform())),
-    ];
-    format!(
-        "[xray] {}\n{}",
-        v.type_name(),
-        two_col_item_values(&pairs, 4)
-    )
 }
 
 fn format_debug_flags(flags: DebugLogFlags) -> String {

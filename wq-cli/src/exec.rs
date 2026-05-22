@@ -6,6 +6,7 @@ use wqpl::session::stdio::set_wqstdin;
 use wqpl::session::{Session, dbglog};
 
 use crate::arg::RuntimeFlags;
+use crate::display::{format_print_result, format_xray_info};
 use crate::load::{eval_inline_with_load, load_script};
 use crate::msg::{print_dry_run_status, print_load_error};
 use crate::repl::input::RustylineInput;
@@ -32,7 +33,10 @@ pub fn exec_script<P: AsRef<Path>>(filename: P, rtflags: RuntimeFlags) {
                 && !rtflags.dry
                 && let Some(result) = report.result
             {
-                println!("{result}");
+                println!("{}", format_print_result(&result, &rtflags.box_print));
+                if rtflags.box_print.shows_xray() {
+                    println!("{}", format_xray_info(&result, &rtflags.box_print));
+                }
             }
             if rtflags.dry {
                 print_dry_run_status();
@@ -68,7 +72,10 @@ pub fn exec_cmd(content: &str, rtflags: RuntimeFlags) {
                 && !rtflags.dry
                 && let Some(result) = report.result
             {
-                println!("{result}");
+                println!("{}", format_print_result(&result, &rtflags.box_print));
+                if rtflags.box_print.shows_xray() {
+                    println!("{}", format_xray_info(&result, &rtflags.box_print));
+                }
             }
             if rtflags.dry {
                 print_dry_run_status();

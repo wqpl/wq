@@ -1,4 +1,4 @@
-(3;3)
+3 3
 [<TEST_PATH>
 @d (a+b*c) = 7 (int)
 └─ b*c = 6 (int)
