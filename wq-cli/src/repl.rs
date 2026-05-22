@@ -216,6 +216,7 @@ impl ReplCommand {
             ("!type?", "show type mode status"),
             ("!debug", "show debug flags help"),
             ("!d", "toggle debug flags"),
+            ("!d <spec>", "set debug flags; +/- modifies"),
             ("!exp", "show or toggle experimental features"),
         ]
     }
@@ -562,8 +563,9 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::DebugOneshot(rest) => {
-                        match DebugLogFlags::parse(&rest) {
-                            Ok(flags) => {
+                        let mut flags = get_debug_log_flags();
+                        match flags.apply_spec(&rest) {
+                            Ok(()) => {
                                 oneshot_debug = Some(flags);
                                 system_msg_out(
                                     format!(
@@ -580,8 +582,9 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::DebugSet(rest) => {
-                        match DebugLogFlags::parse(&rest) {
-                            Ok(flags) => {
+                        let mut flags = get_debug_log_flags();
+                        match flags.apply_spec(&rest) {
+                            Ok(()) => {
                                 set_debug_log_flags(flags);
                                 system_msg_out(
                                     format!(
@@ -1455,5 +1458,32 @@ fn dump_builtins(builtins: &Builtins) {
             }
         }
         println!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_repl_commands_accept_modifier_specs() {
+        assert!(
+            matches!(ReplCommand::parse("!d +ast"), ReplCommand::DebugSet(spec) if spec == "+ast")
+        );
+        assert!(
+            matches!(ReplCommand::parse("!d-inst"), ReplCommand::DebugSet(spec) if spec == "-inst")
+        );
+        assert!(
+            matches!(
+                ReplCommand::parse("!debug +value"),
+                ReplCommand::DebugSet(spec) if spec == "+value"
+            )
+        );
+        assert!(
+            matches!(
+                ReplCommand::parse("!d.-inst"),
+                ReplCommand::DebugOneshot(spec) if spec == "-inst"
+            )
+        );
     }
 }

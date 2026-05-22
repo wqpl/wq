@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::builder::styling::{AnsiColor, Effects, Style, Styles};
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use colored::Colorize;
 use wqpl::session::dbglog::DebugLogFlags;
 
@@ -256,17 +256,18 @@ struct RuntimeOpts {
     #[arg(short = 'i', long, value_name = "NAME", global = true)]
     interpreter: Option<String>,
 
-    /// Configure debug output flags [default: inst]
+    /// Configure debug output flags [default: off; -d defaults to inst; +/- modifies]
     #[arg(
         short = 'd',
         long = "debug",
         value_name = "SPEC",
-        value_parser = parse_debug,
         default_missing_value = "1",
         num_args = 0..=1,
+        allow_hyphen_values = true,
+        action = ArgAction::Append,
         global = true
     )]
-    debug: Option<DebugLogFlags>,
+    debug: Vec<String>,
 
     /// Configure result display (box, xray, color; +/- modifies)
     #[arg(
@@ -328,10 +329,6 @@ fn parse_stack_size(s: &str) -> Result<usize, String> {
         Ok(n) => Err(format!("value {n} out of range (2-48 MB)")),
         Err(_) => Err(format!("invalid value: {s}")),
     }
-}
-
-fn parse_debug(s: &str) -> Result<DebugLogFlags, String> {
-    DebugLogFlags::parse(s)
 }
 
 fn print_debug_help() {
@@ -498,7 +495,16 @@ where
     }
     rt.stack_size_mb = cli.runtime.stack_size.unwrap_or(DEFAULT_STACK_SIZE_MB);
     rt.interpreter = cli.runtime.interpreter;
-    rt.debug_flags = cli.runtime.debug.unwrap_or_default();
+    for spec in cli.runtime.debug {
+        let spec = if spec == "--" { "1" } else { &spec };
+        if let Err(message) = rt.debug_flags.apply_spec(spec) {
+            let err = CliArgs::command().error(clap::error::ErrorKind::InvalidValue, message);
+            if !silent {
+                let _ = err.print();
+            }
+            return Err(2);
+        }
+    }
     rt.run_notebook = cli.runtime.run_notebook;
     if let Some(spec) = cli.runtime.box_display
         && let Err(message) = apply_box_spec(&mut rt.box_print, &spec)
@@ -703,6 +709,31 @@ mod tests {
         let (rt, _) = ok(parse_args(v(&["--debug", "token,cst,inst,wqdb", "a.wq"])));
         let expected = DebugLogFlags::from_names(["token", "cst", "inst", "wqdb"]);
         assert_eq!(rt.debug_flags, expected);
+    }
+
+    #[test]
+    fn debug_modifier_specs_apply_in_order() {
+        let (rt, _) = ok(parse_args(v(&[
+            "-d1",
+            "--debug",
+            "+ast,+value",
+            "--debug",
+            "-inst",
+            "a.wq",
+        ])));
+        let expected = DebugLogFlags::from_names(["ast", "value"]);
+        assert_eq!(rt.debug_flags, expected);
+
+        let (rt, _) = ok(parse_args(v(&["-d4", "--debug", "-ast", "a.wq"])));
+        let expected = DebugLogFlags::from_names(["inst", "inst-v", "value"]);
+        assert_eq!(rt.debug_flags, expected);
+
+        let (rt, _) = ok(parse_args(v(&["-d4", "--debug", "cas", "a.wq"])));
+        let expected = DebugLogFlags::from_names(["cas"]);
+        assert_eq!(rt.debug_flags, expected);
+
+        let (rt, _) = ok(parse_args(v(&["-d1", "-d", "-inst", "a.wq"])));
+        assert_eq!(rt.debug_flags, DebugLogFlags::empty());
     }
 
     #[test]

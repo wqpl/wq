@@ -52,9 +52,14 @@ impl DebugLogFlags {
         }
     }
 
-    // pub(crate) fn remove(&mut self, bit: u8) {
-    //     self.bits &= !bit;
-    // }
+    fn remove(&mut self, bit: u16) {
+        self.bits &= !bit;
+        // Removing a base flag also removes the paired verbose flag so the
+        // verbose flag cannot remain active without anything to make verbose.
+        if let Some(verbose) = verbose_bit_for_base(bit) {
+            self.bits &= !verbose;
+        }
+    }
 
     // pub(crate) fn union(self, other: Self) -> Self {
     //     Self::from_bits(self.bits | other.bits)
@@ -87,6 +92,30 @@ impl DebugLogFlags {
         flags
     }
 
+    fn apply_flags(&mut self, flags: Self, enabled: bool) {
+        for &(_, bit) in &DEBUG_LOG_FLAG_NAMES {
+            if flags.contains(bit) {
+                if enabled {
+                    self.insert(bit);
+                } else {
+                    self.remove(bit);
+                }
+            }
+        }
+    }
+
+    fn parse_part(part: &str) -> Result<Self, String> {
+        if let Ok(level) = part.parse::<u8>() {
+            return Self::from_alias(level).ok_or_else(|| format!("invalid debug alias '{level}'"));
+        }
+        if let Some(bit) = bit_for_name(part) {
+            let mut flags = Self::empty();
+            flags.insert(bit);
+            return Ok(flags);
+        }
+        Err(format!("invalid debug flag '{part}'"))
+    }
+
     pub fn display_names(self) -> Vec<&'static str> {
         let mut names = Vec::new();
         for &(knowns, bit) in &DEBUG_LOG_FLAG_NAMES {
@@ -97,25 +126,40 @@ impl DebugLogFlags {
         names
     }
 
-    pub fn parse(spec: &str) -> Result<Self, String> {
+    pub fn apply_spec(&mut self, spec: &str) -> Result<(), String> {
         if spec.is_empty() {
-            return Ok(Self::from_alias(1).unwrap());
+            *self = Self::from_alias(1).expect("debug alias 1 exists");
+            return Ok(());
         }
-        if let Ok(level) = spec.parse::<u8>() {
-            return Self::from_alias(level).ok_or_else(|| format!("invalid debug alias '{level}'"));
-        }
-        let mut flags = Self::empty();
-        for name in spec
-            .split(',')
-            .map(str::trim)
-            .filter(|part| !part.is_empty())
-        {
-            if let Some(bit) = bit_for_name(name) {
-                flags.insert(bit);
-            } else {
-                return Err(format!("invalid debug flag '{name}'"));
+
+        let mut rewrite = false;
+        for raw_part in spec.split(',') {
+            let part = raw_part.trim();
+            if part.is_empty() {
+                continue;
             }
+
+            let (enabled, item) = if let Some(item) = part.strip_prefix('+') {
+                (true, item)
+            } else if let Some(item) = part.strip_prefix('-') {
+                (false, item)
+            } else {
+                if !rewrite {
+                    *self = Self::empty();
+                    rewrite = true;
+                }
+                (true, part)
+            };
+
+            let flags = Self::parse_part(item)?;
+            self.apply_flags(flags, enabled);
         }
+        Ok(())
+    }
+
+    pub fn parse(spec: &str) -> Result<Self, String> {
+        let mut flags = Self::empty();
+        flags.apply_spec(spec)?;
         Ok(flags)
     }
 }
@@ -150,6 +194,16 @@ const fn base_bit_for_verbose(bit: u16) -> Option<u16> {
     }
 }
 
+const fn verbose_bit_for_base(bit: u16) -> Option<u16> {
+    match bit {
+        DebugLogFlags::AST => Some(DebugLogFlags::AST_VERBOSE),
+        DebugLogFlags::INST => Some(DebugLogFlags::INST_VERBOSE),
+        DebugLogFlags::WQDB => Some(DebugLogFlags::WQDB_VERBOSE),
+        DebugLogFlags::CAS => Some(DebugLogFlags::CAS_VERBOSE),
+        _ => None,
+    }
+}
+
 // pub(crate) fn is_known_debug_name(name: &str) -> bool {
 //     bit_for_name(name).is_some()
 // }
@@ -174,5 +228,30 @@ mod tests {
 
         assert!(flags.contains(DebugLogFlags::CST));
         assert_eq!(flags.display_names(), vec!["cst"]);
+    }
+
+    #[test]
+    fn modifier_specs_update_existing_flags() {
+        let mut flags = DebugLogFlags::from_names(["inst"]);
+
+        flags.apply_spec("+ast,+value")
+            .expect("apply additive debug spec");
+        assert_eq!(flags.display_names(), vec!["ast", "inst", "value"]);
+
+        flags.apply_spec("-inst").expect("apply subtractive debug spec");
+        assert_eq!(flags.display_names(), vec!["ast", "value"]);
+
+        flags.apply_spec("token").expect("apply overwrite debug spec");
+        assert_eq!(flags.display_names(), vec!["token"]);
+    }
+
+    #[test]
+    fn removing_base_flag_also_removes_verbose_flag() {
+        let mut flags = DebugLogFlags::from_names(["ast-v", "inst-v"]);
+
+        flags.apply_spec("-ast")
+            .expect("apply subtractive debug spec");
+
+        assert_eq!(flags.display_names(), vec!["inst", "inst-v"]);
     }
 }
