@@ -191,7 +191,11 @@ impl Value {
     ///
     /// - `Char` → single-character string
     /// - `String` → cloned string
+<<<<<<< HEAD
     /// - `List` where every element is string-like → concatenated
+=======
+    /// - Non-empty `List` where every element is string-like → concatenated
+>>>>>>> 3eb0e687 (cf)
     ///   string
     /// - empty `IntList` → empty string
     /// - everything else → `None`

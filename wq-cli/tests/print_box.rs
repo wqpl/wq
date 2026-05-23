@@ -21,10 +21,7 @@ fn exec_print_uses_boxed_display() -> Result<()> {
 
 #[test]
 fn script_print_uses_boxed_display() -> Result<()> {
-    let path = std::env::temp_dir().join(format!(
-        "wq-box-print-{}-script.wq",
-        std::process::id()
-    ));
+    let path = std::env::temp_dir().join(format!("wq-box-print-{}-script.wq", std::process::id()));
     std::fs::write(&path, "reshape[1..=6;(2;3)]\n").context("write script")?;
 
     let output = Command::cargo_bin("wq")

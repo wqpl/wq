@@ -1524,11 +1524,9 @@ mod call_safety {
     use crate::builtins::BuiltinFnArgs;
     use crate::value::func::FunctionData;
     use crate::value::{Value, cell};
-    use crate::vm::InlineCache;
-    use crate::vm::Slot;
     use crate::vm::call::CallSpec;
     use crate::vm::inst::Instruction;
-    use crate::vm::Vm;
+    use crate::vm::{InlineCache, Slot, Vm};
 
     fn make_fn(params: Option<&[&str]>, locals: u16, instructions: Vec<Instruction>) -> Value {
         Value::CompiledFunction(Arc::new(FunctionData {
@@ -1625,10 +1623,8 @@ mod call_safety {
 
     #[test]
     fn tail_call_same_code_preserves_inline_cache() {
-        let insts: Arc<[Instruction]> = Arc::from([
-            Instruction::load_const(Value::Int(1)),
-            Instruction::Return,
-        ]);
+        let insts: Arc<[Instruction]> =
+            Arc::from([Instruction::load_const(Value::Int(1)), Instruction::Return]);
 
         let mut vm = Vm::new(vec![Instruction::Return; 2]);
         vm.instructions = Arc::clone(&insts);

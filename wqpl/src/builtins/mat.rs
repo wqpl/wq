@@ -26,9 +26,7 @@ pub(super) fn transpose(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
             .at_arg(0)
     })?;
     let rank = shape.len();
-    let axes = axes_arg
-        .map(|axes| parse_axes(axes, rank))
-        .transpose()?;
+    let axes = axes_arg.map(|axes| parse_axes(axes, rank)).transpose()?;
     // Atoms and 1D vectors: return as-is
     if rank <= 1 {
         return Ok(v);
@@ -130,7 +128,10 @@ fn parse_axes(v: &Value, rank: usize) -> WqResult<Vec<usize>> {
             .src(BE::Transpose)
             .msg("axis list length must match array rank")
             .at_arg(1)
-            .attach_note(format!("rank is {rank}, axis list length is {}", raw_axes.len())));
+            .attach_note(format!(
+                "rank is {rank}, axis list length is {}",
+                raw_axes.len()
+            )));
     }
 
     let mut axes = Vec::with_capacity(raw_axes.len());
@@ -378,11 +379,8 @@ mod tests {
         let arr = arr_2x3x4();
         let axes = il(&[2, 0, 1]);
 
-        let res = transpose(
-            &mut vm,
-            BuiltinFnArgs::from(vec![arr.clone(), axes]),
-        )
-        .expect("transpose with axes");
+        let res = transpose(&mut vm, BuiltinFnArgs::from(vec![arr.clone(), axes]))
+            .expect("transpose with axes");
 
         assert_eq!(res.shape_uniform(), Some(vec![3, 4, 2]));
         assert_eq!(index_path(&res, &[0, 0, 0]), index_path(&arr, &[0, 0, 0]));

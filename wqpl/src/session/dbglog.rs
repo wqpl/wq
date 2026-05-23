@@ -234,14 +234,19 @@ mod tests {
     fn modifier_specs_update_existing_flags() {
         let mut flags = DebugLogFlags::from_names(["inst"]);
 
-        flags.apply_spec("+ast,+value")
+        flags
+            .apply_spec("+ast,+value")
             .expect("apply additive debug spec");
         assert_eq!(flags.display_names(), vec!["ast", "inst", "value"]);
 
-        flags.apply_spec("-inst").expect("apply subtractive debug spec");
+        flags
+            .apply_spec("-inst")
+            .expect("apply subtractive debug spec");
         assert_eq!(flags.display_names(), vec!["ast", "value"]);
 
-        flags.apply_spec("token").expect("apply overwrite debug spec");
+        flags
+            .apply_spec("token")
+            .expect("apply overwrite debug spec");
         assert_eq!(flags.display_names(), vec!["token"]);
     }
 
@@ -249,7 +254,8 @@ mod tests {
     fn removing_base_flag_also_removes_verbose_flag() {
         let mut flags = DebugLogFlags::from_names(["ast-v", "inst-v"]);
 
-        flags.apply_spec("-ast")
+        flags
+            .apply_spec("-ast")
             .expect("apply subtractive debug spec");
 
         assert_eq!(flags.display_names(), vec!["inst", "inst-v"]);

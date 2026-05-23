@@ -147,11 +147,7 @@ pub fn semantic_tokens_from_events_with_variable_info(
     tokens
 }
 
-fn modifiers_for_span(
-    variable_infos: &[VariableTokenInfo],
-    start: usize,
-    end: usize,
-) -> u32 {
+fn modifiers_for_span(variable_infos: &[VariableTokenInfo], start: usize, end: usize) -> u32 {
     variable_infos
         .iter()
         .filter(|info| info.span.0 < end && start < info.span.1)

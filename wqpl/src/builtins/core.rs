@@ -704,10 +704,7 @@ mod tests {
             into_wq_string("hello").try_flatten_to_string(),
             Some("hello".into())
         );
-        assert_eq!(
-            into_wq_string("").try_flatten_to_string(),
-            Some("".into())
-        );
+        assert_eq!(into_wq_string("").try_flatten_to_string(), Some("".into()));
         assert_eq!(Value::unit().try_flatten_to_string(), Some("".into()));
         assert_eq!(
             Value::List(Arc::new(vec![])).try_flatten_to_string(),

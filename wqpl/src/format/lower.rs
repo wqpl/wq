@@ -13,10 +13,10 @@
 //! comment-free inputs so the existing `hotchoco/suite` snapshots remain
 //! green. The notable normalizations are:
 //!
-//! * Single-argument postfix forms prefer `f x` when that reparses the same
-//!   way and avoids noisier `f[x]` brackets.
-//! * Inside `[...]` / `(...)` / `(`...`)` the contents are joined by
-//!   `;` (no whitespace) when flat, by `;\n  ` when broken.
+//! * Single-argument postfix forms prefer `f x` when that reparses the same way
+//!   and avoids noisier `f[x]` brackets.
+//! * Inside `[...]` / `(...)` / `(`...`)` the contents are joined by `;` (no
+//!   whitespace) when flat, by `;\n  ` when broken.
 //! * Function bodies and control-form bodies break across newlines, with
 //!   children indented by [`FormatConfig::indent_size`].
 //! * Binary, unary, range, and assignment operators glue tightly (no
@@ -449,9 +449,7 @@ impl<'a> LowerCtx<'a> {
                 out = match tail {
                     Tail::Depth(doc) => out + doc,
                     Tail::ArgList(arglist) => {
-                        if allow_space_style
-                            && let Some(arg) = self.single_space_arg(&arglist)
-                        {
+                        if allow_space_style && let Some(arg) = self.single_space_arg(&arglist) {
                             out + Doc::text(" ") + self.node(&arg)
                         } else {
                             out + self.node(&arglist)
@@ -484,8 +482,7 @@ impl<'a> LowerCtx<'a> {
                 let arg = tail_docs.into_iter().next().expect("len == 1");
                 head + Doc::text("[") + self.node(&arg) + Doc::text("]")
             } else {
-                let body =
-                    self.semicolon_joined(tail_docs.iter().map(|n| self.node(n)).collect());
+                let body = self.semicolon_joined(tail_docs.iter().map(|n| self.node(n)).collect());
                 head + Doc::bracket(
                     Doc::text("["),
                     body,

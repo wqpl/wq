@@ -1360,16 +1360,13 @@ mod tests {
         let infos = variable_token_infos(&index);
 
         assert!(infos.iter().any(|info| {
-            info.span == (17, 18)
-                && info.provenance == crate::token::VariableProvenance::Parameter
+            info.span == (17, 18) && info.provenance == crate::token::VariableProvenance::Parameter
         }));
         assert!(infos.iter().any(|info| {
-            info.span == (19, 20)
-                && info.provenance == crate::token::VariableProvenance::Local
+            info.span == (19, 20) && info.provenance == crate::token::VariableProvenance::Local
         }));
         assert!(infos.iter().any(|info| {
-            info.span == (21, 22)
-                && info.provenance == crate::token::VariableProvenance::Global
+            info.span == (21, 22) && info.provenance == crate::token::VariableProvenance::Global
         }));
     }
 }

@@ -262,10 +262,18 @@ fn format_matrix(
     let mut lines = Vec::with_capacity(rows_len + 2);
     let col_indices: Vec<String> = (0..cols_len).map(|col| col.to_string()).collect();
     let col_header = join_padded_cells(
-        std::iter::once((col_axis_label.as_str(), col_axis_label.len(), CellRole::Axis(col_axis)))
-            .chain(col_indices.iter().enumerate().map(|(col, text)| {
-                (text.as_str(), col_widths[col], axis_index_role(col_axis, col))
-            })),
+        std::iter::once((
+            col_axis_label.as_str(),
+            col_axis_label.len(),
+            CellRole::Axis(col_axis),
+        ))
+        .chain(col_indices.iter().enumerate().map(|(col, text)| {
+            (
+                text.as_str(),
+                col_widths[col],
+                axis_index_role(col_axis, col),
+            )
+        })),
         options.color,
     );
     lines.push(format!("{}{}", " ".repeat(row_label_width), col_header));
@@ -278,7 +286,12 @@ fn format_matrix(
     );
     lines.push(format!(
         "{}   {}",
-        pad_cell(&row_axis_label, row_label_width, CellRole::Axis(row_axis), options.color),
+        pad_cell(
+            &row_axis_label,
+            row_label_width,
+            CellRole::Axis(row_axis),
+            options.color
+        ),
         fence
     ));
 
@@ -306,11 +319,7 @@ fn slice_title(prefix: &[(usize, usize)], color: bool) -> String {
     prefix
         .iter()
         .map(|(axis, index)| {
-            style_text(
-                &format!("a{axis} = {index}"),
-                CellRole::Axis(*axis),
-                color,
-            )
+            style_text(&format!("a{axis} = {index}"), CellRole::Axis(*axis), color)
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -387,10 +396,7 @@ fn format_ragged_rows(v: &Value, options: BoxFormatOptions) -> Option<String> {
         );
         let shape = shape_summary(row);
         let shape = pad_cell_right(&shape, shape_width, CellRole::Shape(1), options.color);
-        lines.push(format!(
-            "{index} {shape} {}",
-            format_ragged_value(row)
-        ));
+        lines.push(format!("{index} {shape} {}", format_ragged_value(row)));
     }
     Some(lines.join("\n"))
 }
@@ -450,6 +456,7 @@ mod tests {
     use std::sync::Arc;
 
     use colored::{Color, Styles};
+
     use super::*;
     use crate::value::into_wq_string;
 
@@ -615,6 +622,9 @@ mod tests {
         assert!(fence.style.contains(Styles::Dimmed));
         assert_eq!(alternate.fgcolor, Some(Color::Cyan));
         assert!(alternate.style.contains(Styles::Dimmed));
-        assert_eq!(format_boxed_with(&v, BoxFormatOptions::default()), format_boxed(&v));
+        assert_eq!(
+            format_boxed_with(&v, BoxFormatOptions::default()),
+            format_boxed(&v)
+        );
     }
 }

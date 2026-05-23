@@ -256,7 +256,8 @@ struct RuntimeOpts {
     #[arg(short = 'i', long, value_name = "NAME", global = true)]
     interpreter: Option<String>,
 
-    /// Configure debug output flags [default: off; -d defaults to inst; +/- modifies]
+    /// Configure debug output flags [default: off; -d defaults to inst; +/-
+    /// modifies]
     #[arg(
         short = 'd',
         long = "debug",

@@ -347,9 +347,7 @@ impl Vm {
             return_cache_to_pool(&mut self.cache_pool, cache_len, unused_cache);
             std::mem::swap(&mut self.tail_call_journal, &mut saved_tail_journal);
             self.tail_call_journal_overflow = saved_tail_overflow;
-            if pushed_dbg
-                && let Some(fr) = self.call_stack.pop()
-            {
+            if pushed_dbg && let Some(fr) = self.call_stack.pop() {
                 self.current_chunk = fr.chunk;
             }
             return Err(

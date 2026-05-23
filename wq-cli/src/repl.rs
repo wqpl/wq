@@ -1473,17 +1473,13 @@ mod tests {
         assert!(
             matches!(ReplCommand::parse("!d-inst"), ReplCommand::DebugSet(spec) if spec == "-inst")
         );
-        assert!(
-            matches!(
-                ReplCommand::parse("!debug +value"),
-                ReplCommand::DebugSet(spec) if spec == "+value"
-            )
-        );
-        assert!(
-            matches!(
-                ReplCommand::parse("!d.-inst"),
-                ReplCommand::DebugOneshot(spec) if spec == "-inst"
-            )
-        );
+        assert!(matches!(
+            ReplCommand::parse("!debug +value"),
+            ReplCommand::DebugSet(spec) if spec == "+value"
+        ));
+        assert!(matches!(
+            ReplCommand::parse("!d.-inst"),
+            ReplCommand::DebugOneshot(spec) if spec == "-inst"
+        ));
     }
 }
