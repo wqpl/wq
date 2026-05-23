@@ -418,7 +418,7 @@ impl Interpreter for VanillaInterpreter {
                                     params_len,
                                     locals,
                                     captured,
-                                    argc: argc as u32,
+                                    argc,
                                     callee_name: CallSpec::name_hint(name_hint.as_deref()),
                                     dbg_chunk,
                                     callee: value,
@@ -483,7 +483,7 @@ impl Interpreter for VanillaInterpreter {
                                     params_len,
                                     locals,
                                     captured,
-                                    argc: argc as u32,
+                                    argc,
                                     callee_name: CallSpec::name_hint(name_hint.as_deref()),
                                     dbg_chunk,
                                     callee: value,
@@ -1083,7 +1083,7 @@ impl VanillaInterpreter {
         }
         Ok(LocalCallable::Func {
             value: p.value.clone(),
-            params_len: p.params.as_ref().map(|x| x.len() as u32),
+            params_len: p.params.as_ref().map(|x| x.len()),
             locals: p.locals,
             instructions: p.instructions,
             captured: if p.is_closure {
@@ -1514,5 +1514,221 @@ mod tests {
         assert_eq!(result, Value::Int(20));
         assert_eq!(vm.trace_buf.len(), 1);
         assert_eq!(vm.trace_buf[0].value_excerpt, "20");
+    }
+}
+
+#[cfg(test)]
+mod call_safety {
+    use std::sync::Arc;
+
+    use crate::builtins::BuiltinFnArgs;
+    use crate::value::func::FunctionData;
+    use crate::value::{Value, cell};
+    use crate::vm::InlineCache;
+    use crate::vm::Slot;
+    use crate::vm::call::CallSpec;
+    use crate::vm::inst::Instruction;
+    use crate::vm::Vm;
+
+    fn make_fn(params: Option<&[&str]>, locals: u16, instructions: Vec<Instruction>) -> Value {
+        Value::CompiledFunction(Arc::new(FunctionData {
+            params: params.map(|names| {
+                Arc::<[String]>::from(names.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+            }),
+            named_params: None,
+            locals,
+            instructions: instructions.into(),
+            dbg_chunk: None,
+            dbg_stmt_spans: None,
+            dbg_source_base_offset: 0,
+            dbg_pc_spans: None,
+            dbg_stmt_marks: None,
+            dbg_local_names: None,
+            dbg_provenance: None,
+        }))
+    }
+
+    #[test]
+    fn call_non_callable_leaves_stack_unchanged() {
+        let mut vm = Vm::new(vec![Instruction::Return]);
+        vm.stack.push(Value::Int(42));
+        let base = vm.stack.len();
+
+        let result = vm.call(
+            &Value::Int(1), // not callable
+            BuiltinFnArgs::from(vec![Value::Int(10), Value::Int(20)]),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            vm.stack.len(),
+            base,
+            "stack must be unchanged after calling a non-callable"
+        );
+        assert_eq!(vm.stack.last(), Some(&Value::Int(42)));
+    }
+
+    #[test]
+    fn call_arity_error_cleans_up_stack() {
+        let func = make_fn(
+            Some(&["x"]),
+            1,
+            vec![Instruction::LoadLocal(0), Instruction::Return],
+        );
+        let mut vm = Vm::new(vec![Instruction::Return]);
+        vm.stack.push(Value::Int(99));
+        let base = vm.stack.len();
+
+        // Call with 2 args but function expects 1
+        let result = vm.call(
+            &func,
+            BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)]),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            vm.stack.len(),
+            base,
+            "stack must be cleaned up on arity error"
+        );
+        assert_eq!(vm.stack.last(), Some(&Value::Int(99)));
+    }
+
+    #[test]
+    fn recursion_limit_restores_current_chunk() {
+        let self_ref = make_fn(
+            None,
+            0,
+            vec![
+                Instruction::LoadSelf,
+                Instruction::CallAnon(0),
+                Instruction::Return,
+            ],
+        );
+
+        let mut vm = Vm::new(vec![Instruction::Return]);
+        vm.max_call_depth = 1;
+        vm.runtime_debug_info = true;
+        let file_id = vm.debug_info.new_file("<test>", "");
+        let chunk = vm.debug_info.new_chunk("<test>", file_id, 1);
+        vm.current_chunk = chunk;
+        let saved_chunk = vm.current_chunk;
+
+        let result = vm.call(&self_ref, BuiltinFnArgs::from(vec![]));
+
+        assert!(result.is_err());
+        assert_eq!(
+            vm.current_chunk, saved_chunk,
+            "current_chunk must be restored after recursion-limit error"
+        );
+    }
+
+    #[test]
+    fn tail_call_same_code_preserves_inline_cache() {
+        let insts: Arc<[Instruction]> = Arc::from([
+            Instruction::load_const(Value::Int(1)),
+            Instruction::Return,
+        ]);
+
+        let mut vm = Vm::new(vec![Instruction::Return; 2]);
+        vm.instructions = Arc::clone(&insts);
+        vm.inline_cache = vec![InlineCache::default(); 2];
+        vm.inline_cache[0].slot = Some(42);
+        vm.locals.push(vec![Slot::default()]);
+        vm.captures.push(cell::empty_cells());
+        vm.current_closure_stack.push(Value::unit());
+
+        vm.prepare_tail(CallSpec {
+            instructions: Arc::clone(&insts),
+            params_len: None,
+            locals: 0,
+            captured: cell::empty_cells(),
+            argc: 0,
+            callee_name: None,
+            dbg_chunk: None,
+            callee: Value::unit(),
+        })
+        .expect("prepare_tail");
+
+        assert_eq!(vm.inline_cache.len(), 2);
+        assert_eq!(
+            vm.inline_cache[0].slot,
+            Some(42),
+            "inline cache entry must survive same-code tail call"
+        );
+    }
+
+    #[test]
+    fn named_arg_error_through_call_leaves_stack_unchanged() {
+        use std::sync::Arc;
+
+        use crate::vm::inst::NamedArgMeta;
+
+        // Function with one positional param "x", one named param "y", plus mask slot
+        let func = Value::CompiledFunction(Arc::new(FunctionData {
+            params: Some(Arc::from(["x".to_string()])),
+            named_params: Some(Arc::from([Arc::<str>::from("y")])),
+            locals: 3, // x, y, mask
+            instructions: Arc::from([Instruction::Return]),
+            dbg_chunk: None,
+            dbg_stmt_spans: None,
+            dbg_source_base_offset: 0,
+            dbg_pc_spans: None,
+            dbg_stmt_marks: None,
+            dbg_local_names: None,
+            dbg_provenance: None,
+        }));
+
+        let mut vm = Vm::new(vec![Instruction::Return]);
+        vm.stack.push(Value::Int(99));
+        let base = vm.stack.len();
+
+        // Set up named meta with a bad named arg "z" (not a named param)
+        vm.pending_named_meta = Some(Box::new(NamedArgMeta {
+            pos_count: 1,
+            named: Box::new([(1u16, Arc::<str>::from("z"))]),
+        }));
+
+        let result = vm.call(
+            &func,
+            BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)]),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            vm.stack.len(),
+            base,
+            "stack must be cleaned up on named arg error"
+        );
+        assert_eq!(vm.stack.last(), Some(&Value::Int(99)));
+    }
+
+    #[test]
+    fn invoke_user_stack_underflow_preserves_vm_state() {
+        use std::borrow::Cow;
+
+        let func = make_fn(
+            Some(&["x"]),
+            1,
+            vec![Instruction::LoadLocal(0), Instruction::Return],
+        );
+
+        let mut vm = Vm::new(vec![
+            Instruction::load_const(Value::Int(1)),
+            Instruction::Return,
+        ]);
+        let saved_instructions = Arc::clone(&vm.instructions);
+        let saved_pc = vm.pc;
+        vm.stack.push(Value::Int(42));
+        let saved_stack_len = vm.stack.len();
+
+        // invoke_user with argc=2 but only 1 value on stack
+        let result = vm.invoke_user(&func, 2, Some(Cow::Borrowed("<test>")));
+
+        assert!(result.is_err());
+        assert!(Arc::ptr_eq(&vm.instructions, &saved_instructions));
+        assert_eq!(vm.pc, saved_pc);
+        assert_eq!(vm.stack.len(), saved_stack_len);
+        assert_eq!(vm.stack.last(), Some(&Value::Int(42)));
     }
 }

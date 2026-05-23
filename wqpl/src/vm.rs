@@ -2,6 +2,7 @@ pub mod call;
 pub(crate) mod debug;
 pub mod inst;
 mod slot;
+pub(crate) use slot::Slot;
 pub(crate) mod trace;
 
 use std::ptr::NonNull;
@@ -16,7 +17,6 @@ use crate::value::func::{ClosureData, FunctionData};
 use crate::value::{Value, WqResult};
 use crate::vm::call::ResolvedCallable;
 use crate::vm::inst::Instruction;
-use crate::vm::slot::Slot;
 use crate::vm::trace::TraceRecord;
 use crate::wqdb::Wqdb;
 use crate::wqdb::data::{Backtrace, ChunkId, DebugChunkSpec, DebugInfo, DebugLocalsFrame};
@@ -45,6 +45,8 @@ pub struct Vm {
     pub(crate) cache_pool: AHashMap<usize, Vec<Vec<InlineCache>>>,
     /// Pool of cleared local-variable frames, keyed by slot count.
     pub(crate) locals_pool: AHashMap<u16, Vec<Vec<Slot>>>,
+    /// Pool of cleared operand stacks to avoid per-call allocation.
+    pub(crate) stack_pool: Vec<Vec<Value>>,
     /// Stack of currently executing functions/closures for LoadSelf
     pub(crate) current_closure_stack: Vec<Value>,
     // args_scratch: Vec<Value>,
@@ -123,6 +125,7 @@ impl Vm {
             inline_cache: vec![InlineCache::default(); len],
             cache_pool: AHashMap::new(),
             locals_pool: AHashMap::new(),
+            stack_pool: Vec::new(),
             current_closure_stack: Vec::new(),
             // args_scratch: Vec::new(),
             tail_call_journal: Vec::new(),

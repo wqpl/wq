@@ -29,29 +29,44 @@ impl Vm {
         if let Value::BuiltinFunction(name) = func {
             return self.call_builtin_name(name, args);
         }
-        let argc = args.len() as u32;
-        self.stack.extend(args);
+        let argc = args.len();
         match func {
-            Value::CompiledFunction(f) => self.invoke_spec(CallSpec {
-                instructions: f.instructions.clone(),
-                params_len: f.params.as_ref().map(|p| p.len() as u32),
-                locals: f.locals,
-                captured: crate::value::cell::empty_cells(),
-                argc,
-                callee_name: None,
-                dbg_chunk: f.dbg_chunk,
-                callee: func.clone(),
-            }),
-            Value::Closure(c) => self.invoke_spec(CallSpec {
-                instructions: c.instructions.clone(),
-                params_len: c.params.as_ref().map(|p| p.len() as u32),
-                locals: c.locals,
-                captured: c.captured.clone(),
-                argc,
-                callee_name: None,
-                dbg_chunk: c.dbg_chunk,
-                callee: func.clone(),
-            }),
+            Value::CompiledFunction(f) => {
+                let base = self.stack.len();
+                self.stack.extend(args);
+                let res = self.invoke_spec(CallSpec {
+                    instructions: f.instructions.clone(),
+                    params_len: f.params.as_ref().map(|p| p.len()),
+                    locals: f.locals,
+                    captured: crate::value::cell::empty_cells(),
+                    argc,
+                    callee_name: None,
+                    dbg_chunk: f.dbg_chunk,
+                    callee: func.clone(),
+                });
+                if res.is_err() {
+                    self.stack.truncate(base);
+                }
+                res
+            }
+            Value::Closure(c) => {
+                let base = self.stack.len();
+                self.stack.extend(args);
+                let res = self.invoke_spec(CallSpec {
+                    instructions: c.instructions.clone(),
+                    params_len: c.params.as_ref().map(|p| p.len()),
+                    locals: c.locals,
+                    captured: c.captured.clone(),
+                    argc,
+                    callee_name: None,
+                    dbg_chunk: c.dbg_chunk,
+                    callee: func.clone(),
+                });
+                if res.is_err() {
+                    self.stack.truncate(base);
+                }
+                res
+            }
             other => Err(not_bound_err(format!(
                 "expected callable, got {}",
                 other.type_name()
@@ -171,14 +186,65 @@ impl Vm {
         } else {
             self.current_chunk
         };
+
+        // --- Pre-validate arity and named args before swapping execution state ---
+        let named_meta = self.pending_named_meta.take();
+        let callee_named: Option<Arc<[Arc<str>]>> = match &callee {
+            Value::CompiledFunction(f) => f.named_params.clone(),
+            Value::Closure(c) => c.named_params.clone(),
+            _ => None,
+        };
+        if let Some(ref meta) = named_meta {
+            if let Some(p) = params_len
+                && usize::from(meta.pos_count) != p
+            {
+                return Err(arity_err_vm(format!(
+                    "function expects {} positional arg(s), got {}",
+                    p, meta.pos_count
+                )));
+            }
+            if !meta.named.is_empty() {
+                if let Some(ref named_params) = callee_named {
+                    for (_, arg_name) in &meta.named {
+                        if !named_params.iter().any(|p| p.as_ref() == arg_name.as_ref()) {
+                            return Err(arity_err_vm(format!(
+                                "'{}' is not a named parameter",
+                                arg_name
+                            )));
+                        }
+                    }
+                } else {
+                    return Err(arity_err_vm(
+                        "cannot pass named arguments to a non-function value",
+                    ));
+                }
+            }
+        } else if let Some(p) = params_len {
+            if argc != p {
+                return Err(arity_err_vm(format!(
+                    "function expects {} arg(s), got {}",
+                    p, argc
+                )));
+            }
+        } else if argc > 3 {
+            return Err(arity_err_vm(
+                "implicit function expects up to 3 args".to_string(),
+            ));
+        }
+
+        // Stack and metadata sanity checks — must happen before state swap
+        ensure_stack_len(&self.stack, argc, || "call args".into())?;
+        if usize::from(local_count) < argc {
+            return Err(vm_err(format!(
+                "function local count {local_count} is smaller than arg count {argc}"
+            )));
+        }
+
         let saved_instructions = std::mem::replace(&mut self.instructions, instructions);
         let saved_pc = self.pc;
-        // Preserve capacity, avoid reallocs across call
         let prev_cap = self.stack.capacity();
-        let mut saved_stack = std::mem::replace(
-            &mut self.stack,
-            Vec::with_capacity(std::cmp::max(prev_cap, 256)),
-        );
+        let callee_stack = take_stack_from_pool(&mut self.stack_pool, std::cmp::max(prev_cap, 256));
+        let mut saved_stack = std::mem::replace(&mut self.stack, callee_stack);
         let cache_len = self.instructions.len();
         let new_cache = take_cache_from_pool(&mut self.cache_pool, cache_len);
         let saved_cache = std::mem::replace(&mut self.inline_cache, new_cache);
@@ -199,34 +265,9 @@ impl Vm {
         }
         self.pc = 0;
         let mut frame = take_locals_from_pool(&mut self.locals_pool, local_count);
-        // Arity check
-        let named_meta = self.pending_named_meta.take();
-        if let Some(ref meta) = named_meta {
-            // Check positional arity
-            if let Some(p) = params_len
-                && meta.pos_count as u32 != p
-            {
-                return Err(arity_err_vm(format!(
-                    "function expects {} positional arg(s), got {}",
-                    p, meta.pos_count
-                )));
-            }
-        } else if let Some(p) = params_len {
-            if argc != p {
-                return Err(arity_err_vm(format!(
-                    "function expects {} arg(s), got {}",
-                    p, argc
-                )));
-            }
-        } else if argc > 3 {
-            return Err(arity_err_vm(
-                "implicit function expects up to 3 args".to_string(),
-            ));
-        }
-
         // Move args from caller’s stack to callee frame (arg0..argN-1)
         if let Some(meta) = named_meta {
-            let total = argc as usize;
+            let total = argc;
             // Read all arg values from stack (source order is preserved left-to-right
             // because they were pushed that way)
             let mut all_args: Vec<Value> = (0..total)
@@ -260,39 +301,13 @@ impl Vm {
                 }
             }
 
-            // Get callee’s named params
-            let callee_named: Option<Arc<[Arc<str>]>> = match &callee {
-                Value::CompiledFunction(f) => f.named_params.clone(),
-                Value::Closure(c) => c.named_params.clone(),
-                _ => {
-                    if !named_arg_map.is_empty() {
-                        return Err(arity_err_vm(
-                            "cannot pass named arguments to a non-function value",
-                        ));
-                    }
-                    None
-                }
-            };
-
-            // Check that all provided named args match named params
-            if let Some(ref named_params) = callee_named {
-                for (arg_name, _) in named_arg_map.iter() {
-                    if !named_params.iter().any(|p| p.as_ref() == arg_name.as_ref()) {
-                        return Err(arity_err_vm(format!(
-                            "’{}’ is not a named parameter",
-                            arg_name
-                        )));
-                    }
-                }
-            }
-
             // Fill named slots and build bitmask
             let mut mask: i64 = 0;
             if let Some(named_params) = callee_named {
                 let pos_param_count = params_len.unwrap_or(0);
                 for (named_idx, param_name) in named_params.iter().enumerate() {
                     if let Some(val) = named_arg_map.get(param_name) {
-                        let slot = (pos_param_count + named_idx as u32) as usize;
+                        let slot = pos_param_count + named_idx;
                         if slot < local_count as usize {
                             frame[slot] = Slot::Value(val.clone());
                         }
@@ -300,7 +315,7 @@ impl Vm {
                     }
                 }
                 // Set mask slot
-                let mask_slot = (pos_param_count + named_params.len() as u32) as usize;
+                let mask_slot = pos_param_count + named_params.len();
                 if mask_slot < local_count as usize {
                     frame[mask_slot] = Slot::Value(Value::Int(mask));
                 }
@@ -311,7 +326,7 @@ impl Vm {
                 let v = saved_stack
                     .pop()
                     .ok_or_else(|| vm_err("stack underflow while moving args"))?;
-                frame[i as usize] = Slot::Value(v);
+                frame[i] = Slot::Value(v);
             }
         }
         self.locals.push(frame);
@@ -324,15 +339,18 @@ impl Vm {
                 return_locals_to_pool(&mut self.locals_pool, frame);
             }
             self.captures.pop();
-            std::mem::swap(&mut self.stack, &mut saved_stack);
+            let callee_stack = std::mem::replace(&mut self.stack, saved_stack);
+            return_stack_to_pool(&mut self.stack_pool, callee_stack);
             self.instructions = saved_instructions;
             self.pc = saved_pc;
             let unused_cache = std::mem::replace(&mut self.inline_cache, saved_cache);
             return_cache_to_pool(&mut self.cache_pool, cache_len, unused_cache);
             std::mem::swap(&mut self.tail_call_journal, &mut saved_tail_journal);
             self.tail_call_journal_overflow = saved_tail_overflow;
-            if pushed_dbg {
-                self.call_stack.pop();
+            if pushed_dbg
+                && let Some(fr) = self.call_stack.pop()
+            {
+                self.current_chunk = fr.chunk;
             }
             return Err(
                 crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Recursion).msg(format!(
@@ -384,7 +402,8 @@ impl Vm {
             return_locals_to_pool(&mut self.locals_pool, frame);
         }
         self.captures.pop();
-        std::mem::swap(&mut self.stack, &mut saved_stack);
+        let callee_stack = std::mem::replace(&mut self.stack, saved_stack);
+        return_stack_to_pool(&mut self.stack_pool, callee_stack);
         let used_cache = std::mem::replace(&mut self.inline_cache, saved_cache);
         return_cache_to_pool(&mut self.cache_pool, cache_len, used_cache);
         self.instructions = saved_instructions;
@@ -402,13 +421,13 @@ impl Vm {
     pub(crate) fn invoke_user(
         &mut self,
         func: &Value,
-        argc: u32,
+        argc: usize,
         callee_name: Option<Cow<'_, str>>,
     ) -> WqResult<Value> {
         match func {
             Value::CompiledFunction(f) => self.invoke_spec(CallSpec {
                 instructions: f.instructions.clone(),
-                params_len: f.params.as_ref().map(|p| p.len() as u32),
+                params_len: f.params.as_ref().map(|p| p.len()),
                 locals: f.locals,
                 captured: crate::value::cell::empty_cells(),
                 argc,
@@ -418,7 +437,7 @@ impl Vm {
             }),
             Value::Closure(c) => self.invoke_spec(CallSpec {
                 instructions: c.instructions.clone(),
-                params_len: c.params.as_ref().map(|p| p.len() as u32),
+                params_len: c.params.as_ref().map(|p| p.len()),
                 locals: c.locals,
                 captured: c.captured.clone(),
                 argc,
@@ -434,11 +453,11 @@ impl Vm {
     }
 
     /// Tail-call a user function with args already on the stack top.
-    pub(crate) fn tail_invoke_user(&mut self, func: &Value, argc: u32) -> WqResult<()> {
+    pub(crate) fn tail_invoke_user(&mut self, func: &Value, argc: usize) -> WqResult<()> {
         match func {
             Value::CompiledFunction(f) => self.prepare_tail(CallSpec {
                 instructions: f.instructions.clone(),
-                params_len: f.params.as_ref().map(|p| p.len() as u32),
+                params_len: f.params.as_ref().map(|p| p.len()),
                 locals: f.locals,
                 captured: crate::value::cell::empty_cells(),
                 argc,
@@ -448,7 +467,7 @@ impl Vm {
             }),
             Value::Closure(c) => self.prepare_tail(CallSpec {
                 instructions: c.instructions.clone(),
-                params_len: c.params.as_ref().map(|p| p.len() as u32),
+                params_len: c.params.as_ref().map(|p| p.len()),
                 locals: c.locals,
                 captured: c.captured.clone(),
                 argc,
@@ -480,7 +499,7 @@ impl Vm {
         // Arity check
         if let Some(ref meta) = named_meta
             && let Some(p) = params_len
-            && meta.pos_count as u32 != p
+            && usize::from(meta.pos_count) != p
         {
             return Err(arity_err_vm(format!(
                 "function expects {} positional arg(s), got {}",
@@ -501,7 +520,30 @@ impl Vm {
             ));
         }
 
-        ensure_stack_len(&self.stack, argc as usize, || "tail-call args".into())?;
+        // Validate named args against callee's named params before mutating frame
+        let callee_named: Option<Arc<[Arc<str>]>> = match &callee {
+            Value::CompiledFunction(f) => f.named_params.clone(),
+            Value::Closure(c) => c.named_params.clone(),
+            _ => None,
+        };
+        if let Some(ref meta) = named_meta {
+            if let Some(ref named_params) = callee_named {
+                for (_, arg_name) in &meta.named {
+                    if !named_params.iter().any(|p| p.as_ref() == arg_name.as_ref()) {
+                        return Err(arity_err_vm(format!(
+                            "'{}' is not a named parameter",
+                            arg_name
+                        )));
+                    }
+                }
+            } else if !meta.named.is_empty() {
+                return Err(arity_err_vm(
+                    "cannot pass named arguments to a non-function value",
+                ));
+            }
+        }
+
+        ensure_stack_len(&self.stack, argc, || "tail-call args".into())?;
 
         let mut frame = std::mem::take(
             self.locals
@@ -512,7 +554,7 @@ impl Vm {
         frame.resize(local_count as usize, Slot::default());
 
         if let Some(meta) = named_meta {
-            let total = argc as usize;
+            let total = argc;
             let mut all_args: Vec<Value> = (0..total)
                 .map(|_| {
                     self.stack
@@ -543,25 +585,19 @@ impl Vm {
                 }
             }
 
-            let callee_named: Option<Arc<[Arc<str>]>> = match &callee {
-                Value::CompiledFunction(f) => f.named_params.clone(),
-                Value::Closure(c) => c.named_params.clone(),
-                _ => None,
-            };
-
             let mut mask: i64 = 0;
             if let Some(named_params) = callee_named {
                 let pos_param_count = params_len.unwrap_or(0);
                 for (named_idx, param_name) in named_params.iter().enumerate() {
                     if let Some(val) = named_arg_map.get(param_name) {
-                        let slot = (pos_param_count + named_idx as u32) as usize;
+                        let slot = pos_param_count + named_idx;
                         if slot < local_count as usize {
                             frame[slot] = Slot::Value(val.clone());
                         }
                         mask |= 1i64 << named_idx;
                     }
                 }
-                let mask_slot = (pos_param_count + named_params.len() as u32) as usize;
+                let mask_slot = pos_param_count + named_params.len();
                 if mask_slot < local_count as usize {
                     frame[mask_slot] = Slot::Value(Value::Int(mask));
                 }
@@ -572,7 +608,7 @@ impl Vm {
                     .stack
                     .pop()
                     .ok_or_else(|| vm_err("stack underflow while moving tail-call args"))?;
-                frame[i as usize] = Slot::Value(v);
+                frame[i] = Slot::Value(v);
             }
         }
         self.stack.clear();
@@ -588,9 +624,12 @@ impl Vm {
             .current_closure_stack
             .last_mut()
             .ok_or_else(|| vm_err("tail call without active callable"))? = callee;
+        let same_code = Arc::ptr_eq(&self.instructions, &instructions);
         self.instructions = instructions;
         self.pc = 0;
-        self.inline_cache.clear();
+        if !same_code {
+            self.inline_cache.clear();
+        }
         self.inline_cache
             .resize(self.instructions.len(), InlineCache::default());
         Ok(())
@@ -632,7 +671,7 @@ impl Vm {
                             // User override: push positional args back, then call
                             let pos_len = args.len();
                             self.stack.extend(args);
-                            return self.invoke_user(&val, pos_len as u32, None);
+                            return self.invoke_user(&val, pos_len, None);
                         }
                     }
                 } else {
@@ -662,7 +701,7 @@ impl Vm {
                         _ => {
                             // User override: push args back on stack, invoke
                             self.stack.extend(pos_args);
-                            self.invoke_user(&val, argc as u32, None)
+                            self.invoke_user(&val, argc, None)
                         }
                     }
                 } else {
@@ -819,7 +858,7 @@ impl Vm {
                         idx,
                         ResolvedCallable {
                             value: value.clone(),
-                            params_len: f.params.as_ref().map(|p| p.len() as u32),
+                            params_len: f.params.as_ref().map(|p| p.len()),
                             locals: f.locals,
                             captured: crate::value::cell::empty_cells(),
                             code: f.instructions.clone(),
@@ -862,7 +901,7 @@ impl Vm {
                         idx,
                         ResolvedCallable {
                             value: value.clone(),
-                            params_len: c.params.as_ref().map(|p| p.len() as u32),
+                            params_len: c.params.as_ref().map(|p| p.len()),
                             locals: c.locals,
                             captured: c.captured.clone(),
                             code: c.instructions.clone(),
@@ -895,8 +934,8 @@ pub(crate) struct CallSpec<'a> {
     pub(crate) instructions: Arc<[Instruction]>,
     pub(crate) captured: Arc<[ValueCell]>,
     pub(crate) callee_name: Option<Cow<'a, str>>,
-    pub(crate) argc: u32,
-    pub(crate) params_len: Option<u32>,
+    pub(crate) argc: usize,
+    pub(crate) params_len: Option<usize>,
     pub(crate) dbg_chunk: Option<ChunkId>,
     pub(crate) locals: u16,
 }
@@ -910,7 +949,7 @@ impl<'a> CallSpec<'a> {
 #[derive(Clone)]
 pub(crate) struct ResolvedCallable {
     pub(crate) value: Value,
-    pub(crate) params_len: Option<u32>,
+    pub(crate) params_len: Option<usize>,
     pub(crate) locals: u16,
     pub(crate) captured: Arc<[ValueCell]>,
     pub(crate) code: Arc<[Instruction]>,
@@ -920,7 +959,7 @@ pub(crate) struct ResolvedCallable {
 pub(crate) enum LocalCallable {
     Func {
         value: Value,
-        params_len: Option<u32>,
+        params_len: Option<usize>,
         locals: u16,
         instructions: Arc<[Instruction]>,
         captured: Arc<[ValueCell]>,
@@ -1031,5 +1070,23 @@ fn return_locals_to_pool(pool: &mut AHashMap<u16, Vec<Vec<Slot>>>, mut frame: Ve
     let bucket = pool.entry(local_count).or_default();
     if bucket.len() < MAX_POOL {
         bucket.push(frame);
+    }
+}
+
+fn take_stack_from_pool(pool: &mut Vec<Vec<Value>>, min_cap: usize) -> Vec<Value> {
+    if let Some(pos) = pool.iter().position(|v| v.capacity() >= min_cap) {
+        let mut v = pool.swap_remove(pos);
+        v.clear();
+        return v;
+    }
+    Vec::with_capacity(min_cap)
+}
+
+fn return_stack_to_pool(pool: &mut Vec<Vec<Value>>, mut stack: Vec<Value>) {
+    stack.clear();
+    const MAX_POOL: usize = 4;
+    const MAX_STACK_POOL_CAP: usize = 16 * 1024;
+    if pool.len() < MAX_POOL && stack.capacity() <= MAX_STACK_POOL_CAP {
+        pool.push(stack);
     }
 }

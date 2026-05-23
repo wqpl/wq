@@ -14,7 +14,7 @@ pub(super) fn invoke_user_push(
     vm: &mut Vm,
     _idx: usize,
     target: &Value,
-    argc: u32,
+    argc: usize,
 ) -> WqResult<bool> {
     let result = vm.invoke_user(target, argc, None)?;
     vm.stack.push(result);
@@ -25,7 +25,7 @@ pub(super) fn tail_invoke_user(
     vm: &mut Vm,
     idx: usize,
     target: &Value,
-    argc: u32,
+    argc: usize,
 ) -> WqResult<bool> {
     vm.push_tail_call_frame(Frame {
         chunk: vm.current_chunk,
@@ -56,7 +56,7 @@ pub(super) fn invoke_user_named(
     vm: &mut Vm,
     _idx: usize,
     target: &Value,
-    argc: u32,
+    argc: usize,
     name: &str,
 ) -> WqResult<bool> {
     let result = vm.invoke_user(target, argc, CallSpec::name_hint(Some(name)))?;
@@ -68,7 +68,7 @@ pub(super) fn tail_invoke_user_named(
     vm: &mut Vm,
     idx: usize,
     target: &Value,
-    argc: u32,
+    argc: usize,
     _name: &str,
 ) -> WqResult<bool> {
     tail_invoke_user(vm, idx, target, argc)
@@ -81,7 +81,7 @@ pub(super) fn dispatch_postfix(
     idx: usize,
     target: &Value,
     argc: usize,
-    user_dispatch: fn(&mut Vm, usize, &Value, u32) -> WqResult<bool>,
+    user_dispatch: fn(&mut Vm, usize, &Value, usize) -> WqResult<bool>,
 ) -> WqResult<bool> {
     match target {
         Value::BuiltinFunction(name) => {
@@ -90,7 +90,7 @@ pub(super) fn dispatch_postfix(
             Ok(false)
         }
         Value::CompiledFunction { .. } | Value::Closure { .. } => {
-            user_dispatch(vm, idx, target, argc as u32)
+            user_dispatch(vm, idx, target, argc)
         }
         _ => {
             if vm.pending_named_meta.is_some() {
@@ -125,7 +125,7 @@ pub(super) fn dispatch_anon_call(
     idx: usize,
     func: &Value,
     argc: usize,
-    user_dispatch: fn(&mut Vm, usize, &Value, u32) -> WqResult<bool>,
+    user_dispatch: fn(&mut Vm, usize, &Value, usize) -> WqResult<bool>,
 ) -> WqResult<bool> {
     match func {
         Value::BuiltinFunction(name) => {
@@ -133,7 +133,7 @@ pub(super) fn dispatch_anon_call(
             vm.stack.push(out);
             Ok(false)
         }
-        _ => user_dispatch(vm, idx, func, argc as u32),
+        _ => user_dispatch(vm, idx, func, argc),
     }
 }
 
@@ -143,7 +143,7 @@ pub(super) fn dispatch_user_call(
     name: &str,
     argc: usize,
     spec_dispatch: fn(&mut Vm, usize, CallSpec) -> WqResult<bool>,
-    val_dispatch: fn(&mut Vm, usize, &Value, u32, &str) -> WqResult<bool>,
+    val_dispatch: fn(&mut Vm, usize, &Value, usize, &str) -> WqResult<bool>,
     hooks: &dyn InterpreterHook,
 ) -> WqResult<bool> {
     // Try inline cache
@@ -157,7 +157,7 @@ pub(super) fn dispatch_user_call(
                 params_len: target.params_len,
                 locals: target.locals,
                 captured: target.captured.clone(),
-                argc: argc as u32,
+                argc,
                 callee_name: CallSpec::name_hint(Some(name)),
                 dbg_chunk: target.dbg_chunk,
                 callee: target.value.clone(),
@@ -176,7 +176,7 @@ pub(super) fn dispatch_user_call(
         return Ok(false);
     }
 
-    val_dispatch(vm, idx, &func, argc as u32, name)
+    val_dispatch(vm, idx, &func, argc, name)
 }
 
 pub(super) fn resolve_postfix_var(vm: &mut Vm, idx: usize, name: &str) -> WqResult<Value> {
