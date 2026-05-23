@@ -165,7 +165,7 @@ pub(crate) fn into_wq_string<S: Into<String>>(s: S) -> Value {
 }
 
 pub fn format_table_value(val: &Value) -> Option<String> {
-    if val.is_atom() || val.is_unit() || matches!(val, Value::Complex(_) | Value::Cas(_)) {
+    if val.is_atom() || val.is_empty() || matches!(val, Value::Complex(_) | Value::Cas(_)) {
         return None;
     }
     if let Value::Dict(map) = val {

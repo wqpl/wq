@@ -82,8 +82,19 @@ impl Value {
         Value::IntList(Arc::new(vec![]))
     }
 
+    pub(crate) fn builtin_function(name: impl Into<Arc<str>>, id: u16) -> Self {
+        Value::BuiltinFunction {
+            name: name.into(),
+            id,
+        }
+    }
+
+    pub fn is_list_like(&self) -> bool {
+        matches!(self, Value::List(_) | Value::IntList(_) | Value::String(_))
+    }
+
     pub fn is_unit(&self) -> bool {
-        self.is_empty()
+        self.is_list_like() && self.is_empty()
     }
 
     /// Convenience constructor for `Value::Float`.
@@ -149,7 +160,8 @@ impl Value {
         }
     }
 
-    /// Convert a char, string, or char-only list into a Rust String.
+    /// Convert a char, string, unit, or char-only list into a Rust
+    /// String.
     ///
     /// Do not call from `Display::fmt`.
     pub(crate) fn to_rust_string_with_note(&self) -> WqResult<String> {
@@ -179,7 +191,8 @@ impl Value {
     ///
     /// - `Char` → single-character string
     /// - `String` → cloned string
-    /// - `List` where every element is string-like → concatenated string
+    /// - `List` where every element is string-like → concatenated
+    ///   string
     /// - empty `IntList` → empty string
     /// - everything else → `None`
     pub(crate) fn try_flatten_to_string(&self) -> Option<String> {
@@ -257,24 +270,18 @@ impl Value {
             Value::Float(_) => "float",
             Value::Complex(_) => "complex",
             Value::Fraction(_) => "fraction",
-            Value::Algebraic(_) => "algebraic",
+
             Value::Char(_) => "char",
-            Value::Tag(_) => "tag",
             Value::Bool(_) => "bool",
+            Value::Tag(_) => "tag",
 
-            Value::IntList(_) if self.is_unit() => "intlist (unit)",
             Value::IntList(_) => "intlist",
-
-            Value::List(_) if self.is_unit() => "list (unit)",
-            Value::List(_) if self.is_string_like() => "list (string)",
             Value::List(_) => "list",
-
-            Value::String(_) if self.is_unit() => "string (unit)",
             Value::String(_) => "string",
-
-            Value::Cas(_) => "cas",
-            Value::Dict(_) if self.is_unit() => "dict (unit)",
             Value::Dict(_) => "dict",
+
+            Value::Algebraic(_) => "algebraic",
+            Value::Cas(_) => "cas",
 
             Value::CompiledFunction { .. } => "fn",
             Value::Closure { .. } => "closure",
@@ -644,10 +651,10 @@ mod tests {
     }
 
     #[test]
-    fn string_is_empty_and_unit() {
+    fn string_is_empty_but_not_unit() {
         let empty = into_wq_string("");
         assert!(empty.is_empty());
-        assert!(empty.is_unit());
+        assert!(!empty.is_unit());
 
         let non_empty = into_wq_string("x");
         assert!(!non_empty.is_empty());
@@ -663,7 +670,7 @@ mod tests {
     #[test]
     fn string_type_name() {
         assert_eq!(into_wq_string("hello").type_name(), "string");
-        assert_eq!(into_wq_string("").type_name(), "string (unit)");
+        assert_eq!(into_wq_string("").type_name(), "string");
     }
 
     #[test]

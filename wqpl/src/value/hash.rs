@@ -9,7 +9,6 @@ impl std::hash::Hash for Value {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // - Int and BigInt cross-equality
         // - IntList and List cross-equality
-        // - All unit values cross-equality ()=(`)=""=S()
         match self {
             Value::Int(n) => {
                 0u8.hash(state);
@@ -40,12 +39,6 @@ impl std::hash::Hash for Value {
                 5u8.hash(state);
                 b.hash(state);
             }
-            // IntList, List, String, Dict, and Set share a tag when empty
-            // so that all unit values hash the same.
-            v if v.is_unit() => {
-                6u8.hash(state);
-                0usize.hash(state);
-            }
             Value::IntList(v) => {
                 6u8.hash(state);
                 v.len().hash(state);
@@ -61,6 +54,14 @@ impl std::hash::Hash for Value {
                     item.hash(state);
                 }
             }
+            Value::String(s) => {
+                // Hash identically to List<Char> for cross-equality consistency.
+                6u8.hash(state);
+                s.chars().count().hash(state);
+                for c in s.chars() {
+                    Value::Char(c).hash(state);
+                }
+            }
             Value::Dict(m) => {
                 7u8.hash(state);
                 m.len().hash(state);
@@ -69,14 +70,6 @@ impl std::hash::Hash for Value {
                 for (k, v) in entries {
                     k.hash(state);
                     v.hash(state);
-                }
-            }
-            Value::String(s) => {
-                // Hash identically to List<Char> for cross-equality consistency.
-                6u8.hash(state);
-                s.chars().count().hash(state);
-                for c in s.chars() {
-                    Value::Char(c).hash(state);
                 }
             }
             Value::Complex(z) => {
@@ -159,10 +152,10 @@ impl Eq for Value {}
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-        // All unit values are cross-equal regardless of concrete type.
         if self.is_unit() && other.is_unit() {
             return true;
         }
+
         use Value::*;
         match (self, other) {
             (Int(a), Int(b)) => a == b,
@@ -250,27 +243,36 @@ mod hash_tests {
     }
 
     #[test]
-    fn unit_cross_type_hash() {
+    fn empty_container_hashes_do_not_collapse_to_unit() {
         let empty_string = Value::String(Arc::new(String::new()));
         let empty_list = Value::List(Arc::new(vec![]));
         let empty_intlist = Value::IntList(Arc::new(vec![]));
         let empty_dict = Value::Dict(Arc::new(IndexMap::new()));
+        let empty_string = Value::String(Arc::new(String::new()));
 
-        assert_eq!(hash_value(&empty_string), hash_value(&empty_list));
+        assert_eq!(hash_value(&empty_list), hash_value(&empty_intlist));
         assert_eq!(hash_value(&empty_string), hash_value(&empty_intlist));
-        assert_eq!(hash_value(&empty_string), hash_value(&empty_dict));
+        assert_eq!(hash_value(&empty_string), hash_value(&empty_list));
+
+        assert_ne!(hash_value(&empty_dict), hash_value(&empty_intlist));
+        assert_ne!(hash_value(&empty_string), hash_value(&empty_dict));
+        assert_ne!(hash_value(&empty_list), hash_value(&empty_dict));
     }
 
     #[test]
-    fn unit_cross_type_eq() {
+    fn empty_containers_are_not_cross_equal_to_unit() {
         let empty_string = Value::String(Arc::new(String::new()));
         let empty_list = Value::List(Arc::new(vec![]));
         let empty_intlist = Value::IntList(Arc::new(vec![]));
         let empty_dict = Value::Dict(Arc::new(IndexMap::new()));
 
-        assert_eq!(empty_string, empty_list);
+        assert_eq!(empty_list, empty_intlist);
         assert_eq!(empty_string, empty_intlist);
-        assert_eq!(empty_string, empty_dict);
+        assert_eq!(empty_string, empty_list);
+
+        assert_ne!(empty_dict, empty_intlist);
+        assert_ne!(empty_string, empty_dict);
+        assert_ne!(empty_list, empty_dict);
     }
 
     #[test]

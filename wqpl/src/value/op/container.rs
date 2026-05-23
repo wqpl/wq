@@ -84,6 +84,9 @@ impl Value {
         if values.len() == 1 {
             return values.into_iter().next().expect("len==1");
         }
+        if values.iter().all(|v| v.is_unit()) {
+            return Value::unit();
+        }
 
         // All string-like: pre-allocate a single String buffer.
         if values.iter().all(|v| v.is_string_like()) {
@@ -95,9 +98,6 @@ impl Value {
             let mut s = String::with_capacity(total_len);
             for part in strings {
                 s.push_str(&part);
-            }
-            if s.is_empty() {
-                return Value::unit();
             }
             return Value::String(Arc::from(s));
         }
