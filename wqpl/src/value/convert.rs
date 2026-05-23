@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use colored::Colorize;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_rational::Ratio;
@@ -163,23 +162,15 @@ impl Value {
         Value::Complex(z)
     }
 
-    pub(crate) fn format_complex64(z: Complex64, stylize: bool) -> String {
-        let i_text = if stylize {
-            "i".italic().to_string()
-        } else {
-            "i".to_string()
-        };
+    pub(crate) fn format_complex64(z: Complex64, _stylize: bool) -> String {
+        let i_text = "i".to_string();
         let re = z.re;
         let im = z.im;
         if im == 0.0 {
             return format!("{}+0{i_text}", Self::format_numeric_component(re));
         }
         let imag_mag = Self::format_numeric_component(im.abs());
-        let imag_term = if imag_mag == "1" {
-            i_text
-        } else {
-            format!("{imag_mag}{i_text}")
-        };
+        let imag_term = format!("{imag_mag}{i_text}");
         if re == 0.0 {
             format!(
                 "{sign}{imag_term}",

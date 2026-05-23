@@ -40,7 +40,7 @@ impl fmt::Display for Value {
                 write!(f, "\"{esc}\"")
             }
             Value::Tag(s) => write!(f, "`{s}"),
-            Value::Bool(b) => write!(f, "{}", if *b { "true" } else { "false" }),
+            Value::Bool(b) => write!(f, "{}", if *b { "T" } else { "F" }),
             Value::IntList(items) => {
                 if items.is_empty() {
                     return write!(f, "()");

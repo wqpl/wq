@@ -323,7 +323,6 @@ pub(crate) fn expected_bool2(lhs: &Value, rhs: &Value) -> WqError {
 
 #[cfg(test)]
 mod tests {
-    use colored::Colorize;
 
     use super::*;
 
@@ -538,18 +537,18 @@ mod tests {
 
     #[test]
     fn test_complex_display_uses_a_plus_bi_form() {
-        let italic_i = "i".italic();
+        let i_text = "i";
         assert_eq!(
             Value::from_complex64(num_complex::Complex64::new(1.0, 2.0)).to_string(),
-            format!("1+2{italic_i}")
+            format!("1+2{i_text}")
         );
         assert_eq!(
             Value::from_complex64(num_complex::Complex64::new(0.0, -1.0)).to_string(),
-            format!("-{italic_i}")
+            format!("-1{i_text}")
         );
         assert_eq!(
             Value::from_complex64(num_complex::Complex64::new(3.5, -2.0)).to_string(),
-            format!("3.5-2{italic_i}")
+            format!("3.5-2{i_text}")
         );
     }
 

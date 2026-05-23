@@ -1,8 +1,8 @@
-false
+F
 [<TEST_PATH>
-@d ((a<0)&|(10/b)) = false (bool)
-└─ a<0 = false (bool)
+@d ((a<0)&|(10/b)) = F (bool)
+└─ a<0 = F (bool)
 [<TEST_PATH>
-@d ((a>0)&|(b<0)) = false (bool)
-├─ a>0 = true (bool)
-└─ b<0 = false (bool)
+@d ((a>0)&|(b<0)) = F (bool)
+├─ a>0 = T (bool)
+└─ b<0 = F (bool)
