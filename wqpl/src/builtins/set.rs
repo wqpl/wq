@@ -84,22 +84,22 @@ pub(super) fn symdiff(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn subset(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::SubsetQ, [2], &args)?;
+    check_arity(BE::SubQ, [2], &args)?;
     Ok(Value::Bool(is_subset(&args[0], &args[1])))
 }
 
 pub(super) fn proper_subset(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::ProperSubsetQ, [2], &args)?;
+    check_arity(BE::PSubQ, [2], &args)?;
     Ok(Value::Bool(is_proper_subset(&args[0], &args[1])))
 }
 
 pub(super) fn superset(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::SupersetQ, [2], &args)?;
+    check_arity(BE::SuperQ, [2], &args)?;
     Ok(Value::Bool(is_subset(&args[1], &args[0])))
 }
 
 pub(super) fn proper_superset(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::ProperSupersetQ, [2], &args)?;
+    check_arity(BE::PSuperQ, [2], &args)?;
     Ok(Value::Bool(is_proper_subset(&args[1], &args[0])))
 }
 

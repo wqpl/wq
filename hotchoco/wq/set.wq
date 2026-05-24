@@ -18,10 +18,10 @@ union[(1;2);(2;3)]|echo
 symdiff[(1;2);(2;3)]|echo
 without[(1;2;3);(2;3;4)]|echo
 without[(1;1;2;3);(2)]|echo
-subset?[(1;2);(1;2;3)]|echo
-proper_subset?[(1;2);(1;2;3)]|echo
-superset?[(1;2;3);(1;2)]|echo
-proper_superset?[(1;2;3);(1;2)]|echo
+sub?[(1;2);(1;2;3)]|echo
+psub?[(1;2);(1;2;3)]|echo
+super?[(1;2;3);(1;2)]|echo
+psuper?[(1;2;3);(1;2)]|echo
 
 // Strings participate as character lists
 unique["banana"]|echo
