@@ -145,7 +145,7 @@ mod tests {
 
         assert_eq!(
             out,
-            "{[idx;val]$.[or[idx<0;idx>=sz];raise[\"index out of bounds\"]];max[old_cap/%2;4];(`a:1;`b:2)}"
+            "{[idx;val]$.[or[idx<0;idx>=sz];raise \"index out of bounds\"];max[old_cap/%2;4];(`a:1;`b:2)}"
         );
     }
 
@@ -153,9 +153,9 @@ mod tests {
     fn formatter_preserves_postfix_depth_modifier() {
         let fmt = Formatter::new(FormatConfig::default());
         let out = fmt
-            .format_script("(1;2)|has?@1[2]\nhas?@2 2")
+            .format_script("(1;2)|has?@1[2]\ntil(2;2;2)|has?@2 2")
             .expect("format succeeds");
 
-        assert_eq!(out, "(1;2)|has?@1[2]\nhas?@2[2]");
+        assert_eq!(out, "(1;2)|has?@1 2\ntil (2;2;2)|has?@2 2");
     }
 }

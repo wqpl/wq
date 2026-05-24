@@ -1,31 +1,31 @@
-north:{x[1..#x],(,0*x[0])}
-south:{(,0*x[0]),x[0..(#x-1)]}
-east:{x|M[{0,x[0..(#x-1)]}]}
-west:{x|M[{x[1..#x],0}]}
+north:{x 1..#x,(,0*x 0)}
+south:{(,0*x 0),x 0..(#x-1)}
+east:{x|M {0,x 0..(#x-1)}}
+west:{x|M {x 1..#x,0}}
 neighbors:{
-  north[x]+south[x]+east[x]+west[x]+(x|east|north)+(x|west|north)+(x|east|south)+(x|west|south)}
+  north x+south x+east x+west x+(x|east|north)+(x|west|north)+(x|east|south)+(x|west|south)}
 step:{
-  n:neighbors[x]
-  or[n=.3;and[x=.1;n=.2]]|M@2[{
+  n:neighbors x
+  or[n=.3;and[x=.1;n=.2]]|M@2 {
     $[x
       1
-      0]}]}
+      0]}}
 show:{
-  x|M[{
-    echo[(x|M[{
+  x|M {
+    echo (x|M {
       $[x=1
         "#"
-        "."]}]|flatten)]}]
-  echo[""]}
+        "."]}|flatten)}
+  echo ""}
 
 g:((0;0;0;0;0);(0;0;1;0;0);(0;0;1;0;0);(0;0;1;0;0);(0;0;0;0;0))
-echo["t=0"]
-show[g]
-echo["neighbor counts"]
-echo[neighbors[g]]
-g:step[g]
-echo["t=1"]
-show[g]
-g:step[g]
-echo["t=2"]
-show[g]
+echo "t=0"
+show g
+echo "neighbor counts"
+echo neighbors g
+g:step g
+echo "t=1"
+show g
+g:step g
+echo "t=2"
+show g

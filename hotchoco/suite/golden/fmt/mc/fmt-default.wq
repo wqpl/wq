@@ -5,4 +5,4 @@ f:{
     $.[rand[]^2+rand[]^2<1
       i+:1]]
   i}
-4*sum[f[k]]/k
+4*sum f k/k

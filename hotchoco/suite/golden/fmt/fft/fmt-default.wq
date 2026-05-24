@@ -15,41 +15,41 @@ bitrev:{[bs;i]
   r}
 bitrevcpy:{[o]
   n:#o
-  iota[n]|M[{bitlen[n]|bitrev[x]|o}]}
+  iota n|M {bitlen n|bitrev x|o}}
 //fft_radix2:{a:bitrevcpy{x|map{complex[x;0.0]}}x;l:2;
 fft_radix2:{
-  a:bitrevcpy[{x+0.0i}[x]]
+  a:bitrevcpy {x+0.0i} x
   l:2
   W[l<=(n:#x)
     ang:-2*PI/l
     b:0
     W[b<n
       h:l/%2
-      j:iota[h]
+      j:iota h
       u:a[b+j]
-      v:j|M[{x*ang|{complex[cos[x];sin[x]]}|*[a[b+x+h]]}]
+      v:j|M {x*ang|{complex[cos x;sin x]}|* a[b+x+h]}
       (a[b+j];a[b+h+j]):(u+v;u-v)
       b+:l]
     l*:2]
   a}
 ifft_radix2:{
   i:1.0/#x
-  x|M[{conj[x]}]|fft_radix2|M[{i*conj[x]}]}
+  x|M {conj x}|fft_radix2|M {i*conj x}}
 clean:{[s;o]
-  eps:32*EPS64*#s*$[(mx:max[abs[o]])>0
+  eps:32*EPS64*#s*$[(mx:max abs o)>0
     mx
     1.0]
-  s|M[{
+  s|M {
     complex[
-      $[eps>abs[re[x]]
+      $[eps>abs re x
         0.0
-        re[x]];
-      $[eps>abs[im[x]]
+        re x];
+      $[eps>abs im x
         0.0
-        im[x]]]}]}
-fft:{fft_radix2[x]|clean[x]}
+        im x]]}}
+fft:{fft_radix2 x|clean x}
 
-echo[fft[(
+echo fft (
   0;
   0;
   1;
@@ -57,13 +57,13 @@ echo[fft[(
   0;
   0;
   0;
-  0)]] // ((1.0;0.0);(0.0;-1.0);(-1.0;0.0);(0.0;1.0);(1.0;0.0);(0.0;-1.0);(-1.0;0.0);(0.0;1.0))
-echo[fft[(
-  1;
-  0;
-  -1;
-  0;
+  0) // ((1.0;0.0);(0.0;-1.0);(-1.0;0.0);(0.0;1.0);(1.0;0.0);(0.0;-1.0);(-1.0;0.0);(0.0;1.0))
+echo fft (
   1;
   0;
   -1;
-  0)]] // ((0.0;0.0);(0.0;0.0);(4.0;0.0);(0.0;0.0);(0.0;0.0);(0.0;0.0);(4.0;0.0);(0.0;0.0))
+  0;
+  1;
+  0;
+  -1;
+  0) // ((0.0;0.0);(0.0;0.0);(4.0;0.0);(0.0;0.0);(0.0;0.0);(0.0;0.0);(4.0;0.0);(0.0;0.0))

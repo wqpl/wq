@@ -13,7 +13,8 @@
 //! comment-free inputs so the existing `hotchoco/suite` snapshots remain
 //! green. The notable normalizations are:
 //!
-//! * Space-call form `f x y` is rewritten to bracket-call `f[x[y]]`.
+//! * Single-argument postfix forms prefer `f x` when that reparses the same
+//!   way and avoids noisier `f[x]` brackets.
 //! * Inside `[...]` / `(...)` / `(`...`)` the contents are joined by
 //!   `;` (no whitespace) when flat, by `;\n  ` when broken.
 //! * Function bodies and control-form bodies break across newlines, with
@@ -337,24 +338,34 @@ impl<'a> LowerCtx<'a> {
         out
     }
 
-    fn arglist(&self, node: &SyntaxNode) -> Doc {
-        // ArgList children: items (nodes) and `;` separators (tokens). We
-        // re-emit our own `;` between item nodes, ignoring source tokens
-        // except `[`, `!`, and `]` which are structural markers.
+    fn arglist_items(&self, node: &SyntaxNode) -> (bool, Vec<SyntaxNode>) {
         let mut leading_bang = false;
-        let mut items: Vec<Doc> = Vec::new();
+        let mut items = Vec::new();
         for elem in node.children_with_tokens() {
             match elem {
                 SyntaxElement::Token(t) => {
                     if t.kind() == SyntaxKind::Bang {
                         leading_bang = true;
                     }
-                    // All other tokens (brackets, separators, whitespace) are
-                    // re-emitted from scratch — skip.
                 }
-                SyntaxElement::Node(n) => items.push(self.node(&n)),
+                SyntaxElement::Node(n) => items.push(n),
             }
         }
+        (leading_bang, items)
+    }
+
+    fn arglist_has_separator(&self, node: &SyntaxNode) -> bool {
+        node.children_with_tokens().any(
+            |elem| matches!(elem, SyntaxElement::Token(t) if t.kind() == SyntaxKind::Semicolon),
+        )
+    }
+
+    fn arglist(&self, node: &SyntaxNode) -> Doc {
+        // ArgList children: items (nodes) and `;` separators (tokens). We
+        // re-emit our own `;` between item nodes, ignoring source tokens
+        // except `[`, `!`, and `]` which are structural markers.
+        let (leading_bang, item_nodes) = self.arglist_items(node);
+        let mut items: Vec<Doc> = item_nodes.iter().map(|n| self.node(n)).collect();
         let open = if leading_bang {
             Doc::text("[!")
         } else {
@@ -377,10 +388,22 @@ impl<'a> LowerCtx<'a> {
     // ===== postfix / mutating index =====
 
     fn postfix(&self, node: &SyntaxNode) -> Doc {
+        self.postfix_with_space_style(node, true)
+    }
+
+    fn postfix_object(&self, node: &SyntaxNode) -> Doc {
+        if node.kind() == SyntaxKind::PostfixExpr {
+            self.postfix_with_space_style(node, false)
+        } else {
+            self.node(node)
+        }
+    }
+
+    fn postfix_with_space_style(&self, node: &SyntaxNode, allow_space_style: bool) -> Doc {
         enum Tail {
             Depth(Doc),
-            ArgList(Doc),
-            Arg(Doc),
+            ArgList(SyntaxNode),
+            Arg(SyntaxNode),
         }
 
         // Children in source order:
@@ -388,9 +411,7 @@ impl<'a> LowerCtx<'a> {
         //   * optional `@N` depth tokens
         //   * either an `ArgList` node (bracket form) or one or more non-ArgList nodes
         //     (space-call form)
-        //
-        // We normalize both forms to `obj[args]`.
-        let mut object: Option<Doc> = None;
+        let mut object: Option<SyntaxNode> = None;
         let mut tails: Vec<Tail> = Vec::new();
         let mut has_explicit_arglist = false;
         for elem in node.children_with_tokens() {
@@ -400,19 +421,18 @@ impl<'a> LowerCtx<'a> {
                     tails.push(Tail::Depth(Doc::text(t.text().to_string())));
                 }
                 SyntaxElement::Token(_) => {}
-                SyntaxElement::Node(n) if object.is_none() => {
-                    object = Some(self.node(&n));
-                }
+                SyntaxElement::Node(n) if object.is_none() => object = Some(n),
                 SyntaxElement::Node(n) if n.kind() == SyntaxKind::ArgList => {
                     has_explicit_arglist = true;
-                    tails.push(Tail::ArgList(self.node(&n)));
+                    tails.push(Tail::ArgList(n));
                 }
-                SyntaxElement::Node(n) => tails.push(Tail::Arg(self.node(&n))),
+                SyntaxElement::Node(n) => tails.push(Tail::Arg(n)),
             }
         }
-        let Some(object) = object else {
+        let Some(object_node) = object else {
             return Doc::nil();
         };
+        let object = self.postfix_object(&object_node);
         if tails.is_empty() {
             // Should be unreachable — a PostfixExpr always has at least one
             // postfix argument or ArgList — but render the object alone if
@@ -426,33 +446,46 @@ impl<'a> LowerCtx<'a> {
             // handles `f[1][2][3]` correctly.
             let mut out = object;
             for tail in tails {
-                out = out
-                    + match tail {
-                        Tail::Depth(doc) | Tail::ArgList(doc) | Tail::Arg(doc) => doc,
-                    };
+                out = match tail {
+                    Tail::Depth(doc) => out + doc,
+                    Tail::ArgList(arglist) => {
+                        if allow_space_style
+                            && let Some(arg) = self.single_space_arg(&arglist)
+                        {
+                            out + Doc::text(" ") + self.node(&arg)
+                        } else {
+                            out + self.node(&arglist)
+                        }
+                    }
+                    Tail::Arg(arg) => out + Doc::text(" ") + self.node(&arg),
+                };
             }
             out
         } else {
             let mut head = object;
-            let mut tail_docs: Vec<Doc> = Vec::new();
+            let mut tail_docs: Vec<SyntaxNode> = Vec::new();
             for tail in tails {
                 match tail {
                     Tail::Depth(doc) => head = head + doc,
-                    Tail::ArgList(doc) | Tail::Arg(doc) => tail_docs.push(doc),
+                    Tail::ArgList(arglist) => {
+                        let (_, items) = self.arglist_items(&arglist);
+                        tail_docs.extend(items);
+                    }
+                    Tail::Arg(arg) => tail_docs.push(arg),
                 }
             }
-            // Space-call form: wrap the space-args in synthetic brackets.
-            // Single-arg form stays tight — `f[multilinearg]` keeps `f[`
-            // and `]` adjacent to the argument even when the argument
-            // breaks across lines.
             if tail_docs.is_empty() {
                 return head;
             }
-            if tail_docs.len() == 1 {
+            if allow_space_style && tail_docs.len() == 1 {
                 let arg = tail_docs.into_iter().next().expect("len == 1");
-                head + Doc::text("[") + arg + Doc::text("]")
+                head + Doc::text(" ") + self.node(&arg)
+            } else if tail_docs.len() == 1 {
+                let arg = tail_docs.into_iter().next().expect("len == 1");
+                head + Doc::text("[") + self.node(&arg) + Doc::text("]")
             } else {
-                let body = self.semicolon_joined(tail_docs);
+                let body =
+                    self.semicolon_joined(tail_docs.iter().map(|n| self.node(n)).collect());
                 head + Doc::bracket(
                     Doc::text("["),
                     body,
@@ -464,13 +497,117 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    fn single_space_arg(&self, arglist: &SyntaxNode) -> Option<SyntaxNode> {
+        let (leading_bang, items) = self.arglist_items(arglist);
+        if leading_bang || items.len() != 1 || self.arglist_has_separator(arglist) {
+            return None;
+        }
+        let arg = items.into_iter().next().expect("len == 1");
+        self.can_emit_bracket_arg_as_space(&arg).then_some(arg)
+    }
+
+    fn can_emit_bracket_arg_as_space(&self, node: &SyntaxNode) -> bool {
+        let Some(first) = Self::first_non_trivia_token_kind(node) else {
+            return false;
+        };
+        if !Self::can_start_space_arg_without_forcing_call(first) {
+            return false;
+        }
+        match node.kind() {
+            SyntaxKind::LiteralExpr
+            | SyntaxKind::VarExpr
+            | SyntaxKind::OuterVarExpr
+            | SyntaxKind::ParenExpr
+            | SyntaxKind::PostfixExpr
+            | SyntaxKind::RangeExpr
+            | SyntaxKind::CondExpr
+            | SyntaxKind::CondDotExpr
+            | SyntaxKind::CondChainExpr
+            | SyntaxKind::WLoopExpr
+            | SyntaxKind::NLoopExpr
+            | SyntaxKind::BlockExpr
+            | SyntaxKind::FunctionExpr
+            | SyntaxKind::DictExpr
+            | SyntaxKind::FStringExpr
+            | SyntaxKind::DebugExpr
+            | SyntaxKind::PauseExpr
+            | SyntaxKind::SymbolicExpr => true,
+            SyntaxKind::ListExpr => first == SyntaxKind::LParen,
+            SyntaxKind::UnaryExpr => first == SyntaxKind::Hash,
+            SyntaxKind::BinaryExpr => Self::is_power_expr(node),
+            _ => false,
+        }
+    }
+
+    fn first_non_trivia_token_kind(node: &SyntaxNode) -> Option<SyntaxKind> {
+        node.descendants_with_tokens().find_map(|elem| {
+            if let SyntaxElement::Token(t) = elem
+                && !t.kind().is_trivia()
+            {
+                Some(t.kind())
+            } else {
+                None
+            }
+        })
+    }
+
+    fn can_start_space_arg_without_forcing_call(kind: SyntaxKind) -> bool {
+        matches!(
+            kind,
+            SyntaxKind::IntLit
+                | SyntaxKind::BigIntLit
+                | SyntaxKind::FloatLit
+                | SyntaxKind::ImagLit
+                | SyntaxKind::CharLit
+                | SyntaxKind::StringLit
+                | SyntaxKind::TagLit
+                | SyntaxKind::InfLit
+                | SyntaxKind::TrueKw
+                | SyntaxKind::FalseKw
+                | SyntaxKind::Ident
+                | SyntaxKind::Apostrophe
+                | SyntaxKind::Hash
+                | SyntaxKind::Dollar
+                | SyntaxKind::DollarDot
+                | SyntaxKind::DollarDollar
+                | SyntaxKind::AtDebug
+                | SyntaxKind::AtPause
+                | SyntaxKind::FString
+                | SyntaxKind::AtSymbolic
+                | SyntaxKind::LParen
+                | SyntaxKind::LBrace
+        )
+    }
+
+    fn is_power_expr(node: &SyntaxNode) -> bool {
+        let mut saw_power = false;
+        for elem in node.children_with_tokens() {
+            if let SyntaxElement::Token(t) = elem {
+                if t.kind().is_trivia() {
+                    continue;
+                }
+                match t.kind() {
+                    SyntaxKind::Power | SyntaxKind::PowerDot => saw_power = true,
+                    _ => return false,
+                }
+            }
+        }
+        saw_power
+    }
+
     fn mutating_index(&self, node: &SyntaxNode) -> Doc {
         // `obj[!args]`. CST shape: [obj_node, ArgList_with_bang_token]. The
         // ArgList lowering already prefixes `!` when it sees the bang
         // token, so we can just lower normally.
         let mut out = Doc::nil();
+        let mut first = true;
         for child in node.children() {
-            out = out + self.node(&child);
+            if first {
+                out = out + self.postfix_object(&child);
+                first = false;
+            } else {
+                out = out + self.node(&child);
+            }
         }
         out
     }
@@ -746,10 +883,38 @@ mod tests {
     }
 
     #[test]
-    fn space_call_becomes_bracket_call() {
-        // The space-call `floor sqrt x` parses as nested Postfix; the
-        // formatter normalizes to the bracket form.
-        assert_eq!(fmt("floor sqrt x", 80), "floor[sqrt[x]]");
+    fn space_call_stays_postfix() {
+        // The space-call `floor sqrt x` parses as nested Postfix; keep the
+        // clean postfix surface syntax instead of adding brackets.
+        assert_eq!(fmt("floor sqrt x", 80), "floor sqrt x");
+    }
+
+    #[test]
+    fn single_arg_bracket_call_uses_postfix_when_safe() {
+        assert_eq!(fmt("f[x]", 80), "f x");
+        assert_eq!(fmt("f[1]", 80), "f 1");
+        assert_eq!(fmt("f[\"x\"]", 80), "f \"x\"");
+        assert_eq!(fmt("f[{x}]", 80), "f {x}");
+        assert_eq!(fmt("f[x^2]", 80), "f x^2");
+        assert_eq!(fmt("f[x..3]", 80), "f x..3");
+        assert_eq!(fmt("f[(1;2)]", 80), "f (1;2)");
+    }
+
+    #[test]
+    fn bracket_call_stays_bracketed_when_space_would_reparse_differently() {
+        assert_eq!(fmt("f[x+1]", 80), "f[x+1]");
+        assert_eq!(fmt("f[x*2]", 80), "f[x*2]");
+        assert_eq!(fmt("f[x=1]", 80), "f[x=1]");
+        assert_eq!(fmt("f[-x]", 80), "f[-x]");
+        assert_eq!(fmt("f[~x]", 80), "f[~x]");
+        assert_eq!(fmt("f[1;2]", 80), "f[1;2]");
+    }
+
+    #[test]
+    fn nested_postfix_keeps_target_grouping() {
+        assert_eq!(fmt("f[g[3]]", 80), "f g 3");
+        assert_eq!(fmt("f[1][2]", 80), "f[1] 2");
+        assert_eq!(fmt("f[1][2][3]", 80), "f[1][2] 3");
     }
 
     #[test]

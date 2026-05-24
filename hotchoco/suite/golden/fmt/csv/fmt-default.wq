@@ -6,7 +6,7 @@ parse_csv:{[csv]
   in_quote:false
   i:0
   W[i<#csv
-    c:csv[i]
+    c:csv i
     next:""
     $.[i+1<#csv
       next:csv[i+1]]
@@ -49,15 +49,15 @@ csv4:"\"hello \"\"world\"\"\",123"
 csv5:",,"
 csv6:"\"line1\nline2\",tail"
 
-echo["--- Test 1: basic ---"]
-echo[parse_csv[csv1]]
-echo["--- Test 2: quoted field with comma ---"]
-echo[parse_csv[csv2]]
-echo["--- Test 3: mixed quoted / unquoted ---"]
-echo[parse_csv[csv3]]
-echo["--- Test 4: escaped quotes inside field ---"]
-echo[parse_csv[csv4]]
-echo["--- Test 5: empty fields ---"]
-echo[parse_csv[csv5]]
-echo["--- Test 6: newline inside quoted field ---"]
-echo[parse_csv[csv6]]
+echo "--- Test 1: basic ---"
+echo parse_csv csv1
+echo "--- Test 2: quoted field with comma ---"
+echo parse_csv csv2
+echo "--- Test 3: mixed quoted / unquoted ---"
+echo parse_csv csv3
+echo "--- Test 4: escaped quotes inside field ---"
+echo parse_csv csv4
+echo "--- Test 5: empty fields ---"
+echo parse_csv csv5
+echo "--- Test 6: newline inside quoted field ---"
+echo parse_csv csv6

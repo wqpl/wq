@@ -1,10 +1,10 @@
-sine:iota[1000]/100|sin
-cosine:iota[1000]/100|cos
-sqr:{x*x}[iota[150]]
-y1:{x^2}[iota[1000]]
+sine:iota 1000/100|sin
+cosine:iota 1000/100|cos
+sqr:{x*x} iota 150
+y1:{x^2} iota 1000
 
 asciiplot[sine;cosine]
-asciiplot[sqr]
+asciiplot sqr
 asciiplot[0.25*y1;0.5*y1;y1;2*y1;3*y1;4*y1]
 
 asciiplot[sine;cosine;`symbols:"·";`color:true;`width:80;`height:10]

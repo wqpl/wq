@@ -1,20 +1,20 @@
 asciibox_:{[lines]
-  (maxlen;i):alloc[2]
+  (maxlen;i):alloc 2
   N[#lines
-    len_:#lines[i]
+    len_:#lines i
     $.[len_>maxlen
       maxlen:len_]
     i+:1]
   pad:1
   width:maxlen+pad*2
   border:"+",repeat["-";width],"+"
-  echo[border]
+  echo border
   i:0
   N[#lines
-    l:lines[i]
+    l:lines i
     spaces:maxlen-#l
-    echo[("|",repeat[" ";pad],l,repeat[" ";pad+spaces],"|")]
+    echo ("|",repeat[" ";pad],l,repeat[" ";pad+spaces],"|")
     i+:1]
-  echo[border]}
-asciibox:{asciibox_[split[x]]}
-asciibox_file:{asciibox_[freadtlns[open[x]]]}
+  echo border}
+asciibox:{asciibox_ split x}
+asciibox_file:{asciibox_ freadtlns open x}
