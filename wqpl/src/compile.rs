@@ -3009,9 +3009,9 @@ fn scope_has(locals: &IndexSet<String>, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lexer::Lexer;
-    use crate::parser::resolve::Resolver;
-    use crate::parser::{Parser, fold};
+    use crate::lex::Lexer;
+    use crate::parse::resolve::Resolver;
+    use crate::parse::{Parser, fold};
 
     fn compile_source_with_spans(src: &str) -> (Vec<Instruction>, Vec<Option<(usize, usize)>>) {
         let mut lexer = Lexer::new(src);

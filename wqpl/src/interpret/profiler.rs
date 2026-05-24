@@ -651,10 +651,10 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::compiler::Compiler;
-    use crate::lexer::Lexer;
-    use crate::parser::resolve::Resolver;
-    use crate::parser::{Parser, fold};
+    use crate::compile::Compiler;
+    use crate::lex::Lexer;
+    use crate::parse::resolve::Resolver;
+    use crate::parse::{Parser, fold};
     use crate::vm::inst::Instruction;
 
     fn run_profiled(src: &str) -> (Value, ProfilerInterpreter) {

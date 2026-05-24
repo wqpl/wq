@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::compiler::Compiler;
+use crate::compile::Compiler;
 use crate::value::Value;
 use crate::value::func::FunctionData;
 use crate::vm::inst::Instruction;

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::astnode::{AstNode, AstSpan, Parameter, PipeKind};
 use crate::builtins::Builtins;
-use crate::compiler::function_ref_capture_names;
+use crate::compile::function_ref_capture_names;
 use crate::symbol::{DefKind, SymbolIndex};
 use crate::value::{IntoWqValue, Value};
 use crate::vm::GlobalMap;
@@ -1555,8 +1555,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::lexer::Lexer;
-    use crate::parser::Parser;
+    use crate::lex::Lexer;
+    use crate::parse::Parser;
     use crate::vm::GlobalMap;
 
     fn resolve_src(src: &str) -> AstNode {

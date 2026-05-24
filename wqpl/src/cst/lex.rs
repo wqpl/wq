@@ -26,7 +26,7 @@
 use super::builder::GreenNodeBuilder;
 use super::green::GreenNode;
 use super::kind::SyntaxKind;
-use crate::lexer::Lexer;
+use crate::lex::Lexer;
 use crate::token::{Token, TokenType};
 use crate::value::WqResult;
 

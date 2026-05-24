@@ -9,7 +9,7 @@ use crate::cas::{cas_binary_expr, cas_call_expr, cas_unary_expr};
 use crate::cst::{
     Checkpoint, GreenNode, GreenNodeBuilder, SyntaxKind, SyntaxNode, syntax_kind_of_token,
 };
-use crate::lexer::Lexer;
+use crate::lex::Lexer;
 use crate::token::{Token, TokenType};
 
 /// Variable names that are intercepted as symbolic constants in CAS context.

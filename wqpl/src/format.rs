@@ -10,8 +10,8 @@
 //! This file owns the public surface: [`Formatter`], [`FormatConfig`], and
 //! the script-aware [`Formatter::format_script`] driver.
 
-use crate::lexer::Lexer;
-use crate::parser::Parser;
+use crate::lex::Lexer;
+use crate::parse::Parser;
 use crate::value::WqResult;
 
 mod doc;

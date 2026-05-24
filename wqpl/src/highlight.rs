@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::builtins::Builtins;
-use crate::lexer::Lexer;
+use crate::lex::Lexer;
 use crate::token::{Token, TokenType};
 
 pub const ANSI_RESET: &str = "\x1b[0m";

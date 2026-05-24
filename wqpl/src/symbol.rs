@@ -833,9 +833,9 @@ impl SymbolAnalyzer {
 mod tests {
     use super::*;
     use crate::astnode::AstNode;
-    use crate::lexer::Lexer;
-    use crate::parser::Parser;
-    use crate::parser::resolve::Resolver;
+    use crate::lex::Lexer;
+    use crate::parse::Parser;
+    use crate::parse::resolve::Resolver;
 
     fn parse(src: &str) -> AstNode {
         let tokens = Lexer::new(src).tokenize().unwrap();

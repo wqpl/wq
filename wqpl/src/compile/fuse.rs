@@ -1,5 +1,5 @@
 use crate::astnode::BinaryOperator;
-use crate::compiler::Compiler;
+use crate::compile::Compiler;
 use crate::value::Value;
 use crate::value::func::FunctionData;
 use crate::vm::inst::{DebugStmtMark, Instruction, Operand};

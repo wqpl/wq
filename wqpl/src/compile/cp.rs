@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use crate::compiler::Compiler;
+use crate::compile::Compiler;
 use crate::value::cmp::eval_cmp_chain;
 use crate::value::func::FunctionData;
 use crate::value::{Value, eval_binary, eval_unary};

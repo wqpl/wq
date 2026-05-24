@@ -5,14 +5,14 @@ use colored::Colorize;
 
 use crate::astnode::AstNode;
 use crate::builtins::BuiltinPreset;
-use crate::compiler::Compiler;
+use crate::compile::Compiler;
 use crate::interpret::InterpreterKind;
 use crate::interpret::profiler::ProfilerInterpreter;
 use crate::interpret::sample::SampleInterpreter;
 use crate::interpret::vanilla::VanillaInterpreter;
-use crate::lexer::Lexer;
-use crate::parser::resolve::Resolver;
-use crate::parser::{Parser, fold};
+use crate::lex::Lexer;
+use crate::parse::resolve::Resolver;
+use crate::parse::{Parser, fold};
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
 use crate::symbol::SymbolIndex;
@@ -381,7 +381,7 @@ impl Session {
     /// tokens. Useful for diagnostics and completions on syntactically
     /// broken code.
     pub fn tokenize_recovery(&self, input: &str) -> Vec<crate::token::Token> {
-        crate::lexer::Lexer::new(input)
+        crate::lex::Lexer::new(input)
             .with_skip_directives(true)
             .tokenize_recovery()
     }

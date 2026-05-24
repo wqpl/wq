@@ -2,10 +2,10 @@
 
 mod cas;
 mod cephes;
-mod compiler;
+mod compile;
 mod escape;
-mod lexer;
-mod parser;
+mod lex;
+mod parse;
 
 pub mod astnode;
 pub mod boxmode;
