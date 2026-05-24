@@ -9,7 +9,6 @@ mod io;
 mod list;
 mod listgen;
 mod logical;
-mod mat;
 mod math;
 mod meta;
 mod op;
@@ -646,8 +645,12 @@ declare_builtins! {
     (ALLOC, Alloc, "alloc", "alloc[shape], alloc[shape;x]", "1 2", listgen::alloc, BuiltinGroup::ListGen),
     (TIL, Til, "til", "til[shape]", "1", listgen::til, BuiltinGroup::ListGen),
     (IOTA, Iota, "iota", "iota[shape]", "1", listgen::iota, BuiltinGroup::ListGen),
+
     (RESHAPE, Reshape, "reshape", "reshape[xs;shape]", "2", listgen::reshape, BuiltinGroup::ListGen),
     (R, R, "R", "R[xs;shape]", "2", listgen::reshape, BuiltinGroup::ListGen), // alias of reshape
+    (TRANSPOSE, Transpose, "transpose", "transpose[x;axes?]", "1 2", listgen::transpose::transpose, BuiltinGroup::ListGen),
+    (TP, TP, "TP", "TP[x;axes?]", "1 2", listgen::transpose::transpose, BuiltinGroup::ListGen), // alias of transpose
+
     (REPEAT, Repeat, "repeat", "repeat[xs;n]", "2", listgen::repeat, BuiltinGroup::ListGen),
     (WHERE, Where, "where", "where[xs]", "1", listgen::wq_where, BuiltinGroup::ListGen),
     (Z, Z, "Z", "Z[xs]", "1", listgen::wq_where, BuiltinGroup::ListGen), // alias of where
@@ -762,6 +765,10 @@ declare_builtins! {
     (IM, Im, "im", "im[x]", "1", complex::imag, BuiltinGroup::Complex),
     (CONJ, Conj, "conj", "conj[x]", "1", complex::conj, BuiltinGroup::Complex),
 
+    // Fraction
+    (FRACTION, Fraction, "fraction", "fraction[xs;lim?]", "1 2", fraction::fraction, BuiltinGroup::Fraction),
+    (FRACTIONL, Fractionl, "fractionl", "fractionl[xs]", "1", fraction::fractionl, BuiltinGroup::Fraction),
+
     // CAS
     (EQ, Eq, "eq", "eq[lhs;rhs]", "2", cas::eq, BuiltinGroup::Cas),
     (SIMPLIFY, Simplify, "simplify", "simplify[expr]", "1", cas::simplify, BuiltinGroup::Cas),
@@ -772,6 +779,7 @@ declare_builtins! {
     (SUBSTITUTE, Substitute, "substitute", "substitute[expr;var;val]", "3", cas::substitute, BuiltinGroup::Cas),
     (EXPAND, Expand, "expand", "expand[expr]", "1", cas::expand, BuiltinGroup::Cas),
     (FACTOR, Factor, "factor", "factor[expr]", "1", cas::factor, BuiltinGroup::Cas),
+    (FACTOR_POLY, FactorPoly, "factor_poly", "factor_poly[expr], factor_poly[expr;var], factor_poly[expr;1], factor_poly[expr;1;var]", "1 2 3", cas::factor_poly, BuiltinGroup::Cas),
     (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", "1 2 4", cas::integrate, BuiltinGroup::Cas),
     (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", "1 2 4", cas::integrate, BuiltinGroup::Cas), // alias of integrate
     (LIMIT, Limit, "limit", "limit[expr;var;point], limit[expr;var;point;dir], limit[expr;vars;points]", "3..", cas::limit, BuiltinGroup::Cas),
@@ -779,11 +787,6 @@ declare_builtins! {
     (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs;vars]", "2", cas::solve_system, BuiltinGroup::Cas),
     (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", "3 4 5", cas::brent, BuiltinGroup::Cas),
     (NEWTON, Newton, "newton", "newton[expr;x0], newton[expr;x0;tol], newton[expr;x0;tol;max_iter], newton[eq;x0]", "2 3 4", cas::newton, BuiltinGroup::Cas),
-    (FACTOR_POLY, FactorPoly, "factor_poly", "factor_poly[expr], factor_poly[expr;var], factor_poly[expr;1], factor_poly[expr;1;var]", "1 2 3", cas::factor_poly, BuiltinGroup::Cas),
-
-    // Matrix =========================================================
-    (TRANSPOSE, Transpose, "transpose", "transpose[x;axes?]", "1 2", mat::transpose, BuiltinGroup::Mat),
-    (TP, TP, "TP", "TP[x;axes?]", "1 2", mat::transpose, BuiltinGroup::Mat), // alias of transpose
 
     // String =========================================================
     (STR, Str, "str", "str[x]", "1", string::to_str, BuiltinGroup::Str),
@@ -797,13 +800,13 @@ declare_builtins! {
     // Type =========================================================
     (TYPE, Type, "type", "type[x]", "1", wqtype::type_of, BuiltinGroup::Type),
     (TAG, Tag, "tag", "tag[x]", "1", wqtype::to_tag, BuiltinGroup::Type),
-    (TO_BOOL, ToBool, "bool", "bool[x]", "1", wqtype::to_bool, BuiltinGroup::Type),
+    (BOOL, Bool, "bool", "bool[x]", "1", wqtype::to_bool, BuiltinGroup::Type),
     (CHAR, Char, "char", "char[x]", "1", wqtype::to_char, BuiltinGroup::Type),
     (ATOM_Q, AtomQ, "atom?", "atom?[x]", "1", wqtype::is_atom, BuiltinGroup::Type),
     (UNIT_Q, UnitQ, "unit?", "unit?[x]", "1", wqtype::is_unit, BuiltinGroup::Type),
     (U, U, "U", "U[x]", "1", wqtype::is_unit, BuiltinGroup::Type), // alias of unit?
-    (TO_LIST, ToList, "list", "list[x]", "1", wqtype::to_list, BuiltinGroup::Type),
-    (TO_DICT, ToDict, "dict", "dict[x]", "1", wqtype::to_dict, BuiltinGroup::Type),
+    (LIST, List, "list", "list[x]", "1", wqtype::to_list, BuiltinGroup::Type),
+    (DICT, Dict, "dict", "dict[x]", "1", wqtype::to_dict, BuiltinGroup::Type),
 
     // Visualization =========================================================
     (SHOWTABLE, Showtable, "showtable", "showtable[table]", "1", viz::show_table, BuiltinGroup::Viz),
@@ -843,10 +846,6 @@ declare_builtins! {
     (OP_SHR, OpShr, ">>", ">>[xs;ys+]", "2..", op::op_shr, BuiltinGroup::Intrinsic),
     (OP_BITXOR, OpBitXor, r"^\", r"^\[xs;ys+]", "2..", op::op_bitxor, BuiltinGroup::Intrinsic),
     (OP_FLOORDIV, OpFloorDiv, "/%", "/%[xs;ys+]", "2..", op::op_floordiv, BuiltinGroup::Intrinsic),
-
-    // Fraction
-    (FRACTION, Fraction, "fraction", "fraction[xs;lim?]", "1 2", fraction::fraction, BuiltinGroup::Intrinsic),
-    (FRACTIONL, Fractionl, "fractionl", "fractionl[xs]", "1", fraction::fractionl, BuiltinGroup::Intrinsic),
 
 }
 

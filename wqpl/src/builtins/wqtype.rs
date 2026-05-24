@@ -79,7 +79,7 @@ pub(super) fn to_char(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn to_bool(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::ToBool, [1], &args)?;
+    check_arity(BE::Bool, [1], &args)?;
     let res = match &args[0] {
         Value::Int(1) => true,
         Value::Int(0) => false,
@@ -98,7 +98,7 @@ pub(super) fn to_bool(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn to_list(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::ToList, [1], &args)?;
+    check_arity(BE::List, [1], &args)?;
     let input = args.into_iter().next().unwrap();
     if matches!(&input, Value::List(_) | Value::IntList(_)) {
         return Ok(input);
@@ -114,7 +114,7 @@ pub(super) fn to_list(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn to_dict(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::ToDict, [1], &args)?;
+    check_arity(BE::Dict, [1], &args)?;
 
     fn extract_entry(v: &Value) -> WqResult<(Arc<str>, Value)> {
         match v {

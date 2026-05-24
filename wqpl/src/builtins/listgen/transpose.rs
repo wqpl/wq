@@ -12,7 +12,7 @@ use crate::wqerror::{WqError, WqErrorType};
 /// - Atoms and 1D vectors: returned as-is
 /// - 2D matrices: transposed (swap rows and columns)
 /// - Higher-dimensional arrays: transpose last 2 axes
-pub(super) fn transpose(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(crate) fn transpose(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Transpose, [1, 2], &args)?;
     let (v, axes_arg) = match &*args {
         [v] => (v.clone(), None),
