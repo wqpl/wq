@@ -17,7 +17,7 @@ substitute[@s x^2+1;@sx;5] | echo
 expand[@s (x+1)^2] | echo
 
 //test factor out a common term
-factor[@s x^2+x] | echo
+factor_common[@s x^2+x] | echo
 
 //test integrate a power function with explicit variable
 integrate[@s x^2;@sx] | echo

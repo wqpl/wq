@@ -778,8 +778,8 @@ declare_builtins! {
     (D, D, "D", "D[expr;var?]", "1 2", cas::diff, BuiltinGroup::Cas), // alias of diff
     (SUBSTITUTE, Substitute, "substitute", "substitute[expr;var;val]", "3", cas::substitute, BuiltinGroup::Cas),
     (EXPAND, Expand, "expand", "expand[expr]", "1", cas::expand, BuiltinGroup::Cas),
-    (FACTOR, Factor, "factor", "factor[expr]", "1", cas::factor, BuiltinGroup::Cas),
-    (FACTOR_POLY, FactorPoly, "factor_poly", "factor_poly[expr], factor_poly[expr;var], factor_poly[expr;1], factor_poly[expr;1;var]", "1 2 3", cas::factor_poly, BuiltinGroup::Cas),
+    (FACTOR_COMMON, FactorCommon, "factor_common", "factor_common[expr]", "1", cas::factor_common, BuiltinGroup::Cas),
+    (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;1], factor[expr;1;var]", "1 2 3", cas::factor_poly, BuiltinGroup::Cas),
     (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", "1 2 4", cas::integrate, BuiltinGroup::Cas),
     (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", "1 2 4", cas::integrate, BuiltinGroup::Cas), // alias of integrate
     (LIMIT, Limit, "limit", "limit[expr;var;point], limit[expr;var;point;dir], limit[expr;vars;points]", "3..", cas::limit, BuiltinGroup::Cas),
@@ -794,8 +794,8 @@ declare_builtins! {
     (WS_Q, WsQ, "ws?", "ws?[c]", "1", string::is_whitespace, BuiltinGroup::Str),
     (WORDS, Words, "words", "words[s]", "1", string::words, BuiltinGroup::Str),
     (TRIM, Trim, "trim", "trim[s]", "1", string::trim, BuiltinGroup::Str),
-    (LEFT_TRIM, LTrim, "ltrim", "ltrim[s]", "1", string::trim_left, BuiltinGroup::Str),
-    (RIGHT_TRIM, RTrim, "rtrim", "rtrim[s]", "1", string::trim_right, BuiltinGroup::Str),
+    (L_TRIM, LTrim, "ltrim", "ltrim[s]", "1", string::trim_left, BuiltinGroup::Str),
+    (R_TRIM, RTrim, "rtrim", "rtrim[s]", "1", string::trim_right, BuiltinGroup::Str),
 
     // Type =========================================================
     (TYPE, Type, "type", "type[x]", "1", wqtype::type_of, BuiltinGroup::Type),
@@ -818,15 +818,18 @@ declare_builtins! {
 
     // Intrinsic ====================================================
     (FMT, Fmt, "fmt", "fmt[template;v*]", "1..", string::fmt, BuiltinGroup::Intrinsic),
+
     (OP_ADD, OpAdd, "+", "+[xs;ys+]", "2..", op::op_add, BuiltinGroup::Intrinsic),
     (OP_SUB, OpSub, "-", "-[x], -[xs;ys+]", "1..", op::op_sub, BuiltinGroup::Intrinsic),
     (OP_MUL, OpMul, "*", "*[xs;ys+]", "2..", op::op_mul, BuiltinGroup::Intrinsic),
     (OP_DIV, OpDiv, "/", "/[xs;ys+]", "2..", op::op_div, BuiltinGroup::Intrinsic),
     (OP_DIVDOT, OpDivDot, "/.", "/.[xs;ys+]", "2..", op::op_divdot, BuiltinGroup::Intrinsic),
     (OP_MOD, OpMod, "%", "%[xs;ys+]", "2..", op::op_mod, BuiltinGroup::Intrinsic),
+    (OP_FLOORDIV, OpFloorDiv, "/%", "/%[xs;ys+]", "2..", op::op_floordiv, BuiltinGroup::Intrinsic),
     (OP_POWER, OpPower, "^", "^[xs;ys+]", "2..", op::op_power, BuiltinGroup::Intrinsic),
     (OP_POWERDOT, OpPowerDot, "^.", "^.[xs;ys+]", "2..", op::op_powerdot, BuiltinGroup::Intrinsic),
     (OP_MATMUL, OpMatmul, "**", "**[xs;ys+]", "2..", op::op_matmul, BuiltinGroup::Intrinsic),
+
     (OP_EQUAL, OpEqual, "=", "=[xs;ys+]", "2..", op::op_equal, BuiltinGroup::Intrinsic),
     (OP_EQUALDOT, OpEqualDot, "=.", "=.[xs;ys+]", "2..", op::op_equaldot, BuiltinGroup::Intrinsic),
     (OP_NOTEQUAL, OpNotEqual, "~", "~[x], ~[xs;ys+]", "1..", op::op_notequal, BuiltinGroup::Intrinsic),
@@ -835,6 +838,7 @@ declare_builtins! {
     (OP_LTE, OpLte, "<=", "<=[xs;ys+]", "2..", op::op_lte, BuiltinGroup::Intrinsic),
     (OP_GT, OpGt, ">", ">[xs;ys+]", "2..", op::op_gt, BuiltinGroup::Intrinsic),
     (OP_GTE, OpGte, ">=", ">=[xs;ys+]", "2..", op::op_gte, BuiltinGroup::Intrinsic),
+
     (OP_CAT, OpCat, ",", ",[xs;ys+]", "2..", op::op_cat, BuiltinGroup::Intrinsic),
     (OP_SHARP, OpSharp, "#", "#[x]", "1", op::op_sharp, BuiltinGroup::Intrinsic),
 
@@ -842,10 +846,9 @@ declare_builtins! {
     (OP_BOOLOR, OpBoolOr, r"\|", r"\|[xs;ys+]", "2..", op::op_boolor, BuiltinGroup::Intrinsic),
     (OP_BITAND, OpBitAnd, "&", "&[xs;ys+]", "2..", op::op_bitand, BuiltinGroup::Intrinsic),
     (OP_BITOR, OpBitOr, r"\", r"\[xs;ys+]", "2..", op::op_bitor, BuiltinGroup::Intrinsic),
+    (OP_BITXOR, OpBitXor, r"^\", r"^\[xs;ys+]", "2..", op::op_bitxor, BuiltinGroup::Intrinsic),
     (OP_SHL, OpShl, "<<", "<<[xs;ys+]", "2..", op::op_shl, BuiltinGroup::Intrinsic),
     (OP_SHR, OpShr, ">>", ">>[xs;ys+]", "2..", op::op_shr, BuiltinGroup::Intrinsic),
-    (OP_BITXOR, OpBitXor, r"^\", r"^\[xs;ys+]", "2..", op::op_bitxor, BuiltinGroup::Intrinsic),
-    (OP_FLOORDIV, OpFloorDiv, "/%", "/%[xs;ys+]", "2..", op::op_floordiv, BuiltinGroup::Intrinsic),
 
 }
 

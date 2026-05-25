@@ -86,8 +86,8 @@ pub(super) fn expand(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     expand_cas(&args[0])
 }
 
-pub(super) fn factor(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BuiltinEnum::Factor, [1], &args)?;
+pub(super) fn factor_common(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BuiltinEnum::FactorCommon, [1], &args)?;
     factor_cas(&args[0])
 }
 
@@ -408,25 +408,25 @@ pub(super) fn newton(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn factor_poly(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BuiltinEnum::FactorPoly, [1, 2, 3], &args)?;
-    // Parse args: factor_poly[expr] | factor_poly[expr; var] |
-    //             factor_poly[expr; complex] | factor_poly[expr; complex; var]
+    check_arity(BuiltinEnum::Factor, [1, 2, 3], &args)?;
+    // Parse args: factor[expr] | factor[expr; var] |
+    //             factor[expr; complex] | factor[expr; complex; var]
     let (complex, var) = if args.len() == 1 {
         (
             false,
-            infer_single_cas_var(&args[0]).map_err(|e| e.src(BuiltinEnum::FactorPoly))?,
+            infer_single_cas_var(&args[0]).map_err(|e| e.src(BuiltinEnum::Factor))?,
         )
     } else if args.len() == 2 {
         if matches!(&args[1], Value::Bool(true)) {
             (
                 true,
-                infer_single_cas_var(&args[0]).map_err(|e| e.src(BuiltinEnum::FactorPoly))?,
+                infer_single_cas_var(&args[0]).map_err(|e| e.src(BuiltinEnum::Factor))?,
             )
         } else if let Some(v) = args[1].cas_var_name() {
             (false, v.to_string())
         } else {
             return Err(WqError::new(WqErrorType::Domain)
-                .src(BuiltinEnum::FactorPoly)
+                .src(BuiltinEnum::Factor)
                 .msg("factor_poly second arg must be a variable or `true` (complex)")
                 .got1(&args[1]));
         }
@@ -434,7 +434,7 @@ pub(super) fn factor_poly(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> 
         // args.len() == 3: factor_poly[expr; true; var]
         if !matches!(&args[1], Value::Bool(true)) {
             return Err(WqError::new(WqErrorType::Domain)
-                .src(BuiltinEnum::FactorPoly)
+                .src(BuiltinEnum::Factor)
                 .msg("factor_poly with 3 args requires second arg to be `true` (complex)")
                 .got1(&args[1]));
         }
@@ -442,7 +442,7 @@ pub(super) fn factor_poly(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> 
             Some(v) => (true, v.to_string()),
             None => {
                 return Err(WqError::new(WqErrorType::Domain)
-                    .src(BuiltinEnum::FactorPoly)
+                    .src(BuiltinEnum::Factor)
                     .msg("factor_poly expects a variable as third argument")
                     .got1(&args[2]));
             }
@@ -450,26 +450,26 @@ pub(super) fn factor_poly(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> 
     };
 
     let coeffs =
-        crate::cas::poly_from_expr(&args[0], &var).map_err(|e| e.src(BuiltinEnum::FactorPoly))?;
+        crate::cas::poly_from_expr(&args[0], &var).map_err(|e| e.src(BuiltinEnum::Factor))?;
 
     // Square-free factorization
     let sf_factors =
-        crate::cas::square_free_factor(&coeffs).map_err(|e| e.src(BuiltinEnum::FactorPoly))?;
+        crate::cas::square_free_factor(&coeffs).map_err(|e| e.src(BuiltinEnum::Factor))?;
 
     // Factor each square-free factor
     let mut factored_parts: Vec<(Value, usize)> = Vec::new();
     for (factor, mult) in sf_factors {
         let sub_factors = if complex {
-            factor_polynomial_complex(&factor).map_err(|e| e.src(BuiltinEnum::FactorPoly))?
+            factor_polynomial_complex(&factor).map_err(|e| e.src(BuiltinEnum::Factor))?
         } else {
-            factor_polynomial_full(&factor).map_err(|e| e.src(BuiltinEnum::FactorPoly))?
+            factor_polynomial_full(&factor).map_err(|e| e.src(BuiltinEnum::Factor))?
         };
         for sub in sub_factors {
             let expr = if complex {
                 // Complex factors may have complex coefficients
                 poly_to_expr_complex(&sub, &var)
             } else {
-                crate::cas::poly_to_expr(&sub, &var).map_err(|e| e.src(BuiltinEnum::FactorPoly))?
+                crate::cas::poly_to_expr(&sub, &var).map_err(|e| e.src(BuiltinEnum::Factor))?
             };
             factored_parts.push((expr, mult));
         }
@@ -513,16 +513,15 @@ fn factor_quadratic(poly: &[Value]) -> WqResult<Vec<Vec<Value>>> {
 
     // Discriminant D = b² - 4ac
     let b_sq =
-        crate::cas::eval_numeric_binary("*", &b, &b).map_err(|e| e.src(BuiltinEnum::FactorPoly))?;
+        crate::cas::eval_numeric_binary("*", &b, &b).map_err(|e| e.src(BuiltinEnum::Factor))?;
     let four_ac = crate::cas::eval_numeric_binary(
         "*",
         &Value::Int(4),
-        &crate::cas::eval_numeric_binary("*", &a, &c)
-            .map_err(|e| e.src(BuiltinEnum::FactorPoly))?,
+        &crate::cas::eval_numeric_binary("*", &a, &c).map_err(|e| e.src(BuiltinEnum::Factor))?,
     )
-    .map_err(|e| e.src(BuiltinEnum::FactorPoly))?;
+    .map_err(|e| e.src(BuiltinEnum::Factor))?;
     let d = crate::cas::eval_numeric_binary("-", &b_sq, &four_ac)
-        .map_err(|e| e.src(BuiltinEnum::FactorPoly))?;
+        .map_err(|e| e.src(BuiltinEnum::Factor))?;
 
     // Check if D is a perfect square rational
     let (d_num, d_den) = match d.rational_parts() {
@@ -542,28 +541,28 @@ fn factor_quadratic(poly: &[Value]) -> WqResult<Vec<Vec<Value>>> {
     // Roots: (-b ± √D) / (2a)
     let sqrt_d = Value::from_fraction_parts(sqrt_num, sqrt_den);
     let neg_b = crate::cas::eval_numeric_binary("*", &b, &Value::Int(-1))
-        .map_err(|e| e.src(BuiltinEnum::FactorPoly))?;
+        .map_err(|e| e.src(BuiltinEnum::Factor))?;
     let two_a = crate::cas::eval_numeric_binary("*", &Value::Int(2), &a)
-        .map_err(|e| e.src(BuiltinEnum::FactorPoly))?;
+        .map_err(|e| e.src(BuiltinEnum::Factor))?;
 
     let r1 = crate::cas::eval_exact_numeric_div(
         &crate::cas::eval_numeric_binary("+", &neg_b, &sqrt_d)
-            .map_err(|e| e.src(BuiltinEnum::FactorPoly))?,
+            .map_err(|e| e.src(BuiltinEnum::Factor))?,
         &two_a,
     )
-    .map_err(|e| e.src(BuiltinEnum::FactorPoly))?;
+    .map_err(|e| e.src(BuiltinEnum::Factor))?;
     let r2 = crate::cas::eval_exact_numeric_div(
         &crate::cas::eval_numeric_binary("-", &neg_b, &sqrt_d)
-            .map_err(|e| e.src(BuiltinEnum::FactorPoly))?,
+            .map_err(|e| e.src(BuiltinEnum::Factor))?,
         &two_a,
     )
-    .map_err(|e| e.src(BuiltinEnum::FactorPoly))?;
+    .map_err(|e| e.src(BuiltinEnum::Factor))?;
 
     // Build (x - r1) = [-r1, 1], (x - r2) = [-r2, 1]
     let neg_r1 = crate::cas::eval_numeric_binary("*", &r1, &Value::Int(-1))
-        .map_err(|e| e.src(BuiltinEnum::FactorPoly))?;
+        .map_err(|e| e.src(BuiltinEnum::Factor))?;
     let neg_r2 = crate::cas::eval_numeric_binary("*", &r2, &Value::Int(-1))
-        .map_err(|e| e.src(BuiltinEnum::FactorPoly))?;
+        .map_err(|e| e.src(BuiltinEnum::Factor))?;
     Ok(vec![
         vec![neg_r1, Value::Int(1)],
         vec![neg_r2, Value::Int(1)],
