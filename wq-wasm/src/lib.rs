@@ -1,18 +1,22 @@
 use std::cell::{Cell, RefCell};
 use std::fmt::Write as _;
 
+#[cfg(target_arch = "wasm32")]
 use js_sys::Function;
 use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use web_sys::console;
 use wqpl::boxmode::format_boxed;
 use wqpl::builtins::Builtins;
 use wqpl::highlight::{HighlightEvent, HighlightName, Highlighter};
 use wqpl::session::Session;
 use wqpl::session::dbglog::DebugLogFlags;
+#[cfg(target_arch = "wasm32")]
 use wqpl::session::stdio::{
     WqStderr, WqStdin, WqStdinError, WqStdout, set_wqstderr, set_wqstdin, set_wqstdout,
 };
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn main_js() {
     // std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -23,32 +27,29 @@ pub fn main_js() {
 // JS stream adapters
 // ====================================================================================
 
+#[cfg(target_arch = "wasm32")]
 struct JsStdout {
     cb: Function,
 }
 
+#[cfg(target_arch = "wasm32")]
 struct JsStderr {
     cb: Function,
 }
 
+#[cfg(target_arch = "wasm32")]
 struct JsStdin {
     cb: Function,
     highlight: bool,
 }
 
-// Safe on wasm (single-threaded); these callbacks are only invoked on the main
-// thread.
-unsafe impl Send for JsStdout {}
-unsafe impl Send for JsStderr {}
-unsafe impl Send for JsStdin {}
-
 // Default console loggers used when no JS callback is provided
+#[cfg(target_arch = "wasm32")]
 struct ConsoleStdout;
+#[cfg(target_arch = "wasm32")]
 struct ConsoleStderr;
 
-unsafe impl Send for ConsoleStdout {}
-unsafe impl Send for ConsoleStderr {}
-
+#[cfg(target_arch = "wasm32")]
 impl WqStdout for JsStdout {
     fn print(&mut self, s: &str) {
         let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(s));
@@ -60,6 +61,7 @@ impl WqStdout for JsStdout {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 impl WqStderr for JsStderr {
     fn eprint(&mut self, s: &str) {
         let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(s));
@@ -71,6 +73,7 @@ impl WqStderr for JsStderr {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 impl WqStdout for ConsoleStdout {
     fn print(&mut self, s: &str) {
         console::log_1(&s.into());
@@ -80,6 +83,7 @@ impl WqStdout for ConsoleStdout {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 impl WqStderr for ConsoleStderr {
     fn eprint(&mut self, s: &str) {
         console::error_1(&s.into());
@@ -89,6 +93,7 @@ impl WqStderr for ConsoleStderr {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 impl WqStdin for JsStdin {
     fn readline(&mut self, prompt: &str) -> Result<String, WqStdinError> {
         match self.cb.call1(&JsValue::NULL, &JsValue::from_str(prompt)) {
@@ -117,6 +122,7 @@ impl WqStdin for JsStdin {
 // Global std stream setters
 // ===============================================================
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn set_stdout_callback(cb: Option<Function>) {
     match cb {
@@ -125,6 +131,7 @@ pub fn set_stdout_callback(cb: Option<Function>) {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn set_stderr_callback(cb: Option<Function>) {
     match cb {
@@ -133,6 +140,7 @@ pub fn set_stderr_callback(cb: Option<Function>) {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn set_stdin_callback(cb: Option<Function>) {
     match cb {

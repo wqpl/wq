@@ -4,30 +4,45 @@ use std::cell::RefCell;
 use std::sync::Mutex;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) static WQ_STDIN: Mutex<Option<Box<dyn WqStdin>>> = Mutex::new(None);
+pub type WqStdinHandle = Box<dyn WqStdin + Send>;
+#[cfg(target_arch = "wasm32")]
+pub type WqStdinHandle = Box<dyn WqStdin>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type WqStdoutHandle = Box<dyn WqStdout + Send>;
+#[cfg(target_arch = "wasm32")]
+pub type WqStdoutHandle = Box<dyn WqStdout>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type WqStderrHandle = Box<dyn WqStderr + Send>;
+#[cfg(target_arch = "wasm32")]
+pub type WqStderrHandle = Box<dyn WqStderr>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) static WQ_STDIN: Mutex<Option<WqStdinHandle>> = Mutex::new(None);
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
-    pub(crate) static WQ_STDIN: RefCell<Option<Box<dyn WqStdin>>> = RefCell::new(None);
+    pub(crate) static WQ_STDIN: RefCell<Option<WqStdinHandle>> = RefCell::new(None);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) static WQ_STDOUT: Mutex<Option<Box<dyn WqStdout>>> = Mutex::new(None);
+pub(crate) static WQ_STDOUT: Mutex<Option<WqStdoutHandle>> = Mutex::new(None);
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
-    pub(crate) static WQ_STDOUT: RefCell<Option<Box<dyn WqStdout>>> = RefCell::new(None);
+    pub(crate) static WQ_STDOUT: RefCell<Option<WqStdoutHandle>> = RefCell::new(None);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) static WQ_STDERR: Mutex<Option<Box<dyn WqStderr>>> = Mutex::new(None);
+pub(crate) static WQ_STDERR: Mutex<Option<WqStderrHandle>> = Mutex::new(None);
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
-    pub(crate) static WQ_STDERR: RefCell<Option<Box<dyn WqStderr>>> = RefCell::new(None);
+    pub(crate) static WQ_STDERR: RefCell<Option<WqStderrHandle>> = RefCell::new(None);
 }
 
-pub trait WqStdin: Send {
+pub trait WqStdin {
     fn readline(&mut self, prompt: &str) -> Result<String, WqStdinError>;
     fn add_history(&mut self, _line: &str) {}
     fn set_highlight(&mut self, _on: bool) {}
@@ -53,12 +68,12 @@ pub trait WqStdin: Send {
     }
 }
 
-pub trait WqStdout: Send {
+pub trait WqStdout {
     fn print(&mut self, s: &str);
     fn println(&mut self, s: &str);
 }
 
-pub trait WqStderr: Send {
+pub trait WqStderr {
     fn eprint(&mut self, s: &str);
     fn eprintln(&mut self, s: &str);
 }
@@ -82,7 +97,7 @@ impl std::fmt::Display for WqStdinError {
 
 impl std::error::Error for WqStdinError {}
 
-pub fn set_wqstdin(reader: Box<dyn WqStdin>) {
+pub fn set_wqstdin(reader: WqStdinHandle) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         *WQ_STDIN.lock().unwrap() = Some(reader);
@@ -93,7 +108,7 @@ pub fn set_wqstdin(reader: Box<dyn WqStdin>) {
     });
 }
 
-pub fn set_wqstdout(writer: Option<Box<dyn WqStdout>>) {
+pub fn set_wqstdout(writer: Option<WqStdoutHandle>) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         *WQ_STDOUT.lock().unwrap() = writer;
@@ -104,7 +119,7 @@ pub fn set_wqstdout(writer: Option<Box<dyn WqStdout>>) {
     });
 }
 
-pub fn set_wqstderr(writer: Option<Box<dyn WqStderr>>) {
+pub fn set_wqstderr(writer: Option<WqStderrHandle>) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         *WQ_STDERR.lock().unwrap() = writer;
@@ -348,4 +363,48 @@ where
     wqstdin_set_highlight(false);
     let _restore = HighlightRestore(prev);
     f()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use super::*;
+
+    struct LocalStdout {
+        wrote: Rc<Cell<bool>>,
+    }
+
+    impl WqStdout for LocalStdout {
+        fn print(&mut self, _s: &str) {
+            self.wrote.set(true);
+        }
+
+        fn println(&mut self, s: &str) {
+            self.print(s);
+        }
+    }
+
+    #[test]
+    fn stdio_traits_accept_local_implementors() {
+        let wrote = Rc::new(Cell::new(false));
+        let mut stdout = LocalStdout {
+            wrote: Rc::clone(&wrote),
+        };
+
+        stdout.print("local");
+
+        assert!(wrote.get());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_stdio_handles_are_send() {
+        fn assert_send<T: Send>() {}
+
+        assert_send::<WqStdinHandle>();
+        assert_send::<WqStdoutHandle>();
+        assert_send::<WqStderrHandle>();
+    }
 }
