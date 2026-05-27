@@ -7,7 +7,7 @@ use crate::interpret::{Interpreter, InterpreterHook, NO_OP_HOOK};
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
 use crate::value::cmp::eval_cmp_chain;
-use crate::value::func::{ClosureData, FunctionData};
+use crate::value::func::ClosureData;
 use crate::value::{Value, WqResult, eval_binary, eval_unary};
 use crate::vm::call::{
     CallSpec, LocalCallable, PeekLocalCallable, PeekLocalUser, peek_local_callable,
@@ -18,7 +18,7 @@ use crate::vm::{Frame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_
 use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
 };
-use crate::wqdb::data::{ChunkId, CodeLoc, DebugChunkSpec};
+use crate::wqdb::data::{ChunkId, CodeLoc};
 use crate::wqerror::{WqError, WqErrorType};
 
 mod call;
@@ -1049,52 +1049,37 @@ impl VanillaInterpreter {
         slot_usize: usize,
         p: PeekLocalUser,
     ) -> WqResult<LocalCallable> {
-        let dbg_new = vm.ensure_dbg_chunk_with_spans(
-            "<fn>",
-            DebugChunkSpec {
-                dbg_chunk: p.dbg_chunk,
-                instructions: p.instructions.as_ref(),
-                dbg_stmt_spans: &p.spans,
-                source_base_offset: match &p.value {
-                    Value::CompiledFunction(f) => f.dbg_source_base_offset,
-                    Value::Closure(c) => c.dbg_source_base_offset,
-                    _ => vm.resolved_debug_base_offset(),
-                },
-                dbg_pc_spans: &p.pc_spans,
-                dbg_stmt_marks: &p.stmt_marks,
-                dbg_local_names: &p.names,
-                params: &p.params,
-            },
-        );
+        let dbg_new = {
+            let shape = p
+                .value
+                .as_user_function()
+                .ok_or_else(|| vm_err("local callable lost function shape"))?;
+            vm.ensure_dbg_chunk_with_spans("<fn>", shape.debug_spec())
+        };
         if dbg_new != p.dbg_chunk
             && let Some(slot_ref) = vm.locals.get_mut(fi).and_then(|f| f.get_mut(slot_usize))
         {
             slot_ref.with_mut(|value| {
-                if let Value::CompiledFunction(f) = value {
-                    if f.dbg_chunk != dbg_new {
-                        let mut new_f = FunctionData::clone(f);
-                        new_f.dbg_chunk = dbg_new;
-                        *value = Value::CompiledFunction(Arc::new(new_f));
-                    }
-                } else if let Value::Closure(c) = value
-                    && c.dbg_chunk != dbg_new
+                if value
+                    .as_user_function()
+                    .is_some_and(|shape| shape.dbg_chunk != dbg_new)
                 {
-                    let mut new_c = ClosureData::clone(c);
-                    new_c.dbg_chunk = dbg_new;
-                    *value = Value::Closure(Arc::new(new_c));
+                    *value = value
+                        .with_user_function_dbg_chunk(dbg_new)
+                        .expect("checked user function");
                 }
             });
         }
+        let value = p
+            .value
+            .with_user_function_dbg_chunk(dbg_new)
+            .ok_or_else(|| vm_err("local callable lost function shape"))?;
         Ok(LocalCallable::Func {
-            value: p.value.clone(),
+            value,
             params_len: p.params.as_ref().map(|x| x.len()),
             locals: p.locals,
             instructions: p.instructions,
-            captured: if p.is_closure {
-                p.captured
-            } else {
-                crate::value::cell::empty_cells()
-            },
+            captured: p.captured,
             dbg_chunk: dbg_new,
             name_hint: None,
         })
@@ -1656,6 +1641,35 @@ mod call_safety {
             Some(42),
             "inline cache entry must survive same-code tail call"
         );
+    }
+
+    #[test]
+    fn tail_call_local_count_error_preserves_vm_state() {
+        let insts: Arc<[Instruction]> = Arc::from([Instruction::Return]);
+        let mut vm = Vm::new(vec![Instruction::Return]);
+        vm.stack.push(Value::Int(1));
+        vm.stack.push(Value::Int(2));
+        vm.locals.push(vec![Slot::default()]);
+        vm.captures.push(cell::empty_cells());
+        vm.current_closure_stack.push(Value::unit());
+
+        let result = vm.prepare_tail(CallSpec {
+            instructions: insts,
+            params_len: None,
+            locals: 1,
+            captured: cell::empty_cells(),
+            argc: 2,
+            callee_name: None,
+            dbg_chunk: None,
+            callee: Value::unit(),
+        });
+
+        assert!(result.is_err());
+        assert_eq!(vm.stack, vec![Value::Int(1), Value::Int(2)]);
+        assert_eq!(vm.locals.len(), 1);
+        assert_eq!(vm.locals[0].len(), 1);
+        assert_eq!(vm.captures.len(), 1);
+        assert_eq!(vm.current_closure_stack.len(), 1);
     }
 
     #[test]

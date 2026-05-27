@@ -8,15 +8,15 @@ use crate::builtins::Builtins;
 use crate::interpret::vanilla::Sv4;
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::value::cell::ValueCell;
-use crate::value::func::{ClosureData, FunctionCompositionData, FunctionData};
+use crate::value::func::FunctionCompositionData;
 use crate::value::{Excerpt, Value, WqResult, eval_binary};
-use crate::vm::inst::Instruction;
+use crate::vm::inst::{Instruction, NamedArgMeta};
 use crate::vm::slot::Slot;
 use crate::vm::{
     Frame, InlineCache, Vm, arity_err_vm, call_err, ensure_stack_len, not_bound_err, vm_err,
 };
 use crate::wqdb::build::mark_stmt_heuristic;
-use crate::wqdb::data::{ChunkId, DebugChunkSpec, DebugPcSpans, DebugStmtSpans};
+use crate::wqdb::data::ChunkId;
 
 impl Vm {
     // API for Builtins ============================
@@ -32,37 +32,12 @@ impl Vm {
         let argc = args.len();
         match func {
             Value::FunctionComposition(data) => self.call_function_composition(data, args),
-            Value::CompiledFunction(f) => {
+            Value::CompiledFunction(_) | Value::Closure(_) => {
                 let base = self.stack.len();
                 self.stack.extend(args);
-                let res = self.invoke_spec(CallSpec {
-                    instructions: f.instructions.clone(),
-                    params_len: f.params.as_ref().map(|p| p.len()),
-                    locals: f.locals,
-                    captured: crate::value::cell::empty_cells(),
-                    argc,
-                    callee_name: None,
-                    dbg_chunk: f.dbg_chunk,
-                    callee: func.clone(),
-                });
-                if res.is_err() {
-                    self.stack.truncate(base);
-                }
-                res
-            }
-            Value::Closure(c) => {
-                let base = self.stack.len();
-                self.stack.extend(args);
-                let res = self.invoke_spec(CallSpec {
-                    instructions: c.instructions.clone(),
-                    params_len: c.params.as_ref().map(|p| p.len()),
-                    locals: c.locals,
-                    captured: c.captured.clone(),
-                    argc,
-                    callee_name: None,
-                    dbg_chunk: c.dbg_chunk,
-                    callee: func.clone(),
-                });
+                let spec =
+                    CallSpec::from_user_callable(func, argc, None).expect("matched user function");
+                let res = self.invoke_spec(spec);
                 if res.is_err() {
                     self.stack.truncate(base);
                 }
@@ -161,71 +136,41 @@ impl Vm {
                             .unwrap_or_else(|| "<fn>".to_string())
                     })
             };
-            match &callee {
-                Value::CompiledFunction(f) => {
-                    let title = preferred_name(dbg_chunk.or(f.dbg_chunk));
-                    let chunk = self.ensure_dbg_chunk_with_spans(
-                        &title,
-                        DebugChunkSpec {
-                            dbg_chunk: dbg_chunk.or(f.dbg_chunk),
-                            instructions: f.instructions.as_ref(),
-                            dbg_stmt_spans: &f.dbg_stmt_spans,
-                            source_base_offset: f.dbg_source_base_offset,
-                            dbg_pc_spans: &f.dbg_pc_spans,
-                            dbg_stmt_marks: &f.dbg_stmt_marks,
-                            dbg_local_names: &f.dbg_local_names,
-                            params: &f.params,
-                        },
-                    );
-                    if f.dbg_chunk != chunk {
-                        let mut new_f = FunctionData::clone(f);
-                        new_f.dbg_chunk = chunk;
-                        callee = Value::CompiledFunction(Arc::new(new_f));
-                    }
-                    chunk.unwrap_or(self.current_chunk)
+            if callee.as_user_function().is_some() {
+                let (chunk, needs_update) = {
+                    let shape = callee.as_user_function().expect("checked user function");
+                    let requested_dbg_chunk = dbg_chunk.or(shape.dbg_chunk);
+                    let title = preferred_name(requested_dbg_chunk);
+                    let mut spec = shape.debug_spec();
+                    spec.dbg_chunk = requested_dbg_chunk;
+                    let chunk = self.ensure_dbg_chunk_with_spans(&title, spec);
+                    (chunk, shape.dbg_chunk != chunk)
+                };
+                if needs_update {
+                    callee = callee
+                        .with_user_function_dbg_chunk(chunk)
+                        .expect("checked user function");
                 }
-                Value::Closure(c) => {
-                    let title = preferred_name(dbg_chunk.or(c.dbg_chunk));
-                    let chunk = self.ensure_dbg_chunk_with_spans(
-                        &title,
-                        DebugChunkSpec {
-                            dbg_chunk: dbg_chunk.or(c.dbg_chunk),
-                            instructions: c.instructions.as_ref(),
-                            dbg_stmt_spans: &c.dbg_stmt_spans,
-                            source_base_offset: c.dbg_source_base_offset,
-                            dbg_pc_spans: &c.dbg_pc_spans,
-                            dbg_stmt_marks: &c.dbg_stmt_marks,
-                            dbg_local_names: &c.dbg_local_names,
-                            params: &c.params,
-                        },
-                    );
-                    if c.dbg_chunk != chunk {
-                        let mut new_c = ClosureData::clone(c);
-                        new_c.dbg_chunk = chunk;
-                        callee = Value::Closure(Arc::new(new_c));
+                chunk.unwrap_or(self.current_chunk)
+            } else {
+                let title = preferred_name(dbg_chunk);
+                if let Some(id) = dbg_chunk {
+                    id
+                } else {
+                    let file_id = self.debug_info.chunk(self.current_chunk).file_id;
+                    if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
+                        eprintln!(
+                            "[wqdb]: call_function_with fallback new name={title} file_id={file_id} instructions={}",
+                            instructions.len(),
+                        );
                     }
-                    chunk.unwrap_or(self.current_chunk)
-                }
-                _ => {
-                    let title = preferred_name(dbg_chunk);
-                    if let Some(id) = dbg_chunk {
-                        id
-                    } else {
-                        let file_id = self.debug_info.chunk(self.current_chunk).file_id;
-                        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-                            eprintln!(
-                                "[wqdb]: call_function_with fallback new name={title} file_id={file_id} instructions={}",
-                                instructions.len(),
-                            );
-                        }
-                        let id = self
-                            .debug_info
-                            .new_chunk(title, file_id, instructions.len());
-                        let table = &mut self.debug_info.chunk_mut(id).line_table;
-                        // Heuristic stepping if no spans are attached to the callee.
-                        mark_stmt_heuristic(table, instructions.as_ref());
-                        id
-                    }
+                    let id = self
+                        .debug_info
+                        .new_chunk(title, file_id, instructions.len());
+                    let table = &mut self.debug_info.chunk_mut(id).line_table;
+                    // Heuristic stepping if no spans are attached to the callee.
+                    mark_stmt_heuristic(table, instructions.as_ref());
+                    id
                 }
             }
         } else {
@@ -234,56 +179,19 @@ impl Vm {
 
         // --- Pre-validate arity and named args before swapping execution state ---
         let named_meta = self.pending_named_meta.take();
-        let callee_named: Option<Arc<[Arc<str>]>> = match &callee {
-            Value::CompiledFunction(f) => f.named_params.clone(),
-            Value::Closure(c) => c.named_params.clone(),
-            _ => None,
-        };
-        if let Some(ref meta) = named_meta {
-            if let Some(p) = params_len
-                && usize::from(meta.pos_count) != p
-            {
-                return Err(arity_err_vm(format!(
-                    "function expects {} positional arg(s), got {}",
-                    p, meta.pos_count
-                )));
-            }
-            if !meta.named.is_empty() {
-                if let Some(ref named_params) = callee_named {
-                    for (_, arg_name) in &meta.named {
-                        if !named_params.iter().any(|p| p.as_ref() == arg_name.as_ref()) {
-                            return Err(arity_err_vm(format!(
-                                "'{}' is not a named parameter",
-                                arg_name
-                            )));
-                        }
-                    }
-                } else {
-                    return Err(arity_err_vm(
-                        "cannot pass named arguments to a non-function value",
-                    ));
-                }
-            }
-        } else if let Some(p) = params_len {
-            if argc != p {
-                return Err(arity_err_vm(format!(
-                    "function expects {} arg(s), got {}",
-                    p, argc
-                )));
-            }
-        } else if argc > 3 {
-            return Err(arity_err_vm(
-                "implicit function expects up to 3 args".to_string(),
-            ));
-        }
+        let callee_named = callee
+            .as_user_function()
+            .and_then(|shape| shape.named_params.clone());
+        validate_user_call_shape(
+            argc,
+            params_len,
+            local_count,
+            named_meta.as_deref(),
+            callee_named.as_deref(),
+        )?;
 
         // Stack and metadata sanity checks — must happen before state swap
         ensure_stack_len(&self.stack, argc, || "call args".into())?;
-        if usize::from(local_count) < argc {
-            return Err(vm_err(format!(
-                "function local count {local_count} is smaller than arg count {argc}"
-            )));
-        }
 
         let saved_instructions = std::mem::replace(&mut self.instructions, instructions);
         let saved_pc = self.pc;
@@ -310,70 +218,16 @@ impl Vm {
         }
         self.pc = 0;
         let mut frame = take_locals_from_pool(&mut self.locals_pool, local_count);
-        // Move args from caller’s stack to callee frame (arg0..argN-1)
-        if let Some(meta) = named_meta {
-            let total = argc;
-            // Read all arg values from stack (source order is preserved left-to-right
-            // because they were pushed that way)
-            let mut all_args: Vec<Value> = (0..total)
-                .map(|_| {
-                    saved_stack
-                        .pop()
-                        .ok_or_else(|| vm_err("stack underflow while moving named args"))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            all_args.reverse(); // back to source order
-
-            let named_arg_map: std::collections::HashMap<Arc<str>, Value> = meta
-                .named
-                .iter()
-                .filter_map(|(pos, name)| {
-                    all_args
-                        .get(*pos as usize)
-                        .map(|v| (name.clone(), v.clone()))
-                })
-                .collect();
-
-            // Fill positional slots (skip named entries)
-            let mut pos_slot: u32 = 0;
-            for (i, v) in all_args.iter().enumerate() {
-                let is_named = meta.named.iter().any(|(pos, _)| *pos as usize == i);
-                if !is_named {
-                    if (pos_slot as usize) < local_count as usize {
-                        frame[pos_slot as usize] = Slot::Value(v.clone());
-                    }
-                    pos_slot += 1;
-                }
-            }
-
-            // Fill named slots and build bitmask
-            let mut mask: i64 = 0;
-            if let Some(named_params) = callee_named {
-                let pos_param_count = params_len.unwrap_or(0);
-                for (named_idx, param_name) in named_params.iter().enumerate() {
-                    if let Some(val) = named_arg_map.get(param_name) {
-                        let slot = pos_param_count + named_idx;
-                        if slot < local_count as usize {
-                            frame[slot] = Slot::Value(val.clone());
-                        }
-                        mask |= 1i64 << named_idx;
-                    }
-                }
-                // Set mask slot
-                let mask_slot = pos_param_count + named_params.len();
-                if mask_slot < local_count as usize {
-                    frame[mask_slot] = Slot::Value(Value::Int(mask));
-                }
-            }
-        } else {
-            // Original: simple positional arg move
-            for i in (0..argc).rev() {
-                let v = saved_stack
-                    .pop()
-                    .ok_or_else(|| vm_err("stack underflow while moving args"))?;
-                frame[i] = Slot::Value(v);
-            }
-        }
+        fill_call_frame_from_stack(
+            &mut saved_stack,
+            &mut frame,
+            argc,
+            params_len,
+            named_meta.as_deref(),
+            callee_named.as_deref(),
+            "stack underflow while moving args",
+            "stack underflow while moving named args",
+        )?;
         self.locals.push(frame);
         self.captures.push(captured);
         self.current_closure_stack.push(callee);
@@ -471,26 +325,12 @@ impl Vm {
             Value::FunctionComposition(data) => {
                 self.invoke_function_composition_on_stack(data, argc)
             }
-            Value::CompiledFunction(f) => self.invoke_spec(CallSpec {
-                instructions: f.instructions.clone(),
-                params_len: f.params.as_ref().map(|p| p.len()),
-                locals: f.locals,
-                captured: crate::value::cell::empty_cells(),
-                argc,
-                callee_name,
-                dbg_chunk: f.dbg_chunk,
-                callee: func.clone(),
-            }),
-            Value::Closure(c) => self.invoke_spec(CallSpec {
-                instructions: c.instructions.clone(),
-                params_len: c.params.as_ref().map(|p| p.len()),
-                locals: c.locals,
-                captured: c.captured.clone(),
-                argc,
-                callee_name,
-                dbg_chunk: c.dbg_chunk,
-                callee: func.clone(),
-            }),
+            Value::CompiledFunction(_) | Value::Closure(_) => {
+                self.invoke_spec(
+                    CallSpec::from_user_callable(func, argc, callee_name)
+                        .expect("matched user function"),
+                )
+            }
             other => Err(not_bound_err(format!(
                 "expected callable, got {}",
                 other.type_name()
@@ -501,26 +341,11 @@ impl Vm {
     /// Tail-call a user function with args already on the stack top.
     pub(crate) fn tail_invoke_user(&mut self, func: &Value, argc: usize) -> WqResult<()> {
         match func {
-            Value::CompiledFunction(f) => self.prepare_tail(CallSpec {
-                instructions: f.instructions.clone(),
-                params_len: f.params.as_ref().map(|p| p.len()),
-                locals: f.locals,
-                captured: crate::value::cell::empty_cells(),
-                argc,
-                callee_name: None,
-                dbg_chunk: f.dbg_chunk,
-                callee: func.clone(),
-            }),
-            Value::Closure(c) => self.prepare_tail(CallSpec {
-                instructions: c.instructions.clone(),
-                params_len: c.params.as_ref().map(|p| p.len()),
-                locals: c.locals,
-                captured: c.captured.clone(),
-                argc,
-                callee_name: None,
-                dbg_chunk: c.dbg_chunk,
-                callee: func.clone(),
-            }),
+            Value::CompiledFunction(_) | Value::Closure(_) => {
+                self.prepare_tail(
+                    CallSpec::from_user_callable(func, argc, None).expect("matched user function"),
+                )
+            }
             other => Err(not_bound_err(format!(
                 "expected fn, got {}",
                 other.type_name()
@@ -542,52 +367,16 @@ impl Vm {
 
         let named_meta = self.pending_named_meta.take();
 
-        // Arity check
-        if let Some(ref meta) = named_meta
-            && let Some(p) = params_len
-            && usize::from(meta.pos_count) != p
-        {
-            return Err(arity_err_vm(format!(
-                "function expects {} positional arg(s), got {}",
-                p, meta.pos_count
-            )));
-        } else if named_meta.is_none()
-            && let Some(p) = params_len
-        {
-            if argc != p {
-                return Err(arity_err_vm(format!(
-                    "function expects {} arg(s), got {}",
-                    p, argc
-                )));
-            }
-        } else if argc > 3 {
-            return Err(arity_err_vm(
-                "implicit function expects up to 3 args".to_string(),
-            ));
-        }
-
-        // Validate named args against callee's named params before mutating frame
-        let callee_named: Option<Arc<[Arc<str>]>> = match &callee {
-            Value::CompiledFunction(f) => f.named_params.clone(),
-            Value::Closure(c) => c.named_params.clone(),
-            _ => None,
-        };
-        if let Some(ref meta) = named_meta {
-            if let Some(ref named_params) = callee_named {
-                for (_, arg_name) in &meta.named {
-                    if !named_params.iter().any(|p| p.as_ref() == arg_name.as_ref()) {
-                        return Err(arity_err_vm(format!(
-                            "'{}' is not a named parameter",
-                            arg_name
-                        )));
-                    }
-                }
-            } else if !meta.named.is_empty() {
-                return Err(arity_err_vm(
-                    "cannot pass named arguments to a non-function value",
-                ));
-            }
-        }
+        let callee_named = callee
+            .as_user_function()
+            .and_then(|shape| shape.named_params.clone());
+        validate_user_call_shape(
+            argc,
+            params_len,
+            local_count,
+            named_meta.as_deref(),
+            callee_named.as_deref(),
+        )?;
 
         ensure_stack_len(&self.stack, argc, || "tail-call args".into())?;
 
@@ -599,64 +388,16 @@ impl Vm {
         frame.clear();
         frame.resize(local_count as usize, Slot::default());
 
-        if let Some(meta) = named_meta {
-            let total = argc;
-            let mut all_args: Vec<Value> = (0..total)
-                .map(|_| {
-                    self.stack
-                        .pop()
-                        .ok_or_else(|| vm_err("stack underflow while moving named tail-call args"))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            all_args.reverse();
-
-            let named_arg_map: std::collections::HashMap<Arc<str>, Value> = meta
-                .named
-                .iter()
-                .filter_map(|(pos, name)| {
-                    all_args
-                        .get(*pos as usize)
-                        .map(|v| (name.clone(), v.clone()))
-                })
-                .collect();
-
-            let mut pos_slot: u32 = 0;
-            for (i, v) in all_args.iter().enumerate() {
-                let is_named = meta.named.iter().any(|(pos, _)| *pos as usize == i);
-                if !is_named {
-                    if (pos_slot as usize) < local_count as usize {
-                        frame[pos_slot as usize] = Slot::Value(v.clone());
-                    }
-                    pos_slot += 1;
-                }
-            }
-
-            let mut mask: i64 = 0;
-            if let Some(named_params) = callee_named {
-                let pos_param_count = params_len.unwrap_or(0);
-                for (named_idx, param_name) in named_params.iter().enumerate() {
-                    if let Some(val) = named_arg_map.get(param_name) {
-                        let slot = pos_param_count + named_idx;
-                        if slot < local_count as usize {
-                            frame[slot] = Slot::Value(val.clone());
-                        }
-                        mask |= 1i64 << named_idx;
-                    }
-                }
-                let mask_slot = pos_param_count + named_params.len();
-                if mask_slot < local_count as usize {
-                    frame[mask_slot] = Slot::Value(Value::Int(mask));
-                }
-            }
-        } else {
-            for i in (0..argc).rev() {
-                let v = self
-                    .stack
-                    .pop()
-                    .ok_or_else(|| vm_err("stack underflow while moving tail-call args"))?;
-                frame[i] = Slot::Value(v);
-            }
-        }
+        fill_call_frame_from_stack(
+            &mut self.stack,
+            &mut frame,
+            argc,
+            params_len,
+            named_meta.as_deref(),
+            callee_named.as_deref(),
+            "stack underflow while moving tail-call args",
+            "stack underflow while moving named tail-call args",
+        )?;
         self.stack.clear();
         *self
             .locals
@@ -868,104 +609,44 @@ impl Vm {
                 .ok_or_else(|| not_bound_err(format!("fn '{name}' is not defined")))?
         };
 
-        Ok(match func_val {
-            Value::CompiledFunction(f) => {
-                let (value, dbg_chunk) = if self.debug_artifacts_enabled() {
-                    let dbg_chunk = self.ensure_dbg_chunk_with_spans(
-                        name,
-                        DebugChunkSpec {
-                            dbg_chunk: f.dbg_chunk,
-                            instructions: f.instructions.as_ref(),
-                            dbg_stmt_spans: &f.dbg_stmt_spans,
-                            source_base_offset: f.dbg_source_base_offset,
-                            dbg_pc_spans: &f.dbg_pc_spans,
-                            dbg_stmt_marks: &f.dbg_stmt_marks,
-                            dbg_local_names: &f.dbg_local_names,
-                            params: &f.params,
-                        },
-                    );
-                    let value = if f.dbg_chunk != dbg_chunk {
-                        let mut new_f = FunctionData::clone(&f);
-                        new_f.dbg_chunk = dbg_chunk;
-                        Value::CompiledFunction(std::sync::Arc::new(new_f))
-                    } else {
-                        Value::CompiledFunction(std::sync::Arc::clone(&f))
-                    };
-                    (value, dbg_chunk)
-                } else {
-                    (
-                        Value::CompiledFunction(std::sync::Arc::clone(&f)),
-                        f.dbg_chunk,
-                    )
+        if func_val.as_user_function().is_some() {
+            let (value, dbg_chunk) = if self.debug_artifacts_enabled() {
+                let dbg_chunk = {
+                    let shape = func_val.as_user_function().expect("checked user function");
+                    self.ensure_dbg_chunk_with_spans(name, shape.debug_spec())
                 };
-                if let Some(slot) = slot {
-                    let name_version = self.global_slot_version(slot);
-                    self.cache_callable(
-                        idx,
-                        ResolvedCallable {
-                            value: value.clone(),
-                            params_len: f.params.as_ref().map(|p| p.len()),
-                            locals: f.locals,
-                            captured: crate::value::cell::empty_cells(),
-                            code: f.instructions.clone(),
-                            dbg_chunk,
-                        },
-                        name_version,
-                    );
-                }
-                value
+                (
+                    func_val
+                        .with_user_function_dbg_chunk(dbg_chunk)
+                        .expect("checked user function"),
+                    dbg_chunk,
+                )
+            } else {
+                let dbg_chunk = func_val
+                    .as_user_function()
+                    .expect("checked user function")
+                    .dbg_chunk;
+                (func_val, dbg_chunk)
+            };
+            if let Some(slot) = slot {
+                let name_version = self.global_slot_version(slot);
+                self.cache_callable(
+                    idx,
+                    ResolvedCallable::from_user_callable(value.clone(), dbg_chunk)
+                        .expect("checked user function"),
+                    name_version,
+                );
             }
-            Value::Closure(c) => {
-                let (value, dbg_chunk) = if self.debug_artifacts_enabled() {
-                    let dbg_chunk = self.ensure_dbg_chunk_with_spans(
-                        name,
-                        DebugChunkSpec {
-                            dbg_chunk: c.dbg_chunk,
-                            instructions: c.instructions.as_ref(),
-                            dbg_stmt_spans: &c.dbg_stmt_spans,
-                            source_base_offset: c.dbg_source_base_offset,
-                            dbg_pc_spans: &c.dbg_pc_spans,
-                            dbg_stmt_marks: &c.dbg_stmt_marks,
-                            dbg_local_names: &c.dbg_local_names,
-                            params: &c.params,
-                        },
-                    );
-                    let value = if c.dbg_chunk != dbg_chunk {
-                        let mut new_c = ClosureData::clone(&c);
-                        new_c.dbg_chunk = dbg_chunk;
-                        Value::Closure(std::sync::Arc::new(new_c))
-                    } else {
-                        Value::Closure(std::sync::Arc::clone(&c))
-                    };
-                    (value, dbg_chunk)
-                } else {
-                    (Value::Closure(std::sync::Arc::clone(&c)), c.dbg_chunk)
-                };
-                if let Some(slot) = slot {
-                    let name_version = self.global_slot_version(slot);
-                    self.cache_callable(
-                        idx,
-                        ResolvedCallable {
-                            value: value.clone(),
-                            params_len: c.params.as_ref().map(|p| p.len()),
-                            locals: c.locals,
-                            captured: c.captured.clone(),
-                            code: c.instructions.clone(),
-                            dbg_chunk,
-                        },
-                        name_version,
-                    );
-                }
-                value
-            }
-            b @ Value::BuiltinFunction(_) => b, // name resolves to builtin each time
-            other => {
-                return Err(not_bound_err(format!(
+            Ok(value)
+        } else {
+            match func_val {
+                b @ Value::BuiltinFunction(_) => Ok(b), // name resolves to builtin each time
+                other => Err(not_bound_err(format!(
                     "cannot call '{name}': expected fn, got {}",
                     other.type_name()
-                )));
+                ))),
             }
-        })
+        }
     }
 }
 
@@ -990,6 +671,41 @@ impl<'a> CallSpec<'a> {
     pub(crate) fn name_hint(s: Option<&'a str>) -> Option<Cow<'a, str>> {
         s.map(Cow::Borrowed)
     }
+
+    pub(crate) fn from_user_callable(
+        callee: &Value,
+        argc: usize,
+        callee_name: Option<Cow<'a, str>>,
+    ) -> Option<Self> {
+        let shape = callee.as_user_function()?;
+        Some(Self {
+            callee: callee.clone(),
+            instructions: Arc::clone(shape.instructions),
+            captured: shape.captured(),
+            callee_name,
+            argc,
+            params_len: shape.params_len(),
+            dbg_chunk: shape.dbg_chunk,
+            locals: shape.locals,
+        })
+    }
+
+    pub(crate) fn from_resolved(
+        target: &ResolvedCallable,
+        argc: usize,
+        callee_name: Option<Cow<'a, str>>,
+    ) -> Self {
+        Self {
+            callee: target.value.clone(),
+            instructions: target.code.clone(),
+            captured: target.captured.clone(),
+            callee_name,
+            argc,
+            params_len: target.params_len,
+            dbg_chunk: target.dbg_chunk,
+            locals: target.locals,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1000,6 +716,28 @@ pub(crate) struct ResolvedCallable {
     pub(crate) captured: Arc<[ValueCell]>,
     pub(crate) code: Arc<[Instruction]>,
     pub(crate) dbg_chunk: Option<ChunkId>,
+}
+
+impl ResolvedCallable {
+    pub(crate) fn from_user_callable(value: Value, dbg_chunk: Option<ChunkId>) -> Option<Self> {
+        let (params_len, locals, captured, code) = {
+            let shape = value.as_user_function()?;
+            (
+                shape.params_len(),
+                shape.locals,
+                shape.captured(),
+                Arc::clone(shape.instructions),
+            )
+        };
+        Some(Self {
+            value,
+            params_len,
+            locals,
+            captured,
+            code,
+            dbg_chunk,
+        })
+    }
 }
 
 pub(crate) enum LocalCallable {
@@ -1017,16 +755,11 @@ pub(crate) enum LocalCallable {
 
 #[derive(Clone)]
 pub(crate) struct PeekLocalUser {
-    pub(crate) is_closure: bool,
     pub(crate) value: Value,
     pub(crate) params: Option<Arc<[String]>>,
     pub(crate) locals: u16,
     pub(crate) instructions: Arc<[Instruction]>,
     pub(crate) dbg_chunk: Option<ChunkId>,
-    pub(crate) spans: Option<DebugStmtSpans>,
-    pub(crate) pc_spans: Option<DebugPcSpans>,
-    pub(crate) stmt_marks: Option<Arc<[crate::vm::inst::DebugStmtMark]>>,
-    pub(crate) names: Option<Arc<[String]>>,
     pub(crate) captured: Arc<[ValueCell]>,
 }
 
@@ -1037,40 +770,140 @@ pub(crate) enum PeekLocalCallable {
 
 #[inline]
 pub(crate) fn peek_local_callable(slot: u16, v: &Slot) -> WqResult<PeekLocalCallable> {
-    v.with_ref(|value| match value {
-        Value::CompiledFunction(f) => Ok(PeekLocalCallable::User(PeekLocalUser {
-            is_closure: false,
-            value: value.clone(),
-            params: f.params.clone(),
-            locals: f.locals,
-            instructions: f.instructions.clone(),
-            dbg_chunk: f.dbg_chunk,
-            spans: f.dbg_stmt_spans.clone(),
-            pc_spans: f.dbg_pc_spans.clone(),
-            stmt_marks: f.dbg_stmt_marks.clone(),
-            names: f.dbg_local_names.clone(),
-            captured: crate::value::cell::empty_cells(),
-        })),
-        Value::Closure(c) => Ok(PeekLocalCallable::User(PeekLocalUser {
-            is_closure: true,
-            value: value.clone(),
-            params: c.params.clone(),
-            locals: c.locals,
-            instructions: c.instructions.clone(),
-            dbg_chunk: c.dbg_chunk,
-            spans: c.dbg_stmt_spans.clone(),
-            pc_spans: c.dbg_pc_spans.clone(),
-            stmt_marks: c.dbg_stmt_marks.clone(),
-            names: c.dbg_local_names.clone(),
-            captured: c.captured.clone(),
-        })),
-        Value::BuiltinFunction(name) => Ok(PeekLocalCallable::Builtin(name.clone())),
-        other => Err(call_err(format!(
-            "cannot call local {slot}: expected fn, found {} ({})",
-            other.excerpt(),
-            other.type_name(),
-        ))),
+    v.with_ref(|value| {
+        if let Some(shape) = value.as_user_function() {
+            return Ok(PeekLocalCallable::User(PeekLocalUser {
+                value: value.clone(),
+                params: shape.params.clone(),
+                locals: shape.locals,
+                instructions: Arc::clone(shape.instructions),
+                dbg_chunk: shape.dbg_chunk,
+                captured: shape.captured(),
+            }));
+        }
+        match value {
+            Value::BuiltinFunction(name) => Ok(PeekLocalCallable::Builtin(name.clone())),
+            other => Err(call_err(format!(
+                "cannot call local {slot}: expected fn, found {} ({})",
+                other.excerpt(),
+                other.type_name(),
+            ))),
+        }
     })
+}
+
+fn validate_user_call_shape(
+    argc: usize,
+    params_len: Option<usize>,
+    local_count: u16,
+    named_meta: Option<&NamedArgMeta>,
+    callee_named: Option<&[Arc<str>]>,
+) -> WqResult<()> {
+    if let Some(meta) = named_meta {
+        if let Some(expected) = params_len
+            && usize::from(meta.pos_count) != expected
+        {
+            return Err(arity_err_vm(format!(
+                "function expects {} positional arg(s), got {}",
+                expected, meta.pos_count
+            )));
+        }
+        if !meta.named.is_empty() {
+            if let Some(named_params) = callee_named {
+                for (_, arg_name) in &meta.named {
+                    if !named_params.iter().any(|p| p.as_ref() == arg_name.as_ref()) {
+                        return Err(arity_err_vm(format!(
+                            "'{}' is not a named parameter",
+                            arg_name
+                        )));
+                    }
+                }
+            } else {
+                return Err(arity_err_vm(
+                    "cannot pass named arguments to a non-function value",
+                ));
+            }
+        }
+    } else if let Some(expected) = params_len {
+        if argc != expected {
+            return Err(arity_err_vm(format!(
+                "function expects {} arg(s), got {}",
+                expected, argc
+            )));
+        }
+    } else if argc > 3 {
+        return Err(arity_err_vm(
+            "implicit function expects up to 3 args".to_string(),
+        ));
+    }
+
+    if usize::from(local_count) < argc {
+        return Err(vm_err(format!(
+            "function local count {local_count} is smaller than arg count {argc}"
+        )));
+    }
+    Ok(())
+}
+
+fn fill_call_frame_from_stack(
+    stack: &mut Vec<Value>,
+    frame: &mut [Slot],
+    argc: usize,
+    params_len: Option<usize>,
+    named_meta: Option<&NamedArgMeta>,
+    callee_named: Option<&[Arc<str>]>,
+    positional_underflow: &'static str,
+    named_underflow: &'static str,
+) -> WqResult<()> {
+    if let Some(meta) = named_meta {
+        let mut all_args: Vec<Value> = (0..argc)
+            .map(|_| stack.pop().ok_or_else(|| vm_err(named_underflow)))
+            .collect::<Result<Vec<_>, _>>()?;
+        all_args.reverse();
+
+        let mut pos_slot: u32 = 0;
+        for (i, v) in all_args.iter().enumerate() {
+            let is_named = meta.named.iter().any(|(pos, _)| *pos as usize == i);
+            if !is_named {
+                if let Some(slot) = frame.get_mut(pos_slot as usize) {
+                    *slot = Slot::Value(v.clone());
+                }
+                pos_slot += 1;
+            }
+        }
+
+        let mut mask: i64 = 0;
+        if let Some(named_params) = callee_named {
+            let pos_param_count = params_len.unwrap_or(0);
+            for (named_idx, param_name) in named_params.iter().enumerate() {
+                let mut named_value = None;
+                for (pos, arg_name) in &meta.named {
+                    if arg_name.as_ref() == param_name.as_ref() {
+                        named_value = all_args.get(*pos as usize);
+                    }
+                }
+                if let Some(val) = named_value {
+                    let slot = pos_param_count + named_idx;
+                    if let Some(frame_slot) = frame.get_mut(slot) {
+                        *frame_slot = Slot::Value(val.clone());
+                    }
+                    mask |= 1i64 << named_idx;
+                }
+            }
+            let mask_slot = pos_param_count + named_params.len();
+            if let Some(frame_slot) = frame.get_mut(mask_slot) {
+                *frame_slot = Slot::Value(Value::Int(mask));
+            }
+        }
+    } else {
+        for i in (0..argc).rev() {
+            let v = stack
+                .pop()
+                .ok_or_else(|| vm_err(positional_underflow))?;
+            frame[i] = Slot::Value(v);
+        }
+    }
+    Ok(())
 }
 
 fn take_cache_from_pool(

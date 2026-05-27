@@ -162,16 +162,7 @@ pub(super) fn dispatch_user_call(
         if vm.inline_cache[idx].version == name_version
             && let Some(ref target) = vm.inline_cache[idx].call_target
         {
-            let spec = CallSpec {
-                instructions: target.code.clone(),
-                params_len: target.params_len,
-                locals: target.locals,
-                captured: target.captured.clone(),
-                argc,
-                callee_name: CallSpec::name_hint(Some(name)),
-                dbg_chunk: target.dbg_chunk,
-                callee: target.value.clone(),
-            };
+            let spec = CallSpec::from_resolved(target, argc, CallSpec::name_hint(Some(name)));
             spec_dispatch(vm, idx, spec)?;
             hooks.on_call_user_cache_hit();
             return Ok(true); // continue 'exec
