@@ -8,8 +8,8 @@ use crate::builtins::Builtins;
 use crate::interpret::vanilla::Sv4;
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::value::cell::ValueCell;
-use crate::value::func::{ClosureData, FunctionData};
-use crate::value::{Excerpt, Value, WqResult};
+use crate::value::func::{ClosureData, FunctionCompositionData, FunctionData};
+use crate::value::{Excerpt, Value, WqResult, eval_binary};
 use crate::vm::inst::Instruction;
 use crate::vm::slot::Slot;
 use crate::vm::{
@@ -31,6 +31,7 @@ impl Vm {
         }
         let argc = args.len();
         match func {
+            Value::FunctionComposition(data) => self.call_function_composition(data, args),
             Value::CompiledFunction(f) => {
                 let base = self.stack.len();
                 self.stack.extend(args);
@@ -71,6 +72,50 @@ impl Vm {
                 "expected callable, got {}",
                 other.type_name()
             ))),
+        }
+    }
+
+    pub(crate) fn invoke_function_composition_on_stack(
+        &mut self,
+        data: &FunctionCompositionData,
+        argc: usize,
+    ) -> WqResult<Value> {
+        if self.pending_named_meta.take().is_some() {
+            return Err(arity_err_vm(
+                "cannot pass named arguments to a composed function",
+            ));
+        }
+        ensure_stack_len(&self.stack, argc, || "composed function args".into())?;
+        let base = self.stack.len() - argc;
+        let args: Sv4 = self.stack.drain(base..).collect();
+        self.call_function_composition(data, crate::builtins::BuiltinFnArgs::from(args))
+    }
+
+    pub(crate) fn call_function_composition(
+        &mut self,
+        data: &FunctionCompositionData,
+        args: crate::builtins::BuiltinFnArgs,
+    ) -> WqResult<Value> {
+        if args.has_named() {
+            return Err(arity_err_vm(
+                "cannot pass named arguments to a composed function",
+            ));
+        }
+        let args: Vec<Value> = args.into_iter().collect();
+        let left = self.eval_function_composition_operand(&data.left, &args)?;
+        let right = self.eval_function_composition_operand(&data.right, &args)?;
+        eval_binary(&data.op, &left, &right)
+    }
+
+    fn eval_function_composition_operand(
+        &mut self,
+        value: &Value,
+        args: &[Value],
+    ) -> WqResult<Value> {
+        if value.is_callable() {
+            self.call(value, crate::builtins::BuiltinFnArgs::from(args.to_vec()))
+        } else {
+            Ok(value.clone())
         }
     }
 
@@ -423,6 +468,9 @@ impl Vm {
         callee_name: Option<Cow<'_, str>>,
     ) -> WqResult<Value> {
         match func {
+            Value::FunctionComposition(data) => {
+                self.invoke_function_composition_on_stack(data, argc)
+            }
             Value::CompiledFunction(f) => self.invoke_spec(CallSpec {
                 instructions: f.instructions.clone(),
                 params_len: f.params.as_ref().map(|p| p.len()),

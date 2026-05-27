@@ -3,6 +3,7 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 use rayon::prelude::*;
 
+use crate::astnode::BinaryOperator;
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -593,6 +594,14 @@ fn mm_float_mm(a: &Value, b: &Value, m: usize, k: usize, n: usize) -> Option<WqR
 
 impl Value {
     pub(crate) fn mm(&self, other: &Value) -> WqResult<Value> {
+        if self.is_callable() || other.is_callable() {
+            return Ok(Value::function_composition(
+                BinaryOperator::Matmul,
+                self.clone(),
+                other.clone(),
+            ));
+        }
+
         // Reject non-uniform shapes
         if !self.is_uniform() || !other.is_uniform() {
             return Err(WqError::new(WqErrorType::Domain)

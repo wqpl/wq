@@ -99,6 +99,12 @@ impl std::hash::Hash for Value {
                 10u8.hash(state);
                 name.hash(state);
             }
+            Value::FunctionComposition(data) => {
+                11u8.hash(state);
+                data.op.hash(state);
+                data.left.hash(state);
+                data.right.hash(state);
+            }
             Value::Cas(cd) => {
                 18u8.hash(state);
                 match &cd.kind {
@@ -215,6 +221,9 @@ impl PartialEq for Value {
                         .all(|(c, v)| matches!(v, Char(ch) if *ch == c))
             }
             (BuiltinFunction(a), BuiltinFunction(b)) => a == b,
+            (FunctionComposition(a), FunctionComposition(b)) => {
+                a.op == b.op && a.left == b.left && a.right == b.right
+            }
             (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
             (Algebraic(a), Algebraic(b)) => {
                 a.poly == b.poly

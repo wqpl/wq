@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use crate::astnode::BinaryOperator;
+use crate::value::Value;
 use crate::value::cell::ValueCell;
 use crate::vm::inst::{DebugStmtMark, Instruction};
 use crate::wqdb::data::{ChunkId, DebugPcSpans, DebugProvenance, DebugStmtSpans};
@@ -49,4 +51,11 @@ pub struct ClosureData {
     pub(crate) dbg_local_names: Option<Arc<[String]>>,
     /// Provenance frames for callable values returned from earlier calls.
     pub(crate) dbg_provenance: Option<DebugProvenance>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionCompositionData {
+    pub(crate) op: BinaryOperator,
+    pub(crate) left: Value,
+    pub(crate) right: Value,
 }

@@ -28,8 +28,9 @@ use num_traits::ToPrimitive;
 pub(crate) use op::{eval_binary, eval_unary};
 use ordered_float::OrderedFloat;
 
+use crate::astnode::BinaryOperator;
 use crate::value::cas::CasData;
-use crate::value::func::{ClosureData, FunctionData};
+use crate::value::func::{ClosureData, FunctionCompositionData, FunctionData};
 use crate::value::stream::StreamHandle;
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -57,6 +58,7 @@ pub enum Value {
     /// closure with captured cells (upvalues)
     Closure(Arc<ClosureData>),
     BuiltinFunction(Arc<str>),
+    FunctionComposition(Arc<FunctionCompositionData>),
     Stream(Arc<Mutex<StreamHandle>>),
 }
 
@@ -120,6 +122,20 @@ impl Value {
         matches!(self, Value::String(_) | Value::Char(_))
             || self.is_unit()
             || matches!(self, Value::List(items) if items.iter().all(|v| matches!(v, Value::Char(_))))
+    }
+
+    pub(crate) fn is_callable(&self) -> bool {
+        matches!(
+            self,
+            Value::CompiledFunction(_)
+                | Value::Closure(_)
+                | Value::BuiltinFunction(_)
+                | Value::FunctionComposition(_)
+        )
+    }
+
+    pub(crate) fn function_composition(op: BinaryOperator, left: Value, right: Value) -> Self {
+        Value::FunctionComposition(Arc::new(FunctionCompositionData { op, left, right }))
     }
 
     pub(crate) fn can_convert_to_vec_u8(&self) -> bool {
@@ -290,6 +306,7 @@ impl Value {
             Value::CompiledFunction { .. } => "fn",
             Value::Closure { .. } => "closure",
             Value::BuiltinFunction(_) => "bfn",
+            Value::FunctionComposition(_) => "fn",
 
             Value::Stream(_) => "stream",
         }

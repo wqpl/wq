@@ -244,7 +244,7 @@ pub enum PipeKind {
     PipePipeDot,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOperator {
     Add,
     Subtract,

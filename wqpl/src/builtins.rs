@@ -213,6 +213,9 @@ impl BuiltinFnArgs {
     pub fn is_empty(&self) -> bool {
         self.pos.is_empty()
     }
+    pub fn has_named(&self) -> bool {
+        self.named.is_some()
+    }
     pub fn push(&mut self, v: Value) {
         self.pos.push(v)
     }

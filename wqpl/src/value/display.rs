@@ -5,6 +5,7 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 use unicode_segmentation::UnicodeSegmentation as _;
 
+use crate::astnode::binary_op_display;
 use crate::value::Value;
 
 impl fmt::Display for Value {
@@ -151,6 +152,9 @@ impl fmt::Display for Value {
                 }
             }
             Value::BuiltinFunction(name) => write!(f, "<bfn '{name}'>"),
+            Value::FunctionComposition(data) => {
+                write!(f, "<fn {} fn>", binary_op_display(&data.op))
+            }
             Value::Stream(_) => write!(f, "<stream>"),
             Value::Algebraic(a) => crate::value::algebraic::fmt_algebraic_human(a, f),
         }

@@ -89,6 +89,11 @@ pub(super) fn dispatch_postfix(
             vm.stack.push(result);
             Ok(false)
         }
+        Value::FunctionComposition(data) => {
+            let result = vm.invoke_function_composition_on_stack(data, argc)?;
+            vm.stack.push(result);
+            Ok(false)
+        }
         Value::CompiledFunction { .. } | Value::Closure { .. } => {
             user_dispatch(vm, idx, target, argc)
         }
@@ -130,6 +135,11 @@ pub(super) fn dispatch_anon_call(
     match func {
         Value::BuiltinFunction(name) => {
             let out = vm.invoke_bfn_name(name, argc)?;
+            vm.stack.push(out);
+            Ok(false)
+        }
+        Value::FunctionComposition(data) => {
+            let out = vm.invoke_function_composition_on_stack(data, argc)?;
             vm.stack.push(out);
             Ok(false)
         }
