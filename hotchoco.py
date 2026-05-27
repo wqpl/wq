@@ -538,8 +538,8 @@ def cmd_show(args: argparse.Namespace) -> None:
 
 
 def cmd_accept(args: argparse.Namespace) -> None:
-    output_dir, summary = load_summary(None)
-    summary = filter_summary(summary, args.group, args.test)
+    output_dir, full_summary = load_summary(None)
+    summary = filter_summary(full_summary, args.group, args.test)
 
     if not args.all and not args.group and not args.test:
         print("Use --all, --group, or --test to specify what to accept.")
@@ -558,12 +558,12 @@ def cmd_accept(args: argparse.Namespace) -> None:
         actual_path = Path(val["output_path"])
         expected_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(actual_path, expected_path)
-        summary[key]["status"] = "pass"
+        full_summary[key]["status"] = "pass"
         print(f"  ACCEPT: {key}")
         accepted += 1
 
     if accepted:
-        (output_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+        (output_dir / "summary.json").write_text(json.dumps(full_summary, indent=2))
         print(f"\nAccepted {accepted} change(s).")
     elif args.group or args.test:
         print(f"No changes to accept ({len(summary)} selected test(s) already pass).")
@@ -630,8 +630,8 @@ def cmd_clean(args: argparse.Namespace) -> None:
 
 
 def cmd_review(args: argparse.Namespace) -> None:
-    output_dir, summary = load_summary(None)
-    summary = filter_summary(summary, args.group, args.test)
+    output_dir, full_summary = load_summary(None)
+    summary = filter_summary(full_summary, args.group, args.test)
     if not summary:
         print(f"No tests matched {selector_label(args.group, args.test)}.")
         return
@@ -686,8 +686,8 @@ def cmd_review(args: argparse.Namespace) -> None:
                 expected_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(actual_path, expected_path)
                 print("  ✓ Accepted")
-                summary[key]["status"] = "pass"
-                (output_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+                full_summary[key]["status"] = "pass"
+                (output_dir / "summary.json").write_text(json.dumps(full_summary, indent=2))
                 idx += 1
                 break
             elif resp in ("s", "skip"):
