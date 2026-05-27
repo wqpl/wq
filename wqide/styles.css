@@ -46,13 +46,14 @@
   --surface-card-text-muted: #dff1fa;
   --surface-card-code-bg: rgba(29, 55, 82, 0.9);
   --surface-card-code-border: rgba(232, 248, 255, 0.28);
-  --welcome-bg: #f8f3e6;
-  --welcome-border: #6b2b2b;
-  --welcome-text: #2e1b1b;
-  --welcome-text-muted: #6f422d;
-  --welcome-link-bg: rgba(255, 248, 230, 0.78);
-  --welcome-link-border: rgba(107, 43, 43, 0.2);
-  --welcome-link-hover: #6b2b2b;
+  --welcome-bg: #fff7c7;
+  --welcome-border: #f2c94c;
+  --welcome-text: #3f3a18;
+  --welcome-text-muted: #6f7d2c;
+  --welcome-link: #8a6f00;
+  --welcome-link-bg: rgba(255, 253, 218, 0.82);
+  --welcome-link-border: rgba(242, 201, 76, 0.34);
+  --welcome-link-hover: #d9a900;
 }
 * {
   box-sizing: border-box;
@@ -291,7 +292,7 @@ body {
   border-radius: 14px;
   border: 1px solid var(--welcome-link-border);
   background: var(--welcome-link-bg);
-  color: var(--welcome-border);
+  color: var(--welcome-link);
   text-decoration: none;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
   min-height: 84px;
@@ -328,9 +329,6 @@ body {
   color: var(--surface-card-text-muted);
 }
 
-.welcome-card h2 {
-  color: var(--welcome-border);
-}
 .welcome-card p {
   color: var(--welcome-text-muted);
   max-width: 34rem;
@@ -1023,7 +1021,7 @@ body {
   height: 10px;
   z-index: -1;
   border-radius: 3px;
-  transform: rotate(-0.8deg);
+  /*transform: rotate(-0.8deg);*/
 }
 .playground-template-card-1 strong::after {
   background: rgba(212, 162, 61, 0.3);
