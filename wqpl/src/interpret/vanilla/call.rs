@@ -98,7 +98,7 @@ pub(super) fn dispatch_postfix(
             user_dispatch(vm, idx, target, argc)
         }
         _ => {
-            if vm.pending_named_meta.is_some() {
+            if vm.pending_named_meta.take().is_some() {
                 return Err(named_arg_index_err());
             }
             let base = vm.stack.len() - argc;

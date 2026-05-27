@@ -14,9 +14,15 @@ h:{
     echo["Should not print in h either"]
 }
 
+t_ret:{42}
+t_call:{t_ret[]}
+t_try:{@t t_call[]}
+
 echo["Testing f"];
 echo[f[]];
 echo["Testing g"];
 g[];
 echo["Testing h"];
 h[];
+echo["Testing try-tail-call"];
+echo[t_try[]];

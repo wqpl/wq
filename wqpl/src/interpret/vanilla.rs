@@ -964,6 +964,7 @@ impl Interpreter for VanillaInterpreter {
                         let start_pc = vm.pc;
                         let end_pc = start_pc + len;
                         let stack_start = vm.stack.len();
+                        let saved_pending_named_meta = vm.pending_named_meta.take();
                         vm.try_depth += 1;
                         let initial_inst_ptr = vm.instructions.as_ptr();
                         let try_result = self.interpret(vm, end_pc);
@@ -971,8 +972,10 @@ impl Interpreter for VanillaInterpreter {
                         match try_result {
                             Ok(val) => {
                                 if vm.returned || vm.instructions.as_ptr() != initial_inst_ptr {
+                                    vm.pending_named_meta = saved_pending_named_meta;
                                     return Ok(val);
                                 }
+                                vm.pending_named_meta = saved_pending_named_meta;
                                 if vm.pc == end_pc {
                                     vm.stack.truncate(stack_start);
                                     vm.stack.push(Value::Bool(true));
@@ -981,6 +984,7 @@ impl Interpreter for VanillaInterpreter {
                                 }
                             }
                             Err(_) => {
+                                vm.pending_named_meta = saved_pending_named_meta;
                                 vm.stack.truncate(stack_start);
                                 vm.stack.push(Value::Bool(false));
                                 vm.pc = end_pc;

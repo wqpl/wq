@@ -83,7 +83,7 @@ fn rewrite_tail_calls_in_slice(code: &mut [Instruction]) {
     let mut idx = 0;
     while idx < code.len() - 1 {
         if let Instruction::Try(len) = code[idx] {
-            idx += len;
+            idx += len + 1;
             continue;
         }
 
@@ -330,6 +330,29 @@ mod tests {
         if let Instruction::LoadConst(boxed) = &compiler.instructions[0] {
             if let Value::CompiledFunction(f) = &**boxed {
                 assert_eq!(f.instructions[0], Instruction::CallLocal(0, 1));
+            } else {
+                panic!("Expected CompiledFunction");
+            }
+        } else {
+            panic!("Expected LoadConst");
+        }
+    }
+
+    #[test]
+    fn test_no_tail_call_for_last_instruction_inside_try() {
+        let func = create_test_function(vec![
+            Instruction::Try(2),
+            Instruction::LoadLocal(0),
+            Instruction::Postfix(0),
+            Instruction::Return,
+        ]);
+        let mut compiler = Compiler::new();
+        compiler.instructions.push(Instruction::load_const(func));
+        compiler.rewrite_tail_calls();
+
+        if let Instruction::LoadConst(boxed) = &compiler.instructions[0] {
+            if let Value::CompiledFunction(f) = &**boxed {
+                assert_eq!(f.instructions[2], Instruction::Postfix(0));
             } else {
                 panic!("Expected CompiledFunction");
             }

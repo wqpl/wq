@@ -39,3 +39,8 @@ f8[3;4]
 
 f9:{x+y}
 f9[3;4]
+
+xs:(10;20)
+id:{[x]x}
+echo[@t xs[`bad:0]]
+echo id[1]
