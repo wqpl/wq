@@ -1,17 +1,18 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, searchForWorkspaceRoot } from "vite";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
-const wqPackageDir = resolve(rootDir, "node_modules/wq-wasm");
-const fsAllowList = [searchForWorkspaceRoot(rootDir)];
+const wqWasmPkgDir = resolve(rootDir, "../wq-wasm/pkg");
+const wqWasmEntry = resolve(wqWasmPkgDir, "wq_wasm.js");
+const fsAllowList = [searchForWorkspaceRoot(rootDir), wqWasmPkgDir];
 
-// `npm link wqpl` resolves to a real path outside this repo, so Vite must be
-// told that serving the package wasm from that location is intentional.
-if (existsSync(wqPackageDir)) {
-  fsAllowList.push(realpathSync(wqPackageDir));
+if (!existsSync(wqWasmEntry)) {
+  throw new Error(
+    "Missing wq-wasm generated package. Run `npm run build:wasm` from wqide/.",
+  );
 }
 
 const htmlEntries = [
@@ -25,10 +26,18 @@ const htmlEntries = [
 
 export default defineConfig({
   base: "./",
+  resolve: {
+    alias: {
+      "wq-wasm": wqWasmEntry,
+    },
+  },
   server: {
     fs: {
       allow: fsAllowList,
     },
+  },
+  optimizeDeps: {
+    exclude: ["wq-wasm"],
   },
   plugins: [
     viteStaticCopy({

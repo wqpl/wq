@@ -4,20 +4,25 @@
   "private": true,
   "description": "Interactive browser IDE for wqpl",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "build": "npm run build:wasm && npm run build:site",
+    "build:site": "vite build",
+    "build:wasm": "wasm-pack build ../wq-wasm --target web",
+    "build:wasm:dev": "wasm-pack build ../wq-wasm --target web --dev",
+    "dev": "npm run build:wasm:dev && vite",
+    "dev:site": "vite",
     "preview": "vite preview"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wqpl/wqide.git"
+    "url": "git+https://codeberg.org/wqpl/wq.git",
+    "directory": "wqide"
   },
   "license": "ISC",
   "type": "module",
   "bugs": {
-    "url": "https://github.com/wqpl/wqide/issues"
+    "url": "https://codeberg.org/wqpl/wq/issues"
   },
-  "homepage": "https://github.com/wqpl/wqide#readme",
+  "homepage": "https://wq-pl.com",
   "devDependencies": {
     "vite": "^8.0.3",
     "vite-plugin-static-copy": "^4.0.1"

@@ -355,7 +355,7 @@ const MORE_HTML = html`
           <ul>
             <li>
               <a
-                href="https://github.com/wqpl/wqide"
+                href="https://codeberg.org/wqpl/wq/src/branch/main/wqide"
                 target="_blank"
                 rel="noopener"
                 >wqide</a
