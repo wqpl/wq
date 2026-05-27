@@ -7,7 +7,12 @@ import { viteStaticCopy } from "vite-plugin-static-copy";
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const wqWasmPkgDir = resolve(rootDir, "../wq-wasm/pkg");
 const wqWasmEntry = resolve(wqWasmPkgDir, "wq_wasm.js");
-const fsAllowList = [searchForWorkspaceRoot(rootDir), wqWasmPkgDir];
+const docsArticlesDir = resolve(rootDir, "../d/articles");
+const fsAllowList = [
+  searchForWorkspaceRoot(rootDir),
+  wqWasmPkgDir,
+  docsArticlesDir,
+];
 
 if (!existsSync(wqWasmEntry)) {
   throw new Error(
@@ -42,7 +47,7 @@ export default defineConfig({
   plugins: [
     viteStaticCopy({
       targets: [
-        { src: "articles/**/*", dest: "." },
+        { src: "../d/articles/**/*", dest: ".", rename: { stripBase: 1 } },
         { src: "manifest.json", dest: "." },
         { src: "favicon.png", dest: "." },
         { src: "wq_transparent_bg.png", dest: "." },
