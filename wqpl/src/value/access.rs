@@ -179,7 +179,7 @@ impl Value {
             },
 
             // atom: multiplication
-            (a, b) if a.is_atom() => a.multiply(b).ok(),
+            (a, _b) if a.is_atom() => Some(a.clone()),
             _ => None,
         }
     }
