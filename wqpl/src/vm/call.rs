@@ -4,7 +4,7 @@ use std::sync::Arc;
 use ahash::AHashMap;
 use smallvec::SmallVec;
 
-use crate::builtins::Builtins;
+use crate::builtins::{BuiltinFnArgs, Builtins};
 use crate::interpret::vanilla::Sv4;
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::value::cell::ValueCell;
@@ -17,6 +17,11 @@ use crate::vm::{
 };
 use crate::wqdb::build::mark_stmt_heuristic;
 use crate::wqdb::data::ChunkId;
+
+struct TakenBuiltinArgs {
+    args: BuiltinFnArgs,
+    had_named_meta: bool,
+}
 
 impl Vm {
     // API for Builtins ============================
@@ -425,12 +430,49 @@ impl Vm {
     #[inline]
     pub(crate) fn invoke_bfn_id(&mut self, id: u16, argc: u16) -> WqResult<Value> {
         let argc = usize::from(argc);
+        let taken = self.take_builtin_args_from_stack(argc)?;
+        if self.builtins.is_enabled_id(id) {
+            self.call_builtin_id(id, taken.args)
+        } else {
+            let name = Builtins::name_from_id(id).ok_or_else(|| vm_err("invalid builtin id"))?;
+            if let Some(val) = self.lookup_global(name) {
+                match &val {
+                    Value::BuiltinFunction(bname) => {
+                        if taken.had_named_meta {
+                            Err(arity_err_vm(format!(
+                                "cannot pass named arguments to builtin override '{bname}'"
+                            )))
+                        } else {
+                            self.call_builtin_name(bname, taken.args)
+                        }
+                    }
+                    _ => {
+                        // User override: push positional args back, then call.
+                        let pos_len = taken.args.len();
+                        self.stack.extend(taken.args);
+                        self.invoke_user(&val, pos_len, None)
+                    }
+                }
+            } else {
+                Err(not_bound_err(format!("'{name}' has not been bound to a value")).attach_note(
+                    format!("a builtin named '{name}' exists but is disabled in the current preset"),
+                ))
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn invoke_bfn_name(&mut self, name: &str, argc: usize) -> WqResult<Value> {
+        let taken = self.take_builtin_args_from_stack(argc)?;
+        self.call_builtin_name(name, taken.args)
+    }
+
+    fn take_builtin_args_from_stack(&mut self, argc: usize) -> WqResult<TakenBuiltinArgs> {
         let named_meta = self.pending_named_meta.take();
         ensure_stack_len(&self.stack, argc, || "builtin args".into())?;
         let base = self.stack.len() - argc;
-
-        // Separate named args off the stack when metadata is present.
-        if let Some(meta) = named_meta {
+        let had_named_meta = named_meta.is_some();
+        let args = if let Some(meta) = named_meta {
             let all_args: Vec<Value> = self.stack.drain(base..).collect();
             let mut pos_args: Sv4 = SmallVec::new();
             let mut named_args: Vec<(Arc<str>, Value)> = Vec::new();
@@ -441,93 +483,15 @@ impl Vm {
                     pos_args.push(v);
                 }
             }
-            let args = crate::builtins::BuiltinFnArgs::with_named(pos_args, named_args);
-            let out = if self.builtins.is_enabled_id(id) {
-                self.call_builtin_id(id, args)?
-            } else {
-                let name =
-                    Builtins::name_from_id(id).ok_or_else(|| vm_err("invalid builtin id"))?;
-                if let Some(val) = self.lookup_global(name) {
-                    match &val {
-                        Value::BuiltinFunction(bname) => {
-                            return Err(arity_err_vm(format!(
-                                "cannot pass named arguments to builtin override '{bname}'"
-                            )));
-                        }
-                        _ => {
-                            // User override: push positional args back, then call
-                            let pos_len = args.len();
-                            self.stack.extend(args);
-                            return self.invoke_user(&val, pos_len, None);
-                        }
-                    }
-                } else {
-                    return Err(not_bound_err(format!(
-                        "'{name}' has not been bound to a value"
-                    ))
-                    .attach_note(format!(
-                        "a builtin named '{name}' exists but is disabled in the current preset"
-                    )));
-                }
-            };
-            Ok(out)
-        } else {
-            // Fast path: drain all positional args from stack
-            let pos_args: Sv4 = self.stack.drain(base..).collect();
-            if self.builtins.is_enabled_id(id) {
-                self.call_builtin_id(id, crate::builtins::BuiltinFnArgs::from(pos_args))
-            } else {
-                let name =
-                    Builtins::name_from_id(id).ok_or_else(|| vm_err("invalid builtin id"))?;
-                if let Some(val) = self.lookup_global(name) {
-                    match &val {
-                        Value::BuiltinFunction(bname) => self.call_builtin_name(
-                            bname,
-                            crate::builtins::BuiltinFnArgs::from(pos_args),
-                        ),
-                        _ => {
-                            // User override: push args back on stack, invoke
-                            self.stack.extend(pos_args);
-                            self.invoke_user(&val, argc, None)
-                        }
-                    }
-                } else {
-                    Err(not_bound_err(format!(
-                        "'{name}' has not been bound to a value"
-                    ))
-                    .attach_note(format!(
-                        "a builtin named '{name}' exists but is disabled in the current preset"
-                    )))
-                }
-            }
-        }
-    }
-
-    #[inline]
-    pub(crate) fn invoke_bfn_name(&mut self, name: &str, argc: usize) -> WqResult<Value> {
-        let named_meta = self.pending_named_meta.take();
-        ensure_stack_len(&self.stack, argc, || "builtin args".into())?;
-        let base = self.stack.len() - argc;
-
-        if let Some(meta) = named_meta {
-            let all_args: Vec<Value> = self.stack.drain(base..).collect();
-            let mut pos_args: Sv4 = SmallVec::new();
-            let mut named_args: Vec<(Arc<str>, Value)> = Vec::new();
-            for (i, v) in all_args.into_iter().enumerate() {
-                if let Some((_, param_name)) = meta.named.iter().find(|(p, _)| *p as usize == i) {
-                    named_args.push((param_name.clone(), v));
-                } else {
-                    pos_args.push(v);
-                }
-            }
-            self.call_builtin_name(
-                name,
-                crate::builtins::BuiltinFnArgs::with_named(pos_args, named_args),
-            )
+            BuiltinFnArgs::with_named(pos_args, named_args)
         } else {
             let pos_args: Sv4 = self.stack.drain(base..).collect();
-            self.call_builtin_name(name, crate::builtins::BuiltinFnArgs::from(pos_args))
-        }
+            BuiltinFnArgs::from(pos_args)
+        };
+        Ok(TakenBuiltinArgs {
+            args,
+            had_named_meta,
+        })
     }
 
     #[inline]
