@@ -854,6 +854,73 @@ impl Parser {
         }
     }
 
+    fn assignment_op_from_token_type(tt: &TokenType) -> Option<Option<BinaryOperator>> {
+        match tt {
+            TokenType::Colon => Some(None),
+            TokenType::PlusColon => Some(Some(BinaryOperator::Add)),
+            TokenType::MinusColon => Some(Some(BinaryOperator::Subtract)),
+            TokenType::MultiplyColon => Some(Some(BinaryOperator::Multiply)),
+            TokenType::DivideColon => Some(Some(BinaryOperator::Divide)),
+            TokenType::DivideDotColon => Some(Some(BinaryOperator::DivideDot)),
+            TokenType::ModuloColon => Some(Some(BinaryOperator::Modulo)),
+            TokenType::PowerColon => Some(Some(BinaryOperator::Power)),
+            TokenType::PowerDotColon => Some(Some(BinaryOperator::PowerDot)),
+            TokenType::CommaColon => Some(Some(BinaryOperator::Cat)),
+            TokenType::BoolAndColon => Some(Some(BinaryOperator::BoolAnd)),
+            TokenType::BoolOrColon => Some(Some(BinaryOperator::BoolOr)),
+            TokenType::BitAndColon => Some(Some(BinaryOperator::BitAnd)),
+            TokenType::BitOrColon => Some(Some(BinaryOperator::BitOr)),
+            TokenType::ShlColon => Some(Some(BinaryOperator::Shl)),
+            TokenType::ShrColon => Some(Some(BinaryOperator::Shr)),
+            TokenType::BitXorColon => Some(Some(BinaryOperator::BitXor)),
+            TokenType::FloorDivColon => Some(Some(BinaryOperator::FloorDiv)),
+            _ => None,
+        }
+    }
+
+    fn is_pipe_stage_boundary(tt: &TokenType) -> bool {
+        matches!(
+            tt,
+            TokenType::Semicolon
+                | TokenType::Newline
+                | TokenType::RightBracket
+                | TokenType::RightParen
+                | TokenType::RightBrace
+                | TokenType::Pipe
+                | TokenType::PipeDot
+                | TokenType::PipePipe
+                | TokenType::PipePipeDot
+                | TokenType::Comma
+                | TokenType::Eof
+        )
+    }
+
+    fn token_after_current_ends_pipe_stage(&self) -> bool {
+        let mut offset = 1;
+        while let Some(tok) = self.tokens.get(self.current + offset) {
+            if matches!(tok.token_type, TokenType::Comment(_)) {
+                offset += 1;
+                continue;
+            }
+            return Self::is_pipe_stage_boundary(&tok.token_type);
+        }
+        true
+    }
+
+    fn is_checkpoint_assignment_target(expr: &AstNode) -> bool {
+        matches!(
+            expr,
+            AstNode::Variable(_, _)
+                | AstNode::OuterVariable(_, _)
+                | AstNode::Index { .. }
+                | AstNode::MutatingIndex { .. }
+                | AstNode::Postfix {
+                    explicit_call: false,
+                    ..
+                }
+        )
+    }
+
     // program ====================================================================================
 
     fn synchronize_to_stmt_boundary(&mut self) {
@@ -1142,27 +1209,8 @@ impl Parser {
         let pending = self.cst_open();
         let mut expr = self.parse_pipe()?;
         while let Some(token) = self.current_token() {
-            let assign_op = match token.token_type {
-                TokenType::Colon => None,
-                TokenType::PlusColon => Some(BinaryOperator::Add),
-                TokenType::MinusColon => Some(BinaryOperator::Subtract),
-                TokenType::MultiplyColon => Some(BinaryOperator::Multiply),
-                TokenType::DivideColon => Some(BinaryOperator::Divide),
-                TokenType::DivideDotColon => Some(BinaryOperator::DivideDot),
-                TokenType::ModuloColon => Some(BinaryOperator::Modulo),
-
-                TokenType::PowerColon => Some(BinaryOperator::Power),
-                TokenType::PowerDotColon => Some(BinaryOperator::PowerDot),
-                TokenType::CommaColon => Some(BinaryOperator::Cat),
-                TokenType::BoolAndColon => Some(BinaryOperator::BoolAnd),
-                TokenType::BoolOrColon => Some(BinaryOperator::BoolOr),
-                TokenType::BitAndColon => Some(BinaryOperator::BitAnd),
-                TokenType::BitOrColon => Some(BinaryOperator::BitOr),
-                TokenType::ShlColon => Some(BinaryOperator::Shl),
-                TokenType::ShrColon => Some(BinaryOperator::Shr),
-                TokenType::BitXorColon => Some(BinaryOperator::BitXor),
-                TokenType::FloorDivColon => Some(BinaryOperator::FloorDiv),
-                _ => break,
+            let Some(assign_op) = Self::assignment_op_from_token_type(&token.token_type) else {
+                break;
             };
 
             match expr {
@@ -2023,6 +2071,107 @@ impl Parser {
         self.parse_postfix_internal(Self::parse_range)
     }
 
+    fn parse_pipe_rhs_checkpoint_assignment(&mut self) -> WqResult<AstNode> {
+        let pending = self.cst_open();
+        let expr = self.parse_postfix_internal(Self::parse_comparison)?;
+        let Some(token) = self.current_token().cloned() else {
+            return Ok(expr);
+        };
+        let Some(assign_op) = Self::assignment_op_from_token_type(&token.token_type) else {
+            return Ok(expr);
+        };
+        if !self.token_after_current_ends_pipe_stage() {
+            if Self::is_checkpoint_assignment_target(&expr) {
+                return Err(self
+                    .syntax_err(
+                        &token,
+                        "pipe assignment stages take no explicit RHS; the pipe value is the RHS",
+                    )
+                    .attach_note("write `value|name:` to bind the current pipe value")
+                    .attach_note("use a block if the pipe stage needs separate assignment logic"));
+            }
+            return Ok(expr);
+        }
+
+        match expr {
+            AstNode::Variable(name, var_span) => {
+                if self.builtins.has_function(&name) {
+                    return Err(
+                        self.syntax_err(&token, format!("cannot assign to builtin '{name}'"))
+                    );
+                }
+                self.advance();
+                let span = self.cst_close_with_span(pending, SyntaxKind::AssignExpr);
+                Ok(AstNode::Assignment {
+                    name,
+                    op: assign_op,
+                    value: Box::new(AstNode::PipeInput),
+                    span,
+                    name_span: var_span,
+                })
+            }
+            AstNode::OuterVariable(name, var_span) => {
+                if self.builtins.has_function(&name) {
+                    return Err(
+                        self.syntax_err(&token, format!("cannot assign to builtin '{name}'"))
+                    );
+                }
+                self.advance();
+                let span = self.cst_close_with_span(pending, SyntaxKind::OuterAssignExpr);
+                Ok(AstNode::OuterAssignment {
+                    name,
+                    op: assign_op,
+                    value: Box::new(AstNode::PipeInput),
+                    span,
+                    name_span: var_span,
+                })
+            }
+            AstNode::Index { object, index, .. } => {
+                self.advance();
+                let span = self.cst_close_with_span(pending, SyntaxKind::IndexAssignExpr);
+                Ok(AstNode::IndexAssign {
+                    object,
+                    index,
+                    op: assign_op,
+                    value: Box::new(AstNode::PipeInput),
+                    span,
+                })
+            }
+            AstNode::MutatingIndex { object, index, .. } => {
+                self.advance();
+                let span = self.cst_close_with_span(pending, SyntaxKind::MutatingIndexAssignExpr);
+                Ok(AstNode::MutatingIndexAssign {
+                    object,
+                    index,
+                    value: Box::new(AstNode::PipeInput),
+                    span,
+                })
+            }
+            AstNode::Postfix {
+                object,
+                items,
+                explicit_call: false,
+                ..
+            } => {
+                self.advance();
+                let span = self.cst_close_with_span(pending, SyntaxKind::IndexAssignExpr);
+                let index = if items.len() == 1 {
+                    Box::new(items.into_iter().next().expect("len == 1"))
+                } else {
+                    Box::new(AstNode::List(items))
+                };
+                Ok(AstNode::IndexAssign {
+                    object,
+                    index,
+                    op: assign_op,
+                    value: Box::new(AstNode::PipeInput),
+                    span,
+                })
+            }
+            _ => Ok(expr),
+        }
+    }
+
     fn parse_pipe_rhs_expr(&mut self) -> WqResult<AstNode> {
         if let Some(token) = self.current_token().cloned()
             && token.token_type == TokenType::AtDebug
@@ -2034,7 +2183,7 @@ impl Parser {
                 span: Some((token.byte_start, token.byte_end)),
             });
         }
-        self.parse_postfix_internal(Self::parse_comparison)
+        self.parse_pipe_rhs_checkpoint_assignment()
     }
 
     // list/dict ===============================================================
@@ -4499,6 +4648,21 @@ mod cst_integration_tests {
         round_trip("xs|sum");
         round_trip("xs|.print");
         round_trip("xs|f|g|h");
+        round_trip("xs|a:|sum");
+    }
+
+    #[test]
+    fn pipe_checkpoint_assignment_uses_pipe_input() {
+        let ast = parse_without_cst("42|a:");
+        let AstNode::Pipe { effect, .. } = ast else {
+            panic!("expected pipe, got {ast:?}");
+        };
+        let AstNode::Assignment { name, value, .. } = effect.as_ref() else {
+            panic!("expected assignment pipe RHS, got {effect:?}");
+        };
+
+        assert_eq!(name, "a");
+        assert!(matches!(value.as_ref(), AstNode::PipeInput));
     }
 
     #[test]

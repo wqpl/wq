@@ -1374,6 +1374,56 @@ impl Resolver {
                     span: new_span,
                 }
             }
+            AstNode::Assignment {
+                name,
+                op,
+                value,
+                span: assign_span,
+                name_span,
+            } if matches!(value.as_ref(), AstNode::PipeInput) => AstNode::Assignment {
+                name,
+                op,
+                value: Box::new(input),
+                span: assign_span,
+                name_span,
+            },
+            AstNode::OuterAssignment {
+                name,
+                op,
+                value,
+                span: assign_span,
+                name_span,
+            } if matches!(value.as_ref(), AstNode::PipeInput) => AstNode::OuterAssignment {
+                name,
+                op,
+                value: Box::new(input),
+                span: assign_span,
+                name_span,
+            },
+            AstNode::IndexAssign {
+                object,
+                index,
+                op,
+                value,
+                span: assign_span,
+            } if matches!(value.as_ref(), AstNode::PipeInput) => AstNode::IndexAssign {
+                object,
+                index,
+                op,
+                value: Box::new(input),
+                span: assign_span,
+            },
+            AstNode::MutatingIndexAssign {
+                object,
+                index,
+                value,
+                span: assign_span,
+            } if matches!(value.as_ref(), AstNode::PipeInput) => AstNode::MutatingIndexAssign {
+                object,
+                index,
+                value: Box::new(input),
+                span: assign_span,
+            },
             AstNode::Pause {
                 expr: None,
                 span: pause_span,
