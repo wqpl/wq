@@ -1049,13 +1049,8 @@ impl VanillaInterpreter {
         slot_usize: usize,
         p: PeekLocalUser,
     ) -> WqResult<LocalCallable> {
-        let dbg_new = {
-            let shape = p
-                .value
-                .as_user_function()
-                .ok_or_else(|| vm_err("local callable lost function shape"))?;
-            vm.ensure_dbg_chunk_with_spans("<fn>", shape.debug_spec())
-        };
+        let mut value = p.value;
+        let dbg_new = vm.stamp_user_function_debug_chunk(&mut value, "<fn>", None);
         if dbg_new != p.dbg_chunk
             && let Some(slot_ref) = vm.locals.get_mut(fi).and_then(|f| f.get_mut(slot_usize))
         {
@@ -1070,10 +1065,6 @@ impl VanillaInterpreter {
                 }
             });
         }
-        let value = p
-            .value
-            .with_user_function_dbg_chunk(dbg_new)
-            .ok_or_else(|| vm_err("local callable lost function shape"))?;
         Ok(LocalCallable::Func {
             value,
             params_len: p.params.as_ref().map(|x| x.len()),

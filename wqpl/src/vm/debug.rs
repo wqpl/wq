@@ -41,6 +41,31 @@ impl Vm {
         }
     }
 
+    pub(crate) fn stamp_user_function_debug_chunk(
+        &mut self,
+        value: &mut Value,
+        name: &str,
+        dbg_chunk: Option<ChunkId>,
+    ) -> Option<ChunkId> {
+        let (chunk, needs_update) = {
+            let Some(shape) = value.as_user_function() else {
+                return dbg_chunk;
+            };
+            let mut spec = shape.debug_spec();
+            if dbg_chunk.is_some() {
+                spec.dbg_chunk = dbg_chunk;
+            }
+            let chunk = self.ensure_dbg_chunk_with_spans(name, spec);
+            (chunk, shape.dbg_chunk != chunk)
+        };
+        if needs_update {
+            *value = value
+                .with_user_function_dbg_chunk(chunk)
+                .expect("checked user function");
+        }
+        chunk
+    }
+
     /// Prepare debug info for a top-level script run in the REPL.
     /// Creates a new source file and a script chunk and selects it as current.
     pub fn script_prepare_debug(&mut self, virtual_path: &str, source: &str) {

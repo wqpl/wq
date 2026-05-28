@@ -142,20 +142,15 @@ impl Vm {
                     })
             };
             if callee.as_user_function().is_some() {
-                let (chunk, needs_update) = {
-                    let shape = callee.as_user_function().expect("checked user function");
-                    let requested_dbg_chunk = dbg_chunk.or(shape.dbg_chunk);
-                    let title = preferred_name(requested_dbg_chunk);
-                    let mut spec = shape.debug_spec();
-                    spec.dbg_chunk = requested_dbg_chunk;
-                    let chunk = self.ensure_dbg_chunk_with_spans(&title, spec);
-                    (chunk, shape.dbg_chunk != chunk)
-                };
-                if needs_update {
-                    callee = callee
-                        .with_user_function_dbg_chunk(chunk)
-                        .expect("checked user function");
-                }
+                let requested_dbg_chunk = dbg_chunk.or_else(|| {
+                    callee
+                        .as_user_function()
+                        .expect("checked user function")
+                        .dbg_chunk
+                });
+                let title = preferred_name(requested_dbg_chunk);
+                let chunk =
+                    self.stamp_user_function_debug_chunk(&mut callee, &title, requested_dbg_chunk);
                 chunk.unwrap_or(self.current_chunk)
             } else {
                 let title = preferred_name(dbg_chunk);
@@ -574,23 +569,14 @@ impl Vm {
         };
 
         if func_val.as_user_function().is_some() {
-            let (value, dbg_chunk) = if self.debug_artifacts_enabled() {
-                let dbg_chunk = {
-                    let shape = func_val.as_user_function().expect("checked user function");
-                    self.ensure_dbg_chunk_with_spans(name, shape.debug_spec())
-                };
-                (
-                    func_val
-                        .with_user_function_dbg_chunk(dbg_chunk)
-                        .expect("checked user function"),
-                    dbg_chunk,
-                )
+            let mut value = func_val;
+            let dbg_chunk = if self.debug_artifacts_enabled() {
+                self.stamp_user_function_debug_chunk(&mut value, name, None)
             } else {
-                let dbg_chunk = func_val
+                value
                     .as_user_function()
                     .expect("checked user function")
-                    .dbg_chunk;
-                (func_val, dbg_chunk)
+                    .dbg_chunk
             };
             if let Some(slot) = slot {
                 let name_version = self.global_slot_version(slot);

@@ -13,13 +13,12 @@ use ahash::AHashMap;
 use crate::builtins::{BuiltinPreset, Builtins};
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
 use crate::value::cell::ValueCell;
-use crate::value::func::{ClosureData, FunctionData};
 use crate::value::{Value, WqResult};
 use crate::vm::call::ResolvedCallable;
 use crate::vm::inst::Instruction;
 use crate::vm::trace::TraceRecord;
 use crate::wqdb::Wqdb;
-use crate::wqdb::data::{Backtrace, ChunkId, DebugChunkSpec, DebugInfo, DebugLocalsFrame};
+use crate::wqdb::data::{Backtrace, ChunkId, DebugInfo, DebugLocalsFrame};
 use crate::wqerror::{WqError, WqErrorType};
 
 pub type GlobalMap = AHashMap<String, Value>;
@@ -311,45 +310,7 @@ impl Vm {
 
     pub(crate) fn assign_global_and_slot(&mut self, name: &str, mut value: Value) -> usize {
         if self.debug_artifacts_enabled() {
-            if let Value::CompiledFunction(f) = &value {
-                let chunk = self.ensure_dbg_chunk_with_spans(
-                    name,
-                    DebugChunkSpec {
-                        dbg_chunk: f.dbg_chunk,
-                        instructions: f.instructions.as_ref(),
-                        dbg_stmt_spans: &f.dbg_stmt_spans,
-                        source_base_offset: f.dbg_source_base_offset,
-                        dbg_pc_spans: &f.dbg_pc_spans,
-                        dbg_stmt_marks: &f.dbg_stmt_marks,
-                        dbg_local_names: &f.dbg_local_names,
-                        params: &f.params,
-                    },
-                );
-                if f.dbg_chunk != chunk {
-                    let mut new_f = FunctionData::clone(f);
-                    new_f.dbg_chunk = chunk;
-                    value = Value::CompiledFunction(std::sync::Arc::new(new_f));
-                }
-            } else if let Value::Closure(c) = &value {
-                let chunk = self.ensure_dbg_chunk_with_spans(
-                    name,
-                    DebugChunkSpec {
-                        dbg_chunk: c.dbg_chunk,
-                        instructions: c.instructions.as_ref(),
-                        dbg_stmt_spans: &c.dbg_stmt_spans,
-                        source_base_offset: c.dbg_source_base_offset,
-                        dbg_pc_spans: &c.dbg_pc_spans,
-                        dbg_stmt_marks: &c.dbg_stmt_marks,
-                        dbg_local_names: &c.dbg_local_names,
-                        params: &c.params,
-                    },
-                );
-                if c.dbg_chunk != chunk {
-                    let mut new_c = ClosureData::clone(c);
-                    new_c.dbg_chunk = chunk;
-                    value = Value::Closure(std::sync::Arc::new(new_c));
-                }
-            }
+            let _ = self.stamp_user_function_debug_chunk(&mut value, name, None);
         }
         let slot = match self.global_slot_map.get(name).copied() {
             Some(slot) => slot,
@@ -370,45 +331,7 @@ impl Vm {
 
     pub(crate) fn assign_global_at_slot(&mut self, name: &str, slot: usize, mut value: Value) {
         if self.debug_artifacts_enabled() {
-            if let Value::CompiledFunction(f) = &value {
-                let chunk = self.ensure_dbg_chunk_with_spans(
-                    name,
-                    DebugChunkSpec {
-                        dbg_chunk: f.dbg_chunk,
-                        instructions: f.instructions.as_ref(),
-                        dbg_stmt_spans: &f.dbg_stmt_spans,
-                        source_base_offset: f.dbg_source_base_offset,
-                        dbg_pc_spans: &f.dbg_pc_spans,
-                        dbg_stmt_marks: &f.dbg_stmt_marks,
-                        dbg_local_names: &f.dbg_local_names,
-                        params: &f.params,
-                    },
-                );
-                if f.dbg_chunk != chunk {
-                    let mut new_f = FunctionData::clone(f);
-                    new_f.dbg_chunk = chunk;
-                    value = Value::CompiledFunction(std::sync::Arc::new(new_f));
-                }
-            } else if let Value::Closure(c) = &value {
-                let chunk = self.ensure_dbg_chunk_with_spans(
-                    name,
-                    DebugChunkSpec {
-                        dbg_chunk: c.dbg_chunk,
-                        instructions: c.instructions.as_ref(),
-                        dbg_stmt_spans: &c.dbg_stmt_spans,
-                        source_base_offset: c.dbg_source_base_offset,
-                        dbg_pc_spans: &c.dbg_pc_spans,
-                        dbg_stmt_marks: &c.dbg_stmt_marks,
-                        dbg_local_names: &c.dbg_local_names,
-                        params: &c.params,
-                    },
-                );
-                if c.dbg_chunk != chunk {
-                    let mut new_c = ClosureData::clone(c);
-                    new_c.dbg_chunk = chunk;
-                    value = Value::Closure(std::sync::Arc::new(new_c));
-                }
-            }
+            let _ = self.stamp_user_function_debug_chunk(&mut value, name, None);
         }
         if let Some(dest) = self.global_slots.get_mut(slot) {
             *dest = value;
