@@ -156,12 +156,30 @@ pub(crate) enum Instruction {
     /// Call or index a local variable, avoiding cloning if indexing
     PostfixLocal(u16, usize),
     TailPostfixLocal(u16, usize),
+    /// Look up a constant-tag method on a local dict, then call or index it.
+    PostfixMethodLocal(u16, Arc<str>, usize),
+    TailPostfixMethodLocal(u16, Arc<str>, usize),
+    /// Look up a constant-tag method on a local dict, then call it.
+    CallMethodLocal(u16, Arc<str>, usize),
+    TailCallMethodLocal(u16, Arc<str>, usize),
     /// Call or index a captured variable, avoiding cloning if indexing
     PostfixCapture(u16, usize),
     TailPostfixCapture(u16, usize),
+    /// Look up a constant-tag method on a captured dict, then call or index it.
+    PostfixMethodCapture(u16, Arc<str>, usize),
+    TailPostfixMethodCapture(u16, Arc<str>, usize),
+    /// Look up a constant-tag method on a captured dict, then call it.
+    CallMethodCapture(u16, Arc<str>, usize),
+    TailCallMethodCapture(u16, Arc<str>, usize),
     /// Call or index a global variable, avoiding cloning if indexing
     PostfixVar(Arc<str>, usize),
     TailPostfixVar(Arc<str>, usize),
+    /// Look up a constant-tag method on a global dict, then call or index it.
+    PostfixMethodVar(Arc<str>, Arc<str>, usize),
+    TailPostfixMethodVar(Arc<str>, Arc<str>, usize),
+    /// Look up a constant-tag method on a global dict, then call it.
+    CallMethodVar(Arc<str>, Arc<str>, usize),
+    TailCallMethodVar(Arc<str>, Arc<str>, usize),
     MakeList(usize),
     MakeDict(usize),
 
@@ -249,8 +267,14 @@ impl Instruction {
                 | I::CallLocal(_, _)
                 | I::Postfix(_)
                 | I::PostfixLocal(_, _)
+                | I::PostfixMethodLocal(_, _, _)
+                | I::CallMethodLocal(_, _, _)
                 | I::PostfixCapture(_, _)
+                | I::PostfixMethodCapture(_, _, _)
+                | I::CallMethodCapture(_, _, _)
                 | I::PostfixVar(_, _)
+                | I::PostfixMethodVar(_, _, _)
+                | I::CallMethodVar(_, _, _)
                 | I::Index
                 | I::IndexLoadLocal(_)
                 | I::IndexLoadCapture(_)
@@ -314,10 +338,22 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         | I::TailPostfix(_)
         | I::PostfixLocal(_, _)
         | I::TailPostfixLocal(_, _)
+        | I::PostfixMethodLocal(_, _, _)
+        | I::TailPostfixMethodLocal(_, _, _)
+        | I::CallMethodLocal(_, _, _)
+        | I::TailCallMethodLocal(_, _, _)
         | I::PostfixCapture(_, _)
         | I::TailPostfixCapture(_, _)
+        | I::PostfixMethodCapture(_, _, _)
+        | I::TailPostfixMethodCapture(_, _, _)
+        | I::CallMethodCapture(_, _, _)
+        | I::TailCallMethodCapture(_, _, _)
         | I::PostfixVar(_, _)
         | I::TailPostfixVar(_, _)
+        | I::PostfixMethodVar(_, _, _)
+        | I::TailPostfixMethodVar(_, _, _)
+        | I::CallMethodVar(_, _, _)
+        | I::TailCallMethodVar(_, _, _)
         | I::CallAnon(_)
         | I::TailCallAnon(_)
         | I::CallUser(_, _)
@@ -533,6 +569,10 @@ impl InstPrettyDumper {
             | Instruction::IndexLoadLocal(slot)
             | Instruction::PostfixLocal(slot, _)
             | Instruction::TailPostfixLocal(slot, _)
+            | Instruction::PostfixMethodLocal(slot, _, _)
+            | Instruction::TailPostfixMethodLocal(slot, _, _)
+            | Instruction::CallMethodLocal(slot, _, _)
+            | Instruction::TailCallMethodLocal(slot, _, _)
             | Instruction::IndexAssignLocal(slot)
             | Instruction::IndexMutate {
                 target: StoreTarget::Local(slot),

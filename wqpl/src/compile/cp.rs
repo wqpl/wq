@@ -513,6 +513,14 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push_unknown();
             fallthrough(pc, state)
         }
+        I::CallMethodLocal(_, _, argc)
+        | I::CallMethodCapture(_, _, argc)
+        | I::CallMethodVar(_, _, argc) => {
+            state.pop_args(*argc);
+            state.clear_volatile_facts();
+            state.push_unknown();
+            fallthrough(pc, state)
+        }
         I::PostfixLocal(slot, argc) => {
             let args = state.pop_args(*argc);
             let target = state.local(*slot);
@@ -525,6 +533,12 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
                 state.clear_volatile_facts();
             }
             state.push(result);
+            fallthrough(pc, state)
+        }
+        I::PostfixMethodLocal(_, _, argc) => {
+            state.pop_args(*argc);
+            state.clear_volatile_facts();
+            state.push_unknown();
             fallthrough(pc, state)
         }
         I::Postfix(argc) => {
@@ -554,6 +568,12 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(result);
             fallthrough(pc, state)
         }
+        I::PostfixMethodCapture(_, _, argc) => {
+            state.pop_args(*argc);
+            state.clear_volatile_facts();
+            state.push_unknown();
+            fallthrough(pc, state)
+        }
         I::PostfixVar(name, argc) => {
             let args = state.pop_args(*argc);
             let target = state.global(name);
@@ -568,6 +588,12 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(result);
             fallthrough(pc, state)
         }
+        I::PostfixMethodVar(_, _, argc) => {
+            state.pop_args(*argc);
+            state.clear_volatile_facts();
+            state.push_unknown();
+            fallthrough(pc, state)
+        }
         I::TailCallLocal(_, argc) | I::TailCallUser(_, argc) => {
             state.pop_args(*argc);
             Vec::new()
@@ -576,9 +602,18 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.pop_call_target_and_args(*argc);
             Vec::new()
         }
+        I::TailCallMethodLocal(_, _, argc)
+        | I::TailCallMethodCapture(_, _, argc)
+        | I::TailCallMethodVar(_, _, argc) => {
+            state.pop_args(*argc);
+            Vec::new()
+        }
         I::TailPostfixLocal(_, argc)
+        | I::TailPostfixMethodLocal(_, _, argc)
         | I::TailPostfixCapture(_, argc)
-        | I::TailPostfixVar(_, argc) => {
+        | I::TailPostfixMethodCapture(_, _, argc)
+        | I::TailPostfixVar(_, argc)
+        | I::TailPostfixMethodVar(_, _, argc) => {
             state.pop_args(*argc);
             Vec::new()
         }

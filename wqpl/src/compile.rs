@@ -15,6 +15,12 @@ use crate::value::{Value, WqResult};
 use crate::vm::inst::{Capture, DebugStmtMark, Instruction, MutationOp, Operand, StoreTarget};
 use crate::wqerror::{WqError, WqErrorType};
 
+#[derive(Clone, Copy)]
+enum MethodDispatchKind {
+    Postfix,
+    Call,
+}
+
 pub(crate) struct Compiler {
     pub(crate) instructions: Vec<Instruction>,
     builtins: Builtins,
@@ -142,6 +148,120 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn method_lookup_target(object: &AstNode) -> Option<(&AstNode, Arc<str>)> {
+        match object {
+            AstNode::Postfix {
+                object,
+                items,
+                depth: None,
+                ..
+            } => {
+                let [AstNode::Literal(Value::Tag(name), _)] = items.as_slice() else {
+                    return None;
+                };
+                Some((object.as_ref(), Arc::clone(name)))
+            }
+            AstNode::Index { object, index, .. } => {
+                let AstNode::Literal(Value::Tag(name), _) = index.as_ref() else {
+                    return None;
+                };
+                Some((object.as_ref(), Arc::clone(name)))
+            }
+            _ => None,
+        }
+    }
+
+    fn compile_method_dispatch(
+        &mut self,
+        receiver: &AstNode,
+        method: Arc<str>,
+        args: &[AstNode],
+        kind: MethodDispatchKind,
+    ) -> WqResult<bool> {
+        let AstNode::Variable(name, _) = receiver else {
+            return Ok(false);
+        };
+
+        if self.fn_depth > 0 {
+            if self.is_local(name) {
+                let slot = self.locals[name];
+                self.compile_call_args(args)?;
+                self.instructions
+                    .push(Self::method_local_inst(kind, slot, method, args.len()));
+                return Ok(true);
+            }
+            if self.is_ref_default_name(name) {
+                self.compile_call_args(args)?;
+                if let Some(idx) = self.ref_capture_map.get(name).copied() {
+                    self.instructions
+                        .push(Self::method_capture_inst(kind, idx, method, args.len()));
+                } else {
+                    self.instructions.push(Self::method_var_inst(
+                        kind,
+                        name.clone().into(),
+                        method,
+                        args.len(),
+                    ));
+                }
+                return Ok(true);
+            }
+            if let Some(idx) = self.capture_map.get(name).copied() {
+                self.compile_call_args(args)?;
+                self.instructions
+                    .push(Self::method_capture_inst(kind, idx, method, args.len()));
+                return Ok(true);
+            }
+            return Ok(false);
+        }
+
+        self.compile_call_args(args)?;
+        self.instructions.push(Self::method_var_inst(
+            kind,
+            name.clone().into(),
+            method,
+            args.len(),
+        ));
+        Ok(true)
+    }
+
+    fn method_local_inst(
+        kind: MethodDispatchKind,
+        slot: u16,
+        method: Arc<str>,
+        argc: usize,
+    ) -> Instruction {
+        match kind {
+            MethodDispatchKind::Postfix => Instruction::PostfixMethodLocal(slot, method, argc),
+            MethodDispatchKind::Call => Instruction::CallMethodLocal(slot, method, argc),
+        }
+    }
+
+    fn method_capture_inst(
+        kind: MethodDispatchKind,
+        slot: u16,
+        method: Arc<str>,
+        argc: usize,
+    ) -> Instruction {
+        match kind {
+            MethodDispatchKind::Postfix => Instruction::PostfixMethodCapture(slot, method, argc),
+            MethodDispatchKind::Call => Instruction::CallMethodCapture(slot, method, argc),
+        }
+    }
+
+    fn method_var_inst(
+        kind: MethodDispatchKind,
+        receiver: Arc<str>,
+        method: Arc<str>,
+        argc: usize,
+    ) -> Instruction {
+        match kind {
+            MethodDispatchKind::Postfix => {
+                Instruction::PostfixMethodVar(receiver, method, argc)
+            }
+            MethodDispatchKind::Call => Instruction::CallMethodVar(receiver, method, argc),
+        }
     }
 
     fn expand_depth_sugar_args(
@@ -841,6 +961,18 @@ impl Compiler {
             }
             AstNode::CallAnonymous { object, args, span } => {
                 let start = self.instructions.len();
+                if let Some((receiver, method)) = Self::method_lookup_target(object.as_ref())
+                    && self.compile_method_dispatch(
+                        receiver,
+                        method,
+                        args,
+                        MethodDispatchKind::Call,
+                    )?
+                {
+                    let end = self.instructions.len();
+                    self.fill_span_range(start, end, *span);
+                    return Ok(());
+                }
                 self.compile_expr(object)?;
                 self.compile_call_args(args)?;
                 self.instructions.push(Instruction::CallAnon(args.len()));
@@ -876,6 +1008,18 @@ impl Compiler {
                         u16::try_from(id).expect("builtin id overflow"),
                         u16::try_from(args.len()).expect("argc overflow"),
                     ));
+                    let end = self.instructions.len();
+                    self.fill_span_range(start, end, *span);
+                    return Ok(());
+                }
+                if let Some((receiver, method)) = Self::method_lookup_target(object.as_ref())
+                    && self.compile_method_dispatch(
+                        receiver,
+                        method,
+                        items,
+                        MethodDispatchKind::Postfix,
+                    )?
+                {
                     let end = self.instructions.len();
                     self.fill_span_range(start, end, *span);
                     return Ok(());
@@ -3239,6 +3383,22 @@ mod tests {
             !top.iter()
                 .any(|inst| matches!(inst, Instruction::CallUser(name, 1) if name.as_ref() == "f"))
         );
+    }
+
+    #[test]
+    fn constant_tag_method_postfix_uses_method_dispatch() {
+        let top = compile_source("d:(`f:{[x]x+1});d[`f][2];d[`f][]");
+
+        assert!(top.iter().any(|inst| matches!(
+            inst,
+            Instruction::PostfixMethodVar(receiver, method, 1)
+                if receiver.as_ref() == "d" && method.as_ref() == "f"
+        )));
+        assert!(top.iter().any(|inst| matches!(
+            inst,
+            Instruction::CallMethodVar(receiver, method, 0)
+                if receiver.as_ref() == "d" && method.as_ref() == "f"
+        )));
     }
 
     #[test]

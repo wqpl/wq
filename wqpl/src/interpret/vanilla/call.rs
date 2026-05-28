@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 use super::{Sv4, index_load_err, named_arg_index_err, not_bound_err, vm_err};
 use crate::interpret::InterpreterHook;
 use crate::value::{Value, WqResult};
-use crate::vm::call::CallSpec;
+use crate::vm::call::{CallSpec, ResolvedCallable};
 use crate::vm::{Frame, Vm};
 
 // --- concrete dispatch functions passed by the interpret loop ---
@@ -81,7 +81,9 @@ pub(super) fn dispatch_postfix(
     idx: usize,
     target: &Value,
     argc: usize,
+    spec_dispatch: fn(&mut Vm, usize, CallSpec) -> WqResult<bool>,
     user_dispatch: fn(&mut Vm, usize, &Value, usize) -> WqResult<bool>,
+    hooks: &dyn InterpreterHook,
 ) -> WqResult<bool> {
     match target {
         Value::BuiltinFunction { id, .. } => {
@@ -94,9 +96,15 @@ pub(super) fn dispatch_postfix(
             vm.stack.push(result);
             Ok(false)
         }
-        Value::CompiledFunction { .. } | Value::Closure { .. } => {
-            user_dispatch(vm, idx, target, argc)
-        }
+        Value::CompiledFunction { .. } | Value::Closure { .. } => dispatch_user_value_cached(
+            vm,
+            idx,
+            target,
+            argc,
+            spec_dispatch,
+            user_dispatch,
+            hooks,
+        ),
         _ => {
             if vm.pending_named_meta.take().is_some() {
                 return Err(named_arg_index_err());
@@ -130,7 +138,9 @@ pub(super) fn dispatch_anon_call(
     idx: usize,
     func: &Value,
     argc: usize,
+    spec_dispatch: fn(&mut Vm, usize, CallSpec) -> WqResult<bool>,
     user_dispatch: fn(&mut Vm, usize, &Value, usize) -> WqResult<bool>,
+    hooks: &dyn InterpreterHook,
 ) -> WqResult<bool> {
     match func {
         Value::BuiltinFunction { id, .. } => {
@@ -143,8 +153,258 @@ pub(super) fn dispatch_anon_call(
             vm.stack.push(out);
             Ok(false)
         }
+        Value::CompiledFunction { .. } | Value::Closure { .. } => dispatch_user_value_cached(
+            vm,
+            idx,
+            func,
+            argc,
+            spec_dispatch,
+            user_dispatch,
+            hooks,
+        ),
         _ => user_dispatch(vm, idx, func, argc),
     }
+}
+
+pub(super) fn dispatch_method_postfix(
+    vm: &mut Vm,
+    idx: usize,
+    receiver: &Value,
+    method: &Arc<str>,
+    argc: usize,
+    spec_dispatch: fn(&mut Vm, usize, CallSpec) -> WqResult<bool>,
+    user_dispatch: fn(&mut Vm, usize, &Value, usize) -> WqResult<bool>,
+    hooks: &dyn InterpreterHook,
+) -> WqResult<bool> {
+    if let Value::Dict(map) = receiver {
+        let dict_identity = Arc::as_ptr(map) as usize;
+        if vm.inline_cache[idx].slot_b == Some(dict_identity)
+            && let Some(ref target) = vm.inline_cache[idx].call_target
+        {
+            let spec = CallSpec::from_resolved(target, argc, None);
+            spec_dispatch(vm, idx, spec)?;
+            hooks.on_call_user_cache_hit();
+            return Ok(true);
+        }
+
+        let Some(target) = map.get(method.as_ref()) else {
+            return Err(index_load_err(&Value::Tag(Arc::clone(method)), receiver));
+        };
+        if let Some(identity) = user_callable_identity(target)
+            && let Some(resolved) =
+                ResolvedCallable::from_user_callable(target.clone(), user_dbg_chunk(target))
+        {
+            let spec = CallSpec::from_resolved(&resolved, argc, None);
+            vm.inline_cache[idx].version = identity;
+            vm.inline_cache[idx].call_target = Some(resolved);
+            vm.inline_cache[idx].slot = None;
+            vm.inline_cache[idx].slot_b = Some(dict_identity);
+            hooks.on_call_user_cache_miss();
+            return spec_dispatch(vm, idx, spec);
+        }
+        return dispatch_postfix(
+            vm,
+            idx,
+            target,
+            argc,
+            spec_dispatch,
+            user_dispatch,
+            hooks,
+        );
+    }
+
+    dispatch_method_postfix_fallback(
+        vm,
+        idx,
+        receiver,
+        method,
+        argc,
+        spec_dispatch,
+        user_dispatch,
+        hooks,
+    )
+}
+
+pub(super) fn dispatch_method_call(
+    vm: &mut Vm,
+    idx: usize,
+    receiver: &Value,
+    method: &Arc<str>,
+    argc: usize,
+    spec_dispatch: fn(&mut Vm, usize, CallSpec) -> WqResult<bool>,
+    user_dispatch: fn(&mut Vm, usize, &Value, usize) -> WqResult<bool>,
+    hooks: &dyn InterpreterHook,
+) -> WqResult<bool> {
+    if let Value::Dict(map) = receiver {
+        let dict_identity = Arc::as_ptr(map) as usize;
+        if vm.inline_cache[idx].slot_b == Some(dict_identity)
+            && let Some(ref target) = vm.inline_cache[idx].call_target
+        {
+            let spec = CallSpec::from_resolved(target, argc, None);
+            spec_dispatch(vm, idx, spec)?;
+            hooks.on_call_user_cache_hit();
+            return Ok(true);
+        }
+
+        let Some(target) = map.get(method.as_ref()) else {
+            return Err(index_load_err(&Value::Tag(Arc::clone(method)), receiver));
+        };
+        if let Some(identity) = user_callable_identity(target)
+            && let Some(resolved) =
+                ResolvedCallable::from_user_callable(target.clone(), user_dbg_chunk(target))
+        {
+            let spec = CallSpec::from_resolved(&resolved, argc, None);
+            vm.inline_cache[idx].version = identity;
+            vm.inline_cache[idx].call_target = Some(resolved);
+            vm.inline_cache[idx].slot = None;
+            vm.inline_cache[idx].slot_b = Some(dict_identity);
+            hooks.on_call_user_cache_miss();
+            return spec_dispatch(vm, idx, spec);
+        }
+        return dispatch_anon_call(
+            vm,
+            idx,
+            target,
+            argc,
+            spec_dispatch,
+            user_dispatch,
+            hooks,
+        );
+    }
+
+    dispatch_method_call_fallback(
+        vm,
+        idx,
+        receiver,
+        method,
+        argc,
+        spec_dispatch,
+        user_dispatch,
+        hooks,
+    )
+}
+
+fn dispatch_method_call_fallback(
+    vm: &mut Vm,
+    idx: usize,
+    receiver: &Value,
+    method: &Arc<str>,
+    argc: usize,
+    spec_dispatch: fn(&mut Vm, usize, CallSpec) -> WqResult<bool>,
+    user_dispatch: fn(&mut Vm, usize, &Value, usize) -> WqResult<bool>,
+    hooks: &dyn InterpreterHook,
+) -> WqResult<bool> {
+    let base = vm.stack.len() - argc;
+    let args: Sv4 = vm.stack.drain(base..).collect();
+    vm.stack.push(Value::Tag(Arc::clone(method)));
+    let _ = dispatch_postfix(
+        vm,
+        idx,
+        receiver,
+        1,
+        invoke_spec_push,
+        invoke_user_push,
+        hooks,
+    )?;
+    let target = vm
+        .stack
+        .pop()
+        .ok_or_else(|| vm_err("method lookup produced no value"))?;
+    vm.stack.extend(args);
+    dispatch_anon_call(
+        vm,
+        idx,
+        &target,
+        argc,
+        spec_dispatch,
+        user_dispatch,
+        hooks,
+    )
+}
+
+fn dispatch_method_postfix_fallback(
+    vm: &mut Vm,
+    idx: usize,
+    receiver: &Value,
+    method: &Arc<str>,
+    argc: usize,
+    spec_dispatch: fn(&mut Vm, usize, CallSpec) -> WqResult<bool>,
+    user_dispatch: fn(&mut Vm, usize, &Value, usize) -> WqResult<bool>,
+    hooks: &dyn InterpreterHook,
+) -> WqResult<bool> {
+    let base = vm.stack.len() - argc;
+    let args: Sv4 = vm.stack.drain(base..).collect();
+    vm.stack.push(Value::Tag(Arc::clone(method)));
+    let _ = dispatch_postfix(
+        vm,
+        idx,
+        receiver,
+        1,
+        invoke_spec_push,
+        invoke_user_push,
+        hooks,
+    )?;
+    let target = vm
+        .stack
+        .pop()
+        .ok_or_else(|| vm_err("method lookup produced no value"))?;
+    vm.stack.extend(args);
+    dispatch_postfix(
+        vm,
+        idx,
+        &target,
+        argc,
+        spec_dispatch,
+        user_dispatch,
+        hooks,
+    )
+}
+
+fn dispatch_user_value_cached(
+    vm: &mut Vm,
+    idx: usize,
+    func: &Value,
+    argc: usize,
+    spec_dispatch: fn(&mut Vm, usize, CallSpec) -> WqResult<bool>,
+    user_dispatch: fn(&mut Vm, usize, &Value, usize) -> WqResult<bool>,
+    hooks: &dyn InterpreterHook,
+) -> WqResult<bool> {
+    let Some(identity) = user_callable_identity(func) else {
+        return user_dispatch(vm, idx, func, argc);
+    };
+
+    if vm.inline_cache[idx].version == identity
+        && let Some(ref target) = vm.inline_cache[idx].call_target
+    {
+        let spec = CallSpec::from_resolved(target, argc, None);
+        spec_dispatch(vm, idx, spec)?;
+        hooks.on_call_user_cache_hit();
+        return Ok(true);
+    }
+
+    hooks.on_call_user_cache_miss();
+    if let Some(target) = ResolvedCallable::from_user_callable(func.clone(), user_dbg_chunk(func)) {
+        let spec = CallSpec::from_resolved(&target, argc, None);
+        vm.inline_cache[idx].version = identity;
+        vm.inline_cache[idx].call_target = Some(target);
+        vm.inline_cache[idx].slot = None;
+        vm.inline_cache[idx].slot_b = None;
+        spec_dispatch(vm, idx, spec)
+    } else {
+        user_dispatch(vm, idx, func, argc)
+    }
+}
+
+fn user_callable_identity(func: &Value) -> Option<u64> {
+    match func {
+        Value::CompiledFunction(data) => Some(Arc::as_ptr(data) as usize as u64),
+        Value::Closure(data) => Some(Arc::as_ptr(data) as usize as u64),
+        _ => None,
+    }
+}
+
+fn user_dbg_chunk(func: &Value) -> Option<crate::wqdb::data::ChunkId> {
+    func.as_user_function().and_then(|shape| shape.dbg_chunk)
 }
 
 pub(super) fn dispatch_user_call(

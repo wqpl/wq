@@ -99,16 +99,34 @@ fn rewrite_tail_calls_in_slice(code: &mut [Instruction]) {
                 Some(Instruction::TailCallUser(name.clone(), *argc))
             }
             Instruction::CallAnon(argc) => Some(Instruction::TailCallAnon(*argc)),
+            Instruction::CallMethodLocal(slot, name, argc) => {
+                Some(Instruction::TailCallMethodLocal(*slot, name.clone(), *argc))
+            }
+            Instruction::CallMethodCapture(slot, name, argc) => Some(
+                Instruction::TailCallMethodCapture(*slot, name.clone(), *argc),
+            ),
+            Instruction::CallMethodVar(receiver, name, argc) => Some(
+                Instruction::TailCallMethodVar(receiver.clone(), name.clone(), *argc),
+            ),
             Instruction::Postfix(argc) => Some(Instruction::TailPostfix(*argc)),
             Instruction::PostfixLocal(slot, argc) => {
                 Some(Instruction::TailPostfixLocal(*slot, *argc))
             }
+            Instruction::PostfixMethodLocal(slot, name, argc) => Some(
+                Instruction::TailPostfixMethodLocal(*slot, name.clone(), *argc),
+            ),
             Instruction::PostfixCapture(slot, argc) => {
                 Some(Instruction::TailPostfixCapture(*slot, *argc))
             }
+            Instruction::PostfixMethodCapture(slot, name, argc) => Some(
+                Instruction::TailPostfixMethodCapture(*slot, name.clone(), *argc),
+            ),
             Instruction::PostfixVar(name, argc) => {
                 Some(Instruction::TailPostfixVar(name.clone(), *argc))
             }
+            Instruction::PostfixMethodVar(receiver, name, argc) => Some(
+                Instruction::TailPostfixMethodVar(receiver.clone(), name.clone(), *argc),
+            ),
             _ => None,
         };
 

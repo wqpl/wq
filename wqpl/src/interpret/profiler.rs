@@ -528,10 +528,22 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::TailPostfix(_) => "TailPostfix",
         I::PostfixLocal(_, _) => "PostfixLocal",
         I::TailPostfixLocal(_, _) => "TailPostfixLocal",
+        I::PostfixMethodLocal(_, _, _) => "PostfixMethodLocal",
+        I::TailPostfixMethodLocal(_, _, _) => "TailPostfixMethodLocal",
+        I::CallMethodLocal(_, _, _) => "CallMethodLocal",
+        I::TailCallMethodLocal(_, _, _) => "TailCallMethodLocal",
         I::PostfixCapture(_, _) => "PostfixCapture",
         I::TailPostfixCapture(_, _) => "TailPostfixCapture",
+        I::PostfixMethodCapture(_, _, _) => "PostfixMethodCapture",
+        I::TailPostfixMethodCapture(_, _, _) => "TailPostfixMethodCapture",
+        I::CallMethodCapture(_, _, _) => "CallMethodCapture",
+        I::TailCallMethodCapture(_, _, _) => "TailCallMethodCapture",
         I::PostfixVar(_, _) => "PostfixVar",
         I::TailPostfixVar(_, _) => "TailPostfixVar",
+        I::PostfixMethodVar(_, _, _) => "PostfixMethodVar",
+        I::TailPostfixMethodVar(_, _, _) => "TailPostfixMethodVar",
+        I::CallMethodVar(_, _, _) => "CallMethodVar",
+        I::TailCallMethodVar(_, _, _) => "TailCallMethodVar",
         I::MakeList(_) => "MakeList",
         I::MakeDict(_) => "MakeDict",
 
@@ -603,10 +615,46 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         I::TailPostfix(argc) => format!("TailPostfix({argc})"),
         I::PostfixLocal(slot, argc) => format!("PostfixLocal({slot}/{argc})"),
         I::TailPostfixLocal(slot, argc) => format!("TailPostfixLocal({slot}/{argc})"),
+        I::PostfixMethodLocal(slot, name, argc) => {
+            format!("PostfixMethodLocal({slot}.{name}/{argc})")
+        }
+        I::TailPostfixMethodLocal(slot, name, argc) => {
+            format!("TailPostfixMethodLocal({slot}.{name}/{argc})")
+        }
+        I::CallMethodLocal(slot, name, argc) => {
+            format!("CallMethodLocal({slot}.{name}/{argc})")
+        }
+        I::TailCallMethodLocal(slot, name, argc) => {
+            format!("TailCallMethodLocal({slot}.{name}/{argc})")
+        }
         I::PostfixCapture(slot, argc) => format!("PostfixCapture({slot}/{argc})"),
         I::TailPostfixCapture(slot, argc) => format!("TailPostfixCapture({slot}/{argc})"),
+        I::PostfixMethodCapture(slot, name, argc) => {
+            format!("PostfixMethodCapture({slot}.{name}/{argc})")
+        }
+        I::TailPostfixMethodCapture(slot, name, argc) => {
+            format!("TailPostfixMethodCapture({slot}.{name}/{argc})")
+        }
+        I::CallMethodCapture(slot, name, argc) => {
+            format!("CallMethodCapture({slot}.{name}/{argc})")
+        }
+        I::TailCallMethodCapture(slot, name, argc) => {
+            format!("TailCallMethodCapture({slot}.{name}/{argc})")
+        }
         I::PostfixVar(name, argc) => format!("PostfixVar({name}/{argc})"),
         I::TailPostfixVar(name, argc) => format!("TailPostfixVar({name}/{argc})"),
+        I::PostfixMethodVar(receiver, name, argc) => {
+            format!("PostfixMethodVar({receiver}.{name}/{argc})")
+        }
+        I::TailPostfixMethodVar(receiver, name, argc) => {
+            format!("TailPostfixMethodVar({receiver}.{name}/{argc})")
+        }
+        I::CallMethodVar(receiver, name, argc) => {
+            format!("CallMethodVar({receiver}.{name}/{argc})")
+        }
+        I::TailCallMethodVar(receiver, name, argc) => {
+            format!("TailCallMethodVar({receiver}.{name}/{argc})")
+        }
         I::MakeList(count) => format!("MakeList({count})"),
         I::MakeDict(count) => format!("MakeDict({count})"),
 
@@ -804,7 +852,7 @@ mod tests {
 
     #[test]
     fn profiles_closures_invoked_from_builtins() {
-        let (value, profiler) = run_profiled("map[1..4;{x+1}]");
+        let (value, profiler) = run_profiled("map[1..4;{y:1;x+y}]");
 
         assert_eq!(value, Value::IntList(Arc::new(vec![2, 3, 4])));
         assert!(

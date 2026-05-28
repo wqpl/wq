@@ -30,7 +30,13 @@ pub(crate) fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::inst
                 | CallAnon(_)
                 | Postfix(_)
                 | PostfixLocal(_, _)
+                | PostfixMethodLocal(_, _, _)
+                | CallMethodLocal(_, _, _)
                 | PostfixCapture(_, _)
+                | PostfixMethodCapture(_, _, _)
+                | CallMethodCapture(_, _, _)
+                | PostfixMethodVar(_, _, _)
+                | CallMethodVar(_, _, _)
                 | Index
                 | IndexAssignVar(_)
                 | IndexAssignLocal(_)
@@ -163,8 +169,14 @@ fn apply_stmt_spans_exact(
                         | Some(CallAnon(_))
                         | Some(Postfix(_))
                         | Some(PostfixLocal(_, _))
+                        | Some(PostfixMethodLocal(_, _, _))
+                        | Some(CallMethodLocal(_, _, _))
                         | Some(PostfixCapture(_, _))
+                        | Some(PostfixMethodCapture(_, _, _))
+                        | Some(CallMethodCapture(_, _, _))
                         | Some(PostfixVar(_, _))
+                        | Some(PostfixMethodVar(_, _, _))
+                        | Some(CallMethodVar(_, _, _))
                 );
                 if is_call {
                     call_idx.push(i);
