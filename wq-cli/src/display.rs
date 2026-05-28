@@ -38,13 +38,16 @@ pub(crate) fn format_non_cas_result(result: &Value, config: &BoxPrintConfig) -> 
 
 pub(crate) fn format_xray_info(v: &Value, config: &BoxPrintConfig) -> String {
     let pairs = [
-        ("strong", format!("{}", v.strong_count())),
-        ("weak", format!("{}", v.weak_count())),
+        (
+            "strong",
+            v.strong_count()
+                .map_or_else(|| "N/A".to_string(), |v| v.to_string()),
+        ),
         ("len", format!("{}", v.len())),
         ("depth", format!("{}", v.depth())),
         ("shape", format!("{}", v.shape())),
         ("axes", format!("{}", v.axes())),
-        ("uniform?", format!("{}", v.is_uniform())),
+        ("uniform?", format!("{}", Value::Bool(v.is_uniform()))),
     ];
     let color = color_enabled(config);
     let xray_label = style_label("[xray]", color);

@@ -2,14 +2,11 @@ use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::value::{IntoWqValue as _, Value, WqResult};
 use crate::vm::Vm;
 
-pub(super) fn scount(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Scount, [1], &args)?;
-    Ok(args[0].strong_count().into_wq_value())
-}
-
-pub(super) fn wcount(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Wcount, [1], &args)?;
-    Ok(args[0].weak_count().into_wq_value())
+pub(super) fn strong_count(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::StrongCount, [1], &args)?;
+    Ok(args[0]
+        .strong_count()
+        .map_or_else(|| Value::Int(1), |v| v.into_wq_value()))
 }
 
 pub(super) fn len(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
@@ -98,70 +95,5 @@ mod tests {
             shape(&mut vm, BuiltinFnArgs::from(mixed)).unwrap(),
             Value::IntList(Arc::new(vec![2]))
         );
-    }
-}
-
-#[cfg(test)]
-mod arc_count_tests {
-
-    use std::sync::Arc;
-
-    use super::*;
-    #[test]
-    fn scount_inline_types_return_1() {
-        let mut vm = Vm::new(vec![]);
-        assert_eq!(
-            scount(&mut vm, BuiltinFnArgs::from(Value::Int(42))).unwrap(),
-            Value::Int(1)
-        );
-        assert_eq!(
-            scount(&mut vm, BuiltinFnArgs::from(Value::float(4.14))).unwrap(),
-            Value::Int(1)
-        );
-        assert_eq!(
-            scount(&mut vm, BuiltinFnArgs::from(Value::Char('a'))).unwrap(),
-            Value::Int(1)
-        );
-        assert_eq!(
-            scount(&mut vm, BuiltinFnArgs::from(Value::Bool(true))).unwrap(),
-            Value::Int(1)
-        );
-    }
-
-    #[test]
-    fn scount_arc_backed_returns_positive() {
-        let mut vm = Vm::new(vec![]);
-        let list = Value::List(Arc::new(vec![Value::Int(1)]));
-        let result = scount(&mut vm, BuiltinFnArgs::from(list)).unwrap();
-        assert!(matches!(result, Value::Int(n) if n >= 1));
-    }
-
-    #[test]
-    fn wcount_inline_types_return_1() {
-        let mut vm = Vm::new(vec![]);
-        assert_eq!(
-            wcount(&mut vm, BuiltinFnArgs::from(Value::Int(42))).unwrap(),
-            Value::Int(1)
-        );
-        assert_eq!(
-            wcount(&mut vm, BuiltinFnArgs::from(Value::float(4.14))).unwrap(),
-            Value::Int(1)
-        );
-        assert_eq!(
-            wcount(&mut vm, BuiltinFnArgs::from(Value::Char('a'))).unwrap(),
-            Value::Int(1)
-        );
-        assert_eq!(
-            wcount(&mut vm, BuiltinFnArgs::from(Value::Bool(true))).unwrap(),
-            Value::Int(1)
-        );
-    }
-
-    #[test]
-    fn wcount_arc_backed_returns_weak_count() {
-        let mut vm = Vm::new(vec![]);
-        let list = Value::List(Arc::new(vec![Value::Int(1)]));
-        let result = wcount(&mut vm, BuiltinFnArgs::from(list)).unwrap();
-        assert!(matches!(result, Value::Int(n) if n >= 0));
     }
 }

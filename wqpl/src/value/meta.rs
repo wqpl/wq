@@ -16,56 +16,37 @@ pub(crate) struct ValueMeta {
 }
 
 impl Value {
-    pub fn strong_count(&self) -> usize {
+    pub fn strong_count(&self) -> Option<usize> {
         #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
+        let count = match self {
             Value::BigInt(v) => Arc::strong_count(v),
-            Value::Fraction(v) => Arc::strong_count(v),
-            Value::Algebraic(v) => Arc::strong_count(v),
             Value::Tag(v) => Arc::strong_count(v),
+            Value::Fraction(v) => Arc::strong_count(v),
+
+            Value::Cas(v) => Arc::strong_count(v),
+            Value::Algebraic(v) => Arc::strong_count(v),
+
             Value::IntList(v) => Arc::strong_count(v),
             Value::List(v) => Arc::strong_count(v),
             Value::String(v) => Arc::strong_count(v),
-            Value::Cas(v) => Arc::strong_count(v),
             Value::Dict(v) => Arc::strong_count(v),
 
             Value::CompiledFunction(v) => Arc::strong_count(v),
             Value::Closure(v) => Arc::strong_count(v),
             Value::FunctionComposition(v) => Arc::strong_count(v),
+
             Value::Stream(v) => Arc::strong_count(v),
+
             Value::Int(_)
             | Value::Float(_)
             | Value::Complex(_)
             | Value::Char(_)
             | Value::Bool(_)
-            | Value::BuiltinFunction { .. } => 1,
-        }
-    }
-
-    pub fn weak_count(&self) -> usize {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            Value::BigInt(v) => Arc::weak_count(v),
-            Value::Fraction(v) => Arc::weak_count(v),
-            Value::Algebraic(v) => Arc::weak_count(v),
-            Value::Tag(v) => Arc::weak_count(v),
-            Value::IntList(v) => Arc::weak_count(v),
-            Value::List(v) => Arc::weak_count(v),
-            Value::String(v) => Arc::weak_count(v),
-            Value::Cas(v) => Arc::weak_count(v),
-            Value::Dict(v) => Arc::weak_count(v),
-
-            Value::CompiledFunction(v) => Arc::weak_count(v),
-            Value::Closure(v) => Arc::weak_count(v),
-            Value::FunctionComposition(v) => Arc::weak_count(v),
-            Value::Stream(v) => Arc::weak_count(v),
-            Value::Int(_)
-            | Value::Float(_)
-            | Value::Complex(_)
-            | Value::Char(_)
-            | Value::Bool(_)
-            | Value::BuiltinFunction { .. } => 1,
-        }
+            | Value::BuiltinFunction { .. } => {
+                return None;
+            }
+        };
+        Some(count)
     }
 
     /// Returns the uniform shape as a vector of dimensions.

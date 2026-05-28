@@ -629,8 +629,7 @@ declare_builtins! {
 
     // Meta =========================================================
     (LEN, Len, "len", "len[xs]", "1", meta::len, BuiltinGroup::Intrinsic),
-    (SCOUNT, Scount, "scount", "scount[x]", "1", meta::scount, BuiltinGroup::Meta),
-    (WCOUNT, Wcount, "wcount", "wcount[x]", "1", meta::wcount, BuiltinGroup::Meta),
+    (STRONG_COUNT, StrongCount, "strong_count", "strong_count[x]", "1", meta::strong_count, BuiltinGroup::Meta),
     (SHAPE, Shape, "shape", "shape[xs]", "1", meta::shape, BuiltinGroup::Meta),
     (DEPTH, Depth, "depth", "depth[xs]", "1", meta::depth, BuiltinGroup::Meta),
     (UNIFORM_Q, UniformQ, "uniform?", "uniform?[xs]", "1", meta::is_uniform, BuiltinGroup::Meta),
