@@ -3,7 +3,6 @@
 WQ Benchmark Runner
 
 A hyperfine-based benchmarking script for the wq interpreter.
-Replaces the old wq-cli/tests/wq_bench.rs test.
 
 ------------------------------------------------------------------------------
 DEPENDENCIES
@@ -253,7 +252,9 @@ def run_hyperfine_individual(
 # ---------------------------------------------------------------------------
 # Pretty print
 # ---------------------------------------------------------------------------
-def print_results(rows: list[dict[str, Any]], reg_df: pd.DataFrame | None = None) -> int:
+def print_results(
+    rows: list[dict[str, Any]], reg_df: pd.DataFrame | None = None
+) -> int:
     reg_lookup: dict[str, str] = {}
     if reg_df is not None and not reg_df.empty:
         for _, r in reg_df.iterrows():
