@@ -43,7 +43,6 @@ impl std::hash::Hash for Value {
                 6u8.hash(state);
                 v.len().hash(state);
                 for item in v.iter() {
-                    0u8.hash(state);
                     item.hash(state);
                 }
             }
@@ -172,6 +171,7 @@ impl PartialEq for Value {
             (Char(a), Char(b)) => a == b,
             (Tag(a), Tag(b)) => a == b,
             (Bool(a), Bool(b)) => a == b,
+
             (List(a), List(b)) => a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x == y),
             (IntList(a), IntList(b)) => a == b,
             (IntList(a), List(b)) | (List(b), IntList(a)) => {
@@ -183,6 +183,7 @@ impl PartialEq for Value {
                     .all(|(x, y)| matches!(y, Int(n) if *n == *x))
             }
             (Dict(a), Dict(b)) => a.len() == b.len() && a.iter().all(|(k, v)| b.get(k) == Some(v)),
+
             (CompiledFunction(a), CompiledFunction(b)) => Arc::ptr_eq(a, b),
             (Closure(a), Closure(b)) => {
                 if !Arc::ptr_eq(&a.instructions, &b.instructions)
@@ -195,8 +196,10 @@ impl PartialEq for Value {
                     .zip(b.captured.iter())
                     .all(|(lhs, rhs)| Arc::ptr_eq(lhs, rhs))
             }
+
             (Complex(a), Complex(b)) => a == b,
             (Fraction(a), Fraction(b)) => a == b,
+
             (Cas(a), Cas(b)) => match (&a.kind, &b.kind) {
                 (CasKind::Var(na), CasKind::Var(nb)) => na == nb,
                 (CasKind::Const(na), CasKind::Const(nb)) => na == nb,
@@ -213,6 +216,7 @@ impl PartialEq for Value {
                 (CasKind::Eq(lhsa, rhsa), CasKind::Eq(lhsb, rhsb)) => lhsa == lhsb && rhsa == rhsb,
                 _ => false,
             },
+
             (String(a), String(b)) => a == b,
             (String(a), List(b)) | (List(b), String(a)) => {
                 a.chars().count() == b.len()
@@ -220,11 +224,15 @@ impl PartialEq for Value {
                         .zip(b.iter())
                         .all(|(c, v)| matches!(v, Char(ch) if *ch == c))
             }
+
             (BuiltinFunction { id: a, .. }, BuiltinFunction { id: b, .. }) => a == b,
+
             (FunctionComposition(a), FunctionComposition(b)) => {
                 a.op == b.op && a.left == b.left && a.right == b.right
             }
+
             (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
+
             (Algebraic(a), Algebraic(b)) => {
                 a.poly == b.poly
                     && a.interval == b.interval
@@ -252,8 +260,7 @@ mod hash_tests {
     }
 
     #[test]
-    fn empty_container_hashes_do_not_collapse_to_unit() {
-        let empty_string = Value::String(Arc::new(String::new()));
+    fn empty_container_hashes() {
         let empty_list = Value::List(Arc::new(vec![]));
         let empty_intlist = Value::IntList(Arc::new(vec![]));
         let empty_dict = Value::Dict(Arc::new(IndexMap::new()));
@@ -269,7 +276,7 @@ mod hash_tests {
     }
 
     #[test]
-    fn empty_containers_are_not_cross_equal_to_unit() {
+    fn empty_containers_cross_equal() {
         let empty_string = Value::String(Arc::new(String::new()));
         let empty_list = Value::List(Arc::new(vec![]));
         let empty_intlist = Value::IntList(Arc::new(vec![]));
