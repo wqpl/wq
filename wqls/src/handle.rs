@@ -562,7 +562,7 @@ impl LanguageServer for Backend {
 
         // Fallback: extract identifier at cursor
         if name.is_none() {
-            name = extract_word_at(&content, byte_offset);
+            name = extract_hover_name_at(&content, byte_offset);
         }
 
         if let Some(name) = name {
@@ -1178,17 +1178,51 @@ fn position_to_byte_offset(src: &str, pos: Position) -> usize {
     src.len()
 }
 
+fn extract_hover_name_at(src: &str, offset: usize) -> Option<String> {
+    extract_at_construct_at(src, offset).or_else(|| extract_word_at(src, offset))
+}
+
+fn extract_at_construct_at(src: &str, offset: usize) -> Option<String> {
+    let offset = offset.min(src.len());
+    if src[offset..].starts_with('@') {
+        let start = offset;
+        let suffix_start = start + 1;
+        let end = src[suffix_start..]
+            .char_indices()
+            .take_while(|(_, c)| is_word_char(*c))
+            .last()
+            .map(|(i, c)| suffix_start + i + c.len_utf8())
+            .unwrap_or(suffix_start);
+        if end == suffix_start {
+            return None;
+        }
+        return Some(src[start..end].to_string());
+    }
+
+    let (start, end) = word_range_at(src, offset)?;
+    if start > 0 && src[..start].ends_with('@') {
+        Some(src[start - 1..end].to_string())
+    } else {
+        None
+    }
+}
+
 fn extract_word_at(src: &str, offset: usize) -> Option<String> {
+    let (start, end) = word_range_at(src, offset)?;
+    Some(src[start..end].to_string())
+}
+
+fn word_range_at(src: &str, offset: usize) -> Option<(usize, usize)> {
     let offset = offset.min(src.len());
     let at_ident = src[offset..]
         .chars()
         .next()
-        .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '?');
+        .is_some_and(is_word_char);
     let prev_ident = offset > 0
         && src[..offset]
             .chars()
             .last()
-            .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '?');
+            .is_some_and(is_word_char);
     if !(at_ident || (offset == src.len() && prev_ident)) {
         return None;
     }
@@ -1196,13 +1230,13 @@ fn extract_word_at(src: &str, offset: usize) -> Option<String> {
     let start = src[..offset]
         .char_indices()
         .rev()
-        .take_while(|(_, c)| c.is_alphanumeric() || *c == '_' || *c == '?')
+        .take_while(|(_, c)| is_word_char(*c))
         .last()
         .map(|(i, _)| i)
         .unwrap_or(offset);
     let end = src[offset..]
         .char_indices()
-        .take_while(|(_, c)| c.is_alphanumeric() || *c == '_' || *c == '?')
+        .take_while(|(_, c)| is_word_char(*c))
         .last()
         .map(|(i, c)| offset + i + c.len_utf8())
         .unwrap_or(offset);
@@ -1210,8 +1244,12 @@ fn extract_word_at(src: &str, offset: usize) -> Option<String> {
     if word.is_empty() {
         None
     } else {
-        Some(word.to_string())
+        Some((start, end))
     }
+}
+
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_' || c == '?'
 }
 
 fn extract_error_location(err: &WqError) -> Option<(u32, u32)> {
@@ -1342,6 +1380,22 @@ mod tests {
         assert_eq!(extract_word_at("sum[1;2;3]", 3), None);
         assert_eq!(extract_word_at("abc def", 4), Some("def".to_string()));
         assert_eq!(extract_word_at("abc def", 3), None);
+    }
+
+    #[test]
+    fn test_extract_hover_name_at_keeps_at_construct_marker() {
+        assert_eq!(
+            extract_hover_name_at("@r 1", 1),
+            Some("@r".to_string())
+        );
+        assert_eq!(
+            extract_hover_name_at("@12 has?[x; y]", 2),
+            Some("@12".to_string())
+        );
+        assert_eq!(
+            extract_hover_name_at("sum[1;2;3]", 0),
+            Some("sum".to_string())
+        );
     }
 
     #[test]
