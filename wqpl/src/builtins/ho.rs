@@ -1,12 +1,175 @@
 use std::sync::Arc;
 
+use crate::astnode::BinaryOperator;
 use crate::builtins::{
     BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
 };
 use crate::value::bc::{Bc1Stop, Bc2Stop};
-use crate::value::{Value, WqResult};
+use crate::value::{Value, WqResult, eval_binary};
+use crate::vm::inst::{Instruction, Operand};
 use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
+
+/// Tiny evaluator for callback bodies made only of args, constants, and binary ops.
+/// Anything that can observe VM state falls back to the normal call path.
+#[derive(Clone)]
+struct PureCallback {
+    result: PureExpr,
+}
+
+#[derive(Clone)]
+enum PureExpr {
+    Arg(usize),
+    Const(Value),
+    Binary {
+        op: BinaryOperator,
+        left: Box<PureExpr>,
+        right: Box<PureExpr>,
+    },
+}
+
+impl PureCallback {
+    fn from_func(func: &Value, arity: usize) -> Option<Self> {
+        let shape = func.as_user_function()?;
+        if shape.named_params.is_some() {
+            return None;
+        }
+        match shape.params_len() {
+            Some(expected) if expected != arity => return None,
+            None if arity > 3 => return None,
+            _ => {}
+        }
+        if usize::from(shape.locals) < arity {
+            return None;
+        }
+
+        let (last, body) = shape.instructions.split_last()?;
+        if !matches!(last, Instruction::Return) {
+            return None;
+        }
+
+        let mut stack = Vec::new();
+        for inst in body {
+            match inst {
+                Instruction::LoadConst(v) => stack.push(PureExpr::Const((**v).clone())),
+                Instruction::LoadLocal(slot) => {
+                    stack.push(Self::local_expr(*slot, arity)?);
+                }
+                Instruction::BinaryOp(data) => {
+                    let right = Self::operand_expr(&mut stack, &data.right, arity)?;
+                    let left = Self::operand_expr(&mut stack, &data.left, arity)?;
+                    stack.push(PureExpr::Binary {
+                        op: data.op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    });
+                }
+                _ => return None,
+            }
+        }
+
+        if stack.len() == 1 {
+            Some(Self {
+                result: stack.pop()?,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn local_expr(slot: u16, arity: usize) -> Option<PureExpr> {
+        let slot = usize::from(slot);
+        if slot < arity {
+            Some(PureExpr::Arg(slot))
+        } else {
+            None
+        }
+    }
+
+    fn operand_expr(
+        stack: &mut Vec<PureExpr>,
+        operand: &Operand,
+        arity: usize,
+    ) -> Option<PureExpr> {
+        match operand {
+            Operand::Stack => stack.pop(),
+            Operand::Const(v) => Some(PureExpr::Const((**v).clone())),
+            Operand::Local(slot) => Self::local_expr(*slot, arity),
+            Operand::Capture(_) | Operand::Var(_) | Operand::Self_ => None,
+        }
+    }
+
+    fn eval(&self, args: &[&Value]) -> WqResult<Value> {
+        self.result.eval(args)
+    }
+}
+
+impl PureExpr {
+    fn eval(&self, args: &[&Value]) -> WqResult<Value> {
+        match self {
+            Self::Arg(slot) => {
+                let arg = args
+                    .get(*slot)
+                    .ok_or_else(|| {
+                        WqError::new(WqErrorType::Vm).msg("pure callback argument missing")
+                    })?;
+                Ok((**arg).clone())
+            }
+            Self::Const(v) => Ok(v.clone()),
+            Self::Binary { op, left, right } => {
+                let left = left.eval(args)?;
+                let right = right.eval(args)?;
+                eval_binary(op, &left, &right)
+            }
+        }
+    }
+}
+
+#[inline]
+fn call_pure_or_vm1(
+    vm: &mut Vm,
+    func: &Value,
+    pure: Option<&PureCallback>,
+    arg: &Value,
+) -> WqResult<Value> {
+    if let Some(pure) = pure {
+        pure.eval(&[arg])
+    } else {
+        vm.call(func, BuiltinFnArgs::from(arg.clone()))
+    }
+}
+
+#[inline]
+fn call_pure_or_vm2(
+    vm: &mut Vm,
+    func: &Value,
+    pure: Option<&PureCallback>,
+    left: &Value,
+    right: &Value,
+) -> WqResult<Value> {
+    if let Some(pure) = pure {
+        pure.eval(&[left, right])
+    } else {
+        let mut ca = BuiltinFnArgs::new();
+        ca.push(left.clone());
+        ca.push(right.clone());
+        vm.call(func, ca)
+    }
+}
+
+fn filter_predicate(
+    vm: &mut Vm,
+    func: &Value,
+    pure: Option<&PureCallback>,
+    value: &Value,
+) -> WqResult<bool> {
+    match call_pure_or_vm1(vm, func, pure, value)? {
+        Value::Bool(b) => Ok(b),
+        _ => Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Filter)
+            .msg("predicate must return bool")),
+    }
+}
 
 /// apply[fs;x] — apply each function in fs to x, returning a list of results.
 /// If fs is a single function (not a list), returns f[x] unwrapped.
@@ -49,7 +212,8 @@ pub(super) fn map(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         };
         // atoms are always leaves; stop after traversing L layers from the root
         let stop = Bc1Stop::AtomOrDepth(el);
-        let op1 = |v: &Value| vm.call(f, BuiltinFnArgs::from(v.clone()));
+        let pure = PureCallback::from_func(f, 1);
+        let op1 = |v: &Value| call_pure_or_vm1(vm, f, pure.as_ref(), v);
         xs.bc1_until(stop, op1)
             .map_err(|e| e.into_wqerror().src(BE::Map))
     }
@@ -527,20 +691,14 @@ pub(super) fn filter(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     let mut iter = args.into_iter();
     let xs = iter.next().unwrap();
     let func = iter.next().unwrap();
+    let pure = PureCallback::from_func(&func, 1);
     match xs {
         Value::IntList(items) => {
             let mut result = Vec::new();
             for &item in items.iter() {
                 let val = Value::Int(item);
-                let pred = vm.call(&func, BuiltinFnArgs::from(val.clone()))?;
-                match pred {
-                    Value::Bool(true) => result.push(val),
-                    Value::Bool(false) => {}
-                    _ => {
-                        return Err(WqError::new(WqErrorType::Domain)
-                            .src(BE::Filter)
-                            .msg("predicate must return bool"));
-                    }
+                if filter_predicate(vm, &func, pure.as_ref(), &val)? {
+                    result.push(val);
                 }
             }
             Ok(Value::from_items(result))
@@ -548,15 +706,8 @@ pub(super) fn filter(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         Value::List(items) => {
             let mut result = Vec::new();
             for item in items.iter() {
-                let pred = vm.call(&func, BuiltinFnArgs::from(item.clone()))?;
-                match pred {
-                    Value::Bool(true) => result.push(item.clone()),
-                    Value::Bool(false) => {}
-                    _ => {
-                        return Err(WqError::new(WqErrorType::Domain)
-                            .src(BE::Filter)
-                            .msg("predicate must return bool"));
-                    }
+                if filter_predicate(vm, &func, pure.as_ref(), item)? {
+                    result.push(item.clone());
                 }
             }
             Ok(Value::from_items(result))
@@ -564,15 +715,8 @@ pub(super) fn filter(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         Value::Dict(map) => {
             let mut result = Vec::new();
             for value in map.values() {
-                let pred = vm.call(&func, BuiltinFnArgs::from(value.clone()))?;
-                match pred {
-                    Value::Bool(true) => result.push(value.clone()),
-                    Value::Bool(false) => {}
-                    _ => {
-                        return Err(WqError::new(WqErrorType::Domain)
-                            .src(BE::Filter)
-                            .msg("predicate must return bool"));
-                    }
+                if filter_predicate(vm, &func, pure.as_ref(), value)? {
+                    result.push(value.clone());
                 }
             }
             Ok(Value::from_items(result))
@@ -606,12 +750,8 @@ pub(super) fn zipw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         };
         // atoms are always leaves; stop after traversing L layers from the root
         let stop = Bc2Stop::BothAtomOrDepth(el);
-        let op2 = |a: &Value, b: &Value| {
-            let mut ca = BuiltinFnArgs::new();
-            ca.push(a.clone());
-            ca.push(b.clone());
-            vm.call(f, ca)
-        };
+        let pure = PureCallback::from_func(f, 2);
+        let op2 = |a: &Value, b: &Value| call_pure_or_vm2(vm, f, pure.as_ref(), a, b);
         xs.bc2_until(ys, stop, op2)
             .map_err(|e| e.into_wqerror().src(BE::ZipW))
     }
@@ -1014,7 +1154,7 @@ mod tests {
     use super::*;
     use crate::value::func::FunctionData;
     use crate::vm::Vm;
-    use crate::vm::inst::Instruction;
+    use crate::vm::inst::{Instruction, Operand};
 
     fn make_fn(params: Option<&[&str]>, locals: u16, instructions: Vec<Instruction>) -> Value {
         Value::CompiledFunction(Arc::new(FunctionData {
@@ -1037,6 +1177,7 @@ mod tests {
     #[test]
     fn map_pure_fast_path_correctness() {
         let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
         // map[1..4;{x+1}] should use the pure fast-path and still return (2;3;4)
         let xs = Value::IntList(Arc::new(vec![1, 2, 3]));
         let f = make_fn(
@@ -1045,44 +1186,68 @@ mod tests {
             vec![
                 Instruction::LoadLocal(0),
                 Instruction::load_const(Value::Int(1)),
-                Instruction::BinaryOp(Box::new(crate::vm::inst::BinaryOpData {
-                    op: crate::astnode::BinaryOperator::Add,
-                    left: crate::vm::inst::Operand::Stack,
-                    right: crate::vm::inst::Operand::Stack,
-                })),
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Add,
+                    Operand::Stack,
+                    Operand::Stack,
+                ),
                 Instruction::Return,
             ],
         );
-        let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).unwrap();
+        let result =
+            map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
+        assert_eq!(result, Value::IntList(Arc::new(vec![2, 3, 4])));
+    }
+
+    #[test]
+    fn map_pure_fast_path_embedded_operands() {
+        let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
+        let xs = Value::IntList(Arc::new(vec![1, 2, 3]));
+        let f = make_fn(
+            None,
+            3,
+            vec![
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Add,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Int(1))),
+                ),
+                Instruction::Return,
+            ],
+        );
+        let result =
+            map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
         assert_eq!(result, Value::IntList(Arc::new(vec![2, 3, 4])));
     }
 
     #[test]
     fn filter_pure_fast_path_correctness() {
         let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
         // filter[1..5;{x>2}] should use the pure fast-path and still return (3;4)
         let xs = Value::IntList(Arc::new(vec![1, 2, 3, 4]));
         let f = make_fn(
             Some(&["x"]),
             1,
             vec![
-                Instruction::LoadLocal(0),
-                Instruction::load_const(Value::Int(2)),
-                Instruction::BinaryOp(Box::new(crate::vm::inst::BinaryOpData {
-                    op: crate::astnode::BinaryOperator::Gt,
-                    left: crate::vm::inst::Operand::Stack,
-                    right: crate::vm::inst::Operand::Stack,
-                })),
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Gt,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Int(2))),
+                ),
                 Instruction::Return,
             ],
         );
-        let result = filter(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).unwrap();
+        let result =
+            filter(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("filter succeeds");
         assert_eq!(result, Value::IntList(Arc::new(vec![3, 4])));
     }
 
     #[test]
     fn zipw_pure_fast_path_correctness() {
         let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
         // zipw[(1;2;3);(4;5;6);{x+y}] should use the pure fast-path
         let xs = Value::IntList(Arc::new(vec![1, 2, 3]));
         let ys = Value::IntList(Arc::new(vec![4, 5, 6]));
@@ -1090,17 +1255,16 @@ mod tests {
             Some(&["x", "y"]),
             2,
             vec![
-                Instruction::LoadLocal(0),
-                Instruction::LoadLocal(1),
-                Instruction::BinaryOp(Box::new(crate::vm::inst::BinaryOpData {
-                    op: crate::astnode::BinaryOperator::Add,
-                    left: crate::vm::inst::Operand::Stack,
-                    right: crate::vm::inst::Operand::Stack,
-                })),
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Add,
+                    Operand::Local(0),
+                    Operand::Local(1),
+                ),
                 Instruction::Return,
             ],
         );
-        let result = zipw(&mut vm, BuiltinFnArgs::from(smallvec![xs, ys, f])).unwrap();
+        let result =
+            zipw(&mut vm, BuiltinFnArgs::from(smallvec![xs, ys, f])).expect("zipw succeeds");
         assert_eq!(result, Value::IntList(Arc::new(vec![5, 7, 9])));
     }
 }
