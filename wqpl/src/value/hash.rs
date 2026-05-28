@@ -95,9 +95,9 @@ impl std::hash::Hash for Value {
                     Arc::as_ptr(cell).hash(state);
                 }
             }
-            Value::BuiltinFunction(name) => {
+            Value::BuiltinFunction { id, .. } => {
                 10u8.hash(state);
-                name.hash(state);
+                id.hash(state);
             }
             Value::FunctionComposition(data) => {
                 11u8.hash(state);
@@ -220,7 +220,7 @@ impl PartialEq for Value {
                         .zip(b.iter())
                         .all(|(c, v)| matches!(v, Char(ch) if *ch == c))
             }
-            (BuiltinFunction(a), BuiltinFunction(b)) => a == b,
+            (BuiltinFunction { id: a, .. }, BuiltinFunction { id: b, .. }) => a == b,
             (FunctionComposition(a), FunctionComposition(b)) => {
                 a.op == b.op && a.left == b.left && a.right == b.right
             }

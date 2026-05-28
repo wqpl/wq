@@ -57,7 +57,7 @@ pub enum Value {
     CompiledFunction(Arc<FunctionData>),
     /// closure with captured cells (upvalues)
     Closure(Arc<ClosureData>),
-    BuiltinFunction(Arc<str>),
+    BuiltinFunction { name: Arc<str>, id: u16 },
     FunctionComposition(Arc<FunctionCompositionData>),
     Stream(Arc<Mutex<StreamHandle>>),
 }
@@ -126,12 +126,12 @@ impl Value {
 
     pub(crate) fn is_callable(&self) -> bool {
         matches!(
-            self,
-            Value::CompiledFunction(_)
-                | Value::Closure(_)
-                | Value::BuiltinFunction(_)
-                | Value::FunctionComposition(_)
-        )
+                self,
+                Value::CompiledFunction(_)
+                    | Value::Closure(_)
+                    | Value::BuiltinFunction { .. }
+                    | Value::FunctionComposition(_)
+            )
     }
 
     pub(crate) fn function_composition(op: BinaryOperator, left: Value, right: Value) -> Self {
@@ -207,11 +207,7 @@ impl Value {
     ///
     /// - `Char` → single-character string
     /// - `String` → cloned string
-<<<<<<< HEAD
     /// - `List` where every element is string-like → concatenated
-=======
-    /// - Non-empty `List` where every element is string-like → concatenated
->>>>>>> 3eb0e687 (cf)
     ///   string
     /// - empty `IntList` → empty string
     /// - everything else → `None`
@@ -305,7 +301,7 @@ impl Value {
 
             Value::CompiledFunction { .. } => "fn",
             Value::Closure { .. } => "closure",
-            Value::BuiltinFunction(_) => "bfn",
+            Value::BuiltinFunction { .. } => "bfn",
             Value::FunctionComposition(_) => "fn",
 
             Value::Stream(_) => "stream",

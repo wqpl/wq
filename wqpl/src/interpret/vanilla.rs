@@ -124,9 +124,8 @@ impl Interpreter for VanillaInterpreter {
                             continue;
                         }
 
-                        if vm.builtins.has_function(name) {
-                            vm.stack
-                                .push(Value::BuiltinFunction(Arc::from(name.as_ref())));
+                        if let Some(value) = vm.builtins.get_value(name) {
+                            vm.stack.push(value);
                             continue;
                         }
 
@@ -425,8 +424,8 @@ impl Interpreter for VanillaInterpreter {
                                 })?;
                                 vm.stack.push(res);
                             }
-                            LocalCallable::Builtin(name) => {
-                                let result = vm.invoke_bfn_name(&name, argc)?;
+                            LocalCallable::Builtin(id) => {
+                                let result = vm.invoke_bfn_value(id, argc)?;
                                 vm.stack.push(result);
                             }
                         }
@@ -490,8 +489,8 @@ impl Interpreter for VanillaInterpreter {
                                 })?;
                                 continue 'exec;
                             }
-                            LocalCallable::Builtin(name) => {
-                                let result = vm.invoke_bfn_name(&name, argc)?;
+                            LocalCallable::Builtin(id) => {
+                                let result = vm.invoke_bfn_value(id, argc)?;
                                 vm.stack.push(result);
                             }
                         }
@@ -1100,8 +1099,8 @@ impl VanillaInterpreter {
                     if let Some(result) = try_peek_at(vm, fi) {
                         let peeked = result?;
                         match peeked {
-                            PeekLocalCallable::Builtin(name) => {
-                                found = Some(LocalCallable::Builtin(name));
+                            PeekLocalCallable::Builtin(id) => {
+                                found = Some(LocalCallable::Builtin(id));
                                 found_fi = Some(fi);
                             }
                             PeekLocalCallable::User(p) => {
@@ -1126,8 +1125,8 @@ impl VanillaInterpreter {
                     };
 
                     match peeked {
-                        PeekLocalCallable::Builtin(name) => {
-                            found = Some(LocalCallable::Builtin(name));
+                        PeekLocalCallable::Builtin(id) => {
+                            found = Some(LocalCallable::Builtin(id));
                             found_fi = Some(fi);
                             break;
                         }
@@ -1501,7 +1500,7 @@ mod tests {
 mod call_safety {
     use std::sync::Arc;
 
-    use crate::builtins::BuiltinFnArgs;
+    use crate::builtins::{BuiltinFnArgs, Builtins};
     use crate::value::func::FunctionData;
     use crate::value::{Value, cell};
     use crate::vm::call::CallSpec;
@@ -1661,6 +1660,18 @@ mod call_safety {
         assert_eq!(vm.locals[0].len(), 1);
         assert_eq!(vm.captures.len(), 1);
         assert_eq!(vm.current_closure_stack.len(), 1);
+    }
+
+    #[test]
+    fn builtin_value_call_uses_cached_id() {
+        let mut vm = Vm::new(vec![Instruction::Return]);
+        let abs = Value::builtin_function("abs", Builtins::ABS);
+
+        let result = vm
+            .call(&abs, BuiltinFnArgs::from(Value::Int(-3)))
+            .expect("builtin value call");
+
+        assert_eq!(result, Value::Int(3));
     }
 
     #[test]

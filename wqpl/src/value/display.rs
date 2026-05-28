@@ -151,7 +151,7 @@ impl fmt::Display for Value {
                     write!(f, "{{[{}]...}}", parts.join(";"))
                 }
             }
-            Value::BuiltinFunction(name) => write!(f, "<bfn '{name}'>"),
+            Value::BuiltinFunction { name, .. } => write!(f, "<bfn '{name}'>"),
             Value::FunctionComposition(data) => {
                 write!(f, "<fn {} fn>", binary_op_display(&data.op))
             }

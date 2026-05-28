@@ -1298,6 +1298,7 @@ mod tests {
     use smallvec::smallvec;
 
     use super::*;
+    use crate::builtins::Builtins;
     use crate::session::stdio::{WqStdout, set_wqstdout};
 
     struct SinkStdout;
@@ -1330,7 +1331,7 @@ mod tests {
         let mut vm = Vm::new(vec![]);
         let series = sample_callable_series(
             &mut vm,
-            &Value::BuiltinFunction(Arc::from("abs")),
+            &Value::builtin_function("abs", Builtins::ABS),
             &opts,
             None,
         )
@@ -1372,7 +1373,7 @@ mod tests {
         // sqrt returns complex for negative inputs in wq; those should be skipped
         let series = sample_callable_series(
             &mut vm,
-            &Value::BuiltinFunction(Arc::from("sqrt")),
+            &Value::builtin_function("sqrt", Builtins::SQRT),
             &opts,
             None,
         )
@@ -1412,7 +1413,7 @@ mod tests {
         let mut vm = Vm::new(vec![]);
         let series = sample_callable_series(
             &mut vm,
-            &Value::BuiltinFunction(Arc::from("abs")),
+            &Value::builtin_function("abs", Builtins::ABS),
             &opts,
             None,
         )

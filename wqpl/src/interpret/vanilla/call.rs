@@ -84,8 +84,8 @@ pub(super) fn dispatch_postfix(
     user_dispatch: fn(&mut Vm, usize, &Value, usize) -> WqResult<bool>,
 ) -> WqResult<bool> {
     match target {
-        Value::BuiltinFunction(name) => {
-            let result = vm.invoke_bfn_name(name, argc)?;
+        Value::BuiltinFunction { id, .. } => {
+            let result = vm.invoke_bfn_value(*id, argc)?;
             vm.stack.push(result);
             Ok(false)
         }
@@ -133,8 +133,8 @@ pub(super) fn dispatch_anon_call(
     user_dispatch: fn(&mut Vm, usize, &Value, usize) -> WqResult<bool>,
 ) -> WqResult<bool> {
     match func {
-        Value::BuiltinFunction(name) => {
-            let out = vm.invoke_bfn_name(name, argc)?;
+        Value::BuiltinFunction { id, .. } => {
+            let out = vm.invoke_bfn_value(*id, argc)?;
             vm.stack.push(out);
             Ok(false)
         }
@@ -171,8 +171,8 @@ pub(super) fn dispatch_user_call(
 
     hooks.on_call_user_cache_miss();
     let func = vm.resolve_user_callable(idx, name)?;
-    if let Value::BuiltinFunction(bname) = &func {
-        let out = vm.invoke_bfn_name(bname, argc)?;
+    if let Value::BuiltinFunction { id, .. } = &func {
+        let out = vm.invoke_bfn_value(*id, argc)?;
         vm.stack.push(out);
         return Ok(false);
     }
@@ -194,8 +194,8 @@ pub(super) fn resolve_postfix_var(vm: &mut Vm, idx: usize, name: &str) -> WqResu
         vm.inline_cache[idx].slot = Some(slot);
         return Ok(val);
     }
-    if vm.builtins.has_function(name) {
-        return Ok(Value::BuiltinFunction(Arc::from(name)));
+    if let Some(value) = vm.builtins.get_value(name) {
+        return Ok(value);
     }
     if vm.builtins.is_disabled_name(name) {
         return Err(

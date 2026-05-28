@@ -388,6 +388,12 @@ impl Builtins {
             .filter(|id| self.enabled.get(*id).copied().unwrap_or(false))
     }
 
+    pub fn get_value(&self, name: &str) -> Option<Value> {
+        let id = self.get_id(name)?;
+        let id = id.try_into().ok()?;
+        Some(Value::builtin_function(Arc::<str>::from(name), id))
+    }
+
     pub fn get_fn_by_id(&self, id: usize) -> Option<&BuiltinFn> {
         match self.enabled.get(id) {
             Some(true) => self.functions.get(id),

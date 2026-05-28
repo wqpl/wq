@@ -1241,7 +1241,7 @@ impl Resolver {
 
     fn fact_from_value(value: &Value) -> BindingFact {
         match value {
-            Value::CompiledFunction(_) | Value::Closure(_) | Value::BuiltinFunction(_) => {
+            Value::CompiledFunction(_) | Value::Closure(_) | Value::BuiltinFunction { .. } => {
                 BindingFact::Callable
             }
             Value::List(_) | Value::Dict(_) => BindingFact::Indexable,

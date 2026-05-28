@@ -874,7 +874,7 @@ fn trackable_value(value: Value) -> Option<Value> {
     match value {
         Value::CompiledFunction(_)
         | Value::Closure(_)
-        | Value::BuiltinFunction(_)
+        | Value::BuiltinFunction { .. }
         | Value::Stream(_) => None,
         other => Some(other),
     }

@@ -31,8 +31,8 @@ impl Vm {
         func: &Value,
         args: crate::builtins::BuiltinFnArgs,
     ) -> WqResult<Value> {
-        if let Value::BuiltinFunction(name) = func {
-            return self.call_builtin_name(name, args);
+        if let Value::BuiltinFunction { id, .. } = func {
+            return self.call_builtin_id(*id, args);
         }
         let argc = args.len();
         match func {
@@ -97,22 +97,6 @@ impl Vm {
         } else {
             Ok(value.clone())
         }
-    }
-
-    #[inline]
-    pub(crate) fn call_builtin_name(
-        &mut self,
-        name: &str,
-        args: crate::builtins::BuiltinFnArgs,
-    ) -> WqResult<Value> {
-        let id = self
-            .builtins
-            .get_id(name)
-            .ok_or_else(|| not_bound_err(format!("Unknown bfn: {name}")))?;
-        self.call_builtin_id(
-            id.try_into().map_err(|_| vm_err("builtin id overflow"))?,
-            args,
-        )
     }
 
     // API for Interpreter ============================
@@ -432,13 +416,16 @@ impl Vm {
             let name = Builtins::name_from_id(id).ok_or_else(|| vm_err("invalid builtin id"))?;
             if let Some(val) = self.lookup_global(name) {
                 match &val {
-                    Value::BuiltinFunction(bname) => {
+                    Value::BuiltinFunction {
+                        name: bname,
+                        id: builtin_id,
+                    } => {
                         if taken.had_named_meta {
                             Err(arity_err_vm(format!(
                                 "cannot pass named arguments to builtin override '{bname}'"
                             )))
                         } else {
-                            self.call_builtin_name(bname, taken.args)
+                            self.call_builtin_id(*builtin_id, taken.args)
                         }
                     }
                     _ => {
@@ -457,9 +444,9 @@ impl Vm {
     }
 
     #[inline]
-    pub(crate) fn invoke_bfn_name(&mut self, name: &str, argc: usize) -> WqResult<Value> {
+    pub(crate) fn invoke_bfn_value(&mut self, id: u16, argc: usize) -> WqResult<Value> {
         let taken = self.take_builtin_args_from_stack(argc)?;
-        self.call_builtin_name(name, taken.args)
+        self.call_builtin_id(id, taken.args)
     }
 
     fn take_builtin_args_from_stack(&mut self, argc: usize) -> WqResult<TakenBuiltinArgs> {
@@ -590,7 +577,7 @@ impl Vm {
             Ok(value)
         } else {
             match func_val {
-                b @ Value::BuiltinFunction(_) => Ok(b), // name resolves to builtin each time
+                b @ Value::BuiltinFunction { .. } => Ok(b),
                 other => Err(not_bound_err(format!(
                     "cannot call '{name}': expected fn, got {}",
                     other.type_name()
@@ -700,7 +687,7 @@ pub(crate) enum LocalCallable {
         dbg_chunk: Option<ChunkId>,
         name_hint: Option<String>,
     },
-    Builtin(Arc<str>),
+    Builtin(u16),
 }
 
 #[derive(Clone)]
@@ -714,7 +701,7 @@ pub(crate) struct PeekLocalUser {
 }
 
 pub(crate) enum PeekLocalCallable {
-    Builtin(Arc<str>),
+    Builtin(u16),
     User(PeekLocalUser),
 }
 
@@ -732,7 +719,7 @@ pub(crate) fn peek_local_callable(slot: u16, v: &Slot) -> WqResult<PeekLocalCall
             }));
         }
         match value {
-            Value::BuiltinFunction(name) => Ok(PeekLocalCallable::Builtin(name.clone())),
+            Value::BuiltinFunction { id, .. } => Ok(PeekLocalCallable::Builtin(*id)),
             other => Err(call_err(format!(
                 "cannot call local {slot}: expected fn, found {} ({})",
                 other.excerpt(),

@@ -490,7 +490,7 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Dict(_) => "dict",
         Value::CompiledFunction(_) => "fn",
         Value::Closure(_) => "closure",
-        Value::BuiltinFunction(_) => "bfn",
+        Value::BuiltinFunction { .. } => "bfn",
         Value::FunctionComposition(_) => "fn",
         Value::Stream(_) => "stream",
     }

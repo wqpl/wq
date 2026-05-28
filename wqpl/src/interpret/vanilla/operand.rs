@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use super::{not_bound_err, vm_err};
 use crate::interpret::InterpreterHook;
 use crate::value::{Value, WqResult};
@@ -58,8 +56,8 @@ pub(super) fn resolve_operand(
                     vm.inline_cache[idx].slot_b = Some(slot);
                 }
                 Ok(val)
-            } else if vm.builtins.has_function(name) {
-                Ok(Value::BuiltinFunction(Arc::from(name.as_ref())))
+            } else if let Some(value) = vm.builtins.get_value(name) {
+                Ok(value)
             } else if vm.builtins.is_disabled_name(name) {
                 Err(
                     not_bound_err(format!("'{name}' has not been bound to a value")).attach_note(

@@ -38,7 +38,7 @@ impl Value {
             | Value::Complex(_)
             | Value::Char(_)
             | Value::Bool(_)
-            | Value::BuiltinFunction(_) => 1,
+            | Value::BuiltinFunction { .. } => 1,
         }
     }
 
@@ -64,7 +64,7 @@ impl Value {
             | Value::Complex(_)
             | Value::Char(_)
             | Value::Bool(_)
-            | Value::BuiltinFunction(_) => 1,
+            | Value::BuiltinFunction { .. } => 1,
         }
     }
 
