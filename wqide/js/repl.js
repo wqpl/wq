@@ -159,7 +159,21 @@ function createTurn(kind, label, body, msgType = null) {
   if (kind === "input") {
     const prompt = document.createElement("span");
     prompt.className = "repl-prompt";
-    prompt.textContent = label + " ";
+    const m = /^(wq)\[(\d+)\]$/.exec(label);
+    if (m) {
+      const wqSpan = document.createElement("span");
+      wqSpan.className = "repl-prompt-wq";
+      wqSpan.textContent = m[1];
+      prompt.appendChild(wqSpan);
+      prompt.appendChild(document.createTextNode("["));
+      const numSpan = document.createElement("span");
+      numSpan.className = "repl-prompt-num";
+      numSpan.textContent = m[2];
+      prompt.appendChild(numSpan);
+      prompt.appendChild(document.createTextNode("] "));
+    } else {
+      prompt.textContent = label + " ";
+    }
     content.appendChild(prompt);
     const codeSpan = document.createElement("span");
     codeSpan.className = "repl-input-code";

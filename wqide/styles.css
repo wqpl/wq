@@ -639,8 +639,13 @@ body {
   flex: 1 1 auto;
 }
 .repl-prompt {
-  color: #2f9fe1;
   font-weight: 700;
+}
+.repl-prompt-wq {
+  color: #7a2a6b;
+}
+.repl-prompt-num {
+  color: #2f9fe1;
 }
 .repl-bar {
   font-weight: 700;
