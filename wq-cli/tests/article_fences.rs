@@ -20,12 +20,12 @@ fn article_wq_fences_are_executable_unless_marked() -> Result<()> {
     let mut failures = Vec::new();
     for fence in collect_wq_fences(&workspace.join("d/articles"))? {
         let flags: Vec<&str> = fence.info.split_whitespace().collect();
-        if flags.iter().any(|flag| *flag == "no-run") {
+        if flags.contains(&"no-run") {
             continue;
         }
         let mut session = Session::new();
         let result = session.eval_string(&fence.code);
-        if flags.iter().any(|flag| *flag == "error") {
+        if flags.contains(&"error") {
             if result.is_ok() {
                 failures.push(format!(
                     "{}: fence marked error but succeeded\n{}",
@@ -88,10 +88,8 @@ fn wq_fences_in_file(file: &Path, md: &str) -> Vec<WqFence> {
                 current_info = info.starts_with("wq").then_some(info);
                 current_code.clear();
             }
-            Event::Text(text) => {
-                if current_info.is_some() {
-                    current_code.push_str(&text);
-                }
+            Event::Text(text) if current_info.is_some() => {
+                current_code.push_str(&text);
             }
             Event::End(TagEnd::CodeBlock) => {
                 if let Some(info) = current_info.take() {
