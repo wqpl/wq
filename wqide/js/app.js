@@ -287,7 +287,12 @@ const REPL_HTML = html`
       <div id="term" class="repl-thread" aria-live="polite"></div>
 
       <div class="repl-composer-area">
-        <div id="historySearch" class="history-search" hidden>
+        <div
+          id="historySearch"
+          class="history-search"
+          role="dialog"
+          aria-label="REPL history"
+          hidden>
           <input
             type="text"
             id="historySearchInput"
@@ -320,6 +325,14 @@ const REPL_HTML = html`
               type="button"
               title="Insert newline">
               Newline
+            </button>
+            <button
+              id="historyToggleBtn"
+              class="btn mini history-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="historySearch">
+              History
             </button>
             <span class="mini composer-hint"
               >Enter: exec | Shift-Enter: newline</span

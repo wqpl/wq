@@ -532,44 +532,108 @@ function handleReplTabKey(e) {
   });
 }
 
+function positionHistorySearch() {
+  if (!ui.historySearch) return;
+  if (ui.historySearch.hidden) return;
+  const replRect = ui.term?.closest(".repl-flow")?.getBoundingClientRect();
+  const termRect = ui.term?.getBoundingClientRect();
+  const composerRect = ui.composerForm?.getBoundingClientRect();
+  if (!composerRect) return;
+
+  const inset = window.matchMedia("(max-width: 560px)").matches ? 12 : 18;
+  const leftEdge = replRect?.left ?? 0;
+  const rightEdge = replRect?.right ?? window.innerWidth;
+  const replTop = replRect?.top ?? 0;
+  const stableTop = Math.max(8, replTop + inset);
+  const preferredTop = Math.max(8, (termRect?.top ?? replTop) + inset);
+  const hasRoomBelowThreadTop = composerRect.top - preferredTop >= 140;
+  const top = hasRoomBelowThreadTop ? preferredTop : stableTop;
+  const availableHeight = Math.max(96, composerRect.top - top - 10);
+  const panelHeight = Math.min(320, availableHeight);
+
+  ui.historySearch.style.left = `${Math.max(8, leftEdge + inset)}px`;
+  ui.historySearch.style.right = `${Math.max(
+    8,
+    window.innerWidth - rightEdge + inset,
+  )}px`;
+  ui.historySearch.style.top = `${top}px`;
+  ui.historySearch.style.bottom = "auto";
+  ui.historySearch.style.setProperty(
+    "--history-search-max-h",
+    `${panelHeight}px`,
+  );
+  ui.historySearch.style.setProperty(
+    "--history-results-max-h",
+    `${Math.max(40, panelHeight - 68)}px`,
+  );
+}
+
+function closeHistorySearch({ focusComposer = false } = {}) {
+  if (!ui.historySearch) return;
+  ui.historySearch.hidden = true;
+  ui.historyToggleBtn?.setAttribute("aria-expanded", "false");
+  if (focusComposer) ui.codeEl.focus();
+}
+
+function renderHistoryMatches(input, results) {
+  const q = input.value.toLowerCase();
+  const matches = history
+    .slice()
+    .reverse()
+    .filter((h) => h.toLowerCase().includes(q));
+  results.innerHTML = "";
+  if (!matches.length) {
+    const empty = document.createElement("span");
+    empty.className = "history-search-empty";
+    empty.textContent = "No matches";
+    results.appendChild(empty);
+    return;
+  }
+  matches.forEach((text) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = text;
+    btn.addEventListener("click", () => {
+      ui.codeEl.value = text;
+      autoSizeComposer();
+      closeHistorySearch();
+      ui.codeEl.focus();
+    });
+    results.appendChild(btn);
+  });
+}
+
 function openHistorySearch() {
   if (!ui.historySearch) return;
   ui.historySearch.hidden = false;
+  ui.historyToggleBtn?.setAttribute("aria-expanded", "true");
   const input = ui.historySearchInput;
   const results = ui.historySearchResults;
   input.value = ui.codeEl.value;
+  positionHistorySearch();
   input.focus();
 
   function update() {
-    const q = input.value.toLowerCase();
-    const matches = history.slice().reverse().filter((h) => h.toLowerCase().includes(q));
-    results.innerHTML = "";
-    if (!matches.length) {
-      results.innerHTML = "<span style='padding:6px 10px;color:#6a8da8;font-size:13px;'>No matches</span>";
-      return;
-    }
-    matches.forEach((text) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.textContent = text;
-      btn.addEventListener("click", () => {
-        ui.codeEl.value = text;
-                autoSizeComposer();
-        ui.historySearch.hidden = true;
-        ui.codeEl.focus();
-      });
-      results.appendChild(btn);
-    });
+    renderHistoryMatches(input, results);
+    positionHistorySearch();
   }
 
   update();
   input.oninput = update;
   input.onkeydown = (e) => {
     if (e.key === "Escape") {
-      ui.historySearch.hidden = true;
-      ui.codeEl.focus();
+      closeHistorySearch({ focusComposer: true });
     }
   };
+}
+
+function toggleHistorySearch() {
+  if (!ui.historySearch) return;
+  if (ui.historySearch.hidden) {
+    openHistorySearch();
+  } else {
+    closeHistorySearch({ focusComposer: true });
+  }
 }
 
 export async function mountRepl(root) {
@@ -597,6 +661,7 @@ export async function mountRepl(root) {
       ]),
     ),
     openInPlaygroundBtn: root.querySelector("#openInPlaygroundBtn"),
+    historyToggleBtn: root.querySelector("#historyToggleBtn"),
     historySearch: root.querySelector("#historySearch"),
     historySearchInput: root.querySelector("#historySearchInput"),
     historySearchResults: root.querySelector("#historySearchResults"),
@@ -626,6 +691,9 @@ export async function mountRepl(root) {
   });
   ui.copyOutputBtn?.addEventListener("click", () => {
     copyCurrentOutput();
+  });
+  ui.historyToggleBtn?.addEventListener("click", () => {
+    toggleHistorySearch();
   });
   ui.openInPlaygroundBtn?.addEventListener("click", () => {
     let code = ui.codeEl.value.trim();
@@ -669,10 +737,20 @@ export async function mountRepl(root) {
     if (
       ui.historySearch &&
       !ui.historySearch.hidden &&
-      !ui.historySearch.contains(e.target)
+      !ui.historySearch.contains(e.target) &&
+      !ui.historyToggleBtn?.contains(e.target)
     ) {
-      ui.historySearch.hidden = true;
+      closeHistorySearch();
     }
+  });
+  window.addEventListener("resize", () => {
+    positionHistorySearch();
+  });
+  window.visualViewport?.addEventListener("resize", () => {
+    positionHistorySearch();
+  });
+  window.visualViewport?.addEventListener("scroll", () => {
+    positionHistorySearch();
   });
 
   ui.pushStdinBtn.addEventListener("click", () => {
