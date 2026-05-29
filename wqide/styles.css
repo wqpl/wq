@@ -512,8 +512,9 @@ body {
   bottom: auto;
   left: 18px;
   right: 18px;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   max-height: var(--history-search-max-h, 320px);
   background: #ffffff;
   border: 1px solid #cfe6f6;
@@ -537,7 +538,28 @@ body {
   outline: none;
   margin-bottom: 6px;
 }
+.history-clear {
+  align-self: start;
+  margin: 0 0 6px 8px;
+  border: 1px solid #d6abc7;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: #fff6fb;
+  color: #7a2a6b;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+.history-clear:hover {
+  border-color: #8a3d77;
+}
+.history-clear:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
 .history-search-results {
+  grid-column: 1 / -1;
   max-height: var(--history-results-max-h, 200px);
   min-height: 0;
   overflow-y: auto;

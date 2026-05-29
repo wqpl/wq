@@ -298,6 +298,9 @@ const REPL_HTML = html`
             id="historySearchInput"
             placeholder="Search history..."
             autocomplete="off" />
+          <button id="clearHistoryBtn" class="history-clear" type="button">
+            Clear History
+          </button>
           <div id="historySearchResults" class="history-search-results"></div>
         </div>
         <form id="composerForm" class="repl-composer">
@@ -586,6 +589,7 @@ function persistNav(area) {
   const params = new URLSearchParams(location.search);
   const routedFile = params.get("route");
   if (routedFile) params.delete("route");
+  if (area === "repl") params.delete("input");
   const query = params.toString();
   const logicalFile = area === "featured" ? "index.html" : routedFile || file;
   const withQuery =
@@ -594,6 +598,20 @@ function persistNav(area) {
     localStorage.setItem("nav:last:" + area, withQuery);
   } catch (e) {
     console.debug("nav persist failed", e);
+  }
+}
+
+function replaceRouteParams(names) {
+  const params = new URLSearchParams(location.search);
+  for (const name of names) {
+    params.delete(name);
+  }
+  const query = params.toString();
+  const current = location.pathname + location.search + location.hash;
+  const target =
+    location.pathname + (query ? `?${query}` : "") + (location.hash || "");
+  if (target !== current) {
+    history.replaceState({}, "", target);
   }
 }
 
@@ -968,7 +986,8 @@ async function mountRepl(route) {
   }
   mod.activateRepl?.();
   if (route.params.get("input")) {
-    mod.applyReplRoute?.(root, route.params);
+    const didApply = mod.applyReplRoute?.(root, route.params);
+    if (didApply) replaceRouteParams(["input"]);
   }
   document.title = "wqide - REPL";
   showView(root);

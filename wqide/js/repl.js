@@ -459,7 +459,7 @@ function resetSession() {
   syncDebugControls();
 }
 
-async function doEval() {
+async function doEval({ recordHistory = true } = {}) {
   const code = ui.codeEl.value;
   if (!code.trim()) return;
   autoScroll = true;
@@ -473,7 +473,10 @@ async function doEval() {
       return ensureSession().eval_wq_result(code);
     });
     const end = performance.now();
-    if (!history.length || history[history.length - 1] !== code) {
+    if (
+      recordHistory &&
+      (!history.length || history[history.length - 1] !== code)
+    ) {
       history.push(code);
       saveHistory();
     }
@@ -656,6 +659,7 @@ export async function mountRepl(root) {
     historySearch: root.querySelector("#historySearch"),
     historySearchInput: root.querySelector("#historySearchInput"),
     historySearchResults: root.querySelector("#historySearchResults"),
+    clearHistoryBtn: root.querySelector("#clearHistoryBtn"),
   };
 
   bindRuntimeCallbacks();
@@ -685,6 +689,16 @@ export async function mountRepl(root) {
   });
   ui.historyToggleBtn?.addEventListener("click", () => {
     toggleHistorySearch();
+  });
+  ui.clearHistoryBtn?.addEventListener("click", () => {
+    history = [];
+    histIndex = -1;
+    pendingBuffer = ui.codeEl.value;
+    saveHistory();
+    if (!ui.historySearch?.hidden) {
+      renderHistoryMatches(ui.historySearchInput, ui.historySearchResults);
+      positionHistorySearch();
+    }
   });
   ui.openInPlaygroundBtn?.addEventListener("click", () => {
     let code = ui.codeEl.value.trim();
@@ -841,9 +855,10 @@ export function applyReplRoute(root, params) {
   if (!ui) return;
   const input = params.get("input");
   if (!input) return;
-  ui.codeEl.value = decodeURIComponent(input);
+  ui.codeEl.value = input;
   autoSizeComposer();
-  doEval().then(() => {
+  doEval({ recordHistory: false }).then(() => {
     ui.codeEl.focus();
   });
+  return true;
 }
