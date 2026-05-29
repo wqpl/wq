@@ -132,18 +132,30 @@ window.initTutorialUI = function initTutorialUI() {
     // Detect language from code class e.g. language-js
     const codeEl = pre.querySelector("code");
     let lang = "";
+    let codeMeta = [];
     if (codeEl) {
       const m = Array.from(codeEl.classList).find((c) =>
         c.startsWith("language-"),
       );
       if (m) lang = m.replace("language-", "").trim();
+      codeMeta = (codeEl.dataset.codeMeta || "")
+        .split(/\s+/)
+        .filter(Boolean);
     }
+    const expectedError = codeMeta.includes("error");
+    const noRun = codeMeta.includes("no-run");
 
     // Left: language label (only if provided)
     if (lang) {
       const langSpan = document.createElement("span");
       langSpan.className = "lang";
-      langSpan.textContent = lang.toLowerCase();
+      const labels = [lang.toLowerCase()];
+      if (expectedError) labels.push("expected error");
+      if (noRun) labels.push("no run");
+      codeMeta
+        .filter((item) => item !== "error" && item !== "no-run")
+        .forEach((item) => labels.push(item));
+      langSpan.textContent = labels.join(" · ");
       header.appendChild(langSpan);
     } else {
       // add an empty spacer to keep layout consistent
@@ -163,7 +175,7 @@ window.initTutorialUI = function initTutorialUI() {
     actions.appendChild(btn);
     header.appendChild(actions);
 
-    if (lang === "wq") {
+    if (lang === "wq" && !noRun) {
       const run = document.createElement("button");
       run.type = "button";
       run.className = "copy-btn";
@@ -191,6 +203,10 @@ window.initTutorialUI = function initTutorialUI() {
           wrapper.parentNode.insertBefore(panel, wrapper.nextSibling);
           // visually attach by marking wrapper as attached
           wrapper.classList.add("attached");
+        }
+        const panelHead = panel.querySelector(".run-head");
+        if (panelHead) {
+          panelHead.textContent = expectedError ? "Expected error" : "Result";
         }
         const codeOut = panel.querySelector("code");
         const outputRenderer =
@@ -227,7 +243,7 @@ window.initTutorialUI = function initTutorialUI() {
             );
           }
         } catch (err) {
-          console.error(err);
+          if (!expectedError) console.error(err);
           outputRenderer.clear();
           const bar = createOutputBar("error");
           codeOut.appendChild(bar);

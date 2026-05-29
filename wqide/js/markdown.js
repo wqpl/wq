@@ -63,6 +63,7 @@ export function parseMarkdown(md) {
   let inCode = false;
   let codeFence = "";
   let codeLang = "";
+  let codeMeta = [];
   let codeBuf = [];
   let listStack = [];
   let paraBuf = [];
@@ -218,21 +219,35 @@ export function parseMarkdown(md) {
   }
   function flushCode() {
     if (inCode) {
+      const attrs = [];
+      if (codeLang) attrs.push(`class="language-${codeLang}"`);
+      if (codeMeta.length) {
+        attrs.push(`data-code-meta="${escapeHtml(codeMeta.join(" "))}"`);
+      }
       out.push(
-        `<pre><code${codeLang ? ` class="language-${codeLang}"` : ""}>${escapeHtml(codeBuf.join("\n"))}</code></pre>`,
+        `<pre><code${attrs.length ? ` ${attrs.join(" ")}` : ""}>${escapeHtml(codeBuf.join("\n"))}</code></pre>`,
       );
       inCode = false;
       codeFence = "";
       codeLang = "";
+      codeMeta = [];
       codeBuf = [];
     }
+  }
+  function parseFenceInfo(rawInfo) {
+    return rawInfo
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((token) => token.replace(/[^a-zA-Z0-9_-]/g, "").toLowerCase())
+      .filter(Boolean);
   }
 
   while (i < lines.length) {
     const line = lines[i];
 
     // Code fence
-    const fenceMatch = line.match(/^(`{3,})\s*([a-zA-Z0-9_-]+)?\s*$/);
+    const fenceMatch = line.match(/^(`{3,})[ \t]*(.*?)\s*$/);
     if (fenceMatch) {
       if (!inCode) {
         // entering code
@@ -240,7 +255,9 @@ export function parseMarkdown(md) {
         flushList();
         inCode = true;
         codeFence = fenceMatch[1];
-        codeLang = fenceMatch[2] || "";
+        const fenceInfo = parseFenceInfo(fenceMatch[2] || "");
+        codeLang = fenceInfo[0] || "";
+        codeMeta = fenceInfo.slice(1);
       } else {
         // leaving code
         if (line.trim() === codeFence) {
