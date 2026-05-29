@@ -165,15 +165,6 @@ function createTurn(kind, label, body, msgType = null) {
     codeSpan.className = "repl-input-code";
     codeSpan.innerHTML = highlight_wq(body || "");
     content.appendChild(codeSpan);
-
-    turn.style.cursor = "pointer";
-    turn.title = "Click to reuse this command";
-    turn.addEventListener("click", () => {
-      const text = body ?? "";
-      ui.codeEl.value = text;
-      autoSizeComposer();
-      ui.codeEl.focus();
-    });
   } else {
     const bar = document.createElement("span");
     bar.className = `repl-bar repl-bar-${msgType || "info"}`;
