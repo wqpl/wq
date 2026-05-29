@@ -6,7 +6,7 @@ use js_sys::Function;
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use web_sys::console;
-use wqpl::boxmode::format_boxed;
+use wqpl::boxmode::{BoxFormatOptions, format_boxed_with};
 use wqpl::builtins::Builtins;
 use wqpl::doc::{self, DocKind, DocRenderTarget};
 use wqpl::highlight::{HighlightEvent, HighlightName, Highlighter};
@@ -208,7 +208,7 @@ impl WasmWqSession {
         match vm.eval_string(src) {
             Ok(v) => {
                 let s = if self.box_mode.get() {
-                    format_boxed(&v)
+                    format_boxed_with(&v, web_box_options())
                 } else {
                     format!("{v}")
                 };
@@ -237,7 +237,7 @@ impl WasmWqSession {
                 let s = if is_cas {
                     format!("{v}")
                 } else if self.box_mode.get() {
-                    format_boxed(&v)
+                    format_boxed_with(&v, web_box_options())
                 } else {
                     format!("{v}")
                 };
@@ -359,6 +359,13 @@ impl WasmWqSession {
 impl Default for WasmWqSession {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn web_box_options() -> BoxFormatOptions {
+    BoxFormatOptions {
+        axes: true,
+        color: true,
     }
 }
 
