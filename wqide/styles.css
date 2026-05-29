@@ -911,41 +911,6 @@ body {
   font-size: 16px;
   line-height: 1.6;
 }
-.draft-notice {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  background: #fff8e1;
-  border: 1px solid #ffe082;
-  border-radius: 10px;
-  color: #7a5c00;
-  font-size: 13px;
-  margin: 0 12px 10px;
-  position: relative;
-  z-index: 3;
-}
-.draft-notice[hidden] {
-  display: none;
-}
-.draft-notice button {
-  padding: 4px 12px;
-  font-size: 12px;
-  border-radius: 8px;
-  border: 1px solid #e0c060;
-  background: #ffffff;
-  color: #6a5000;
-  cursor: pointer;
-  font-family: inherit;
-  font-weight: 600;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease;
-}
-.draft-notice button:hover {
-  background: #fff3c4;
-  border-color: #d4a82a;
-}
 /* .playground-template-grid kept for backward compat; now uses .playground-template-list */
 .playground-template-grid {
   display: grid;
@@ -1078,81 +1043,6 @@ textarea.editor-text {
   color: #0b4060;
 }
 
-/* Overlay editor */
-.cm-editor {
-  display: grid;
-  min-height: 340px;
-}
-.cm-editor > * {
-  grid-area: 1 / 1 / 2 / 2;
-}
-.cm-content,
-.cm-input {
-  padding: 10px 12px;
-  font-size: 14px;
-  line-height: 22px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  white-space: pre-wrap;
-  word-break: break-word;
-  box-sizing: border-box;
-}
-.cm-content {
-  margin: 0;
-  pointer-events: none;
-  z-index: 0;
-  color: #0b4060;
-  background: transparent;
-}
-.cm-content code {
-  display: block;
-}
-textarea.cm-input {
-  width: 100%;
-  min-height: 340px;
-  border: none;
-  outline: none;
-  resize: none;
-  color: transparent;
-  caret-color: #2f9fe1;
-  background: transparent;
-  overflow: hidden;
-}
-textarea.cm-input::selection {
-  background: rgba(47, 159, 225, 0.25);
-}
-/* REPL overlay editor */
-.repl-cm-editor {
-  display: grid;
-  min-height: 44px;
-}
-.repl-cm-editor > * {
-  grid-area: 1 / 1 / 2 / 2;
-}
-.repl-cm-editor .cm-content {
-  margin: 0;
-  pointer-events: none;
-  z-index: 0;
-  color: #0b4060;
-  background: transparent;
-  border-radius: 14px;
-}
-.repl-cm-editor .cm-content code {
-  display: block;
-}
-.repl-cm-editor textarea.cm-input {
-  width: 100%;
-  min-height: 44px;
-  border: none;
-  outline: none;
-  resize: none;
-  color: transparent;
-  caret-color: #2f9fe1;
-  background: transparent;
-  overflow: hidden;
-}
-.repl-cm-editor textarea.cm-input::selection {
-  background: rgba(47, 159, 225, 0.25);
-}
 textarea.editor-text.repl-input {
   height: auto;
   min-height: 44px;

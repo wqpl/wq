@@ -6,7 +6,6 @@ import {
   highlight_wq,
 } from "wq-wasm";
 import { createAnsiRenderer } from "./ansi.js";
-import { createCmOverlay } from "./cm-overlay.js";
 import {
   ensureWasm,
   getWqVersion,
@@ -24,7 +23,6 @@ import {
 
 let session = null;
 let stdinQueue = [];
-let replOverlay = null;
 let history = [];
 let histIndex = -1;
 let pendingBuffer = "";
@@ -173,7 +171,6 @@ function createTurn(kind, label, body, msgType = null) {
     turn.addEventListener("click", () => {
       const text = body ?? "";
       ui.codeEl.value = text;
-      replOverlay?.update();
       autoSizeComposer();
       ui.codeEl.focus();
     });
@@ -306,7 +303,6 @@ function showTurnMenu(x, y, contentEl) {
       const text =
         inputTurn.querySelector(".repl-input-code")?.textContent ?? "";
       ui.codeEl.value = text;
-      replOverlay?.update();
       autoSizeComposer();
       doEval();
     });
@@ -377,10 +373,6 @@ function ensureSession() {
 }
 
 function autoSizeComposer() {
-  if (replOverlay) {
-    replOverlay.resize();
-    return;
-  }
   ui.codeEl.style.height = "0px";
   const nextHeight = Math.min(Math.max(ui.codeEl.scrollHeight, 44), 160);
   ui.codeEl.style.height = `${nextHeight}px`;
@@ -519,7 +511,6 @@ async function doEval() {
       }
     }
     ui.codeEl.value = "";
-    replOverlay?.update();
     autoSizeComposer();
   } catch (err) {
     console.error("err from wq:" + err);
@@ -538,7 +529,6 @@ async function doEval() {
 function handleReplTabKey(e) {
   handleTabKey(e, ui.codeEl, () => {
     autoSizeComposer();
-    replOverlay?.update();
   });
 }
 
@@ -564,8 +554,7 @@ function openHistorySearch() {
       btn.textContent = text;
       btn.addEventListener("click", () => {
         ui.codeEl.value = text;
-        replOverlay?.update();
-        autoSizeComposer();
+                autoSizeComposer();
         ui.historySearch.hidden = true;
         ui.codeEl.focus();
       });
@@ -612,13 +601,6 @@ export async function mountRepl(root) {
     historySearchInput: root.querySelector("#historySearchInput"),
     historySearchResults: root.querySelector("#historySearchResults"),
   };
-  const cmRoot = root.querySelector(".repl-cm-editor");
-  if (cmRoot) {
-    replOverlay = createCmOverlay(cmRoot, {
-      highlight: highlight_wq,
-      onExec: () => doEval(),
-    });
-  }
 
   bindRuntimeCallbacks();
   loadHistory();
@@ -742,7 +724,6 @@ export async function mountRepl(root) {
           histIndex--;
         }
         ui.codeEl.value = history[histIndex];
-        replOverlay?.update();
         ui.codeEl.selectionStart = ui.codeEl.selectionEnd =
           ui.codeEl.value.length;
         autoSizeComposer();
@@ -762,19 +743,17 @@ export async function mountRepl(root) {
           histIndex = -1;
           ui.codeEl.value = pendingBuffer;
         }
-        replOverlay?.update();
         ui.codeEl.selectionStart = ui.codeEl.selectionEnd =
           ui.codeEl.value.length;
         autoSizeComposer();
       }
-    } else if (e.key === "Tab" && !replOverlay) {
+    } else if (e.key === "Tab") {
       handleReplTabKey(e);
     }
   });
 
   ui.newlineBtn?.addEventListener("click", () => {
     insertTextAtCursor(ui.codeEl, "\n");
-    replOverlay?.update();
     autoSizeComposer();
   });
 
@@ -794,7 +773,6 @@ export function applyReplRoute(root, params) {
   const input = params.get("input");
   if (!input) return;
   ui.codeEl.value = decodeURIComponent(input);
-  replOverlay?.update();
   autoSizeComposer();
   doEval().then(() => {
     ui.codeEl.focus();

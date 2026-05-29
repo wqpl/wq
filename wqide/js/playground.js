@@ -6,7 +6,6 @@ import {
   highlight_wq,
 } from "wq-wasm";
 import { createAnsiRenderer } from "./ansi.js";
-import { toCanvas } from "html-to-image";
 import {
   ensureWasm,
   DEBUG_FLAGS,
@@ -19,7 +18,6 @@ import {
   queueEval,
   handleTabKey,
 } from "./wq-shared.js";
-import { createCmOverlay } from "./cm-overlay.js";
 
 function readDebugFlags(instance) {
   return parseDebugFlags(instance.debugFlagsInput?.value || "");
@@ -60,9 +58,6 @@ function syncBoxControl(instance) {
 }
 
 const instances = new WeakMap();
-const DRAFT_KEY = "wqide:playground:draft";
-let saveDraftTimeout = null;
-
 const PLAYGROUND_TEMPLATES = {
   asciiplot: {
     code: "iota 80|map{50+35*sin[x/7]+12*sin[x/2]}|asciiplot",
@@ -94,91 +89,6 @@ cowsay input[]`,
     stdin: "Moooving on!",
   },
 };
-
-function saveDraft(instance) {
-  try {
-    const draft = {
-      code: instance.ta.value,
-      stdin: instance.stdinInput?.value || "",
-      boxMode: ensureStateSavingSession(instance).get_box_mode(),
-      timeMode: instance.timeMode,
-      debugFlags: instance.debugFlagsInput?.value || "0",
-      updatedAt: Date.now(),
-    };
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-  } catch (e) {
-    console.debug("[playground] failed to save draft", e);
-  }
-}
-
-function loadDraft() {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (e) {
-    console.debug("[playground] failed to load draft", e);
-    return null;
-  }
-}
-
-function clearDraft() {
-  try {
-    localStorage.removeItem(DRAFT_KEY);
-  } catch (e) {
-    console.debug("[playground] failed to clear draft", e);
-  }
-}
-
-function debouncedSaveDraft(instance) {
-  if (saveDraftTimeout) clearTimeout(saveDraftTimeout);
-  saveDraftTimeout = setTimeout(() => saveDraft(instance), 500);
-}
-
-function showDraftNotice(instance, draft) {
-  const notice = instance.draftNotice;
-  if (!notice) return;
-  notice.hidden = false;
-  notice.innerHTML = `
-    <span>Draft from ${new Date(draft.updatedAt).toLocaleTimeString()}</span>
-    <button class="btn mini" type="button" id="restoreDraftBtn">Restore</button>
-    <button class="btn mini" type="button" id="dismissDraftBtn">Dismiss</button>
-  `;
-  notice.querySelector("#restoreDraftBtn")?.addEventListener("click", () => {
-    restoreDraft(instance, draft);
-    notice.hidden = true;
-  });
-  notice.querySelector("#dismissDraftBtn")?.addEventListener("click", () => {
-    notice.hidden = true;
-  });
-}
-
-function restoreDraft(instance, draft) {
-  if (!draft) return;
-  if (draft.code !== undefined) {
-    instance.ta.value = draft.code;
-    instance.ta.dispatchEvent(new Event("input", { bubbles: true }));
-    refreshLines(instance);
-  }
-  if (draft.stdin !== undefined && instance.stdinInput) {
-    instance.stdinInput.value = draft.stdin;
-  }
-  if (draft.timeMode !== undefined) {
-    instance.timeMode = draft.timeMode;
-    setActive(instance.timeBtn, instance.timeMode);
-  }
-  if (draft.debugFlags !== undefined && instance.debugFlagsInput) {
-    instance.debugFlagsInput.value = draft.debugFlags;
-    syncDebugButtons(instance.debugButtons, parseDebugFlags(draft.debugFlags));
-  }
-  if (draft.boxMode !== undefined && instance.stateSavingSession) {
-    const current = instance.stateSavingSession.get_box_mode();
-    if (current !== draft.boxMode) {
-      instance.stateSavingSession.toggle_box_mode();
-    }
-    setActive(instance.boxBtn, instance.stateSavingSession.get_box_mode());
-  }
-}
 
 function refreshLines(instance) {
   const lines = instance.ta.value.split("\n").length || 1;
@@ -423,59 +333,6 @@ function createPosterConfigModal() {
   });
 }
 
-async function savePosterJPEG(cardEl, title) {
-  try {
-    // Use the device pixel ratio so the image stays sharp on Retina screens
-    const dpr = Math.max(window.devicePixelRatio || 1, 2);
-
-    // Capture the card as a high-res canvas (rounded corners are transparent)
-    const cardCanvas = await toCanvas(cardEl, {
-      pixelRatio: dpr,
-      style: { boxShadow: "none" },
-    });
-
-    // Compose onto a larger canvas with the project's light-blue background and padding
-    const padding = 80 * dpr;
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    canvas.width = cardCanvas.width + padding * 2;
-    canvas.height = cardCanvas.height + padding * 2;
-
-    // Fill background (matches CSS --bg: #d7e9f6)
-    ctx.fillStyle = "#d7e9f6";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Paint a white rounded backing slightly larger than the card to ensure
-    // the corners stay clean even if html-to-image clips the right edge.
-    const computedStyle = window.getComputedStyle(cardEl);
-    const borderRadius =
-      parseFloat(computedStyle.borderRadius) * dpr || 16 * dpr;
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.roundRect(
-      padding - 2,
-      padding - 2,
-      cardCanvas.width + 4,
-      cardCanvas.height + 4,
-      borderRadius + 2,
-    );
-    ctx.fill();
-
-    // Draw card centered with padding
-    ctx.drawImage(cardCanvas, padding, padding);
-
-    // Export final JPEG (single compression step)
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-    const link = document.createElement("a");
-    link.download = `${title.replace(/\s+/g, "_") || "poster"}.jpg`;
-    link.href = dataUrl;
-    link.click();
-  } catch (err) {
-    console.error("[poster] failed to generate JPEG", err);
-    alert("Failed to save poster as JPEG. See console for details.");
-  }
-}
-
 function showPosterModal(posterHTML, title = "poster") {
   const overlay = document.createElement("div");
   overlay.className = "poster-modal-overlay poster-show-overlay";
@@ -485,7 +342,6 @@ function showPosterModal(posterHTML, title = "poster") {
         ${posterHTML}
       </div>
       <div class="poster-modal-actions" style="justify-content:center;margin-top:0;">
-        <button class="btn" type="button" id="posterSaveJpeg">Save JPEG</button>
         <button class="btn primary" type="button" id="posterClose">Close</button>
       </div>
     </div>
@@ -507,9 +363,6 @@ function showPosterModal(posterHTML, title = "poster") {
   });
 
   overlay.querySelector("#posterClose")?.addEventListener("click", close);
-  overlay.querySelector("#posterSaveJpeg")?.addEventListener("click", () => {
-    savePosterJPEG(card, title);
-  });
 
   document.body.appendChild(overlay);
 }
@@ -587,7 +440,6 @@ export async function mountPlayground(root) {
   const timeBtn = root.querySelector("#playgroundTimeBtn");
   const templateButtons = Array.from(root.querySelectorAll("[data-template]"));
   const resetBtn = root.querySelector("#resetBtn");
-  const draftNotice = root.querySelector("#draftNotice");
   const openInReplBtn = root.querySelector("#openInReplBtn");
   const instance = {
     ta,
@@ -611,32 +463,15 @@ export async function mountPlayground(root) {
     ),
     templateButtons,
     resetBtn,
-    draftNotice,
     openInReplBtn,
   };
   instances.set(root, instance);
 
   await ensureWasm();
 
-  const cmRoot = root.querySelector(".cm-editor");
-  let overlay = null;
-  if (cmRoot) {
-    overlay = createCmOverlay(cmRoot, {
-      highlight: highlight_wq,
-      onInput: () => {
-        refreshLines(instance);
-        debouncedSaveDraft(instance);
-      },
-      onExec: () => doEval(instance),
-    });
-  }
-  instance.overlay = overlay;
-
   ta.addEventListener("input", () => {
     refreshLines(instance);
-    debouncedSaveDraft(instance);
   });
-  stdinInput?.addEventListener("input", () => debouncedSaveDraft(instance));
   runBtn?.addEventListener("click", async (e) => {
     e.preventDefault();
     await doEval(instance);
@@ -645,10 +480,9 @@ export async function mountPlayground(root) {
     if ((e.ctrlKey || e.metaKey || e.shiftKey) && e.key === "Enter") {
       e.preventDefault();
       doEval(instance);
-    } else if (e.key === "Tab" && !cmRoot) {
+    } else if (e.key === "Tab") {
       handleTabKey(e, ta, () => {
         refreshLines(instance);
-        debouncedSaveDraft(instance);
       });
     }
   });
@@ -663,13 +497,11 @@ export async function mountPlayground(root) {
     await ensureWasm();
     const on = ensureStateSavingSession(instance).toggle_box_mode();
     setActive(boxBtn, on);
-    debouncedSaveDraft(instance);
     console.log(`[playground] box mode -> ${on ? "on" : "off"}\n`);
   });
   timeBtn?.addEventListener("click", () => {
     instance.timeMode = !instance.timeMode;
     setActive(timeBtn, instance.timeMode);
-    debouncedSaveDraft(instance);
     console.log(
       `[playground] time mode -> ${instance.timeMode ? "on" : "off"}\n`,
     );
@@ -677,7 +509,6 @@ export async function mountPlayground(root) {
   DEBUG_FLAGS.forEach((flag) => {
     instance.debugButtons[flag]?.addEventListener("click", () => {
       toggleDebugFlag(instance, flag);
-      debouncedSaveDraft(instance);
     });
   });
   templateButtons.forEach((button) => {
@@ -689,15 +520,10 @@ export async function mountPlayground(root) {
       refreshLines(instance);
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
-      debouncedSaveDraft(instance);
     });
   });
   resetBtn?.addEventListener("click", () => {
-    if (instance.overlay) {
-      instance.overlay.value = "";
-    } else {
-      ta.value = "";
-    }
+    ta.value = "";
     stdinInput.value = "";
     instance.output.innerHTML = "";
     instance.outputPanel.hidden = true;
@@ -711,13 +537,7 @@ export async function mountPlayground(root) {
       }
       setActive(boxBtn, true);
     }
-    clearDraft();
-    if (draftNotice) draftNotice.hidden = true;
-    if (instance.overlay) {
-      instance.overlay.focus();
-    } else {
-      ta.focus();
-    }
+    ta.focus();
   });
   openInReplBtn?.addEventListener("click", () => {
     const code = ta.value.trim();
@@ -730,12 +550,6 @@ export async function mountPlayground(root) {
   syncBoxControl(instance);
   setActive(timeBtn, instance.timeMode);
   writeDebugFlags(instance, []);
-
-  // Restore draft if no URL code is present (defer to applyPlaygroundRoute)
-  const draft = loadDraft();
-  if (draft) {
-    instance._pendingDraft = draft;
-  }
 }
 
 export async function activatePlayground(root) {
@@ -751,8 +565,6 @@ export function applyPlaygroundRoute(root, params) {
   if (!instance) return;
   const code = params.get("code");
   const sin = params.get("stdin");
-  const draft = instance._pendingDraft;
-  delete instance._pendingDraft;
 
   if (code) {
     instance.ta.value = decodeURIComponent(code);
@@ -761,24 +573,5 @@ export function applyPlaygroundRoute(root, params) {
     if (sin) {
       instance.stdinInput.value = decodeURIComponent(sin);
     }
-    // If draft exists and differs from URL, offer to restore
-    if (draft && draft.code !== instance.ta.value) {
-      showDraftNotice(instance, draft);
-    } else if (draft) {
-      // Same as draft, just save it
-      saveDraft(instance);
-    }
-    return;
-  }
-
-  // No URL code: restore draft if available
-  if (draft) {
-    restoreDraft(instance, draft);
-  }
-  if (sin && instance.stdinInput) {
-    instance.stdinInput.value = decodeURIComponent(sin);
-  }
-  if (instance.draftNotice) {
-    instance.draftNotice.hidden = true;
   }
 }

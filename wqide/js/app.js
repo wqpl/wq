@@ -202,16 +202,12 @@ const PLAYGROUND_HTML = html`
               placeholder="Provide stdin for your program..."></textarea>
           </div>
         </div>
-        <div id="draftNotice" class="draft-notice" hidden></div>
         <div class="editor-area">
           <div class="gutter" aria-hidden="true"></div>
           <div class="codepane">
-            <div class="cm-editor">
-              <pre class="cm-content" aria-hidden="true"><code></code></pre>
-              <textarea
-                class="cm-input editor-text"
+            <textarea
+                class="editor-text"
                 spellcheck="false"></textarea>
-            </div>
           </div>
         </div>
         <div class="run-output-panel" aria-live="polite" hidden>
@@ -301,16 +297,13 @@ const REPL_HTML = html`
         </div>
         <form id="composerForm" class="repl-composer">
           <label class="composer-frame" for="code">
-            <div class="cm-editor repl-cm-editor">
-              <pre class="cm-content" aria-hidden="true"><code></code></pre>
-              <textarea
+            <textarea
                 id="code"
-                class="cm-input editor-text repl-input"
+                class="editor-text repl-input"
                 spellcheck="false"
                 placeholder="echo echo"
                 enterkeyhint="send"
                 rows="1"></textarea>
-            </div>
           </label>
           <div class="composer-actions">
             <div class="stdin composer-stdin">
@@ -723,11 +716,6 @@ function showView(root) {
   window.scrollTo({ top: savedScrollY, behavior: "instant" });
   syncHeaderHeight();
   syncTabIndicator();
-  // Trigger input on overlay editors so they recalc heights now that
-  // the container is visible (offsetHeight/scrollHeight are 0 when hidden).
-  root.querySelectorAll(".cm-input").forEach((el) => {
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-  });
 }
 
 function wireBackButton(root) {
