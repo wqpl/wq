@@ -2,6 +2,7 @@ mod arg;
 mod dap;
 mod display;
 mod exec;
+mod help;
 mod load;
 mod msg;
 mod note;
@@ -74,6 +75,9 @@ fn main() {
         }
         CliCommand::Dap { script } => {
             dap::run_dap(script);
+        }
+        CliCommand::Help { no_pager, topic } => {
+            help::run(topic, no_pager);
         }
     }
 }

@@ -46,11 +46,11 @@ Division always produces float results, even for integer inputs:
 
 You get an error when you divide by zero.
 
-```wq
+```wq error
 1/0
 ```
 
-```wq
+```wq error
 1%0
 ```
 
@@ -64,14 +64,15 @@ The exponent operator is right-associative; `2^3^2` means `2^(3^2)`.
 
 ## Dotted division and modulo
 
-The dotted variants, `/.` and `%.`, do not raise an error when you divide by zero. Instead, they produce `inf`, `-inf`, or `nan`, following IEEE floating-point rules.
+The dotted variants, `/.` and `%.`, perform exact-style division and modulo for values that can be represented that way.
+They still raise an error for a zero denominator.
 
 ```wq
 17/.5 |echo
 17%.5 |echo
 ```
 
-```wq
+```wq error
 7/.2  |echo
 7%.2  |echo
 1/.0  |echo

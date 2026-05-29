@@ -71,7 +71,7 @@ But wq adds the numbers _elementwise_ (a.k.a. broadcasting):
 
 What if list lengths do not match? Try the run button:
 
-```wq
+```wq error
 (1;2;3)+(4;5;6;7)
 ```
 

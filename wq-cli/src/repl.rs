@@ -12,6 +12,7 @@ use colored::Colorize as _;
 use rand::RngExt as _;
 use terminal_size::{Width, terminal_size};
 use wqpl::builtins::{BuiltinPreset, Builtins};
+use wqpl::doc::{self, DocRenderTarget};
 use wqpl::format::{FormatConfig, Formatter};
 use wqpl::interpret::InterpreterKind;
 use wqpl::session::Session;
@@ -31,6 +32,7 @@ use crate::msg::{
     print_load_error as raw_print_load_error, print_load_report as raw_print_load_report,
     system_msg_err as raw_system_msg_err, system_msg_out as raw_system_msg_out,
 };
+use crate::note;
 use crate::repl::editor::WqReplHighlighter;
 use crate::repl::input::RustylineInput;
 use crate::wqdb::enter_wqdb_after_err;
@@ -515,21 +517,14 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     }
                     ReplCommand::Help(opt) => {
                         if let Some(name) = opt {
-                            let b = session.builtins();
-                            if b.is_enabled_name(&name) {
-                                if let Some(id) = b.get_id(&name) {
-                                    let id = id as u16;
-                                    let usage = Builtins::usage_from_id(id).unwrap_or("?");
-                                    let arity = Builtins::arity_from_id(id).unwrap_or("?");
-                                    println!("{usage} (arity {arity})");
-                                } else {
-                                    system_msg_out(
-                                        format!("unknown builtin '{name}'"),
-                                        MsgType::Info,
-                                    );
-                                }
+                            if let Some(topic) = doc::resolve(&name) {
+                                let markdown = doc::render_markdown(&topic, DocRenderTarget::Cli);
+                                println!(
+                                    "{}",
+                                    note::render_markdown_document(&markdown, Some(&highlighter))
+                                );
                             } else {
-                                system_msg_out(format!("unknown builtin '{name}'"), MsgType::Info);
+                                system_msg_out(format!("unknown help topic '{name}'"), MsgType::Info);
                             }
                         } else {
                             let refcard = include_str!("../../d/refcard");

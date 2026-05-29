@@ -11,6 +11,7 @@ pub mod astnode;
 pub mod boxmode;
 pub mod builtins;
 pub mod cst;
+pub mod doc;
 pub mod format;
 pub mod highlight;
 pub mod interpret;

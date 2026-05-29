@@ -127,11 +127,11 @@ echo @f"{a} plus 1 equals {a+1}"
 The operator `**` performs matrix multiplication.
 
 ```wq
-A:(1;4)
-B:(3;5)
-A*B   |echo
+m1:(1;4)
+m2:(3;5)
+m1*m2 |echo
 "---" |echo
-A**B  |echo
+m1**m2|echo
 ```
 
 ## Destructuring

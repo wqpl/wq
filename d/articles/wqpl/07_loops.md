@@ -7,11 +7,11 @@ If a loop never runs, it yields `()`.
 
 ## Overview
 
-wq has three forms of loop: N-loop, W-loop, and F-loop.
+wq has two loop forms, plus higher-order builtins for element-wise iteration.
 
 - `N[n;body]`
 - `W[cond;body]`
-- `F[value;body]`
+- `map[value;f]` or `value|map{...}` for per-element transforms
 
 ## N-loop
 
@@ -44,28 +44,26 @@ If the condition is false at the start, the body does not run, and the loop yiel
 
 ```wq
 i:0
-echo W[rand[]<0.8;i:i+1]
+echo W[i<3;i:i+1]
 ```
 
 ```wq
 W[false;echo ":)"]
 ```
 
-## F-loop
+## Iterating over values
 
-The F-loop iterates over a value.
+Use higher-order builtins when you want to work with each item in a value.
 
-- The counter is exposed as `_n`.
-- The current element is exposed as `_f`.
+`map` applies a function to each item and returns the transformed value.
 
 ```wq
 x:(10;20;30)
-F[x;echo (_n;_f)]
+x|map{x+1}
 ```
 
 ```wq
-x:1
-F[x;echo (_n;_f)]
+(10;20;30)|map{x*x}
 ```
 
 ## Manipulating loops
@@ -86,12 +84,13 @@ When `_n=2`, the rest of that loop body is skipped, so `n` is incremented 4 time
 
 ```wq
 acc:0
-F[(1;2;3;4;5)
-  $.[_f=4;@b]
-  acc:acc+_f]
+N[5;
+  $.[_n=3;@b]
+  acc:acc+_n]
+acc
 ```
 
-Once `_f=4`, the loop exits immediately.
+Once `_n=3`, the loop exits immediately.
 
 Both `@b` and `@c` apply to the nearest enclosing loop.
 
@@ -99,5 +98,5 @@ Both `@b` and `@c` apply to the nearest enclosing loop.
 
 - `N[n;...]` repeats a fixed number of times and exposes `_n`.
 - `W[cond;...]` repeats while a bool condition stays true.
-- `F[value;...]` iterates over elements and exposes `_n` and `_f`.
+- Use `map`, `filter`, `fold`, and friends to iterate over values.
 - `@b` leaves the loop, and `@c` jumps to the next iteration.

@@ -171,6 +171,7 @@ pub enum CliCommand {
     Fmt { script: PathBuf, opts: FmtOpts },
     Symbols { script: PathBuf, name: String },
     Dap { script: Option<PathBuf> },
+    Help { no_pager: bool, topic: Option<String> },
 }
 
 const HELP_HEADER: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
@@ -195,6 +196,7 @@ const HELP_STYLES: Styles = Styles::styled()
     name = "wq",
     version,
     author = "tttiw",
+    disable_help_subcommand = true,
     styles = HELP_STYLES,
     help_template = "{name} {version}\n{author-with-newline}{about-with-newline}\n{usage-heading} {usage}\n\n{all-args}{after-help}"
 )]
@@ -320,6 +322,14 @@ enum Commands {
         /// Optional script path to launch (can also be provided via launch
         /// config)
         script: Option<PathBuf>,
+    },
+    /// Show wq command help or language reference docs.
+    Help {
+        /// Print directly instead of using $PAGER for reference docs
+        #[arg(long)]
+        no_pager: bool,
+        /// Command, builtin, keyword, or syntax topic
+        topic: Option<String>,
     },
 }
 
@@ -553,6 +563,7 @@ where
                 }
                 CliCommand::Dap { script }
             }
+            Commands::Help { no_pager, topic } => CliCommand::Help { no_pager, topic },
         }
     } else if let Some(path) = cli.script {
         if path.extension().is_some_and(|e| e == "md") {
@@ -565,6 +576,94 @@ where
     };
 
     Ok((rt, cmd))
+}
+
+pub fn render_cli_help(topic: Option<&str>) -> Option<String> {
+    match topic {
+        None => {
+            let mut command = CliArgs::command();
+            let mut text = render_command_help(&mut command);
+            text.push_str(&after_help_text());
+            Some(text)
+        }
+        Some(topic) => {
+            let mut command = CliArgs::command();
+            command.build();
+            let mut sub = command
+                .find_subcommand(topic)?
+                .clone()
+                .bin_name(format!("wq {topic}"));
+            let mut text = render_command_help(&mut sub);
+            if topic == "exec" {
+                text.push_str(&after_help_exec_text());
+            }
+            Some(text)
+        }
+    }
+}
+
+fn render_command_help(command: &mut clap::Command) -> String {
+    let mut buf = Vec::new();
+    command
+        .write_long_help(&mut buf)
+        .expect("rendering clap help should not fail");
+    String::from_utf8(buf).expect("clap help should be utf-8")
+}
+
+fn after_help_text() -> String {
+    let mut out = String::new();
+    out.push_str("\nDebug flags\n");
+    out.push_str("  token, cst, ast, ast-v, inst, inst-v, wqdb, wqdb-v, value, cas, cas-v\n");
+    out.push_str("\nDebug aliases\n");
+    out.push_str("  0=off 1=inst 2=inst,ast 3=inst,ast,value 4=inst,ast,value,inst-v,ast-v\n");
+    out.push_str(&runtime_help_text());
+    out.push_str("\nExamples\n");
+    out.push_str("  1. Run a script:\n");
+    out.push_str("     wq /path/to/script.wq\n");
+    out.push_str("  2. Run a notebook interactively:\n");
+    out.push_str("     wq /path/to/notebook.wq.md\n");
+    out.push_str("  3. Run a notebook non-interactively:\n");
+    out.push_str("     wq --run-notebook /path/to/notebook.wq.md\n");
+    out.push_str("  4. Run code & dump instructions & print final evaluation:\n");
+    out.push_str("     wq exec \"echo(1+1)\" -d1 -p\n");
+    out.push_str("  5. Ditto + dump AST + profiler:\n");
+    out.push_str("     wq exec \"echo(1+1)\" -i p -d2 -p\n");
+    out.push_str("  6. Format a script:\n");
+    out.push_str("     wq fmt script.wq\n");
+    out.push_str("  7. Debug a script with wqdb:\n");
+    out.push_str("     wq -w -o bt -o c script.wq\n");
+    out
+}
+
+fn after_help_exec_text() -> String {
+    let mut out = String::new();
+    out.push_str("\nDebug flags\n");
+    out.push_str("  token, cst, ast, ast-v, inst, inst-v, wqdb, wqdb-v, value, cas, cas-v\n");
+    out.push_str("\nDebug aliases\n");
+    out.push_str("  0=off 1=inst 2=inst,ast 3=inst,ast,value 4=inst,ast,value,inst-v,ast-v\n");
+    out.push_str(&runtime_help_text());
+    out.push_str("\nExamples\n");
+    out.push_str("  1. Execute inline code:\n");
+    out.push_str("     wq exec \"echo(1+1)\"\n");
+    out.push_str("  2. Execute from stdin:\n");
+    out.push_str("     echo '1+1' | wq exec -\n");
+    out.push_str("  3. Execute with debug output and print result:\n");
+    out.push_str("     wq exec \"echo(1+1)\" -d1 -p\n");
+    out.push_str("  4. Execute with AST dump and profiler:\n");
+    out.push_str("     wq exec \"echo(1+1)\" -i p -d2 -p\n");
+    out
+}
+
+fn runtime_help_text() -> String {
+    let mut out = String::new();
+    out.push_str("\nInterpreters\n");
+    out.push_str("  vanilla, profiler, sample\n");
+    out.push_str("\nBuiltins\n");
+    out.push_str("  all, constrained, pure, minimal\n");
+    out.push_str("\nExit Codes\n");
+    out.push_str("  0  Success\n");
+    out.push_str("  2  Incorrect Usage\n");
+    out
 }
 
 #[cfg(test)]

@@ -235,7 +235,7 @@ fn parse_segments(markdown: &str) -> Vec<Segment> {
     segments
 }
 
-fn format_heading(level: u8, text: &str) -> String {
+pub(crate) fn format_heading(level: u8, text: &str) -> String {
     let prefix = "#".repeat(level as usize);
     let colored = match level {
         1 => prefix.magenta().bold(),
@@ -246,7 +246,11 @@ fn format_heading(level: u8, text: &str) -> String {
     format!("{} {}", colored, text.bold())
 }
 
-fn format_code_fence(lang: &str, code: &str, highlighter: Option<&WqReplHighlighter>) -> String {
+pub(crate) fn format_code_fence(
+    lang: &str,
+    code: &str,
+    highlighter: Option<&WqReplHighlighter>,
+) -> String {
     let mut out = String::new();
     let max_line_len = code.lines().map(|l| l.chars().count()).max().unwrap_or(0);
     let top_dashes = (max_line_len.saturating_sub(lang.chars().count() + 1)).max(40);
@@ -282,7 +286,7 @@ fn format_code_fence(lang: &str, code: &str, highlighter: Option<&WqReplHighligh
     out
 }
 
-fn render_terminal(md: &str) -> String {
+pub(crate) fn render_terminal(md: &str) -> String {
     let parser = Parser::new(md);
     let mut out = String::new();
 
@@ -369,6 +373,28 @@ fn apply_text_style(text: &str, strong: bool, em: bool, link: bool) -> String {
     } else {
         text.to_string()
     }
+}
+
+pub(crate) fn render_markdown_document(
+    md: &str,
+    highlighter: Option<&WqReplHighlighter>,
+) -> String {
+    let mut out = String::new();
+    for segment in split_markdown_blocks(parse_segments(md)) {
+        match segment {
+            Segment::Markdown(md) => {
+                out.push_str(&render_terminal(&md));
+            }
+            Segment::Heading { level, text } => {
+                out.push_str(&format_heading(level, &text));
+            }
+            Segment::CodeFence { lang, code } => {
+                out.push_str(&format_code_fence(&lang, &code, highlighter));
+            }
+        }
+        out.push_str("\n\n");
+    }
+    out.trim_end().to_string()
 }
 
 pub fn run_notebook(path: &Path, mut rtflags: RuntimeFlags, interactive: bool) {

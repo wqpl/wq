@@ -6,25 +6,25 @@ wq provides several higher-order bfns to help you write clean, concise, and data
 
 ## `filter`
 
-`filter[f;xs]` keeps only the items in your list `xs` for which the given function `f` returns `true`.
+`filter[xs;f]` keeps only the items in your list `xs` for which the given function `f` returns `true`.
 
 ```wq
 xs:1..=10
-filter[{x%2=0};xs]
+filter[xs;{x%2=0}]
 ```
 
 ## `map`
 
-`map[f;xs]` creates a new list by applying your function `f` to every item in your list `xs`.
+`map[xs;f]` creates a new list by applying your function `f` to every item in your list `xs`.
 
 ```wq
 xs:1..=10
-map[{x*10};xs]
+map[xs;{x*10}]
 ```
 
 ## `fold`
 
-`fold[f;acc;xs]` "folds" a list into a single value.
+`fold[xs;f;acc]` "folds" a list into a single value.
 
 It starts with an initial value `acc` and processes your list `xs` item-by-item.
 
@@ -32,10 +32,10 @@ For each item, it uses your function `f` to combine the current result with that
 
 ```wq
 xs:1..=5
-fold[{[a;x]a+x};100;xs]
+fold[xs;{x+y};100]
 ```
 
-You can omit `acc`. In that case, `fold[f;xs]`:
+You can omit `acc`. In that case, `fold[xs;f]`:
 
 - Checks if `xs` is empty. If it is, it returns `()`.
 - If not empty, it takes the first item as the initial accumulator.
@@ -43,21 +43,21 @@ You can omit `acc`. In that case, `fold[f;xs]`:
 
 ```wq
 xs:1..=5
-fold[{[a;x]a+x};xs]
+fold[xs;{x+y}]
 ```
 
 ## `scan`
 
-`scan[f;acc;xs]` (and `scan[f;xs]`) is like `fold`, but instead of returning only the final result, it returns a list of all intermediate values.
+`scan[xs;f;acc]` (and `scan[xs;f]`) is like `fold`, but instead of returning only the final result, it returns a list of all intermediate values.
 
 ```wq
 xs:1..=5
-scan[{[a;x]a+x};xs]
+scan[xs;{x+y}]
 ```
 
 ## Pipe `|`
 
-Pipe syntax lets you write a chain of function applications from left to right. It passes the value on the left as the last argument to the function on the right.
+Pipe syntax lets you write a chain of function applications from left to right. It passes the value on the left as the first argument to the function on the right.
 
 ```wq
 iota 10 |sum |echo
@@ -81,8 +81,8 @@ iota 10
 
 ## Summary
 
-- `filter[f;xs]` keeps elements matching a condition.
-- `map[f;xs]` transforms every element.
-- `fold[f;xs]` reduces elements to a single value.
-- `scan[f;xs]` yields all intermediate reduction steps.
-- `|` pipes a value through a chain of function calls, injecting it as the last argument.
+- `filter[xs;f]` keeps elements matching a condition.
+- `map[xs;f]` transforms every element.
+- `fold[xs;f]` reduces elements to a single value.
+- `scan[xs;f]` yields all intermediate reduction steps.
+- `|` pipes a value through a chain of function calls, injecting it as the first argument.

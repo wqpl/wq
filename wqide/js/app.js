@@ -1,4 +1,5 @@
 import { parseMarkdown } from "./markdown.js";
+import { getDocMarkdown } from "./wq-shared.js";
 
 console.debug("[wqide] app shell loaded");
 
@@ -839,7 +840,16 @@ async function mountArticle(route) {
           (x) => x.slug === slug,
         );
         if (!tutorial) {
-          fail("Unknown tutorial: " + slug);
+          const topic = slug.startsWith("ref:") ? slug.slice(4) : slug;
+          const md = await getDocMarkdown(topic);
+          renderArticleMarkdown(md, {
+            titleEl,
+            contentEl,
+            crumbTitle,
+            crumbSection,
+            section: "Reference",
+          });
+          root.dataset.loaded = "true";
         } else {
           if (titleEl) titleEl.textContent = tutorial.title;
           if (crumbTitle) crumbTitle.textContent = tutorial.title;
@@ -857,23 +867,32 @@ async function mountArticle(route) {
               throw new Error("Failed to load article: " + res.status);
             return res.text();
           });
-          const container = document.createElement("div");
-          container.innerHTML = parseMarkdown(md);
-          const h1 = container.querySelector("h1");
-          if (h1 && h1 === container.firstElementChild) {
-            if (titleEl) titleEl.textContent = h1.textContent;
-            h1.remove();
-          }
-          if (contentEl) {
-            contentEl.innerHTML = "";
-            contentEl.append(...Array.from(container.childNodes));
-          }
+          renderArticleMarkdown(md, {
+            titleEl,
+            contentEl,
+            crumbTitle,
+            title: tutorial.title,
+          });
           root.dataset.loaded = "true";
         }
       }
     } catch (e) {
-      console.error(e);
-      fail("Error loading tutorial.");
+      const topic = slug.startsWith("ref:") ? slug.slice(4) : slug;
+      try {
+        const md = await getDocMarkdown(topic);
+        renderArticleMarkdown(md, {
+          titleEl,
+          contentEl,
+          crumbTitle,
+          crumbSection,
+          section: "Reference",
+        });
+        root.dataset.loaded = "true";
+      } catch (docError) {
+        console.error(e);
+        console.error(docError);
+        fail("Error loading tutorial.");
+      }
     }
   } else {
     const text = titleEl?.textContent || "Article";
@@ -895,6 +914,31 @@ async function mountArticle(route) {
     if (outlineList) outlineList.removeAttribute("id");
     if (mobileOutline) mobileOutline.removeAttribute("id");
   }
+}
+
+function renderArticleMarkdown(md, options) {
+  const container = document.createElement("div");
+  container.innerHTML = parseMarkdown(md);
+  const h1 = container.querySelector("h1");
+  let title = options.title || "Reference";
+  if (h1 && h1 === container.firstElementChild) {
+    title = h1.textContent;
+    h1.remove();
+  }
+  if (options.titleEl) options.titleEl.textContent = title;
+  if (options.crumbTitle) options.crumbTitle.textContent = title;
+  if (options.crumbSection && options.section) {
+    options.crumbSection.textContent = options.section;
+    options.crumbSection.setAttribute(
+      "href",
+      `subfolder.html?section=${encodeURIComponent(options.section)}`,
+    );
+  }
+  if (options.contentEl) {
+    options.contentEl.innerHTML = "";
+    options.contentEl.append(...Array.from(container.childNodes));
+  }
+  document.title = `wqide - ${title}`;
 }
 
 async function mountPlayground(route) {

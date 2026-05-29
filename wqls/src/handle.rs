@@ -6,6 +6,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 use wqpl::builtins::Builtins;
 use wqpl::cst::GreenNode;
+use wqpl::doc::{self, DocRenderTarget, DocTopic};
 // use wqpl::format::{FormatConfig, Formatter};
 use wqpl::highlight::Highlighter;
 use wqpl::session::Session;
@@ -506,10 +507,20 @@ impl LanguageServer for Backend {
         let mut ref_capture_at_cursor = false;
         let mut ref_capture_count = 0usize;
         let mut provenance = None;
+        let mut user_symbol_at_cursor = false;
 
         // Try symbol index first
         if let Ok(index) = session.analyze_symbols(&content) {
             if let Some(result) = index.query_at(byte_offset) {
+                if index
+                    .defs
+                    .get(result.def_idx)
+                    .is_some_and(|def| def.kind == DefKind::Builtin)
+                    && let Some(topic) = doc::resolve(&result.name)
+                {
+                    return Ok(Some(hover_from_doc(&topic)));
+                }
+                user_symbol_at_cursor = true;
                 ref_capture_at_cursor = result.uses.iter().any(|loc| {
                     loc.kind.is_ref_capture()
                         && loc.span.0 <= byte_offset
@@ -566,6 +577,12 @@ impl LanguageServer for Backend {
         }
 
         if let Some(name) = name {
+            if !user_symbol_at_cursor
+                && let Some(topic) = doc::resolve(&name)
+            {
+                return Ok(Some(hover_from_doc(&topic)));
+            }
+
             let mut text = format!("**{}**", name);
             if ref_capture_at_cursor {
                 text.push_str("\n\n`ref capture`");
@@ -577,7 +594,8 @@ impl LanguageServer for Backend {
             }
 
             let builtins = session.builtins();
-            if builtins.is_known_name(&name)
+            if !user_symbol_at_cursor
+                && builtins.is_known_name(&name)
                 && let Some(id) = builtins.get_id(&name)
             {
                 if let Some(usage) = Builtins::usage_from_id(id as u16) {
@@ -880,10 +898,17 @@ impl LanguageServer for Backend {
             let detail = builtins
                 .get_id(&name)
                 .and_then(|id| Builtins::usage_from_id(id as u16).map(|u| u.to_string()));
+            let documentation = builtins.doc_for_name(&name).map(|topic| {
+                Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: doc::render_markdown(&topic, DocRenderTarget::Lsp),
+                })
+            });
             seen.entry(name.clone()).or_insert_with(|| CompletionItem {
                 label: name,
                 kind: Some(CompletionItemKind::FUNCTION),
                 detail,
+                documentation,
                 ..CompletionItem::default()
             });
         }
@@ -914,10 +939,18 @@ impl LanguageServer for Backend {
                 let arity = Builtins::arity_from_id(id as u16).unwrap_or("");
 
                 let parameters = parse_params_from_usage(usage);
+                let documentation = Builtins::doc_for_id(id as u16)
+                    .map(|topic| {
+                        Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: doc::render_markdown(&topic, DocRenderTarget::Lsp),
+                        })
+                    })
+                    .unwrap_or_else(|| Documentation::String(format!("arity: `{}`", arity)));
 
                 let sig = SignatureInformation {
                     label: usage.to_string(),
-                    documentation: Some(Documentation::String(format!("arity: `{}`", arity))),
+                    documentation: Some(documentation),
                     parameters: Some(parameters),
                     active_parameter: None,
                 };
@@ -931,6 +964,16 @@ impl LanguageServer for Backend {
         }
 
         Ok(None)
+    }
+}
+
+fn hover_from_doc(topic: &DocTopic) -> Hover {
+    Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: doc::render_markdown(topic, DocRenderTarget::Lsp),
+        }),
+        range: None,
     }
 }
 
@@ -1396,6 +1439,47 @@ mod tests {
             extract_hover_name_at("sum[1;2;3]", 0),
             Some("sum".to_string())
         );
+    }
+
+    #[test]
+    fn doc_hover_renders_builtin_and_keyword_markdown() {
+        let map = doc::resolve("map").expect("map doc");
+        let hover = hover_from_doc(&map);
+        match hover.contents {
+            HoverContents::Markup(content) => {
+                assert_eq!(content.kind, MarkupKind::Markdown);
+                assert!(content.value.contains("map builtin"));
+                assert!(content.value.contains("arity: `2 3`"));
+            }
+            other => panic!("expected markup hover, got {other:?}"),
+        }
+
+        let ret = doc::resolve("@r").expect("@r doc");
+        let hover = hover_from_doc(&ret);
+        match hover.contents {
+            HoverContents::Markup(content) => {
+                assert!(content.value.contains("@r Return"));
+                assert!(content.value.contains("Return early"));
+            }
+            other => panic!("expected markup hover, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn builtin_completion_docs_use_catalog() {
+        let builtins = Session::new().builtins().clone();
+        let topic = builtins.doc_for_name("words").expect("words doc");
+        let rendered = doc::render_markdown(&topic, DocRenderTarget::Lsp);
+        assert!(rendered.contains("words builtin"));
+        assert!(rendered.contains("words[s]"));
+    }
+
+    #[test]
+    fn signature_docs_use_builtin_doc_metadata() {
+        let topic = Builtins::doc_for_id(Builtins::MAP).expect("map doc");
+        let rendered = doc::render_markdown(&topic, DocRenderTarget::Lsp);
+        assert!(rendered.contains("map[xs;f;d?]"));
+        assert!(rendered.contains("arity: `2 3`"));
     }
 
     #[test]

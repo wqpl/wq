@@ -8,15 +8,15 @@ Common causes include invalid math operations, out-of-bounds indexing, or callin
 
 Try the run button:
 
-```wq
+```wq error
 1/0
 ```
 
-```wq
+```wq error
 a
 ```
 
-```wq
+```wq error
 ln[1;2]
 ```
 

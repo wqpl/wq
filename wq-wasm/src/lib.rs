@@ -8,6 +8,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::console;
 use wqpl::boxmode::format_boxed;
 use wqpl::builtins::Builtins;
+use wqpl::doc::{self, DocKind, DocRenderTarget};
 use wqpl::highlight::{HighlightEvent, HighlightName, Highlighter};
 use wqpl::session::Session;
 use wqpl::session::dbglog::DebugLogFlags;
@@ -387,6 +388,96 @@ pub fn get_builtins() -> String {
     let mut funcs = Builtins::new().list_functions();
     funcs.sort();
     col_wrap(&funcs, 6, 2)
+}
+
+#[wasm_bindgen]
+pub fn get_doc_markdown(query: &str) -> Result<String, JsValue> {
+    let topic = doc::resolve(query)
+        .ok_or_else(|| JsValue::from_str(&format!("unknown doc topic '{query}'")))?;
+    Ok(doc::render_markdown(&topic, DocRenderTarget::Web))
+}
+
+#[wasm_bindgen]
+pub fn get_doc_index_json() -> String {
+    let topics = doc::all_topics();
+    let mut out = String::from("[");
+    for (idx, topic) in topics.iter().enumerate() {
+        if idx > 0 {
+            out.push(',');
+        }
+        out.push('{');
+        push_json_field(&mut out, "id", &topic.id);
+        out.push(',');
+        push_json_field(&mut out, "title", &topic.title);
+        out.push(',');
+        push_json_field(&mut out, "kind", doc_kind_name(topic.kind));
+        out.push(',');
+        push_json_field(&mut out, "group", &topic.group);
+        out.push(',');
+        push_json_field(&mut out, "summary", &topic.summary);
+        out.push(',');
+        out.push_str("\"aliases\":[");
+        for (alias_idx, alias) in topic.aliases.iter().enumerate() {
+            if alias_idx > 0 {
+                out.push(',');
+            }
+            push_json_string(&mut out, alias);
+        }
+        out.push(']');
+        out.push('}');
+    }
+    out.push(']');
+    out
+}
+
+fn push_json_field(out: &mut String, key: &str, value: &str) {
+    push_json_string(out, key);
+    out.push(':');
+    push_json_string(out, value);
+}
+
+fn push_json_string(out: &mut String, value: &str) {
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if ch.is_control() => {
+                use std::fmt::Write as _;
+                write!(out, "\\u{:04x}", ch as u32).expect("writing to string should not fail");
+            }
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+}
+
+fn doc_kind_name(kind: DocKind) -> &'static str {
+    match kind {
+        DocKind::Builtin => "builtin",
+        DocKind::Keyword => "keyword",
+        DocKind::Syntax => "syntax",
+        DocKind::Guide => "guide",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn doc_exports_smoke() {
+        let index = get_doc_index_json();
+        assert!(index.contains("\"id\":\"builtin.map\""));
+        assert!(index.contains("\"id\":\"at-return\""));
+
+        let markdown = get_doc_markdown("map").expect("map doc renders");
+        assert!(markdown.contains("map builtin"));
+        assert!(markdown.contains("map[xs;f;d?]"));
+    }
 }
 
 // /// Error codes and names for quick reference

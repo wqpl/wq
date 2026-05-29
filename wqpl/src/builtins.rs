@@ -535,6 +535,13 @@ macro_rules! __declare_builtins_impl {
             pub const fn arity(self) -> &'static str {
                 match self { $($(#[$m])? BuiltinEnum::$VAR => $arity,)+ }
             }
+
+            pub fn from_id(id: u16) -> Option<Self> {
+                match id {
+                    $($(#[$m])? id if id == BuiltinEnum::$VAR as u16 => Some(BuiltinEnum::$VAR),)+
+                    _ => None,
+                }
+            }
         }
 
         pub const BUILTIN_GROUPS: &[BuiltinGroup] = &[$($(#[$m])? $group ),+];
@@ -548,6 +555,7 @@ macro_rules! __declare_builtins_impl {
             pub const NAMES: &'static [&'static str] = &[$($(#[$m])? $name ),+];
             pub const USAGES: &'static [&'static str] = &[$($(#[$m])? $usage ),+];
             pub const ARITIES: &'static [&'static str] = &[$($(#[$m])? $arity ),+];
+            pub const ENUMS: &'static [BuiltinEnum] = &[$($(#[$m])? BuiltinEnum::$VAR ),+];
             pub(crate) const DEPTH_SUGAR: &'static [BuiltinDepthSugar] = BUILTIN_DEPTH_SUGAR;
 
             #[inline]
@@ -563,6 +571,17 @@ macro_rules! __declare_builtins_impl {
             #[inline]
             pub fn arity_from_id(id: u16) -> Option<&'static str> {
                 Self::ARITIES.get(id as usize).copied()
+            }
+
+            pub fn doc_for_name(&self, name: &str) -> Option<crate::doc::DocTopic> {
+                self.name_to_id
+                    .get(name)
+                    .and_then(|id| Self::doc_for_id(*id as u16))
+            }
+
+            pub fn doc_for_id(id: u16) -> Option<crate::doc::DocTopic> {
+                let builtin = BuiltinEnum::from_id(id)?;
+                Some(crate::doc::builtin_topic(builtin))
             }
 
             #[inline]

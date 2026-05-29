@@ -25,6 +25,8 @@ pub(crate) fn asciiplot(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
     let mut opts = PlotOptions::default();
     let explicit_size = opts.apply_from_named(&args)?;
+    #[cfg(target_arch = "wasm32")]
+    let _ = explicit_size;
     // Apply theme preset before terminal sizing
     let theme = opts.theme.clone();
     if let Some(ref t) = theme {

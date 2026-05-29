@@ -1,4 +1,4 @@
-import init, { get_wq_ver } from "wq-wasm";
+import init, { get_doc_index_json, get_doc_markdown, get_wq_ver } from "wq-wasm";
 
 // ========== WASM Initialization ==========
 
@@ -16,6 +16,16 @@ export async function ensureWasm() {
 
 export function getWqVersion() {
   return wqVersion;
+}
+
+export async function getDocMarkdown(query) {
+  await ensureWasm();
+  return get_doc_markdown(query);
+}
+
+export async function getDocIndex() {
+  await ensureWasm();
+  return JSON.parse(get_doc_index_json());
 }
 
 // ========== Debug Flags ==========
