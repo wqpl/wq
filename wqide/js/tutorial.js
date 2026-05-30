@@ -138,9 +138,7 @@ window.initTutorialUI = function initTutorialUI() {
         c.startsWith("language-"),
       );
       if (m) lang = m.replace("language-", "").trim();
-      codeMeta = (codeEl.dataset.codeMeta || "")
-        .split(/\s+/)
-        .filter(Boolean);
+      codeMeta = (codeEl.dataset.codeMeta || "").split(/\s+/).filter(Boolean);
     }
     const expectedError = codeMeta.includes("error");
     const noRun = codeMeta.includes("no-run");
@@ -155,7 +153,7 @@ window.initTutorialUI = function initTutorialUI() {
       codeMeta
         .filter((item) => item !== "error" && item !== "no-run")
         .forEach((item) => labels.push(item));
-      langSpan.textContent = labels.join(" · ");
+      langSpan.textContent = labels.join(" | ");
       header.appendChild(langSpan);
     } else {
       // add an empty spacer to keep layout consistent
@@ -206,7 +204,7 @@ window.initTutorialUI = function initTutorialUI() {
         }
         const panelHead = panel.querySelector(".run-head");
         if (panelHead) {
-          panelHead.textContent = expectedError ? "Expected error" : "Result";
+          panelHead.textContent = expectedError ? "error" : "result";
         }
         const codeOut = panel.querySelector("code");
         const outputRenderer =
