@@ -1,7 +1,7 @@
 use egg::{AstSize, Extractor, Id, RecExpr, Rewrite, Runner, Symbol, define_language};
 use num_traits::{One, ToPrimitive};
 
-use super::{cas_err, simplify_cas_value};
+use super::{cas_err, expand_expr, simplify_cas_value};
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};
 
@@ -44,6 +44,7 @@ pub(super) fn rewrite_with_egg(value: &Value) -> WqResult<Option<Value>> {
     let (cost, best) = extractor.find_best(runner.roots[0]);
     let rewritten = recexpr_to_value(&best, &ctx)?;
     let rewritten = simplify_cas_value(&rewritten)?;
+    let rewritten = normalize_common_factorization(value, rewritten)?;
 
     if !should_accept_rewrite(value, &rewritten) {
         return Ok(None);
@@ -76,16 +77,38 @@ fn should_accept_rewrite(original: &Value, rewritten: &Value) -> bool {
     rewritten_text.len().saturating_add(4) < original_text.len()
 }
 
+fn normalize_common_factorization(original: &Value, rewritten: Value) -> WqResult<Value> {
+    if common_factorization_inner_terms(original, &rewritten).is_none() {
+        return Ok(rewritten);
+    }
+    let Some(("*", factors)) = rewritten.cas_op_parts() else {
+        return Ok(rewritten);
+    };
+    let mut changed = false;
+    let mut normalized = Vec::with_capacity(factors.len());
+    for factor in factors {
+        if matches!(factor.cas_op_parts(), Some(("+", _))) {
+            let expanded = simplify_cas_value(&expand_expr(factor)?)?;
+            changed |= expanded != *factor;
+            normalized.push(expanded);
+        } else {
+            normalized.push(factor.clone());
+        }
+    }
+    if changed {
+        simplify_cas_value(&Value::from_cas_op("*", normalized))
+    } else {
+        Ok(rewritten)
+    }
+}
+
 fn common_factorization_inner_terms<'a>(
     original: &Value,
     rewritten: &'a Value,
 ) -> Option<&'a [Value]> {
-    let Some(("+", original_terms)) = original.cas_op_parts() else {
+    let Some(("+", _)) = original.cas_op_parts() else {
         return None;
     };
-    if original_terms.len() < 2 {
-        return None;
-    }
     let Some(("*", factors)) = rewritten.cas_op_parts() else {
         return None;
     };
@@ -96,11 +119,10 @@ fn common_factorization_inner_terms<'a>(
             None
         }
     })?;
-    if inner_terms.len() != original_terms.len() {
-        return None;
-    }
     if !factors.iter().any(|factor| {
-        factor.cas_var_name().is_some() || matches!(factor.cas_op_parts(), Some(("^", _)))
+        factor.cas_var_name().is_some()
+            || factor.cas_call_parts().is_some()
+            || matches!(factor.cas_op_parts(), Some(("^", _)))
     }) {
         return None;
     }

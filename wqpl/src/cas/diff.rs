@@ -36,6 +36,7 @@ pub(crate) fn diff_cas(expr: &Value, var: &Value) -> WqResult<Value> {
     // avoiding the need to recombine fractions with different denominators.
     rewrite_loop(&mut current)?;
     let result = simplify_cas_value(&current)?;
+    let result = rewrite_cas(&result)?;
     cas_trace!(DebugLogFlags::CAS, "[cas] diff exit: {}", fmt_cas(&result));
     Ok(result)
 }
@@ -440,6 +441,23 @@ mod tests {
         );
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "2*x + 2");
+    }
+
+    #[test]
+    fn differentiate_exp_times_polynomial_rewrites_common_factor() {
+        let x = Value::from_cas_var("x");
+        let poly = Value::from_cas_op(
+            "+",
+            vec![
+                Value::from_cas_op("^", vec![x.clone(), Value::Int(2)]),
+                Value::from_cas_op("*", vec![Value::Int(-2), x.clone()]),
+                Value::Int(2),
+            ],
+        );
+        let expr = Value::from_cas_op("*", vec![Value::from_cas_call("exp", vec![x]), poly]);
+
+        let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
+        assert_eq!(result.to_string(), "e^x*x^2");
     }
 
     #[test]
