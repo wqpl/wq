@@ -2,7 +2,7 @@
 
 - Use `cargo run -p wq-cli -- --help` to understand CLI usage
   - eg. `cargo run -p wq-cli -- exec 'inline code' -d ast,inst -p`
-- Read `e/*.wq`, `lexer.rs`, `parser.rs` to understand wq grammar
+- Read `e/*.wq`, `lex.rs`, `parse.rs` to understand wq grammar
   - `lhs:rhs` is assignment
   - `a=b` is equality
   - list is `(1;2;3)`
@@ -13,9 +13,6 @@
       - `fn1 fn2 arg` chains
       - wrong: `fn arg1 arg2`
     - `container index` indexes
-    - `atom anything` multiplies
-      - `2 3` -> `6`
-      - `2 (1;2;3)` -> `(2;4;6)`
   - `+` is broadcasting add
   - binary `,` is cat
   - leading `,` is enlist
