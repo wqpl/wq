@@ -4,9 +4,7 @@ use crate::astnode::BinaryOperator;
 use crate::value::Value;
 use crate::value::cell::{self, ValueCell};
 use crate::vm::inst::{DebugStmtMark, Instruction};
-use crate::wqdb::data::{
-    ChunkId, DebugChunkSpec, DebugPcSpans, DebugProvenance, DebugStmtSpans,
-};
+use crate::wqdb::data::{ChunkId, DebugChunkSpec, DebugPcSpans, DebugProvenance, DebugStmtSpans};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionData {

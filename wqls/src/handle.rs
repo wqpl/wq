@@ -577,9 +577,7 @@ impl LanguageServer for Backend {
         }
 
         if let Some(name) = name {
-            if !user_symbol_at_cursor
-                && let Some(topic) = doc::resolve(&name)
-            {
+            if !user_symbol_at_cursor && let Some(topic) = doc::resolve(&name) {
                 return Ok(Some(hover_from_doc(&topic)));
             }
 
@@ -1257,15 +1255,8 @@ fn extract_word_at(src: &str, offset: usize) -> Option<String> {
 
 fn word_range_at(src: &str, offset: usize) -> Option<(usize, usize)> {
     let offset = offset.min(src.len());
-    let at_ident = src[offset..]
-        .chars()
-        .next()
-        .is_some_and(is_word_char);
-    let prev_ident = offset > 0
-        && src[..offset]
-            .chars()
-            .last()
-            .is_some_and(is_word_char);
+    let at_ident = src[offset..].chars().next().is_some_and(is_word_char);
+    let prev_ident = offset > 0 && src[..offset].chars().last().is_some_and(is_word_char);
     if !(at_ident || (offset == src.len() && prev_ident)) {
         return None;
     }
@@ -1427,10 +1418,7 @@ mod tests {
 
     #[test]
     fn test_extract_hover_name_at_keeps_at_construct_marker() {
-        assert_eq!(
-            extract_hover_name_at("@r 1", 1),
-            Some("@r".to_string())
-        );
+        assert_eq!(extract_hover_name_at("@r 1", 1), Some("@r".to_string()));
         assert_eq!(
             extract_hover_name_at("@12 has?[x; y]", 2),
             Some("@12".to_string())

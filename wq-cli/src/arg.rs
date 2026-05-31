@@ -168,10 +168,21 @@ pub enum CliCommand {
     Script(PathBuf),
     Notebook(PathBuf, bool), // path, interactive
     Exec(ExecSource),
-    Fmt { script: PathBuf, opts: FmtOpts },
-    Symbols { script: PathBuf, name: String },
-    Dap { script: Option<PathBuf> },
-    Help { no_pager: bool, topic: Option<String> },
+    Fmt {
+        script: PathBuf,
+        opts: FmtOpts,
+    },
+    Symbols {
+        script: PathBuf,
+        name: String,
+    },
+    Dap {
+        script: Option<PathBuf>,
+    },
+    Help {
+        no_pager: bool,
+        topic: Option<String>,
+    },
 }
 
 const HELP_HEADER: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);

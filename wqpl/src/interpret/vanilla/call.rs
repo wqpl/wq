@@ -96,15 +96,9 @@ pub(super) fn dispatch_postfix(
             vm.stack.push(result);
             Ok(false)
         }
-        Value::CompiledFunction { .. } | Value::Closure { .. } => dispatch_user_value_cached(
-            vm,
-            idx,
-            target,
-            argc,
-            spec_dispatch,
-            user_dispatch,
-            hooks,
-        ),
+        Value::CompiledFunction { .. } | Value::Closure { .. } => {
+            dispatch_user_value_cached(vm, idx, target, argc, spec_dispatch, user_dispatch, hooks)
+        }
         _ => {
             if vm.pending_named_meta.take().is_some() {
                 return Err(named_arg_index_err());
@@ -153,15 +147,9 @@ pub(super) fn dispatch_anon_call(
             vm.stack.push(out);
             Ok(false)
         }
-        Value::CompiledFunction { .. } | Value::Closure { .. } => dispatch_user_value_cached(
-            vm,
-            idx,
-            func,
-            argc,
-            spec_dispatch,
-            user_dispatch,
-            hooks,
-        ),
+        Value::CompiledFunction { .. } | Value::Closure { .. } => {
+            dispatch_user_value_cached(vm, idx, func, argc, spec_dispatch, user_dispatch, hooks)
+        }
         _ => user_dispatch(vm, idx, func, argc),
     }
 }
@@ -202,15 +190,7 @@ pub(super) fn dispatch_method_postfix(
             hooks.on_call_user_cache_miss();
             return spec_dispatch(vm, idx, spec);
         }
-        return dispatch_postfix(
-            vm,
-            idx,
-            target,
-            argc,
-            spec_dispatch,
-            user_dispatch,
-            hooks,
-        );
+        return dispatch_postfix(vm, idx, target, argc, spec_dispatch, user_dispatch, hooks);
     }
 
     dispatch_method_postfix_fallback(
@@ -261,15 +241,7 @@ pub(super) fn dispatch_method_call(
             hooks.on_call_user_cache_miss();
             return spec_dispatch(vm, idx, spec);
         }
-        return dispatch_anon_call(
-            vm,
-            idx,
-            target,
-            argc,
-            spec_dispatch,
-            user_dispatch,
-            hooks,
-        );
+        return dispatch_anon_call(vm, idx, target, argc, spec_dispatch, user_dispatch, hooks);
     }
 
     dispatch_method_call_fallback(
@@ -311,15 +283,7 @@ fn dispatch_method_call_fallback(
         .pop()
         .ok_or_else(|| vm_err("method lookup produced no value"))?;
     vm.stack.extend(args);
-    dispatch_anon_call(
-        vm,
-        idx,
-        &target,
-        argc,
-        spec_dispatch,
-        user_dispatch,
-        hooks,
-    )
+    dispatch_anon_call(vm, idx, &target, argc, spec_dispatch, user_dispatch, hooks)
 }
 
 fn dispatch_method_postfix_fallback(
@@ -349,15 +313,7 @@ fn dispatch_method_postfix_fallback(
         .pop()
         .ok_or_else(|| vm_err("method lookup produced no value"))?;
     vm.stack.extend(args);
-    dispatch_postfix(
-        vm,
-        idx,
-        &target,
-        argc,
-        spec_dispatch,
-        user_dispatch,
-        hooks,
-    )
+    dispatch_postfix(vm, idx, &target, argc, spec_dispatch, user_dispatch, hooks)
 }
 
 fn dispatch_user_value_cached(

@@ -309,12 +309,10 @@ impl Vm {
             Value::FunctionComposition(data) => {
                 self.invoke_function_composition_on_stack(data, argc)
             }
-            Value::CompiledFunction(_) | Value::Closure(_) => {
-                self.invoke_spec(
-                    CallSpec::from_user_callable(func, argc, callee_name)
-                        .expect("matched user function"),
-                )
-            }
+            Value::CompiledFunction(_) | Value::Closure(_) => self.invoke_spec(
+                CallSpec::from_user_callable(func, argc, callee_name)
+                    .expect("matched user function"),
+            ),
             other => Err(not_bound_err(format!(
                 "expected callable, got {}",
                 other.type_name()
@@ -325,11 +323,9 @@ impl Vm {
     /// Tail-call a user function with args already on the stack top.
     pub(crate) fn tail_invoke_user(&mut self, func: &Value, argc: usize) -> WqResult<()> {
         match func {
-            Value::CompiledFunction(_) | Value::Closure(_) => {
-                self.prepare_tail(
-                    CallSpec::from_user_callable(func, argc, None).expect("matched user function"),
-                )
-            }
+            Value::CompiledFunction(_) | Value::Closure(_) => self.prepare_tail(
+                CallSpec::from_user_callable(func, argc, None).expect("matched user function"),
+            ),
             other => Err(not_bound_err(format!(
                 "expected fn, got {}",
                 other.type_name()
@@ -436,9 +432,13 @@ impl Vm {
                     }
                 }
             } else {
-                Err(not_bound_err(format!("'{name}' has not been bound to a value")).attach_note(
-                    format!("a builtin named '{name}' exists but is disabled in the current preset"),
-                ))
+                Err(
+                    not_bound_err(format!("'{name}' has not been bound to a value")).attach_note(
+                        format!(
+                            "a builtin named '{name}' exists but is disabled in the current preset"
+                        ),
+                    ),
+                )
             }
         }
     }
@@ -834,9 +834,7 @@ fn fill_call_frame_from_stack(
         }
     } else {
         for i in (0..argc).rev() {
-            let v = stack
-                .pop()
-                .ok_or_else(|| vm_err(positional_underflow))?;
+            let v = stack.pop().ok_or_else(|| vm_err(positional_underflow))?;
             frame[i] = Slot::Value(v);
         }
     }

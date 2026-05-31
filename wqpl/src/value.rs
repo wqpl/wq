@@ -57,7 +57,10 @@ pub enum Value {
     CompiledFunction(Arc<FunctionData>),
     /// closure with captured cells (upvalues)
     Closure(Arc<ClosureData>),
-    BuiltinFunction { name: Arc<str>, id: u16 },
+    BuiltinFunction {
+        name: Arc<str>,
+        id: u16,
+    },
     FunctionComposition(Arc<FunctionCompositionData>),
     Stream(Arc<Mutex<StreamHandle>>),
 }
@@ -126,12 +129,12 @@ impl Value {
 
     pub(crate) fn is_callable(&self) -> bool {
         matches!(
-                self,
-                Value::CompiledFunction(_)
-                    | Value::Closure(_)
-                    | Value::BuiltinFunction { .. }
-                    | Value::FunctionComposition(_)
-            )
+            self,
+            Value::CompiledFunction(_)
+                | Value::Closure(_)
+                | Value::BuiltinFunction { .. }
+                | Value::FunctionComposition(_)
+        )
     }
 
     pub(crate) fn function_composition(op: BinaryOperator, left: Value, right: Value) -> Self {

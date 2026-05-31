@@ -159,9 +159,7 @@ fn parse_series_arg(_vm: &mut Vm, arg: &Value, _opts: &PlotOptions) -> WqResult<
                     .and_then(|v| v.to_rust_string_with_note().ok());
 
                 let data = match fn_val {
-                    v if v.is_callable() => {
-                        SeriesData::Callable(fn_val.clone())
-                    }
+                    v if v.is_callable() => SeriesData::Callable(fn_val.clone()),
                     _ if fn_val.is_cas_expr() => SeriesData::Cas(fn_val.clone()),
                     _ => {
                         return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg(
@@ -187,15 +185,13 @@ fn parse_series_arg(_vm: &mut Vm, arg: &Value, _opts: &PlotOptions) -> WqResult<
                     .attach_note("e.g. (1;2;3), ((1;2);(2;4)), {x*x}, or @s x^2"))
             }
         }
-        v if v.is_callable() => {
-            Ok(SeriesConfig {
-                data: SeriesData::Callable(arg.clone()),
-                xlim: None,
-                symbol: None,
-                mode: None,
-                label: None,
-            })
-        }
+        v if v.is_callable() => Ok(SeriesConfig {
+            data: SeriesData::Callable(arg.clone()),
+            xlim: None,
+            symbol: None,
+            mode: None,
+            label: None,
+        }),
         _ => Err(WqError::new(WqErrorType::Domain)
             .src(BE::Asciiplot)
             .msg("expected each arg to be point data, a function, or a symbolic CAS expression")

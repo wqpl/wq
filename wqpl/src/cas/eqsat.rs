@@ -70,7 +70,9 @@ fn should_accept_rewrite(original: &Value, rewritten: &Value) -> bool {
         return !inner_terms.iter().any(contains_fractional_numeric);
     }
 
-    let original_text = original.format_cas().unwrap_or_else(|| original.to_string());
+    let original_text = original
+        .format_cas()
+        .unwrap_or_else(|| original.to_string());
     let rewritten_text = rewritten
         .format_cas()
         .unwrap_or_else(|| rewritten.to_string());

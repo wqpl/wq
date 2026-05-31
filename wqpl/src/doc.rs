@@ -729,9 +729,10 @@ fn resolve_static(query: &str) -> Option<DocTopic> {
             doc.id == query
                 || doc.id.eq_ignore_ascii_case(query)
                 || doc.title.eq_ignore_ascii_case(query)
-                || doc.aliases.iter().any(|alias| {
-                    *alias == query || alias.to_ascii_lowercase() == query_lower
-                })
+                || doc
+                    .aliases
+                    .iter()
+                    .any(|alias| *alias == query || alias.to_ascii_lowercase() == query_lower)
         })
         .map(static_doc_topic)
 }
@@ -749,7 +750,11 @@ fn static_doc_topic(doc: &StaticDoc) -> DocTopic {
         title: doc.title.to_string(),
         kind: doc.kind,
         group: doc.group.to_string(),
-        aliases: doc.aliases.iter().map(|alias| (*alias).to_string()).collect(),
+        aliases: doc
+            .aliases
+            .iter()
+            .map(|alias| (*alias).to_string())
+            .collect(),
         summary: doc.summary.to_string(),
         details: doc.details.to_string(),
         examples: doc.examples.to_vec(),
@@ -814,14 +819,8 @@ mod tests {
 
     #[test]
     fn resolves_keywords_and_depth_modifiers() {
-        assert_eq!(
-            resolve("@r").expect("@r doc").id,
-            "at-return".to_string()
-        );
-        assert_eq!(
-            resolve("@12").expect("@12 doc").id,
-            "at-depth".to_string()
-        );
+        assert_eq!(resolve("@r").expect("@r doc").id, "at-return".to_string());
+        assert_eq!(resolve("@12").expect("@12 doc").id, "at-depth".to_string());
         assert_eq!(
             resolve("words").expect("words doc").builtin,
             Some(BuiltinEnum::Words)

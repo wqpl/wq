@@ -32,11 +32,10 @@ use crate::msg::{
     print_load_error as raw_print_load_error, print_load_report as raw_print_load_report,
     system_msg_err as raw_system_msg_err, system_msg_out as raw_system_msg_out,
 };
-use crate::note;
 use crate::repl::editor::WqReplHighlighter;
 use crate::repl::input::RustylineInput;
 use crate::wqdb::enter_wqdb_after_err;
-use crate::{apply_builtins_flag, apply_interpreter_flag, wqdb_pause_handler};
+use crate::{apply_builtins_flag, apply_interpreter_flag, note, wqdb_pause_handler};
 
 #[derive(Debug, Clone)]
 enum ReplCommand {
@@ -524,7 +523,10 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                                     note::render_markdown_document(&markdown, Some(&highlighter))
                                 );
                             } else {
-                                system_msg_out(format!("unknown help topic '{name}'"), MsgType::Info);
+                                system_msg_out(
+                                    format!("unknown help topic '{name}'"),
+                                    MsgType::Info,
+                                );
                             }
                         } else {
                             let refcard = include_str!("../../d/refcard");

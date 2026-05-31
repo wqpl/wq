@@ -6,12 +6,12 @@ use crate::builtins::{
 };
 use crate::value::bc::{Bc1Stop, Bc2Stop};
 use crate::value::{Value, WqResult, eval_binary};
-use crate::vm::inst::{Instruction, Operand};
 use crate::vm::Vm;
+use crate::vm::inst::{Instruction, Operand};
 use crate::wqerror::{WqError, WqErrorType};
 
-/// Tiny evaluator for callback bodies made only of args, constants, and binary ops.
-/// Anything that can observe VM state falls back to the normal call path.
+/// Tiny evaluator for callback bodies made only of args, constants, and binary
+/// ops. Anything that can observe VM state falls back to the normal call path.
 #[derive(Clone)]
 struct PureCallback {
     result: PureExpr,
@@ -108,11 +108,9 @@ impl PureExpr {
     fn eval(&self, args: &[&Value]) -> WqResult<Value> {
         match self {
             Self::Arg(slot) => {
-                let arg = args
-                    .get(*slot)
-                    .ok_or_else(|| {
-                        WqError::new(WqErrorType::Vm).msg("pure callback argument missing")
-                    })?;
+                let arg = args.get(*slot).ok_or_else(|| {
+                    WqError::new(WqErrorType::Vm).msg("pure callback argument missing")
+                })?;
                 Ok((**arg).clone())
             }
             Self::Const(v) => Ok(v.clone()),
@@ -1194,8 +1192,7 @@ mod tests {
                 Instruction::Return,
             ],
         );
-        let result =
-            map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
+        let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
         assert_eq!(result, Value::IntList(Arc::new(vec![2, 3, 4])));
     }
 
@@ -1216,8 +1213,7 @@ mod tests {
                 Instruction::Return,
             ],
         );
-        let result =
-            map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
+        let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
         assert_eq!(result, Value::IntList(Arc::new(vec![2, 3, 4])));
     }
 

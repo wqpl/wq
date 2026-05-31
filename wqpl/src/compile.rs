@@ -195,8 +195,12 @@ impl Compiler {
             if self.is_ref_default_name(name) {
                 self.compile_call_args(args)?;
                 if let Some(idx) = self.ref_capture_map.get(name).copied() {
-                    self.instructions
-                        .push(Self::method_capture_inst(kind, idx, method, args.len()));
+                    self.instructions.push(Self::method_capture_inst(
+                        kind,
+                        idx,
+                        method,
+                        args.len(),
+                    ));
                 } else {
                     self.instructions.push(Self::method_var_inst(
                         kind,
@@ -257,9 +261,7 @@ impl Compiler {
         argc: usize,
     ) -> Instruction {
         match kind {
-            MethodDispatchKind::Postfix => {
-                Instruction::PostfixMethodVar(receiver, method, argc)
-            }
+            MethodDispatchKind::Postfix => Instruction::PostfixMethodVar(receiver, method, argc),
             MethodDispatchKind::Call => Instruction::CallMethodVar(receiver, method, argc),
         }
     }

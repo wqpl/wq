@@ -3,9 +3,8 @@ use std::process::{Command, Stdio};
 
 use wqpl::doc::{self, DocRenderTarget};
 
-use crate::arg;
-use crate::note;
 use crate::repl::editor::WqReplHighlighter;
+use crate::{arg, note};
 
 pub fn run(topic: Option<String>, no_pager: bool) {
     if let Some(text) = arg::render_cli_help(topic.as_deref()) {
@@ -42,7 +41,10 @@ pub(crate) fn print_or_page(text: &str, no_pager: bool) {
     };
     let args: Vec<&str> = parts.collect();
 
-    let child = Command::new(program).args(args).stdin(Stdio::piped()).spawn();
+    let child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .spawn();
     let Ok(mut child) = child else {
         println!("{text}");
         return;
