@@ -2,7 +2,7 @@
 """wq integration snapshot test suite
 
 Usage:
-    python hotchoco.py run [--group G] [--test T[/MODE]|G/T/MODE]
+    python hotchoco.py run [--no-build] [--group G] [--test T[/MODE]|G/T/MODE]
     python hotchoco.py diff [--group G] [--test T[/MODE]|G/T/MODE]
     python hotchoco.py review [--group G] [--test T]
     python hotchoco.py accept --all|--group G|--test T[/MODE]|G/T/MODE
@@ -28,7 +28,10 @@ from pathlib import Path
 import tomllib
 
 SUITE_DIR = Path(__file__).resolve().parent / "hotchoco" / "suite"
-PROJECT_ROOT = SUITE_DIR.parent.parent  # hotchoco/suite → project root
+PROJECT_ROOT = SUITE_DIR.parent.parent  # hotchoco/suite -> project root
+DEFAULT_TIMEOUT_SECONDS = 30
+DEFAULT_DIFF_CONTEXT_LINES = 3
+WQ_CLI_DEBUG_BUILD_CMD = ["cargo", "build", "-p", "wq-cli"]
 
 
 def resolve_glob(pattern: str) -> list[str]:
@@ -52,6 +55,17 @@ def load_config() -> dict:
 def load_testcase(path: Path) -> dict:
     with open(path, "rb") as f:
         return tomllib.load(f)
+
+
+# ── Build ───────────────────────────────────────────────────────────────────
+
+
+def build_wq_cli() -> None:
+    sys.stderr.write("Building wq-cli debug binary...\n")
+    sys.stderr.flush()
+    proc = subprocess.run(WQ_CLI_DEBUG_BUILD_CMD, cwd=PROJECT_ROOT)
+    if proc.returncode != 0:
+        sys.exit(proc.returncode)
 
 
 # ── ANSI strip ──────────────────────────────────────────────────────────────
@@ -126,7 +140,7 @@ def run_one_test(test: dict, config: dict, output_dir: Path) -> dict:
     """Run one test and return {status, stdout, stderr, output}."""
     wq_bin_rel = config.get("wq_binary", "target/debug/wq")
     wq_bin = PROJECT_ROOT / wq_bin_rel
-    timeout = config.get("timeout_seconds", 30)
+    timeout = config.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
 
     subcommand = test.get("subcommand")
     if subcommand:
@@ -227,11 +241,7 @@ def run_tests(tests: list[dict], config: dict) -> tuple[Path, dict[str, dict]]:
         # Compare with expected
         ext = test.get("output_extension", "")
         expected_path = (
-            SUITE_DIR
-            / "golden"
-            / test["group"]
-            / test["test"]
-            / f"{test['mode']}{ext}"
+            SUITE_DIR / "golden" / test["group"] / test["test"] / f"{test['mode']}{ext}"
         )
         if expected_path.exists():
             expected = expected_path.read_text()
@@ -260,30 +270,51 @@ def run_tests(tests: list[dict], config: dict) -> tuple[Path, dict[str, dict]]:
 
 
 def compute_diff(expected: str, actual: str, label: str) -> str:
-    lines_expected = expected.splitlines(keepends=True)
-    lines_actual = actual.splitlines(keepends=True)
-    diff = list(
-        difflib.unified_diff(
-            lines_expected,
-            lines_actual,
-            fromfile=f"golden/{label}",
-            tofile=f"actual/{label}",
+    lines_expected = diff_lines(expected)
+    lines_actual = diff_lines(actual)
+    matcher = difflib.SequenceMatcher(None, lines_expected, lines_actual)
+    groups = list(matcher.get_grouped_opcodes(DEFAULT_DIFF_CONTEXT_LINES))
+    if not groups:
+        return ""
+
+    result = [f"\033[1mgolden: {label}\033[0m", f"\033[1mactual: {label}\033[0m"]
+    for group in groups:
+        old_start = group[0][1] + 1
+        old_end = group[-1][2]
+        new_start = group[0][3] + 1
+        new_end = group[-1][4]
+        result.append(
+            f"\033[36m@@ golden {old_start}-{old_end} / "
+            f"actual {new_start}-{new_end} @@\033[0m"
         )
-    )
-    # Colorize
-    result = []
-    for line in diff:
-        if line.startswith("@@"):
-            result.append(f"\033[36m{line}\033[0m")
-        elif line.startswith("+"):
-            result.append(f"\033[32m{line}\033[0m")
-        elif line.startswith("-"):
-            result.append(f"\033[31m{line}\033[0m")
-        elif line.startswith("---") or line.startswith("+++"):
-            result.append(f"\033[1m{line}\033[0m")
-        else:
-            result.append(line)
-    return "".join(result).rstrip("\n")
+
+        for tag, i1, i2, j1, j2 in group:
+            if tag == "equal":
+                for line_no, line in enumerate(lines_expected[i1:i2], start=i1 + 1):
+                    result.append(format_diff_line("same", line_no, line))
+            if tag in ("replace", "delete"):
+                for line_no, line in enumerate(lines_expected[i1:i2], start=i1 + 1):
+                    result.append(format_diff_line("old", line_no, line))
+            if tag in ("replace", "insert"):
+                for line_no, line in enumerate(lines_actual[j1:j2], start=j1 + 1):
+                    result.append(format_diff_line("new", line_no, line))
+    return "\n".join(result)
+
+
+def diff_lines(text: str) -> list[str]:
+    lines = text.splitlines()
+    if text and not text.endswith("\n"):
+        lines[-1] = f"{lines[-1]} [no trailing newline]"
+    return lines
+
+
+def format_diff_line(kind: str, line_no: int, line: str) -> str:
+    rendered = f"{kind:>4} {line_no:>5} | {line}"
+    if kind == "old":
+        return f"\033[31m{rendered}\033[0m"
+    if kind == "new":
+        return f"\033[32m{rendered}\033[0m"
+    return rendered
 
 
 # ── Find latest run ─────────────────────────────────────────────────────────
@@ -398,6 +429,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         print(f"No tests matched {selector_label(args.group, args.test)}.")
         return
 
+    if not args.no_build:
+        build_wq_cli()
+
     output_dir, summary = run_tests(tests, config)
 
     # Print summary
@@ -441,7 +475,10 @@ def cmd_run(args: argparse.Namespace) -> None:
         expected_dir = SUITE_DIR / "golden"
         if expected_dir.exists():
             for golden_file in expected_dir.rglob("*"):
-                if golden_file.is_file() and str(golden_file.resolve()) not in referenced:
+                if (
+                    golden_file.is_file()
+                    and str(golden_file.resolve()) not in referenced
+                ):
                     golden_file.unlink()
                     removed.append(golden_file.relative_to(expected_dir))
 
@@ -608,7 +645,11 @@ def cmd_clean(args: argparse.Namespace) -> None:
 
     # Only consider directories that contain summary.json
     dirs = sorted(
-        [d for d in output_base.iterdir() if d.is_dir() and (d / "summary.json").exists()]
+        [
+            d
+            for d in output_base.iterdir()
+            if d.is_dir() and (d / "summary.json").exists()
+        ]
     )
     if not dirs:
         print("No output runs to clean.")
@@ -687,7 +728,9 @@ def cmd_review(args: argparse.Namespace) -> None:
                 shutil.copy(actual_path, expected_path)
                 print("  ✓ Accepted")
                 full_summary[key]["status"] = "pass"
-                (output_dir / "summary.json").write_text(json.dumps(full_summary, indent=2))
+                (output_dir / "summary.json").write_text(
+                    json.dumps(full_summary, indent=2)
+                )
                 idx += 1
                 break
             elif resp in ("s", "skip"):
@@ -750,6 +793,11 @@ def main() -> None:
         "--test",
         "-t",
         help="Test to run (e.g. 'fib', 'fib/print', or 'wq/fib/exec')",
+    )
+    p_run.add_argument(
+        "--no-build",
+        action="store_true",
+        help="Skip the default debug build before running tests",
     )
 
     # diff
