@@ -1721,6 +1721,9 @@ textarea.editor-text.repl-input {
   background: #c9f5c9;
   border: 1px solid #b5e6b5;
   color: #063a0c;
+  white-space: nowrap;
+  box-sizing: border-box;
+  transition: width 0.25s ease;
 }
 .copy-btn:hover {
   background: #bdf0bd;

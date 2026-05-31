@@ -14,6 +14,30 @@ let __outlineObserver = null;
 let __outlineLockUntil = 0;
 // Defer WASM init until the first Run click.
 
+function animateButtonWidth(btn, newText) {
+  // Clear any stale inline width from a previous animation
+  btn.style.width = "";
+  const currentWidth = btn.offsetWidth;
+
+  // Lock to current width
+  btn.style.width = currentWidth + "px";
+
+  // Measure target width after text change
+  btn.textContent = newText;
+  btn.style.width = "auto";
+  const targetWidth = btn.offsetWidth;
+
+  // Reset to current width and animate to target
+  btn.style.width = currentWidth + "px";
+  btn.offsetWidth; // force reflow
+  btn.style.width = targetWidth + "px";
+
+  // Clean up inline width after transition, letting the button be auto-sized again
+  setTimeout(() => {
+    btn.style.width = "";
+  }, 300);
+}
+
 window.initTutorialUI = function initTutorialUI() {
   const article =
     document.querySelector(".article[data-active-article='true']") ||
@@ -276,14 +300,14 @@ window.initTutorialUI = function initTutorialUI() {
           textArea.remove();
           if (!success) throw new Error("Fallback copy failed");
         }
-        btn.textContent = "✓ Copied";
+        animateButtonWidth(btn, "✓ Copied");
         setTimeout(() => {
-          btn.textContent = "Copy";
+          animateButtonWidth(btn, "Copy");
         }, 1400);
       } catch (e) {
-        btn.textContent = "Error";
+        animateButtonWidth(btn, "Error");
         setTimeout(() => {
-          btn.textContent = "Copy";
+          animateButtonWidth(btn, "Copy");
         }, 1400);
       }
     });
