@@ -99,6 +99,60 @@ fn rewrite_combines_log_terms() {
 }
 
 #[test]
+fn rewrite_factors_common_product_with_egg() {
+    let expr = Value::from_cas_op(
+        "+",
+        vec![
+            Value::from_cas_op(
+                "*",
+                vec![Value::from_cas_var("x"), Value::from_cas_var("y")],
+            ),
+            Value::from_cas_op(
+                "*",
+                vec![Value::from_cas_var("x"), Value::from_cas_var("z")],
+            ),
+        ],
+    );
+    let text = rewrite_cas(&expr).unwrap().to_string();
+    assert!(
+        text == "x*(y + z)" || text == "x*(z + y)",
+        "unexpected factored form: {text}"
+    );
+}
+
+#[test]
+fn rewrite_keeps_fractional_log_sum_expanded() {
+    let x = Value::from_cas_var("x");
+    let x2 = Value::from_cas_op("^", vec![x.clone(), Value::Int(2)]);
+    let expr = Value::from_cas_op(
+        "+",
+        vec![
+            Value::from_cas_op(
+                "*",
+                vec![
+                    Value::from_cas_call("ln", vec![x]),
+                    x2.clone(),
+                    Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+                ],
+            ),
+            Value::from_cas_op(
+                "*",
+                vec![
+                    Value::Int(-1),
+                    x2,
+                    Value::from_fraction_parts(BigInt::from(1), BigInt::from(4)),
+                ],
+            ),
+        ],
+    );
+
+    assert_eq!(
+        rewrite_cas(&expr).unwrap().to_string(),
+        "ln[x]*x^2/2 - x^2/4"
+    );
+}
+
+#[test]
 fn rewrite_handles_trig_rules() {
     let odd = rewrite_cas(&Value::from_cas_call(
         "sin",

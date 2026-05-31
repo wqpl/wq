@@ -1,6 +1,7 @@
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive};
 
+use super::eqsat::rewrite_with_egg;
 use super::{
     cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub, collect_single_poly_var,
     common_numeric_gcd, eval_numeric_binary, expand_expr, factor_expr, numeric_is_negative,
@@ -837,6 +838,10 @@ pub(super) fn rewrite_expr(value: &Value) -> WqResult<Value> {
 pub(crate) fn rewrite_cas(expr: &Value) -> WqResult<Value> {
     let mut current = simplify_cas_value(expr)?;
     rewrite_loop(&mut current)?;
+    if let Some(next) = rewrite_with_egg(&current)? {
+        current = next;
+        rewrite_loop(&mut current)?;
+    }
     Ok(current)
 }
 
