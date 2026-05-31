@@ -805,4 +805,28 @@ mod tests {
 
         assert_eq!(derivative.to_string(), "(x^5 - 2)^-1");
     }
+
+    #[test]
+    fn diff_integrate_sqrt_x3_plus_1_roundtrips() {
+        use crate::cas::integrate::integrate_cas;
+
+        let x = Value::from_cas_var("x");
+        let integrand = Value::from_cas_op(
+            "^",
+            vec![
+                Value::from_cas_op(
+                    "+",
+                    vec![
+                        Value::from_cas_op("^", vec![x.clone(), Value::Int(3)]),
+                        Value::Int(1),
+                    ],
+                ),
+                Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+            ],
+        );
+        let integral = integrate_cas(&integrand, &x).unwrap();
+        let derivative = diff_cas(&integral, &x).unwrap();
+
+        assert_eq!(derivative.to_string(), "(x^3 + 1)^(1/2)");
+    }
 }

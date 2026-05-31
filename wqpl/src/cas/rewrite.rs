@@ -1,11 +1,12 @@
 use num_bigint::BigInt;
-use num_traits::{One, Signed, ToPrimitive};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::eqsat::rewrite_with_egg;
 use super::{
     cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub, collect_single_poly_var,
-    common_numeric_gcd, eval_numeric_binary, expand_expr, factor_expr, numeric_is_negative,
-    numeric_is_one, poly_from_expr, rebuild_scaled_term, simplify_cas_value, split_add_term,
+    common_numeric_gcd, eval_numeric_binary, expand_expr, extract_perfect_power_factor,
+    factor_expr, numeric_is_negative, numeric_is_one, poly_degree, poly_from_expr, rebuild_scaled_term,
+    simplify_cas_value, split_add_term,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};
@@ -342,6 +343,74 @@ fn try_merge_var_free_sum_pair(args: &[Value]) -> WqResult<Option<Value>> {
     Ok(None)
 }
 
+fn remove_common_product_factors(lhs: &Value, rhs: &Value) -> Option<(Vec<Value>, Value, Value)> {
+    let mut lhs_factors = if let Some(("*", args)) = lhs.cas_op_parts() {
+        args.to_vec()
+    } else {
+        vec![lhs.clone()]
+    };
+    let mut rhs_factors = if let Some(("*", args)) = rhs.cas_op_parts() {
+        args.to_vec()
+    } else {
+        vec![rhs.clone()]
+    };
+
+    let mut common = Vec::new();
+    let mut i = 0;
+    while i < lhs_factors.len() {
+        if let Some(j) = rhs_factors
+            .iter()
+            .position(|factor| factor == &lhs_factors[i])
+        {
+            common.push(lhs_factors.remove(i));
+            rhs_factors.remove(j);
+        } else {
+            i += 1;
+        }
+    }
+    let has_inverse_sqrt_factor = common.iter().any(|factor| {
+        matches!(
+            factor.cas_op_parts(),
+            Some(("^", [base, exp])) if exp.exact_neg_half() && single_poly_degree(base) == Some(3)
+        )
+    });
+    if common.is_empty() || !has_inverse_sqrt_factor {
+        return None;
+    }
+
+    Some((
+        common,
+        cas_product(lhs_factors),
+        cas_product(rhs_factors),
+    ))
+}
+
+fn try_factor_common_sum_pair(args: &[Value]) -> WqResult<Option<Value>> {
+    if args.len() < 2 {
+        return Ok(None);
+    }
+    for i in 0..args.len() {
+        for j in (i + 1)..args.len() {
+            let Some((common, lhs_rest, rhs_rest)) =
+                remove_common_product_factors(&args[i], &args[j])
+            else {
+                continue;
+            };
+            let factored_pair = cas_mul(vec![cas_product(common), cas_add(vec![lhs_rest, rhs_rest])?])?;
+            let mut new_args = Vec::with_capacity(args.len() - 1);
+            for (idx, arg) in args.iter().enumerate() {
+                if idx == i {
+                    new_args.push(factored_pair.clone());
+                } else if idx != j {
+                    new_args.push(arg.clone());
+                }
+            }
+            return Ok(Some(cas_add(new_args)?));
+        }
+    }
+    Ok(None)
+}
+
 /// For a binary variable-free sum, allow common-factor extraction.
 fn try_factor_var_free_binary_sum(value: &Value, args: &[Value]) -> WqResult<Option<Value>> {
     if args.len() != 2 {
@@ -635,6 +704,201 @@ fn try_combine_inv_denoms(args: &[Value]) -> WqResult<Option<Value>> {
     Ok(None)
 }
 
+fn negative_integer_power(exp: &Value) -> Option<Value> {
+    let power = exp.exact_int()?;
+    if !power.is_negative() {
+        return None;
+    }
+    Some(Value::from_bigint(-power))
+}
+
+fn single_poly_degree(expr: &Value) -> Option<usize> {
+    let mut var = None;
+    if !collect_single_poly_var(expr, &mut var) {
+        return None;
+    }
+    let var = var?;
+    let coeffs = poly_from_expr(expr, &var).ok()?;
+    Some(poly_degree(&coeffs))
+}
+
+fn product_factors(value: &Value) -> Vec<Value> {
+    if let Some(("*", args)) = value.cas_op_parts() {
+        args.to_vec()
+    } else {
+        vec![value.clone()]
+    }
+}
+
+fn split_fraction_product(value: &Value) -> WqResult<Option<(Value, Value)>> {
+    let mut numerator = Vec::new();
+    let mut denominator = Vec::new();
+    for factor in product_factors(value) {
+        if let Some(("^", [base, exp])) = factor.cas_op_parts()
+            && let Some(abs_power) = negative_integer_power(exp)
+        {
+            denominator.push(cas_pow(base.clone(), abs_power)?);
+        } else {
+            numerator.push(factor);
+        }
+    }
+    if denominator.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some((cas_product(numerator), cas_mul(denominator)?)))
+}
+
+fn product_negative_integer_denominator(
+    args: &[Value],
+    skip: usize,
+) -> WqResult<Option<(Value, Vec<usize>)>> {
+    let mut denominator = Vec::new();
+    let mut indices = Vec::new();
+    for (idx, arg) in args.iter().enumerate() {
+        if idx == skip {
+            continue;
+        }
+        if let Some(("^", [base, exp])) = arg.cas_op_parts()
+            && let Some(abs_power) = negative_integer_power(exp)
+        {
+            denominator.push(cas_pow(base.clone(), abs_power)?);
+            indices.push(idx);
+        }
+    }
+    if denominator.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some((cas_mul(denominator)?, indices)))
+}
+
+fn expand_equivalent(lhs: &Value, rhs: &Value) -> WqResult<bool> {
+    let lhs = simplify_cas_value(&expand_expr(lhs)?)?;
+    let rhs = simplify_cas_value(&expand_expr(rhs)?)?;
+    Ok(lhs == rhs || lhs.to_string() == rhs.to_string())
+}
+
+fn try_cancel_inverse_sqrt_denominator(args: &[Value]) -> WqResult<Option<Value>> {
+    for (sqrt_idx, factor) in args.iter().enumerate() {
+        let Some(("^", [base, exp])) = factor.cas_op_parts() else {
+            continue;
+        };
+        if !exp.exact_neg_half() {
+            continue;
+        }
+        let Some((numerator, inner_denominator)) = split_fraction_product(base)? else {
+            continue;
+        };
+        let Some((outer_denominator, outer_indices)) =
+            product_negative_integer_denominator(args, sqrt_idx)?
+        else {
+            continue;
+        };
+        let outer_square = cas_pow(outer_denominator, Value::Int(2))?;
+        if !expand_equivalent(&outer_square, &inner_denominator)? {
+            continue;
+        }
+
+        let numerator = factor_expr(&simplify_cas_value(&expand_expr(&numerator)?)?)?;
+        if single_poly_degree(&numerator) != Some(3) {
+            continue;
+        }
+        let replacement = cas_pow(numerator, exp.clone())?;
+        let mut new_args = Vec::with_capacity(args.len() - outer_indices.len());
+        for (idx, arg) in args.iter().enumerate() {
+            if idx == sqrt_idx {
+                new_args.push(replacement.clone());
+            } else if !outer_indices.contains(&idx) {
+                new_args.push(arg.clone());
+            }
+        }
+        return Ok(Some(cas_mul(new_args)?));
+    }
+    Ok(None)
+}
+
+fn perfect_power_root(n: &BigInt, q: u32) -> Option<BigInt> {
+    if n.is_zero() || n.is_one() {
+        return Some(n.clone());
+    }
+    if n.is_negative() {
+        if q.is_multiple_of(2) {
+            return None;
+        }
+        return perfect_power_root(&(-n), q).map(|root| -root);
+    }
+    let (root, rem) = extract_perfect_power_factor(n, q);
+    if rem.is_one() { Some(root) } else { None }
+}
+
+fn exact_rational_fractional_power(base: &Value, exp: &Value) -> Option<Value> {
+    let (bn, bd) = base.rational_parts()?;
+    let (en, ed) = exp.rational_parts()?;
+    if ed.is_one() {
+        return None;
+    }
+    let q = ed.to_u32()?;
+    let root_n = perfect_power_root(&bn, q)?;
+    let root_d = perfect_power_root(&bd, q)?;
+    let power = en.abs().to_u32()?;
+    let numer = root_n.pow(power);
+    let denom = root_d.pow(power);
+    if en.is_negative() {
+        if numer.is_zero() {
+            return None;
+        }
+        Some(Value::from_fraction_parts(denom, numer))
+    } else {
+        Some(Value::from_fraction_parts(numer, denom))
+    }
+}
+
+fn pow_constant_factor(factor: &Value, exp: &Value) -> WqResult<Value> {
+    if let Some(exact) = exact_rational_fractional_power(factor, exp) {
+        return Ok(exact);
+    }
+    if let Some(("^", [base, inner_exp])) = factor.cas_op_parts()
+        && !contains_symbolic_var(base)
+        && inner_exp.rational_parts().is_some()
+        && exp.rational_parts().is_some()
+    {
+        return cas_pow(base.clone(), eval_numeric_binary("*", inner_exp, exp)?);
+    }
+    cas_pow(factor.clone(), exp.clone())
+}
+
+fn try_split_var_free_product_power(base: &Value, exp: &Value) -> WqResult<Option<Value>> {
+    if !exp.exact_half() && !exp.exact_neg_half() {
+        return Ok(None);
+    }
+    let Some(("*", args)) = base.cas_op_parts() else {
+        return Ok(None);
+    };
+
+    let mut factors = Vec::with_capacity(args.len());
+    let mut symbolic = Vec::new();
+    let mut split_any = false;
+    for arg in args {
+        if contains_symbolic_var(arg) {
+            symbolic.push(arg.clone());
+        } else {
+            split_any = true;
+            factors.push(pow_constant_factor(arg, exp)?);
+        }
+    }
+    if !split_any {
+        return Ok(None);
+    }
+    if symbolic.is_empty() {
+        return Ok(None);
+    }
+    let symbolic_base = cas_mul(symbolic)?;
+    if single_poly_degree(&symbolic_base) != Some(3) {
+        return Ok(None);
+    }
+    factors.push(cas_pow(symbolic_base, exp.clone())?);
+    Ok(Some(cas_mul(factors)?))
+}
+
 fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
     if let Some(("+", args)) = value.cas_op_parts() {
         if let Some(result) = try_combine_unit_with_fraction_sum(args)? {
@@ -647,6 +911,9 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
             return Ok(Some(result));
         }
         if let Some(result) = try_merge_var_free_sum_pair(args)? {
+            return Ok(Some(result));
+        }
+        if let Some(result) = try_factor_common_sum_pair(args)? {
             return Ok(Some(result));
         }
         // Factor common product from sum: (+ (* A B) (* (* -1 A) C)) → (* A (+ B (* -1
@@ -682,6 +949,12 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
     }
 
     if let Some(("*", args)) = value.cas_op_parts()
+        && let Some(result) = try_cancel_inverse_sqrt_denominator(args)?
+    {
+        return Ok(Some(result));
+    }
+
+    if let Some(("*", args)) = value.cas_op_parts()
         && let Some(result) = rewrite_sgn_abs_product(args)?
     {
         return Ok(Some(result));
@@ -695,6 +968,9 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
     }
 
     if let Some(("^", [base, exp])) = value.cas_op_parts() {
+        if let Some(result) = try_split_var_free_product_power(base, exp)? {
+            return Ok(Some(result));
+        }
         if exp.exact_half()
             && let Some(("^", [inner_base, inner_exp])) = base.cas_op_parts()
             && inner_exp.exact_int_is(2)

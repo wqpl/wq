@@ -28,6 +28,18 @@ struct ConvertCtx {
     literals: Vec<Value>,
 }
 
+impl ConvertCtx {
+    fn literal_id(&mut self, value: &Value) -> usize {
+        if let Some(idx) = self.literals.iter().position(|existing| existing == value) {
+            idx
+        } else {
+            let idx = self.literals.len();
+            self.literals.push(value.clone());
+            idx
+        }
+    }
+}
+
 pub(super) fn rewrite_with_egg(value: &Value) -> WqResult<Option<Value>> {
     let mut ctx = ConvertCtx::default();
     let mut expr = RecExpr::default();
@@ -163,6 +175,10 @@ fn rules() -> Vec<Rewrite<EqSatLang, ()>> {
         egg::rewrite!("factor-right"; "(+ (* ?b ?a) (* ?c ?a))" => "(* ?a (+ ?b ?c))"),
         egg::rewrite!("factor-mixed-left"; "(+ (* ?a ?b) (* ?c ?a))" => "(* ?a (+ ?b ?c))"),
         egg::rewrite!("factor-mixed-right"; "(+ (* ?b ?a) (* ?a ?c))" => "(* ?a (+ ?b ?c))"),
+        egg::rewrite!("factor-left-unit"; "(+ (* ?a ?b) ?a)" => "(* ?a (+ ?b 1))"),
+        egg::rewrite!("factor-right-unit"; "(+ ?a (* ?a ?b))" => "(* ?a (+ 1 ?b))"),
+        egg::rewrite!("factor-mixed-left-unit"; "(+ (* ?b ?a) ?a)" => "(* ?a (+ ?b 1))"),
+        egg::rewrite!("factor-mixed-right-unit"; "(+ ?a (* ?b ?a))" => "(* ?a (+ 1 ?b))"),
         egg::rewrite!("distribute-left"; "(* ?a (+ ?b ?c))" => "(+ (* ?a ?b) (* ?a ?c))"),
         egg::rewrite!("distribute-right"; "(* (+ ?b ?c) ?a)" => "(+ (* ?b ?a) (* ?c ?a))"),
         egg::rewrite!("cancel-inv-r"; "(* ?a (^ ?a -1))" => "1"),
@@ -229,8 +245,7 @@ fn value_to_recexpr(
         return Ok(Some(expr.add(EqSatLang::Num(n))));
     }
 
-    let idx = ctx.literals.len();
-    ctx.literals.push(value.clone());
+    let idx = ctx.literal_id(value);
     Ok(Some(expr.add(EqSatLang::Sym(format!("lit:{idx}").into()))))
 }
 
@@ -318,6 +333,8 @@ fn sym_to_value(sym: &Symbol, ctx: &ConvertCtx) -> WqResult<Value> {
 
 #[cfg(test)]
 mod tests {
+    use num_bigint::BigInt;
+
     use super::*;
 
     #[test]
@@ -343,6 +360,84 @@ mod tests {
         let text = rewritten.to_string();
         assert!(
             text == "x*(y + z)" || text == "x*(z + y)",
+            "unexpected factored form: {text}"
+        );
+    }
+
+    #[test]
+    fn egg_rewrite_factors_product_plus_bare_factor() {
+        let common = Value::from_cas_op(
+            "*",
+            vec![Value::from_cas_var("a"), Value::from_cas_var("b")],
+        );
+        let expr = Value::from_cas_op(
+            "+",
+            vec![
+                Value::from_cas_op(
+                    "*",
+                    vec![
+                        common.clone(),
+                        Value::from_cas_op(
+                            "^",
+                            vec![Value::from_cas_var("x"), Value::Int(3)],
+                        ),
+                    ],
+                ),
+                common,
+            ],
+        );
+
+        let simplified = simplify_cas_value(&expr).expect("simplify");
+        let rewritten = rewrite_with_egg(&simplified)
+            .expect("egg rewrite")
+            .expect("expected rewrite");
+        let text = rewritten.to_string();
+        assert!(
+            text.contains("x^3 + 1") && text.contains("a") && text.contains("b"),
+            "unexpected factored form: {text}"
+        );
+    }
+
+    #[test]
+    fn egg_rewrite_interns_repeated_literals() {
+        let common = Value::from_cas_op(
+            "*",
+            vec![
+                Value::from_fraction_parts(BigInt::from(3), BigInt::from(5)),
+                Value::from_cas_op(
+                    "^",
+                    vec![
+                        Value::Int(3),
+                        Value::from_fraction_parts(BigInt::from(1), BigInt::from(4)),
+                    ],
+                ),
+                Value::from_cas_var("z"),
+            ],
+        );
+        let expr = Value::from_cas_op(
+            "+",
+            vec![
+                Value::from_cas_op(
+                    "*",
+                    vec![
+                        common.clone(),
+                        Value::from_cas_op(
+                            "^",
+                            vec![Value::from_cas_var("x"), Value::Int(3)],
+                        ),
+                    ],
+                ),
+                common,
+            ],
+        );
+
+        let simplified = simplify_cas_value(&expr).expect("simplify");
+        let rewritten = rewrite_with_egg(&simplified)
+            .expect("egg rewrite")
+            .expect("expected rewrite");
+        let text = rewritten.to_string();
+        assert!(
+            text.contains("x^3 + 1") && text.contains("3/5") && text.contains("3^(1/4)"),
             "unexpected factored form: {text}"
         );
     }
