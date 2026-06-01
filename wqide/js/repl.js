@@ -20,6 +20,7 @@ import {
   fallbackCopyText,
   queueEval,
 } from "./wq-shared.js";
+import { createWqEditor } from "./editor.js";
 
 let session = null;
 let stdinQueue = [];
@@ -647,7 +648,9 @@ function toggleHistorySearch() {
 export async function mountRepl(root) {
   await ensureWasm();
   ui = {
-    codeEl: root.querySelector("#code"),
+    codeEl: createWqEditor(root.querySelector("#code"), {
+      multilineMode: "shift",
+    }),
     term: root.querySelector("#term"),
     composerForm: root.querySelector("#composerForm"),
     evalBtn: root.querySelector("#evalBtn"),

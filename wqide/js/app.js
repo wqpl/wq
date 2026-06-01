@@ -207,6 +207,7 @@ const PLAYGROUND_HTML = html`
           <div class="codepane">
             <textarea
                 class="editor-text"
+                aria-label="Playground code"
                 spellcheck="false"></textarea>
           </div>
         </div>
@@ -304,15 +305,16 @@ const REPL_HTML = html`
           <div id="historySearchResults" class="history-search-results"></div>
         </div>
         <form id="composerForm" class="repl-composer">
-          <label class="composer-frame" for="code">
+          <div class="composer-frame">
             <textarea
                 id="code"
                 class="editor-text repl-input"
+                aria-label="REPL code"
                 spellcheck="false"
                 placeholder="echo echo"
                 enterkeyhint="send"
                 rows="1"></textarea>
-          </label>
+          </div>
           <div class="composer-actions">
             <div class="stdin composer-stdin">
               <span class="mini">stdin:</span>

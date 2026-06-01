@@ -18,6 +18,7 @@ import {
   queueEval,
   handleTabKey,
 } from "./wq-shared.js";
+import { createWqEditor } from "./editor.js";
 
 function readDebugFlags(instance) {
   return parseDebugFlags(instance.debugFlagsInput?.value || "");
@@ -426,7 +427,9 @@ async function makePoster(instance) {
 }
 
 export async function mountPlayground(root) {
-  const ta = root.querySelector("textarea.editor-text");
+  const ta = createWqEditor(root.querySelector("textarea.editor-text"), {
+    multilineMode: "plain",
+  });
   const gutter = root.querySelector(".gutter");
   const output = root.querySelector(".run-output-body");
   const outputPanel = root.querySelector(".run-output-panel");
@@ -567,11 +570,11 @@ export function applyPlaygroundRoute(root, params) {
   const sin = params.get("stdin");
 
   if (code) {
-    instance.ta.value = decodeURIComponent(code);
+    instance.ta.value = code;
     instance.ta.dispatchEvent(new Event("input", { bubbles: true }));
     refreshLines(instance);
     if (sin) {
-      instance.stdinInput.value = decodeURIComponent(sin);
+      instance.stdinInput.value = sin;
     }
   }
 }

@@ -1076,7 +1076,8 @@ body {
 .codepane {
   position: relative;
 }
-textarea.editor-text {
+textarea.editor-text,
+.wq-editor.editor-text {
   width: 100%;
   height: 100%;
   min-height: 340px;
@@ -1091,7 +1092,26 @@ textarea.editor-text {
   color: #0b4060;
 }
 
-textarea.editor-text.repl-input {
+.wq-editor.editor-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+  tab-size: 2;
+  caret-color: #7a2a6b;
+}
+
+.wq-editor.editor-text:empty::before {
+  content: attr(data-placeholder);
+  color: #6a8da8;
+  pointer-events: none;
+}
+
+.wq-editor.editor-text:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus-ring-soft);
+}
+
+textarea.editor-text.repl-input,
+.wq-editor.editor-text.repl-input {
   height: auto;
   min-height: 44px;
 }
@@ -1657,6 +1677,10 @@ textarea.editor-text.repl-input {
 .hl-variable-outer {
   color: #7a0099;
 }
+.hl-variable-ref-capture {
+  color: #0070a8;
+  font-weight: 600;
+}
 .hl-variable-builtin {
   color: #004d66;
   text-decoration: underline;
@@ -1678,6 +1702,24 @@ textarea.editor-text.repl-input {
 }
 .hl-punctuation-bracket {
   color: #555555;
+}
+.hl-punctuation-bracket-1 {
+  color: #c2416b;
+}
+.hl-punctuation-bracket-2 {
+  color: #c26a1b;
+}
+.hl-punctuation-bracket-3 {
+  color: #8b7a10;
+}
+.hl-punctuation-bracket-4 {
+  color: #17875d;
+}
+.hl-punctuation-bracket-5 {
+  color: #1e6fbb;
+}
+.hl-punctuation-bracket-6 {
+  color: #7c4db5;
 }
 .hl-punctuation-delimiter {
   color: #666666;
