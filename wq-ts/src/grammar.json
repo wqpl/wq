@@ -2684,16 +2684,8 @@
   ],
   "conflicts": [
     [
-      "dict_literal",
-      "paren_list"
-    ],
-    [
       "literal",
       "dict_pair"
-    ],
-    [
-      "function_literal",
-      "block"
     ],
     [
       "operator_identifier",
@@ -2705,18 +2697,6 @@
     ],
     [
       "pause_form"
-    ],
-    [
-      "w_loop",
-      "postfix_expr"
-    ],
-    [
-      "n_loop",
-      "postfix_expr"
-    ],
-    [
-      "block_form",
-      "postfix_expr"
     ]
   ],
   "precedences": [],

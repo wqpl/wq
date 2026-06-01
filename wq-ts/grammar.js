@@ -39,7 +39,7 @@ const integerBody = choice(
 
 const separated1 = (rule, sep) => seq(rule, repeat(seq(sep, rule)));
 
-module.exports = grammar({
+export default grammar({
   name: "wq",
 
   extras: ($) => [/[ \t\r]/, $.comment],
@@ -54,15 +54,10 @@ module.exports = grammar({
   word: ($) => $.identifier,
 
   conflicts: ($) => [
-    [$.dict_literal, $.paren_list],
     [$.literal, $.dict_pair],
-    [$.function_literal, $.block],
     [$.operator_identifier, $.unary_expr],
     [$.comma_expr, $.operator_identifier],
     [$.pause_form],
-    [$.w_loop, $.postfix_expr],
-    [$.n_loop, $.postfix_expr],
-    [$.block_form, $.postfix_expr],
   ],
 
   rules: {
@@ -174,13 +169,16 @@ module.exports = grammar({
           PREC.COMPARE,
           seq(
             $.bit_or_expr,
-            repeat1(seq(field("operator", $.comparison_operator), $.bit_or_expr)),
+            repeat1(
+              seq(field("operator", $.comparison_operator), $.bit_or_expr),
+            ),
           ),
         ),
         $.bit_or_expr,
       ),
 
-    comparison_operator: (_) => choice("=.", "=", "~.", "~", "<=", "<", ">=", ">"),
+    comparison_operator: (_) =>
+      choice("=.", "=", "~.", "~", "<=", "<", ">=", ">"),
 
     bit_or_expr: ($) => binary($, $.bit_xor_expr, PREC.BIT_OR, "\\"),
 
@@ -188,7 +186,8 @@ module.exports = grammar({
 
     bit_and_expr: ($) => binary($, $.shift_expr, PREC.BIT_AND, "&"),
 
-    shift_expr: ($) => binary($, $.additive_expr, PREC.SHIFT, choice("<<", ">>")),
+    shift_expr: ($) =>
+      binary($, $.additive_expr, PREC.SHIFT, choice("<<", ">>")),
 
     additive_expr: ($) =>
       binary($, $.multiplicative_expr, PREC.ADD, choice("+", "-")),
@@ -225,16 +224,17 @@ module.exports = grammar({
       choice(
         prec.right(
           PREC.POWER,
-          seq($.postfix_expr, field("operator", choice("^.", "^")), $.unary_expr),
+          seq(
+            $.postfix_expr,
+            field("operator", choice("^.", "^")),
+            $.unary_expr,
+          ),
         ),
         $.postfix_expr,
       ),
 
     postfix_expr: ($) =>
-      choice(
-        $.primary,
-        prec.left(PREC.POSTFIX, seq($.postfix_expr, $.suffix)),
-      ),
+      choice($.primary, prec.left(PREC.POSTFIX, seq($.postfix_expr, $.suffix))),
 
     suffix: ($) =>
       choice($.call_suffix, $.mutating_index_suffix, $.juxtaposition_suffix),
@@ -265,10 +265,12 @@ module.exports = grammar({
       ),
 
     _item_separator: ($) =>
-      prec.right(choice(
-        seq(optional(repeat1($.newline)), ";", optional(repeat1($.newline))),
-        repeat1($.newline),
-      )),
+      prec.right(
+        choice(
+          seq(optional(repeat1($.newline)), ";", optional(repeat1($.newline))),
+          repeat1($.newline),
+        ),
+      ),
 
     primary: ($) =>
       choice(
@@ -356,12 +358,15 @@ module.exports = grammar({
       ),
 
     _param_separator: ($) =>
-      prec.right(choice(
-        seq(optional(repeat1($.newline)), ";", optional(repeat1($.newline))),
-        repeat1($.newline),
-      )),
+      prec.right(
+        choice(
+          seq(optional(repeat1($.newline)), ";", optional(repeat1($.newline))),
+          repeat1($.newline),
+        ),
+      ),
 
-    param: ($) => choice($.identifier, seq($.tag, optional(seq(":", $.pipe_expr)))),
+    param: ($) =>
+      choice($.identifier, seq($.tag, optional(seq(":", $.pipe_expr)))),
 
     paren_expr: ($) => choice($.dict_literal, $.paren_list),
 
@@ -405,7 +410,8 @@ module.exports = grammar({
     n_loop: ($) => prec.dynamic(1, seq("N", $.arg_list)),
     block_form: ($) => prec.dynamic(1, seq("B", $.arg_list)),
 
-    return_form: ($) => choice(prec.right(PREC.ASSIGN, seq("@r", $.expression)), "@r"),
+    return_form: ($) =>
+      choice(prec.right(PREC.ASSIGN, seq("@r", $.expression)), "@r"),
     break_form: (_) => "@b",
     continue_form: (_) => "@c",
     try_form: ($) => seq("@t", $.expression),
@@ -424,7 +430,8 @@ module.exports = grammar({
 
     string: ($) => $._string_content,
     raw_string: ($) => seq("@l", optional(/[ \t\r]*/), $._raw_string_content),
-    format_string: ($) => seq("@f", optional(/[ \t\r]*/), $._format_string_content),
+    format_string: ($) =>
+      seq("@f", optional(/[ \t\r]*/), $._format_string_content),
 
     tag: (_) => token(seq("`", IDENT)),
     backtick: (_) => "`",

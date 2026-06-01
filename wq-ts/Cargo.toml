@@ -1,7 +1,7 @@
 [package]
 name = "tree-sitter-wq"
 description = "tree-sitter grammar for wq"
-version = "0.8.0-b1"
+version = "0.9.0"
 authors = ["tttiw"]
 license = "MIT"
 readme = "README.md"

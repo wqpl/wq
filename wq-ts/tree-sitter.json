@@ -6,14 +6,18 @@
       "camelcase": "Wq",
       "title": "wq",
       "scope": "source.wq",
-      "file-types": ["wq"],
-      "highlights": ["queries/highlights.scm"],
+      "file-types": [
+        "wq"
+      ],
+      "highlights": [
+        "queries/highlights.scm"
+      ],
       "injection-regex": "^wq$",
       "class-name": "TreeSitterWq"
     }
   ],
   "metadata": {
-    "version": "0.8.0-b1",
+    "version": "0.9.0",
     "license": "MIT",
     "description": "tree-sitter grammar for wq",
     "authors": [
@@ -22,12 +26,13 @@
       }
     ],
     "links": {
-      "repository": "https://codeberg.org/wqpl/tree-sitter-wq"
+      "repository": "https://codeberg.org/wqpl"
     }
   },
   "bindings": {
     "c": true,
     "go": true,
+    "java": false,
     "node": true,
     "python": true,
     "rust": true,
