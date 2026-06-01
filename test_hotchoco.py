@@ -7,7 +7,7 @@ import hotchoco
 
 
 class HotchocoHarnessTests(unittest.TestCase):
-    def test_run_one_test_defaults_to_sixty_second_timeout(self) -> None:
+    def test_run_one_test_timeout(self) -> None:
         calls = []
 
         def fake_run(cmd, **kwargs):

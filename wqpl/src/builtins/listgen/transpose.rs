@@ -109,7 +109,7 @@ fn parse_axes(v: &Value, rank: usize) -> WqResult<Vec<usize>> {
                             .src(BE::Transpose)
                             .msg("axis list must contain ints")
                             .at_arg(1)
-                            .offending_elem(other, i));
+                            .unexpected_element(other, i));
                     }
                 }
             }

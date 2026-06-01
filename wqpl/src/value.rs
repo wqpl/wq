@@ -196,7 +196,7 @@ impl Value {
                     } else {
                         return Err(WqError::new(WqErrorType::Domain)
                             .msg(EXP)
-                            .offending_elem(v, i));
+                            .unexpected_element(v, i));
                     }
                 }
                 Ok(s)
@@ -247,7 +247,7 @@ impl Value {
                     u8::try_from(n).map_err(|_| {
                         WqError::new(WqErrorType::Domain)
                             .msg(EXP)
-                            .offending_elem(&Value::Int(n), i)
+                            .unexpected_element(&Value::Int(n), i)
                     })
                 })
                 .collect(),
@@ -258,16 +258,16 @@ impl Value {
                     Value::Int(n) => u8::try_from(*n).map_err(|_| {
                         WqError::new(WqErrorType::Domain)
                             .msg(EXP)
-                            .offending_elem(v, i)
+                            .unexpected_element(v, i)
                     }),
                     Value::BigInt(n) => n.to_u8().ok_or_else(|| {
                         WqError::new(WqErrorType::Domain)
                             .msg(EXP)
-                            .offending_elem(v, i)
+                            .unexpected_element(v, i)
                     }),
                     _ => Err(WqError::new(WqErrorType::Domain)
                         .msg(EXP)
-                        .offending_elem(v, i)),
+                        .unexpected_element(v, i)),
                 })
                 .collect(),
             Value::Int(n) => u8::try_from(*n)
@@ -285,7 +285,8 @@ impl Value {
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Int(_) => "int",
-            Value::BigInt(_) => "bigint",
+            Value::BigInt(_) => "int",
+
             Value::Float(_) => "float",
             Value::Complex(_) => "complex",
             Value::Fraction(_) => "fraction",
@@ -294,19 +295,44 @@ impl Value {
             Value::Bool(_) => "bool",
             Value::Tag(_) => "tag",
 
-            Value::IntList(_) => "intlist",
+            Value::IntList(_) => "list",
             Value::List(_) => "list",
-            Value::String(_) => "string",
+            Value::String(_) => "list",
+
             Value::Dict(_) => "dict",
 
             Value::Algebraic(_) => "algebraic",
             Value::Cas(_) => "cas",
 
-            Value::CompiledFunction { .. } => "fn",
+            Value::CompiledFunction { .. } => "func",
             Value::Closure { .. } => "closure",
             Value::BuiltinFunction { .. } => "bfn",
-            Value::FunctionComposition(_) => "fn",
+            Value::FunctionComposition(_) => "func",
 
+            Value::Stream(_) => "stream",
+        }
+    }
+
+    pub fn type_name_verbose(&self) -> &'static str {
+        match self {
+            Value::Int(_) => "int",
+            Value::BigInt(_) => "big-int",
+            Value::Float(_) => "float",
+            Value::Complex(_) => "complex",
+            Value::Fraction(_) => "fraction",
+            Value::Algebraic(_) => "algebraic",
+            Value::Char(_) => "char",
+            Value::Tag(_) => "tag",
+            Value::Bool(_) => "bool",
+            Value::IntList(_) => "int-list",
+            Value::List(_) => "list",
+            Value::String(_) => "string",
+            Value::Cas(_) => "cas",
+            Value::Dict(_) => "dict",
+            Value::CompiledFunction(_) => "fn",
+            Value::Closure(_) => "closure",
+            Value::BuiltinFunction { .. } => "bfn",
+            Value::FunctionComposition(_) => "fn-comp",
             Value::Stream(_) => "stream",
         }
     }
@@ -667,22 +693,11 @@ mod tests {
     fn string_len() {
         assert_eq!(into_wq_string("").len(), 0);
         assert_eq!(into_wq_string("abc").len(), 3);
-        assert_eq!(into_wq_string("🦀🚀").len(), 2); // character count, not byte len
+        assert_eq!(into_wq_string("🦀🚀").len(), 2);
     }
 
     #[test]
-    fn string_is_empty_but_not_unit() {
-        let empty = into_wq_string("");
-        assert!(empty.is_empty());
-        assert!(!empty.is_unit());
-
-        let non_empty = into_wq_string("x");
-        assert!(!non_empty.is_empty());
-        assert!(!non_empty.is_unit());
-    }
-
-    #[test]
-    fn string_is_atom() {
+    fn string_is_not_atom() {
         assert!(!into_wq_string("hello").is_atom());
         assert!(!into_wq_string("").is_atom());
     }

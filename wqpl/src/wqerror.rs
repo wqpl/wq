@@ -71,9 +71,9 @@ impl WqError {
         self
     }
 
-    pub(crate) fn offending_elem(mut self, v: &Value, i: usize) -> Self {
+    pub(crate) fn unexpected_element(mut self, v: &Value, i: usize) -> Self {
         self = self.attach_note(format!(
-            "offending element '{}' ({}) at [{i}]",
+            "unexpected element '{}' ({}) at [{i}]",
             v.excerpt(),
             v.type_name()
         ));

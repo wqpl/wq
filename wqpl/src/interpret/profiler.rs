@@ -83,13 +83,8 @@ impl Drop for ProfilerInterpreter {
             stats.final_stack_len,
             stats.max_call_depth
         );
-        print_count_table("Top opcodes", &stats.op_counts, stats.total_ops, 12);
-        print_count_table(
-            "Top instruction forms",
-            &stats.inst_counts,
-            stats.total_ops,
-            16,
-        );
+        print_count_table("Top Inst Variants", &stats.op_counts, stats.total_ops, 12);
+        print_count_table("Top Inst Forms", &stats.inst_counts, stats.total_ops, 16);
 
         let total_var_lookups = stats.load_var_cache_hits
             + stats.load_var_const_cache_hits
@@ -263,7 +258,7 @@ impl InterpreterHook for ProfilerInterpreter {
     }
 
     fn on_builtin_result(&self, name: &str, argc: usize, result: &Value) {
-        let label = format!("builtin {name}/{argc}");
+        let label = format!("bfn {name}/{argc}");
         self.stats
             .borrow_mut()
             .record_sequence_output(label, result);
@@ -384,7 +379,7 @@ fn print_sequence_outputs(outputs: &HashMap<String, SequenceOutputStats>) {
             .then_with(|| a_name.cmp(b_name))
     });
 
-    eprintln!("{}", "Sequence-producing results".underline());
+    eprintln!("{}", "Container-producing results".underline());
     for (name, stats) in sorted.into_iter().take(16) {
         eprintln!(
             "{:>6} events | {:>8} items | avg {:>6.2} | {:<34} | {}",
@@ -463,36 +458,11 @@ fn colorize_heat(text: &str, value: usize, max: usize) -> ColoredString {
 
 fn sequence_kind(value: &Value) -> Option<&'static str> {
     match value {
-        Value::IntList(_) => Some("intlist"),
+        Value::IntList(_) => Some("int-list"),
         Value::List(_) => Some("list"),
         Value::String(_) => Some("string"),
         Value::Dict(_) => Some("dict"),
-
         _ => None,
-    }
-}
-
-fn value_kind(value: &Value) -> &'static str {
-    match value {
-        Value::Int(_) => "int",
-        Value::BigInt(_) => "bigint",
-        Value::Float(_) => "float",
-        Value::Complex(_) => "complex",
-        Value::Fraction(_) => "fraction",
-        Value::Algebraic(_) => "algebraic",
-        Value::Char(_) => "char",
-        Value::Tag(_) => "tag",
-        Value::Bool(_) => "bool",
-        Value::IntList(_) => "intlist",
-        Value::List(_) => "list",
-        Value::String(_) => "string",
-        Value::Cas(_) => "cas",
-        Value::Dict(_) => "dict",
-        Value::CompiledFunction(_) => "fn",
-        Value::Closure(_) => "closure",
-        Value::BuiltinFunction { .. } => "bfn",
-        Value::FunctionComposition(_) => "fn",
-        Value::Stream(_) => "stream",
     }
 }
 
@@ -578,7 +548,7 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
 fn instruction_profile_key(inst: &Instruction) -> String {
     use Instruction as I;
     match inst {
-        I::LoadConst(value) => format!("LoadConst({})", value_kind(value)),
+        I::LoadConst(value) => format!("LoadConst({})", value.type_name_verbose()),
         I::LoadClosure(payload) => format!(
             "LoadClosure(locals={}, captures={}, inst={})",
             payload.locals,
