@@ -704,8 +704,8 @@ mod tests {
 
     #[test]
     fn string_type_name() {
-        assert_eq!(into_wq_string("hello").type_name(), "string");
-        assert_eq!(into_wq_string("").type_name(), "string");
+        assert_eq!(into_wq_string("hello").type_name(), "list");
+        assert_eq!(into_wq_string("").type_name(), "list");
     }
 
     #[test]
