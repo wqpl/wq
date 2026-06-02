@@ -1729,7 +1729,6 @@ textarea.editor-text.repl-input,
 }
 .hl-tag {
   color: #2a5a2a;
-  text-decoration: underline;
   text-decoration-color: #2a5a2a88;
 }
 .hl-type {
