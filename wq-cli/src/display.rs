@@ -43,6 +43,7 @@ pub(crate) fn format_xray_info(v: &Value, config: &BoxPrintConfig) -> String {
             v.strong_count()
                 .map_or_else(|| "N/A".to_string(), |v| v.to_string()),
         ),
+        ("type-v", v.type_name_verbose().into()),
         ("len", format!("{}", v.len())),
         ("depth", format!("{}", v.depth())),
         ("shape", format!("{}", v.shape())),
