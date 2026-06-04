@@ -49,14 +49,30 @@ pub(crate) fn format_xray_info(v: &Value, config: &BoxPrintConfig) -> String {
         ("axes", format!("{}", v.axes())),
         ("uniform?", format!("{}", Value::Bool(v.is_uniform()))),
     ];
+
     let color = color_enabled(config);
-    let xray_label = style_label("[xray]", color);
-    format!(
-        "{} {}\n{}",
-        xray_label,
+
+    let mut out = String::new();
+
+    use std::fmt::Write as _;
+    let _ = write!(
+        out,
+        "[xray] {}\n{}",
         v.type_name(),
         two_col_item_values(&pairs, 4, color)
-    )
+    );
+
+    if let Value::Float(f) = v {
+        let _ = write!(
+            out,
+            "\n{} {:#018x}",
+            style_label("bits:", color),
+            f.to_bits()
+        );
+        let _ = write!(out, "\n{} {f:.60}", style_label(".60: ", color),);
+    }
+
+    out
 }
 
 fn style_label(text: &str, color: bool) -> String {

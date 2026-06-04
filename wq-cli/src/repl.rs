@@ -1246,15 +1246,16 @@ fn format_repl_result_with_type(
             out.push('\n');
             out.push_str(line);
         }
-        out
+        resstr = out;
     } else {
         // Not enough space: place type on its own line, right-aligned.
         let pad = term_w.saturating_sub(PREFIX_W + type_vis);
         resstr.push('\n');
         resstr.push_str(&" ".repeat(pad));
         resstr.push_str(&type_str.dimmed().to_string());
-        resstr
     }
+
+    resstr
 }
 
 #[derive(Debug, Clone, Default)]
