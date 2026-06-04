@@ -491,17 +491,22 @@ fn pretty_leaf(text: &str, note: &str, color: Color) -> Pretty {
 }
 
 /// Color the first "word" of a head string (the label) while leaving any
-/// trailing span / source note untouched.  If the head already contains ANSI
-/// escapes (e.g. a callee expression from CallAnonymous) we leave it alone.
+/// trailing span untouched. If the label already contains ANSI escapes,
+/// leave the whole head unchanged.
 fn colorize_head(head: &str, color: Color) -> String {
-    if head.contains('\x1b') || head.starts_with('(') {
+    if head.starts_with('(') {
+        return head.to_string();
+    }
+
+    let (label, rest) = match head.find(char::is_whitespace) {
+        Some(pos) => (&head[..pos], &head[pos..]),
+        None => (head, ""),
+    };
+
+    if label.contains('\x1b') {
         head.to_string()
-    } else if let Some(pos) = head.find(' ') {
-        let label = &head[..pos];
-        let rest = &head[pos..];
-        format!("{}{}", label.color(color).bold(), rest)
     } else {
-        head.color(color).bold().to_string()
+        format!("{}{}", label.color(color).bold(), rest)
     }
 }
 
