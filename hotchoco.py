@@ -291,13 +291,13 @@ def compute_diff(expected: str, actual: str, label: str) -> str:
         for tag, i1, i2, j1, j2 in group:
             if tag == "equal":
                 for line_no, line in enumerate(lines_expected[i1:i2], start=i1 + 1):
-                    result.append(format_diff_line("same", line_no, line))
+                    result.append(format_diff_line("=", line_no, line))
             if tag in ("replace", "delete"):
                 for line_no, line in enumerate(lines_expected[i1:i2], start=i1 + 1):
-                    result.append(format_diff_line("old", line_no, line))
+                    result.append(format_diff_line("-", line_no, line))
             if tag in ("replace", "insert"):
                 for line_no, line in enumerate(lines_actual[j1:j2], start=j1 + 1):
-                    result.append(format_diff_line("new", line_no, line))
+                    result.append(format_diff_line("+", line_no, line))
     return "\n".join(result)
 
 

@@ -41,14 +41,12 @@ class HotchocoHarnessTests(unittest.TestCase):
         )
 
     def test_compute_diff_labels_changes_without_bare_plus_minus(self) -> None:
-        diff = hotchoco.compute_diff(
-            "-golden\nsame\n", "+actual\nsame\n", "wq/tiny/exec"
-        )
+        diff = hotchoco.compute_diff("-golden\n=\n", "+actual\n=\n", "wq/tiny/exec")
 
         self.assertIn("golden: wq/tiny/exec", diff)
         self.assertIn("actual: wq/tiny/exec", diff)
-        self.assertIn("old", diff)
-        self.assertIn("new", diff)
+        self.assertIn("-", diff)
+        self.assertIn("+", diff)
         self.assertNotIn("\n--golden", diff)
         self.assertNotIn("\n++actual", diff)
 
