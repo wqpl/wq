@@ -39,7 +39,7 @@ pub(super) fn unique(args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(list_value(unique_items(seq_items(&args[0]))))
 }
 
-pub(super) fn r#union(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn union(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Union, [2], &args)?;
     Ok(list_value(unique_items(
         seq_items(&args[0]).into_iter().chain(seq_items(&args[1])),
@@ -299,7 +299,7 @@ mod tests {
             Value::IntList(Arc::new(vec![2, 1, 3]))
         );
         assert_eq!(
-            r#union(BuiltinFnArgs::from(smallvec![a.clone(), b.clone()]))
+            union(BuiltinFnArgs::from(smallvec![a.clone(), b.clone()]))
                 .expect("union should succeed"),
             Value::IntList(Arc::new(vec![2, 1, 3, 4]))
         );

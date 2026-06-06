@@ -837,7 +837,7 @@ declare_builtins! {
 
     // Set ==========================================================
     (UNIQUE, Unique, "unique", "unique[xs]", "1", plain(set::unique), BuiltinGroup::Set),
-    (UNION, Union, "union", "union[xs;ys]", "2", plain(set::r#union), BuiltinGroup::Set),
+    (UNION, Union, "union", "union[xs;ys]", "2", plain(set::union), BuiltinGroup::Set),
     (INTERSECT, Intersect, "intersect", "intersect[xs;ys]", "2", plain(set::intersect), BuiltinGroup::Set),
     (WITHOUT, Without, "without", "without[xs;ys]", "2", plain(set::without), BuiltinGroup::Set),
     (SYMDIFF, Symdiff, "symdiff", "symdiff[xs;ys]", "2", plain(set::symdiff), BuiltinGroup::Set),
