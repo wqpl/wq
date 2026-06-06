@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn transpose_4d_array() {
-        let mut vm = Vm::new(vec![]);
+        let _vm = Vm::new(vec![]);
         // 4D array: (2, 2, 2, 2) - batch of batches of 2x2 matrices
         let m00 = mat(&[&[1, 2], &[3, 4]]);
         let m01 = mat(&[&[5, 6], &[7, 8]]);

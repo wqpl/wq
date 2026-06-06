@@ -420,7 +420,7 @@ mod tests {
 
     use super::*;
     use crate::value::into_wq_string;
-    use crate::vm::Vm;
+    
 
     fn tmpfile() -> String {
         let name: u64 = rand::random();

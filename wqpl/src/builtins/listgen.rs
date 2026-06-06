@@ -479,7 +479,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vm::Vm;
+    
 
     #[test]
     fn ints_empty_shape() {

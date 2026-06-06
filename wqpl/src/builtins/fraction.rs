@@ -282,7 +282,7 @@ mod tests {
 
     use super::*;
     use crate::value::into_wq_string;
-    use crate::vm::Vm;
+    
 
     #[test]
     fn fraction_returns_exact_ratio_for_simple_float() {

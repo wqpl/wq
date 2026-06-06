@@ -1155,7 +1155,7 @@ mod tests {
 
     #[test]
     fn test_find_nested() {
-        let mut vm = Vm::new(vec![]);
+        let _vm = Vm::new(vec![]);
 
         // Nested structure: (2;(2;3);((4;5);6))
         let nested = Value::List(Arc::new(vec![
