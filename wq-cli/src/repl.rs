@@ -1070,7 +1070,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         .flat_map(|&ch| {
             palette
                 .iter()
-                .map(move |(r, g, b)| ch.truecolor(*r, *g, *b).to_string())
+                .map(|(r, g, b)| ch.truecolor(*r, *g, *b).to_string())
         })
         .collect();
 
@@ -1093,7 +1093,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         .flat_map(|&ch| {
             palette
                 .iter()
-                .map(move |(r, g, b)| ch.truecolor(*r, *g, *b).to_string())
+                .map(|(r, g, b)| ch.truecolor(*r, *g, *b).to_string())
         })
         .collect();
 
