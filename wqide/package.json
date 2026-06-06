@@ -1,0 +1,28 @@
+{
+  "name": "wqide",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Interactive browser IDE for wqpl",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wqpl/wqide.git"
+  },
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/wqpl/wqide/issues"
+  },
+  "homepage": "https://github.com/wqpl/wqide#readme",
+  "devDependencies": {
+    "vite": "^8.0.3",
+    "vite-plugin-static-copy": "^4.0.1"
+  },
+  "dependencies": {
+    "html-to-image": "^1.11.13"
+  }
+}
