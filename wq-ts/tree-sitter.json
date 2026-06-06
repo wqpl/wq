@@ -1,0 +1,37 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "wq",
+      "camelcase": "Wq",
+      "title": "wq",
+      "scope": "source.wq",
+      "file-types": ["wq"],
+      "highlights": ["queries/highlights.scm"],
+      "injection-regex": "^wq$",
+      "class-name": "TreeSitterWq"
+    }
+  ],
+  "metadata": {
+    "version": "0.8.0-b1",
+    "license": "MIT",
+    "description": "tree-sitter grammar for wq",
+    "authors": [
+      {
+        "name": "tttiw"
+      }
+    ],
+    "links": {
+      "repository": "https://codeberg.org/wqpl/tree-sitter-wq"
+    }
+  },
+  "bindings": {
+    "c": true,
+    "go": true,
+    "node": true,
+    "python": true,
+    "rust": true,
+    "swift": true,
+    "zig": false
+  }
+}
