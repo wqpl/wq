@@ -3643,7 +3643,6 @@ dependencies = [
  "colored",
  "pulldown-cmark",
  "rand 0.10.1",
- "serde_json",
  "terminal_size",
  "toml",
  "wq-dap",
