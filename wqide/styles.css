@@ -46,14 +46,14 @@
   --surface-card-text-muted: #dff1fa;
   --surface-card-code-bg: rgba(29, 55, 82, 0.9);
   --surface-card-code-border: rgba(232, 248, 255, 0.28);
-  --welcome-bg: #fff7c7;
-  --welcome-border: #f2c94c;
-  --welcome-text: #3f3a18;
-  --welcome-text-muted: #6f7d2c;
-  --welcome-link: #8a6f00;
-  --welcome-link-bg: rgba(255, 253, 218, 0.82);
-  --welcome-link-border: rgba(242, 201, 76, 0.34);
-  --welcome-link-hover: #d9a900;
+  --welcome-bg: #fff3e3;
+  --welcome-border: #c98a4b;
+  --welcome-text: #4a2e1f;
+  --welcome-text-muted: #7a5a46;
+  --welcome-link: #9b4d2f;
+  --welcome-link-bg: rgba(255, 248, 240, 0.88);
+  --welcome-link-border: rgba(201, 138, 75, 0.35);
+  --welcome-link-hover: #c96a3d;
 }
 * {
   box-sizing: border-box;
@@ -478,16 +478,38 @@ body {
   border-bottom: 1px solid #cfe6f6;
 }
 .repl-topbar {
-  justify-content: flex-end;
-  align-items: center;
-  gap: 12px;
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 0;
 }
 .repl-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: flex-end;
+  gap: 12px 18px;
+  width: 100%;
+}
+.repl-copy-actions,
+.repl-runtime-actions,
+.repl-session-actions {
+  display: inline-flex;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+.repl-copy-actions {
+  justify-self: start;
+}
+.repl-runtime-actions {
+  justify-self: center;
+  min-width: 0;
+}
+.repl-runtime-actions > .pills {
+  justify-content: center;
+}
+.repl-session-actions {
+  justify-content: flex-end;
+  justify-self: end;
 }
 .repl-thread {
   display: flex;
@@ -765,9 +787,6 @@ body {
 }
 .repl-actions {
   width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 .debug-controls {
   display: inline-flex;
@@ -1346,7 +1365,14 @@ textarea.editor-text.repl-input,
     align-items: stretch;
   }
   .repl-actions {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+  .repl-copy-actions,
+  .repl-runtime-actions,
+  .repl-session-actions {
     justify-content: flex-start;
+    justify-self: start;
   }
   .toolbar,
   .repl-actions,
@@ -1362,8 +1388,10 @@ textarea.editor-text.repl-input,
   .toolbar-center {
     flex-wrap: wrap;
   }
-  .repl-actions > .pills {
-    flex-basis: 100%;
+  .repl-runtime-actions {
+    width: auto;
+  }
+  .repl-runtime-actions > .pills {
     justify-content: flex-start;
   }
   .repl-thread {

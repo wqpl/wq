@@ -331,137 +331,143 @@ const REPL_HTML = html`
     <div class="repl repl-flow">
       <div class="toolbar headbar repl-topbar">
         <div class="repl-actions">
-          <button id="copyFlowBtn" class="btn repl-copy-btn" type="button">
-            Copy Flow
-          </button>
-          <button id="copyOutputBtn" class="btn repl-copy-btn" type="button">
-            Copy Output
-          </button>
-          <div class="pills" role="list">
-            <div class="runtime-control" data-runtime-menu>
-              <button
-                id="pillBox"
-                class="pill inactive"
-                type="button"
-                aria-expanded="false"
-                aria-controls="boxPanel">
-                box
-	              </button>
-	              <div id="boxPanel" class="runtime-panel">
-	                <div class="runtime-panel-head">
-	                  <span class="mini">box</span>
-	                </div>
-                <div class="pills" role="list">
-                  <button class="pill inactive" type="button" data-box-flag="box">
-                    box
-                  </button>
-                  <button class="pill inactive" type="button" data-box-flag="axis">
-                    axis
-                  </button>
-                  <button
-                    class="pill inactive"
-                    type="button"
-                    data-box-flag="color">
-                    color
-                  </button>
-                  <button class="pill inactive" type="button" data-box-flag="xray">
-                    xray
-                  </button>
+          <div class="repl-copy-actions">
+            <button id="copyFlowBtn" class="btn repl-copy-btn" type="button">
+              Copy Flow
+            </button>
+            <button id="copyOutputBtn" class="btn repl-copy-btn" type="button">
+              Copy Output
+            </button>
+          </div>
+          <div class="repl-runtime-actions" aria-label="REPL runtime controls">
+            <div class="pills" role="list">
+              <div class="runtime-control" data-runtime-menu>
+                <button
+                  id="pillBox"
+                  class="pill inactive"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="boxPanel">
+                  box
+                </button>
+                <div id="boxPanel" class="runtime-panel">
+                  <div class="runtime-panel-head">
+                    <span class="mini">box</span>
+                  </div>
+                  <div class="pills" role="list">
+                    <button class="pill inactive" type="button" data-box-flag="box">
+                      box
+                    </button>
+                    <button class="pill inactive" type="button" data-box-flag="axis">
+                      axis
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="color">
+                      color
+                    </button>
+                    <button class="pill inactive" type="button" data-box-flag="xray">
+                      xray
+                    </button>
+                  </div>
                 </div>
               </div>
-	            </div>
-	            <button id="pillTime" class="pill inactive" type="button">
-	              time
-	            </button>
-	            <div class="runtime-control debug-controls" data-runtime-menu>
-	              <button
-	                id="debugToggle"
-	                class="pill inactive"
-	                type="button"
-	                aria-expanded="false"
-	                aria-controls="debugPanel">
-	                debug
-	              </button>
-	              <div id="debugPanel" class="runtime-panel debug-panel">
-	                <div class="runtime-panel-head">
-	                  <span class="mini">debug</span>
-	                </div>
-	                <div class="pills" role="list">
-	                  <button
-	                    class="pill inactive"
-	                    type="button"
-	                    data-debug-flag="token">
-	                    token
-	                  </button>
-	                  <button
-	                    class="pill inactive"
-	                    type="button"
-	                    data-debug-flag="cst">
-	                    cst
-	                  </button>
-	                  <button
-	                    class="pill inactive"
-	                    type="button"
-	                    data-debug-flag="ast">
-	                    ast
-	                  </button>
-	                  <button
-	                    class="pill inactive"
-	                    type="button"
-	                    data-debug-flag="ast-v">
-	                    ast-v
-	                  </button>
-	                  <button
-	                    class="pill inactive"
-	                    type="button"
-	                    data-debug-flag="inst">
-	                    inst
-	                  </button>
-	                  <button
-	                    class="pill inactive"
-	                    type="button"
-	                    data-debug-flag="inst-v">
-	                    inst-v
-	                  </button>
-	                  <button
-	                    class="pill inactive"
-	                    type="button"
-	                    data-debug-flag="wqdb">
-	                    wqdb
-	                  </button>
-	                  <button
-	                    class="pill inactive"
-	                    type="button"
-	                    data-debug-flag="wqdb-v">
-	                    wqdb-v
-	                  </button>
-	                  <button
-	                    class="pill inactive"
-	                    type="button"
-	                    data-debug-flag="value">
-	                    value
-	                  </button>
-	                  <button
-	                    class="pill inactive"
-	                    type="button"
-	                    data-debug-flag="cas">
-	                    cas
-	                  </button>
-	                  <button
-	                    class="pill inactive"
-	                    type="button"
-	                    data-debug-flag="cas-v">
-	                    cas-v
-	                  </button>
-	                </div>
-	              </div>
-	            </div>
-	          </div>
-          <button id="resetBtn" class="btn" type="button">Reset Session</button>
-          <button id="clearBtn" class="btn" type="button">Clear Flow</button>
-          <button id="openInPlaygroundBtn" class="btn" type="button">
-            Open in Playground
-          </button>
+              <button id="pillTime" class="pill inactive" type="button">
+                time
+              </button>
+              <div class="runtime-control debug-controls" data-runtime-menu>
+                <button
+                  id="debugToggle"
+                  class="pill inactive"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="debugPanel">
+                  debug
+                </button>
+                <div id="debugPanel" class="runtime-panel debug-panel">
+                  <div class="runtime-panel-head">
+                    <span class="mini">debug</span>
+                  </div>
+                  <div class="pills" role="list">
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="token">
+                      token
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="cst">
+                      cst
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="ast">
+                      ast
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="ast-v">
+                      ast-v
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="inst">
+                      inst
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="inst-v">
+                      inst-v
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="wqdb">
+                      wqdb
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="wqdb-v">
+                      wqdb-v
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="value">
+                      value
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="cas">
+                      cas
+                    </button>
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-debug-flag="cas-v">
+                      cas-v
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="repl-session-actions">
+            <button id="resetBtn" class="btn" type="button">Reset Session</button>
+            <button id="clearBtn" class="btn" type="button">Clear Flow</button>
+            <button id="openInPlaygroundBtn" class="btn" type="button">
+              Open in Playground
+            </button>
+          </div>
         </div>
       </div>
 
