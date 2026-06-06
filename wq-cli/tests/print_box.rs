@@ -79,6 +79,6 @@ fn box_flag_can_enable_xray_printing() -> Result<()> {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).context("stdout is utf8")?;
     assert!(stdout.contains("[xray] list"));
-    assert!(stdout.contains("uniform?: T"));
+    assert!(stdout.contains("uniform? T"));
     Ok(())
 }

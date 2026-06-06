@@ -67,10 +67,10 @@ pub(crate) fn format_xray_info(v: &Value, config: &BoxPrintConfig) -> String {
         let _ = write!(
             out,
             "\n{} {:#018x}",
-            style_label("bits:", color),
+            style_label("bits", color),
             f.to_bits()
         );
-        let _ = write!(out, "\n{} {f:.60}", style_label(".60: ", color),);
+        let _ = write!(out, "\n{} {f:.17}", style_label(".17 ", color),);
     }
 
     out
@@ -107,7 +107,7 @@ fn two_col_item_values(pairs: &[(&str, String)], gutter: usize, color: bool) -> 
     let mut left_cells: Vec<String> = Vec::new();
     for (i, (k, v)) in pairs.iter().enumerate() {
         if i % 2 == 0 {
-            let label = format!("{k}: ");
+            let label = format!("{k} ");
             let label = format!("{label:<left_label_w$}");
             left_cells.push(format!("{label}{v}"));
         }
@@ -118,7 +118,7 @@ fn two_col_item_values(pairs: &[(&str, String)], gutter: usize, color: bool) -> 
     for r in 0..rows {
         let li = 2 * r;
         let ri = li + 1;
-        let left_label = format!("{}: ", pairs[li].0);
+        let left_label = format!("{} ", pairs[li].0);
         let left_label = format!("{left_label:<left_label_w$}");
         let left_cell_raw = format!("{}{}", left_label, pairs[li].1);
         let left_pad_len = left_col_w.saturating_sub(left_cell_raw.len());
@@ -129,7 +129,7 @@ fn two_col_item_values(pairs: &[(&str, String)], gutter: usize, color: bool) -> 
             " ".repeat(left_pad_len)
         );
         if ri < pairs.len() {
-            let right_label = format!("{}: ", pairs[ri].0);
+            let right_label = format!("{} ", pairs[ri].0);
             let right_label = format!("{right_label:<right_label_w$}");
             let _ = writeln!(
                 out,
