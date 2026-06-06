@@ -56,11 +56,36 @@ fn propagate_instructions(
     let local_count = inferred_local_count(code).max(usize::from(local_count));
     let capture_count = inferred_capture_count(code).max(capture_values.len());
     let in_states = analyze(code, local_count, capture_count, capture_values);
+    let trace_protected = trace_protected_pcs(code);
     for (pc, inst) in code.iter_mut().enumerate() {
+        if trace_protected[pc] {
+            continue;
+        }
         if let Some(state) = &in_states[pc] {
             rewrite_instruction(inst, state);
         }
     }
+}
+
+fn trace_protected_pcs(code: &[Instruction]) -> Vec<bool> {
+    let mut protected = vec![false; code.len()];
+    let mut depth = 0usize;
+    for (pc, inst) in code.iter().enumerate() {
+        match inst {
+            Instruction::TraceBegin => {
+                protected[pc] = true;
+                depth = depth.saturating_add(1);
+            }
+            Instruction::Debug => {
+                protected[pc] = depth > 0;
+                depth = depth.saturating_sub(1);
+            }
+            _ => {
+                protected[pc] = depth > 0;
+            }
+        }
+    }
+    protected
 }
 
 #[derive(Clone, Debug, PartialEq)]

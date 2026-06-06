@@ -221,7 +221,10 @@ pub(super) fn render_trace_line(
     // its children directly under the header.  Single childless roots (e.g.
     // when short-circuit evaluation skipped the outermost op) are kept so the
     // user can still see what actually ran.
-    let children: Vec<TraceNode> = if roots.len() == 1 && !roots[0].children.is_empty() {
+    let children: Vec<TraceNode> = if roots.len() == 1
+        && !roots[0].children.is_empty()
+        && root_matches_debug_operand(vm, debug_pc, &roots[0].record)
+    {
         roots.pop().expect("len == 1").children
     } else {
         roots
@@ -232,6 +235,58 @@ pub(super) fn render_trace_line(
     let mut out = head;
     render_children(vm, &children, "", &mut out, &highlighter);
     out
+}
+
+fn root_matches_debug_operand(vm: &Vm, debug_pc: usize, rec: &TraceRecord) -> bool {
+    let chunk = vm.current_chunk;
+    let meta = vm.debug_info.chunk(chunk);
+    let span = meta.line_table.span_at(debug_pc);
+    let Some(file) = vm.debug_info.file(span.file_id) else {
+        return false;
+    };
+    if rec.span.file_id != span.file_id {
+        return false;
+    }
+
+    let debug_expr = format_debug_expr(file.text.as_ref(), span.start as usize, span.end as usize);
+    let Some(operand) = debug_operand_text(&debug_expr) else {
+        return false;
+    };
+    let root = format_debug_expr(
+        file.text.as_ref(),
+        rec.span.start as usize,
+        rec.span.end as usize,
+    );
+    root == operand
+}
+
+fn debug_operand_text(debug_expr: &str) -> Option<String> {
+    let operand = debug_expr.strip_prefix("@d")?.trim();
+    let stripped = strip_outer_parens(operand);
+    Some(stripped.to_string())
+}
+
+fn strip_outer_parens(text: &str) -> &str {
+    let text = text.trim();
+    if !text.starts_with('(') || !text.ends_with(')') {
+        return text;
+    }
+
+    let mut depth = 0usize;
+    for (idx, ch) in text.char_indices() {
+        match ch {
+            '(' => depth = depth.saturating_add(1),
+            ')' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 && idx != text.len() - 1 {
+                    return text;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    text[1..text.len() - 1].trim()
 }
 
 fn render_children(
@@ -433,6 +488,16 @@ mod tests {
         assert!(
             strip_ansi(&rendered).contains("├─ 1 = 1 (int)"),
             "visible trace tree changed, got: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn debug_operand_text_strips_one_balanced_group() {
+        assert_eq!(debug_operand_text("@d b").as_deref(), Some("b"));
+        assert_eq!(debug_operand_text("@d (b*3)").as_deref(), Some("b*3"));
+        assert_eq!(
+            debug_operand_text("@d ((a<0)&|(10/b))").as_deref(),
+            Some("(a<0)&|(10/b)")
         );
     }
 }

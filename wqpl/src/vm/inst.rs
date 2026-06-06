@@ -245,10 +245,10 @@ impl Instruction {
     /// Whether this instruction's result should be recorded as a probe when a
     /// `@d` trace scope is active.
     ///
-    /// The set is "ops + calls + indexes": arithmetic, comparison chains,
-    /// concatenation, every call/postfix flavor, every load/assign-and-keep
-    /// indexing flavor, and in-place mutating index ops.  Bare literals and
-    /// variable reads are skipped to keep traces readable.
+    /// The set is "symbol reads + ops + calls + indexes": local/capture/global
+    /// loads, arithmetic, comparison chains, concatenation, every call/postfix
+    /// flavor, every load/assign-and-keep indexing flavor, and in-place
+    /// mutating index ops. Bare literals are skipped to keep traces readable.
     ///
     /// Tail-call variants do not produce a value in the current frame (the
     /// result is delivered to the caller's stack instead), so they are
@@ -258,6 +258,9 @@ impl Instruction {
         matches!(
             self,
             I::BinaryOp(_)
+                | I::LoadVar(_)
+                | I::LoadLocal(_)
+                | I::LoadCapture(_)
                 | I::UnaryOp(_)
                 | I::CmpChain(_)
                 | I::Cat(_)

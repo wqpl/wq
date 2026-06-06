@@ -58,6 +58,7 @@ pub(crate) struct Compiler {
     pub(crate) dbg_pc_spans: Vec<Option<(usize, usize)>>,
     pub(crate) dbg_stmt_marks: Vec<DebugStmtMark>,
     pub(crate) has_runtime_debug: bool,
+    trace_symbol_operands: bool,
 }
 
 impl Default for Compiler {
@@ -97,6 +98,7 @@ impl Compiler {
             dbg_pc_spans: Vec::new(),
             dbg_stmt_marks: Vec::new(),
             has_runtime_debug: false,
+            trace_symbol_operands: false,
         }
     }
 
@@ -724,6 +726,7 @@ impl Compiler {
                     c.set_stmt_spans(spans_for_fn.clone());
                     c.fn_spans_stream = self.fn_spans_stream.clone();
                     c.fn_spans_idx = self.fn_spans_idx.saturating_add(1);
+                    c.trace_symbol_operands = self.trace_symbol_operands;
                     c.compile(body)?;
                     self.has_runtime_debug |= c.has_runtime_debug;
 
@@ -1152,7 +1155,11 @@ impl Compiler {
                 if let Some(slot) = self.dbg_pc_spans.get_mut(begin_pc) {
                     *slot = *span;
                 }
-                self.compile_expr(expr)?;
+                let prev_trace_symbol_operands = self.trace_symbol_operands;
+                self.trace_symbol_operands = true;
+                let result = self.compile_expr(expr);
+                self.trace_symbol_operands = prev_trace_symbol_operands;
+                result?;
                 let pc = self.instructions.len();
                 self.push_inst(Instruction::Debug);
                 if let Some(slot) = self.dbg_pc_spans.get_mut(pc) {
@@ -1381,6 +1388,7 @@ impl Compiler {
                 c.set_stmt_spans(spans_for_fn.clone());
                 c.fn_spans_stream = self.fn_spans_stream.clone();
                 c.fn_spans_idx = self.fn_spans_idx.saturating_add(1);
+                c.trace_symbol_operands = self.trace_symbol_operands;
                 c.compile(body)?;
                 self.has_runtime_debug |= c.has_runtime_debug;
 
@@ -2085,6 +2093,10 @@ impl Compiler {
     fn compile_expr_as_operand(&mut self, node: &AstNode) -> WqResult<Operand> {
         match node {
             AstNode::Literal(v, ..) => Ok(Operand::const_val(v.clone())),
+            AstNode::Variable(..) | AstNode::OuterVariable(..) if self.trace_symbol_operands => {
+                self.compile_expr(node)?;
+                Ok(Operand::Stack)
+            }
             AstNode::Variable(name, _) => Ok(self.operand_for_name(name)),
             AstNode::OuterVariable(name, _) => {
                 if let Some(idx) = self.ref_capture_map.get(name) {
@@ -3274,6 +3286,35 @@ mod tests {
                     if **value == Value::Int(1)
             )),
             "expected pipe value to be loaded inside @d trace: {insts:#?}"
+        );
+    }
+
+    #[test]
+    fn debug_trace_keeps_symbol_loads_after_constprop() {
+        let insts = compile_source("a:1;b:a+2;@d b;@d (b*3)");
+
+        assert!(
+            insts.windows(3).any(|triple| matches!(
+                (&triple[0], &triple[1], &triple[2]),
+                (Instruction::TraceBegin, Instruction::LoadVar(name), Instruction::Debug)
+                    if name.as_ref() == "b"
+            )),
+            "expected @d b to keep a symbol load: {insts:#?}"
+        );
+        assert!(
+            insts.windows(4).any(|quad| matches!(
+                (&quad[0], &quad[1], &quad[2], &quad[3]),
+                (
+                    Instruction::TraceBegin,
+                    Instruction::LoadVar(name),
+                    Instruction::BinaryOp(data),
+                    Instruction::Debug,
+                ) if name.as_ref() == "b"
+                    && data.op == BinaryOperator::Multiply
+                    && matches!(data.left, Operand::Stack)
+                    && matches!(&data.right, Operand::Const(value) if **value == Value::Int(3))
+            )),
+            "expected @d (b*3) to keep b as a traced operand: {insts:#?}"
         );
     }
 
