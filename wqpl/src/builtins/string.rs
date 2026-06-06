@@ -777,7 +777,6 @@ mod tests {
     use smallvec::smallvec;
 
     use super::*;
-    
 
     #[test]
     fn interpolation() {

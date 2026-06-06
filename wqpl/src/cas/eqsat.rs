@@ -377,10 +377,7 @@ mod tests {
                     "*",
                     vec![
                         common.clone(),
-                        Value::from_cas_op(
-                            "^",
-                            vec![Value::from_cas_var("x"), Value::Int(3)],
-                        ),
+                        Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(3)]),
                     ],
                 ),
                 common,
@@ -421,10 +418,7 @@ mod tests {
                     "*",
                     vec![
                         common.clone(),
-                        Value::from_cas_op(
-                            "^",
-                            vec![Value::from_cas_var("x"), Value::Int(3)],
-                        ),
+                        Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(3)]),
                     ],
                 ),
                 common,

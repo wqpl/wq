@@ -210,8 +210,7 @@ impl Value {
     ///
     /// - `Char` → single-character string
     /// - `String` → cloned string
-    /// - `List` where every element is string-like → concatenated
-    ///   string
+    /// - `List` where every element is string-like → concatenated string
     /// - empty `IntList` → empty string
     /// - everything else → `None`
     pub(crate) fn try_flatten_to_string(&self) -> Option<String> {

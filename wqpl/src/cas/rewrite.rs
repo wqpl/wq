@@ -5,8 +5,8 @@ use super::eqsat::rewrite_with_egg;
 use super::{
     cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub, collect_single_poly_var,
     common_numeric_gcd, eval_numeric_binary, expand_expr, extract_perfect_power_factor,
-    factor_expr, numeric_is_negative, numeric_is_one, poly_degree, poly_from_expr, rebuild_scaled_term,
-    simplify_cas_value, split_add_term,
+    factor_expr, numeric_is_negative, numeric_is_one, poly_degree, poly_from_expr,
+    rebuild_scaled_term, simplify_cas_value, split_add_term,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::{Value, WqResult};
@@ -378,11 +378,7 @@ fn remove_common_product_factors(lhs: &Value, rhs: &Value) -> Option<(Vec<Value>
         return None;
     }
 
-    Some((
-        common,
-        cas_product(lhs_factors),
-        cas_product(rhs_factors),
-    ))
+    Some((common, cas_product(lhs_factors), cas_product(rhs_factors)))
 }
 
 fn try_factor_common_sum_pair(args: &[Value]) -> WqResult<Option<Value>> {
@@ -396,7 +392,10 @@ fn try_factor_common_sum_pair(args: &[Value]) -> WqResult<Option<Value>> {
             else {
                 continue;
             };
-            let factored_pair = cas_mul(vec![cas_product(common), cas_add(vec![lhs_rest, rhs_rest])?])?;
+            let factored_pair = cas_mul(vec![
+                cas_product(common),
+                cas_add(vec![lhs_rest, rhs_rest])?,
+            ])?;
             let mut new_args = Vec::with_capacity(args.len() - 1);
             for (idx, arg) in args.iter().enumerate() {
                 if idx == i {

@@ -170,10 +170,7 @@ fn filter_predicate(
 
 /// apply[fs;x] — apply each function in fs to x, returning a list of results.
 /// If fs is a single function (not a list), returns f[x] unwrapped.
-pub(super) fn apply(
-    vm: &mut dyn BuiltinContext,
-    args: BuiltinFnArgs,
-) -> WqResult<Value> {
+pub(super) fn apply(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Apply, [2, 2], &args)?;
     let (fs, x) = (&args[0], &args[1]);
     match fs {
@@ -205,12 +202,7 @@ pub(super) fn map(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<
         }
     }
 
-    fn _map(
-        vm: &mut dyn BuiltinContext,
-        xs: &Value,
-        f: &Value,
-        d: &Value,
-    ) -> WqResult<Value> {
+    fn _map(vm: &mut dyn BuiltinContext, xs: &Value, f: &Value, d: &Value) -> WqResult<Value> {
         let el = match eff_layers(d, xs.depth()) {
             Some(l) => l,
             None => return Err(type_mismatch(BE::Map, 0, "int, inf or -inf", d)),

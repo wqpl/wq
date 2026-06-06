@@ -271,7 +271,6 @@ mod tests {
     use smallvec::smallvec;
 
     use super::*;
-    
 
     #[test]
     fn carproduct_basic() {

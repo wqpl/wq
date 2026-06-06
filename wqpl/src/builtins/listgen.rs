@@ -479,7 +479,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[test]
     fn ints_empty_shape() {
