@@ -322,6 +322,15 @@ const PLAYGROUND_HTML = html`
           <pre class="run-output-body"></pre>
         </div>
       </div>
+
+      <aside class="symbol-panel" aria-labelledby="symbolPanelHeading">
+        <div class="symbol-panel-head">
+          <h2 id="symbolPanelHeading">Symbols</h2>
+          <span class="symbol-panel-count" data-symbol-count>0</span>
+        </div>
+        <div class="symbol-panel-status" data-symbol-status>No symbols yet.</div>
+        <div class="symbol-panel-list" data-symbol-list></div>
+      </aside>
     </div>
   </main>
 `;

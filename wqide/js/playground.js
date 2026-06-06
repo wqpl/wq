@@ -4,6 +4,7 @@ import {
   set_stdin_callback,
   set_stderr_callback,
   highlight_wq,
+  get_symbol_index_json,
 } from "wq-wasm";
 import { createAnsiRenderer } from "./ansi.js";
 import {
@@ -126,6 +127,256 @@ function refreshLines(instance) {
   }
   instance.gutter.innerHTML = "";
   instance.gutter.appendChild(frag);
+}
+
+const SYMBOL_REFRESH_DELAY_MS = 120;
+const SYMBOL_KIND_LABELS = {
+  assignment: "var",
+  function: "fn",
+  parameter: "arg",
+  "implicit-parameter": "arg",
+  "loop-counter": "loop",
+};
+const SYMBOL_PROVENANCE_LABELS = {
+  global: "global",
+  local: "local",
+  parameter: "parameter",
+  "implicit-parameter": "implicit",
+  "loop-counter": "loop",
+};
+
+function utf8ByteLength(ch) {
+  const codePoint = ch.codePointAt(0) || 0;
+  if (codePoint <= 0x7f) return 1;
+  if (codePoint <= 0x7ff) return 2;
+  if (codePoint <= 0xffff) return 3;
+  return 4;
+}
+
+function createSourceMapper(src) {
+  const points = [{ byte: 0, unit: 0 }];
+  let byte = 0;
+  let unit = 0;
+  for (const ch of src) {
+    byte += utf8ByteLength(ch);
+    unit += ch.length;
+    points.push({ byte, unit });
+  }
+
+  function unitAt(byteOffset) {
+    const target = Math.max(0, Number(byteOffset) || 0);
+    let lo = 0;
+    let hi = points.length - 1;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const point = points[mid];
+      if (point.byte === target) return point.unit;
+      if (point.byte < target) {
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return points[Math.max(0, Math.min(hi, points.length - 1))].unit;
+  }
+
+  function lineCol(byteOffset) {
+    const offset = unitAt(byteOffset);
+    const before = src.slice(0, offset);
+    const line = before.split("\n").length;
+    const lastNewline = before.lastIndexOf("\n");
+    const col = lastNewline === -1 ? offset + 1 : offset - lastNewline;
+    return { line, col };
+  }
+
+  return {
+    lineCol,
+    unitRange(span) {
+      return [unitAt(span[0]), unitAt(span[1])];
+    },
+  };
+}
+
+function spanForDef(def, occurrences) {
+  if (Array.isArray(def.name_span)) return def.name_span;
+  if (Array.isArray(def.span)) return def.span;
+  return occurrences.find((occurrence) => occurrence.def === def.index)?.span;
+}
+
+function symbolSortKey(def) {
+  const span = Array.isArray(def.name_span) ? def.name_span : def.span;
+  return Array.isArray(span) ? span[0] : Number.MAX_SAFE_INTEGER;
+}
+
+function symbolDisplayName(def) {
+  if (def.kind === "function" && Array.isArray(def.params)) {
+    return `${def.name}[${def.params.join(";")}]`;
+  }
+  return def.name;
+}
+
+function provenanceLabel(def) {
+  if (def.provenance === "local" && def.origin) {
+    return `local in ${def.origin}`;
+  }
+  if (def.provenance === "parameter" && def.origin) {
+    return `parameter of ${def.origin}`;
+  }
+  if (def.provenance === "implicit-parameter" && def.origin) {
+    return `implicit of ${def.origin}`;
+  }
+  return SYMBOL_PROVENANCE_LABELS[def.provenance] || def.provenance || "";
+}
+
+function renderSymbolStatus(instance, message, isError = false) {
+  if (!instance.symbolStatus) return;
+  instance.symbolStatus.textContent = message || "";
+  instance.symbolStatus.hidden = !message;
+  instance.symbolStatus.classList.toggle("error", !!isError);
+}
+
+function formatSymbolError(error) {
+  const kind = error?.kind ? `${error.kind}: ` : "";
+  return `${kind}${error?.message || "parse error"}`;
+}
+
+function renderEmptySymbols(instance, message, isError = false) {
+  if (instance.symbolCount) {
+    instance.symbolCount.textContent = "0";
+  }
+  if (instance.symbolList) {
+    instance.symbolList.innerHTML = "";
+  }
+  renderSymbolStatus(instance, message, isError);
+}
+
+function renderSymbolPanel(instance, data, code) {
+  const defs = Array.isArray(data.defs) ? data.defs : [];
+  const occurrences = Array.isArray(data.occurrences) ? data.occurrences : [];
+  const errors = Array.isArray(data.errors) ? data.errors : [];
+  const mapper = createSourceMapper(code);
+  instance.symbolMapper = mapper;
+  instance.symbolSource = code;
+
+  if (instance.symbolCount) {
+    instance.symbolCount.textContent = String(defs.length);
+  }
+
+  if (!defs.length) {
+    const message = errors.length ? formatSymbolError(errors[0]) : "No symbols yet.";
+    renderEmptySymbols(instance, message, errors.length > 0);
+    return;
+  }
+
+  if (errors.length) {
+    renderSymbolStatus(instance, formatSymbolError(errors[0]), true);
+  } else {
+    renderSymbolStatus(instance, "");
+  }
+
+  const defsByIndex = new Map(defs.map((def) => [def.index, def]));
+  const childrenByParent = new Map();
+  for (const def of [...defs].sort((a, b) => symbolSortKey(a) - symbolSortKey(b))) {
+    const parent = defsByIndex.has(def.parent) ? def.parent : null;
+    if (!childrenByParent.has(parent)) {
+      childrenByParent.set(parent, []);
+    }
+    childrenByParent.get(parent).push(def);
+  }
+
+  const chunks = [];
+  const visited = new Set();
+  function renderDef(def, depth) {
+    if (visited.has(def.index)) return;
+    visited.add(def.index);
+    const span = spanForDef(def, occurrences);
+    const loc = Array.isArray(span) ? mapper.lineCol(span[0]) : null;
+    const meta = [];
+    if (loc) meta.push(`${loc.line}:${loc.col}`);
+    const provenance = provenanceLabel(def);
+    if (provenance) meta.push(provenance);
+    if (def.read_count) meta.push(`r${def.read_count}`);
+    if (def.write_count) meta.push(`w${def.write_count}`);
+    const metaHtml = meta.map((item) => `<span>${escapeHtml(item)}</span>`);
+    if (def.ref_capture_count) {
+      metaHtml.push(
+        `<span class="symbol-ref">ref ${escapeHtml(def.ref_capture_count)}</span>`,
+      );
+    }
+
+    const dataAttrs = Array.isArray(span)
+      ? `data-symbol-start="${span[0]}" data-symbol-end="${span[1]}"`
+      : "disabled";
+    chunks.push(`
+      <div class="symbol-item" style="--symbol-depth:${Math.min(depth, 6)}">
+        <button class="symbol-link" type="button" ${dataAttrs}>
+          <span class="symbol-kind">${escapeHtml(SYMBOL_KIND_LABELS[def.kind] || def.kind)}</span>
+          <span class="symbol-name">${escapeHtml(symbolDisplayName(def))}</span>
+        </button>
+        <div class="symbol-meta">${metaHtml.join("")}</div>
+      </div>
+    `);
+
+    for (const child of childrenByParent.get(def.index) || []) {
+      renderDef(child, depth + 1);
+    }
+  }
+
+  for (const def of childrenByParent.get(null) || []) {
+    renderDef(def, 0);
+  }
+  for (const def of defs) {
+    renderDef(def, 0);
+  }
+
+  if (instance.symbolList) {
+    instance.symbolList.innerHTML = chunks.join("");
+  }
+}
+
+async function refreshSymbols(instance) {
+  const seq = (instance.symbolRefreshSeq || 0) + 1;
+  instance.symbolRefreshSeq = seq;
+  const code = instance.ta.value;
+  if (!code.trim()) {
+    instance.symbolMapper = null;
+    instance.symbolSource = code;
+    renderEmptySymbols(instance, "No symbols yet.");
+    return;
+  }
+
+  try {
+    await ensureWasm();
+    if (instance.symbolRefreshSeq !== seq) return;
+    const data = JSON.parse(get_symbol_index_json(code));
+    renderSymbolPanel(instance, data, code);
+  } catch (err) {
+    if (instance.symbolRefreshSeq !== seq) return;
+    renderEmptySymbols(instance, err?.message ?? String(err), true);
+    renderSymbolStatus(instance, err?.message ?? String(err), true);
+  }
+}
+
+function scheduleSymbolRefresh(instance) {
+  if (instance.symbolRefreshTimer) {
+    clearTimeout(instance.symbolRefreshTimer);
+  }
+  instance.symbolRefreshTimer = window.setTimeout(() => {
+    instance.symbolRefreshTimer = null;
+    refreshSymbols(instance);
+  }, SYMBOL_REFRESH_DELAY_MS);
+}
+
+function jumpToSymbol(instance, span) {
+  if (!Array.isArray(span) || !instance.symbolMapper) return;
+  const [start, end] = instance.symbolMapper.unitRange(span);
+  instance.ta.focus();
+  instance.ta.setSelectionRange(start, end);
+  const loc = instance.symbolMapper.lineCol(span[0]);
+  const el = instance.ta.element;
+  if (el) {
+    el.scrollTop = Math.max(0, (loc.line - 1) * 22 - el.clientHeight / 2);
+  }
 }
 
 async function doEval(instance) {
@@ -487,6 +738,9 @@ export async function mountPlayground(root) {
   const templateButtons = Array.from(root.querySelectorAll("[data-template]"));
   const resetBtn = root.querySelector("#resetBtn");
   const openInReplBtn = root.querySelector("#openInReplBtn");
+  const symbolList = root.querySelector("[data-symbol-list]");
+  const symbolCount = root.querySelector("[data-symbol-count]");
+  const symbolStatus = root.querySelector("[data-symbol-status]");
   const instance = {
     ta,
     gutter,
@@ -519,6 +773,13 @@ export async function mountPlayground(root) {
     templateButtons,
     resetBtn,
     openInReplBtn,
+    symbolList,
+    symbolCount,
+    symbolStatus,
+    symbolMapper: null,
+    symbolSource: "",
+    symbolRefreshSeq: 0,
+    symbolRefreshTimer: null,
   };
   instances.set(root, instance);
 
@@ -526,6 +787,7 @@ export async function mountPlayground(root) {
 
   ta.addEventListener("input", () => {
     refreshLines(instance);
+    scheduleSymbolRefresh(instance);
   });
   runBtn?.addEventListener("click", async (e) => {
     e.preventDefault();
@@ -547,6 +809,14 @@ export async function mountPlayground(root) {
   });
   makePosterBtn?.addEventListener("click", async () => {
     await makePoster(instance);
+  });
+  symbolList?.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-symbol-start]");
+    if (!button) return;
+    jumpToSymbol(instance, [
+      Number(button.dataset.symbolStart),
+      Number(button.dataset.symbolEnd),
+    ]);
   });
   boxBtn?.addEventListener("click", async () => {
     await ensureWasm();
@@ -602,6 +872,7 @@ export async function mountPlayground(root) {
       ta.value = template.code;
       stdinInput.value = template.stdin;
       refreshLines(instance);
+      scheduleSymbolRefresh(instance);
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
     });
@@ -617,6 +888,7 @@ export async function mountPlayground(root) {
     writeDebugFlags(instance, []);
     ensureStateSavingSession(instance).set_box_flags("box,axis,color");
     syncBoxControls(instance);
+    scheduleSymbolRefresh(instance);
     ta.focus();
   });
   openInReplBtn?.addEventListener("click", () => {
@@ -630,6 +902,7 @@ export async function mountPlayground(root) {
   syncBoxControls(instance);
   setActive(timeBtn, instance.timeMode);
   writeDebugFlags(instance, []);
+  await refreshSymbols(instance);
 }
 
 export async function activatePlayground(root) {
@@ -650,6 +923,7 @@ export function applyPlaygroundRoute(root, params) {
     instance.ta.value = code;
     instance.ta.dispatchEvent(new Event("input", { bubbles: true }));
     refreshLines(instance);
+    scheduleSymbolRefresh(instance);
     if (sin) {
       instance.stdinInput.value = sin;
     }

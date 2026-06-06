@@ -19,6 +19,7 @@ use wqpl::session::dbglog::DebugLogFlags;
 use wqpl::session::stdio::{
     WqStderr, WqStdin, WqStdinError, WqStdout, set_wqstderr, set_wqstdin, set_wqstdout,
 };
+use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
 use wqpl::vm::Vm;
 
 #[cfg(target_arch = "wasm32")]
@@ -612,6 +613,233 @@ pub fn get_doc_index_json() -> String {
     out
 }
 
+#[wasm_bindgen]
+pub fn get_symbol_index_json(src: &str) -> String {
+    let session = Session::new();
+    match session.analyze_symbols(src) {
+        Ok(index) => symbol_index_json(&index),
+        Err(err) => symbol_error_json(&err),
+    }
+}
+
+fn symbol_error_json(err: &wqpl::wqerror::WqError) -> String {
+    let mut out = String::from("{\"defs\":[],\"occurrences\":[],\"errors\":[{");
+    push_json_opt_span_field(&mut out, "span", err.span);
+    out.push(',');
+    push_json_field(&mut out, "kind", err.err_type.name());
+    out.push(',');
+    push_json_field(&mut out, "message", err.msg.as_deref().unwrap_or(""));
+    out.push_str("}]}");
+    out
+}
+
+fn symbol_index_json(index: &SymbolIndex) -> String {
+    let occurrences = index.occurrences();
+    let mut out = String::from("{\"defs\":[");
+    let mut first_def = true;
+    for (def_idx, def) in index.defs.iter().enumerate() {
+        if !is_user_symbol(def.kind, &def.name) {
+            continue;
+        }
+        if !first_def {
+            out.push(',');
+        }
+        first_def = false;
+
+        let provenance = index.def_provenance(def_idx);
+        let read_count = occurrences
+            .iter()
+            .filter(|occurrence| occurrence.def_idx == def_idx && occurrence.kind.is_read())
+            .count();
+        let write_count = occurrences
+            .iter()
+            .filter(|occurrence| occurrence.def_idx == def_idx && occurrence.kind.is_write())
+            .count();
+        let occurrence_count = occurrences
+            .iter()
+            .filter(|occurrence| occurrence.def_idx == def_idx)
+            .count();
+
+        out.push('{');
+        push_json_usize_field(&mut out, "index", def_idx);
+        out.push(',');
+        push_json_field(&mut out, "name", &def.name);
+        out.push(',');
+        push_json_field(&mut out, "kind", def_kind_name(def.kind));
+        out.push(',');
+        push_json_opt_span_field(&mut out, "span", def.span);
+        out.push(',');
+        push_json_opt_span_field(&mut out, "name_span", def.name_span);
+        out.push(',');
+        push_json_params_field(&mut out, def.params.as_deref());
+        out.push(',');
+        push_json_opt_usize_field(&mut out, "parent", def.parent);
+        out.push(',');
+        push_json_field(
+            &mut out,
+            "provenance",
+            provenance
+                .as_ref()
+                .map(|p| provenance_kind_name(p.kind))
+                .unwrap_or("unknown"),
+        );
+        out.push(',');
+        push_json_opt_string_field(
+            &mut out,
+            "origin",
+            provenance.as_ref().and_then(|p| p.origin.as_deref()),
+        );
+        out.push(',');
+        push_json_usize_field(&mut out, "read_count", read_count);
+        out.push(',');
+        push_json_usize_field(&mut out, "write_count", write_count);
+        out.push(',');
+        push_json_usize_field(&mut out, "occurrence_count", occurrence_count);
+        out.push(',');
+        push_json_usize_field(&mut out, "ref_capture_count", index.ref_capture_count(def_idx));
+        out.push('}');
+    }
+
+    out.push_str("],\"occurrences\":[");
+    let mut first_occurrence = true;
+    for occurrence in &occurrences {
+        let Some(def) = index.defs.get(occurrence.def_idx) else {
+            continue;
+        };
+        if !is_user_symbol(def.kind, &def.name) {
+            continue;
+        }
+        if !first_occurrence {
+            out.push(',');
+        }
+        first_occurrence = false;
+
+        out.push('{');
+        push_json_span_field(&mut out, "span", occurrence.span);
+        out.push(',');
+        push_json_usize_field(&mut out, "def", occurrence.def_idx);
+        out.push(',');
+        push_json_field(&mut out, "kind", use_kind_name(occurrence.kind));
+        out.push('}');
+    }
+
+    out.push_str("],\"errors\":[");
+    for (idx, (span, err)) in index.errors.iter().enumerate() {
+        if idx > 0 {
+            out.push(',');
+        }
+        out.push('{');
+        push_json_span_field(&mut out, "span", *span);
+        out.push(',');
+        push_json_field(&mut out, "kind", err.err_type.name());
+        out.push(',');
+        push_json_field(&mut out, "message", err.msg.as_deref().unwrap_or(""));
+        out.push('}');
+    }
+    out.push_str("]}");
+    out
+}
+
+fn is_user_symbol(kind: DefKind, name: &str) -> bool {
+    kind != DefKind::Builtin && !name.starts_with("--")
+}
+
+fn def_kind_name(kind: DefKind) -> &'static str {
+    match kind {
+        DefKind::Assignment => "assignment",
+        DefKind::Function => "function",
+        DefKind::Parameter => "parameter",
+        DefKind::ImplicitParam => "implicit-parameter",
+        DefKind::LoopCounter => "loop-counter",
+        DefKind::Builtin => "builtin",
+    }
+}
+
+fn use_kind_name(kind: UseKind) -> &'static str {
+    match kind {
+        UseKind::Read => "read",
+        UseKind::Write => "write",
+        UseKind::OuterRead => "outer-read",
+        UseKind::OuterWrite => "outer-write",
+        UseKind::RefCaptureRead => "ref-read",
+        UseKind::RefCaptureWrite => "ref-write",
+    }
+}
+
+fn provenance_kind_name(kind: SymbolProvenanceKind) -> &'static str {
+    match kind {
+        SymbolProvenanceKind::Builtin => "builtin",
+        SymbolProvenanceKind::Global => "global",
+        SymbolProvenanceKind::Local => "local",
+        SymbolProvenanceKind::Parameter => "parameter",
+        SymbolProvenanceKind::ImplicitParameter => "implicit-parameter",
+        SymbolProvenanceKind::LoopCounter => "loop-counter",
+    }
+}
+
+fn push_json_usize_field(out: &mut String, key: &str, value: usize) {
+    push_json_string(out, key);
+    out.push(':');
+    let _ = write!(out, "{value}");
+}
+
+fn push_json_opt_usize_field(out: &mut String, key: &str, value: Option<usize>) {
+    push_json_string(out, key);
+    out.push(':');
+    if let Some(value) = value {
+        let _ = write!(out, "{value}");
+    } else {
+        out.push_str("null");
+    }
+}
+
+fn push_json_span_field(out: &mut String, key: &str, span: (usize, usize)) {
+    push_json_string(out, key);
+    out.push(':');
+    push_json_span(out, span);
+}
+
+fn push_json_opt_span_field(out: &mut String, key: &str, span: Option<(usize, usize)>) {
+    push_json_string(out, key);
+    out.push(':');
+    if let Some(span) = span {
+        push_json_span(out, span);
+    } else {
+        out.push_str("null");
+    }
+}
+
+fn push_json_span(out: &mut String, span: (usize, usize)) {
+    let _ = write!(out, "[{},{}]", span.0, span.1);
+}
+
+fn push_json_params_field(out: &mut String, params: Option<&[String]>) {
+    push_json_string(out, "params");
+    out.push(':');
+    if let Some(params) = params {
+        out.push('[');
+        for (idx, param) in params.iter().enumerate() {
+            if idx > 0 {
+                out.push(',');
+            }
+            push_json_string(out, param);
+        }
+        out.push(']');
+    } else {
+        out.push_str("null");
+    }
+}
+
+fn push_json_opt_string_field(out: &mut String, key: &str, value: Option<&str>) {
+    push_json_string(out, key);
+    out.push(':');
+    if let Some(value) = value {
+        push_json_string(out, value);
+    } else {
+        out.push_str("null");
+    }
+}
+
 fn push_json_field(out: &mut String, key: &str, value: &str) {
     push_json_string(out, key);
     out.push(':');
@@ -691,6 +919,33 @@ mod tests {
         let markdown = get_doc_markdown("map").expect("map doc renders");
         assert!(markdown.contains("map builtin"));
         assert!(markdown.contains("map[xs;f;d?]"));
+    }
+
+    #[test]
+    fn symbol_index_json_exports_user_symbol_details() {
+        let json = get_symbol_index_json("g:1; f:{[x] y:x+g; y}; f[2]");
+
+        assert!(json.contains("\"name\":\"f\""));
+        assert!(json.contains("\"kind\":\"function\""));
+        assert!(json.contains("\"params\":[\"x\"]"));
+        assert!(json.contains("\"name\":\"y\""));
+        assert!(json.contains("\"provenance\":\"local\""));
+        assert!(json.contains("\"origin\":\"f\""));
+        assert!(json.contains("\"kind\":\"read\""));
+        assert!(json.contains("\"kind\":\"write\""));
+    }
+
+    #[test]
+    fn symbol_index_json_returns_structured_parse_errors() {
+        let json = get_symbol_index_json("a:1\nd:'{a}\nb:\"");
+
+        assert!(json.contains("\"defs\":[]"));
+        assert!(json.contains("\"kind\":\"eof\""));
+        assert!(json.contains("\"message\":\"string is not properly terminated\""));
+        assert!(
+            !json.contains('\u{1b}'),
+            "symbol JSON should not contain terminal escape sequences: {json:?}",
+        );
     }
 
     #[test]
