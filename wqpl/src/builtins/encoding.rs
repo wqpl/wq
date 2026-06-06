@@ -11,7 +11,7 @@ fn find_encoding(label: &str) -> Option<&'static Encoding> {
     Encoding::for_label(label.as_bytes())
 }
 
-pub(super) fn decode(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn decode(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Decode, [2, 3], &args)?;
     let (bytes, codec, mode) = match &*args {
         [bytes, codec] => {
@@ -64,7 +64,7 @@ pub(super) fn decode(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(s.into_wq_value())
 }
 
-pub(super) fn encode(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn encode(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Encode, [2, 3], &args)?;
     let (text, codec, mode) = match &*args {
         [text, codec] => {
@@ -122,7 +122,7 @@ pub(super) fn encode(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     )))
 }
 
-pub(super) fn is_valid_bytes(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn is_valid_bytes(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::ValidBytes, [1], &args)?;
     Ok(Value::Bool(args[0].can_convert_to_vec_u8()))
 }
@@ -135,18 +135,13 @@ mod tests {
 
     #[test]
     fn encode_decode_roundtrip() {
-        let mut vm = Vm::new(vec![]);
         let s = "héllo".into_wq_value();
-        let b = encode(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![s.clone(), "utf-8".into_wq_value()]),
-        )
+        let b = encode(BuiltinFnArgs::from(smallvec![
+            s.clone(),
+            "utf-8".into_wq_value()
+        ]))
         .unwrap();
-        let d = decode(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![b, "utf-8".into_wq_value()]),
-        )
-        .unwrap();
+        let d = decode(BuiltinFnArgs::from(smallvec![b, "utf-8".into_wq_value()])).unwrap();
         assert_eq!(d, s);
     }
 }

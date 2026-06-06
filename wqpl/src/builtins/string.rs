@@ -9,7 +9,7 @@ use crate::value::{IntoWqValue, Value, WqResult};
 use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(super) fn to_str(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn to_str(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Str, [1], &args)?;
     let arg = args.into_iter().next().unwrap();
     if arg.is_string_like() {
@@ -478,7 +478,7 @@ fn format_value(
     Ok(result)
 }
 
-pub(super) fn fmt(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
     // Append Value to an output Vec<Value::Char(..)>, avoiding extra allocations
     // when possible.
     fn push_value_as_chars(out: &mut Vec<Value>, v: &Value) {
@@ -717,7 +717,7 @@ pub(super) fn fmt(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// Count grapheme clusters (user-perceived characters)
-pub(super) fn graphemes(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn graphemes(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Graphemes, [1], &args)?;
     let s = args[0]
         .to_rust_string_with_note()
@@ -727,7 +727,7 @@ pub(super) fn graphemes(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// Split str by Unicode word boundaries
-pub(super) fn words(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn words(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Words, [1], &args)?;
     let s = args[0]
         .to_rust_string_with_note()
@@ -740,7 +740,7 @@ pub(super) fn words(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::List(Arc::new(res)))
 }
 
-pub(super) fn trim(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn trim(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Trim, [1], &args)?;
     let s = args[0]
         .to_rust_string_with_note()
@@ -748,7 +748,7 @@ pub(super) fn trim(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(s.trim().into_wq_value())
 }
 
-pub(super) fn trim_left(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn trim_left(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::LTrim, [1], &args)?;
     let s = args[0]
         .to_rust_string_with_note()
@@ -756,7 +756,7 @@ pub(super) fn trim_left(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(s.trim_start().into_wq_value())
 }
 
-pub(super) fn trim_right(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn trim_right(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::RTrim, [1], &args)?;
     let s = args[0]
         .to_rust_string_with_note()
@@ -765,7 +765,7 @@ pub(super) fn trim_right(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// Check if a character is whitespace
-pub(super) fn is_whitespace(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn is_whitespace(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::WsQ, [1], &args)?;
     match &args[0] {
         Value::Char(c) => Ok(Value::Bool(c.is_whitespace())),
@@ -783,33 +783,30 @@ mod tests {
     #[test]
     fn interpolation() {
         let test = "x = {}".into_wq_value();
-        let mut vm = Vm::new(vec![]);
-        let res = fmt(&mut vm, BuiltinFnArgs::from(smallvec![test, Value::Int(5)])).unwrap();
+        let res = fmt(BuiltinFnArgs::from(smallvec![test, Value::Int(5)])).unwrap();
         assert_eq!(res, "x = 5".into_wq_value());
     }
 
     #[test]
     fn escape_braces() {
         let test = "{{}}".into_wq_value();
-        let mut vm = Vm::new(vec![]);
-        let res = fmt(&mut vm, BuiltinFnArgs::from(test)).unwrap();
+        let res = fmt(BuiltinFnArgs::from(test)).unwrap();
         assert_eq!(res, "{}".into_wq_value());
     }
 
     #[test]
     fn test_graphemes() {
-        let mut vm = Vm::new(vec![]);
         assert_eq!(
-            graphemes(&mut vm, BuiltinFnArgs::from("hello".into_wq_value())).unwrap(),
+            graphemes(BuiltinFnArgs::from("hello".into_wq_value())).unwrap(),
             Value::Int(5)
         );
         assert_eq!(
-            graphemes(&mut vm, BuiltinFnArgs::from("café".into_wq_value())).unwrap(),
+            graphemes(BuiltinFnArgs::from("café".into_wq_value())).unwrap(),
             Value::Int(4)
         );
         // Grapheme clusters
         assert_eq!(
-            graphemes(&mut vm, BuiltinFnArgs::from("👨‍👩‍👧‍👦".into_wq_value())).unwrap(),
+            graphemes(BuiltinFnArgs::from("👨‍👩‍👧‍👦".into_wq_value())).unwrap(),
             Value::Int(1)
         );
     }
@@ -817,11 +814,10 @@ mod tests {
     // --- format spec tests ---
 
     fn run_fmt(template: &str, args: &[Value]) -> String {
-        let mut vm = Vm::new(vec![]);
         let t = template.into_wq_value();
         let mut all_args = vec![t];
         all_args.extend_from_slice(args);
-        let res = fmt(&mut vm, BuiltinFnArgs::from(all_args)).unwrap();
+        let res = fmt(BuiltinFnArgs::from(all_args)).unwrap();
         res.to_rust_string_with_note().unwrap_or_default()
     }
 

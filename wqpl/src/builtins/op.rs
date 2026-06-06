@@ -211,26 +211,20 @@ mod tests {
 
     #[test]
     fn op_notequal_one_arg_uses_unary_not() {
-        let mut vm = Vm::new(vec![]);
         assert_eq!(
-            op_notequal(&mut vm, BuiltinFnArgs::from(Value::Bool(true))).unwrap(),
+            op_notequal(BuiltinFnArgs::from(Value::Bool(true))).unwrap(),
             Value::Bool(false)
         );
         assert_eq!(
-            op_notequal(&mut vm, BuiltinFnArgs::from(Value::Int(1))).unwrap(),
+            op_notequal(BuiltinFnArgs::from(Value::Int(1))).unwrap(),
             Value::Int(!1)
         );
     }
 
     #[test]
     fn op_notequal_multiple_args_still_compares() {
-        let mut vm = Vm::new(vec![]);
         assert_eq!(
-            op_notequal(
-                &mut vm,
-                BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)])
-            )
-            .unwrap(),
+            op_notequal(BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)])).unwrap(),
             Value::Bool(true)
         );
     }

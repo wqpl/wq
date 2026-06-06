@@ -35,19 +35,19 @@ fn list_value(items: Vec<Value>) -> Value {
     Value::from_items(items)
 }
 
-pub(super) fn unique(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn unique(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Unique, [1], &args)?;
     Ok(list_value(unique_items(seq_items(&args[0]))))
 }
 
-pub(super) fn r#union(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn r#union(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Union, [2], &args)?;
     Ok(list_value(unique_items(
         seq_items(&args[0]).into_iter().chain(seq_items(&args[1])),
     )))
 }
 
-pub(super) fn intersect(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn intersect(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Intersect, [2], &args)?;
     let rhs = item_set(&args[1]);
     Ok(list_value(unique_items(
@@ -57,7 +57,7 @@ pub(super) fn intersect(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     )))
 }
 
-pub(super) fn without(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn without(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Without, [2], &args)?;
     let rhs = item_set(&args[1]);
     Ok(list_value(
@@ -68,7 +68,7 @@ pub(super) fn without(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     ))
 }
 
-pub(super) fn symdiff(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn symdiff(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Symdiff, [2], &args)?;
     let lhs = item_set(&args[0]);
     let rhs = item_set(&args[1]);
@@ -83,27 +83,27 @@ pub(super) fn symdiff(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(list_value(unique_items(out)))
 }
 
-pub(super) fn subset(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn subset(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::SubQ, [2], &args)?;
     Ok(Value::Bool(is_subset(&args[0], &args[1])))
 }
 
-pub(super) fn proper_subset(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn proper_subset(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::PSubQ, [2], &args)?;
     Ok(Value::Bool(is_proper_subset(&args[0], &args[1])))
 }
 
-pub(super) fn superset(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn superset(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::SuperQ, [2], &args)?;
     Ok(Value::Bool(is_subset(&args[1], &args[0])))
 }
 
-pub(super) fn proper_superset(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn proper_superset(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::PSuperQ, [2], &args)?;
     Ok(Value::Bool(is_proper_subset(&args[1], &args[0])))
 }
 
-pub(super) fn member(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn member(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::MemberQ, [2], &args)?;
     let rhs = item_set(&args[1]);
     let results: Vec<Value> = seq_items(&args[0])
@@ -131,7 +131,7 @@ fn is_proper_subset(lhs: &Value, rhs: &Value) -> bool {
     lhs.len() < rhs.len() && lhs.iter().all(|item| rhs.contains(item))
 }
 
-pub(super) fn carproduct(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn carproduct(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Cart, [2], &args)?;
     let a = seq_items(&args[0]);
     let b = seq_items(&args[1]);
@@ -211,21 +211,21 @@ fn contains_with_optional_depth(
     Ok(Value::Bool(found))
 }
 
-pub(super) fn in_(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn in_(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::InQ, [2, 3], &args)?;
     let elem = &args[0];
     let container = &args[1];
     contains_with_optional_depth(BE::InQ, elem, container, args.get_pos(2))
 }
 
-pub(super) fn has(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn has(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::HasQ, [2, 3], &args)?;
     let container = &args[0];
     let elem = &args[1];
     contains_with_optional_depth(BE::HasQ, elem, container, args.get_pos(2))
 }
 
-pub(super) fn disjoint(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn disjoint(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::DisjointQ, [2], &args)?;
     let b = item_set(&args[1]);
     for v in seq_items(&args[0]) {
@@ -236,7 +236,7 @@ pub(super) fn disjoint(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::Bool(true))
 }
 
-pub(super) fn multiplicity(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn multiplicity(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Multiplicity, [2], &args)?;
     let elem = &args[0];
     let container = &args[1];
@@ -276,10 +276,9 @@ mod tests {
 
     #[test]
     fn carproduct_basic() {
-        let mut vm = Vm::new(vec![]);
         let a = Value::IntList(Arc::new(vec![1, 2]));
         let b = Value::IntList(Arc::new(vec![3, 4]));
-        let res = carproduct(&mut vm, BuiltinFnArgs::from(smallvec![a, b]))
+        let res = carproduct(BuiltinFnArgs::from(smallvec![a, b]))
             .expect("cartesian product should succeed");
         assert_eq!(
             res,
@@ -294,77 +293,56 @@ mod tests {
 
     #[test]
     fn list_set_algebra_preserves_first_seen_order() {
-        let mut vm = Vm::new(vec![]);
         let a = Value::IntList(Arc::new(vec![2, 1, 2, 3]));
         let b = Value::IntList(Arc::new(vec![3, 4, 1]));
 
         assert_eq!(
-            unique(&mut vm, BuiltinFnArgs::from(smallvec![a.clone()]))
-                .expect("unique should succeed"),
+            unique(BuiltinFnArgs::from(smallvec![a.clone()])).expect("unique should succeed"),
             Value::IntList(Arc::new(vec![2, 1, 3]))
         );
         assert_eq!(
-            r#union(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![a.clone(), b.clone()])
-            )
-            .expect("union should succeed"),
+            r#union(BuiltinFnArgs::from(smallvec![a.clone(), b.clone()]))
+                .expect("union should succeed"),
             Value::IntList(Arc::new(vec![2, 1, 3, 4]))
         );
         assert_eq!(
-            intersect(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![a.clone(), b.clone()])
-            )
-            .expect("intersect should succeed"),
+            intersect(BuiltinFnArgs::from(smallvec![a.clone(), b.clone()]))
+                .expect("intersect should succeed"),
             Value::IntList(Arc::new(vec![1, 3]))
         );
         assert_eq!(
-            without(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![a.clone(), b.clone()])
-            )
-            .expect("without should succeed"),
+            without(BuiltinFnArgs::from(smallvec![a.clone(), b.clone()]))
+                .expect("without should succeed"),
             Value::IntList(Arc::new(vec![2, 2]))
         );
         assert_eq!(
-            symdiff(&mut vm, BuiltinFnArgs::from(smallvec![a, b])).expect("symdiff should succeed"),
+            symdiff(BuiltinFnArgs::from(smallvec![a, b])).expect("symdiff should succeed"),
             Value::IntList(Arc::new(vec![2, 4]))
         );
     }
 
     #[test]
     fn list_set_predicates_ignore_multiplicity() {
-        let mut vm = Vm::new(vec![]);
         let small = Value::IntList(Arc::new(vec![1, 1, 2]));
         let large = Value::IntList(Arc::new(vec![1, 2, 3]));
 
         assert_eq!(
-            subset(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![small.clone(), large.clone()])
-            )
-            .expect("subset should succeed"),
+            subset(BuiltinFnArgs::from(smallvec![small.clone(), large.clone()]))
+                .expect("subset should succeed"),
             Value::Bool(true)
         );
         assert_eq!(
-            proper_subset(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![small.clone(), large.clone()])
-            )
-            .expect("proper subset should succeed"),
+            proper_subset(BuiltinFnArgs::from(smallvec![small.clone(), large.clone()]))
+                .expect("proper subset should succeed"),
             Value::Bool(true)
         );
         assert_eq!(
-            superset(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![large.clone(), small.clone()])
-            )
-            .expect("superset should succeed"),
+            superset(BuiltinFnArgs::from(smallvec![large.clone(), small.clone()]))
+                .expect("superset should succeed"),
             Value::Bool(true)
         );
         assert_eq!(
-            proper_superset(&mut vm, BuiltinFnArgs::from(smallvec![large, small]))
+            proper_superset(BuiltinFnArgs::from(smallvec![large, small]))
                 .expect("proper superset should succeed"),
             Value::Bool(true)
         );
@@ -372,16 +350,12 @@ mod tests {
 
     #[test]
     fn member_returns_shape_like_membership() {
-        let mut vm = Vm::new(vec![]);
         let haystack = Value::IntList(Arc::new(vec![1, 3]));
         assert_eq!(
-            member(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![
-                    Value::IntList(Arc::new(vec![1, 2, 3])),
-                    haystack.clone()
-                ])
-            )
+            member(BuiltinFnArgs::from(smallvec![
+                Value::IntList(Arc::new(vec![1, 2, 3])),
+                haystack.clone()
+            ]))
             .expect("member should succeed"),
             Value::List(Arc::new(vec![
                 Value::Bool(true),
@@ -390,29 +364,22 @@ mod tests {
             ]))
         );
         assert_eq!(
-            member(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![Value::Int(2), haystack])
-            )
-            .expect("scalar member should succeed"),
+            member(BuiltinFnArgs::from(smallvec![Value::Int(2), haystack]))
+                .expect("scalar member should succeed"),
             Value::Bool(false)
         );
     }
 
     #[test]
     fn in_basic() {
-        let mut vm = Vm::new(vec![]);
         let list = Value::IntList(Arc::new(vec![1, 2, 3]));
         assert_eq!(
-            in_(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![Value::Int(2), list.clone()])
-            )
-            .expect("membership should succeed"),
+            in_(BuiltinFnArgs::from(smallvec![Value::Int(2), list.clone()]))
+                .expect("membership should succeed"),
             Value::Bool(true)
         );
         assert_eq!(
-            in_(&mut vm, BuiltinFnArgs::from(smallvec![Value::Int(5), list]))
+            in_(BuiltinFnArgs::from(smallvec![Value::Int(5), list]))
                 .expect("membership should succeed"),
             Value::Bool(false)
         );
@@ -420,18 +387,14 @@ mod tests {
 
     #[test]
     fn has_basic() {
-        let mut vm = Vm::new(vec![]);
         let list = Value::IntList(Arc::new(vec![1, 2, 3]));
         assert_eq!(
-            has(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![list.clone(), Value::Int(2)])
-            )
-            .expect("membership should succeed"),
+            has(BuiltinFnArgs::from(smallvec![list.clone(), Value::Int(2)]))
+                .expect("membership should succeed"),
             Value::Bool(true)
         );
         assert_eq!(
-            has(&mut vm, BuiltinFnArgs::from(smallvec![list, Value::Int(5)]))
+            has(BuiltinFnArgs::from(smallvec![list, Value::Int(5)]))
                 .expect("membership should succeed"),
             Value::Bool(false)
         );
@@ -439,40 +402,42 @@ mod tests {
 
     #[test]
     fn in_and_has_search_at_requested_depth() {
-        let mut vm = Vm::new(vec![]);
         let nested = Value::List(Arc::new(vec![
             Value::IntList(Arc::new(vec![1, 2])),
             Value::IntList(Arc::new(vec![3, 4])),
         ]));
         assert_eq!(
-            in_(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![Value::Int(2), nested.clone()])
-            )
+            in_(BuiltinFnArgs::from(smallvec![
+                Value::Int(2),
+                nested.clone()
+            ]))
             .expect("membership should succeed"),
             Value::Bool(false)
         );
         assert_eq!(
-            in_(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![Value::Int(2), nested.clone(), Value::Int(1)])
-            )
+            in_(BuiltinFnArgs::from(smallvec![
+                Value::Int(2),
+                nested.clone(),
+                Value::Int(1)
+            ]))
             .expect("membership should succeed"),
             Value::Bool(true)
         );
         assert_eq!(
-            has(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![nested.clone(), Value::Int(4), Value::Int(1)])
-            )
+            has(BuiltinFnArgs::from(smallvec![
+                nested.clone(),
+                Value::Int(4),
+                Value::Int(1)
+            ]))
             .expect("membership should succeed"),
             Value::Bool(true)
         );
         assert_eq!(
-            has(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![nested, Value::Int(5), Value::Int(1)])
-            )
+            has(BuiltinFnArgs::from(smallvec![
+                nested,
+                Value::Int(5),
+                Value::Int(1)
+            ]))
             .expect("membership should succeed"),
             Value::Bool(false)
         );
@@ -480,26 +445,23 @@ mod tests {
 
     #[test]
     fn disjoint_basic() {
-        let mut vm = Vm::new(vec![]);
         let a = Value::IntList(Arc::new(vec![1, 2]));
         let b = Value::IntList(Arc::new(vec![3, 4]));
         assert_eq!(
-            disjoint(&mut vm, BuiltinFnArgs::from(smallvec![a.clone(), b]))
+            disjoint(BuiltinFnArgs::from(smallvec![a.clone(), b]))
                 .expect("disjoint should succeed"),
             Value::Bool(true)
         );
 
         let c = Value::IntList(Arc::new(vec![2, 3]));
         assert_eq!(
-            disjoint(&mut vm, BuiltinFnArgs::from(smallvec![a, c]))
-                .expect("disjoint should succeed"),
+            disjoint(BuiltinFnArgs::from(smallvec![a, c])).expect("disjoint should succeed"),
             Value::Bool(false)
         );
     }
 
     #[test]
     fn multiplicity_basic() {
-        let mut vm = Vm::new(vec![]);
         let list = Value::List(Arc::new(vec![
             Value::Int(1),
             Value::Int(2),
@@ -507,7 +469,7 @@ mod tests {
             Value::Int(3),
         ]));
         assert_eq!(
-            multiplicity(&mut vm, BuiltinFnArgs::from(smallvec![Value::Int(1), list]))
+            multiplicity(BuiltinFnArgs::from(smallvec![Value::Int(1), list]))
                 .expect("multiplicity should succeed"),
             Value::Int(2)
         );

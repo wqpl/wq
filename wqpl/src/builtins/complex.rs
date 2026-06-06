@@ -6,7 +6,7 @@ use crate::value::{Value, WqResult};
 use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(super) fn complex(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn complex(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Complex, [2], &args)?;
     let re = args[0].as_f64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
@@ -23,7 +23,7 @@ pub(super) fn complex(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::from_complex64(Complex64::new(re, im)))
 }
 
-pub(super) fn real(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn real(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Re, [1], &args)?;
     // Stop broadcast descent at Complex — we want the real part of the
     // whole complex, not to descend into re/im components.
@@ -44,7 +44,7 @@ pub(super) fn real(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         .map_err(|e| e.into_wqerror().src(BuiltinEnum::Re))
 }
 
-pub(super) fn imag(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn imag(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Im, [1], &args)?;
     args[0]
         .bc1_until(Bc1Stop::Atom, |v| {
@@ -63,7 +63,7 @@ pub(super) fn imag(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         .map_err(|e| e.into_wqerror().src(BuiltinEnum::Im))
 }
 
-pub(super) fn conj(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn conj(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Conj, [1], &args)?;
     args[0]
         .bc1_until(Bc1Stop::Atom, |v| {

@@ -5,7 +5,7 @@ use crate::value::{Value, WqResult};
 use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(crate) fn show_table(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(crate) fn show_table(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Showtable, [1], &args)?;
     if let Some(table) = format_table_value(&args[0]) {
         wqstdout_println(table);

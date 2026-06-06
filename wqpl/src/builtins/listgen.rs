@@ -53,7 +53,7 @@ fn extract_int_shape(v: &Value) -> Option<Vec<i64>> {
     }
 }
 
-pub(super) fn alloc(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn alloc(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Alloc, [1, 2], &args)?;
     let (shape, fill) = match &*args {
         [shape] => (shape, Value::Int(0)),
@@ -74,7 +74,7 @@ pub(super) fn alloc(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(build_from_parsed_shape(&dims, &mut generator))
 }
 
-pub(super) fn til(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn til(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Til, [1], &args)?;
     if let Value::Int(n) = args[0] {
         if n < 0 {
@@ -117,7 +117,7 @@ pub(super) fn til(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(build_from_parsed_shape(&dims, &mut generator))
 }
 
-pub(super) fn iota(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn iota(args: BuiltinFnArgs) -> WqResult<Value> {
     fn build_coords(dims: &[usize], prefix: &mut Vec<i64>) -> WqResult<Value> {
         if dims.is_empty() {
             return Ok(Value::IntList(Arc::new(prefix.clone())));
@@ -176,7 +176,7 @@ pub(super) fn iota(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn reshape(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn reshape(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Reshape, [2], &args)?;
     let flattened = args[0].flatten();
     let dims = parse_shape(&args[1]).map_err(|e| e.src(BE::Reshape).at_arg(1))?;
@@ -197,7 +197,7 @@ pub(super) fn reshape(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(build_from_parsed_shape(&dims, &mut generator))
 }
 
-pub(super) fn repeat(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn repeat(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Repeat, [2], &args)?;
     let count = match &args[1] {
         Value::Int(n) => {
@@ -256,7 +256,7 @@ pub(super) fn repeat(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn wq_where(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn wq_where(args: BuiltinFnArgs) -> WqResult<Value> {
     const EXP: &str = "list whose leaves are int or bool";
 
     fn fmt_path(path: &[i64]) -> String {
@@ -484,18 +484,16 @@ mod tests {
 
     #[test]
     fn ints_empty_shape() {
-        let mut vm = Vm::new(vec![]);
         assert_eq!(
-            til(&mut vm, BuiltinFnArgs::from(Value::List(Arc::new(vec![])))).unwrap(),
+            til(BuiltinFnArgs::from(Value::List(Arc::new(vec![])))).unwrap(),
             Value::Int(0)
         );
     }
 
     #[test]
     fn iota_zero() {
-        let mut vm = Vm::new(vec![]);
         assert_eq!(
-            iota(&mut vm, BuiltinFnArgs::from(Value::Int(0))).unwrap(),
+            iota(BuiltinFnArgs::from(Value::Int(0))).unwrap(),
             Value::IntList(Arc::new(vec![]))
         );
     }

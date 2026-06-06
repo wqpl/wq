@@ -43,7 +43,7 @@ impl OpenFlags {
     }
 }
 
-pub(super) fn open(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn open(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity_named(BE::Open, [1], &args, &["r", "w", "a", "t", "c", "cn"])?;
     let path = args[0]
         .to_rust_string_with_note()
@@ -127,7 +127,7 @@ fn openflags_from_named(args: &BuiltinFnArgs) -> WqResult<OpenFlags> {
     })
 }
 
-pub(super) fn fexists(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn fexists(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::FexistsQ, [1], &args)?;
     let path = args[0]
         .to_rust_string_with_note()
@@ -135,7 +135,7 @@ pub(super) fn fexists(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::Bool(Path::new(&path).exists()))
 }
 
-pub(super) fn mkdir(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn mkdir(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Mkdir, [1], &args)?;
     let path = args[0]
         .to_rust_string_with_note()
@@ -144,7 +144,7 @@ pub(super) fn mkdir(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::unit())
 }
 
-pub(super) fn fsize(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn fsize(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Fsize, [1], &args)?;
     let path = args[0]
         .to_rust_string_with_note()
@@ -153,7 +153,7 @@ pub(super) fn fsize(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(meta.len().into_wq_value())
 }
 
-pub(super) fn fwrite(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn fwrite(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Fwrite, [2], &args)?;
     let Value::Stream(rc) = &args[0] else {
         return Err(type_mismatch(BE::Fwrite, 0, "stream", &args[0]));
@@ -170,7 +170,7 @@ pub(super) fn fwrite(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::unit())
 }
 
-pub(super) fn fwritet(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn fwritet(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Fwritet, [2], &args)?;
     let Value::Stream(rc) = &args[0] else {
         return Err(type_mismatch(BE::Fwritet, 0, "stream", &args[0]));
@@ -232,7 +232,7 @@ fn read_trimmed_line(reader: &mut dyn BufReadSeek, src: BE) -> WqResult<Option<S
     Ok(Some(line))
 }
 
-pub(super) fn fread(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn fread(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Fread, [1, 2], &args)?;
     match args.len() {
         1 => match fread_impl(BE::Fread, &args[0], None)? {
@@ -251,7 +251,7 @@ pub(super) fn fread(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn freadt(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn freadt(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Freadt, [1, 2], &args)?;
     match args.len() {
         1 => match fread_impl(BE::Freadt, &args[0], None)? {
@@ -272,7 +272,7 @@ pub(super) fn freadt(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn freadtln(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn freadtln(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Freadtln, [1], &args)?;
     let Value::Stream(rc) = &args[0] else {
         return Err(type_mismatch(BE::Freadtln, 0, "stream", &args[0]));
@@ -287,7 +287,7 @@ pub(super) fn freadtln(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn freadtlns(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn freadtlns(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Freadtlns, [1], &args)?;
     let Value::Stream(rc) = &args[0] else {
         return Err(type_mismatch(BE::Freadtlns, 0, "stream", &args[0]));
@@ -303,7 +303,7 @@ pub(super) fn freadtlns(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::List(Arc::new(lines)))
 }
 
-pub(super) fn fseek(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn fseek(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Fseek, [2, 3], &args)?;
     let offset_arg = &args[1];
     let offset = if let Value::Int(n) = *offset_arg {
@@ -361,7 +361,7 @@ pub(super) fn fseek(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn ftell(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn ftell(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Ftell, [1], &args)?;
     if let Value::Stream(rc) = &args[0] {
         let mut handle = rc.lock().unwrap();
@@ -381,7 +381,7 @@ pub(super) fn ftell(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn fclose(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn fclose(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Fclose, [1], &args)?;
     if let Value::Stream(rc) = &args[0] {
         let mut handle = rc.lock().unwrap();
@@ -438,23 +438,22 @@ mod tests {
     //     fseek(&mut vm, &[h.clone(), Value::Int(0)]).unwrap();
     //     let txt = freadt(&mut vm, std::slice::from_ref(&h)).unwrap();
     //     assert_eq!(txt, str_val("hi"));
-    //     let size = fsize(&mut vm, &[str_val(&path)]).unwrap();
+    //     let size = fsize( &[str_val(&path)]).unwrap();
     //     assert_eq!(size, Value::Int(2));
-    //     fclose(&mut vm, &[h]).unwrap();
+    //     fclose( &[h]).unwrap();
     //     fs::remove_file(&path).unwrap();
     // }
 
     #[test]
     fn pexists_and_mkdir() {
-        let mut vm = Vm::new(vec![]);
         let path = tmpfile();
         assert_eq!(
-            fexists(&mut vm, BuiltinFnArgs::from(into_wq_string(&path))).unwrap(),
+            fexists(BuiltinFnArgs::from(into_wq_string(&path))).unwrap(),
             Value::Bool(false)
         );
-        mkdir(&mut vm, BuiltinFnArgs::from(into_wq_string(&path))).unwrap();
+        mkdir(BuiltinFnArgs::from(into_wq_string(&path))).unwrap();
         assert_eq!(
-            fexists(&mut vm, BuiltinFnArgs::from(into_wq_string(&path))).unwrap(),
+            fexists(BuiltinFnArgs::from(into_wq_string(&path))).unwrap(),
             Value::Bool(true)
         );
         fs::remove_dir_all(&path).unwrap();
@@ -462,13 +461,12 @@ mod tests {
 
     #[test]
     fn freadtlns_reads_remaining_lines() {
-        let mut vm = Vm::new(vec![]);
         let path = tmpfile();
         fs::write(&path, "a\nb\r\nc\n").unwrap();
 
-        let handle = open(&mut vm, BuiltinFnArgs::from(into_wq_string(&path))).unwrap();
+        let handle = open(BuiltinFnArgs::from(into_wq_string(&path))).unwrap();
         assert_eq!(
-            freadtlns(&mut vm, BuiltinFnArgs::from(handle.clone())).unwrap(),
+            freadtlns(BuiltinFnArgs::from(handle.clone())).unwrap(),
             Value::List(Arc::new(vec![
                 into_wq_string("a"),
                 into_wq_string("b"),
@@ -476,17 +474,17 @@ mod tests {
             ]))
         );
         assert_eq!(
-            freadtlns(&mut vm, BuiltinFnArgs::from(handle.clone())).unwrap(),
+            freadtlns(BuiltinFnArgs::from(handle.clone())).unwrap(),
             Value::List(Arc::new(vec![]))
         );
-        fclose(&mut vm, BuiltinFnArgs::from(handle)).unwrap();
+        fclose(BuiltinFnArgs::from(handle)).unwrap();
         fs::remove_file(&path).unwrap();
     }
 
     // #[test]
     // fn open_missing_file_error() {
     //     let mut vm = Vm::new(vec![]);
-    //     let res = open(&mut vm, &[str_val("/no/such/file"), str_val("r")]);
+    //     let res = open( &[str_val("/no/such/file"), str_val("r")]);
     //     assert!(matches!(res, Err(WqError::Io(_))));
     // }
 

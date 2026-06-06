@@ -7,7 +7,7 @@ use crate::wqerror::{WqError, WqErrorType};
 
 macro_rules! def_unary_math_fn {
     ($fn_name:ident, $enum_variant:ident, $method:ident) => {
-        pub(super) fn $fn_name(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+        pub(super) fn $fn_name(args: BuiltinFnArgs) -> WqResult<Value> {
             check_arity(BuiltinEnum::$enum_variant, [1], &args)?;
             args[0]
                 .$method()
@@ -48,7 +48,7 @@ def_unary_math_fn!(si, Si, si);
 def_unary_math_fn!(ci, Ci, ci);
 def_unary_math_fn!(ei, Ei, ei);
 
-pub(super) fn en(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn en(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::En, [2], &args)?;
     args[0].en(&args[1]).map_err(|e| e.src(BuiltinEnum::En))
 }
@@ -56,7 +56,7 @@ pub(super) fn en(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 def_unary_math_fn!(ellpk, Ellpk, ellpk);
 def_unary_math_fn!(ellpe, Ellpe, ellpe);
 
-pub(super) fn delta(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn delta(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Delta, [1], &args)?;
     let input = args[0].as_f64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
@@ -74,7 +74,7 @@ pub(super) fn delta(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 
 macro_rules! def_binary_math_fn {
     ($fn_name:ident, $enum_variant:ident, $method:ident) => {
-        pub(super) fn $fn_name(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+        pub(super) fn $fn_name(args: BuiltinFnArgs) -> WqResult<Value> {
             check_arity(BuiltinEnum::$enum_variant, [2], &args)?;
             args[0]
                 .$method(&args[1])
@@ -90,7 +90,7 @@ def_binary_math_fn!(ellie, Ellie, ellie);
 
 macro_rules! def_rounding_math_fn {
     ($fn_name:ident, $enum_variant:ident, $method:ident, $f64_method:ident) => {
-        pub(super) fn $fn_name(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+        pub(super) fn $fn_name(args: BuiltinFnArgs) -> WqResult<Value> {
             check_arity(BuiltinEnum::$enum_variant, [1, 2], &args)?;
             let val_arg = &args[0];
 
@@ -144,7 +144,7 @@ def_rounding_math_fn!(floor, Floor, floor, floor);
 def_rounding_math_fn!(ceil, Ceil, ceil, ceil);
 def_rounding_math_fn!(round, Round, round, round);
 
-pub(super) fn rand(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn rand(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Rand, [0, 1, 2], &args)?;
     let mut rng = rand::rng();
     match args.len() {

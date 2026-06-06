@@ -14,7 +14,7 @@ use crate::value::{Value, WqResult};
 use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(super) fn sum(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn sum(args: BuiltinFnArgs) -> WqResult<Value> {
     let n = args.len();
     if n == 0 {
         return Ok(Value::unit());
@@ -117,7 +117,7 @@ pub(super) fn sum(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(acc)
 }
 
-pub(super) fn product(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn product(args: BuiltinFnArgs) -> WqResult<Value> {
     let n = args.len();
     if n == 0 {
         return Ok(Value::unit());
@@ -223,7 +223,7 @@ pub(super) fn product(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(acc)
 }
 
-pub(super) fn min(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn min(args: BuiltinFnArgs) -> WqResult<Value> {
     if args.is_empty() {
         return Err(WqError::new(WqErrorType::Arity)
             .src(BE::Min)
@@ -291,7 +291,7 @@ pub(super) fn min(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(min_val.cloned().unwrap_or_else(Value::unit))
 }
 
-pub(super) fn max(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn max(args: BuiltinFnArgs) -> WqResult<Value> {
     if args.is_empty() {
         return Err(WqError::new(WqErrorType::Arity)
             .src(BE::Max)
@@ -363,12 +363,12 @@ pub(super) fn max(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(max_val.cloned().unwrap_or_else(Value::unit))
 }
 
-pub(super) fn flatten(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn flatten(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Flatten, [1], &args)?;
     Ok(Value::from_items(args[0].flatten()))
 }
 
-pub(super) fn reverse(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn reverse(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Reverse, [1], &args)?;
     let v = args.into_iter().next().unwrap();
     match &v {
@@ -392,7 +392,7 @@ pub(super) fn reverse(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn sort(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Sort, [1], &args)?;
     let v = args.into_iter().next().unwrap();
     let res = match &v {
@@ -477,7 +477,7 @@ fn split_string_by_whitespace(s: &str, maxsplit: Option<usize>) -> Value {
     }
 }
 
-pub(super) fn split(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn split(args: BuiltinFnArgs) -> WqResult<Value> {
     const MAXSPLIT_ARG: &str = "m";
     const DELIM_ARG: usize = 1;
 
@@ -559,7 +559,7 @@ pub(super) fn split(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 /// find[xs;elem;threshold] - find up to threshold occurrences, depth 1
 /// find[xs;elem;threshold;depth] - find up to threshold occurrences at
 /// specified depth
-pub(super) fn find(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn find(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Find, [2, 3, 4], &args)?;
 
     let (xs, elem, threshold, depth) = parse_find_args(&args, BE::Find)?;
@@ -586,7 +586,7 @@ pub(super) fn find(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 /// rfind[xs;elem;threshold] - find up to threshold occurrences from the right,
 /// depth 1 rfind[xs;elem;threshold;depth] - find up to threshold occurrences
 /// from the right at specified depth
-pub(super) fn rfind(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn rfind(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::RFind, [2, 3, 4], &args)?;
 
     let (xs, elem, threshold, depth) = parse_find_args(&args, BE::RFind)?;
@@ -756,7 +756,7 @@ fn find_search(
     }
 }
 
-pub(super) fn zip(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn zip(args: BuiltinFnArgs) -> WqResult<Value> {
     #[inline]
     fn eff_layers_2(raw_d: &Value, dx: i64, dy: i64) -> Option<i64> {
         let dmax = dx.max(dy);
@@ -801,21 +801,11 @@ mod tests {
 
     #[test]
     fn alloc_with_fill_value() {
-        let mut vm = Vm::new(vec![]);
-
-        let vec = alloc(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![Value::Int(3), Value::Int(9)]),
-        )
-        .unwrap();
+        let vec = alloc(BuiltinFnArgs::from(smallvec![Value::Int(3), Value::Int(9)])).unwrap();
         assert_eq!(vec, Value::IntList(Arc::new(vec![9, 9, 9])));
 
         let shape = Value::List(Arc::new(vec![Value::Int(2), Value::Int(2)]));
-        let filled = alloc(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![shape, Value::Char('x')]),
-        )
-        .unwrap();
+        let filled = alloc(BuiltinFnArgs::from(smallvec![shape, Value::Char('x')])).unwrap();
         assert_eq!(
             filled,
             Value::List(Arc::new(vec![
@@ -870,14 +860,13 @@ mod tests {
 
     #[test]
     fn split_variants_cover_strings_and_lists() {
-        let mut vm = Vm::new(vec![]);
         // Whitespace split
         assert_eq!(
-            split(&mut vm, BuiltinFnArgs::from("a\nb\n".into_wq_value())).unwrap(),
+            split(BuiltinFnArgs::from("a\nb\n".into_wq_value())).unwrap(),
             Value::List(Arc::new(vec!["a".into_wq_value(), "b".into_wq_value(),]))
         );
         assert_eq!(
-            split(&mut vm, BuiltinFnArgs::from("  a \t b  c ".into_wq_value())).unwrap(),
+            split(BuiltinFnArgs::from("  a \t b  c ".into_wq_value())).unwrap(),
             Value::List(Arc::new(vec![
                 "a".into_wq_value(),
                 "b".into_wq_value(),
@@ -886,10 +875,10 @@ mod tests {
         );
         // Delim split
         assert_eq!(
-            split(
-                &mut vm,
-                BuiltinFnArgs::from(vec!["a,b,c".into_wq_value(), ",".into_wq_value()])
-            )
+            split(BuiltinFnArgs::from(vec![
+                "a,b,c".into_wq_value(),
+                ",".into_wq_value()
+            ]))
             .unwrap(),
             Value::List(Arc::new(vec![
                 "a".into_wq_value(),
@@ -899,13 +888,10 @@ mod tests {
         );
         // IntList split via named arg
         assert_eq!(
-            split(
-                &mut vm,
-                BuiltinFnArgs::from(vec![
-                    Value::IntList(Arc::new(vec![1, 2, 3, 2, 4])),
-                    Value::Int(2)
-                ])
-            )
+            split(BuiltinFnArgs::from(vec![
+                Value::IntList(Arc::new(vec![1, 2, 3, 2, 4])),
+                Value::Int(2)
+            ]))
             .unwrap(),
             Value::List(Arc::new(vec![
                 Value::IntList(Arc::new(vec![1])),
@@ -917,40 +903,30 @@ mod tests {
 
     #[test]
     fn split_maxsplit_works() {
-        let mut vm = Vm::new(vec![]);
         // String whitespace with maxsplit
         assert_eq!(
-            split(
-                &mut vm,
-                BuiltinFnArgs::with_named(
-                    smallvec!["a b c".into_wq_value()],
-                    vec![(Arc::from("m"), Value::Int(1))],
-                )
-            )
+            split(BuiltinFnArgs::with_named(
+                smallvec!["a b c".into_wq_value()],
+                vec![(Arc::from("m"), Value::Int(1))],
+            ))
             .unwrap(),
             Value::List(Arc::new(vec!["a".into_wq_value(), "b c".into_wq_value()]))
         );
         // String delim with maxsplit
         assert_eq!(
-            split(
-                &mut vm,
-                BuiltinFnArgs::with_named(
-                    smallvec!["a,b,c".into_wq_value(), ",".into_wq_value()],
-                    vec![(Arc::from("m"), Value::Int(1)),],
-                )
-            )
+            split(BuiltinFnArgs::with_named(
+                smallvec!["a,b,c".into_wq_value(), ",".into_wq_value()],
+                vec![(Arc::from("m"), Value::Int(1)),],
+            ))
             .unwrap(),
             Value::List(Arc::new(vec!["a".into_wq_value(), "b,c".into_wq_value()]))
         );
         // IntList with maxsplit
         assert_eq!(
-            split(
-                &mut vm,
-                BuiltinFnArgs::with_named(
-                    smallvec![Value::IntList(Arc::new(vec![1, 2, 3, 2, 4])), Value::Int(2)],
-                    vec![(Arc::from("m"), Value::Int(1)),],
-                )
-            )
+            split(BuiltinFnArgs::with_named(
+                smallvec![Value::IntList(Arc::new(vec![1, 2, 3, 2, 4])), Value::Int(2)],
+                vec![(Arc::from("m"), Value::Int(1)),],
+            ))
             .unwrap(),
             Value::List(Arc::new(vec![
                 Value::IntList(Arc::new(vec![1])),
@@ -959,16 +935,13 @@ mod tests {
         );
         // List with maxsplit 0 (no splits)
         assert_eq!(
-            split(
-                &mut vm,
-                BuiltinFnArgs::with_named(
-                    smallvec![
-                        Value::List(Arc::new(vec![Value::Int(1), Value::Int(2), Value::Int(3),])),
-                        Value::Int(2)
-                    ],
-                    vec![(Arc::from("m"), Value::Int(0)),],
-                ),
-            )
+            split(BuiltinFnArgs::with_named(
+                smallvec![
+                    Value::List(Arc::new(vec![Value::Int(1), Value::Int(2), Value::Int(3),])),
+                    Value::Int(2)
+                ],
+                vec![(Arc::from("m"), Value::Int(0)),],
+            ),)
             .unwrap(),
             Value::List(Arc::new(vec![Value::List(Arc::new(vec![
                 Value::Int(1),
@@ -1088,7 +1061,6 @@ mod tests {
 
     #[test]
     fn where_on_nested_bool_matrix() {
-        let mut vm = Vm::new(vec![]);
         // ((true;false;false); (false;true;false); (false;false;true))
         let mat = Value::List(Arc::new(vec![
             Value::List(Arc::new(vec![
@@ -1107,7 +1079,7 @@ mod tests {
                 Value::Bool(true),
             ])),
         ]));
-        let res = wq_where(&mut vm, BuiltinFnArgs::from(mat)).unwrap();
+        let res = wq_where(BuiltinFnArgs::from(mat)).unwrap();
         assert_eq!(
             res,
             Value::List(Arc::new(vec![
@@ -1120,8 +1092,6 @@ mod tests {
 
     #[test]
     fn test_find_basic() {
-        let mut vm = Vm::new(vec![]);
-
         // Simple list - find first occurrence
         let list = Value::List(Arc::new(vec![
             Value::Int(1),
@@ -1129,19 +1099,17 @@ mod tests {
             Value::Int(3),
             Value::Int(2),
         ]));
-        let result = find(&mut vm, BuiltinFnArgs::from(smallvec![list, Value::Int(2)])).unwrap();
+        let result = find(BuiltinFnArgs::from(smallvec![list, Value::Int(2)])).unwrap();
         assert_eq!(result, Value::IntList(Arc::new(vec![1])));
 
         // Not found - return unit
         let list = Value::List(Arc::new(vec![Value::Int(1), Value::Int(2), Value::Int(3)]));
-        let result = find(&mut vm, BuiltinFnArgs::from(smallvec![list, Value::Int(5)])).unwrap();
+        let result = find(BuiltinFnArgs::from(smallvec![list, Value::Int(5)])).unwrap();
         assert_eq!(result, Value::unit());
     }
 
     #[test]
     fn test_find_with_threshold() {
-        let mut vm = Vm::new(vec![]);
-
         // Find multiple occurrences
         let list = Value::List(Arc::new(vec![
             Value::Int(2),
@@ -1149,10 +1117,11 @@ mod tests {
             Value::Int(2),
             Value::Int(2),
         ]));
-        let result = find(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![list, Value::Int(2), Value::Int(2)]),
-        )
+        let result = find(BuiltinFnArgs::from(smallvec![
+            list,
+            Value::Int(2),
+            Value::Int(2)
+        ]))
         .unwrap();
         assert_eq!(
             result,
@@ -1169,10 +1138,11 @@ mod tests {
             Value::Int(2),
             Value::Int(2),
         ]));
-        let result = find(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![list, Value::Int(2), Value::float(f64::INFINITY)]),
-        )
+        let result = find(BuiltinFnArgs::from(smallvec![
+            list,
+            Value::Int(2),
+            Value::float(f64::INFINITY)
+        ]))
         .unwrap();
         assert_eq!(
             result,
@@ -1199,23 +1169,20 @@ mod tests {
         ]));
 
         // Find at depth 1 (default)
-        let result = find(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![nested.clone(), Value::Int(2)]),
-        )
+        let result = find(BuiltinFnArgs::from(smallvec![
+            nested.clone(),
+            Value::Int(2)
+        ]))
         .unwrap();
         assert_eq!(result, Value::IntList(Arc::new(vec![0])));
 
         // Find at depth 2 with inf threshold
-        let result = find(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![
-                nested.clone(),
-                Value::Int(2),
-                Value::float(f64::INFINITY),
-                Value::Int(2),
-            ]),
-        )
+        let result = find(BuiltinFnArgs::from(smallvec![
+            nested.clone(),
+            Value::Int(2),
+            Value::float(f64::INFINITY),
+            Value::Int(2),
+        ]))
         .unwrap();
         assert_eq!(
             result,
@@ -1228,14 +1195,13 @@ mod tests {
 
     #[test]
     fn test_find_intlist() {
-        let mut vm = Vm::new(vec![]);
-
         // IntList support
         let list = Value::IntList(Arc::new(vec![1, 2, 3, 2, 4]));
-        let result = find(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![list, Value::Int(2), Value::float(f64::INFINITY)]),
-        )
+        let result = find(BuiltinFnArgs::from(smallvec![
+            list,
+            Value::Int(2),
+            Value::float(f64::INFINITY)
+        ]))
         .unwrap();
         assert_eq!(
             result,
@@ -1248,19 +1214,13 @@ mod tests {
 
     #[test]
     fn test_find_sublist() {
-        let mut vm = Vm::new(vec![]);
-
         // Find a sub-list: find[(2;3);((1;2);(2;3))] should return (1)
         let target = Value::List(Arc::new(vec![Value::Int(2), Value::Int(3)]));
         let list = Value::List(Arc::new(vec![
             Value::List(Arc::new(vec![Value::Int(1), Value::Int(2)])),
             Value::List(Arc::new(vec![Value::Int(2), Value::Int(3)])),
         ]));
-        let result = find(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![list, target.clone()]),
-        )
-        .unwrap();
+        let result = find(BuiltinFnArgs::from(smallvec![list, target.clone()])).unwrap();
         assert_eq!(result, Value::IntList(Arc::new(vec![1])));
 
         // Find multiple sub-lists with threshold
@@ -1269,10 +1229,11 @@ mod tests {
             Value::Int(5),
             Value::List(Arc::new(vec![Value::Int(2), Value::Int(3)])),
         ]));
-        let result = find(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![list, target.clone(), Value::float(f64::INFINITY)]),
-        )
+        let result = find(BuiltinFnArgs::from(smallvec![
+            list,
+            target.clone(),
+            Value::float(f64::INFINITY)
+        ]))
         .unwrap();
         assert_eq!(
             result,
@@ -1290,47 +1251,36 @@ mod tests {
                 Value::Int(4),
             ])),
         ]));
-        let result = find(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![
-                nested,
-                target.clone(),
-                Value::float(f64::INFINITY),
-                Value::Int(2),
-            ]),
-        )
+        let result = find(BuiltinFnArgs::from(smallvec![
+            nested,
+            target.clone(),
+            Value::float(f64::INFINITY),
+            Value::Int(2),
+        ]))
         .unwrap();
         assert_eq!(result, Value::IntList(Arc::new(vec![1, 0])));
     }
 
     #[test]
     fn product_basic() {
-        let mut vm = Vm::new(vec![]);
         assert_eq!(
-            product(
-                &mut vm,
-                BuiltinFnArgs::from(Value::IntList(Arc::new(vec![2, 3, 4])))
-            )
-            .unwrap(),
+            product(BuiltinFnArgs::from(Value::IntList(Arc::new(vec![2, 3, 4])))).unwrap(),
             Value::Int(24)
         );
         assert_eq!(
-            product(
-                &mut vm,
-                BuiltinFnArgs::from(Value::IntList(Arc::new(vec![])))
-            )
-            .unwrap(),
+            product(BuiltinFnArgs::from(Value::IntList(Arc::new(vec![])))).unwrap(),
             Value::Int(1)
         );
         assert_eq!(
-            product(&mut vm, BuiltinFnArgs::from(Value::Int(5))).unwrap(),
+            product(BuiltinFnArgs::from(Value::Int(5))).unwrap(),
             Value::Int(5)
         );
         assert_eq!(
-            product(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![Value::Int(2), Value::Int(3), Value::Int(4)])
-            )
+            product(BuiltinFnArgs::from(smallvec![
+                Value::Int(2),
+                Value::Int(3),
+                Value::Int(4)
+            ]))
             .unwrap(),
             Value::Int(24)
         );
@@ -1338,19 +1288,15 @@ mod tests {
 
     #[test]
     fn sum_min_max_intlist_consistency() {
-        let mut vm = Vm::new(vec![]);
         let list = Value::IntList(Arc::new(vec![5, 1, 9, 3, 7]));
         assert_eq!(
-            sum(&mut vm, BuiltinFnArgs::from(list.clone())).unwrap(),
+            sum(BuiltinFnArgs::from(list.clone())).unwrap(),
             Value::Int(25)
         );
         assert_eq!(
-            min(&mut vm, BuiltinFnArgs::from(list.clone())).unwrap(),
+            min(BuiltinFnArgs::from(list.clone())).unwrap(),
             Value::Int(1)
         );
-        assert_eq!(
-            max(&mut vm, BuiltinFnArgs::from(list)).unwrap(),
-            Value::Int(9)
-        );
+        assert_eq!(max(BuiltinFnArgs::from(list)).unwrap(), Value::Int(9));
     }
 }

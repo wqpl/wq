@@ -8,10 +8,7 @@ use crate::session::stdio::wqstdout_println;
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(crate) fn asciiplot(
-    vm: &mut dyn BuiltinContext,
-    args: BuiltinFnArgs,
-) -> WqResult<Value> {
+pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     #[rustfmt::skip]
     check_named_args(&args, BE::Asciiplot, &[
         "size", "width", "height", "xlim", "ylim",
@@ -1300,6 +1297,7 @@ mod tests {
     use super::*;
     use crate::builtins::Builtins;
     use crate::session::stdio::{WqStdout, set_wqstdout};
+    use crate::vm::Vm;
 
     struct SinkStdout;
 

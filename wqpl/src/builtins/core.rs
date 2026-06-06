@@ -625,38 +625,30 @@ mod tests {
     use smallvec::smallvec;
 
     use super::*;
-    use crate::vm::Vm;
 
     #[test]
     fn hash_basic_test() {
-        let mut vm = Vm::new(vec![]);
-        let result = hash(&mut vm, BuiltinFnArgs::from(Value::Int(42))).unwrap();
+        let result = hash(BuiltinFnArgs::from(Value::Int(42))).unwrap();
         assert!(matches!(result, Value::Int(_) | Value::BigInt(_)));
 
         // Same value produce thw same hash
-        let result2 = hash(&mut vm, BuiltinFnArgs::from(Value::Int(42))).unwrap();
+        let result2 = hash(BuiltinFnArgs::from(Value::Int(42))).unwrap();
         assert_eq!(result, result2);
 
         // Different values produce different hash
-        let result3 = hash(&mut vm, BuiltinFnArgs::from(Value::Int(43))).unwrap();
+        let result3 = hash(BuiltinFnArgs::from(Value::Int(43))).unwrap();
         assert_ne!(result, result3);
     }
 
     #[test]
     fn chr_single_int() {
-        let mut vm = Vm::new(vec![]);
-        let result = chr(&mut vm, BuiltinFnArgs::from(Value::Int(65))).unwrap();
+        let result = chr(BuiltinFnArgs::from(Value::Int(65))).unwrap();
         assert_eq!(result, Value::Char('A'));
     }
 
     #[test]
     fn chr_int_list() {
-        let mut vm = Vm::new(vec![]);
-        let result = chr(
-            &mut vm,
-            BuiltinFnArgs::from(Value::IntList(Arc::new(vec![65, 66]))),
-        )
-        .unwrap();
+        let result = chr(BuiltinFnArgs::from(Value::IntList(Arc::new(vec![65, 66])))).unwrap();
         assert_eq!(
             result,
             Value::List(Arc::new(vec![Value::Char('A'), Value::Char('B')]))
@@ -665,10 +657,9 @@ mod tests {
 
     #[test]
     fn int_builtin_parses_bigint() {
-        let mut vm = Vm::new(vec![]);
         let big = BigInt::from(i64::MAX) + BigInt::from(1);
         let value = into_wq_string(big.to_string());
-        let result = int(&mut vm, BuiltinFnArgs::from(value)).unwrap();
+        let result = int(BuiltinFnArgs::from(value)).unwrap();
         match result {
             Value::BigInt(n) => assert_eq!(*n, big),
             other => panic!("expected bigint result, got {other:?}"),
@@ -677,24 +668,21 @@ mod tests {
 
     #[test]
     fn float_builtin_converts_fraction_like_value() {
-        let mut vm = Vm::new(vec![]);
         let input = Value::from_fraction_parts(BigInt::from(3), BigInt::from(4));
-        let result = float(&mut vm, BuiltinFnArgs::from(input)).unwrap();
+        let result = float(BuiltinFnArgs::from(input)).unwrap();
         assert_eq!(result, Value::float(0.75));
     }
 
     #[test]
     fn ord_single_char() {
-        let mut vm = Vm::new(vec![]);
-        let result = ord(&mut vm, BuiltinFnArgs::from(Value::Char('A'))).unwrap();
+        let result = ord(BuiltinFnArgs::from(Value::Char('A'))).unwrap();
         assert_eq!(result, Value::Int(65));
     }
 
     #[test]
     fn ord_char_list() {
-        let mut vm = Vm::new(vec![]);
         let input = Value::List(Arc::new(vec![Value::Char('A'), Value::Char('B')]));
-        let result = ord(&mut vm, BuiltinFnArgs::from(input)).unwrap();
+        let result = ord(BuiltinFnArgs::from(input)).unwrap();
         assert_eq!(result, Value::IntList(Arc::new(vec![65, 66])));
     }
 
@@ -735,11 +723,10 @@ mod tests {
 
         #[test]
         fn exec_backward_compat() {
-            let mut vm = Vm::new(vec![]);
-            let result = exec(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![into_wq_string("echo"), into_wq_string("hello")]),
-            )
+            let result = exec(BuiltinFnArgs::from(smallvec![
+                into_wq_string("echo"),
+                into_wq_string("hello")
+            ]))
             .unwrap();
             match result {
                 Value::List(lines) => {
@@ -752,12 +739,11 @@ mod tests {
 
         #[test]
         fn exec_named_opts_returns_dict() {
-            let mut vm = Vm::new(vec![]);
             // No named opts → exec_simple path
-            let result = exec(
-                &mut vm,
-                BuiltinFnArgs::from(smallvec![into_wq_string("echo"), into_wq_string("hello")]),
-            )
+            let result = exec(BuiltinFnArgs::from(smallvec![
+                into_wq_string("echo"),
+                into_wq_string("hello")
+            ]))
             .unwrap();
             match result {
                 Value::List(lines) => {
@@ -770,14 +756,10 @@ mod tests {
 
         #[test]
         fn exec_stdin_option() {
-            let mut vm = Vm::new(vec![]);
-            let result = exec(
-                &mut vm,
-                BuiltinFnArgs::with_named(
-                    smallvec![into_wq_string("cat")],
-                    vec![(Arc::from("stdin"), into_wq_string("hi there"))],
-                ),
-            )
+            let result = exec(BuiltinFnArgs::with_named(
+                smallvec![into_wq_string("cat")],
+                vec![(Arc::from("stdin"), into_wq_string("hi there"))],
+            ))
             .unwrap();
             let Value::Dict(dict) = result else {
                 panic!("expected dict, got {result:?}");
@@ -794,18 +776,14 @@ mod tests {
 
         #[test]
         fn exec_check_false_on_failure() {
-            let mut vm = Vm::new(vec![]);
-            let result = exec(
-                &mut vm,
-                BuiltinFnArgs::with_named(
-                    smallvec![
-                        into_wq_string("sh"),
-                        into_wq_string("-c"),
-                        into_wq_string("exit 42"),
-                    ],
-                    vec![(Arc::from("check"), Value::Bool(false))],
-                ),
-            )
+            let result = exec(BuiltinFnArgs::with_named(
+                smallvec![
+                    into_wq_string("sh"),
+                    into_wq_string("-c"),
+                    into_wq_string("exit 42"),
+                ],
+                vec![(Arc::from("check"), Value::Bool(false))],
+            ))
             .unwrap();
             let Value::Dict(dict) = result else {
                 panic!("expected dict, got {result:?}");
@@ -817,14 +795,10 @@ mod tests {
         #[test]
         #[ignore]
         fn exec_timeout_kills_child() {
-            let mut vm = Vm::new(vec![]);
-            let err = exec(
-                &mut vm,
-                BuiltinFnArgs::with_named(
-                    smallvec![into_wq_string("sleep"), into_wq_string("10")],
-                    vec![(Arc::from("timeout"), Value::Int(2))],
-                ),
-            )
+            let err = exec(BuiltinFnArgs::with_named(
+                smallvec![into_wq_string("sleep"), into_wq_string("10")],
+                vec![(Arc::from("timeout"), Value::Int(2))],
+            ))
             .unwrap_err();
             assert!(
                 err.to_string().contains("timed out"),
@@ -834,14 +808,10 @@ mod tests {
 
         #[test]
         fn exec_invalid_cwd() {
-            let mut vm = Vm::new(vec![]);
-            let err = exec(
-                &mut vm,
-                BuiltinFnArgs::with_named(
-                    smallvec![into_wq_string("echo"), into_wq_string("hi")],
-                    vec![(Arc::from("cwd"), into_wq_string("/nonexistent/path/12345"))],
-                ),
-            )
+            let err = exec(BuiltinFnArgs::with_named(
+                smallvec![into_wq_string("echo"), into_wq_string("hi")],
+                vec![(Arc::from("cwd"), into_wq_string("/nonexistent/path/12345"))],
+            ))
             .unwrap_err();
             assert!(
                 err.to_string().contains("invalid cwd") || err.to_string().contains("cwd"),
@@ -851,20 +821,16 @@ mod tests {
 
         #[test]
         fn exec_env_option() {
-            let mut vm = Vm::new(vec![]);
             let mut env = indexmap::IndexMap::new();
             env.insert(Arc::from("WQ_TEST_VAR"), into_wq_string("wq_value_42"));
-            let result = exec(
-                &mut vm,
-                BuiltinFnArgs::with_named(
-                    smallvec![
-                        into_wq_string("sh"),
-                        into_wq_string("-c"),
-                        into_wq_string("echo $WQ_TEST_VAR"),
-                    ],
-                    vec![(Arc::from("env"), Value::Dict(Arc::new(env)))],
-                ),
-            )
+            let result = exec(BuiltinFnArgs::with_named(
+                smallvec![
+                    into_wq_string("sh"),
+                    into_wq_string("-c"),
+                    into_wq_string("echo $WQ_TEST_VAR"),
+                ],
+                vec![(Arc::from("env"), Value::Dict(Arc::new(env)))],
+            ))
             .unwrap();
             let Value::Dict(dict) = result else {
                 panic!("expected dict, got {result:?}");

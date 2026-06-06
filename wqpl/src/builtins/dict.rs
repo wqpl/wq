@@ -13,7 +13,7 @@ fn normalize_idx(i: i64, len: usize) -> Option<usize> {
     }
 }
 
-pub(super) fn keys(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn keys(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Keys, [1], &args)?;
     match &args[0] {
         Value::Dict(map) => {
@@ -25,7 +25,7 @@ pub(super) fn keys(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// Returns the key at the given positional index, supporting negative indices.
-pub(super) fn idx_to_key(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn idx_to_key(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::IdxToKey, [2], &args)?;
     let dict = match &args[0] {
         Value::Dict(map) => map,
@@ -45,7 +45,7 @@ pub(super) fn idx_to_key(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// Returns the positional index for the given key or unit if absent.
-pub(super) fn key_to_idx(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn key_to_idx(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::KeyToIdx, [2], &args)?;
     let dict = match &args[0] {
         Value::Dict(map) => map,

@@ -7,17 +7,17 @@ use crate::value::{Value, WqResult, into_wq_string};
 use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(super) fn type_of(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn type_of(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Type, [1], &args)?;
     Ok(into_wq_string(args[0].type_name()))
 }
 
-pub(super) fn is_atom(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn is_atom(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::AtomQ, [1], &args)?;
     Ok(Value::Bool(args[0].is_atom()))
 }
 
-pub(super) fn is_unit(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn is_unit(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::UnitQ, [1], &args)?;
     Ok(Value::Bool(args[0].is_unit()))
 }
@@ -29,7 +29,7 @@ fn is_valid_tag_name(name: &str) -> bool {
             .all(|ch| ch.is_alphanumeric() || ch == '_' || ch == '?')
 }
 
-pub(super) fn to_tag(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn to_tag(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Tag, [1], &args)?;
     let input = args.into_iter().next().unwrap();
     if matches!(&input, Value::Tag(_)) {
@@ -50,7 +50,7 @@ pub(super) fn to_tag(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::Tag(name.into()))
 }
 
-pub(super) fn to_char(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn to_char(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Char, [1], &args)?;
     let input = args.into_iter().next().unwrap();
     let s = match input {
@@ -78,7 +78,7 @@ pub(super) fn to_char(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::Char(ch))
 }
 
-pub(super) fn to_bool(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn to_bool(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Bool, [1], &args)?;
     let res = match &args[0] {
         Value::Int(1) => true,
@@ -97,7 +97,7 @@ pub(super) fn to_bool(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::Bool(res))
 }
 
-pub(super) fn to_list(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn to_list(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::List, [1], &args)?;
     let input = args.into_iter().next().unwrap();
     if matches!(&input, Value::List(_) | Value::IntList(_)) {
@@ -113,7 +113,7 @@ pub(super) fn to_list(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn to_dict(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn to_dict(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Dict, [1], &args)?;
 
     fn extract_entry(v: &Value) -> WqResult<(Arc<str>, Value)> {
@@ -173,21 +173,19 @@ mod tests {
 
     use super::*;
     // use crate::value::IntoWqValue;
-    use crate::vm::Vm;
 
     // #[test]
     // fn tag_accepts_question_mark() {
     //     let mut vm = Vm::new(vec![]);
     //     let val = "a?".into_wq_value();
-    //     let result = to_tag(&mut vm, BuiltinFnArgs::from(val)).unwrap();
+    //     let result = to_tag(BuiltinFnArgs::from(val)).unwrap();
     //     assert_eq!(result, Value::Tag("a?".to_string()));
     // }
 
     #[test]
     fn counts_as_atom() {
-        let mut vm = Vm::new(vec![]);
         let val = Value::List(Arc::new(vec![Value::Int(1)]));
-        let result = is_atom(&mut vm, BuiltinFnArgs::from(val)).unwrap();
+        let result = is_atom(BuiltinFnArgs::from(val)).unwrap();
         assert_eq!(result, Value::Bool(false));
     }
 }

@@ -12,7 +12,7 @@ use crate::wqerror::{WqError, WqErrorType};
 /// - Atoms and 1D vectors: returned as-is
 /// - 2D matrices: transposed (swap rows and columns)
 /// - Higher-dimensional arrays: transpose last 2 axes
-pub(crate) fn transpose(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(crate) fn transpose(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Transpose, [1, 2], &args)?;
     let (v, axes_arg) = match &*args {
         [v] => (v.clone(), None),
@@ -260,26 +260,23 @@ mod tests {
 
     #[test]
     fn transpose_atom() {
-        let mut vm = Vm::new(vec![]);
         let atom = Value::Int(42);
-        let res = transpose(&mut vm, BuiltinFnArgs::from(atom.clone())).expect("transpose atom");
+        let res = transpose(BuiltinFnArgs::from(atom.clone())).expect("transpose atom");
         assert_eq!(res, atom);
     }
 
     #[test]
     fn transpose_vector() {
-        let mut vm = Vm::new(vec![]);
         let vec = il(&[1, 2, 3, 4, 5]);
-        let res = transpose(&mut vm, BuiltinFnArgs::from(vec.clone())).expect("transpose vector");
+        let res = transpose(BuiltinFnArgs::from(vec.clone())).expect("transpose vector");
         assert_eq!(res, vec);
     }
 
     #[test]
     fn transpose_2x3_matrix() {
-        let mut vm = Vm::new(vec![]);
         // Original: [[1, 2, 3], [4, 5, 6]]
         let m = mat(&[&[1, 2, 3], &[4, 5, 6]]);
-        let res = transpose(&mut vm, BuiltinFnArgs::from(m)).expect("transpose 2x3");
+        let res = transpose(BuiltinFnArgs::from(m)).expect("transpose 2x3");
         // Expected: [[1, 4], [2, 5], [3, 6]]
         let expect = mat(&[&[1, 4], &[2, 5], &[3, 6]]);
         assert_eq!(res, expect);
@@ -287,10 +284,9 @@ mod tests {
 
     #[test]
     fn transpose_square_matrix() {
-        let mut vm = Vm::new(vec![]);
         // Original: [[1, 2], [3, 4]]
         let m = mat(&[&[1, 2], &[3, 4]]);
-        let res = transpose(&mut vm, BuiltinFnArgs::from(m)).expect("transpose square");
+        let res = transpose(BuiltinFnArgs::from(m)).expect("transpose square");
         // Expected: [[1, 3], [2, 4]]
         let expect = mat(&[&[1, 3], &[2, 4]]);
         assert_eq!(res, expect);
@@ -298,22 +294,20 @@ mod tests {
 
     #[test]
     fn transpose_double_transpose() {
-        let mut vm = Vm::new(vec![]);
         let m = mat(&[&[1, 2, 3], &[4, 5, 6]]);
-        let t1 = transpose(&mut vm, BuiltinFnArgs::from(m.clone())).expect("first transpose");
-        let t2 = transpose(&mut vm, BuiltinFnArgs::from(t1)).expect("second transpose");
+        let t1 = transpose(BuiltinFnArgs::from(m.clone())).expect("first transpose");
+        let t2 = transpose(BuiltinFnArgs::from(t1)).expect("second transpose");
         assert_eq!(t2, m);
     }
 
     #[test]
     fn transpose_3d_array() {
-        let mut vm = Vm::new(vec![]);
         // 3D array: (2, 2, 3) - two 2x3 matrices
         let m0 = mat(&[&[1, 2, 3], &[4, 5, 6]]);
         let m1 = mat(&[&[7, 8, 9], &[10, 11, 12]]);
         let arr = Value::List(Arc::new(vec![m0, m1]));
 
-        let res = transpose(&mut vm, BuiltinFnArgs::from(arr)).expect("transpose 3d");
+        let res = transpose(BuiltinFnArgs::from(arr)).expect("transpose 3d");
 
         // Expected: (2, 3, 2) - two 3x2 matrices
         let exp0 = mat(&[&[1, 4], &[2, 5], &[3, 6]]);
@@ -337,7 +331,7 @@ mod tests {
 
         let arr = Value::List(Arc::new(vec![b0, b1]));
 
-        let res = transpose(&mut vm, BuiltinFnArgs::from(arr)).expect("transpose 4d");
+        let res = transpose(BuiltinFnArgs::from(arr)).expect("transpose 4d");
 
         // Expected: transpose only last 2 axes in each 2x2 matrix
         let exp00 = mat(&[&[1, 3], &[2, 4]]);
@@ -355,32 +349,29 @@ mod tests {
 
     #[test]
     fn transpose_single_row() {
-        let mut vm = Vm::new(vec![]);
         // 1x3 matrix becomes 3x1 matrix
         let m = mat(&[&[1, 2, 3]]);
-        let res = transpose(&mut vm, BuiltinFnArgs::from(m)).expect("transpose single row");
+        let res = transpose(BuiltinFnArgs::from(m)).expect("transpose single row");
         let expect = mat(&[&[1], &[2], &[3]]);
         assert_eq!(res, expect);
     }
 
     #[test]
     fn transpose_single_col() {
-        let mut vm = Vm::new(vec![]);
         // 3x1 matrix becomes 1x3 matrix
         let m = mat(&[&[1], &[2], &[3]]);
-        let res = transpose(&mut vm, BuiltinFnArgs::from(m)).expect("transpose single col");
+        let res = transpose(BuiltinFnArgs::from(m)).expect("transpose single col");
         let expect = mat(&[&[1, 2, 3]]);
         assert_eq!(res, expect);
     }
 
     #[test]
     fn transpose_axis_list_permutates_by_new_axis_positions() {
-        let mut vm = Vm::new(vec![]);
         let arr = arr_2x3x4();
         let axes = il(&[2, 0, 1]);
 
-        let res = transpose(&mut vm, BuiltinFnArgs::from(vec![arr.clone(), axes]))
-            .expect("transpose with axes");
+        let res =
+            transpose(BuiltinFnArgs::from(vec![arr.clone(), axes])).expect("transpose with axes");
 
         assert_eq!(res.shape_uniform(), Some(vec![3, 4, 2]));
         assert_eq!(index_path(&res, &[0, 0, 0]), index_path(&arr, &[0, 0, 0]));
@@ -390,36 +381,30 @@ mod tests {
 
     #[test]
     fn transpose_repeated_axes_selects_diagonal() {
-        let mut vm = Vm::new(vec![]);
         let m = mat(&[&[1, 2, 3, 4], &[5, 6, 7, 8], &[9, 10, 11, 12]]);
         let axes = il(&[0, 0]);
 
-        let res = transpose(&mut vm, BuiltinFnArgs::from(vec![m, axes]))
-            .expect("transpose repeated axes");
+        let res = transpose(BuiltinFnArgs::from(vec![m, axes])).expect("transpose repeated axes");
 
         assert_eq!(res, il(&[1, 6, 11]));
     }
 
     #[test]
     fn transpose_axis_list_length_must_match_rank() {
-        let mut vm = Vm::new(vec![]);
         let m = mat(&[&[1, 2], &[3, 4]]);
         let axes = il(&[0]);
 
-        let err = transpose(&mut vm, BuiltinFnArgs::from(vec![m, axes]))
-            .expect_err("axis length mismatch");
+        let err = transpose(BuiltinFnArgs::from(vec![m, axes])).expect_err("axis length mismatch");
 
         assert_eq!(err.err_type, WqErrorType::Length);
     }
 
     #[test]
     fn transpose_axis_list_rejects_missing_result_axis() {
-        let mut vm = Vm::new(vec![]);
         let arr = arr_2x3x4();
         let axes = il(&[0, 2, 2]);
 
-        let err = transpose(&mut vm, BuiltinFnArgs::from(vec![arr, axes]))
-            .expect_err("missing result axis");
+        let err = transpose(BuiltinFnArgs::from(vec![arr, axes])).expect_err("missing result axis");
 
         assert_eq!(err.err_type, WqErrorType::Domain);
     }

@@ -4,12 +4,11 @@ use num_traits::{FromPrimitive, Num, One, Signed, Zero};
 
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
 use crate::value::{Excerpt, Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 const FRACTIONL_DENOM_LIMIT: i64 = 1_000_000;
 
-pub(super) fn fraction(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn fraction(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Fraction, [1, 2], &args)?;
     match &*args {
         [value] => fraction_impl(value, BuiltinEnum::Fraction, None),
@@ -64,7 +63,7 @@ pub(super) fn fraction(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn fractionl(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn fractionl(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Fractionl, [1], &args)?;
     let limit = BigInt::from(FRACTIONL_DENOM_LIMIT);
     fraction_impl(&args[0], BuiltinEnum::Fractionl, Some(&limit))
@@ -287,8 +286,7 @@ mod tests {
 
     #[test]
     fn fraction_returns_exact_ratio_for_simple_float() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(&mut vm, BuiltinFnArgs::from(Value::float(0.5))).unwrap();
+        let result = fraction(BuiltinFnArgs::from(Value::float(0.5))).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(1), BigInt::from(2))
@@ -297,11 +295,10 @@ mod tests {
 
     #[test]
     fn fraction_applies_denominator_limit() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![Value::float(1.0 / 3.0), Value::Int(10)]),
-        )
+        let result = fraction(BuiltinFnArgs::from(smallvec![
+            Value::float(1.0 / 3.0),
+            Value::Int(10)
+        ]))
         .unwrap();
         assert_eq!(
             result,
@@ -311,8 +308,7 @@ mod tests {
 
     #[test]
     fn fractionl_uses_default_limit() {
-        let mut vm = Vm::new(vec![]);
-        let result = fractionl(&mut vm, BuiltinFnArgs::from(Value::float(0.1))).unwrap();
+        let result = fractionl(BuiltinFnArgs::from(Value::float(0.1))).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(1), BigInt::from(10))
@@ -321,21 +317,15 @@ mod tests {
 
     #[test]
     fn fraction_promotes_bigint_output_when_needed() {
-        let mut vm = Vm::new(vec![]);
         let big = BigInt::from(i64::MAX) + BigInt::from(1);
-        let result = fraction(
-            &mut vm,
-            BuiltinFnArgs::from(Value::BigInt(Arc::new(big.clone()))),
-        )
-        .unwrap();
+        let result = fraction(BuiltinFnArgs::from(Value::BigInt(Arc::new(big.clone())))).unwrap();
         assert_eq!(result, Value::from_fraction_parts(big, BigInt::one()));
     }
 
     #[test]
     fn fraction_accepts_fraction_like_input() {
-        let mut vm = Vm::new(vec![]);
         let input = Value::from_fraction_parts(BigInt::from(6), BigInt::from(8));
-        let result = fraction(&mut vm, BuiltinFnArgs::from(input)).unwrap();
+        let result = fraction(BuiltinFnArgs::from(input)).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(3), BigInt::from(4))
@@ -344,22 +334,17 @@ mod tests {
 
     #[test]
     fn fraction_rejects_non_positive_limit() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![Value::Int(0), Value::float(0.5)]),
-        );
+        let result = fraction(BuiltinFnArgs::from(smallvec![
+            Value::Int(0),
+            Value::float(0.5)
+        ]));
         assert!(result.is_err());
     }
 
     #[test]
     fn fraction_from_two_ints() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![Value::Int(1), Value::Int(2)]),
-        )
-        .unwrap();
+        let result =
+            fraction(BuiltinFnArgs::from(smallvec![Value::Int(1), Value::Int(2)])).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(1), BigInt::from(2))
@@ -368,8 +353,7 @@ mod tests {
 
     #[test]
     fn fraction_from_string() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(&mut vm, BuiltinFnArgs::from(into_wq_string("3/4"))).unwrap();
+        let result = fraction(BuiltinFnArgs::from(into_wq_string("3/4"))).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(3), BigInt::from(4))
@@ -378,8 +362,7 @@ mod tests {
 
     #[test]
     fn fraction_from_string_integer() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(&mut vm, BuiltinFnArgs::from(into_wq_string("42"))).unwrap();
+        let result = fraction(BuiltinFnArgs::from(into_wq_string("42"))).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(42), BigInt::from(1))
@@ -388,8 +371,7 @@ mod tests {
 
     #[test]
     fn fraction_from_string_float() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(&mut vm, BuiltinFnArgs::from(into_wq_string("0.5"))).unwrap();
+        let result = fraction(BuiltinFnArgs::from(into_wq_string("0.5"))).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(1), BigInt::from(2))
@@ -398,8 +380,7 @@ mod tests {
 
     #[test]
     fn fraction_from_string_decimal() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(&mut vm, BuiltinFnArgs::from(into_wq_string("0.3"))).unwrap();
+        let result = fraction(BuiltinFnArgs::from(into_wq_string("0.3"))).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(3), BigInt::from(10))
@@ -408,8 +389,7 @@ mod tests {
 
     #[test]
     fn fraction_from_char() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(&mut vm, BuiltinFnArgs::from(Value::Char('2'))).unwrap();
+        let result = fraction(BuiltinFnArgs::from(Value::Char('2'))).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(2), BigInt::from(1))
@@ -418,8 +398,7 @@ mod tests {
 
     #[test]
     fn fraction_from_hex_string() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(&mut vm, BuiltinFnArgs::from(into_wq_string("0x10"))).unwrap();
+        let result = fraction(BuiltinFnArgs::from(into_wq_string("0x10"))).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(16), BigInt::from(1))
@@ -428,8 +407,7 @@ mod tests {
 
     #[test]
     fn fraction_from_binary_string() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(&mut vm, BuiltinFnArgs::from(into_wq_string("0b101"))).unwrap();
+        let result = fraction(BuiltinFnArgs::from(into_wq_string("0b101"))).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(5), BigInt::from(1))
@@ -438,8 +416,7 @@ mod tests {
 
     #[test]
     fn fraction_from_underscore_string() {
-        let mut vm = Vm::new(vec![]);
-        let result = fraction(&mut vm, BuiltinFnArgs::from(into_wq_string("1_000"))).unwrap();
+        let result = fraction(BuiltinFnArgs::from(into_wq_string("1_000"))).unwrap();
         assert_eq!(
             result,
             Value::from_fraction_parts(BigInt::from(1000), BigInt::from(1))
@@ -448,15 +425,11 @@ mod tests {
 
     #[test]
     fn fraction_from_two_bigints() {
-        let mut vm = Vm::new(vec![]);
         let big = BigInt::from(i64::MAX) + BigInt::from(1);
-        let result = fraction(
-            &mut vm,
-            BuiltinFnArgs::from(smallvec![
-                Value::BigInt(Arc::new(big.clone())),
-                Value::Int(3)
-            ]),
-        )
+        let result = fraction(BuiltinFnArgs::from(smallvec![
+            Value::BigInt(Arc::new(big.clone())),
+            Value::Int(3)
+        ]))
         .unwrap();
         assert_eq!(result, Value::from_fraction_parts(big, BigInt::from(3)));
     }
