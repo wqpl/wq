@@ -2,7 +2,6 @@ use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::session::stdio::wqstdout_println;
 use crate::value::display::format_table_value;
 use crate::value::{Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(crate) fn show_table(args: BuiltinFnArgs) -> WqResult<Value> {

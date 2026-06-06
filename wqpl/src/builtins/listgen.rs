@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::value::{Excerpt as _, Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 const LISTGEN_CACHE_CAPACITY: usize = 1024;

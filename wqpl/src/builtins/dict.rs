@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity, type_mismatch};
 use crate::value::{IntoWqValue, Value, WqResult};
-use crate::vm::Vm;
 
 fn normalize_idx(i: i64, len: usize) -> Option<usize> {
     if i >= 0 {

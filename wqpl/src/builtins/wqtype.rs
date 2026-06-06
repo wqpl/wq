@@ -4,7 +4,6 @@ use num_bigint::BigInt;
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::value::{Value, WqResult, into_wq_string};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(super) fn type_of(args: BuiltinFnArgs) -> WqResult<Value> {

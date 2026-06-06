@@ -4,7 +4,6 @@ use indexmap::IndexSet;
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity, type_mismatch};
 use crate::value::{IntoWqValue, Value, WqResult};
-use crate::vm::Vm;
 
 fn seq_items(v: &Value) -> Vec<Value> {
     match v {

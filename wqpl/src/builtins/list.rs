@@ -11,7 +11,6 @@ use crate::builtins::{
 use crate::value::bc::Bc2Stop;
 use crate::value::cmp::cmp_atom;
 use crate::value::{Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(super) fn sum(args: BuiltinFnArgs) -> WqResult<Value> {

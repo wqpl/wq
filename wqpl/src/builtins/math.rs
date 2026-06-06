@@ -2,7 +2,6 @@ use rand::RngExt;
 
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
 use crate::value::{Excerpt, Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 macro_rules! def_unary_math_fn {

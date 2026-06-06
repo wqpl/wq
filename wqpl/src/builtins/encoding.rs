@@ -4,7 +4,6 @@ use encoding_rs::Encoding;
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::value::{IntoWqValue as _, Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 fn find_encoding(label: &str) -> Option<&'static Encoding> {

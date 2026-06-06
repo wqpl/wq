@@ -3,7 +3,6 @@ use num_complex::Complex64;
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
 use crate::value::bc::Bc1Stop;
 use crate::value::{Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(super) fn complex(args: BuiltinFnArgs) -> WqResult<Value> {

@@ -1,6 +1,5 @@
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity, fold_value};
 use crate::value::{Value, WqResult};
-use crate::vm::Vm;
 
 pub(super) fn not(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Not, [1], &args)?;

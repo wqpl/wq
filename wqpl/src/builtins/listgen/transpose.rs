@@ -5,7 +5,6 @@ use rayon::prelude::*;
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::value::mat::index_path;
 use crate::value::{Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 /// Transpose a matrix or higher-dimensional array.

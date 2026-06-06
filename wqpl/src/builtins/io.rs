@@ -11,7 +11,6 @@ use crate::builtins::{
 };
 use crate::value::stream::{BufReadSeek, StreamHandle, WriteSeek};
 use crate::value::{Excerpt, IntoWqValue, Value, WqResult, into_wq_string};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 #[derive(Clone, Copy, Debug, Default)]

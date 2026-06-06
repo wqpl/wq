@@ -6,7 +6,6 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity, type_mismatch};
 use crate::value::{IntoWqValue, Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(super) fn to_str(args: BuiltinFnArgs) -> WqResult<Value> {
