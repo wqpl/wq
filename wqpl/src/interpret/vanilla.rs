@@ -596,7 +596,7 @@ impl Interpreter for VanillaInterpreter {
                             } => {
                                 vm.push_tail_call_frame(Frame {
                                     chunk: vm.current_chunk,
-                                    pc: idx,
+                                    pc: idx + 1,
                                     func_name: Arc::from(vm.func_name_for_chunk(vm.current_chunk)),
                                 });
                                 vm.prepare_tail(CallSpec {

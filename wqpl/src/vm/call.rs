@@ -340,10 +340,28 @@ impl Vm {
             locals: local_count,
             captured,
             argc,
-            callee_name: _,
-            dbg_chunk: _,
-            callee,
+            callee_name,
+            dbg_chunk,
+            mut callee,
         } = spec;
+
+        let callee_chunk = if self.debug_artifacts_enabled() {
+            let requested_dbg_chunk =
+                dbg_chunk.or_else(|| callee.as_user_function().and_then(|shape| shape.dbg_chunk));
+            let title = callee_name
+                .as_deref()
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    requested_dbg_chunk
+                        .map(|id| self.func_name_for_chunk(id))
+                        .filter(|name| name != "<?>")
+                        .unwrap_or_else(|| "<fn>".to_string())
+                });
+            self.stamp_user_function_debug_chunk(&mut callee, &title, requested_dbg_chunk)
+                .unwrap_or(self.current_chunk)
+        } else {
+            self.current_chunk
+        };
 
         let named_meta = self.pending_named_meta.take();
 
@@ -391,6 +409,9 @@ impl Vm {
             .current_closure_stack
             .last_mut()
             .ok_or_else(|| vm_err("tail call without active callable"))? = callee;
+        if self.debug_artifacts_enabled() {
+            self.current_chunk = callee_chunk;
+        }
         let same_code = Arc::ptr_eq(&self.instructions, &instructions);
         self.instructions = instructions;
         self.pc = 0;

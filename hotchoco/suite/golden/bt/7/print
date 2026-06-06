@@ -1,0 +1,21 @@
+▍ Error at <TEST_PATH>
+  zero-div: cannot divide by 0
+  - from binary operator /
+● at a, <TEST_PATH>
+│    1 -> a:{1/0}
+│            ~~~
+│    2    b:{a[]}
+
+○ at b, <TEST_PATH>
+│    1    a:{1/0}
+│    2 -> b:{a[]}
+│            ~~~
+│    3    b[]
+
+○ at <script>, <TEST_PATH>
+│    2    b:{a[]}
+│    3 -> b[]
+│         ~~~
+│    4    
+
+▍ Import stack: <TEST_PATH>

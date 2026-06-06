@@ -29,7 +29,7 @@ pub(super) fn tail_invoke_user(
 ) -> WqResult<bool> {
     vm.push_tail_call_frame(Frame {
         chunk: vm.current_chunk,
-        pc: idx,
+        pc: idx + 1,
         func_name: Arc::from(vm.func_name_for_chunk(vm.current_chunk)),
     });
     vm.tail_invoke_user(target, argc)?;
@@ -45,7 +45,7 @@ pub(super) fn invoke_spec_push(vm: &mut Vm, _idx: usize, spec: CallSpec) -> WqRe
 pub(super) fn prepare_tail(vm: &mut Vm, idx: usize, spec: CallSpec) -> WqResult<bool> {
     vm.push_tail_call_frame(Frame {
         chunk: vm.current_chunk,
-        pc: idx,
+        pc: idx + 1,
         func_name: Arc::from(vm.func_name_for_chunk(vm.current_chunk)),
     });
     vm.prepare_tail(spec)?;
