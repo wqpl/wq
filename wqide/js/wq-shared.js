@@ -30,7 +30,41 @@ export async function getDocIndex() {
 
 // ========== Debug Flags ==========
 
-export const DEBUG_FLAGS = ["inst", "ast", "token"];
+export const DEBUG_FLAGS = [
+  "token",
+  "cst",
+  "ast",
+  "ast-v",
+  "inst",
+  "inst-v",
+  "wqdb",
+  "wqdb-v",
+  "value",
+  "cas",
+  "cas-v",
+];
+
+export const DEBUG_ALIASES = [
+  ["0", "off"],
+  ["1", "inst"],
+  ["2", "inst,ast"],
+  ["3", "inst,ast,value"],
+  ["4", "inst,ast,value,inst-v,ast-v"],
+];
+
+const DEBUG_BASE_FOR_VERBOSE = {
+  "ast-v": "ast",
+  "inst-v": "inst",
+  "wqdb-v": "wqdb",
+  "cas-v": "cas",
+};
+
+const DEBUG_VERBOSE_FOR_BASE = Object.fromEntries(
+  Object.entries(DEBUG_BASE_FOR_VERBOSE).map(([verbose, base]) => [
+    base,
+    verbose,
+  ]),
+);
 
 export function parseDebugFlags(spec) {
   if (!spec || spec === "off" || spec === "0") return [];
@@ -45,6 +79,22 @@ export function formatDebugFlags(flags) {
   return next.length ? next.join(",") : "0";
 }
 
+export function toggleDebugFlagList(flags, flag) {
+  const next = new Set(flags);
+  if (next.has(flag)) {
+    next.delete(flag);
+    const base = DEBUG_BASE_FOR_VERBOSE[flag];
+    if (base) next.delete(base);
+    const verbose = DEBUG_VERBOSE_FOR_BASE[flag];
+    if (verbose) next.delete(verbose);
+  } else {
+    next.add(flag);
+    const base = DEBUG_BASE_FOR_VERBOSE[flag];
+    if (base) next.add(base);
+  }
+  return DEBUG_FLAGS.filter((item) => next.has(item));
+}
+
 // ========== UI Helpers ==========
 
 export function setActive(el, on) {
@@ -57,6 +107,82 @@ export function syncDebugButtons(buttonsMap, activeFlags) {
   DEBUG_FLAGS.forEach((flag) => {
     setActive(buttonsMap?.[flag], activeFlags.includes(flag));
   });
+}
+
+// ========== Box Flags ==========
+
+export const BOX_FLAGS = ["box", "axis", "color", "xray"];
+
+export function parseBoxFlags(spec) {
+  if (!spec || spec === "off" || spec === "0") return [];
+  return spec
+    .split(",")
+    .map((flag) => flag.trim())
+    .filter(Boolean);
+}
+
+export function formatBoxFlags(flags) {
+  const next = BOX_FLAGS.filter((flag) => flags.includes(flag));
+  return next.length ? next.join(",") : "0";
+}
+
+export function syncBoxButtons(buttonsMap, activeFlags) {
+  BOX_FLAGS.forEach((flag) => {
+    setActive(buttonsMap?.[flag], activeFlags.includes(flag));
+  });
+}
+
+// ========== Runtime Panels ==========
+
+const PANEL_MARGIN = 8;
+
+export function positionRuntimePanel(button, panel) {
+  if (!button || !panel?.classList.contains("open")) return;
+  panel.style.setProperty("--runtime-panel-shift", "0px");
+  panel.style.removeProperty("--runtime-panel-max-h");
+  requestAnimationFrame(() => {
+    if (!panel.classList.contains("open")) return;
+    const rect = panel.getBoundingClientRect();
+    let shift = 0;
+    if (rect.left < PANEL_MARGIN) {
+      shift = PANEL_MARGIN - rect.left;
+    } else if (rect.right > window.innerWidth - PANEL_MARGIN) {
+      shift = window.innerWidth - PANEL_MARGIN - rect.right;
+    }
+    panel.style.setProperty("--runtime-panel-shift", `${shift}px`);
+
+    const shiftedBottom = rect.bottom;
+    if (shiftedBottom > window.innerHeight - PANEL_MARGIN) {
+      const maxHeight = Math.max(
+        80,
+        window.innerHeight - rect.top - PANEL_MARGIN,
+      );
+      panel.style.setProperty("--runtime-panel-max-h", `${maxHeight}px`);
+    }
+  });
+}
+
+export function closeRuntimePanel(button, panel) {
+  panel?.classList.remove("open");
+  panel?.style.removeProperty("--runtime-panel-shift");
+  panel?.style.removeProperty("--runtime-panel-max-h");
+  button?.setAttribute("aria-expanded", "false");
+}
+
+export function openRuntimePanel(button, panel) {
+  if (!button || !panel) return;
+  panel.classList.add("open");
+  button.setAttribute("aria-expanded", "true");
+  positionRuntimePanel(button, panel);
+}
+
+export function toggleRuntimePanel(button, panel) {
+  if (!button || !panel) return;
+  if (panel.classList.contains("open")) {
+    closeRuntimePanel(button, panel);
+  } else {
+    openRuntimePanel(button, panel);
+  }
 }
 
 // ========== Text Helpers ==========

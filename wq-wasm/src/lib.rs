@@ -6,16 +6,20 @@ use js_sys::Function;
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use web_sys::console;
-use wqpl::boxmode::{BoxFormatOptions, format_boxed_with};
-use wqpl::builtins::Builtins;
+use wqpl::builtins::{BuiltinPreset, Builtins};
+use wqpl::display::{
+    BoxPrintConfig, apply_box_spec, format_print_result, format_xray_info,
+};
 use wqpl::doc::{self, DocKind, DocRenderTarget};
 use wqpl::highlight::{HighlightEvent, HighlightName, Highlighter};
+use wqpl::interpret::InterpreterKind;
 use wqpl::session::Session;
 use wqpl::session::dbglog::DebugLogFlags;
 #[cfg(target_arch = "wasm32")]
 use wqpl::session::stdio::{
     WqStderr, WqStdin, WqStdinError, WqStdout, set_wqstderr, set_wqstdin, set_wqstdout,
 };
+use wqpl::vm::Vm;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
@@ -167,6 +171,8 @@ pub fn set_stdin_callback(cb: Option<Function>) {
 pub struct EvalResult {
     value: String,
     is_cas: bool,
+    type_name: String,
+    xray: String,
 }
 
 #[wasm_bindgen]
@@ -180,11 +186,22 @@ impl EvalResult {
     pub fn is_cas(&self) -> bool {
         self.is_cas
     }
+
+    #[wasm_bindgen(getter)]
+    pub fn type_name(&self) -> String {
+        self.type_name.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn xray(&self) -> String {
+        self.xray.clone()
+    }
 }
 
 #[wasm_bindgen]
 pub struct WasmWqSession {
-    box_mode: Cell<bool>,
+    box_config: Cell<BoxPrintConfig>,
+    dry_mode: Cell<bool>,
     session: RefCell<Session>,
 }
 
@@ -192,9 +209,12 @@ pub struct WasmWqSession {
 impl WasmWqSession {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmWqSession {
+        let mut session = Session::new();
+        session.set_pause_callback(Some(wasm_wqdb_pause_handler));
         WasmWqSession {
-            box_mode: Cell::new(true),
-            session: RefCell::new(Session::new()),
+            box_config: Cell::new(BoxPrintConfig::default()),
+            dry_mode: Cell::new(false),
+            session: RefCell::new(session),
         }
     }
 
@@ -202,16 +222,12 @@ impl WasmWqSession {
     #[wasm_bindgen]
     pub fn eval_wq(&self, src: &str) -> Result<String, JsValue> {
         let mut vm = self.session.borrow_mut();
-        vm.set_bt_mode(true);
         vm.dbg_set_source("<wasm>", src);
         vm.dbg_set_offset(0);
         match vm.eval_string(src) {
             Ok(v) => {
-                let s = if self.box_mode.get() {
-                    format_boxed_with(&v, web_box_options())
-                } else {
-                    format!("{v}")
-                };
+                let config = self.box_config.get();
+                let s = format_print_result(&v, &config, config.color);
                 Ok(s)
             }
             Err(e) => {
@@ -228,20 +244,21 @@ impl WasmWqSession {
     #[wasm_bindgen]
     pub fn eval_wq_result(&self, src: &str) -> Result<EvalResult, JsValue> {
         let mut vm = self.session.borrow_mut();
-        vm.set_bt_mode(true);
         vm.dbg_set_source("<wasm>", src);
         vm.dbg_set_offset(0);
         match vm.eval_string(src) {
             Ok(v) => {
                 let is_cas = v.is_cas();
-                let s = if is_cas {
-                    format!("{v}")
-                } else if self.box_mode.get() {
-                    format_boxed_with(&v, web_box_options())
-                } else {
-                    format!("{v}")
-                };
-                Ok(EvalResult { value: s, is_cas })
+                let config = self.box_config.get();
+                let s = format_print_result(&v, &config, config.color);
+                let type_name = v.type_name().to_string();
+                let xray = format_xray_info(&v, config.color);
+                Ok(EvalResult {
+                    value: s,
+                    is_cas,
+                    type_name,
+                    xray,
+                })
             }
             Err(e) => {
                 if e.err_type.is_runtime() {
@@ -253,8 +270,20 @@ impl WasmWqSession {
     }
 
     pub fn set_debug_flags(&self, spec: &str) -> Result<(), JsValue> {
+        let spec = if spec.trim() == "off" { "0" } else { spec };
         match DebugLogFlags::parse(spec) {
             Ok(flags) => {
+                wqpl::session::dbglog::set_debug_log_flags(flags);
+                Ok(())
+            }
+            Err(e) => Err(JsValue::from_str(&e)),
+        }
+    }
+
+    pub fn apply_debug_flags(&self, spec: &str) -> Result<(), JsValue> {
+        let mut flags = wqpl::session::dbglog::get_debug_log_flags();
+        match flags.apply_spec(spec) {
+            Ok(()) => {
                 wqpl::session::dbglog::set_debug_log_flags(flags);
                 Ok(())
             }
@@ -272,16 +301,128 @@ impl WasmWqSession {
         }
     }
 
-    pub fn get_bt_mode(&self) {
-        self.session.borrow().get_bt_mode();
+    pub fn get_bt_mode(&self) -> bool {
+        self.session.borrow().get_bt_mode()
     }
 
     pub fn set_bt_mode(&self, on: bool) {
+        self.session.borrow_mut().set_bt_mode(on);
+    }
+
+    pub fn get_wqdb_mode(&self) -> bool {
+        self.session.borrow().is_wqdb_enabled()
+    }
+
+    pub fn set_wqdb_mode(&self, on: bool) {
         self.session.borrow_mut().set_wqdb(on);
+    }
+
+    pub fn get_dry_mode(&self) -> bool {
+        self.dry_mode.get()
+    }
+
+    pub fn set_dry_mode(&self, on: bool) {
+        self.dry_mode.set(on);
+        self.session.borrow_mut().set_dry_mode(on);
+    }
+
+    pub fn toggle_dry_mode(&self) -> bool {
+        let next = !self.dry_mode.get();
+        self.set_dry_mode(next);
+        next
     }
 
     pub fn reset_session(&self) {
         self.session.borrow_mut().reset_session();
+    }
+
+    pub fn get_interpreter_name(&self) -> String {
+        self.session.borrow().interpreter_name().to_string()
+    }
+
+    pub fn get_interpreter_names(&self) -> String {
+        InterpreterKind::names().join(", ")
+    }
+
+    pub fn set_interpreter_by_name(&self, name: &str) -> Result<String, JsValue> {
+        self.session
+            .borrow_mut()
+            .set_interpreter_by_name(name)
+            .map(str::to_string)
+            .map_err(|err| JsValue::from_str(&err))
+    }
+
+    pub fn get_builtins_preset(&self) -> String {
+        self.session.borrow().builtins_preset().name().to_string()
+    }
+
+    pub fn get_builtins_preset_names(&self) -> String {
+        BuiltinPreset::names().join(", ")
+    }
+
+    pub fn set_builtins_preset(&self, name: &str) -> Result<String, JsValue> {
+        let preset = BuiltinPreset::from_name(name).ok_or_else(|| {
+            JsValue::from_str(&format!(
+                "unknown bfn preset '{name}'\nAvailable: {}",
+                BuiltinPreset::names().join(", ")
+            ))
+        })?;
+        self.session.borrow_mut().set_builtins_preset(preset);
+        Ok(preset.name().to_string())
+    }
+
+    pub fn get_env_table(&self) -> String {
+        let env = self.session.borrow().env_vars();
+        if env.is_empty() {
+            return "no global bindings".to_string();
+        }
+
+        let mut name_w = "name".len();
+        let mut value_w = "value".len();
+        let mut type_w = "type".len();
+        for (name, v) in &env {
+            name_w = name_w.max(name.len());
+            value_w = value_w.max(v.to_string().len());
+            type_w = type_w.max(v.type_name().len());
+        }
+
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "{:<name_w$}  {:<value_w$}  {:<type_w$}",
+            "name",
+            "value",
+            "type",
+            name_w = name_w,
+            value_w = value_w,
+            type_w = type_w
+        );
+        let _ = writeln!(
+            out,
+            "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
+            "",
+            "",
+            "",
+            name_w = name_w,
+            value_w = value_w,
+            type_w = type_w
+        );
+        for (name, v) in &env {
+            let _ = writeln!(
+                out,
+                "{:<name_w$}  {:<value_w$}  {:<type_w$}",
+                name,
+                v.to_string(),
+                v.type_name(),
+                name_w = name_w,
+                value_w = value_w,
+                type_w = type_w
+            );
+        }
+        if out.ends_with('\n') {
+            out.pop();
+        }
+        out
     }
 
     // ///Return a formatted view of user-defined global bindings.
@@ -346,13 +487,39 @@ impl WasmWqSession {
 
     /// Toggle boxed display of evaluation results. Returns the new state.
     pub fn toggle_box_mode(&self) -> bool {
-        let new = !self.box_mode.get();
-        self.box_mode.set(new);
-        new
+        let mut config = self.box_config.get();
+        config.toggle_box();
+        self.box_config.set(config);
+        config.boxed
     }
 
     pub fn get_box_mode(&self) -> bool {
-        self.box_mode.get()
+        self.box_config.get().boxed
+    }
+
+    pub fn get_box_flags(&self) -> String {
+        self.box_config.get().spec()
+    }
+
+    pub fn get_box_summary(&self) -> String {
+        self.box_config.get().summary()
+    }
+
+    pub fn set_box_flags(&self, spec: &str) -> Result<(), JsValue> {
+        let spec = spec.trim();
+        let mut config = BoxPrintConfig::off();
+        if !spec.is_empty() && spec != "0" && spec != "off" {
+            apply_box_spec(&mut config, spec).map_err(|e| JsValue::from_str(&e))?;
+        }
+        self.box_config.set(config);
+        Ok(())
+    }
+
+    pub fn apply_box_flags(&self, spec: &str) -> Result<(), JsValue> {
+        let mut config = self.box_config.get();
+        apply_box_spec(&mut config, spec).map_err(|e| JsValue::from_str(&e))?;
+        self.box_config.set(config);
+        Ok(())
     }
 }
 
@@ -362,11 +529,19 @@ impl Default for WasmWqSession {
     }
 }
 
-fn web_box_options() -> BoxFormatOptions {
-    BoxFormatOptions {
-        axes: true,
-        color: true,
-    }
+fn wasm_wqdb_pause_handler(host: &mut Vm) {
+    let loc = host.loc();
+    let name = host.func_name_for_chunk(loc.chunk);
+    wqpl::session::stdio::wqstderr_println(
+        "wqdb: paused; interactive browser debugger shell is not available, continuing",
+    );
+    wqpl::session::stdio::wqstderr_println(wqpl::wqdb::format_frame(
+        host.debug_info(),
+        loc,
+        &name,
+        true,
+    ));
+    host.dbg_continue();
 }
 
 // ===================== Convenience one-offs =====================
@@ -474,6 +649,38 @@ fn doc_kind_name(kind: DocKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+    use wqpl::session::stdio::{WqStderr, set_wqstderr};
+
+    struct CapturedStderr {
+        out: Arc<Mutex<String>>,
+    }
+
+    impl WqStderr for CapturedStderr {
+        fn eprint(&mut self, s: &str) {
+            self.out
+                .lock()
+                .expect("stderr capture lock should not be poisoned")
+                .push_str(s);
+        }
+
+        fn eprintln(&mut self, s: &str) {
+            let mut out = self
+                .out
+                .lock()
+                .expect("stderr capture lock should not be poisoned");
+            out.push_str(s);
+            out.push('\n');
+        }
+    }
+
+    struct ResetStderr;
+
+    impl Drop for ResetStderr {
+        fn drop(&mut self) {
+            set_wqstderr(None);
+        }
+    }
 
     #[test]
     fn doc_exports_smoke() {
@@ -484,6 +691,29 @@ mod tests {
         let markdown = get_doc_markdown("map").expect("map doc renders");
         assert!(markdown.contains("map builtin"));
         assert!(markdown.contains("map[xs;f;d?]"));
+    }
+
+    #[test]
+    fn wqdb_mode_reports_pause_and_continues() {
+        let captured = Arc::new(Mutex::new(String::new()));
+        let _reset = ResetStderr;
+        set_wqstderr(Some(Box::new(CapturedStderr {
+            out: captured.clone(),
+        })));
+
+        let session = WasmWqSession::new();
+        session.set_wqdb_mode(true);
+        let result = session
+            .eval_wq_result("1")
+            .expect("wqdb mode eval should continue");
+
+        assert_eq!(result.value(), "1");
+        let stderr = captured
+            .lock()
+            .expect("stderr capture lock should not be poisoned")
+            .clone();
+        assert!(stderr.contains("wqdb: paused"));
+        assert!(stderr.contains("interactive browser debugger shell is not available"));
     }
 }
 

@@ -260,4 +260,15 @@ mod tests {
 
         assert_eq!(flags.display_names(), vec!["inst", "inst-v"]);
     }
+
+    #[test]
+    fn removing_verbose_flag_also_removes_base_flag() {
+        let mut flags = DebugLogFlags::from_names(["inst-v"]);
+
+        flags
+            .apply_spec("-iv")
+            .expect("apply subtractive verbose debug spec");
+
+        assert_eq!(flags.display_names(), Vec::<&str>::new());
+    }
 }

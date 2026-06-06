@@ -1,5 +1,6 @@
 import {
   WasmWqSession,
+  get_builtins,
   set_stdout_callback,
   set_stderr_callback,
   set_stdin_callback,
@@ -9,11 +10,21 @@ import { createAnsiRenderer } from "./ansi.js";
 import {
   ensureWasm,
   getWqVersion,
+  getDocMarkdown,
   DEBUG_FLAGS,
+  DEBUG_ALIASES,
+  BOX_FLAGS,
   parseDebugFlags,
   formatDebugFlags,
+  toggleDebugFlagList,
+  parseBoxFlags,
+  formatBoxFlags,
   setActive,
   syncDebugButtons,
+  syncBoxButtons,
+  toggleRuntimePanel,
+  closeRuntimePanel,
+  positionRuntimePanel,
   alignTurnBody,
   insertTextAtCursor,
   handleTabKey,
@@ -28,6 +39,10 @@ let history = [];
 let histIndex = -1;
 let pendingBuffer = "";
 let timeMode = false;
+let showType = false;
+let oneshotTime = false;
+let oneshotDebug = null;
+let oneshotWqdb = false;
 let currentTurn = null;
 let execCounter = 1;
 let ui = null;
@@ -71,6 +86,10 @@ function getDebugFlags() {
   return parseDebugFlags(ensureSession().get_debug_flags());
 }
 
+function formatDebugSpec(flags) {
+  return flags.length ? flags.join(",") : "off";
+}
+
 function setDebugFlags(flags) {
   const next = formatDebugFlags(flags);
   ensureSession().set_debug_flags(next);
@@ -78,20 +97,44 @@ function setDebugFlags(flags) {
   console.log(`[repl] debug flags -> ${next === "0" ? "off" : next}\n`);
 }
 
+function applyDebugSpec(spec) {
+  ensureSession().apply_debug_flags(spec);
+  syncDebugControls();
+  console.log(`[repl] debug flags -> ${formatDebugSpec(getDebugFlags())}\n`);
+}
+
 function toggleDebugFlag(flag) {
   const current = getDebugFlags();
-  const next = current.includes(flag)
-    ? current.filter((item) => item !== flag)
-    : [...current, flag];
-  setDebugFlags(next);
+  setDebugFlags(toggleDebugFlagList(current, flag));
 }
 
 function syncDebugControls() {
-  syncDebugButtons(ui?.debugButtons, getDebugFlags());
+  const flags = getDebugFlags();
+  syncDebugButtons(ui?.debugButtons, flags);
+  setActive(ui?.debugToggle, flags.length > 0);
 }
 
 function syncBoxControl() {
-  setActive(ui?.pillBox, ensureSession().get_box_mode());
+  const flags = parseBoxFlags(ensureSession().get_box_flags());
+  syncBoxButtons(ui?.boxButtons, flags);
+  setActive(ui?.pillBox, flags.length > 0);
+}
+
+function getBoxFlags() {
+  return parseBoxFlags(ensureSession().get_box_flags());
+}
+
+function setBoxFlags(flags) {
+  ensureSession().set_box_flags(formatBoxFlags(flags));
+  syncBoxControl();
+}
+
+function toggleBoxFlag(flag) {
+  const current = getBoxFlags();
+  const next = current.includes(flag)
+    ? current.filter((item) => item !== flag)
+    : [...current, flag];
+  setBoxFlags(next);
 }
 
 function promptPrefix() {
@@ -463,6 +506,11 @@ function resetSession() {
   stdinQueue = [];
   // Keep history across resets
   pendingBuffer = "";
+  timeMode = false;
+  showType = false;
+  oneshotTime = false;
+  oneshotDebug = null;
+  oneshotWqdb = false;
   execCounter = 1;
   currentTurn = null;
   ui.term.innerHTML = "";
@@ -474,6 +522,367 @@ function resetSession() {
   syncDebugControls();
 }
 
+function boolWord(on) {
+  return on ? "on" : "off";
+}
+
+function statusLine(name, value) {
+  append(`${name}: ${value}\n`, "info");
+}
+
+function commandLine(name, value) {
+  append(`${name} -> ${value}\n`, "info");
+}
+
+function replHelpText() {
+  const commands = [
+    "!exit, !e, !!",
+    "!info",
+    "!dry, !dry?",
+    "!bfn [preset], !",
+    "!gb, !g",
+    "!reset, !r",
+    "!box, !b, !box <spec>, !box?",
+    "!xray, !x, !xray?",
+    "!backtrace, !bt, !backtrace?",
+    "!interpreter [name], !i [name]",
+    "!time, !t, !time., !time?",
+    "!wqdb, !w, !wqdb., !wqdb?",
+    "!debug, !d, !d <spec>, !d.<spec>",
+    "!type, !type?",
+    "!help [topic], !h [topic]",
+  ];
+  return commands.join("\n");
+}
+
+function debugHelpTable() {
+  const rows = [
+    ["active", formatDebugSpec(getDebugFlags())],
+    ["names", DEBUG_FLAGS.join(",")],
+    ...DEBUG_ALIASES,
+  ];
+  const leftW = rows.reduce((w, row) => Math.max(w, row[0].length), 0);
+  const rightW = rows.reduce((w, row) => Math.max(w, row[1].length), 0);
+  const rule = `+-${"-".repeat(leftW)}-+-${"-".repeat(rightW)}-+`;
+  const lines = [rule, `| ${"spec".padEnd(leftW)} | ${"flags".padEnd(rightW)} |`, rule];
+  rows.forEach(([left, right]) => {
+    lines.push(`| ${left.padEnd(leftW)} | ${right.padEnd(rightW)} |`);
+  });
+  lines.push(rule);
+  return lines.join("\n");
+}
+
+function computeDebugSpec(spec) {
+  const session = ensureSession();
+  const prev = session.get_debug_flags();
+  session.apply_debug_flags(spec);
+  const next = session.get_debug_flags();
+  session.set_debug_flags(prev);
+  syncDebugControls();
+  return next;
+}
+
+function parseReplCommand(input) {
+  const trimmed = input.trim();
+  switch (trimmed) {
+    case "":
+      return { kind: "empty" };
+    case "!exit":
+    case "!e":
+    case "!!":
+    case "!bye":
+      return { kind: "exit" };
+    case "!goodbye":
+      return { kind: "goodbye" };
+    case "!highlight":
+    case "!hl":
+      return { kind: "highlight" };
+    case "!highlight?":
+    case "!hl?":
+      return { kind: "highlight-query" };
+    case "!hint":
+    case "!hint?":
+      return { kind: "hint" };
+    case "!info":
+      return { kind: "info" };
+    case "!dry":
+      return { kind: "dry" };
+    case "!dry?":
+      return { kind: "dry-query" };
+    case "!fmt":
+    case "!fmt?":
+      return { kind: "fmt" };
+    case "!bfn":
+    case "!":
+      return { kind: "bfn" };
+    case "!gb":
+    case "!g":
+      return { kind: "gb" };
+    case "!reset":
+    case "!r":
+      return { kind: "reset" };
+    case "!box":
+    case "!b":
+      return { kind: "box" };
+    case "!box?":
+    case "!b?":
+      return { kind: "box-query" };
+    case "!backtrace":
+    case "!bt":
+      return { kind: "backtrace" };
+    case "!backtrace?":
+    case "!bt?":
+      return { kind: "backtrace-query" };
+    case "!xray":
+    case "!x":
+      return { kind: "xray" };
+    case "!xray?":
+    case "!x?":
+      return { kind: "xray-query" };
+    case "!interpreter":
+    case "!i":
+      return { kind: "interpreter" };
+    case "!time":
+    case "!t":
+      return { kind: "time" };
+    case "!time.":
+    case "!t.":
+      return { kind: "time-oneshot" };
+    case "!time?":
+    case "!t?":
+      return { kind: "time-query" };
+    case "!wqdb":
+    case "!w":
+      return { kind: "wqdb" };
+    case "!wqdb.":
+    case "!w.":
+      return { kind: "wqdb-oneshot" };
+    case "!wqdb?":
+    case "!w?":
+      return { kind: "wqdb-query" };
+    case "!debug":
+      return { kind: "debug-show" };
+    case "!d":
+      return { kind: "debug-toggle" };
+    case "!type":
+      return { kind: "type" };
+    case "!type?":
+      return { kind: "type-query" };
+    case "!help":
+    case "!h":
+      return { kind: "help" };
+    default:
+      break;
+  }
+
+  const prefixed = [
+    ["!fmt ", "fmt"],
+    ["!bfn ", "bfn-set"],
+    ["!box ", "box-set"],
+    ["!b ", "box-set"],
+    ["!interpreter ", "interpreter-set"],
+    ["!i ", "interpreter-set"],
+    ["!help ", "help-topic"],
+    ["!h ", "help-topic"],
+    ["!debug.", "debug-oneshot"],
+    ["!d.", "debug-oneshot"],
+    ["!debug ", "debug-set"],
+    ["!d ", "debug-set"],
+  ];
+  for (const [prefix, kind] of prefixed) {
+    if (trimmed.startsWith(prefix)) {
+      return { kind, arg: trimmed.slice(prefix.length).trim() };
+    }
+  }
+  if (trimmed.startsWith("!d")) {
+    return { kind: "debug-set", arg: trimmed.slice(2).trim() };
+  }
+  if (trimmed.startsWith("!")) {
+    return { kind: "unknown", arg: trimmed };
+  }
+  return null;
+}
+
+async function handleReplCommand(code) {
+  const command = parseReplCommand(code);
+  if (!command) return false;
+  if (command.kind === "empty") return true;
+
+  const session = ensureSession();
+  try {
+    switch (command.kind) {
+      case "exit":
+        append("bye..\n", "info");
+        return true;
+      case "goodbye":
+        append("goodbye!\n", "info");
+        return true;
+      case "highlight":
+      case "highlight-query":
+        statusLine("highlight", "on");
+        return true;
+      case "hint":
+        statusLine("hint", "off");
+        return true;
+      case "info":
+        append(
+          `wq ${getWqVersion()}\ninterpreter: ${session.get_interpreter_name()}\nbfn: ${session.get_builtins_preset()}\n`,
+          "info",
+        );
+        return true;
+      case "dry": {
+        const on = session.toggle_dry_mode();
+        commandLine("dry", boolWord(on));
+        return true;
+      }
+      case "dry-query":
+        statusLine("dry", boolWord(session.get_dry_mode()));
+        return true;
+      case "fmt":
+        append("fmt command is not available in wqide yet\n", "info");
+        return true;
+      case "bfn":
+        append(
+          `Current: ${session.get_builtins_preset()}\nAvailable: ${session.get_builtins_preset_names()}\n\n${get_builtins()}\n`,
+          "info",
+        );
+        return true;
+      case "bfn-set": {
+        const selected = session.set_builtins_preset(command.arg);
+        commandLine("bfn", selected);
+        return true;
+      }
+      case "gb":
+        append(`${session.get_env_table()}\n`, "info");
+        return true;
+      case "reset":
+        session.reset_session();
+        append("session reset\n", "info");
+        return true;
+      case "box":
+        session.toggle_box_mode();
+        syncBoxControl();
+        commandLine("box", session.get_box_summary());
+        return true;
+      case "box-set":
+        session.apply_box_flags(command.arg);
+        syncBoxControl();
+        commandLine("box", session.get_box_summary());
+        return true;
+      case "box-query":
+        statusLine("box", session.get_box_summary());
+        return true;
+      case "backtrace": {
+        const on = !session.get_bt_mode();
+        session.set_bt_mode(on);
+        commandLine("backtrace", boolWord(on));
+        return true;
+      }
+      case "backtrace-query":
+        statusLine("backtrace", boolWord(session.get_bt_mode()));
+        return true;
+      case "xray": {
+        const flags = getBoxFlags();
+        const on = !flags.includes("xray");
+        session.apply_box_flags(on ? "+xray" : "-xray");
+        syncBoxControl();
+        commandLine("box", session.get_box_summary());
+        return true;
+      }
+      case "xray-query":
+        statusLine("xray", boolWord(getBoxFlags().includes("xray")));
+        return true;
+      case "interpreter":
+        append(
+          `Current: ${session.get_interpreter_name()}\nAvailable: ${session.get_interpreter_names()}\n`,
+          "info",
+        );
+        return true;
+      case "interpreter-set": {
+        const selected = session.set_interpreter_by_name(command.arg);
+        commandLine("interpreter", selected);
+        return true;
+      }
+      case "time":
+        timeMode = !timeMode;
+        setActive(ui.pillTime, timeMode);
+        commandLine("time", boolWord(timeMode));
+        return true;
+      case "time-oneshot":
+        oneshotTime = true;
+        commandLine("time", "on for next eval");
+        return true;
+      case "time-query": {
+        const status = timeMode ? "on" : oneshotTime ? "on for next eval" : "off";
+        statusLine("time", status);
+        return true;
+      }
+      case "wqdb": {
+        const on = !session.get_wqdb_mode();
+        session.set_wqdb_mode(on);
+        commandLine("wqdb", boolWord(on));
+        return true;
+      }
+      case "wqdb-oneshot":
+        oneshotWqdb = true;
+        commandLine("wqdb", "on for next eval");
+        return true;
+      case "wqdb-query": {
+        const status = session.get_wqdb_mode()
+          ? "on"
+          : oneshotWqdb
+            ? "on for next eval"
+            : "off";
+        statusLine("wqdb", status);
+        return true;
+      }
+      case "debug-show":
+        append(`${debugHelpTable()}\n`, "info");
+        return true;
+      case "debug-toggle":
+        if (getDebugFlags().length) {
+          setDebugFlags([]);
+        } else {
+          session.set_debug_flags("1");
+          syncDebugControls();
+        }
+        commandLine("debug flags", formatDebugSpec(getDebugFlags()));
+        return true;
+      case "debug-oneshot":
+        oneshotDebug = computeDebugSpec(command.arg);
+        commandLine("debug flags", `${oneshotDebug} for next eval`);
+        return true;
+      case "debug-set":
+        applyDebugSpec(command.arg);
+        commandLine("debug flags", formatDebugSpec(getDebugFlags()));
+        return true;
+      case "type":
+        showType = !showType;
+        commandLine("type", boolWord(showType));
+        return true;
+      case "type-query":
+        statusLine("type", boolWord(showType));
+        return true;
+      case "help":
+        append(`${replHelpText()}\n`, "info");
+        return true;
+      case "help-topic": {
+        const md = await getDocMarkdown(command.arg);
+        append(`${md}\n`, "info");
+        return true;
+      }
+      case "unknown":
+        append(`unknown repl command '${command.arg}'\n`, "error");
+        return true;
+      default:
+        return false;
+    }
+  } catch (err) {
+    append(`${err?.message ?? String(err)}\n`, "error");
+    return true;
+  }
+}
+
 async function doEval({ recordHistory = true } = {}) {
   const code = ui.codeEl.value;
   if (!code.trim()) return;
@@ -482,12 +891,6 @@ async function doEval({ recordHistory = true } = {}) {
   execCounter++;
   ui.evalBtn.disabled = true;
   try {
-    const start = performance.now();
-    const result = await queueEval(() => {
-      bindRuntimeCallbacks();
-      return ensureSession().eval_wq_result(code);
-    });
-    const end = performance.now();
     if (
       recordHistory &&
       (!history.length || history[history.length - 1] !== code)
@@ -497,7 +900,42 @@ async function doEval({ recordHistory = true } = {}) {
     }
     histIndex = -1;
     pendingBuffer = "";
-    if (
+
+    if (await handleReplCommand(code)) {
+      ui.codeEl.value = "";
+      autoSizeComposer();
+      return;
+    }
+
+    const start = performance.now();
+    const session = ensureSession();
+    const dryMode = session.get_dry_mode();
+    const useOneshotTime = oneshotTime;
+    const prevDebug = oneshotDebug ? session.get_debug_flags() : null;
+    const prevWqdb = oneshotWqdb ? session.get_wqdb_mode() : null;
+    const result = await queueEval(() => {
+      bindRuntimeCallbacks();
+      if (oneshotDebug) {
+        session.set_debug_flags(oneshotDebug);
+      }
+      if (oneshotWqdb) {
+        session.set_wqdb_mode(true);
+      }
+      try {
+        return session.eval_wq_result(code);
+      } finally {
+        if (prevDebug !== null) {
+          session.set_debug_flags(prevDebug);
+        }
+        if (prevWqdb !== null) {
+          session.set_wqdb_mode(prevWqdb);
+        }
+      }
+    });
+    const end = performance.now();
+    if (dryMode) {
+      append("dry run: skipped\n", "info");
+    } else if (
       result.value !== undefined &&
       result.value !== null &&
       String(result.value).length
@@ -507,15 +945,30 @@ async function doEval({ recordHistory = true } = {}) {
         const casSpan = document.createElement("span");
         casSpan.innerHTML = highlight_wq(alignTurnBody(result.value));
         content.appendChild(casSpan);
+        if (showType && result.type_name) {
+          content.appendChild(document.createTextNode(`\n${result.type_name}`));
+        }
       } else {
+        const valueText =
+          alignTurnBody(String(result.value)) +
+          (showType && result.type_name ? `\n${result.type_name}` : "") +
+          "\n";
         createTurn(
           "output",
           "",
-          alignTurnBody(String(result.value)) + "\n",
+          valueText,
           "success",
         );
       }
-      if (timeMode === true) {
+      if (getBoxFlags().includes("xray") && result.xray) {
+        createTurn(
+          "system",
+          "",
+          alignTurnBody(String(result.xray)) + "\n",
+          "info",
+        );
+      }
+      if (timeMode || useOneshotTime) {
         append(`time elapsed: ${end - start}ms\n`, "info");
       }
     }
@@ -530,6 +983,10 @@ async function doEval({ recordHistory = true } = {}) {
       "error",
     );
   } finally {
+    oneshotTime = false;
+    oneshotDebug = null;
+    oneshotWqdb = false;
+    syncDebugControls();
     ui.evalBtn.disabled = false;
     currentTurn = null;
   }
@@ -661,6 +1118,13 @@ export async function mountRepl(root) {
     stdinLine: root.querySelector("#stdinLine"),
     pushStdinBtn: root.querySelector("#pushStdinBtn"),
     pillBox: root.querySelector("#pillBox"),
+    boxPanel: root.querySelector("#boxPanel"),
+    boxButtons: Object.fromEntries(
+      BOX_FLAGS.map((flag) => [
+        flag,
+        root.querySelector(`[data-box-flag="${flag}"]`),
+      ]),
+    ),
     pillTime: root.querySelector("#pillTime"),
     newlineBtn: root.querySelector("#newlineBtn"),
     debugToggle: root.querySelector("#debugToggle"),
@@ -726,9 +1190,13 @@ export async function mountRepl(root) {
     window.navigate(`playground.html?code=${encodeURIComponent(code)}`);
   });
   ui.pillBox?.addEventListener("click", () => {
-    const on = ensureSession().toggle_box_mode();
-    setActive(ui.pillBox, on);
-    console.log(`[repl] box mode -> ${on ? "on" : "off"}\n`);
+    toggleRuntimePanel(ui.pillBox, ui.boxPanel);
+  });
+  BOX_FLAGS.forEach((flag) => {
+    ui.boxButtons[flag]?.addEventListener("click", () => {
+      toggleBoxFlag(flag);
+      console.log(`[repl] box -> ${ensureSession().get_box_summary()}\n`);
+    });
   });
   ui.pillTime?.addEventListener("click", () => {
     timeMode = !timeMode;
@@ -741,20 +1209,24 @@ export async function mountRepl(root) {
     });
   });
 
-  // Mobile debug toggle
   ui.debugToggle?.addEventListener("click", () => {
-    const isOpen = ui.debugPanel.classList.toggle("open");
-    ui.debugToggle.setAttribute("aria-expanded", String(isOpen));
+    toggleRuntimePanel(ui.debugToggle, ui.debugPanel);
   });
   // Close debug panel and history search on outside click
   document.addEventListener("click", (e) => {
+    if (
+      ui.boxPanel?.classList.contains("open") &&
+      !ui.boxPanel.contains(e.target) &&
+      !ui.pillBox?.contains(e.target)
+    ) {
+      closeRuntimePanel(ui.pillBox, ui.boxPanel);
+    }
     if (
       ui.debugPanel?.classList.contains("open") &&
       !ui.debugPanel.contains(e.target) &&
       !ui.debugToggle?.contains(e.target)
     ) {
-      ui.debugPanel.classList.remove("open");
-      ui.debugToggle?.setAttribute("aria-expanded", "false");
+      closeRuntimePanel(ui.debugToggle, ui.debugPanel);
     }
     if (
       ui.historySearch &&
@@ -767,12 +1239,18 @@ export async function mountRepl(root) {
   });
   window.addEventListener("resize", () => {
     positionHistorySearch();
+    positionRuntimePanel(ui.pillBox, ui.boxPanel);
+    positionRuntimePanel(ui.debugToggle, ui.debugPanel);
   });
   window.visualViewport?.addEventListener("resize", () => {
     positionHistorySearch();
+    positionRuntimePanel(ui.pillBox, ui.boxPanel);
+    positionRuntimePanel(ui.debugToggle, ui.debugPanel);
   });
   window.visualViewport?.addEventListener("scroll", () => {
     positionHistorySearch();
+    positionRuntimePanel(ui.pillBox, ui.boxPanel);
+    positionRuntimePanel(ui.debugToggle, ui.debugPanel);
   });
 
   ui.pushStdinBtn.addEventListener("click", () => {

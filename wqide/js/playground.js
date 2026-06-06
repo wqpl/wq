@@ -9,10 +9,18 @@ import { createAnsiRenderer } from "./ansi.js";
 import {
   ensureWasm,
   DEBUG_FLAGS,
+  BOX_FLAGS,
   parseDebugFlags,
   formatDebugFlags,
+  toggleDebugFlagList,
+  parseBoxFlags,
+  formatBoxFlags,
   setActive,
   syncDebugButtons,
+  syncBoxButtons,
+  toggleRuntimePanel,
+  closeRuntimePanel,
+  positionRuntimePanel,
   alignTurnBody,
   escapeHtml,
   queueEval,
@@ -30,14 +38,12 @@ function writeDebugFlags(instance, flags) {
     instance.debugFlagsInput.value = formatted;
   }
   syncDebugButtons(instance.debugButtons, flags);
+  setActive(instance.debugToggle, flags.length > 0);
 }
 
 function toggleDebugFlag(instance, flag) {
   const current = readDebugFlags(instance);
-  const next = current.includes(flag)
-    ? current.filter((item) => item !== flag)
-    : [...current, flag];
-  writeDebugFlags(instance, next);
+  writeDebugFlags(instance, toggleDebugFlagList(current, flag));
 }
 
 function ensureStateSavingSession(instance) {
@@ -48,14 +54,32 @@ function ensureStateSavingSession(instance) {
 }
 
 function applyBoxMode(targetSession, instance) {
-  const wantBoxMode = ensureStateSavingSession(instance).get_box_mode();
-  if (targetSession.get_box_mode() !== wantBoxMode) {
-    targetSession.toggle_box_mode();
-  }
+  const spec = ensureStateSavingSession(instance).get_box_flags();
+  targetSession.set_box_flags(spec || "0");
 }
 
-function syncBoxControl(instance) {
-  setActive(instance.boxBtn, ensureStateSavingSession(instance).get_box_mode());
+function readBoxFlags(instance) {
+  return parseBoxFlags(ensureStateSavingSession(instance).get_box_flags());
+}
+
+function writeBoxFlags(instance, flags) {
+  const formatted = formatBoxFlags(flags);
+  ensureStateSavingSession(instance).set_box_flags(formatted);
+  syncBoxControls(instance);
+}
+
+function toggleBoxFlag(instance, flag) {
+  const current = readBoxFlags(instance);
+  const next = current.includes(flag)
+    ? current.filter((item) => item !== flag)
+    : [...current, flag];
+  writeBoxFlags(instance, next);
+}
+
+function syncBoxControls(instance) {
+  const flags = readBoxFlags(instance);
+  syncBoxButtons(instance.boxButtons, flags);
+  setActive(instance.boxBtn, flags.length > 0);
 }
 
 const instances = new WeakMap();
@@ -172,6 +196,14 @@ async function doEval(instance) {
         const resultRenderer = createAnsiRenderer(instance.output, bar);
         resultRenderer.append(alignTurnBody(String(result.value)) + "\n");
       }
+      if (readBoxFlags(instance).includes("xray") && result.xray) {
+        const xrayBar = document.createElement("span");
+        xrayBar.className = "repl-bar repl-bar-info";
+        xrayBar.textContent = "\u258d ";
+        instance.output.appendChild(xrayBar);
+        const xrayRenderer = createAnsiRenderer(instance.output, xrayBar);
+        xrayRenderer.append(alignTurnBody(String(result.xray)) + "\n");
+      }
       instance.output.scrollTop = instance.output.scrollHeight;
     }
     if (instance.timeMode) {
@@ -246,6 +278,14 @@ async function runForPoster(instance) {
           resultDiv.appendChild(bar);
           const resultRenderer = createAnsiRenderer(resultDiv, bar);
           resultRenderer.append(alignTurnBody(String(result.value)) + "\n");
+        }
+        if (readBoxFlags(instance).includes("xray") && result.xray) {
+          const bar = document.createElement("span");
+          bar.className = "repl-bar repl-bar-info";
+          bar.textContent = "\u258d ";
+          resultDiv.appendChild(bar);
+          const resultRenderer = createAnsiRenderer(resultDiv, bar);
+          resultRenderer.append(alignTurnBody(String(result.xray)) + "\n");
         }
       }
     } finally {
@@ -440,7 +480,10 @@ export async function mountPlayground(root) {
   const editor = root.querySelector(".editor");
   const debugFlagsInput = root.querySelector("#playgroundDebugFlags");
   const boxBtn = root.querySelector("#playgroundBoxBtn");
+  const boxPanel = root.querySelector("#playgroundBoxPanel");
   const timeBtn = root.querySelector("#playgroundTimeBtn");
+  const debugToggle = root.querySelector("#playgroundDebugToggle");
+  const debugPanel = root.querySelector("#playgroundDebugPanel");
   const templateButtons = Array.from(root.querySelectorAll("[data-template]"));
   const resetBtn = root.querySelector("#resetBtn");
   const openInReplBtn = root.querySelector("#openInReplBtn");
@@ -455,9 +498,18 @@ export async function mountPlayground(root) {
     editor,
     debugFlagsInput,
     boxBtn,
+    boxPanel,
     timeBtn,
+    debugToggle,
+    debugPanel,
     timeMode: false,
     stateSavingSession: null,
+    boxButtons: Object.fromEntries(
+      BOX_FLAGS.map((flag) => [
+        flag,
+        root.querySelector(`[data-box-flag="${flag}"]`),
+      ]),
+    ),
     debugButtons: Object.fromEntries(
       DEBUG_FLAGS.map((flag) => [
         flag,
@@ -498,9 +550,15 @@ export async function mountPlayground(root) {
   });
   boxBtn?.addEventListener("click", async () => {
     await ensureWasm();
-    const on = ensureStateSavingSession(instance).toggle_box_mode();
-    setActive(boxBtn, on);
-    console.log(`[playground] box mode -> ${on ? "on" : "off"}\n`);
+    toggleRuntimePanel(boxBtn, boxPanel);
+  });
+  BOX_FLAGS.forEach((flag) => {
+    instance.boxButtons[flag]?.addEventListener("click", () => {
+      toggleBoxFlag(instance, flag);
+      console.log(
+        `[playground] box -> ${ensureStateSavingSession(instance).get_box_summary()}\n`,
+      );
+    });
   });
   timeBtn?.addEventListener("click", () => {
     instance.timeMode = !instance.timeMode;
@@ -513,6 +571,29 @@ export async function mountPlayground(root) {
     instance.debugButtons[flag]?.addEventListener("click", () => {
       toggleDebugFlag(instance, flag);
     });
+  });
+  debugToggle?.addEventListener("click", () => {
+    toggleRuntimePanel(debugToggle, debugPanel);
+  });
+  document.addEventListener("click", (e) => {
+    if (
+      boxPanel?.classList.contains("open") &&
+      !boxPanel.contains(e.target) &&
+      !boxBtn?.contains(e.target)
+    ) {
+      closeRuntimePanel(boxBtn, boxPanel);
+    }
+    if (
+      debugPanel?.classList.contains("open") &&
+      !debugPanel.contains(e.target) &&
+      !debugToggle?.contains(e.target)
+    ) {
+      closeRuntimePanel(debugToggle, debugPanel);
+    }
+  });
+  window.addEventListener("resize", () => {
+    positionRuntimePanel(boxBtn, boxPanel);
+    positionRuntimePanel(debugToggle, debugPanel);
   });
   templateButtons.forEach((button) => {
     button.addEventListener("click", () => {
@@ -534,12 +615,8 @@ export async function mountPlayground(root) {
     instance.timeMode = false;
     setActive(timeBtn, false);
     writeDebugFlags(instance, []);
-    if (instance.stateSavingSession) {
-      if (!instance.stateSavingSession.get_box_mode()) {
-        instance.stateSavingSession.toggle_box_mode();
-      }
-      setActive(boxBtn, true);
-    }
+    ensureStateSavingSession(instance).set_box_flags("box,axis,color");
+    syncBoxControls(instance);
     ta.focus();
   });
   openInReplBtn?.addEventListener("click", () => {
@@ -550,7 +627,7 @@ export async function mountPlayground(root) {
 
   refreshLines(instance);
   await ensureWasm();
-  syncBoxControl(instance);
+  syncBoxControls(instance);
   setActive(timeBtn, instance.timeMode);
   writeDebugFlags(instance, []);
 }
@@ -559,7 +636,7 @@ export async function activatePlayground(root) {
   const instance = instances.get(root);
   if (!instance) return;
   await ensureWasm();
-  syncBoxControl(instance);
+  syncBoxControls(instance);
   setActive(instance.timeBtn, instance.timeMode);
 }
 

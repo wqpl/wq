@@ -6,108 +6,10 @@ use std::path::PathBuf;
 use clap::builder::styling::{AnsiColor, Effects, Style, Styles};
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use colored::Colorize;
+pub use wqpl::display::{BoxPrintConfig, apply_box_spec};
 use wqpl::session::dbglog::DebugLogFlags;
 
 pub const DEFAULT_STACK_SIZE_MB: usize = 12;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BoxPrintConfig {
-    pub boxed: bool,
-    pub xray: bool,
-    pub color: bool,
-    pub axis: bool,
-}
-
-impl Default for BoxPrintConfig {
-    fn default() -> Self {
-        Self {
-            boxed: true,
-            xray: false,
-            color: true,
-            axis: true,
-        }
-    }
-}
-
-impl BoxPrintConfig {
-    pub fn summary(&self) -> String {
-        let mut parts = Vec::new();
-        if self.boxed {
-            parts.push("box");
-        }
-        if self.xray {
-            parts.push("xray");
-        }
-        if self.axis {
-            parts.push("axis");
-        }
-        if self.color {
-            parts.push("color");
-        }
-        format!("[{}]", parts.join(","))
-    }
-
-    pub fn shows_xray(&self) -> bool {
-        self.xray
-    }
-
-    pub fn toggle_box(&mut self) {
-        if self.boxed || self.xray || self.axis || self.color {
-            *self = Self {
-                boxed: false,
-                xray: false,
-                axis: false,
-                color: false,
-            };
-        } else {
-            *self = Self::default();
-        }
-    }
-
-    pub fn toggle_xray(&mut self) {
-        self.xray = !self.xray;
-    }
-}
-
-pub fn apply_box_spec(config: &mut BoxPrintConfig, spec: &str) -> Result<(), String> {
-    let mut rewrite = false;
-    for raw_part in spec.split(',') {
-        let part = raw_part.trim();
-        if part.is_empty() {
-            continue;
-        }
-
-        let (enabled, feature) = if let Some(feature) = part.strip_prefix('+') {
-            (true, feature)
-        } else if let Some(feature) = part.strip_prefix('-') {
-            (false, feature)
-        } else {
-            if !rewrite {
-                *config = BoxPrintConfig {
-                    boxed: false,
-                    xray: false,
-                    axis: false,
-                    color: false,
-                };
-                rewrite = true;
-            }
-            (true, part)
-        };
-
-        match feature {
-            "box" => config.boxed = enabled,
-            "xray" => config.xray = enabled,
-            "axis" => config.axis = enabled,
-            "color" => config.color = enabled,
-            _ => {
-                return Err(format!(
-                    "unknown box mode '{part}'\nAvailable: box, axis, xray, color; prefix with + or - to modify"
-                ));
-            }
-        }
-    }
-    Ok(())
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeFlags {
