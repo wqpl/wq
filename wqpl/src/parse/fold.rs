@@ -306,18 +306,15 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
                     .collect();
 
                 thread_local! {
-                    static PURE_VM: std::cell::RefCell<(crate::builtins::Builtins, crate::vm::Vm)> = std::cell::RefCell::new((
-                        crate::builtins::Builtins::with_preset(crate::builtins::BuiltinPreset::Pure),
-                        crate::vm::Vm::new(vec![])
-                    ));
+                    static PURE_BUILTINS: crate::builtins::Builtins =
+                        crate::builtins::Builtins::with_preset(crate::builtins::BuiltinPreset::Pure);
                 }
-                let folded_val = PURE_VM.with(|b| {
-                    let mut b = b.borrow_mut();
-                    let (builtins, vm) = &mut *b;
+                let folded_val = PURE_BUILTINS.with(|builtins| {
                     if let Some(id) = builtins.get_id(name.as_str())
-                        && let Some(func) = builtins.get_fn_by_id(id)
+                        && let Some(func) = builtins.get_fn_by_id(id).copied()
+                        && let Some(func) = func.as_plain()
                     {
-                        return func(vm, BuiltinFnArgs::from(literals)).ok();
+                        return func(BuiltinFnArgs::from(literals)).ok();
                     }
                     None
                 });

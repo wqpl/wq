@@ -2,14 +2,16 @@ use std::cmp::{max, min};
 
 use colored::{Color, Colorize};
 
-use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_named_args};
+use crate::builtins::{BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_named_args};
 use crate::cas::{infer_single_cas_var, substitute_cas};
 use crate::session::stdio::wqstdout_println;
 use crate::value::{Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(crate) fn asciiplot(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(crate) fn asciiplot(
+    vm: &mut dyn BuiltinContext,
+    args: BuiltinFnArgs,
+) -> WqResult<Value> {
     #[rustfmt::skip]
     check_named_args(&args, BE::Asciiplot, &[
         "size", "width", "height", "xlim", "ylim",
@@ -43,7 +45,7 @@ pub(crate) fn asciiplot(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     // Collect series configs
     let mut configs: Vec<SeriesConfig> = Vec::new();
     for arg in args {
-        configs.push(parse_series_arg(vm, &arg, &opts)?);
+        configs.push(parse_series_arg(&arg, &opts)?);
     }
     if configs.is_empty() {
         return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg("expected each arg to be (a list of numbers) or (a list of 2‑element numeric lists)").attach_note(
@@ -80,7 +82,7 @@ enum SeriesData {
     Cas(Value),
 }
 
-fn parse_series_arg(_vm: &mut Vm, arg: &Value, _opts: &PlotOptions) -> WqResult<SeriesConfig> {
+fn parse_series_arg(arg: &Value, _opts: &PlotOptions) -> WqResult<SeriesConfig> {
     match arg {
         Value::IntList(arr) if !arr.is_empty() => Ok(SeriesConfig {
             data: SeriesData::Raw(
@@ -200,7 +202,7 @@ fn parse_series_arg(_vm: &mut Vm, arg: &Value, _opts: &PlotOptions) -> WqResult<
 }
 
 fn sample_callable_series(
-    vm: &mut Vm,
+    vm: &mut dyn BuiltinContext,
     func: &Value,
     opts: &PlotOptions,
     xlim: Option<(f64, f64)>,

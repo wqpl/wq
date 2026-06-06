@@ -2,11 +2,10 @@ use std::sync::Arc;
 
 use crate::astnode::BinaryOperator;
 use crate::builtins::{
-    BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
+    BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
 };
 use crate::value::bc::{Bc1Stop, Bc2Stop};
 use crate::value::{Value, WqResult, eval_binary};
-use crate::vm::Vm;
 use crate::vm::inst::{Instruction, Operand};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -125,7 +124,7 @@ impl PureExpr {
 
 #[inline]
 fn call_pure_or_vm1(
-    vm: &mut Vm,
+    vm: &mut dyn BuiltinContext,
     func: &Value,
     pure: Option<&PureCallback>,
     arg: &Value,
@@ -139,7 +138,7 @@ fn call_pure_or_vm1(
 
 #[inline]
 fn call_pure_or_vm2(
-    vm: &mut Vm,
+    vm: &mut dyn BuiltinContext,
     func: &Value,
     pure: Option<&PureCallback>,
     left: &Value,
@@ -156,7 +155,7 @@ fn call_pure_or_vm2(
 }
 
 fn filter_predicate(
-    vm: &mut Vm,
+    vm: &mut dyn BuiltinContext,
     func: &Value,
     pure: Option<&PureCallback>,
     value: &Value,
@@ -171,7 +170,10 @@ fn filter_predicate(
 
 /// apply[fs;x] — apply each function in fs to x, returning a list of results.
 /// If fs is a single function (not a list), returns f[x] unwrapped.
-pub(super) fn apply(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn apply(
+    vm: &mut dyn BuiltinContext,
+    args: BuiltinFnArgs,
+) -> WqResult<Value> {
     check_arity(BE::Apply, [2, 2], &args)?;
     let (fs, x) = (&args[0], &args[1]);
     match fs {
@@ -187,7 +189,7 @@ pub(super) fn apply(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// map[xs;f;d?]
-pub(super) fn map(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn map(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     #[inline]
     fn eff_layers(raw_d: &Value, total_depth: i64) -> Option<i64> {
         match raw_d {
@@ -203,7 +205,12 @@ pub(super) fn map(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         }
     }
 
-    fn _map(vm: &mut Vm, xs: &Value, f: &Value, d: &Value) -> WqResult<Value> {
+    fn _map(
+        vm: &mut dyn BuiltinContext,
+        xs: &Value,
+        f: &Value,
+        d: &Value,
+    ) -> WqResult<Value> {
         let el = match eff_layers(d, xs.depth()) {
             Some(l) => l,
             None => return Err(type_mismatch(BE::Map, 0, "int, inf or -inf", d)),
@@ -242,7 +249,7 @@ fn eff_layers(raw_d: &Value, total_depth: i64) -> Option<i64> {
 }
 
 fn any_all_at_depth(
-    vm: &mut Vm,
+    vm: &mut dyn BuiltinContext,
     func: &Value,
     xs: &Value,
     depth_from_root: i64,
@@ -334,7 +341,7 @@ fn any_all_at_depth(
 }
 
 /// any[xs;f;d?]
-pub(super) fn any(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn any(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Any, [2, 3], &args)?;
     let (xs, f, d) = match args.len() {
         2 => (&args[0], &args[1], &Value::Int(1)),
@@ -357,7 +364,7 @@ pub(super) fn any(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// all[xs;f;d?]
-pub(super) fn all(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn all(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::All, [2, 3], &args)?;
     let (xs, f, d) = match args.len() {
         2 => (&args[0], &args[1], &Value::Int(1)),
@@ -380,7 +387,7 @@ pub(super) fn all(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// fold[xs;f;acc?]
-pub(super) fn fold(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn fold(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Fold, [2, 3], &args)?;
     let n = args.len();
     let mut iter = args.into_iter();
@@ -470,7 +477,7 @@ pub(super) fn fold(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// scan[xs;f;acc?]
-pub(super) fn scan(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn scan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Scan, [2, 3], &args)?;
     let n = args.len();
     let mut iter = args.into_iter();
@@ -574,7 +581,7 @@ pub(super) fn scan(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// rscan[xs;f;acc?]
-pub(super) fn rscan(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn rscan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::RScan, [2, 3], &args)?;
     let n = args.len();
     let mut iter = args.into_iter();
@@ -684,7 +691,7 @@ pub(super) fn rscan(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// filter[xs;f]
-pub(super) fn filter(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn filter(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Filter, [2], &args)?;
     let mut iter = args.into_iter();
     let xs = iter.next().unwrap();
@@ -724,7 +731,7 @@ pub(super) fn filter(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// zipw[xs;ys;f;d?]
-pub(super) fn zipw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn zipw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     #[inline]
     fn eff_layers_2(raw_d: &Value, dx: i64, dy: i64) -> Option<i64> {
         let dmax = dx.max(dy);
@@ -741,7 +748,13 @@ pub(super) fn zipw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         }
     }
 
-    fn _zipw(vm: &mut Vm, xs: &Value, ys: &Value, f: &Value, d: &Value) -> WqResult<Value> {
+    fn _zipw(
+        vm: &mut dyn BuiltinContext,
+        xs: &Value,
+        ys: &Value,
+        f: &Value,
+        d: &Value,
+    ) -> WqResult<Value> {
         let el = match eff_layers_2(d, xs.depth(), ys.depth()) {
             Some(l) => l,
             None => return Err(type_mismatch(BE::ZipW, 0, "int, inf or -inf", d)),
@@ -769,7 +782,7 @@ pub(super) fn zipw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 ///splitw[xs;f;`m]
-pub(super) fn splitw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     const MAXSPLIT_ARG: &str = "m";
     check_arity_named(BE::SplitW, [2], &args, &[MAXSPLIT_ARG])?;
     let maxsplit = crate::builtins::list::parse_maxsplit(args.named(MAXSPLIT_ARG), BE::SplitW)?;
@@ -902,7 +915,7 @@ struct FindWithCtx<'a> {
 }
 
 fn findwith_search(
-    vm: &mut Vm,
+    vm: &mut dyn BuiltinContext,
     xs: &Value,
     current_depth: i64,
     results: &mut Vec<Value>,
@@ -913,7 +926,7 @@ fn findwith_search(
         return Ok(());
     }
 
-    let is_match = |vm: &mut Vm, item: &Value| -> WqResult<bool> {
+    let is_match = |vm: &mut dyn BuiltinContext, item: &Value| -> WqResult<bool> {
         let pred = vm.call(ctx.func, BuiltinFnArgs::from(item.clone()))?;
         match pred {
             Value::Bool(b) => Ok(b),
@@ -1006,7 +1019,7 @@ fn findwith_search(
 }
 
 /// findw[xs;f;threshold?;d?]
-pub(super) fn findw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn findw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::FindW, [2, 3, 4], &args)?;
     let n = args.len();
     let mut iter = args.into_iter();
@@ -1076,7 +1089,7 @@ pub(super) fn findw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 /// rfindw[xs;f;threshold?;d?]
-pub(super) fn rfindw(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn rfindw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::RFindW, [2, 3, 4], &args)?;
     let n = args.len();
     let mut iter = args.into_iter();

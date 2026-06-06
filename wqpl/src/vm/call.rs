@@ -4,7 +4,7 @@ use std::sync::Arc;
 use ahash::AHashMap;
 use smallvec::SmallVec;
 
-use crate::builtins::{BuiltinFnArgs, Builtins};
+use crate::builtins::{BuiltinContext, BuiltinFnArgs, Builtins};
 use crate::interpret::vanilla::Sv4;
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::value::cell::ValueCell;
@@ -494,7 +494,7 @@ impl Vm {
             .builtins
             .get_fn_by_id(usize::from(id))
             .ok_or_else(|| vm_err("invalid builtin id"))?;
-        let result = (func)(self, args)?;
+        let result = func.invoke(self, args)?;
         if let Some(name) = Builtins::name_from_id(id)
             && let Some(hooks) = self.hooks
         {
@@ -584,6 +584,16 @@ impl Vm {
                 ))),
             }
         }
+    }
+}
+
+impl BuiltinContext for Vm {
+    fn call(&mut self, func: &Value, args: BuiltinFnArgs) -> WqResult<Value> {
+        Vm::call(self, func, args)
+    }
+
+    fn list_enabled_builtins(&self) -> Vec<String> {
+        self.builtins.list_functions()
     }
 }
 

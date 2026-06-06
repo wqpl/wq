@@ -7,10 +7,9 @@ use crate::cas::{
     rewrite_cas, simplify_cas_value, solve_cas, solve_system_cas, substitute_cas,
 };
 use crate::value::{Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(super) fn eq(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn eq(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Eq, [2], &args)?;
     let mut iter = args.into_iter();
     let a = iter.next().unwrap();
@@ -18,22 +17,22 @@ pub(super) fn eq(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::from_cas_eq(a, b))
 }
 
-pub(super) fn simplify(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn simplify(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Simplify, [1], &args)?;
     simplify_cas_value(&args[0])
 }
 
-pub(super) fn rewrite(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn rewrite(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Rewrite, [1], &args)?;
     rewrite_cas(&args[0])
 }
 
-pub(super) fn numeric(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn numeric(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Numeric, [1], &args)?;
     eval_numeric_cas(&args[0]).map_err(|e| e.src(BuiltinEnum::Numeric))
 }
 
-pub(super) fn diff(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn diff(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Diff, [1, 2], &args)?;
     let n = args.len();
     let mut iter = args.into_iter();
@@ -47,7 +46,7 @@ pub(super) fn diff(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     diff_cas(&expr, &var)
 }
 
-pub(super) fn substitute(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn substitute(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Substitute, [2, 3], &args)?;
     let mut iter = args.into_iter();
     let first = iter.next().unwrap();
@@ -81,17 +80,17 @@ pub(super) fn substitute(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(result)
 }
 
-pub(super) fn expand(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn expand(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Expand, [1], &args)?;
     expand_cas(&args[0])
 }
 
-pub(super) fn factor_common(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn factor_common(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::FactorCommon, [1], &args)?;
     factor_cas(&args[0])
 }
 
-pub(super) fn integrate(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn integrate(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Integrate, [1, 2, 4], &args)?;
     if args.len() >= 4 {
         return definite_integrate_cas(&args[0], &args[1], &args[2], &args[3]);
@@ -108,7 +107,7 @@ pub(super) fn integrate(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     integrate_cas(&expr, &var)
 }
 
-pub(super) fn limit(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn limit(args: BuiltinFnArgs) -> WqResult<Value> {
     // Minimum 3 args: expr, var1, point1.
     // Additional args come in (var, point) pairs, with optional trailing dir.
     if args.len() < 3 {
@@ -135,7 +134,7 @@ pub(super) fn limit(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(result)
 }
 
-pub(super) fn solve(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn solve(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Solve, [1, 2], &args)?;
     let n = args.len();
     let mut iter = args.into_iter();
@@ -149,7 +148,7 @@ pub(super) fn solve(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     solve_cas(&expr, &var)
 }
 
-pub(super) fn solve_system(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn solve_system(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::SolveSystem, [2], &args)?;
     solve_system_cas(&args[0], &args[1])
 }
@@ -178,10 +177,9 @@ fn eval_root_objective(expr: &Value, var: &Value, x: f64, src: BuiltinEnum) -> W
     }
 }
 
-pub(super) fn brent(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn brent(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Brent, [3, 4, 5], &args)?;
 
-    let _ = vm;
     let (expr, var) = parse_root_objective(&args[0], BuiltinEnum::Brent)?;
     let mut a = args[1].as_f64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
@@ -322,10 +320,9 @@ pub(super) fn brent(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         .msg("brent did not converge within the iteration limit"))
 }
 
-pub(super) fn newton(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn newton(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Newton, [2, 3, 4], &args)?;
 
-    let _ = vm;
     let (expr, var) = parse_root_objective(&args[0], BuiltinEnum::Newton)?;
     let deriv = diff_cas(&expr, &var).map_err(|e| e.src(BuiltinEnum::Newton))?;
     let mut x = args[1].as_f64().ok_or_else(|| {
@@ -407,7 +404,7 @@ pub(super) fn newton(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         .msg("newton did not converge within the iteration limit"))
 }
 
-pub(super) fn factor_poly(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn factor_poly(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Factor, [1, 2, 3], &args)?;
     // Parse args: factor[expr] | factor[expr; var] |
     //             factor[expr; complex] | factor[expr; complex; var]

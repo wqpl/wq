@@ -25,7 +25,6 @@ use smallvec::SmallVec;
 
 use crate::interpret::vanilla::Sv4;
 use crate::value::{Value, WqResult};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -288,8 +287,48 @@ impl From<Vec<Value>> for BuiltinFnArgs {
     }
 }
 
+pub trait BuiltinContext {
+    fn call(&mut self, func: &Value, args: BuiltinFnArgs) -> WqResult<Value>;
+    fn list_enabled_builtins(&self) -> Vec<String>;
+}
+
+pub type BuiltinPlainFn = fn(BuiltinFnArgs) -> WqResult<Value>;
+pub type BuiltinContextFn = fn(&mut dyn BuiltinContext, BuiltinFnArgs) -> WqResult<Value>;
+
 /// builtin functions
-pub type BuiltinFn = fn(&mut Vm, BuiltinFnArgs) -> WqResult<Value>;
+#[derive(Copy, Clone)]
+pub enum BuiltinFn {
+    Plain(BuiltinPlainFn),
+    WithContext(BuiltinContextFn),
+}
+
+impl BuiltinFn {
+    const fn plain(func: BuiltinPlainFn) -> Self {
+        Self::Plain(func)
+    }
+
+    const fn with_context(func: BuiltinContextFn) -> Self {
+        Self::WithContext(func)
+    }
+
+    pub(crate) fn invoke(
+        self,
+        ctx: &mut dyn BuiltinContext,
+        args: BuiltinFnArgs,
+    ) -> WqResult<Value> {
+        match self {
+            Self::Plain(func) => func(args),
+            Self::WithContext(func) => func(ctx, args),
+        }
+    }
+
+    pub(crate) fn as_plain(self) -> Option<BuiltinPlainFn> {
+        match self {
+            Self::Plain(func) => Some(func),
+            Self::WithContext(_) => None,
+        }
+    }
+}
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(crate) enum BuiltinDepthSugar {
@@ -517,6 +556,21 @@ macro_rules! __builtin_depth_sugar {
     };
 }
 
+macro_rules! __builtin_fn {
+    (core::bfn) => {
+        BuiltinFn::with_context(core::bfn)
+    };
+    (ho::$func:ident) => {
+        BuiltinFn::with_context(ho::$func)
+    };
+    (viz::asciiplot) => {
+        BuiltinFn::with_context(viz::asciiplot)
+    };
+    ($func:path) => {
+        BuiltinFn::plain($func)
+    };
+}
+
 macro_rules! __declare_builtins_impl {
     ($($(#[$m:meta])? ($CONST:ident, $VAR:ident, $name:expr, $usage:expr, $arity:tt, $func:path, $group:path $(, $depth_sugar:expr)?),)+) => {
         #[repr(u16)]
@@ -596,7 +650,7 @@ macro_rules! __declare_builtins_impl {
             }
 
             fn register_functions(&mut self) {
-                $($(#[$m])? self.add($name, $func);)+
+                $($(#[$m])? self.add($name, __builtin_fn!($func));)+
             }
         }
     };

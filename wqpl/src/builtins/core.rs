@@ -14,15 +14,16 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_traits::Num;
 
-use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity, check_named_args, type_mismatch};
+use crate::builtins::{
+    BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_named_args, type_mismatch,
+};
 use crate::session::stdio::{
     WqStdinError, wqstdin_readline, wqstdin_with_highlight_off, wqstdout_print, wqstdout_println,
 };
 use crate::value::{Excerpt, IntoWqValue, Value, WqResult, into_wq_string};
-use crate::vm::Vm;
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(super) fn print(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn print(args: BuiltinFnArgs) -> WqResult<Value> {
     if args.is_empty() {
         return Ok(Value::unit());
     }
@@ -36,7 +37,7 @@ pub(super) fn print(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::unit())
 }
 
-pub(super) fn echo(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn echo(args: BuiltinFnArgs) -> WqResult<Value> {
     check_named_args(&args, BuiltinEnum::Echo, &["sep"])?;
 
     if args.is_empty() {
@@ -73,7 +74,7 @@ pub(super) fn echo(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::unit())
 }
 
-pub(super) fn input(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn input(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Input, [0, 1], &args)?;
     let prompt = if args.len() == 1 {
         args[0]
@@ -93,25 +94,25 @@ pub(super) fn input(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn bfn(vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn bfn(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Bfn, [0], &args)?;
-    let mut funcs = vm.builtins.list_functions();
+    let mut funcs = vm.list_enabled_builtins();
     funcs.sort();
     let funcstr = funcs.into_iter().map(into_wq_string).collect();
     Ok(Value::List(Arc::new(funcstr)))
 }
 
-pub(super) fn chr(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn chr(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Chr, [1], &args)?;
     args[0].chr().map_err(|e| e.src(BuiltinEnum::Chr))
 }
 
-pub(super) fn ord(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn ord(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Ord, [1], &args)?;
     args[0].ord().map_err(|e| e.src(BuiltinEnum::Ord))
 }
 
-pub(super) fn int(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn int(args: BuiltinFnArgs) -> WqResult<Value> {
     fn unexpected_base() -> WqError {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Int)
@@ -205,7 +206,7 @@ pub(super) fn int(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     }
 }
 
-pub(super) fn float(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn float(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Float, [1], &args)?;
     let input = &args[0];
 
@@ -235,7 +236,7 @@ pub(super) fn float(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     })
 }
 
-pub(super) fn bin(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn bin(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Bin, [1, 2], &args)?;
     let (target, with_prefix) = match args.len() {
         1 => (&args[0], true),
@@ -252,7 +253,7 @@ pub(super) fn bin(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         .map_err(|e| e.src(BuiltinEnum::Bin))
 }
 
-pub(super) fn oct(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn oct(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Oct, [1, 2], &args)?;
     let (target, with_prefix) = match args.len() {
         1 => (&args[0], true),
@@ -269,7 +270,7 @@ pub(super) fn oct(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         .map_err(|e| e.src(BuiltinEnum::Oct))
 }
 
-pub(super) fn hex(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn hex(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Hex, [1, 2], &args)?;
     let (target, with_prefix) = match args.len() {
         1 => (&args[0], true),
@@ -286,7 +287,7 @@ pub(super) fn hex(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
         .map_err(|e| e.src(BuiltinEnum::Hex))
 }
 
-pub(super) fn hash(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn hash(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Hash, [1], &args)?;
     let mut hasher = DefaultHasher::new();
     args[0].hash(&mut hasher);
@@ -294,7 +295,7 @@ pub(super) fn hash(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(h.into_wq_value())
 }
 
-pub(super) fn raise(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn raise(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Raise, [0, 1], &args)?;
     match args.len() {
         0 => Err(WqError::new(WqErrorType::Raise).src(BuiltinEnum::Raise)),
@@ -311,7 +312,7 @@ pub(super) fn raise(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) fn exec(_vm: &mut Vm, args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn exec(args: BuiltinFnArgs) -> WqResult<Value> {
     if args.is_empty() {
         return Err(WqError::new(WqErrorType::Arity)
             .src(BuiltinEnum::Exec)
