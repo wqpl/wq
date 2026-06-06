@@ -6,13 +6,26 @@ use crate::compile::Compiler;
 use crate::value::cmp::eval_cmp_chain;
 use crate::value::func::FunctionData;
 use crate::value::{Value, eval_binary, eval_unary};
+use crate::vm::GlobalMap;
 use crate::vm::inst::{Capture, ClosurePayload, Instruction, MutationOp, Operand, StoreTarget};
 
 impl Compiler {
     pub(crate) fn propagate_constants(&mut self) {
+        self.propagate_constants_with_seed(IndexMap::new());
+    }
+
+    pub(crate) fn propagate_constants_with_globals(&mut self, globals: &GlobalMap) {
+        if globals.is_empty() {
+            self.propagate_constants();
+        } else {
+            self.propagate_constants_with_seed(trackable_globals(globals));
+        }
+    }
+
+    fn propagate_constants_with_seed(&mut self, globals: IndexMap<String, Value>) {
         propagate_nested(&mut self.instructions);
         let local_count = self.local_count();
-        propagate_instructions(&mut self.instructions, local_count, Vec::new());
+        propagate_instructions(&mut self.instructions, local_count, Vec::new(), globals);
     }
 }
 
@@ -35,19 +48,25 @@ fn propagate_nested(code: &mut [Instruction]) {
 fn propagate_function(func: &mut FunctionData) {
     let instructions = Arc::make_mut(&mut func.instructions);
     propagate_nested(instructions);
-    propagate_instructions(instructions, func.locals, Vec::new());
+    propagate_instructions(instructions, func.locals, Vec::new(), IndexMap::new());
 }
 
 fn propagate_closure_payload(payload: &mut ClosurePayload, capture_values: Vec<Option<Value>>) {
     let instructions = Arc::make_mut(&mut payload.instructions);
     propagate_nested(instructions);
-    propagate_instructions(instructions, payload.locals, capture_values);
+    propagate_instructions(
+        instructions,
+        payload.locals,
+        capture_values,
+        IndexMap::new(),
+    );
 }
 
 fn propagate_instructions(
     code: &mut [Instruction],
     local_count: u16,
     capture_values: Vec<Option<Value>>,
+    globals: IndexMap<String, Value>,
 ) {
     if code.is_empty() {
         return;
@@ -55,7 +74,7 @@ fn propagate_instructions(
 
     let local_count = inferred_local_count(code).max(usize::from(local_count));
     let capture_count = inferred_capture_count(code).max(capture_values.len());
-    let in_states = analyze(code, local_count, capture_count, capture_values);
+    let in_states = analyze(code, local_count, capture_count, capture_values, globals);
     let trace_protected = trace_protected_pcs(code);
     for (pc, inst) in code.iter_mut().enumerate() {
         if trace_protected[pc] {
@@ -97,7 +116,12 @@ struct State {
 }
 
 impl State {
-    fn new(local_count: usize, capture_count: usize, capture_values: Vec<Option<Value>>) -> Self {
+    fn new_with_globals(
+        local_count: usize,
+        capture_count: usize,
+        capture_values: Vec<Option<Value>>,
+        globals: IndexMap<String, Value>,
+    ) -> Self {
         let mut captures = vec![None; capture_count];
         for (slot, value) in capture_values.into_iter().enumerate().take(capture_count) {
             captures[slot] = value.and_then(trackable_value);
@@ -105,7 +129,7 @@ impl State {
         Self {
             locals: vec![None; local_count],
             captures,
-            globals: IndexMap::new(),
+            globals,
             stack: Some(Vec::new()),
         }
     }
@@ -279,9 +303,15 @@ fn analyze(
     local_count: usize,
     capture_count: usize,
     capture_values: Vec<Option<Value>>,
+    globals: IndexMap<String, Value>,
 ) -> Vec<Option<State>> {
     let mut states = vec![None; code.len()];
-    states[0] = Some(State::new(local_count, capture_count, capture_values));
+    states[0] = Some(State::new_with_globals(
+        local_count,
+        capture_count,
+        capture_values,
+        globals,
+    ));
     let mut worklist = vec![0usize];
 
     while let Some(pc) = worklist.pop() {
@@ -938,6 +968,17 @@ fn trackable_value(value: Value) -> Option<Value> {
         | Value::Stream(_) => None,
         other => Some(other),
     }
+}
+
+fn trackable_globals(globals: &GlobalMap) -> IndexMap<String, Value> {
+    let mut entries: Vec<_> = globals.iter().collect();
+    entries.sort_by_key(|(name, _)| *name);
+    entries
+        .into_iter()
+        .filter_map(|(name, value)| {
+            trackable_value(value.clone()).map(|value| (name.clone(), value))
+        })
+        .collect()
 }
 
 fn le_zero(value: Value) -> Option<bool> {

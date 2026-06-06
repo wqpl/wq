@@ -215,7 +215,8 @@ impl Session {
 
         dump_ast("AST - original", &ast, DebugLogFlags::AST);
 
-        let mut resolver = Resolver::from_env(self.environment(), builtins.clone());
+        let env = self.environment();
+        let mut resolver = Resolver::from_env(env.clone(), builtins.clone());
         let ast = resolver.resolve(ast);
         dump_ast("AST @ resolve", &ast, DebugLogFlags::AST_VERBOSE);
 
@@ -250,7 +251,7 @@ impl Session {
             DebugLogFlags::INST_VERBOSE,
         );
 
-        compiler.propagate_constants();
+        compiler.propagate_constants_with_globals(&env);
         dump_inst(
             "Inst @ constprop",
             &compiler.instructions,
