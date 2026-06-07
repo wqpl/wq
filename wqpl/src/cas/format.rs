@@ -5,15 +5,16 @@ use num_traits::{One, Signed, ToPrimitive};
 
 use super::limit::LimitDirection;
 use super::numeric::{
-    eval_numeric_binary, numeric_abs, numeric_is_negative, numeric_is_one, numeric_is_zero,
+    numeric_abs, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul,
 };
+use crate::value::cas::CasOp;
 use crate::value::Value;
 
 fn precedence(value: &Value) -> u8 {
-    match value.cas_op_parts() {
-        Some(("+", _)) => 1,
-        Some(("*", _)) => 2,
-        Some(("^", _)) => 3,
+    match value.cas_known_op_parts() {
+        Some((CasOp::Add, _)) => 1,
+        Some((CasOp::Multiply, _)) => 2,
+        Some((CasOp::Power, _)) => 3,
         _ => 4,
     }
 }
@@ -25,18 +26,21 @@ fn canonical_degree(value: &Value) -> u32 {
     if value.cas_var_name().is_some() {
         return 1;
     }
-    if let Some((op, args)) = value.cas_op_parts() {
+    if let Some((op, args)) = value.cas_known_op_parts() {
         return match (op, args) {
-            ("+", args) => args.iter().map(canonical_degree).max().unwrap_or(0),
-            ("*", args) => args
+            (CasOp::Add, args) => args.iter().map(canonical_degree).max().unwrap_or(0),
+            (CasOp::Multiply, args) => args
                 .iter()
                 .fold(0u32, |acc, arg| acc.saturating_add(canonical_degree(arg))),
-            ("^", [base, exp]) => match exp.exact_int().and_then(|n| n.to_u32()) {
+            (CasOp::Power, [base, exp]) => match exp.exact_int().and_then(|n| n.to_u32()) {
                 Some(n) => canonical_degree(base).saturating_mul(n),
                 None => u32::MAX / 4,
             },
             _ => u32::MAX / 4,
         };
+    }
+    if value.cas_op_parts().is_some() {
+        return u32::MAX / 4;
     }
     if let Some((_name, args)) = value.cas_call_parts() {
         return args
@@ -141,7 +145,7 @@ fn reciprocal_denominator(value: &Value) -> Option<Value> {
 
 fn format_power(base: &Value, exp: &Value, parent_prec: u8) -> String {
     let prec: u8 = 3;
-    let base_rendered = if matches!(base.cas_op_parts(), Some(("^", _))) {
+    let base_rendered = if base.cas_op_args(CasOp::Power).is_some() {
         format!("({})", format_expr(base, 0))
     } else if let Value::Algebraic(a) = base {
         let non_zero: Vec<usize> = a
@@ -177,7 +181,7 @@ fn format_power(base: &Value, exp: &Value, parent_prec: u8) -> String {
 }
 
 fn split_denominator_factor(value: &Value) -> Option<Value> {
-    let ("^", [base, exp]) = value.cas_op_parts()? else {
+    let [base, exp] = value.cas_op_args(CasOp::Power)? else {
         return None;
     };
     let power = exp.exact_int()?;
@@ -188,13 +192,13 @@ fn split_denominator_factor(value: &Value) -> Option<Value> {
     Some(if numeric_is_one(&abs_power) {
         base.clone()
     } else {
-        Value::from_cas_op("^", vec![base.clone(), abs_power])
+        Value::from_cas_known_op(CasOp::Power, vec![base.clone(), abs_power])
     })
 }
 
 fn display_factor_cmp(lhs: &Value, rhs: &Value) -> Ordering {
-    let lhs_is_add = matches!(lhs.cas_op_parts(), Some(("+", _)));
-    let rhs_is_add = matches!(rhs.cas_op_parts(), Some(("+", _)));
+    let lhs_is_add = lhs.cas_op_args(CasOp::Add).is_some();
+    let rhs_is_add = rhs.cas_op_args(CasOp::Add).is_some();
     lhs_is_add
         .cmp(&rhs_is_add)
         .then_with(|| canonical_degree(rhs).cmp(&canonical_degree(lhs)))
@@ -206,7 +210,7 @@ fn format_product_parts(leading: Option<&Value>, rest: &[Value], parent_prec: u8
     /// dependency). Used only for display grouping — does not affect
     /// canonical sort order.
     fn is_constant_cas(value: &Value) -> bool {
-        if let Some(("^", [base, _])) = value.cas_op_parts() {
+        if let Some([base, _]) = value.cas_op_args(CasOp::Power) {
             return !base.is_cas_expr();
         }
         false
@@ -228,9 +232,7 @@ fn format_product_parts(leading: Option<&Value>, rest: &[Value], parent_prec: u8
             denominators.push(denominator);
         } else if !factor.is_cas_expr() {
             numeric_coeff = Some(match numeric_coeff.take() {
-                Some(acc) => {
-                    eval_numeric_binary("*", &acc, factor).expect("numeric display coefficient")
-                }
+                Some(acc) => numeric_mul(&acc, factor).expect("numeric display coefficient"),
                 None => factor.clone(),
             });
         } else if is_constant_cas(factor) {
@@ -284,7 +286,7 @@ fn format_term_with_sign(term: &Value, parent_prec: u8) -> (bool, String) {
         return (true, format_arg(&numeric_abs(term), parent_prec));
     }
 
-    if let Some(("*", args)) = term.cas_op_parts()
+    if let Some(args) = term.cas_op_args(CasOp::Multiply)
         && let Some((first, rest)) = args.split_first()
         && !first.is_cas_expr()
         && numeric_is_negative(first)
@@ -323,6 +325,17 @@ fn format_sum(args: &[Value], parent_prec: u8) -> String {
     }
 }
 
+fn format_raw_op(value: &Value) -> String {
+    let Some((op, args)) = value.cas_op_parts() else {
+        return format_atom(value);
+    };
+    let rendered_args = args
+        .iter()
+        .map(|arg| format_expr(arg, 0))
+        .collect::<Vec<_>>();
+    format!("{op}[{}]", rendered_args.join(";"))
+}
+
 pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
     if let Some(name) = value.cas_var_name() {
         return name.to_string();
@@ -334,10 +347,10 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
             _ => name.to_string(),
         };
     }
-    if let Some((op, args)) = value.cas_op_parts() {
+    if let Some((op, args)) = value.cas_known_op_parts() {
         return match (op, args) {
-            ("+", args) => format_sum(args, parent_prec),
-            ("*", args) => {
+            (CasOp::Add, args) => format_sum(args, parent_prec),
+            (CasOp::Multiply, args) => {
                 let prec = 2;
                 if let Some((first, rest)) = args.split_first()
                     && !first.is_cas_expr()
@@ -358,15 +371,12 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
                     format_product_parts(None, args, parent_prec)
                 }
             }
-            ("^", [base, exp]) => format_power(base, exp, parent_prec),
-            _ => {
-                let rendered_args = args
-                    .iter()
-                    .map(|arg| format_expr(arg, 0))
-                    .collect::<Vec<_>>();
-                format!("{op}[{}]", rendered_args.join(";"))
-            }
+            (CasOp::Power, [base, exp]) => format_power(base, exp, parent_prec),
+            _ => format_raw_op(value),
         };
+    }
+    if value.cas_op_parts().is_some() {
+        return format_raw_op(value);
     }
     if let Some((expr, var, point, direction)) = value.cas_limit_parts() {
         let mut rendered = format!(

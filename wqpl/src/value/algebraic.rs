@@ -352,7 +352,7 @@ pub(crate) fn algebraic_add(a: &AlgebraicData, b: &AlgebraicData) -> WqResult<Va
     for i in 0..len {
         let ac = a.coeffs.get(i).unwrap_or(&Value::Int(0));
         let bc = b.coeffs.get(i).unwrap_or(&Value::Int(0));
-        coeffs.push(crate::cas::eval_numeric_binary("+", ac, bc)?);
+        coeffs.push(crate::cas::numeric_add(ac, bc)?);
     }
     // Trim trailing zeros
     while coeffs.len() > 1 && coeffs.last().is_some_and(crate::cas::numeric_is_zero) {
@@ -377,7 +377,7 @@ pub(crate) fn algebraic_sub(a: &AlgebraicData, b: &AlgebraicData) -> WqResult<Va
     for i in 0..len {
         let ac = a.coeffs.get(i).unwrap_or(&Value::Int(0));
         let bc = b.coeffs.get(i).unwrap_or(&Value::Int(0));
-        coeffs.push(crate::cas::eval_numeric_binary("-", ac, bc)?);
+        coeffs.push(crate::cas::numeric_sub(ac, bc)?);
     }
     while coeffs.len() > 1 && coeffs.last().is_some_and(crate::cas::numeric_is_zero) {
         coeffs.pop();
@@ -671,7 +671,7 @@ pub(crate) fn algebraic_rational_pow(
     // field_const^q = (const_num / const_den)^q, computed exactly.
     let const_factor = rational_integer_pow(&const_num, &const_den, &q);
 
-    let final_coeff = crate::cas::eval_numeric_binary("*", &c_pow, &const_factor)
+    let final_coeff = crate::cas::numeric_mul(&c_pow, &const_factor)
         .map_err(|_| algebraic_err("algebraic_rational_pow: failed to multiply coefficients"))?;
 
     let r_usize = usize::try_from(&r).unwrap_or(0);
@@ -761,7 +761,7 @@ fn rational_pow(value: &Value, numer: &BigInt, denom: &BigInt) -> WqResult<Value
         }
         // Non-rational value (shouldn't happen for our use case)
         let exp = Value::from_bigint(numer.clone());
-        return crate::cas::eval_numeric_binary("^", value, &exp);
+        return crate::cas::numeric_pow(value, &exp);
     }
 
     // Fractional exponent: numer/denom
@@ -839,13 +839,13 @@ fn rational_pow(value: &Value, numer: &BigInt, denom: &BigInt) -> WqResult<Value
                         };
                         algebraic_div(&one, a)
                     } else {
-                        crate::cas::eval_numeric_binary("/", &Value::Int(1), &sqrt_val)
+                        crate::cas::numeric_div(&Value::Int(1), &sqrt_val)
                     }
                 } else if numer.is_one() {
                     Ok(sqrt_val)
                 } else {
                     let exp = Value::from_bigint(numer.clone());
-                    crate::cas::eval_numeric_binary("^", &sqrt_val, &exp)
+                    crate::cas::numeric_pow(&sqrt_val, &exp)
                 }
             } else {
                 Err(algebraic_err(
@@ -951,10 +951,10 @@ pub(crate) fn normalize_algebraic_field(a: &AlgebraicData) -> Option<AlgebraicDa
         } else if crate::cas::numeric_is_zero(old_c) {
             Value::Int(0)
         } else {
-            crate::cas::eval_numeric_binary("*", old_c, &scale_pow).ok()?
+            crate::cas::numeric_mul(old_c, &scale_pow).ok()?
         };
         new_coeffs.push(mapped);
-        scale_pow = crate::cas::eval_numeric_binary("*", &scale_pow, &scale).ok()?;
+        scale_pow = crate::cas::numeric_mul(&scale_pow, &scale).ok()?;
     }
 
     // Map isolating interval: lo < α < hi  →  lo/scale < β < hi/scale
@@ -980,6 +980,7 @@ pub(crate) fn normalize_algebraic_field(a: &AlgebraicData) -> Option<AlgebraicDa
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::value::cas::CasOp;
 
     fn sqrt2_poly() -> Arc<[BigInt]> {
         Arc::new([
@@ -1183,7 +1184,8 @@ mod tests {
             coeffs: Arc::new([Value::Int(-1), Value::Int(1)]),
         };
         let alg = Value::Algebraic(Arc::new(a));
-        let product = Value::from_cas_op("*", vec![alg.clone(), Value::from_cas_var("x")]);
+        let product =
+            Value::from_cas_known_op(CasOp::Multiply, vec![alg.clone(), Value::from_cas_var("x")]);
         assert_eq!(product.to_string(), "(-1 + 2^(1/2))*x");
     }
 
@@ -1346,9 +1348,9 @@ mod tests {
     }
 
     #[test]
-    fn algebraic_add_through_eval_numeric_binary() {
+    fn algebraic_add_through_numeric_add() {
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
-        let sum = crate::cas::eval_numeric_binary("+", &sqrt2, &sqrt2).unwrap();
+        let sum = crate::cas::numeric_add(&sqrt2, &sqrt2).unwrap();
         let expected = Value::Algebraic(Arc::new(make_sqrt2_times_2()));
         assert_eq!(sum, expected);
     }

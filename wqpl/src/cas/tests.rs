@@ -5,6 +5,7 @@ use num_bigint::BigInt;
 use super::*;
 use crate::value::Value;
 use crate::value::algebraic::AlgebraicData;
+use crate::value::cas::CasOp;
 
 fn contains_op(value: &Value, needle: &str) -> bool {
     if let Some((op, args)) = value.cas_op_parts() {
@@ -55,6 +56,49 @@ fn canonical_form_eliminates_subtraction_and_division() {
     .unwrap();
     assert!(!contains_op(&expr, "-"));
     assert!(!contains_op(&expr, "/"));
+}
+
+#[test]
+fn typed_op_constructors_canonicalize_like_raw_ops() {
+    let x = Value::from_cas_var("x");
+    let add = simplify_cas_value(&Value::from_cas_known_op(
+        CasOp::Add,
+        vec![x.clone(), Value::Int(1)],
+    ))
+    .unwrap();
+    assert_eq!(add.to_string(), "x + 1");
+
+    let mul = simplify_cas_value(&Value::from_cas_known_op(
+        CasOp::Multiply,
+        vec![Value::Int(2), x.clone()],
+    ))
+    .unwrap();
+    assert_eq!(mul.to_string(), "2*x");
+
+    let pow = simplify_cas_value(&Value::from_cas_known_op(
+        CasOp::Power,
+        vec![x.clone(), Value::Int(2)],
+    ))
+    .unwrap();
+    assert_eq!(pow.to_string(), "x^2");
+
+    let neg =
+        simplify_cas_value(&Value::from_cas_known_op(CasOp::Subtract, vec![x.clone()])).unwrap();
+    assert_eq!(neg.to_string(), "-x");
+
+    let sub = simplify_cas_value(&Value::from_cas_known_op(
+        CasOp::Subtract,
+        vec![x.clone(), Value::Int(1)],
+    ))
+    .unwrap();
+    assert_eq!(sub.to_string(), "x - 1");
+
+    let div = simplify_cas_value(&Value::from_cas_known_op(
+        CasOp::Divide,
+        vec![x, Value::Int(2)],
+    ))
+    .unwrap();
+    assert_eq!(div.to_string(), "x/2");
 }
 
 #[test]

@@ -55,8 +55,8 @@ pub(super) fn ensure_expr_arg(value: &Value, ctx: &str) -> WqResult<()> {
     }
 }
 
-#[derive(Clone, Copy)]
-enum NumericBinaryOp {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NumericOp {
     Add,
     Subtract,
     Multiply,
@@ -64,7 +64,7 @@ enum NumericBinaryOp {
     Power,
 }
 
-impl NumericBinaryOp {
+impl NumericOp {
     fn from_symbol(op: &str) -> Option<Self> {
         match op {
             "+" => Some(Self::Add),
@@ -89,10 +89,34 @@ impl NumericBinaryOp {
 }
 
 pub(crate) fn eval_numeric_binary(op: &str, lhs: &Value, rhs: &Value) -> WqResult<Value> {
-    let Some(op) = NumericBinaryOp::from_symbol(op) else {
+    let Some(op) = NumericOp::from_symbol(op) else {
         return Err(cas_err(format!("unsupported symbolic operator '{op}'")));
     };
+    eval_numeric_op(op, lhs, rhs)
+}
+
+pub(crate) fn eval_numeric_op(op: NumericOp, lhs: &Value, rhs: &Value) -> WqResult<Value> {
     op.eval(lhs, rhs)
+}
+
+pub(crate) fn numeric_add(lhs: &Value, rhs: &Value) -> WqResult<Value> {
+    eval_numeric_op(NumericOp::Add, lhs, rhs)
+}
+
+pub(crate) fn numeric_sub(lhs: &Value, rhs: &Value) -> WqResult<Value> {
+    eval_numeric_op(NumericOp::Subtract, lhs, rhs)
+}
+
+pub(crate) fn numeric_mul(lhs: &Value, rhs: &Value) -> WqResult<Value> {
+    eval_numeric_op(NumericOp::Multiply, lhs, rhs)
+}
+
+pub(crate) fn numeric_div(lhs: &Value, rhs: &Value) -> WqResult<Value> {
+    eval_numeric_op(NumericOp::Divide, lhs, rhs)
+}
+
+pub(crate) fn numeric_pow(lhs: &Value, rhs: &Value) -> WqResult<Value> {
+    eval_numeric_op(NumericOp::Power, lhs, rhs)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -210,13 +234,13 @@ fn eval_numeric_call_with_mode(
 
 pub(crate) fn eval_exact_numeric_div(lhs: &Value, rhs: &Value) -> WqResult<Value> {
     let Some((lhs_n, lhs_d)) = lhs.rational_parts() else {
-        return eval_numeric_binary("/", lhs, rhs);
+        return numeric_div(lhs, rhs);
     };
     let Some((rhs_n, rhs_d)) = rhs.rational_parts() else {
-        return eval_numeric_binary("/", lhs, rhs);
+        return numeric_div(lhs, rhs);
     };
     if rhs_n.is_zero() {
-        return eval_numeric_binary("/", lhs, rhs);
+        return numeric_div(lhs, rhs);
     }
     let value = Value::from_fraction_parts(lhs_n * rhs_d, lhs_d * rhs_n);
     if let Some((numer, denom)) = value.rational_parts()

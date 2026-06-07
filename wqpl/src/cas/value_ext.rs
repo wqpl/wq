@@ -6,7 +6,7 @@ use num_traits::{One, ToPrimitive};
 use super::format_expr;
 use super::limit::{self, LimitDirection};
 use crate::value::Value;
-use crate::value::cas::{CasData, CasKind};
+use crate::value::cas::{CasData, CasKind, CasOp};
 
 impl Value {
     pub fn is_cas(&self) -> bool {
@@ -31,6 +31,10 @@ impl Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Op(op.into().into(), Arc::from(args)),
         }))
+    }
+
+    pub(crate) fn from_cas_known_op(op: CasOp, args: Vec<Value>) -> Value {
+        Self::from_cas_op(op.symbol(), args)
     }
 
     pub(crate) fn from_cas_const(name: impl Into<String>) -> Value {
@@ -95,6 +99,16 @@ impl Value {
             },
             _ => None,
         }
+    }
+
+    pub(crate) fn cas_known_op_parts(&self) -> Option<(CasOp, &[Value])> {
+        let (op, args) = self.cas_op_parts()?;
+        CasOp::from_symbol(op).map(|op| (op, args))
+    }
+
+    pub(crate) fn cas_op_args(&self, expected: CasOp) -> Option<&[Value]> {
+        let (op, args) = self.cas_known_op_parts()?;
+        if op == expected { Some(args) } else { None }
     }
 
     pub(crate) fn cas_call_parts(&self) -> Option<(&str, &[Value])> {

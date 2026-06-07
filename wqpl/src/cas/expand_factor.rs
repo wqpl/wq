@@ -2,14 +2,16 @@ use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::{
-    cas_add, cas_err, cas_mul, cas_pow, eval_exact_numeric_div, eval_numeric_binary,
-    numeric_is_negative, numeric_is_one, numeric_is_zero, simplify_cas_value, split_mul_factor,
+    cas_add, cas_err, cas_mul, cas_pow, eval_exact_numeric_div, numeric_add,
+    numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
+    simplify_cas_value, split_mul_factor,
 };
 use crate::session::dbglog::DebugLogFlags;
+use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
 
 fn expand_mul_into_terms(terms: Vec<Value>, factor: Value) -> WqResult<Vec<Value>> {
-    let factor_terms = if let Some(("+", args)) = factor.cas_op_parts() {
+    let factor_terms = if let Some(args) = factor.cas_op_args(CasOp::Add) {
         args.to_vec()
     } else {
         vec![factor]
@@ -68,9 +70,9 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
                     continue;
                 }
 
-                if let Some((op, args)) = expr.cas_op_parts() {
+                if let Some((op, args)) = expr.cas_known_op_parts() {
                     match (op, args) {
-                        ("+", args) => {
+                        (CasOp::Add, args) => {
                             let n = args.len();
                             if n == 0 {
                                 results.push(cas_add(Vec::new())?);
@@ -81,7 +83,7 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
                                 stack.push(ExpandFrame::Expr(arg.clone()));
                             }
                         }
-                        ("*", args) => {
+                        (CasOp::Multiply, args) => {
                             let n = args.len();
                             if n == 0 {
                                 results.push(cas_mul(vec![Value::Int(1)])?);
@@ -92,7 +94,7 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
                                 stack.push(ExpandFrame::Expr(arg.clone()));
                             }
                         }
-                        ("^", [base, exp]) => {
+                        (CasOp::Power, [base, exp]) => {
                             match exp.exact_int().and_then(|n| n.to_usize()) {
                                 Some(0) => {
                                     results.push(Value::Int(1));
@@ -111,7 +113,7 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
                                     // a sum first and the * check below fails.
                                     if let Some(k) = exp.exact_int()
                                         && k < BigInt::zero()
-                                        && let Some(("*", base_args)) = base.cas_op_parts()
+                                        && let Some(base_args) = base.cas_op_args(CasOp::Multiply)
                                     {
                                         let n = base_args.len();
                                         stack.push(ExpandFrame::MulNoExpand(n));
@@ -192,7 +194,7 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
                         // like ((c*d)^(-1)*e)^(-1) also get expanded.
                         if let Some(k) = exp.exact_int()
                             && k < BigInt::zero()
-                            && let Some(("*", base_args)) = base.cas_op_parts()
+                            && let Some(base_args) = base.cas_op_args(CasOp::Multiply)
                         {
                             let n = base_args.len();
                             stack.push(ExpandFrame::MulNoExpand(n));
@@ -246,8 +248,7 @@ pub(crate) fn expand_cas(expr: &Value) -> WqResult<Value> {
 fn push_factor(out: &mut Vec<(Value, Value)>, base: Value, power: Value) {
     for (existing_base, existing_power) in out.iter_mut() {
         if *existing_base == base {
-            *existing_power =
-                eval_numeric_binary("+", existing_power, &power).expect("numeric power addition");
+            *existing_power = numeric_add(existing_power, &power).expect("numeric power addition");
             return;
         }
     }
@@ -258,13 +259,12 @@ fn factor_term(term: &Value) -> (Value, Vec<(Value, Value)>) {
     if !term.is_cas_expr() {
         return (term.clone(), Vec::new());
     }
-    if let Some(("*", args)) = term.cas_op_parts() {
+    if let Some(args) = term.cas_op_args(CasOp::Multiply) {
         let mut coeff = Value::Int(1);
         let mut factors = Vec::new();
         for arg in args {
             if !arg.is_cas_expr() {
-                coeff =
-                    eval_numeric_binary("*", &coeff, arg).expect("numeric coefficient multiply");
+                coeff = numeric_mul(&coeff, arg).expect("numeric coefficient multiply");
             } else {
                 let (base, power) = split_mul_factor(arg);
                 push_factor(&mut factors, base, power);
@@ -395,7 +395,7 @@ fn intersect_common_factors(common: &mut Vec<(Value, Value)>, factors: &[(Value,
     let mut idx = 0;
     while idx < common.len() {
         if let Some((_, power)) = factors.iter().find(|(base, _)| *base == common[idx].0) {
-            if let Ok(cmp) = eval_numeric_binary("-", power, &common[idx].1)
+            if let Ok(cmp) = numeric_sub(power, &common[idx].1)
                 && numeric_is_negative(&cmp)
             {
                 common[idx].1 = power.clone();
@@ -430,7 +430,7 @@ pub(super) fn factor_expr(expr: &Value) -> WqResult<Value> {
         return Ok(Value::from_cas_eq(factor_expr(lhs)?, factor_expr(rhs)?));
     }
     let expr = simplify_cas_value(expr)?;
-    let Some(("+", args)) = expr.cas_op_parts() else {
+    let Some(args) = expr.cas_op_args(CasOp::Add) else {
         return Ok(expr);
     };
     if args.len() < 2 {
@@ -468,8 +468,7 @@ pub(super) fn factor_expr(expr: &Value) -> WqResult<Value> {
         let mut remaining = factors;
         for (common_base, common_power) in &common_factors {
             if let Some((_, power)) = remaining.iter_mut().find(|(base, _)| *base == *common_base) {
-                *power = eval_numeric_binary("-", power, common_power)
-                    .expect("numeric power subtraction");
+                *power = numeric_sub(power, common_power).expect("numeric power subtraction");
             }
         }
         remaining.retain(|(_, power)| !numeric_is_zero(power));
