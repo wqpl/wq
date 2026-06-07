@@ -55,16 +55,50 @@ pub(super) fn ensure_expr_arg(value: &Value, ctx: &str) -> WqResult<()> {
     }
 }
 
+#[derive(Clone, Copy)]
+enum NumericBinaryOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Power,
+}
+
+impl NumericBinaryOp {
+    fn from_symbol(op: &str) -> Option<Self> {
+        match op {
+            "+" => Some(Self::Add),
+            "-" => Some(Self::Subtract),
+            "*" => Some(Self::Multiply),
+            "/" => Some(Self::Divide),
+            "^" => Some(Self::Power),
+            _ => None,
+        }
+    }
+
+    fn eval(self, lhs: &Value, rhs: &Value) -> WqResult<Value> {
+        let res = match self {
+            Self::Add => lhs.add(rhs),
+            Self::Subtract => lhs.subtract(rhs),
+            Self::Multiply => lhs.multiply(rhs),
+            Self::Divide => lhs.divide_dot(rhs),
+            Self::Power => lhs.power_dot(rhs),
+        };
+        res.map_err(|e| e.src("cas"))
+    }
+}
+
 pub(crate) fn eval_numeric_binary(op: &str, lhs: &Value, rhs: &Value) -> WqResult<Value> {
-    let res = match op {
-        "+" => lhs.add(rhs),
-        "-" => lhs.subtract(rhs),
-        "*" => lhs.multiply(rhs),
-        "/" => lhs.divide_dot(rhs),
-        "^" => lhs.power_dot(rhs),
-        _ => return Err(cas_err(format!("unsupported symbolic operator '{op}'"))),
+    let Some(op) = NumericBinaryOp::from_symbol(op) else {
+        return Err(cas_err(format!("unsupported symbolic operator '{op}'")));
     };
-    res.map_err(|e| e.src("cas"))
+    op.eval(lhs, rhs)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NumericCallMode {
+    Simplify,
+    Evaluate,
 }
 
 /// Try to resolve CAS constants (pi, e, oo, _oo) to numeric values and
@@ -91,10 +125,33 @@ pub(super) fn try_eval_with_const_resolve(name: &str, args: &[Value]) -> WqResul
 }
 
 pub(super) fn eval_numeric_call(name: &str, args: &[Value]) -> WqResult<Option<Value>> {
-    // Algebraic values cannot be numerically evaluated — keep symbolic
-    if args.iter().any(|a| a.is_algebraic_number()) {
-        return Ok(None);
+    eval_numeric_call_with_mode(name, args, NumericCallMode::Simplify)
+}
+
+fn eval_numeric_call_with_mode(
+    name: &str,
+    args: &[Value],
+    mode: NumericCallMode,
+) -> WqResult<Option<Value>> {
+    if mode == NumericCallMode::Simplify {
+        if args.iter().any(|a| a.is_algebraic_number()) {
+            return Ok(None);
+        }
+        match (name, args) {
+            ("exp", [_arg]) => {
+                // Never evaluate exp numerically during simplification:
+                // conversion to e / e^n is handled by the Call simplifier.
+                return Ok(None);
+            }
+            ("ln", [_arg]) => {
+                // Keep ln symbolic; ln(1) and ln(e) are handled by the Call
+                // simplifier, while most other integer logs are transcendental.
+                return Ok(None);
+            }
+            _ => {}
+        }
     }
+
     let value = match (name, args) {
         ("abs", [arg]) => Some(arg.abs().map_err(|e| e.src("cas"))?),
         ("sgn", [arg]) => Some(arg.sgn().map_err(|e| e.src("cas"))?),
@@ -127,16 +184,8 @@ pub(super) fn eval_numeric_call(name: &str, args: &[Value]) -> WqResult<Option<V
                 None
             }
         }
-        ("exp", [_arg]) => {
-            // Never evaluate exp numerically during simplification —
-            // conversion to e / e^n is handled by the Call simplifier.
-            return Ok(None);
-        }
-        ("ln", [_arg]) => {
-            // Keep ln symbolic — ln(n) is transcendental for n ≠ 1.
-            // ln(1)→0 and ln(e)→1 are handled by the Call simplifier.
-            return Ok(None);
-        }
+        ("exp", [arg]) => Some(arg.exp().map_err(|e| e.src("cas"))?),
+        ("ln", [arg]) => Some(arg.ln().map_err(|e| e.src("cas"))?),
         ("log2", [arg]) => Some(arg.log2().map_err(|e| e.src("cas"))?),
         ("log10", [arg]) => Some(arg.log10().map_err(|e| e.src("cas"))?),
         ("sqrt", [arg]) => Some(arg.sqrt().map_err(|e| e.src("cas"))?),
@@ -287,54 +336,10 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
         for arg in args {
             vals.push(eval_numeric_cas(arg)?);
         }
-        // Dispatch to Value's numeric methods.
-        let result = match (name, vals.as_slice()) {
-            ("abs", [a]) => a.abs(),
-            ("sgn", [a]) => a.sgn(),
-            ("sin", [a]) => a.sin(),
-            ("cos", [a]) => a.cos(),
-            ("tan", [a]) => a.tan(),
-            ("sec", [a]) => a.sec(),
-            ("csc", [a]) => a.csc(),
-            ("cot", [a]) => a.cot(),
-            ("sinh", [a]) => a.sinh(),
-            ("cosh", [a]) => a.cosh(),
-            ("tanh", [a]) => a.tanh(),
-            ("arcsin", [a]) => a.arcsin(),
-            ("arccos", [a]) => a.arccos(),
-            ("arctan", [a]) => a.arctan(),
-            ("arcsinh", [a]) => a.arcsinh(),
-            ("arccosh", [a]) => a.arccosh(),
-            ("arctanh", [a]) => a.arctanh(),
-            ("exp", [a]) => a.exp(),
-            ("ln", [a]) => a.ln(),
-            ("log2", [a]) => a.log2(),
-            ("log10", [a]) => a.log10(),
-            ("sqrt", [a]) => a.sqrt(),
-            ("erf", [a]) => a.erf(),
-            ("erfc", [a]) => a.erfc(),
-            ("gamma", [a]) => a.gamma(),
-            ("lngamma", [a]) => a.lngamma(),
-            ("si", [a]) => a.si(),
-            ("ci", [a]) => a.ci(),
-            ("ei", [a]) => a.ei(),
-            ("en", [n, x]) => n.en(x),
-            ("ellpk", [a]) => a.ellpk(),
-            ("ellpe", [a]) => a.ellpe(),
-            ("ellik", [phi, m]) => phi.ellik(m),
-            ("ellie", [phi, m]) => phi.ellie(m),
-            ("heaviside", [a]) => a.heaviside(),
-            ("floor", [a]) => a.floor(),
-            ("ceil", [a]) => a.ceil(),
-            ("round", [a]) => a.round(),
-            _ => {
-                return Err(cas_err(format!(
-                    "unsupported function '{name}' in numeric evaluation"
-                ))
-                .got1(expr));
-            }
-        };
-        result.map_err(|e| e.src("cas"))
+        eval_numeric_call_with_mode(name, vals.as_slice(), NumericCallMode::Evaluate)?
+            .ok_or_else(|| {
+                cas_err(format!("unsupported function '{name}' in numeric evaluation")).got1(expr)
+            })
     } else {
         Err(cas_err("expected symbolic expression for numeric evaluation").got1(expr))
     }

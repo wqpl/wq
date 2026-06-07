@@ -502,6 +502,19 @@ fn numeric_heaviside_neg() {
 }
 
 #[test]
+fn numeric_eval_handles_binary_math_calls() {
+    let log = Value::from_cas_call("log", vec![Value::Int(8), Value::Int(2)]);
+    assert_eq!(eval_numeric_cas(&log).unwrap(), Value::float(3.0));
+
+    let arctan2 = Value::from_cas_call("arctan2", vec![Value::Int(1), Value::Int(1)]);
+    let result = eval_numeric_cas(&arctan2).unwrap();
+    let Value::Float(value) = result else {
+        panic!("expected float");
+    };
+    assert!((*value - std::f64::consts::FRAC_PI_4).abs() < 1e-12);
+}
+
+#[test]
 fn numeric_rejects_non_numeric_algebraic_coefficients() {
     let malformed = Value::Algebraic(Arc::new(AlgebraicData {
         poly: Arc::new([BigInt::from(-2), BigInt::from(0), BigInt::from(1)]),
