@@ -3,6 +3,7 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
+use super::value_ext::{IntoCasFunction, IntoCasOp};
 use super::rewrite::push_flattened;
 use super::{
     cas_err, cas_product, collect_single_poly_var, contains_cas_var, ensure_expr_arg,
@@ -14,7 +15,7 @@ use super::{
     try_exact_polynomial_division,
 };
 use crate::session::dbglog::DebugLogFlags;
-use crate::value::cas::CasOp;
+use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 /// Stack frame for iterative simplify.
@@ -26,7 +27,7 @@ enum SimplifyFrame {
     Div,
     Neg,
     Sub,
-    Call { name: String, n: usize },
+    Function { function: CasFunction, n: usize },
     Eq,
 }
 
@@ -1150,8 +1151,8 @@ fn combine_log_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
 /// Returns None if the core doesn't match this pattern.
 fn extract_ln_abs_pref(core: &Value) -> Option<(Value, Value)> {
     // Direct ln|abs[arg]| call
-    if let Some(("ln", [ln_arg])) = core.cas_call_parts()
-        && let Some(("abs", [abs_arg])) = ln_arg.cas_call_parts()
+    if let Some((CasFunction::Ln, [ln_arg])) = core.cas_call_parts()
+        && let Some((CasFunction::Abs, [abs_arg])) = ln_arg.cas_call_parts()
     {
         return Some((Value::Int(1), abs_arg.clone()));
     }
@@ -1166,13 +1167,13 @@ fn extract_ln_abs_pref(core: &Value) -> Option<(Value, Value)> {
         };
         if !rest.is_cas_expr() {
             // pref is the ln term, rest is the coefficient — swap
-            if let Some(("ln", [ln_arg])) = pref.cas_call_parts()
-                && let Some(("abs", [abs_arg])) = ln_arg.cas_call_parts()
+            if let Some((CasFunction::Ln, [ln_arg])) = pref.cas_call_parts()
+                && let Some((CasFunction::Abs, [abs_arg])) = ln_arg.cas_call_parts()
             {
                 return Some((rest.clone(), abs_arg.clone()));
             }
-        } else if let Some(("ln", [ln_arg])) = rest.cas_call_parts()
-            && let Some(("abs", [abs_arg])) = ln_arg.cas_call_parts()
+        } else if let Some((CasFunction::Ln, [ln_arg])) = rest.cas_call_parts()
+            && let Some((CasFunction::Abs, [abs_arg])) = ln_arg.cas_call_parts()
         {
             return Some((pref.clone(), abs_arg.clone()));
         }
@@ -1189,7 +1190,7 @@ fn coeff_ok_in_var(coeff: &Value, var: &str) -> bool {
 pub(super) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
     let mut flat = Vec::with_capacity(args.len());
     for arg in args {
-        push_flattened(&mut flat, CasOp::Add.symbol(), simplify_cas_value(&arg)?);
+        push_flattened(&mut flat, CasOp::Add, simplify_cas_value(&arg)?);
     }
 
     let mut numeric: Option<Value> = None;
@@ -1318,7 +1319,7 @@ pub(super) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
 pub(super) fn cas_mul(args: Vec<Value>) -> WqResult<Value> {
     let mut flat = Vec::with_capacity(args.len());
     for arg in args {
-        push_flattened(&mut flat, CasOp::Multiply.symbol(), simplify_cas_value(&arg)?);
+        push_flattened(&mut flat, CasOp::Multiply, simplify_cas_value(&arg)?);
     }
 
     let mut numeric: Option<Value> = None;
@@ -1825,10 +1826,10 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     continue;
                 }
 
-                if let Some((name, args)) = expr.cas_call_parts() {
+                if let Some((function, args)) = expr.cas_call_parts() {
                     let n = args.len();
-                    stack.push(SimplifyFrame::Call {
-                        name: name.to_string(),
+                    stack.push(SimplifyFrame::Function {
+                        function,
                         n,
                     });
                     for arg in args.iter().rev() {
@@ -1880,9 +1881,9 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     .ok_or_else(|| cas_err("simplify: missing lhs for -"))?;
                 results.push(cas_sub(lhs, rhs)?);
             }
-            SimplifyFrame::Call { name, n } => {
+            SimplifyFrame::Function { function, n } => {
                 let args = split_off_results(&mut results, n)?;
-                if name == "sqrt"
+                if function == CasFunction::Sqrt
                     && let [arg] = args.as_slice()
                 {
                     results.push(cas_pow(
@@ -1890,19 +1891,14 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                         Value::from_fraction_parts(BigInt::one(), BigInt::from(2)),
                     )?);
                 } else if args.iter().all(|arg| !arg.is_cas_expr())
-                    && let Some(value) = eval_numeric_call(&name, &args)?
+                    && let Some(value) = eval_numeric_call(function, &args)?
                 {
                     results.push(value);
-                } else if name == "-"
-                    && let [arg] = args.as_slice()
-                {
-                    // Unary minus call → negation (normalises to Int/Fraction)
-                    results.push(cas_neg(arg.clone())?);
-                } else if name == "exp"
+                } else if function == CasFunction::Exp
                     && let [arg] = args.as_slice()
                 {
                     // Keep exp[n] symbolic as e or e^n
-                    let e = Value::from_cas_const("e");
+                    let e = Value::from_cas_const(CasConst::E);
                     if numeric_is_zero(arg) {
                         results.push(Value::Int(1));
                     } else if numeric_is_one(arg) {
@@ -1910,30 +1906,33 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     } else {
                         results.push(cas_pow(e, arg.clone())?);
                     }
-                } else if name == "ln"
+                } else if function == CasFunction::Ln
                     && let [arg] = args.as_slice()
                 {
-                    if arg.cas_const_name() == Some("e") {
+                    if arg.cas_const() == Some(CasConst::E) {
                         results.push(Value::Int(1));
                     } else if numeric_is_one(arg) {
                         // ln(1) = 0
                         results.push(Value::Int(0));
                     } else {
-                        results.push(Value::from_cas_call("ln", args));
+                        results.push(Value::from_cas_function(CasFunction::Ln, args));
                     }
-                } else if name == "abs"
+                } else if function == CasFunction::Abs
                     && let [arg] = args.as_slice()
                 {
                     // abs(∞) = ∞, abs(-∞) = ∞
-                    if arg.cas_const_name() == Some("oo") || arg.cas_const_name() == Some("_oo") {
-                        results.push(Value::from_cas_const("oo"));
+                    if matches!(
+                        arg.cas_const(),
+                        Some(CasConst::Infinity | CasConst::NegInfinity)
+                    ) {
+                        results.push(Value::from_cas_const(CasConst::Infinity));
                     } else {
-                        results.push(Value::from_cas_call("abs", args));
+                        results.push(Value::from_cas_function(CasFunction::Abs, args));
                     }
-                } else if let Some(value) = try_eval_with_const_resolve(&name, &args)? {
+                } else if let Some(value) = try_eval_with_const_resolve(function, &args)? {
                     results.push(value);
                 } else {
-                    results.push(Value::from_cas_call(&name, args));
+                    results.push(Value::from_cas_function(function, args));
                 }
             }
             SimplifyFrame::Eq => {
@@ -1955,22 +1954,25 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
     Ok(result)
 }
 
-pub(crate) fn cas_binary_expr(op: &str, lhs: &Value, rhs: &Value) -> WqResult<Value> {
-    ensure_expr_arg(lhs, op)?;
-    ensure_expr_arg(rhs, op)?;
+pub(crate) fn cas_binary_expr(op: impl IntoCasOp, lhs: &Value, rhs: &Value) -> WqResult<Value> {
+    let op = op.into_cas_op();
+    ensure_expr_arg(lhs, op.symbol())?;
+    ensure_expr_arg(rhs, op.symbol())?;
     simplify_cas_value(&Value::from_cas_op(op, vec![lhs.clone(), rhs.clone()]))
 }
 
-pub(crate) fn cas_unary_expr(op: &str, arg: &Value) -> WqResult<Value> {
-    ensure_expr_arg(arg, op)?;
+pub(crate) fn cas_unary_expr(op: impl IntoCasOp, arg: &Value) -> WqResult<Value> {
+    let op = op.into_cas_op();
+    ensure_expr_arg(arg, op.symbol())?;
     simplify_cas_value(&Value::from_cas_op(op, vec![arg.clone()]))
 }
 
-pub(crate) fn cas_call_expr(name: &str, args: &[Value]) -> WqResult<Value> {
+pub(crate) fn cas_call_expr(function: impl IntoCasFunction, args: &[Value]) -> WqResult<Value> {
+    let function = function.into_cas_function();
     for arg in args {
-        ensure_expr_arg(arg, name)?;
+        ensure_expr_arg(arg, function.name())?;
     }
-    simplify_cas_value(&Value::from_cas_call(name, args.to_vec()))
+    simplify_cas_value(&Value::from_cas_function(function, args.to_vec()))
 }
 
 pub(super) fn var_name_from_value(value: &Value) -> WqResult<String> {
@@ -2028,12 +2030,12 @@ pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<
             _ => Ok(expr.clone()),
         };
     }
-    if let Some((name, args)) = expr.cas_call_parts() {
+    if let Some((function, args)) = expr.cas_call_parts() {
         let mut out = Vec::with_capacity(args.len());
         for arg in args {
             out.push(substitute_expr(arg, var, val)?);
         }
-        return simplify_cas_value(&Value::from_cas_call(name, out));
+        return simplify_cas_value(&Value::from_cas_function(function, out));
     }
     Ok(expr.clone())
 }

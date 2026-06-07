@@ -122,12 +122,24 @@ impl std::hash::Hash for Value {
                             arg.hash(state);
                         }
                     }
-                    CasKind::Call(name, args) => {
+                    CasKind::Function(name, args) => {
                         2u8.hash(state);
                         name.hash(state);
                         for arg in args.iter() {
                             arg.hash(state);
                         }
+                    }
+                    CasKind::Limit {
+                        expr,
+                        var,
+                        point,
+                        direction,
+                    } => {
+                        5u8.hash(state);
+                        expr.hash(state);
+                        var.hash(state);
+                        point.hash(state);
+                        direction.hash(state);
                     }
                     CasKind::Eq(lhs, rhs) => {
                         3u8.hash(state);
@@ -208,11 +220,25 @@ impl PartialEq for Value {
                         && arga.len() == argb.len()
                         && arga.iter().zip(argb.iter()).all(|(x, y)| x == y)
                 }
-                (CasKind::Call(na, arga), CasKind::Call(nb, argb)) => {
+                (CasKind::Function(na, arga), CasKind::Function(nb, argb)) => {
                     na == nb
                         && arga.len() == argb.len()
                         && arga.iter().zip(argb.iter()).all(|(x, y)| x == y)
                 }
+                (
+                    CasKind::Limit {
+                        expr: ea,
+                        var: va,
+                        point: pa,
+                        direction: da,
+                    },
+                    CasKind::Limit {
+                        expr: eb,
+                        var: vb,
+                        point: pb,
+                        direction: db,
+                    },
+                ) => ea == eb && va == vb && pa == pb && da == db,
                 (CasKind::Eq(lhsa, rhsa), CasKind::Eq(lhsb, rhsb)) => lhsa == lhsb && rhsa == rhsb,
                 _ => false,
             },

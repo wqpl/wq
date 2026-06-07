@@ -4,11 +4,12 @@ use crate::cas::{
     substitute_cas,
 };
 use crate::session::dbglog::DebugLogFlags;
+use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 const MAX_LHOPITAL_DEPTH: usize = 5;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum LimitDirection {
     /// x → a⁺ (approach from above)
     Right,
@@ -229,7 +230,7 @@ fn is_inf_at(expr: &Value, var: &Value, point: &Value) -> WqResult<bool> {
 /// Also handles `a / b^n` = `(* a (^ b -n))` for n > 1.
 fn split_fraction(expr: &Value) -> Option<(Value, Value)> {
     // Case: (^ den -n) → numerator = 1, denominator = den^n
-    if let Some(("^", [base, exp])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && let Some(n) = exp.as_i64()
         && n < 0
     {
@@ -242,12 +243,12 @@ fn split_fraction(expr: &Value) -> Option<(Value, Value)> {
     }
 
     // Case: (* num (^ den -n) ...) → extract denominator, rest is numerator
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         let mut denom: Option<Value> = None;
         let mut num_factors = Vec::new();
         for arg in args {
             if denom.is_none()
-                && let Some(("^", [base, exp])) = arg.cas_op_parts()
+                && let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts()
                 && let Some(n) = exp.as_i64()
                 && n < 0
             {
@@ -275,7 +276,7 @@ fn split_fraction(expr: &Value) -> Option<(Value, Value)> {
 /// Returns `(numerator, denominator)` where the denominator is the
 /// inverted zero-factor.
 fn split_inf_times_zero_product(expr: &Value, var_name: &str) -> Option<(Value, Value)> {
-    let ("*", args) = expr.cas_op_parts()? else {
+    let (CasOp::Multiply, args) = expr.cas_op_parts()? else {
         return None;
     };
     // Find a factor that looks like e^(-var) = (^ e (* -1 var))
@@ -283,7 +284,7 @@ fn split_inf_times_zero_product(expr: &Value, var_name: &str) -> Option<(Value, 
     let mut denom_inner: Option<Value> = None;
     for arg in args {
         if denom_inner.is_none()
-            && let Some(("^", [base, exp])) = arg.cas_op_parts()
+            && let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts()
             && base.cas_const_name() == Some("e")
         {
             // Invert: e^(k*x) in denominator, so denominator = e^(-k*x)
@@ -348,7 +349,7 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
     }
 
     // exp(arg) or a^arg: base e or any constant base
-    if let Some(("^", [base, exp_arg])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp_arg])) = expr.cas_op_parts()
         && !base.is_cas_expr()
     {
         // a^(k*x) as x→∞: a>1 → ∞, 0<a<1 → 0
@@ -373,18 +374,18 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
         return Ok(None);
     }
     // Also handle e^arg specifically
-    if let Some(("^", [base, exp_arg])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp_arg])) = expr.cas_op_parts()
         && base.cas_const_name() == Some("e")
     {
         return limit_exp_at_infinity(exp_arg, var_name, sign);
     }
     // Also check the raw call form (before simplify).
-    if let Some(("exp", [arg])) = expr.cas_call_parts() {
+    if let Some((CasFunction::Exp, [arg])) = expr.cas_call_parts() {
         return limit_exp_at_infinity(arg, var_name, sign);
     }
 
     // abs(arg) → ∞ when arg → ±∞, abs(∞)=∞, abs(-∞)=∞
-    if let Some(("abs", [arg])) = expr.cas_call_parts() {
+    if let Some((CasFunction::Abs, [arg])) = expr.cas_call_parts() {
         let inner = try_limit_at_infinity(arg, var, point)?;
         if let Some(v) = inner {
             if v.cas_const_name() == Some("_oo") {
@@ -408,7 +409,7 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
                     return Ok(Some(asymp));
                 }
                 // Bounded oscillation: sin(∞), cos(∞) → doesn't exist
-                if matches!(name, "sin" | "cos") {
+                if matches!(name, CasFunction::Sin | CasFunction::Cos) {
                     return Ok(Some(Value::from_cas_const("undef")));
                 }
                 let call = Value::from_cas_call(name, vec![lim]);
@@ -424,7 +425,7 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
     }
 
     // Products: analyze each factor's limit at infinity
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         let mut limits = Vec::with_capacity(args.len());
         for arg in args {
             if !arg.is_cas_expr() {
@@ -455,14 +456,14 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
     }
 
     // (1 + 1/x)^x → e as x→∞
-    if let Some(("^", [base, exp])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && exp.cas_var_name() == Some(var_name)
-        && let Some(("+", add_args)) = base.cas_op_parts()
+        && let Some((CasOp::Add, add_args)) = base.cas_op_parts()
         && add_args.len() == 2
     {
         let has_one = add_args.iter().any(|a| matches!(a, Value::Int(1)));
         let has_recip = add_args.iter().any(|a| {
-            if let Some(("^", [b, e])) = a.cas_op_parts()
+            if let Some((CasOp::Power, [b, e])) = a.cas_op_parts()
                 && b.cas_var_name() == Some(var_name)
                 && let Some(n) = e.as_i64()
                 && n == -1
@@ -478,7 +479,7 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
     }
 
     // Power: x^n
-    if let Some(("^", [base, exp])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && base.cas_var_name() == Some(var_name)
     {
         if let Some(n) = exp.as_f64() {
@@ -501,31 +502,26 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
 }
 
 /// Known asymptotic values of functions at ±∞.
-fn asymp_at_infinity(name: &str, inf_val: &Value) -> Option<Value> {
+fn asymp_at_infinity(name: CasFunction, inf_val: &Value) -> Option<Value> {
     let is_pos = inf_val.cas_const_name() == Some("oo");
     match name {
-        "arctan" => Some(Value::float(if is_pos {
+        CasFunction::ArcTan => Some(Value::float(if is_pos {
             std::f64::consts::FRAC_PI_2
         } else {
             -std::f64::consts::FRAC_PI_2
         })),
-        "arccot" => Some(Value::float(if is_pos {
-            0.0
-        } else {
-            std::f64::consts::PI
-        })),
-        "tanh" => Some(Value::float(if is_pos { 1.0 } else { -1.0 })),
-        "arctanh" => None, // arctanh domain is (-1,1), undefined at ∞
-        "arccosh" => Some(inf_val.clone()), // arccosh(∞) = ∞
-        "arcsinh" => Some(inf_val.clone()), // arcsinh(∞) = ∞
-        "exp" => Some(if is_pos {
+        CasFunction::Tanh => Some(Value::float(if is_pos { 1.0 } else { -1.0 })),
+        CasFunction::ArcTanh => None, // arctanh domain is (-1,1), undefined at ∞
+        CasFunction::ArcCosh => Some(inf_val.clone()), // arccosh(∞) = ∞
+        CasFunction::ArcSinh => Some(inf_val.clone()), // arcsinh(∞) = ∞
+        CasFunction::Exp => Some(if is_pos {
             inf_val.clone()
         } else {
             Value::Int(0)
         }),
-        "heaviside" => Some(Value::float(if is_pos { 1.0 } else { 0.0 })),
-        "erf" => Some(Value::float(if is_pos { 1.0 } else { -1.0 })),
-        "erfc" => Some(Value::float(if is_pos { 0.0 } else { 2.0 })),
+        CasFunction::Heaviside => Some(Value::float(if is_pos { 1.0 } else { 0.0 })),
+        CasFunction::Erf => Some(Value::float(if is_pos { 1.0 } else { -1.0 })),
+        CasFunction::Erfc => Some(Value::float(if is_pos { 0.0 } else { 2.0 })),
         _ => None,
     }
 }
@@ -548,7 +544,7 @@ enum ProductResult {
 fn combine_product_limits(factors: &[(Value, Value)]) -> ProductResult {
     let mut has_zero = false;
     let mut has_inf = false;
-    let mut inf_sign: Option<&str> = None;
+    let mut inf_sign: Option<CasConst> = None;
     let mut finite: Option<Value> = None;
 
     for (_, lim) in factors {
@@ -556,20 +552,15 @@ fn combine_product_limits(factors: &[(Value, Value)]) -> ProductResult {
             has_zero = true;
         } else if lim.cas_const_name() == Some("oo") || lim.cas_const_name() == Some("_oo") {
             has_inf = true;
+            let lim_sign = if lim.cas_const() == Some(CasConst::Infinity) {
+                CasConst::Infinity
+            } else {
+                CasConst::NegInfinity
+            };
             if inf_sign.is_none() {
-                inf_sign = Some(if lim.cas_const_name() == Some("oo") {
-                    "oo"
-                } else {
-                    "_oo"
-                });
-            } else if inf_sign
-                != Some(if lim.cas_const_name() == Some("oo") {
-                    "oo"
-                } else {
-                    "_oo"
-                })
-            {
-                inf_sign = Some("_oo");
+                inf_sign = Some(lim_sign);
+            } else if inf_sign != Some(lim_sign) {
+                inf_sign = Some(CasConst::NegInfinity);
             }
         } else if !lim.is_cas_expr() {
             finite = Some(match finite.take() {
@@ -587,17 +578,17 @@ fn combine_product_limits(factors: &[(Value, Value)]) -> ProductResult {
         return ProductResult::InfTimesZero;
     }
     if has_inf {
-        let sign = inf_sign.unwrap_or("oo");
+        let sign = inf_sign.unwrap_or(CasConst::Infinity);
         let neg_coeff = finite
             .as_ref()
             .and_then(|f| f.as_f64())
             .map(|v| v < 0.0)
             .unwrap_or(false);
         if neg_coeff {
-            return ProductResult::Determinate(Value::from_cas_const(if sign == "oo" {
-                "_oo"
+            return ProductResult::Determinate(Value::from_cas_const(if sign == CasConst::Infinity {
+                CasConst::NegInfinity
             } else {
-                "oo"
+                CasConst::Infinity
             }));
         }
         return ProductResult::Determinate(Value::from_cas_const(sign));
@@ -616,7 +607,7 @@ fn combine_product_limits(factors: &[(Value, Value)]) -> ProductResult {
 fn has_exp_decay(args: &[Value], var_name: &str) -> bool {
     args.iter().any(|arg| {
         // e^(-x) = (^ e (* -1 x))
-        if let Some(("^", [base, exp])) = arg.cas_op_parts()
+        if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts()
             && base.cas_const_name() == Some("e")
         {
             // Check exponent is negative as var → ∞
@@ -651,12 +642,12 @@ fn extract_linear_coeff(expr: &Value, var_name: &str) -> (Value, Value) {
     if expr.cas_var_name() == Some(var_name) {
         return (Value::Int(1), Value::Int(0));
     }
-    if let Some(("-", [arg])) = expr.cas_op_parts()
+    if let Some((CasOp::Subtract, [arg])) = expr.cas_op_parts()
         && arg.cas_var_name() == Some(var_name)
     {
         return (Value::Int(-1), Value::Int(0));
     }
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         let mut coeff = Value::Int(1);
         let mut var_count = 0;
         for arg in args {
@@ -670,7 +661,7 @@ fn extract_linear_coeff(expr: &Value, var_name: &str) -> (Value, Value) {
             return (coeff, Value::Int(0));
         }
     }
-    if let Some(("+", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Add, args)) = expr.cas_op_parts() {
         for arg in args {
             let (a, b) = extract_linear_coeff(arg, var_name);
             if !numeric_is_zero(&a) {
@@ -759,7 +750,7 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
     }
     if den.cas_var_name() != Some(var_name) {
         // Also check x^n
-        if let Some(("^", [base, _])) = den.cas_op_parts()
+        if let Some((CasOp::Power, [base, _])) = den.cas_op_parts()
             && base.cas_var_name() == Some(var_name)
         {
             // OK
@@ -769,26 +760,26 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
     }
 
     // sin(x) → 1
-    if let Some(("sin", [arg])) = num.cas_call_parts()
+    if let Some((CasFunction::Sin, [arg])) = num.cas_call_parts()
         && arg.cas_var_name() == Some(var_name)
     {
         return Ok(Some(Value::Int(1)));
     }
 
     // tan(x) → 1
-    if let Some(("tan", [arg])) = num.cas_call_parts()
+    if let Some((CasFunction::Tan, [arg])) = num.cas_call_parts()
         && arg.cas_var_name() == Some(var_name)
     {
         return Ok(Some(Value::Int(1)));
     }
 
     // e^x - 1 → 1
-    if let Some(("+", args)) = num.cas_op_parts()
+    if let Some((CasOp::Add, args)) = num.cas_op_parts()
         && args.len() == 2
     {
         // (e^x + (-1)) or similar — match exp(x) - 1
         for arg in args {
-            if let Some(("exp", [inner])) = arg.cas_call_parts()
+            if let Some((CasFunction::Exp, [inner])) = arg.cas_call_parts()
                 && inner.cas_var_name() == Some(var_name)
             {
                 // Check other term is -1
@@ -803,8 +794,8 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
     }
 
     // ln(1+x) → 1
-    if let Some(("ln", [arg])) = num.cas_call_parts()
-        && let Some(("+", add_args)) = arg.cas_op_parts()
+    if let Some((CasFunction::Ln, [arg])) = num.cas_call_parts()
+        && let Some((CasOp::Add, add_args)) = arg.cas_op_parts()
         && add_args.len() == 2
     {
         let has_one = add_args.iter().any(|a| matches!(a, Value::Int(1)));
@@ -821,12 +812,12 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
 
 /// Known Taylor series at x=0, up to order 6.  Coefficients are indexed by
 /// degree: `coeffs[i]` is the coefficient of `x^i`.
-fn taylor_series(name: &str) -> Option<Vec<f64>> {
+fn taylor_series(name: CasFunction) -> Option<Vec<f64>> {
     match name {
-        "sin" => Some(vec![0.0, 1.0, 0.0, -1.0 / 6.0, 0.0, 1.0 / 120.0, 0.0]),
-        "cos" => Some(vec![1.0, 0.0, -1.0 / 2.0, 0.0, 1.0 / 24.0, 0.0]),
-        "tan" => Some(vec![0.0, 1.0, 0.0, 1.0 / 3.0, 0.0, 2.0 / 15.0]),
-        "exp" => Some(vec![
+        CasFunction::Sin => Some(vec![0.0, 1.0, 0.0, -1.0 / 6.0, 0.0, 1.0 / 120.0, 0.0]),
+        CasFunction::Cos => Some(vec![1.0, 0.0, -1.0 / 2.0, 0.0, 1.0 / 24.0, 0.0]),
+        CasFunction::Tan => Some(vec![0.0, 1.0, 0.0, 1.0 / 3.0, 0.0, 2.0 / 15.0]),
+        CasFunction::Exp => Some(vec![
             1.0,
             1.0,
             1.0 / 2.0,
@@ -834,8 +825,8 @@ fn taylor_series(name: &str) -> Option<Vec<f64>> {
             1.0 / 24.0,
             1.0 / 120.0,
         ]),
-        "ln" => Some(vec![0.0, 1.0, -1.0 / 2.0, 1.0 / 3.0, -1.0 / 4.0, 1.0 / 5.0]),
-        "sqrt" => Some(vec![0.0, 1.0]),
+        CasFunction::Ln => Some(vec![0.0, 1.0, -1.0 / 2.0, 1.0 / 3.0, -1.0 / 4.0, 1.0 / 5.0]),
+        CasFunction::Sqrt => Some(vec![0.0, 1.0]),
         _ => None,
     }
 }
@@ -867,7 +858,7 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
     }
 
     // x^n
-    if let Some(("^", [base, exp])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && base.cas_var_name() == Some(var_name)
         && let Some(n) = exp.as_i64()
         && n >= 0
@@ -881,7 +872,7 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
     }
 
     // Sum: f + g
-    if let Some(("+", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Add, args)) = expr.cas_op_parts() {
         let mut total = vec![0.0; order + 1];
         for arg in args {
             let s = expand_series(arg, var_name, order)?;
@@ -893,13 +884,13 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
     }
 
     // Negation: -f
-    if let Some(("-", [arg])) = expr.cas_op_parts() {
+    if let Some((CasOp::Subtract, [arg])) = expr.cas_op_parts() {
         let s = expand_series(arg, var_name, order)?;
         return Some(s.iter().map(|c| -c).collect());
     }
 
     // Subtraction: f - g
-    if let Some(("-", [lhs, rhs])) = expr.cas_op_parts() {
+    if let Some((CasOp::Subtract, [lhs, rhs])) = expr.cas_op_parts() {
         let a = expand_series(lhs, var_name, order)?;
         let b = expand_series(rhs, var_name, order)?;
         let mut c = vec![0.0; order + 1];
@@ -910,7 +901,7 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
     }
 
     // Product: f * g (truncated convolution)
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         let series: Vec<Vec<f64>> = args
             .iter()
             .map(|a| expand_series(a, var_name, order))
@@ -932,7 +923,7 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
     }
 
     // Power: f^n for integer n ≥ 0
-    if let Some(("^", [base, exp])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && let Some(n) = exp.as_i64()
         && (0..=6).contains(&n)
     {
@@ -957,7 +948,7 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
         // Pad to order+1 if the table is shorter
         table.resize(order + 1, 0.0);
         // For ln(1+x): arg is (+ 1 x)
-        if name == "ln" && args.len() == 1 {
+        if name == CasFunction::Ln && args.len() == 1 {
             let inner = expand_series(&args[0], var_name, order)?;
             if (inner[0] - 1.0).abs() < 1e-12 {
                 return Some(table);
@@ -1132,11 +1123,8 @@ fn probe_denominator_sign(
 }
 
 pub(crate) fn parse_limit_direction(value: &Value) -> Option<LimitDirection> {
-    // Accept CAS constants (e.g. Const("+")) or plain wq strings/chars.
-    let tag = value
-        .cas_const_name()
-        .map(|s| s.to_owned())
-        .or_else(|| value.to_rust_string_with_note().ok());
+    // Direction is a parser-level tag/string, not a symbolic constant.
+    let tag = value.to_rust_string_with_note().ok();
     match tag.as_deref() {
         Some("+") => Some(LimitDirection::Right),
         Some("-") => Some(LimitDirection::Left),
@@ -1747,7 +1735,7 @@ mod tests {
     #[test]
     fn parse_limit_direction_right() {
         assert_eq!(
-            parse_limit_direction(&Value::from_cas_const("+")),
+            parse_limit_direction(&crate::value::into_wq_string("+")),
             Some(LimitDirection::Right)
         );
     }
@@ -1755,7 +1743,7 @@ mod tests {
     #[test]
     fn parse_limit_direction_left() {
         assert_eq!(
-            parse_limit_direction(&Value::from_cas_const("-")),
+            parse_limit_direction(&crate::value::into_wq_string("-")),
             Some(LimitDirection::Left)
         );
     }
@@ -1798,9 +1786,9 @@ mod tests {
         let point = Value::Int(0);
         let limit = Value::from_cas_limit(expr.clone(), var.clone(), point.clone(), None);
         let (e, v, p, d) = limit.cas_limit_parts().unwrap();
-        assert_eq!(e, expr);
-        assert_eq!(v, var);
-        assert_eq!(p, point);
+        assert_eq!(e, &expr);
+        assert_eq!(v, &var);
+        assert_eq!(p, &point);
         assert_eq!(d, None);
     }
 
@@ -1839,8 +1827,8 @@ mod tests {
         assert!(limit.is_cas_expr());
         let (e, v, p, d) = limit.cas_limit_parts().unwrap();
         assert!(e.is_cas_expr());
-        assert_eq!(v, Value::from_cas_var("x"));
-        assert_eq!(p, Value::from_cas_const("oo"));
+        assert_eq!(v, &Value::from_cas_var("x"));
+        assert_eq!(p, &Value::from_cas_const("oo"));
         assert_eq!(d, None);
     }
 
@@ -1865,7 +1853,8 @@ mod tests {
             Some(LimitDirection::Right),
         );
         let (expr, var, point, dir) = original.cas_limit_parts().unwrap();
-        let reconstructed = Value::from_cas_limit(expr, var, point, dir);
+        let reconstructed =
+            Value::from_cas_limit(expr.clone(), var.clone(), point.clone(), dir);
         assert_eq!(original, reconstructed);
     }
 }

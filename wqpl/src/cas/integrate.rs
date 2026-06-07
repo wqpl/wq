@@ -4,6 +4,7 @@ use crate::cas::{
     eval_numeric_binary, rewrite_cas, simplify_cas_value, substitute_cas, var_name_from_value,
 };
 use crate::session::dbglog::DebugLogFlags;
+use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 mod base;
@@ -53,7 +54,7 @@ pub(crate) fn definite_integrate_cas(
 
     // If the antiderivative is itself an unevaluated integral, bail.
     if let Some((name, _)) = antideriv.cas_call_parts()
-        && name == "integrate"
+        && name == CasFunction::Integrate
     {
         return Ok(antideriv);
     }
@@ -162,14 +163,14 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
     }
     if let Some((op, args)) = expr.cas_op_parts() {
         let out = match (op, args) {
-            ("+", args) => {
+            (CasOp::Add, args) => {
                 let mut terms = Vec::with_capacity(args.len());
                 for arg in args {
                     terms.push(integrate_expr_with_depth(arg, var, depth + 1)?);
                 }
                 cas_add(terms)?
             }
-            ("*", args) => {
+            (CasOp::Multiply, args) => {
                 let (coeff, symbolic) = split_off_numeric(args);
                 match symbolic.len() {
                     0 => cas_mul(vec![coeff, Value::from_cas_var(var)]),
@@ -180,7 +181,7 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
                     _ => try_strategies(expr, var, depth + 1),
                 }?
             }
-            ("^", [base, exp]) if base.cas_var_name() == Some(var) => {
+            (CasOp::Power, [base, exp]) if base.cas_var_name() == Some(var) => {
                 polynomial::integrate_power_rule(base, exp, var)?
             }
             _ => try_strategies(expr, var, depth + 1)?,

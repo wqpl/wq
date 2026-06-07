@@ -16,6 +16,7 @@ use crate::cas::{
     poly_derivative, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul, poly_sub,
     poly_to_expr, poly_trim, simplify_cas_value,
 };
+use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
 
 /// Strategy entry point: integrate f(x)·e^(g(x)) via Liouville's principle.
@@ -31,7 +32,7 @@ pub(super) fn integrate_liouville(expr: &Value, var: &str) -> WqResult<Option<Va
     // Handles: f * exp(g), e^g / d, f * e^g / d
     let (f_expr, g_expr) = match simplified.cas_op_parts() {
         // Case: f(x) * exp(g(x)) / e^(g(x))
-        Some(("*", args)) => {
+        Some((CasOp::Multiply, args)) => {
             let mut f_factors = Vec::new();
             let mut g = None;
             for arg in args {
@@ -51,7 +52,7 @@ pub(super) fn integrate_liouville(expr: &Value, var: &str) -> WqResult<Option<Va
             (cas_product(f_factors.to_vec()), g)
         }
         // Case: e^(g(x)) / d(x)
-        Some(("/", [n, d])) => {
+        Some((CasOp::Divide, [n, d])) => {
             if let Some(g) = try_extract_exp_arg(n) {
                 // f(x) = 1/d(x)
                 let f = Value::from_cas_op("/", vec![Value::Int(1), d.clone()]);
@@ -254,14 +255,14 @@ fn solve_liouville_coeffs(p: &[Value], g: &[Value], deg_r: usize) -> WqResult<Ve
 /// Handles: "/"(n, d), "^"(base, -k), and "*"(const, "^"(base, -k)).
 fn extract_rational_num_den(expr: &Value, var: &str) -> Option<(Vec<Value>, Vec<Value>)> {
     match expr.cas_op_parts() {
-        Some(("/", args)) if args.len() == 2 => {
+        Some((CasOp::Divide, args)) if args.len() == 2 => {
             let n = &args[0];
             let d = &args[1];
             let num = poly_from_expr(n, var).ok()?;
             let den = poly_from_expr(d, var).ok()?;
             Some((num, den))
         }
-        Some(("^", args)) if args.len() == 2 => {
+        Some((CasOp::Power, args)) if args.len() == 2 => {
             let base = &args[0];
             let exp = &args[1];
             let k = exp.exact_int()?;
@@ -273,15 +274,17 @@ fn extract_rational_num_den(expr: &Value, var: &str) -> Option<(Vec<Value>, Vec<
             let denom = crate::cas::integrate::rational::poly_pow(&base_poly, k_abs).ok()?;
             Some((vec![Value::Int(1)], denom))
         }
-        Some(("*", args)) if args.len() == 2 => {
-            let (const_part, pow_part) = if args[0].cas_op_parts().is_some_and(|(op, _)| op == "^")
+        Some((CasOp::Multiply, args)) if args.len() == 2 => {
+            let (const_part, pow_part) = if args[0]
+                .cas_op_parts()
+                .is_some_and(|(op, _)| op == CasOp::Power)
             {
                 (&args[1], &args[0])
             } else {
                 (&args[0], &args[1])
             };
             match pow_part.cas_op_parts() {
-                Some(("^", pow_args)) if pow_args.len() == 2 => {
+                Some((CasOp::Power, pow_args)) if pow_args.len() == 2 => {
                     let base = &pow_args[0];
                     let exp = &pow_args[1];
                     let k = exp.exact_int()?;
@@ -608,18 +611,18 @@ fn try_liouville_ei_pattern(
 ) -> WqResult<Option<Value>> {
     // f must be C/x: either "/"(C, x) or (* C (^ x -1))
     let (c, is_one_over_x) = match f_expr.cas_op_parts() {
-        Some(("/", [n, d])) if d.cas_var_name() == Some(var) => {
+        Some((CasOp::Divide, [n, d])) if d.cas_var_name() == Some(var) => {
             if n.is_cas_expr() && n.cas_var_name().is_none() {
                 return Ok(None);
             }
             (n.clone(), true)
         }
-        Some(("*", args)) => {
+        Some((CasOp::Multiply, args)) => {
             // Look for (* C (^ x -1))
             let mut c_val = None;
             let mut has_x_pow_neg1 = false;
             for arg in args {
-                if let Some(("^", [base, e])) = arg.cas_op_parts()
+                if let Some((CasOp::Power, [base, e])) = arg.cas_op_parts()
                     && base.cas_var_name() == Some(var)
                     && e.exact_int_is(-1)
                 {
@@ -640,7 +643,9 @@ fn try_liouville_ei_pattern(
                 return Ok(None);
             }
         }
-        Some(("^", [base, e])) if base.cas_var_name() == Some(var) && e.exact_int_is(-1) => {
+        Some((CasOp::Power, [base, e]))
+            if base.cas_var_name() == Some(var) && e.exact_int_is(-1) =>
+        {
             (Value::Int(1), true)
         }
         _ => return Ok(None),

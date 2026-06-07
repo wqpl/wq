@@ -12,8 +12,7 @@ use crate::cst::{
 use crate::lex::Lexer;
 use crate::token::{Token, TokenType};
 
-/// Variable names that are intercepted as symbolic constants in CAS context.
-const CAS_CONSTANTS: &[&str] = &["pi", "e", "oo", "-oo"];
+use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{IntoWqValue, Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -3390,12 +3389,46 @@ impl Parser {
         };
 
         let node_span = node.span();
+        let quote_call = |name: &str, args: Vec<Value>, span: Option<(usize, usize)>| {
+            if name == "limit" {
+                if !(args.len() == 3 || args.len() == 4) {
+                    return Err(mk_err(
+                        span,
+                        "@s: limit expects 3 or 4 symbolic arguments".to_string(),
+                    ));
+                }
+                let direction = if args.len() == 4 {
+                    let Some(direction) = crate::cas::limit::parse_limit_direction(&args[3]) else {
+                        return Err(mk_err(
+                            span,
+                            "@s: limit direction must be + or -".to_string(),
+                        ));
+                    };
+                    Some(direction)
+                } else {
+                    None
+                };
+                return Ok(Value::from_cas_limit(
+                    args[0].clone(),
+                    args[1].clone(),
+                    args[2].clone(),
+                    direction,
+                ));
+            }
+            let Some(function) = CasFunction::from_name(name) else {
+                return Err(mk_err(
+                    span,
+                    format!("@s: unknown CAS function '{name}'"),
+                ));
+            };
+            cas_call_expr(function, &args)
+        };
 
         match node {
             Literal(value, _) => Ok(value),
             Variable(name, _) => {
-                if CAS_CONSTANTS.contains(&name.as_str()) {
-                    Ok(Value::from_cas_const(name))
+                if let Some(konst) = CasConst::from_name(&name) {
+                    Ok(Value::from_cas_const(konst))
                 } else {
                     Ok(Value::from_cas_var(name))
                 }
@@ -3404,7 +3437,7 @@ impl Parser {
                 operator: UnaryOperator::Negate,
                 operand,
                 ..
-            } => cas_unary_expr("-", &self.quote_symbolic_value(*operand, start)?),
+            } => cas_unary_expr(CasOp::Subtract, &self.quote_symbolic_value(*operand, start)?),
             UnaryOp {
                 operator: UnaryOperator::Count,
                 ..
@@ -3442,11 +3475,11 @@ impl Parser {
                 let lhs = self.quote_symbolic_value(*left, start)?;
                 let rhs = self.quote_symbolic_value(*right, start)?;
                 let op = match operator {
-                    BinaryOperator::Add => "+",
-                    BinaryOperator::Subtract => "-",
-                    BinaryOperator::Multiply => "*",
-                    BinaryOperator::Power => "^",
-                    BinaryOperator::Divide => "/",
+                    BinaryOperator::Add => CasOp::Add,
+                    BinaryOperator::Subtract => CasOp::Subtract,
+                    BinaryOperator::Multiply => CasOp::Multiply,
+                    BinaryOperator::Power => CasOp::Power,
+                    BinaryOperator::Divide => CasOp::Divide,
                     _ => {
                         return Err(mk_err(
                             node_span,
@@ -3467,7 +3500,7 @@ impl Parser {
                     .into_iter()
                     .map(|arg| self.quote_symbolic_value(arg, start))
                     .collect::<WqResult<Vec<_>>>()?;
-                cas_call_expr(&name, &args)
+                quote_call(&name, args, node_span)
             }
             Postfix { object, items, .. } => {
                 let object_span = object.span();
@@ -3477,7 +3510,7 @@ impl Parser {
                             .into_iter()
                             .map(|arg| self.quote_symbolic_value(arg, start))
                             .collect::<WqResult<Vec<_>>>()?;
-                        cas_call_expr(&name, &args)
+                        quote_call(&name, args, object_span)
                     }
                     Literal(value, ..)
                         if matches!(value, Value::Int(_) | Value::BigInt(_) | Value::Float(_)) =>
@@ -3487,7 +3520,7 @@ impl Parser {
                             .map(|arg| self.quote_symbolic_value(arg, start))
                             .collect::<WqResult<Vec<_>>>()?;
                         args.into_iter()
-                            .try_fold(value, |acc, arg| cas_binary_expr("*", &acc, &arg))
+                            .try_fold(value, |acc, arg| cas_binary_expr(CasOp::Multiply, &acc, &arg))
                     }
                     _ => Err(mk_err(
                         object_span,
@@ -4237,6 +4270,44 @@ mod sync_tests {
             .iter()
             .any(|s| matches!(s, AstNode::Assignment { name, .. } if name == "a"));
         assert!(has_a, "a:1 should be parsed after broken nested brackets");
+    }
+}
+
+#[cfg(test)]
+mod symbolic_quote_tests {
+    use super::*;
+    use crate::wqerror::WqErrorType;
+
+    fn parse_input(input: &str) -> WqResult<AstNode> {
+        let tokens = Lexer::new(input).tokenize().unwrap();
+        let mut parser =
+            Parser::new_with_builtins(tokens, input.to_string(), crate::builtins::Builtins::new());
+        parser.parse()
+    }
+
+    #[test]
+    fn symbolic_quote_rejects_unknown_call() {
+        let ast = parse_input("@s f[x]").expect("parser should recover with an error node");
+        let AstNode::Error(err, _) = ast else {
+            panic!("expected recovered syntax error, got {ast:?}");
+        };
+        assert_eq!(err.err_type, WqErrorType::Syntax);
+        assert!(
+            err.msg
+                .as_deref()
+                .is_some_and(|msg| msg.contains("@s: unknown CAS function 'f'")),
+            "unexpected error message: {err:?}"
+        );
+    }
+
+    #[test]
+    fn symbolic_quote_accepts_known_call() {
+        let ast = parse_input("@s sin[x]").expect("known CAS call should parse");
+        let AstNode::Literal(value, _) = ast else {
+            panic!("expected CAS literal, got {ast:?}");
+        };
+        assert!(value.is_cas_expr());
+        assert_eq!(value.to_string(), "sin[x]");
     }
 }
 

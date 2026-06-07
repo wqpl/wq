@@ -2,12 +2,13 @@ use super::{integrate_expr_with_depth, split_off_numeric};
 use crate::cas::diff::diff_expr;
 use crate::cas::{cas_div, cas_mul, cas_product, numeric_is_one, simplify_cas_value};
 use crate::session::dbglog::DebugLogFlags;
+use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let expr_fmt = expr.format_cas().unwrap_or_else(|| expr.to_string());
     cas_trace!(DebugLogFlags::CAS, "[cas] substitution enter: {expr_fmt}");
-    let Some(("*", args)) = expr.cas_op_parts() else {
+    let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
         cas_trace!(DebugLogFlags::CAS, "[cas] substitution exit (not_product)");
         return Ok(None);
     };
@@ -22,7 +23,7 @@ pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Opt
     }
 
     for (gi, f_of_g) in symbolic.iter().enumerate() {
-        let (fname_opt, inner_opt, is_half_pow): (Option<&str>, Option<&Value>, bool) =
+        let (fname_opt, inner_opt, is_half_pow): (Option<CasFunction>, Option<&Value>, bool) =
             // f(g(x)) — Call node like sin[x²], exp[x³], sqrt[x+1]
             if let Some((name, fargs)) = f_of_g.cas_call_parts()
                 && fargs.len() == 1
@@ -30,10 +31,10 @@ pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Opt
                 (Some(name), Some(&fargs[0]), false)
             }
             // (g(x))^(1/2) or (g(x))^(-1/2) — half-power Op node
-            else if let Some(("^", [base, exp])) = f_of_g.cas_op_parts()
+            else if let Some((CasOp::Power, [base, exp])) = f_of_g.cas_op_parts()
                 && (exp.exact_half() || exp.exact_neg_half())
             {
-                (Some("sqrt"), Some(base), true)
+                (Some(CasFunction::Sqrt), Some(base), true)
             } else {
                 (None, None, false)
             };

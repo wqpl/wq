@@ -7,6 +7,7 @@ use super::{
     cas_err, cas_sub, eval_exact_numeric_div, eval_numeric_binary, numeric_is_zero, poly_degree,
     poly_from_expr, simplify_cas_value, split_add_term, var_name_from_value,
 };
+use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
 
 fn complex_to_value(z: Complex64) -> Value {
@@ -266,7 +267,7 @@ fn solve_quadratic_c64(a: Complex64, b: Complex64, c: Complex64) -> Vec<Complex6
 
 fn linear_coefficients_from_expr(expr: &Value, vars: &[String]) -> WqResult<(Vec<Value>, Value)> {
     let expr = simplify_cas_value(expr)?;
-    let terms = if let Some(("+", args)) = expr.cas_op_parts() {
+    let terms = if let Some((CasOp::Add, args)) = expr.cas_op_parts() {
         args.to_vec()
     } else {
         vec![expr]

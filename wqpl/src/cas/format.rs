@@ -7,7 +7,7 @@ use super::limit::LimitDirection;
 use super::numeric::{
     numeric_abs, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul,
 };
-use crate::value::cas::CasOp;
+use crate::value::cas::{CasConst, CasOp};
 use crate::value::Value;
 
 fn precedence(value: &Value) -> u8 {
@@ -39,9 +39,6 @@ fn canonical_degree(value: &Value) -> u32 {
             _ => u32::MAX / 4,
         };
     }
-    if value.cas_op_parts().is_some() {
-        return u32::MAX / 4;
-    }
     if let Some((_name, args)) = value.cas_call_parts() {
         return args
             .iter()
@@ -61,7 +58,7 @@ fn push_canonical_key(value: &Value, out: &mut String) {
     }
     if let Some((op, args)) = value.cas_op_parts() {
         out.push_str("o:");
-        out.push_str(op);
+        out.push_str(op.symbol());
         out.push('(');
         for arg in args {
             push_canonical_key(arg, out);
@@ -72,7 +69,7 @@ fn push_canonical_key(value: &Value, out: &mut String) {
     }
     if let Some((name, args)) = value.cas_call_parts() {
         out.push_str("c:");
-        out.push_str(name);
+        out.push_str(name.name());
         out.push('(');
         for arg in args {
             push_canonical_key(arg, out);
@@ -333,18 +330,18 @@ fn format_raw_op(value: &Value) -> String {
         .iter()
         .map(|arg| format_expr(arg, 0))
         .collect::<Vec<_>>();
-    format!("{op}[{}]", rendered_args.join(";"))
+    format!("{}[{}]", op.symbol(), rendered_args.join(";"))
 }
 
 pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
     if let Some(name) = value.cas_var_name() {
         return name.to_string();
     }
-    if let Some(name) = value.cas_const_name() {
-        return match name {
-            "oo" => "∞".to_string(),
-            "_oo" => "-∞".to_string(),
-            _ => name.to_string(),
+    if let Some(konst) = value.cas_const() {
+        return match konst {
+            CasConst::Infinity => "∞".to_string(),
+            CasConst::NegInfinity => "-∞".to_string(),
+            _ => konst.name().to_string(),
         };
     }
     if let Some((op, args)) = value.cas_known_op_parts() {
@@ -375,15 +372,12 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
             _ => format_raw_op(value),
         };
     }
-    if value.cas_op_parts().is_some() {
-        return format_raw_op(value);
-    }
     if let Some((expr, var, point, direction)) = value.cas_limit_parts() {
         let mut rendered = format!(
             "limit[{};{};{}",
-            format_expr(&expr, 0),
-            format_expr(&var, 0),
-            format_expr(&point, 0),
+            format_expr(expr, 0),
+            format_expr(var, 0),
+            format_expr(point, 0),
         );
         if let Some(dir) = direction {
             let tag = match dir {
@@ -400,7 +394,7 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
         for arg in args {
             rendered_args.push(format_expr(arg, 0));
         }
-        return format!("{name}[{}]", rendered_args.join(";"));
+        return format!("{}[{}]", name.name(), rendered_args.join(";"));
     }
     format_atom(value)
 }

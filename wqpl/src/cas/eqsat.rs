@@ -3,6 +3,7 @@ use num_traits::{One, ToPrimitive};
 
 use super::{cas_err, expand_expr, simplify_cas_value};
 use crate::session::dbglog::DebugLogFlags;
+use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 define_language! {
@@ -95,13 +96,13 @@ fn normalize_common_factorization(original: &Value, rewritten: Value) -> WqResul
     if common_factorization_inner_terms(original, &rewritten).is_none() {
         return Ok(rewritten);
     }
-    let Some(("*", factors)) = rewritten.cas_op_parts() else {
+    let Some((CasOp::Multiply, factors)) = rewritten.cas_op_parts() else {
         return Ok(rewritten);
     };
     let mut changed = false;
     let mut normalized = Vec::with_capacity(factors.len());
     for factor in factors {
-        if matches!(factor.cas_op_parts(), Some(("+", _))) {
+        if matches!(factor.cas_op_parts(), Some((CasOp::Add, _))) {
             let expanded = simplify_cas_value(&expand_expr(factor)?)?;
             changed |= expanded != *factor;
             normalized.push(expanded);
@@ -120,14 +121,14 @@ fn common_factorization_inner_terms<'a>(
     original: &Value,
     rewritten: &'a Value,
 ) -> Option<&'a [Value]> {
-    let Some(("+", _)) = original.cas_op_parts() else {
+    let Some((CasOp::Add, _)) = original.cas_op_parts() else {
         return None;
     };
-    let Some(("*", factors)) = rewritten.cas_op_parts() else {
+    let Some((CasOp::Multiply, factors)) = rewritten.cas_op_parts() else {
         return None;
     };
     let inner_terms = factors.iter().find_map(|factor| {
-        if let Some(("+", terms)) = factor.cas_op_parts() {
+        if let Some((CasOp::Add, terms)) = factor.cas_op_parts() {
             Some(terms)
         } else {
             None
@@ -136,7 +137,7 @@ fn common_factorization_inner_terms<'a>(
     if !factors.iter().any(|factor| {
         factor.cas_var_name().is_some()
             || factor.cas_call_parts().is_some()
-            || matches!(factor.cas_op_parts(), Some(("^", _)))
+            || matches!(factor.cas_op_parts(), Some((CasOp::Power, _)))
     }) {
         return None;
     }
@@ -204,9 +205,9 @@ fn value_to_recexpr(
     }
     if let Some((op, args)) = value.cas_op_parts() {
         return match (op, args) {
-            ("+", args) => fold_binary(args, EqSatLang::Num(0), EqSatLang::Add, expr, ctx),
-            ("*", args) => fold_binary(args, EqSatLang::Num(1), EqSatLang::Mul, expr, ctx),
-            ("^", [base, exp]) => {
+            (CasOp::Add, args) => fold_binary(args, EqSatLang::Num(0), EqSatLang::Add, expr, ctx),
+            (CasOp::Multiply, args) => fold_binary(args, EqSatLang::Num(1), EqSatLang::Mul, expr, ctx),
+            (CasOp::Power, [base, exp]) => {
                 let Some(base) = value_to_recexpr(base, expr, ctx)? else {
                     return Ok(None);
                 };
@@ -226,14 +227,14 @@ fn value_to_recexpr(
             return Ok(None);
         };
         let node = match name {
-            "ln" => EqSatLang::Ln(arg),
-            "abs" => EqSatLang::Abs(arg),
-            "sin" => EqSatLang::Sin(arg),
-            "cos" => EqSatLang::Cos(arg),
-            "tan" => EqSatLang::Tan(arg),
-            "arcsin" => EqSatLang::ArcSin(arg),
-            "arccos" => EqSatLang::ArcCos(arg),
-            "arctan" => EqSatLang::ArcTan(arg),
+            CasFunction::Ln => EqSatLang::Ln(arg),
+            CasFunction::Abs => EqSatLang::Abs(arg),
+            CasFunction::Sin => EqSatLang::Sin(arg),
+            CasFunction::Cos => EqSatLang::Cos(arg),
+            CasFunction::Tan => EqSatLang::Tan(arg),
+            CasFunction::ArcSin => EqSatLang::ArcSin(arg),
+            CasFunction::ArcCos => EqSatLang::ArcCos(arg),
+            CasFunction::ArcTan => EqSatLang::ArcTan(arg),
             _ => return Ok(None),
         };
         return Ok(Some(expr.add(node)));

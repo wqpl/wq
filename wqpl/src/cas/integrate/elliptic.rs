@@ -10,6 +10,7 @@ use crate::cas::{
     poly_from_expr, simplify_cas_value,
 };
 use crate::session::dbglog::DebugLogFlags;
+use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 /// Strategy entry point: integrate elliptic integrals involving sqrt(cubic).
@@ -34,7 +35,7 @@ pub(super) fn integrate_elliptic(expr: &Value, var: &str) -> WqResult<Option<Val
 
 fn try_elliptic(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     // Case: sqrt(cubic) = (cubic)^(1/2) or (cubic)^(-1/2)
-    if let Some(("^", [base, exp])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && (exp.exact_half() || exp.exact_neg_half())
         && let Some(result) = try_cubic_reduction(base, var, exp.exact_half())?
     {
@@ -42,7 +43,7 @@ fn try_elliptic(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     }
 
     // Case: sqrt(cubic) as Call("sqrt", [cubic])
-    if let Some(("sqrt", [arg])) = expr.cas_call_parts()
+    if let Some((CasFunction::Sqrt, [arg])) = expr.cas_call_parts()
         && let Some(result) = try_cubic_reduction(arg, var, true)?
     {
         return Ok(Some(result));

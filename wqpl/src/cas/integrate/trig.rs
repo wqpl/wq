@@ -26,6 +26,7 @@ use crate::cas::{
     eval_numeric_binary, numeric_is_zero, poly_trim, simplify_cas_value, substitute_expr,
 };
 use crate::session::dbglog::DebugLogFlags;
+use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 /// Strategy entry point: integrate trigonometric expressions.
@@ -36,7 +37,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
     let expr_fmt = expr.format_cas().unwrap_or_else(|| expr.to_string());
     cas_trace!(DebugLogFlags::CAS, "[cas] trig enter: {expr_fmt}");
     let simplified = simplify_cas_value(expr)?;
-    if let Some(result) = try_single_fn_power(&simplified, "sin", var)? {
+    if let Some(result) = try_single_fn_power(&simplified, CasFunction::Sin, var)? {
         let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
@@ -44,7 +45,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
         );
         return Ok(Some(result));
     }
-    if let Some(result) = try_single_fn_power(&simplified, "cos", var)? {
+    if let Some(result) = try_single_fn_power(&simplified, CasFunction::Cos, var)? {
         let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
@@ -52,7 +53,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
         );
         return Ok(Some(result));
     }
-    if let Some(result) = try_single_fn_power(&simplified, "tan", var)? {
+    if let Some(result) = try_single_fn_power(&simplified, CasFunction::Tan, var)? {
         let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
@@ -60,7 +61,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
         );
         return Ok(Some(result));
     }
-    if let Some(result) = try_single_fn_power(&simplified, "sec", var)? {
+    if let Some(result) = try_single_fn_power(&simplified, CasFunction::Sec, var)? {
         let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
@@ -68,7 +69,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
         );
         return Ok(Some(result));
     }
-    if let Some(result) = try_single_fn_power(&simplified, "csc", var)? {
+    if let Some(result) = try_single_fn_power(&simplified, CasFunction::Csc, var)? {
         let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
@@ -76,7 +77,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
         );
         return Ok(Some(result));
     }
-    if let Some(result) = try_single_fn_power(&simplified, "cot", var)? {
+    if let Some(result) = try_single_fn_power(&simplified, CasFunction::Cot, var)? {
         let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
@@ -109,7 +110,15 @@ fn contains_trig(expr: &Value) -> bool {
     if let Some((name, _)) = expr.cas_call_parts()
         && matches!(
             name,
-            "sin" | "cos" | "tan" | "sec" | "csc" | "cot" | "sinh" | "cosh" | "tanh"
+            CasFunction::Sin
+                | CasFunction::Cos
+                | CasFunction::Tan
+                | CasFunction::Sec
+                | CasFunction::Csc
+                | CasFunction::Cot
+                | CasFunction::Sinh
+                | CasFunction::Cosh
+                | CasFunction::Tanh
         )
     {
         return true;
@@ -141,14 +150,14 @@ type TrigMatch = (usize, Value, Value);
 
 /// Try to match `fn_name(arg)^n` or `fn_name(arg)`.  Returns `(n, a, b)` such
 /// that arg = a*var + b, or `None` if the expression doesn't match.
-fn match_fn_power(expr: &Value, fn_name: &str, var: &str) -> Option<TrigMatch> {
+fn match_fn_power(expr: &Value, fn_name: CasFunction, var: &str) -> Option<TrigMatch> {
     // Helper: extract linear coefficients from an argument
     let extract_ab = |arg: &Value| -> Option<(Value, Value)> {
         if arg.cas_var_name() == Some(var) {
             return Some((Value::Int(1), Value::Int(0)));
         }
         // a*var + b
-        if let Some(("+", sum_args)) = arg.cas_op_parts() {
+        if let Some((CasOp::Add, sum_args)) = arg.cas_op_parts() {
             let mut a: Option<Value> = None;
             let mut b = Value::Int(0);
             for sa in sum_args {
@@ -182,7 +191,7 @@ fn match_fn_power(expr: &Value, fn_name: &str, var: &str) -> Option<TrigMatch> {
     }
 
     // Case: fn(arg)^n
-    if let Some(("^", [base, exp])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && let Some((name, args)) = base.cas_call_parts()
         && name == fn_name
         && args.len() == 1
@@ -202,7 +211,7 @@ fn as_linear_monomial(expr: &Value, var: &str) -> Option<Value> {
     if expr.cas_var_name() == Some(var) {
         return Some(Value::Int(1));
     }
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         let mut coeff = Value::Int(1);
         let mut found_var = false;
         for arg in args {
@@ -243,7 +252,7 @@ fn build_linear_arg(a: &Value, b: &Value, var: &str) -> Value {
 }
 
 /// Build a function call: fn_name(a*var + b).
-fn build_fn_call(fn_name: &str, a: &Value, b: &Value, var: &str) -> Value {
+fn build_fn_call(fn_name: CasFunction, a: &Value, b: &Value, var: &str) -> Value {
     Value::from_cas_call(fn_name, vec![build_linear_arg(a, b, var)])
 }
 
@@ -251,7 +260,11 @@ fn build_fn_call(fn_name: &str, a: &Value, b: &Value, var: &str) -> Value {
 // Single-function power dispatch
 // ---------------------------------------------------------------------------
 
-fn try_single_fn_power(expr: &Value, fn_name: &str, var: &str) -> WqResult<Option<Value>> {
+fn try_single_fn_power(
+    expr: &Value,
+    fn_name: CasFunction,
+    var: &str,
+) -> WqResult<Option<Value>> {
     let (n, a, b) = match match_fn_power(expr, fn_name, var) {
         Some(p) => p,
         None => return Ok(None),
@@ -260,24 +273,24 @@ fn try_single_fn_power(expr: &Value, fn_name: &str, var: &str) -> WqResult<Optio
         return Ok(Some(Value::from_cas_var(var)));
     }
     match fn_name {
-        "sin" => {
+        CasFunction::Sin => {
             if n % 2 == 1 {
                 integrate_sin_odd(n, &a, &b, var).map(Some)
             } else {
                 integrate_sin_reduction(n, &a, &b, var).map(Some)
             }
         }
-        "cos" => {
+        CasFunction::Cos => {
             if n % 2 == 1 {
                 integrate_cos_odd(n, &a, &b, var).map(Some)
             } else {
                 integrate_cos_reduction(n, &a, &b, var).map(Some)
             }
         }
-        "tan" => integrate_tan_power(n, &a, &b, var).map(Some),
-        "sec" => integrate_sec_power(n, &a, &b, var).map(Some),
-        "csc" => integrate_csc_power(n, &a, &b, var).map(Some),
-        "cot" => integrate_cot_power(n, &a, &b, var).map(Some),
+        CasFunction::Tan => integrate_tan_power(n, &a, &b, var).map(Some),
+        CasFunction::Sec => integrate_sec_power(n, &a, &b, var).map(Some),
+        CasFunction::Csc => integrate_csc_power(n, &a, &b, var).map(Some),
+        CasFunction::Cot => integrate_cot_power(n, &a, &b, var).map(Some),
         _ => Ok(None),
     }
 }
@@ -320,7 +333,7 @@ fn expand_binomial_poly(k: usize, sign: i64) -> Vec<Value> {
 /// `_u → fn_name(a*var + b)`.  The whole result is divided by `div_a`.
 fn integrate_poly_coeffs_with_sub(
     coeffs: &[Value],
-    replace_with: &str,
+    replace_with: CasFunction,
     a: &Value,
     b: &Value,
     var: &str,
@@ -374,7 +387,7 @@ fn integrate_sin_odd(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Valu
     let k = (n - 1) / 2;
     // ∫ sin^n dx = -(1/a)·∫ (1-u²)^k du   with u = cos(ax+b)
     let coeffs = expand_binomial_poly(k, -1);
-    integrate_poly_coeffs_with_sub(&coeffs, "cos", a, b, var, true)
+    integrate_poly_coeffs_with_sub(&coeffs, CasFunction::Cos, a, b, var, true)
 }
 
 /// ∫ sin^n(ax+b) dx using reduction (works for both even and odd n):
@@ -384,11 +397,11 @@ fn integrate_sin_reduction(n: usize, a: &Value, b: &Value, var: &str) -> WqResul
         return Ok(Value::from_cas_var(var));
     }
     if n == 1 {
-        let cos = build_fn_call("cos", a, b, var);
+            let cos = build_fn_call(CasFunction::Cos, a, b, var);
         return simplify_cas_value(&cas_div(cas_neg(cos)?, a.clone())?);
     }
-    let sin = build_fn_call("sin", a, b, var);
-    let cos = build_fn_call("cos", a, b, var);
+    let sin = build_fn_call(CasFunction::Sin, a, b, var);
+    let cos = build_fn_call(CasFunction::Cos, a, b, var);
     let mut result = if n.is_multiple_of(2) {
         Value::from_cas_var(var)
     } else {
@@ -420,7 +433,7 @@ fn integrate_cos_odd(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Valu
     let k = (n - 1) / 2;
     // ∫ cos^n dx = (1/a)·∫ (1-u²)^k du   with u = sin(ax+b)
     let coeffs = expand_binomial_poly(k, 1);
-    integrate_poly_coeffs_with_sub(&coeffs, "sin", a, b, var, true)
+    integrate_poly_coeffs_with_sub(&coeffs, CasFunction::Sin, a, b, var, true)
 }
 
 /// ∫ cos^n(ax+b) dx using reduction:
@@ -430,11 +443,11 @@ fn integrate_cos_reduction(n: usize, a: &Value, b: &Value, var: &str) -> WqResul
         return Ok(Value::from_cas_var(var));
     }
     if n == 1 {
-        let sin = build_fn_call("sin", a, b, var);
+        let sin = build_fn_call(CasFunction::Sin, a, b, var);
         return simplify_cas_value(&cas_div(sin, a.clone())?);
     }
-    let sin = build_fn_call("sin", a, b, var);
-    let cos = build_fn_call("cos", a, b, var);
+    let sin = build_fn_call(CasFunction::Sin, a, b, var);
+    let cos = build_fn_call(CasFunction::Cos, a, b, var);
     let mut result = if n.is_multiple_of(2) {
         Value::from_cas_var(var)
     } else {
@@ -466,15 +479,15 @@ fn integrate_tan_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
         return Ok(Value::from_cas_var(var));
     }
     if n == 1 {
-        let cos = build_fn_call("cos", a, b, var);
+        let cos = build_fn_call(CasFunction::Cos, a, b, var);
         let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![cos])]);
         return simplify_cas_value(&cas_div(cas_neg(ln)?, a.clone())?);
     }
-    let tan = build_fn_call("tan", a, b, var);
+    let tan = build_fn_call(CasFunction::Tan, a, b, var);
     let mut result = if n.is_multiple_of(2) {
         Value::from_cas_var(var)
     } else {
-        let cos = build_fn_call("cos", a, b, var);
+        let cos = build_fn_call(CasFunction::Cos, a, b, var);
         let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![cos])]);
         simplify_cas_value(&cas_div(cas_neg(ln)?, a.clone())?)?
     };
@@ -498,24 +511,24 @@ fn integrate_sec_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
         return Ok(Value::from_cas_var(var));
     }
     if n == 1 {
-        let sec = build_fn_call("sec", a, b, var);
-        let tan = build_fn_call("tan", a, b, var);
+        let sec = build_fn_call(CasFunction::Sec, a, b, var);
+        let tan = build_fn_call(CasFunction::Tan, a, b, var);
         let sum = cas_add(vec![sec, tan])?;
         let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sum])]);
         return simplify_cas_value(&cas_div(ln, a.clone())?);
     }
     if n == 2 {
-        let tan = build_fn_call("tan", a, b, var);
+        let tan = build_fn_call(CasFunction::Tan, a, b, var);
         return simplify_cas_value(&cas_div(tan, a.clone())?);
     }
-    let sec = build_fn_call("sec", a, b, var);
-    let tan = build_fn_call("tan", a, b, var);
+    let sec = build_fn_call(CasFunction::Sec, a, b, var);
+    let tan = build_fn_call(CasFunction::Tan, a, b, var);
     let mut result = if n.is_multiple_of(2) {
-        let tan = build_fn_call("tan", a, b, var);
+        let tan = build_fn_call(CasFunction::Tan, a, b, var);
         simplify_cas_value(&cas_div(tan, a.clone())?)?
     } else {
-        let sec = build_fn_call("sec", a, b, var);
-        let tan = build_fn_call("tan", a, b, var);
+        let sec = build_fn_call(CasFunction::Sec, a, b, var);
+        let tan = build_fn_call(CasFunction::Tan, a, b, var);
         let sum = cas_add(vec![sec, tan])?;
         let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sum])]);
         simplify_cas_value(&cas_div(ln, a.clone())?)?
@@ -542,24 +555,24 @@ fn integrate_csc_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
         return Ok(Value::from_cas_var(var));
     }
     if n == 1 {
-        let csc = build_fn_call("csc", a, b, var);
-        let cot = build_fn_call("cot", a, b, var);
+        let csc = build_fn_call(CasFunction::Csc, a, b, var);
+        let cot = build_fn_call(CasFunction::Cot, a, b, var);
         let sum = cas_add(vec![csc, cot])?;
         let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sum])]);
         return simplify_cas_value(&cas_div(cas_neg(ln)?, a.clone())?);
     }
     if n == 2 {
-        let cot = build_fn_call("cot", a, b, var);
+        let cot = build_fn_call(CasFunction::Cot, a, b, var);
         return simplify_cas_value(&cas_div(cas_neg(cot)?, a.clone())?);
     }
-    let csc = build_fn_call("csc", a, b, var);
-    let cot = build_fn_call("cot", a, b, var);
+    let csc = build_fn_call(CasFunction::Csc, a, b, var);
+    let cot = build_fn_call(CasFunction::Cot, a, b, var);
     let mut result = if n.is_multiple_of(2) {
-        let cot = build_fn_call("cot", a, b, var);
+        let cot = build_fn_call(CasFunction::Cot, a, b, var);
         simplify_cas_value(&cas_div(cas_neg(cot)?, a.clone())?)?
     } else {
-        let csc = build_fn_call("csc", a, b, var);
-        let cot = build_fn_call("cot", a, b, var);
+        let csc = build_fn_call(CasFunction::Csc, a, b, var);
+        let cot = build_fn_call(CasFunction::Cot, a, b, var);
         let sum = cas_add(vec![csc, cot])?;
         let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sum])]);
         simplify_cas_value(&cas_div(cas_neg(ln)?, a.clone())?)?
@@ -586,15 +599,15 @@ fn integrate_cot_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
         return Ok(Value::from_cas_var(var));
     }
     if n == 1 {
-        let sin = build_fn_call("sin", a, b, var);
+        let sin = build_fn_call(CasFunction::Sin, a, b, var);
         let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sin])]);
         return simplify_cas_value(&cas_div(ln, a.clone())?);
     }
-    let cot = build_fn_call("cot", a, b, var);
+    let cot = build_fn_call(CasFunction::Cot, a, b, var);
     let mut result = if n.is_multiple_of(2) {
         Value::from_cas_var(var)
     } else {
-        let sin = build_fn_call("sin", a, b, var);
+        let sin = build_fn_call(CasFunction::Sin, a, b, var);
         let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sin])]);
         simplify_cas_value(&cas_div(ln, a.clone())?)?
     };
@@ -613,7 +626,7 @@ fn integrate_cot_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
 // ---------------------------------------------------------------------------
 
 fn try_sin_cos_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
-    let Some(("*", args)) = expr.cas_op_parts() else {
+    let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
         return Ok(None);
     };
 
@@ -623,13 +636,13 @@ fn try_sin_cos_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
 
     for arg in args {
         if sin_match.is_none()
-            && let Some(m) = match_fn_power(arg, "sin", var)
+            && let Some(m) = match_fn_power(arg, CasFunction::Sin, var)
         {
             sin_match = Some(m);
             continue;
         }
         if cos_match.is_none()
-            && let Some(m) = match_fn_power(arg, "cos", var)
+            && let Some(m) = match_fn_power(arg, CasFunction::Cos, var)
         {
             cos_match = Some(m);
             continue;
@@ -683,7 +696,7 @@ fn integrate_sin_odd_cos(m: usize, n: usize, a: &Value, b: &Value, var: &str) ->
         coeffs[i + n] = c.clone();
     }
     poly_trim(&mut coeffs);
-    integrate_poly_coeffs_with_sub(&coeffs, "cos", a, b, var, true)
+    integrate_poly_coeffs_with_sub(&coeffs, CasFunction::Cos, a, b, var, true)
 }
 
 /// ∫ sin^m cos^n dx where n is odd. u = sin(ax+b), du = a·cos(ax+b)dx.
@@ -695,7 +708,7 @@ fn integrate_sin_cos_odd(m: usize, n: usize, a: &Value, b: &Value, var: &str) ->
         coeffs[i + m] = c.clone();
     }
     poly_trim(&mut coeffs);
-    integrate_poly_coeffs_with_sub(&coeffs, "sin", a, b, var, true)
+    integrate_poly_coeffs_with_sub(&coeffs, CasFunction::Sin, a, b, var, true)
 }
 
 /// ∫ sin^m cos^n dx where both even. Reduction decreases m by 2 each step.
@@ -713,8 +726,8 @@ fn integrate_sin_cos_both_even(
         return integrate_sin_reduction(m, a, b, var);
     }
 
-    let sin = build_fn_call("sin", a, b, var);
-    let cos = build_fn_call("cos", a, b, var);
+    let sin = build_fn_call(CasFunction::Sin, a, b, var);
+    let cos = build_fn_call(CasFunction::Cos, a, b, var);
     let mut result = integrate_cos_reduction(n, a, b, var)?;
 
     for mm in (2..=m).step_by(2) {
@@ -744,15 +757,15 @@ fn integrate_sin_cos_both_even(
 // ---------------------------------------------------------------------------
 
 fn try_product_to_sum(expr: &Value, var: &str) -> WqResult<Option<Value>> {
-    let Some(("*", args)) = expr.cas_op_parts() else {
+    let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
         return Ok(None);
     };
-    let mut fn_args: Vec<(&str, &Value)> = Vec::new();
+    let mut fn_args: Vec<(CasFunction, &Value)> = Vec::new();
     let mut other_factors: Vec<Value> = Vec::new();
     for arg in args {
         if let Some((name, inner)) = arg.cas_call_parts()
             && inner.len() == 1
-            && (name == "sin" || name == "cos")
+            && matches!(name, CasFunction::Sin | CasFunction::Cos)
         {
             fn_args.push((name, &inner[0]));
         } else if !arg.is_cas_expr() {
@@ -767,10 +780,10 @@ fn try_product_to_sum(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let (fn1, arg1) = fn_args[0];
     let (fn2, arg2) = fn_args[1];
     let result = match (fn1, fn2) {
-        ("sin", "cos") => product_sin_cos(arg1, arg2, var)?,
-        ("cos", "sin") => product_sin_cos(arg2, arg1, var)?,
-        ("sin", "sin") => product_sin_sin(arg1, arg2, var)?,
-        ("cos", "cos") => product_cos_cos(arg1, arg2, var)?,
+        (CasFunction::Sin, CasFunction::Cos) => product_sin_cos(arg1, arg2, var)?,
+        (CasFunction::Cos, CasFunction::Sin) => product_sin_cos(arg2, arg1, var)?,
+        (CasFunction::Sin, CasFunction::Sin) => product_sin_sin(arg1, arg2, var)?,
+        (CasFunction::Cos, CasFunction::Cos) => product_cos_cos(arg1, arg2, var)?,
         _ => return Ok(None),
     };
     if other_factors.is_empty() {
@@ -834,14 +847,14 @@ fn product_cos_cos(arg1: &Value, arg2: &Value, var: &str) -> WqResult<Value> {
 }
 
 fn integrate_simple_linear_trig(expr: &Value, var: &str) -> WqResult<Value> {
-    if let Some(("+", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Add, args)) = expr.cas_op_parts() {
         let mut terms = Vec::new();
         for arg in args {
             terms.push(integrate_simple_linear_trig(arg, var)?);
         }
         return simplify_cas_value(&cas_add(terms)?);
     }
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         let mut coeff = Value::Int(1);
         let mut fn_part = None;
         for arg in args {
@@ -858,13 +871,13 @@ fn integrate_simple_linear_trig(expr: &Value, var: &str) -> WqResult<Value> {
     }
     if let Some((name, args)) = expr.cas_call_parts()
         && args.len() == 1
-        && (name == "sin" || name == "cos")
+        && matches!(name, CasFunction::Sin | CasFunction::Cos)
     {
         let arg = &args[0];
         let a = extract_coeff(arg, var);
         let result = match name {
-            "sin" => cas_neg(Value::from_cas_call("cos", vec![arg.clone()]))?,
-            "cos" => Value::from_cas_call("sin", vec![arg.clone()]),
+            CasFunction::Sin => cas_neg(Value::from_cas_call("cos", vec![arg.clone()]))?,
+            CasFunction::Cos => Value::from_cas_call("sin", vec![arg.clone()]),
             _ => unreachable!(),
         };
         if a == Value::Int(1) {
@@ -879,7 +892,7 @@ fn extract_coeff(expr: &Value, var: &str) -> Value {
     if expr.cas_var_name() == Some(var) {
         return Value::Int(1);
     }
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         for arg in args {
             if !arg.is_cas_expr() {
                 return arg.clone();
@@ -900,7 +913,7 @@ mod tests {
     #[test]
     fn test_match_fn_power_simple() {
         let expr = Value::from_cas_call("sin", vec![Value::from_cas_var("x")]);
-        let (n, a, b) = match_fn_power(&expr, "sin", "x").unwrap();
+        let (n, a, b) = match_fn_power(&expr, CasFunction::Sin, "x").unwrap();
         assert_eq!(n, 1);
         assert_eq!(a, Value::Int(1));
         assert_eq!(b, Value::Int(0));
@@ -915,7 +928,7 @@ mod tests {
                 Value::Int(3),
             ],
         );
-        let (n, _, _) = match_fn_power(&expr, "sin", "x").unwrap();
+        let (n, _, _) = match_fn_power(&expr, CasFunction::Sin, "x").unwrap();
         assert_eq!(n, 3);
     }
 
@@ -924,7 +937,7 @@ mod tests {
         // sin(2*x)
         let arg = Value::from_cas_op("*", vec![Value::Int(2), Value::from_cas_var("x")]);
         let expr = Value::from_cas_call("sin", vec![arg]);
-        let (n, a, b) = match_fn_power(&expr, "sin", "x").unwrap();
+        let (n, a, b) = match_fn_power(&expr, CasFunction::Sin, "x").unwrap();
         assert_eq!(n, 1);
         assert_eq!(a, Value::Int(2));
         assert_eq!(b, Value::Int(0));
@@ -941,7 +954,7 @@ mod tests {
             ],
         );
         let expr = Value::from_cas_call("sin", vec![arg]);
-        let (n, a, b) = match_fn_power(&expr, "sin", "x").unwrap();
+        let (n, a, b) = match_fn_power(&expr, CasFunction::Sin, "x").unwrap();
         assert_eq!(n, 1);
         assert_eq!(a, Value::Int(2));
         assert_eq!(b, Value::Int(1));
@@ -952,7 +965,7 @@ mod tests {
         // sin(x^2) — not a*x+b
         let arg = Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(2)]);
         let expr = Value::from_cas_call("sin", vec![arg]);
-        assert!(match_fn_power(&expr, "sin", "x").is_none());
+        assert!(match_fn_power(&expr, CasFunction::Sin, "x").is_none());
     }
 
     #[test]
@@ -964,7 +977,7 @@ mod tests {
                 Value::Int(2),
             ],
         );
-        let (n, a, b) = match_fn_power(&expr, "sec", "x").unwrap();
+        let (n, a, b) = match_fn_power(&expr, CasFunction::Sec, "x").unwrap();
         assert_eq!(n, 2);
         assert_eq!(a, Value::Int(1));
         assert_eq!(b, Value::Int(0));

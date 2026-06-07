@@ -1,5 +1,6 @@
 use num_traits::{One, Signed, Zero};
 
+use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -128,15 +129,18 @@ enum NumericCallMode {
 /// Try to resolve CAS constants (pi, e, oo, _oo) to numeric values and
 /// evaluate the call.  Returns `None` if any arg is a non-constant CAS node
 /// or an unresolved variable.
-pub(super) fn try_eval_with_const_resolve(name: &str, args: &[Value]) -> WqResult<Option<Value>> {
+pub(super) fn try_eval_with_const_resolve(
+    function: CasFunction,
+    args: &[Value],
+) -> WqResult<Option<Value>> {
     let mut numeric_args = Vec::with_capacity(args.len());
     for arg in args {
         if !arg.is_cas_expr() {
             numeric_args.push(arg.clone());
-        } else if let Some(const_name) = arg.cas_const_name() {
-            numeric_args.push(match const_name {
-                "pi" => Value::float(std::f64::consts::PI),
-                "e" => Value::float(std::f64::consts::E),
+        } else if let Some(konst) = arg.cas_const() {
+            numeric_args.push(match konst {
+                CasConst::Pi => Value::float(std::f64::consts::PI),
+                CasConst::E => Value::float(std::f64::consts::E),
                 // oo/_oo: functions like sin(∞) are undefined, skip
                 _ => return Ok(None),
             });
@@ -145,15 +149,15 @@ pub(super) fn try_eval_with_const_resolve(name: &str, args: &[Value]) -> WqResul
             return Ok(None);
         }
     }
-    eval_numeric_call(name, &numeric_args)
+    eval_numeric_call(function, &numeric_args)
 }
 
-pub(super) fn eval_numeric_call(name: &str, args: &[Value]) -> WqResult<Option<Value>> {
-    eval_numeric_call_with_mode(name, args, NumericCallMode::Simplify)
+pub(super) fn eval_numeric_call(function: CasFunction, args: &[Value]) -> WqResult<Option<Value>> {
+    eval_numeric_call_with_mode(function, args, NumericCallMode::Simplify)
 }
 
 fn eval_numeric_call_with_mode(
-    name: &str,
+    function: CasFunction,
     args: &[Value],
     mode: NumericCallMode,
 ) -> WqResult<Option<Value>> {
@@ -161,13 +165,13 @@ fn eval_numeric_call_with_mode(
         if args.iter().any(|a| a.is_algebraic_number()) {
             return Ok(None);
         }
-        match (name, args) {
-            ("exp", [_arg]) => {
+        match (function, args) {
+            (CasFunction::Exp, [_arg]) => {
                 // Never evaluate exp numerically during simplification:
                 // conversion to e / e^n is handled by the Call simplifier.
                 return Ok(None);
             }
-            ("ln", [_arg]) => {
+            (CasFunction::Ln, [_arg]) => {
                 // Keep ln symbolic; ln(1) and ln(e) are handled by the Call
                 // simplifier, while most other integer logs are transcendental.
                 return Ok(None);
@@ -176,29 +180,29 @@ fn eval_numeric_call_with_mode(
         }
     }
 
-    let value = match (name, args) {
-        ("abs", [arg]) => Some(arg.abs().map_err(|e| e.src("cas"))?),
-        ("sgn", [arg]) => Some(arg.sgn().map_err(|e| e.src("cas"))?),
-        ("sin", [arg]) => Some(arg.sin().map_err(|e| e.src("cas"))?),
-        ("cos", [arg]) => Some(arg.cos().map_err(|e| e.src("cas"))?),
-        ("tan", [arg]) => Some(arg.tan().map_err(|e| e.src("cas"))?),
-        ("sec", [arg]) => Some(arg.sec().map_err(|e| e.src("cas"))?),
-        ("csc", [arg]) => Some(arg.csc().map_err(|e| e.src("cas"))?),
-        ("cot", [arg]) => Some(arg.cot().map_err(|e| e.src("cas"))?),
-        ("erf", [arg]) => Some(arg.erf().map_err(|e| e.src("cas"))?),
-        ("erfc", [arg]) => Some(arg.erfc().map_err(|e| e.src("cas"))?),
-        ("gamma", [arg]) => Some(arg.gamma().map_err(|e| e.src("cas"))?),
-        ("lngamma", [arg]) => Some(arg.lngamma().map_err(|e| e.src("cas"))?),
-        ("si", [arg]) => Some(arg.si().map_err(|e| e.src("cas"))?),
-        ("ci", [arg]) => Some(arg.ci().map_err(|e| e.src("cas"))?),
-        ("ei", [arg]) => Some(arg.ei().map_err(|e| e.src("cas"))?),
-        ("en", [n, x]) => Some(n.en(x).map_err(|e| e.src("cas"))?),
-        ("ellpk", [arg]) => Some(arg.ellpk().map_err(|e| e.src("cas"))?),
-        ("ellpe", [arg]) => Some(arg.ellpe().map_err(|e| e.src("cas"))?),
-        ("ellik", [phi, m]) => Some(phi.ellik(m).map_err(|e| e.src("cas"))?),
-        ("ellie", [phi, m]) => Some(phi.ellie(m).map_err(|e| e.src("cas"))?),
-        ("heaviside", [arg]) => Some(arg.heaviside().map_err(|e| e.src("cas"))?),
-        ("delta", [arg]) => {
+    let value = match (function, args) {
+        (CasFunction::Abs, [arg]) => Some(arg.abs().map_err(|e| e.src("cas"))?),
+        (CasFunction::Sgn, [arg]) => Some(arg.sgn().map_err(|e| e.src("cas"))?),
+        (CasFunction::Sin, [arg]) => Some(arg.sin().map_err(|e| e.src("cas"))?),
+        (CasFunction::Cos, [arg]) => Some(arg.cos().map_err(|e| e.src("cas"))?),
+        (CasFunction::Tan, [arg]) => Some(arg.tan().map_err(|e| e.src("cas"))?),
+        (CasFunction::Sec, [arg]) => Some(arg.sec().map_err(|e| e.src("cas"))?),
+        (CasFunction::Csc, [arg]) => Some(arg.csc().map_err(|e| e.src("cas"))?),
+        (CasFunction::Cot, [arg]) => Some(arg.cot().map_err(|e| e.src("cas"))?),
+        (CasFunction::Erf, [arg]) => Some(arg.erf().map_err(|e| e.src("cas"))?),
+        (CasFunction::Erfc, [arg]) => Some(arg.erfc().map_err(|e| e.src("cas"))?),
+        (CasFunction::Gamma, [arg]) => Some(arg.gamma().map_err(|e| e.src("cas"))?),
+        (CasFunction::LnGamma, [arg]) => Some(arg.lngamma().map_err(|e| e.src("cas"))?),
+        (CasFunction::Si, [arg]) => Some(arg.si().map_err(|e| e.src("cas"))?),
+        (CasFunction::Ci, [arg]) => Some(arg.ci().map_err(|e| e.src("cas"))?),
+        (CasFunction::Ei, [arg]) => Some(arg.ei().map_err(|e| e.src("cas"))?),
+        (CasFunction::En, [n, x]) => Some(n.en(x).map_err(|e| e.src("cas"))?),
+        (CasFunction::EllPk, [arg]) => Some(arg.ellpk().map_err(|e| e.src("cas"))?),
+        (CasFunction::EllPe, [arg]) => Some(arg.ellpe().map_err(|e| e.src("cas"))?),
+        (CasFunction::EllIk, [phi, m]) => Some(phi.ellik(m).map_err(|e| e.src("cas"))?),
+        (CasFunction::EllIe, [phi, m]) => Some(phi.ellie(m).map_err(|e| e.src("cas"))?),
+        (CasFunction::Heaviside, [arg]) => Some(arg.heaviside().map_err(|e| e.src("cas"))?),
+        (CasFunction::Delta, [arg]) => {
             if let Some(f) = arg.as_f64() {
                 if f == 0.0 {
                     return Err(cas_err("Dirac delta is singular at zero"));
@@ -208,25 +212,25 @@ fn eval_numeric_call_with_mode(
                 None
             }
         }
-        ("exp", [arg]) => Some(arg.exp().map_err(|e| e.src("cas"))?),
-        ("ln", [arg]) => Some(arg.ln().map_err(|e| e.src("cas"))?),
-        ("log2", [arg]) => Some(arg.log2().map_err(|e| e.src("cas"))?),
-        ("log10", [arg]) => Some(arg.log10().map_err(|e| e.src("cas"))?),
-        ("sqrt", [arg]) => Some(arg.sqrt().map_err(|e| e.src("cas"))?),
-        ("arcsin", [arg]) => Some(arg.arcsin().map_err(|e| e.src("cas"))?),
-        ("arccos", [arg]) => Some(arg.arccos().map_err(|e| e.src("cas"))?),
-        ("arctan", [arg]) => Some(arg.arctan().map_err(|e| e.src("cas"))?),
-        ("sinh", [arg]) => Some(arg.sinh().map_err(|e| e.src("cas"))?),
-        ("cosh", [arg]) => Some(arg.cosh().map_err(|e| e.src("cas"))?),
-        ("tanh", [arg]) => Some(arg.tanh().map_err(|e| e.src("cas"))?),
-        ("arcsinh", [arg]) => Some(arg.arcsinh().map_err(|e| e.src("cas"))?),
-        ("arccosh", [arg]) => Some(arg.arccosh().map_err(|e| e.src("cas"))?),
-        ("arctanh", [arg]) => Some(arg.arctanh().map_err(|e| e.src("cas"))?),
-        ("floor", [arg]) => Some(arg.floor().map_err(|e| e.src("cas"))?),
-        ("ceil", [arg]) => Some(arg.ceil().map_err(|e| e.src("cas"))?),
-        ("round", [arg]) => Some(arg.round().map_err(|e| e.src("cas"))?),
-        ("log", [lhs, rhs]) => Some(lhs.log(rhs).map_err(|e| e.src("cas"))?),
-        ("arctan2", [lhs, rhs]) => Some(lhs.arctan2(rhs).map_err(|e| e.src("cas"))?),
+        (CasFunction::Exp, [arg]) => Some(arg.exp().map_err(|e| e.src("cas"))?),
+        (CasFunction::Ln, [arg]) => Some(arg.ln().map_err(|e| e.src("cas"))?),
+        (CasFunction::Log2, [arg]) => Some(arg.log2().map_err(|e| e.src("cas"))?),
+        (CasFunction::Log10, [arg]) => Some(arg.log10().map_err(|e| e.src("cas"))?),
+        (CasFunction::Sqrt, [arg]) => Some(arg.sqrt().map_err(|e| e.src("cas"))?),
+        (CasFunction::ArcSin, [arg]) => Some(arg.arcsin().map_err(|e| e.src("cas"))?),
+        (CasFunction::ArcCos, [arg]) => Some(arg.arccos().map_err(|e| e.src("cas"))?),
+        (CasFunction::ArcTan, [arg]) => Some(arg.arctan().map_err(|e| e.src("cas"))?),
+        (CasFunction::Sinh, [arg]) => Some(arg.sinh().map_err(|e| e.src("cas"))?),
+        (CasFunction::Cosh, [arg]) => Some(arg.cosh().map_err(|e| e.src("cas"))?),
+        (CasFunction::Tanh, [arg]) => Some(arg.tanh().map_err(|e| e.src("cas"))?),
+        (CasFunction::ArcSinh, [arg]) => Some(arg.arcsinh().map_err(|e| e.src("cas"))?),
+        (CasFunction::ArcCosh, [arg]) => Some(arg.arccosh().map_err(|e| e.src("cas"))?),
+        (CasFunction::ArcTanh, [arg]) => Some(arg.arctanh().map_err(|e| e.src("cas"))?),
+        (CasFunction::Floor, [arg]) => Some(arg.floor().map_err(|e| e.src("cas"))?),
+        (CasFunction::Ceil, [arg]) => Some(arg.ceil().map_err(|e| e.src("cas"))?),
+        (CasFunction::Round, [arg]) => Some(arg.round().map_err(|e| e.src("cas"))?),
+        (CasFunction::Log, [lhs, rhs]) => Some(lhs.log(rhs).map_err(|e| e.src("cas"))?),
+        (CasFunction::ArcTan2, [lhs, rhs]) => Some(lhs.arctan2(rhs).map_err(|e| e.src("cas"))?),
         _ => None,
     };
     Ok(value)
@@ -291,15 +295,15 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
     }
 
     // Symbolic constants.
-    if let Some(name) = expr.cas_const_name() {
-        return match name {
-            "e" => Ok(Value::float(std::f64::consts::E)),
-            "pi" => Ok(Value::float(std::f64::consts::PI)),
-            "∞" | "oo" => Ok(Value::float(f64::INFINITY)),
-            "-∞" | "-oo" | "_oo" => Ok(Value::float(f64::NEG_INFINITY)),
-            _ => Err(cas_err(format!(
-                "unknown symbolic constant '{name}' in numeric evaluation"
-            ))
+    if let Some(konst) = expr.cas_const() {
+        return match konst {
+            CasConst::E => Ok(Value::float(std::f64::consts::E)),
+            CasConst::Pi => Ok(Value::float(std::f64::consts::PI)),
+            CasConst::Infinity => Ok(Value::float(f64::INFINITY)),
+            CasConst::NegInfinity => Ok(Value::float(f64::NEG_INFINITY)),
+            CasConst::Undefined => Err(cas_err(
+                "unknown symbolic constant 'undef' in numeric evaluation",
+            )
             .got1(expr)),
         };
     }
@@ -314,30 +318,30 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
     // Operators.
     if let Some((op, args)) = expr.cas_op_parts() {
         match (op, args) {
-            ("+", args) => {
+            (CasOp::Add, args) => {
                 let mut acc = 0.0;
                 for arg in args {
                     acc += f64_or_err(&eval_numeric_cas(arg)?, expr)?;
                 }
                 Ok(Value::float(acc))
             }
-            ("*", args) => {
+            (CasOp::Multiply, args) => {
                 let mut acc = 1.0;
                 for arg in args {
                     acc *= f64_or_err(&eval_numeric_cas(arg)?, expr)?;
                 }
                 Ok(Value::float(acc))
             }
-            ("-", [arg]) => {
+            (CasOp::Subtract, [arg]) => {
                 let v = f64_or_err(&eval_numeric_cas(arg)?, expr)?;
                 Ok(Value::float(-v))
             }
-            ("-", [lhs, rhs]) => {
+            (CasOp::Subtract, [lhs, rhs]) => {
                 let l = f64_or_err(&eval_numeric_cas(lhs)?, expr)?;
                 let r = f64_or_err(&eval_numeric_cas(rhs)?, expr)?;
                 Ok(Value::float(l - r))
             }
-            ("/", [lhs, rhs]) => {
+            (CasOp::Divide, [lhs, rhs]) => {
                 let l = f64_or_err(&eval_numeric_cas(lhs)?, expr)?;
                 let r = f64_or_err(&eval_numeric_cas(rhs)?, expr)?;
                 if r == 0.0 {
@@ -345,24 +349,30 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
                 }
                 Ok(Value::float(l / r))
             }
-            ("^", [base, exp]) => {
+            (CasOp::Power, [base, exp]) => {
                 let b = f64_or_err(&eval_numeric_cas(base)?, expr)?;
                 let e = f64_or_err(&eval_numeric_cas(exp)?, expr)?;
                 Ok(Value::float(b.powf(e)))
             }
-            _ => Err(
-                cas_err(format!("unsupported operator '{op}' in numeric evaluation")).got1(expr),
-            ),
+            _ => Err(cas_err(format!(
+                "unsupported operator '{}' in numeric evaluation",
+                op.symbol()
+            ))
+            .got1(expr)),
         }
-    } else if let Some((name, args)) = expr.cas_call_parts() {
+    } else if let Some((function, args)) = expr.cas_call_parts() {
         // Recursively evaluate arguments.
         let mut vals = Vec::with_capacity(args.len());
         for arg in args {
             vals.push(eval_numeric_cas(arg)?);
         }
-        eval_numeric_call_with_mode(name, vals.as_slice(), NumericCallMode::Evaluate)?
+        eval_numeric_call_with_mode(function, vals.as_slice(), NumericCallMode::Evaluate)?
             .ok_or_else(|| {
-                cas_err(format!("unsupported function '{name}' in numeric evaluation")).got1(expr)
+                cas_err(format!(
+                    "unsupported function '{}' in numeric evaluation",
+                    function.name()
+                ))
+                .got1(expr)
             })
     } else {
         Err(cas_err("expected symbolic expression for numeric evaluation").got1(expr))

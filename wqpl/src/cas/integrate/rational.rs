@@ -11,6 +11,7 @@ use crate::cas::{
     poly_to_expr, poly_trim, simplify_cas_value,
 };
 use crate::value::algebraic::AlgebraicData;
+use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
 
 /// Try to extract (numerator_poly, denominator_poly) from an expression as a
@@ -29,7 +30,7 @@ fn extract_rational(expr: &Value, var: &str) -> WqResult<Option<(Vec<Value>, Vec
     }
 
     // Case: base^(-k) where k > 0
-    if let Some(("^", [base, exp])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && let Some(k) = exp.exact_int()
         && k < BigInt::zero()
     {
@@ -47,7 +48,7 @@ fn extract_rational(expr: &Value, var: &str) -> WqResult<Option<(Vec<Value>, Vec
 
     // Case: product containing negative-power factors and possibly polynomial
     // factors
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         return extract_rational_product(args, var);
     }
 
@@ -61,16 +62,16 @@ fn contains_var_negative_power(expr: &Value, var: &str) -> bool {
         return false;
     }
     if let Some((op, args)) = expr.cas_op_parts() {
-        if op == "^"
+        if op == CasOp::Power
             && args.len() == 2
-            && let Some(("^", [base, exp])) = args[0].cas_op_parts()
+            && let Some((CasOp::Power, [base, exp])) = args[0].cas_op_parts()
             && let Some(k) = exp.exact_int()
             && k < BigInt::zero()
             && contains_var(base, var)
         {
             return true;
         }
-        if op == "^"
+        if op == CasOp::Power
             && args.len() == 2
             && args[1].exact_int().is_some_and(|k| k < BigInt::zero())
             && contains_var(&args[0], var)
@@ -125,7 +126,7 @@ fn extract_rational_product(
 
     for arg in args {
         // Check for negative power factor: base^(-k)
-        if let Some(("^", [base, exp])) = arg.cas_op_parts()
+        if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts()
             && let Some(k) = exp.exact_int()
             && k < BigInt::zero()
         {

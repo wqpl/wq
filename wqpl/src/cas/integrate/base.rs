@@ -6,6 +6,7 @@ use crate::cas::{
     extract_linear_coefficients, numeric_is_negative, numeric_is_one, numeric_is_zero, poly_degree,
     poly_from_expr, simplify_cas_value, substitute_expr,
 };
+use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Value>> {
@@ -26,7 +27,7 @@ pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Val
     }
 
     // Case 2: e^(ax+b) — Pow node with Const("e") base
-    if let Some(("^", args)) = expr.cas_op_parts()
+    if let Some((CasOp::Power, args)) = expr.cas_op_parts()
         && args.len() == 2
         && args[0].cas_const_name() == Some("e")
         && let Some((a, _b)) = extract_linear_coefficients(&args[1], var)
@@ -42,13 +43,13 @@ pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Val
 
     // Case 3: Gaussian — exp(-a·x^2) → √(π/a)/2 · erf(√a·x)
     if let Some((name, args)) = expr.cas_call_parts()
-        && name == "exp"
+        && name == CasFunction::Exp
         && args.len() == 1
         && let Some(result) = try_gaussian_table(&args[0], var)?
     {
         return Ok(Some(result));
     }
-    if let Some(("^", args)) = expr.cas_op_parts()
+    if let Some((CasOp::Power, args)) = expr.cas_op_parts()
         && args.len() == 2
         && args[0].cas_const_name() == Some("e")
         && let Some(result) = try_gaussian_table(&args[1], var)?
@@ -103,59 +104,59 @@ fn try_gaussian_table(arg: &Value, var: &str) -> WqResult<Option<Value>> {
     simplify_cas_value(&cas_mul(vec![factor, erf_term])?).map(Some)
 }
 
-fn base_integral_of_call(name: &str, var: &str) -> WqResult<Option<Value>> {
+fn base_integral_of_call(name: CasFunction, var: &str) -> WqResult<Option<Value>> {
     let v = Value::from_cas_var(var);
     let value = match name {
-        "sin" => Some(cas_neg(Value::from_cas_call("cos", vec![v.clone()]))?),
-        "cos" => Some(Value::from_cas_call("sin", vec![v.clone()])),
-        "tan" => Some(cas_neg(Value::from_cas_call(
+        CasFunction::Sin => Some(cas_neg(Value::from_cas_call("cos", vec![v.clone()]))?),
+        CasFunction::Cos => Some(Value::from_cas_call("sin", vec![v.clone()])),
+        CasFunction::Tan => Some(cas_neg(Value::from_cas_call(
             "ln",
             vec![Value::from_cas_call("cos", vec![v.clone()])],
         ))?),
-        "sec" => Some(Value::from_cas_call(
+        CasFunction::Sec => Some(Value::from_cas_call(
             "ln",
             vec![cas_add(vec![
                 Value::from_cas_call("sec", vec![v.clone()]),
                 Value::from_cas_call("tan", vec![v.clone()]),
             ])?],
         )),
-        "csc" => Some(cas_neg(Value::from_cas_call(
+        CasFunction::Csc => Some(cas_neg(Value::from_cas_call(
             "ln",
             vec![cas_add(vec![
                 Value::from_cas_call("csc", vec![v.clone()]),
                 Value::from_cas_call("cot", vec![v.clone()]),
             ])?],
         ))?),
-        "cot" => Some(Value::from_cas_call(
+        CasFunction::Cot => Some(Value::from_cas_call(
             "ln",
             vec![Value::from_cas_call("sin", vec![v.clone()])],
         )),
-        "exp" => Some(Value::from_cas_call("exp", vec![v.clone()])),
-        "ln" => Some(cas_sub(
+        CasFunction::Exp => Some(Value::from_cas_call("exp", vec![v.clone()])),
+        CasFunction::Ln => Some(cas_sub(
             cas_mul(vec![v.clone(), Value::from_cas_call("ln", vec![v.clone()])])?,
             v.clone(),
         )?),
-        "log2" => Some(cas_div(
+        CasFunction::Log2 => Some(cas_div(
             cas_sub(
                 cas_mul(vec![v.clone(), Value::from_cas_call("ln", vec![v.clone()])])?,
                 v.clone(),
             )?,
             Value::from_cas_call("ln", vec![Value::Int(2)]),
         )?),
-        "log10" => Some(cas_div(
+        CasFunction::Log10 => Some(cas_div(
             cas_sub(
                 cas_mul(vec![v.clone(), Value::from_cas_call("ln", vec![v.clone()])])?,
                 v.clone(),
             )?,
             Value::from_cas_call("ln", vec![Value::Int(10)]),
         )?),
-        "sinh" => Some(Value::from_cas_call("cosh", vec![v.clone()])),
-        "cosh" => Some(Value::from_cas_call("sinh", vec![v.clone()])),
-        "tanh" => Some(Value::from_cas_call(
+        CasFunction::Sinh => Some(Value::from_cas_call("cosh", vec![v.clone()])),
+        CasFunction::Cosh => Some(Value::from_cas_call("sinh", vec![v.clone()])),
+        CasFunction::Tanh => Some(Value::from_cas_call(
             "ln",
             vec![Value::from_cas_call("cosh", vec![v.clone()])],
         )),
-        "arcsin" => Some(cas_add(vec![
+        CasFunction::ArcSin => Some(cas_add(vec![
             cas_mul(vec![
                 v.clone(),
                 Value::from_cas_call("arcsin", vec![v.clone()]),
@@ -165,7 +166,7 @@ fn base_integral_of_call(name: &str, var: &str) -> WqResult<Option<Value>> {
                 vec![cas_sub(Value::Int(1), cas_pow(v.clone(), Value::Int(2))?)?],
             ),
         ])?),
-        "arccos" => Some(cas_sub(
+        CasFunction::ArcCos => Some(cas_sub(
             cas_mul(vec![
                 v.clone(),
                 Value::from_cas_call("arccos", vec![v.clone()]),
@@ -175,7 +176,7 @@ fn base_integral_of_call(name: &str, var: &str) -> WqResult<Option<Value>> {
                 vec![cas_sub(Value::Int(1), cas_pow(v.clone(), Value::Int(2))?)?],
             ),
         )?),
-        "arctan" => Some(cas_sub(
+        CasFunction::ArcTan => Some(cas_sub(
             cas_mul(vec![
                 v.clone(),
                 Value::from_cas_call("arctan", vec![v.clone()]),
@@ -191,7 +192,7 @@ fn base_integral_of_call(name: &str, var: &str) -> WqResult<Option<Value>> {
                 ),
             ])?,
         )?),
-        "arcsinh" => Some(cas_sub(
+        CasFunction::ArcSinh => Some(cas_sub(
             cas_mul(vec![
                 v.clone(),
                 Value::from_cas_call("arcsinh", vec![v.clone()]),
@@ -204,7 +205,7 @@ fn base_integral_of_call(name: &str, var: &str) -> WqResult<Option<Value>> {
                 ])?],
             ),
         )?),
-        "arccosh" => Some(cas_sub(
+        CasFunction::ArcCosh => Some(cas_sub(
             cas_mul(vec![
                 v.clone(),
                 Value::from_cas_call("arccosh", vec![v.clone()]),
@@ -214,7 +215,7 @@ fn base_integral_of_call(name: &str, var: &str) -> WqResult<Option<Value>> {
                 vec![cas_sub(cas_pow(v.clone(), Value::Int(2))?, Value::Int(1))?],
             ),
         )?),
-        "arctanh" => Some(cas_add(vec![
+        CasFunction::ArcTanh => Some(cas_add(vec![
             cas_mul(vec![
                 v.clone(),
                 Value::from_cas_call("arctanh", vec![v.clone()]),
@@ -227,15 +228,15 @@ fn base_integral_of_call(name: &str, var: &str) -> WqResult<Option<Value>> {
                 ),
             ])?,
         ])?),
-        "abs" => Some(cas_div(
+        CasFunction::Abs => Some(cas_div(
             cas_mul(vec![
                 v.clone(),
                 Value::from_cas_call("abs", vec![v.clone()]),
             ])?,
             Value::Int(2),
         )?),
-        "sgn" => Some(Value::from_cas_call("abs", vec![v.clone()])),
-        "erf" => Some(cas_add(vec![
+        CasFunction::Sgn => Some(Value::from_cas_call("abs", vec![v.clone()])),
+        CasFunction::Erf => Some(cas_add(vec![
             cas_mul(vec![
                 v.clone(),
                 Value::from_cas_call("erf", vec![v.clone()]),
@@ -248,7 +249,7 @@ fn base_integral_of_call(name: &str, var: &str) -> WqResult<Option<Value>> {
                 Value::from_cas_call("exp", vec![cas_neg(cas_pow(v.clone(), Value::Int(2))?)?]),
             ])?,
         ])?),
-        "erfc" => Some(cas_sub(
+        CasFunction::Erfc => Some(cas_sub(
             cas_mul(vec![
                 v.clone(),
                 Value::from_cas_call("erfc", vec![v.clone()]),
@@ -261,23 +262,23 @@ fn base_integral_of_call(name: &str, var: &str) -> WqResult<Option<Value>> {
                 Value::from_cas_call("exp", vec![cas_neg(cas_pow(v.clone(), Value::Int(2))?)?]),
             ])?,
         )?),
-        "si" => Some(cas_add(vec![
+        CasFunction::Si => Some(cas_add(vec![
             cas_mul(vec![v.clone(), Value::from_cas_call("si", vec![v.clone()])])?,
             Value::from_cas_call("cos", vec![v.clone()]),
         ])?),
-        "ci" => Some(cas_sub(
+        CasFunction::Ci => Some(cas_sub(
             cas_mul(vec![v.clone(), Value::from_cas_call("ci", vec![v.clone()])])?,
             Value::from_cas_call("sin", vec![v.clone()]),
         )?),
-        "ei" => Some(cas_sub(
+        CasFunction::Ei => Some(cas_sub(
             cas_mul(vec![v.clone(), Value::from_cas_call("ei", vec![v.clone()])])?,
             Value::from_cas_call("exp", vec![v.clone()]),
         )?),
-        "heaviside" => Some(cas_mul(vec![
+        CasFunction::Heaviside => Some(cas_mul(vec![
             v.clone(),
             Value::from_cas_call("heaviside", vec![v.clone()]),
         ])?),
-        "delta" => Some(Value::from_cas_call("heaviside", vec![v.clone()])),
+        CasFunction::Delta => Some(Value::from_cas_call("heaviside", vec![v.clone()])),
         _ => None,
     };
     Ok(value)

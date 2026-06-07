@@ -7,7 +7,7 @@ use crate::value::Value;
 use crate::value::algebraic::AlgebraicData;
 use crate::value::cas::CasOp;
 
-fn contains_op(value: &Value, needle: &str) -> bool {
+fn contains_op(value: &Value, needle: CasOp) -> bool {
     if let Some((op, args)) = value.cas_op_parts() {
         if op == needle {
             return true;
@@ -54,8 +54,8 @@ fn canonical_form_eliminates_subtraction_and_division() {
         ],
     ))
     .unwrap();
-    assert!(!contains_op(&expr, "-"));
-    assert!(!contains_op(&expr, "/"));
+    assert!(!contains_op(&expr, CasOp::Subtract));
+    assert!(!contains_op(&expr, CasOp::Divide));
 }
 
 #[test]
@@ -602,7 +602,7 @@ fn rewrite_distributes_negation_over_sum() {
     let product = cas_mul(vec![Value::Int(-1), sum]).unwrap();
     let rewritten = rewrite_expr(&product).unwrap();
     assert!(
-        rewritten.cas_op_parts().is_some_and(|(op, _)| op == "+"),
+        rewritten.cas_op_parts().is_some_and(|(op, _)| op == CasOp::Add),
         "expected sum, got: {}",
         rewritten
     );

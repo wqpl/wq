@@ -19,6 +19,7 @@ use crate::cas::{
     poly_to_expr, poly_trim, simplify_cas_value, substitute_expr,
 };
 use crate::session::dbglog::DebugLogFlags;
+use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
 
 // Guard against infinite recursion in sqrt reduction.
@@ -44,7 +45,7 @@ pub(super) fn integrate_irrational(expr: &Value, var: &str) -> WqResult<Option<V
 
 fn try_irrational(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     // Case: sqrt(quad) = (quad)^(1/2)
-    if let Some(("^", [base, exp])) = expr.cas_op_parts() {
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts() {
         let half_pow = exp.exact_half();
         let neg_half_pow = exp.exact_neg_half();
 
@@ -67,9 +68,9 @@ fn try_irrational(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     }
 
     // Case: product with a quadratic root factor
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         for (i, arg) in args.iter().enumerate() {
-            if let Some(("^", [base, exp])) = arg.cas_op_parts() {
+            if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts() {
                 let half_pow = exp.exact_half();
                 let neg_half_pow = exp.exact_neg_half();
                 if (half_pow || neg_half_pow)
@@ -130,7 +131,7 @@ fn try_irrational(expr: &Value, var: &str) -> WqResult<Option<Value>> {
 /// root r.  With x = r + 1/t, P4(x) = C3(t)/t^4 and dx/sqrt(P4(x)) =
 /// -dt/sqrt(C3(t)).
 fn try_quartic_inverse_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
-    let Some(("^", [base, exp])) = expr.cas_op_parts() else {
+    let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts() else {
         return Ok(None);
     };
     if !exp.exact_neg_half() {
@@ -373,7 +374,7 @@ fn extract_abc(q: &QuadInfo) -> (Value, Value, Value) {
 /// is_sqrt).
 fn find_sqrt_factor(expr: &Value, _var: &str) -> Option<(Value, bool)> {
     // Direct: expr = (poly)^(1/2) or (poly)^(-1/2)
-    if let Some(("^", [base, exp])) = expr.cas_op_parts() {
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts() {
         if exp.exact_half() {
             return Some((base.clone(), true));
         }
@@ -386,9 +387,9 @@ fn find_sqrt_factor(expr: &Value, _var: &str) -> Option<(Value, bool)> {
         }
     }
     // Product: look for a sqrt factor
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         for arg in args {
-            if let Some(("^", [base, exp])) = arg.cas_op_parts() {
+            if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts() {
                 if exp.exact_half() {
                     return Some((base.clone(), true));
                 }
@@ -657,9 +658,9 @@ fn extract_rational_parts(expr: &Value) -> Option<(Value, Value)> {
     let mut num_factors: Vec<Value> = Vec::new();
     let mut denom_factors: Vec<Value> = Vec::new();
 
-    let args: &[Value] = if let Some(("*", a)) = expr.cas_op_parts() {
+    let args: &[Value] = if let Some((CasOp::Multiply, a)) = expr.cas_op_parts() {
         a
-    } else if let Some(("^", [base, exp])) = expr.cas_op_parts()
+    } else if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && exp.exact_int_is(-1)
     {
         return Some((Value::Int(1), base.clone()));
@@ -668,11 +669,11 @@ fn extract_rational_parts(expr: &Value) -> Option<(Value, Value)> {
     };
 
     for arg in args {
-        if let Some(("^", [base, exp])) = arg.cas_op_parts()
+        if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts()
             && exp.exact_int_is(-1)
         {
             denom_factors.push(base.clone());
-        } else if let Some(("^", [base, exp])) = arg.cas_op_parts()
+        } else if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts()
             && let Some(p) = exp.exact_int()
             && p < BigInt::from(0)
         {
@@ -701,7 +702,7 @@ fn replace_sqrt_in_expr(expr: &Value, sqrt_expr: &Value, replacement: &Value) ->
         return replacement.clone();
     }
     // Also match 1/sqrt form: expr^(-1) where expr == sqrt
-    if let Some(("^", [base, exp])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && exp.exact_int_is(-1)
         && base == sqrt_expr
     {
@@ -712,8 +713,8 @@ fn replace_sqrt_in_expr(expr: &Value, sqrt_expr: &Value, replacement: &Value) ->
     // Match expr = base^p where sqrt_expr = base^(1/2):
     // base^p = sqrt_expr^(2p) → replacement^(2p)
     // Handles cases like 1/sqrt: base^(-1/2) → replacement^(-1)
-    if let Some(("^", [expr_base, expr_exp])) = expr.cas_op_parts()
-        && let Some(("^", [sqrt_base, sqrt_exp])) = sqrt_expr.cas_op_parts()
+    if let Some((CasOp::Power, [expr_base, expr_exp])) = expr.cas_op_parts()
+        && let Some((CasOp::Power, [sqrt_base, sqrt_exp])) = sqrt_expr.cas_op_parts()
         && sqrt_exp.exact_half()
         && expr_base == sqrt_base
     {

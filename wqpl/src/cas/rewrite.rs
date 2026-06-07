@@ -9,9 +9,10 @@ use super::{
     rebuild_scaled_term, simplify_cas_value, split_add_term,
 };
 use crate::session::dbglog::DebugLogFlags;
+use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
-pub(super) fn push_flattened(out: &mut Vec<Value>, op: &str, value: Value) {
+pub(super) fn push_flattened(out: &mut Vec<Value>, op: CasOp, value: Value) {
     if let Some((inner_op, inner_args)) = value.cas_op_parts()
         && inner_op == op
     {
@@ -32,7 +33,7 @@ pub(crate) fn cas_product(factors: Vec<Value>) -> Value {
 }
 
 fn extract_unit_negative(arg: &Value) -> Option<Value> {
-    let ("*", args) = arg.cas_op_parts()? else {
+    let (CasOp::Multiply, args) = arg.cas_op_parts()? else {
         return None;
     };
     let (first, rest) = args.split_first()?;
@@ -46,7 +47,7 @@ fn extract_unit_negative(arg: &Value) -> Option<Value> {
 }
 
 fn take_additive_constant(arg: &Value, target: f64) -> Option<Value> {
-    let ("+", args) = arg.cas_op_parts()? else {
+    let (CasOp::Add, args) = arg.cas_op_parts()? else {
         return None;
     };
     let mut rest = Vec::with_capacity(args.len().saturating_sub(1));
@@ -90,7 +91,7 @@ fn contains_symbolic_var(value: &Value) -> bool {
 }
 
 fn contains_negative_power(value: &Value) -> bool {
-    if let Some(("^", [_, exp])) = value.cas_op_parts()
+    if let Some((CasOp::Power, [_, exp])) = value.cas_op_parts()
         && exp.rational_parts().is_some_and(|(n, _)| n.is_negative())
     {
         return true;
@@ -108,7 +109,7 @@ fn contains_negative_power(value: &Value) -> bool {
 }
 
 fn contains_var_dependent_fractional_power(value: &Value) -> bool {
-    if let Some(("^", [base, exp])) = value.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = value.cas_op_parts()
         && exp.rational_parts().is_some_and(|(_, d)| !d.is_one())
         && contains_symbolic_var(base)
     {
@@ -130,7 +131,7 @@ fn contains_var_dependent_fractional_power(value: &Value) -> bool {
 /// Extract `numer/denom` from a term represented as `numer * denom^(-1)`.
 /// Returns `(numer, denom)` when there is exactly one reciprocal factor.
 fn extract_reciprocal_term(term: &Value) -> Option<(Value, Value)> {
-    if let Some(("^", [base, exp])) = term.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = term.cas_op_parts()
         && let Some((numer, denom)) = exp.rational_parts()
         && numer.is_negative()
     {
@@ -142,14 +143,14 @@ fn extract_reciprocal_term(term: &Value) -> Option<(Value, Value)> {
         };
         return Some((Value::Int(1), recip_base));
     }
-    let Some(("*", args)) = term.cas_op_parts() else {
+    let Some((CasOp::Multiply, args)) = term.cas_op_parts() else {
         return None;
     };
     let mut reciprocal_base = None;
     let mut reciprocal_count = 0usize;
     let mut numer_factors = Vec::with_capacity(args.len());
     for arg in args {
-        if let Some(("^", [base, exp])) = arg.cas_op_parts()
+        if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts()
             && let Some((numer, denom)) = exp.rational_parts()
             && numer.is_negative()
         {
@@ -229,7 +230,7 @@ fn try_combine_unit_with_fraction_sum(args: &[Value]) -> WqResult<Option<Value>>
 /// `A * B^(-1)`. Returns `(A, B, C)`.
 fn match_affine_over_sum(expr: &Value) -> Option<(Value, Value, Value)> {
     let (op, args) = expr.cas_op_parts()?;
-    if op != "+" {
+    if op != CasOp::Add {
         return None;
     }
     if args.len() != 2 {
@@ -254,7 +255,7 @@ pub(super) fn try_cancel_affine_over_factor(lhs: &Value, rhs: &Value) -> WqResul
 
     let affine_factor = simplify_cas_value(&cas_add(vec![a, cas_mul(vec![b.clone(), c])?])?)?;
     let rhs_factored = factor_expr(rhs)?;
-    let mut rhs_factors = if let Some(("*", args)) = rhs_factored.cas_op_parts() {
+    let mut rhs_factors = if let Some((CasOp::Multiply, args)) = rhs_factored.cas_op_parts() {
         args.to_vec()
     } else {
         vec![rhs_factored.clone()]
@@ -294,7 +295,7 @@ fn try_cancel_affine_over_product(args: &[Value]) -> WqResult<Option<Value>> {
         return Ok(None);
     }
     for (lhs_i, rhs_i) in [(0, 1), (1, 0)] {
-        let Some(("^", [rhs, exp])) = args[rhs_i].cas_op_parts() else {
+        let Some((CasOp::Power, [rhs, exp])) = args[rhs_i].cas_op_parts() else {
             continue;
         };
         if !exp.exact_int_is(-1) {
@@ -344,12 +345,12 @@ fn try_merge_var_free_sum_pair(args: &[Value]) -> WqResult<Option<Value>> {
 }
 
 fn remove_common_product_factors(lhs: &Value, rhs: &Value) -> Option<(Vec<Value>, Value, Value)> {
-    let mut lhs_factors = if let Some(("*", args)) = lhs.cas_op_parts() {
+    let mut lhs_factors = if let Some((CasOp::Multiply, args)) = lhs.cas_op_parts() {
         args.to_vec()
     } else {
         vec![lhs.clone()]
     };
-    let mut rhs_factors = if let Some(("*", args)) = rhs.cas_op_parts() {
+    let mut rhs_factors = if let Some((CasOp::Multiply, args)) = rhs.cas_op_parts() {
         args.to_vec()
     } else {
         vec![rhs.clone()]
@@ -371,7 +372,7 @@ fn remove_common_product_factors(lhs: &Value, rhs: &Value) -> Option<(Vec<Value>
     let has_inverse_sqrt_factor = common.iter().any(|factor| {
         matches!(
             factor.cas_op_parts(),
-            Some(("^", [base, exp])) if exp.exact_neg_half() && single_poly_degree(base) == Some(3)
+            Some((CasOp::Power, [base, exp])) if exp.exact_neg_half() && single_poly_degree(base) == Some(3)
         )
     });
     if common.is_empty() || !has_inverse_sqrt_factor {
@@ -430,7 +431,7 @@ fn combine_logs_in_sum(args: &[Value]) -> WqResult<Option<Value>> {
     let mut other_terms = Vec::with_capacity(args.len());
     let mut log_args = Vec::new();
     for term in args {
-        if let Some(("ln", [arg])) = term.cas_call_parts() {
+        if let Some((CasFunction::Ln, [arg])) = term.cas_call_parts() {
             log_args.push(arg.clone());
         } else {
             other_terms.push(term.clone());
@@ -448,14 +449,14 @@ fn rewrite_sgn_abs_product(args: &[Value]) -> WqResult<Option<Value>> {
     let mut abs_arg = None;
     let mut abs_power = None;
     for arg in args {
-        if let Some(("sgn", [s])) = arg.cas_call_parts() {
+        if let Some((CasFunction::Sgn, [s])) = arg.cas_call_parts() {
             sgn_arg = Some(s.clone());
-        } else if let Some(("^", [base, exp])) = arg.cas_op_parts() {
-            if let Some(("abs", [a])) = base.cas_call_parts() {
+        } else if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts() {
+            if let Some((CasFunction::Abs, [a])) = base.cas_call_parts() {
                 abs_arg = Some(a.clone());
                 abs_power = Some(exp.clone());
             }
-        } else if let Some(("abs", [a])) = arg.cas_call_parts() {
+        } else if let Some((CasFunction::Abs, [a])) = arg.cas_call_parts() {
             abs_arg = Some(a.clone());
             abs_power = Some(Value::Int(1));
         }
@@ -481,19 +482,19 @@ fn rewrite_sgn_abs_product(args: &[Value]) -> WqResult<Option<Value>> {
         let is_sgn = !removed_sgn
             && arg
                 .cas_call_parts()
-                .is_some_and(|(n, a2)| n == "sgn" && a2.len() == 1 && a2[0] == *s);
+                .is_some_and(|(n, a2)| n == CasFunction::Sgn && a2.len() == 1 && a2[0] == *s);
         let is_abs = !removed_abs
             && arg
                 .cas_call_parts()
-                .is_some_and(|(n, a2)| n == "abs" && a2.len() == 1 && a2[0] == *a);
+                .is_some_and(|(n, a2)| n == CasFunction::Abs && a2.len() == 1 && a2[0] == *a);
         let is_abs_inv = !removed_abs
             && arg.cas_op_parts().is_some_and(|(op, a2)| {
-                op == "^"
+                op == CasOp::Power
                     && a2.len() == 2
                     && a2[1].exact_int_is(-1)
                     && a2[0]
                         .cas_call_parts()
-                        .is_some_and(|(n, a3)| n == "abs" && a3.len() == 1 && a3[0] == *a)
+                        .is_some_and(|(n, a3)| n == CasFunction::Abs && a3.len() == 1 && a3[0] == *a)
             });
 
         if is_sgn {
@@ -518,7 +519,7 @@ fn is_provably_positive(expr: &Value) -> bool {
         return expr.as_f64().is_some_and(|f| f > 0.0);
     }
     // Quadratic a·x² + b·x + c with a > 0 and disc < 0 → always > 0
-    let Some(("+", _)) = expr.cas_op_parts() else {
+    let Some((CasOp::Add, _)) = expr.cas_op_parts() else {
         return false;
     };
     let mut found_var = None;
@@ -593,12 +594,12 @@ fn try_factor_binary_product(args: &[Value]) -> WqResult<Option<Value>> {
         }
         // Both cores should be products sharing a common factor
         let factors_pos: Vec<Value> = match core_pos.cas_op_parts() {
-            Some(("*", f)) => f.to_vec(),
+            Some((CasOp::Multiply, f)) => f.to_vec(),
             _ => vec![core_pos.clone()],
         };
         let factors_neg: Vec<Value> = match &core_neg {
-            Some(c) if matches!(c.cas_op_parts(), Some(("*", _))) => {
-                if let Some(("*", f)) = c.cas_op_parts() {
+            Some(c) if matches!(c.cas_op_parts(), Some((CasOp::Multiply, _))) => {
+                if let Some((CasOp::Multiply, f)) = c.cas_op_parts() {
                     f.to_vec()
                 } else {
                     continue;
@@ -654,9 +655,9 @@ fn try_factor_binary_product(args: &[Value]) -> WqResult<Option<Value>> {
 fn try_combine_inv_denoms(args: &[Value]) -> WqResult<Option<Value>> {
     let mut inv_info = Vec::new();
     for (i, arg) in args.iter().enumerate() {
-        if let Some(("^", [base, e])) = arg.cas_op_parts()
+        if let Some((CasOp::Power, [base, e])) = arg.cas_op_parts()
             && e.exact_int_is(-1)
-            && let Some(("+", sum_terms)) = base.cas_op_parts()
+            && let Some((CasOp::Add, sum_terms)) = base.cas_op_parts()
             && sum_terms.len() <= 3
         {
             inv_info.push((i, base.clone()));
@@ -675,7 +676,7 @@ fn try_combine_inv_denoms(args: &[Value]) -> WqResult<Option<Value>> {
                 continue;
             }
             // Factor out common numeric gcd to expose structural cancellation
-            let product = if let Some(("+", sum_args)) = product.cas_op_parts()
+            let product = if let Some((CasOp::Add, sum_args)) = product.cas_op_parts()
                 && let Some(gcd) = common_numeric_gcd(sum_args)
             {
                 let mut factored = Vec::with_capacity(sum_args.len());
@@ -722,7 +723,7 @@ fn single_poly_degree(expr: &Value) -> Option<usize> {
 }
 
 fn product_factors(value: &Value) -> Vec<Value> {
-    if let Some(("*", args)) = value.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = value.cas_op_parts() {
         args.to_vec()
     } else {
         vec![value.clone()]
@@ -733,7 +734,7 @@ fn split_fraction_product(value: &Value) -> WqResult<Option<(Value, Value)>> {
     let mut numerator = Vec::new();
     let mut denominator = Vec::new();
     for factor in product_factors(value) {
-        if let Some(("^", [base, exp])) = factor.cas_op_parts()
+        if let Some((CasOp::Power, [base, exp])) = factor.cas_op_parts()
             && let Some(abs_power) = negative_integer_power(exp)
         {
             denominator.push(cas_pow(base.clone(), abs_power)?);
@@ -757,7 +758,7 @@ fn product_negative_integer_denominator(
         if idx == skip {
             continue;
         }
-        if let Some(("^", [base, exp])) = arg.cas_op_parts()
+        if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts()
             && let Some(abs_power) = negative_integer_power(exp)
         {
             denominator.push(cas_pow(base.clone(), abs_power)?);
@@ -778,7 +779,7 @@ fn expand_equivalent(lhs: &Value, rhs: &Value) -> WqResult<bool> {
 
 fn try_cancel_inverse_sqrt_denominator(args: &[Value]) -> WqResult<Option<Value>> {
     for (sqrt_idx, factor) in args.iter().enumerate() {
-        let Some(("^", [base, exp])) = factor.cas_op_parts() else {
+        let Some((CasOp::Power, [base, exp])) = factor.cas_op_parts() else {
             continue;
         };
         if !exp.exact_neg_half() {
@@ -855,7 +856,7 @@ fn pow_constant_factor(factor: &Value, exp: &Value) -> WqResult<Value> {
     if let Some(exact) = exact_rational_fractional_power(factor, exp) {
         return Ok(exact);
     }
-    if let Some(("^", [base, inner_exp])) = factor.cas_op_parts()
+    if let Some((CasOp::Power, [base, inner_exp])) = factor.cas_op_parts()
         && !contains_symbolic_var(base)
         && inner_exp.rational_parts().is_some()
         && exp.rational_parts().is_some()
@@ -869,7 +870,7 @@ fn try_split_var_free_product_power(base: &Value, exp: &Value) -> WqResult<Optio
     if !exp.exact_half() && !exp.exact_neg_half() {
         return Ok(None);
     }
-    let Some(("*", args)) = base.cas_op_parts() else {
+    let Some((CasOp::Multiply, args)) = base.cas_op_parts() else {
         return Ok(None);
     };
 
@@ -899,7 +900,7 @@ fn try_split_var_free_product_power(base: &Value, exp: &Value) -> WqResult<Optio
 }
 
 fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
-    if let Some(("+", args)) = value.cas_op_parts() {
+    if let Some((CasOp::Add, args)) = value.cas_op_parts() {
         if let Some(result) = try_combine_unit_with_fraction_sum(args)? {
             return Ok(Some(result));
         }
@@ -924,15 +925,15 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
     }
 
     // Distribute -1 over sum: (* -1 (+ a b …)) → (+ (* -1 a) (* -1 b) …)
-    if let Some(("*", [a, b])) = value.cas_op_parts() {
-        if let (Some(("+", sum_args)), true) = (b.cas_op_parts(), a.exact_int_is(-1)) {
+    if let Some((CasOp::Multiply, [a, b])) = value.cas_op_parts() {
+        if let (Some((CasOp::Add, sum_args)), true) = (b.cas_op_parts(), a.exact_int_is(-1)) {
             let new_args: Vec<Value> = sum_args
                 .iter()
                 .map(|arg| cas_neg(arg.clone()))
                 .collect::<WqResult<_>>()?;
             return Ok(Some(cas_add(new_args)?));
         }
-        if let (Some(("+", sum_args)), true) = (a.cas_op_parts(), b.exact_int_is(-1)) {
+        if let (Some((CasOp::Add, sum_args)), true) = (a.cas_op_parts(), b.exact_int_is(-1)) {
             let new_args: Vec<Value> = sum_args
                 .iter()
                 .map(|arg| cas_neg(arg.clone()))
@@ -941,43 +942,43 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
         }
     }
 
-    if let Some(("*", args)) = value.cas_op_parts()
+    if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
         && let Some(result) = try_cancel_affine_over_product(args)?
     {
         return Ok(Some(result));
     }
 
-    if let Some(("*", args)) = value.cas_op_parts()
+    if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
         && let Some(result) = try_cancel_inverse_sqrt_denominator(args)?
     {
         return Ok(Some(result));
     }
 
-    if let Some(("*", args)) = value.cas_op_parts()
+    if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
         && let Some(result) = rewrite_sgn_abs_product(args)?
     {
         return Ok(Some(result));
     }
 
     // Combine (^ D1 -1) * (^ D2 -1) → (^ (D1*D2) -1) when D1*D2 expands usefully
-    if let Some(("*", args)) = value.cas_op_parts()
+    if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
         && let Some(result) = try_combine_inv_denoms(args)?
     {
         return Ok(Some(result));
     }
 
-    if let Some(("^", [base, exp])) = value.cas_op_parts() {
+    if let Some((CasOp::Power, [base, exp])) = value.cas_op_parts() {
         if let Some(result) = try_split_var_free_product_power(base, exp)? {
             return Ok(Some(result));
         }
         if exp.exact_half()
-            && let Some(("^", [inner_base, inner_exp])) = base.cas_op_parts()
+            && let Some((CasOp::Power, [inner_base, inner_exp])) = base.cas_op_parts()
             && inner_exp.exact_int_is(2)
         {
             return Ok(Some(Value::from_cas_call("abs", vec![inner_base.clone()])));
         }
         if exp.exact_int_is(2)
-            && let Some(("abs", [arg])) = base.cas_call_parts()
+            && let Some((CasFunction::Abs, [arg])) = base.cas_call_parts()
         {
             return Ok(Some(cas_pow(arg.clone(), Value::Int(2))?));
         }
@@ -987,20 +988,20 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
         return Ok(None);
     };
     let rewritten = match (name, args) {
-        ("ln", [arg]) if matches!(arg.cas_call_parts(), Some(("exp", [_]))) => {
+        (CasFunction::Ln, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::Exp, [_]))) => {
             let Some((_, [inner])) = arg.cas_call_parts() else {
                 unreachable!("matched exp call")
             };
             Some(inner.clone())
         }
-        ("exp", [arg]) if matches!(arg.cas_call_parts(), Some(("ln", [_]))) => {
+        (CasFunction::Exp, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::Ln, [_]))) => {
             let Some((_, [inner])) = arg.cas_call_parts() else {
                 unreachable!("matched ln call")
             };
             Some(inner.clone())
         }
-        ("ln", [arg]) if matches!(arg.cas_op_parts(), Some(("^", [_, _]))) => {
-            let Some(("^", [base, exp])) = arg.cas_op_parts() else {
+        (CasFunction::Ln, [arg]) if matches!(arg.cas_op_parts(), Some((CasOp::Power, [_, _]))) => {
+            let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts() else {
                 unreachable!("matched power")
             };
             Some(cas_mul(vec![
@@ -1008,30 +1009,30 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
                 Value::from_cas_call("ln", vec![base.clone()]),
             ])?)
         }
-        ("sin", [arg]) if matches!(arg.cas_call_parts(), Some(("arcsin", [_]))) => {
+        (CasFunction::Sin, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::ArcSin, [_]))) => {
             // sin(arcsin(t)) = t
-            let Some(("arcsin", [inner])) = arg.cas_call_parts() else {
+            let Some((CasFunction::ArcSin, [inner])) = arg.cas_call_parts() else {
                 unreachable!()
             };
             Some(inner.clone())
         }
-        ("cos", [arg]) if matches!(arg.cas_call_parts(), Some(("arccos", [_]))) => {
+        (CasFunction::Cos, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::ArcCos, [_]))) => {
             // cos(arccos(t)) = t
-            let Some(("arccos", [inner])) = arg.cas_call_parts() else {
+            let Some((CasFunction::ArcCos, [inner])) = arg.cas_call_parts() else {
                 unreachable!()
             };
             Some(inner.clone())
         }
-        ("tan", [arg]) if matches!(arg.cas_call_parts(), Some(("arctan", [_]))) => {
+        (CasFunction::Tan, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::ArcTan, [_]))) => {
             // tan(arctan(t)) = t
-            let Some(("arctan", [inner])) = arg.cas_call_parts() else {
+            let Some((CasFunction::ArcTan, [inner])) = arg.cas_call_parts() else {
                 unreachable!()
             };
             Some(inner.clone())
         }
-        ("sin", [arg]) if matches!(arg.cas_call_parts(), Some(("arccos", [_]))) => {
+        (CasFunction::Sin, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::ArcCos, [_]))) => {
             // sin(arccos(t)) = sqrt(1 - t^2)
-            let Some(("arccos", [inner])) = arg.cas_call_parts() else {
+            let Some((CasFunction::ArcCos, [inner])) = arg.cas_call_parts() else {
                 unreachable!()
             };
             Some(cas_pow(
@@ -1039,9 +1040,9 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
                 Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
             )?)
         }
-        ("cos", [arg]) if matches!(arg.cas_call_parts(), Some(("arcsin", [_]))) => {
+        (CasFunction::Cos, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::ArcSin, [_]))) => {
             // cos(arcsin(t)) = sqrt(1 - t^2)
-            let Some(("arcsin", [inner])) = arg.cas_call_parts() else {
+            let Some((CasFunction::ArcSin, [inner])) = arg.cas_call_parts() else {
                 unreachable!()
             };
             Some(cas_pow(
@@ -1049,7 +1050,7 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
                 Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
             )?)
         }
-        ("sin", [arg]) => {
+        (CasFunction::Sin, [arg]) => {
             if let Some(inner) = extract_unit_negative(arg) {
                 Some(cas_neg(Value::from_cas_call("sin", vec![inner]))?)
             } else if let Some(shifted) = take_additive_constant(arg, std::f64::consts::FRAC_PI_2) {
@@ -1070,10 +1071,10 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
                 }
             }
         }
-        ("cos", [arg]) => {
+        (CasFunction::Cos, [arg]) => {
             extract_unit_negative(arg).map(|inner| Value::from_cas_call("cos", vec![inner]))
         }
-        ("abs", [arg]) => {
+        (CasFunction::Abs, [arg]) => {
             if is_provably_positive(arg) {
                 Some(arg.clone())
             } else {

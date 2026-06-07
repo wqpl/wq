@@ -14,6 +14,7 @@ use crate::cas::{
     cas_mul, cas_product, eval_exact_numeric_div, eval_numeric_binary, poly_degree, poly_from_expr,
     poly_to_expr, poly_trim, simplify_cas_value,
 };
+use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 /// Strategy entry point: integrate P(x)·e^(k·x).
@@ -25,13 +26,13 @@ pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Val
 
     // Case 1: pure exp(k·x) — delegate to table strategy (already handled)
     if let Some((name, _)) = simplified.cas_call_parts()
-        && name == "exp"
+        && name == CasFunction::Exp
     {
         return Ok(None);
     }
 
     // Case 2: P(x) * exp(k·x)
-    let Some(("*", args)) = simplified.cas_op_parts() else {
+    let Some((CasOp::Multiply, args)) = simplified.cas_op_parts() else {
         return Ok(None);
     };
 
@@ -42,7 +43,7 @@ pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Val
 
     for arg in args {
         if let Some((name, inner)) = arg.cas_call_parts()
-            && name == "exp"
+            && name == CasFunction::Exp
             && inner.len() == 1
         {
             if exp_arg.is_some() {
@@ -152,7 +153,7 @@ fn extract_linear_coeff(expr: &Value, var: &str) -> Option<Value> {
     }
 
     // Case: k * x
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         let mut coeff = Value::Int(1);
         let mut has_var = false;
         for arg in args {

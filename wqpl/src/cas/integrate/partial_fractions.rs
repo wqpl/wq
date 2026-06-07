@@ -3,11 +3,12 @@ use num_traits::ToPrimitive;
 
 use super::split_off_numeric;
 use crate::cas::{cas_add, cas_div, cas_mul, cas_sub, numeric_is_one, simplify_cas_value};
+use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
 
 pub(super) fn integrate_by_partial_fractions(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     // Check for direct ^(-1) form: (denom)^(-1)
-    if let Some(("^", [base, exp])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && let Some(power) = exp.exact_int()
         && power == BigInt::from(-1)
         && let Some(result) = try_quadratic_denominator(base, var)?
@@ -16,9 +17,9 @@ pub(super) fn integrate_by_partial_fractions(expr: &Value, var: &str) -> WqResul
     }
 
     // Check for * form with (denom)^(-1) as a factor
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         for arg in args {
-            if let Some(("^", [base, exp])) = arg.cas_op_parts()
+            if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts()
                 && let Some(power) = exp.exact_int()
                 && power == BigInt::from(-1)
                 && let Some(result) = try_quadratic_denominator(base, var)?
@@ -32,7 +33,7 @@ pub(super) fn integrate_by_partial_fractions(expr: &Value, var: &str) -> WqResul
 }
 
 fn try_quadratic_denominator(denom: &Value, var: &str) -> WqResult<Option<Value>> {
-    let Some(("+", args)) = denom.cas_op_parts() else {
+    let Some((CasOp::Add, args)) = denom.cas_op_parts() else {
         return Ok(None);
     };
 
@@ -40,17 +41,17 @@ fn try_quadratic_denominator(denom: &Value, var: &str) -> WqResult<Option<Value>
     let mut const_term: Option<Value> = None;
 
     for arg in args {
-        if let Some(("^", [base, exp])) = arg.cas_op_parts()
+        if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts()
             && base.cas_var_name() == Some(var)
             && exp.exact_int().is_some_and(|n| n == 2.into())
         {
             x_sq_coeff = Some(Value::Int(1));
             continue;
         }
-        if let Some(("*", inner_args)) = arg.cas_op_parts() {
+        if let Some((CasOp::Multiply, inner_args)) = arg.cas_op_parts() {
             let (coeff, rest) = split_off_numeric(inner_args);
             if rest.len() == 1
-                && let Some(("^", [base, exp])) = rest[0].cas_op_parts()
+                && let Some((CasOp::Power, [base, exp])) = rest[0].cas_op_parts()
                 && base.cas_var_name() == Some(var)
                 && exp.exact_int().is_some_and(|n| n == 2.into())
             {
@@ -119,7 +120,7 @@ fn try_negate(value: &Value) -> Option<Value> {
             Some(Value::from_bigint(-n.as_ref().clone()))
         }
         _ => {
-            if let Some(("*", args)) = value.cas_op_parts()
+            if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
                 && args.len() == 2
                 && args[0] == Value::Int(-1)
             {

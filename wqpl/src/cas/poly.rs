@@ -5,6 +5,7 @@ use super::{
     cas_add, cas_err, cas_pow, contains_cas_var, eval_exact_numeric_div, eval_numeric_binary,
     numeric_is_negative, numeric_is_one, numeric_is_zero, rebuild_scaled_term, simplify_cas_value,
 };
+use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
 
 pub(crate) fn extract_linear_coefficients(expr: &Value, var: &str) -> Option<(Value, Value)> {
@@ -12,7 +13,7 @@ pub(crate) fn extract_linear_coefficients(expr: &Value, var: &str) -> Option<(Va
         return Some((Value::Int(1), Value::Int(0)));
     }
 
-    if let Some(("*", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
         let mut numeric = Value::Int(1);
         let mut symbolic = None;
         for arg in args {
@@ -35,7 +36,7 @@ pub(crate) fn extract_linear_coefficients(expr: &Value, var: &str) -> Option<(Va
         ));
     }
 
-    if let Some(("+", args)) = expr.cas_op_parts() {
+    if let Some((CasOp::Add, args)) = expr.cas_op_parts() {
         let mut a = Value::Int(1);
         let mut b = Value::Int(0);
         let mut found_var = false;
@@ -46,7 +47,7 @@ pub(crate) fn extract_linear_coefficients(expr: &Value, var: &str) -> Option<(Va
                     return None;
                 }
                 found_var = true;
-            } else if let Some(("*", inner_args)) = arg.cas_op_parts() {
+            } else if let Some((CasOp::Multiply, inner_args)) = arg.cas_op_parts() {
                 let mut coeff = Value::Int(1);
                 let mut has_var = false;
                 for inner in inner_args {
@@ -456,7 +457,7 @@ fn contains_any_cas_var(expr: &Value) -> bool {
 }
 
 fn contains_negative_power(expr: &Value) -> bool {
-    if let Some(("^", [_, exp])) = expr.cas_op_parts()
+    if let Some((CasOp::Power, [_, exp])) = expr.cas_op_parts()
         && exp.rational_parts().is_some_and(|(n, _)| n.is_negative())
     {
         return true;
@@ -517,21 +518,21 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
     }
     if let Some((op, args)) = expr.cas_op_parts() {
         return match (op, args) {
-            ("+", args) => {
+            (CasOp::Add, args) => {
                 let mut acc = vec![Value::Int(0)];
                 for arg in args {
                     acc = poly_add(&acc, &poly_from_expr(arg, var)?)?;
                 }
                 Ok(acc)
             }
-            ("*", args) => {
+            (CasOp::Multiply, args) => {
                 let mut acc = vec![Value::Int(1)];
                 for arg in args {
                     acc = poly_mul(&acc, &poly_from_expr(arg, var)?)?;
                 }
                 Ok(acc)
             }
-            ("^", [base, exp]) => {
+            (CasOp::Power, [base, exp]) => {
                 if base.cas_var_name() == Some(var) {
                     let n = exp.exact_int().and_then(|n| n.to_usize()).ok_or_else(|| {
                         cas_err("solve currently supports non-negative integer powers only")

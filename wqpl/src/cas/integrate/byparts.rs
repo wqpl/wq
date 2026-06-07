@@ -11,6 +11,7 @@ use crate::cas::{
     poly_is_zero, poly_to_expr, simplify_cas_value,
 };
 use crate::session::dbglog::DebugLogFlags;
+use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 /// Maximum number of nested by-parts calls in a single chain before
@@ -76,7 +77,7 @@ fn push_canonical_key(value: &Value, out: &mut String) {
     }
     if let Some((op, args)) = value.cas_op_parts() {
         out.push_str("o:");
-        out.push_str(op);
+        out.push_str(op.symbol());
         out.push('(');
         for arg in args {
             push_canonical_key(arg, out);
@@ -87,7 +88,7 @@ fn push_canonical_key(value: &Value, out: &mut String) {
     }
     if let Some((name, args)) = value.cas_call_parts() {
         out.push_str("c:");
-        out.push_str(name);
+        out.push_str(name.name());
         out.push('(');
         for arg in args {
             push_canonical_key(arg, out);
@@ -138,7 +139,7 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
         }
     };
 
-    let Some(("*", args)) = expr.cas_op_parts() else {
+    let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
         cas_trace!(DebugLogFlags::CAS, "[cas] byparts exit (not_product)");
         return Ok(None);
     };
@@ -179,12 +180,12 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
 /// Matches: `exp[g(x)]` (Call node) and `e^(g(x))` (Pow node with Const("e")).
 pub(super) fn try_extract_exp_arg(factor: &Value) -> Option<Value> {
     if let Some((name, inner)) = factor.cas_call_parts()
-        && name == "exp"
+        && name == CasFunction::Exp
         && inner.len() == 1
     {
         return Some(inner[0].clone());
     }
-    if let Some(("^", args)) = factor.cas_op_parts()
+    if let Some((CasOp::Power, args)) = factor.cas_op_parts()
         && args.len() == 2
         && args[0].cas_const_name() == Some("e")
     {
@@ -197,7 +198,7 @@ pub(super) fn try_extract_exp_arg(factor: &Value) -> Option<Value> {
 // Direct formula: ∫ e^{ax+b} · sin(cx+d) dx  and  ∫ e^{ax+b} · cos(cx+d) dx
 // ───────────────────────────────────────────────────────────────────────────
 fn try_exp_trig_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
-    let Some(("*", args)) = expr.cas_op_parts() else {
+    let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
         return Ok(None);
     };
     let (coeff, symbolic) = split_off_numeric(args);
@@ -210,7 +211,9 @@ fn try_exp_trig_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     for factor in &symbolic {
         if let Some(arg) = try_extract_exp_arg(factor) {
             exp_arg = Some(arg);
-        } else if let Some((name @ ("sin" | "cos"), [arg])) = factor.cas_call_parts() {
+        } else if let Some((name @ (CasFunction::Sin | CasFunction::Cos), [arg])) =
+            factor.cas_call_parts()
+        {
             trig = Some((name, arg.clone()));
         }
     }
@@ -244,7 +247,7 @@ fn try_exp_trig_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let exp_expr = Value::from_cas_call("exp", vec![exp_arg_val.clone()]);
     let trig_expr = Value::from_cas_call(trig_name, vec![trig_arg_val.clone()]);
 
-    let numerator = if trig_name == "sin" {
+    let numerator = if trig_name == CasFunction::Sin {
         // a·sin(cx+d) − c·cos(cx+d)
         let a_sin = cas_mul(vec![exp_a.clone(), trig_expr])?;
         let c_cos = cas_mul(vec![
@@ -273,7 +276,7 @@ fn try_exp_trig_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
 // Tabular integration: polynomial × cyclic function
 // ───────────────────────────────────────────────────────────────────────────
 fn try_tabular(expr: &Value, var: &str) -> WqResult<Option<Value>> {
-    let Some(("*", args)) = expr.cas_op_parts() else {
+    let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
         return Ok(None);
     };
     let (coeff, symbolic) = split_off_numeric(args);
@@ -339,8 +342,15 @@ fn try_tabular(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     simplify_cas_value(&result).map(Some)
 }
 
-fn is_tabular_cyclic(name: &str) -> bool {
-    matches!(name, "exp" | "sin" | "cos" | "sinh" | "cosh")
+fn is_tabular_cyclic(name: CasFunction) -> bool {
+    matches!(
+        name,
+        CasFunction::Exp
+            | CasFunction::Sin
+            | CasFunction::Cos
+            | CasFunction::Sinh
+            | CasFunction::Cosh
+    )
 }
 
 /// Compute the j-th repeated integral of a cyclic function whose argument
@@ -349,33 +359,38 @@ fn is_tabular_cyclic(name: &str) -> bool {
 /// For `exp`:  always `exp(arg) / k^j`.
 /// For `sin`/`cos`: cycle with period 4.
 /// For `sinh`/`cosh`: cycle with period 2.
-fn compute_cyclic_integral(name: &str, arg: &Value, j: usize, k: &Value) -> WqResult<Value> {
+fn compute_cyclic_integral(
+    name: CasFunction,
+    arg: &Value,
+    j: usize,
+    k: &Value,
+) -> WqResult<Value> {
     let kj = cas_pow(k.clone(), Value::from_bigint(BigInt::from(j)))?;
 
     let (fn_name, sign) = match name {
-        "exp" => ("exp", Value::Int(1)),
-        "sin" => match j % 4 {
-            1 => ("cos", Value::Int(-1)), //  ∫sin   = -cos
-            2 => ("sin", Value::Int(-1)), //  ∫∫sin  = -sin
-            3 => ("cos", Value::Int(1)),  //  ∫∫∫sin =  cos
-            0 => ("sin", Value::Int(1)),  //  ∫^4 sin = sin
+        CasFunction::Exp => (CasFunction::Exp, Value::Int(1)),
+        CasFunction::Sin => match j % 4 {
+            1 => (CasFunction::Cos, Value::Int(-1)), //  ∫sin   = -cos
+            2 => (CasFunction::Sin, Value::Int(-1)), //  ∫∫sin  = -sin
+            3 => (CasFunction::Cos, Value::Int(1)),  //  ∫∫∫sin =  cos
+            0 => (CasFunction::Sin, Value::Int(1)),  //  ∫^4 sin = sin
             _ => unreachable!(),
         },
-        "cos" => match j % 4 {
-            1 => ("sin", Value::Int(1)),  //  ∫cos   =  sin
-            2 => ("cos", Value::Int(-1)), //  ∫∫cos  = -cos
-            3 => ("sin", Value::Int(-1)), //  ∫∫∫cos = -sin
-            0 => ("cos", Value::Int(1)),  //  ∫^4 cos = cos
+        CasFunction::Cos => match j % 4 {
+            1 => (CasFunction::Sin, Value::Int(1)),  //  ∫cos   =  sin
+            2 => (CasFunction::Cos, Value::Int(-1)), //  ∫∫cos  = -cos
+            3 => (CasFunction::Sin, Value::Int(-1)), //  ∫∫∫cos = -sin
+            0 => (CasFunction::Cos, Value::Int(1)),  //  ∫^4 cos = cos
             _ => unreachable!(),
         },
-        "sinh" => match j % 2 {
-            1 => ("cosh", Value::Int(1)),
-            0 => ("sinh", Value::Int(1)),
+        CasFunction::Sinh => match j % 2 {
+            1 => (CasFunction::Cosh, Value::Int(1)),
+            0 => (CasFunction::Sinh, Value::Int(1)),
             _ => unreachable!(),
         },
-        "cosh" => match j % 2 {
-            1 => ("sinh", Value::Int(1)),
-            0 => ("cosh", Value::Int(1)),
+        CasFunction::Cosh => match j % 2 {
+            1 => (CasFunction::Sinh, Value::Int(1)),
+            0 => (CasFunction::Cosh, Value::Int(1)),
             _ => unreachable!(),
         },
         _ => return Ok(Value::from_cas_call(name, vec![arg.clone()])),
@@ -392,11 +407,21 @@ fn compute_cyclic_integral(name: &str, arg: &Value, j: usize, k: &Value) -> WqRe
 fn liate_rank(expr: &Value) -> i32 {
     if let Some((name, _)) = expr.cas_call_parts() {
         match name {
-            "ln" | "log2" | "log10" => return 5,
-            "arcsin" | "arccos" | "arctan" | "arcsinh" | "arccosh" | "arctanh" => return 4,
-            "sin" | "cos" | "tan" | "sec" | "csc" | "cot" => return 2,
-            "sinh" | "cosh" | "tanh" => return 2,
-            "exp" => return 1,
+            CasFunction::Ln | CasFunction::Log2 | CasFunction::Log10 => return 5,
+            CasFunction::ArcSin
+            | CasFunction::ArcCos
+            | CasFunction::ArcTan
+            | CasFunction::ArcSinh
+            | CasFunction::ArcCosh
+            | CasFunction::ArcTanh => return 4,
+            CasFunction::Sin
+            | CasFunction::Cos
+            | CasFunction::Tan
+            | CasFunction::Sec
+            | CasFunction::Csc
+            | CasFunction::Cot => return 2,
+            CasFunction::Sinh | CasFunction::Cosh | CasFunction::Tanh => return 2,
+            CasFunction::Exp => return 1,
             _ => return 0,
         }
     }
