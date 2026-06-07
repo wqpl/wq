@@ -1213,6 +1213,7 @@ body {
   border-radius: 14px;
   padding: 16px;
   color: #0b4060;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .symbol-panel-head {
   display: flex;
@@ -1225,6 +1226,7 @@ body {
   font-size: 18px;
   line-height: 1.2;
   color: #0b4060;
+  font-family: var(--font-display);
 }
 .symbol-panel-count {
   min-width: 2.2em;
@@ -1269,11 +1271,21 @@ body {
 }
 .symbol-item {
   --symbol-depth: 0;
+  position: relative;
   display: grid;
   gap: 3px;
   margin-left: calc(var(--symbol-depth) * 14px);
-  padding: 7px 0 7px 8px;
-  border-left: 3px solid #e4c6d8;
+  padding: 7px 0 7px 18px;
+}
+.symbol-item::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  left: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e4c6d8;
 }
 .symbol-link {
   display: grid;
