@@ -25,7 +25,7 @@ pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Val
     let simplified = simplify_cas_value(expr)?;
 
     // Case 1: pure exp(k·x) — delegate to table strategy (already handled)
-    if let Some((name, _)) = simplified.cas_call_parts()
+    if let Some((name, _)) = simplified.cas_function_parts()
         && name == CasFunction::Exp
     {
         return Ok(None);
@@ -42,7 +42,7 @@ pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Val
     let mut numeric_coeff: Option<Value> = None;
 
     for arg in args {
-        if let Some((name, inner)) = arg.cas_call_parts()
+        if let Some((name, inner)) = arg.cas_function_parts()
             && name == CasFunction::Exp
             && inner.len() == 1
         {

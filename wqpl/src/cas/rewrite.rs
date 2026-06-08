@@ -81,7 +81,10 @@ fn contains_symbolic_var(value: &Value) -> bool {
     if let Some((_, args)) = value.cas_op_parts() {
         return args.iter().any(contains_symbolic_var);
     }
-    if let Some((_, args)) = value.cas_call_parts() {
+    if let Some((_, args)) = value.cas_function_parts() {
+        return args.iter().any(contains_symbolic_var);
+    }
+    if let Some((_, args)) = value.cas_apply_parts() {
         return args.iter().any(contains_symbolic_var);
     }
     if let Some((lhs, rhs)) = value.cas_eq_parts() {
@@ -99,7 +102,10 @@ fn contains_negative_power(value: &Value) -> bool {
     if let Some((_, args)) = value.cas_op_parts() {
         return args.iter().any(contains_negative_power);
     }
-    if let Some((_, args)) = value.cas_call_parts() {
+    if let Some((_, args)) = value.cas_function_parts() {
+        return args.iter().any(contains_negative_power);
+    }
+    if let Some((_, args)) = value.cas_apply_parts() {
         return args.iter().any(contains_negative_power);
     }
     if let Some((lhs, rhs)) = value.cas_eq_parts() {
@@ -118,7 +124,10 @@ fn contains_var_dependent_fractional_power(value: &Value) -> bool {
     if let Some((_, args)) = value.cas_op_parts() {
         return args.iter().any(contains_var_dependent_fractional_power);
     }
-    if let Some((_, args)) = value.cas_call_parts() {
+    if let Some((_, args)) = value.cas_function_parts() {
+        return args.iter().any(contains_var_dependent_fractional_power);
+    }
+    if let Some((_, args)) = value.cas_apply_parts() {
         return args.iter().any(contains_var_dependent_fractional_power);
     }
     if let Some((lhs, rhs)) = value.cas_eq_parts() {
@@ -431,7 +440,7 @@ fn combine_logs_in_sum(args: &[Value]) -> WqResult<Option<Value>> {
     let mut other_terms = Vec::with_capacity(args.len());
     let mut log_args = Vec::new();
     for term in args {
-        if let Some((CasFunction::Ln, [arg])) = term.cas_call_parts() {
+        if let Some((CasFunction::Ln, [arg])) = term.cas_function_parts() {
             log_args.push(arg.clone());
         } else {
             other_terms.push(term.clone());
@@ -449,14 +458,14 @@ fn rewrite_sgn_abs_product(args: &[Value]) -> WqResult<Option<Value>> {
     let mut abs_arg = None;
     let mut abs_power = None;
     for arg in args {
-        if let Some((CasFunction::Sgn, [s])) = arg.cas_call_parts() {
+        if let Some((CasFunction::Sgn, [s])) = arg.cas_function_parts() {
             sgn_arg = Some(s.clone());
         } else if let Some((CasOp::Power, [base, exp])) = arg.cas_op_parts() {
-            if let Some((CasFunction::Abs, [a])) = base.cas_call_parts() {
+            if let Some((CasFunction::Abs, [a])) = base.cas_function_parts() {
                 abs_arg = Some(a.clone());
                 abs_power = Some(exp.clone());
             }
-        } else if let Some((CasFunction::Abs, [a])) = arg.cas_call_parts() {
+        } else if let Some((CasFunction::Abs, [a])) = arg.cas_function_parts() {
             abs_arg = Some(a.clone());
             abs_power = Some(Value::Int(1));
         }
@@ -481,11 +490,11 @@ fn rewrite_sgn_abs_product(args: &[Value]) -> WqResult<Option<Value>> {
     for arg in args {
         let is_sgn = !removed_sgn
             && arg
-                .cas_call_parts()
+                .cas_function_parts()
                 .is_some_and(|(n, a2)| n == CasFunction::Sgn && a2.len() == 1 && a2[0] == *s);
         let is_abs = !removed_abs
             && arg
-                .cas_call_parts()
+                .cas_function_parts()
                 .is_some_and(|(n, a2)| n == CasFunction::Abs && a2.len() == 1 && a2[0] == *a);
         let is_abs_inv = !removed_abs
             && arg.cas_op_parts().is_some_and(|(op, a2)| {
@@ -493,7 +502,7 @@ fn rewrite_sgn_abs_product(args: &[Value]) -> WqResult<Option<Value>> {
                     && a2.len() == 2
                     && a2[1].exact_int_is(-1)
                     && a2[0]
-                        .cas_call_parts()
+                        .cas_function_parts()
                         .is_some_and(|(n, a3)| n == CasFunction::Abs && a3.len() == 1 && a3[0] == *a)
             });
 
@@ -615,7 +624,10 @@ fn try_factor_binary_product(args: &[Value]) -> WqResult<Option<Value>> {
             }
             if factors_neg.contains(fa) {
                 let common = fa.clone();
-                if !coeff_neg_is_plain_int && common.cas_call_parts().is_none() {
+                if !coeff_neg_is_plain_int
+                    && common.cas_function_parts().is_none()
+                    && common.cas_apply_parts().is_none()
+                {
                     continue;
                 }
                 let rem_pos: Vec<Value> = factors_pos
@@ -978,24 +990,24 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
             return Ok(Some(Value::from_cas_call("abs", vec![inner_base.clone()])));
         }
         if exp.exact_int_is(2)
-            && let Some((CasFunction::Abs, [arg])) = base.cas_call_parts()
+            && let Some((CasFunction::Abs, [arg])) = base.cas_function_parts()
         {
             return Ok(Some(cas_pow(arg.clone(), Value::Int(2))?));
         }
     }
 
-    let Some((name, args)) = value.cas_call_parts() else {
+    let Some((name, args)) = value.cas_function_parts() else {
         return Ok(None);
     };
     let rewritten = match (name, args) {
-        (CasFunction::Ln, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::Exp, [_]))) => {
-            let Some((_, [inner])) = arg.cas_call_parts() else {
+        (CasFunction::Ln, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::Exp, [_]))) => {
+            let Some((_, [inner])) = arg.cas_function_parts() else {
                 unreachable!("matched exp call")
             };
             Some(inner.clone())
         }
-        (CasFunction::Exp, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::Ln, [_]))) => {
-            let Some((_, [inner])) = arg.cas_call_parts() else {
+        (CasFunction::Exp, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::Ln, [_]))) => {
+            let Some((_, [inner])) = arg.cas_function_parts() else {
                 unreachable!("matched ln call")
             };
             Some(inner.clone())
@@ -1009,30 +1021,30 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
                 Value::from_cas_call("ln", vec![base.clone()]),
             ])?)
         }
-        (CasFunction::Sin, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::ArcSin, [_]))) => {
+        (CasFunction::Sin, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::ArcSin, [_]))) => {
             // sin(arcsin(t)) = t
-            let Some((CasFunction::ArcSin, [inner])) = arg.cas_call_parts() else {
+            let Some((CasFunction::ArcSin, [inner])) = arg.cas_function_parts() else {
                 unreachable!()
             };
             Some(inner.clone())
         }
-        (CasFunction::Cos, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::ArcCos, [_]))) => {
+        (CasFunction::Cos, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::ArcCos, [_]))) => {
             // cos(arccos(t)) = t
-            let Some((CasFunction::ArcCos, [inner])) = arg.cas_call_parts() else {
+            let Some((CasFunction::ArcCos, [inner])) = arg.cas_function_parts() else {
                 unreachable!()
             };
             Some(inner.clone())
         }
-        (CasFunction::Tan, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::ArcTan, [_]))) => {
+        (CasFunction::Tan, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::ArcTan, [_]))) => {
             // tan(arctan(t)) = t
-            let Some((CasFunction::ArcTan, [inner])) = arg.cas_call_parts() else {
+            let Some((CasFunction::ArcTan, [inner])) = arg.cas_function_parts() else {
                 unreachable!()
             };
             Some(inner.clone())
         }
-        (CasFunction::Sin, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::ArcCos, [_]))) => {
+        (CasFunction::Sin, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::ArcCos, [_]))) => {
             // sin(arccos(t)) = sqrt(1 - t^2)
-            let Some((CasFunction::ArcCos, [inner])) = arg.cas_call_parts() else {
+            let Some((CasFunction::ArcCos, [inner])) = arg.cas_function_parts() else {
                 unreachable!()
             };
             Some(cas_pow(
@@ -1040,9 +1052,9 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
                 Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
             )?)
         }
-        (CasFunction::Cos, [arg]) if matches!(arg.cas_call_parts(), Some((CasFunction::ArcSin, [_]))) => {
+        (CasFunction::Cos, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::ArcSin, [_]))) => {
             // cos(arcsin(t)) = sqrt(1 - t^2)
-            let Some((CasFunction::ArcSin, [inner])) = arg.cas_call_parts() else {
+            let Some((CasFunction::ArcSin, [inner])) = arg.cas_function_parts() else {
                 unreachable!()
             };
             Some(cas_pow(
@@ -1095,12 +1107,18 @@ pub(super) fn rewrite_expr(value: &Value) -> WqResult<Value> {
             rewritten_args.push(rewrite_expr(arg)?);
         }
         simplify_cas_value(&Value::from_cas_op(op, rewritten_args))?
-    } else if let Some((name, args)) = value.cas_call_parts() {
+    } else if let Some((name, args)) = value.cas_function_parts() {
         let mut rewritten_args = Vec::with_capacity(args.len());
         for arg in args {
             rewritten_args.push(rewrite_expr(arg)?);
         }
         simplify_cas_value(&Value::from_cas_call(name, rewritten_args))?
+    } else if let Some((name, args)) = value.cas_apply_parts() {
+        let mut rewritten_args = Vec::with_capacity(args.len());
+        for arg in args {
+            rewritten_args.push(rewrite_expr(arg)?);
+        }
+        simplify_cas_value(&Value::from_cas_apply(name.as_str(), rewritten_args))?
     } else {
         value.clone()
     };
@@ -1174,7 +1192,10 @@ pub(crate) fn contains_cas_var(expr: &Value, var: &str) -> bool {
     if let Some((_, args)) = expr.cas_op_parts() {
         return args.iter().any(|a| contains_cas_var(a, var));
     }
-    if let Some((_, args)) = expr.cas_call_parts() {
+    if let Some((_, args)) = expr.cas_function_parts() {
+        return args.iter().any(|a| contains_cas_var(a, var));
+    }
+    if let Some((_, args)) = expr.cas_apply_parts() {
         return args.iter().any(|a| contains_cas_var(a, var));
     }
     false

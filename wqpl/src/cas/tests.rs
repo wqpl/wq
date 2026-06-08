@@ -14,7 +14,10 @@ fn contains_op(value: &Value, needle: CasOp) -> bool {
         }
         return args.iter().any(|arg| contains_op(arg, needle));
     }
-    if let Some((_name, args)) = value.cas_call_parts() {
+    if let Some((_name, args)) = value.cas_function_parts() {
+        return args.iter().any(|arg| contains_op(arg, needle));
+    }
+    if let Some((_name, args)) = value.cas_apply_parts() {
         return args.iter().any(|arg| contains_op(arg, needle));
     }
     if let Some((lhs, rhs)) = value.cas_eq_parts() {
@@ -276,6 +279,26 @@ fn substitute_evaluates_numeric_value() {
     );
     let result = substitute_cas(&expr, &Value::from_cas_var("x"), &Value::Int(5)).unwrap();
     assert_eq!(result, Value::Int(26));
+}
+
+#[test]
+fn substitute_recurses_into_symbolic_application_args() {
+    let expr = Value::from_cas_apply("f", vec![Value::from_cas_var("x")]);
+    let result = substitute_cas(&expr, &Value::from_cas_var("x"), &Value::Int(2)).unwrap();
+    assert_eq!(result.to_string(), "f[2]");
+}
+
+#[test]
+fn simplify_recurses_into_symbolic_application_args() {
+    let expr = Value::from_cas_apply(
+        "f",
+        vec![Value::from_cas_op(
+            "+",
+            vec![Value::from_cas_var("x"), Value::Int(0)],
+        )],
+    );
+    let result = simplify_cas_value(&expr).unwrap();
+    assert_eq!(result.to_string(), "f[x]");
 }
 
 #[test]
@@ -556,6 +579,18 @@ fn numeric_eval_handles_binary_math_calls() {
         panic!("expected float");
     };
     assert!((*value - std::f64::consts::FRAC_PI_4).abs() < 1e-12);
+}
+
+#[test]
+fn numeric_rejects_symbolic_application() {
+    let expr = Value::from_cas_apply("f", vec![Value::Int(2)]);
+    let err = eval_numeric_cas(&expr).expect_err("application should stay symbolic");
+    assert!(
+        err.msg
+            .as_deref()
+            .is_some_and(|msg| msg.contains("unsupported symbolic application 'f'")),
+        "unexpected error: {err:?}",
+    );
 }
 
 #[test]

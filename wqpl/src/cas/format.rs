@@ -39,7 +39,15 @@ fn canonical_degree(value: &Value) -> u32 {
             _ => u32::MAX / 4,
         };
     }
-    if let Some((_name, args)) = value.cas_call_parts() {
+    if let Some((_name, args)) = value.cas_function_parts() {
+        return args
+            .iter()
+            .map(canonical_degree)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+    }
+    if let Some((_name, args)) = value.cas_apply_parts() {
         return args
             .iter()
             .map(canonical_degree)
@@ -67,9 +75,20 @@ fn push_canonical_key(value: &Value, out: &mut String) {
         out.push(')');
         return;
     }
-    if let Some((name, args)) = value.cas_call_parts() {
+    if let Some((name, args)) = value.cas_function_parts() {
         out.push_str("c:");
         out.push_str(name.name());
+        out.push('(');
+        for arg in args {
+            push_canonical_key(arg, out);
+            out.push(',');
+        }
+        out.push(')');
+        return;
+    }
+    if let Some((name, args)) = value.cas_apply_parts() {
+        out.push_str("a:");
+        out.push_str(name.as_str());
         out.push('(');
         for arg in args {
             push_canonical_key(arg, out);
@@ -389,12 +408,19 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
         rendered.push(']');
         return rendered;
     }
-    if let Some((name, args)) = value.cas_call_parts() {
+    if let Some((name, args)) = value.cas_function_parts() {
         let mut rendered_args = Vec::with_capacity(args.len());
         for arg in args {
             rendered_args.push(format_expr(arg, 0));
         }
         return format!("{}[{}]", name.name(), rendered_args.join(";"));
+    }
+    if let Some((name, args)) = value.cas_apply_parts() {
+        let mut rendered_args = Vec::with_capacity(args.len());
+        for arg in args {
+            rendered_args.push(format_expr(arg, 0));
+        }
+        return format!("{}[{}]", name.as_str(), rendered_args.join(";"));
     }
     format_atom(value)
 }

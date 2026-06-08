@@ -48,7 +48,7 @@ pub(super) fn numeric_abs(value: &Value) -> Value {
     }
 }
 
-pub(super) fn ensure_expr_arg(value: &Value, ctx: &str) -> WqResult<()> {
+pub(crate) fn ensure_expr_arg(value: &Value, ctx: &str) -> WqResult<()> {
     if value.is_cas_equation() {
         Err(cas_err(format!("{ctx} expects an expression, got equation")).got1(value))
     } else {
@@ -360,7 +360,7 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
             ))
             .got1(expr)),
         }
-    } else if let Some((function, args)) = expr.cas_call_parts() {
+    } else if let Some((function, args)) = expr.cas_function_parts() {
         // Recursively evaluate arguments.
         let mut vals = Vec::with_capacity(args.len());
         for arg in args {
@@ -374,6 +374,12 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
                 ))
                 .got1(expr)
             })
+    } else if let Some((name, _)) = expr.cas_apply_parts() {
+        Err(cas_err(format!(
+            "unsupported symbolic application '{}' in numeric evaluation",
+            name.as_str()
+        ))
+        .got1(expr))
     } else {
         Err(cas_err("expected symbolic expression for numeric evaluation").got1(expr))
     }

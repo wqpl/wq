@@ -25,7 +25,7 @@ pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Opt
     for (gi, f_of_g) in symbolic.iter().enumerate() {
         let (fname_opt, inner_opt, is_half_pow): (Option<CasFunction>, Option<&Value>, bool) =
             // f(g(x)) — Call node like sin[x²], exp[x³], sqrt[x+1]
-            if let Some((name, fargs)) = f_of_g.cas_call_parts()
+            if let Some((name, fargs)) = f_of_g.cas_function_parts()
                 && fargs.len() == 1
             {
                 (Some(name), Some(&fargs[0]), false)
@@ -133,12 +133,19 @@ fn substitute_into_call(expr: &Value, var: &str, replacement: &Value) -> WqResul
         }
         return simplify_cas_value(&Value::from_cas_op(op, new_args));
     }
-    if let Some((name, args)) = expr.cas_call_parts() {
+    if let Some((name, args)) = expr.cas_function_parts() {
         let mut new_args = Vec::with_capacity(args.len());
         for arg in args {
             new_args.push(substitute_into_call(arg, var, replacement)?);
         }
         return simplify_cas_value(&Value::from_cas_call(name, new_args));
+    }
+    if let Some((name, args)) = expr.cas_apply_parts() {
+        let mut new_args = Vec::with_capacity(args.len());
+        for arg in args {
+            new_args.push(substitute_into_call(arg, var, replacement)?);
+        }
+        return simplify_cas_value(&Value::from_cas_apply(name.as_str(), new_args));
     }
     Ok(expr.clone())
 }

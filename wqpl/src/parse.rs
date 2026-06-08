@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::astnode::{AstNode, AstSpan, BinaryOperator, FStringPart, Parameter, UnaryOperator};
-use crate::cas::{cas_binary_expr, cas_call_expr, cas_unary_expr};
+use crate::cas::{cas_binary_expr, cas_call_expr, cas_unary_expr, ensure_expr_arg};
 use crate::cst::{
     Checkpoint, GreenNode, GreenNodeBuilder, SyntaxKind, SyntaxNode, syntax_kind_of_token,
 };
@@ -3415,13 +3415,14 @@ impl Parser {
                     direction,
                 ));
             }
-            let Some(function) = CasFunction::from_name(name) else {
-                return Err(mk_err(
-                    span,
-                    format!("@s: unknown CAS function '{name}'"),
-                ));
-            };
-            cas_call_expr(function, &args)
+            if let Some(function) = CasFunction::from_name(name) {
+                cas_call_expr(function, &args)
+            } else {
+                for arg in &args {
+                    ensure_expr_arg(arg, name)?;
+                }
+                Ok(Value::from_cas_apply(name, args))
+            }
         };
 
         match node {
@@ -4276,8 +4277,6 @@ mod sync_tests {
 #[cfg(test)]
 mod symbolic_quote_tests {
     use super::*;
-    use crate::wqerror::WqErrorType;
-
     fn parse_input(input: &str) -> WqResult<AstNode> {
         let tokens = Lexer::new(input).tokenize().unwrap();
         let mut parser =
@@ -4286,18 +4285,28 @@ mod symbolic_quote_tests {
     }
 
     #[test]
-    fn symbolic_quote_rejects_unknown_call() {
-        let ast = parse_input("@s f[x]").expect("parser should recover with an error node");
-        let AstNode::Error(err, _) = ast else {
-            panic!("expected recovered syntax error, got {ast:?}");
+    fn symbolic_quote_accepts_unknown_application() {
+        let ast = parse_input("@s f[x]").expect("unknown CAS application should parse");
+        let AstNode::Literal(value, _) = ast else {
+            panic!("expected CAS literal, got {ast:?}");
         };
-        assert_eq!(err.err_type, WqErrorType::Syntax);
-        assert!(
-            err.msg
-                .as_deref()
-                .is_some_and(|msg| msg.contains("@s: unknown CAS function 'f'")),
-            "unexpected error message: {err:?}"
-        );
+        assert!(value.is_cas_expr());
+        let (head, args) = value.cas_apply_parts().expect("expected symbolic application");
+        assert_eq!(head.as_str(), "f");
+        assert_eq!(args, [Value::from_cas_var("x")]);
+        assert_eq!(value.to_string(), "f[x]");
+    }
+
+    #[test]
+    fn symbolic_quote_accepts_unknown_application_with_builtin_args() {
+        let ast = parse_input("@s f[x+1;sin[y]]").expect("unknown CAS application should parse");
+        let AstNode::Literal(value, _) = ast else {
+            panic!("expected CAS literal, got {ast:?}");
+        };
+        let (head, args) = value.cas_apply_parts().expect("expected symbolic application");
+        assert_eq!(head.as_str(), "f");
+        assert_eq!(args.len(), 2);
+        assert_eq!(value.to_string(), "f[x + 1;sin[y]]");
     }
 
     #[test]
@@ -4307,6 +4316,8 @@ mod symbolic_quote_tests {
             panic!("expected CAS literal, got {ast:?}");
         };
         assert!(value.is_cas_expr());
+        assert!(value.cas_function_parts().is_some());
+        assert!(value.cas_apply_parts().is_none());
         assert_eq!(value.to_string(), "sin[x]");
     }
 }

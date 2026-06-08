@@ -11,7 +11,7 @@ use crate::value::{Value, WqResult};
 
 pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     // Case 1: f(ax+b) — Call node like exp[2*x], sin[3*x+1]
-    if let Some((name, args)) = expr.cas_call_parts()
+    if let Some((name, args)) = expr.cas_function_parts()
         && let [arg] = args
         && let Some((a, _b)) = extract_linear_coefficients(arg, var)
     {
@@ -42,7 +42,7 @@ pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Val
     }
 
     // Case 3: Gaussian — exp(-a·x^2) → √(π/a)/2 · erf(√a·x)
-    if let Some((name, args)) = expr.cas_call_parts()
+    if let Some((name, args)) = expr.cas_function_parts()
         && name == CasFunction::Exp
         && args.len() == 1
         && let Some(result) = try_gaussian_table(&args[0], var)?

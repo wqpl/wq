@@ -19,11 +19,11 @@ use expand_factor::{
 pub(crate) use expand_factor::{expand_cas, factor_cas};
 use format::{format_expr, sort_canonical};
 pub(crate) use numeric::{
-    cas_err, eval_exact_numeric_div, eval_numeric_binary, eval_numeric_cas, numeric_add,
+    cas_err, ensure_expr_arg, eval_exact_numeric_div, eval_numeric_binary, eval_numeric_cas, numeric_add,
     numeric_div, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_pow,
     numeric_sub,
 };
-use numeric::{ensure_expr_arg, eval_numeric_call, try_eval_with_const_resolve};
+use numeric::{eval_numeric_call, try_eval_with_const_resolve};
 use poly::{collect_single_poly_var, try_exact_polynomial_division};
 pub(crate) use poly::{
     extract_linear_coefficients, poly_add, poly_degree, poly_derivative, poly_divide,

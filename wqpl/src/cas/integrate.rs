@@ -53,7 +53,7 @@ pub(crate) fn definite_integrate_cas(
     let antideriv = integrate_cas(expr, var)?;
 
     // If the antiderivative is itself an unevaluated integral, bail.
-    if let Some((name, _)) = antideriv.cas_call_parts()
+    if let Some((name, _)) = antideriv.cas_function_parts()
         && name == CasFunction::Integrate
     {
         return Ok(antideriv);
@@ -197,7 +197,7 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
         );
         return Ok(result);
     }
-    if expr.cas_call_parts().is_some() {
+    if expr.cas_function_parts().is_some() {
         let result = try_strategies(expr, var, depth + 1)?;
         cas_debug_log_depth(
             DebugLogFlags::CAS_VERBOSE,
@@ -208,6 +208,12 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
             ),
         );
         return Ok(result);
+    }
+    if expr.cas_apply_parts().is_some() {
+        if contains_cas_var(expr, var) {
+            return Err(cas_err("unsupported symbolic integral for application").got1(expr));
+        }
+        return cas_mul(vec![expr.clone(), Value::from_cas_var(var)]);
     }
     Err(cas_err("expected symbolic expression").got1(expr))
 }

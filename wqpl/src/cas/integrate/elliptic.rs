@@ -43,7 +43,7 @@ fn try_elliptic(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     }
 
     // Case: sqrt(cubic) as Call("sqrt", [cubic])
-    if let Some((CasFunction::Sqrt, [arg])) = expr.cas_call_parts()
+    if let Some((CasFunction::Sqrt, [arg])) = expr.cas_function_parts()
         && let Some(result) = try_cubic_reduction(arg, var, true)?
     {
         return Ok(Some(result));

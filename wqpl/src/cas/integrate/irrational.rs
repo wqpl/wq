@@ -731,12 +731,19 @@ fn replace_sqrt_in_expr(expr: &Value, sqrt_expr: &Value, replacement: &Value) ->
             .collect();
         return Value::from_cas_op(op, new_args);
     }
-    if let Some((name, args)) = expr.cas_call_parts() {
+    if let Some((name, args)) = expr.cas_function_parts() {
         let new_args: Vec<Value> = args
             .iter()
             .map(|a| replace_sqrt_in_expr(a, sqrt_expr, replacement))
             .collect();
         return Value::from_cas_call(name, new_args);
+    }
+    if let Some((name, args)) = expr.cas_apply_parts() {
+        let new_args: Vec<Value> = args
+            .iter()
+            .map(|a| replace_sqrt_in_expr(a, sqrt_expr, replacement))
+            .collect();
+        return Value::from_cas_apply(name.as_str(), new_args);
     }
     expr.clone()
 }

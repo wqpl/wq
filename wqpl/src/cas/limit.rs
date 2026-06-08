@@ -380,12 +380,12 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
         return limit_exp_at_infinity(exp_arg, var_name, sign);
     }
     // Also check the raw call form (before simplify).
-    if let Some((CasFunction::Exp, [arg])) = expr.cas_call_parts() {
+    if let Some((CasFunction::Exp, [arg])) = expr.cas_function_parts() {
         return limit_exp_at_infinity(arg, var_name, sign);
     }
 
     // abs(arg) → ∞ when arg → ±∞, abs(∞)=∞, abs(-∞)=∞
-    if let Some((CasFunction::Abs, [arg])) = expr.cas_call_parts() {
+    if let Some((CasFunction::Abs, [arg])) = expr.cas_function_parts() {
         let inner = try_limit_at_infinity(arg, var, point)?;
         if let Some(v) = inner {
             if v.cas_const_name() == Some("_oo") {
@@ -398,7 +398,7 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
 
     // Composition: f(inner) where inner → L at infinity.
     // Try computing limit of inner, then substitute into outer.
-    if let Some((name, args)) = expr.cas_call_parts()
+    if let Some((name, args)) = expr.cas_function_parts()
         && args.len() == 1
     {
         let inner_limit = try_limit_at_infinity(&args[0], var, point)?;
@@ -421,6 +421,14 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
             }
             let call = Value::from_cas_call(name, vec![lim]);
             return Ok(Some(call));
+        }
+    }
+    if let Some((name, args)) = expr.cas_apply_parts()
+        && args.len() == 1
+    {
+        let inner_limit = try_limit_at_infinity(&args[0], var, point)?;
+        if let Some(lim) = inner_limit {
+            return Ok(Some(Value::from_cas_apply(name.as_str(), vec![lim])));
         }
     }
 
@@ -760,14 +768,14 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
     }
 
     // sin(x) → 1
-    if let Some((CasFunction::Sin, [arg])) = num.cas_call_parts()
+    if let Some((CasFunction::Sin, [arg])) = num.cas_function_parts()
         && arg.cas_var_name() == Some(var_name)
     {
         return Ok(Some(Value::Int(1)));
     }
 
     // tan(x) → 1
-    if let Some((CasFunction::Tan, [arg])) = num.cas_call_parts()
+    if let Some((CasFunction::Tan, [arg])) = num.cas_function_parts()
         && arg.cas_var_name() == Some(var_name)
     {
         return Ok(Some(Value::Int(1)));
@@ -779,7 +787,7 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
     {
         // (e^x + (-1)) or similar — match exp(x) - 1
         for arg in args {
-            if let Some((CasFunction::Exp, [inner])) = arg.cas_call_parts()
+            if let Some((CasFunction::Exp, [inner])) = arg.cas_function_parts()
                 && inner.cas_var_name() == Some(var_name)
             {
                 // Check other term is -1
@@ -794,7 +802,7 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
     }
 
     // ln(1+x) → 1
-    if let Some((CasFunction::Ln, [arg])) = num.cas_call_parts()
+    if let Some((CasFunction::Ln, [arg])) = num.cas_function_parts()
         && let Some((CasOp::Add, add_args)) = arg.cas_op_parts()
         && add_args.len() == 2
     {
@@ -943,7 +951,7 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
     }
 
     // Known function calls
-    if let Some((name, args)) = expr.cas_call_parts() {
+    if let Some((name, args)) = expr.cas_function_parts() {
         let mut table = taylor_series(name)?;
         // Pad to order+1 if the table is shorter
         table.resize(order + 1, 0.0);

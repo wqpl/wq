@@ -86,9 +86,20 @@ fn push_canonical_key(value: &Value, out: &mut String) {
         out.push(')');
         return;
     }
-    if let Some((name, args)) = value.cas_call_parts() {
+    if let Some((name, args)) = value.cas_function_parts() {
         out.push_str("c:");
         out.push_str(name.name());
+        out.push('(');
+        for arg in args {
+            push_canonical_key(arg, out);
+            out.push(',');
+        }
+        out.push(')');
+        return;
+    }
+    if let Some((name, args)) = value.cas_apply_parts() {
+        out.push_str("a:");
+        out.push_str(name.as_str());
         out.push('(');
         for arg in args {
             push_canonical_key(arg, out);
@@ -179,7 +190,7 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
 /// Extract the argument from an exponential factor.
 /// Matches: `exp[g(x)]` (Call node) and `e^(g(x))` (Pow node with Const("e")).
 pub(super) fn try_extract_exp_arg(factor: &Value) -> Option<Value> {
-    if let Some((name, inner)) = factor.cas_call_parts()
+    if let Some((name, inner)) = factor.cas_function_parts()
         && name == CasFunction::Exp
         && inner.len() == 1
     {
@@ -212,7 +223,7 @@ fn try_exp_trig_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
         if let Some(arg) = try_extract_exp_arg(factor) {
             exp_arg = Some(arg);
         } else if let Some((name @ (CasFunction::Sin | CasFunction::Cos), [arg])) =
-            factor.cas_call_parts()
+            factor.cas_function_parts()
         {
             trig = Some((name, arg.clone()));
         }
@@ -296,7 +307,7 @@ fn try_tabular(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let poly = poly_from_expr(&symbolic[poly_factor_idx], var)?;
     let cyclic = &symbolic[cyclic_factor_idx];
 
-    let (cyclic_name, cyclic_arg) = match cyclic.cas_call_parts() {
+    let (cyclic_name, cyclic_arg) = match cyclic.cas_function_parts() {
         Some((name, [arg])) if is_tabular_cyclic(name) => (name, arg),
         _ => return Ok(None),
     };
@@ -405,7 +416,7 @@ fn compute_cyclic_integral(
 // Ordinary LIATE by-parts
 // ───────────────────────────────────────────────────────────────────────────
 fn liate_rank(expr: &Value) -> i32 {
-    if let Some((name, _)) = expr.cas_call_parts() {
+    if let Some((name, _)) = expr.cas_function_parts() {
         match name {
             CasFunction::Ln | CasFunction::Log2 | CasFunction::Log10 => return 5,
             CasFunction::ArcSin

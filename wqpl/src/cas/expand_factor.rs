@@ -7,7 +7,7 @@ use super::{
     simplify_cas_value, split_mul_factor,
 };
 use crate::session::dbglog::DebugLogFlags;
-use crate::value::cas::CasOp;
+use crate::value::cas::{CasFunction, CasOp, CasSymbol};
 use crate::value::{Value, WqResult};
 
 fn expand_mul_into_terms(terms: Vec<Value>, factor: Value) -> WqResult<Vec<Value>> {
@@ -40,8 +40,10 @@ enum ExpandFrame {
     MulNoExpand(usize),
     /// Combine the top result (expanded base) with the saved exponent.
     Pow { exp: Value, power: Option<usize> },
-    /// Re-assemble a function call from the top `n` results.
-    Call { name: String, n: usize },
+    /// Re-assemble a built-in function call from the top `n` results.
+    Function { function: CasFunction, n: usize },
+    /// Re-assemble an uninterpreted symbolic application from the top `n` results.
+    Apply { name: CasSymbol, n: usize },
     /// Re-assemble an equation from the top 2 results.
     Eq,
 }
@@ -141,10 +143,22 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
                     continue;
                 }
 
-                if let Some((name, args)) = expr.cas_call_parts() {
+                if let Some((function, args)) = expr.cas_function_parts() {
                     let n = args.len();
-                    stack.push(ExpandFrame::Call {
-                        name: name.to_string(),
+                    stack.push(ExpandFrame::Function {
+                        function,
+                        n,
+                    });
+                    for arg in args.iter().rev() {
+                        stack.push(ExpandFrame::Expr(arg.clone()));
+                    }
+                    continue;
+                }
+
+                if let Some((name, args)) = expr.cas_apply_parts() {
+                    let n = args.len();
+                    stack.push(ExpandFrame::Apply {
+                        name: name.clone(),
                         n,
                     });
                     for arg in args.iter().rev() {
@@ -207,9 +221,13 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
                     }
                 }
             }
-            ExpandFrame::Call { name, n } => {
+            ExpandFrame::Function { function, n } => {
                 let args = split_off_results(&mut results, n)?;
-                results.push(simplify_cas_value(&Value::from_cas_call(name, args))?);
+                results.push(simplify_cas_value(&Value::from_cas_function(function, args))?);
+            }
+            ExpandFrame::Apply { name, n } => {
+                let args = split_off_results(&mut results, n)?;
+                results.push(simplify_cas_value(&Value::from_cas_apply(name.as_str(), args))?);
             }
             ExpandFrame::Eq => {
                 let rhs = results

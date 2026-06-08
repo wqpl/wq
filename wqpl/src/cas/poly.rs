@@ -422,7 +422,14 @@ pub(super) fn collect_single_poly_var(expr: &Value, found: &mut Option<String>) 
             }
         }
     }
-    if let Some((_, args)) = expr.cas_call_parts() {
+    if let Some((_, args)) = expr.cas_function_parts() {
+        for arg in args {
+            if !collect_single_poly_var(arg, found) {
+                return false;
+            }
+        }
+    }
+    if let Some((_, args)) = expr.cas_apply_parts() {
         for arg in args {
             if !collect_single_poly_var(arg, found) {
                 return false;
@@ -447,7 +454,10 @@ fn contains_any_cas_var(expr: &Value) -> bool {
     if let Some((_, args)) = expr.cas_op_parts() {
         return args.iter().any(contains_any_cas_var);
     }
-    if let Some((_, args)) = expr.cas_call_parts() {
+    if let Some((_, args)) = expr.cas_function_parts() {
+        return args.iter().any(contains_any_cas_var);
+    }
+    if let Some((_, args)) = expr.cas_apply_parts() {
         return args.iter().any(contains_any_cas_var);
     }
     if let Some((lhs, rhs)) = expr.cas_eq_parts() {
@@ -465,7 +475,10 @@ fn contains_negative_power(expr: &Value) -> bool {
     if let Some((_, args)) = expr.cas_op_parts() {
         return args.iter().any(contains_negative_power);
     }
-    if let Some((_, args)) = expr.cas_call_parts() {
+    if let Some((_, args)) = expr.cas_function_parts() {
+        return args.iter().any(contains_negative_power);
+    }
+    if let Some((_, args)) = expr.cas_apply_parts() {
         return args.iter().any(contains_negative_power);
     }
     if let Some((lhs, rhs)) = expr.cas_eq_parts() {

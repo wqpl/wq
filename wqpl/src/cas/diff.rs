@@ -185,7 +185,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
         };
         return simplify_cas_value(&out);
     }
-    if let Some((name, args)) = expr.cas_call_parts() {
+    if let Some((name, args)) = expr.cas_function_parts() {
         let out = match (name, args) {
             (CasFunction::Sin, [arg]) => cas_mul(vec![
                 Value::from_cas_call("cos", vec![arg.clone()]),
@@ -417,7 +417,40 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
         };
         return simplify_cas_value(&out);
     }
+    if let Some((name, args)) = expr.cas_apply_parts() {
+        if args.iter().any(|arg| depends_on_var(arg, var)) {
+            return Err(cas_err(format!(
+                "unsupported symbolic derivative for application '{}'",
+                name.as_str()
+            )));
+        }
+        return Ok(Value::Int(0));
+    }
     Err(cas_err("expected symbolic expression").got1(expr))
+}
+
+fn depends_on_var(expr: &Value, var: &str) -> bool {
+    if expr.cas_var_name() == Some(var) {
+        return true;
+    }
+    if let Some((_, args)) = expr.cas_op_parts() {
+        return args.iter().any(|arg| depends_on_var(arg, var));
+    }
+    if let Some((_, args)) = expr.cas_function_parts() {
+        return args.iter().any(|arg| depends_on_var(arg, var));
+    }
+    if let Some((_, args)) = expr.cas_apply_parts() {
+        return args.iter().any(|arg| depends_on_var(arg, var));
+    }
+    if let Some((expr, var_expr, point, _)) = expr.cas_limit_parts() {
+        return depends_on_var(expr, var)
+            || depends_on_var(var_expr, var)
+            || depends_on_var(point, var);
+    }
+    if let Some((lhs, rhs)) = expr.cas_eq_parts() {
+        return depends_on_var(lhs, var) || depends_on_var(rhs, var);
+    }
+    false
 }
 
 #[cfg(test)]
@@ -466,6 +499,26 @@ mod tests {
         let expr = Value::from_cas_call("tanh", vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "cosh[x]^-2");
+    }
+
+    #[test]
+    fn differentiate_variable_free_symbolic_application() {
+        let expr = Value::from_cas_apply("f", vec![Value::Int(2)]);
+        let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
+        assert_eq!(result, Value::Int(0));
+    }
+
+    #[test]
+    fn differentiate_variable_dependent_symbolic_application_errors() {
+        let expr = Value::from_cas_apply("f", vec![Value::from_cas_var("x")]);
+        let err = diff_cas(&expr, &Value::from_cas_var("x"))
+            .expect_err("application derivative needs explicit semantics");
+        assert!(
+            err.msg
+                .as_deref()
+                .is_some_and(|msg| msg.contains("unsupported symbolic derivative for application 'f'")),
+            "unexpected error: {err:?}",
+        );
     }
 
     #[test]

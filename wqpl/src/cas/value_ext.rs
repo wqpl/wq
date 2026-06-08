@@ -128,6 +128,12 @@ impl Value {
         Self::from_cas_function(function, args)
     }
 
+    pub(crate) fn from_cas_apply(name: impl Into<String>, args: Vec<Value>) -> Value {
+        Value::Cas(Arc::new(CasData {
+            kind: CasKind::Apply(CasSymbol::new(name), Arc::from(args)),
+        }))
+    }
+
     pub(crate) fn from_cas_eq(lhs: Value, rhs: Value) -> Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Eq(lhs, rhs),
@@ -203,8 +209,14 @@ impl Value {
         }
     }
 
-    pub(crate) fn cas_call_parts(&self) -> Option<(CasFunction, &[Value])> {
-        self.cas_function_parts()
+    pub(crate) fn cas_apply_parts(&self) -> Option<(&CasSymbol, &[Value])> {
+        match self {
+            Value::Cas(cd) => match &cd.kind {
+                CasKind::Apply(name, args) => Some((name, args)),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     pub(crate) fn cas_eq_parts(&self) -> Option<(&Value, &Value)> {

@@ -136,7 +136,8 @@ fn common_factorization_inner_terms<'a>(
     })?;
     if !factors.iter().any(|factor| {
         factor.cas_var_name().is_some()
-            || factor.cas_call_parts().is_some()
+            || factor.cas_function_parts().is_some()
+            || factor.cas_apply_parts().is_some()
             || matches!(factor.cas_op_parts(), Some((CasOp::Power, _)))
     }) {
         return None;
@@ -156,7 +157,10 @@ fn contains_fractional_numeric(value: &Value) -> bool {
     if let Some((_, args)) = value.cas_op_parts() {
         return args.iter().any(contains_fractional_numeric);
     }
-    if let Some((_, args)) = value.cas_call_parts() {
+    if let Some((_, args)) = value.cas_function_parts() {
+        return args.iter().any(contains_fractional_numeric);
+    }
+    if let Some((_, args)) = value.cas_apply_parts() {
         return args.iter().any(contains_fractional_numeric);
     }
     false
@@ -219,7 +223,7 @@ fn value_to_recexpr(
             _ => Ok(None),
         };
     }
-    if let Some((name, args)) = value.cas_call_parts() {
+    if let Some((name, args)) = value.cas_function_parts() {
         let [arg] = args else {
             return Ok(None);
         };

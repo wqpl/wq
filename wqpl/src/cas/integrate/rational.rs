@@ -84,7 +84,14 @@ fn contains_var_negative_power(expr: &Value, var: &str) -> bool {
             }
         }
     }
-    if let Some((_, args)) = expr.cas_call_parts() {
+    if let Some((_, args)) = expr.cas_function_parts() {
+        for arg in args {
+            if contains_var_negative_power(arg, var) {
+                return true;
+            }
+        }
+    }
+    if let Some((_, args)) = expr.cas_apply_parts() {
         for arg in args {
             if contains_var_negative_power(arg, var) {
                 return true;
@@ -106,7 +113,14 @@ fn contains_var(expr: &Value, var: &str) -> bool {
             }
         }
     }
-    if let Some((_, args)) = expr.cas_call_parts() {
+    if let Some((_, args)) = expr.cas_function_parts() {
+        for arg in args {
+            if contains_var(arg, var) {
+                return true;
+            }
+        }
+    }
+    if let Some((_, args)) = expr.cas_apply_parts() {
         for arg in args {
             if contains_var(arg, var) {
                 return true;

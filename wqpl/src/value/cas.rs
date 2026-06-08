@@ -262,6 +262,8 @@ pub(crate) enum CasKind {
     Op(CasOp, Arc<[Value]>),
     /// Symbolic function call (e.g. `sin`, `ln`).
     Function(CasFunction, Arc<[Value]>),
+    /// Uninterpreted symbolic application (e.g. `f[x]`).
+    Apply(CasSymbol, Arc<[Value]>),
     /// Unevaluated limit special form.
     Limit {
         expr: Value,
@@ -308,6 +310,29 @@ mod cas_tests {
         let (function, args) = sin.cas_function_parts().unwrap();
         assert_eq!(function, CasFunction::Sin);
         assert_eq!(args.len(), 1);
+    }
+
+    #[test]
+    fn cas_apply_construction() {
+        let app = Value::from_cas_apply("f", vec![Value::from_cas_var("x")]);
+        assert!(app.is_cas_expr());
+        let (name, args) = app.cas_apply_parts().unwrap();
+        assert_eq!(name.as_str(), "f");
+        assert_eq!(args.len(), 1);
+        assert!(app.cas_function_parts().is_none());
+    }
+
+    #[test]
+    fn cas_apply_formats_and_compares_structurally() {
+        let lhs = Value::from_cas_apply("f", vec![Value::from_cas_var("x")]);
+        let rhs = Value::from_cas_apply("f", vec![Value::from_cas_var("x")]);
+        let other_head = Value::from_cas_apply("g", vec![Value::from_cas_var("x")]);
+        let builtin = Value::from_cas_function(CasFunction::Sin, vec![Value::from_cas_var("x")]);
+
+        assert_eq!(lhs.to_string(), "f[x]");
+        assert_eq!(lhs, rhs);
+        assert_ne!(lhs, other_head);
+        assert_ne!(lhs, builtin);
     }
 
     #[test]

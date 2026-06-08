@@ -129,6 +129,13 @@ impl std::hash::Hash for Value {
                             arg.hash(state);
                         }
                     }
+                    CasKind::Apply(name, args) => {
+                        6u8.hash(state);
+                        name.hash(state);
+                        for arg in args.iter() {
+                            arg.hash(state);
+                        }
+                    }
                     CasKind::Limit {
                         expr,
                         var,
@@ -225,6 +232,11 @@ impl PartialEq for Value {
                         && arga.len() == argb.len()
                         && arga.iter().zip(argb.iter()).all(|(x, y)| x == y)
                 }
+                (CasKind::Apply(na, arga), CasKind::Apply(nb, argb)) => {
+                    na == nb
+                        && arga.len() == argb.len()
+                        && arga.iter().zip(argb.iter()).all(|(x, y)| x == y)
+                }
                 (
                     CasKind::Limit {
                         expr: ea,
@@ -278,6 +290,7 @@ mod hash_tests {
     use indexmap::IndexMap;
 
     use super::*;
+    use crate::value::cas::CasFunction;
 
     fn hash_value(v: &Value) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -331,6 +344,15 @@ mod hash_tests {
 
         assert_eq!(dict_a, dict_b);
         assert_eq!(hash_value(&dict_a), hash_value(&dict_b));
+    }
+
+    #[test]
+    fn cas_application_hash_distinguishes_builtin_function() {
+        let app = Value::from_cas_apply("sin", vec![Value::from_cas_var("x")]);
+        let builtin = Value::from_cas_function(CasFunction::Sin, vec![Value::from_cas_var("x")]);
+
+        assert_ne!(app, builtin);
+        assert_ne!(hash_value(&app), hash_value(&builtin));
     }
 
     #[test]

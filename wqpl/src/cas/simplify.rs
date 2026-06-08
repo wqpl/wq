@@ -15,7 +15,7 @@ use super::{
     try_exact_polynomial_division,
 };
 use crate::session::dbglog::DebugLogFlags;
-use crate::value::cas::{CasConst, CasFunction, CasOp};
+use crate::value::cas::{CasConst, CasFunction, CasOp, CasSymbol};
 use crate::value::{Value, WqResult};
 
 /// Stack frame for iterative simplify.
@@ -28,6 +28,7 @@ enum SimplifyFrame {
     Neg,
     Sub,
     Function { function: CasFunction, n: usize },
+    Apply { name: CasSymbol, n: usize },
     Eq,
 }
 
@@ -641,7 +642,10 @@ fn contains_any_symbolic_var(expr: &Value) -> bool {
     if let Some((_, args)) = expr.cas_op_parts() {
         return args.iter().any(contains_any_symbolic_var);
     }
-    if let Some((_, args)) = expr.cas_call_parts() {
+    if let Some((_, args)) = expr.cas_function_parts() {
+        return args.iter().any(contains_any_symbolic_var);
+    }
+    if let Some((_, args)) = expr.cas_apply_parts() {
         return args.iter().any(contains_any_symbolic_var);
     }
     if let Some((lhs, rhs)) = expr.cas_eq_parts() {
@@ -659,7 +663,10 @@ fn contains_negative_power_expr(expr: &Value) -> bool {
     if let Some((_, args)) = expr.cas_op_parts() {
         return args.iter().any(contains_negative_power_expr);
     }
-    if let Some((_, args)) = expr.cas_call_parts() {
+    if let Some((_, args)) = expr.cas_function_parts() {
+        return args.iter().any(contains_negative_power_expr);
+    }
+    if let Some((_, args)) = expr.cas_apply_parts() {
         return args.iter().any(contains_negative_power_expr);
     }
     if let Some((lhs, rhs)) = expr.cas_eq_parts() {
@@ -1151,8 +1158,8 @@ fn combine_log_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
 /// Returns None if the core doesn't match this pattern.
 fn extract_ln_abs_pref(core: &Value) -> Option<(Value, Value)> {
     // Direct ln|abs[arg]| call
-    if let Some((CasFunction::Ln, [ln_arg])) = core.cas_call_parts()
-        && let Some((CasFunction::Abs, [abs_arg])) = ln_arg.cas_call_parts()
+    if let Some((CasFunction::Ln, [ln_arg])) = core.cas_function_parts()
+        && let Some((CasFunction::Abs, [abs_arg])) = ln_arg.cas_function_parts()
     {
         return Some((Value::Int(1), abs_arg.clone()));
     }
@@ -1160,20 +1167,20 @@ fn extract_ln_abs_pref(core: &Value) -> Option<(Value, Value)> {
     if let Some(args) = core.cas_op_args(CasOp::Multiply)
         && args.len() == 2
     {
-        let (pref, rest) = if args[0].cas_call_parts().is_some() {
+        let (pref, rest) = if args[0].cas_function_parts().is_some() {
             (&args[1], &args[0])
         } else {
             (&args[0], &args[1])
         };
         if !rest.is_cas_expr() {
             // pref is the ln term, rest is the coefficient — swap
-            if let Some((CasFunction::Ln, [ln_arg])) = pref.cas_call_parts()
-                && let Some((CasFunction::Abs, [abs_arg])) = ln_arg.cas_call_parts()
+            if let Some((CasFunction::Ln, [ln_arg])) = pref.cas_function_parts()
+                && let Some((CasFunction::Abs, [abs_arg])) = ln_arg.cas_function_parts()
             {
                 return Some((rest.clone(), abs_arg.clone()));
             }
-        } else if let Some((CasFunction::Ln, [ln_arg])) = rest.cas_call_parts()
-            && let Some((CasFunction::Abs, [abs_arg])) = ln_arg.cas_call_parts()
+        } else if let Some((CasFunction::Ln, [ln_arg])) = rest.cas_function_parts()
+            && let Some((CasFunction::Abs, [abs_arg])) = ln_arg.cas_function_parts()
         {
             return Some((pref.clone(), abs_arg.clone()));
         }
@@ -1826,10 +1833,22 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     continue;
                 }
 
-                if let Some((function, args)) = expr.cas_call_parts() {
+                if let Some((function, args)) = expr.cas_function_parts() {
                     let n = args.len();
                     stack.push(SimplifyFrame::Function {
                         function,
+                        n,
+                    });
+                    for arg in args.iter().rev() {
+                        stack.push(SimplifyFrame::Expr(arg.clone()));
+                    }
+                    continue;
+                }
+
+                if let Some((name, args)) = expr.cas_apply_parts() {
+                    let n = args.len();
+                    stack.push(SimplifyFrame::Apply {
+                        name: name.clone(),
                         n,
                     });
                     for arg in args.iter().rev() {
@@ -1935,6 +1954,10 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     results.push(Value::from_cas_function(function, args));
                 }
             }
+            SimplifyFrame::Apply { name, n } => {
+                let args = split_off_results(&mut results, n)?;
+                results.push(Value::from_cas_apply(name.as_str(), args));
+            }
             SimplifyFrame::Eq => {
                 let rhs = results
                     .pop()
@@ -2030,12 +2053,19 @@ pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<
             _ => Ok(expr.clone()),
         };
     }
-    if let Some((function, args)) = expr.cas_call_parts() {
+    if let Some((function, args)) = expr.cas_function_parts() {
         let mut out = Vec::with_capacity(args.len());
         for arg in args {
             out.push(substitute_expr(arg, var, val)?);
         }
         return simplify_cas_value(&Value::from_cas_function(function, out));
+    }
+    if let Some((name, args)) = expr.cas_apply_parts() {
+        let mut out = Vec::with_capacity(args.len());
+        for arg in args {
+            out.push(substitute_expr(arg, var, val)?);
+        }
+        return simplify_cas_value(&Value::from_cas_apply(name.as_str(), out));
     }
     Ok(expr.clone())
 }

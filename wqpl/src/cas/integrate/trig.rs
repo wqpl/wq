@@ -107,7 +107,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
 
 /// Check if expression contains any trigonometric function call.
 fn contains_trig(expr: &Value) -> bool {
-    if let Some((name, _)) = expr.cas_call_parts()
+    if let Some((name, _)) = expr.cas_function_parts()
         && matches!(
             name,
             CasFunction::Sin
@@ -130,7 +130,14 @@ fn contains_trig(expr: &Value) -> bool {
             }
         }
     }
-    if let Some((_, args)) = expr.cas_call_parts() {
+    if let Some((_, args)) = expr.cas_function_parts() {
+        for arg in args {
+            if contains_trig(arg) {
+                return true;
+            }
+        }
+    }
+    if let Some((_, args)) = expr.cas_apply_parts() {
         for arg in args {
             if contains_trig(arg) {
                 return true;
@@ -182,7 +189,7 @@ fn match_fn_power(expr: &Value, fn_name: CasFunction, var: &str) -> Option<TrigM
     };
 
     // Case: fn(arg)
-    if let Some((name, args)) = expr.cas_call_parts()
+    if let Some((name, args)) = expr.cas_function_parts()
         && name == fn_name
         && args.len() == 1
     {
@@ -192,7 +199,7 @@ fn match_fn_power(expr: &Value, fn_name: CasFunction, var: &str) -> Option<TrigM
 
     // Case: fn(arg)^n
     if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
-        && let Some((name, args)) = base.cas_call_parts()
+        && let Some((name, args)) = base.cas_function_parts()
         && name == fn_name
         && args.len() == 1
         && let Some(n) = exp.exact_int()
@@ -763,7 +770,7 @@ fn try_product_to_sum(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let mut fn_args: Vec<(CasFunction, &Value)> = Vec::new();
     let mut other_factors: Vec<Value> = Vec::new();
     for arg in args {
-        if let Some((name, inner)) = arg.cas_call_parts()
+        if let Some((name, inner)) = arg.cas_function_parts()
             && inner.len() == 1
             && matches!(name, CasFunction::Sin | CasFunction::Cos)
         {
@@ -869,7 +876,7 @@ fn integrate_simple_linear_trig(expr: &Value, var: &str) -> WqResult<Value> {
             return simplify_cas_value(&cas_mul(vec![coeff, integrated])?);
         }
     }
-    if let Some((name, args)) = expr.cas_call_parts()
+    if let Some((name, args)) = expr.cas_function_parts()
         && args.len() == 1
         && matches!(name, CasFunction::Sin | CasFunction::Cos)
     {
