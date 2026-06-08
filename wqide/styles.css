@@ -526,6 +526,8 @@ body {
   flex: 0 0 auto;
   background: #f6fbff;
   border-top: 1px solid #cfe6f6;
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
   padding: 12px 18px 18px;
   position: relative;
 }
