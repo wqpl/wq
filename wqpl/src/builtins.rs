@@ -191,6 +191,7 @@ impl BuiltinPreset {
 pub struct BuiltinFnArgs {
     pos: Sv4,
     named: Option<Vec<(Arc<str>, Value)>>,
+    runtime_validated: bool,
 }
 
 impl BuiltinFnArgs {
@@ -198,12 +199,17 @@ impl BuiltinFnArgs {
         Self {
             pos: SmallVec::new(),
             named: None,
+            runtime_validated: false,
         }
     }
 
     pub fn with_named(pos: Sv4, named: Vec<(Arc<str>, Value)>) -> Self {
         let named = if named.is_empty() { None } else { Some(named) };
-        Self { pos, named }
+        Self {
+            pos,
+            named,
+            runtime_validated: false,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -216,7 +222,18 @@ impl BuiltinFnArgs {
         self.named.is_some()
     }
     pub fn push(&mut self, v: Value) {
+        self.runtime_validated = false;
         self.pos.push(v)
+    }
+
+    #[inline]
+    pub(crate) fn mark_runtime_validated(&mut self) {
+        self.runtime_validated = true;
+    }
+
+    #[inline]
+    fn runtime_validated(&self) -> bool {
+        self.runtime_validated
     }
 
     /// Get the positional argument at index `n`, or `None` if out of bounds.
@@ -266,6 +283,7 @@ impl From<Sv4> for BuiltinFnArgs {
         Self {
             pos: v,
             named: None,
+            runtime_validated: false,
         }
     }
 }
@@ -274,7 +292,11 @@ impl From<Value> for BuiltinFnArgs {
     fn from(v: Value) -> Self {
         let mut pos = SmallVec::new();
         pos.push(v);
-        Self { pos, named: None }
+        Self {
+            pos,
+            named: None,
+            runtime_validated: false,
+        }
     }
 }
 
@@ -283,6 +305,7 @@ impl From<Vec<Value>> for BuiltinFnArgs {
         Self {
             pos: SmallVec::from_vec(v),
             named: None,
+            runtime_validated: false,
         }
     }
 }
@@ -348,6 +371,7 @@ pub struct Builtins {
     functions: Vec<BuiltinFn>,
     name_to_id: AHashMap<String, usize>,
     enabled: Vec<bool>,
+    call_checks: Vec<Option<BuiltinCallCheck>>,
 }
 
 impl Default for Builtins {
@@ -366,8 +390,15 @@ impl Builtins {
             functions: Vec::new(),
             name_to_id: AHashMap::new(),
             enabled: Vec::new(),
+            call_checks: Vec::new(),
         };
         builtins.register_functions();
+        builtins.call_checks = Self::build_call_checks();
+        debug_assert_eq!(
+            builtins.functions.len(),
+            builtins.call_checks.len(),
+            "builtin call checks out of sync"
+        );
         builtins.apply_preset(preset);
         builtins
     }
@@ -1008,6 +1039,280 @@ declare_builtins! {
 
 }
 
+const ECHO_NAMED_ARGS: &[&str] = &["sep"];
+const MAXSPLIT_NAMED_ARGS: &[&str] = &["m"];
+#[cfg(not(target_arch = "wasm32"))]
+const OPEN_NAMED_ARGS: &[&str] = &["r", "w", "a", "t", "c", "cn"];
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+struct BuiltinCallCheck {
+    src: BuiltinEnum,
+    arity: BuiltinCallArity,
+    named: BuiltinNamedArgs,
+}
+
+impl BuiltinCallCheck {
+    fn deny_named(src: BuiltinEnum, arity: BuiltinCallArity) -> Self {
+        Self {
+            src,
+            arity,
+            named: BuiltinNamedArgs::Deny,
+        }
+    }
+
+    fn allow_named(
+        src: BuiltinEnum,
+        arity: BuiltinCallArity,
+        allowed: &'static [&'static str],
+    ) -> Self {
+        Self {
+            src,
+            arity,
+            named: BuiltinNamedArgs::Allow(allowed),
+        }
+    }
+
+    fn from_exact_decl(src: BuiltinEnum, arity: &'static str) -> Option<Self> {
+        let arity = BuiltinCallArity::parse(arity).expect("valid builtin arity declaration");
+        match arity {
+            BuiltinCallArity::Exact { .. } => Some(Self::deny_named(src, arity)),
+            BuiltinCallArity::AtLeast(_) => None,
+        }
+    }
+
+    fn validate(self, args: &BuiltinFnArgs) -> WqResult<()> {
+        self.arity.validate(self.src, args)?;
+        match self.named {
+            BuiltinNamedArgs::Deny => deny_named_args(args, self.src),
+            BuiltinNamedArgs::Allow(allowed) => check_named_args(args, self.src, allowed),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum BuiltinNamedArgs {
+    Deny,
+    Allow(&'static [&'static str]),
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum BuiltinCallArity {
+    Exact { mask: u128 },
+    AtLeast(usize),
+}
+
+impl BuiltinCallArity {
+    fn parse(raw: &str) -> Option<Self> {
+        if let Some(min) = raw.strip_suffix("..") {
+            return min.trim().parse().ok().map(Self::AtLeast);
+        }
+
+        let mut mask = 0u128;
+        for part in raw.split_whitespace() {
+            let n: usize = part.parse().ok()?;
+            if n >= u128::BITS as usize {
+                return None;
+            }
+            mask |= 1u128 << n;
+        }
+        (mask != 0).then_some(Self::Exact { mask })
+    }
+
+    fn exact(arities: impl AsRef<[usize]>) -> Self {
+        let mut mask = 0u128;
+        for &n in arities.as_ref() {
+            debug_assert!(n < u128::BITS as usize, "builtin arity too large");
+            mask |= 1u128 << n;
+        }
+        Self::Exact { mask }
+    }
+
+    fn contains(self, n: usize) -> bool {
+        match self {
+            Self::Exact { mask } if n < u128::BITS as usize => mask & (1u128 << n) != 0,
+            Self::Exact { .. } => false,
+            Self::AtLeast(min) => n >= min,
+        }
+    }
+
+    fn validate(self, builtin: BuiltinEnum, args: &[Value]) -> WqResult<()> {
+        let n = args.len();
+        if self.contains(n) {
+            return Ok(());
+        }
+
+        match self {
+            Self::Exact { mask } => Err(exact_arity_error(builtin, mask, n)),
+            Self::AtLeast(min) => Err(WqError::new(WqErrorType::Arity)
+                .src(builtin)
+                .msg(format!("expected {min} or more args, got {n}"))
+                .attach_note(builtin.usage())),
+        }
+    }
+}
+
+impl Builtins {
+    fn build_call_checks() -> Vec<Option<BuiltinCallCheck>> {
+        Self::ENUMS
+            .iter()
+            .copied()
+            .map(runtime_call_check_for)
+            .collect()
+    }
+
+    pub(crate) fn validate_runtime_call_args(
+        &self,
+        id: u16,
+        args: &BuiltinFnArgs,
+    ) -> WqResult<bool> {
+        let Some(check) = self.call_checks.get(usize::from(id)).copied().flatten() else {
+            return Ok(false);
+        };
+
+        check.validate(args)?;
+        Ok(true)
+    }
+}
+
+fn runtime_call_check_for(builtin: BuiltinEnum) -> Option<BuiltinCallCheck> {
+    use BuiltinEnum as B;
+
+    let src = runtime_validation_source(builtin);
+    let check = match builtin {
+        B::Echo | B::E => {
+            BuiltinCallCheck::allow_named(src, BuiltinCallArity::AtLeast(0), ECHO_NAMED_ARGS)
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        B::Open => BuiltinCallCheck::allow_named(
+            src,
+            BuiltinCallArity::exact([1]),
+            OPEN_NAMED_ARGS,
+        ),
+        B::Raise => BuiltinCallCheck::deny_named(src, BuiltinCallArity::exact([0, 1])),
+        B::Substitute => BuiltinCallCheck::deny_named(src, BuiltinCallArity::exact([2, 3])),
+        B::Arctan2 => BuiltinCallCheck::deny_named(src, BuiltinCallArity::exact([2])),
+        B::Split => BuiltinCallCheck::allow_named(
+            src,
+            BuiltinCallArity::exact([1, 2]),
+            MAXSPLIT_NAMED_ARGS,
+        ),
+        B::SplitW => BuiltinCallCheck::allow_named(
+            src,
+            BuiltinCallArity::exact([2]),
+            MAXSPLIT_NAMED_ARGS,
+        ),
+
+        B::Print
+        | B::Sum
+        | B::Product
+        | B::Min
+        | B::Max
+        | B::Limit
+        | B::And
+        | B::Or
+        | B::Xor
+        | B::Band
+        | B::Bor
+        | B::Bxor
+        | B::Shl
+        | B::Shr
+        | B::Apply
+        | B::A
+        | B::Fmt
+        | B::Asciiplot
+        | B::OpAdd
+        | B::OpSub
+        | B::OpMul
+        | B::OpDiv
+        | B::OpDivDot
+        | B::OpMod
+        | B::OpFloorDiv
+        | B::OpPower
+        | B::OpPowerDot
+        | B::OpMatmul
+        | B::OpEqual
+        | B::OpEqualDot
+        | B::OpNotEqual
+        | B::OpNotEqualDot
+        | B::OpLt
+        | B::OpLte
+        | B::OpGt
+        | B::OpGte
+        | B::OpCat
+        | B::OpBoolAnd
+        | B::OpBoolOr
+        | B::OpBitAnd
+        | B::OpBitOr
+        | B::OpBitXor
+        | B::OpShl
+        | B::OpShr => return None,
+        #[cfg(not(target_arch = "wasm32"))]
+        B::Exec => return None,
+
+        _ => return BuiltinCallCheck::from_exact_decl(src, builtin.arity()),
+    };
+
+    Some(check)
+}
+
+fn runtime_validation_source(builtin: BuiltinEnum) -> BuiltinEnum {
+    use BuiltinEnum as B;
+
+    match builtin {
+        B::E => B::Echo,
+        B::V => B::Reverse,
+        B::R => B::Reshape,
+        B::TP => B::Transpose,
+        B::Z => B::Where,
+        B::M => B::Map,
+        B::Reduce => B::Fold,
+        B::D => B::Diff,
+        B::I => B::Integrate,
+        B::U => B::UnitQ,
+        other => other,
+    }
+}
+
+fn exact_arity_error(builtin: BuiltinEnum, mask: u128, n: usize) -> WqError {
+    let mut arities = Vec::new();
+    let mut remaining = mask;
+    let mut arity = 0usize;
+    while remaining != 0 {
+        if remaining & 1 != 0 {
+            arities.push(arity);
+        }
+        remaining >>= 1;
+        arity += 1;
+    }
+
+    let expected = match arities.as_slice() {
+        [] => return WqError::new(WqErrorType::Arity).src(builtin),
+        [one] => format!("{one}"),
+        [a, b] => format!("{a} or {b}"),
+        many => {
+            let mut parts: Vec<String> = many.iter().map(|x| x.to_string()).collect();
+            let last = parts
+                .pop()
+                .expect("exact arity error has at least one arity");
+            if parts.is_empty() {
+                last
+            } else {
+                format!("{}, or {}", parts.join(", "), last)
+            }
+        }
+    };
+    let plural = if arities.len() == 1 && arities[0] == 1 {
+        "arg"
+    } else {
+        "args"
+    };
+
+    WqError::new(WqErrorType::Arity)
+        .src(builtin)
+        .msg(format!("expected {expected} {plural}, got {n}"))
+        .attach_note(builtin.usage())
+}
+
 impl std::fmt::Display for BuiltinEnum {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "bfn '{}'", self.name())
@@ -1052,6 +1357,10 @@ pub(super) fn check_arity(
     arity: impl AsRef<[usize]>,
     args: &BuiltinFnArgs,
 ) -> WqResult<()> {
+    if args.runtime_validated() {
+        return Ok(());
+    }
+
     // Deny named args first so the error message is clearer.
     deny_named_args(args, builtin)?;
     check_arity_inner(builtin, arity, args)
@@ -1065,6 +1374,10 @@ pub(super) fn check_arity_named(
     args: &BuiltinFnArgs,
     allowed: &[&str],
 ) -> WqResult<()> {
+    if args.runtime_validated() {
+        return Ok(());
+    }
+
     check_arity_inner(builtin, arity, args)?;
     check_named_args(args, builtin, allowed)
 }
@@ -1076,6 +1389,10 @@ pub(super) fn check_named_args(
     builtin: BuiltinEnum,
     allowed: &[&str],
 ) -> WqResult<()> {
+    if args.runtime_validated() {
+        return Ok(());
+    }
+
     if let Some(named) = &args.named {
         for (name, _) in named {
             if !allowed.contains(&name.as_ref()) {
@@ -1126,6 +1443,10 @@ fn check_arity_inner(
 
 #[inline]
 fn deny_named_args(args: &BuiltinFnArgs, builtin: BuiltinEnum) -> WqResult<()> {
+    if args.runtime_validated() {
+        return Ok(());
+    }
+
     if let Some(named) = &args.named
         && let Some((name, _)) = named.first()
     {
@@ -1134,4 +1455,115 @@ fn deny_named_args(args: &BuiltinFnArgs, builtin: BuiltinEnum) -> WqResult<()> {
             .msg(format!("unexpected named argument '{}'", name)));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use smallvec::SmallVec;
+
+    use super::*;
+    use crate::value::into_wq_string;
+
+    #[test]
+    fn runtime_call_checks_preserve_implementation_arities() {
+        let builtins = Builtins::new();
+
+        assert!(
+            builtins
+                .validate_runtime_call_args(Builtins::RAISE, &BuiltinFnArgs::new())
+                .expect("raise runtime validation should succeed")
+        );
+        assert!(
+            builtins
+                .validate_runtime_call_args(
+                    Builtins::SUBSTITUTE,
+                    &BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)]),
+                )
+                .expect("substitute runtime validation should succeed")
+        );
+        assert!(
+            builtins
+                .validate_runtime_call_args(
+                    Builtins::ARCTAN2,
+                    &BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)]),
+                )
+                .expect("arctan2 runtime validation should succeed")
+        );
+
+        let err = builtins
+            .validate_runtime_call_args(Builtins::ARCTAN2, &BuiltinFnArgs::from(Value::Int(1)))
+            .expect_err("arctan2 with one arg should fail runtime validation");
+        assert_eq!(err.msg.as_deref(), Some("expected 2 args, got 1"));
+    }
+
+    #[test]
+    fn runtime_call_checks_skip_custom_builtins() {
+        let builtins = Builtins::new();
+
+        for id in [
+            Builtins::PRINT,
+            Builtins::SUM,
+            Builtins::LIMIT,
+            Builtins::FMT,
+            Builtins::ASCIIPLOT,
+            Builtins::OP_ADD,
+        ] {
+            assert!(
+                !builtins
+                    .validate_runtime_call_args(id, &BuiltinFnArgs::new())
+                    .expect("custom builtin runtime validation should not error")
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_call_checks_use_canonical_alias_sources() {
+        let builtins = Builtins::new();
+
+        let err = builtins
+            .validate_runtime_call_args(Builtins::V, &BuiltinFnArgs::new())
+            .expect_err("V with zero args should fail runtime validation");
+        assert_eq!(err.src.as_deref(), Some("bfn 'reverse'"));
+    }
+
+    #[test]
+    fn runtime_call_checks_validate_simple_named_args() {
+        let builtins = Builtins::new();
+        let args = BuiltinFnArgs::with_named(
+            SmallVec::new(),
+            vec![(Arc::<str>::from("sep"), into_wq_string(","))],
+        );
+
+        assert!(
+            builtins
+                .validate_runtime_call_args(Builtins::E, &args)
+                .expect("E named runtime validation should succeed")
+        );
+
+        let bad_args = BuiltinFnArgs::with_named(
+            SmallVec::new(),
+            vec![(Arc::<str>::from("bad"), Value::Int(1))],
+        );
+        let err = builtins
+            .validate_runtime_call_args(Builtins::E, &bad_args)
+            .expect_err("unknown named arg should fail runtime validation");
+        assert_eq!(err.src.as_deref(), Some("bfn 'echo'"));
+        assert_eq!(err.msg.as_deref(), Some("unknown named argument 'bad'"));
+    }
+
+    #[test]
+    fn runtime_validated_args_skip_body_shape_checks() {
+        let mut args = BuiltinFnArgs::new();
+        args.mark_runtime_validated();
+        assert!(check_arity(BuiltinEnum::Len, [1], &args).is_ok());
+
+        let mut named_args = BuiltinFnArgs::with_named(
+            SmallVec::new(),
+            vec![(Arc::<str>::from("bad"), Value::Int(1))],
+        );
+        named_args.mark_runtime_validated();
+        assert!(check_named_args(&named_args, BuiltinEnum::Echo, &[]).is_ok());
+    }
 }

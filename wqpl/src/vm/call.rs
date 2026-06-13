@@ -508,13 +508,16 @@ impl Vm {
     fn call_builtin_id(
         &mut self,
         id: u16,
-        args: crate::builtins::BuiltinFnArgs,
+        mut args: crate::builtins::BuiltinFnArgs,
     ) -> WqResult<Value> {
         let argc = args.len();
         let func = *self
             .builtins
             .get_fn_by_id(usize::from(id))
             .ok_or_else(|| vm_err("invalid builtin id"))?;
+        if self.builtins.validate_runtime_call_args(id, &args)? {
+            args.mark_runtime_validated();
+        }
         let result = func.invoke(self, args)?;
         if let Some(name) = Builtins::name_from_id(id)
             && let Some(hooks) = self.hooks
