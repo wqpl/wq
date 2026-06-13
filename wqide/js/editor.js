@@ -1,5 +1,21 @@
 import { highlight_wq } from "wq-wasm";
 
+function escapeEditorText(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function renderHighlightedText(text) {
+  try {
+    return highlight_wq(text);
+  } catch (err) {
+    console.warn("[wqide] highlight failed; falling back to plain text", err);
+    return escapeEditorText(text);
+  }
+}
+
 function clampToLength(length, offset) {
   return Math.max(0, Math.min(length, Number(offset) || 0));
 }
@@ -131,7 +147,7 @@ export function createWqEditor(textarea, options = {}) {
         ? selectionOffsets(el, value) || selection
         : selection;
 
-    el.innerHTML = value ? highlight_wq(value) : "";
+    el.innerHTML = value ? renderHighlightedText(value) : "";
     if (value.endsWith("\n")) {
       el.appendChild(document.createElement("br"));
     }

@@ -314,7 +314,7 @@ const PLAYGROUND_HTML = html`
 	            <span class="run-output-title">Output</span>
 	            <button
 	              id="clearOutBtn"
-	              class="pill inactive run-output-clear"
+	              class="run-output-clear"
 	              type="button">
 	              Clear
 	            </button>

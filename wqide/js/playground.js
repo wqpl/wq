@@ -118,6 +118,8 @@ cowsay input[]`,
 
 function refreshLines(instance) {
   const lines = instance.ta.value.split("\n").length || 1;
+  const gutterWidth = Math.max(56, String(lines).length * 9 + 22);
+  instance.editorArea?.style.setProperty("--gutter-width", `${gutterWidth}px`);
   const frag = document.createDocumentFragment();
   for (let i = 1; i <= lines; i++) {
     const div = document.createElement("div");
@@ -127,6 +129,34 @@ function refreshLines(instance) {
   }
   instance.gutter.innerHTML = "";
   instance.gutter.appendChild(frag);
+  syncGutterScroll(instance);
+}
+
+function syncGutterScroll(instance) {
+  if (!instance.gutter || !instance.ta?.element) return;
+  instance.gutter.scrollTop = instance.ta.element.scrollTop;
+}
+
+function syncPanelHeights(instance) {
+  if (!instance.root || !instance.editor) return;
+  const height = instance.editor.getBoundingClientRect().height;
+  if (height > 0) {
+    instance.root.style.setProperty(
+      "--playground-panel-height",
+      `${Math.round(height)}px`,
+    );
+  }
+}
+
+function requestPanelHeightSync(instance) {
+  if (!instance.root) return;
+  if (instance.panelHeightFrame) {
+    cancelAnimationFrame(instance.panelHeightFrame);
+  }
+  instance.panelHeightFrame = requestAnimationFrame(() => {
+    instance.panelHeightFrame = null;
+    syncPanelHeights(instance);
+  });
 }
 
 const SYMBOL_REFRESH_DELAY_MS = 120;
@@ -376,6 +406,7 @@ function jumpToSymbol(instance, span) {
   const el = instance.ta.element;
   if (el) {
     el.scrollTop = Math.max(0, (loc.line - 1) * 22 - el.clientHeight / 2);
+    syncGutterScroll(instance);
   }
 }
 
@@ -468,6 +499,7 @@ async function doEval(instance) {
       instance.output.scrollTop = instance.output.scrollHeight;
     }
     instance.outputPanel.hidden = false;
+    requestPanelHeightSync(instance);
   } catch (err) {
     console.error(err);
     const bar = document.createElement("span");
@@ -477,9 +509,11 @@ async function doEval(instance) {
     const errorRenderer = createAnsiRenderer(instance.output, bar);
     errorRenderer.append(alignTurnBody((err?.message ?? String(err)) + "\n"));
     instance.outputPanel.hidden = false;
+    requestPanelHeightSync(instance);
     instance.output.scrollTop = instance.output.scrollHeight;
   } finally {
     instance.runBtn.disabled = false;
+    requestPanelHeightSync(instance);
   }
 }
 
@@ -729,6 +763,7 @@ export async function mountPlayground(root) {
   const makePosterBtn = root.querySelector("#makePosterBtn");
   const runBtn = root.querySelector("#runBtn");
   const editor = root.querySelector(".editor");
+  const editorArea = root.querySelector(".editor-area");
   const debugFlagsInput = root.querySelector("#playgroundDebugFlags");
   const boxBtn = root.querySelector("#playgroundBoxBtn");
   const boxPanel = root.querySelector("#playgroundBoxPanel");
@@ -742,6 +777,7 @@ export async function mountPlayground(root) {
   const symbolCount = root.querySelector("[data-symbol-count]");
   const symbolStatus = root.querySelector("[data-symbol-status]");
   const instance = {
+    root,
     ta,
     gutter,
     output,
@@ -750,6 +786,7 @@ export async function mountPlayground(root) {
     clearOutBtn,
     runBtn,
     editor,
+    editorArea,
     debugFlagsInput,
     boxBtn,
     boxPanel,
@@ -780,6 +817,8 @@ export async function mountPlayground(root) {
     symbolSource: "",
     symbolRefreshSeq: 0,
     symbolRefreshTimer: null,
+    panelHeightFrame: null,
+    panelResizeObserver: null,
   };
   instances.set(root, instance);
 
@@ -788,6 +827,10 @@ export async function mountPlayground(root) {
   ta.addEventListener("input", () => {
     refreshLines(instance);
     scheduleSymbolRefresh(instance);
+    requestPanelHeightSync(instance);
+  });
+  ta.element?.addEventListener("scroll", () => {
+    syncGutterScroll(instance);
   });
   runBtn?.addEventListener("click", async (e) => {
     e.preventDefault();
@@ -806,6 +849,7 @@ export async function mountPlayground(root) {
   clearOutBtn?.addEventListener("click", () => {
     instance.output.innerHTML = "";
     instance.outputPanel.hidden = true;
+    requestPanelHeightSync(instance);
   });
   makePosterBtn?.addEventListener("click", async () => {
     await makePoster(instance);
@@ -864,7 +908,14 @@ export async function mountPlayground(root) {
   window.addEventListener("resize", () => {
     positionRuntimePanel(boxBtn, boxPanel);
     positionRuntimePanel(debugToggle, debugPanel);
+    requestPanelHeightSync(instance);
   });
+  if (window.ResizeObserver && editor) {
+    instance.panelResizeObserver = new ResizeObserver(() => {
+      requestPanelHeightSync(instance);
+    });
+    instance.panelResizeObserver.observe(editor);
+  }
   templateButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const template = PLAYGROUND_TEMPLATES[button.dataset.template];
@@ -873,6 +924,7 @@ export async function mountPlayground(root) {
       stdinInput.value = template.stdin;
       refreshLines(instance);
       scheduleSymbolRefresh(instance);
+      requestPanelHeightSync(instance);
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
     });
@@ -889,6 +941,7 @@ export async function mountPlayground(root) {
     ensureStateSavingSession(instance).set_box_flags("box,axis,color");
     syncBoxControls(instance);
     scheduleSymbolRefresh(instance);
+    requestPanelHeightSync(instance);
     ta.focus();
   });
   openInReplBtn?.addEventListener("click", () => {
@@ -903,6 +956,7 @@ export async function mountPlayground(root) {
   setActive(timeBtn, instance.timeMode);
   writeDebugFlags(instance, []);
   await refreshSymbols(instance);
+  requestPanelHeightSync(instance);
 }
 
 export async function activatePlayground(root) {
@@ -911,6 +965,7 @@ export async function activatePlayground(root) {
   await ensureWasm();
   syncBoxControls(instance);
   setActive(instance.timeBtn, instance.timeMode);
+  requestPanelHeightSync(instance);
 }
 
 export function applyPlaygroundRoute(root, params) {
@@ -924,6 +979,7 @@ export function applyPlaygroundRoute(root, params) {
     instance.ta.dispatchEvent(new Event("input", { bubbles: true }));
     refreshLines(instance);
     scheduleSymbolRefresh(instance);
+    requestPanelHeightSync(instance);
     if (sin) {
       instance.stdinInput.value = sin;
     }
