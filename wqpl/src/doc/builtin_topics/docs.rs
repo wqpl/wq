@@ -1,3 +1,4 @@
+mod cas;
 mod core;
 mod higher_order;
 mod list;
@@ -69,4 +70,19 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     string::L_TRIM,
     string::R_TRIM,
     string::FMT,
+    cas::EQ,
+    cas::SIMPLIFY,
+    cas::REWRITE,
+    cas::NUMERIC,
+    cas::DIFF,
+    cas::SUBSTITUTE,
+    cas::EXPAND,
+    cas::FACTOR_COMMON,
+    cas::FACTOR,
+    cas::INTEGRATE,
+    cas::LIMIT,
+    cas::SOLVE,
+    cas::SOLVE_SYSTEM,
+    cas::BRENT,
+    cas::NEWTON,
 ];
