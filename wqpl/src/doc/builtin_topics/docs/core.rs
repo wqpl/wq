@@ -80,6 +80,7 @@ const INPUT_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::NoRun("waits for stdin"),
 }];
 
+#[cfg(not(target_arch = "wasm32"))]
 const EXEC_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Run a host command",
     code: "exec[\"printf\";\"hi\"]",
@@ -196,6 +197,7 @@ pub(super) const INPUT: BuiltinDoc = BuiltinDoc {
     related: &["echo", "print"],
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(super) const EXEC: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Exec,
     summary: "Run a host process and capture its output.",

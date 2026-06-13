@@ -20,6 +20,7 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     core::ECHO,
     core::PRINT,
     core::INPUT,
+    #[cfg(not(target_arch = "wasm32"))]
     core::EXEC,
     core::LEN,
     higher_order::APPLY,

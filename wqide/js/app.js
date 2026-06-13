@@ -1,5 +1,5 @@
 import { parseMarkdown } from "./markdown.js";
-import { getDocMarkdown } from "./wq-shared.js";
+import { getDocIndex, getDocMarkdown } from "./wq-shared.js";
 
 console.debug("[wqide] app shell loaded");
 
@@ -57,6 +57,20 @@ const FEATURED_HTML = html`
         class="stretched"
         href="subfolder.html?section=wqpl"
         aria-label="Open wqpl folder"
+        >Open</a
+      >
+    </section>
+
+    <div class="divider"></div>
+
+    <section class="card">
+      <h2>Reference Docs</h2>
+      <p>Generated docs for builtins, syntax, keywords, and guides.</p>
+      <span class="code">help map</span>
+      <a
+        class="stretched"
+        href="subfolder.html?section=Reference"
+        aria-label="Open Reference docs folder"
         >Open</a
       >
     </section>
@@ -912,6 +926,83 @@ async function getTutorialModule() {
   return state.tutorialModulePromise;
 }
 
+function isReferenceSection(sectionName) {
+  return sectionName.toLowerCase() === "reference";
+}
+
+function docQueryForTopic(topic) {
+  if (topic.kind === "builtin") {
+    return topic.aliases?.[0] || topic.title.replace(/ builtin$/, "");
+  }
+  return topic.id;
+}
+
+function docCardCode(topic) {
+  const query = docQueryForTopic(topic);
+  return topic.kind === "builtin" ? `help ${query}` : query;
+}
+
+function pluralizeTopic(count) {
+  return count === 1 ? "topic" : "topics";
+}
+
+function referenceGroupCards(topics) {
+  const groups = new Map();
+  for (const topic of topics) {
+    const group = topic.group || "Reference";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(topic);
+  }
+  return Array.from(groups, ([group, items]) => {
+    const sample = items.slice(0, 3).map(docCardCode).join("  ");
+    return {
+      title: group,
+      description: `${items.length} ${pluralizeTopic(items.length)} covering ${items
+        .slice(0, 2)
+        .map((topic) => topic.title)
+        .join(", ")}${items.length > 2 ? ", ..." : ""}`,
+      code: sample,
+      href: `subfolder.html?section=Reference&group=${encodeURIComponent(group)}`,
+      label: `Open ${group} reference topics`,
+    };
+  });
+}
+
+function referenceTopicCards(topics, group) {
+  return topics
+    .filter((topic) => topic.group === group)
+    .map((topic) => {
+      const query = docQueryForTopic(topic);
+      return {
+        title: topic.title,
+        description: `${topic.kind}: ${topic.summary}`,
+        code: docCardCode(topic),
+        href: `article.html?slug=ref:${encodeURIComponent(query)}`,
+        label: `${topic.title} reference`,
+      };
+    });
+}
+
+function appendSectionCard(grid, item) {
+  const card = document.createElement("section");
+  card.className = "card";
+  const h2 = document.createElement("h2");
+  h2.textContent = item.title;
+  const p = document.createElement("p");
+  p.textContent = item.description || "";
+  const code = document.createElement("span");
+  code.className = "code";
+  code.textContent = item.code || "";
+  const a = document.createElement("a");
+  a.className = "stretched";
+  a.href = item.href;
+  a.setAttribute("aria-label", item.label);
+  card.append(h2, p);
+  if (item.code) card.appendChild(code);
+  card.appendChild(a);
+  grid.appendChild(card);
+}
+
 function createView(key, html) {
   const root = document.createElement("div");
   root.dataset.view = key;
@@ -960,7 +1051,7 @@ function wireBackButton(root) {
       return;
     }
     if (kind.startsWith("subfolder:")) {
-      navigate("index.html");
+      navigate(root.dataset.parentHref || "index.html");
       return;
     }
     navigate("index.html");
@@ -982,38 +1073,49 @@ async function mountMore() {
 async function mountSubfolder(route) {
   const sectionName =
     (route.params.get("section") || "Basics").trim() || "Basics";
-  const key = `subfolder:${sectionName}`;
+  const referenceGroup = isReferenceSection(sectionName)
+    ? (route.params.get("group") || "").trim()
+    : "";
+  const key = referenceGroup
+    ? `subfolder:${sectionName}:${referenceGroup}`
+    : `subfolder:${sectionName}`;
   const root = getView(key, SUBFOLDER_HTML);
   const crumb = root.querySelector('[data-role="section-crumb"]');
   const title = root.querySelector('[data-role="section-title"]');
   const grid = root.querySelector('[data-role="section-grid"]');
-  if (crumb) crumb.textContent = sectionName;
-  if (title) title.textContent = sectionName;
+  const titleText = referenceGroup ? `${referenceGroup} Reference` : sectionName;
+  root.dataset.parentHref = referenceGroup
+    ? "subfolder.html?section=Reference"
+    : "index.html";
+  if (crumb) {
+    crumb.textContent = referenceGroup
+      ? `Reference / ${referenceGroup}`
+      : sectionName;
+  }
+  if (title) title.textContent = titleText;
   wireBackButton(root);
   if (grid && !grid.dataset.loadedFor) {
-    const manifest = await getManifest();
-    const list = (manifest.tutorials || []).filter(
-      (t) => (t.section || "").toLowerCase() === sectionName.toLowerCase(),
-    );
+    const list = isReferenceSection(sectionName)
+      ? referenceGroup
+        ? referenceTopicCards(await getDocIndex(), referenceGroup)
+        : referenceGroupCards(await getDocIndex())
+      : ((await getManifest()).tutorials || []).filter(
+          (t) => (t.section || "").toLowerCase() === sectionName.toLowerCase(),
+        );
     grid.innerHTML = "";
     list.forEach((t) => {
-      const card = document.createElement("section");
-      card.className = "card";
-      const h2 = document.createElement("h2");
-      h2.textContent = t.title;
-      const p = document.createElement("p");
-      p.textContent = t.description || "";
-      const code = document.createElement("span");
-      code.className = "code";
-      code.textContent = t.code || "";
-      const a = document.createElement("a");
-      a.className = "stretched";
-      a.href = `article.html?slug=${encodeURIComponent(t.slug)}`;
-      a.setAttribute("aria-label", `${t.title} lesson`);
-      card.append(h2, p);
-      if (t.code) card.appendChild(code);
-      card.appendChild(a);
-      grid.appendChild(card);
+      appendSectionCard(
+        grid,
+        isReferenceSection(sectionName)
+          ? t
+          : {
+              title: t.title,
+              description: t.description,
+              code: t.code,
+              href: `article.html?slug=${encodeURIComponent(t.slug)}`,
+              label: `${t.title} lesson`,
+            },
+      );
     });
     if (!list.length) {
       const empty = document.createElement("p");
@@ -1021,9 +1123,9 @@ async function mountSubfolder(route) {
       empty.style.color = "#355e78";
       grid.appendChild(empty);
     }
-    grid.dataset.loadedFor = sectionName;
+    grid.dataset.loadedFor = titleText;
   }
-  document.title = `wqide - ${sectionName}`;
+  document.title = `wqide - ${titleText}`;
   showView(root);
 }
 
