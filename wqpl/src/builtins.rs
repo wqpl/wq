@@ -774,7 +774,7 @@ declare_builtins! {
     (OCT, Oct, "oct", "oct[xs;prefix?]", "1 2", plain(core::oct), BuiltinGroup::CorePure),
     (HEX, Hex, "hex", "hex[xs;prefix?]", "1 2", plain(core::hex), BuiltinGroup::CorePure),
     (HASH, Hash, "hash", "hash[x]", "1", plain(core::hash), BuiltinGroup::CorePure),
-    (RAISE, Raise, "raise", "raise[msg]", "1", plain(core::raise), BuiltinGroup::CorePure),
+    (RAISE, Raise, "raise", "raise[]; raise[msg]", "0 1", plain(core::raise), BuiltinGroup::CorePure),
 
     // Core (IO) =========================================================
     (ECHO, Echo, "echo", "echo[value*;`sep]", "0..", plain(core::echo), BuiltinGroup::CoreIO),
@@ -792,7 +792,7 @@ declare_builtins! {
     // FILE IO =========================================================
     #[cfg(not(target_arch = "wasm32"))]
     {
-        (OPEN, Open, "open", "open[path;`r;`w;`a;`t;`c;`cn]", "1 2", plain(io::open), BuiltinGroup::FileIO),
+        (OPEN, Open, "open", "open[path;`r;`w;`a;`t;`c;`cn]", "1", plain(io::open), BuiltinGroup::FileIO),
         (FEXISTS_Q, FexistsQ, "fexists?", "fexists?[path]", "1", plain(io::fexists), BuiltinGroup::FileIO),
         (MKDIR, Mkdir, "mkdir", "mkdir[path]", "1", plain(io::mkdir), BuiltinGroup::FileIO),
         (FSIZE, Fsize, "fsize", "fsize[path]", "1", plain(io::fsize), BuiltinGroup::FileIO),
@@ -857,7 +857,7 @@ declare_builtins! {
     (FILTER, Filter, "filter", "filter[xs;f]", "2", with_context(ho::filter), BuiltinGroup::HigherOrder),
 
     (ZIPW, ZipW, "zipw", "zipw[xs;ys;f;d?]", "3 4", with_context(ho::zipw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 3 }),
-    (SPLITW, SplitW, "splitw", "splitw[xs;f;opts?]", "2 3", with_context(ho::splitw), BuiltinGroup::HigherOrder),
+    (SPLITW, SplitW, "splitw", "splitw[xs;f;`m]", "2", with_context(ho::splitw), BuiltinGroup::HigherOrder),
     (FINDW, FindW, "findw", "findw[xs;f;threshold?;d?]", "2 3 4", with_context(ho::findw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
     (RFINDW, RFindW, "rfindw", "rfindw[xs;f;threshold?;d?]", "2 3 4", with_context(ho::rfindw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
 
@@ -894,8 +894,8 @@ declare_builtins! {
     (BOR, Bor, "bor", "bor[xs;ys+]", "2..", plain(logical::bor), BuiltinGroup::Logical),
     (BXOR, Bxor, "bxor", "bxor[xs;ys+]", "2..", plain(logical::bxor), BuiltinGroup::Logical),
 
-    (SHL, Shl, "shl", "shl[xs;shift]", "2", plain(logical::shl), BuiltinGroup::Logical),
-    (SHR, Shr, "shr", "shr[xs;shift]", "2", plain(logical::shr), BuiltinGroup::Logical),
+    (SHL, Shl, "shl", "shl[xs;shift+]", "2..", plain(logical::shl), BuiltinGroup::Logical),
+    (SHR, Shr, "shr", "shr[xs;shift+]", "2..", plain(logical::shr), BuiltinGroup::Logical),
 
     // Math =========================================================
     (NEG, Neg, "neg", "neg[xs]", "1", plain(math::neg), BuiltinGroup::Math),
@@ -926,7 +926,7 @@ declare_builtins! {
     (ARCCOSH, Arccosh, "arccosh", "arccosh[xs]", "1", plain(math::arccosh), BuiltinGroup::Math),
     (ARCTANH, Arctanh, "arctanh", "arctanh[xs]", "1", plain(math::arctanh), BuiltinGroup::Math),
     (LOG, Log, "log", "log[x;a]", "2", plain(math::log), BuiltinGroup::Math),
-    (ARCTAN2, Arctan2, "arctan2", "arctan2[xs]", "1", plain(math::arctan2), BuiltinGroup::Math),
+    (ARCTAN2, Arctan2, "arctan2", "arctan2[y;x]", "2", plain(math::arctan2), BuiltinGroup::Math),
 
     (ERF, Erf, "erf", "erf[xs]", "1", plain(math::erf), BuiltinGroup::Math),
     (ERFC, Erfc, "erfc", "erfc[xs]", "1", plain(math::erfc), BuiltinGroup::Math),
@@ -963,7 +963,7 @@ declare_builtins! {
     (NUMERIC, Numeric, "numeric", "numeric[expr]", "1", plain(cas::numeric), BuiltinGroup::Cas),
     (DIFF, Diff, "diff", "diff[expr;var?]", "1 2", plain(cas::diff), BuiltinGroup::Cas),
     (D, D, "D", "D[expr;var?]", "1 2", plain(cas::diff), BuiltinGroup::Cas), // alias of diff
-    (SUBSTITUTE, Substitute, "substitute", "substitute[expr;var;val]", "3", plain(cas::substitute), BuiltinGroup::Cas),
+    (SUBSTITUTE, Substitute, "substitute", "substitute[expr;eqs], substitute[expr;var;val]", "2 3", plain(cas::substitute), BuiltinGroup::Cas),
     (EXPAND, Expand, "expand", "expand[expr]", "1", plain(cas::expand), BuiltinGroup::Cas),
     (FACTOR_COMMON, FactorCommon, "factor_common", "factor_common[expr]", "1", plain(cas::factor_common), BuiltinGroup::Cas),
     (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;1], factor[expr;1;var]", "1 2 3", plain(cas::factor_poly), BuiltinGroup::Cas),
@@ -1183,24 +1183,15 @@ fn runtime_call_check_for(builtin: BuiltinEnum) -> Option<BuiltinCallCheck> {
             BuiltinCallCheck::allow_named(src, BuiltinCallArity::AtLeast(0), ECHO_NAMED_ARGS)
         }
         #[cfg(not(target_arch = "wasm32"))]
-        B::Open => BuiltinCallCheck::allow_named(
-            src,
-            BuiltinCallArity::exact([1]),
-            OPEN_NAMED_ARGS,
-        ),
-        B::Raise => BuiltinCallCheck::deny_named(src, BuiltinCallArity::exact([0, 1])),
-        B::Substitute => BuiltinCallCheck::deny_named(src, BuiltinCallArity::exact([2, 3])),
-        B::Arctan2 => BuiltinCallCheck::deny_named(src, BuiltinCallArity::exact([2])),
-        B::Split => BuiltinCallCheck::allow_named(
-            src,
-            BuiltinCallArity::exact([1, 2]),
-            MAXSPLIT_NAMED_ARGS,
-        ),
-        B::SplitW => BuiltinCallCheck::allow_named(
-            src,
-            BuiltinCallArity::exact([2]),
-            MAXSPLIT_NAMED_ARGS,
-        ),
+        B::Open => {
+            BuiltinCallCheck::allow_named(src, BuiltinCallArity::exact([1]), OPEN_NAMED_ARGS)
+        }
+        B::Split => {
+            BuiltinCallCheck::allow_named(src, BuiltinCallArity::exact([1, 2]), MAXSPLIT_NAMED_ARGS)
+        }
+        B::SplitW => {
+            BuiltinCallCheck::allow_named(src, BuiltinCallArity::exact([2]), MAXSPLIT_NAMED_ARGS)
+        }
 
         B::Print
         | B::Sum
