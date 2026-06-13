@@ -586,7 +586,20 @@ impl AstNode {
             | Pause { span, .. }
             | NamedArg { span, .. }
             | FString { span, .. } => *span,
-            BinaryOp { left, right, .. } => merge(left.span(), right.span()),
+            BinaryOp { left, right, .. } => {
+                let mut span = right.span();
+                let mut current = left.as_ref();
+                while let BinaryOp {
+                    left: next_left,
+                    right: next_right,
+                    ..
+                } = current
+                {
+                    span = merge(next_right.span(), span);
+                    current = next_left;
+                }
+                merge(current.span(), span)
+            }
             ComparisonChain { first, rest } => {
                 let mut s = first.span();
                 for (_, n) in rest {

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::astnode::{AstNode, AstSpan, Parameter, PipeKind};
+use crate::astnode::{AstNode, AstSpan, BinaryOperator, Parameter, PipeKind};
 use crate::builtins::Builtins;
 use crate::compile::function_ref_capture_names;
 use crate::symbol::{DefKind, SymbolIndex};
@@ -256,11 +256,7 @@ impl Resolver {
                 left,
                 operator,
                 right,
-            } => AstNode::BinaryOp {
-                left: Box::new(self.resolve_node(*left)),
-                operator,
-                right: Box::new(self.resolve_node(*right)),
-            },
+            } => self.resolve_binary_chain(*left, operator, *right),
             AstNode::ComparisonChain { first, rest } => AstNode::ComparisonChain {
                 first: Box::new(self.resolve_node(*first)),
                 rest: rest
@@ -555,6 +551,38 @@ impl Resolver {
             AstNode::OuterVariable(name, span) => AstNode::OuterVariable(name, span),
             other => other,
         }
+    }
+
+    fn resolve_binary_chain(
+        &mut self,
+        left: AstNode,
+        operator: BinaryOperator,
+        right: AstNode,
+    ) -> AstNode {
+        let mut chain = vec![(operator, right)];
+        let mut current = left;
+        let mut resolved = loop {
+            match current {
+                AstNode::BinaryOp {
+                    left,
+                    operator,
+                    right,
+                } => {
+                    chain.push((operator, *right));
+                    current = *left;
+                }
+                other => break self.resolve_node(other),
+            }
+        };
+
+        for (operator, right) in chain.into_iter().rev() {
+            resolved = AstNode::BinaryOp {
+                left: Box::new(resolved),
+                operator,
+                right: Box::new(self.resolve_node(right)),
+            };
+        }
+        resolved
     }
 
     fn expand_unpack_assignment(

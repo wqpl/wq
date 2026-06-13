@@ -842,37 +842,12 @@ impl Compiler {
                 right,
             } => match operator {
                 BinaryOperator::BoolAnd => {
-                    self.compile_expr(left)?;
-                    let lazy_pos = self.instructions.len();
-                    self.instructions.push(Instruction::BoolAndLazy(0));
-                    self.compile_expr(right)?;
-                    self.instructions.push(Instruction::binary_op(
-                        BinaryOperator::BoolAnd,
-                        Operand::Stack,
-                        Operand::Stack,
-                    ));
-                    let end = self.instructions.len();
-                    self.instructions[lazy_pos] = Instruction::BoolAndLazy(end);
+                    self.compile_lazy_binary_chain(left, *operator, right)?;
                 }
                 BinaryOperator::BoolOr => {
-                    self.compile_expr(left)?;
-                    let lazy_pos = self.instructions.len();
-                    self.instructions.push(Instruction::BoolOrLazy(0));
-                    self.compile_expr(right)?;
-                    self.instructions.push(Instruction::binary_op(
-                        BinaryOperator::BoolOr,
-                        Operand::Stack,
-                        Operand::Stack,
-                    ));
-                    let end = self.instructions.len();
-                    self.instructions[lazy_pos] = Instruction::BoolOrLazy(end);
+                    self.compile_lazy_binary_chain(left, *operator, right)?;
                 }
-                _ => {
-                    let left_op = self.compile_expr_as_operand(left)?;
-                    let right_op = self.compile_expr_as_operand(right)?;
-                    self.instructions
-                        .push(Instruction::binary_op(*operator, left_op, right_op));
-                }
+                _ => self.compile_binary_chain(left, *operator, right)?,
             },
             AstNode::ComparisonChain { first, rest } => {
                 self.compile_expr(first)?;
@@ -2110,6 +2085,84 @@ impl Compiler {
                 Ok(Operand::Stack)
             }
         }
+    }
+
+    fn compile_binary_chain(
+        &mut self,
+        mut left: &AstNode,
+        operator: BinaryOperator,
+        right: &AstNode,
+    ) -> WqResult<()> {
+        let mut chain = vec![(operator, right)];
+        while let AstNode::BinaryOp {
+            left: next_left,
+            operator: next_operator,
+            right: next_right,
+        } = left
+        {
+            if matches!(
+                next_operator,
+                BinaryOperator::BoolAnd | BinaryOperator::BoolOr
+            ) {
+                break;
+            }
+            chain.push((*next_operator, next_right));
+            left = next_left;
+        }
+
+        let mut left_op = self.compile_expr_as_operand(left)?;
+        for (op, right) in chain.into_iter().rev() {
+            let right_op = self.compile_expr_as_operand(right)?;
+            self.instructions
+                .push(Instruction::binary_op(op, left_op, right_op));
+            left_op = Operand::Stack;
+        }
+        Ok(())
+    }
+
+    fn compile_lazy_binary_chain(
+        &mut self,
+        mut left: &AstNode,
+        operator: BinaryOperator,
+        right: &AstNode,
+    ) -> WqResult<()> {
+        let mut rights = vec![right];
+        while let AstNode::BinaryOp {
+            left: next_left,
+            operator: next_operator,
+            right: next_right,
+        } = left
+        {
+            if *next_operator != operator {
+                break;
+            }
+            rights.push(next_right);
+            left = next_left;
+        }
+
+        self.compile_expr(left)?;
+        for right in rights.into_iter().rev() {
+            let lazy_pos = self.instructions.len();
+            match operator {
+                BinaryOperator::BoolAnd => self.instructions.push(Instruction::BoolAndLazy(0)),
+                BinaryOperator::BoolOr => self.instructions.push(Instruction::BoolOrLazy(0)),
+                _ => unreachable!("lazy binary chain only accepts bool operators"),
+            }
+            self.compile_expr(right)?;
+            self.instructions
+                .push(Instruction::binary_op(operator, Operand::Stack, Operand::Stack));
+            let end = self.instructions.len();
+            match operator {
+                BinaryOperator::BoolAnd => {
+                    self.instructions[lazy_pos] = Instruction::BoolAndLazy(end);
+                }
+                BinaryOperator::BoolOr => {
+                    self.instructions[lazy_pos] = Instruction::BoolOrLazy(end);
+                }
+                _ => unreachable!("lazy binary chain only accepts bool operators"),
+            }
+        }
+        Ok(())
     }
 
     fn begin_loop_var_restore(&mut self, name: &str) -> LoopVarRestore {

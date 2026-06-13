@@ -42,20 +42,7 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             left,
             operator,
             right,
-        } => {
-            let left = Box::new(fold(*left));
-            let right = Box::new(fold(*right));
-            if let (Literal(lv, _), Literal(rv, _)) = (&*left, &*right)
-                && let Ok(res) = eval_binary(&operator, lv, rv)
-            {
-                return Literal(res, None);
-            }
-            BinaryOp {
-                left,
-                operator,
-                right,
-            }
-        }
+        } => fold_binary_chain(*left, operator, *right),
         ComparisonChain { first, rest } => ComparisonChain {
             first: Box::new(fold(*first)),
             rest: rest
@@ -487,6 +474,47 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             unreachable!("FString should have been resolved before fold")
         }
     }
+}
+
+fn fold_binary_chain(
+    left: AstNode,
+    operator: crate::astnode::BinaryOperator,
+    right: AstNode,
+) -> AstNode {
+    use AstNode::*;
+
+    let mut chain = vec![(operator, right)];
+    let mut current = left;
+    let mut folded = loop {
+        match current {
+            BinaryOp {
+                left,
+                operator,
+                right,
+            } => {
+                chain.push((operator, *right));
+                current = *left;
+            }
+            other => break fold(other),
+        }
+    };
+
+    for (operator, right) in chain.into_iter().rev() {
+        let folded_right = fold(right);
+        if let (Literal(lv, _), Literal(rv, _)) = (&folded, &folded_right)
+            && let Ok(res) = eval_binary(&operator, lv, rv)
+        {
+            folded = Literal(res, None);
+        } else {
+            folded = BinaryOp {
+                left: Box::new(folded),
+                operator,
+                right: Box::new(folded_right),
+            };
+        }
+    }
+
+    folded
 }
 
 #[cfg(test)]

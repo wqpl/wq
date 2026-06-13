@@ -599,6 +599,65 @@ mod tests {
     }
 
     #[test]
+    fn evals_long_left_deep_binary_chain() {
+        let terms = std::iter::repeat_n("a", 512)
+            .collect::<Vec<_>>()
+            .join("+");
+        let code = format!("a:1\nb:2\nc:{terms}");
+        let mut session = Session::new();
+
+        let result = session.eval_string(&code).expect("long chain should eval");
+
+        assert_eq!(result, Value::Int(512));
+    }
+
+    #[test]
+    fn symbols_handle_long_left_deep_binary_chain() {
+        let terms = std::iter::repeat_n("a", 512)
+            .collect::<Vec<_>>()
+            .join("+");
+        let code = format!("a:1\nb:2\nc:{terms}");
+        let session = Session::new();
+
+        let index = session
+            .analyze_symbols(&code)
+            .expect("long chain should produce symbols");
+        let a_def = index
+            .defs
+            .iter()
+            .position(|def| {
+                def.name == "a" && matches!(def.kind, crate::symbol::DefKind::Assignment)
+            })
+            .expect("a assignment should be defined");
+        let read_count = index
+            .occurrences()
+            .into_iter()
+            .filter(|occurrence| {
+                occurrence.def_idx == a_def
+                    && matches!(occurrence.kind, crate::symbol::UseKind::Read)
+            })
+            .count();
+
+        assert_eq!(read_count, 512);
+    }
+
+    #[test]
+    fn evals_long_left_deep_lazy_bool_chain() {
+        let terms = std::iter::once("true")
+            .chain(std::iter::repeat_n("missing", 512))
+            .collect::<Vec<_>>()
+            .join(r"\|");
+        let code = format!("c:{terms}");
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string(&code)
+            .expect("long lazy bool chain should eval");
+
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
     fn test_cached_parse_reuses_unchanged_root_statements() {
         let session = Session::new();
         let src = "a:1\nb:2\nc:3\n";

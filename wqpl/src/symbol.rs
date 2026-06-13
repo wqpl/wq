@@ -462,8 +462,7 @@ impl SymbolAnalyzer {
                 self.add_use(name, *span, UseKind::OuterRead, def_idx);
             }
             AstNode::BinaryOp { left, right, .. } => {
-                self.analyze(left);
-                self.analyze(right);
+                self.analyze_binary_chain(left, right);
             }
             AstNode::ComparisonChain { first, rest } => {
                 self.analyze(first);
@@ -825,6 +824,24 @@ impl SymbolAnalyzer {
             }
             AstNode::Ellipsis => {}
             _ => self.analyze(node),
+        }
+    }
+
+    fn analyze_binary_chain(&mut self, mut left: &AstNode, right: &AstNode) {
+        let mut rights = vec![right];
+        while let AstNode::BinaryOp {
+            left: next_left,
+            right: next_right,
+            ..
+        } = left
+        {
+            rights.push(next_right);
+            left = next_left;
+        }
+
+        self.analyze(left);
+        for node in rights.into_iter().rev() {
+            self.analyze(node);
         }
     }
 }
