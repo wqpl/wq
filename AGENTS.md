@@ -3,6 +3,7 @@
 - Use `cargo run -p wq-cli -- --help` to understand CLI usage
   - eg. `cargo run -p wq-cli -- exec 'inline code' -d ast,inst -p`
 - Read `e/*.wq`, `lex.rs`, `parse.rs` to understand wq grammar
+  - skip if your work is unrelated to wq semantics
   - `lhs:rhs` is assignment
   - `a=b` is equality
   - list is `(1;2;3)`
