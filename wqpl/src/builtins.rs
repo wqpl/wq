@@ -823,7 +823,7 @@ declare_builtins! {
     (RSCAN, RScan, "rscan", "rscan[xs;f;acc?]", "2 3", with_context(ho::rscan), BuiltinGroup::HigherOrder),
     (ANY, Any, "any", "any[xs;f;d?]", "2 3", with_context(ho::any), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
     (ALL, All, "all", "all[xs;f;d?]", "2 3", with_context(ho::all), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
-    (FILTER, Filter, "filter", "filter[xs;f]", "2", with_context(ho::filter), BuiltinGroup::List),
+    (FILTER, Filter, "filter", "filter[xs;f]", "2", with_context(ho::filter), BuiltinGroup::HigherOrder),
 
     (ZIPW, ZipW, "zipw", "zipw[xs;ys;f;d?]", "3 4", with_context(ho::zipw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 3 }),
     (SPLITW, SplitW, "splitw", "splitw[xs;f;opts?]", "2 3", with_context(ho::splitw), BuiltinGroup::HigherOrder),
