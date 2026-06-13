@@ -208,7 +208,7 @@ fn split_denominator_factor(value: &Value) -> Option<Value> {
     Some(if numeric_is_one(&abs_power) {
         base.clone()
     } else {
-        Value::from_cas_known_op(CasOp::Power, vec![base.clone(), abs_power])
+        Value::from_cas_op(CasOp::Power, vec![base.clone(), abs_power])
     })
 }
 

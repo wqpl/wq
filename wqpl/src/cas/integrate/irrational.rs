@@ -14,12 +14,12 @@ use super::rational::find_rational_root_value;
 use super::trig::binomial_coeff;
 use crate::cas::{
     cas_add, cas_debug_log_depth, cas_div, cas_mul, cas_pow, cas_product, cas_sub,
-    eval_exact_numeric_div, eval_numeric_binary, numeric_is_negative, numeric_is_one,
-    numeric_is_zero, poly_degree, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul,
-    poly_to_expr, poly_trim, simplify_cas_value, substitute_expr,
+    eval_exact_numeric_div, numeric_add, numeric_div, numeric_is_negative, numeric_is_one,
+    numeric_is_zero, numeric_mul, numeric_sub, poly_degree, poly_divide, poly_from_expr, poly_gcd,
+    poly_is_zero, poly_mul, poly_to_expr, poly_trim, simplify_cas_value, substitute_expr,
 };
 use crate::session::dbglog::DebugLogFlags;
-use crate::value::cas::CasOp;
+use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 // Guard against infinite recursion in sqrt reduction.
@@ -175,9 +175,8 @@ fn reciprocal_quartic_transform(poly: &[Value], root: &Value) -> WqResult<Vec<Va
             let power = 4 - k;
             let binom = Value::from_bigint(BigInt::from(binomial_coeff(i, k)));
             let root_power = pow_value(root, (i - k) as u32)?;
-            let term =
-                eval_numeric_binary("*", &eval_numeric_binary("*", coeff, &binom)?, &root_power)?;
-            out[power] = eval_numeric_binary("+", &out[power], &term)?;
+            let term = numeric_mul(&numeric_mul(coeff, &binom)?, &root_power)?;
+            out[power] = numeric_add(&out[power], &term)?;
         }
     }
     poly_trim(&mut out);
@@ -267,7 +266,10 @@ fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
 
     // Build the replacement expression: out * (in)^(±1/2)
     let simplified = {
-        let in_pow = Value::from_cas_op("^", vec![in_expr, if is_sqrt { half } else { neg_half }]);
+        let in_pow = Value::from_cas_op(
+            CasOp::Power,
+            vec![in_expr, if is_sqrt { half } else { neg_half }],
+        );
         if poly_degree(&out_poly) == 0 && numeric_is_one(&out_poly[0]) {
             in_pow
         } else {
@@ -323,12 +325,10 @@ fn try_euler_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     }
 
     // Euler #3: real roots (discriminant b²-4ac > 0)
-    let disc = eval_numeric_binary(
-        "-",
-        &eval_numeric_binary("*", &b, &b).unwrap_or(Value::Int(0)),
-        &eval_numeric_binary(
-            "*",
-            &eval_numeric_binary("*", &Value::Int(4), &a).unwrap_or(Value::Int(1)),
+    let disc = numeric_sub(
+        &numeric_mul(&b, &b).unwrap_or(Value::Int(0)),
+        &numeric_mul(
+            &numeric_mul(&Value::Int(4), &a).unwrap_or(Value::Int(1)),
             &c,
         )
         .unwrap_or(Value::Int(0)),
@@ -354,19 +354,14 @@ fn try_euler_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
 fn extract_abc(q: &QuadInfo) -> (Value, Value, Value) {
     let a = q.a.clone();
     let neg_two = Value::Int(-2);
-    let b = eval_numeric_binary(
-        "*",
-        &eval_numeric_binary("*", &a, &q.shift).unwrap_or(Value::Int(0)),
+    let b = numeric_mul(
+        &numeric_mul(&a, &q.shift).unwrap_or(Value::Int(0)),
         &neg_two,
     )
     .unwrap_or(Value::Int(0));
-    let shift_sq = eval_numeric_binary("*", &q.shift, &q.shift).unwrap_or(Value::Int(0));
-    let c = eval_numeric_binary(
-        "+",
-        &eval_numeric_binary("*", &a, &shift_sq).unwrap_or(Value::Int(0)),
-        &q.k,
-    )
-    .unwrap_or(Value::Int(0));
+    let shift_sq = numeric_mul(&q.shift, &q.shift).unwrap_or(Value::Int(0));
+    let c = numeric_add(&numeric_mul(&a, &shift_sq).unwrap_or(Value::Int(0)), &q.k)
+        .unwrap_or(Value::Int(0));
     (a, b, c)
 }
 
@@ -418,7 +413,7 @@ fn euler1_integrate(
     // dx/dt = 2√ / (b - 2s·t)
     let t = Value::from_cas_var("--cas-euler-t");
     let two = Value::Int(2);
-    let two_s = eval_numeric_binary("*", &two, s)?;
+    let two_s = numeric_mul(&two, s)?;
     let denom = cas_sub(b.clone(), cas_mul(vec![two_s, t.clone()])?)?;
 
     let x_t = simplify_cas_value(&cas_div(
@@ -462,7 +457,7 @@ fn euler2_integrate(
     let t_sq = cas_pow(t.clone(), Value::Int(2))?;
     let denom = cas_sub(a.clone(), t_sq)?;
 
-    let two_s = eval_numeric_binary("*", &two, s)?;
+    let two_s = numeric_mul(&two, s)?;
     let x_t = simplify_cas_value(&cas_div(
         cas_sub(cas_mul(vec![two_s, t.clone()])?, b.clone())?,
         denom.clone(),
@@ -497,10 +492,10 @@ fn euler3_integrate(
 ) -> WqResult<Value> {
     // Discriminant Δ = b²-4ac > 0.  Roots: α = (-b-√Δ)/(2a), β = (-b+√Δ)/(2a)
     let two = Value::Int(2);
-    let neg_b = eval_numeric_binary("*", b, &Value::Int(-1))?;
-    let two_a = eval_numeric_binary("*", &two, a)?;
-    let alpha = eval_numeric_binary("/", &eval_numeric_binary("-", &neg_b, sqrt_disc)?, &two_a)?;
-    let beta = eval_numeric_binary("/", &eval_numeric_binary("+", &neg_b, sqrt_disc)?, &two_a)?;
+    let neg_b = numeric_mul(b, &Value::Int(-1))?;
+    let two_a = numeric_mul(&two, a)?;
+    let alpha = numeric_div(&numeric_sub(&neg_b, sqrt_disc)?, &two_a)?;
+    let beta = numeric_div(&numeric_add(&neg_b, sqrt_disc)?, &two_a)?;
 
     // √(a(x-α)(x-β)) = t·(x-α)
     // x = (a·β - t²·α) / (a - t²)
@@ -522,7 +517,7 @@ fn euler3_integrate(
         cas_sub(x_t.clone(), alpha.clone())?,
     ])?)?;
 
-    let beta_minus_alpha = eval_numeric_binary("-", &beta, &alpha)?;
+    let beta_minus_alpha = numeric_sub(&beta, &alpha)?;
     let dx_dt = simplify_cas_value(&cas_div(
         cas_mul(vec![
             cas_mul(vec![two, a.clone()])?,
@@ -719,7 +714,7 @@ fn replace_sqrt_in_expr(expr: &Value, sqrt_expr: &Value, replacement: &Value) ->
         && expr_base == sqrt_base
     {
         let two = Value::Int(2);
-        let new_exp = eval_numeric_binary("*", expr_exp, &two).unwrap_or_else(|_| expr_exp.clone());
+        let new_exp = numeric_mul(expr_exp, &two).unwrap_or_else(|_| expr_exp.clone());
         return cas_pow(replacement.clone(), new_exp)
             .and_then(|v| simplify_cas_value(&v))
             .unwrap_or_else(|_| expr.clone());
@@ -736,7 +731,7 @@ fn replace_sqrt_in_expr(expr: &Value, sqrt_expr: &Value, replacement: &Value) ->
             .iter()
             .map(|a| replace_sqrt_in_expr(a, sqrt_expr, replacement))
             .collect();
-        return Value::from_cas_call(name, new_args);
+        return Value::from_cas_function(name, new_args);
     }
     if let Some((name, args)) = expr.cas_apply_parts() {
         let new_args: Vec<Value> = args
@@ -781,15 +776,15 @@ fn classify_quadratic(expr: &Value, var: &str) -> Option<QuadInfo> {
     // Complete the square: a·x² + b·x + c = a·(x + b/(2a))² + (c - b²/(4a))
     let two = Value::Int(2);
     let four = Value::Int(4);
-    let two_a = eval_numeric_binary("*", &two, &a).ok()?;
-    let shift_num = eval_numeric_binary("*", &b, &Value::Int(-1)).ok()?;
+    let two_a = numeric_mul(&two, &a).ok()?;
+    let shift_num = numeric_mul(&b, &Value::Int(-1)).ok()?;
     // Use exact division so coefficients stay Int/Fraction, not Float
     let shift = eval_exact_numeric_div(&shift_num, &two_a).ok()?;
 
-    let b_sq = eval_numeric_binary("*", &b, &b).ok()?;
-    let four_a = eval_numeric_binary("*", &four, &a).ok()?;
+    let b_sq = numeric_mul(&b, &b).ok()?;
+    let four_a = numeric_mul(&four, &a).ok()?;
     let b_sq_over_4a = eval_exact_numeric_div(&b_sq, &four_a).ok()?;
-    let k = eval_numeric_binary("-", &c, &b_sq_over_4a).ok()?;
+    let k = numeric_sub(&c, &b_sq_over_4a).ok()?;
 
     let is_simple = numeric_is_one(&a) && numeric_is_zero(&shift);
 
@@ -819,13 +814,13 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
         // Simple form: sqrt(x² + k)
         if numeric_is_negative(k) {
             // sqrt(x² - d²) where d² = -k
-            let d_sq = eval_numeric_binary("*", k, &Value::Int(-1))?;
+            let d_sq = numeric_mul(k, &Value::Int(-1))?;
             sqrt_value(&d_sq)
                 .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
             // x/2·sqrt(x²-d²) - d²/2·ln|x + sqrt(x²-d²)|
             let x = Value::from_cas_var(var);
-            let sqrt_expr = Value::from_cas_call(
-                "sqrt",
+            let sqrt_expr = Value::from_cas_function(
+                CasFunction::Sqrt,
                 vec![cas_sub(cas_pow(x.clone(), Value::Int(2))?, d_sq.clone())?],
             );
             let first = cas_mul(vec![
@@ -835,7 +830,10 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
             ])?;
             let half_d_sq = cas_div(d_sq, Value::Int(2))?;
             let inner = cas_add(vec![x, sqrt_expr])?;
-            let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![inner])]);
+            let ln = Value::from_cas_function(
+                CasFunction::Ln,
+                vec![Value::from_cas_function(CasFunction::Abs, vec![inner])],
+            );
             let second = cas_mul(vec![half_d_sq, ln])?;
             return simplify_cas_value(&cas_sub(first, second)?);
         } else {
@@ -844,8 +842,8 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
                 .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
             // x/2·sqrt(x²+d²) + d²/2·arcsinh(x/d)
             let x = Value::from_cas_var(var);
-            let sqrt_expr = Value::from_cas_call(
-                "sqrt",
+            let sqrt_expr = Value::from_cas_function(
+                CasFunction::Sqrt,
                 vec![cas_add(vec![
                     cas_pow(x.clone(), Value::Int(2))?,
                     k.clone(),
@@ -858,7 +856,7 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
             ])?;
             let half_k = cas_div(k.clone(), Value::Int(2))?;
             let arg = cas_div(x, d)?;
-            let arcsinh = Value::from_cas_call("arcsinh", vec![arg]);
+            let arcsinh = Value::from_cas_function(CasFunction::ArcSinh, vec![arg]);
             let second = cas_mul(vec![half_k, arcsinh])?;
             return simplify_cas_value(&cas_add(vec![first, second])?);
         }
@@ -883,11 +881,11 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
     } else if !numeric_is_one(a) {
         // sqrt(a·x² + k): factor out sqrt(a)
         // sqrt(a·x² + k) = sqrt(a)·sqrt(x² + k/a)
-        let sqrt_a = Value::from_cas_call("sqrt", vec![a.clone()]);
+        let sqrt_a = Value::from_cas_function(CasFunction::Sqrt, vec![a.clone()]);
         let simple_q = QuadInfo {
             a: Value::Int(1),
             shift: Value::Int(0),
-            k: eval_numeric_binary("/", k, a)?,
+            k: numeric_div(k, a)?,
             is_simple: true,
         };
         let inner = integrate_sqrt_quadratic(&simple_q, var)?;
@@ -906,30 +904,30 @@ fn integrate_one_over_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value>
     if numeric_is_zero(&q.shift) && numeric_is_one(a) {
         if numeric_is_negative(k) {
             // 1/sqrt(x² - d²) → arccosh(x/d)
-            let d_sq = eval_numeric_binary("*", k, &Value::Int(-1))?;
+            let d_sq = numeric_mul(k, &Value::Int(-1))?;
             let d = sqrt_value(&d_sq)
                 .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
             let arg = cas_div(Value::from_cas_var(var), d)?;
-            return Ok(Value::from_cas_call("arccosh", vec![arg]));
+            return Ok(Value::from_cas_function(CasFunction::ArcCosh, vec![arg]));
         } else {
             // 1/sqrt(x² + d²) → arcsinh(x/d)
             let d = sqrt_value(k)
                 .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
             let arg = cas_div(Value::from_cas_var(var), d)?;
-            return Ok(Value::from_cas_call("arcsinh", vec![arg]));
+            return Ok(Value::from_cas_function(CasFunction::ArcSinh, vec![arg]));
         }
     }
 
     // sqrt(a² - x²) case: a is negative of x²
     // a·x² + k with a < 0, k > 0 → sqrt(k - |a|·x²)
     if numeric_is_negative(a) && numeric_is_zero(&q.shift) {
-        let neg_a = eval_numeric_binary("*", a, &Value::Int(-1))?;
+        let neg_a = numeric_mul(a, &Value::Int(-1))?;
         if numeric_is_one(&neg_a) && !numeric_is_negative(k) {
             // 1/sqrt(k - x²) → arcsin(x/√k)  if k > 0
             let d = sqrt_value(k)
                 .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
             let arg = cas_div(Value::from_cas_var(var), d)?;
-            return Ok(Value::from_cas_call("arcsin", vec![arg]));
+            return Ok(Value::from_cas_function(CasFunction::ArcSin, vec![arg]));
         }
     }
 
@@ -994,7 +992,7 @@ fn integrate_poly_times_root(
                 cas_pow(Value::from_cas_var(var), Value::Int(2))?,
                 k.clone(),
             ])?;
-            return Ok(Value::from_cas_call("sqrt", vec![inner]));
+            return Ok(Value::from_cas_function(CasFunction::Sqrt, vec![inner]));
         }
     }
 
@@ -1043,7 +1041,7 @@ fn integrate_poly_sqrt_linear(
     let inv_a = eval_exact_numeric_div(&Value::Int(1), a)?;
     let mut a_pows = vec![Value::Int(1); deg + 1]; // a_pows[i] = 1/a^i
     for i in 1..=deg {
-        a_pows[i] = eval_numeric_binary("*", &a_pows[i - 1], &inv_a)?;
+        a_pows[i] = numeric_mul(&a_pows[i - 1], &inv_a)?;
     }
 
     // Compute Q(u) term by term
@@ -1054,14 +1052,13 @@ fn integrate_poly_sqrt_linear(
         }
         // Compute (u - b)^i coefficients
         // coeff of u^j in (u-b)^i: C(i, j) * (-b)^(i-j)
-        let m1_b = eval_numeric_binary("*", b, &Value::Int(-1))?; // -b
+        let m1_b = numeric_mul(b, &Value::Int(-1))?; // -b
         for (j, q_j) in q.iter_mut().enumerate().take(i + 1) {
             let binom = Value::from_bigint(BigInt::from(binomial_coeff(i, j)));
             let neg_b_pow = pow_value(&m1_b, (i - j) as u32)?;
-            let term_coeff =
-                eval_numeric_binary("*", &eval_numeric_binary("*", &binom, &neg_b_pow)?, p_i)?;
-            let term_coeff = eval_numeric_binary("*", &term_coeff, &a_pows[i])?;
-            *q_j = eval_numeric_binary("+", q_j, &term_coeff)?;
+            let term_coeff = numeric_mul(&numeric_mul(&binom, &neg_b_pow)?, p_i)?;
+            let term_coeff = numeric_mul(&term_coeff, &a_pows[i])?;
+            *q_j = numeric_add(q_j, &term_coeff)?;
         }
     }
 
@@ -1073,7 +1070,7 @@ fn integrate_poly_sqrt_linear(
     let exponent_delta: Value = if is_sqrt {
         half.clone()
     } else {
-        eval_numeric_binary("*", &half, &Value::Int(-1))?
+        numeric_mul(&half, &Value::Int(-1))?
     };
 
     for (j, q_j) in q.iter().enumerate() {
@@ -1081,13 +1078,9 @@ fn integrate_poly_sqrt_linear(
             continue;
         }
         // New exponent: j + delta + 1
-        let new_exp = eval_numeric_binary(
-            "+",
-            &eval_numeric_binary("+", &Value::Int(j as i64), &exponent_delta)?,
-            &one,
-        )?;
+        let new_exp = numeric_add(&numeric_add(&Value::Int(j as i64), &exponent_delta)?, &one)?;
         // Coefficient: q_j / (a * new_exp)
-        let denom = eval_numeric_binary("*", a, &new_exp)?;
+        let denom = numeric_mul(a, &new_exp)?;
         let coeff = eval_exact_numeric_div(q_j, &denom)?;
 
         let term = cas_mul(vec![coeff, cas_pow(u_var_val.clone(), new_exp)?])?;
@@ -1119,11 +1112,11 @@ fn pow_value(base: &Value, exp: u32) -> WqResult<Value> {
     let mut e = exp;
     while e > 0 {
         if e & 1 == 1 {
-            result = eval_numeric_binary("*", &result, &b)?;
+            result = numeric_mul(&result, &b)?;
         }
         e >>= 1;
         if e > 0 {
-            b = eval_numeric_binary("*", &b, &b)?;
+            b = numeric_mul(&b, &b)?;
         }
     }
     Ok(result)
@@ -1167,7 +1160,10 @@ fn integrate_xn_sqrt_reduction(n: usize, k: &Value, is_sqrt: bool, var: &str) ->
             )?;
             simplify_cas_value(&cas_div(pow, Value::Int(3))?)
         } else {
-            Ok(Value::from_cas_call("sqrt", vec![inner.clone()]))
+            Ok(Value::from_cas_function(
+                CasFunction::Sqrt,
+                vec![inner.clone()],
+            ))
         };
     }
 
@@ -1188,7 +1184,7 @@ fn integrate_xn_sqrt_reduction(n: usize, k: &Value, is_sqrt: bool, var: &str) ->
             )?;
             simplify_cas_value(&cas_div(pow, Value::Int(3))?)?
         } else {
-            Value::from_cas_call("sqrt", vec![inner.clone()])
+            Value::from_cas_function(CasFunction::Sqrt, vec![inner.clone()])
         }
     };
 
@@ -1196,7 +1192,7 @@ fn integrate_xn_sqrt_reduction(n: usize, k: &Value, is_sqrt: bool, var: &str) ->
         inner.clone(),
         Value::from_fraction_parts(BigInt::from(3), BigInt::from(2)),
     )?;
-    let sqrt_expr = Value::from_cas_call("sqrt", vec![inner.clone()]);
+    let sqrt_expr = Value::from_cas_function(CasFunction::Sqrt, vec![inner.clone()]);
 
     let start = if n.is_multiple_of(2) { 2 } else { 3 };
     let mut result = base;
@@ -1290,6 +1286,10 @@ fn sqrt_value(value: &Value) -> Option<Value> {
 mod tests {
     use super::*;
 
+    fn op(op: CasOp, args: Vec<Value>) -> Value {
+        Value::from_cas_op(op, args)
+    }
+
     #[test]
     fn test_classify_x2_plus_1() {
         let x = Value::from_cas_var("x");
@@ -1330,9 +1330,7 @@ mod tests {
         );
         // (x+1)² + 4: shift = -1, k = 4
         assert!(
-            numeric_is_zero(
-                &eval_numeric_binary("-", &q.k, &Value::Int(4)).unwrap_or(Value::Int(1))
-            ),
+            numeric_is_zero(&numeric_sub(&q.k, &Value::Int(4)).unwrap_or(Value::Int(1))),
             "k should be 4, got {:?}",
             q.k
         );
@@ -1350,10 +1348,10 @@ mod tests {
         // Build the integrand: (x * sqrt(x^2+1))^(-1)
         let x = Value::from_cas_var(var);
         let orig_sqrt = build_sqrt_expr(&a, &b, &c, var).unwrap();
-        let expr = Value::from_cas_op(
-            "^",
+        let expr = op(
+            CasOp::Power,
             vec![
-                Value::from_cas_op("*", vec![x, orig_sqrt.clone()]),
+                op(CasOp::Multiply, vec![x, orig_sqrt.clone()]),
                 Value::Int(-1),
             ],
         );
@@ -1361,7 +1359,7 @@ mod tests {
         // Euler #1: x_t, sqrt_t, dx_dt, denom
         let t = Value::from_cas_var("--cas-euler-t");
         let two = Value::Int(2);
-        let two_s = eval_numeric_binary("*", &two, &s).unwrap();
+        let two_s = numeric_mul(&two, &s).unwrap();
         let denom = cas_sub(b.clone(), cas_mul(vec![two_s, t.clone()]).unwrap()).unwrap();
         let x_t = simplify_cas_value(
             &cas_div(

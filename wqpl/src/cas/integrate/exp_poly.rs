@@ -11,8 +11,8 @@
 use num_bigint::BigInt;
 
 use crate::cas::{
-    cas_mul, cas_product, eval_exact_numeric_div, eval_numeric_binary, poly_degree, poly_from_expr,
-    poly_to_expr, poly_trim, simplify_cas_value,
+    cas_mul, cas_product, eval_exact_numeric_div, numeric_mul, numeric_sub, poly_degree,
+    poly_from_expr, poly_to_expr, poly_trim, simplify_cas_value,
 };
 use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
@@ -60,7 +60,7 @@ pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Val
         } else {
             // Numeric constant
             numeric_coeff = Some(match numeric_coeff.take() {
-                Some(acc) => eval_numeric_binary("*", &acc, arg)?,
+                Some(acc) => numeric_mul(&acc, arg)?,
                 None => arg.clone(),
             });
         }
@@ -99,7 +99,7 @@ pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Val
     let r = solve_undetermined_coeffs(&poly_coeffs, &k)?;
 
     // Build result: coeff * e^(k·x) * R(x)
-    let exp_factor = Value::from_cas_call("exp", vec![exp_arg]);
+    let exp_factor = Value::from_cas_function(CasFunction::Exp, vec![exp_arg]);
     let r_expr = poly_to_expr(&r, var)?;
 
     // Multiply by numeric coefficient if present
@@ -130,13 +130,13 @@ fn solve_undetermined_coeffs(p: &[Value], k: &Value) -> WqResult<Vec<Value>> {
         let p_j = p.get(j).cloned().unwrap_or(Value::Int(0));
 
         let correction = if j < n {
-            eval_numeric_binary("*", &Value::from_bigint(BigInt::from(j + 1)), &r[j + 1])?
+            numeric_mul(&Value::from_bigint(BigInt::from(j + 1)), &r[j + 1])?
         } else {
             Value::Int(0)
         };
 
         // rⱼ = (pⱼ - (j+1)·r_{j+1}) / k
-        let numer = eval_numeric_binary("-", &p_j, &correction)?;
+        let numer = numeric_sub(&p_j, &correction)?;
         r[j] = eval_exact_numeric_div(&numer, k)?;
     }
 
@@ -163,7 +163,7 @@ fn extract_linear_coeff(expr: &Value, var: &str) -> Option<Value> {
                 }
                 has_var = true;
             } else if !arg.is_cas_expr() {
-                coeff = eval_numeric_binary("*", &coeff, arg).ok()?;
+                coeff = numeric_mul(&coeff, arg).ok()?;
             } else {
                 return None; // non-linear sub-expression
             }
@@ -180,21 +180,25 @@ fn extract_linear_coeff(expr: &Value, var: &str) -> Option<Value> {
 mod tests {
     use super::*;
 
+    fn op(op: CasOp, args: Vec<Value>) -> Value {
+        Value::from_cas_op(op, args)
+    }
+
     #[test]
     fn test_extract_linear_coeff_simple() {
         let expr = Value::from_cas_var("x");
         assert_eq!(extract_linear_coeff(&expr, "x"), Some(Value::Int(1)));
 
-        let expr = Value::from_cas_op("*", vec![Value::Int(3), Value::from_cas_var("x")]);
+        let expr = op(CasOp::Multiply, vec![Value::Int(3), Value::from_cas_var("x")]);
         assert_eq!(extract_linear_coeff(&expr, "x"), Some(Value::Int(3)));
     }
 
     #[test]
     fn test_extract_linear_coeff_rejects_offset() {
-        let expr = Value::from_cas_op(
-            "+",
+        let expr = op(
+            CasOp::Add,
             vec![
-                Value::from_cas_op("*", vec![Value::Int(2), Value::from_cas_var("x")]),
+                op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
                 Value::Int(1),
             ],
         );

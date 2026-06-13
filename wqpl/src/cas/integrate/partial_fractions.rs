@@ -3,7 +3,7 @@ use num_traits::ToPrimitive;
 
 use super::split_off_numeric;
 use crate::cas::{cas_add, cas_div, cas_mul, cas_sub, numeric_is_one, simplify_cas_value};
-use crate::value::cas::CasOp;
+use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 pub(super) fn integrate_by_partial_fractions(expr: &Value, var: &str) -> WqResult<Option<Value>> {
@@ -87,10 +87,10 @@ fn try_quadratic_denominator(denom: &Value, var: &str) -> WqResult<Option<Value>
         let two_a = cas_mul(vec![Value::Int(2), a.clone()])?;
         let result = cas_mul(vec![
             cas_div(Value::Int(1), two_a)?,
-            Value::from_cas_call(
-                "ln",
-                vec![Value::from_cas_call(
-                    "abs",
+            Value::from_cas_function(
+                CasFunction::Ln,
+                vec![Value::from_cas_function(
+                    CasFunction::Abs,
                     vec![cas_div(
                         cas_sub(Value::from_cas_var(var), a.clone())?,
                         cas_add(vec![Value::from_cas_var(var), a])?,
@@ -107,7 +107,10 @@ fn try_quadratic_denominator(denom: &Value, var: &str) -> WqResult<Option<Value>
     };
     let result = cas_mul(vec![
         cas_div(Value::Int(1), a.clone())?,
-        Value::from_cas_call("arctan", vec![cas_div(Value::from_cas_var(var), a)?]),
+        Value::from_cas_function(
+            CasFunction::ArcTan,
+            vec![cas_div(Value::from_cas_var(var), a)?],
+        ),
     ])?;
     Ok(Some(simplify_cas_value(&result)?))
 }

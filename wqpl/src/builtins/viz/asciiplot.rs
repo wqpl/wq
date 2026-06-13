@@ -1297,6 +1297,7 @@ mod tests {
     use super::*;
     use crate::builtins::Builtins;
     use crate::session::stdio::{WqStdout, set_wqstdout};
+    use crate::value::cas::{CasFunction, CasOp};
     use crate::vm::Vm;
 
     struct SinkStdout;
@@ -1309,7 +1310,7 @@ mod tests {
 
     #[test]
     fn sample_cas_series_uses_symbolic_expression() {
-        let expr = Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(2)]);
+        let expr = Value::from_cas_op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]);
         let opts = PlotOptions {
             width: 3,
             xlim: Some((0.0, 2.0)),
@@ -1339,7 +1340,7 @@ mod tests {
 
     #[test]
     fn asciiplot_accepts_single_cas_arg() {
-        let expr = Value::from_cas_call("sin", vec![Value::from_cas_var("x")]);
+        let expr = Value::from_cas_function(CasFunction::Sin, vec![Value::from_cas_var("x")]);
         let mut vm = Vm::new(vec![]);
         set_wqstdout(Some(Box::new(SinkStdout)));
         let result = asciiplot(
@@ -1385,7 +1386,7 @@ mod tests {
 
     #[test]
     fn sample_cas_series_skips_invalid_points() {
-        let expr = Value::from_cas_call("sqrt", vec![Value::from_cas_var("x")]);
+        let expr = Value::from_cas_function(CasFunction::Sqrt, vec![Value::from_cas_var("x")]);
         let opts = PlotOptions {
             width: 5,
             xlim: Some((-2.0, 2.0)),

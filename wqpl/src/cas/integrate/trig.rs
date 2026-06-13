@@ -23,7 +23,8 @@ use num_traits::ToPrimitive;
 
 use crate::cas::{
     cas_add, cas_div, cas_mul, cas_neg, cas_pow, cas_product, cas_sub, eval_exact_numeric_div,
-    eval_numeric_binary, numeric_is_zero, poly_trim, simplify_cas_value, substitute_expr,
+    numeric_add, numeric_is_zero, numeric_mul, numeric_sub, poly_trim, simplify_cas_value,
+    substitute_expr,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
@@ -174,7 +175,7 @@ fn match_fn_power(expr: &Value, fn_name: CasFunction, var: &str) -> Option<TrigM
                     }
                     a = Some(ca);
                 } else if !sa.is_cas_expr() {
-                    b = eval_numeric_binary("+", &b, sa).ok()?;
+                    b = numeric_add(&b, sa).ok()?;
                 } else {
                     return None;
                 }
@@ -228,7 +229,7 @@ fn as_linear_monomial(expr: &Value, var: &str) -> Option<Value> {
                 }
                 found_var = true;
             } else if !arg.is_cas_expr() {
-                coeff = eval_numeric_binary("*", &coeff, arg).ok()?;
+                coeff = numeric_mul(&coeff, arg).ok()?;
             } else {
                 return None;
             }
@@ -260,7 +261,14 @@ fn build_linear_arg(a: &Value, b: &Value, var: &str) -> Value {
 
 /// Build a function call: fn_name(a*var + b).
 fn build_fn_call(fn_name: CasFunction, a: &Value, b: &Value, var: &str) -> Value {
-    Value::from_cas_call(fn_name, vec![build_linear_arg(a, b, var)])
+    Value::from_cas_function(fn_name, vec![build_linear_arg(a, b, var)])
+}
+
+fn cas_ln_abs(arg: Value) -> Value {
+    Value::from_cas_function(
+        CasFunction::Ln,
+        vec![Value::from_cas_function(CasFunction::Abs, vec![arg])],
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -422,7 +430,7 @@ fn integrate_sin_reduction(n: usize, a: &Value, b: &Value, var: &str) -> WqResul
             cas_pow(sin.clone(), Value::from_bigint(BigInt::from(m - 1)))?
         };
         let m_val = Value::from_bigint(BigInt::from(m));
-        let a_m = eval_numeric_binary("*", a, &m_val)?;
+        let a_m = numeric_mul(a, &m_val)?;
         let first = simplify_cas_value(&cas_div(cas_mul(vec![cos.clone(), sin_m1])?, a_m)?)?;
         let ratio = Value::from_fraction_parts(BigInt::from(m - 1), BigInt::from(m));
         result = simplify_cas_value(&cas_sub(cas_mul(vec![ratio, result])?, first)?)?;
@@ -468,7 +476,7 @@ fn integrate_cos_reduction(n: usize, a: &Value, b: &Value, var: &str) -> WqResul
             cas_pow(cos.clone(), Value::from_bigint(BigInt::from(m - 1)))?
         };
         let m_val = Value::from_bigint(BigInt::from(m));
-        let a_m = eval_numeric_binary("*", a, &m_val)?;
+        let a_m = numeric_mul(a, &m_val)?;
         let first = simplify_cas_value(&cas_div(cas_mul(vec![sin.clone(), cos_m1])?, a_m)?)?;
         let ratio = Value::from_fraction_parts(BigInt::from(m - 1), BigInt::from(m));
         result = simplify_cas_value(&cas_add(vec![first, cas_mul(vec![ratio, result])?])?)?;
@@ -487,7 +495,7 @@ fn integrate_tan_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
     }
     if n == 1 {
         let cos = build_fn_call(CasFunction::Cos, a, b, var);
-        let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![cos])]);
+        let ln = cas_ln_abs(cos);
         return simplify_cas_value(&cas_div(cas_neg(ln)?, a.clone())?);
     }
     let tan = build_fn_call(CasFunction::Tan, a, b, var);
@@ -495,13 +503,13 @@ fn integrate_tan_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
         Value::from_cas_var(var)
     } else {
         let cos = build_fn_call(CasFunction::Cos, a, b, var);
-        let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![cos])]);
+        let ln = cas_ln_abs(cos);
         simplify_cas_value(&cas_div(cas_neg(ln)?, a.clone())?)?
     };
     let start = if n.is_multiple_of(2) { 2 } else { 3 };
     for m in (start..=n).step_by(2) {
         let tan_pow = cas_pow(tan.clone(), Value::from_bigint(BigInt::from(m - 1)))?;
-        let denom = eval_numeric_binary("*", a, &Value::from_bigint(BigInt::from(m - 1)))?;
+        let denom = numeric_mul(a, &Value::from_bigint(BigInt::from(m - 1)))?;
         let term = cas_div(tan_pow, denom)?;
         result = simplify_cas_value(&cas_sub(term, result)?)?;
     }
@@ -521,7 +529,7 @@ fn integrate_sec_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
         let sec = build_fn_call(CasFunction::Sec, a, b, var);
         let tan = build_fn_call(CasFunction::Tan, a, b, var);
         let sum = cas_add(vec![sec, tan])?;
-        let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sum])]);
+        let ln = cas_ln_abs(sum);
         return simplify_cas_value(&cas_div(ln, a.clone())?);
     }
     if n == 2 {
@@ -537,14 +545,14 @@ fn integrate_sec_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
         let sec = build_fn_call(CasFunction::Sec, a, b, var);
         let tan = build_fn_call(CasFunction::Tan, a, b, var);
         let sum = cas_add(vec![sec, tan])?;
-        let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sum])]);
+        let ln = cas_ln_abs(sum);
         simplify_cas_value(&cas_div(ln, a.clone())?)?
     };
     let start = if n.is_multiple_of(2) { 4 } else { 3 };
     for m in (start..=n).step_by(2) {
         let sec_pow = cas_pow(sec.clone(), Value::from_bigint(BigInt::from(m - 2)))?;
         let num = cas_mul(vec![sec_pow, tan.clone()])?;
-        let a_n1 = eval_numeric_binary("*", a, &Value::from_bigint(BigInt::from(m - 1)))?;
+        let a_n1 = numeric_mul(a, &Value::from_bigint(BigInt::from(m - 1)))?;
         let first = cas_div(num, a_n1)?;
         let ratio = Value::from_fraction_parts(BigInt::from(m - 2), BigInt::from(m - 1));
         result = simplify_cas_value(&cas_add(vec![first, cas_mul(vec![ratio, result])?])?)?;
@@ -565,7 +573,7 @@ fn integrate_csc_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
         let csc = build_fn_call(CasFunction::Csc, a, b, var);
         let cot = build_fn_call(CasFunction::Cot, a, b, var);
         let sum = cas_add(vec![csc, cot])?;
-        let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sum])]);
+        let ln = cas_ln_abs(sum);
         return simplify_cas_value(&cas_div(cas_neg(ln)?, a.clone())?);
     }
     if n == 2 {
@@ -581,14 +589,14 @@ fn integrate_csc_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
         let csc = build_fn_call(CasFunction::Csc, a, b, var);
         let cot = build_fn_call(CasFunction::Cot, a, b, var);
         let sum = cas_add(vec![csc, cot])?;
-        let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sum])]);
+        let ln = cas_ln_abs(sum);
         simplify_cas_value(&cas_div(cas_neg(ln)?, a.clone())?)?
     };
     let start = if n.is_multiple_of(2) { 4 } else { 3 };
     for m in (start..=n).step_by(2) {
         let csc_pow = cas_pow(csc.clone(), Value::from_bigint(BigInt::from(m - 2)))?;
         let num = cas_mul(vec![csc_pow, cot.clone()])?;
-        let a_n1 = eval_numeric_binary("*", a, &Value::from_bigint(BigInt::from(m - 1)))?;
+        let a_n1 = numeric_mul(a, &Value::from_bigint(BigInt::from(m - 1)))?;
         let first = cas_div(cas_neg(num)?, a_n1)?;
         let ratio = Value::from_fraction_parts(BigInt::from(m - 2), BigInt::from(m - 1));
         result = simplify_cas_value(&cas_add(vec![first, cas_mul(vec![ratio, result])?])?)?;
@@ -607,7 +615,7 @@ fn integrate_cot_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
     }
     if n == 1 {
         let sin = build_fn_call(CasFunction::Sin, a, b, var);
-        let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sin])]);
+        let ln = cas_ln_abs(sin);
         return simplify_cas_value(&cas_div(ln, a.clone())?);
     }
     let cot = build_fn_call(CasFunction::Cot, a, b, var);
@@ -615,13 +623,13 @@ fn integrate_cot_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
         Value::from_cas_var(var)
     } else {
         let sin = build_fn_call(CasFunction::Sin, a, b, var);
-        let ln = Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![sin])]);
+        let ln = cas_ln_abs(sin);
         simplify_cas_value(&cas_div(ln, a.clone())?)?
     };
     let start = if n.is_multiple_of(2) { 2 } else { 3 };
     for m in (start..=n).step_by(2) {
         let cot_pow = cas_pow(cot.clone(), Value::from_bigint(BigInt::from(m - 1)))?;
-        let denom = eval_numeric_binary("*", a, &Value::from_bigint(BigInt::from(m - 1)))?;
+        let denom = numeric_mul(a, &Value::from_bigint(BigInt::from(m - 1)))?;
         let term = cas_div(cot_pow, denom)?;
         result = simplify_cas_value(&cas_sub(cas_neg(term)?, result)?)?;
     }
@@ -749,7 +757,7 @@ fn integrate_sin_cos_both_even(
             cas_pow(cos.clone(), Value::from_bigint(BigInt::from(n + 1)))?
         };
         let sum = Value::from_bigint(BigInt::from(mm + n));
-        let a_sum = eval_numeric_binary("*", a, &sum)?;
+        let a_sum = numeric_mul(a, &sum)?;
         let first = cas_div(cas_mul(vec![sin_m1, cos_n1])?, a_sum)?;
 
         let ratio = Value::from_fraction_parts(BigInt::from(mm - 1), BigInt::from(mm + n));
@@ -806,14 +814,14 @@ fn product_sin_cos(arg1: &Value, arg2: &Value, var: &str) -> WqResult<Value> {
     let a = extract_coeff(arg1, var);
     let b = extract_coeff(arg2, var);
     let half = Value::from_fraction_parts(BigInt::from(1), BigInt::from(2));
-    let a_plus_b = eval_numeric_binary("+", &a, &b)?;
-    let a_minus_b = eval_numeric_binary("-", &a, &b)?;
-    let t1 = Value::from_cas_call(
-        "sin",
+    let a_plus_b = numeric_add(&a, &b)?;
+    let a_minus_b = numeric_sub(&a, &b)?;
+    let t1 = Value::from_cas_function(
+        CasFunction::Sin,
         vec![cas_mul(vec![a_plus_b, Value::from_cas_var(var)])?],
     );
-    let t2 = Value::from_cas_call(
-        "sin",
+    let t2 = Value::from_cas_function(
+        CasFunction::Sin,
         vec![cas_mul(vec![a_minus_b, Value::from_cas_var(var)])?],
     );
     integrate_simple_linear_trig(&cas_mul(vec![half, cas_add(vec![t1, t2])?])?, var)
@@ -823,14 +831,14 @@ fn product_sin_sin(arg1: &Value, arg2: &Value, var: &str) -> WqResult<Value> {
     let a = extract_coeff(arg1, var);
     let b = extract_coeff(arg2, var);
     let half = Value::from_fraction_parts(BigInt::from(1), BigInt::from(2));
-    let a_plus_b = eval_numeric_binary("+", &a, &b)?;
-    let a_minus_b = eval_numeric_binary("-", &a, &b)?;
-    let t1 = Value::from_cas_call(
-        "cos",
+    let a_plus_b = numeric_add(&a, &b)?;
+    let a_minus_b = numeric_sub(&a, &b)?;
+    let t1 = Value::from_cas_function(
+        CasFunction::Cos,
         vec![cas_mul(vec![a_minus_b, Value::from_cas_var(var)])?],
     );
-    let t2 = Value::from_cas_call(
-        "cos",
+    let t2 = Value::from_cas_function(
+        CasFunction::Cos,
         vec![cas_mul(vec![a_plus_b, Value::from_cas_var(var)])?],
     );
     integrate_simple_linear_trig(&cas_mul(vec![half, cas_sub(t1, t2)?])?, var)
@@ -840,14 +848,14 @@ fn product_cos_cos(arg1: &Value, arg2: &Value, var: &str) -> WqResult<Value> {
     let a = extract_coeff(arg1, var);
     let b = extract_coeff(arg2, var);
     let half = Value::from_fraction_parts(BigInt::from(1), BigInt::from(2));
-    let a_plus_b = eval_numeric_binary("+", &a, &b)?;
-    let a_minus_b = eval_numeric_binary("-", &a, &b)?;
-    let t1 = Value::from_cas_call(
-        "cos",
+    let a_plus_b = numeric_add(&a, &b)?;
+    let a_minus_b = numeric_sub(&a, &b)?;
+    let t1 = Value::from_cas_function(
+        CasFunction::Cos,
         vec![cas_mul(vec![a_plus_b, Value::from_cas_var(var)])?],
     );
-    let t2 = Value::from_cas_call(
-        "cos",
+    let t2 = Value::from_cas_function(
+        CasFunction::Cos,
         vec![cas_mul(vec![a_minus_b, Value::from_cas_var(var)])?],
     );
     integrate_simple_linear_trig(&cas_mul(vec![half, cas_add(vec![t1, t2])?])?, var)
@@ -866,7 +874,7 @@ fn integrate_simple_linear_trig(expr: &Value, var: &str) -> WqResult<Value> {
         let mut fn_part = None;
         for arg in args {
             if !arg.is_cas_expr() {
-                coeff = eval_numeric_binary("*", &coeff, arg)?;
+                coeff = numeric_mul(&coeff, arg)?;
             } else {
                 fn_part = Some(arg);
             }
@@ -883,8 +891,10 @@ fn integrate_simple_linear_trig(expr: &Value, var: &str) -> WqResult<Value> {
         let arg = &args[0];
         let a = extract_coeff(arg, var);
         let result = match name {
-            CasFunction::Sin => cas_neg(Value::from_cas_call("cos", vec![arg.clone()]))?,
-            CasFunction::Cos => Value::from_cas_call("sin", vec![arg.clone()]),
+            CasFunction::Sin => {
+                cas_neg(Value::from_cas_function(CasFunction::Cos, vec![arg.clone()]))?
+            }
+            CasFunction::Cos => Value::from_cas_function(CasFunction::Sin, vec![arg.clone()]),
             _ => unreachable!(),
         };
         if a == Value::Int(1) {
@@ -917,9 +927,17 @@ fn extract_coeff(expr: &Value, var: &str) -> Value {
 mod tests {
     use super::*;
 
+    fn op(op: CasOp, args: Vec<Value>) -> Value {
+        Value::from_cas_op(op, args)
+    }
+
+    fn call(function: CasFunction, args: Vec<Value>) -> Value {
+        Value::from_cas_function(function, args)
+    }
+
     #[test]
     fn test_match_fn_power_simple() {
-        let expr = Value::from_cas_call("sin", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Sin, vec![Value::from_cas_var("x")]);
         let (n, a, b) = match_fn_power(&expr, CasFunction::Sin, "x").unwrap();
         assert_eq!(n, 1);
         assert_eq!(a, Value::Int(1));
@@ -928,10 +946,10 @@ mod tests {
 
     #[test]
     fn test_match_fn_power_power() {
-        let expr = Value::from_cas_op(
-            "^",
+        let expr = op(
+            CasOp::Power,
             vec![
-                Value::from_cas_call("sin", vec![Value::from_cas_var("x")]),
+                call(CasFunction::Sin, vec![Value::from_cas_var("x")]),
                 Value::Int(3),
             ],
         );
@@ -942,8 +960,8 @@ mod tests {
     #[test]
     fn test_match_fn_power_linear() {
         // sin(2*x)
-        let arg = Value::from_cas_op("*", vec![Value::Int(2), Value::from_cas_var("x")]);
-        let expr = Value::from_cas_call("sin", vec![arg]);
+        let arg = op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Sin, vec![arg]);
         let (n, a, b) = match_fn_power(&expr, CasFunction::Sin, "x").unwrap();
         assert_eq!(n, 1);
         assert_eq!(a, Value::Int(2));
@@ -953,14 +971,14 @@ mod tests {
     #[test]
     fn test_match_fn_power_linear_offset() {
         // sin(2*x + 1)
-        let arg = Value::from_cas_op(
-            "+",
+        let arg = op(
+            CasOp::Add,
             vec![
-                Value::from_cas_op("*", vec![Value::Int(2), Value::from_cas_var("x")]),
+                op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
                 Value::Int(1),
             ],
         );
-        let expr = Value::from_cas_call("sin", vec![arg]);
+        let expr = call(CasFunction::Sin, vec![arg]);
         let (n, a, b) = match_fn_power(&expr, CasFunction::Sin, "x").unwrap();
         assert_eq!(n, 1);
         assert_eq!(a, Value::Int(2));
@@ -970,17 +988,17 @@ mod tests {
     #[test]
     fn test_match_fn_power_rejects_nonlinear() {
         // sin(x^2) — not a*x+b
-        let arg = Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(2)]);
-        let expr = Value::from_cas_call("sin", vec![arg]);
+        let arg = op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]);
+        let expr = call(CasFunction::Sin, vec![arg]);
         assert!(match_fn_power(&expr, CasFunction::Sin, "x").is_none());
     }
 
     #[test]
     fn test_match_fn_power_sec() {
-        let expr = Value::from_cas_op(
-            "^",
+        let expr = op(
+            CasOp::Power,
             vec![
-                Value::from_cas_call("sec", vec![Value::from_cas_var("x")]),
+                call(CasFunction::Sec, vec![Value::from_cas_var("x")]),
                 Value::Int(2),
             ],
         );

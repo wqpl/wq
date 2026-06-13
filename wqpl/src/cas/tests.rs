@@ -5,7 +5,15 @@ use num_bigint::BigInt;
 use super::*;
 use crate::value::Value;
 use crate::value::algebraic::AlgebraicData;
-use crate::value::cas::CasOp;
+use crate::value::cas::{CasFunction, CasOp};
+
+fn op(op: CasOp, args: Vec<Value>) -> Value {
+    Value::from_cas_op(op, args)
+}
+
+fn call(function: CasFunction, args: Vec<Value>) -> Value {
+    Value::from_cas_function(function, args)
+}
 
 fn contains_op(value: &Value, needle: CasOp) -> bool {
     if let Some((op, args)) = value.cas_op_parts() {
@@ -33,13 +41,13 @@ fn cas_var_formats_like_identifier() {
 
 #[test]
 fn canonical_addition_orders_consistently() {
-    let lhs = simplify_cas_value(&Value::from_cas_op(
-        "+",
+    let lhs = simplify_cas_value(&op(
+        CasOp::Add,
         vec![Value::from_cas_var("x"), Value::Int(1)],
     ))
     .unwrap();
-    let rhs = simplify_cas_value(&Value::from_cas_op(
-        "+",
+    let rhs = simplify_cas_value(&op(
+        CasOp::Add,
         vec![Value::Int(1), Value::from_cas_var("x")],
     ))
     .unwrap();
@@ -49,10 +57,10 @@ fn canonical_addition_orders_consistently() {
 
 #[test]
 fn canonical_form_eliminates_subtraction_and_division() {
-    let expr = simplify_cas_value(&Value::from_cas_op(
-        "/",
+    let expr = simplify_cas_value(&op(
+        CasOp::Divide,
         vec![
-            Value::from_cas_op("-", vec![Value::from_cas_var("x"), Value::Int(1)]),
+            op(CasOp::Subtract, vec![Value::from_cas_var("x"), Value::Int(1)]),
             Value::from_cas_var("y"),
         ],
     ))
@@ -64,39 +72,38 @@ fn canonical_form_eliminates_subtraction_and_division() {
 #[test]
 fn typed_op_constructors_canonicalize_like_raw_ops() {
     let x = Value::from_cas_var("x");
-    let add = simplify_cas_value(&Value::from_cas_known_op(
+    let add = simplify_cas_value(&op(
         CasOp::Add,
         vec![x.clone(), Value::Int(1)],
     ))
     .unwrap();
     assert_eq!(add.to_string(), "x + 1");
 
-    let mul = simplify_cas_value(&Value::from_cas_known_op(
+    let mul = simplify_cas_value(&op(
         CasOp::Multiply,
         vec![Value::Int(2), x.clone()],
     ))
     .unwrap();
     assert_eq!(mul.to_string(), "2*x");
 
-    let pow = simplify_cas_value(&Value::from_cas_known_op(
+    let pow = simplify_cas_value(&op(
         CasOp::Power,
         vec![x.clone(), Value::Int(2)],
     ))
     .unwrap();
     assert_eq!(pow.to_string(), "x^2");
 
-    let neg =
-        simplify_cas_value(&Value::from_cas_known_op(CasOp::Subtract, vec![x.clone()])).unwrap();
+    let neg = simplify_cas_value(&op(CasOp::Subtract, vec![x.clone()])).unwrap();
     assert_eq!(neg.to_string(), "-x");
 
-    let sub = simplify_cas_value(&Value::from_cas_known_op(
+    let sub = simplify_cas_value(&op(
         CasOp::Subtract,
         vec![x.clone(), Value::Int(1)],
     ))
     .unwrap();
     assert_eq!(sub.to_string(), "x - 1");
 
-    let div = simplify_cas_value(&Value::from_cas_known_op(
+    let div = simplify_cas_value(&op(
         CasOp::Divide,
         vec![x, Value::Int(2)],
     ))
@@ -106,11 +113,11 @@ fn typed_op_constructors_canonicalize_like_raw_ops() {
 
 #[test]
 fn simplify_combines_like_terms() {
-    let expr = Value::from_cas_op(
-        "+",
+    let expr = op(
+        CasOp::Add,
         vec![
             Value::from_cas_var("x"),
-            Value::from_cas_op("*", vec![Value::Int(2), Value::from_cas_var("x")]),
+            op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
             Value::Int(1),
         ],
     );
@@ -119,10 +126,10 @@ fn simplify_combines_like_terms() {
 
 #[test]
 fn simplify_keeps_root_of_square_until_rewritten() {
-    let expr = Value::from_cas_call(
-        "sqrt",
-        vec![Value::from_cas_op(
-            "^",
+    let expr = call(
+        CasFunction::Sqrt,
+        vec![op(
+            CasOp::Power,
             vec![Value::from_cas_var("x"), Value::Int(2)],
         )],
     );
@@ -135,11 +142,11 @@ fn simplify_keeps_root_of_square_until_rewritten() {
 
 #[test]
 fn rewrite_combines_log_terms() {
-    let expr = Value::from_cas_op(
-        "+",
+    let expr = op(
+        CasOp::Add,
         vec![
-            Value::from_cas_call("ln", vec![Value::from_cas_var("x")]),
-            Value::from_cas_call("ln", vec![Value::from_cas_var("y")]),
+            call(CasFunction::Ln, vec![Value::from_cas_var("x")]),
+            call(CasFunction::Ln, vec![Value::from_cas_var("y")]),
         ],
     );
     assert_eq!(rewrite_cas(&expr).unwrap().to_string(), "ln[x*y]");
@@ -147,15 +154,15 @@ fn rewrite_combines_log_terms() {
 
 #[test]
 fn rewrite_factors_common_product_with_egg() {
-    let expr = Value::from_cas_op(
-        "+",
+    let expr = op(
+        CasOp::Add,
         vec![
-            Value::from_cas_op(
-                "*",
+            op(
+                CasOp::Multiply,
                 vec![Value::from_cas_var("x"), Value::from_cas_var("y")],
             ),
-            Value::from_cas_op(
-                "*",
+            op(
+                CasOp::Multiply,
                 vec![Value::from_cas_var("x"), Value::from_cas_var("z")],
             ),
         ],
@@ -170,20 +177,20 @@ fn rewrite_factors_common_product_with_egg() {
 #[test]
 fn rewrite_keeps_fractional_log_sum_expanded() {
     let x = Value::from_cas_var("x");
-    let x2 = Value::from_cas_op("^", vec![x.clone(), Value::Int(2)]);
-    let expr = Value::from_cas_op(
-        "+",
+    let x2 = op(CasOp::Power, vec![x.clone(), Value::Int(2)]);
+    let expr = op(
+        CasOp::Add,
         vec![
-            Value::from_cas_op(
-                "*",
+            op(
+                CasOp::Multiply,
                 vec![
-                    Value::from_cas_call("ln", vec![x]),
+                    call(CasFunction::Ln, vec![x]),
                     x2.clone(),
                     Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
                 ],
             ),
-            Value::from_cas_op(
-                "*",
+            op(
+                CasOp::Multiply,
                 vec![
                     Value::Int(-1),
                     x2,
@@ -201,17 +208,17 @@ fn rewrite_keeps_fractional_log_sum_expanded() {
 
 #[test]
 fn rewrite_handles_trig_rules() {
-    let odd = rewrite_cas(&Value::from_cas_call(
-        "sin",
-        vec![Value::from_cas_op("-", vec![Value::from_cas_var("x")])],
+    let odd = rewrite_cas(&call(
+        CasFunction::Sin,
+        vec![op(CasOp::Subtract, vec![Value::from_cas_var("x")])],
     ))
     .unwrap();
     assert_eq!(odd.to_string(), "-sin[x]");
 
-    let double_angle = rewrite_cas(&Value::from_cas_call(
-        "sin",
-        vec![Value::from_cas_op(
-            "*",
+    let double_angle = rewrite_cas(&call(
+        CasFunction::Sin,
+        vec![op(
+            CasOp::Multiply,
             vec![Value::Int(2), Value::from_cas_var("x")],
         )],
     ))
@@ -221,10 +228,10 @@ fn rewrite_handles_trig_rules() {
 
 #[test]
 fn rewrite_removes_abs_square() {
-    let expr = Value::from_cas_op(
-        "^",
+    let expr = op(
+        CasOp::Power,
         vec![
-            Value::from_cas_call("abs", vec![Value::from_cas_var("x")]),
+            call(CasFunction::Abs, vec![Value::from_cas_var("x")]),
             Value::Int(2),
         ],
     );
@@ -234,11 +241,11 @@ fn rewrite_removes_abs_square() {
 #[test]
 fn simplify_evaluates_extended_numeric_calls() {
     assert_eq!(
-        simplify_cas_value(&Value::from_cas_call("log2", vec![Value::Int(8)])).unwrap(),
+        simplify_cas_value(&call(CasFunction::Log2, vec![Value::Int(8)])).unwrap(),
         Value::float(3.0)
     );
     assert_eq!(
-        simplify_cas_value(&Value::from_cas_call("floor", vec![Value::float(2.9)])).unwrap(),
+        simplify_cas_value(&call(CasFunction::Floor, vec![Value::float(2.9)])).unwrap(),
         Value::Int(2)
     );
 }
@@ -270,10 +277,10 @@ fn simplify_combines_inverse_square_roots() {
 
 #[test]
 fn substitute_evaluates_numeric_value() {
-    let expr = Value::from_cas_op(
-        "+",
+    let expr = op(
+        CasOp::Add,
         vec![
-            Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(2)]),
+            op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
             Value::Int(1),
         ],
     );
@@ -292,8 +299,8 @@ fn substitute_recurses_into_symbolic_application_args() {
 fn simplify_recurses_into_symbolic_application_args() {
     let expr = Value::from_cas_apply(
         "f",
-        vec![Value::from_cas_op(
-            "+",
+        vec![op(
+            CasOp::Add,
             vec![Value::from_cas_var("x"), Value::Int(0)],
         )],
     );
@@ -303,10 +310,10 @@ fn simplify_recurses_into_symbolic_application_args() {
 
 #[test]
 fn expand_binomial_square() {
-    let expr = Value::from_cas_op(
-        "^",
+    let expr = op(
+        CasOp::Power,
         vec![
-            Value::from_cas_op("+", vec![Value::from_cas_var("x"), Value::Int(1)]),
+            op(CasOp::Add, vec![Value::from_cas_var("x"), Value::Int(1)]),
             Value::Int(2),
         ],
     );
@@ -320,7 +327,7 @@ fn expand_deep_nested_addition() {
     // Both expand_expr and simplify_cas_value are now iterative and must survive.
     let mut expr = Value::from_cas_var("x");
     for _ in 0..2000 {
-        expr = Value::from_cas_op("+", vec![expr, Value::Int(1)]);
+        expr = op(CasOp::Add, vec![expr, Value::Int(1)]);
     }
     let result = expand_expr(&expr).unwrap();
     assert!(result.to_string().contains("x"));
@@ -330,8 +337,8 @@ fn expand_deep_nested_addition() {
 fn expand_high_power_no_stack_overflow() {
     // (x + 1)^20 — the original recursive power loop recursed 20 times
     // on growing intermediate expressions.
-    let base = Value::from_cas_op("+", vec![Value::from_cas_var("x"), Value::Int(1)]);
-    let expr = Value::from_cas_op("^", vec![base, Value::Int(20)]);
+    let base = op(CasOp::Add, vec![Value::from_cas_var("x"), Value::Int(1)]);
+    let expr = op(CasOp::Power, vec![base, Value::Int(20)]);
     let result = expand_cas(&expr).unwrap();
     let s = result.to_string();
     assert!(s.contains("x^20"), "expected x^20 in expansion: {s}");
@@ -343,7 +350,7 @@ fn simplify_deep_nested_addition() {
     // The iterative simplify_cas_value must survive without stack overflow.
     let mut expr = Value::from_cas_var("x");
     for _ in 0..2000 {
-        expr = Value::from_cas_op("+", vec![expr, Value::Int(1)]);
+        expr = op(CasOp::Add, vec![expr, Value::Int(1)]);
     }
     let result = simplify_cas_value(&expr).unwrap();
     assert!(result.to_string().contains("x"));
@@ -354,7 +361,7 @@ fn simplify_deep_nested_multiplication() {
     // Build ((((x * 2) * 2) * 2) * ...) with depth 2000.
     let mut expr = Value::from_cas_var("x");
     for _ in 0..2000 {
-        expr = Value::from_cas_op("*", vec![expr, Value::Int(2)]);
+        expr = op(CasOp::Multiply, vec![expr, Value::Int(2)]);
     }
     let result = simplify_cas_value(&expr).unwrap();
     assert!(result.to_string().contains("x"));
@@ -362,10 +369,10 @@ fn simplify_deep_nested_multiplication() {
 
 #[test]
 fn factor_extracts_common_term() {
-    let expr = Value::from_cas_op(
-        "+",
+    let expr = op(
+        CasOp::Add,
         vec![
-            Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(2)]),
+            op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
             Value::from_cas_var("x"),
         ],
     );
@@ -375,17 +382,17 @@ fn factor_extracts_common_term() {
 
 #[test]
 fn simplify_performs_exact_polynomial_division() {
-    let expr = Value::from_cas_op(
-        "/",
+    let expr = op(
+        CasOp::Divide,
         vec![
-            Value::from_cas_op(
-                "-",
+            op(
+                CasOp::Subtract,
                 vec![
-                    Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(2)]),
+                    op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
                     Value::Int(1),
                 ],
             ),
-            Value::from_cas_op("-", vec![Value::from_cas_var("x"), Value::Int(1)]),
+            op(CasOp::Subtract, vec![Value::from_cas_var("x"), Value::Int(1)]),
         ],
     );
     assert_eq!(simplify_cas_value(&expr).unwrap().to_string(), "x + 1");
@@ -393,10 +400,10 @@ fn simplify_performs_exact_polynomial_division() {
 
 #[test]
 fn solve_quadratic_equation() {
-    let expr = Value::from_cas_op(
-        "-",
+    let expr = op(
+        CasOp::Subtract,
         vec![
-            Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(2)]),
+            op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
             Value::Int(1),
         ],
     );
@@ -415,10 +422,10 @@ fn solve_quadratic_equation() {
 
 #[test]
 fn solve_monomial_cubic_equation() {
-    let expr = Value::from_cas_op(
-        "-",
+    let expr = op(
+        CasOp::Subtract,
         vec![
-            Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(3)]),
+            op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(3)]),
             Value::Int(8),
         ],
     );
@@ -441,18 +448,18 @@ fn solve_monomial_cubic_equation() {
 fn solve_linear_system_returns_values_in_variable_order() {
     let equations = Value::List(Arc::new(vec![
         Value::from_cas_eq(
-            Value::from_cas_op(
-                "+",
+            op(
+                CasOp::Add,
                 vec![
-                    Value::from_cas_op("*", vec![Value::Int(2), Value::from_cas_var("x")]),
+                    op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
                     Value::from_cas_var("y"),
                 ],
             ),
             Value::Int(5),
         ),
         Value::from_cas_eq(
-            Value::from_cas_op(
-                "-",
+            op(
+                CasOp::Subtract,
                 vec![Value::from_cas_var("x"), Value::from_cas_var("y")],
             ),
             Value::Int(1),
@@ -478,7 +485,7 @@ fn linear_coeff_var() {
 
 #[test]
 fn linear_coeff_product() {
-    let expr = Value::from_cas_op("*", vec![Value::Int(2), Value::from_cas_var("x")]);
+    let expr = op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]);
     assert_eq!(
         extract_linear_coefficients(&simplify_cas_value(&expr).unwrap(), "x"),
         Some((Value::Int(2), Value::Int(0)))
@@ -487,10 +494,10 @@ fn linear_coeff_product() {
 
 #[test]
 fn linear_coeff_sum() {
-    let expr = Value::from_cas_op(
-        "+",
+    let expr = op(
+        CasOp::Add,
         vec![
-            Value::from_cas_op("*", vec![Value::Int(2), Value::from_cas_var("x")]),
+            op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
             Value::Int(3),
         ],
     );
@@ -502,10 +509,10 @@ fn linear_coeff_sum() {
 
 #[test]
 fn linear_coeff_product_of_sum() {
-    let expr = simplify_cas_value(&Value::from_cas_op(
-        "/",
+    let expr = simplify_cas_value(&op(
+        CasOp::Divide,
         vec![
-            Value::from_cas_op("+", vec![Value::from_cas_var("x"), Value::Int(1)]),
+            op(CasOp::Add, vec![Value::from_cas_var("x"), Value::Int(1)]),
             Value::Int(2),
         ],
     ))
@@ -517,11 +524,11 @@ fn linear_coeff_product_of_sum() {
 
 #[test]
 fn linear_coeff_negative_product_of_sum() {
-    let expr = simplify_cas_value(&Value::from_cas_op(
-        "*",
+    let expr = simplify_cas_value(&op(
+        CasOp::Multiply,
         vec![
             Value::Int(-1),
-            Value::from_cas_op("+", vec![Value::from_cas_var("x"), Value::Int(1)]),
+            op(CasOp::Add, vec![Value::from_cas_var("x"), Value::Int(1)]),
         ],
     ))
     .unwrap();
@@ -533,20 +540,20 @@ fn linear_coeff_negative_product_of_sum() {
 
 #[test]
 fn numeric_erf_zero() {
-    let result = simplify_cas_value(&Value::from_cas_call("erf", vec![Value::Int(0)])).unwrap();
+    let result = simplify_cas_value(&call(CasFunction::Erf, vec![Value::Int(0)])).unwrap();
     assert_eq!(result, Value::float(0.0));
 }
 
 #[test]
 fn numeric_erfc_zero() {
-    let result = simplify_cas_value(&Value::from_cas_call("erfc", vec![Value::Int(0)])).unwrap();
+    let result = simplify_cas_value(&call(CasFunction::Erfc, vec![Value::Int(0)])).unwrap();
     assert_eq!(result, Value::float(1.0));
 }
 
 #[test]
 fn numeric_gamma_five() {
     // gamma(5) = 4! = 24
-    let result = simplify_cas_value(&Value::from_cas_call("gamma", vec![Value::Int(5)])).unwrap();
+    let result = simplify_cas_value(&call(CasFunction::Gamma, vec![Value::Int(5)])).unwrap();
     if let Value::Float(f) = result {
         assert!((*f - 24.0).abs() < 1e-10);
     } else {
@@ -557,23 +564,23 @@ fn numeric_gamma_five() {
 #[test]
 fn numeric_heaviside_pos() {
     let result =
-        simplify_cas_value(&Value::from_cas_call("heaviside", vec![Value::float(3.0)])).unwrap();
+        simplify_cas_value(&call(CasFunction::Heaviside, vec![Value::float(3.0)])).unwrap();
     assert_eq!(result, Value::float(1.0));
 }
 
 #[test]
 fn numeric_heaviside_neg() {
     let result =
-        simplify_cas_value(&Value::from_cas_call("heaviside", vec![Value::float(-3.0)])).unwrap();
+        simplify_cas_value(&call(CasFunction::Heaviside, vec![Value::float(-3.0)])).unwrap();
     assert_eq!(result, Value::float(0.0));
 }
 
 #[test]
 fn numeric_eval_handles_binary_math_calls() {
-    let log = Value::from_cas_call("log", vec![Value::Int(8), Value::Int(2)]);
+    let log = call(CasFunction::Log, vec![Value::Int(8), Value::Int(2)]);
     assert_eq!(eval_numeric_cas(&log).unwrap(), Value::float(3.0));
 
-    let arctan2 = Value::from_cas_call("arctan2", vec![Value::Int(1), Value::Int(1)]);
+    let arctan2 = call(CasFunction::ArcTan2, vec![Value::Int(1), Value::Int(1)]);
     let result = eval_numeric_cas(&arctan2).unwrap();
     let Value::Float(value) = result else {
         panic!("expected float");
@@ -615,8 +622,8 @@ fn normalize_merges_multiple_reciprocals() {
     // simplifiy_cas_value should combine terms with multiple (^ D -1) factors.
     let d1 = cas_add(vec![Value::from_cas_var("x"), Value::Int(1)]).unwrap();
     let d2 = cas_add(vec![Value::from_cas_var("x"), Value::Int(-1)]).unwrap();
-    let inv1 = Value::from_cas_op("^", vec![d1, Value::Int(-1)]);
-    let inv2 = Value::from_cas_op("^", vec![d2, Value::Int(-1)]);
+    let inv1 = op(CasOp::Power, vec![d1, Value::Int(-1)]);
+    let inv2 = op(CasOp::Power, vec![d2, Value::Int(-1)]);
     // Two terms with the same multi-factor denominator structure
     let term_a = cas_mul(vec![Value::Int(5), inv1.clone(), inv2.clone()]).unwrap();
     let term_b = cas_mul(vec![Value::Int(3), inv1, inv2]).unwrap();
@@ -647,10 +654,10 @@ fn rewrite_distributes_negation_over_sum() {
 fn rewrite_sgn_abs_product_cancels() {
     // sgn(u) * abs(u)^(-1) → u^(-1)
     let u = Value::from_cas_var("x");
-    let sgn = Value::from_cas_call("sgn", vec![u.clone()]);
-    let abs_inv = Value::from_cas_op(
-        "^",
-        vec![Value::from_cas_call("abs", vec![u.clone()]), Value::Int(-1)],
+    let sgn = call(CasFunction::Sgn, vec![u.clone()]);
+    let abs_inv = op(
+        CasOp::Power,
+        vec![call(CasFunction::Abs, vec![u.clone()]), Value::Int(-1)],
     );
     let product = cas_mul(vec![sgn, abs_inv]).unwrap();
     let rewritten = rewrite_expr(&product).unwrap();

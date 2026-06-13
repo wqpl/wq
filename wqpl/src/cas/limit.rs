@@ -194,7 +194,7 @@ fn try_lhopital(
     let d_den = diff_expr(&den, var_name)?;
 
     // Build the new quotient and recurse.
-    let new_expr = simplify_cas_value(&Value::from_cas_op("/", vec![d_num, d_den]))?;
+    let new_expr = simplify_cas_value(&Value::from_cas_op(CasOp::Divide, vec![d_num, d_den]))?;
 
     Ok(Some(limit_cas_inner(
         &new_expr,
@@ -237,7 +237,7 @@ fn split_fraction(expr: &Value) -> Option<(Value, Value)> {
         let den = if n == -1 {
             base.clone()
         } else {
-            Value::from_cas_op("^", vec![base.clone(), Value::Int(-n)])
+            Value::from_cas_op(CasOp::Power, vec![base.clone(), Value::Int(-n)])
         };
         return Some((Value::Int(1), den));
     }
@@ -255,7 +255,7 @@ fn split_fraction(expr: &Value) -> Option<(Value, Value)> {
                 let den = if n == -1 {
                     base.clone()
                 } else {
-                    Value::from_cas_op("^", vec![base.clone(), Value::Int(-n)])
+                    Value::from_cas_op(CasOp::Power, vec![base.clone(), Value::Int(-n)])
                 };
                 denom = Some(den);
             } else {
@@ -296,7 +296,7 @@ fn split_inf_times_zero_product(expr: &Value, var_name: &str) -> Option<(Value, 
                     Value::from_cas_var(var_name)
                 } else {
                     Value::from_cas_op(
-                        "*",
+                        CasOp::Multiply,
                         vec![
                             Value::float(-coeff.as_f64().unwrap()),
                             Value::from_cas_var(var_name),
@@ -304,8 +304,8 @@ fn split_inf_times_zero_product(expr: &Value, var_name: &str) -> Option<(Value, 
                     )
                 };
                 denom_inner = Some(Value::from_cas_op(
-                    "^",
-                    vec![Value::from_cas_const("e"), pos_exp],
+                    CasOp::Power,
+                    vec![Value::from_cas_const(CasConst::E), pos_exp],
                 ));
             }
         } else {
@@ -389,7 +389,7 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
         let inner = try_limit_at_infinity(arg, var, point)?;
         if let Some(v) = inner {
             if v.cas_const_name() == Some("_oo") {
-                return Ok(Some(Value::from_cas_const("oo")));
+                return Ok(Some(Value::from_cas_const(CasConst::Infinity)));
             }
             return Ok(Some(v));
         }
@@ -410,16 +410,16 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
                 }
                 // Bounded oscillation: sin(∞), cos(∞) → doesn't exist
                 if matches!(name, CasFunction::Sin | CasFunction::Cos) {
-                    return Ok(Some(Value::from_cas_const("undef")));
+                    return Ok(Some(Value::from_cas_const(CasConst::Undefined)));
                 }
-                let call = Value::from_cas_call(name, vec![lim]);
+                let call = Value::from_cas_function(name, vec![lim]);
                 return Ok(Some(call));
             }
             if !lim.is_cas_expr() {
-                let call = Value::from_cas_call(name, vec![lim]);
+                let call = Value::from_cas_function(name, vec![lim]);
                 return Ok(Some(simplify_cas_value(&call)?));
             }
-            let call = Value::from_cas_call(name, vec![lim]);
+            let call = Value::from_cas_function(name, vec![lim]);
             return Ok(Some(call));
         }
     }
@@ -536,9 +536,9 @@ fn asymp_at_infinity(name: CasFunction, inf_val: &Value) -> Option<Value> {
 
 fn inf_with_sign(sign: i32) -> Value {
     if sign >= 0 {
-        Value::from_cas_const("oo")
+        Value::from_cas_const(CasConst::Infinity)
     } else {
-        Value::from_cas_const("_oo")
+        Value::from_cas_const(CasConst::NegInfinity)
     }
 }
 
@@ -638,7 +638,7 @@ fn limit_exp_at_infinity(arg: &Value, var_name: &str, sign: i32) -> WqResult<Opt
     }
     let effective_sign = if a * (sign as f64) > 0.0 { 1 } else { -1 };
     if effective_sign > 0 {
-        Ok(Some(Value::from_cas_const("oo")))
+        Ok(Some(Value::from_cas_const(CasConst::Infinity)))
     } else {
         Ok(Some(Value::Int(0)))
     }
@@ -1070,14 +1070,14 @@ fn try_pole_limit(
     };
     if den_sign == 0 {
         // Two-sided: denominator changes sign → limit doesn't exist
-        return Ok(Some(Value::from_cas_const("undef")));
+        return Ok(Some(Value::from_cas_const(CasConst::Undefined)));
     }
 
     let result_sign = num_sign * den_sign;
     Ok(Some(if result_sign > 0 {
-        Value::from_cas_const("oo")
+        Value::from_cas_const(CasConst::Infinity)
     } else {
-        Value::from_cas_const("_oo")
+        Value::from_cas_const(CasConst::NegInfinity)
     }))
 }
 
@@ -1149,7 +1149,19 @@ mod tests {
     }
 
     fn cas_div_expr(num: Value, den: Value) -> Value {
-        Value::from_cas_op("/", vec![num, den])
+        Value::from_cas_op(CasOp::Divide, vec![num, den])
+    }
+
+    fn op(op: CasOp, args: Vec<Value>) -> Value {
+        Value::from_cas_op(op, args)
+    }
+
+    fn call(function: CasFunction, args: Vec<Value>) -> Value {
+        Value::from_cas_function(function, args)
+    }
+
+    fn konst(konst: CasConst) -> Value {
+        Value::from_cas_const(konst)
     }
 
     // ── helpers ──
@@ -1167,7 +1179,7 @@ mod tests {
     fn split_fraction_product_num() {
         // sin(x)/x → num=sin(x), den=x
         let expr = simplify_cas_value(&cas_div_expr(
-            Value::from_cas_call("sin", vec![cas_var("x")]),
+            call(CasFunction::Sin, vec![cas_var("x")]),
             cas_var("x"),
         ))
         .unwrap();
@@ -1179,8 +1191,7 @@ mod tests {
     #[test]
     fn split_fraction_no_denom_returns_none() {
         // x+1 has no denominator
-        let expr = simplify_cas_value(&Value::from_cas_op("+", vec![cas_var("x"), Value::Int(1)]))
-            .unwrap();
+        let expr = simplify_cas_value(&op(CasOp::Add, vec![cas_var("x"), Value::Int(1)])).unwrap();
         assert_eq!(split_fraction(&expr), None);
     }
 
@@ -1200,35 +1211,35 @@ mod tests {
 
     #[test]
     fn limit_linear_expression() {
-        let expr = Value::from_cas_op("+", vec![cas_var("x"), Value::Int(1)]);
+        let expr = op(CasOp::Add, vec![cas_var("x"), Value::Int(1)]);
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(2), None).unwrap();
         assert_eq!(result, Value::Int(3));
     }
 
     #[test]
     fn limit_polynomial() {
-        let expr = Value::from_cas_op("^", vec![cas_var("x"), Value::Int(2)]);
+        let expr = op(CasOp::Power, vec![cas_var("x"), Value::Int(2)]);
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(3), None).unwrap();
         assert_eq!(result, Value::Int(9));
     }
 
     #[test]
     fn limit_sin_at_zero() {
-        let expr = Value::from_cas_call("sin", vec![cas_var("x")]);
+        let expr = call(CasFunction::Sin, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
         assert_eq!(result, Value::float(0.0));
     }
 
     #[test]
     fn limit_cancelling_fraction() {
-        let num = Value::from_cas_op(
-            "-",
+        let num = op(
+            CasOp::Subtract,
             vec![
-                Value::from_cas_op("^", vec![cas_var("x"), Value::Int(2)]),
+                op(CasOp::Power, vec![cas_var("x"), Value::Int(2)]),
                 Value::Int(1),
             ],
         );
-        let den = Value::from_cas_op("-", vec![cas_var("x"), Value::Int(1)]);
+        let den = op(CasOp::Subtract, vec![cas_var("x"), Value::Int(1)]);
         let expr = cas_div_expr(num, den);
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(1), None).unwrap();
         assert_eq!(result, Value::Int(2));
@@ -1248,7 +1259,7 @@ mod tests {
         // limit(sin(x)/x, x→0) = 1
         // 0/0 → diff: cos(x)/1 → sub 0 → 1
         let expr = cas_div_expr(
-            Value::from_cas_call("sin", vec![cas_var("x")]),
+            call(CasFunction::Sin, vec![cas_var("x")]),
             cas_var("x"),
         );
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
@@ -1259,11 +1270,11 @@ mod tests {
     fn limit_one_minus_cos_over_x() {
         // limit((1-cos(x))/x, x→0) = 0
         // 0/0 → diff: sin(x)/1 → sub 0 → 0
-        let num = Value::from_cas_op(
-            "-",
+        let num = op(
+            CasOp::Subtract,
             vec![
                 Value::Int(1),
-                Value::from_cas_call("cos", vec![cas_var("x")]),
+                call(CasFunction::Cos, vec![cas_var("x")]),
             ],
         );
         let expr = cas_div_expr(num, cas_var("x"));
@@ -1276,10 +1287,10 @@ mod tests {
         // limit((e^x-1)/x, x→0) = 1
         // 0/0 → L'Hôpital: e^x/1 → sub 0 → 1
         // (ln(e)→1 fix makes diff(e^x) = e^x, not ln(e)*e^x)
-        let num = Value::from_cas_op(
-            "-",
+        let num = op(
+            CasOp::Subtract,
             vec![
-                Value::from_cas_call("exp", vec![cas_var("x")]),
+                call(CasFunction::Exp, vec![cas_var("x")]),
                 Value::Int(1),
             ],
         );
@@ -1293,7 +1304,7 @@ mod tests {
         // limit(tan(x)/x, x→0) = 1
         // 0/0 → diff: sec^2(x)/1 → sub 0 → 1
         let expr = cas_div_expr(
-            Value::from_cas_call("tan", vec![cas_var("x")]),
+            call(CasFunction::Tan, vec![cas_var("x")]),
             cas_var("x"),
         );
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
@@ -1307,17 +1318,17 @@ mod tests {
         // limit(1/x, x→0) = undef (two-sided — left=-∞, right=+∞)
         let expr = cas_div_expr(Value::Int(1), cas_var("x"));
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
-        assert_eq!(result, Value::from_cas_const("undef"));
+        assert_eq!(result, konst(CasConst::Undefined));
     }
 
     // ── limits at infinity ──
 
     fn oo() -> Value {
-        Value::from_cas_const("oo")
+        konst(CasConst::Infinity)
     }
 
     fn noo() -> Value {
-        Value::from_cas_const("_oo")
+        konst(CasConst::NegInfinity)
     }
 
     #[test]
@@ -1339,7 +1350,7 @@ mod tests {
     #[test]
     fn limit_one_over_x_squared_at_infinity() {
         // limit(1/x^2, x→∞) = 0
-        let den = Value::from_cas_op("^", vec![cas_var("x"), Value::Int(2)]);
+        let den = op(CasOp::Power, vec![cas_var("x"), Value::Int(2)]);
         let expr = cas_div_expr(Value::Int(1), den);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result, Value::Int(0));
@@ -1355,8 +1366,8 @@ mod tests {
     #[test]
     fn limit_rational_same_degree() {
         // limit((x+1)/(x-1), x→∞) = 1
-        let num = Value::from_cas_op("+", vec![cas_var("x"), Value::Int(1)]);
-        let den = Value::from_cas_op("-", vec![cas_var("x"), Value::Int(1)]);
+        let num = op(CasOp::Add, vec![cas_var("x"), Value::Int(1)]);
+        let den = op(CasOp::Subtract, vec![cas_var("x"), Value::Int(1)]);
         let expr = cas_div_expr(num, den);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result.as_f64().unwrap(), 1.0);
@@ -1365,11 +1376,11 @@ mod tests {
     #[test]
     fn limit_rational_num_less_deg() {
         // limit((x+1)/(x^2-1), x→∞) = 0
-        let num = Value::from_cas_op("+", vec![cas_var("x"), Value::Int(1)]);
-        let den = Value::from_cas_op(
-            "-",
+        let num = op(CasOp::Add, vec![cas_var("x"), Value::Int(1)]);
+        let den = op(
+            CasOp::Subtract,
             vec![
-                Value::from_cas_op("^", vec![cas_var("x"), Value::Int(2)]),
+                op(CasOp::Power, vec![cas_var("x"), Value::Int(2)]),
                 Value::Int(1),
             ],
         );
@@ -1381,8 +1392,8 @@ mod tests {
     #[test]
     fn limit_exp_neg_x_at_infinity() {
         // limit(exp(-x), x→∞) = 0
-        let arg = Value::from_cas_op("-", vec![cas_var("x")]);
-        let expr = Value::from_cas_call("exp", vec![arg]);
+        let arg = op(CasOp::Subtract, vec![cas_var("x")]);
+        let expr = call(CasFunction::Exp, vec![arg]);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result, Value::Int(0));
     }
@@ -1390,7 +1401,7 @@ mod tests {
     #[test]
     fn limit_exp_x_at_neg_infinity() {
         // limit(exp(x), x→-∞) = 0
-        let expr = Value::from_cas_call("exp", vec![cas_var("x")]);
+        let expr = call(CasFunction::Exp, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &noo(), None).unwrap();
         assert_eq!(result, Value::Int(0));
     }
@@ -1398,7 +1409,7 @@ mod tests {
     #[test]
     fn limit_exp_x_at_infinity() {
         // limit(exp(x), x→∞) = ∞
-        let expr = Value::from_cas_call("exp", vec![cas_var("x")]);
+        let expr = call(CasFunction::Exp, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result, oo());
     }
@@ -1438,13 +1449,13 @@ mod tests {
         // limit(1/x, x→0) = undef (two-sided doesn't exist)
         let expr = cas_div_expr(Value::Int(1), cas_var("x"));
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
-        assert_eq!(result, Value::from_cas_const("undef"));
+        assert_eq!(result, konst(CasConst::Undefined));
     }
 
     #[test]
     fn limit_one_over_x_squared_right() {
         // limit(1/x², x→0⁺) = ∞ (even power, same both sides)
-        let den = Value::from_cas_op("^", vec![cas_var("x"), Value::Int(2)]);
+        let den = op(CasOp::Power, vec![cas_var("x"), Value::Int(2)]);
         let expr = cas_div_expr(Value::Int(1), den);
         let result = limit_cas(
             &expr,
@@ -1459,7 +1470,7 @@ mod tests {
     #[test]
     fn limit_one_over_x_squared_two_sided() {
         // limit(1/x², x→0) = ∞ (even power, limit exists two-sided)
-        let den = Value::from_cas_op("^", vec![cas_var("x"), Value::Int(2)]);
+        let den = op(CasOp::Power, vec![cas_var("x"), Value::Int(2)]);
         let expr = cas_div_expr(Value::Int(1), den);
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
         assert_eq!(result, oo());
@@ -1483,7 +1494,7 @@ mod tests {
     #[test]
     fn limit_one_over_x_minus_1_right() {
         // limit(1/(x-1), x→1⁺) = ∞
-        let den = Value::from_cas_op("-", vec![cas_var("x"), Value::Int(1)]);
+        let den = op(CasOp::Subtract, vec![cas_var("x"), Value::Int(1)]);
         let expr = cas_div_expr(Value::Int(1), den);
         let result = limit_cas(
             &expr,
@@ -1498,7 +1509,7 @@ mod tests {
     #[test]
     fn limit_one_over_x_minus_1_left() {
         // limit(1/(x-1), x→1⁻) = -∞
-        let den = Value::from_cas_op("-", vec![cas_var("x"), Value::Int(1)]);
+        let den = op(CasOp::Subtract, vec![cas_var("x"), Value::Int(1)]);
         let expr = cas_div_expr(Value::Int(1), den);
         let result = limit_cas(
             &expr,
@@ -1517,7 +1528,7 @@ mod tests {
         // limit(x/exp(x), x→∞) = 0 — ∞/∞ L'Hôpital via split_inf_times_zero_product.
         let expr = cas_div_expr(
             cas_var("x"),
-            Value::from_cas_call("exp", vec![cas_var("x")]),
+            call(CasFunction::Exp, vec![cas_var("x")]),
         );
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result, Value::Int(0));
@@ -1528,7 +1539,7 @@ mod tests {
     #[test]
     fn limit_two_x_at_infinity() {
         // limit(2*x, x→∞) = ∞ (finite coeff * ∞)
-        let expr = Value::from_cas_op("*", vec![Value::Int(2), cas_var("x")]);
+        let expr = op(CasOp::Multiply, vec![Value::Int(2), cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result, oo());
     }
@@ -1536,7 +1547,7 @@ mod tests {
     #[test]
     fn limit_neg_x_at_infinity() {
         // limit(-x, x→∞) = -∞
-        let expr = Value::from_cas_op("*", vec![Value::Int(-1), cas_var("x")]);
+        let expr = op(CasOp::Multiply, vec![Value::Int(-1), cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result, noo());
     }
@@ -1545,8 +1556,8 @@ mod tests {
     fn limit_x_times_exp_neg_x_at_infinity() {
         // limit(x*e^(-x), x→∞) = 0 (exp dominates polynomial)
         let x = cas_var("x");
-        let exp_neg_x = Value::from_cas_call("exp", vec![Value::from_cas_op("-", vec![x.clone()])]);
-        let expr = Value::from_cas_op("*", vec![x, exp_neg_x]);
+        let exp_neg_x = call(CasFunction::Exp, vec![op(CasOp::Subtract, vec![x.clone()])]);
+        let expr = op(CasOp::Multiply, vec![x, exp_neg_x]);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result, Value::Int(0));
     }
@@ -1555,8 +1566,8 @@ mod tests {
 
     #[test]
     fn limit_ln_one_plus_x_over_x() {
-        let ln_arg = Value::from_cas_op("+", vec![Value::Int(1), cas_var("x")]);
-        let expr = cas_div_expr(Value::from_cas_call("ln", vec![ln_arg]), cas_var("x"));
+        let ln_arg = op(CasOp::Add, vec![Value::Int(1), cas_var("x")]);
+        let expr = cas_div_expr(call(CasFunction::Ln, vec![ln_arg]), cas_var("x"));
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
         assert_eq!(result.as_f64().unwrap(), 1.0);
     }
@@ -1566,7 +1577,7 @@ mod tests {
     #[test]
     fn series_expand_tan() {
         // Sanity check: expand tan(x) as series
-        let tan_x = Value::from_cas_call("tan", vec![cas_var("x")]);
+        let tan_x = call(CasFunction::Tan, vec![cas_var("x")]);
         let s = expand_series(&tan_x, "x", 6).unwrap();
         assert!((s[1] - 1.0).abs() < 1e-12, "tan coeff x^1 = 1");
         assert!((s[3] - 1.0 / 3.0).abs() < 1e-10, "tan coeff x^3 = 1/3");
@@ -1575,14 +1586,14 @@ mod tests {
     #[test]
     fn limit_tan_x_minus_x_over_x_cubed() {
         // limit((tan(x)-x)/x^3, x→0) = 1/3  (series expansion)
-        let num = Value::from_cas_op(
-            "-",
+        let num = op(
+            CasOp::Subtract,
             vec![
-                Value::from_cas_call("tan", vec![cas_var("x")]),
+                call(CasFunction::Tan, vec![cas_var("x")]),
                 cas_var("x"),
             ],
         );
-        let den = Value::from_cas_op("^", vec![cas_var("x"), Value::Int(3)]);
+        let den = op(CasOp::Power, vec![cas_var("x"), Value::Int(3)]);
         let expr = cas_div_expr(num, den);
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
         assert!((result.as_f64().unwrap() - 1.0 / 3.0).abs() < 1e-10);
@@ -1591,14 +1602,14 @@ mod tests {
     #[test]
     fn limit_sin_x_minus_x_over_x_cubed() {
         // limit((sin(x)-x)/x^3, x→0) = -1/6  (series: -x^3/6 / x^3)
-        let num = Value::from_cas_op(
-            "-",
+        let num = op(
+            CasOp::Subtract,
             vec![
-                Value::from_cas_call("sin", vec![cas_var("x")]),
+                call(CasFunction::Sin, vec![cas_var("x")]),
                 cas_var("x"),
             ],
         );
-        let den = Value::from_cas_op("^", vec![cas_var("x"), Value::Int(3)]);
+        let den = op(CasOp::Power, vec![cas_var("x"), Value::Int(3)]);
         let expr = cas_div_expr(num, den);
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
         assert!((result.as_f64().unwrap() + 1.0 / 6.0).abs() < 1e-10);
@@ -1607,14 +1618,14 @@ mod tests {
     #[test]
     fn limit_cos_x_minus_1_over_x_squared() {
         // limit((cos(x)-1)/x^2, x→0) = -1/2  (series: -x^2/2 / x^2)
-        let num = Value::from_cas_op(
-            "-",
+        let num = op(
+            CasOp::Subtract,
             vec![
-                Value::from_cas_call("cos", vec![cas_var("x")]),
+                call(CasFunction::Cos, vec![cas_var("x")]),
                 Value::Int(1),
             ],
         );
-        let den = Value::from_cas_op("^", vec![cas_var("x"), Value::Int(2)]);
+        let den = op(CasOp::Power, vec![cas_var("x"), Value::Int(2)]);
         let expr = cas_div_expr(num, den);
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
         assert!((result.as_f64().unwrap() + 0.5).abs() < 1e-10);
@@ -1623,20 +1634,20 @@ mod tests {
     #[test]
     fn limit_exp_x_minus_1_minus_x_over_x_squared() {
         // limit((exp(x)-1-x)/x^2, x→0) = 1/2  (series: x^2/2 / x^2)
-        let num = Value::from_cas_op(
-            "-",
+        let num = op(
+            CasOp::Subtract,
             vec![
-                Value::from_cas_op(
-                    "-",
+                op(
+                    CasOp::Subtract,
                     vec![
-                        Value::from_cas_call("exp", vec![cas_var("x")]),
+                        call(CasFunction::Exp, vec![cas_var("x")]),
                         Value::Int(1),
                     ],
                 ),
                 cas_var("x"),
             ],
         );
-        let den = Value::from_cas_op("^", vec![cas_var("x"), Value::Int(2)]);
+        let den = op(CasOp::Power, vec![cas_var("x"), Value::Int(2)]);
         let expr = cas_div_expr(num, den);
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
         assert!((result.as_f64().unwrap() - 0.5).abs() < 1e-10);
@@ -1647,7 +1658,7 @@ mod tests {
     #[test]
     fn limit_arctan_at_infinity() {
         // limit(arctan(x), x→∞) = π/2
-        let expr = Value::from_cas_call("arctan", vec![cas_var("x")]);
+        let expr = call(CasFunction::ArcTan, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert!((result.as_f64().unwrap() - std::f64::consts::FRAC_PI_2).abs() < 1e-10);
     }
@@ -1655,7 +1666,7 @@ mod tests {
     #[test]
     fn limit_tanh_at_infinity() {
         // limit(tanh(x), x→∞) = 1
-        let expr = Value::from_cas_call("tanh", vec![cas_var("x")]);
+        let expr = call(CasFunction::Tanh, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result.as_f64().unwrap(), 1.0);
     }
@@ -1663,31 +1674,31 @@ mod tests {
     #[test]
     fn limit_sin_at_infinity_undef() {
         // limit(sin(x), x→∞) = undef (bounded oscillation)
-        let expr = Value::from_cas_call("sin", vec![cas_var("x")]);
+        let expr = call(CasFunction::Sin, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
-        assert_eq!(result, Value::from_cas_const("undef"));
+        assert_eq!(result, konst(CasConst::Undefined));
     }
 
     #[test]
     fn limit_cos_at_infinity_undef() {
         // limit(cos(x), x→∞) = undef
-        let expr = Value::from_cas_call("cos", vec![cas_var("x")]);
+        let expr = call(CasFunction::Cos, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
-        assert_eq!(result, Value::from_cas_const("undef"));
+        assert_eq!(result, konst(CasConst::Undefined));
     }
 
     #[test]
     fn limit_sin_one_over_x_at_infinity() {
         // limit(sin(1/x), x→∞) = 0 (inner → 0)
         let inner = cas_div_expr(Value::Int(1), cas_var("x"));
-        let expr = Value::from_cas_call("sin", vec![inner]);
+        let expr = call(CasFunction::Sin, vec![inner]);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result, Value::float(0.0));
     }
 
     #[test]
     fn limit_heaviside_at_infinity() {
-        let expr = Value::from_cas_call("heaviside", vec![cas_var("x")]);
+        let expr = call(CasFunction::Heaviside, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result.as_f64().unwrap(), 1.0);
     }
@@ -1697,7 +1708,7 @@ mod tests {
         // limit(1/2^n, n→∞) = 0
         let expr = cas_div_expr(
             Value::Int(1),
-            Value::from_cas_op("^", vec![Value::Int(2), cas_var("n")]),
+            op(CasOp::Power, vec![Value::Int(2), cas_var("n")]),
         );
         let result = limit_cas(&expr, &cas_var("n"), &oo(), None).unwrap();
         assert_eq!(result, Value::Int(0));
@@ -1707,37 +1718,37 @@ mod tests {
 
     #[test]
     fn cas_const_infinity_displays() {
-        assert_eq!(Value::from_cas_const("oo").to_string(), "∞");
-        assert_eq!(Value::from_cas_const("_oo").to_string(), "-∞");
-        assert_eq!(Value::from_cas_const("undef").to_string(), "undef");
+        assert_eq!(konst(CasConst::Infinity).to_string(), "∞");
+        assert_eq!(konst(CasConst::NegInfinity).to_string(), "-∞");
+        assert_eq!(konst(CasConst::Undefined).to_string(), "undef");
     }
 
     #[test]
     fn cas_const_infinity_is_cas_expr() {
-        assert!(Value::from_cas_const("oo").is_cas_expr());
-        assert!(Value::from_cas_const("_oo").is_cas_expr());
+        assert!(konst(CasConst::Infinity).is_cas_expr());
+        assert!(konst(CasConst::NegInfinity).is_cas_expr());
     }
 
     #[test]
     fn cas_const_infinity_const_name() {
-        assert_eq!(Value::from_cas_const("oo").cas_const_name(), Some("oo"));
-        assert_eq!(Value::from_cas_const("_oo").cas_const_name(), Some("_oo"));
+        assert_eq!(konst(CasConst::Infinity).cas_const_name(), Some("oo"));
+        assert_eq!(konst(CasConst::NegInfinity).cas_const_name(), Some("_oo"));
     }
 
     #[test]
     fn eval_numeric_infinity() {
-        let pos = crate::cas::eval_numeric_cas(&Value::from_cas_const("oo")).unwrap();
+        let pos = crate::cas::eval_numeric_cas(&konst(CasConst::Infinity)).unwrap();
         assert!(pos.as_f64().unwrap().is_infinite());
         assert!(pos.as_f64().unwrap().is_sign_positive());
 
-        let neg = crate::cas::eval_numeric_cas(&Value::from_cas_const("_oo")).unwrap();
+        let neg = crate::cas::eval_numeric_cas(&konst(CasConst::NegInfinity)).unwrap();
         assert!(neg.as_f64().unwrap().is_infinite());
         assert!(neg.as_f64().unwrap().is_sign_negative());
     }
 
     #[test]
     fn eval_numeric_undef_is_error() {
-        assert!(crate::cas::eval_numeric_cas(&Value::from_cas_const("undef")).is_err());
+        assert!(crate::cas::eval_numeric_cas(&konst(CasConst::Undefined)).is_err());
     }
 
     #[test]
@@ -1772,7 +1783,7 @@ mod tests {
     fn parse_limit_direction_invalid_is_none() {
         assert_eq!(parse_limit_direction(&Value::from_cas_var("x")), None);
         assert_eq!(parse_limit_direction(&Value::Int(0)), None);
-        assert_eq!(parse_limit_direction(&Value::from_cas_const("oo")), None);
+        assert_eq!(parse_limit_direction(&konst(CasConst::Infinity)), None);
         assert_eq!(
             parse_limit_direction(&crate::value::into_wq_string("")),
             None
@@ -1827,22 +1838,22 @@ mod tests {
     #[test]
     fn from_cas_limit_at_infinity() {
         let limit = Value::from_cas_limit(
-            Value::from_cas_op("/", vec![Value::Int(1), Value::from_cas_var("x")]),
+            op(CasOp::Divide, vec![Value::Int(1), Value::from_cas_var("x")]),
             Value::from_cas_var("x"),
-            Value::from_cas_const("oo"),
+            konst(CasConst::Infinity),
             None,
         );
         assert!(limit.is_cas_expr());
         let (e, v, p, d) = limit.cas_limit_parts().unwrap();
         assert!(e.is_cas_expr());
         assert_eq!(v, &Value::from_cas_var("x"));
-        assert_eq!(p, &Value::from_cas_const("oo"));
+        assert_eq!(p, &konst(CasConst::Infinity));
         assert_eq!(d, None);
     }
 
     #[test]
     fn cas_limit_parts_rejects_non_limit_call() {
-        let sin = Value::from_cas_call("sin", vec![Value::from_cas_var("x")]);
+        let sin = call(CasFunction::Sin, vec![Value::from_cas_var("x")]);
         assert_eq!(sin.cas_limit_parts(), None);
     }
 
@@ -1855,7 +1866,7 @@ mod tests {
     #[test]
     fn limit_expression_roundtrips() {
         let original = Value::from_cas_limit(
-            Value::from_cas_call("sin", vec![Value::from_cas_var("x")]),
+            call(CasFunction::Sin, vec![Value::from_cas_var("x")]),
             Value::from_cas_var("x"),
             Value::Int(0),
             Some(LimitDirection::Right),

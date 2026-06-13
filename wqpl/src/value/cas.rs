@@ -14,17 +14,6 @@ pub(crate) enum CasOp {
 }
 
 impl CasOp {
-    pub(crate) fn from_symbol(symbol: &str) -> Option<Self> {
-        match symbol {
-            "+" => Some(Self::Add),
-            "-" => Some(Self::Subtract),
-            "*" => Some(Self::Multiply),
-            "/" => Some(Self::Divide),
-            "^" => Some(Self::Power),
-            _ => None,
-        }
-    }
-
     pub(crate) fn symbol(self) -> &'static str {
         match self {
             Self::Add => "+",
@@ -362,21 +351,6 @@ mod cas_tests {
         let c = Value::from_cas_var("y");
         assert_eq!(a, b);
         assert_ne!(a, c);
-    }
-
-    #[test]
-    fn cas_op_symbol_roundtrip() {
-        for (symbol, op) in [
-            ("+", CasOp::Add),
-            ("-", CasOp::Subtract),
-            ("*", CasOp::Multiply),
-            ("/", CasOp::Divide),
-            ("^", CasOp::Power),
-        ] {
-            assert_eq!(CasOp::from_symbol(symbol), Some(op));
-            assert_eq!(op.symbol(), symbol);
-        }
-        assert_eq!(CasOp::from_symbol("mod"), None);
     }
 
     #[test]

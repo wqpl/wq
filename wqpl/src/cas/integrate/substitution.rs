@@ -76,12 +76,13 @@ pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Opt
                 cas_mul(vec![
                     two_thirds,
                     Value::from_cas_op(
-                        "^",
+                        CasOp::Power,
                         vec![u_var, Value::from_fraction_parts(3u64.into(), 2u64.into())],
                     ),
                 ])?
             } else {
-                let f_of_u = Value::from_cas_call(fname, vec![Value::from_cas_var("--cas-sub-u")]);
+                let f_of_u =
+                    Value::from_cas_function(fname, vec![Value::from_cas_var("--cas-sub-u")]);
                 integrate_expr_with_depth(&f_of_u, "--cas-sub-u", 0)?
             };
             // Substitute u back: F(u) → F(g(x))
@@ -138,7 +139,7 @@ fn substitute_into_call(expr: &Value, var: &str, replacement: &Value) -> WqResul
         for arg in args {
             new_args.push(substitute_into_call(arg, var, replacement)?);
         }
-        return simplify_cas_value(&Value::from_cas_call(name, new_args));
+        return simplify_cas_value(&Value::from_cas_function(name, new_args));
     }
     if let Some((name, args)) = expr.cas_apply_parts() {
         let mut new_args = Vec::with_capacity(args.len());

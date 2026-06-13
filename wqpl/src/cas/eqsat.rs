@@ -111,7 +111,7 @@ fn normalize_common_factorization(original: &Value, rewritten: Value) -> WqResul
         }
     }
     if changed {
-        simplify_cas_value(&Value::from_cas_op("*", normalized))
+        simplify_cas_value(&Value::from_cas_op(CasOp::Multiply, normalized))
     } else {
         Ok(rewritten)
     }
@@ -283,22 +283,38 @@ fn recexpr_to_value(expr: &RecExpr<EqSatLang>, ctx: &ConvertCtx) -> WqResult<Val
             EqSatLang::Num(n) => Value::Int(*n),
             EqSatLang::Sym(sym) => sym_to_value(sym, ctx)?,
             EqSatLang::Add([lhs, rhs]) => {
-                Value::from_cas_op("+", vec![child(&values, *lhs)?, child(&values, *rhs)?])
+                Value::from_cas_op(CasOp::Add, vec![child(&values, *lhs)?, child(&values, *rhs)?])
             }
             EqSatLang::Mul([lhs, rhs]) => {
-                Value::from_cas_op("*", vec![child(&values, *lhs)?, child(&values, *rhs)?])
+                Value::from_cas_op(CasOp::Multiply, vec![child(&values, *lhs)?, child(&values, *rhs)?])
             }
             EqSatLang::Pow([base, exp]) => {
-                Value::from_cas_op("^", vec![child(&values, *base)?, child(&values, *exp)?])
+                Value::from_cas_op(CasOp::Power, vec![child(&values, *base)?, child(&values, *exp)?])
             }
-            EqSatLang::Ln(arg) => Value::from_cas_call("ln", vec![child(&values, *arg)?]),
-            EqSatLang::Abs(arg) => Value::from_cas_call("abs", vec![child(&values, *arg)?]),
-            EqSatLang::Sin(arg) => Value::from_cas_call("sin", vec![child(&values, *arg)?]),
-            EqSatLang::Cos(arg) => Value::from_cas_call("cos", vec![child(&values, *arg)?]),
-            EqSatLang::Tan(arg) => Value::from_cas_call("tan", vec![child(&values, *arg)?]),
-            EqSatLang::ArcSin(arg) => Value::from_cas_call("arcsin", vec![child(&values, *arg)?]),
-            EqSatLang::ArcCos(arg) => Value::from_cas_call("arccos", vec![child(&values, *arg)?]),
-            EqSatLang::ArcTan(arg) => Value::from_cas_call("arctan", vec![child(&values, *arg)?]),
+            EqSatLang::Ln(arg) => {
+                Value::from_cas_function(CasFunction::Ln, vec![child(&values, *arg)?])
+            }
+            EqSatLang::Abs(arg) => {
+                Value::from_cas_function(CasFunction::Abs, vec![child(&values, *arg)?])
+            }
+            EqSatLang::Sin(arg) => {
+                Value::from_cas_function(CasFunction::Sin, vec![child(&values, *arg)?])
+            }
+            EqSatLang::Cos(arg) => {
+                Value::from_cas_function(CasFunction::Cos, vec![child(&values, *arg)?])
+            }
+            EqSatLang::Tan(arg) => {
+                Value::from_cas_function(CasFunction::Tan, vec![child(&values, *arg)?])
+            }
+            EqSatLang::ArcSin(arg) => {
+                Value::from_cas_function(CasFunction::ArcSin, vec![child(&values, *arg)?])
+            }
+            EqSatLang::ArcCos(arg) => {
+                Value::from_cas_function(CasFunction::ArcCos, vec![child(&values, *arg)?])
+            }
+            EqSatLang::ArcTan(arg) => {
+                Value::from_cas_function(CasFunction::ArcTan, vec![child(&values, *arg)?])
+            }
         };
         values.push(value);
     }
@@ -321,7 +337,9 @@ fn sym_to_value(sym: &Symbol, ctx: &ConvertCtx) -> WqResult<Value> {
         return Ok(Value::from_cas_var(name));
     }
     if let Some(name) = text.strip_prefix("c:") {
-        return Ok(Value::from_cas_const(name));
+        let konst = crate::value::cas::CasConst::from_name(name)
+            .ok_or_else(|| cas_err("egg extraction produced an invalid constant"))?;
+        return Ok(Value::from_cas_const(konst));
     }
     if let Some(idx) = text.strip_prefix("lit:") {
         let idx = idx
@@ -345,14 +363,14 @@ mod tests {
     #[test]
     fn egg_rewrite_factors_common_product() {
         let expr = Value::from_cas_op(
-            "+",
+            CasOp::Add,
             vec![
                 Value::from_cas_op(
-                    "*",
+                    CasOp::Multiply,
                     vec![Value::from_cas_var("x"), Value::from_cas_var("y")],
                 ),
                 Value::from_cas_op(
-                    "*",
+                    CasOp::Multiply,
                     vec![Value::from_cas_var("x"), Value::from_cas_var("z")],
                 ),
             ],
@@ -372,17 +390,20 @@ mod tests {
     #[test]
     fn egg_rewrite_factors_product_plus_bare_factor() {
         let common = Value::from_cas_op(
-            "*",
+            CasOp::Multiply,
             vec![Value::from_cas_var("a"), Value::from_cas_var("b")],
         );
         let expr = Value::from_cas_op(
-            "+",
+            CasOp::Add,
             vec![
                 Value::from_cas_op(
-                    "*",
+                    CasOp::Multiply,
                     vec![
                         common.clone(),
-                        Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(3)]),
+                        Value::from_cas_op(
+                            CasOp::Power,
+                            vec![Value::from_cas_var("x"), Value::Int(3)],
+                        ),
                     ],
                 ),
                 common,
@@ -403,11 +424,11 @@ mod tests {
     #[test]
     fn egg_rewrite_interns_repeated_literals() {
         let common = Value::from_cas_op(
-            "*",
+            CasOp::Multiply,
             vec![
                 Value::from_fraction_parts(BigInt::from(3), BigInt::from(5)),
                 Value::from_cas_op(
-                    "^",
+                    CasOp::Power,
                     vec![
                         Value::Int(3),
                         Value::from_fraction_parts(BigInt::from(1), BigInt::from(4)),
@@ -417,13 +438,16 @@ mod tests {
             ],
         );
         let expr = Value::from_cas_op(
-            "+",
+            CasOp::Add,
             vec![
                 Value::from_cas_op(
-                    "*",
+                    CasOp::Multiply,
                     vec![
                         common.clone(),
-                        Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(3)]),
+                        Value::from_cas_op(
+                            CasOp::Power,
+                            vec![Value::from_cas_var("x"), Value::Int(3)],
+                        ),
                     ],
                 ),
                 common,

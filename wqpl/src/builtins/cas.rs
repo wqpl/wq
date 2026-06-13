@@ -6,6 +6,7 @@ use crate::cas::{
     eval_numeric_cas, expand_cas, factor_cas, infer_single_cas_var, normalize_root_objective_cas,
     rewrite_cas, simplify_cas_value, solve_cas, solve_system_cas, substitute_cas,
 };
+use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -478,14 +479,17 @@ pub(super) fn factor_poly(args: BuiltinFnArgs) -> WqResult<Value> {
         if mult == 1 {
             factors.push(expr);
         } else {
-            factors.push(Value::from_cas_op("^", vec![expr, Value::Int(mult as i64)]));
+            factors.push(Value::from_cas_op(
+                CasOp::Power,
+                vec![expr, Value::Int(mult as i64)],
+            ));
         }
     }
 
     match factors.len() {
         0 => Ok(Value::Int(1)),
         1 => Ok(factors.into_iter().next().unwrap()),
-        _ => Ok(Value::from_cas_op("*", factors)),
+        _ => Ok(Value::from_cas_op(CasOp::Multiply, factors)),
     }
 }
 
@@ -647,15 +651,17 @@ fn poly_to_expr_complex(coeffs: &[Value], var: &str) -> Value {
             if crate::cas::numeric_is_one(coeff) {
                 x
             } else {
-                Value::from_cas_op("*", vec![coeff.clone(), x])
+                Value::from_cas_op(CasOp::Multiply, vec![coeff.clone(), x])
             }
         } else {
-            let x_pow =
-                Value::from_cas_op("^", vec![Value::from_cas_var(var), Value::Int(deg as i64)]);
+            let x_pow = Value::from_cas_op(
+                CasOp::Power,
+                vec![Value::from_cas_var(var), Value::Int(deg as i64)],
+            );
             if crate::cas::numeric_is_one(coeff) {
                 x_pow
             } else {
-                Value::from_cas_op("*", vec![coeff.clone(), x_pow])
+                Value::from_cas_op(CasOp::Multiply, vec![coeff.clone(), x_pow])
             }
         };
         terms.push(term);
@@ -663,17 +669,21 @@ fn poly_to_expr_complex(coeffs: &[Value], var: &str) -> Value {
     match terms.len() {
         0 => Value::Int(0),
         1 => terms.into_iter().next().unwrap(),
-        _ => Value::from_cas_op("+", terms),
+        _ => Value::from_cas_op(CasOp::Add, terms),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::value::cas::CasFunction;
 
     #[test]
     fn complex_quadratic_factorization_uses_algebraic_coefficients() {
-        let sqrt2 = simplify_cas_value(&Value::from_cas_call("sqrt", vec![Value::Int(2)]))
+        let sqrt2 = simplify_cas_value(&Value::from_cas_function(
+            CasFunction::Sqrt,
+            vec![Value::Int(2)],
+        ))
             .expect("sqrt[2] should simplify");
         let factors = factor_quadratic_complex(&[Value::Int(1), sqrt2, Value::Int(1)])
             .expect("quadratic should factor over complex numbers");

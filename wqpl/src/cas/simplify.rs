@@ -3,7 +3,6 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use super::value_ext::{IntoCasFunction, IntoCasOp};
 use super::rewrite::push_flattened;
 use super::{
     cas_err, cas_product, collect_single_poly_var, contains_cas_var, ensure_expr_arg,
@@ -99,7 +98,7 @@ pub(crate) fn cas_div(lhs: Value, rhs: Value) -> WqResult<Value> {
                     let s = if rest_mul.len() == 1 {
                         rest_mul[0].clone()
                     } else {
-                        Value::from_cas_known_op(CasOp::Multiply, rest_mul.to_vec())
+                        Value::from_cas_op(CasOp::Multiply, rest_mul.to_vec())
                     };
                     let b = const_term;
                     let new_lhs = cas_div(lhs, a.clone())?;
@@ -171,14 +170,14 @@ pub(super) fn split_add_term(term: &Value) -> (Value, Option<Value>) {
             {
                 let mut new_args = vec![reduced];
                 new_args.extend(rest.iter().cloned());
-                let core = Value::from_cas_known_op(CasOp::Multiply, new_args);
+                let core = Value::from_cas_op(CasOp::Multiply, new_args);
                 return (content, Some(core));
             }
         }
         let core = match rest {
             [] => None,
             [single] => Some(single.clone()),
-            _ => Some(Value::from_cas_known_op(CasOp::Multiply, rest.to_vec())),
+            _ => Some(Value::from_cas_op(CasOp::Multiply, rest.to_vec())),
         };
         return (first.clone(), core);
     }
@@ -615,7 +614,7 @@ fn radical_linear_to_value(linear: &RadicalLinear) -> WqResult<Value> {
             factors.push(coeff.clone());
         }
         for factor in &mono.factors {
-            factors.push(Value::from_cas_known_op(
+            factors.push(Value::from_cas_op(
                 CasOp::Power,
                 vec![
                     factor.base.clone(),
@@ -869,7 +868,7 @@ fn try_collapse_numerator_over_single_inverse(factors: &[Value]) -> WqResult<Opt
             .into_iter()
             .next()
             .expect("single collapsed product factor"),
-        _ => Value::from_cas_known_op(CasOp::Multiply, rebuilt),
+        _ => Value::from_cas_op(CasOp::Multiply, rebuilt),
     }))
 }
 
@@ -1133,12 +1132,14 @@ fn combine_log_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
             {
                 // Combine: coeff_i * pref * ln|arg_i/arg_j|
                 let ratio = cas_div(arg_i.clone(), arg_j.clone())?;
-                let ln_combined =
-                    Value::from_cas_call("ln", vec![Value::from_cas_call("abs", vec![ratio])]);
+                    let ln_combined = Value::from_cas_function(
+                        CasFunction::Ln,
+                        vec![Value::from_cas_function(CasFunction::Abs, vec![ratio])],
+                    );
                 let new_core = if pref_i == Value::Int(1) {
                     ln_combined
                 } else {
-                    Value::from_cas_known_op(CasOp::Multiply, vec![pref_i.clone(), ln_combined])
+                    Value::from_cas_op(CasOp::Multiply, vec![pref_i.clone(), ln_combined])
                 };
                 grouped[i as usize] = (new_core, coeff_i);
                 grouped.remove(j as usize);
@@ -1311,7 +1312,7 @@ pub(super) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
         let inner = match new_out.len() {
             0 => Value::Int(0),
             1 => new_out.into_iter().next().unwrap(),
-            _ => Value::from_cas_known_op(CasOp::Add, new_out),
+            _ => Value::from_cas_op(CasOp::Add, new_out),
         };
         return cas_mul(vec![gcd, inner]);
     }
@@ -1319,7 +1320,7 @@ pub(super) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
     match out.len() {
         0 => Ok(Value::Int(0)),
         1 => Ok(out.into_iter().next().expect("single simplified sum term")),
-        _ => Ok(Value::from_cas_known_op(CasOp::Add, out)),
+        _ => Ok(Value::from_cas_op(CasOp::Add, out)),
     }
 }
 
@@ -1478,7 +1479,7 @@ pub(super) fn cas_mul(args: Vec<Value>) -> WqResult<Value> {
             .into_iter()
             .next()
             .expect("single simplified product factor")),
-        _ => Ok(Value::from_cas_known_op(CasOp::Multiply, out)),
+        _ => Ok(Value::from_cas_op(CasOp::Multiply, out)),
     }
 }
 
@@ -1618,7 +1619,7 @@ fn try_simplify_sqrt_poly(coeffs: &[Value], var: &str, is_sqrt: bool) -> WqResul
 
     // Build out * sqrt(in) or out / sqrt(in)
     let in_expr = poly_to_expr(&inside, var)?;
-    let sqrt_in = Value::from_cas_known_op(
+    let sqrt_in = Value::from_cas_op(
         CasOp::Power,
         vec![
             in_expr,
@@ -1628,7 +1629,7 @@ fn try_simplify_sqrt_poly(coeffs: &[Value], var: &str, is_sqrt: bool) -> WqResul
     let result = if is_sqrt {
         cas_mul(vec![out_expr, sqrt_in])?
     } else {
-        let inv_sqrt = Value::from_cas_known_op(CasOp::Power, vec![sqrt_in, Value::Int(-1)]);
+        let inv_sqrt = Value::from_cas_op(CasOp::Power, vec![sqrt_in, Value::Int(-1)]);
         cas_mul(vec![out_expr, inv_sqrt])?
     };
     Ok(Some(simplify_cas_value(&result)?))
@@ -1656,7 +1657,7 @@ pub(crate) fn cas_pow(base: Value, exp: Value) -> WqResult<Value> {
                         let p_val = Value::from_bigint(p);
                         let bd_val = Value::from_bigint(bd);
                         let rat_part = eval_exact_numeric_div(&p_val, &bd_val)?;
-                        let radical = Value::from_cas_known_op(
+                        let radical = Value::from_cas_op(
                             CasOp::Power,
                             vec![
                                 Value::from_bigint(r),
@@ -1670,7 +1671,7 @@ pub(crate) fn cas_pow(base: Value, exp: Value) -> WqResult<Value> {
                         return cas_pow(base_simp, Value::from_bigint(en));
                     }
                 }
-                return Ok(Value::from_cas_known_op(
+                return Ok(Value::from_cas_op(
                     CasOp::Power,
                     vec![
                         Value::from_fraction_parts(bn, bd),
@@ -1746,7 +1747,7 @@ pub(crate) fn cas_pow(base: Value, exp: Value) -> WqResult<Value> {
     {
         return Ok(simplified);
     }
-    Ok(Value::from_cas_known_op(CasOp::Power, vec![base, exp]))
+    Ok(Value::from_cas_op(CasOp::Power, vec![base, exp]))
 }
 
 /// If `value` is an Algebraic with a denested field, return the normalized
@@ -1977,21 +1978,18 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
     Ok(result)
 }
 
-pub(crate) fn cas_binary_expr(op: impl IntoCasOp, lhs: &Value, rhs: &Value) -> WqResult<Value> {
-    let op = op.into_cas_op();
+pub(crate) fn cas_binary_expr(op: CasOp, lhs: &Value, rhs: &Value) -> WqResult<Value> {
     ensure_expr_arg(lhs, op.symbol())?;
     ensure_expr_arg(rhs, op.symbol())?;
     simplify_cas_value(&Value::from_cas_op(op, vec![lhs.clone(), rhs.clone()]))
 }
 
-pub(crate) fn cas_unary_expr(op: impl IntoCasOp, arg: &Value) -> WqResult<Value> {
-    let op = op.into_cas_op();
+pub(crate) fn cas_unary_expr(op: CasOp, arg: &Value) -> WqResult<Value> {
     ensure_expr_arg(arg, op.symbol())?;
     simplify_cas_value(&Value::from_cas_op(op, vec![arg.clone()]))
 }
 
-pub(crate) fn cas_call_expr(function: impl IntoCasFunction, args: &[Value]) -> WqResult<Value> {
-    let function = function.into_cas_function();
+pub(crate) fn cas_call_expr(function: CasFunction, args: &[Value]) -> WqResult<Value> {
     for arg in args {
         ensure_expr_arg(arg, function.name())?;
     }

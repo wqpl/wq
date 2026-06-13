@@ -8,78 +8,6 @@ use super::limit::LimitDirection;
 use crate::value::Value;
 use crate::value::cas::{CasConst, CasData, CasFunction, CasKind, CasOp, CasSymbol};
 
-pub(crate) trait IntoCasOp {
-    fn into_cas_op(self) -> CasOp;
-}
-
-impl IntoCasOp for CasOp {
-    fn into_cas_op(self) -> CasOp {
-        self
-    }
-}
-
-impl IntoCasOp for &str {
-    fn into_cas_op(self) -> CasOp {
-        CasOp::from_symbol(self).unwrap_or_else(|| {
-            unreachable!("internal CAS op constructor received unknown operator '{self}'")
-        })
-    }
-}
-
-impl IntoCasOp for String {
-    fn into_cas_op(self) -> CasOp {
-        self.as_str().into_cas_op()
-    }
-}
-
-pub(crate) trait IntoCasConst {
-    fn into_cas_const(self) -> CasConst;
-}
-
-impl IntoCasConst for CasConst {
-    fn into_cas_const(self) -> CasConst {
-        self
-    }
-}
-
-impl IntoCasConst for &str {
-    fn into_cas_const(self) -> CasConst {
-        CasConst::from_name(self).unwrap_or_else(|| {
-            unreachable!("internal CAS const constructor received unknown constant '{self}'")
-        })
-    }
-}
-
-impl IntoCasConst for String {
-    fn into_cas_const(self) -> CasConst {
-        self.as_str().into_cas_const()
-    }
-}
-
-pub(crate) trait IntoCasFunction {
-    fn into_cas_function(self) -> CasFunction;
-}
-
-impl IntoCasFunction for CasFunction {
-    fn into_cas_function(self) -> CasFunction {
-        self
-    }
-}
-
-impl IntoCasFunction for &str {
-    fn into_cas_function(self) -> CasFunction {
-        CasFunction::from_name(self).unwrap_or_else(|| {
-            unreachable!("internal CAS function constructor received unknown function '{self}'")
-        })
-    }
-}
-
-impl IntoCasFunction for String {
-    fn into_cas_function(self) -> CasFunction {
-        self.as_str().into_cas_function()
-    }
-}
-
 impl Value {
     pub fn is_cas(&self) -> bool {
         matches!(self, Value::Cas(_))
@@ -99,33 +27,22 @@ impl Value {
         }))
     }
 
-    pub(crate) fn from_cas_op(op: impl IntoCasOp, args: Vec<Value>) -> Value {
-        let op = op.into_cas_op();
+    pub(crate) fn from_cas_op(op: CasOp, args: Vec<Value>) -> Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Op(op, Arc::from(args)),
         }))
     }
 
-    pub(crate) fn from_cas_known_op(op: CasOp, args: Vec<Value>) -> Value {
-        Self::from_cas_op(op, args)
-    }
-
-    pub(crate) fn from_cas_const(konst: impl IntoCasConst) -> Value {
-        let konst = konst.into_cas_const();
+    pub(crate) fn from_cas_const(konst: CasConst) -> Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Const(konst),
         }))
     }
 
-    pub(crate) fn from_cas_function(function: impl IntoCasFunction, args: Vec<Value>) -> Value {
-        let function = function.into_cas_function();
+    pub(crate) fn from_cas_function(function: CasFunction, args: Vec<Value>) -> Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Function(function, Arc::from(args)),
         }))
-    }
-
-    pub(crate) fn from_cas_call(function: impl IntoCasFunction, args: Vec<Value>) -> Value {
-        Self::from_cas_function(function, args)
     }
 
     pub(crate) fn from_cas_apply(name: impl Into<String>, args: Vec<Value>) -> Value {

@@ -28,7 +28,7 @@ pub(crate) fn cas_product(factors: Vec<Value>) -> Value {
     match factors.len() {
         0 => Value::Int(1),
         1 => factors.into_iter().next().unwrap(),
-        _ => Value::from_cas_op("*", factors),
+        _ => Value::from_cas_op(CasOp::Multiply, factors),
     }
 }
 
@@ -42,7 +42,7 @@ fn extract_unit_negative(arg: &Value) -> Option<Value> {
     }
     Some(match rest {
         [single] => single.clone(),
-        _ => Value::from_cas_op("*", rest.to_vec()),
+        _ => Value::from_cas_op(CasOp::Multiply, rest.to_vec()),
     })
 }
 
@@ -70,7 +70,7 @@ fn take_additive_constant(arg: &Value, target: f64) -> Option<Value> {
     Some(match rest.len() {
         0 => Value::Int(0),
         1 => rest.into_iter().next().expect("single additive remainder"),
-        _ => Value::from_cas_op("+", rest),
+        _ => Value::from_cas_op(CasOp::Add, rest),
     })
 }
 
@@ -148,7 +148,7 @@ fn extract_reciprocal_term(term: &Value) -> Option<(Value, Value)> {
         let recip_base = if numeric_is_one(&abs_exp) {
             base.clone()
         } else {
-            Value::from_cas_op("^", vec![base.clone(), abs_exp])
+            Value::from_cas_op(CasOp::Power, vec![base.clone(), abs_exp])
         };
         return Some((Value::Int(1), recip_base));
     }
@@ -168,7 +168,7 @@ fn extract_reciprocal_term(term: &Value) -> Option<(Value, Value)> {
             reciprocal_base = Some(if numeric_is_one(&abs_exp) {
                 base.clone()
             } else {
-                Value::from_cas_op("^", vec![base.clone(), abs_exp])
+                Value::from_cas_op(CasOp::Power, vec![base.clone(), abs_exp])
             });
         } else {
             numer_factors.push(arg.clone());
@@ -198,7 +198,7 @@ fn try_combine_var_free_denominator_sum(args: &[Value]) -> WqResult<Option<Value
         let rewritten_numer = cas_add(vec![numer, scaled_other])?;
         let rewritten = cas_mul(vec![
             rewritten_numer,
-            Value::from_cas_op("^", vec![denom, Value::Int(-1)]),
+            Value::from_cas_op(CasOp::Power, vec![denom, Value::Int(-1)]),
         ])?;
         return Ok(Some(rewritten));
     }
@@ -449,7 +449,7 @@ fn combine_logs_in_sum(args: &[Value]) -> WqResult<Option<Value>> {
     if log_args.len() < 2 {
         return Ok(None);
     }
-    other_terms.push(Value::from_cas_call("ln", vec![cas_mul(log_args)?]));
+    other_terms.push(Value::from_cas_function(CasFunction::Ln, vec![cas_mul(log_args)?]));
     Ok(Some(cas_add(other_terms)?))
 }
 
@@ -699,7 +699,7 @@ fn try_combine_inv_denoms(args: &[Value]) -> WqResult<Option<Value>> {
             } else {
                 product
             };
-            let combined = Value::from_cas_op("^", vec![product, Value::Int(-1)]);
+            let combined = Value::from_cas_op(CasOp::Power, vec![product, Value::Int(-1)]);
             let mut new_args: Vec<Value> = Vec::with_capacity(args.len() - 1);
             for (k, arg) in args.iter().enumerate() {
                 if k == i || k == j {
@@ -709,7 +709,8 @@ fn try_combine_inv_denoms(args: &[Value]) -> WqResult<Option<Value>> {
             }
             new_args.push(combined);
             return Ok(Some(simplify_cas_value(&Value::from_cas_op(
-                "*", new_args,
+                CasOp::Multiply,
+                new_args,
             ))?));
         }
     }
@@ -987,7 +988,10 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
             && let Some((CasOp::Power, [inner_base, inner_exp])) = base.cas_op_parts()
             && inner_exp.exact_int_is(2)
         {
-            return Ok(Some(Value::from_cas_call("abs", vec![inner_base.clone()])));
+            return Ok(Some(Value::from_cas_function(
+                CasFunction::Abs,
+                vec![inner_base.clone()],
+            )));
         }
         if exp.exact_int_is(2)
             && let Some((CasFunction::Abs, [arg])) = base.cas_function_parts()
@@ -1018,7 +1022,7 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
             };
             Some(cas_mul(vec![
                 exp.clone(),
-                Value::from_cas_call("ln", vec![base.clone()]),
+                Value::from_cas_function(CasFunction::Ln, vec![base.clone()]),
             ])?)
         }
         (CasFunction::Sin, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::ArcSin, [_]))) => {
@@ -1064,17 +1068,17 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
         }
         (CasFunction::Sin, [arg]) => {
             if let Some(inner) = extract_unit_negative(arg) {
-                Some(cas_neg(Value::from_cas_call("sin", vec![inner]))?)
+                Some(cas_neg(Value::from_cas_function(CasFunction::Sin, vec![inner]))?)
             } else if let Some(shifted) = take_additive_constant(arg, std::f64::consts::FRAC_PI_2) {
-                Some(Value::from_cas_call("cos", vec![shifted]))
+                Some(Value::from_cas_function(CasFunction::Cos, vec![shifted]))
             } else {
                 let (coeff, core) = split_add_term(arg);
                 if coeff.exact_int_is(2) {
                     core.map(|inner| {
                         cas_mul(vec![
                             Value::Int(2),
-                            Value::from_cas_call("sin", vec![inner.clone()]),
-                            Value::from_cas_call("cos", vec![inner]),
+                            Value::from_cas_function(CasFunction::Sin, vec![inner.clone()]),
+                            Value::from_cas_function(CasFunction::Cos, vec![inner]),
                         ])
                     })
                     .transpose()?
@@ -1084,7 +1088,8 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
             }
         }
         (CasFunction::Cos, [arg]) => {
-            extract_unit_negative(arg).map(|inner| Value::from_cas_call("cos", vec![inner]))
+            extract_unit_negative(arg)
+                .map(|inner| Value::from_cas_function(CasFunction::Cos, vec![inner]))
         }
         (CasFunction::Abs, [arg]) => {
             if is_provably_positive(arg) {
@@ -1112,7 +1117,7 @@ pub(super) fn rewrite_expr(value: &Value) -> WqResult<Value> {
         for arg in args {
             rewritten_args.push(rewrite_expr(arg)?);
         }
-        simplify_cas_value(&Value::from_cas_call(name, rewritten_args))?
+        simplify_cas_value(&Value::from_cas_function(name, rewritten_args))?
     } else if let Some((name, args)) = value.cas_apply_parts() {
         let mut rewritten_args = Vec::with_capacity(args.len());
         for arg in args {
@@ -1197,6 +1202,14 @@ pub(crate) fn contains_cas_var(expr: &Value, var: &str) -> bool {
     }
     if let Some((_, args)) = expr.cas_apply_parts() {
         return args.iter().any(|a| contains_cas_var(a, var));
+    }
+    if let Some((inner, limit_var, point, _)) = expr.cas_limit_parts() {
+        return contains_cas_var(inner, var)
+            || contains_cas_var(limit_var, var)
+            || contains_cas_var(point, var);
+    }
+    if let Some((lhs, rhs)) = expr.cas_eq_parts() {
+        return contains_cas_var(lhs, var) || contains_cas_var(rhs, var);
     }
     false
 }

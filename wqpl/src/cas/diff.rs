@@ -2,11 +2,11 @@ use num_bigint::BigInt;
 
 use crate::cas::{
     cas_add, cas_debug_log_depth, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_product,
-    cas_sub, eval_numeric_binary, numeric_is_one, rewrite_cas, rewrite_loop, simplify_cas_value,
+    cas_sub, contains_cas_var, numeric_is_one, numeric_sub, rewrite_cas, rewrite_loop, simplify_cas_value,
     var_name_from_value,
 };
 use crate::session::dbglog::DebugLogFlags;
-use crate::value::cas::{CasFunction, CasOp};
+use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 fn fmt_cas(v: &Value) -> String {
@@ -16,7 +16,7 @@ fn fmt_cas(v: &Value) -> String {
 /// Compute 1 - m·sin²(φ), used by both ellik and ellie derivatives.
 fn ell_inner(phi: &Value, m: &Value) -> WqResult<Value> {
     let sin_sq = cas_pow(
-        Value::from_cas_call("sin", vec![phi.clone()]),
+        Value::from_cas_function(CasFunction::Sin, vec![phi.clone()]),
         Value::Int(2),
     )?;
     cas_sub(Value::Int(1), cas_mul(vec![m.clone(), sin_sq])?)
@@ -122,7 +122,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                             if numeric_is_one(k) {
                                 base.clone()
                             } else {
-                                Value::from_cas_op("^", vec![base.clone(), k.clone()])
+                                Value::from_cas_op(CasOp::Power, vec![base.clone(), k.clone()])
                             }
                         })
                         .collect();
@@ -134,7 +134,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                         cas_mul(vec![n_diff, d.clone()])?,
                         cas_mul(vec![n.clone(), d_diff])?,
                     )?)?;
-                    let denom_factor = Value::from_cas_op("^", vec![d, Value::Int(-2)]);
+                    let denom_factor = Value::from_cas_op(CasOp::Power, vec![d, Value::Int(-2)]);
                     return simplify_cas_value(&cas_mul(vec![num, denom_factor])?);
                 }
 
@@ -157,7 +157,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 exp.rational_parts().ok_or_else(|| {
                     cas_err("symbolic differentiation currently requires exact rational exponents")
                 })?;
-                let next = eval_numeric_binary("-", exp, &Value::Int(1))?;
+                let next = numeric_sub(exp, &Value::Int(1))?;
                 cas_mul(vec![
                     exp.clone(),
                     cas_pow(base.clone(), next)?,
@@ -169,7 +169,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 cas_add(vec![
                     cas_mul(vec![
                         diff_expr(exp, var)?,
-                        Value::from_cas_call("ln", vec![base.clone()]),
+                        Value::from_cas_function(CasFunction::Ln, vec![base.clone()]),
                     ])?,
                     cas_mul(vec![
                         exp.clone(),
@@ -188,33 +188,33 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
     if let Some((name, args)) = expr.cas_function_parts() {
         let out = match (name, args) {
             (CasFunction::Sin, [arg]) => cas_mul(vec![
-                Value::from_cas_call("cos", vec![arg.clone()]),
+                Value::from_cas_function(CasFunction::Cos, vec![arg.clone()]),
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Cos, [arg]) => cas_mul(vec![
-                cas_neg(Value::from_cas_call("sin", vec![arg.clone()]))?,
+                cas_neg(Value::from_cas_function(CasFunction::Sin, vec![arg.clone()]))?,
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Tan, [arg]) => cas_div(
                 diff_expr(arg, var)?,
                 cas_pow(
-                    Value::from_cas_call("cos", vec![arg.clone()]),
+                    Value::from_cas_function(CasFunction::Cos, vec![arg.clone()]),
                     Value::Int(2),
                 )?,
             )?,
             (CasFunction::Sec, [arg]) => cas_mul(vec![
-                Value::from_cas_call("sec", vec![arg.clone()]),
-                Value::from_cas_call("tan", vec![arg.clone()]),
+                Value::from_cas_function(CasFunction::Sec, vec![arg.clone()]),
+                Value::from_cas_function(CasFunction::Tan, vec![arg.clone()]),
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Csc, [arg]) => cas_mul(vec![
-                cas_neg(Value::from_cas_call("csc", vec![arg.clone()]))?,
-                Value::from_cas_call("cot", vec![arg.clone()]),
+                cas_neg(Value::from_cas_function(CasFunction::Csc, vec![arg.clone()]))?,
+                Value::from_cas_function(CasFunction::Cot, vec![arg.clone()]),
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Cot, [arg]) => cas_mul(vec![
                 cas_neg(cas_pow(
-                    Value::from_cas_call("csc", vec![arg.clone()]),
+                    Value::from_cas_function(CasFunction::Csc, vec![arg.clone()]),
                     Value::Int(2),
                 )?)?,
                 diff_expr(arg, var)?,
@@ -223,37 +223,37 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 diff_expr(arg, var)?,
                 cas_mul(vec![
                     Value::Int(2),
-                    Value::from_cas_call("sqrt", vec![arg.clone()]),
+                    Value::from_cas_function(CasFunction::Sqrt, vec![arg.clone()]),
                 ])?,
             )?,
             (CasFunction::Erf, [arg]) => cas_mul(vec![
                 Value::Int(2),
                 cas_pow(
-                    Value::from_cas_const("pi"),
+                    Value::from_cas_const(CasConst::Pi),
                     Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2)),
                 )?,
-                Value::from_cas_call("exp", vec![cas_neg(cas_pow(arg.clone(), Value::Int(2))?)?]),
+                Value::from_cas_function(CasFunction::Exp, vec![cas_neg(cas_pow(arg.clone(), Value::Int(2))?)?]),
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Erfc, [arg]) => cas_mul(vec![
                 Value::Int(-2),
                 cas_pow(
-                    Value::from_cas_const("pi"),
+                    Value::from_cas_const(CasConst::Pi),
                     Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2)),
                 )?,
-                Value::from_cas_call("exp", vec![cas_neg(cas_pow(arg.clone(), Value::Int(2))?)?]),
+                Value::from_cas_function(CasFunction::Exp, vec![cas_neg(cas_pow(arg.clone(), Value::Int(2))?)?]),
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Si, [arg]) => cas_mul(vec![
-                cas_div(Value::from_cas_call("sin", vec![arg.clone()]), arg.clone())?,
+                cas_div(Value::from_cas_function(CasFunction::Sin, vec![arg.clone()]), arg.clone())?,
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Ci, [arg]) => cas_mul(vec![
-                cas_div(Value::from_cas_call("cos", vec![arg.clone()]), arg.clone())?,
+                cas_div(Value::from_cas_function(CasFunction::Cos, vec![arg.clone()]), arg.clone())?,
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Ei, [arg]) => cas_mul(vec![
-                cas_div(Value::from_cas_call("exp", vec![arg.clone()]), arg.clone())?,
+                cas_div(Value::from_cas_function(CasFunction::Exp, vec![arg.clone()]), arg.clone())?,
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::En, [n, arg]) => {
@@ -270,20 +270,20 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 };
                 let inner = if n.as_f64().is_some_and(|f| f <= 1.0) {
                     cas_div(
-                        Value::from_cas_call("exp", vec![cas_neg(arg.clone())?]),
+                        Value::from_cas_function(CasFunction::Exp, vec![cas_neg(arg.clone())?]),
                         arg.clone(),
                     )?
                 } else {
-                    Value::from_cas_call("en", vec![dn, arg.clone()])
+                    Value::from_cas_function(CasFunction::En, vec![dn, arg.clone()])
                 };
                 cas_mul(vec![cas_neg(inner)?, diff_expr(arg, var)?])?
             }
             (CasFunction::Heaviside, [arg]) => cas_mul(vec![
-                Value::from_cas_call("delta", vec![arg.clone()]),
+                Value::from_cas_function(CasFunction::Delta, vec![arg.clone()]),
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Exp, [arg]) => cas_mul(vec![
-                Value::from_cas_call("exp", vec![arg.clone()]),
+                Value::from_cas_function(CasFunction::Exp, vec![arg.clone()]),
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Ln, [arg]) => cas_div(diff_expr(arg, var)?, arg.clone())?,
@@ -291,35 +291,35 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 diff_expr(arg, var)?,
                 cas_mul(vec![
                     arg.clone(),
-                    Value::from_cas_call("ln", vec![Value::Int(2)]),
+                    Value::from_cas_function(CasFunction::Ln, vec![Value::Int(2)]),
                 ])?,
             )?,
             (CasFunction::Log10, [arg]) => cas_div(
                 diff_expr(arg, var)?,
                 cas_mul(vec![
                     arg.clone(),
-                    Value::from_cas_call("ln", vec![Value::Int(10)]),
+                    Value::from_cas_function(CasFunction::Ln, vec![Value::Int(10)]),
                 ])?,
             )?,
             (CasFunction::Sinh, [arg]) => cas_mul(vec![
-                Value::from_cas_call("cosh", vec![arg.clone()]),
+                Value::from_cas_function(CasFunction::Cosh, vec![arg.clone()]),
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Cosh, [arg]) => cas_mul(vec![
-                Value::from_cas_call("sinh", vec![arg.clone()]),
+                Value::from_cas_function(CasFunction::Sinh, vec![arg.clone()]),
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Tanh, [arg]) => cas_div(
                 diff_expr(arg, var)?,
                 cas_pow(
-                    Value::from_cas_call("cosh", vec![arg.clone()]),
+                    Value::from_cas_function(CasFunction::Cosh, vec![arg.clone()]),
                     Value::Int(2),
                 )?,
             )?,
             (CasFunction::ArcSin, [arg]) => cas_div(
                 diff_expr(arg, var)?,
-                Value::from_cas_call(
-                    "sqrt",
+                Value::from_cas_function(
+                    CasFunction::Sqrt,
                     vec![cas_sub(
                         Value::Int(1),
                         cas_pow(arg.clone(), Value::Int(2))?,
@@ -328,8 +328,8 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
             )?,
             (CasFunction::ArcCos, [arg]) => cas_div(
                 cas_neg(diff_expr(arg, var)?)?,
-                Value::from_cas_call(
-                    "sqrt",
+                Value::from_cas_function(
+                    CasFunction::Sqrt,
                     vec![cas_sub(
                         Value::Int(1),
                         cas_pow(arg.clone(), Value::Int(2))?,
@@ -342,8 +342,8 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
             )?,
             (CasFunction::ArcSinh, [arg]) => cas_div(
                 diff_expr(arg, var)?,
-                Value::from_cas_call(
-                    "sqrt",
+                Value::from_cas_function(
+                    CasFunction::Sqrt,
                     vec![cas_add(vec![
                         Value::Int(1),
                         cas_pow(arg.clone(), Value::Int(2))?,
@@ -352,8 +352,8 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
             )?,
             (CasFunction::ArcCosh, [arg]) => cas_div(
                 diff_expr(arg, var)?,
-                Value::from_cas_call(
-                    "sqrt",
+                Value::from_cas_function(
+                    CasFunction::Sqrt,
                     vec![cas_sub(
                         cas_pow(arg.clone(), Value::Int(2))?,
                         Value::Int(1),
@@ -365,7 +365,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 cas_sub(Value::Int(1), cas_pow(arg.clone(), Value::Int(2))?)?,
             )?,
             (CasFunction::Abs, [arg]) => cas_mul(vec![
-                Value::from_cas_call("sgn", vec![arg.clone()]),
+                Value::from_cas_function(CasFunction::Sgn, vec![arg.clone()]),
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::Sgn, [_arg]) => Value::Int(0),
@@ -373,13 +373,13 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 // d/dx F(φ(x), m) = φ'(x) / √(1 - m·sin²(φ))
                 let dphi = diff_expr(phi, var)?;
                 let inner = ell_inner(phi, m)?;
-                cas_div(dphi, Value::from_cas_call("sqrt", vec![inner]))?
+                cas_div(dphi, Value::from_cas_function(CasFunction::Sqrt, vec![inner]))?
             }
             (CasFunction::EllIe, [phi, m]) => {
                 // d/dx E(φ(x), m) = φ'(x) · √(1 - m·sin²(φ))
                 let dphi = diff_expr(phi, var)?;
                 let inner = ell_inner(phi, m)?;
-                cas_mul(vec![dphi, Value::from_cas_call("sqrt", vec![inner])])?
+                cas_mul(vec![dphi, Value::from_cas_function(CasFunction::Sqrt, vec![inner])])?
             }
             (CasFunction::EllPk, [m1]) => {
                 // d/dm1 K(m1) = (E(m1) - m1'·K(m1)) / (2·m1·m1')
@@ -389,10 +389,10 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 let two = Value::Int(2);
                 let m1_prime = cas_sub(one, m1.clone())?;
                 let num = cas_sub(
-                    Value::from_cas_call("ellpe", vec![m1.clone()]),
+                    Value::from_cas_function(CasFunction::EllPe, vec![m1.clone()]),
                     cas_mul(vec![
                         m1_prime.clone(),
-                        Value::from_cas_call("ellpk", vec![m1.clone()]),
+                        Value::from_cas_function(CasFunction::EllPk, vec![m1.clone()]),
                     ])?,
                 )?;
                 let denom = cas_mul(vec![two, m1.clone(), m1_prime])?;
@@ -403,8 +403,8 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 let dm1 = diff_expr(m1, var)?;
                 let two = Value::Int(2);
                 let num = cas_sub(
-                    Value::from_cas_call("ellpe", vec![m1.clone()]),
-                    Value::from_cas_call("ellpk", vec![m1.clone()]),
+                    Value::from_cas_function(CasFunction::EllPe, vec![m1.clone()]),
+                    Value::from_cas_function(CasFunction::EllPk, vec![m1.clone()]),
                 )?;
                 let denom = cas_mul(vec![two, m1.clone()])?;
                 cas_mul(vec![dm1, cas_div(num, denom)?])?
@@ -418,7 +418,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
         return simplify_cas_value(&out);
     }
     if let Some((name, args)) = expr.cas_apply_parts() {
-        if args.iter().any(|arg| depends_on_var(arg, var)) {
+        if args.iter().any(|arg| contains_cas_var(arg, var)) {
             return Err(cas_err(format!(
                 "unsupported symbolic derivative for application '{}'",
                 name.as_str()
@@ -427,30 +427,6 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
         return Ok(Value::Int(0));
     }
     Err(cas_err("expected symbolic expression").got1(expr))
-}
-
-fn depends_on_var(expr: &Value, var: &str) -> bool {
-    if expr.cas_var_name() == Some(var) {
-        return true;
-    }
-    if let Some((_, args)) = expr.cas_op_parts() {
-        return args.iter().any(|arg| depends_on_var(arg, var));
-    }
-    if let Some((_, args)) = expr.cas_function_parts() {
-        return args.iter().any(|arg| depends_on_var(arg, var));
-    }
-    if let Some((_, args)) = expr.cas_apply_parts() {
-        return args.iter().any(|arg| depends_on_var(arg, var));
-    }
-    if let Some((expr, var_expr, point, _)) = expr.cas_limit_parts() {
-        return depends_on_var(expr, var)
-            || depends_on_var(var_expr, var)
-            || depends_on_var(point, var);
-    }
-    if let Some((lhs, rhs)) = expr.cas_eq_parts() {
-        return depends_on_var(lhs, var) || depends_on_var(rhs, var);
-    }
-    false
 }
 
 #[cfg(test)]
@@ -463,13 +439,21 @@ mod tests {
     use super::*;
     use crate::value::algebraic::AlgebraicData;
 
+    fn op(op: CasOp, args: Vec<Value>) -> Value {
+        Value::from_cas_op(op, args)
+    }
+
+    fn call(function: CasFunction, args: Vec<Value>) -> Value {
+        Value::from_cas_function(function, args)
+    }
+
     #[test]
     fn differentiate_quadratic() {
         let expr = Value::from_cas_op(
-            "+",
+            CasOp::Add,
             vec![
-                Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(2)]),
-                Value::from_cas_op("*", vec![Value::Int(2), Value::from_cas_var("x")]),
+                op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
+                op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
                 Value::Int(1),
             ],
         );
@@ -481,14 +465,14 @@ mod tests {
     fn differentiate_exp_times_polynomial_rewrites_common_factor() {
         let x = Value::from_cas_var("x");
         let poly = Value::from_cas_op(
-            "+",
+            CasOp::Add,
             vec![
-                Value::from_cas_op("^", vec![x.clone(), Value::Int(2)]),
-                Value::from_cas_op("*", vec![Value::Int(-2), x.clone()]),
+                op(CasOp::Power, vec![x.clone(), Value::Int(2)]),
+                op(CasOp::Multiply, vec![Value::Int(-2), x.clone()]),
                 Value::Int(2),
             ],
         );
-        let expr = Value::from_cas_op("*", vec![Value::from_cas_call("exp", vec![x]), poly]);
+        let expr = op(CasOp::Multiply, vec![call(CasFunction::Exp, vec![x]), poly]);
 
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "e^x*x^2");
@@ -496,7 +480,7 @@ mod tests {
 
     #[test]
     fn differentiate_tanh() {
-        let expr = Value::from_cas_call("tanh", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Tanh, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "cosh[x]^-2");
     }
@@ -524,7 +508,7 @@ mod tests {
     #[test]
     fn differentiate_fractional_power() {
         let expr = Value::from_cas_op(
-            "^",
+            CasOp::Power,
             vec![
                 Value::from_cas_var("x"),
                 Value::from_fraction_parts(BigInt::one(), BigInt::from(2)),
@@ -536,65 +520,65 @@ mod tests {
 
     #[test]
     fn differentiate_arcsin() {
-        let expr = Value::from_cas_call("arcsin", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::ArcSin, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "(-x^2 + 1)^(-1/2)");
     }
 
     #[test]
     fn differentiate_arccos() {
-        let expr = Value::from_cas_call("arccos", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::ArcCos, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "-(-x^2 + 1)^(-1/2)");
     }
 
     #[test]
     fn differentiate_arctan() {
-        let expr = Value::from_cas_call("arctan", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::ArcTan, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "(x^2 + 1)^-1");
     }
 
     #[test]
     fn differentiate_arcsinh() {
-        let expr = Value::from_cas_call("arcsinh", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::ArcSinh, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "(x^2 + 1)^(-1/2)");
     }
 
     #[test]
     fn differentiate_arccosh() {
-        let expr = Value::from_cas_call("arccosh", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::ArcCosh, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "(x^2 - 1)^(-1/2)");
     }
 
     #[test]
     fn differentiate_arctanh() {
-        let expr = Value::from_cas_call("arctanh", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::ArcTanh, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "(-x^2 + 1)^-1");
     }
 
     #[test]
     fn differentiate_abs() {
-        let expr = Value::from_cas_call("abs", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Abs, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "sgn[x]");
     }
 
     #[test]
     fn differentiate_sgn() {
-        let expr = Value::from_cas_call("sgn", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Sgn, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "0");
     }
 
     #[test]
     fn differentiate_ln_abs() {
-        let expr = Value::from_cas_call(
-            "ln",
-            vec![Value::from_cas_call("abs", vec![Value::from_cas_var("x")])],
+        let expr = call(
+            CasFunction::Ln,
+            vec![call(CasFunction::Abs, vec![Value::from_cas_var("x")])],
         );
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "x^-1");
@@ -602,40 +586,37 @@ mod tests {
 
     #[test]
     fn differentiate_sec() {
-        let expr = Value::from_cas_call("sec", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Sec, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "sec[x]*tan[x]");
     }
 
     #[test]
     fn differentiate_csc() {
-        let expr = Value::from_cas_call("csc", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Csc, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "-cot[x]*csc[x]");
     }
 
     #[test]
     fn differentiate_cot() {
-        let expr = Value::from_cas_call("cot", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Cot, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "-csc[x]^2");
     }
 
     #[test]
     fn differentiate_sqrt() {
-        let expr = Value::from_cas_call("sqrt", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Sqrt, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "x^(-1/2)/2");
     }
 
     #[test]
     fn differentiate_sec_composite() {
-        let expr = Value::from_cas_call(
-            "sec",
-            vec![Value::from_cas_op(
-                "*",
-                vec![Value::Int(2), Value::from_cas_var("x")],
-            )],
+        let expr = call(
+            CasFunction::Sec,
+            vec![op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")])],
         );
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "2*sec[2*x]*tan[2*x]");
@@ -643,49 +624,49 @@ mod tests {
 
     #[test]
     fn differentiate_erf() {
-        let expr = Value::from_cas_call("erf", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Erf, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert!(result.to_string().contains("e^(-x^2)"));
     }
 
     #[test]
     fn differentiate_erfc() {
-        let expr = Value::from_cas_call("erfc", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Erfc, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert!(result.to_string().contains("e^(-x^2)"));
     }
 
     #[test]
     fn differentiate_heaviside() {
-        let expr = Value::from_cas_call("heaviside", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Heaviside, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "delta[x]");
     }
 
     #[test]
     fn differentiate_si() {
-        let expr = Value::from_cas_call("si", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Si, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "sin[x]/x");
     }
 
     #[test]
     fn differentiate_ci() {
-        let expr = Value::from_cas_call("ci", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Ci, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "cos[x]/x");
     }
 
     #[test]
     fn differentiate_ei() {
-        let expr = Value::from_cas_call("ei", vec![Value::from_cas_var("x")]);
+        let expr = call(CasFunction::Ei, vec![Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "e^x/x");
     }
 
     #[test]
     fn differentiate_en() {
-        let expr = Value::from_cas_call("en", vec![Value::Int(2), Value::from_cas_var("x")]);
+        let expr = call(CasFunction::En, vec![Value::Int(2), Value::from_cas_var("x")]);
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "-en[1;x]");
     }
@@ -705,10 +686,10 @@ mod tests {
         }));
 
         // Expression: arctan[∛2 * x]
-        let expr = Value::from_cas_call(
-            "arctan",
-            vec![Value::from_cas_op(
-                "*",
+        let expr = call(
+            CasFunction::ArcTan,
+            vec![op(
+                CasOp::Multiply,
                 vec![cube_root_2.clone(), Value::from_cas_var("x")],
             )],
         );
@@ -721,10 +702,10 @@ mod tests {
 
         // Expression: ∛2 * arctan[x]
         let expr2 = Value::from_cas_op(
-            "*",
+            CasOp::Multiply,
             vec![
                 cube_root_2.clone(),
-                Value::from_cas_call("arctan", vec![Value::from_cas_var("x")]),
+                call(CasFunction::ArcTan, vec![Value::from_cas_var("x")]),
             ],
         );
         let result2 = diff_cas(&expr2, &Value::from_cas_var("x")).unwrap();
@@ -781,19 +762,19 @@ mod tests {
         let full_term = cas_mul(vec![
             Value::Int(-18),
             a2.clone(),
-            Value::from_cas_call(
-                "arctan",
+            call(
+                CasFunction::ArcTan,
                 vec![
                     cas_mul(vec![
                         coeff.clone(),
                         Value::from_cas_op(
-                            "+",
+                            CasOp::Add,
                             vec![
                                 Value::from_cas_op(
-                                    "*",
+                                    CasOp::Multiply,
                                     vec![Value::Int(2), Value::from_cas_var("x")],
                                 ),
-                                Value::from_cas_op("*", vec![Value::Int(6), a.clone()]),
+                                op(CasOp::Multiply, vec![Value::Int(6), a.clone()]),
                             ],
                         ),
                     ])
@@ -814,12 +795,12 @@ mod tests {
         // Test the actual integrate then diff pipeline
         use crate::cas::integrate::integrate_cas;
         let integrand = Value::from_cas_op(
-            "^",
+            CasOp::Power,
             vec![
                 Value::from_cas_op(
-                    "+",
+                    CasOp::Add,
                     vec![
-                        Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(3)]),
+                        op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(3)]),
                         Value::Int(-2),
                     ],
                 ),
@@ -842,12 +823,12 @@ mod tests {
         use crate::cas::integrate::integrate_cas;
 
         let integrand = Value::from_cas_op(
-            "^",
+            CasOp::Power,
             vec![
                 Value::from_cas_op(
-                    "+",
+                    CasOp::Add,
                     vec![
-                        Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(5)]),
+                        op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(5)]),
                         Value::Int(-2),
                     ],
                 ),
@@ -866,12 +847,12 @@ mod tests {
 
         let x = Value::from_cas_var("x");
         let integrand = Value::from_cas_op(
-            "^",
+            CasOp::Power,
             vec![
                 Value::from_cas_op(
-                    "+",
+                    CasOp::Add,
                     vec![
-                        Value::from_cas_op("^", vec![x.clone(), Value::Int(3)]),
+                        op(CasOp::Power, vec![x.clone(), Value::Int(3)]),
                         Value::Int(1),
                     ],
                 ),

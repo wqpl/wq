@@ -255,15 +255,15 @@ fn try_exp_trig_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let c2 = cas_pow(trig_a.clone(), Value::from_bigint(BigInt::from(2)))?;
     let denom = cas_add(vec![a2, c2])?;
 
-    let exp_expr = Value::from_cas_call("exp", vec![exp_arg_val.clone()]);
-    let trig_expr = Value::from_cas_call(trig_name, vec![trig_arg_val.clone()]);
+    let exp_expr = Value::from_cas_function(CasFunction::Exp, vec![exp_arg_val.clone()]);
+    let trig_expr = Value::from_cas_function(trig_name, vec![trig_arg_val.clone()]);
 
     let numerator = if trig_name == CasFunction::Sin {
         // a·sin(cx+d) − c·cos(cx+d)
         let a_sin = cas_mul(vec![exp_a.clone(), trig_expr])?;
         let c_cos = cas_mul(vec![
             trig_a.clone(),
-            Value::from_cas_call("cos", vec![trig_arg_val.clone()]),
+            Value::from_cas_function(CasFunction::Cos, vec![trig_arg_val.clone()]),
         ])?;
         cas_sub(a_sin, c_cos)?
     } else {
@@ -271,7 +271,7 @@ fn try_exp_trig_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
         let a_cos = cas_mul(vec![exp_a.clone(), trig_expr])?;
         let c_sin = cas_mul(vec![
             trig_a.clone(),
-            Value::from_cas_call("sin", vec![trig_arg_val.clone()]),
+            Value::from_cas_function(CasFunction::Sin, vec![trig_arg_val.clone()]),
         ])?;
         cas_add(vec![a_cos, c_sin])?
     };
@@ -404,10 +404,10 @@ fn compute_cyclic_integral(
             0 => (CasFunction::Cosh, Value::Int(1)),
             _ => unreachable!(),
         },
-        _ => return Ok(Value::from_cas_call(name, vec![arg.clone()])),
+        _ => return Ok(Value::from_cas_function(name, vec![arg.clone()])),
     };
 
-    let call = Value::from_cas_call(fn_name, vec![arg.clone()]);
+    let call = Value::from_cas_function(fn_name, vec![arg.clone()]);
     let div = cas_div(call, kj)?;
     cas_mul(vec![sign, div])
 }

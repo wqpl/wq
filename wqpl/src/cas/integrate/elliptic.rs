@@ -155,17 +155,17 @@ fn integrate_one_over_sqrt_x3_plus_a(var: &str, a: &Value) -> WqResult<Option<Va
     let k2 = cas_div(cas_add(vec![two.clone(), sqrt3.clone()])?, four.clone())?;
 
     // cos φ = (√3 - 1 - x) / (√3 + 1 + x)
-    let neg_x = Value::from_cas_op("*", vec![Value::Int(-1), x.clone()]);
+    let neg_x = Value::from_cas_op(CasOp::Multiply, vec![Value::Int(-1), x.clone()]);
     let cos_phi = cas_div(
         cas_add(vec![sqrt3.clone(), Value::Int(-1), neg_x])?,
         cas_add(vec![sqrt3.clone(), one, x.clone()])?,
     )?;
 
     // φ = arccos(cos_phi)
-    let phi = Value::from_cas_call("arccos", vec![cos_phi]);
+    let phi = Value::from_cas_function(CasFunction::ArcCos, vec![cos_phi]);
 
     // First-kind elliptic integral: ellik[φ; k²]
-    let ellik_part = Value::from_cas_call("ellik", vec![phi, k2]);
+    let ellik_part = Value::from_cas_function(CasFunction::EllIk, vec![phi, k2]);
 
     // Scale factor: 3^(-1/4)
     let scale_3 = cas_pow(

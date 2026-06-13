@@ -12,11 +12,11 @@ use num_traits::ToPrimitive as _;
 use super::byparts::try_extract_exp_arg;
 use crate::cas::{
     cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div,
-    eval_numeric_binary, numeric_is_negative, numeric_is_one, numeric_is_zero, poly_degree,
-    poly_derivative, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul, poly_sub,
-    poly_to_expr, poly_trim, simplify_cas_value,
+    numeric_add, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
+    poly_degree, poly_derivative, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul,
+    poly_sub, poly_to_expr, poly_trim, simplify_cas_value,
 };
-use crate::value::cas::CasOp;
+use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 /// Strategy entry point: integrate f(x)·e^(g(x)) via Liouville's principle.
@@ -55,7 +55,7 @@ pub(super) fn integrate_liouville(expr: &Value, var: &str) -> WqResult<Option<Va
         Some((CasOp::Divide, [n, d])) => {
             if let Some(g) = try_extract_exp_arg(n) {
                 // f(x) = 1/d(x)
-                let f = Value::from_cas_op("/", vec![Value::Int(1), d.clone()]);
+                let f = Value::from_cas_op(CasOp::Divide, vec![Value::Int(1), d.clone()]);
                 (f, g)
             } else {
                 return Ok(None);
@@ -149,7 +149,7 @@ fn try_liouville_poly_poly(f_expr: &Value, g_expr: &Value, var: &str) -> WqResul
 
     // Build result: R(x) * e^(g(x))
     let r_expr = poly_to_expr(&r, var)?;
-    let exp_g = Value::from_cas_call("exp", vec![g_expr.clone()]);
+    let exp_g = Value::from_cas_function(CasFunction::Exp, vec![g_expr.clone()]);
     let result = simplify_cas_value(&cas_mul(vec![r_expr, exp_g])?)?;
 
     Ok(Some(result))
@@ -179,11 +179,11 @@ fn solve_liouville_coeffs(p: &[Value], g: &[Value], deg_r: usize) -> WqResult<Ve
         for j in (0..=deg_r).rev() {
             let p_j = p.get(j).cloned().unwrap_or(Value::Int(0));
             let next_term = if j < deg_r {
-                eval_numeric_binary("*", &Value::from_bigint(BigInt::from(j + 1)), &r[j + 1])?
+                numeric_mul(&Value::from_bigint(BigInt::from(j + 1)), &r[j + 1])?
             } else {
                 Value::Int(0)
             };
-            let numer = eval_numeric_binary("-", &p_j, &next_term)?;
+            let numer = numeric_sub(&p_j, &next_term)?;
             r[j] = eval_exact_numeric_div(&numer, k)?;
         }
     } else {
@@ -198,7 +198,7 @@ fn solve_liouville_coeffs(p: &[Value], g: &[Value], deg_r: usize) -> WqResult<Ve
             let p_t = p.get(t).cloned().unwrap_or(Value::Int(0));
 
             let r_prime = if t < deg_r {
-                eval_numeric_binary("*", &Value::from_bigint(BigInt::from(t + 1)), &r[t + 1])?
+                numeric_mul(&Value::from_bigint(BigInt::from(t + 1)), &r[t + 1])?
             } else {
                 Value::Int(0)
             };
@@ -208,12 +208,11 @@ fn solve_liouville_coeffs(p: &[Value], g: &[Value], deg_r: usize) -> WqResult<Ve
             for (k_known, r_k) in r.iter().enumerate().take(k_high + 1).skip(k + 1) {
                 let i = t - k_known;
                 let g_i = g.get(i).cloned().unwrap_or(Value::Int(0));
-                let term = eval_numeric_binary("*", &g_i, r_k)?;
-                g_dot_r = eval_numeric_binary("+", &g_dot_r, &term)?;
+                let term = numeric_mul(&g_i, r_k)?;
+                g_dot_r = numeric_add(&g_dot_r, &term)?;
             }
 
-            let numer =
-                eval_numeric_binary("-", &eval_numeric_binary("-", &p_t, &r_prime)?, &g_dot_r)?;
+            let numer = numeric_sub(&numeric_sub(&p_t, &r_prime)?, &g_dot_r)?;
             r[k] = eval_exact_numeric_div(&numer, &g_m)?;
         }
 
@@ -222,7 +221,7 @@ fn solve_liouville_coeffs(p: &[Value], g: &[Value], deg_r: usize) -> WqResult<Ve
             let p_t = p.get(t).cloned().unwrap_or(Value::Int(0));
 
             let r_prime = if t < deg_r {
-                eval_numeric_binary("*", &Value::from_bigint(BigInt::from(t + 1)), &r[t + 1])?
+                numeric_mul(&Value::from_bigint(BigInt::from(t + 1)), &r[t + 1])?
             } else {
                 Value::Int(0)
             };
@@ -232,12 +231,12 @@ fn solve_liouville_coeffs(p: &[Value], g: &[Value], deg_r: usize) -> WqResult<Ve
             for (k_known, r_k) in r.iter().enumerate().take(deg_r.min(t) + 1).skip(k_low) {
                 let i = t - k_known;
                 let g_i = g.get(i).cloned().unwrap_or(Value::Int(0));
-                let term = eval_numeric_binary("*", &g_i, r_k)?;
-                g_dot_r = eval_numeric_binary("+", &g_dot_r, &term)?;
+                let term = numeric_mul(&g_i, r_k)?;
+                g_dot_r = numeric_add(&g_dot_r, &term)?;
             }
 
-            let computed = eval_numeric_binary("+", &r_prime, &g_dot_r)?;
-            let diff = eval_numeric_binary("-", &p_t, &computed)?;
+            let computed = numeric_add(&r_prime, &g_dot_r)?;
+            let diff = numeric_sub(&p_t, &computed)?;
             if !numeric_is_zero(&diff) {
                 return Err(crate::cas::cas_err(format!(
                     "Liouville: inconsistent at degree {} (P={}, computed={})",
@@ -371,7 +370,7 @@ fn integrate_rational_exp(
 
     let n = denom_deg;
     let a = if n == 1 {
-        eval_numeric_binary("*", &denom[0], &Value::Int(-1))?
+        numeric_mul(&denom[0], &Value::Int(-1))?
     } else {
         let coeff_nm1 = &denom[n - 1];
         let neg_n = Value::from_bigint(BigInt::from(-(n as i64)));
@@ -403,19 +402,19 @@ fn integrate_simple_pole_exp(
     let x_minus_pole = cas_sub(x.clone(), pole.clone())?;
 
     if n == 1 {
-        let kpole_plus_b = eval_numeric_binary("+", &eval_numeric_binary("*", k, pole)?, b)?;
+        let kpole_plus_b = numeric_add(&numeric_mul(k, pole)?, b)?;
         let ei_arg = cas_mul(vec![k.clone(), x_minus_pole])?;
-        let ei_term = Value::from_cas_call("ei", vec![ei_arg]);
+        let ei_term = Value::from_cas_function(CasFunction::Ei, vec![ei_arg]);
         let prefactor = cas_mul(vec![
             a_coeff.clone(),
-            Value::from_cas_call("exp", vec![kpole_plus_b]),
+            Value::from_cas_function(CasFunction::Exp, vec![kpole_plus_b]),
         ])?;
         return cas_mul(vec![prefactor, ei_term]);
     }
 
     let nm1 = Value::from_bigint(BigInt::from((n - 1) as i64));
     let kx_plus_b = cas_add(vec![cas_mul(vec![k.clone(), x.clone()])?, b.clone()])?;
-    let exp_term = Value::from_cas_call("exp", vec![kx_plus_b]);
+    let exp_term = Value::from_cas_function(CasFunction::Exp, vec![kx_plus_b]);
 
     let denom_power = if n == 2 {
         x_minus_pole.clone()
@@ -467,12 +466,8 @@ fn solve_poly_ode_general(
                 let p_idx = j + 1;
                 if solved[p_idx] {
                     let factor = Value::from_bigint(BigInt::from(p_idx as i64));
-                    let contrib = eval_numeric_binary(
-                        "*",
-                        &eval_numeric_binary("*", a_i, &factor)?,
-                        &p[p_idx],
-                    )?;
-                    lhs = eval_numeric_binary("+", &lhs, &contrib)?;
+                    let contrib = numeric_mul(&numeric_mul(a_i, &factor)?, &p[p_idx])?;
+                    lhs = numeric_add(&lhs, &contrib)?;
                 }
             }
         }
@@ -481,8 +476,8 @@ fn solve_poly_ode_general(
         for (i, b_i) in b.iter().enumerate().take(deg_b.min(d) + 1) {
             let j = d - i;
             if j <= deg_p && solved[j] {
-                let contrib = eval_numeric_binary("*", b_i, &p[j])?;
-                lhs = eval_numeric_binary("+", &lhs, &contrib)?;
+                let contrib = numeric_mul(b_i, &p[j])?;
+                lhs = numeric_add(&lhs, &contrib)?;
             }
         }
 
@@ -491,13 +486,13 @@ fn solve_poly_ode_general(
         if j_new <= deg_p && !solved[j_new] {
             // The coefficient of p[j_new] from B·P is b_lead
             let h_d = h.get(d).cloned().unwrap_or(Value::Int(0));
-            let rhs = eval_numeric_binary("-", &h_d, &lhs)?;
+            let rhs = numeric_sub(&h_d, &lhs)?;
             p[j_new] = eval_exact_numeric_div(&rhs, &b_lead)?;
             solved[j_new] = true;
         } else {
             // Consistency check: no new unknown at this degree
             let h_d = h.get(d).cloned().unwrap_or(Value::Int(0));
-            let diff = eval_numeric_binary("-", &h_d, &lhs)?;
+            let diff = numeric_sub(&h_d, &lhs)?;
             if !numeric_is_zero(&diff) {
                 return Err(crate::cas::cas_err(format!(
                     "Liouville gen: inconsistent at degree {} (H={}, computed={})",
@@ -593,7 +588,7 @@ fn try_liouville_rational_general_inner(
 
     // 8. Build exp(g) and combine
     let g_expr = poly_to_expr(g_coeffs, var)?;
-    let exp_g = Value::from_cas_call("exp", vec![g_expr]);
+    let exp_g = Value::from_cas_function(CasFunction::Exp, vec![g_expr]);
     let result = simplify_cas_value(&cas_mul(vec![r_expr, exp_g])?)?;
 
     Ok(Some(result))
@@ -675,7 +670,7 @@ fn try_liouville_ei_pattern(
     let x = Value::from_cas_var(var);
     let x_pow_n = cas_pow(x, Value::from_bigint(BigInt::from(g_deg as i64)))?;
     let ei_arg = cas_mul(vec![a.clone(), x_pow_n])?;
-    let ei_term = Value::from_cas_call("ei", vec![ei_arg]);
+    let ei_term = Value::from_cas_function(CasFunction::Ei, vec![ei_arg]);
 
     let result = simplify_cas_value(&cas_mul(vec![factor, ei_term])?)?;
     Ok(Some(result))
@@ -724,27 +719,27 @@ fn try_liouville_erf_pattern(
     if !numeric_is_negative(a) {
         return Ok(None);
     }
-    let a_pos = eval_numeric_binary("*", a, &Value::Int(-1))?; // -a > 0
+    let a_pos = numeric_mul(a, &Value::Int(-1))?; // -a > 0
 
     // Build √(π/a)/2
     // = sqrt(pi) / (2 * sqrt(a))
-    let pi = Value::from_cas_const("pi");
-    let sqrt_pi = Value::from_cas_call("sqrt", vec![pi]);
-    let sqrt_a = Value::from_cas_call("sqrt", vec![a_pos.clone()]);
+    let pi = Value::from_cas_const(CasConst::Pi);
+    let sqrt_pi = Value::from_cas_function(CasFunction::Sqrt, vec![pi]);
+    let sqrt_a = Value::from_cas_function(CasFunction::Sqrt, vec![a_pos.clone()]);
     let two_sqrt_a = cas_mul(vec![Value::Int(2), sqrt_a.clone()])?;
     let mut factor = simplify_cas_value(&cas_div(sqrt_pi, two_sqrt_a)?)?;
     factor = cas_mul(vec![c, factor])?;
 
     // If g has a constant term, multiply by e^g_const
     if !numeric_is_zero(&g_const) {
-        let exp_const = Value::from_cas_call("exp", vec![g_const]);
+        let exp_const = Value::from_cas_function(CasFunction::Exp, vec![g_const]);
         factor = cas_mul(vec![factor, exp_const])?;
     }
 
     // Build erf(√a · x)
     let x = Value::from_cas_var(var);
     let erf_arg = cas_mul(vec![sqrt_a, x])?;
-    let erf_term = Value::from_cas_call("erf", vec![erf_arg]);
+    let erf_term = Value::from_cas_function(CasFunction::Erf, vec![erf_arg]);
 
     let result = simplify_cas_value(&cas_mul(vec![factor, erf_term])?)?;
     Ok(Some(result))
@@ -753,6 +748,14 @@ fn try_liouville_erf_pattern(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn op(op: CasOp, args: Vec<Value>) -> Value {
+        Value::from_cas_op(op, args)
+    }
+
+    fn call(function: CasFunction, args: Vec<Value>) -> Value {
+        Value::from_cas_function(function, args)
+    }
 
     #[test]
     fn test_solve_constant_g() {
@@ -864,22 +867,22 @@ mod tests {
         // Let's use a solvable case: g = x³/3, f = R' + x²·R with R = x².
         // R' + x²·R = 2x + x⁴ → f = x⁴ + 2x.
         // ∫ (x⁴+2x)·e^(x³/3) dx = x²·e^(x³/3).
-        let f_expr = Value::from_cas_op(
-            "+",
+        let f_expr = op(
+            CasOp::Add,
             vec![
-                Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(4)]),
-                Value::from_cas_op("*", vec![Value::Int(2), Value::from_cas_var("x")]),
+                op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(4)]),
+                op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
             ],
         );
         // g = 1/3 * x^3 (Fraction, not Float)
-        let g_expr = Value::from_cas_op(
-            "*",
+        let g_expr = op(
+            CasOp::Multiply,
             vec![
                 Value::from_fraction_parts(1u64.into(), 3u64.into()),
-                Value::from_cas_op("^", vec![Value::from_cas_var("x"), Value::Int(3)]),
+                op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(3)]),
             ],
         );
-        let expr = Value::from_cas_op("*", vec![f_expr, Value::from_cas_call("exp", vec![g_expr])]);
+        let expr = op(CasOp::Multiply, vec![f_expr, call(CasFunction::Exp, vec![g_expr])]);
 
         let result = super::integrate_liouville(&expr, "x").unwrap().unwrap();
         // Should be x²·e^(x³/3), equiv to (x²)*exp(x³/3)
@@ -938,9 +941,9 @@ mod tests {
 
     #[test]
     fn test_liouville_rational_1_over_x_times_exp() {
-        let f = Value::from_cas_op("/", vec![Value::Int(1), Value::from_cas_var("x")]);
-        let g = Value::from_cas_op("*", vec![Value::Int(2), Value::from_cas_var("x")]);
-        let expr = Value::from_cas_op("*", vec![f, Value::from_cas_call("exp", vec![g])]);
+        let f = op(CasOp::Divide, vec![Value::Int(1), Value::from_cas_var("x")]);
+        let g = op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]);
+        let expr = op(CasOp::Multiply, vec![f, call(CasFunction::Exp, vec![g])]);
         let result = super::integrate_liouville(&expr, "x");
         // Should return Ei(2x) or fall through gracefully
         let _ = result;
@@ -950,7 +953,7 @@ mod tests {
 
     /// Build integrand f(x) * exp(g(x))
     fn build_integrand(f: Value, g: Value) -> Value {
-        Value::from_cas_op("*", vec![f, Value::from_cas_call("exp", vec![g])])
+        op(CasOp::Multiply, vec![f, call(CasFunction::Exp, vec![g])])
     }
 
     #[test]
@@ -959,17 +962,17 @@ mod tests {
         // f = R' + g'·R = -1/x² + 2x/x = (2x²-1)/x²
         // ∫ (2x²-1)/x² · e^(x²) dx = (1/x)·e^(x²)
         let x = Value::from_cas_var("x");
-        let two_x_sq = Value::from_cas_op(
-            "*",
+        let two_x_sq = op(
+            CasOp::Multiply,
             vec![
                 Value::Int(2),
-                Value::from_cas_op("^", vec![x.clone(), Value::Int(2)]),
+                op(CasOp::Power, vec![x.clone(), Value::Int(2)]),
             ],
         );
-        let numer = Value::from_cas_op("+", vec![two_x_sq, Value::Int(-1)]);
-        let denom = Value::from_cas_op("^", vec![x.clone(), Value::Int(2)]);
-        let f = Value::from_cas_op("/", vec![numer, denom]);
-        let g = Value::from_cas_op("^", vec![x, Value::Int(2)]);
+        let numer = op(CasOp::Add, vec![two_x_sq, Value::Int(-1)]);
+        let denom = op(CasOp::Power, vec![x.clone(), Value::Int(2)]);
+        let f = op(CasOp::Divide, vec![numer, denom]);
+        let g = op(CasOp::Power, vec![x, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
         let result = super::integrate_liouville(&integrand, "x")
@@ -994,31 +997,31 @@ mod tests {
         //   = (x⁴ + x² - 2x)/(x²+1)²
         // ∫ (x⁴+x²-2x)/(x²+1)² · e^(x³/3) dx = 1/(x²+1) · e^(x³/3)
         let x = Value::from_cas_var("x");
-        let x_sq = Value::from_cas_op("^", vec![x.clone(), Value::Int(2)]);
-        let x_sq_plus_1 = Value::from_cas_op("+", vec![x_sq.clone(), Value::Int(1)]);
+        let x_sq = op(CasOp::Power, vec![x.clone(), Value::Int(2)]);
+        let x_sq_plus_1 = op(CasOp::Add, vec![x_sq.clone(), Value::Int(1)]);
         // D = (x²+1)²
-        let denom = Value::from_cas_op("^", vec![x_sq_plus_1, Value::Int(2)]);
+        let denom = op(CasOp::Power, vec![x_sq_plus_1, Value::Int(2)]);
         // N = x⁴ + x² - 2x
-        let x4 = Value::from_cas_op("^", vec![x.clone(), Value::Int(4)]);
-        let x2 = Value::from_cas_op("^", vec![x.clone(), Value::Int(2)]);
-        let two_x = Value::from_cas_op("*", vec![Value::Int(2), x.clone()]);
-        let numer = Value::from_cas_op(
-            "+",
+        let x4 = op(CasOp::Power, vec![x.clone(), Value::Int(4)]);
+        let x2 = op(CasOp::Power, vec![x.clone(), Value::Int(2)]);
+        let two_x = op(CasOp::Multiply, vec![Value::Int(2), x.clone()]);
+        let numer = op(
+            CasOp::Add,
             vec![
                 x4,
-                Value::from_cas_op(
-                    "+",
-                    vec![x2, Value::from_cas_op("*", vec![Value::Int(-1), two_x])],
+                op(
+                    CasOp::Add,
+                    vec![x2, op(CasOp::Multiply, vec![Value::Int(-1), two_x])],
                 ),
             ],
         );
-        let f = Value::from_cas_op("/", vec![numer, denom]);
+        let f = op(CasOp::Divide, vec![numer, denom]);
         // g = x³/3
-        let g = Value::from_cas_op(
-            "*",
+        let g = op(
+            CasOp::Multiply,
             vec![
                 Value::from_fraction_parts(1u64.into(), 3u64.into()),
-                Value::from_cas_op("^", vec![x, Value::Int(3)]),
+                op(CasOp::Power, vec![x, Value::Int(3)]),
             ],
         );
         let integrand = build_integrand(f, g);
@@ -1043,33 +1046,33 @@ mod tests {
         // f = R' + g'·R = -1/(x-1)² + 2x·x/(x-1) = (2x³-2x²-1)/(x-1)²
         // ∫ (2x³-2x²-1)/(x-1)² · e^(x²) dx = x/(x-1) · e^(x²)
         let xv = Value::from_cas_var("x");
-        let x_minus_1 = Value::from_cas_op("+", vec![xv.clone(), Value::Int(-1)]);
-        let denom = Value::from_cas_op("^", vec![x_minus_1, Value::Int(2)]);
+        let x_minus_1 = op(CasOp::Add, vec![xv.clone(), Value::Int(-1)]);
+        let denom = op(CasOp::Power, vec![x_minus_1, Value::Int(2)]);
         // N = 2x³ - 2x² - 1
-        let two_x3 = Value::from_cas_op(
-            "*",
+        let two_x3 = op(
+            CasOp::Multiply,
             vec![
                 Value::Int(2),
-                Value::from_cas_op("^", vec![xv.clone(), Value::Int(3)]),
+                op(CasOp::Power, vec![xv.clone(), Value::Int(3)]),
             ],
         );
-        let two_x2 = Value::from_cas_op(
-            "*",
+        let two_x2 = op(
+            CasOp::Multiply,
             vec![
                 Value::Int(2),
-                Value::from_cas_op("^", vec![xv.clone(), Value::Int(2)]),
+                op(CasOp::Power, vec![xv.clone(), Value::Int(2)]),
             ],
         );
-        let numer = Value::from_cas_op(
-            "+",
+        let numer = op(
+            CasOp::Add,
             vec![
                 two_x3,
-                Value::from_cas_op("*", vec![Value::Int(-1), two_x2]),
+                op(CasOp::Multiply, vec![Value::Int(-1), two_x2]),
                 Value::Int(-1),
             ],
         );
-        let f = Value::from_cas_op("/", vec![numer, denom]);
-        let g = Value::from_cas_op("^", vec![xv, Value::Int(2)]);
+        let f = op(CasOp::Divide, vec![numer, denom]);
+        let g = op(CasOp::Power, vec![xv, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
         let result = super::integrate_liouville(&integrand, "x")
@@ -1090,27 +1093,27 @@ mod tests {
         // f = R' + g'·R = -2/(x-1)³ + 2x/(x-1)² = (2x²-2x-2)/(x-1)³
         // ∫ (2x²-2x-2)/(x-1)³ · e^(x²) dx = 1/(x-1)² · e^(x²)
         let xv = Value::from_cas_var("x");
-        let x_minus_1 = Value::from_cas_op("+", vec![xv.clone(), Value::Int(-1)]);
-        let denom = Value::from_cas_op("^", vec![x_minus_1, Value::Int(3)]);
+        let x_minus_1 = op(CasOp::Add, vec![xv.clone(), Value::Int(-1)]);
+        let denom = op(CasOp::Power, vec![x_minus_1, Value::Int(3)]);
         // N = 2x² - 2x - 2
-        let two_x2 = Value::from_cas_op(
-            "*",
+        let two_x2 = op(
+            CasOp::Multiply,
             vec![
                 Value::Int(2),
-                Value::from_cas_op("^", vec![xv.clone(), Value::Int(2)]),
+                op(CasOp::Power, vec![xv.clone(), Value::Int(2)]),
             ],
         );
-        let two_x = Value::from_cas_op("*", vec![Value::Int(2), xv.clone()]);
-        let numer = Value::from_cas_op(
-            "+",
+        let two_x = op(CasOp::Multiply, vec![Value::Int(2), xv.clone()]);
+        let numer = op(
+            CasOp::Add,
             vec![
                 two_x2,
-                Value::from_cas_op("*", vec![Value::Int(-1), two_x]),
+                op(CasOp::Multiply, vec![Value::Int(-1), two_x]),
                 Value::Int(-2),
             ],
         );
-        let f = Value::from_cas_op("/", vec![numer, denom]);
-        let g = Value::from_cas_op("^", vec![xv, Value::Int(2)]);
+        let f = op(CasOp::Divide, vec![numer, denom]);
+        let g = op(CasOp::Power, vec![xv, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
         let result = super::integrate_liouville(&integrand, "x")
@@ -1132,14 +1135,14 @@ mod tests {
     fn test_rational_liouville_non_elementary() {
         // ∫ e^(x²)/x² dx — not elementary and not Ei-pattern
         let x = Value::from_cas_var("x");
-        let f = Value::from_cas_op(
-            "/",
+        let f = op(
+            CasOp::Divide,
             vec![
                 Value::Int(1),
-                Value::from_cas_op("^", vec![x.clone(), Value::Int(2)]),
+                op(CasOp::Power, vec![x.clone(), Value::Int(2)]),
             ],
         );
-        let g = Value::from_cas_op("^", vec![x, Value::Int(2)]);
+        let g = op(CasOp::Power, vec![x, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
         let result = super::integrate_liouville(&integrand, "x");
@@ -1153,8 +1156,8 @@ mod tests {
     fn test_liouville_ei_pattern_basic() {
         // ∫ e^(x²)/x dx = ei(x²)/2
         let x = Value::from_cas_var("x");
-        let f = Value::from_cas_op("/", vec![Value::Int(1), x.clone()]);
-        let g = Value::from_cas_op("^", vec![x, Value::Int(2)]);
+        let f = op(CasOp::Divide, vec![Value::Int(1), x.clone()]);
+        let g = op(CasOp::Power, vec![x, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
         let result = super::integrate_liouville(&integrand, "x")
@@ -1170,8 +1173,8 @@ mod tests {
         // ∫ 3·e^(x³)/x dx = ei(x³)
         let x = Value::from_cas_var("x");
         let three = Value::Int(3);
-        let f = Value::from_cas_op("/", vec![three, x.clone()]);
-        let g = Value::from_cas_op("^", vec![x, Value::Int(3)]);
+        let f = op(CasOp::Divide, vec![three, x.clone()]);
+        let g = op(CasOp::Power, vec![x, Value::Int(3)]);
         let integrand = build_integrand(f, g);
 
         let result = super::integrate_liouville(&integrand, "x")
@@ -1196,32 +1199,32 @@ mod tests {
         // 1/x² = (2x⁴ + 3x² - 1)/x²
         // ∫ (2x⁴ + 3x² - 1)/x² · e^(x²) dx = (x + 1/x)·e^(x²)
         let xv = Value::from_cas_var("x");
-        let x_sq = Value::from_cas_op("^", vec![xv.clone(), Value::Int(2)]);
+        let x_sq = op(CasOp::Power, vec![xv.clone(), Value::Int(2)]);
         let denom = x_sq.clone();
         // N = 2x⁴ + 3x² - 1
-        let two_x4 = Value::from_cas_op(
-            "*",
+        let two_x4 = op(
+            CasOp::Multiply,
             vec![
                 Value::Int(2),
-                Value::from_cas_op("^", vec![xv.clone(), Value::Int(4)]),
+                op(CasOp::Power, vec![xv.clone(), Value::Int(4)]),
             ],
         );
-        let three_x2 = Value::from_cas_op(
-            "*",
+        let three_x2 = op(
+            CasOp::Multiply,
             vec![
                 Value::Int(3),
-                Value::from_cas_op("^", vec![xv.clone(), Value::Int(2)]),
+                op(CasOp::Power, vec![xv.clone(), Value::Int(2)]),
             ],
         );
-        let numer = Value::from_cas_op(
-            "+",
+        let numer = op(
+            CasOp::Add,
             vec![
                 two_x4,
-                Value::from_cas_op("+", vec![three_x2, Value::Int(-1)]),
+                op(CasOp::Add, vec![three_x2, Value::Int(-1)]),
             ],
         );
-        let f = Value::from_cas_op("/", vec![numer, denom]);
-        let g = Value::from_cas_op("^", vec![xv, Value::Int(2)]);
+        let f = op(CasOp::Divide, vec![numer, denom]);
+        let g = op(CasOp::Power, vec![xv, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
         let result = super::integrate_liouville(&integrand, "x")

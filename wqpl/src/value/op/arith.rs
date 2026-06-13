@@ -7,6 +7,7 @@ use rayon::prelude::*;
 
 use crate::astnode::BinaryOperator;
 use crate::cas::{cas_binary_expr, cas_unary_expr};
+use crate::value::cas::CasOp;
 use crate::value::op::PAR_BC_THRESHOLD;
 use crate::value::{Value, WqResult, expected_numeric1, expected_numeric2};
 use crate::wqerror::{WqError, WqErrorType};
@@ -185,7 +186,7 @@ fn neg_atom(v: &Value) -> WqResult<Value> {
             .unwrap_or_else(|| Value::BigInt(Arc::new(-BigInt::from(*n))))),
         Value::Float(f) => Ok(Value::float(-f)),
         Value::BigInt(n) => Ok(Value::BigInt(Arc::new(-&**n))),
-        _ if v.is_cas_expr() => cas_unary_expr("-", v),
+        _ if v.is_cas_expr() => cas_unary_expr(CasOp::Subtract, v),
         _ if v.is_complex() => Ok(Value::from_complex64(-complex_operand(v)?)),
         _ if v.is_fraction() => {
             let (numer, denom) = v.dict_fraction_parts().unwrap();
@@ -231,7 +232,7 @@ fn add_atoms(a: &Value, b: &Value) -> WqResult<Value> {
             }
             match (a, b) {
                 (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x + &**y)),
-                _ if a.is_cas_expr() || b.is_cas_expr() => cas_binary_expr("+", a, b),
+                _ if a.is_cas_expr() || b.is_cas_expr() => cas_binary_expr(CasOp::Add, a, b),
                 _ if a.is_complex() || b.is_complex() => {
                     let (za, zb) = complex_operands(a, b)?;
                     Ok(Value::from_complex64(za + zb))
@@ -334,7 +335,7 @@ fn sub_atoms(a: &Value, b: &Value) -> WqResult<Value> {
                             .ok_or_else(bigint_too_big_for_float);
                     }
                     if a.is_cas_expr() || b.is_cas_expr() {
-                        cas_binary_expr("-", a, b)
+                        cas_binary_expr(CasOp::Subtract, a, b)
                     } else if a.is_complex() || b.is_complex() {
                         let (za, zb) = complex_operands(a, b)?;
                         Ok(Value::from_complex64(za - zb))
@@ -398,7 +399,9 @@ fn mul_atoms(a: &Value, b: &Value) -> WqResult<Value> {
             }
             match (a, b) {
                 (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x * &**y)),
-                _ if a.is_cas_expr() || b.is_cas_expr() => cas_binary_expr("*", a, b),
+                _ if a.is_cas_expr() || b.is_cas_expr() => {
+                    cas_binary_expr(CasOp::Multiply, a, b)
+                }
                 _ if a.is_complex() || b.is_complex() => {
                     let (za, zb) = complex_operands(a, b)?;
                     Ok(Value::from_complex64(za * zb))
@@ -485,7 +488,7 @@ fn div_atoms(a: &Value, b: &Value) -> WqResult<Value> {
                             .ok_or_else(bigint_too_big_for_float);
                     }
                     if a.is_cas_expr() || b.is_cas_expr() {
-                        cas_binary_expr("/", a, b)
+                        cas_binary_expr(CasOp::Divide, a, b)
                     } else if a.is_complex() || b.is_complex() {
                         let (za, zb) = complex_operands(a, b)?;
                         if zb == Complex64::new(0.0, 0.0) {
@@ -593,7 +596,7 @@ fn div_dot_atoms(a: &Value, b: &Value) -> WqResult<Value> {
                             .ok_or_else(bigint_too_big_for_float);
                     }
                     if a.is_cas_expr() || b.is_cas_expr() {
-                        cas_binary_expr("/", a, b)
+                        cas_binary_expr(CasOp::Divide, a, b)
                     } else if a.is_complex() || b.is_complex() {
                         let (za, zb) = complex_operands(a, b)?;
                         if zb == Complex64::new(0.0, 0.0) {
@@ -983,7 +986,7 @@ fn pow_atoms(a: &Value, b: &Value) -> WqResult<Value> {
             Ok(Value::float(x.powf(yb)))
         }
 
-        _ if a.is_cas_expr() || b.is_cas_expr() => cas_binary_expr("^", a, b),
+        _ if a.is_cas_expr() || b.is_cas_expr() => cas_binary_expr(CasOp::Power, a, b),
         _ if a.is_complex() || b.is_complex() => {
             let (base, exp) = complex_operands(a, b)?;
             if base == Complex64::new(0.0, 0.0) && exp.im == 0.0 && exp.re < 0.0 {
@@ -1004,7 +1007,7 @@ fn pow_atoms(a: &Value, b: &Value) -> WqResult<Value> {
                     return Ok(result);
                 }
             }
-            cas_binary_expr("^", a, b)
+            cas_binary_expr(CasOp::Power, a, b)
         }
         _ if a.is_fraction() || b.is_fraction() => {
             if let (Some((base_n, base_d)), Some(exp)) = (a.rational_parts(), rational_exponent(b))
@@ -1048,7 +1051,7 @@ fn pow_atoms(a: &Value, b: &Value) -> WqResult<Value> {
                         let is_exact = is_perfect_power_val(&base_n, exp_d_u32)
                             && is_perfect_power_val(&base_d, exp_d_u32);
                         if !is_exact {
-                            return cas_binary_expr("^", a, b);
+                            return cas_binary_expr(CasOp::Power, a, b);
                         }
                     }
                 }

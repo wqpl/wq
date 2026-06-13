@@ -1184,8 +1184,7 @@ mod tests {
             coeffs: Arc::new([Value::Int(-1), Value::Int(1)]),
         };
         let alg = Value::Algebraic(Arc::new(a));
-        let product =
-            Value::from_cas_known_op(CasOp::Multiply, vec![alg.clone(), Value::from_cas_var("x")]);
+        let product = Value::from_cas_op(CasOp::Multiply, vec![alg.clone(), Value::from_cas_var("x")]);
         assert_eq!(product.to_string(), "(-1 + 2^(1/2))*x");
     }
 
