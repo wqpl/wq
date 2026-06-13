@@ -34,6 +34,30 @@ fn subcommand_help_is_still_available() -> Result<()> {
 }
 
 #[test]
+fn topic_flag_bypasses_subcommand_help() -> Result<()> {
+    let exec = Command::cargo_bin("wq")
+        .context("cargo_bin('wq') failed")?
+        .args(["help", "--no-pager", "--topic", "exec"])
+        .output()
+        .context("run wq help --topic exec")?;
+    assert!(exec.status.success());
+    let stdout = String::from_utf8(exec.stdout).context("stdout is utf8")?;
+    assert!(stdout.contains("exec builtin"));
+    assert!(stdout.contains("Run a host process"));
+
+    let fmt = Command::cargo_bin("wq")
+        .context("cargo_bin('wq') failed")?
+        .args(["help", "--no-pager", "--topic", "fmt"])
+        .output()
+        .context("run wq help --topic fmt")?;
+    assert!(fmt.status.success());
+    let stdout = String::from_utf8(fmt.stdout).context("stdout is utf8")?;
+    assert!(stdout.contains("fmt builtin"));
+    assert!(stdout.contains("Build a string"));
+    Ok(())
+}
+
+#[test]
 fn builtin_and_keyword_docs_render() -> Result<()> {
     let map = Command::cargo_bin("wq")
         .context("cargo_bin('wq') failed")?

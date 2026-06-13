@@ -6,8 +6,10 @@ use wqpl::doc::{self, DocRenderTarget};
 use crate::repl::editor::WqReplHighlighter;
 use crate::{arg, note};
 
-pub fn run(topic: Option<String>, no_pager: bool) {
-    if let Some(text) = arg::render_cli_help(topic.as_deref()) {
+pub fn run(topic: Option<String>, no_pager: bool, prefer_doc_topic: bool) {
+    if !prefer_doc_topic
+        && let Some(text) = arg::render_cli_help(topic.as_deref())
+    {
         print!("{text}");
         return;
     }

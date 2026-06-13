@@ -84,6 +84,7 @@ pub enum CliCommand {
     Help {
         no_pager: bool,
         topic: Option<String>,
+        prefer_doc_topic: bool,
     },
 }
 
@@ -241,6 +242,9 @@ enum Commands {
         /// Print directly instead of using $PAGER for reference docs
         #[arg(long)]
         no_pager: bool,
+        /// Reference topic to resolve directly, even when it matches a command
+        #[arg(long = "topic", value_name = "TOPIC", conflicts_with = "topic")]
+        doc_topic: Option<String>,
         /// Command, builtin, keyword, or syntax topic
         topic: Option<String>,
     },
@@ -476,7 +480,15 @@ where
                 }
                 CliCommand::Dap { script }
             }
-            Commands::Help { no_pager, topic } => CliCommand::Help { no_pager, topic },
+            Commands::Help {
+                no_pager,
+                topic,
+                doc_topic,
+            } => CliCommand::Help {
+                no_pager,
+                prefer_doc_topic: doc_topic.is_some(),
+                topic: doc_topic.or(topic),
+            },
         }
     } else if let Some(path) = cli.script {
         if path.extension().is_some_and(|e| e == "md") {
@@ -609,6 +621,24 @@ mod tests {
         assert_eq!(is_err(parse_args(v(&["--help"]))), 0);
         assert_eq!(is_err(parse_args(v(&["--version"]))), 0);
         assert_eq!(is_err(parse_args(v(&["foo.wq", "-h"]))), 0);
+    }
+
+    #[test]
+    fn help_topic_flag_prefers_doc_topic() {
+        let (_, cmd) = ok(parse_args(v(&["help", "--topic", "exec"])));
+        match cmd {
+            CliCommand::Help {
+                no_pager,
+                topic,
+                prefer_doc_topic,
+            } => {
+                assert!(!no_pager);
+                assert_eq!(topic.as_deref(), Some("exec"));
+                assert!(prefer_doc_topic);
+            }
+            _ => panic!("expected Help"),
+        }
+        assert_eq!(is_err(parse_args(v(&["help", "exec", "--topic", "fmt"]))), 2);
     }
 
     #[test]

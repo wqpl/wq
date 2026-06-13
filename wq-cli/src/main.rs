@@ -76,8 +76,12 @@ fn main() {
         CliCommand::Dap { script } => {
             dap::run_dap(script);
         }
-        CliCommand::Help { no_pager, topic } => {
-            help::run(topic, no_pager);
+        CliCommand::Help {
+            no_pager,
+            topic,
+            prefer_doc_topic,
+        } => {
+            help::run(topic, no_pager, prefer_doc_topic);
         }
     }
 }
