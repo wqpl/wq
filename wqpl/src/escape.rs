@@ -1,5 +1,3 @@
-use core::fmt::Write;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum UnescapeErrorKind {
     InvalidUnicodeEscape,
@@ -29,9 +27,7 @@ pub(crate) fn escape_string_inner(s: &str, quote: char) -> String {
             '\0' => out.push_str("\\0"),
             // Visible ASCII and non-control Unicode remain as-is
             c if !c.is_control() => out.push(c),
-            c => {
-                let _ = write!(out, "\\u{{{:x}}}", c as u32);
-            }
+            c => out.extend(c.escape_unicode()),
         }
     }
     out
