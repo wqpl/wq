@@ -751,9 +751,6 @@ struct QuadInfo {
     shift: Value,
     /// Remaining constant k
     k: Value,
-    /// a = 1, shift = 0 (simple form x² + k)
-    #[allow(dead_code)]
-    is_simple: bool,
 }
 
 /// Try to classify expr as a quadratic in var: a·var² + b·var + c.
@@ -786,14 +783,7 @@ fn classify_quadratic(expr: &Value, var: &str) -> Option<QuadInfo> {
     let b_sq_over_4a = eval_exact_numeric_div(&b_sq, &four_a).ok()?;
     let k = numeric_sub(&c, &b_sq_over_4a).ok()?;
 
-    let is_simple = numeric_is_one(&a) && numeric_is_zero(&shift);
-
-    Some(QuadInfo {
-        a,
-        shift,
-        k,
-        is_simple,
-    })
+    Some(QuadInfo { a, shift, k })
 }
 
 /// Integrate sqrt(ax²+bx+c)^(±1/2).
@@ -870,7 +860,6 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
             a: a.clone(),
             shift: Value::Int(0),
             k: k.clone(),
-            is_simple: false,
         };
         let integrated = integrate_sqrt_quadratic(&simple_q, u_var)?;
         simplify_cas_value(&substitute_expr(
@@ -886,7 +875,6 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
             a: Value::Int(1),
             shift: Value::Int(0),
             k: numeric_div(k, a)?,
-            is_simple: true,
         };
         let inner = integrate_sqrt_quadratic(&simple_q, var)?;
         simplify_cas_value(&cas_mul(vec![sqrt_a, inner])?)
@@ -938,7 +926,6 @@ fn integrate_one_over_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value>
             a: a.clone(),
             shift: Value::Int(0),
             k: k.clone(),
-            is_simple: false,
         };
         let integrated = integrate_one_over_sqrt_quadratic(&simple_q, u_var)?;
         return simplify_cas_value(&substitute_expr(
@@ -1147,7 +1134,6 @@ fn integrate_xn_sqrt_reduction(n: usize, k: &Value, is_sqrt: bool, var: &str) ->
             a: Value::Int(1),
             shift: Value::Int(0),
             k: k.clone(),
-            is_simple: true,
         };
         return integrate_quadratic_root(&q, is_sqrt, var);
     }
@@ -1173,7 +1159,6 @@ fn integrate_xn_sqrt_reduction(n: usize, k: &Value, is_sqrt: bool, var: &str) ->
             a: Value::Int(1),
             shift: Value::Int(0),
             k: k.clone(),
-            is_simple: true,
         };
         integrate_quadratic_root(&q, is_sqrt, var)?
     } else {
@@ -1295,8 +1280,12 @@ mod tests {
         let x = Value::from_cas_var("x");
         let expr = cas_add(vec![cas_pow(x, Value::Int(2)).unwrap(), Value::Int(1)]).unwrap();
         let q = classify_quadratic(&expr, "x").unwrap();
-        assert!(q.is_simple);
         assert!(numeric_is_one(&q.a), "a should be 1, got {:?}", q.a);
+        assert!(
+            numeric_is_zero(&q.shift),
+            "shift should be 0, got {:?}",
+            q.shift
+        );
         assert!(numeric_is_one(&q.k), "k should be 1, got {:?}", q.k);
     }
 
