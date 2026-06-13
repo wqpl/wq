@@ -1,0 +1,199 @@
+use super::super::model::{DocExample, DocKind, ExampleExpectation, StaticDoc};
+
+const AT_ASSERT_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Assert a condition",
+    code: "@a 1=1",
+    expectation: ExampleExpectation::ResultContains("T"),
+}];
+
+const AT_BREAK_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Break from the nearest loop",
+    code: "i:0;N[10;$.[_n=3;@b];i+:1];i",
+    expectation: ExampleExpectation::ResultContains("3"),
+}];
+
+const AT_CONTINUE_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Skip one loop iteration",
+    code: "i:0;N[5;$.[_n=2;@c];i+:1];i",
+    expectation: ExampleExpectation::ResultContains("4"),
+}];
+
+const AT_RETURN_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Return early from a function",
+    code: "{[x]$.[x=0;@r -1];x}0",
+    expectation: ExampleExpectation::ResultContains("-1"),
+}];
+
+const AT_DEBUG_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Trace an expression",
+    code: "@d 1+2",
+    expectation: ExampleExpectation::NoRun("prints a debug trace"),
+}];
+
+const AT_PAUSE_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Pause in the debugger",
+    code: "@p",
+    expectation: ExampleExpectation::NoRun("enters wqdb"),
+}];
+
+const AT_TRY_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Convert an error to false",
+    code: "@t 1/0",
+    expectation: ExampleExpectation::ResultContains("F"),
+}];
+
+const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Create a CAS expression",
+    code: "type @s x+1",
+    expectation: ExampleExpectation::ResultContains("\"cas\""),
+}];
+
+const AT_FSTRING_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Interpolate an expression",
+    code: "@f\"{1+2}\"",
+    expectation: ExampleExpectation::ResultContains("3"),
+}];
+
+const AT_RAW_STRING_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Keep backslashes raw",
+    code: "len @l\"\\n\"",
+    expectation: ExampleExpectation::ResultContains("2"),
+}];
+
+const AT_DEPTH_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Search one level deep",
+    code: "(1;2;3)|has?@1[2]",
+    expectation: ExampleExpectation::ResultContains("T"),
+}];
+
+pub(super) const AT_ASSERT: StaticDoc = StaticDoc {
+    id: "at-assert",
+    title: "@a Assert",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@a", "assert"],
+    summary: "Assert that an expression is true.",
+    details: "`@a expr` evaluates `expr` and raises if it is false. It is useful for executable examples and invariants.",
+    examples: AT_ASSERT_EXAMPLES,
+    related: &["@t", "raise"],
+};
+
+pub(super) const AT_BREAK: StaticDoc = StaticDoc {
+    id: "at-break",
+    title: "@b Break",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@b", "break"],
+    summary: "Leave the nearest enclosing loop.",
+    details: "`@b` is only valid inside a loop body. It applies to the nearest loop.",
+    examples: AT_BREAK_EXAMPLES,
+    related: &["@c", "N", "W"],
+};
+
+pub(super) const AT_CONTINUE: StaticDoc = StaticDoc {
+    id: "at-continue",
+    title: "@c Continue",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@c", "continue"],
+    summary: "Skip to the next loop iteration.",
+    details: "`@c` is only valid inside a loop body. It applies to the nearest loop.",
+    examples: AT_CONTINUE_EXAMPLES,
+    related: &["@b", "N", "W"],
+};
+
+pub(super) const AT_RETURN: StaticDoc = StaticDoc {
+    id: "at-return",
+    title: "@r Return",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@r", "return"],
+    summary: "Return early from the current function.",
+    details: "`@r value` exits immediately with `value`. Bare `@r` returns unit.",
+    examples: AT_RETURN_EXAMPLES,
+    related: &["functions"],
+};
+
+pub(super) const AT_DEBUG: StaticDoc = StaticDoc {
+    id: "at-debug",
+    title: "@d Debug",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@d", "debug"],
+    summary: "Evaluate an expression while printing a trace.",
+    details: "`@d expr` is a runtime debugging probe. It yields the expression value after showing trace information.",
+    examples: AT_DEBUG_EXAMPLES,
+    related: &["@p"],
+};
+
+pub(super) const AT_PAUSE: StaticDoc = StaticDoc {
+    id: "at-pause",
+    title: "@p Pause",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@p", "pause"],
+    summary: "Pause execution in wqdb.",
+    details: "`@p` optionally accepts an expression and then pauses execution when debugging is enabled.",
+    examples: AT_PAUSE_EXAMPLES,
+    related: &["@d"],
+};
+
+pub(super) const AT_TRY: StaticDoc = StaticDoc {
+    id: "at-try",
+    title: "@t Try",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@t", "try"],
+    summary: "Turn a failing expression into a false result.",
+    details: "`@t expr` catches runtime errors from `expr`, returning the value on success or `F` on failure.",
+    examples: AT_TRY_EXAMPLES,
+    related: &["raise"],
+};
+
+pub(super) const AT_SYMBOLIC: StaticDoc = StaticDoc {
+    id: "at-symbolic",
+    title: "@s Symbolic",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@s", "symbolic", "cas"],
+    summary: "Quote an expression into a symbolic CAS value.",
+    details: "Use `@s` once at the start of a CAS expression, then apply CAS builtins directly. Bare arithmetic without `@s` is normal evaluation.",
+    examples: AT_SYMBOLIC_EXAMPLES,
+    related: &["diff", "integrate", "simplify"],
+};
+
+pub(super) const AT_FSTRING: StaticDoc = StaticDoc {
+    id: "at-fstring",
+    title: "@f Format String",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@f", "format string", "fstring"],
+    summary: "Create a string by interpolating expressions.",
+    details: "`@f\"...{expr}...\"` evaluates braces as wq expressions. Use doubled braces for literal braces.",
+    examples: AT_FSTRING_EXAMPLES,
+    related: &["fmt", "str"],
+};
+
+pub(super) const AT_RAW_STRING: StaticDoc = StaticDoc {
+    id: "at-raw-string",
+    title: "@l Raw String",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@l", "raw string"],
+    summary: "Read a string without escape processing.",
+    details: "`@l\"...\"` keeps backslashes as ordinary characters.",
+    examples: AT_RAW_STRING_EXAMPLES,
+    related: &["@f"],
+};
+
+pub(super) const AT_DEPTH: StaticDoc = StaticDoc {
+    id: "at-depth",
+    title: "@depth Modifier",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@depth", "@1", "@2", "depth modifier"],
+    summary: "Append a depth argument to depth-aware builtin calls.",
+    details: "`@1`, `@2`, and other non-negative depth modifiers are postfix call modifiers. They are valid only on builtins whose metadata declares depth sugar.",
+    examples: AT_DEPTH_EXAMPLES,
+    related: &["map", "has?", "find"],
+};
