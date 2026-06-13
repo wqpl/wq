@@ -36,6 +36,12 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     higher_order::RFINDW,
     list::SPLIT,
     set::HAS_Q,
-    string::WORDS,
     string::STR,
+    string::GRAPHEMES,
+    string::WS_Q,
+    string::WORDS,
+    string::TRIM,
+    string::L_TRIM,
+    string::R_TRIM,
+    string::FMT,
 ];
