@@ -1,11 +1,6 @@
-# RustyLine
+wq-cli's internal editor
 
-[![Build Status](https://github.com/kkawakam/rustyline/workflows/Rust/badge.svg)](https://github.com/kkawakam/rustyline/actions)
-[![dependency status](https://deps.rs/repo/github/kkawakam/rustyline/status.svg)](https://deps.rs/repo/github/kkawakam/rustyline)
-[![](https://img.shields.io/crates/v/rustyline.svg)](https://crates.io/crates/rustyline)
-[![Docs](https://docs.rs/rustyline/badge.svg)](https://docs.rs/rustyline)
-
-Readline implementation in Rust that is based on [Antirez' Linenoise](https://github.com/antirez/linenoise)
+forked from `rustyline`, itself based on `linenoise`
 
 **Supported Platforms**
 
@@ -19,67 +14,6 @@ Readline implementation in Rust that is based on [Antirez' Linenoise](https://gi
 - Powershell ISE is not supported, check [issue #56](https://github.com/kkawakam/rustyline/issues/56)
 - Mintty (Cygwin/MinGW) is not supported
 - Highlighting / Colors are not supported on Windows < Windows 10 except with ConEmu and `ColorMode::Forced`.
-
-## Example
-
-```rust
-use rustyline::error::ReadlineError;
-use rustyline::{DefaultEditor, Result};
-
-fn main() -> Result<()> {
-    // `()` can be used when no completer is required
-    let mut rl = DefaultEditor::new()?;
-    #[cfg(feature = "with-file-history")]
-    if rl.load_history("history.txt").is_err() {
-        println!("No previous history.");
-    }
-    loop {
-        let readline = rl.readline(">> ");
-        match readline {
-            Ok(line) => {
-                rl.add_history_entry(line.as_str())?;
-                println!("Line: {}", line);
-            },
-            Err(ReadlineError::Interrupted) => {
-                println!("CTRL-C");
-                break
-            },
-            Err(ReadlineError::Eof) => {
-                println!("CTRL-D");
-                break
-            },
-            Err(err) => {
-                println!("Error: {:?}", err);
-                break
-            }
-        }
-    }
-    #[cfg(feature = "with-file-history")]
-    rl.save_history("history.txt");
-    Ok(())
-}
-```
-
-## crates.io
-
-You can use this package in your project by adding the following
-to your `Cargo.toml`:
-
-```toml
-[dependencies]
-rustyline = "18.0.0"
-```
-
-## Features
-
-- Unicode (UTF-8) (linenoise supports only ASCII)
-- Word completion (linenoise supports only line completion)
-- Filename completion
-- History search ([Searching for Commands in the History](http://tiswww.case.edu/php/chet/readline/readline.html#SEC8))
-- Kill ring ([Killing Commands](http://tiswww.case.edu/php/chet/readline/readline.html#IDX3))
-- Multi line support (line wrapping)
-- Word commands
-- Hints
 
 ## Actions
 
@@ -225,36 +159,6 @@ $ bind -p
 $ # print out a terminfo description:
 $ infocmp
 ```
-
-## Similar projects
-
-| Library            | Lang    | OS      | Term | Unicode | History       | Completion | Keymap        | Kill Ring | Undo | Colors     | Hint/Auto suggest |
-|--------------------|---------|---------|------|---------|---------------|------------|---------------|-----------|------|------------|-------------------|
-| [go-prompt][]      | Go      | Ux/win  | ANSI | Yes     | Yes           | any        | Emacs/prog    | No        | No   | Yes        | Yes               |
-| [Haskeline][]      | Haskell | Ux/Win  | Any  | Yes     | Yes           | any        | Emacs/vi/conf | Yes       | Yes  | ?          | ?                 |
-| [isocline][]       | C       | Ux/Win  | ANSI | Yes     | Yes           | any        | Emacs         | No        | Yes  | Yes        | Yes               |
-| [linefeed][]       | Rust    | Ux/Win  | Any  |         | Yes           | any        | Emacs/conf    | Yes       | No   | ?          | No                |
-| [linenoise][]      | C       | Ux      | ANSI | No      | Yes           | only line  | Emacs         | No        | No   | Ux         | Yes               |
-| [Liner][]          | Rust    | Ux      | ANSI |         | No inc search | only word  | Emacs/vi/prog | No        | Yes  | Ux         | History based     |
-| [noline][]         | Rust    | no\_std | ANSI | Yes     | Yes           | No         | Emacs         | No        | No   | Yes        | No                |
-| [prompt_toolkit][] | Python  | Ux/Win  | ANSI | Yes     | Yes           | any        | Emacs/vi/conf | Yes       | Yes  | Ux/Win     | Yes               |
-| [reedline][]       | Rust    | Ux/Win  | ANSI | Yes     | Yes           | any        | Emacs/vi/bind | No        | Yes  | Ux/Win     | Yes               |
-| [replxx][]         | C/C++   | Ux/Win  | ANSI | Yes     | Yes           | only line  | Emacs         | Yes       | No   | Ux/Win     | Yes               |
-| Rustyline          | Rust    | Ux/Win  | ANSI | Yes     | Yes           | any        | Emacs/vi/bind | Yes       | Yes  | Ux/Win 10+ | Yes               |
-| [termwiz][]        | Rust    | Ux/Win  | Any  | ?       | Yes           | any        | Emacs         | No        | No   | Ux/Win     | No                |
-
-
-[go-prompt]: https://github.com/c-bata/go-prompt
-[haskeline]: https://github.com/judah/haskeline
-[isocline]: https://github.com/daanx/isocline
-[linefeed]: https://github.com/murarth/linefeed
-[linenoise]: https://github.com/antirez/linenoise
-[liner]: https://github.com/redox-os/liner
-[prompt_toolkit]: https://github.com/jonathanslenders/python-prompt-toolkit
-[reedline]: https://github.com/nushell/reedline
-[replxx]: https://github.com/AmokHuginnsson/replxx
-[termwiz]: https://github.com/wez/wezterm/tree/main/termwiz
-[noline]: https://github.com/rustne-kretser/noline
 
 ## Multi line support
 
