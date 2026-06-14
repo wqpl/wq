@@ -2,6 +2,7 @@ mod cas;
 mod core;
 mod higher_order;
 mod list;
+mod listgen;
 mod set;
 mod string;
 
@@ -47,6 +48,13 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     list::FIND,
     list::RFIND,
     list::ZIP,
+    listgen::ALLOC,
+    listgen::TIL,
+    listgen::IOTA,
+    listgen::RESHAPE,
+    listgen::TRANSPOSE,
+    listgen::REPEAT,
+    listgen::WHERE,
     set::UNIQUE,
     set::UNION,
     set::INTERSECT,
