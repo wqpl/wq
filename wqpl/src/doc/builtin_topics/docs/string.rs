@@ -44,11 +44,20 @@ const R_TRIM_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("\"  hi\""),
 }];
 
-const FMT_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Format values with a specifier",
-    code: "fmt[\"{}={!#x}\";\"n\";255]",
-    expectation: ExampleExpectation::ResultContains("\"n=0xff\""),
-}];
+const FMT_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Format values with a specifier",
+        code: "fmt[\"{}={!#x}\";\"n\";255]",
+        expectation: ExampleExpectation::ResultContains("\"n=0xff\""),
+    },
+    DocExample {
+        title: "Combine supported spec pieces",
+        code: "fmt[\"hex={!#08x} pct={!.1%} dbg={!?}\";123;0.125;T]",
+        expectation: ExampleExpectation::ResultContains(
+            "\"hex=0x00007b pct=12.5% dbg=Bool(true)\"",
+        ),
+    },
+];
 
 pub(super) const STR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Str,
@@ -109,7 +118,7 @@ pub(super) const R_TRIM: BuiltinDoc = BuiltinDoc {
 pub(super) const FMT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Fmt,
     summary: "Build a string from a template and values.",
-    details: "`fmt` replaces `{}` with the next value and `{!...}` with the next value formatted by a specifier. Specs support alignment, fill, sign, alternate integer prefixes, width, precision, radix, percentage, and debug output; doubled braces emit literal braces.",
+    details: "`fmt` replaces `{}` with the next value and `{!...}` with the next value formatted by a specifier. Supported spec shape is `{![fill][align][sign][#][0][width][.precision][type]}`: align is `<`, `>`, `^`, or `=`; sign is `+`, `-`, or space; width and precision are digits or dynamic `{}` values; type is `b`, `B`, `o`, `O`, `x`, `X`, `e`, `E`, `,`, `%`, or `?`. `#` adds integer prefixes or pretty debug output, `0` enables sign-aware zero padding, and doubled braces emit literal braces.",
     examples: FMT_EXAMPLES,
     related: &["@f", "str"],
 };

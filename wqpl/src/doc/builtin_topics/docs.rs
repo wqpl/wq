@@ -1,6 +1,7 @@
 mod cas;
 mod core;
 mod higher_order;
+mod intrinsic_op;
 mod list;
 mod listgen;
 mod math;
@@ -26,6 +27,33 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     #[cfg(not(target_arch = "wasm32"))]
     core::EXEC,
     core::LEN,
+    intrinsic_op::OP_ADD,
+    intrinsic_op::OP_SUB,
+    intrinsic_op::OP_MUL,
+    intrinsic_op::OP_DIV,
+    intrinsic_op::OP_DIVDOT,
+    intrinsic_op::OP_MOD,
+    intrinsic_op::OP_FLOORDIV,
+    intrinsic_op::OP_POWER,
+    intrinsic_op::OP_POWERDOT,
+    intrinsic_op::OP_MATMUL,
+    intrinsic_op::OP_EQUAL,
+    intrinsic_op::OP_EQUALDOT,
+    intrinsic_op::OP_NOTEQUAL,
+    intrinsic_op::OP_NOTEQUALDOT,
+    intrinsic_op::OP_LT,
+    intrinsic_op::OP_LTE,
+    intrinsic_op::OP_GT,
+    intrinsic_op::OP_GTE,
+    intrinsic_op::OP_CAT,
+    intrinsic_op::OP_SHARP,
+    intrinsic_op::OP_BOOLAND,
+    intrinsic_op::OP_BOOLOR,
+    intrinsic_op::OP_BITAND,
+    intrinsic_op::OP_BITOR,
+    intrinsic_op::OP_BITXOR,
+    intrinsic_op::OP_SHL,
+    intrinsic_op::OP_SHR,
     higher_order::APPLY,
     higher_order::MAP,
     higher_order::FOLD,
