@@ -171,10 +171,6 @@ impl Value {
     pub(crate) fn try_to_rust_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(b) => Some(*b),
-            // Value::Int(1) => Some(true),
-            // Value::Int(0) => Some(false),
-            // Value::BigInt(bi) if **bi == BigInt::from(1) => Some(true),
-            // Value::BigInt(bi) if **bi == BigInt::from(0) => Some(false),
             _ => None,
         }
     }

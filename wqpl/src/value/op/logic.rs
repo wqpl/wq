@@ -58,13 +58,6 @@ impl Value {
             }
         })
         .map_err(|e| e.into_wqerror())
-
-        //     match (a, b) {
-        //     ()
-        //     (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a && *b)),
-
-        //     _ => Err(expected_bool2(a, b)),
-        // })
     }
 
     pub(crate) fn or_bool(&self, other: &Value) -> WqResult<Value> {
