@@ -434,7 +434,7 @@ pub fn run_notebook(path: &Path, mut rtflags: RuntimeFlags, interactive: bool) {
         rtflags.print = v;
     }
     if let Some(v) = notebook.config.stack_size {
-        rtflags.stack_size_mb = v;
+        rtflags.stack_size_mebibyte = v;
     }
     if let Some(v) = &notebook.config.debug {
         match wqpl::session::dbglog::DebugLogFlags::parse(v) {

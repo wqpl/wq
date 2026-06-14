@@ -248,7 +248,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
     let mut oneshot_wqdb = false;
     // Unified loader state for directive lines handled by load
     let repl_loading = RefCell::new(HashSet::new());
-    print_repl_startup(&session, rtflags.stack_size_mb);
+    print_repl_startup(&session, rtflags.stack_size_mebibyte);
     sync_global_hints(&session);
     sync_repl_hints();
 
@@ -289,7 +289,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::Info => {
-                        print_repl_startup(&session, rtflags.stack_size_mb);
+                        print_repl_startup(&session, rtflags.stack_size_mebibyte);
                         continue;
                     }
                     ReplCommand::Dry => {
@@ -522,8 +522,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                                     DocRenderTarget::Cli,
                                     doc::MarkdownRenderOptions {
                                         fold_width: crate::help::auto_fold_width(
-                                            terminal_size()
-                                                .map(|(Width(width), _)| width as usize),
+                                            terminal_size().map(|(Width(width), _)| width as usize),
                                         ),
                                     },
                                 );

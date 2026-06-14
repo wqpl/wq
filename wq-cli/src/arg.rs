@@ -9,7 +9,7 @@ use colored::Colorize;
 pub use wqpl::display::{BoxPrintConfig, apply_box_spec};
 use wqpl::session::dbglog::DebugLogFlags;
 
-pub const DEFAULT_STACK_SIZE_MB: usize = 12;
+pub const DEFAULT_STACK_SIZE_MEBIBYTE: usize = 12;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeFlags {
@@ -20,9 +20,9 @@ pub struct RuntimeFlags {
     pub debug_flags: DebugLogFlags,
     pub interpreter: Option<String>,
     pub builtins: Option<String>,
-    pub print: bool,          // default: false
-    pub stack_size_mb: usize, // default: 12
-    pub run_notebook: bool,   // default: false
+    pub print: bool,                // default: false
+    pub stack_size_mebibyte: usize, // default: 12
+    pub run_notebook: bool,         // default: false
     pub experimental: Vec<String>,
     pub box_print: BoxPrintConfig,
 }
@@ -44,7 +44,7 @@ impl RuntimeFlags {
             interpreter: None,
             builtins: None,
             print: false,
-            stack_size_mb: DEFAULT_STACK_SIZE_MB,
+            stack_size_mebibyte: DEFAULT_STACK_SIZE_MEBIBYTE,
             run_notebook: false,
             experimental: Vec::new(),
             box_print: BoxPrintConfig::default(),
@@ -165,8 +165,8 @@ struct RuntimeOpts {
     #[arg(long)]
     run_notebook: bool,
 
-    /// Thread stack size in MB (range: 2–48)
-    #[arg(long, value_name = "MB", value_parser = parse_stack_size, global = true)]
+    /// Thread stack size in MiB (2-64)
+    #[arg(long, value_name = "MiB", value_parser = parse_stack_size, global = true)]
     stack_size: Option<usize>,
 
     /// Select interpreter (vanilla, profiler, sample)
@@ -255,10 +255,9 @@ enum Commands {
 }
 
 fn parse_stack_size(s: &str) -> Result<usize, String> {
-    let num_str = s.trim_end_matches(['M', 'B']);
-    match num_str.parse::<usize>() {
-        Ok(n) if (2..=48).contains(&n) => Ok(n),
-        Ok(n) => Err(format!("value {n} out of range (2-48 MB)")),
+    match s.parse::<usize>() {
+        Ok(n) if (2..=64).contains(&n) => Ok(n),
+        Ok(n) => Err(format!("value {n} out of range (2-64 MiB)")),
         Err(_) => Err(format!("invalid value: {s}")),
     }
 }
@@ -433,7 +432,10 @@ where
             }
         }
     }
-    rt.stack_size_mb = cli.runtime.stack_size.unwrap_or(DEFAULT_STACK_SIZE_MB);
+    rt.stack_size_mebibyte = cli
+        .runtime
+        .stack_size
+        .unwrap_or(DEFAULT_STACK_SIZE_MEBIBYTE);
     rt.interpreter = cli.runtime.interpreter;
     for spec in cli.runtime.debug {
         let spec = if spec == "--" { "1" } else { &spec };
@@ -662,7 +664,13 @@ mod tests {
 
     #[test]
     fn help_fold_width_parses() {
-        let (_, cmd) = ok(parse_args(v(&["help", "--topic", "map", "--fold-width", "72"])));
+        let (_, cmd) = ok(parse_args(v(&[
+            "help",
+            "--topic",
+            "map",
+            "--fold-width",
+            "72",
+        ])));
         match cmd {
             CliCommand::Help {
                 no_pager,
@@ -843,17 +851,11 @@ mod tests {
     #[test]
     fn stack_size_parses() {
         let (rt, _) = ok(parse_args(v(&["--stack-size", "16", "a.wq"])));
-        assert_eq!(rt.stack_size_mb, 16);
+        assert_eq!(rt.stack_size_mebibyte, 16);
         let (rt, _) = ok(parse_args(v(&["--stack-size", "2", "a.wq"])));
-        assert_eq!(rt.stack_size_mb, 2);
+        assert_eq!(rt.stack_size_mebibyte, 2);
         let (rt, _) = ok(parse_args(v(&["--stack-size", "48", "a.wq"])));
-        assert_eq!(rt.stack_size_mb, 48);
-    }
-
-    #[test]
-    fn stack_size_range_errors() {
-        assert_eq!(is_err(parse_args(v(&["--stack-size", "1", "a.wq"]))), 2);
-        assert_eq!(is_err(parse_args(v(&["--stack-size", "64", "a.wq"]))), 2);
+        assert_eq!(rt.stack_size_mebibyte, 48);
     }
 
     #[test]

@@ -48,22 +48,24 @@ fn main() {
             format_script(&script, opts);
         }
         CliCommand::Exec(ExecSource::Inline(src)) => {
-            spawn_wq_thread(rtflags.stack_size_mb, move || exec::exec_cmd(&src, rtflags));
+            spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
+                exec::exec_cmd(&src, rtflags)
+            });
         }
         CliCommand::Exec(ExecSource::Stdin) => {
             let mut input = String::new();
             let _ = std::io::stdin().read_to_string(&mut input);
-            spawn_wq_thread(rtflags.stack_size_mb, move || {
+            spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
                 exec::exec_cmd(&input, rtflags)
             });
         }
         CliCommand::Script(path) => {
-            spawn_wq_thread(rtflags.stack_size_mb, move || {
+            spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
                 exec::exec_script(&path, rtflags)
             });
         }
         CliCommand::Notebook(path, interactive) => {
-            spawn_wq_thread(rtflags.stack_size_mb, move || {
+            spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
                 note::run_notebook(&path, rtflags, interactive)
             });
         }
@@ -71,7 +73,9 @@ fn main() {
             symbol::run_symbols(&script, &name);
         }
         CliCommand::Repl => {
-            spawn_wq_thread(rtflags.stack_size_mb, move || repl::enter_repl(rtflags));
+            spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
+                repl::enter_repl(rtflags)
+            });
         }
         CliCommand::Dap { script } => {
             dap::run_dap(script);
