@@ -787,7 +787,7 @@ declare_builtins! {
     // ENCODING =========================================================
     (DECODE, Decode, "decode", "decode[bytes;codec;mode?]", "2 3", plain(encoding::decode), BuiltinGroup::Encoding),
     (ENCODE, Encode, "encode", "encode[text;codec;mode?]", "2 3", plain(encoding::encode), BuiltinGroup::Encoding),
-    (VALIDBYTES, ValidBytes, "bytes?", "bytes?[stream]", "1", plain(encoding::is_valid_bytes), BuiltinGroup::Encoding),
+    (VALIDBYTES, ValidBytes, "bytes?", "bytes?[x]", "1", plain(encoding::is_valid_bytes), BuiltinGroup::Encoding),
 
     // FILE IO =========================================================
     #[cfg(not(target_arch = "wasm32"))]

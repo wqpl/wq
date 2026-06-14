@@ -1,6 +1,7 @@
 mod cas;
 mod complex;
 mod core;
+mod encoding;
 #[cfg(not(target_arch = "wasm32"))]
 mod file_io;
 mod fraction;
@@ -14,6 +15,7 @@ mod rand;
 mod set;
 mod string;
 mod viz;
+mod wqtype;
 
 use super::super::model::BuiltinDoc;
 
@@ -33,6 +35,9 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     core::INPUT,
     #[cfg(not(target_arch = "wasm32"))]
     core::EXEC,
+    encoding::DECODE,
+    encoding::ENCODE,
+    encoding::VALID_BYTES,
     core::LEN,
     #[cfg(not(target_arch = "wasm32"))]
     file_io::OPEN,
@@ -210,4 +215,12 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     cas::SOLVE_SYSTEM,
     cas::BRENT,
     cas::NEWTON,
+    wqtype::TYPE,
+    wqtype::TAG,
+    wqtype::BOOL,
+    wqtype::CHAR,
+    wqtype::ATOM_Q,
+    wqtype::UNIT_Q,
+    wqtype::LIST,
+    wqtype::DICT,
 ];
