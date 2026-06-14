@@ -998,7 +998,7 @@ declare_builtins! {
     // Visualization =========================================================
     (SHOWTABLE, Showtable, "showtable", "showtable[table]", "1", plain(viz::show_table), BuiltinGroup::Viz),
     (ASCIIPLOT, Asciiplot, "asciiplot",
-        concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim",
+        concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim;",
             "`symbols;`labels;`mode;`axes;`color;`grid;",
             "`samples;`theme;`complex;`ascii;",
             "`title;`xlabel;`ylabel;`caption]"), "1..", with_context(viz::asciiplot), BuiltinGroup::Viz),

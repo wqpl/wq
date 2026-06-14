@@ -7,6 +7,7 @@ mod listgen;
 mod math;
 mod set;
 mod string;
+mod viz;
 
 use super::super::model::BuiltinDoc;
 
@@ -149,6 +150,8 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     string::L_TRIM,
     string::R_TRIM,
     string::FMT,
+    viz::SHOWTABLE,
+    viz::ASCIIPLOT,
     cas::EQ,
     cas::SIMPLIFY,
     cas::REWRITE,
