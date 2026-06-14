@@ -1,6 +1,7 @@
 mod cas;
 mod complex;
 mod core;
+mod dict;
 mod encoding;
 #[cfg(not(target_arch = "wasm32"))]
 mod file_io;
@@ -108,6 +109,9 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     higher_order::SPLITW,
     higher_order::FINDW,
     higher_order::RFINDW,
+    dict::KEYS,
+    dict::IDX_TO_KEY,
+    dict::KEY_TO_IDX,
     list::SUM,
     list::PRODUCT,
     list::MIN,
