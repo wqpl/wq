@@ -1,5 +1,7 @@
 mod cas;
 mod core;
+#[cfg(not(target_arch = "wasm32"))]
+mod file_io;
 mod higher_order;
 mod intrinsic_op;
 mod list;
@@ -28,6 +30,32 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     #[cfg(not(target_arch = "wasm32"))]
     core::EXEC,
     core::LEN,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::OPEN,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::FEXISTS_Q,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::MKDIR,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::FSIZE,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::FWRITE,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::FWRITET,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::FREAD,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::FREADT,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::FREADTLN,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::FREADTLNS,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::FSEEK,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::FTELL,
+    #[cfg(not(target_arch = "wasm32"))]
+    file_io::FCLOSE,
     intrinsic_op::OP_ADD,
     intrinsic_op::OP_SUB,
     intrinsic_op::OP_MUL,

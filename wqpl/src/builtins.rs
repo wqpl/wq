@@ -799,7 +799,7 @@ declare_builtins! {
         (FWRITE, Fwrite, "fwrite", "fwrite[stream;bytes]", "2", plain(io::fwrite), BuiltinGroup::FileIO),
         (FWRITET, Fwritet, "fwritet", "fwritet[stream;text]", "2", plain(io::fwritet), BuiltinGroup::FileIO),
         (FREAD, Fread, "fread", "fread[stream;len?]", "1 2", plain(io::fread), BuiltinGroup::FileIO),
-        (FREADT, Freadt, "freadt", "freadt[stream;len]", "1 2", plain(io::freadt), BuiltinGroup::FileIO),
+        (FREADT, Freadt, "freadt", "freadt[stream;len?]", "1 2", plain(io::freadt), BuiltinGroup::FileIO),
         (FREADTLN, Freadtln, "freadtln", "freadtln[stream]", "1", plain(io::freadtln), BuiltinGroup::FileIO),
         (FREADTLNS, Freadtlns, "freadtlns", "freadtlns[stream]", "1", plain(io::freadtlns), BuiltinGroup::FileIO),
         (FSEEK, Fseek, "fseek", "fseek[stream;offset;whence?]", "2 3", plain(io::fseek), BuiltinGroup::FileIO),
