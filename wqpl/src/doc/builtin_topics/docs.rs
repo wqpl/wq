@@ -7,6 +7,7 @@ mod intrinsic_op;
 mod list;
 mod listgen;
 mod math;
+mod meta;
 mod set;
 mod string;
 mod viz;
@@ -56,6 +57,10 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     file_io::FTELL,
     #[cfg(not(target_arch = "wasm32"))]
     file_io::FCLOSE,
+    meta::STRONG_COUNT,
+    meta::SHAPE,
+    meta::DEPTH,
+    meta::UNIFORM_Q,
     intrinsic_op::OP_ADD,
     intrinsic_op::OP_SUB,
     intrinsic_op::OP_MUL,
