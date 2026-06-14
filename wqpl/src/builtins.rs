@@ -815,7 +815,6 @@ declare_builtins! {
     (UNIFORM_Q, UniformQ, "uniform?", "uniform?[xs]", "1", plain(meta::is_uniform), BuiltinGroup::Meta),
 
     // List =========================================================
-
     (SUM, Sum, "sum", "sum[xs*]", "1..", plain(list::sum), BuiltinGroup::List),
     (PRODUCT, Product, "product", "product[xs*]", "1..", plain(list::product), BuiltinGroup::List),
     (MIN, Min, "min", "min[xs], min[xs;ys+]", "1..", plain(list::min), BuiltinGroup::List),
