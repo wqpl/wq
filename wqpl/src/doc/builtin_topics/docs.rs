@@ -1,13 +1,16 @@
 mod cas;
+mod complex;
 mod core;
 #[cfg(not(target_arch = "wasm32"))]
 mod file_io;
+mod fraction;
 mod higher_order;
 mod intrinsic_op;
 mod list;
 mod listgen;
 mod math;
 mod meta;
+mod rand;
 mod set;
 mod string;
 mod viz;
@@ -160,6 +163,13 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     math::ELLIE,
     math::HEAVISIDE,
     math::DELTA,
+    rand::RAND,
+    complex::COMPLEX,
+    complex::RE,
+    complex::IM,
+    complex::CONJ,
+    fraction::FRACTION,
+    fraction::FRACTIONL,
     set::UNIQUE,
     set::UNION,
     set::INTERSECT,
