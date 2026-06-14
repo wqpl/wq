@@ -58,6 +58,29 @@ fn topic_flag_bypasses_subcommand_help() -> Result<()> {
 }
 
 #[test]
+fn reference_docs_fold_at_requested_width() -> Result<()> {
+    let output = Command::cargo_bin("wq")
+        .context("cargo_bin('wq') failed")?
+        .args([
+            "help",
+            "--no-pager",
+            "--topic",
+            "rand",
+            "--fold-width",
+            "50",
+        ])
+        .output()
+        .context("run wq help --topic rand --fold-width 50")?;
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).context("stdout is utf8")?;
+    assert!(stdout.contains(
+        "`rand[]` returns a float in the half-open range\n`0.0..1.0`."
+    ));
+    Ok(())
+}
+
+#[test]
 fn builtin_and_keyword_docs_render() -> Result<()> {
     let map = Command::cargo_bin("wq")
         .context("cargo_bin('wq') failed")?

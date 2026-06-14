@@ -85,6 +85,7 @@ pub enum CliCommand {
         no_pager: bool,
         topic: Option<String>,
         prefer_doc_topic: bool,
+        fold_width: Option<usize>,
     },
 }
 
@@ -242,6 +243,9 @@ enum Commands {
         /// Print directly instead of using $PAGER for reference docs
         #[arg(long)]
         no_pager: bool,
+        /// Fold reference docs at this many columns (default: terminal width)
+        #[arg(long, value_name = "COLS", value_parser = parse_fold_width)]
+        fold_width: Option<usize>,
         /// Reference topic to resolve directly, even when it matches a command
         #[arg(long = "topic", value_name = "TOPIC", conflicts_with = "topic")]
         doc_topic: Option<String>,
@@ -255,6 +259,14 @@ fn parse_stack_size(s: &str) -> Result<usize, String> {
     match num_str.parse::<usize>() {
         Ok(n) if (2..=48).contains(&n) => Ok(n),
         Ok(n) => Err(format!("value {n} out of range (2-48 MB)")),
+        Err(_) => Err(format!("invalid value: {s}")),
+    }
+}
+
+fn parse_fold_width(s: &str) -> Result<usize, String> {
+    match s.parse::<usize>() {
+        Ok(n) if n > 0 => Ok(n),
+        Ok(_) => Err("value must be at least 1".to_string()),
         Err(_) => Err(format!("invalid value: {s}")),
     }
 }
@@ -482,12 +494,14 @@ where
             }
             Commands::Help {
                 no_pager,
+                fold_width,
                 topic,
                 doc_topic,
             } => CliCommand::Help {
                 no_pager,
                 prefer_doc_topic: doc_topic.is_some(),
                 topic: doc_topic.or(topic),
+                fold_width,
             },
         }
     } else if let Some(path) = cli.script {
@@ -631,15 +645,40 @@ mod tests {
                 no_pager,
                 topic,
                 prefer_doc_topic,
+                fold_width,
             } => {
                 assert!(!no_pager);
                 assert_eq!(topic.as_deref(), Some("exec"));
                 assert!(prefer_doc_topic);
+                assert_eq!(fold_width, None);
             }
             _ => panic!("expected Help"),
         }
         assert_eq!(
             is_err(parse_args(v(&["help", "exec", "--topic", "fmt"]))),
+            2
+        );
+    }
+
+    #[test]
+    fn help_fold_width_parses() {
+        let (_, cmd) = ok(parse_args(v(&["help", "--topic", "map", "--fold-width", "72"])));
+        match cmd {
+            CliCommand::Help {
+                no_pager,
+                topic,
+                prefer_doc_topic,
+                fold_width,
+            } => {
+                assert!(!no_pager);
+                assert_eq!(topic.as_deref(), Some("map"));
+                assert!(prefer_doc_topic);
+                assert_eq!(fold_width, Some(72));
+            }
+            _ => panic!("expected Help"),
+        }
+        assert_eq!(
+            is_err(parse_args(v(&["help", "map", "--fold-width", "0"]))),
             2
         );
     }

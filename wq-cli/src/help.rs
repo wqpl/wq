@@ -1,12 +1,18 @@
 use std::io::{IsTerminal as _, Write as _};
 use std::process::{Command, Stdio};
 
+use terminal_size::{Width, terminal_size};
 use wqpl::doc::{self, DocRenderTarget};
 
 use crate::repl::editor::WqReplHighlighter;
 use crate::{arg, note};
 
-pub fn run(topic: Option<String>, no_pager: bool, prefer_doc_topic: bool) {
+pub fn run(
+    topic: Option<String>,
+    no_pager: bool,
+    prefer_doc_topic: bool,
+    fold_width: Option<usize>,
+) {
     if !prefer_doc_topic && let Some(text) = arg::render_cli_help(topic.as_deref()) {
         print!("{text}");
         return;
@@ -21,10 +27,24 @@ pub fn run(topic: Option<String>, no_pager: bool, prefer_doc_topic: bool) {
         std::process::exit(2);
     };
 
-    let markdown = doc::render_markdown(&topic, DocRenderTarget::Cli);
+    let markdown = doc::render_markdown_with_options(
+        &topic,
+        DocRenderTarget::Cli,
+        doc::MarkdownRenderOptions {
+            fold_width: resolve_fold_width(fold_width, detected_terminal_width()),
+        },
+    );
     let highlighter = WqReplHighlighter::new();
     let rendered = note::render_markdown_document(&markdown, Some(&highlighter));
     print_or_page(&rendered, no_pager);
+}
+
+fn resolve_fold_width(explicit: Option<usize>, detected: Option<usize>) -> Option<usize> {
+    explicit.or_else(|| detected.filter(|width| *width > 0))
+}
+
+fn detected_terminal_width() -> Option<usize> {
+    terminal_size().map(|(Width(width), _)| width as usize)
 }
 
 pub(crate) fn print_or_page(text: &str, no_pager: bool) {
@@ -59,5 +79,22 @@ pub(crate) fn print_or_page(text: &str, no_pager: bool) {
 
     if child.wait().is_err() {
         println!("{text}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_fold_width;
+
+    #[test]
+    fn explicit_fold_width_wins() {
+        assert_eq!(resolve_fold_width(Some(60), Some(80)), Some(60));
+    }
+
+    #[test]
+    fn detected_fold_width_is_used_when_explicit_is_absent() {
+        assert_eq!(resolve_fold_width(None, Some(80)), Some(80));
+        assert_eq!(resolve_fold_width(None, Some(0)), None);
+        assert_eq!(resolve_fold_width(None, None), None);
     }
 }

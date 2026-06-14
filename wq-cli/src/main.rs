@@ -80,8 +80,9 @@ fn main() {
             no_pager,
             topic,
             prefer_doc_topic,
+            fold_width,
         } => {
-            help::run(topic, no_pager, prefer_doc_topic);
+            help::run(topic, no_pager, prefer_doc_topic, fold_width);
         }
     }
 }

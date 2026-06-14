@@ -517,7 +517,15 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::Help(opt) => {
                         if let Some(name) = opt {
                             if let Some(topic) = doc::resolve(&name) {
-                                let markdown = doc::render_markdown(&topic, DocRenderTarget::Cli);
+                                let markdown = doc::render_markdown_with_options(
+                                    &topic,
+                                    DocRenderTarget::Cli,
+                                    doc::MarkdownRenderOptions {
+                                        fold_width: terminal_size()
+                                            .map(|(Width(width), _)| width as usize)
+                                            .filter(|width| *width > 0),
+                                    },
+                                );
                                 println!(
                                     "{}",
                                     note::render_markdown_document(&markdown, Some(&highlighter))

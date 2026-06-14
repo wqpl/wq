@@ -10,4 +10,4 @@ mod tests;
 pub use builtin_topics::builtin_topic;
 pub use model::{DocExample, DocKind, DocRenderTarget, DocTopic, ExampleExpectation};
 pub use registry::{all_topics, resolve, topics_by_group};
-pub use render::render_markdown;
+pub use render::{MarkdownRenderOptions, render_markdown, render_markdown_with_options};
