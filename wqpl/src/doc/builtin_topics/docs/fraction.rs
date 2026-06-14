@@ -1,6 +1,5 @@
-use crate::builtins::BuiltinEnum;
-
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
+use crate::builtins::BuiltinEnum;
 
 const FRACTION_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Build and reduce a fraction",

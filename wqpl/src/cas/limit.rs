@@ -593,11 +593,13 @@ fn combine_product_limits(factors: &[(Value, Value)]) -> ProductResult {
             .map(|v| v < 0.0)
             .unwrap_or(false);
         if neg_coeff {
-            return ProductResult::Determinate(Value::from_cas_const(if sign == CasConst::Infinity {
-                CasConst::NegInfinity
-            } else {
-                CasConst::Infinity
-            }));
+            return ProductResult::Determinate(Value::from_cas_const(
+                if sign == CasConst::Infinity {
+                    CasConst::NegInfinity
+                } else {
+                    CasConst::Infinity
+                },
+            ));
         }
         return ProductResult::Determinate(Value::from_cas_const(sign));
     }
@@ -1258,10 +1260,7 @@ mod tests {
     fn limit_sin_x_over_x_lhopital() {
         // limit(sin(x)/x, x→0) = 1
         // 0/0 → diff: cos(x)/1 → sub 0 → 1
-        let expr = cas_div_expr(
-            call(CasFunction::Sin, vec![cas_var("x")]),
-            cas_var("x"),
-        );
+        let expr = cas_div_expr(call(CasFunction::Sin, vec![cas_var("x")]), cas_var("x"));
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
         assert_eq!(result.as_f64().unwrap(), 1.0);
     }
@@ -1272,10 +1271,7 @@ mod tests {
         // 0/0 → diff: sin(x)/1 → sub 0 → 0
         let num = op(
             CasOp::Subtract,
-            vec![
-                Value::Int(1),
-                call(CasFunction::Cos, vec![cas_var("x")]),
-            ],
+            vec![Value::Int(1), call(CasFunction::Cos, vec![cas_var("x")])],
         );
         let expr = cas_div_expr(num, cas_var("x"));
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
@@ -1289,10 +1285,7 @@ mod tests {
         // (ln(e)→1 fix makes diff(e^x) = e^x, not ln(e)*e^x)
         let num = op(
             CasOp::Subtract,
-            vec![
-                call(CasFunction::Exp, vec![cas_var("x")]),
-                Value::Int(1),
-            ],
+            vec![call(CasFunction::Exp, vec![cas_var("x")]), Value::Int(1)],
         );
         let expr = cas_div_expr(num, cas_var("x"));
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
@@ -1303,10 +1296,7 @@ mod tests {
     fn limit_tan_x_over_x() {
         // limit(tan(x)/x, x→0) = 1
         // 0/0 → diff: sec^2(x)/1 → sub 0 → 1
-        let expr = cas_div_expr(
-            call(CasFunction::Tan, vec![cas_var("x")]),
-            cas_var("x"),
-        );
+        let expr = cas_div_expr(call(CasFunction::Tan, vec![cas_var("x")]), cas_var("x"));
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
         assert_eq!(result.as_f64().unwrap(), 1.0);
     }
@@ -1526,10 +1516,7 @@ mod tests {
     #[test]
     fn limit_x_over_exp_x_at_infinity() {
         // limit(x/exp(x), x→∞) = 0 — ∞/∞ L'Hôpital via split_inf_times_zero_product.
-        let expr = cas_div_expr(
-            cas_var("x"),
-            call(CasFunction::Exp, vec![cas_var("x")]),
-        );
+        let expr = cas_div_expr(cas_var("x"), call(CasFunction::Exp, vec![cas_var("x")]));
         let result = limit_cas(&expr, &cas_var("x"), &oo(), None).unwrap();
         assert_eq!(result, Value::Int(0));
     }
@@ -1588,10 +1575,7 @@ mod tests {
         // limit((tan(x)-x)/x^3, x→0) = 1/3  (series expansion)
         let num = op(
             CasOp::Subtract,
-            vec![
-                call(CasFunction::Tan, vec![cas_var("x")]),
-                cas_var("x"),
-            ],
+            vec![call(CasFunction::Tan, vec![cas_var("x")]), cas_var("x")],
         );
         let den = op(CasOp::Power, vec![cas_var("x"), Value::Int(3)]);
         let expr = cas_div_expr(num, den);
@@ -1604,10 +1588,7 @@ mod tests {
         // limit((sin(x)-x)/x^3, x→0) = -1/6  (series: -x^3/6 / x^3)
         let num = op(
             CasOp::Subtract,
-            vec![
-                call(CasFunction::Sin, vec![cas_var("x")]),
-                cas_var("x"),
-            ],
+            vec![call(CasFunction::Sin, vec![cas_var("x")]), cas_var("x")],
         );
         let den = op(CasOp::Power, vec![cas_var("x"), Value::Int(3)]);
         let expr = cas_div_expr(num, den);
@@ -1620,10 +1601,7 @@ mod tests {
         // limit((cos(x)-1)/x^2, x→0) = -1/2  (series: -x^2/2 / x^2)
         let num = op(
             CasOp::Subtract,
-            vec![
-                call(CasFunction::Cos, vec![cas_var("x")]),
-                Value::Int(1),
-            ],
+            vec![call(CasFunction::Cos, vec![cas_var("x")]), Value::Int(1)],
         );
         let den = op(CasOp::Power, vec![cas_var("x"), Value::Int(2)]);
         let expr = cas_div_expr(num, den);
@@ -1639,10 +1617,7 @@ mod tests {
             vec![
                 op(
                     CasOp::Subtract,
-                    vec![
-                        call(CasFunction::Exp, vec![cas_var("x")]),
-                        Value::Int(1),
-                    ],
+                    vec![call(CasFunction::Exp, vec![cas_var("x")]), Value::Int(1)],
                 ),
                 cas_var("x"),
             ],
@@ -1872,8 +1847,7 @@ mod tests {
             Some(LimitDirection::Right),
         );
         let (expr, var, point, dir) = original.cas_limit_parts().unwrap();
-        let reconstructed =
-            Value::from_cas_limit(expr.clone(), var.clone(), point.clone(), dir);
+        let reconstructed = Value::from_cas_limit(expr.clone(), var.clone(), point.clone(), dir);
         assert_eq!(original, reconstructed);
     }
 }

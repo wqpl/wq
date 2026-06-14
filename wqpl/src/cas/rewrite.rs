@@ -449,7 +449,10 @@ fn combine_logs_in_sum(args: &[Value]) -> WqResult<Option<Value>> {
     if log_args.len() < 2 {
         return Ok(None);
     }
-    other_terms.push(Value::from_cas_function(CasFunction::Ln, vec![cas_mul(log_args)?]));
+    other_terms.push(Value::from_cas_function(
+        CasFunction::Ln,
+        vec![cas_mul(log_args)?],
+    ));
     Ok(Some(cas_add(other_terms)?))
 }
 
@@ -501,9 +504,9 @@ fn rewrite_sgn_abs_product(args: &[Value]) -> WqResult<Option<Value>> {
                 op == CasOp::Power
                     && a2.len() == 2
                     && a2[1].exact_int_is(-1)
-                    && a2[0]
-                        .cas_function_parts()
-                        .is_some_and(|(n, a3)| n == CasFunction::Abs && a3.len() == 1 && a3[0] == *a)
+                    && a2[0].cas_function_parts().is_some_and(|(n, a3)| {
+                        n == CasFunction::Abs && a3.len() == 1 && a3[0] == *a
+                    })
             });
 
         if is_sgn {
@@ -1004,13 +1007,17 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
         return Ok(None);
     };
     let rewritten = match (name, args) {
-        (CasFunction::Ln, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::Exp, [_]))) => {
+        (CasFunction::Ln, [arg])
+            if matches!(arg.cas_function_parts(), Some((CasFunction::Exp, [_]))) =>
+        {
             let Some((_, [inner])) = arg.cas_function_parts() else {
                 unreachable!("matched exp call")
             };
             Some(inner.clone())
         }
-        (CasFunction::Exp, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::Ln, [_]))) => {
+        (CasFunction::Exp, [arg])
+            if matches!(arg.cas_function_parts(), Some((CasFunction::Ln, [_]))) =>
+        {
             let Some((_, [inner])) = arg.cas_function_parts() else {
                 unreachable!("matched ln call")
             };
@@ -1025,28 +1032,36 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
                 Value::from_cas_function(CasFunction::Ln, vec![base.clone()]),
             ])?)
         }
-        (CasFunction::Sin, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::ArcSin, [_]))) => {
+        (CasFunction::Sin, [arg])
+            if matches!(arg.cas_function_parts(), Some((CasFunction::ArcSin, [_]))) =>
+        {
             // sin(arcsin(t)) = t
             let Some((CasFunction::ArcSin, [inner])) = arg.cas_function_parts() else {
                 unreachable!()
             };
             Some(inner.clone())
         }
-        (CasFunction::Cos, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::ArcCos, [_]))) => {
+        (CasFunction::Cos, [arg])
+            if matches!(arg.cas_function_parts(), Some((CasFunction::ArcCos, [_]))) =>
+        {
             // cos(arccos(t)) = t
             let Some((CasFunction::ArcCos, [inner])) = arg.cas_function_parts() else {
                 unreachable!()
             };
             Some(inner.clone())
         }
-        (CasFunction::Tan, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::ArcTan, [_]))) => {
+        (CasFunction::Tan, [arg])
+            if matches!(arg.cas_function_parts(), Some((CasFunction::ArcTan, [_]))) =>
+        {
             // tan(arctan(t)) = t
             let Some((CasFunction::ArcTan, [inner])) = arg.cas_function_parts() else {
                 unreachable!()
             };
             Some(inner.clone())
         }
-        (CasFunction::Sin, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::ArcCos, [_]))) => {
+        (CasFunction::Sin, [arg])
+            if matches!(arg.cas_function_parts(), Some((CasFunction::ArcCos, [_]))) =>
+        {
             // sin(arccos(t)) = sqrt(1 - t^2)
             let Some((CasFunction::ArcCos, [inner])) = arg.cas_function_parts() else {
                 unreachable!()
@@ -1056,7 +1071,9 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
                 Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
             )?)
         }
-        (CasFunction::Cos, [arg]) if matches!(arg.cas_function_parts(), Some((CasFunction::ArcSin, [_]))) => {
+        (CasFunction::Cos, [arg])
+            if matches!(arg.cas_function_parts(), Some((CasFunction::ArcSin, [_]))) =>
+        {
             // cos(arcsin(t)) = sqrt(1 - t^2)
             let Some((CasFunction::ArcSin, [inner])) = arg.cas_function_parts() else {
                 unreachable!()
@@ -1068,7 +1085,10 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
         }
         (CasFunction::Sin, [arg]) => {
             if let Some(inner) = extract_unit_negative(arg) {
-                Some(cas_neg(Value::from_cas_function(CasFunction::Sin, vec![inner]))?)
+                Some(cas_neg(Value::from_cas_function(
+                    CasFunction::Sin,
+                    vec![inner],
+                ))?)
             } else if let Some(shifted) = take_additive_constant(arg, std::f64::consts::FRAC_PI_2) {
                 Some(Value::from_cas_function(CasFunction::Cos, vec![shifted]))
             } else {
@@ -1087,10 +1107,8 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
                 }
             }
         }
-        (CasFunction::Cos, [arg]) => {
-            extract_unit_negative(arg)
-                .map(|inner| Value::from_cas_function(CasFunction::Cos, vec![inner]))
-        }
+        (CasFunction::Cos, [arg]) => extract_unit_negative(arg)
+            .map(|inner| Value::from_cas_function(CasFunction::Cos, vec![inner])),
         (CasFunction::Abs, [arg]) => {
             if is_provably_positive(arg) {
                 Some(arg.clone())

@@ -11,10 +11,10 @@ use num_traits::ToPrimitive as _;
 
 use super::byparts::try_extract_exp_arg;
 use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div,
-    numeric_add, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
-    poly_degree, poly_derivative, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul,
-    poly_sub, poly_to_expr, poly_trim, simplify_cas_value,
+    cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div, numeric_add,
+    numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub, poly_degree,
+    poly_derivative, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul, poly_sub,
+    poly_to_expr, poly_trim, simplify_cas_value,
 };
 use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
@@ -871,7 +871,10 @@ mod tests {
             CasOp::Add,
             vec![
                 op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(4)]),
-                op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
+                op(
+                    CasOp::Multiply,
+                    vec![Value::Int(2), Value::from_cas_var("x")],
+                ),
             ],
         );
         // g = 1/3 * x^3 (Fraction, not Float)
@@ -882,7 +885,10 @@ mod tests {
                 op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(3)]),
             ],
         );
-        let expr = op(CasOp::Multiply, vec![f_expr, call(CasFunction::Exp, vec![g_expr])]);
+        let expr = op(
+            CasOp::Multiply,
+            vec![f_expr, call(CasFunction::Exp, vec![g_expr])],
+        );
 
         let result = super::integrate_liouville(&expr, "x").unwrap().unwrap();
         // Should be x²·e^(x³/3), equiv to (x²)*exp(x³/3)
@@ -942,7 +948,10 @@ mod tests {
     #[test]
     fn test_liouville_rational_1_over_x_times_exp() {
         let f = op(CasOp::Divide, vec![Value::Int(1), Value::from_cas_var("x")]);
-        let g = op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]);
+        let g = op(
+            CasOp::Multiply,
+            vec![Value::Int(2), Value::from_cas_var("x")],
+        );
         let expr = op(CasOp::Multiply, vec![f, call(CasFunction::Exp, vec![g])]);
         let result = super::integrate_liouville(&expr, "x");
         // Should return Ei(2x) or fall through gracefully
@@ -1218,10 +1227,7 @@ mod tests {
         );
         let numer = op(
             CasOp::Add,
-            vec![
-                two_x4,
-                op(CasOp::Add, vec![three_x2, Value::Int(-1)]),
-            ],
+            vec![two_x4, op(CasOp::Add, vec![three_x2, Value::Int(-1)])],
         );
         let f = op(CasOp::Divide, vec![numer, denom]);
         let g = op(CasOp::Power, vec![xv, Value::Int(2)]);

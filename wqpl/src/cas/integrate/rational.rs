@@ -7,8 +7,8 @@ use crate::cas::{
     cas_add, cas_div, cas_err, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div,
     numeric_add, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
     poly_add, poly_degree, poly_derivative, poly_divide, poly_evaluate, poly_from_expr, poly_gcd,
-    poly_interpolate, poly_is_zero, poly_mul, poly_neg, poly_resultant, poly_scalar_mul,
-    poly_sub, poly_to_expr, poly_trim, simplify_cas_value,
+    poly_interpolate, poly_is_zero, poly_mul, poly_neg, poly_resultant, poly_scalar_mul, poly_sub,
+    poly_to_expr, poly_trim, simplify_cas_value,
 };
 use crate::value::algebraic::AlgebraicData;
 use crate::value::cas::{CasFunction, CasOp};
@@ -394,7 +394,10 @@ fn try_integrate_binomial(numer: &[Value], denom: &[Value], var: &str) -> WqResu
     let x_minus_root = cas_sub(x_val.clone(), root.clone())?;
     let ln_abs = Value::from_cas_function(
         CasFunction::Ln,
-        vec![Value::from_cas_function(CasFunction::Abs, vec![x_minus_root])],
+        vec![Value::from_cas_function(
+            CasFunction::Abs,
+            vec![x_minus_root],
+        )],
     );
     let one_val = Value::Int(1);
     let real_coeff = simplify_cas_value(&cas_div(one_val.clone(), denom_factor.clone())?)?;
@@ -1731,7 +1734,10 @@ fn solve_linear_coeffs_mod_quadratic(
     // | -a_d*b + b_d    a_d | | A |   | a_n |
     // | -a_d*c          b_d | | B | = | b_n |
 
-    let m11 = numeric_mul(&numeric_mul(&a_d, &numeric_mul(b, &Value::Int(-1))?)?, &Value::Int(1))?;
+    let m11 = numeric_mul(
+        &numeric_mul(&a_d, &numeric_mul(b, &Value::Int(-1))?)?,
+        &Value::Int(1),
+    )?;
     let m11 = numeric_add(&m11, &b_d)?; // -a_d*b + b_d
     let m12 = a_d.clone();
     let m21 = numeric_mul(&a_d, &numeric_mul(c, &Value::Int(-1))?)?; // -a_d*c
@@ -1938,7 +1944,10 @@ fn sqrt_of_value(value: &Value) -> Option<Value> {
             if (f - f.round()).abs() < 1e-12 {
                 Some(Value::Int(f.round() as i64))
             } else if f.is_finite() {
-                Some(Value::from_cas_function(CasFunction::Sqrt, vec![value.clone()]))
+                Some(Value::from_cas_function(
+                    CasFunction::Sqrt,
+                    vec![value.clone()],
+                ))
             } else {
                 None
             }
@@ -1956,7 +1965,10 @@ fn sqrt_of_value(value: &Value) -> Option<Value> {
             if (f - f.round()).abs() < 1e-12 {
                 Some(Value::Int(f.round() as i64))
             } else if f.is_finite() {
-                Some(Value::from_cas_function(CasFunction::Sqrt, vec![value.clone()]))
+                Some(Value::from_cas_function(
+                    CasFunction::Sqrt,
+                    vec![value.clone()],
+                ))
             } else {
                 None
             }
@@ -1968,7 +1980,10 @@ fn sqrt_of_value(value: &Value) -> Option<Value> {
             if (f - f.round()).abs() < 1e-12 {
                 Some(Value::Int(f.round() as i64))
             } else if f.is_finite() {
-                Some(Value::from_cas_function(CasFunction::Sqrt, vec![value.clone()]))
+                Some(Value::from_cas_function(
+                    CasFunction::Sqrt,
+                    vec![value.clone()],
+                ))
             } else {
                 None
             }
@@ -2227,12 +2242,10 @@ mod tests {
         let r = poly_interpolate(&points).unwrap();
         assert_eq!(poly_degree(&r), 1);
         assert!(numeric_is_zero(
-            &numeric_sub(&poly_evaluate(&r, &Value::Int(0)).unwrap(), &Value::Int(1))
-            .unwrap()
+            &numeric_sub(&poly_evaluate(&r, &Value::Int(0)).unwrap(), &Value::Int(1)).unwrap()
         ));
         assert!(numeric_is_zero(
-            &numeric_sub(&poly_evaluate(&r, &Value::Int(1)).unwrap(), &Value::Int(3))
-            .unwrap()
+            &numeric_sub(&poly_evaluate(&r, &Value::Int(1)).unwrap(), &Value::Int(3)).unwrap()
         ));
     }
 
@@ -2247,16 +2260,13 @@ mod tests {
         let r = poly_interpolate(&points).unwrap();
         assert_eq!(poly_degree(&r), 2);
         assert!(numeric_is_zero(
-            &numeric_sub(&poly_evaluate(&r, &Value::Int(0)).unwrap(), &Value::Int(1))
-            .unwrap()
+            &numeric_sub(&poly_evaluate(&r, &Value::Int(0)).unwrap(), &Value::Int(1)).unwrap()
         ));
         assert!(numeric_is_zero(
-            &numeric_sub(&poly_evaluate(&r, &Value::Int(1)).unwrap(), &Value::Int(2))
-            .unwrap()
+            &numeric_sub(&poly_evaluate(&r, &Value::Int(1)).unwrap(), &Value::Int(2)).unwrap()
         ));
         assert!(numeric_is_zero(
-            &numeric_sub(&poly_evaluate(&r, &Value::Int(2)).unwrap(), &Value::Int(5))
-            .unwrap()
+            &numeric_sub(&poly_evaluate(&r, &Value::Int(2)).unwrap(), &Value::Int(5)).unwrap()
         ));
     }
 

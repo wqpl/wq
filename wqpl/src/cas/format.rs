@@ -7,8 +7,8 @@ use super::limit::LimitDirection;
 use super::numeric::{
     numeric_abs, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul,
 };
-use crate::value::cas::{CasConst, CasOp};
 use crate::value::Value;
+use crate::value::cas::{CasConst, CasOp};
 
 fn precedence(value: &Value) -> u8 {
     match value.cas_known_op_parts() {

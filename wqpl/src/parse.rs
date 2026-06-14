@@ -11,7 +11,6 @@ use crate::cst::{
 };
 use crate::lex::Lexer;
 use crate::token::{Token, TokenType};
-
 use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{IntoWqValue, Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
@@ -3438,7 +3437,10 @@ impl Parser {
                 operator: UnaryOperator::Negate,
                 operand,
                 ..
-            } => cas_unary_expr(CasOp::Subtract, &self.quote_symbolic_value(*operand, start)?),
+            } => cas_unary_expr(
+                CasOp::Subtract,
+                &self.quote_symbolic_value(*operand, start)?,
+            ),
             UnaryOp {
                 operator: UnaryOperator::Count,
                 ..
@@ -3520,8 +3522,9 @@ impl Parser {
                             .into_iter()
                             .map(|arg| self.quote_symbolic_value(arg, start))
                             .collect::<WqResult<Vec<_>>>()?;
-                        args.into_iter()
-                            .try_fold(value, |acc, arg| cas_binary_expr(CasOp::Multiply, &acc, &arg))
+                        args.into_iter().try_fold(value, |acc, arg| {
+                            cas_binary_expr(CasOp::Multiply, &acc, &arg)
+                        })
                     }
                     _ => Err(mk_err(
                         object_span,
@@ -4291,7 +4294,9 @@ mod symbolic_quote_tests {
             panic!("expected CAS literal, got {ast:?}");
         };
         assert!(value.is_cas_expr());
-        let (head, args) = value.cas_apply_parts().expect("expected symbolic application");
+        let (head, args) = value
+            .cas_apply_parts()
+            .expect("expected symbolic application");
         assert_eq!(head.as_str(), "f");
         assert_eq!(args, [Value::from_cas_var("x")]);
         assert_eq!(value.to_string(), "f[x]");
@@ -4303,7 +4308,9 @@ mod symbolic_quote_tests {
         let AstNode::Literal(value, _) = ast else {
             panic!("expected CAS literal, got {ast:?}");
         };
-        let (head, args) = value.cas_apply_parts().expect("expected symbolic application");
+        let (head, args) = value
+            .cas_apply_parts()
+            .expect("expected symbolic application");
         assert_eq!(head.as_str(), "f");
         assert_eq!(args.len(), 2);
         assert_eq!(value.to_string(), "f[x + 1;sin[y]]");

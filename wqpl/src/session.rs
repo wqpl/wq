@@ -600,9 +600,7 @@ mod tests {
 
     #[test]
     fn evals_long_left_deep_binary_chain() {
-        let terms = std::iter::repeat_n("a", 512)
-            .collect::<Vec<_>>()
-            .join("+");
+        let terms = std::iter::repeat_n("a", 512).collect::<Vec<_>>().join("+");
         let code = format!("a:1\nb:2\nc:{terms}");
         let mut session = Session::new();
 
@@ -613,9 +611,7 @@ mod tests {
 
     #[test]
     fn symbols_handle_long_left_deep_binary_chain() {
-        let terms = std::iter::repeat_n("a", 512)
-            .collect::<Vec<_>>()
-            .join("+");
+        let terms = std::iter::repeat_n("a", 512).collect::<Vec<_>>().join("+");
         let code = format!("a:1\nb:2\nc:{terms}");
         let session = Session::new();
 

@@ -638,7 +638,10 @@ mod tests {
             }
             _ => panic!("expected Help"),
         }
-        assert_eq!(is_err(parse_args(v(&["help", "exec", "--topic", "fmt"]))), 2);
+        assert_eq!(
+            is_err(parse_args(v(&["help", "exec", "--topic", "fmt"]))),
+            2
+        );
     }
 
     #[test]

@@ -684,7 +684,7 @@ mod tests {
             CasFunction::Sqrt,
             vec![Value::Int(2)],
         ))
-            .expect("sqrt[2] should simplify");
+        .expect("sqrt[2] should simplify");
         let factors = factor_quadratic_complex(&[Value::Int(1), sqrt2, Value::Int(1)])
             .expect("quadratic should factor over complex numbers");
 

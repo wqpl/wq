@@ -189,7 +189,10 @@ mod tests {
         let expr = Value::from_cas_var("x");
         assert_eq!(extract_linear_coeff(&expr, "x"), Some(Value::Int(1)));
 
-        let expr = op(CasOp::Multiply, vec![Value::Int(3), Value::from_cas_var("x")]);
+        let expr = op(
+            CasOp::Multiply,
+            vec![Value::Int(3), Value::from_cas_var("x")],
+        );
         assert_eq!(extract_linear_coeff(&expr, "x"), Some(Value::Int(3)));
     }
 
@@ -198,7 +201,10 @@ mod tests {
         let expr = op(
             CasOp::Add,
             vec![
-                op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
+                op(
+                    CasOp::Multiply,
+                    vec![Value::Int(2), Value::from_cas_var("x")],
+                ),
                 Value::Int(1),
             ],
         );

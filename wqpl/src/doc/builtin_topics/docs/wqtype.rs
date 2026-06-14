@@ -1,6 +1,5 @@
-use crate::builtins::BuiltinEnum;
-
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
+use crate::builtins::BuiltinEnum;
 
 const TYPE_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Inspect a value category",

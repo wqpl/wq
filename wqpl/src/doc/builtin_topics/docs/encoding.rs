@@ -1,6 +1,5 @@
-use crate::builtins::BuiltinEnum;
-
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
+use crate::builtins::BuiltinEnum;
 
 const DECODE_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Decode UTF-8 bytes",

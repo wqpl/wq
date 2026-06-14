@@ -1,9 +1,7 @@
-use crate::builtins::BuiltinEnum;
+use super::{all_topics, builtin_topic, render_markdown, resolve};
+use crate::builtins::{BuiltinEnum, Builtins};
 use crate::doc::{DocExample, DocRenderTarget, DocTopic, ExampleExpectation};
 use crate::session::Session;
-
-use super::{all_topics, builtin_topic, render_markdown, resolve};
-use crate::builtins::Builtins;
 
 #[test]
 fn every_builtin_has_a_doc_topic() {

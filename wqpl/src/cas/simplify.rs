@@ -1132,10 +1132,10 @@ fn combine_log_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
             {
                 // Combine: coeff_i * pref * ln|arg_i/arg_j|
                 let ratio = cas_div(arg_i.clone(), arg_j.clone())?;
-                    let ln_combined = Value::from_cas_function(
-                        CasFunction::Ln,
-                        vec![Value::from_cas_function(CasFunction::Abs, vec![ratio])],
-                    );
+                let ln_combined = Value::from_cas_function(
+                    CasFunction::Ln,
+                    vec![Value::from_cas_function(CasFunction::Abs, vec![ratio])],
+                );
                 let new_core = if pref_i == Value::Int(1) {
                     ln_combined
                 } else {
@@ -1248,8 +1248,8 @@ pub(super) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
             }
             if denom_count >= 1 {
                 let numer = cas_product(num_parts);
-                let new_coeff = numeric_mul(coeff, &numer)
-                    .or_else(|_| cas_mul(vec![coeff.clone(), numer]))?;
+                let new_coeff =
+                    numeric_mul(coeff, &numer).or_else(|_| cas_mul(vec![coeff.clone(), numer]))?;
                 *core = cas_product(denom_parts);
                 *coeff = new_coeff;
             }
@@ -1297,8 +1297,7 @@ pub(super) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
     // for purely numeric/rational expressions.
     let has_algebraic = out.iter().any(|t| {
         t.is_algebraic_number()
-            || t
-                .cas_op_args(CasOp::Multiply)
+            || t.cas_op_args(CasOp::Multiply)
                 .is_some_and(|a| a.iter().any(|x| x.is_algebraic_number()))
     });
     if out.len() > 1
@@ -1836,10 +1835,7 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
 
                 if let Some((function, args)) = expr.cas_function_parts() {
                     let n = args.len();
-                    stack.push(SimplifyFrame::Function {
-                        function,
-                        n,
-                    });
+                    stack.push(SimplifyFrame::Function { function, n });
                     for arg in args.iter().rev() {
                         stack.push(SimplifyFrame::Expr(arg.clone()));
                     }

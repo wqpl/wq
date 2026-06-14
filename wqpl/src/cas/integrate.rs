@@ -386,7 +386,10 @@ mod tests {
     fn integrate_sin_linear_composite() {
         let expr = call(
             CasFunction::Sin,
-            vec![op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")])],
+            vec![op(
+                CasOp::Multiply,
+                vec![Value::Int(2), Value::from_cas_var("x")],
+            )],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "-cos[2*x]/2");
@@ -396,7 +399,10 @@ mod tests {
     fn integrate_cos_linear_composite() {
         let expr = call(
             CasFunction::Cos,
-            vec![op(CasOp::Multiply, vec![Value::Int(3), Value::from_cas_var("x")])],
+            vec![op(
+                CasOp::Multiply,
+                vec![Value::Int(3), Value::from_cas_var("x")],
+            )],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "sin[3*x]/3");
@@ -406,7 +412,10 @@ mod tests {
     fn integrate_exp_linear_composite() {
         let expr = call(
             CasFunction::Exp,
-            vec![op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")])],
+            vec![op(
+                CasOp::Multiply,
+                vec![Value::Int(2), Value::from_cas_var("x")],
+            )],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "e^(2*x)/2");
@@ -416,7 +425,10 @@ mod tests {
     fn integrate_ln_linear_composite() {
         let expr = call(
             CasFunction::Ln,
-            vec![op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")])],
+            vec![op(
+                CasOp::Multiply,
+                vec![Value::Int(2), Value::from_cas_var("x")],
+            )],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "x*(ln[2*x] - 1)");
@@ -426,7 +438,10 @@ mod tests {
     fn integrate_arctan_linear_composite() {
         let expr = call(
             CasFunction::ArcTan,
-            vec![op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")])],
+            vec![op(
+                CasOp::Multiply,
+                vec![Value::Int(2), Value::from_cas_var("x")],
+            )],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(
@@ -505,7 +520,10 @@ mod tests {
             vec![
                 call(
                     CasFunction::Sin,
-                    vec![op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)])],
+                    vec![op(
+                        CasOp::Power,
+                        vec![Value::from_cas_var("x"), Value::Int(2)],
+                    )],
                 ),
                 Value::Int(2),
                 Value::from_cas_var("x"),
@@ -523,7 +541,10 @@ mod tests {
                 Value::from_cas_var("x"),
                 call(
                     CasFunction::Exp,
-                    vec![op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)])],
+                    vec![op(
+                        CasOp::Power,
+                        vec![Value::from_cas_var("x"), Value::Int(2)],
+                    )],
                 ),
             ],
         );
@@ -603,7 +624,10 @@ mod tests {
     fn integrate_erf_linear_composite() {
         let expr = call(
             CasFunction::Erf,
-            vec![op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")])],
+            vec![op(
+                CasOp::Multiply,
+                vec![Value::Int(2), Value::from_cas_var("x")],
+            )],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert!(result.to_string().contains("erf[2*x]*x"));
@@ -752,7 +776,10 @@ mod tests {
             CasOp::Add,
             vec![
                 op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(3)]),
-                op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
+                op(
+                    CasOp::Multiply,
+                    vec![Value::Int(2), Value::from_cas_var("x")],
+                ),
             ],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
@@ -774,7 +801,10 @@ mod tests {
                         op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
                     ],
                 ),
-                op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
+                op(
+                    CasOp::Multiply,
+                    vec![Value::Int(2), Value::from_cas_var("x")],
+                ),
             ],
         );
         let denom = op(CasOp::Add, vec![Value::from_cas_var("x"), Value::Int(1)]);
@@ -937,11 +967,17 @@ mod tests {
         // = -cos(5x)/10 + cos(x)/2
         let sin_2x = call(
             CasFunction::Sin,
-            vec![op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")])],
+            vec![op(
+                CasOp::Multiply,
+                vec![Value::Int(2), Value::from_cas_var("x")],
+            )],
         );
         let cos_3x = call(
             CasFunction::Cos,
-            vec![op(CasOp::Multiply, vec![Value::Int(3), Value::from_cas_var("x")])],
+            vec![op(
+                CasOp::Multiply,
+                vec![Value::Int(3), Value::from_cas_var("x")],
+            )],
         );
         let expr = op(CasOp::Multiply, vec![sin_2x, cos_3x]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
@@ -995,7 +1031,10 @@ mod tests {
         );
         let exp_2x = call(
             CasFunction::Exp,
-            vec![op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")])],
+            vec![op(
+                CasOp::Multiply,
+                vec![Value::Int(2), Value::from_cas_var("x")],
+            )],
         );
         let expr = op(CasOp::Multiply, vec![poly, exp_2x]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
@@ -1013,7 +1052,10 @@ mod tests {
                 Value::from_cas_var("x"),
                 call(
                     CasFunction::Exp,
-                    vec![op(CasOp::Multiply, vec![Value::Int(3), Value::from_cas_var("x")])],
+                    vec![op(
+                        CasOp::Multiply,
+                        vec![Value::Int(3), Value::from_cas_var("x")],
+                    )],
                 ),
             ],
         );
@@ -1045,7 +1087,10 @@ mod tests {
         // ∫ sin(2x) dx = -cos(2x)/2  (already handled by table, but verify)
         let expr = call(
             CasFunction::Sin,
-            vec![op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")])],
+            vec![op(
+                CasOp::Multiply,
+                vec![Value::Int(2), Value::from_cas_var("x")],
+            )],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         let s = result.to_string();
@@ -1056,7 +1101,10 @@ mod tests {
     #[test]
     fn integrate_sin_cubed_2x() {
         // ∫ sin³(2x) dx
-        let inner = op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]);
+        let inner = op(
+            CasOp::Multiply,
+            vec![Value::Int(2), Value::from_cas_var("x")],
+        );
         let expr = op(
             CasOp::Power,
             vec![call(CasFunction::Sin, vec![inner]), Value::Int(3)],
@@ -1070,7 +1118,10 @@ mod tests {
     #[test]
     fn integrate_cos_squared_3x() {
         // ∫ cos²(3x) dx
-        let inner = op(CasOp::Multiply, vec![Value::Int(3), Value::from_cas_var("x")]);
+        let inner = op(
+            CasOp::Multiply,
+            vec![Value::Int(3), Value::from_cas_var("x")],
+        );
         let expr = op(
             CasOp::Power,
             vec![call(CasFunction::Cos, vec![inner]), Value::Int(2)],
@@ -1086,7 +1137,10 @@ mod tests {
         let inner = op(
             CasOp::Add,
             vec![
-                op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
+                op(
+                    CasOp::Multiply,
+                    vec![Value::Int(2), Value::from_cas_var("x")],
+                ),
                 Value::Int(1),
             ],
         );
@@ -1395,7 +1449,10 @@ mod tests {
             CasOp::Add,
             vec![
                 op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
-                op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
+                op(
+                    CasOp::Multiply,
+                    vec![Value::Int(2), Value::from_cas_var("x")],
+                ),
                 Value::Int(5),
             ],
         );
@@ -1477,7 +1534,10 @@ mod tests {
                 op(
                     CasOp::Add,
                     vec![
-                        op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
+                        op(
+                            CasOp::Multiply,
+                            vec![Value::Int(2), Value::from_cas_var("x")],
+                        ),
                         Value::Int(1),
                     ],
                 ),

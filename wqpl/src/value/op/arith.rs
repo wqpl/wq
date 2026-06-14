@@ -399,9 +399,7 @@ fn mul_atoms(a: &Value, b: &Value) -> WqResult<Value> {
             }
             match (a, b) {
                 (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x * &**y)),
-                _ if a.is_cas_expr() || b.is_cas_expr() => {
-                    cas_binary_expr(CasOp::Multiply, a, b)
-                }
+                _ if a.is_cas_expr() || b.is_cas_expr() => cas_binary_expr(CasOp::Multiply, a, b),
                 _ if a.is_complex() || b.is_complex() => {
                     let (za, zb) = complex_operands(a, b)?;
                     Ok(Value::from_complex64(za * zb))

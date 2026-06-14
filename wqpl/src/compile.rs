@@ -2149,8 +2149,11 @@ impl Compiler {
                 _ => unreachable!("lazy binary chain only accepts bool operators"),
             }
             self.compile_expr(right)?;
-            self.instructions
-                .push(Instruction::binary_op(operator, Operand::Stack, Operand::Stack));
+            self.instructions.push(Instruction::binary_op(
+                operator,
+                Operand::Stack,
+                Operand::Stack,
+            ));
             let end = self.instructions.len();
             match operator {
                 BinaryOperator::BoolAnd => {

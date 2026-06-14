@@ -2,9 +2,9 @@ use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::{
-    cas_add, cas_err, cas_mul, cas_pow, eval_exact_numeric_div, numeric_add,
-    numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
-    simplify_cas_value, split_mul_factor,
+    cas_add, cas_err, cas_mul, cas_pow, eval_exact_numeric_div, numeric_add, numeric_is_negative,
+    numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub, simplify_cas_value,
+    split_mul_factor,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp, CasSymbol};
@@ -42,7 +42,8 @@ enum ExpandFrame {
     Pow { exp: Value, power: Option<usize> },
     /// Re-assemble a built-in function call from the top `n` results.
     Function { function: CasFunction, n: usize },
-    /// Re-assemble an uninterpreted symbolic application from the top `n` results.
+    /// Re-assemble an uninterpreted symbolic application from the top `n`
+    /// results.
     Apply { name: CasSymbol, n: usize },
     /// Re-assemble an equation from the top 2 results.
     Eq,
@@ -145,10 +146,7 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
 
                 if let Some((function, args)) = expr.cas_function_parts() {
                     let n = args.len();
-                    stack.push(ExpandFrame::Function {
-                        function,
-                        n,
-                    });
+                    stack.push(ExpandFrame::Function { function, n });
                     for arg in args.iter().rev() {
                         stack.push(ExpandFrame::Expr(arg.clone()));
                     }
@@ -223,11 +221,16 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
             }
             ExpandFrame::Function { function, n } => {
                 let args = split_off_results(&mut results, n)?;
-                results.push(simplify_cas_value(&Value::from_cas_function(function, args))?);
+                results.push(simplify_cas_value(&Value::from_cas_function(
+                    function, args,
+                ))?);
             }
             ExpandFrame::Apply { name, n } => {
                 let args = split_off_results(&mut results, n)?;
-                results.push(simplify_cas_value(&Value::from_cas_apply(name.as_str(), args))?);
+                results.push(simplify_cas_value(&Value::from_cas_apply(
+                    name.as_str(),
+                    args,
+                ))?);
             }
             ExpandFrame::Eq => {
                 let rhs = results

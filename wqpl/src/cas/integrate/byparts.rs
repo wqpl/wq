@@ -370,12 +370,7 @@ fn is_tabular_cyclic(name: CasFunction) -> bool {
 /// For `exp`:  always `exp(arg) / k^j`.
 /// For `sin`/`cos`: cycle with period 4.
 /// For `sinh`/`cosh`: cycle with period 2.
-fn compute_cyclic_integral(
-    name: CasFunction,
-    arg: &Value,
-    j: usize,
-    k: &Value,
-) -> WqResult<Value> {
+fn compute_cyclic_integral(name: CasFunction, arg: &Value, j: usize, k: &Value) -> WqResult<Value> {
     let kj = cas_pow(k.clone(), Value::from_bigint(BigInt::from(j)))?;
 
     let (fn_name, sign) = match name {

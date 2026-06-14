@@ -275,11 +275,7 @@ fn cas_ln_abs(arg: Value) -> Value {
 // Single-function power dispatch
 // ---------------------------------------------------------------------------
 
-fn try_single_fn_power(
-    expr: &Value,
-    fn_name: CasFunction,
-    var: &str,
-) -> WqResult<Option<Value>> {
+fn try_single_fn_power(expr: &Value, fn_name: CasFunction, var: &str) -> WqResult<Option<Value>> {
     let (n, a, b) = match match_fn_power(expr, fn_name, var) {
         Some(p) => p,
         None => return Ok(None),
@@ -412,7 +408,7 @@ fn integrate_sin_reduction(n: usize, a: &Value, b: &Value, var: &str) -> WqResul
         return Ok(Value::from_cas_var(var));
     }
     if n == 1 {
-            let cos = build_fn_call(CasFunction::Cos, a, b, var);
+        let cos = build_fn_call(CasFunction::Cos, a, b, var);
         return simplify_cas_value(&cas_div(cas_neg(cos)?, a.clone())?);
     }
     let sin = build_fn_call(CasFunction::Sin, a, b, var);
@@ -891,9 +887,10 @@ fn integrate_simple_linear_trig(expr: &Value, var: &str) -> WqResult<Value> {
         let arg = &args[0];
         let a = extract_coeff(arg, var);
         let result = match name {
-            CasFunction::Sin => {
-                cas_neg(Value::from_cas_function(CasFunction::Cos, vec![arg.clone()]))?
-            }
+            CasFunction::Sin => cas_neg(Value::from_cas_function(
+                CasFunction::Cos,
+                vec![arg.clone()],
+            ))?,
             CasFunction::Cos => Value::from_cas_function(CasFunction::Sin, vec![arg.clone()]),
             _ => unreachable!(),
         };
@@ -960,7 +957,10 @@ mod tests {
     #[test]
     fn test_match_fn_power_linear() {
         // sin(2*x)
-        let arg = op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]);
+        let arg = op(
+            CasOp::Multiply,
+            vec![Value::Int(2), Value::from_cas_var("x")],
+        );
         let expr = call(CasFunction::Sin, vec![arg]);
         let (n, a, b) = match_fn_power(&expr, CasFunction::Sin, "x").unwrap();
         assert_eq!(n, 1);
@@ -974,7 +974,10 @@ mod tests {
         let arg = op(
             CasOp::Add,
             vec![
-                op(CasOp::Multiply, vec![Value::Int(2), Value::from_cas_var("x")]),
+                op(
+                    CasOp::Multiply,
+                    vec![Value::Int(2), Value::from_cas_var("x")],
+                ),
                 Value::Int(1),
             ],
         );

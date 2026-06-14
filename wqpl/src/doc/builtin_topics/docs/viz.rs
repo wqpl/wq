@@ -1,6 +1,5 @@
-use crate::builtins::BuiltinEnum;
-
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
+use crate::builtins::BuiltinEnum;
 
 const SHOWTABLE_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Print a one-row dict as a table",

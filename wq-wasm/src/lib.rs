@@ -7,9 +7,7 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use web_sys::console;
 use wqpl::builtins::{BuiltinPreset, Builtins};
-use wqpl::display::{
-    BoxPrintConfig, apply_box_spec, format_print_result, format_xray_info,
-};
+use wqpl::display::{BoxPrintConfig, apply_box_spec, format_print_result, format_xray_info};
 use wqpl::doc::{self, DocKind, DocRenderTarget};
 use wqpl::highlight::{HighlightEvent, HighlightName, Highlighter};
 use wqpl::interpret::InterpreterKind;
@@ -696,7 +694,11 @@ fn symbol_index_json(index: &SymbolIndex) -> String {
         out.push(',');
         push_json_usize_field(&mut out, "occurrence_count", occurrence_count);
         out.push(',');
-        push_json_usize_field(&mut out, "ref_capture_count", index.ref_capture_count(def_idx));
+        push_json_usize_field(
+            &mut out,
+            "ref_capture_count",
+            index.ref_capture_count(def_idx),
+        );
         out.push('}');
     }
 
@@ -876,9 +878,11 @@ fn doc_kind_name(kind: DocKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::{Arc, Mutex};
+
     use wqpl::session::stdio::{WqStderr, set_wqstderr};
+
+    use super::*;
 
     struct CapturedStderr {
         out: Arc<Mutex<String>>,

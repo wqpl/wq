@@ -301,10 +301,9 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
             CasConst::Pi => Ok(Value::float(std::f64::consts::PI)),
             CasConst::Infinity => Ok(Value::float(f64::INFINITY)),
             CasConst::NegInfinity => Ok(Value::float(f64::NEG_INFINITY)),
-            CasConst::Undefined => Err(cas_err(
-                "unknown symbolic constant 'undef' in numeric evaluation",
-            )
-            .got1(expr)),
+            CasConst::Undefined => {
+                Err(cas_err("unknown symbolic constant 'undef' in numeric evaluation").got1(expr))
+            }
         };
     }
 

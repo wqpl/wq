@@ -210,7 +210,9 @@ fn value_to_recexpr(
     if let Some((op, args)) = value.cas_op_parts() {
         return match (op, args) {
             (CasOp::Add, args) => fold_binary(args, EqSatLang::Num(0), EqSatLang::Add, expr, ctx),
-            (CasOp::Multiply, args) => fold_binary(args, EqSatLang::Num(1), EqSatLang::Mul, expr, ctx),
+            (CasOp::Multiply, args) => {
+                fold_binary(args, EqSatLang::Num(1), EqSatLang::Mul, expr, ctx)
+            }
             (CasOp::Power, [base, exp]) => {
                 let Some(base) = value_to_recexpr(base, expr, ctx)? else {
                     return Ok(None);
@@ -282,15 +284,18 @@ fn recexpr_to_value(expr: &RecExpr<EqSatLang>, ctx: &ConvertCtx) -> WqResult<Val
         let value = match node {
             EqSatLang::Num(n) => Value::Int(*n),
             EqSatLang::Sym(sym) => sym_to_value(sym, ctx)?,
-            EqSatLang::Add([lhs, rhs]) => {
-                Value::from_cas_op(CasOp::Add, vec![child(&values, *lhs)?, child(&values, *rhs)?])
-            }
-            EqSatLang::Mul([lhs, rhs]) => {
-                Value::from_cas_op(CasOp::Multiply, vec![child(&values, *lhs)?, child(&values, *rhs)?])
-            }
-            EqSatLang::Pow([base, exp]) => {
-                Value::from_cas_op(CasOp::Power, vec![child(&values, *base)?, child(&values, *exp)?])
-            }
+            EqSatLang::Add([lhs, rhs]) => Value::from_cas_op(
+                CasOp::Add,
+                vec![child(&values, *lhs)?, child(&values, *rhs)?],
+            ),
+            EqSatLang::Mul([lhs, rhs]) => Value::from_cas_op(
+                CasOp::Multiply,
+                vec![child(&values, *lhs)?, child(&values, *rhs)?],
+            ),
+            EqSatLang::Pow([base, exp]) => Value::from_cas_op(
+                CasOp::Power,
+                vec![child(&values, *base)?, child(&values, *exp)?],
+            ),
             EqSatLang::Ln(arg) => {
                 Value::from_cas_function(CasFunction::Ln, vec![child(&values, *arg)?])
             }

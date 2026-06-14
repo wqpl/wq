@@ -3,8 +3,8 @@ use num_complex::Complex64;
 use num_traits::{One, Signed, Zero};
 
 use crate::cas::cas_call_expr;
-use crate::value::cas::CasFunction;
 use crate::value::bc::{Bc1Stop, Bc2Stop};
+use crate::value::cas::CasFunction;
 use crate::value::{Excerpt, Value, WqResult, expected_numeric1, expected_numeric2};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -298,7 +298,13 @@ impl Value {
 
     pub(crate) fn log(&self, other: &Value) -> WqResult<Value> {
         self.bc2(other, |v1, v2| {
-            binary_complex_math(CasFunction::Log, v1, v2, |x, y| x.log(y), |x, y| x.ln() / y.ln())
+            binary_complex_math(
+                CasFunction::Log,
+                v1,
+                v2,
+                |x, y| x.log(y),
+                |x, y| x.ln() / y.ln(),
+            )
         })
         .map_err(|e| e.into_wqerror())
     }

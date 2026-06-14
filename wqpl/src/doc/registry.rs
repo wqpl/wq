@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::builtins::Builtins;
-
 use super::builtin_topics::builtin_topic;
 use super::model::DocTopic;
 use super::static_topics;
+use crate::builtins::Builtins;
 
 pub fn resolve(query: &str) -> Option<DocTopic> {
     let query = query.trim();

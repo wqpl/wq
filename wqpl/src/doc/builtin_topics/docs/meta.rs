@@ -1,6 +1,5 @@
-use crate::builtins::BuiltinEnum;
-
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
+use crate::builtins::BuiltinEnum;
 
 const STRONG_COUNT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Immediate atoms report one reference",

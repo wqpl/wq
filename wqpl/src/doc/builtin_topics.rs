@@ -1,9 +1,8 @@
 mod aliases;
 mod docs;
 
-use crate::builtins::{BUILTIN_GROUPS, BuiltinEnum, BuiltinGroup};
-
 use super::model::{DocKind, DocTopic};
+use crate::builtins::{BUILTIN_GROUPS, BuiltinEnum, BuiltinGroup};
 
 pub fn builtin_topic(builtin: BuiltinEnum) -> DocTopic {
     let canonical = canonical_builtin(builtin);
@@ -53,9 +52,7 @@ pub fn builtin_topic(builtin: BuiltinEnum) -> DocTopic {
 }
 
 fn builtin_doc(builtin: BuiltinEnum) -> Option<&'static super::model::BuiltinDoc> {
-    docs::BUILTIN_DOCS
-        .iter()
-        .find(|doc| doc.builtin == builtin)
+    docs::BUILTIN_DOCS.iter().find(|doc| doc.builtin == builtin)
 }
 
 fn canonical_builtin(builtin: BuiltinEnum) -> BuiltinEnum {
