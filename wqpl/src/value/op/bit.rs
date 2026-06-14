@@ -52,7 +52,7 @@ fn bor_intlist(left: &Value, right: &Value) -> Option<Value> {
     }
 }
 
-fn bxor_intlist(left: &Value, right: &Value) -> Option<Value> {
+fn xor_intlist(left: &Value, right: &Value) -> Option<Value> {
     match (left, right) {
         (Value::IntList(a), Value::IntList(b)) => {
             intlist_zip_map(a, b, |x, y| Some(x ^ y)).map(|v| Value::IntList(Arc::new(v)))
@@ -67,7 +67,7 @@ fn bxor_intlist(left: &Value, right: &Value) -> Option<Value> {
     }
 }
 
-fn bnot_intlist(v: &Value) -> Option<Value> {
+fn not_intlist(v: &Value) -> Option<Value> {
     match v {
         Value::IntList(a) => intlist_map(a, |x| Some(!x)).map(|v| Value::IntList(Arc::new(v))),
         _ => None,
@@ -130,7 +130,7 @@ fn bor_atoms(a: &Value, b: &Value) -> WqResult<Value> {
     }
 }
 
-fn bxor_atoms(a: &Value, b: &Value) -> WqResult<Value> {
+fn xor_atoms(a: &Value, b: &Value) -> WqResult<Value> {
     if let Some(res) = compose_callable_binary(BinaryOperator::BitXor, a, b) {
         return Ok(res);
     }
@@ -147,7 +147,7 @@ fn bxor_atoms(a: &Value, b: &Value) -> WqResult<Value> {
     }
 }
 
-fn bnot_atom(v: &Value) -> WqResult<Value> {
+fn not_atom(v: &Value) -> WqResult<Value> {
     match v {
         Value::Int(x) => Ok(Value::Int(!x)),
         Value::BigInt(x) => Ok(Value::from_bigint(!&**x)),
@@ -227,24 +227,24 @@ impl Value {
         self.bc2(other, bor_atoms).map_err(|e| e.into_wqerror())
     }
 
-    pub(crate) fn bxor(&self, other: &Value) -> WqResult<Value> {
-        if let Some(res) = bxor_intlist(self, other) {
+    pub(crate) fn xor(&self, other: &Value) -> WqResult<Value> {
+        if let Some(res) = xor_intlist(self, other) {
             return Ok(res);
         }
         if self.is_atom() && other.is_atom() {
-            return bxor_atoms(self, other);
+            return xor_atoms(self, other);
         }
-        self.bc2(other, bxor_atoms).map_err(|e| e.into_wqerror())
+        self.bc2(other, xor_atoms).map_err(|e| e.into_wqerror())
     }
 
-    pub(crate) fn bnot(&self) -> WqResult<Value> {
-        if let Some(res) = bnot_intlist(self) {
+    pub(crate) fn not(&self) -> WqResult<Value> {
+        if let Some(res) = not_intlist(self) {
             return Ok(res);
         }
         if self.is_atom() {
-            return bnot_atom(self);
+            return not_atom(self);
         }
-        self.bc1(bnot_atom).map_err(|e| e.into_wqerror())
+        self.bc1(not_atom).map_err(|e| e.into_wqerror())
     }
 
     // Shifts (reject negative shift counts)

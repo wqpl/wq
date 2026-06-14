@@ -66,7 +66,7 @@ pub(super) fn op_power(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_binary_op(BuiltinEnum::OpPower, args, &BinaryOperator::Power)
 }
 
-pub(super) fn op_powerdot(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn op_power_dot(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_binary_op(BuiltinEnum::OpPowerDot, args, &BinaryOperator::PowerDot)
 }
 
@@ -78,29 +78,25 @@ pub(super) fn op_equal(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_cmp_op(BuiltinEnum::OpEqual, &args, BinaryOperator::Equal)
 }
 
-pub(super) fn op_equaldot(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn op_equal_dot(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_cmp_op(BuiltinEnum::OpEqualDot, &args, BinaryOperator::EqualDot)
 }
 
-pub(super) fn op_notequal(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn op_tilde(args: BuiltinFnArgs) -> WqResult<Value> {
     if args.is_empty() {
         return Err(WqError::new(WqErrorType::Arity)
-            .src(BuiltinEnum::OpNotEqual)
+            .src(BuiltinEnum::OpTilde)
             .msg("expected 1 or more args, got 0"));
     }
     if args.len() == 1 {
-        eval_unary(&UnaryOperator::Not, &args[0]).map_err(|e| e.src(BuiltinEnum::OpNotEqual))
+        eval_unary(&UnaryOperator::Not, &args[0]).map_err(|e| e.src(BuiltinEnum::OpTilde))
     } else {
-        fold_cmp_op(BuiltinEnum::OpNotEqual, &args, BinaryOperator::NotEqual)
+        fold_cmp_op(BuiltinEnum::OpTilde, &args, BinaryOperator::NotEqual)
     }
 }
 
-pub(super) fn op_notequaldot(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_cmp_op(
-        BuiltinEnum::OpNotEqualDot,
-        &args,
-        BinaryOperator::NotEqualDot,
-    )
+pub(super) fn op_tilde_dot(args: BuiltinFnArgs) -> WqResult<Value> {
+    fold_cmp_op(BuiltinEnum::OpTildeDot, &args, BinaryOperator::NotEqualDot)
 }
 
 pub(super) fn op_lt(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -168,19 +164,19 @@ pub(super) fn op_cat(args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::cat_many(args.to_vec()))
 }
 
-pub(super) fn op_booland(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn op_bool_and(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_binary_op(BuiltinEnum::OpBoolAnd, args, &BinaryOperator::BoolAnd)
 }
 
-pub(super) fn op_boolor(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn op_bool_or(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_binary_op(BuiltinEnum::OpBoolOr, args, &BinaryOperator::BoolOr)
 }
 
-pub(super) fn op_bitand(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn op_bit_and(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_binary_op(BuiltinEnum::OpBitAnd, args, &BinaryOperator::BitAnd)
 }
 
-pub(super) fn op_bitor(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn op_bit_or(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_binary_op(BuiltinEnum::OpBitOr, args, &BinaryOperator::BitOr)
 }
 
@@ -192,8 +188,8 @@ pub(super) fn op_shr(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_binary_op(BuiltinEnum::OpShr, args, &BinaryOperator::Shr)
 }
 
-pub(super) fn op_bitxor(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(BuiltinEnum::OpBitXor, args, &BinaryOperator::BitXor)
+pub(super) fn op_xor(args: BuiltinFnArgs) -> WqResult<Value> {
+    fold_binary_op(BuiltinEnum::OpXor, args, &BinaryOperator::BitXor)
 }
 
 pub(super) fn op_floordiv(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -212,11 +208,11 @@ mod tests {
     #[test]
     fn op_notequal_one_arg_uses_unary_not() {
         assert_eq!(
-            op_notequal(BuiltinFnArgs::from(Value::Bool(true))).unwrap(),
+            op_tilde(BuiltinFnArgs::from(Value::Bool(true))).unwrap(),
             Value::Bool(false)
         );
         assert_eq!(
-            op_notequal(BuiltinFnArgs::from(Value::Int(1))).unwrap(),
+            op_tilde(BuiltinFnArgs::from(Value::Int(1))).unwrap(),
             Value::Int(!1)
         );
     }
@@ -224,7 +220,7 @@ mod tests {
     #[test]
     fn op_notequal_multiple_args_still_compares() {
         assert_eq!(
-            op_notequal(BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)])).unwrap(),
+            op_tilde(BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)])).unwrap(),
             Value::Bool(true)
         );
     }

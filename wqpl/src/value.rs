@@ -492,7 +492,7 @@ mod tests {
         let a = Value::Bool(true);
         let b = Value::List(Arc::new(vec![Value::Bool(true), Value::Bool(false)]));
         assert_eq!(
-            a.and_bool(&b),
+            a.bool_and(&b),
             Ok(Value::List(Arc::new(vec![
                 Value::Bool(true),
                 Value::Bool(false)
@@ -500,7 +500,7 @@ mod tests {
         );
 
         assert_eq!(
-            b.or_bool(&Value::Bool(false)),
+            eval_binary(&BinaryOperator::BoolOr, &b, &Value::Bool(false)),
             Ok(Value::List(Arc::new(vec![
                 Value::Bool(true),
                 Value::Bool(false)
@@ -509,10 +509,10 @@ mod tests {
 
         let c = Value::List(Arc::new(vec![Value::Bool(true)]));
         let d = Value::List(Arc::new(vec![Value::Bool(false), Value::Bool(true)]));
-        assert!(c.xor_bool(&d).is_err());
+        assert!(eval_binary(&BinaryOperator::BitXor, &c, &d).is_err());
 
         assert_eq!(
-            d.not_bool(),
+            eval_unary(&crate::astnode::UnaryOperator::Not, &d),
             Ok(Value::List(Arc::new(vec![
                 Value::Bool(true),
                 Value::Bool(false)
@@ -540,8 +540,8 @@ mod tests {
         let b = Value::Int(3);
         assert_eq!(a.band(&b), Ok(Value::Int(2)));
         assert_eq!(a.bor(&b), Ok(Value::Int(7)));
-        assert_eq!(a.bxor(&b), Ok(Value::Int(5)));
-        assert_eq!(a.bnot(), Ok(Value::Int(!6)));
+        assert_eq!(a.xor(&b), Ok(Value::Int(5)));
+        assert_eq!(a.not(), Ok(Value::Int(!6)));
         assert_eq!(Value::Int(1).shl(&Value::Int(3)), Ok(Value::Int(8)));
         assert_eq!(Value::Int(8).shr(&Value::Int(2)), Ok(Value::Int(2)));
         let arr = Value::IntList(Arc::new(vec![1, 2, 3]));

@@ -280,7 +280,7 @@ pub(crate) fn eval_cmp_chain(ops: &[BinaryOperator], values: &[Value]) -> WqResu
     for (idx, op) in ops.iter().enumerate() {
         let right = &values[idx + 1];
         let cmp = eval_binary(op, left, right)?;
-        result = result.and_bool(&cmp).map_err(|e| e.src("cmp-chain"))?;
+        result = result.bool_and(&cmp).map_err(|e| e.src("cmp-chain"))?;
         if matches!(result, Value::Bool(false)) {
             break;
         }

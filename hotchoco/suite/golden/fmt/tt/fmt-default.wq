@@ -132,7 +132,7 @@ evaluate:{[node;vals;vars]
     node `op=OP_NOT
     not left
     node `op=OP_XOR
-    bxor[left;right]
+    xor[left;right]
     node `op=OP_IMPLY
     or[not left;right]
     node `op=OP_EQUAL

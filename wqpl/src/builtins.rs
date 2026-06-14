@@ -884,14 +884,13 @@ declare_builtins! {
 
     // Logical ======================================================
     (NOT, Not, "not", "not[xs]", "1", plain(logical::not), BuiltinGroup::Logical),
-    (AND, And, "and", "and[xs;ys+]", "2..", plain(logical::and), BuiltinGroup::Logical),
-    (OR, Or, "or", "or[xs;ys+]", "2..", plain(logical::or), BuiltinGroup::Logical),
     (XOR, Xor, "xor", "xor[xs;ys+]", "2..", plain(logical::xor), BuiltinGroup::Logical),
 
-    (BNOT, Bnot, "bnot", "bnot[xs]", "1", plain(logical::bnot), BuiltinGroup::Logical),
+    (AND, And, "and", "and[xs;ys+]", "2..", plain(logical::and), BuiltinGroup::Logical),
+    (OR, Or, "or", "or[xs;ys+]", "2..", plain(logical::or), BuiltinGroup::Logical),
+
     (BAND, Band, "band", "band[xs;ys+]", "2..", plain(logical::band), BuiltinGroup::Logical),
     (BOR, Bor, "bor", "bor[xs;ys+]", "2..", plain(logical::bor), BuiltinGroup::Logical),
-    (BXOR, Bxor, "bxor", "bxor[xs;ys+]", "2..", plain(logical::bxor), BuiltinGroup::Logical),
 
     (SHL, Shl, "shl", "shl[xs;shift+]", "2..", plain(logical::shl), BuiltinGroup::Logical),
     (SHR, Shr, "shr", "shr[xs;shift+]", "2..", plain(logical::shr), BuiltinGroup::Logical),
@@ -1009,17 +1008,17 @@ declare_builtins! {
     (OP_SUB, OpSub, "-", "-[x], -[xs;ys+]", "1..", plain(op::op_sub), BuiltinGroup::Intrinsic),
     (OP_MUL, OpMul, "*", "*[xs;ys+]", "2..", plain(op::op_mul), BuiltinGroup::Intrinsic),
     (OP_DIV, OpDiv, "/", "/[xs;ys+]", "2..", plain(op::op_div), BuiltinGroup::Intrinsic),
-    (OP_DIVDOT, OpDivDot, "/.", "/.[xs;ys+]", "2..", plain(op::op_divdot), BuiltinGroup::Intrinsic),
+    (OP_DIV_DOT, OpDivDot, "/.", "/.[xs;ys+]", "2..", plain(op::op_divdot), BuiltinGroup::Intrinsic),
     (OP_MOD, OpMod, "%", "%[xs;ys+]", "2..", plain(op::op_mod), BuiltinGroup::Intrinsic),
     (OP_FLOORDIV, OpFloorDiv, "/%", "/%[xs;ys+]", "2..", plain(op::op_floordiv), BuiltinGroup::Intrinsic),
     (OP_POWER, OpPower, "^", "^[xs;ys+]", "2..", plain(op::op_power), BuiltinGroup::Intrinsic),
-    (OP_POWERDOT, OpPowerDot, "^.", "^.[xs;ys+]", "2..", plain(op::op_powerdot), BuiltinGroup::Intrinsic),
+    (OP_POWER_DOT, OpPowerDot, "^.", "^.[xs;ys+]", "2..", plain(op::op_power_dot), BuiltinGroup::Intrinsic),
     (OP_MATMUL, OpMatmul, "**", "**[xs;ys+]", "2..", plain(op::op_matmul), BuiltinGroup::Intrinsic),
 
     (OP_EQUAL, OpEqual, "=", "=[xs;ys+]", "2..", plain(op::op_equal), BuiltinGroup::Intrinsic),
-    (OP_EQUALDOT, OpEqualDot, "=.", "=.[xs;ys+]", "2..", plain(op::op_equaldot), BuiltinGroup::Intrinsic),
-    (OP_NOTEQUAL, OpNotEqual, "~", "~[x], ~[xs;ys+]", "1..", plain(op::op_notequal), BuiltinGroup::Intrinsic),
-    (OP_NOTEQUALDOT, OpNotEqualDot, "~.", "~.[xs;ys+]", "2..", plain(op::op_notequaldot), BuiltinGroup::Intrinsic),
+    (OP_EQUAL_DOT, OpEqualDot, "=.", "=.[xs;ys+]", "2..", plain(op::op_equal_dot), BuiltinGroup::Intrinsic),
+    (OP_TILDE, OpTilde, "~", "~[x], ~[xs;ys+]", "1..", plain(op::op_tilde), BuiltinGroup::Intrinsic),
+    (OP_TILDE_DOT, OpTildeDot, "~.", "~.[xs;ys+]", "2..", plain(op::op_tilde_dot), BuiltinGroup::Intrinsic),
     (OP_LT, OpLt, "<", "<[xs;ys+]", "2..", plain(op::op_lt), BuiltinGroup::Intrinsic),
     (OP_LTE, OpLte, "<=", "<=[xs;ys+]", "2..", plain(op::op_lte), BuiltinGroup::Intrinsic),
     (OP_GT, OpGt, ">", ">[xs;ys+]", "2..", plain(op::op_gt), BuiltinGroup::Intrinsic),
@@ -1028,11 +1027,11 @@ declare_builtins! {
     (OP_CAT, OpCat, ",", ",[xs;ys+]", "2..", plain(op::op_cat), BuiltinGroup::Intrinsic),
     (OP_SHARP, OpSharp, "#", "#[x]", "1", plain(op::op_sharp), BuiltinGroup::Intrinsic),
 
-    (OP_BOOLAND, OpBoolAnd, "&|", "&|[xs;ys+]", "2..", plain(op::op_booland), BuiltinGroup::Intrinsic),
-    (OP_BOOLOR, OpBoolOr, r"\|", r"\|[xs;ys+]", "2..", plain(op::op_boolor), BuiltinGroup::Intrinsic),
-    (OP_BITAND, OpBitAnd, "&", "&[xs;ys+]", "2..", plain(op::op_bitand), BuiltinGroup::Intrinsic),
-    (OP_BITOR, OpBitOr, r"\", r"\[xs;ys+]", "2..", plain(op::op_bitor), BuiltinGroup::Intrinsic),
-    (OP_BITXOR, OpBitXor, r"^\", r"^\[xs;ys+]", "2..", plain(op::op_bitxor), BuiltinGroup::Intrinsic),
+    (OP_BOOL_AND, OpBoolAnd, "&|", "&|[xs;ys+]", "2..", plain(op::op_bool_and), BuiltinGroup::Intrinsic),
+    (OP_BOOL_OR, OpBoolOr, r"\|", r"\|[xs;ys+]", "2..", plain(op::op_bool_or), BuiltinGroup::Intrinsic),
+    (OP_BIT_AND, OpBitAnd, "&", "&[xs;ys+]", "2..", plain(op::op_bit_and), BuiltinGroup::Intrinsic),
+    (OP_BIT_OR, OpBitOr, r"\", r"\[xs;ys+]", "2..", plain(op::op_bit_or), BuiltinGroup::Intrinsic),
+    (OP_XOR, OpXor, r"^\", r"^\[xs;ys+]", "2..", plain(op::op_xor), BuiltinGroup::Intrinsic),
     (OP_SHL, OpShl, "<<", "<<[xs;ys+]", "2..", plain(op::op_shl), BuiltinGroup::Intrinsic),
     (OP_SHR, OpShr, ">>", ">>[xs;ys+]", "2..", plain(op::op_shr), BuiltinGroup::Intrinsic),
 
@@ -1192,50 +1191,22 @@ fn runtime_call_check_for(builtin: BuiltinEnum) -> Option<BuiltinCallCheck> {
             BuiltinCallCheck::allow_named(src, BuiltinCallArity::exact([2]), MAXSPLIT_NAMED_ARGS)
         }
 
-        B::Print
-        | B::Sum
-        | B::Product
-        | B::Min
-        | B::Max
+        #[rustfmt::skip]
+        B::Print | B::Sum | B::Product | B::Min | B::Max
         | B::Limit
-        | B::And
-        | B::Or
-        | B::Xor
-        | B::Band
-        | B::Bor
-        | B::Bxor
-        | B::Shl
-        | B::Shr
-        | B::Apply
-        | B::A
+        | B::And | B::Or | B::Xor | B::Band | B::Bor | B::Shl | B::Shr
+        | B::Apply | B::A
         | B::Fmt
         | B::Asciiplot
-        | B::OpAdd
-        | B::OpSub
-        | B::OpMul
-        | B::OpDiv
-        | B::OpDivDot
-        | B::OpMod
-        | B::OpFloorDiv
-        | B::OpPower
-        | B::OpPowerDot
-        | B::OpMatmul
-        | B::OpEqual
-        | B::OpEqualDot
-        | B::OpNotEqual
-        | B::OpNotEqualDot
-        | B::OpLt
-        | B::OpLte
-        | B::OpGt
-        | B::OpGte
+        | B::OpAdd | B::OpSub | B::OpMul | B::OpDiv | B::OpDivDot
+        | B::OpMod | B::OpFloorDiv
+        | B::OpPower | B::OpPowerDot | B::OpMatmul
+        | B::OpEqual | B::OpEqualDot | B::OpTilde | B::OpTildeDot
+        | B::OpLt | B::OpLte | B::OpGt | B::OpGte
         | B::OpCat
-        | B::OpBoolAnd
-        | B::OpBoolOr
-        | B::OpBitAnd
-        | B::OpBitOr
-        | B::OpBitXor
-        | B::OpShl
-        | B::OpShr => return None,
+        | B::OpBoolAnd | B::OpBoolOr
+        | B::OpBitAnd | B::OpBitOr | B::OpXor | B::OpShl | B::OpShr => return None,
+
         #[cfg(not(target_arch = "wasm32"))]
         B::Exec => return None,
 
@@ -1307,23 +1278,6 @@ impl std::fmt::Display for BuiltinEnum {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "bfn '{}'", self.name())
     }
-}
-
-#[inline]
-fn fold_value<F>(src: BuiltinEnum, args: BuiltinFnArgs, f: F) -> WqResult<Value>
-where
-    F: Fn(&Value, &Value) -> WqResult<Value>,
-{
-    if args.len() < 2 {
-        return Err(WqError::new(WqErrorType::Arity)
-            .msg(format!("expected 2 or more args, got {}", args.len())));
-    }
-    let mut iter = args.into_iter();
-    let mut acc = iter.next().unwrap();
-    for v in iter {
-        acc = f(&acc, &v).map_err(|e| e.src(src))?;
-    }
-    Ok(acc)
 }
 
 #[inline]

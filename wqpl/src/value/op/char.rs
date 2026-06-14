@@ -5,7 +5,7 @@ use num_traits::{Signed, ToPrimitive};
 use rayon::prelude::*;
 
 use crate::value::op::PAR_BC_THRESHOLD;
-use crate::value::{Value, WqResult, expected_bool1, expected_bool2, expected_integer1};
+use crate::value::{Value, WqResult, expected_integer1};
 use crate::wqerror::{WqError, WqErrorType};
 
 fn invalid_unicode(v: &Value) -> WqError {
@@ -47,56 +47,6 @@ fn ord_string(v: &Value) -> Option<Value> {
 }
 
 impl Value {
-    pub(crate) fn and_bool(&self, other: &Value) -> WqResult<Value> {
-        self.bc2(other, |a, b| {
-            if let Some(x) = a.try_to_rust_bool()
-                && let Some(y) = b.try_to_rust_bool()
-            {
-                Ok(Value::Bool(x && y))
-            } else {
-                Err(expected_bool2(a, b))
-            }
-        })
-        .map_err(|e| e.into_wqerror())
-    }
-
-    pub(crate) fn or_bool(&self, other: &Value) -> WqResult<Value> {
-        self.bc2(other, |a, b| {
-            if let Some(x) = a.try_to_rust_bool()
-                && let Some(y) = b.try_to_rust_bool()
-            {
-                Ok(Value::Bool(x || y))
-            } else {
-                Err(expected_bool2(a, b))
-            }
-        })
-        .map_err(|e| e.into_wqerror())
-    }
-
-    pub(crate) fn xor_bool(&self, other: &Value) -> WqResult<Value> {
-        self.bc2(other, |a, b| {
-            if let Some(x) = a.try_to_rust_bool()
-                && let Some(y) = b.try_to_rust_bool()
-            {
-                Ok(Value::Bool(x ^ y))
-            } else {
-                Err(expected_bool2(a, b))
-            }
-        })
-        .map_err(|e| e.into_wqerror())
-    }
-
-    pub(crate) fn not_bool(&self) -> WqResult<Value> {
-        self.bc1(|v| {
-            if let Some(x) = v.try_to_rust_bool() {
-                Ok(Value::Bool(!x))
-            } else {
-                Err(expected_bool1(v))
-            }
-        })
-        .map_err(|e| e.into_wqerror())
-    }
-
     pub(crate) fn chr(&self) -> WqResult<Value> {
         if let Some(res) = chr_intlist(self) {
             return Ok(res);

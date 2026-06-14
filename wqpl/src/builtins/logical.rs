@@ -1,44 +1,35 @@
-use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity, fold_value};
+use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::value::{Value, WqResult};
 
 pub(super) fn not(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Not, [1], &args)?;
-    args[0].not_bool().map_err(|e| e.src(BE::Not))
+    args[0].not().map_err(|e| e.src(BE::Not))
 }
 
 pub(super) fn and(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_value(BE::And, args, Value::and_bool)
+    super::op::op_bool_and(args)
 }
 
 pub(super) fn or(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_value(BE::Or, args, Value::or_bool)
+    super::op::op_bool_or(args)
 }
 
 pub(super) fn xor(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_value(BE::Xor, args, Value::xor_bool)
-}
-
-pub(super) fn bnot(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::Bnot, [1], &args)?;
-    args[0].bnot().map_err(|e| e.src(BE::Bnot))
+    super::op::op_xor(args)
 }
 
 pub(super) fn band(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_value(BE::Band, args, Value::band)
+    super::op::op_bit_and(args)
 }
 
 pub(super) fn bor(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_value(BE::Bor, args, Value::bor)
-}
-
-pub(super) fn bxor(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_value(BE::Bxor, args, Value::bxor)
+    super::op::op_bit_or(args)
 }
 
 pub(super) fn shl(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_value(BE::Shl, args, Value::shl)
+    super::op::op_shl(args)
 }
 
 pub(super) fn shr(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_value(BE::Shr, args, Value::shr)
+    super::op::op_shr(args)
 }

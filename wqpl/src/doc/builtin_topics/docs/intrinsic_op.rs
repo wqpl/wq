@@ -25,7 +25,7 @@ const OP_DIV_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("2.0"),
 }];
 
-const OP_DIVDOT_EXAMPLES: &[DocExample] = &[DocExample {
+const OP_DIV_DOT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Divide exactly",
     code: "/.[1;3]",
     expectation: ExampleExpectation::ResultContains("1/3"),
@@ -49,7 +49,7 @@ const OP_POWER_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("8"),
 }];
 
-const OP_POWERDOT_EXAMPLES: &[DocExample] = &[DocExample {
+const OP_POWER_DOT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Raise to a power exactly",
     code: "^.[2;-3]",
     expectation: ExampleExpectation::ResultContains("1/8"),
@@ -67,19 +67,19 @@ const OP_EQUAL_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("T"),
 }];
 
-const OP_EQUALDOT_EXAMPLES: &[DocExample] = &[DocExample {
+const OP_EQUAL_DOT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Compare leaves with broadcasting",
     code: "=.[(1;2);1]",
     expectation: ExampleExpectation::ResultContains("(T;F)"),
 }];
 
-const OP_NOTEQUAL_EXAMPLES: &[DocExample] = &[DocExample {
+const OP_TILDE_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Compare whole values for inequality",
     code: "~[1;2]",
     expectation: ExampleExpectation::ResultContains("T"),
 }];
 
-const OP_NOTEQUALDOT_EXAMPLES: &[DocExample] = &[DocExample {
+const OP_TILDE_DOT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Compare leaves for inequality",
     code: "~.[(1;2);(1;3)]",
     expectation: ExampleExpectation::ResultContains("(F;T)"),
@@ -121,31 +121,31 @@ const OP_SHARP_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("3"),
 }];
 
-const OP_BOOLAND_EXAMPLES: &[DocExample] = &[DocExample {
+const OP_BOOL_AND_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Fold boolean and",
     code: "&|[T;F;T]",
     expectation: ExampleExpectation::ResultContains("F"),
 }];
 
-const OP_BOOLOR_EXAMPLES: &[DocExample] = &[DocExample {
+const OP_BOOL_OR_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Fold boolean or",
     code: r"\|[F;F;T]",
     expectation: ExampleExpectation::ResultContains("T"),
 }];
 
-const OP_BITAND_EXAMPLES: &[DocExample] = &[DocExample {
+const OP_BIT_AND_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Apply bitwise and",
     code: "&[6;3]",
     expectation: ExampleExpectation::ResultContains("2"),
 }];
 
-const OP_BITOR_EXAMPLES: &[DocExample] = &[DocExample {
+const OP_BIT_OR_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Apply bitwise or",
     code: r"\[4;1]",
     expectation: ExampleExpectation::ResultContains("5"),
 }];
 
-const OP_BITXOR_EXAMPLES: &[DocExample] = &[DocExample {
+const OP_XOR_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Apply bitwise xor",
     code: r"^\[5;3]",
     expectation: ExampleExpectation::ResultContains("6"),
@@ -195,11 +195,11 @@ pub(super) const OP_DIV: BuiltinDoc = BuiltinDoc {
     related: &["/.", "/%", "%"],
 };
 
-pub(super) const OP_DIVDOT: BuiltinDoc = BuiltinDoc {
+pub(super) const OP_DIV_DOT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpDivDot,
     summary: "Divide values exactly with the `/.` operator.",
     details: "`/.[xs;ys+]` folds exact division left to right, preserving fraction-like results when possible instead of immediately converting integer division to float.",
-    examples: OP_DIVDOT_EXAMPLES,
+    examples: OP_DIV_DOT_EXAMPLES,
     related: &["/", "fraction", "^."],
 };
 
@@ -227,11 +227,11 @@ pub(super) const OP_POWER: BuiltinDoc = BuiltinDoc {
     related: &["^.", "sqrt", "exp"],
 };
 
-pub(super) const OP_POWERDOT: BuiltinDoc = BuiltinDoc {
+pub(super) const OP_POWER_DOT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpPowerDot,
     summary: "Raise values to exact powers with the `^.` operator.",
     details: "`^.[xs;ys+]` folds exact exponentiation left to right. Negative integer exponents can produce exact fraction-like results.",
-    examples: OP_POWERDOT_EXAMPLES,
+    examples: OP_POWER_DOT_EXAMPLES,
     related: &["^", "/.", "fraction"],
 };
 
@@ -251,27 +251,27 @@ pub(super) const OP_EQUAL: BuiltinDoc = BuiltinDoc {
     related: &["=.", "~", "eq"],
 };
 
-pub(super) const OP_EQUALDOT: BuiltinDoc = BuiltinDoc {
+pub(super) const OP_EQUAL_DOT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpEqualDot,
     summary: "Compare leaves with the `=.` operator.",
     details: "`=.[xs;ys+]` checks equality with broadcasting over compatible nested values. This is the leaf-wise counterpart to whole-value `=`.",
-    examples: OP_EQUALDOT_EXAMPLES,
+    examples: OP_EQUAL_DOT_EXAMPLES,
     related: &["=", "~.", "in?"],
 };
 
-pub(super) const OP_NOTEQUAL: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::OpNotEqual,
+pub(super) const OP_TILDE: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::OpTilde,
     summary: "Compare whole values with `~`, or invert one value.",
     details: "`~[xs;ys+]` checks structural inequality across a comparison chain. `~[x]` is unary bitwise not for integers and boolean not for bools.",
-    examples: OP_NOTEQUAL_EXAMPLES,
-    related: &["~.", "=", "not", "bnot"],
+    examples: OP_TILDE_EXAMPLES,
+    related: &["~.", "=", "not"],
 };
 
-pub(super) const OP_NOTEQUALDOT: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::OpNotEqualDot,
+pub(super) const OP_TILDE_DOT: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::OpTildeDot,
     summary: "Compare leaves with the `~.` operator.",
     details: "`~.[xs;ys+]` checks inequality with broadcasting over compatible nested values. This is the leaf-wise counterpart to whole-value `~`.",
-    examples: OP_NOTEQUALDOT_EXAMPLES,
+    examples: OP_TILDE_DOT_EXAMPLES,
     related: &["~", "=.", "member?"],
 };
 
@@ -323,44 +323,44 @@ pub(super) const OP_SHARP: BuiltinDoc = BuiltinDoc {
     related: &["len", "shape"],
 };
 
-pub(super) const OP_BOOLAND: BuiltinDoc = BuiltinDoc {
+pub(super) const OP_BOOL_AND: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpBoolAnd,
     summary: "Combine bools with the `&|` operator.",
     details: "`&|[xs;ys+]` folds boolean and over bool values. Infix `&|` short-circuits expression evaluation; the callable builtin form receives already evaluated arguments.",
-    examples: OP_BOOLAND_EXAMPLES,
+    examples: OP_BOOL_AND_EXAMPLES,
     related: &[r"\|", "and", "all"],
 };
 
-pub(super) const OP_BOOLOR: BuiltinDoc = BuiltinDoc {
+pub(super) const OP_BOOL_OR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpBoolOr,
     summary: r"Combine bools with the `\|` operator.",
     details: r"`\|[xs;ys+]` folds boolean or over bool values. Infix `\|` short-circuits expression evaluation; the callable builtin form receives already evaluated arguments.",
-    examples: OP_BOOLOR_EXAMPLES,
+    examples: OP_BOOL_OR_EXAMPLES,
     related: &["&|", "or", "any"],
 };
 
-pub(super) const OP_BITAND: BuiltinDoc = BuiltinDoc {
+pub(super) const OP_BIT_AND: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpBitAnd,
     summary: "Apply bitwise and with the `&` operator.",
     details: "`&[xs;ys+]` folds bitwise and over integers and integer lists. It is distinct from boolean `&|`.",
-    examples: OP_BITAND_EXAMPLES,
+    examples: OP_BIT_AND_EXAMPLES,
     related: &[r"\", r"^\", "band"],
 };
 
-pub(super) const OP_BITOR: BuiltinDoc = BuiltinDoc {
+pub(super) const OP_BIT_OR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpBitOr,
     summary: r"Apply bitwise or with the `\` operator.",
     details: r"`\[xs;ys+]` folds bitwise or over integers and integer lists. It is distinct from boolean `\|`.",
-    examples: OP_BITOR_EXAMPLES,
+    examples: OP_BIT_OR_EXAMPLES,
     related: &["&", r"^\", "bor"],
 };
 
-pub(super) const OP_BITXOR: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::OpBitXor,
+pub(super) const OP_XOR: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::OpXor,
     summary: r"Apply bitwise xor with the `^\` operator.",
     details: r"`^\[xs;ys+]` folds bitwise xor over integers, integer lists, and bool pairs.",
-    examples: OP_BITXOR_EXAMPLES,
-    related: &["&", r"\", "bxor"],
+    examples: OP_XOR_EXAMPLES,
+    related: &["&", r"\", "xor"],
 };
 
 pub(super) const OP_SHL: BuiltinDoc = BuiltinDoc {

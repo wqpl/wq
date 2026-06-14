@@ -30,7 +30,7 @@ evaluate:{[node;vals;vars]$.[U node;@r F]
   left:$[U node`left;F;evaluate[node`left;vals;vars]];/*@d left*/
   right:$[U node`right;F;evaluate[node`right;vals;vars]];/*@d right*/
   $$[node`op=OP_AND;and[left;right];     node`op=OP_OR;or[left;right]
-     node`op=OP_NOT;not left;            node`op=OP_XOR;bxor[left;right]
+     node`op=OP_NOT;not left;            node`op=OP_XOR;xor[left;right]
      node`op=OP_IMPLY;or[not left;right];node`op=OP_EQUAL;left=right;F]}
 print_table:{[str_;expr;vars]n:#vars;echo@f"R = {str_}"
   N[n;print@f"| {vars _n} "];echo"| R |";N[shl[1;n];i:_n;vals:alloc n
