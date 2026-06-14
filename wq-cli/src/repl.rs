@@ -521,9 +521,10 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                                     &topic,
                                     DocRenderTarget::Cli,
                                     doc::MarkdownRenderOptions {
-                                        fold_width: terminal_size()
-                                            .map(|(Width(width), _)| width as usize)
-                                            .filter(|width| *width > 0),
+                                        fold_width: crate::help::auto_fold_width(
+                                            terminal_size()
+                                                .map(|(Width(width), _)| width as usize),
+                                        ),
                                     },
                                 );
                                 println!(

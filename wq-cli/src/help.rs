@@ -7,6 +7,8 @@ use wqpl::doc::{self, DocRenderTarget};
 use crate::repl::editor::WqReplHighlighter;
 use crate::{arg, note};
 
+const AUTO_FOLD_WIDTH_GUTTER: usize = 4;
+
 pub fn run(
     topic: Option<String>,
     no_pager: bool,
@@ -40,7 +42,13 @@ pub fn run(
 }
 
 fn resolve_fold_width(explicit: Option<usize>, detected: Option<usize>) -> Option<usize> {
-    explicit.or_else(|| detected.filter(|width| *width > 0))
+    explicit.or_else(|| auto_fold_width(detected))
+}
+
+pub(crate) fn auto_fold_width(detected: Option<usize>) -> Option<usize> {
+    detected
+        .filter(|width| *width > AUTO_FOLD_WIDTH_GUTTER)
+        .map(|width| width - AUTO_FOLD_WIDTH_GUTTER)
 }
 
 fn detected_terminal_width() -> Option<usize> {
@@ -84,7 +92,7 @@ pub(crate) fn print_or_page(text: &str, no_pager: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_fold_width;
+    use super::{auto_fold_width, resolve_fold_width};
 
     #[test]
     fn explicit_fold_width_wins() {
@@ -92,8 +100,10 @@ mod tests {
     }
 
     #[test]
-    fn detected_fold_width_is_used_when_explicit_is_absent() {
-        assert_eq!(resolve_fold_width(None, Some(80)), Some(80));
+    fn detected_fold_width_keeps_a_gutter() {
+        assert_eq!(resolve_fold_width(None, Some(80)), Some(76));
+        assert_eq!(auto_fold_width(Some(5)), Some(1));
+        assert_eq!(auto_fold_width(Some(4)), None);
         assert_eq!(resolve_fold_width(None, Some(0)), None);
         assert_eq!(resolve_fold_width(None, None), None);
     }
