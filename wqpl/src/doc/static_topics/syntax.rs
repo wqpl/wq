@@ -36,11 +36,49 @@ const POSTFIX_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("81"),
 }];
 
-const PIPE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Pipe into a call",
-    code: "(1+2)|*[10]",
-    expectation: ExampleExpectation::ResultContains("30"),
-}];
+const FUNCTION_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Call an explicit-parameter function",
+        code: "add:{[x;y]x+y};add[2;3]",
+        expectation: ExampleExpectation::ResultContains("5"),
+    },
+    DocExample {
+        title: "Use implicit x in a mapper",
+        code: "(1;2;3)|map{x*x}",
+        expectation: ExampleExpectation::ResultContains("(1;4;9)"),
+    },
+];
+
+const PIPE_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Pipe as the first argument",
+        code: "10|-[3]",
+        expectation: ExampleExpectation::ResultContains("7"),
+    },
+    DocExample {
+        title: "Pipe as the last argument",
+        code: "10||-[3]",
+        expectation: ExampleExpectation::ResultContains("-7"),
+    },
+    DocExample {
+        title: "Tap returns the original value",
+        code: "5|.{x+1}",
+        expectation: ExampleExpectation::ResultContains("5"),
+    },
+];
+
+const PRECEDENCE_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Math operators group by precedence",
+        code: "2+3*4",
+        expectation: ExampleExpectation::ResultContains("14"),
+    },
+    DocExample {
+        title: "Postfix calls bind before addition",
+        code: "({x*x} 1+2;{x*x}(1+2))",
+        expectation: ExampleExpectation::ResultContains("(3;9)"),
+    },
+];
 
 const CONDITIONAL_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Choose a branch",
@@ -138,16 +176,45 @@ pub(super) const POSTFIX: StaticDoc = StaticDoc {
     related: &["calls"],
 };
 
+pub(super) const FUNCTIONS: StaticDoc = StaticDoc {
+    id: "functions",
+    title: "Functions",
+    kind: DocKind::Syntax,
+    group: "Syntax",
+    aliases: &["function", "functions", "fn", "lambda", "closure", "{}"],
+    summary: "Create function values with braces.",
+    details: "Function literals use braces: `{body}` creates a function with implicit `x`, `y`, and `z`, while `{[a;b] body}` declares parameters. Use `{[] body}` for a no-argument function. Functions are values, so bind them with `name:{...}`, pass them to higher-order builtins, or call them with `fn[arg]` and `fn arg`.",
+    examples: FUNCTION_EXAMPLES,
+    related: &["calls", "postfix", "map", "fold"],
+};
+
 pub(super) const PIPES: StaticDoc = StaticDoc {
     id: "pipes",
     title: "Pipes",
     kind: DocKind::Syntax,
     group: "Syntax",
-    aliases: &["|", "pipe", "pipes"],
-    summary: "Pipe inserts the left value as the first argument to a right-hand call.",
-    details: "`x | f[y]` behaves like `f[x;y]`. Pipe syntax is often the clearest way to apply display or transformation builtins to larger expressions.",
+    aliases: &["|", "||", "|.", "||.", "pipe", "pipes", "tap pipe"],
+    summary: "Pipe a value into the next call.",
+    details: "`x | f[y]` behaves like `f[x;y]`, while `x || f[y]` behaves like `f[y;x]`. Dotted pipes `|.` and `||.` run the right-hand call but return the original left value, which is useful for tracing or side effects inside a pipeline. Pipes bind looser than calls and arithmetic, so `1+2|*[10]` pipes `3` into `*[10]`.",
     examples: PIPE_EXAMPLES,
-    related: &["calls", "postfix"],
+    related: &["calls", "postfix", "precedence"],
+};
+
+pub(super) const PRECEDENCE: StaticDoc = StaticDoc {
+    id: "precedence",
+    title: "Precedence",
+    kind: DocKind::Syntax,
+    group: "Syntax",
+    aliases: &[
+        "precedence",
+        "operator precedence",
+        "binding power",
+        "order of operations",
+    ],
+    summary: "Understand which syntax groups first.",
+    details: "From tight to loose: grouping/literals, postfix calls and indexing, power, unary operators, ranges, multiply/divide/modulo/matmul, add/subtract, shifts, bitwise operators, comparisons, bool `&|` then `\\|`, comma, pipes, and assignment. Postfix binds before binary operators, so `fn 1+2` means `(fn 1)+2`; use `fn(1+2)`, `fn[1+2]`, or `1+2|fn` when the whole expression is the argument.",
+    examples: PRECEDENCE_EXAMPLES,
+    related: &["operators", "postfix", "pipes", "calls"],
 };
 
 pub(super) const CONDITIONALS: StaticDoc = StaticDoc {
