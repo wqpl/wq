@@ -6,9 +6,9 @@ use num_bigint::BigInt;
 use super::{MAX_DEPTH, integrate_expr_with_depth, split_off_numeric};
 use crate::cas::diff::diff_expr;
 use crate::cas::{
-    cas_add, cas_debug_log_depth, cas_div, cas_mul, cas_pow, cas_product, cas_sub,
-    extract_linear_coefficients, numeric_is_one, numeric_is_zero, poly_derivative, poly_from_expr,
-    poly_is_zero, poly_to_expr, simplify_cas_value,
+    cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, extract_linear_coefficients,
+    numeric_is_one, numeric_is_zero, poly_derivative, poly_from_expr, poly_is_zero, poly_to_expr,
+    simplify_cas_value,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
@@ -113,31 +113,44 @@ fn push_canonical_key(value: &Value, out: &mut String) {
 }
 
 pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Value>> {
-    let key = format!("{}|{}", canonical_key(expr), var);
-    let expr_fmt = expr.format_cas().unwrap_or_else(|| expr.to_string());
-    cas_trace!(DebugLogFlags::CAS, "[cas] byparts enter: {expr_fmt}");
+    cas_trace!(
+        DebugLogFlags::CAS,
+        "[cas] byparts enter: {}",
+        expr.format_cas().unwrap_or_else(|| expr.to_string())
+    );
 
     // 1. Try direct formula for exp·sin / exp·cos  ──────────────────────────
     if let Some(result) = try_exp_trig_product(expr, var)? {
-        let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
-            "[cas] byparts exit (exp_trig): {result_fmt}"
+            "[cas] byparts exit (exp_trig): {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(Some(result));
     }
 
     // 2. Try tabular integration (polynomial × cyclic function) ─────────────
     if let Some(result) = try_tabular(expr, var)? {
-        let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
-            "[cas] byparts exit (tabular): {result_fmt}"
+            "[cas] byparts exit (tabular): {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(Some(result));
     }
 
+    let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
+        cas_trace!(DebugLogFlags::CAS, "[cas] byparts exit (not_product)");
+        return Ok(None);
+    };
+    let (_, symbolic) = split_off_numeric(args);
+    if symbolic.len() < 2 {
+        cas_trace!(DebugLogFlags::CAS, "[cas] byparts exit (too_few_symbolic)");
+        return Ok(None);
+    }
+
     // 3. Cycle guard for ordinary by-parts ──────────────────────────────────
+    let key = format!("{}|{}", canonical_key(expr), var);
     let _guard = match enter_byparts(key) {
         Some(g) => g,
         None => {
@@ -149,16 +162,6 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
             return Ok(None);
         }
     };
-
-    let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
-        cas_trace!(DebugLogFlags::CAS, "[cas] byparts exit (not_product)");
-        return Ok(None);
-    };
-    let (_, symbolic) = split_off_numeric(args);
-    if symbolic.len() < 2 {
-        cas_trace!(DebugLogFlags::CAS, "[cas] byparts exit (too_few_symbolic)");
-        return Ok(None);
-    }
 
     // Collect candidate (u, dv) pairs, LIATE-preferred first
     let mut candidates: Vec<(Value, Value)> = Vec::new();
@@ -178,8 +181,11 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
         let nesting = BYPARTS_NESTING.with(|n| n.get());
         let depth = nesting + 1; // at least 1, increases with nesting
         if let Ok(Some(result)) = try_parts(&u, &dv, var, depth) {
-            let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
-            cas_trace!(DebugLogFlags::CAS, "[cas] byparts exit: {result_fmt}");
+            cas_trace!(
+                DebugLogFlags::CAS,
+                "[cas] byparts exit: {}",
+                result.format_cas().unwrap_or_else(|| result.to_string())
+            );
             return Ok(Some(result));
         }
     }
@@ -439,24 +445,24 @@ fn liate_rank(expr: &Value) -> i32 {
 
 fn try_parts(u: &Value, dv: &Value, var: &str, depth: usize) -> WqResult<Option<Value>> {
     if depth >= MAX_DEPTH {
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] try_parts depth={depth} -> max_depth_exceeded",
         );
         return Ok(None);
     }
-    let u_fmt = u.format_cas().unwrap_or_else(|| u.to_string());
-    let dv_fmt = dv.format_cas().unwrap_or_else(|| dv.to_string());
-    cas_debug_log_depth(
+    cas_trace_depth!(
         DebugLogFlags::CAS_VERBOSE,
         depth,
-        format!("[cas-v] try_parts enter depth={depth} u={u_fmt} dv={dv_fmt}"),
+        "[cas-v] try_parts enter depth={depth} u={} dv={}",
+        u.format_cas().unwrap_or_else(|| u.to_string()),
+        dv.format_cas().unwrap_or_else(|| dv.to_string())
     );
     let v = match integrate_expr_with_depth(dv, var, depth + 1) {
         Ok(v) => v,
         Err(_) => {
-            cas_debug_log_depth(
+            cas_trace_depth!(
                 DebugLogFlags::CAS_VERBOSE,
                 depth,
                 "[cas-v] try_parts depth={depth} -> dv_integration_failed",
@@ -470,7 +476,7 @@ fn try_parts(u: &Value, dv: &Value, var: &str, depth: usize) -> WqResult<Option<
     let rest = match integrate_expr_with_depth(&vdu, var, depth + 1) {
         Ok(r) => r,
         Err(_) => {
-            cas_debug_log_depth(
+            cas_trace_depth!(
                 DebugLogFlags::CAS_VERBOSE,
                 depth,
                 "[cas-v] try_parts depth={depth} -> vdu_integration_failed",
@@ -481,11 +487,11 @@ fn try_parts(u: &Value, dv: &Value, var: &str, depth: usize) -> WqResult<Option<
 
     let uv = cas_mul(vec![u.clone(), v])?;
     let result = simplify_cas_value(&cas_sub(uv, rest)?)?;
-    let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
-    cas_debug_log_depth(
+    cas_trace_depth!(
         DebugLogFlags::CAS_VERBOSE,
         depth,
-        format!("[cas-v] try_parts exit depth={depth} -> {result_fmt}"),
+        "[cas-v] try_parts exit depth={depth} -> {}",
+        result.format_cas().unwrap_or_else(|| result.to_string())
     );
     Ok(Some(result))
 }

@@ -127,6 +127,21 @@ fn simplify_keeps_root_of_square_until_rewritten() {
 }
 
 #[test]
+fn simplify_large_squarefree_sqrt_stays_symbolic() {
+    let expr = op(
+        CasOp::Power,
+        vec![
+            Value::from_bigint(BigInt::from(9_999_999_967_i64)),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        ],
+    );
+    assert_eq!(
+        simplify_cas_value(&expr).unwrap().to_string(),
+        "9999999967^(1/2)"
+    );
+}
+
+#[test]
 fn rewrite_combines_log_terms() {
     let expr = op(
         CasOp::Add,

@@ -1,7 +1,7 @@
 use crate::cas::limit::limit_cas;
 use crate::cas::{
-    cas_add, cas_debug_log_depth, cas_div, cas_err, cas_mul, cas_pow, cas_sub, contains_cas_var,
-    numeric_mul, rewrite_cas, simplify_cas_value, substitute_cas, var_name_from_value,
+    cas_add, cas_div, cas_err, cas_mul, cas_pow, cas_sub, contains_cas_var, numeric_mul,
+    rewrite_cas, simplify_cas_value, substitute_cas, var_name_from_value,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
@@ -129,19 +129,19 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
         );
         return Err(cas_err("integration recursion depth exceeded"));
     }
-    let expr_fmt = expr.format_cas().unwrap_or_else(|| expr.to_string());
-    cas_debug_log_depth(
+    cas_trace_depth!(
         DebugLogFlags::CAS_VERBOSE,
         depth,
-        format!("[cas-v] integrate_expr_with_depth enter depth={depth} expr={expr_fmt} var={var}"),
+        "[cas-v] integrate_expr_with_depth enter depth={depth} expr={} var={var}",
+        expr.format_cas().unwrap_or_else(|| expr.to_string())
     );
 
     if !expr.is_cas_expr() {
         let result = cas_mul(vec![expr.clone(), Value::from_cas_var(var)])?;
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             depth,
-            format!("[cas-v] integrate_expr_with_depth exit depth={depth} -> numeric*var"),
+            "[cas-v] integrate_expr_with_depth exit depth={depth} -> numeric*var"
         );
         return Ok(result);
     }
@@ -154,10 +154,10 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
         } else {
             cas_mul(vec![expr.clone(), Value::from_cas_var(var)])?
         };
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             depth,
-            format!("[cas-v] integrate_expr_with_depth exit depth={depth} -> variable_rule"),
+            "[cas-v] integrate_expr_with_depth exit depth={depth} -> variable_rule"
         );
         return Ok(result);
     }
@@ -187,25 +187,21 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
             _ => try_strategies(expr, var, depth + 1)?,
         };
         let result = simplify_cas_value(&out)?;
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             depth,
-            format!(
-                "[cas-v] integrate_expr_with_depth exit depth={depth} op={op} -> {}",
-                result.format_cas().unwrap_or_else(|| result.to_string())
-            ),
+            "[cas-v] integrate_expr_with_depth exit depth={depth} op={op} -> {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(result);
     }
     if expr.cas_function_parts().is_some() {
         let result = try_strategies(expr, var, depth + 1)?;
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             depth,
-            format!(
-                "[cas-v] integrate_expr_with_depth exit depth={depth} call -> {}",
-                result.format_cas().unwrap_or_else(|| result.to_string())
-            ),
+            "[cas-v] integrate_expr_with_depth exit depth={depth} call -> {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(result);
     }
@@ -222,30 +218,31 @@ fn try_strategies(expr: &Value, var: &str, depth: usize) -> WqResult<Value> {
     if depth >= MAX_DEPTH {
         return Err(cas_err("integration recursion depth exceeded"));
     }
-    let expr_fmt = expr.format_cas().unwrap_or_else(|| expr.to_string());
     for (name, strategy) in STRATEGIES {
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             depth,
-            format!("[cas-v] try_strategy {name} depth={depth} expr={expr_fmt}"),
+            "[cas-v] try_strategy {name} depth={depth} expr={}",
+            expr.format_cas().unwrap_or_else(|| expr.to_string())
         );
         if let Some(result) = strategy(expr, var)? {
-            let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
             cas_trace!(
                 DebugLogFlags::CAS,
-                "[cas] strategy {name} -> success: {result_fmt}"
+                "[cas] strategy {name} -> success: {}",
+                result.format_cas().unwrap_or_else(|| result.to_string())
             );
-            cas_debug_log_depth(
+            cas_trace_depth!(
                 DebugLogFlags::CAS_VERBOSE,
                 depth,
-                format!("[cas-v] try_strategy {name} depth={depth} -> success: {result_fmt}"),
+                "[cas-v] try_strategy {name} depth={depth} -> success: {}",
+                result.format_cas().unwrap_or_else(|| result.to_string())
             );
             return simplify_cas_value(&result);
         }
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             depth,
-            format!("[cas-v] try_strategy {name} depth={depth} -> failed"),
+            "[cas-v] try_strategy {name} depth={depth} -> failed"
         );
     }
     let formatted = expr.format_cas().unwrap_or_else(|| expr.to_string());

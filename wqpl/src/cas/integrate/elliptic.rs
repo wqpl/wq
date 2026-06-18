@@ -16,16 +16,22 @@ use crate::value::{Value, WqResult};
 /// Strategy entry point: integrate elliptic integrals involving sqrt(cubic).
 pub(super) fn integrate_elliptic(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let simplified = simplify_cas_value(expr)?;
-    let expr_fmt = simplified
-        .format_cas()
-        .unwrap_or_else(|| simplified.to_string());
-    cas_trace!(DebugLogFlags::CAS, "[cas] elliptic enter: {expr_fmt}");
+    cas_trace!(
+        DebugLogFlags::CAS,
+        "[cas] elliptic enter: {}",
+        simplified
+            .format_cas()
+            .unwrap_or_else(|| simplified.to_string())
+    );
 
     let result = try_elliptic(&simplified, var);
 
     if let Ok(Some(ref val)) = result {
-        let val_fmt = val.format_cas().unwrap_or_else(|| val.to_string());
-        cas_trace!(DebugLogFlags::CAS, "[cas] elliptic exit: {val_fmt}");
+        cas_trace!(
+            DebugLogFlags::CAS,
+            "[cas] elliptic exit: {}",
+            val.format_cas().unwrap_or_else(|| val.to_string())
+        );
     } else {
         cas_trace!(DebugLogFlags::CAS, "[cas] elliptic exit (not_elliptic)");
     }

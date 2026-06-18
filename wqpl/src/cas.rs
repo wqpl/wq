@@ -12,7 +12,7 @@ mod solve;
 mod tests;
 mod value_ext;
 
-pub(crate) use debug::{cas_debug_enabled, cas_debug_log_depth};
+pub(crate) use debug::cas_debug_enabled;
 use expand_factor::{
     eval_numeric_binary_gcd, expand_expr, extract_algebraic_content, factor_expr, split_off_results,
 };

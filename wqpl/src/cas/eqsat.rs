@@ -63,13 +63,13 @@ pub(super) fn rewrite_with_egg(value: &Value) -> WqResult<Option<Value>> {
         return Ok(None);
     }
 
-    let before = value.format_cas().unwrap_or_else(|| value.to_string());
-    let after = rewritten
-        .format_cas()
-        .unwrap_or_else(|| rewritten.to_string());
     cas_trace!(
         DebugLogFlags::CAS_VERBOSE,
-        "[cas-v] egg rewrite root={root:?} cost={cost:?}: {before} -> {after}"
+        "[cas-v] egg rewrite root={root:?} cost={cost:?}: {} -> {}",
+        value.format_cas().unwrap_or_else(|| value.to_string()),
+        rewritten
+            .format_cas()
+            .unwrap_or_else(|| rewritten.to_string())
     );
     Ok(Some(rewritten))
 }

@@ -1,9 +1,9 @@
 use num_bigint::BigInt;
 
 use crate::cas::{
-    cas_add, cas_debug_log_depth, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_product,
-    cas_sub, contains_cas_var, numeric_is_one, numeric_sub, rewrite_cas, rewrite_loop,
-    simplify_cas_value, var_name_from_value,
+    cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_product, cas_sub, contains_cas_var,
+    numeric_is_one, numeric_sub, rewrite_cas, rewrite_loop, simplify_cas_value,
+    var_name_from_value,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -25,10 +25,10 @@ fn ell_inner(phi: &Value, m: &Value) -> WqResult<Value> {
 pub(crate) fn diff_cas(expr: &Value, var: &Value) -> WqResult<Value> {
     let var = var_name_from_value(var)?;
     let expr = simplify_cas_value(expr)?;
-    let expr_fmt = fmt_cas(&expr);
     cas_trace!(
         DebugLogFlags::CAS,
-        "[cas] diff enter: expr={expr_fmt} var={var}"
+        "[cas] diff enter: expr={} var={var}",
+        fmt_cas(&expr)
     );
     let mut current = diff_expr(&expr, &var)?;
     // Apply tree rewrites (sgn/abs, -1 distribution) first, then simplify to
@@ -43,25 +43,27 @@ pub(crate) fn diff_cas(expr: &Value, var: &Value) -> WqResult<Value> {
 }
 
 pub(super) fn diff_expr(expr: &Value, var: &str) -> WqResult<Value> {
-    let expr_fmt = fmt_cas(expr);
-    cas_debug_log_depth(
+    cas_trace_depth!(
         DebugLogFlags::CAS_VERBOSE,
         0,
-        format!("[cas-v] diff_expr enter: {expr_fmt} var={var}"),
+        "[cas-v] diff_expr enter: {} var={var}",
+        fmt_cas(expr)
     );
     let result = diff_expr_inner(expr, var);
     if let Ok(ref val) = result {
-        let val_fmt = fmt_cas(val);
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             0,
-            format!("[cas-v] diff_expr exit: {expr_fmt} -> {val_fmt}"),
+            "[cas-v] diff_expr exit: {} -> {}",
+            fmt_cas(expr),
+            fmt_cas(val)
         );
     } else {
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             0,
-            format!("[cas-v] diff_expr exit: {expr_fmt} -> Err"),
+            "[cas-v] diff_expr exit: {} -> Err",
+            fmt_cas(expr)
         );
     }
     result

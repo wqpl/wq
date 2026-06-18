@@ -1502,19 +1502,27 @@ fn is_perfect_power(n: &BigInt, q: &BigInt) -> bool {
     false
 }
 
+const PERFECT_POWER_TRIAL_DIVISION_LIMIT: i64 = 10_000;
+
 /// Factor `n` into `p^q * r` where `r` is q-th-power-free.
-/// Uses trial division up to the q-th root of n.
+/// Uses bounded trial division up to the q-th root of n.
 pub(crate) fn extract_perfect_power_factor(n: &BigInt, q: u32) -> (BigInt, BigInt) {
     if n.is_zero() || n.is_one() {
         return (n.clone(), BigInt::one());
     }
     let mut p = BigInt::one();
     let mut r = n.clone();
-    let limit: i64 = r
+    let Some(limit) = r
         .abs()
         .to_f64()
+        .filter(|f| f.is_finite())
         .map(|f| (f.powf(1.0 / q as f64).ceil() as i64).max(1))
-        .unwrap_or(1);
+    else {
+        return (BigInt::one(), n.clone());
+    };
+    if limit > PERFECT_POWER_TRIAL_DIVISION_LIMIT {
+        return (BigInt::one(), n.clone());
+    }
     let mut k = BigInt::from(2);
     let limit_bi = BigInt::from(limit);
     while k <= limit_bi {

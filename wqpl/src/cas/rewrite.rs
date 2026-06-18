@@ -1172,10 +1172,10 @@ pub(crate) fn rewrite_loop(current: &mut Value) -> WqResult<()> {
             );
             return Ok(());
         }
-        let next_fmt = next.format_cas().unwrap_or_else(|| next.to_string());
         cas_trace!(
             DebugLogFlags::CAS_VERBOSE,
-            "[cas-v] rewrite_loop iteration={i} -> {next_fmt}"
+            "[cas-v] rewrite_loop iteration={i} -> {}",
+            next.format_cas().unwrap_or_else(|| next.to_string())
         );
         *current = next;
     }

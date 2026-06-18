@@ -35,70 +35,73 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
     if !contains_trig(expr) {
         return Ok(None);
     }
-    let expr_fmt = expr.format_cas().unwrap_or_else(|| expr.to_string());
-    cas_trace!(DebugLogFlags::CAS, "[cas] trig enter: {expr_fmt}");
+    cas_trace!(
+        DebugLogFlags::CAS,
+        "[cas] trig enter: {}",
+        expr.format_cas().unwrap_or_else(|| expr.to_string())
+    );
     let simplified = simplify_cas_value(expr)?;
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Sin, var)? {
-        let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
-            "[cas] trig exit (sin_power): {result_fmt}"
+            "[cas] trig exit (sin_power): {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(Some(result));
     }
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Cos, var)? {
-        let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
-            "[cas] trig exit (cos_power): {result_fmt}"
+            "[cas] trig exit (cos_power): {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(Some(result));
     }
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Tan, var)? {
-        let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
-            "[cas] trig exit (tan_power): {result_fmt}"
+            "[cas] trig exit (tan_power): {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(Some(result));
     }
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Sec, var)? {
-        let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
-            "[cas] trig exit (sec_power): {result_fmt}"
+            "[cas] trig exit (sec_power): {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(Some(result));
     }
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Csc, var)? {
-        let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
-            "[cas] trig exit (csc_power): {result_fmt}"
+            "[cas] trig exit (csc_power): {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(Some(result));
     }
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Cot, var)? {
-        let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
-            "[cas] trig exit (cot_power): {result_fmt}"
+            "[cas] trig exit (cot_power): {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(Some(result));
     }
     if let Some(result) = try_sin_cos_product(&simplified, var)? {
-        let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
-            "[cas] trig exit (sin_cos_product): {result_fmt}"
+            "[cas] trig exit (sin_cos_product): {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(Some(result));
     }
     if let Some(result) = try_product_to_sum(&simplified, var)? {
-        let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
         cas_trace!(
             DebugLogFlags::CAS,
-            "[cas] trig exit (product_to_sum): {result_fmt}"
+            "[cas] trig exit (product_to_sum): {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(Some(result));
     }

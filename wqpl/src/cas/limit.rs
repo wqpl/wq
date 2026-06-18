@@ -1,7 +1,6 @@
 use crate::cas::diff::diff_expr;
 use crate::cas::{
-    cas_debug_log_depth, cas_product, contains_cas_var, numeric_is_zero, simplify_cas_value,
-    substitute_cas,
+    cas_product, contains_cas_var, numeric_is_zero, simplify_cas_value, substitute_cas,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -28,8 +27,6 @@ pub(crate) fn limit_cas(
     direction: Option<LimitDirection>,
 ) -> WqResult<Value> {
     let expr = simplify_cas_value(expr)?;
-    let expr_fmt = expr.format_cas().unwrap_or_else(|| expr.to_string());
-    let point_fmt = point.format_cas().unwrap_or_else(|| point.to_string());
     let dir_fmt = match direction {
         Some(LimitDirection::Right) => "+",
         Some(LimitDirection::Left) => "-",
@@ -37,12 +34,17 @@ pub(crate) fn limit_cas(
     };
     cas_trace!(
         DebugLogFlags::CAS,
-        "[cas] limit enter: expr={expr_fmt} var={} point={point_fmt} dir={dir_fmt}",
-        var.format_cas().unwrap_or_else(|| var.to_string())
+        "[cas] limit enter: expr={} var={} point={} dir={dir_fmt}",
+        expr.format_cas().unwrap_or_else(|| expr.to_string()),
+        var.format_cas().unwrap_or_else(|| var.to_string()),
+        point.format_cas().unwrap_or_else(|| point.to_string())
     );
     let result = limit_cas_inner(&expr, var, point, direction, 0)?;
-    let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
-    cas_trace!(DebugLogFlags::CAS, "[cas] limit exit: {result_fmt}");
+    cas_trace!(
+        DebugLogFlags::CAS,
+        "[cas] limit exit: {}",
+        result.format_cas().unwrap_or_else(|| result.to_string())
+    );
     Ok(result)
 }
 
@@ -53,34 +55,32 @@ fn limit_cas_inner(
     direction: Option<LimitDirection>,
     lhopital_depth: usize,
 ) -> WqResult<Value> {
-    let expr_fmt = expr.format_cas().unwrap_or_else(|| expr.to_string());
-    cas_debug_log_depth(
+    cas_trace_depth!(
         DebugLogFlags::CAS_VERBOSE,
         lhopital_depth,
-        format!("[cas-v] limit_cas_inner enter lhopital_depth={lhopital_depth} expr={expr_fmt}"),
+        "[cas-v] limit_cas_inner enter lhopital_depth={lhopital_depth} expr={}",
+        expr.format_cas().unwrap_or_else(|| expr.to_string())
     );
 
     macro_rules! try_strategy {
         ($name:literal, $call:expr) => {
             if let Some(result) = $call? {
-                let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
-                cas_debug_log_depth(
+                cas_trace_depth!(
                     DebugLogFlags::CAS_VERBOSE,
                     lhopital_depth,
-                    format!(
-                        "[cas-v] limit_cas_inner strategy={} lhopital_depth={} -> success: {}",
-                        $name, lhopital_depth, result_fmt
-                    ),
+                    "[cas-v] limit_cas_inner strategy={} lhopital_depth={} -> success: {}",
+                    $name,
+                    lhopital_depth,
+                    result.format_cas().unwrap_or_else(|| result.to_string())
                 );
                 return Ok(result);
             }
-            cas_debug_log_depth(
+            cas_trace_depth!(
                 DebugLogFlags::CAS_VERBOSE,
                 lhopital_depth,
-                format!(
-                    "[cas-v] limit_cas_inner strategy={} lhopital_depth={} -> failed",
-                    $name, lhopital_depth
-                ),
+                "[cas-v] limit_cas_inner strategy={} lhopital_depth={} -> failed",
+                $name,
+                lhopital_depth
             );
         };
     }
@@ -104,12 +104,10 @@ fn limit_cas_inner(
             try_lhopital(expr, var, point, direction, lhopital_depth)
         );
     } else {
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             lhopital_depth,
-            format!(
-                "[cas-v] limit_cas_inner strategy=lhopital lhopital_depth={lhopital_depth} -> skipped (max)"
-            ),
+            "[cas-v] limit_cas_inner strategy=lhopital lhopital_depth={lhopital_depth} -> skipped (max)"
         );
     }
 
@@ -121,12 +119,10 @@ fn limit_cas_inner(
 
     // Fallback: unevaluated limit node
     let fallback = Value::from_cas_limit(expr.clone(), var.clone(), point.clone(), direction);
-    cas_debug_log_depth(
+    cas_trace_depth!(
         DebugLogFlags::CAS_VERBOSE,
         lhopital_depth,
-        format!(
-            "[cas-v] limit_cas_inner exit lhopital_depth={lhopital_depth} -> unevaluated limit"
-        ),
+        "[cas-v] limit_cas_inner exit lhopital_depth={lhopital_depth} -> unevaluated limit"
     );
     Ok(fallback)
 }

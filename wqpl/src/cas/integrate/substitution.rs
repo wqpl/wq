@@ -6,8 +6,11 @@ use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
-    let expr_fmt = expr.format_cas().unwrap_or_else(|| expr.to_string());
-    cas_trace!(DebugLogFlags::CAS, "[cas] substitution enter: {expr_fmt}");
+    cas_trace!(
+        DebugLogFlags::CAS,
+        "[cas] substitution enter: {}",
+        expr.format_cas().unwrap_or_else(|| expr.to_string())
+    );
     let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
         cas_trace!(DebugLogFlags::CAS, "[cas] substitution exit (not_product)");
         return Ok(None);

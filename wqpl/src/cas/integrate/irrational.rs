@@ -13,10 +13,10 @@ use num_traits::ToPrimitive;
 use super::rational::find_rational_root_value;
 use super::trig::binomial_coeff;
 use crate::cas::{
-    cas_add, cas_debug_log_depth, cas_div, cas_mul, cas_pow, cas_product, cas_sub,
-    eval_exact_numeric_div, numeric_add, numeric_div, numeric_is_negative, numeric_is_one,
-    numeric_is_zero, numeric_mul, numeric_sub, poly_degree, poly_divide, poly_from_expr, poly_gcd,
-    poly_is_zero, poly_mul, poly_to_expr, poly_trim, simplify_cas_value, substitute_expr,
+    cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div, numeric_add,
+    numeric_div, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
+    poly_degree, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul, poly_to_expr,
+    poly_trim, simplify_cas_value, substitute_expr,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
@@ -214,17 +214,17 @@ fn extract_square_factors(poly: &[Value], _var: &str) -> WqResult<(Vec<Value>, V
 fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     // Guard against infinite recursion
     let depth = SQRT_REDUCTION_DEPTH.get();
-    let expr_fmt = expr.format_cas().unwrap_or_else(|| expr.to_string());
-    cas_debug_log_depth(
+    cas_trace_depth!(
         DebugLogFlags::CAS_VERBOSE,
         depth,
-        format!("[cas-v] sqrt_reduction enter depth={depth} expr={expr_fmt}"),
+        "[cas-v] sqrt_reduction enter depth={depth} expr={}",
+        expr.format_cas().unwrap_or_else(|| expr.to_string())
     );
     if depth >= MAX_SQRT_REDUCTION_DEPTH {
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             depth,
-            format!("[cas-v] sqrt_reduction exit depth={depth} -> max_depth_exceeded"),
+            "[cas-v] sqrt_reduction exit depth={depth} -> max_depth_exceeded"
         );
         return Ok(None);
     }
@@ -250,10 +250,10 @@ fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
 
     // If no reduction happened, don't recurse
     if in_deg == deg {
-        cas_debug_log_depth(
+        cas_trace_depth!(
             DebugLogFlags::CAS_VERBOSE,
             depth,
-            format!("[cas-v] sqrt_reduction exit depth={depth} -> no_reduction"),
+            "[cas-v] sqrt_reduction exit depth={depth} -> no_reduction"
         );
         return Ok(None);
     }
@@ -280,11 +280,11 @@ fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
 
     // Recurse into the integration pipeline
     let result = super::integrate_expr_with_depth(&simplified, var, 0)?;
-    let result_fmt = result.format_cas().unwrap_or_else(|| result.to_string());
-    cas_debug_log_depth(
+    cas_trace_depth!(
         DebugLogFlags::CAS_VERBOSE,
         depth,
-        format!("[cas-v] sqrt_reduction exit depth={depth} -> {result_fmt}"),
+        "[cas-v] sqrt_reduction exit depth={depth} -> {}",
+        result.format_cas().unwrap_or_else(|| result.to_string())
     );
     Ok(Some(result))
 }
@@ -294,8 +294,11 @@ fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
 // ---------------------------------------------------------------------------
 
 fn try_euler_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
-    let expr_fmt = expr.format_cas().unwrap_or_else(|| expr.to_string());
-    cas_trace!(DebugLogFlags::CAS, "[cas] euler enter: {expr_fmt}");
+    cas_trace!(
+        DebugLogFlags::CAS,
+        "[cas] euler enter: {}",
+        expr.format_cas().unwrap_or_else(|| expr.to_string())
+    );
     let root_expr = find_sqrt_factor(expr, var);
     let (quad_base, _is_sqrt) = match root_expr {
         Some(q) => q,
