@@ -1,7 +1,7 @@
 use crate::cas::limit::limit_cas;
 use crate::cas::{
     cas_add, cas_div, cas_err, cas_mul, cas_pow, cas_sub, contains_cas_var, numeric_mul,
-    rewrite_cas, simplify_cas_value, substitute_cas, var_name_from_value,
+    rewrite_cas, simplify_cas_value, substitute_cas, var_name_from_value, with_cas_div_cache,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
@@ -20,23 +20,25 @@ mod substitution;
 mod trig;
 
 pub(crate) fn integrate_cas(expr: &Value, var: &Value) -> WqResult<Value> {
-    let var = var_name_from_value(var)?;
-    let expr = simplify_cas_value(expr)?;
-    cas_trace!(
-        DebugLogFlags::CAS,
-        "[cas] integrate enter: expr={} var={}",
-        expr.format_cas().unwrap_or_else(|| expr.to_string()),
-        var
-    );
-    let result = rewrite_cas(&simplify_cas_value(&integrate_expr_with_depth(
-        &expr, &var, 0,
-    )?)?)?;
-    cas_trace!(
-        DebugLogFlags::CAS,
-        "[cas] integrate exit: {}",
-        result.format_cas().unwrap_or_else(|| result.to_string())
-    );
-    Ok(result)
+    with_cas_div_cache(|| {
+        let var = var_name_from_value(var)?;
+        let expr = simplify_cas_value(expr)?;
+        cas_trace!(
+            DebugLogFlags::CAS,
+            "[cas] integrate enter: expr={} var={}",
+            expr.format_cas().unwrap_or_else(|| expr.to_string()),
+            var
+        );
+        let result = rewrite_cas(&simplify_cas_value(&integrate_expr_with_depth(
+            &expr, &var, 0,
+        )?)?)?;
+        cas_trace!(
+            DebugLogFlags::CAS,
+            "[cas] integrate exit: {}",
+            result.format_cas().unwrap_or_else(|| result.to_string())
+        );
+        Ok(result)
+    })
 }
 
 /// Evaluate a definite integral ∫_lower^upper expr d(var) via the Fundamental

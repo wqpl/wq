@@ -3,7 +3,7 @@ use num_bigint::BigInt;
 use crate::cas::{
     cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_product, cas_sub, contains_cas_var,
     numeric_is_one, numeric_sub, rewrite_cas, rewrite_loop, simplify_cas_value,
-    var_name_from_value,
+    var_name_from_value, with_cas_div_cache,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -23,23 +23,25 @@ fn ell_inner(phi: &Value, m: &Value) -> WqResult<Value> {
 }
 
 pub(crate) fn diff_cas(expr: &Value, var: &Value) -> WqResult<Value> {
-    let var = var_name_from_value(var)?;
-    let expr = simplify_cas_value(expr)?;
-    cas_trace!(
-        DebugLogFlags::CAS,
-        "[cas] diff enter: expr={} var={var}",
-        fmt_cas(&expr)
-    );
-    let mut current = diff_expr(&expr, &var)?;
-    // Apply tree rewrites (sgn/abs, -1 distribution) first, then simplify to
-    // combine rational terms. The generalized quotient rule in diff_expr
-    // already produces a single fraction for rational-exponential products,
-    // avoiding the need to recombine fractions with different denominators.
-    rewrite_loop(&mut current)?;
-    let result = simplify_cas_value(&current)?;
-    let result = rewrite_cas(&result)?;
-    cas_trace!(DebugLogFlags::CAS, "[cas] diff exit: {}", fmt_cas(&result));
-    Ok(result)
+    with_cas_div_cache(|| {
+        let var = var_name_from_value(var)?;
+        let expr = simplify_cas_value(expr)?;
+        cas_trace!(
+            DebugLogFlags::CAS,
+            "[cas] diff enter: expr={} var={var}",
+            fmt_cas(&expr)
+        );
+        let mut current = diff_expr(&expr, &var)?;
+        // Apply tree rewrites (sgn/abs, -1 distribution) first, then simplify to
+        // combine rational terms. The generalized quotient rule in diff_expr
+        // already produces a single fraction for rational-exponential products,
+        // avoiding the need to recombine fractions with different denominators.
+        rewrite_loop(&mut current)?;
+        let result = simplify_cas_value(&current)?;
+        let result = rewrite_cas(&result)?;
+        cas_trace!(DebugLogFlags::CAS, "[cas] diff exit: {}", fmt_cas(&result));
+        Ok(result)
+    })
 }
 
 pub(super) fn diff_expr(expr: &Value, var: &str) -> WqResult<Value> {

@@ -6,10 +6,10 @@ use super::{
     cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub, collect_single_poly_var,
     common_numeric_gcd, eval_numeric_binary, expand_expr, extract_perfect_power_factor,
     factor_expr, numeric_is_negative, numeric_is_one, poly_degree, poly_from_expr,
-    rebuild_scaled_term, simplify_cas_value, split_add_term,
+    rebuild_scaled_term, simplify_cas_value, split_add_term, with_cas_div_cache,
 };
 use crate::session::dbglog::DebugLogFlags;
-use crate::value::cas::{CasFunction, CasOp};
+use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 pub(super) fn push_flattened(out: &mut Vec<Value>, op: CasOp, value: Value) {
@@ -436,6 +436,48 @@ fn try_factor_var_free_binary_sum(value: &Value, args: &[Value]) -> WqResult<Opt
     }
 }
 
+fn try_distribute_scaled_sum_for_like_term(args: &[Value]) -> WqResult<Option<Value>> {
+    for (idx, arg) in args.iter().enumerate() {
+        let (coeff, core) = split_add_term(arg);
+        if numeric_is_one(&coeff) {
+            continue;
+        }
+        let Some(core) = core else {
+            continue;
+        };
+        let Some((CasOp::Add, inner_terms)) = core.cas_op_parts() else {
+            continue;
+        };
+        let has_like_outer_term = inner_terms.iter().any(|inner| {
+            args.iter()
+                .enumerate()
+                .any(|(other_idx, other)| idx != other_idx && terms_have_same_core(inner, other))
+        });
+        if !has_like_outer_term {
+            continue;
+        }
+
+        let mut new_args = Vec::with_capacity(args.len() + inner_terms.len() - 1);
+        for (arg_idx, original) in args.iter().enumerate() {
+            if arg_idx == idx {
+                for inner in inner_terms {
+                    new_args.push(rebuild_scaled_term(coeff.clone(), Some(inner.clone()))?);
+                }
+            } else {
+                new_args.push(original.clone());
+            }
+        }
+        return Ok(Some(cas_add(new_args)?));
+    }
+    Ok(None)
+}
+
+fn terms_have_same_core(lhs: &Value, rhs: &Value) -> bool {
+    let (_, lhs_core) = split_add_term(lhs);
+    let (_, rhs_core) = split_add_term(rhs);
+    lhs_core.is_some() && lhs_core == rhs_core
+}
+
 fn combine_logs_in_sum(args: &[Value]) -> WqResult<Option<Value>> {
     let mut other_terms = Vec::with_capacity(args.len());
     let mut log_args = Vec::new();
@@ -587,8 +629,8 @@ fn exact_int_value_is(value: &Value, expected: i64) -> bool {
 }
 
 /// (+ (* A B) (* (* -1 A) C)) → (* A (+ B (* -1 C))).
-/// The second term must have coefficient -1 so that after A is factored,
-/// the inner sum is B - C.
+/// Also handles non-unit negative coefficients for function/app common factors,
+/// such as exponential terms produced by differentiation.
 fn try_factor_binary_product(args: &[Value]) -> WqResult<Option<Value>> {
     if args.len() != 2 {
         return Ok(None);
@@ -600,10 +642,10 @@ fn try_factor_binary_product(args: &[Value]) -> WqResult<Option<Value>> {
             continue;
         };
         let (coeff_neg, core_neg) = split_add_term(&args[neg_i]);
-        let coeff_neg_is_plain_int = coeff_neg.exact_int_is(-1);
-        if !coeff_neg_is_plain_int && !exact_int_value_is(&coeff_neg, -1) {
+        if numeric_is_negative(&coeff_pos) || !numeric_is_negative(&coeff_neg) {
             continue;
         }
+        let coeff_neg_is_unit = coeff_neg.exact_int_is(-1) || exact_int_value_is(&coeff_neg, -1);
         // Both cores should be products sharing a common factor
         let factors_pos: Vec<Value> = match core_pos.cas_op_parts() {
             Some((CasOp::Multiply, f)) => f.to_vec(),
@@ -627,10 +669,7 @@ fn try_factor_binary_product(args: &[Value]) -> WqResult<Option<Value>> {
             }
             if factors_neg.contains(fa) {
                 let common = fa.clone();
-                if !coeff_neg_is_plain_int
-                    && common.cas_function_parts().is_none()
-                    && common.cas_apply_parts().is_none()
-                {
+                if !coeff_neg_is_unit && !allows_non_unit_negative_factor(&common) {
                     continue;
                 }
                 let rem_pos: Vec<Value> = factors_pos
@@ -654,13 +693,28 @@ fn try_factor_binary_product(args: &[Value]) -> WqResult<Option<Value>> {
                     _ => Some(cas_product(rem_neg)),
                 };
                 let term_pos = rebuild_scaled_term(coeff_pos.clone(), new_core_pos)?;
-                let term_neg = rebuild_scaled_term(Value::Int(-1), new_core_neg)?;
+                let term_neg = rebuild_scaled_term(coeff_neg.clone(), new_core_neg)?;
                 let inner = cas_add(vec![term_pos, term_neg])?;
+                let inner = if coeff_neg_is_unit {
+                    inner
+                } else {
+                    simplify_cas_value(&expand_expr(&inner)?)?
+                };
                 return Ok(Some(cas_mul(vec![common, inner])?));
             }
         }
     }
     Ok(None)
+}
+
+fn allows_non_unit_negative_factor(common: &Value) -> bool {
+    common.cas_function_parts().is_some()
+        || common.cas_apply_parts().is_some()
+        || matches!(
+            common.cas_op_parts(),
+            Some((CasOp::Power, [base, exp]))
+                if base.cas_const() == Some(CasConst::E) && exp.is_cas_expr()
+        )
 }
 
 /// (* ... (^ D1 -1) ... (^ D2 -1) ...) → replace both with (^ (D1*D2) -1)
@@ -923,6 +977,9 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
         if let Some(result) = try_factor_var_free_binary_sum(value, args)? {
             return Ok(Some(result));
         }
+        if let Some(result) = try_distribute_scaled_sum_for_like_term(args)? {
+            return Ok(Some(result));
+        }
         if let Some(result) = try_merge_var_free_sum_pair(args)? {
             return Ok(Some(result));
         }
@@ -1150,13 +1207,15 @@ pub(super) fn rewrite_expr(value: &Value) -> WqResult<Value> {
 }
 
 pub(crate) fn rewrite_cas(expr: &Value) -> WqResult<Value> {
-    let mut current = simplify_cas_value(expr)?;
-    rewrite_loop(&mut current)?;
-    if let Some(next) = rewrite_with_egg(&current)? {
-        current = next;
+    with_cas_div_cache(|| {
+        let mut current = simplify_cas_value(expr)?;
         rewrite_loop(&mut current)?;
-    }
-    Ok(current)
+        if let Some(next) = rewrite_with_egg(&current)? {
+            current = next;
+            rewrite_loop(&mut current)?;
+        }
+        Ok(current)
+    })
 }
 
 /// Apply tree rewrites in a loop without an initial simplify pass.
@@ -1227,4 +1286,75 @@ pub(crate) fn contains_cas_var(expr: &Value, var: &str) -> bool {
         return contains_cas_var(lhs, var) || contains_cas_var(rhs, var);
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn factor_binary_product_handles_non_unit_exp_common_factor() {
+        let x = Value::from_cas_var("x");
+        let x2 = cas_pow(x.clone(), Value::Int(2)).expect("x^2");
+        let x3 = cas_pow(x.clone(), Value::Int(3)).expect("x^3");
+        let exp = Value::from_cas_function(
+            CasFunction::Exp,
+            vec![cas_div(x3, Value::Int(3)).expect("x^3/3")],
+        );
+        let term1 = cas_mul(vec![
+            exp.clone(),
+            x2.clone(),
+            cas_add(vec![x2, Value::Int(1)]).expect("x^2 + 1"),
+        ])
+        .expect("term1");
+        let term2 = cas_mul(vec![Value::Int(-2), exp.clone(), x]).expect("term2");
+        let simplified_exp = simplify_cas_value(&exp).expect("simplified exp");
+
+        let result = try_factor_binary_product(&[term1, term2])
+            .expect("factor")
+            .expect("expected factored result");
+        let Some((CasOp::Multiply, factors)) = result.cas_op_parts() else {
+            panic!("expected product, got {result}");
+        };
+        assert!(
+            factors.iter().any(|factor| factor == &simplified_exp),
+            "expected exp common factor in {result}"
+        );
+        let text = result.format_cas().unwrap_or_else(|| result.to_string());
+        assert!(
+            text.contains("x^4 + x^2 - 2*x"),
+            "expected expanded inner sum in {text}"
+        );
+    }
+
+    #[test]
+    fn factor_binary_product_skips_non_unit_plain_var_common_factor() {
+        let x = Value::from_cas_var("x");
+        let term1 = cas_mul(vec![Value::Int(2), x.clone(), Value::from_cas_var("y")])
+            .expect("term1");
+        let term2 = cas_mul(vec![Value::Int(-3), x, Value::from_cas_var("z")])
+            .expect("term2");
+
+        let result = try_factor_binary_product(&[term1, term2]).expect("factor");
+        assert!(
+            result.is_none(),
+            "plain variable common factor should stay conservative: {result:?}"
+        );
+    }
+
+    #[test]
+    fn rewrite_distributes_scaled_sum_to_combine_like_term() {
+        let x = Value::from_cas_var("x");
+        let x2 = cas_pow(x, Value::Int(2)).expect("x^2");
+        let scaled_sum = cas_div(
+            cas_add(vec![x2.clone(), Value::Int(1)]).expect("x^2 + 1"),
+            Value::Int(2),
+        )
+        .expect("(x^2 + 1)/2");
+        let expr = cas_add(vec![scaled_sum, cas_neg(x2).expect("-x^2")]).expect("sum");
+
+        let result = rewrite_cas(&expr).expect("rewrite");
+        let text = result.format_cas().unwrap_or_else(|| result.to_string());
+        assert_eq!(text, "-x^2/2 + 1/2");
+    }
 }

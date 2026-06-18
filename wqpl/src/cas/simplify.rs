@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
 
+use ahash::AHashMap;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
@@ -31,6 +32,65 @@ enum SimplifyFrame {
     Eq,
 }
 
+#[derive(Default)]
+struct CasDivCache {
+    entries: AHashMap<(Value, Value), Value>,
+}
+
+thread_local! {
+    static CAS_DIV_CACHE: RefCell<Option<CasDivCache>> = const { RefCell::new(None) };
+}
+
+struct CasDivCacheScope {
+    owns_cache: bool,
+}
+
+impl CasDivCacheScope {
+    fn enter() -> Self {
+        let owns_cache = CAS_DIV_CACHE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if slot.is_some() {
+                false
+            } else {
+                *slot = Some(CasDivCache::default());
+                true
+            }
+        });
+        Self { owns_cache }
+    }
+}
+
+impl Drop for CasDivCacheScope {
+    fn drop(&mut self) {
+        if self.owns_cache {
+            CAS_DIV_CACHE.with(|slot| {
+                *slot.borrow_mut() = None;
+            });
+        }
+    }
+}
+
+pub(crate) fn with_cas_div_cache<T>(f: impl FnOnce() -> T) -> T {
+    let _scope = CasDivCacheScope::enter();
+    f()
+}
+
+fn cas_div_cache_get(lhs: &Value, rhs: &Value) -> Option<Value> {
+    CAS_DIV_CACHE.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(|cache| cache.entries.get(&(lhs.clone(), rhs.clone())).cloned())
+    })
+}
+
+fn cas_div_cache_insert(lhs: Value, rhs: Value, result: Value) {
+    CAS_DIV_CACHE.with(|slot| {
+        if let Some(cache) = slot.borrow_mut().as_mut() {
+            cache.entries.insert((lhs, rhs), result);
+        }
+    });
+}
+
 pub(crate) fn cas_neg(arg: Value) -> WqResult<Value> {
     cas_mul(vec![Value::Int(-1), arg])
 }
@@ -40,7 +100,24 @@ pub(crate) fn cas_sub(lhs: Value, rhs: Value) -> WqResult<Value> {
 }
 
 pub(crate) fn cas_div(lhs: Value, rhs: Value) -> WqResult<Value> {
+    with_cas_div_cache(|| cas_div_cached(lhs, rhs))
+}
+
+fn cas_div_cached(lhs: Value, rhs: Value) -> WqResult<Value> {
+    if let Some(cached) = cas_div_cache_get(&lhs, &rhs) {
+        cas_trace!(
+            DebugLogFlags::CAS_VERBOSE,
+            "[cas-v] cas_div cache hit: {lhs} / {rhs}"
+        );
+        return Ok(cached);
+    }
     cas_trace!(DebugLogFlags::CAS, "[cas_div] {lhs} / {rhs}");
+    let result = cas_div_uncached(lhs.clone(), rhs.clone())?;
+    cas_div_cache_insert(lhs, rhs, result.clone());
+    Ok(result)
+}
+
+fn cas_div_uncached(lhs: Value, rhs: Value) -> WqResult<Value> {
     let lhs = simplify_cas_value(&lhs)?;
     let rhs = simplify_cas_value(&rhs)?;
     if !lhs.is_cas_expr() && !rhs.is_cas_expr() {

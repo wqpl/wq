@@ -44,6 +44,7 @@ use simplify::{
 pub(crate) use simplify::{
     cas_add, cas_binary_expr, cas_call_expr, cas_div, cas_mul, cas_neg, cas_pow, cas_sub,
     cas_unary_expr, extract_perfect_power_factor, simplify_cas_value, substitute_cas,
+    with_cas_div_cache,
 };
 pub(crate) use solve::{solve_cas, solve_system_cas};
 

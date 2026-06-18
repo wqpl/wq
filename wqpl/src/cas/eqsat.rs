@@ -68,6 +68,14 @@ pub(super) fn rewrite_with_egg(value: &Value) -> WqResult<Option<Value>> {
     let rewritten = normalize_common_factorization(value, rewritten)?;
 
     if !should_accept_rewrite(value, &rewritten) {
+        cas_trace!(
+            DebugLogFlags::CAS_VERBOSE,
+            "[cas-v] egg rewrite rejected root={root:?} cost={cost:?}: {} -> {}",
+            value.format_cas().unwrap_or_else(|| value.to_string()),
+            rewritten
+                .format_cas()
+                .unwrap_or_else(|| rewritten.to_string())
+        );
         return Ok(None);
     }
 
@@ -83,14 +91,29 @@ pub(super) fn rewrite_with_egg(value: &Value) -> WqResult<Option<Value>> {
 }
 
 fn egg_rewrite_may_help(value: &Value) -> bool {
+    if egg_rewrite_rule_may_apply(value) {
+        return true;
+    }
+    if let Some((_op, args)) = value.cas_op_parts() {
+        return args.iter().any(egg_rewrite_may_help);
+    }
+    value
+        .cas_function_parts()
+        .is_some_and(|(_name, args)| args.iter().any(egg_rewrite_may_help))
+        || value
+            .cas_apply_parts()
+            .is_some_and(|(_name, args)| args.iter().any(egg_rewrite_may_help))
+        || value
+            .cas_eq_parts()
+            .is_some_and(|(lhs, rhs)| egg_rewrite_may_help(lhs) || egg_rewrite_may_help(rhs))
+}
+
+fn egg_rewrite_rule_may_apply(value: &Value) -> bool {
     if let Some((op, args)) = value.cas_op_parts() {
         return match op {
             CasOp::Add => {
-                args.iter()
-                    .any(|arg| {
-                        arg.cas_op_args(CasOp::Multiply).is_some()
-                            || arg.cas_op_args(CasOp::Power).is_some()
-                    })
+                args.iter().any(|arg| arg.exact_int_is(0))
+                    || add_terms_have_common_factor(args)
                     || args
                         .iter()
                         .filter(|arg| {
@@ -100,23 +123,20 @@ fn egg_rewrite_may_help(value: &Value) -> bool {
                         .take(2)
                         .count()
                         >= 2
-                    || args.iter().any(egg_rewrite_may_help)
             }
             CasOp::Multiply => {
                 args.iter()
-                    .any(|arg| arg.cas_op_args(CasOp::Add).is_some() || is_inverse_power(arg))
-                    || args.iter().any(egg_rewrite_may_help)
+                    .any(|arg| arg.exact_int_is(0) || arg.exact_int_is(1))
+                    || multiply_add_distribution_may_shorten(args)
+                    || multiply_terms_have_inverse_pair(args)
             }
-            CasOp::Power => {
-                matches!(args, [base, exp] if exp.exact_int_is(0)
-                    || exp.exact_int_is(1)
-                    || (exp.exact_int_is(2)
-                        && base
-                            .cas_function_parts()
-                            .is_some_and(|(name, _)| name == CasFunction::Abs)))
-                    || args.iter().any(egg_rewrite_may_help)
-            }
-            _ => args.iter().any(egg_rewrite_may_help),
+            CasOp::Power => matches!(args, [base, exp] if exp.exact_int_is(0)
+                || exp.exact_int_is(1)
+                || (exp.exact_int_is(2)
+                    && base
+                        .cas_function_parts()
+                        .is_some_and(|(name, _)| name == CasFunction::Abs))),
+            _ => false,
         };
     }
     if let Some((name, args)) = value.cas_function_parts() {
@@ -132,19 +152,91 @@ fn egg_rewrite_may_help(value: &Value) -> bool {
             (name, args),
             (CasFunction::Tan, [arg])
                 if arg.cas_function_parts().is_some_and(|(inner, _)| inner == CasFunction::ArcTan)
-        ) || args.iter().any(egg_rewrite_may_help);
-    }
-    if let Some((_name, args)) = value.cas_apply_parts() {
-        return args.iter().any(egg_rewrite_may_help);
-    }
-    if let Some((lhs, rhs)) = value.cas_eq_parts() {
-        return egg_rewrite_may_help(lhs) || egg_rewrite_may_help(rhs);
+        );
     }
     false
 }
 
-fn is_inverse_power(value: &Value) -> bool {
-    matches!(value.cas_op_args(CasOp::Power), Some([_, exp]) if exp.exact_int_is(-1))
+fn add_terms_have_common_factor(terms: &[Value]) -> bool {
+    terms.iter().enumerate().any(|(idx, lhs)| {
+        terms
+            .iter()
+            .skip(idx + 1)
+            .any(|rhs| terms_share_factor(lhs, rhs))
+    })
+}
+
+fn terms_share_factor(lhs: &Value, rhs: &Value) -> bool {
+    match (
+        lhs.cas_op_args(CasOp::Multiply),
+        rhs.cas_op_args(CasOp::Multiply),
+    ) {
+        (Some(lhs_factors), Some(rhs_factors)) => lhs_factors
+            .iter()
+            .any(|lhs_factor| {
+                is_factorable_common_factor(lhs_factor)
+                    && rhs_factors.iter().any(|rhs_factor| lhs_factor == rhs_factor)
+            }),
+        (Some(lhs_factors), None) => lhs_factors
+            .iter()
+            .any(|lhs_factor| lhs_factor == rhs && is_factorable_common_factor(rhs)),
+        (None, Some(rhs_factors)) => rhs_factors
+            .iter()
+            .any(|rhs_factor| lhs == rhs_factor && is_factorable_common_factor(lhs)),
+        (None, None) => false,
+    }
+}
+
+fn is_factorable_common_factor(value: &Value) -> bool {
+    !value.exact_int_is(1) && !value.exact_int_is(-1)
+}
+
+fn multiply_terms_have_inverse_pair(factors: &[Value]) -> bool {
+    factors.iter().enumerate().any(|(idx, factor)| {
+        let Some([base, exp]) = factor.cas_op_args(CasOp::Power) else {
+            return false;
+        };
+        exp.exact_int_is(-1)
+            && factors
+                .iter()
+                .enumerate()
+                .any(|(other_idx, other)| idx != other_idx && other == base)
+    })
+}
+
+fn multiply_add_distribution_may_shorten(factors: &[Value]) -> bool {
+    factors.iter().enumerate().any(|(idx, factor)| {
+        let Some(add_terms) = factor.cas_op_args(CasOp::Add) else {
+            return false;
+        };
+        factors
+            .iter()
+            .enumerate()
+            .filter(|(other_idx, _)| idx != *other_idx)
+            .any(|(_, other)| {
+                add_terms
+                    .iter()
+                    .any(|term| term_has_factor_cancelling(term, other))
+            })
+    })
+}
+
+fn term_has_factor_cancelling(term: &Value, factor: &Value) -> bool {
+    if let Some(term_factors) = term.cas_op_args(CasOp::Multiply) {
+        term_factors
+            .iter()
+            .any(|term_factor| factors_cancel(term_factor, factor))
+    } else {
+        factors_cancel(term, factor)
+    }
+}
+
+fn factors_cancel(lhs: &Value, rhs: &Value) -> bool {
+    is_inverse_of(lhs, rhs) || is_inverse_of(rhs, lhs)
+}
+
+fn is_inverse_of(value: &Value, base: &Value) -> bool {
+    matches!(value.cas_op_args(CasOp::Power), Some([pow_base, exp]) if exp.exact_int_is(-1) && pow_base == base)
 }
 
 fn should_accept_rewrite(original: &Value, rewritten: &Value) -> bool {
@@ -540,6 +632,141 @@ mod tests {
         assert!(
             text.contains("x^3 + 1") && text.contains("3/5") && text.contains("3^(1/4)"),
             "unexpected factored form: {text}"
+        );
+    }
+
+    #[test]
+    fn egg_prefilter_skips_non_factorable_nested_power_sum() {
+        let expr = Value::from_cas_op(
+            CasOp::Multiply,
+            vec![
+                Value::from_fraction_parts(BigInt::from(2), BigInt::from(9)),
+                Value::from_cas_op(
+                    CasOp::Power,
+                    vec![
+                        Value::from_cas_op(
+                            CasOp::Add,
+                            vec![
+                                Value::from_cas_op(
+                                    CasOp::Power,
+                                    vec![Value::from_cas_var("x"), Value::Int(3)],
+                                ),
+                                Value::Int(1),
+                            ],
+                        ),
+                        Value::from_fraction_parts(BigInt::from(3), BigInt::from(2)),
+                    ],
+                ),
+            ],
+        );
+
+        let simplified = simplify_cas_value(&expr).expect("simplify");
+        assert!(
+            !egg_rewrite_may_help(&simplified),
+            "non-factorable nested power sum should not enter egg: {simplified}"
+        );
+    }
+
+    #[test]
+    fn egg_prefilter_keeps_nested_inverse_trig_rewrite() {
+        let expr = Value::from_cas_op(
+            CasOp::Add,
+            vec![
+                Value::Int(1),
+                Value::from_cas_function(
+                    CasFunction::Sin,
+                    vec![Value::from_cas_function(
+                        CasFunction::ArcSin,
+                        vec![Value::from_cas_var("x")],
+                    )],
+                ),
+            ],
+        );
+
+        let simplified = simplify_cas_value(&expr).expect("simplify");
+        assert!(
+            egg_rewrite_may_help(&simplified),
+            "nested inverse trig rewrite should still enter egg: {simplified}"
+        );
+    }
+
+    #[test]
+    fn egg_prefilter_skips_uncancellable_quotient_with_adds() {
+        let expr = Value::from_cas_op(
+            CasOp::Multiply,
+            vec![
+                Value::from_cas_op(
+                    CasOp::Add,
+                    vec![Value::from_cas_var("x"), Value::Int(1)],
+                ),
+                Value::from_cas_op(
+                    CasOp::Power,
+                    vec![
+                        Value::from_cas_op(
+                            CasOp::Add,
+                            vec![Value::from_cas_var("x"), Value::Int(2)],
+                        ),
+                        Value::Int(-1),
+                    ],
+                ),
+            ],
+        );
+
+        let simplified = simplify_cas_value(&expr).expect("simplify");
+        assert!(
+            !egg_rewrite_may_help(&simplified),
+            "uncancellable quotient should not enter egg: {simplified}"
+        );
+    }
+
+    #[test]
+    fn egg_prefilter_skips_unit_common_factor() {
+        let expr = Value::from_cas_op(
+            CasOp::Add,
+            vec![
+                Value::from_cas_op(
+                    CasOp::Multiply,
+                    vec![Value::Int(-1), Value::from_cas_var("x")],
+                ),
+                Value::Int(-1),
+            ],
+        );
+
+        assert!(
+            !egg_rewrite_may_help(&expr),
+            "unit common factor should not enter egg: {expr}"
+        );
+    }
+
+    #[test]
+    fn egg_prefilter_keeps_distribution_with_cancellation() {
+        let expr = Value::from_cas_op(
+            CasOp::Multiply,
+            vec![
+                Value::from_cas_var("x"),
+                Value::from_cas_op(
+                    CasOp::Add,
+                    vec![
+                        Value::Int(1),
+                        Value::from_cas_op(
+                            CasOp::Multiply,
+                            vec![
+                                Value::from_cas_var("y"),
+                                Value::from_cas_op(
+                                    CasOp::Power,
+                                    vec![Value::from_cas_var("x"), Value::Int(-1)],
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        );
+
+        let simplified = simplify_cas_value(&expr).expect("simplify");
+        assert!(
+            egg_rewrite_may_help(&simplified),
+            "distribution with cancellation should still enter egg: {simplified}"
         );
     }
 }
