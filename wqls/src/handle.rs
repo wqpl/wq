@@ -934,7 +934,9 @@ impl LanguageServer for Backend {
                 && let Some(id) = builtins.get_id(name)
             {
                 let usage = Builtins::usage_from_id(id as u16).unwrap_or("");
-                let arity = Builtins::arity_from_id(id as u16).unwrap_or("");
+                let arity = Builtins::arity_from_id(id as u16)
+                    .map(|arity| arity.to_string())
+                    .unwrap_or_default();
 
                 let parameters = parse_params_from_usage(usage);
                 let documentation = Builtins::doc_for_id(id as u16)

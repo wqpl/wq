@@ -14,7 +14,8 @@ fn every_builtin_has_a_doc_topic() {
             builtin.name()
         );
         assert!(
-            render_markdown(&topic, DocRenderTarget::Cli).contains(builtin.arity()),
+            render_markdown(&topic, DocRenderTarget::Cli)
+                .contains(&builtin.arity().to_string()),
             "rendered doc for {} should use builtin arity metadata",
             builtin.name()
         );

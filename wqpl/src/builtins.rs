@@ -374,6 +374,82 @@ pub(crate) enum BuiltinDepthSugar {
     },
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BuiltinCallArity {
+    Exact { mask: u128 },
+    AtLeast(usize),
+}
+
+impl BuiltinCallArity {
+    fn contains(self, n: usize) -> bool {
+        match self {
+            Self::Exact { mask } if n < u128::BITS as usize => mask & (1u128 << n) != 0,
+            Self::Exact { .. } => false,
+            Self::AtLeast(min) => n >= min,
+        }
+    }
+
+    fn validate(self, builtin: BuiltinEnum, args: &[Value]) -> WqResult<()> {
+        let n = args.len();
+        if self.contains(n) {
+            return Ok(());
+        }
+
+        match self {
+            Self::Exact { mask } => Err(exact_arity_error(builtin, mask, n)),
+            Self::AtLeast(min) => Err(WqError::new(WqErrorType::Arity)
+                .src(builtin)
+                .msg(format!("expected {min} or more args, got {n}"))
+                .attach_note(builtin.usage())),
+        }
+    }
+}
+
+impl std::fmt::Display for BuiltinCallArity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            BuiltinCallArity::Exact { mask } => {
+                let mut remaining = mask;
+                let mut arity = 0usize;
+                let mut needs_space = false;
+                while remaining != 0 {
+                    if remaining & 1 != 0 {
+                        if needs_space {
+                            write!(f, " ")?;
+                        }
+                        write!(f, "{arity}")?;
+                        needs_space = true;
+                    }
+                    remaining >>= 1;
+                    arity += 1;
+                }
+                Ok(())
+            }
+            BuiltinCallArity::AtLeast(min) => write!(f, "{min}.."),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum BuiltinNamedArgs {
+    Deny,
+    Allow(&'static [&'static str]),
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum BuiltinValidation {
+    Fast,
+    Defer,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(crate) struct BuiltinSignature {
+    arity: BuiltinCallArity,
+    named: BuiltinNamedArgs,
+    validation: BuiltinValidation,
+    source: Option<BuiltinEnum>,
+}
+
 #[derive(Clone)]
 pub struct Builtins {
     functions: Vec<BuiltinFn>,
@@ -605,6 +681,63 @@ macro_rules! __builtin_fn {
     };
 }
 
+macro_rules! arity {
+    ($min:literal ..) => {
+        BuiltinCallArity::AtLeast($min)
+    };
+    ($first:literal $(, $rest:literal)* $(,)?) => {
+        BuiltinCallArity::Exact {
+            mask: (1u128 << $first) $(| (1u128 << $rest))*,
+        }
+    };
+}
+
+macro_rules! sig {
+    ($arity:expr) => {
+        BuiltinSignature {
+            arity: $arity,
+            named: BuiltinNamedArgs::Deny,
+            validation: BuiltinValidation::Fast,
+            source: None,
+        }
+    };
+    ($arity:expr, defer) => {
+        BuiltinSignature {
+            arity: $arity,
+            named: BuiltinNamedArgs::Deny,
+            validation: BuiltinValidation::Defer,
+            source: None,
+        }
+    };
+    ($arity:expr, named $named:expr) => {
+        BuiltinSignature {
+            arity: $arity,
+            named: BuiltinNamedArgs::Allow($named),
+            validation: BuiltinValidation::Fast,
+            source: None,
+        }
+    };
+    ($arity:expr, alias $source:ident) => {
+        BuiltinSignature {
+            arity: $arity,
+            named: BuiltinNamedArgs::Deny,
+            validation: BuiltinValidation::Fast,
+            source: Some(BuiltinEnum::$source),
+        }
+    };
+    ($arity:expr, named $named:expr, alias $source:ident) => {
+        BuiltinSignature {
+            arity: $arity,
+            named: BuiltinNamedArgs::Allow($named),
+            validation: BuiltinValidation::Fast,
+            source: Some(BuiltinEnum::$source),
+        }
+    };
+    ($arity:expr, alias $source:ident, named $named:expr) => {
+        sig!($arity, named $named, alias $source)
+    };
+}
+
 macro_rules! __declare_builtins_impl {
     (
         $(
@@ -614,7 +747,7 @@ macro_rules! __declare_builtins_impl {
                 $VAR:ident,
                 $name:expr,
                 $usage:expr,
-                $arity:tt,
+                $signature:expr,
                 $fn_kind:ident($func:path),
                 $group:path
                 $(, $depth_sugar:expr)?
@@ -653,13 +786,17 @@ macro_rules! __declare_builtins_impl {
                 }
             }
 
-            pub const fn arity(self) -> &'static str {
+            pub(crate) const fn signature(self) -> BuiltinSignature {
                 match self {
                     $(
                         $(#[$m])*
-                        BuiltinEnum::$VAR => $arity,
+                        BuiltinEnum::$VAR => $signature,
                     )+
                 }
+            }
+
+            pub const fn arity(self) -> BuiltinCallArity {
+                self.signature().arity
             }
 
             pub fn from_id(id: u16) -> Option<Self> {
@@ -707,10 +844,10 @@ macro_rules! __declare_builtins_impl {
                 ),+
             ];
 
-            pub const ARITIES: &'static [&'static str] = &[
+            pub(crate) const SIGNATURES: &'static [BuiltinSignature] = &[
                 $(
                     $(#[$m])*
-                    $arity
+                    $signature
                 ),+
             ];
 
@@ -734,8 +871,8 @@ macro_rules! __declare_builtins_impl {
             }
 
             #[inline]
-            pub fn arity_from_id(id: u16) -> Option<&'static str> {
-                Self::ARITIES.get(id as usize).copied()
+            pub fn arity_from_id(id: u16) -> Option<BuiltinCallArity> {
+                Self::SIGNATURES.get(id as usize).map(|signature| signature.arity)
             }
 
             pub fn doc_for_name(&self, name: &str) -> Option<crate::doc::DocTopic> {
@@ -773,275 +910,275 @@ macro_rules! __declare_builtins_impl {
 
 declare_builtins! {
     // Core (Pure) =========================================================
-    (BFN, Bfn, "bfn", "bfn[]", "0", with_context(core::bfn), BuiltinGroup::CorePure),
-    (CHR, Chr, "chr", "chr[xs]", "1", plain(core::chr), BuiltinGroup::CorePure),
-    (ORD, Ord, "ord", "ord[xs]", "1", plain(core::ord), BuiltinGroup::CorePure),
-    (INT, Int, "int", "int[x], int[x;base]", "1 2", plain(core::int), BuiltinGroup::CorePure),
-    (FLOAT, Float, "float", "float[x]", "1", plain(core::float), BuiltinGroup::CorePure),
-    (BIN, Bin, "bin", "bin[xs;prefix?]", "1 2", plain(core::bin), BuiltinGroup::CorePure),
-    (OCT, Oct, "oct", "oct[xs;prefix?]", "1 2", plain(core::oct), BuiltinGroup::CorePure),
-    (HEX, Hex, "hex", "hex[xs;prefix?]", "1 2", plain(core::hex), BuiltinGroup::CorePure),
-    (HASH, Hash, "hash", "hash[x]", "1", plain(core::hash), BuiltinGroup::CorePure),
-    (RAISE, Raise, "raise", "raise[]; raise[msg]", "0 1", plain(core::raise), BuiltinGroup::CorePure),
+    (BFN, Bfn, "bfn", "bfn[]", sig!(arity!(0)), with_context(core::bfn), BuiltinGroup::CorePure),
+    (CHR, Chr, "chr", "chr[xs]", sig!(arity!(1)), plain(core::chr), BuiltinGroup::CorePure),
+    (ORD, Ord, "ord", "ord[xs]", sig!(arity!(1)), plain(core::ord), BuiltinGroup::CorePure),
+    (INT, Int, "int", "int[x], int[x;base]", sig!(arity!(1, 2)), plain(core::int), BuiltinGroup::CorePure),
+    (FLOAT, Float, "float", "float[x]", sig!(arity!(1)), plain(core::float), BuiltinGroup::CorePure),
+    (BIN, Bin, "bin", "bin[xs;prefix?]", sig!(arity!(1, 2)), plain(core::bin), BuiltinGroup::CorePure),
+    (OCT, Oct, "oct", "oct[xs;prefix?]", sig!(arity!(1, 2)), plain(core::oct), BuiltinGroup::CorePure),
+    (HEX, Hex, "hex", "hex[xs;prefix?]", sig!(arity!(1, 2)), plain(core::hex), BuiltinGroup::CorePure),
+    (HASH, Hash, "hash", "hash[x]", sig!(arity!(1)), plain(core::hash), BuiltinGroup::CorePure),
+    (RAISE, Raise, "raise", "raise[]; raise[msg]", sig!(arity!(0, 1)), plain(core::raise), BuiltinGroup::CorePure),
 
     // Core (IO) =========================================================
-    (ECHO, Echo, "echo", "echo[value*;`sep]", "0..", plain(core::echo), BuiltinGroup::CoreIO),
-    (E, E, "E", "E[value*;`sep]", "0..", plain(core::echo), BuiltinGroup::CoreIO), // alias of echo
-    (PRINT, Print, "print", "print[value*]", "0..", plain(core::print), BuiltinGroup::CoreIO),
-    (INPUT, Input, "input", "input[prompt?]", "0 1", plain(core::input), BuiltinGroup::CoreIO),
+    (ECHO, Echo, "echo", "echo[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS), plain(core::echo), BuiltinGroup::CoreIO),
+    (E, E, "E", "E[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS, alias Echo), plain(core::echo), BuiltinGroup::CoreIO), // alias of echo
+    (PRINT, Print, "print", "print[value*]", sig!(arity!(0..), defer), plain(core::print), BuiltinGroup::CoreIO),
+    (INPUT, Input, "input", "input[prompt?]", sig!(arity!(0, 1)), plain(core::input), BuiltinGroup::CoreIO),
     #[cfg(not(target_arch = "wasm32"))]
-    (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", "1..", plain(core::exec), BuiltinGroup::Exec),
+    (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", sig!(arity!(1..), defer), plain(core::exec), BuiltinGroup::Exec),
 
     // ENCODING =========================================================
-    (DECODE, Decode, "decode", "decode[bytes;codec;mode?]", "2 3", plain(encoding::decode), BuiltinGroup::Encoding),
-    (ENCODE, Encode, "encode", "encode[text;codec;mode?]", "2 3", plain(encoding::encode), BuiltinGroup::Encoding),
-    (VALIDBYTES, ValidBytes, "bytes?", "bytes?[x]", "1", plain(encoding::is_valid_bytes), BuiltinGroup::Encoding),
+    (DECODE, Decode, "decode", "decode[bytes;codec;mode?]", sig!(arity!(2, 3)), plain(encoding::decode), BuiltinGroup::Encoding),
+    (ENCODE, Encode, "encode", "encode[text;codec;mode?]", sig!(arity!(2, 3)), plain(encoding::encode), BuiltinGroup::Encoding),
+    (VALIDBYTES, ValidBytes, "bytes?", "bytes?[x]", sig!(arity!(1)), plain(encoding::is_valid_bytes), BuiltinGroup::Encoding),
 
     // FILE IO =========================================================
     #[cfg(not(target_arch = "wasm32"))]
     {
-        (OPEN, Open, "open", "open[path;`r;`w;`a;`t;`c;`cn]", "1", plain(io::open), BuiltinGroup::FileIO),
-        (FEXISTS_Q, FexistsQ, "fexists?", "fexists?[path]", "1", plain(io::fexists), BuiltinGroup::FileIO),
-        (MKDIR, Mkdir, "mkdir", "mkdir[path]", "1", plain(io::mkdir), BuiltinGroup::FileIO),
-        (FSIZE, Fsize, "fsize", "fsize[path]", "1", plain(io::fsize), BuiltinGroup::FileIO),
-        (FWRITE, Fwrite, "fwrite", "fwrite[stream;bytes]", "2", plain(io::fwrite), BuiltinGroup::FileIO),
-        (FWRITET, Fwritet, "fwritet", "fwritet[stream;text]", "2", plain(io::fwritet), BuiltinGroup::FileIO),
-        (FREAD, Fread, "fread", "fread[stream;len?]", "1 2", plain(io::fread), BuiltinGroup::FileIO),
-        (FREADT, Freadt, "freadt", "freadt[stream;len?]", "1 2", plain(io::freadt), BuiltinGroup::FileIO),
-        (FREADTLN, Freadtln, "freadtln", "freadtln[stream]", "1", plain(io::freadtln), BuiltinGroup::FileIO),
-        (FREADTLNS, Freadtlns, "freadtlns", "freadtlns[stream]", "1", plain(io::freadtlns), BuiltinGroup::FileIO),
-        (FSEEK, Fseek, "fseek", "fseek[stream;offset;whence?]", "2 3", plain(io::fseek), BuiltinGroup::FileIO),
-        (FTELL, Ftell, "ftell", "ftell[stream]", "1", plain(io::ftell), BuiltinGroup::FileIO),
-        (FCLOSE, Fclose, "fclose", "fclose[stream]", "1", plain(io::fclose), BuiltinGroup::FileIO),
+        (OPEN, Open, "open", "open[path;`r;`w;`a;`t;`c;`cn]", sig!(arity!(1), named OPEN_NAMED_ARGS), plain(io::open), BuiltinGroup::FileIO),
+        (FEXISTS_Q, FexistsQ, "fexists?", "fexists?[path]", sig!(arity!(1)), plain(io::fexists), BuiltinGroup::FileIO),
+        (MKDIR, Mkdir, "mkdir", "mkdir[path]", sig!(arity!(1)), plain(io::mkdir), BuiltinGroup::FileIO),
+        (FSIZE, Fsize, "fsize", "fsize[path]", sig!(arity!(1)), plain(io::fsize), BuiltinGroup::FileIO),
+        (FWRITE, Fwrite, "fwrite", "fwrite[stream;bytes]", sig!(arity!(2)), plain(io::fwrite), BuiltinGroup::FileIO),
+        (FWRITET, Fwritet, "fwritet", "fwritet[stream;text]", sig!(arity!(2)), plain(io::fwritet), BuiltinGroup::FileIO),
+        (FREAD, Fread, "fread", "fread[stream;len?]", sig!(arity!(1, 2)), plain(io::fread), BuiltinGroup::FileIO),
+        (FREADT, Freadt, "freadt", "freadt[stream;len?]", sig!(arity!(1, 2)), plain(io::freadt), BuiltinGroup::FileIO),
+        (FREADTLN, Freadtln, "freadtln", "freadtln[stream]", sig!(arity!(1)), plain(io::freadtln), BuiltinGroup::FileIO),
+        (FREADTLNS, Freadtlns, "freadtlns", "freadtlns[stream]", sig!(arity!(1)), plain(io::freadtlns), BuiltinGroup::FileIO),
+        (FSEEK, Fseek, "fseek", "fseek[stream;offset;whence?]", sig!(arity!(2, 3)), plain(io::fseek), BuiltinGroup::FileIO),
+        (FTELL, Ftell, "ftell", "ftell[stream]", sig!(arity!(1)), plain(io::ftell), BuiltinGroup::FileIO),
+        (FCLOSE, Fclose, "fclose", "fclose[stream]", sig!(arity!(1)), plain(io::fclose), BuiltinGroup::FileIO),
     },
 
     // Meta =========================================================
-    (LEN, Len, "len", "len[xs]", "1", plain(meta::len), BuiltinGroup::Intrinsic),
-    (STRONG_COUNT, StrongCount, "strong_count", "strong_count[x]", "1", plain(meta::strong_count), BuiltinGroup::Meta),
-    (SHAPE, Shape, "shape", "shape[xs]", "1", plain(meta::shape), BuiltinGroup::Meta),
-    (DEPTH, Depth, "depth", "depth[xs]", "1", plain(meta::depth), BuiltinGroup::Meta),
-    (UNIFORM_Q, UniformQ, "uniform?", "uniform?[xs]", "1", plain(meta::is_uniform), BuiltinGroup::Meta),
+    (LEN, Len, "len", "len[xs]", sig!(arity!(1)), plain(meta::len), BuiltinGroup::Intrinsic),
+    (STRONG_COUNT, StrongCount, "strong_count", "strong_count[x]", sig!(arity!(1)), plain(meta::strong_count), BuiltinGroup::Meta),
+    (SHAPE, Shape, "shape", "shape[xs]", sig!(arity!(1)), plain(meta::shape), BuiltinGroup::Meta),
+    (DEPTH, Depth, "depth", "depth[xs]", sig!(arity!(1)), plain(meta::depth), BuiltinGroup::Meta),
+    (UNIFORM_Q, UniformQ, "uniform?", "uniform?[xs]", sig!(arity!(1)), plain(meta::is_uniform), BuiltinGroup::Meta),
 
     // List =========================================================
-    (SUM, Sum, "sum", "sum[xs*]", "1..", plain(list::sum), BuiltinGroup::List),
-    (PRODUCT, Product, "product", "product[xs*]", "1..", plain(list::product), BuiltinGroup::List),
-    (MIN, Min, "min", "min[xs], min[xs;ys+]", "1..", plain(list::min), BuiltinGroup::List),
-    (MAX, Max, "max", "max[xs], max[xs;ys+]", "1..", plain(list::max), BuiltinGroup::List),
-    (FLATTEN, Flatten, "flatten", "flatten[xs]", "1", plain(list::flatten), BuiltinGroup::List),
-    (REVERSE, Reverse, "reverse", "reverse[xs]", "1", plain(list::reverse), BuiltinGroup::List),
-    (V, V, "V", "V[xs]", "1", plain(list::reverse), BuiltinGroup::List), // alias of reverse
-    (SORT, Sort, "sort", "sort[xs]", "1", plain(list::sort), BuiltinGroup::List),
-    (SPLIT, Split, "split", "split[xs;opts?]", "1 2", plain(list::split), BuiltinGroup::List),
-    (FIND, Find, "find", "find[xs;elem;threshold?;d?]", "2 3 4", plain(list::find), BuiltinGroup::List, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
-    (RFIND, RFind, "rfind", "rfind[xs;elem;threshold?;d?]", "2 3 4", plain(list::rfind), BuiltinGroup::List, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
-    (ZIP, Zip, "zip", "zip[xs;ys;d?]", "2 3", plain(list::zip), BuiltinGroup::List, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (SUM, Sum, "sum", "sum[xs*]", sig!(arity!(1..), defer), plain(list::sum), BuiltinGroup::List),
+    (PRODUCT, Product, "product", "product[xs*]", sig!(arity!(1..), defer), plain(list::product), BuiltinGroup::List),
+    (MIN, Min, "min", "min[xs], min[xs;ys+]", sig!(arity!(1..), defer), plain(list::min), BuiltinGroup::List),
+    (MAX, Max, "max", "max[xs], max[xs;ys+]", sig!(arity!(1..), defer), plain(list::max), BuiltinGroup::List),
+    (FLATTEN, Flatten, "flatten", "flatten[xs]", sig!(arity!(1)), plain(list::flatten), BuiltinGroup::List),
+    (REVERSE, Reverse, "reverse", "reverse[xs]", sig!(arity!(1)), plain(list::reverse), BuiltinGroup::List),
+    (V, V, "V", "V[xs]", sig!(arity!(1), alias Reverse), plain(list::reverse), BuiltinGroup::List), // alias of reverse
+    (SORT, Sort, "sort", "sort[xs]", sig!(arity!(1)), plain(list::sort), BuiltinGroup::List),
+    (SPLIT, Split, "split", "split[xs;opts?]", sig!(arity!(1, 2), named MAXSPLIT_NAMED_ARGS), plain(list::split), BuiltinGroup::List),
+    (FIND, Find, "find", "find[xs;elem;threshold?;d?]", sig!(arity!(2, 3, 4)), plain(list::find), BuiltinGroup::List, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
+    (RFIND, RFind, "rfind", "rfind[xs;elem;threshold?;d?]", sig!(arity!(2, 3, 4)), plain(list::rfind), BuiltinGroup::List, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
+    (ZIP, Zip, "zip", "zip[xs;ys;d?]", sig!(arity!(2, 3)), plain(list::zip), BuiltinGroup::List, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
 
     // List Gen =========================================================
-    (ALLOC, Alloc, "alloc", "alloc[shape], alloc[shape;x]", "1 2", plain(listgen::alloc), BuiltinGroup::ListGen),
-    (TIL, Til, "til", "til[shape]", "1", plain(listgen::til), BuiltinGroup::ListGen),
-    (IOTA, Iota, "iota", "iota[shape]", "1", plain(listgen::iota), BuiltinGroup::ListGen),
+    (ALLOC, Alloc, "alloc", "alloc[shape], alloc[shape;x]", sig!(arity!(1, 2)), plain(listgen::alloc), BuiltinGroup::ListGen),
+    (TIL, Til, "til", "til[shape]", sig!(arity!(1)), plain(listgen::til), BuiltinGroup::ListGen),
+    (IOTA, Iota, "iota", "iota[shape]", sig!(arity!(1)), plain(listgen::iota), BuiltinGroup::ListGen),
 
-    (RESHAPE, Reshape, "reshape", "reshape[xs;shape]", "2", plain(listgen::reshape), BuiltinGroup::ListGen),
-    (R, R, "R", "R[xs;shape]", "2", plain(listgen::reshape), BuiltinGroup::ListGen), // alias of reshape
-    (TRANSPOSE, Transpose, "transpose", "transpose[x;axes?]", "1 2", plain(listgen::transpose::transpose), BuiltinGroup::ListGen),
-    (TP, TP, "TP", "TP[x;axes?]", "1 2", plain(listgen::transpose::transpose), BuiltinGroup::ListGen), // alias of transpose
+    (RESHAPE, Reshape, "reshape", "reshape[xs;shape]", sig!(arity!(2)), plain(listgen::reshape), BuiltinGroup::ListGen),
+    (R, R, "R", "R[xs;shape]", sig!(arity!(2), alias Reshape), plain(listgen::reshape), BuiltinGroup::ListGen), // alias of reshape
+    (TRANSPOSE, Transpose, "transpose", "transpose[x;axes?]", sig!(arity!(1, 2)), plain(listgen::transpose::transpose), BuiltinGroup::ListGen),
+    (TP, TP, "TP", "TP[x;axes?]", sig!(arity!(1, 2), alias Transpose), plain(listgen::transpose::transpose), BuiltinGroup::ListGen), // alias of transpose
 
-    (REPEAT, Repeat, "repeat", "repeat[xs;n]", "2", plain(listgen::repeat), BuiltinGroup::ListGen),
-    (WHERE, Where, "where", "where[xs]", "1", plain(listgen::wq_where), BuiltinGroup::ListGen),
-    (Z, Z, "Z", "Z[xs]", "1", plain(listgen::wq_where), BuiltinGroup::ListGen), // alias of where
+    (REPEAT, Repeat, "repeat", "repeat[xs;n]", sig!(arity!(2)), plain(listgen::repeat), BuiltinGroup::ListGen),
+    (WHERE, Where, "where", "where[xs]", sig!(arity!(1)), plain(listgen::wq_where), BuiltinGroup::ListGen),
+    (Z, Z, "Z", "Z[xs]", sig!(arity!(1), alias Where), plain(listgen::wq_where), BuiltinGroup::ListGen), // alias of where
 
     // Higher-order =========================================================
-    (APPLY, Apply, "apply", "apply[fs;x]", "2", with_context(ho::apply), BuiltinGroup::HigherOrder),
-    (A, A, "A", "A[fs;x]", "2", with_context(ho::apply), BuiltinGroup::HigherOrder), // alias of apply
-    (MAP, Map, "map", "map[xs;f;d?]", "2 3", with_context(ho::map), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
-    (M, M, "M", "M[xs;f;d?]", "2 3", with_context(ho::map), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }), // alias of map
-    (FOLD, Fold, "fold", "fold[xs;f;i?]", "2 3", with_context(ho::fold), BuiltinGroup::HigherOrder),
-    (REDUCE, Reduce, "reduce", "reduce[xs;f;i?]", "2 3", with_context(ho::fold), BuiltinGroup::HigherOrder), // alias of fold
-    (SCAN, Scan, "scan", "scan[xs;f;acc?]", "2 3", with_context(ho::scan), BuiltinGroup::HigherOrder),
-    (RSCAN, RScan, "rscan", "rscan[xs;f;acc?]", "2 3", with_context(ho::rscan), BuiltinGroup::HigherOrder),
-    (ANY, Any, "any", "any[xs;f;d?]", "2 3", with_context(ho::any), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
-    (ALL, All, "all", "all[xs;f;d?]", "2 3", with_context(ho::all), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
-    (FILTER, Filter, "filter", "filter[xs;f]", "2", with_context(ho::filter), BuiltinGroup::HigherOrder),
+    (APPLY, Apply, "apply", "apply[fs;x]", sig!(arity!(2), defer), with_context(ho::apply), BuiltinGroup::HigherOrder),
+    (A, A, "A", "A[fs;x]", sig!(arity!(2), defer), with_context(ho::apply), BuiltinGroup::HigherOrder), // alias of apply
+    (MAP, Map, "map", "map[xs;f;d?]", sig!(arity!(2, 3)), with_context(ho::map), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (M, M, "M", "M[xs;f;d?]", sig!(arity!(2, 3), alias Map), with_context(ho::map), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }), // alias of map
+    (FOLD, Fold, "fold", "fold[xs;f;i?]", sig!(arity!(2, 3)), with_context(ho::fold), BuiltinGroup::HigherOrder),
+    (REDUCE, Reduce, "reduce", "reduce[xs;f;i?]", sig!(arity!(2, 3), alias Fold), with_context(ho::fold), BuiltinGroup::HigherOrder), // alias of fold
+    (SCAN, Scan, "scan", "scan[xs;f;acc?]", sig!(arity!(2, 3)), with_context(ho::scan), BuiltinGroup::HigherOrder),
+    (RSCAN, RScan, "rscan", "rscan[xs;f;acc?]", sig!(arity!(2, 3)), with_context(ho::rscan), BuiltinGroup::HigherOrder),
+    (ANY, Any, "any", "any[xs;f;d?]", sig!(arity!(2, 3)), with_context(ho::any), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (ALL, All, "all", "all[xs;f;d?]", sig!(arity!(2, 3)), with_context(ho::all), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (FILTER, Filter, "filter", "filter[xs;f]", sig!(arity!(2)), with_context(ho::filter), BuiltinGroup::HigherOrder),
 
-    (ZIPW, ZipW, "zipw", "zipw[xs;ys;f;d?]", "3 4", with_context(ho::zipw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 3 }),
-    (SPLITW, SplitW, "splitw", "splitw[xs;f;`m]", "2", with_context(ho::splitw), BuiltinGroup::HigherOrder),
-    (FINDW, FindW, "findw", "findw[xs;f;threshold?;d?]", "2 3 4", with_context(ho::findw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
-    (RFINDW, RFindW, "rfindw", "rfindw[xs;f;threshold?;d?]", "2 3 4", with_context(ho::rfindw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
+    (ZIPW, ZipW, "zipw", "zipw[xs;ys;f;d?]", sig!(arity!(3, 4)), with_context(ho::zipw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 3 }),
+    (SPLITW, SplitW, "splitw", "splitw[xs;f;`m]", sig!(arity!(2), named MAXSPLIT_NAMED_ARGS), with_context(ho::splitw), BuiltinGroup::HigherOrder),
+    (FINDW, FindW, "findw", "findw[xs;f;threshold?;d?]", sig!(arity!(2, 3, 4)), with_context(ho::findw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
+    (RFINDW, RFindW, "rfindw", "rfindw[xs;f;threshold?;d?]", sig!(arity!(2, 3, 4)), with_context(ho::rfindw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
 
     // Dict =========================================================
-    (KEYS, Keys, "keys", "keys[dct]", "1", plain(dict::keys), BuiltinGroup::Dict),
-    (IDX_TO_KEY, IdxToKey, "itk", "itk[dct;i]", "2", plain(dict::idx_to_key), BuiltinGroup::Dict),
-    (KEY_TO_IDX, KeyToIdx, "kti", "kti[dct;k]", "2", plain(dict::key_to_idx), BuiltinGroup::Dict),
+    (KEYS, Keys, "keys", "keys[dct]", sig!(arity!(1)), plain(dict::keys), BuiltinGroup::Dict),
+    (IDX_TO_KEY, IdxToKey, "itk", "itk[dct;i]", sig!(arity!(2)), plain(dict::idx_to_key), BuiltinGroup::Dict),
+    (KEY_TO_IDX, KeyToIdx, "kti", "kti[dct;k]", sig!(arity!(2)), plain(dict::key_to_idx), BuiltinGroup::Dict),
 
     // Set ==========================================================
-    (UNIQUE, Unique, "unique", "unique[xs]", "1", plain(set::unique), BuiltinGroup::Set),
-    (UNION, Union, "union", "union[xs;ys]", "2", plain(set::union), BuiltinGroup::Set),
-    (INTERSECT, Intersect, "intersect", "intersect[xs;ys]", "2", plain(set::intersect), BuiltinGroup::Set),
-    (WITHOUT, Without, "without", "without[xs;ys]", "2", plain(set::without), BuiltinGroup::Set),
-    (SYMDIFF, Symdiff, "symdiff", "symdiff[xs;ys]", "2", plain(set::symdiff), BuiltinGroup::Set),
-    (SUB_Q, SubQ, "sub?", "sub?[xs;ys]", "2", plain(set::subset), BuiltinGroup::Set),
-    (SUPER_Q, SuperQ, "super?", "super?[xs;ys]", "2", plain(set::superset), BuiltinGroup::Set),
-    (P_SUB_Q, PSubQ, "psub?", "psub?[xs;ys]", "2", plain(set::proper_subset), BuiltinGroup::Set),
-    (P_SUPER_Q, PSuperQ, "psuper?", "psuper?[xs;ys]", "2", plain(set::proper_superset), BuiltinGroup::Set),
-    (MEMBER_Q, MemberQ, "member?", "member?[xs;ys]", "2", plain(set::member), BuiltinGroup::Set),
-    (CART, Cart, "cart", "cart[xs;ys]", "2", plain(set::carproduct), BuiltinGroup::Set),
-    (IN_Q, InQ, "in?", "in?[x;xs;d?]", "2 3", plain(set::in_), BuiltinGroup::Set, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
-    (HAS_Q, HasQ, "has?", "has?[xs;x;d?]", "2 3", plain(set::has), BuiltinGroup::Set, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
-    (DISJOINT_Q, DisjointQ, "disjoint?", "disjoint?[xs;ys]", "2", plain(set::disjoint), BuiltinGroup::Set),
-    (MULTIPLICITY, Multiplicity, "multiplicity", "multiplicity[x;xs]", "2", plain(set::multiplicity), BuiltinGroup::Set),
+    (UNIQUE, Unique, "unique", "unique[xs]", sig!(arity!(1)), plain(set::unique), BuiltinGroup::Set),
+    (UNION, Union, "union", "union[xs;ys]", sig!(arity!(2)), plain(set::union), BuiltinGroup::Set),
+    (INTERSECT, Intersect, "intersect", "intersect[xs;ys]", sig!(arity!(2)), plain(set::intersect), BuiltinGroup::Set),
+    (WITHOUT, Without, "without", "without[xs;ys]", sig!(arity!(2)), plain(set::without), BuiltinGroup::Set),
+    (SYMDIFF, Symdiff, "symdiff", "symdiff[xs;ys]", sig!(arity!(2)), plain(set::symdiff), BuiltinGroup::Set),
+    (SUB_Q, SubQ, "sub?", "sub?[xs;ys]", sig!(arity!(2)), plain(set::subset), BuiltinGroup::Set),
+    (SUPER_Q, SuperQ, "super?", "super?[xs;ys]", sig!(arity!(2)), plain(set::superset), BuiltinGroup::Set),
+    (P_SUB_Q, PSubQ, "psub?", "psub?[xs;ys]", sig!(arity!(2)), plain(set::proper_subset), BuiltinGroup::Set),
+    (P_SUPER_Q, PSuperQ, "psuper?", "psuper?[xs;ys]", sig!(arity!(2)), plain(set::proper_superset), BuiltinGroup::Set),
+    (MEMBER_Q, MemberQ, "member?", "member?[xs;ys]", sig!(arity!(2)), plain(set::member), BuiltinGroup::Set),
+    (CART, Cart, "cart", "cart[xs;ys]", sig!(arity!(2)), plain(set::carproduct), BuiltinGroup::Set),
+    (IN_Q, InQ, "in?", "in?[x;xs;d?]", sig!(arity!(2, 3)), plain(set::in_), BuiltinGroup::Set, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (HAS_Q, HasQ, "has?", "has?[xs;x;d?]", sig!(arity!(2, 3)), plain(set::has), BuiltinGroup::Set, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (DISJOINT_Q, DisjointQ, "disjoint?", "disjoint?[xs;ys]", sig!(arity!(2)), plain(set::disjoint), BuiltinGroup::Set),
+    (MULTIPLICITY, Multiplicity, "multiplicity", "multiplicity[x;xs]", sig!(arity!(2)), plain(set::multiplicity), BuiltinGroup::Set),
 
     // Logical ======================================================
-    (NOT, Not, "not", "not[xs]", "1", plain(logical::not), BuiltinGroup::Logical),
-    (XOR, Xor, "xor", "xor[xs;ys+]", "2..", plain(logical::xor), BuiltinGroup::Logical),
+    (NOT, Not, "not", "not[xs]", sig!(arity!(1)), plain(logical::not), BuiltinGroup::Logical),
+    (XOR, Xor, "xor", "xor[xs;ys+]", sig!(arity!(2..), defer), plain(logical::xor), BuiltinGroup::Logical),
 
-    (AND, And, "and", "and[xs;ys+]", "2..", plain(logical::and), BuiltinGroup::Logical),
-    (OR, Or, "or", "or[xs;ys+]", "2..", plain(logical::or), BuiltinGroup::Logical),
+    (AND, And, "and", "and[xs;ys+]", sig!(arity!(2..), defer), plain(logical::and), BuiltinGroup::Logical),
+    (OR, Or, "or", "or[xs;ys+]", sig!(arity!(2..), defer), plain(logical::or), BuiltinGroup::Logical),
 
-    (BAND, Band, "band", "band[xs;ys+]", "2..", plain(logical::band), BuiltinGroup::Logical),
-    (BOR, Bor, "bor", "bor[xs;ys+]", "2..", plain(logical::bor), BuiltinGroup::Logical),
+    (BAND, Band, "band", "band[xs;ys+]", sig!(arity!(2..), defer), plain(logical::band), BuiltinGroup::Logical),
+    (BOR, Bor, "bor", "bor[xs;ys+]", sig!(arity!(2..), defer), plain(logical::bor), BuiltinGroup::Logical),
 
-    (SHL, Shl, "shl", "shl[xs;shift+]", "2..", plain(logical::shl), BuiltinGroup::Logical),
-    (SHR, Shr, "shr", "shr[xs;shift+]", "2..", plain(logical::shr), BuiltinGroup::Logical),
+    (SHL, Shl, "shl", "shl[xs;shift+]", sig!(arity!(2..), defer), plain(logical::shl), BuiltinGroup::Logical),
+    (SHR, Shr, "shr", "shr[xs;shift+]", sig!(arity!(2..), defer), plain(logical::shr), BuiltinGroup::Logical),
 
     // Math =========================================================
-    (NEG, Neg, "neg", "neg[xs]", "1", plain(math::neg), BuiltinGroup::Math),
-    (ABS, Abs, "abs", "abs[xs]", "1", plain(math::abs), BuiltinGroup::Math),
-    (SGN, Sgn, "sgn", "sgn[xs]", "1", plain(math::sgn), BuiltinGroup::Math),
-    (SQRT, Sqrt, "sqrt", "sqrt[xs]", "1", plain(math::sqrt), BuiltinGroup::Math),
-    (EXP, Exp, "exp", "exp[xs]", "1", plain(math::exp), BuiltinGroup::Math),
-    (LN, Ln, "ln", "ln[xs]", "1", plain(math::ln), BuiltinGroup::Math),
-    (LOG2, Log2, "log2", "log2[xs]", "1", plain(math::log2), BuiltinGroup::Math),
-    (LOG10, Log10, "log10", "log10[xs]", "1", plain(math::log10), BuiltinGroup::Math),
-    (FLOOR, Floor, "floor", "floor[xs;d?]", "1 2", plain(math::floor), BuiltinGroup::Math),
-    (CEIL, Ceil, "ceil", "ceil[xs;d?]", "1 2", plain(math::ceil), BuiltinGroup::Math),
-    (ROUND, Round, "round", "round[xs;d?]", "1 2", plain(math::round), BuiltinGroup::Math),
+    (NEG, Neg, "neg", "neg[xs]", sig!(arity!(1)), plain(math::neg), BuiltinGroup::Math),
+    (ABS, Abs, "abs", "abs[xs]", sig!(arity!(1)), plain(math::abs), BuiltinGroup::Math),
+    (SGN, Sgn, "sgn", "sgn[xs]", sig!(arity!(1)), plain(math::sgn), BuiltinGroup::Math),
+    (SQRT, Sqrt, "sqrt", "sqrt[xs]", sig!(arity!(1)), plain(math::sqrt), BuiltinGroup::Math),
+    (EXP, Exp, "exp", "exp[xs]", sig!(arity!(1)), plain(math::exp), BuiltinGroup::Math),
+    (LN, Ln, "ln", "ln[xs]", sig!(arity!(1)), plain(math::ln), BuiltinGroup::Math),
+    (LOG2, Log2, "log2", "log2[xs]", sig!(arity!(1)), plain(math::log2), BuiltinGroup::Math),
+    (LOG10, Log10, "log10", "log10[xs]", sig!(arity!(1)), plain(math::log10), BuiltinGroup::Math),
+    (FLOOR, Floor, "floor", "floor[xs;d?]", sig!(arity!(1, 2)), plain(math::floor), BuiltinGroup::Math),
+    (CEIL, Ceil, "ceil", "ceil[xs;d?]", sig!(arity!(1, 2)), plain(math::ceil), BuiltinGroup::Math),
+    (ROUND, Round, "round", "round[xs;d?]", sig!(arity!(1, 2)), plain(math::round), BuiltinGroup::Math),
 
-    (SIN, Sin, "sin", "sin[xs]", "1", plain(math::sin), BuiltinGroup::Math),
-    (COS, Cos, "cos", "cos[xs]", "1", plain(math::cos), BuiltinGroup::Math),
-    (TAN, Tan, "tan", "tan[xs]", "1", plain(math::tan), BuiltinGroup::Math),
-    (SEC, Sec, "sec", "sec[xs]", "1", plain(math::sec), BuiltinGroup::Math),
-    (CSC, Csc, "csc", "csc[xs]", "1", plain(math::csc), BuiltinGroup::Math),
-    (COT, Cot, "cot", "cot[xs]", "1", plain(math::cot), BuiltinGroup::Math),
-    (ARCSIN, Arcsin, "arcsin", "arcsin[xs]", "1", plain(math::arcsin), BuiltinGroup::Math),
-    (ARCCOS, Arccos, "arccos", "arccos[xs]", "1", plain(math::arccos), BuiltinGroup::Math),
-    (ARCTAN, Arctan, "arctan", "arctan[xs]", "1", plain(math::arctan), BuiltinGroup::Math),
-    (SINH, Sinh, "sinh", "sinh[xs]", "1", plain(math::sinh), BuiltinGroup::Math),
-    (COSH, Cosh, "cosh", "cosh[xs]", "1", plain(math::cosh), BuiltinGroup::Math),
-    (TANH, Tanh, "tanh", "tanh[xs]", "1", plain(math::tanh), BuiltinGroup::Math),
-    (ARCSINH, Arcsinh, "arcsinh", "arcsinh[xs]", "1", plain(math::arcsinh), BuiltinGroup::Math),
-    (ARCCOSH, Arccosh, "arccosh", "arccosh[xs]", "1", plain(math::arccosh), BuiltinGroup::Math),
-    (ARCTANH, Arctanh, "arctanh", "arctanh[xs]", "1", plain(math::arctanh), BuiltinGroup::Math),
-    (LOG, Log, "log", "log[x;a]", "2", plain(math::log), BuiltinGroup::Math),
-    (ARCTAN2, Arctan2, "arctan2", "arctan2[y;x]", "2", plain(math::arctan2), BuiltinGroup::Math),
+    (SIN, Sin, "sin", "sin[xs]", sig!(arity!(1)), plain(math::sin), BuiltinGroup::Math),
+    (COS, Cos, "cos", "cos[xs]", sig!(arity!(1)), plain(math::cos), BuiltinGroup::Math),
+    (TAN, Tan, "tan", "tan[xs]", sig!(arity!(1)), plain(math::tan), BuiltinGroup::Math),
+    (SEC, Sec, "sec", "sec[xs]", sig!(arity!(1)), plain(math::sec), BuiltinGroup::Math),
+    (CSC, Csc, "csc", "csc[xs]", sig!(arity!(1)), plain(math::csc), BuiltinGroup::Math),
+    (COT, Cot, "cot", "cot[xs]", sig!(arity!(1)), plain(math::cot), BuiltinGroup::Math),
+    (ARCSIN, Arcsin, "arcsin", "arcsin[xs]", sig!(arity!(1)), plain(math::arcsin), BuiltinGroup::Math),
+    (ARCCOS, Arccos, "arccos", "arccos[xs]", sig!(arity!(1)), plain(math::arccos), BuiltinGroup::Math),
+    (ARCTAN, Arctan, "arctan", "arctan[xs]", sig!(arity!(1)), plain(math::arctan), BuiltinGroup::Math),
+    (SINH, Sinh, "sinh", "sinh[xs]", sig!(arity!(1)), plain(math::sinh), BuiltinGroup::Math),
+    (COSH, Cosh, "cosh", "cosh[xs]", sig!(arity!(1)), plain(math::cosh), BuiltinGroup::Math),
+    (TANH, Tanh, "tanh", "tanh[xs]", sig!(arity!(1)), plain(math::tanh), BuiltinGroup::Math),
+    (ARCSINH, Arcsinh, "arcsinh", "arcsinh[xs]", sig!(arity!(1)), plain(math::arcsinh), BuiltinGroup::Math),
+    (ARCCOSH, Arccosh, "arccosh", "arccosh[xs]", sig!(arity!(1)), plain(math::arccosh), BuiltinGroup::Math),
+    (ARCTANH, Arctanh, "arctanh", "arctanh[xs]", sig!(arity!(1)), plain(math::arctanh), BuiltinGroup::Math),
+    (LOG, Log, "log", "log[x;a]", sig!(arity!(2)), plain(math::log), BuiltinGroup::Math),
+    (ARCTAN2, Arctan2, "arctan2", "arctan2[y;x]", sig!(arity!(2)), plain(math::arctan2), BuiltinGroup::Math),
 
-    (ERF, Erf, "erf", "erf[xs]", "1", plain(math::erf), BuiltinGroup::Math),
-    (ERFC, Erfc, "erfc", "erfc[xs]", "1", plain(math::erfc), BuiltinGroup::Math),
-    (GAMMA, Gamma, "gamma", "gamma[xs]", "1", plain(math::gamma), BuiltinGroup::Math),
-    (LNGAMMA, Lngamma, "lngamma", "lngamma[xs]", "1", plain(math::lngamma), BuiltinGroup::Math),
-    (SI, Si, "si", "si[xs]", "1", plain(math::si), BuiltinGroup::Math),
-    (CI, Ci, "ci", "ci[xs]", "1", plain(math::ci), BuiltinGroup::Math),
-    (EI, Ei, "ei", "ei[xs]", "1", plain(math::ei), BuiltinGroup::Math),
-    (EN, En, "en", "en[n;xs]", "2", plain(math::en), BuiltinGroup::Math),
-    (ELLPK, Ellpk, "ellpk", "ellpk[xs]", "1", plain(math::ellpk), BuiltinGroup::Math),
-    (ELLPE, Ellpe, "ellpe", "ellpe[xs]", "1", plain(math::ellpe), BuiltinGroup::Math),
-    (ELLIK, Ellik, "ellik", "ellik[phi;m]", "2", plain(math::ellik), BuiltinGroup::Math),
-    (ELLIE, Ellie, "ellie", "ellie[phi;m]", "2", plain(math::ellie), BuiltinGroup::Math),
-    (HEAVISIDE, Heaviside, "heaviside", "heaviside[xs]", "1", plain(math::heaviside), BuiltinGroup::Math),
-    (DELTA, Delta, "delta", "delta[xs]", "1", plain(math::delta), BuiltinGroup::Math),
+    (ERF, Erf, "erf", "erf[xs]", sig!(arity!(1)), plain(math::erf), BuiltinGroup::Math),
+    (ERFC, Erfc, "erfc", "erfc[xs]", sig!(arity!(1)), plain(math::erfc), BuiltinGroup::Math),
+    (GAMMA, Gamma, "gamma", "gamma[xs]", sig!(arity!(1)), plain(math::gamma), BuiltinGroup::Math),
+    (LNGAMMA, Lngamma, "lngamma", "lngamma[xs]", sig!(arity!(1)), plain(math::lngamma), BuiltinGroup::Math),
+    (SI, Si, "si", "si[xs]", sig!(arity!(1)), plain(math::si), BuiltinGroup::Math),
+    (CI, Ci, "ci", "ci[xs]", sig!(arity!(1)), plain(math::ci), BuiltinGroup::Math),
+    (EI, Ei, "ei", "ei[xs]", sig!(arity!(1)), plain(math::ei), BuiltinGroup::Math),
+    (EN, En, "en", "en[n;xs]", sig!(arity!(2)), plain(math::en), BuiltinGroup::Math),
+    (ELLPK, Ellpk, "ellpk", "ellpk[xs]", sig!(arity!(1)), plain(math::ellpk), BuiltinGroup::Math),
+    (ELLPE, Ellpe, "ellpe", "ellpe[xs]", sig!(arity!(1)), plain(math::ellpe), BuiltinGroup::Math),
+    (ELLIK, Ellik, "ellik", "ellik[phi;m]", sig!(arity!(2)), plain(math::ellik), BuiltinGroup::Math),
+    (ELLIE, Ellie, "ellie", "ellie[phi;m]", sig!(arity!(2)), plain(math::ellie), BuiltinGroup::Math),
+    (HEAVISIDE, Heaviside, "heaviside", "heaviside[xs]", sig!(arity!(1)), plain(math::heaviside), BuiltinGroup::Math),
+    (DELTA, Delta, "delta", "delta[xs]", sig!(arity!(1)), plain(math::delta), BuiltinGroup::Math),
 
     // Rand
-    (RAND, Rand, "rand", "rand[]; rand[upper]; rand[lower;upper]", "0 1 2", plain(math::rand), BuiltinGroup::Rand),
+    (RAND, Rand, "rand", "rand[]; rand[upper]; rand[lower;upper]", sig!(arity!(0, 1, 2)), plain(math::rand), BuiltinGroup::Rand),
 
     // Complex
-    (COMPLEX, Complex, "complex", "complex[re;im]", "2", plain(complex::complex), BuiltinGroup::Complex),
-    (RE, Re, "re", "re[x]", "1", plain(complex::real), BuiltinGroup::Complex),
-    (IM, Im, "im", "im[x]", "1", plain(complex::imag), BuiltinGroup::Complex),
-    (CONJ, Conj, "conj", "conj[x]", "1", plain(complex::conj), BuiltinGroup::Complex),
+    (COMPLEX, Complex, "complex", "complex[re;im]", sig!(arity!(2)), plain(complex::complex), BuiltinGroup::Complex),
+    (RE, Re, "re", "re[x]", sig!(arity!(1)), plain(complex::real), BuiltinGroup::Complex),
+    (IM, Im, "im", "im[x]", sig!(arity!(1)), plain(complex::imag), BuiltinGroup::Complex),
+    (CONJ, Conj, "conj", "conj[x]", sig!(arity!(1)), plain(complex::conj), BuiltinGroup::Complex),
 
     // Fraction
-    (FRACTION, Fraction, "fraction", "fraction[xs;lim?]", "1 2", plain(fraction::fraction), BuiltinGroup::Fraction),
-    (FRACTIONL, Fractionl, "fractionl", "fractionl[xs]", "1", plain(fraction::fractionl), BuiltinGroup::Fraction),
+    (FRACTION, Fraction, "fraction", "fraction[xs;lim?]", sig!(arity!(1, 2)), plain(fraction::fraction), BuiltinGroup::Fraction),
+    (FRACTIONL, Fractionl, "fractionl", "fractionl[xs]", sig!(arity!(1)), plain(fraction::fractionl), BuiltinGroup::Fraction),
 
     // CAS
-    (EQ, Eq, "eq", "eq[lhs;rhs]", "2", plain(cas::eq), BuiltinGroup::Cas),
-    (SIMPLIFY, Simplify, "simplify", "simplify[expr]", "1", plain(cas::simplify), BuiltinGroup::Cas),
-    (REWRITE, Rewrite, "rewrite", "rewrite[expr]", "1", plain(cas::rewrite), BuiltinGroup::Cas),
-    (NUMERIC, Numeric, "numeric", "numeric[expr]", "1", plain(cas::numeric), BuiltinGroup::Cas),
-    (DIFF, Diff, "diff", "diff[expr;var?]", "1 2", plain(cas::diff), BuiltinGroup::Cas),
-    (D, D, "D", "D[expr;var?]", "1 2", plain(cas::diff), BuiltinGroup::Cas), // alias of diff
-    (SUBSTITUTE, Substitute, "substitute", "substitute[expr;eqs], substitute[expr;var;val]", "2 3", plain(cas::substitute), BuiltinGroup::Cas),
-    (EXPAND, Expand, "expand", "expand[expr]", "1", plain(cas::expand), BuiltinGroup::Cas),
-    (FACTOR_COMMON, FactorCommon, "factor_common", "factor_common[expr]", "1", plain(cas::factor_common), BuiltinGroup::Cas),
-    (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;1], factor[expr;1;var]", "1 2 3", plain(cas::factor_poly), BuiltinGroup::Cas),
-    (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", "1 2 4", plain(cas::integrate), BuiltinGroup::Cas),
-    (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", "1 2 4", plain(cas::integrate), BuiltinGroup::Cas), // alias of integrate
-    (LIMIT, Limit, "limit", "limit[expr;var;point], limit[expr;var;point;dir], limit[expr;vars;points]", "3..", plain(cas::limit), BuiltinGroup::Cas),
-    (SOLVE, Solve, "solve", "solve[expr], solve[expr;var], solve[eq;var]", "1 2", plain(cas::solve), BuiltinGroup::Cas),
-    (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs;vars]", "2", plain(cas::solve_system), BuiltinGroup::Cas),
-    (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", "3 4 5", plain(cas::brent), BuiltinGroup::Cas),
-    (NEWTON, Newton, "newton", "newton[expr;x0], newton[expr;x0;tol], newton[expr;x0;tol;max_iter], newton[eq;x0]", "2 3 4", plain(cas::newton), BuiltinGroup::Cas),
+    (EQ, Eq, "eq", "eq[lhs;rhs]", sig!(arity!(2)), plain(cas::eq), BuiltinGroup::Cas),
+    (SIMPLIFY, Simplify, "simplify", "simplify[expr]", sig!(arity!(1)), plain(cas::simplify), BuiltinGroup::Cas),
+    (REWRITE, Rewrite, "rewrite", "rewrite[expr]", sig!(arity!(1)), plain(cas::rewrite), BuiltinGroup::Cas),
+    (NUMERIC, Numeric, "numeric", "numeric[expr]", sig!(arity!(1)), plain(cas::numeric), BuiltinGroup::Cas),
+    (DIFF, Diff, "diff", "diff[expr;var?]", sig!(arity!(1, 2)), plain(cas::diff), BuiltinGroup::Cas),
+    (D, D, "D", "D[expr;var?]", sig!(arity!(1, 2), alias Diff), plain(cas::diff), BuiltinGroup::Cas), // alias of diff
+    (SUBSTITUTE, Substitute, "substitute", "substitute[expr;eqs], substitute[expr;var;val]", sig!(arity!(2, 3)), plain(cas::substitute), BuiltinGroup::Cas),
+    (EXPAND, Expand, "expand", "expand[expr]", sig!(arity!(1)), plain(cas::expand), BuiltinGroup::Cas),
+    (FACTOR_COMMON, FactorCommon, "factor_common", "factor_common[expr]", sig!(arity!(1)), plain(cas::factor_common), BuiltinGroup::Cas),
+    (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;1], factor[expr;1;var]", sig!(arity!(1, 2, 3)), plain(cas::factor_poly), BuiltinGroup::Cas),
+    (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", sig!(arity!(1, 2, 4)), plain(cas::integrate), BuiltinGroup::Cas),
+    (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", sig!(arity!(1, 2, 4), alias Integrate), plain(cas::integrate), BuiltinGroup::Cas), // alias of integrate
+    (LIMIT, Limit, "limit", "limit[expr;var;point], limit[expr;var;point;dir], limit[expr;vars;points]", sig!(arity!(3..), defer), plain(cas::limit), BuiltinGroup::Cas),
+    (SOLVE, Solve, "solve", "solve[expr], solve[expr;var], solve[eq;var]", sig!(arity!(1, 2)), plain(cas::solve), BuiltinGroup::Cas),
+    (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs;vars]", sig!(arity!(2)), plain(cas::solve_system), BuiltinGroup::Cas),
+    (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", sig!(arity!(3, 4, 5)), plain(cas::brent), BuiltinGroup::Cas),
+    (NEWTON, Newton, "newton", "newton[expr;x0], newton[expr;x0;tol], newton[expr;x0;tol;max_iter], newton[eq;x0]", sig!(arity!(2, 3, 4)), plain(cas::newton), BuiltinGroup::Cas),
 
     // String =========================================================
-    (STR, Str, "str", "str[x]", "1", plain(string::to_str), BuiltinGroup::Str),
-    (GRAPHEMES, Graphemes, "graphemes", "graphemes[s]", "1", plain(string::graphemes), BuiltinGroup::Str),
-    (WS_Q, WsQ, "ws?", "ws?[c]", "1", plain(string::is_whitespace), BuiltinGroup::Str),
-    (WORDS, Words, "words", "words[s]", "1", plain(string::words), BuiltinGroup::Str),
-    (TRIM, Trim, "trim", "trim[s]", "1", plain(string::trim), BuiltinGroup::Str),
-    (L_TRIM, LTrim, "ltrim", "ltrim[s]", "1", plain(string::trim_left), BuiltinGroup::Str),
-    (R_TRIM, RTrim, "rtrim", "rtrim[s]", "1", plain(string::trim_right), BuiltinGroup::Str),
+    (STR, Str, "str", "str[x]", sig!(arity!(1)), plain(string::to_str), BuiltinGroup::Str),
+    (GRAPHEMES, Graphemes, "graphemes", "graphemes[s]", sig!(arity!(1)), plain(string::graphemes), BuiltinGroup::Str),
+    (WS_Q, WsQ, "ws?", "ws?[c]", sig!(arity!(1)), plain(string::is_whitespace), BuiltinGroup::Str),
+    (WORDS, Words, "words", "words[s]", sig!(arity!(1)), plain(string::words), BuiltinGroup::Str),
+    (TRIM, Trim, "trim", "trim[s]", sig!(arity!(1)), plain(string::trim), BuiltinGroup::Str),
+    (L_TRIM, LTrim, "ltrim", "ltrim[s]", sig!(arity!(1)), plain(string::trim_left), BuiltinGroup::Str),
+    (R_TRIM, RTrim, "rtrim", "rtrim[s]", sig!(arity!(1)), plain(string::trim_right), BuiltinGroup::Str),
 
     // Type =========================================================
-    (TYPE, Type, "type", "type[x]", "1", plain(wqtype::type_of), BuiltinGroup::Type),
-    (TAG, Tag, "tag", "tag[x]", "1", plain(wqtype::to_tag), BuiltinGroup::Type),
-    (BOOL, Bool, "bool", "bool[x]", "1", plain(wqtype::to_bool), BuiltinGroup::Type),
-    (CHAR, Char, "char", "char[x]", "1", plain(wqtype::to_char), BuiltinGroup::Type),
-    (ATOM_Q, AtomQ, "atom?", "atom?[x]", "1", plain(wqtype::is_atom), BuiltinGroup::Type),
-    (UNIT_Q, UnitQ, "unit?", "unit?[x]", "1", plain(wqtype::is_unit), BuiltinGroup::Type),
-    (U, U, "U", "U[x]", "1", plain(wqtype::is_unit), BuiltinGroup::Type), // alias of unit?
-    (LIST, List, "list", "list[x]", "1", plain(wqtype::to_list), BuiltinGroup::Type),
-    (DICT, Dict, "dict", "dict[x]", "1", plain(wqtype::to_dict), BuiltinGroup::Type),
+    (TYPE, Type, "type", "type[x]", sig!(arity!(1)), plain(wqtype::type_of), BuiltinGroup::Type),
+    (TAG, Tag, "tag", "tag[x]", sig!(arity!(1)), plain(wqtype::to_tag), BuiltinGroup::Type),
+    (BOOL, Bool, "bool", "bool[x]", sig!(arity!(1)), plain(wqtype::to_bool), BuiltinGroup::Type),
+    (CHAR, Char, "char", "char[x]", sig!(arity!(1)), plain(wqtype::to_char), BuiltinGroup::Type),
+    (ATOM_Q, AtomQ, "atom?", "atom?[x]", sig!(arity!(1)), plain(wqtype::is_atom), BuiltinGroup::Type),
+    (UNIT_Q, UnitQ, "unit?", "unit?[x]", sig!(arity!(1)), plain(wqtype::is_unit), BuiltinGroup::Type),
+    (U, U, "U", "U[x]", sig!(arity!(1), alias UnitQ), plain(wqtype::is_unit), BuiltinGroup::Type), // alias of unit?
+    (LIST, List, "list", "list[x]", sig!(arity!(1)), plain(wqtype::to_list), BuiltinGroup::Type),
+    (DICT, Dict, "dict", "dict[x]", sig!(arity!(1)), plain(wqtype::to_dict), BuiltinGroup::Type),
 
     // Visualization =========================================================
-    (SHOWTABLE, Showtable, "showtable", "showtable[table]", "1", plain(viz::show_table), BuiltinGroup::Viz),
+    (SHOWTABLE, Showtable, "showtable", "showtable[table]", sig!(arity!(1)), plain(viz::show_table), BuiltinGroup::Viz),
     (ASCIIPLOT, Asciiplot, "asciiplot",
         concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim;",
             "`symbols;`labels;`mode;`axes;`color;`grid;",
             "`samples;`theme;`complex;`ascii;",
-            "`title;`xlabel;`ylabel;`caption]"), "1..", with_context(viz::asciiplot), BuiltinGroup::Viz),
+            "`title;`xlabel;`ylabel;`caption]"), sig!(arity!(1..), defer), with_context(viz::asciiplot), BuiltinGroup::Viz),
 
     // Intrinsic ====================================================
-    (FMT, Fmt, "fmt", "fmt[template;v*]", "1..", plain(string::fmt), BuiltinGroup::Intrinsic),
+    (FMT, Fmt, "fmt", "fmt[template;v*]", sig!(arity!(1..), defer), plain(string::fmt), BuiltinGroup::Intrinsic),
 
-    (OP_ADD, OpAdd, "+", "+[xs;ys+]", "2..", plain(op::op_add), BuiltinGroup::Intrinsic),
-    (OP_SUB, OpSub, "-", "-[x], -[xs;ys+]", "1..", plain(op::op_sub), BuiltinGroup::Intrinsic),
-    (OP_MUL, OpMul, "*", "*[xs;ys+]", "2..", plain(op::op_mul), BuiltinGroup::Intrinsic),
-    (OP_DIV, OpDiv, "/", "/[xs;ys+]", "2..", plain(op::op_div), BuiltinGroup::Intrinsic),
-    (OP_DIV_DOT, OpDivDot, "/.", "/.[xs;ys+]", "2..", plain(op::op_divdot), BuiltinGroup::Intrinsic),
-    (OP_MOD, OpMod, "%", "%[xs;ys+]", "2..", plain(op::op_mod), BuiltinGroup::Intrinsic),
-    (OP_FLOORDIV, OpFloorDiv, "/%", "/%[xs;ys+]", "2..", plain(op::op_floordiv), BuiltinGroup::Intrinsic),
-    (OP_POWER, OpPower, "^", "^[xs;ys+]", "2..", plain(op::op_power), BuiltinGroup::Intrinsic),
-    (OP_POWER_DOT, OpPowerDot, "^.", "^.[xs;ys+]", "2..", plain(op::op_power_dot), BuiltinGroup::Intrinsic),
-    (OP_MATMUL, OpMatmul, "**", "**[xs;ys+]", "2..", plain(op::op_matmul), BuiltinGroup::Intrinsic),
+    (OP_ADD, OpAdd, "+", "+[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_add), BuiltinGroup::Intrinsic),
+    (OP_SUB, OpSub, "-", "-[x], -[xs;ys+]", sig!(arity!(1..), defer), plain(op::op_sub), BuiltinGroup::Intrinsic),
+    (OP_MUL, OpMul, "*", "*[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_mul), BuiltinGroup::Intrinsic),
+    (OP_DIV, OpDiv, "/", "/[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_div), BuiltinGroup::Intrinsic),
+    (OP_DIV_DOT, OpDivDot, "/.", "/.[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_divdot), BuiltinGroup::Intrinsic),
+    (OP_MOD, OpMod, "%", "%[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_mod), BuiltinGroup::Intrinsic),
+    (OP_FLOORDIV, OpFloorDiv, "/%", "/%[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_floordiv), BuiltinGroup::Intrinsic),
+    (OP_POWER, OpPower, "^", "^[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_power), BuiltinGroup::Intrinsic),
+    (OP_POWER_DOT, OpPowerDot, "^.", "^.[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_power_dot), BuiltinGroup::Intrinsic),
+    (OP_MATMUL, OpMatmul, "**", "**[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_matmul), BuiltinGroup::Intrinsic),
 
-    (OP_EQUAL, OpEqual, "=", "=[xs;ys+]", "2..", plain(op::op_equal), BuiltinGroup::Intrinsic),
-    (OP_EQUAL_DOT, OpEqualDot, "=.", "=.[xs;ys+]", "2..", plain(op::op_equal_dot), BuiltinGroup::Intrinsic),
-    (OP_TILDE, OpTilde, "~", "~[x], ~[xs;ys+]", "1..", plain(op::op_tilde), BuiltinGroup::Intrinsic),
-    (OP_TILDE_DOT, OpTildeDot, "~.", "~.[xs;ys+]", "2..", plain(op::op_tilde_dot), BuiltinGroup::Intrinsic),
-    (OP_LT, OpLt, "<", "<[xs;ys+]", "2..", plain(op::op_lt), BuiltinGroup::Intrinsic),
-    (OP_LTE, OpLte, "<=", "<=[xs;ys+]", "2..", plain(op::op_lte), BuiltinGroup::Intrinsic),
-    (OP_GT, OpGt, ">", ">[xs;ys+]", "2..", plain(op::op_gt), BuiltinGroup::Intrinsic),
-    (OP_GTE, OpGte, ">=", ">=[xs;ys+]", "2..", plain(op::op_gte), BuiltinGroup::Intrinsic),
+    (OP_EQUAL, OpEqual, "=", "=[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_equal), BuiltinGroup::Intrinsic),
+    (OP_EQUAL_DOT, OpEqualDot, "=.", "=.[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_equal_dot), BuiltinGroup::Intrinsic),
+    (OP_TILDE, OpTilde, "~", "~[x], ~[xs;ys+]", sig!(arity!(1..), defer), plain(op::op_tilde), BuiltinGroup::Intrinsic),
+    (OP_TILDE_DOT, OpTildeDot, "~.", "~.[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_tilde_dot), BuiltinGroup::Intrinsic),
+    (OP_LT, OpLt, "<", "<[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_lt), BuiltinGroup::Intrinsic),
+    (OP_LTE, OpLte, "<=", "<=[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_lte), BuiltinGroup::Intrinsic),
+    (OP_GT, OpGt, ">", ">[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_gt), BuiltinGroup::Intrinsic),
+    (OP_GTE, OpGte, ">=", ">=[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_gte), BuiltinGroup::Intrinsic),
 
-    (OP_CAT, OpCat, ",", ",[xs;ys+]", "2..", plain(op::op_cat), BuiltinGroup::Intrinsic),
-    (OP_SHARP, OpSharp, "#", "#[x]", "1", plain(op::op_sharp), BuiltinGroup::Intrinsic),
+    (OP_CAT, OpCat, ",", ",[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_cat), BuiltinGroup::Intrinsic),
+    (OP_SHARP, OpSharp, "#", "#[x]", sig!(arity!(1)), plain(op::op_sharp), BuiltinGroup::Intrinsic),
 
-    (OP_BOOL_AND, OpBoolAnd, "&|", "&|[xs;ys+]", "2..", plain(op::op_bool_and), BuiltinGroup::Intrinsic),
-    (OP_BOOL_OR, OpBoolOr, r"\|", r"\|[xs;ys+]", "2..", plain(op::op_bool_or), BuiltinGroup::Intrinsic),
-    (OP_BIT_AND, OpBitAnd, "&", "&[xs;ys+]", "2..", plain(op::op_bit_and), BuiltinGroup::Intrinsic),
-    (OP_BIT_OR, OpBitOr, r"\", r"\[xs;ys+]", "2..", plain(op::op_bit_or), BuiltinGroup::Intrinsic),
-    (OP_XOR, OpXor, r"^\", r"^\[xs;ys+]", "2..", plain(op::op_xor), BuiltinGroup::Intrinsic),
-    (OP_SHL, OpShl, "<<", "<<[xs;ys+]", "2..", plain(op::op_shl), BuiltinGroup::Intrinsic),
-    (OP_SHR, OpShr, ">>", ">>[xs;ys+]", "2..", plain(op::op_shr), BuiltinGroup::Intrinsic),
+    (OP_BOOL_AND, OpBoolAnd, "&|", "&|[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_bool_and), BuiltinGroup::Intrinsic),
+    (OP_BOOL_OR, OpBoolOr, r"\|", r"\|[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_bool_or), BuiltinGroup::Intrinsic),
+    (OP_BIT_AND, OpBitAnd, "&", "&[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_bit_and), BuiltinGroup::Intrinsic),
+    (OP_BIT_OR, OpBitOr, r"\", r"\[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_bit_or), BuiltinGroup::Intrinsic),
+    (OP_XOR, OpXor, r"^\", r"^\[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_xor), BuiltinGroup::Intrinsic),
+    (OP_SHL, OpShl, "<<", "<<[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_shl), BuiltinGroup::Intrinsic),
+    (OP_SHR, OpShr, ">>", ">>[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_shr), BuiltinGroup::Intrinsic),
 
 }
 
@@ -1058,32 +1195,16 @@ struct BuiltinCallCheck {
 }
 
 impl BuiltinCallCheck {
-    fn deny_named(src: BuiltinEnum, arity: BuiltinCallArity) -> Self {
-        Self {
-            src,
-            arity,
-            named: BuiltinNamedArgs::Deny,
+    fn from_signature(builtin: BuiltinEnum, signature: BuiltinSignature) -> Option<Self> {
+        if signature.validation == BuiltinValidation::Defer {
+            return None;
         }
-    }
 
-    fn allow_named(
-        src: BuiltinEnum,
-        arity: BuiltinCallArity,
-        allowed: &'static [&'static str],
-    ) -> Self {
-        Self {
-            src,
-            arity,
-            named: BuiltinNamedArgs::Allow(allowed),
-        }
-    }
-
-    fn from_exact_decl(src: BuiltinEnum, arity: &'static str) -> Option<Self> {
-        let arity = BuiltinCallArity::parse(arity).expect("valid builtin arity declaration");
-        match arity {
-            BuiltinCallArity::Exact { .. } => Some(Self::deny_named(src, arity)),
-            BuiltinCallArity::AtLeast(_) => None,
-        }
+        Some(Self {
+            src: signature.source.unwrap_or(builtin),
+            arity: signature.arity,
+            named: signature.named,
+        })
     }
 
     fn validate(self, args: &BuiltinFnArgs) -> WqResult<()> {
@@ -1095,74 +1216,13 @@ impl BuiltinCallCheck {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum BuiltinNamedArgs {
-    Deny,
-    Allow(&'static [&'static str]),
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum BuiltinCallArity {
-    Exact { mask: u128 },
-    AtLeast(usize),
-}
-
-impl BuiltinCallArity {
-    fn parse(raw: &str) -> Option<Self> {
-        if let Some(min) = raw.strip_suffix("..") {
-            return min.trim().parse().ok().map(Self::AtLeast);
-        }
-
-        let mut mask = 0u128;
-        for part in raw.split_whitespace() {
-            let n: usize = part.parse().ok()?;
-            if n >= u128::BITS as usize {
-                return None;
-            }
-            mask |= 1u128 << n;
-        }
-        (mask != 0).then_some(Self::Exact { mask })
-    }
-
-    fn exact(arities: impl AsRef<[usize]>) -> Self {
-        let mut mask = 0u128;
-        for &n in arities.as_ref() {
-            debug_assert!(n < u128::BITS as usize, "builtin arity too large");
-            mask |= 1u128 << n;
-        }
-        Self::Exact { mask }
-    }
-
-    fn contains(self, n: usize) -> bool {
-        match self {
-            Self::Exact { mask } if n < u128::BITS as usize => mask & (1u128 << n) != 0,
-            Self::Exact { .. } => false,
-            Self::AtLeast(min) => n >= min,
-        }
-    }
-
-    fn validate(self, builtin: BuiltinEnum, args: &[Value]) -> WqResult<()> {
-        let n = args.len();
-        if self.contains(n) {
-            return Ok(());
-        }
-
-        match self {
-            Self::Exact { mask } => Err(exact_arity_error(builtin, mask, n)),
-            Self::AtLeast(min) => Err(WqError::new(WqErrorType::Arity)
-                .src(builtin)
-                .msg(format!("expected {min} or more args, got {n}"))
-                .attach_note(builtin.usage())),
-        }
-    }
-}
-
 impl Builtins {
     fn build_call_checks() -> Vec<Option<BuiltinCallCheck>> {
         Self::ENUMS
             .iter()
             .copied()
-            .map(runtime_call_check_for)
+            .zip(Self::SIGNATURES.iter().copied())
+            .map(|(builtin, signature)| BuiltinCallCheck::from_signature(builtin, signature))
             .collect()
     }
 
@@ -1177,68 +1237,6 @@ impl Builtins {
 
         check.validate(args)?;
         Ok(true)
-    }
-}
-
-fn runtime_call_check_for(builtin: BuiltinEnum) -> Option<BuiltinCallCheck> {
-    use BuiltinEnum as B;
-
-    let src = runtime_validation_source(builtin);
-    let check = match builtin {
-        B::Echo | B::E => {
-            BuiltinCallCheck::allow_named(src, BuiltinCallArity::AtLeast(0), ECHO_NAMED_ARGS)
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        B::Open => {
-            BuiltinCallCheck::allow_named(src, BuiltinCallArity::exact([1]), OPEN_NAMED_ARGS)
-        }
-        B::Split => {
-            BuiltinCallCheck::allow_named(src, BuiltinCallArity::exact([1, 2]), MAXSPLIT_NAMED_ARGS)
-        }
-        B::SplitW => {
-            BuiltinCallCheck::allow_named(src, BuiltinCallArity::exact([2]), MAXSPLIT_NAMED_ARGS)
-        }
-
-        #[rustfmt::skip]
-        B::Print | B::Sum | B::Product | B::Min | B::Max
-        | B::Limit
-        | B::And | B::Or | B::Xor | B::Band | B::Bor | B::Shl | B::Shr
-        | B::Apply | B::A
-        | B::Fmt
-        | B::Asciiplot
-        | B::OpAdd | B::OpSub | B::OpMul | B::OpDiv | B::OpDivDot
-        | B::OpMod | B::OpFloorDiv
-        | B::OpPower | B::OpPowerDot | B::OpMatmul
-        | B::OpEqual | B::OpEqualDot | B::OpTilde | B::OpTildeDot
-        | B::OpLt | B::OpLte | B::OpGt | B::OpGte
-        | B::OpCat
-        | B::OpBoolAnd | B::OpBoolOr
-        | B::OpBitAnd | B::OpBitOr | B::OpXor | B::OpShl | B::OpShr => return None,
-
-        #[cfg(not(target_arch = "wasm32"))]
-        B::Exec => return None,
-
-        _ => return BuiltinCallCheck::from_exact_decl(src, builtin.arity()),
-    };
-
-    Some(check)
-}
-
-fn runtime_validation_source(builtin: BuiltinEnum) -> BuiltinEnum {
-    use BuiltinEnum as B;
-
-    match builtin {
-        B::E => B::Echo,
-        B::V => B::Reverse,
-        B::R => B::Reshape,
-        B::TP => B::Transpose,
-        B::Z => B::Where,
-        B::M => B::Map,
-        B::Reduce => B::Fold,
-        B::D => B::Diff,
-        B::I => B::Integrate,
-        B::U => B::UnitQ,
-        other => other,
     }
 }
 
@@ -1419,6 +1417,259 @@ mod tests {
     use crate::value::into_wq_string;
 
     #[test]
+    fn builtin_signature_table_stays_in_lockstep() {
+        let builtins = Builtins::new();
+
+        assert_eq!(Builtins::ENUMS.len(), Builtins::NAMES.len());
+        assert_eq!(Builtins::ENUMS.len(), Builtins::USAGES.len());
+        assert_eq!(Builtins::ENUMS.len(), Builtins::SIGNATURES.len());
+        assert_eq!(builtins.functions.len(), Builtins::SIGNATURES.len());
+    }
+
+    #[test]
+    fn builtin_signature_displays_match_legacy_arity_strings() {
+        let expected = [
+            (BuiltinEnum::Bfn, "0"),
+            (BuiltinEnum::Chr, "1"),
+            (BuiltinEnum::Ord, "1"),
+            (BuiltinEnum::Int, "1 2"),
+            (BuiltinEnum::Float, "1"),
+            (BuiltinEnum::Bin, "1 2"),
+            (BuiltinEnum::Oct, "1 2"),
+            (BuiltinEnum::Hex, "1 2"),
+            (BuiltinEnum::Hash, "1"),
+            (BuiltinEnum::Raise, "0 1"),
+            (BuiltinEnum::Echo, "0.."),
+            (BuiltinEnum::E, "0.."),
+            (BuiltinEnum::Print, "0.."),
+            (BuiltinEnum::Input, "0 1"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Exec, "1.."),
+            (BuiltinEnum::Decode, "2 3"),
+            (BuiltinEnum::Encode, "2 3"),
+            (BuiltinEnum::ValidBytes, "1"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Open, "1"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::FexistsQ, "1"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Mkdir, "1"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Fsize, "1"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Fwrite, "2"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Fwritet, "2"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Fread, "1 2"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Freadt, "1 2"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Freadtln, "1"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Freadtlns, "1"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Fseek, "2 3"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Ftell, "1"),
+            #[cfg(not(target_arch = "wasm32"))]
+            (BuiltinEnum::Fclose, "1"),
+            (BuiltinEnum::Len, "1"),
+            (BuiltinEnum::StrongCount, "1"),
+            (BuiltinEnum::Shape, "1"),
+            (BuiltinEnum::Depth, "1"),
+            (BuiltinEnum::UniformQ, "1"),
+            (BuiltinEnum::Sum, "1.."),
+            (BuiltinEnum::Product, "1.."),
+            (BuiltinEnum::Min, "1.."),
+            (BuiltinEnum::Max, "1.."),
+            (BuiltinEnum::Flatten, "1"),
+            (BuiltinEnum::Reverse, "1"),
+            (BuiltinEnum::V, "1"),
+            (BuiltinEnum::Sort, "1"),
+            (BuiltinEnum::Split, "1 2"),
+            (BuiltinEnum::Find, "2 3 4"),
+            (BuiltinEnum::RFind, "2 3 4"),
+            (BuiltinEnum::Zip, "2 3"),
+            (BuiltinEnum::Alloc, "1 2"),
+            (BuiltinEnum::Til, "1"),
+            (BuiltinEnum::Iota, "1"),
+            (BuiltinEnum::Reshape, "2"),
+            (BuiltinEnum::R, "2"),
+            (BuiltinEnum::Transpose, "1 2"),
+            (BuiltinEnum::TP, "1 2"),
+            (BuiltinEnum::Repeat, "2"),
+            (BuiltinEnum::Where, "1"),
+            (BuiltinEnum::Z, "1"),
+            (BuiltinEnum::Apply, "2"),
+            (BuiltinEnum::A, "2"),
+            (BuiltinEnum::Map, "2 3"),
+            (BuiltinEnum::M, "2 3"),
+            (BuiltinEnum::Fold, "2 3"),
+            (BuiltinEnum::Reduce, "2 3"),
+            (BuiltinEnum::Scan, "2 3"),
+            (BuiltinEnum::RScan, "2 3"),
+            (BuiltinEnum::Any, "2 3"),
+            (BuiltinEnum::All, "2 3"),
+            (BuiltinEnum::Filter, "2"),
+            (BuiltinEnum::ZipW, "3 4"),
+            (BuiltinEnum::SplitW, "2"),
+            (BuiltinEnum::FindW, "2 3 4"),
+            (BuiltinEnum::RFindW, "2 3 4"),
+            (BuiltinEnum::Keys, "1"),
+            (BuiltinEnum::IdxToKey, "2"),
+            (BuiltinEnum::KeyToIdx, "2"),
+            (BuiltinEnum::Unique, "1"),
+            (BuiltinEnum::Union, "2"),
+            (BuiltinEnum::Intersect, "2"),
+            (BuiltinEnum::Without, "2"),
+            (BuiltinEnum::Symdiff, "2"),
+            (BuiltinEnum::SubQ, "2"),
+            (BuiltinEnum::SuperQ, "2"),
+            (BuiltinEnum::PSubQ, "2"),
+            (BuiltinEnum::PSuperQ, "2"),
+            (BuiltinEnum::MemberQ, "2"),
+            (BuiltinEnum::Cart, "2"),
+            (BuiltinEnum::InQ, "2 3"),
+            (BuiltinEnum::HasQ, "2 3"),
+            (BuiltinEnum::DisjointQ, "2"),
+            (BuiltinEnum::Multiplicity, "2"),
+            (BuiltinEnum::Not, "1"),
+            (BuiltinEnum::Xor, "2.."),
+            (BuiltinEnum::And, "2.."),
+            (BuiltinEnum::Or, "2.."),
+            (BuiltinEnum::Band, "2.."),
+            (BuiltinEnum::Bor, "2.."),
+            (BuiltinEnum::Shl, "2.."),
+            (BuiltinEnum::Shr, "2.."),
+            (BuiltinEnum::Neg, "1"),
+            (BuiltinEnum::Abs, "1"),
+            (BuiltinEnum::Sgn, "1"),
+            (BuiltinEnum::Sqrt, "1"),
+            (BuiltinEnum::Exp, "1"),
+            (BuiltinEnum::Ln, "1"),
+            (BuiltinEnum::Log2, "1"),
+            (BuiltinEnum::Log10, "1"),
+            (BuiltinEnum::Floor, "1 2"),
+            (BuiltinEnum::Ceil, "1 2"),
+            (BuiltinEnum::Round, "1 2"),
+            (BuiltinEnum::Sin, "1"),
+            (BuiltinEnum::Cos, "1"),
+            (BuiltinEnum::Tan, "1"),
+            (BuiltinEnum::Sec, "1"),
+            (BuiltinEnum::Csc, "1"),
+            (BuiltinEnum::Cot, "1"),
+            (BuiltinEnum::Arcsin, "1"),
+            (BuiltinEnum::Arccos, "1"),
+            (BuiltinEnum::Arctan, "1"),
+            (BuiltinEnum::Sinh, "1"),
+            (BuiltinEnum::Cosh, "1"),
+            (BuiltinEnum::Tanh, "1"),
+            (BuiltinEnum::Arcsinh, "1"),
+            (BuiltinEnum::Arccosh, "1"),
+            (BuiltinEnum::Arctanh, "1"),
+            (BuiltinEnum::Log, "2"),
+            (BuiltinEnum::Arctan2, "2"),
+            (BuiltinEnum::Erf, "1"),
+            (BuiltinEnum::Erfc, "1"),
+            (BuiltinEnum::Gamma, "1"),
+            (BuiltinEnum::Lngamma, "1"),
+            (BuiltinEnum::Si, "1"),
+            (BuiltinEnum::Ci, "1"),
+            (BuiltinEnum::Ei, "1"),
+            (BuiltinEnum::En, "2"),
+            (BuiltinEnum::Ellpk, "1"),
+            (BuiltinEnum::Ellpe, "1"),
+            (BuiltinEnum::Ellik, "2"),
+            (BuiltinEnum::Ellie, "2"),
+            (BuiltinEnum::Heaviside, "1"),
+            (BuiltinEnum::Delta, "1"),
+            (BuiltinEnum::Rand, "0 1 2"),
+            (BuiltinEnum::Complex, "2"),
+            (BuiltinEnum::Re, "1"),
+            (BuiltinEnum::Im, "1"),
+            (BuiltinEnum::Conj, "1"),
+            (BuiltinEnum::Fraction, "1 2"),
+            (BuiltinEnum::Fractionl, "1"),
+            (BuiltinEnum::Eq, "2"),
+            (BuiltinEnum::Simplify, "1"),
+            (BuiltinEnum::Rewrite, "1"),
+            (BuiltinEnum::Numeric, "1"),
+            (BuiltinEnum::Diff, "1 2"),
+            (BuiltinEnum::D, "1 2"),
+            (BuiltinEnum::Substitute, "2 3"),
+            (BuiltinEnum::Expand, "1"),
+            (BuiltinEnum::FactorCommon, "1"),
+            (BuiltinEnum::Factor, "1 2 3"),
+            (BuiltinEnum::Integrate, "1 2 4"),
+            (BuiltinEnum::I, "1 2 4"),
+            (BuiltinEnum::Limit, "3.."),
+            (BuiltinEnum::Solve, "1 2"),
+            (BuiltinEnum::SolveSystem, "2"),
+            (BuiltinEnum::Brent, "3 4 5"),
+            (BuiltinEnum::Newton, "2 3 4"),
+            (BuiltinEnum::Str, "1"),
+            (BuiltinEnum::Graphemes, "1"),
+            (BuiltinEnum::WsQ, "1"),
+            (BuiltinEnum::Words, "1"),
+            (BuiltinEnum::Trim, "1"),
+            (BuiltinEnum::LTrim, "1"),
+            (BuiltinEnum::RTrim, "1"),
+            (BuiltinEnum::Type, "1"),
+            (BuiltinEnum::Tag, "1"),
+            (BuiltinEnum::Bool, "1"),
+            (BuiltinEnum::Char, "1"),
+            (BuiltinEnum::AtomQ, "1"),
+            (BuiltinEnum::UnitQ, "1"),
+            (BuiltinEnum::U, "1"),
+            (BuiltinEnum::List, "1"),
+            (BuiltinEnum::Dict, "1"),
+            (BuiltinEnum::Showtable, "1"),
+            (BuiltinEnum::Asciiplot, "1.."),
+            (BuiltinEnum::Fmt, "1.."),
+            (BuiltinEnum::OpAdd, "2.."),
+            (BuiltinEnum::OpSub, "1.."),
+            (BuiltinEnum::OpMul, "2.."),
+            (BuiltinEnum::OpDiv, "2.."),
+            (BuiltinEnum::OpDivDot, "2.."),
+            (BuiltinEnum::OpMod, "2.."),
+            (BuiltinEnum::OpFloorDiv, "2.."),
+            (BuiltinEnum::OpPower, "2.."),
+            (BuiltinEnum::OpPowerDot, "2.."),
+            (BuiltinEnum::OpMatmul, "2.."),
+            (BuiltinEnum::OpEqual, "2.."),
+            (BuiltinEnum::OpEqualDot, "2.."),
+            (BuiltinEnum::OpTilde, "1.."),
+            (BuiltinEnum::OpTildeDot, "2.."),
+            (BuiltinEnum::OpLt, "2.."),
+            (BuiltinEnum::OpLte, "2.."),
+            (BuiltinEnum::OpGt, "2.."),
+            (BuiltinEnum::OpGte, "2.."),
+            (BuiltinEnum::OpCat, "2.."),
+            (BuiltinEnum::OpSharp, "1"),
+            (BuiltinEnum::OpBoolAnd, "2.."),
+            (BuiltinEnum::OpBoolOr, "2.."),
+            (BuiltinEnum::OpBitAnd, "2.."),
+            (BuiltinEnum::OpBitOr, "2.."),
+            (BuiltinEnum::OpXor, "2.."),
+            (BuiltinEnum::OpShl, "2.."),
+            (BuiltinEnum::OpShr, "2.."),
+        ];
+
+        assert_eq!(expected.len(), Builtins::ENUMS.len());
+        for (builtin, expected_text) in expected {
+            assert_eq!(builtin.arity().to_string(), expected_text, "{builtin}");
+            assert_eq!(
+                Builtins::arity_from_id(builtin.id())
+                    .expect("builtin arity from id")
+                    .to_string(),
+                expected_text,
+                "{builtin}",
+            );
+        }
+    }
+
+    #[test]
     fn runtime_call_checks_preserve_implementation_arities() {
         let builtins = Builtins::new();
 
@@ -1454,14 +1705,20 @@ mod tests {
     fn runtime_call_checks_skip_custom_builtins() {
         let builtins = Builtins::new();
 
-        for id in [
+        let ids = [
             Builtins::PRINT,
             Builtins::SUM,
             Builtins::LIMIT,
+            Builtins::APPLY,
+            Builtins::A,
             Builtins::FMT,
             Builtins::ASCIIPLOT,
             Builtins::OP_ADD,
-        ] {
+            #[cfg(not(target_arch = "wasm32"))]
+            Builtins::EXEC,
+        ];
+
+        for id in ids {
             assert!(
                 !builtins
                     .validate_runtime_call_args(id, &BuiltinFnArgs::new())
