@@ -30,7 +30,7 @@ use ordered_float::OrderedFloat;
 
 use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::value::cas::CasData;
-use crate::value::func::{CallableExpr, ClosureData, FunctionCompositionData, FunctionData};
+use crate::value::func::{CallableExpr, ClosureData, FunctionData, LiftedCallableData};
 use crate::value::stream::StreamHandle;
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -61,7 +61,7 @@ pub enum Value {
         name: Arc<str>,
         id: u16,
     },
-    FunctionComposition(Arc<FunctionCompositionData>),
+    LiftedCallable(Arc<LiftedCallableData>),
     Stream(Arc<Mutex<StreamHandle>>),
 }
 
@@ -133,12 +133,12 @@ impl Value {
             Value::CompiledFunction(_)
                 | Value::Closure(_)
                 | Value::BuiltinFunction { .. }
-                | Value::FunctionComposition(_)
+                | Value::LiftedCallable(_)
         )
     }
 
     pub(crate) fn function_composition(op: BinaryOperator, left: Value, right: Value) -> Self {
-        Value::FunctionComposition(Arc::new(FunctionCompositionData {
+        Value::LiftedCallable(Arc::new(LiftedCallableData {
             expr: CallableExpr::Binary {
                 op,
                 left: Arc::new(CallableExpr::from_value(left)),
@@ -149,7 +149,7 @@ impl Value {
     }
 
     pub(crate) fn unary_function_composition(op: UnaryOperator, operand: Value) -> Self {
-        Value::FunctionComposition(Arc::new(FunctionCompositionData {
+        Value::LiftedCallable(Arc::new(LiftedCallableData {
             expr: CallableExpr::Unary {
                 op,
                 operand: Arc::new(CallableExpr::from_value(operand)),
@@ -364,7 +364,7 @@ impl Value {
             Value::CompiledFunction { .. } => "func",
             Value::Closure { .. } => "closure",
             Value::BuiltinFunction { .. } => "bfn",
-            Value::FunctionComposition(_) => "func",
+            Value::LiftedCallable(_) => "func",
 
             Value::Stream(_) => "stream",
         }
@@ -389,7 +389,7 @@ impl Value {
             Value::CompiledFunction(_) => "fn",
             Value::Closure(_) => "closure",
             Value::BuiltinFunction { .. } => "bfn",
-            Value::FunctionComposition(_) => "fn-comp",
+            Value::LiftedCallable(_) => "fn-comp",
             Value::Stream(_) => "stream",
         }
     }
@@ -455,7 +455,7 @@ mod tests {
         let fg = Value::function_composition(BinaryOperator::Add, f, g);
         let nested = Value::function_composition(BinaryOperator::Multiply, fg, h.clone());
 
-        let Value::FunctionComposition(data) = nested else {
+        let Value::LiftedCallable(data) = nested else {
             unreachable!("constructor returns a function composition");
         };
         let CallableExpr::Binary { left, right, .. } = &data.expr else {
@@ -497,7 +497,7 @@ mod tests {
 
         let neg = Value::lift_callable_unary(UnaryOperator::Negate, &f)
             .expect("negating callable should lift");
-        let Value::FunctionComposition(data) = neg else {
+        let Value::LiftedCallable(data) = neg else {
             unreachable!("lift returns a function composition");
         };
         assert!(matches!(

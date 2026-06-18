@@ -8,7 +8,7 @@ use crate::builtins::{BuiltinContext, BuiltinFnArgs, Builtins};
 use crate::interpret::vanilla::Sv4;
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::value::cell::ValueCell;
-use crate::value::func::{CallableExpr, FunctionCompositionData};
+use crate::value::func::{CallableExpr, LiftedCallableData};
 use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_unary};
 use crate::vm::inst::{Instruction, NamedArgMeta};
 use crate::vm::slot::Slot;
@@ -36,7 +36,7 @@ impl Vm {
         }
         let argc = args.len();
         match func {
-            Value::FunctionComposition(data) => self.call_function_composition(data, args),
+            Value::LiftedCallable(data) => self.call_function_composition(data, args),
             Value::CompiledFunction(_) | Value::Closure(_) => {
                 let base = self.stack.len();
                 self.stack.extend(args);
@@ -57,7 +57,7 @@ impl Vm {
 
     pub(crate) fn invoke_function_composition_on_stack(
         &mut self,
-        data: &FunctionCompositionData,
+        data: &LiftedCallableData,
         argc: usize,
     ) -> WqResult<Value> {
         if self.pending_named_meta.take().is_some() {
@@ -73,7 +73,7 @@ impl Vm {
 
     pub(crate) fn call_function_composition(
         &mut self,
-        data: &FunctionCompositionData,
+        data: &LiftedCallableData,
         args: crate::builtins::BuiltinFnArgs,
     ) -> WqResult<Value> {
         if args.has_named() {
@@ -85,16 +85,10 @@ impl Vm {
         self.eval_callable_expr(&data.expr, &args)
     }
 
-    fn eval_callable_expr(
-        &mut self,
-        expr: &CallableExpr,
-        args: &[Value],
-    ) -> WqResult<Value> {
+    fn eval_callable_expr(&mut self, expr: &CallableExpr, args: &[Value]) -> WqResult<Value> {
         match expr {
             CallableExpr::Const(value) => Ok(value.clone()),
-            CallableExpr::Call(value) => {
-                self.call(value, BuiltinFnArgs::from_cloned_slice(args))
-            }
+            CallableExpr::Call(value) => self.call(value, BuiltinFnArgs::from_cloned_slice(args)),
             CallableExpr::Unary { op, operand } => {
                 let value = self.eval_callable_expr(operand, args)?;
                 eval_unary(op, &value)
@@ -314,9 +308,7 @@ impl Vm {
         callee_name: Option<Cow<'_, str>>,
     ) -> WqResult<Value> {
         match func {
-            Value::FunctionComposition(data) => {
-                self.invoke_function_composition_on_stack(data, argc)
-            }
+            Value::LiftedCallable(data) => self.invoke_function_composition_on_stack(data, argc),
             Value::CompiledFunction(_) | Value::Closure(_) => self.invoke_spec(
                 CallSpec::from_user_callable(func, argc, callee_name)
                     .expect("matched user function"),
@@ -961,7 +953,10 @@ mod tests {
     fn make_fn(params: &[&str], instructions: Vec<Instruction>) -> Value {
         Value::CompiledFunction(Arc::new(FunctionData {
             params: Some(Arc::<[String]>::from(
-                params.iter().map(|name| name.to_string()).collect::<Vec<_>>(),
+                params
+                    .iter()
+                    .map(|name| name.to_string())
+                    .collect::<Vec<_>>(),
             )),
             named_params: None,
             locals: params.len() as u16,
@@ -1005,10 +1000,7 @@ mod tests {
     }
 
     fn identity() -> Value {
-        make_fn(
-            &["x"],
-            vec![Instruction::LoadLocal(0), Instruction::Return],
-        )
+        make_fn(&["x"], vec![Instruction::LoadLocal(0), Instruction::Return])
     }
 
     #[test]

@@ -34,7 +34,7 @@ enum PureExpr {
 
 impl PureCallback {
     fn from_func(func: &Value, arity: usize) -> Option<Self> {
-        if let Value::FunctionComposition(data) = func {
+        if let Value::LiftedCallable(data) = func {
             return Some(Self {
                 result: PureExpr::from_callable_expr(&data.expr, arity)?,
             });
@@ -118,9 +118,9 @@ impl PureExpr {
     fn from_callable_expr(expr: &CallableExpr, arity: usize) -> Option<Self> {
         match expr {
             CallableExpr::Const(value) => Some(Self::Const(value.clone())),
-            CallableExpr::Call(value) => PureCallback::from_func(value, arity).map(|callback| {
-                callback.result
-            }),
+            CallableExpr::Call(value) => {
+                PureCallback::from_func(value, arity).map(|callback| callback.result)
+            }
             CallableExpr::Unary { op, operand } => Some(Self::Unary {
                 op: *op,
                 operand: Box::new(Self::from_callable_expr(operand, arity)?),

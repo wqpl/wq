@@ -33,7 +33,7 @@ impl Value {
 
             Value::CompiledFunction(v) => Arc::strong_count(v),
             Value::Closure(v) => Arc::strong_count(v),
-            Value::FunctionComposition(v) => Arc::strong_count(v),
+            Value::LiftedCallable(v) => Arc::strong_count(v),
 
             Value::Stream(v) => Arc::strong_count(v),
 

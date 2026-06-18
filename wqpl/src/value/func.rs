@@ -69,7 +69,7 @@ pub(crate) enum CallableExpr {
 }
 
 #[derive(Debug, Clone)]
-pub struct FunctionCompositionData {
+pub struct LiftedCallableData {
     pub(crate) expr: CallableExpr,
     /// Provenance frames for callable expression values returned from earlier calls.
     pub(crate) dbg_provenance: Option<DebugProvenance>,
@@ -78,7 +78,7 @@ pub struct FunctionCompositionData {
 impl CallableExpr {
     pub(crate) fn from_value(value: Value) -> Self {
         match value {
-            Value::FunctionComposition(data) => data.expr.clone(),
+            Value::LiftedCallable(data) => data.expr.clone(),
             other if other.is_callable() => Self::Call(other),
             other => Self::Const(other),
         }

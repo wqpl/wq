@@ -124,7 +124,7 @@ impl std::hash::Hash for Value {
                 10u8.hash(state);
                 id.hash(state);
             }
-            Value::FunctionComposition(data) => {
+            Value::LiftedCallable(data) => {
                 11u8.hash(state);
                 hash_callable_expr(&data.expr, state);
             }
@@ -289,7 +289,7 @@ impl PartialEq for Value {
 
             (BuiltinFunction { id: a, .. }, BuiltinFunction { id: b, .. }) => a == b,
 
-            (FunctionComposition(a), FunctionComposition(b)) => a.expr == b.expr,
+            (LiftedCallable(a), LiftedCallable(b)) => a.expr == b.expr,
 
             (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
 

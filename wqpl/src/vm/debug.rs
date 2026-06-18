@@ -1,6 +1,6 @@
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::value::Value;
-use crate::value::func::{CallableExpr, ClosureData, FunctionCompositionData, FunctionData};
+use crate::value::func::{CallableExpr, ClosureData, FunctionData, LiftedCallableData};
 use crate::vm::Vm;
 use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
@@ -37,10 +37,10 @@ impl Vm {
                 new_c.dbg_source_base_offset = base_offset;
                 Value::Closure(std::sync::Arc::new(new_c))
             }
-            Value::FunctionComposition(data) => {
-                let mut new_data = FunctionCompositionData::clone(&data);
+            Value::LiftedCallable(data) => {
+                let mut new_data = LiftedCallableData::clone(&data);
                 new_data.expr = self.attach_debug_base_to_callable_expr(new_data.expr);
-                Value::FunctionComposition(std::sync::Arc::new(new_data))
+                Value::LiftedCallable(std::sync::Arc::new(new_data))
             }
             other => other,
         }
@@ -60,9 +60,7 @@ impl Vm {
             },
             CallableExpr::Binary { op, left, right } => CallableExpr::Binary {
                 op,
-                left: std::sync::Arc::new(
-                    self.attach_debug_base_to_callable_expr((*left).clone()),
-                ),
+                left: std::sync::Arc::new(self.attach_debug_base_to_callable_expr((*left).clone())),
                 right: std::sync::Arc::new(
                     self.attach_debug_base_to_callable_expr((*right).clone()),
                 ),
@@ -281,7 +279,7 @@ impl Vm {
         match value {
             Value::CompiledFunction(f) => f.dbg_provenance.clone(),
             Value::Closure(c) => c.dbg_provenance.clone(),
-            Value::FunctionComposition(c) => c.dbg_provenance.clone(),
+            Value::LiftedCallable(c) => c.dbg_provenance.clone(),
             _ => None,
         }
     }
@@ -298,11 +296,11 @@ impl Vm {
                 new_c.dbg_provenance = Some(provenance);
                 Value::Closure(std::sync::Arc::new(new_c))
             }
-            Value::FunctionComposition(c) => {
-                let mut new_c = FunctionCompositionData::clone(&c);
+            Value::LiftedCallable(c) => {
+                let mut new_c = LiftedCallableData::clone(&c);
                 new_c.expr = Self::set_callable_expr_provenance(new_c.expr, &provenance);
                 new_c.dbg_provenance = Some(provenance);
-                Value::FunctionComposition(std::sync::Arc::new(new_c))
+                Value::LiftedCallable(std::sync::Arc::new(new_c))
             }
             other => other,
         }
@@ -351,7 +349,7 @@ impl Vm {
     pub(crate) fn attach_provenance_to_returned_callable(&self, value: Value) -> Value {
         if !matches!(
             value,
-            Value::CompiledFunction(_) | Value::Closure(_) | Value::FunctionComposition(_)
+            Value::CompiledFunction(_) | Value::Closure(_) | Value::LiftedCallable(_)
         ) {
             return value;
         }

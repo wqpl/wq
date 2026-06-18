@@ -91,7 +91,7 @@ pub(super) fn dispatch_postfix(
             vm.stack.push(result);
             Ok(false)
         }
-        Value::FunctionComposition(data) => {
+        Value::LiftedCallable(data) => {
             let result = vm.invoke_function_composition_on_stack(data, argc)?;
             vm.stack.push(result);
             Ok(false)
@@ -142,7 +142,7 @@ pub(super) fn dispatch_anon_call(
             vm.stack.push(out);
             Ok(false)
         }
-        Value::FunctionComposition(data) => {
+        Value::LiftedCallable(data) => {
             let out = vm.invoke_function_composition_on_stack(data, argc)?;
             vm.stack.push(out);
             Ok(false)

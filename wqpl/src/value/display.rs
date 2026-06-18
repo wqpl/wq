@@ -152,7 +152,7 @@ impl fmt::Display for Value {
                 }
             }
             Value::BuiltinFunction { name, .. } => write!(f, "<bfn '{name}'>"),
-            Value::FunctionComposition(data) => {
+            Value::LiftedCallable(data) => {
                 let op = data
                     .expr
                     .display_op()
