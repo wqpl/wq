@@ -31,16 +31,16 @@ const FEATURED_HTML = html`
     <section class="welcome-card">
       <div class="welcome-copy">
         <h2>Start here with wqide</h2>
-        <p>wq(wqpl) is a programming language developed by tttiw.</p>
+        <p>wq is a programming language by tttiw.</p>
         <p>
-          wqide is a compact, warm space for learning wq and trying random ideas
-          in your browser.
+          wqide is a space for learning wq and trying random ideas in your
+          browser.
         </p>
       </div>
       <div class="welcome-links" aria-label="Useful articles">
         <a class="article-link" href="article.html?slug=installation">
           <strong>Installation</strong>
-          <span>How to get a copy of wq.</span>
+          <span>Get a copy of wq.</span>
         </a>
         <a class="article-link" href="article.html?slug=arithmetic">
           <strong>Arithmetic</strong>
@@ -158,7 +158,9 @@ const PLAYGROUND_HTML = html`
         <div class="toolbar">
           <div class="toolbar-main">
             <div class="toolbar-left">
-              <button id="runBtn" class="btn primary" type="button">Exec</button>
+              <button id="runBtn" class="btn primary" type="button">
+                Exec
+              </button>
               <span class="mini">Shift-Enter: exec</span>
             </div>
             <div class="toolbar-center">
@@ -174,11 +176,11 @@ const PLAYGROUND_HTML = html`
                     aria-expanded="false"
                     aria-controls="playgroundBoxPanel">
                     box
-	                  </button>
-	                  <div id="playgroundBoxPanel" class="runtime-panel">
-	                    <div class="runtime-panel-head">
-	                      <span class="mini">box</span>
-	                    </div>
+                  </button>
+                  <div id="playgroundBoxPanel" class="runtime-panel">
+                    <div class="runtime-panel-head">
+                      <span class="mini">box</span>
+                    </div>
                     <div class="pills" role="list">
                       <button
                         class="pill inactive"
@@ -207,94 +209,99 @@ const PLAYGROUND_HTML = html`
                     </div>
                   </div>
                 </div>
-	                <button id="playgroundTimeBtn" class="pill inactive" type="button">
-	                  time
-	                </button>
-	                <div class="runtime-control debug-controls" data-runtime-menu>
-	                  <button
-	                    id="playgroundDebugToggle"
-	                    class="pill inactive"
-	                    type="button"
-	                    aria-expanded="false"
-	                    aria-controls="playgroundDebugPanel">
-	                    debug
-	                  </button>
-	                  <div id="playgroundDebugPanel" class="runtime-panel debug-panel">
-	                    <div class="runtime-panel-head">
-	                      <span class="mini">debug</span>
-	                    </div>
-	                    <div class="pills" role="list">
-	                      <button
-	                        class="pill inactive"
-	                        type="button"
-	                        data-debug-flag="token">
-	                        token
-	                      </button>
-	                      <button
-	                        class="pill inactive"
-	                        type="button"
-	                        data-debug-flag="cst">
-	                        cst
-	                      </button>
-	                      <button
-	                        class="pill inactive"
-	                        type="button"
-	                        data-debug-flag="ast">
-	                        ast
-	                      </button>
-	                      <button
-	                        class="pill inactive"
-	                        type="button"
-	                        data-debug-flag="ast-v">
-	                        ast-v
-	                      </button>
-	                      <button
-	                        class="pill inactive"
-	                        type="button"
-	                        data-debug-flag="inst">
-	                        inst
-	                      </button>
-	                      <button
-	                        class="pill inactive"
-	                        type="button"
-	                        data-debug-flag="inst-v">
-	                        inst-v
-	                      </button>
-	                      <button
-	                        class="pill inactive"
-	                        type="button"
-	                        data-debug-flag="wqdb">
-	                        wqdb
-	                      </button>
-	                      <button
-	                        class="pill inactive"
-	                        type="button"
-	                        data-debug-flag="wqdb-v">
-	                        wqdb-v
-	                      </button>
-	                      <button
-	                        class="pill inactive"
-	                        type="button"
-	                        data-debug-flag="value">
-	                        value
-	                      </button>
-	                      <button
-	                        class="pill inactive"
-	                        type="button"
-	                        data-debug-flag="cas">
-	                        cas
-	                      </button>
-	                      <button
-	                        class="pill inactive"
-	                        type="button"
-	                        data-debug-flag="cas-v">
-	                        cas-v
-	                      </button>
-	                    </div>
-	                  </div>
-	                </div>
-	                <input id="playgroundDebugFlags" type="hidden" value="" />
-	              </div>
+                <button
+                  id="playgroundTimeBtn"
+                  class="pill inactive"
+                  type="button">
+                  time
+                </button>
+                <div class="runtime-control debug-controls" data-runtime-menu>
+                  <button
+                    id="playgroundDebugToggle"
+                    class="pill inactive"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="playgroundDebugPanel">
+                    debug
+                  </button>
+                  <div
+                    id="playgroundDebugPanel"
+                    class="runtime-panel debug-panel">
+                    <div class="runtime-panel-head">
+                      <span class="mini">debug</span>
+                    </div>
+                    <div class="pills" role="list">
+                      <button
+                        class="pill inactive"
+                        type="button"
+                        data-debug-flag="token">
+                        token
+                      </button>
+                      <button
+                        class="pill inactive"
+                        type="button"
+                        data-debug-flag="cst">
+                        cst
+                      </button>
+                      <button
+                        class="pill inactive"
+                        type="button"
+                        data-debug-flag="ast">
+                        ast
+                      </button>
+                      <button
+                        class="pill inactive"
+                        type="button"
+                        data-debug-flag="ast-v">
+                        ast-v
+                      </button>
+                      <button
+                        class="pill inactive"
+                        type="button"
+                        data-debug-flag="inst">
+                        inst
+                      </button>
+                      <button
+                        class="pill inactive"
+                        type="button"
+                        data-debug-flag="inst-v">
+                        inst-v
+                      </button>
+                      <button
+                        class="pill inactive"
+                        type="button"
+                        data-debug-flag="wqdb">
+                        wqdb
+                      </button>
+                      <button
+                        class="pill inactive"
+                        type="button"
+                        data-debug-flag="wqdb-v">
+                        wqdb-v
+                      </button>
+                      <button
+                        class="pill inactive"
+                        type="button"
+                        data-debug-flag="value">
+                        value
+                      </button>
+                      <button
+                        class="pill inactive"
+                        type="button"
+                        data-debug-flag="cas">
+                        cas
+                      </button>
+                      <button
+                        class="pill inactive"
+                        type="button"
+                        data-debug-flag="cas-v">
+                        cas-v
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <input id="playgroundDebugFlags" type="hidden" value="" />
+              </div>
             </div>
             <div class="toolbar-right">
               <button id="makePosterBtn" class="btn" type="button">
@@ -318,21 +325,18 @@ const PLAYGROUND_HTML = html`
           <div class="gutter" aria-hidden="true"></div>
           <div class="codepane">
             <textarea
-                class="editor-text"
-                aria-label="Playground code"
-                spellcheck="false"></textarea>
+              class="editor-text"
+              aria-label="Playground code"
+              spellcheck="false"></textarea>
           </div>
         </div>
-	        <div class="run-output-panel" aria-live="polite" hidden>
-	          <div class="run-output-header">
-	            <span class="run-output-title">Output</span>
-	            <button
-	              id="clearOutBtn"
-	              class="run-output-clear"
-	              type="button">
-	              Clear
-	            </button>
-	          </div>
+        <div class="run-output-panel" aria-live="polite" hidden>
+          <div class="run-output-header">
+            <span class="run-output-title">Output</span>
+            <button id="clearOutBtn" class="run-output-clear" type="button">
+              Clear
+            </button>
+          </div>
           <pre class="run-output-body"></pre>
         </div>
       </div>
@@ -342,7 +346,9 @@ const PLAYGROUND_HTML = html`
           <h2 id="symbolPanelHeading">Symbols</h2>
           <span class="symbol-panel-count" data-symbol-count>0</span>
         </div>
-        <div class="symbol-panel-status" data-symbol-status>No symbols yet.</div>
+        <div class="symbol-panel-status" data-symbol-status>
+          No symbols yet.
+        </div>
         <div class="symbol-panel-list" data-symbol-list></div>
       </aside>
     </div>
@@ -378,10 +384,16 @@ const REPL_HTML = html`
                     <span class="mini">box</span>
                   </div>
                   <div class="pills" role="list">
-                    <button class="pill inactive" type="button" data-box-flag="box">
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="box">
                       box
                     </button>
-                    <button class="pill inactive" type="button" data-box-flag="axis">
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="axis">
                       axis
                     </button>
                     <button
@@ -390,7 +402,10 @@ const REPL_HTML = html`
                       data-box-flag="color">
                       color
                     </button>
-                    <button class="pill inactive" type="button" data-box-flag="xray">
+                    <button
+                      class="pill inactive"
+                      type="button"
+                      data-box-flag="xray">
                       xray
                     </button>
                   </div>
@@ -485,7 +500,9 @@ const REPL_HTML = html`
             </div>
           </div>
           <div class="repl-session-actions">
-            <button id="resetBtn" class="btn" type="button">Reset Session</button>
+            <button id="resetBtn" class="btn" type="button">
+              Reset Session
+            </button>
             <button id="clearBtn" class="btn" type="button">Clear Flow</button>
             <button id="openInPlaygroundBtn" class="btn" type="button">
               Open in Playground
@@ -516,13 +533,13 @@ const REPL_HTML = html`
         <form id="composerForm" class="repl-composer">
           <div class="composer-frame">
             <textarea
-                id="code"
-                class="editor-text repl-input"
-                aria-label="REPL code"
-                spellcheck="false"
-                placeholder="echo echo"
-                enterkeyhint="send"
-                rows="1"></textarea>
+              id="code"
+              class="editor-text repl-input"
+              aria-label="REPL code"
+              spellcheck="false"
+              placeholder="echo echo"
+              enterkeyhint="send"
+              rows="1"></textarea>
           </div>
           <div class="composer-actions">
             <div class="stdin composer-stdin">
@@ -1083,7 +1100,9 @@ async function mountSubfolder(route) {
   const crumb = root.querySelector('[data-role="section-crumb"]');
   const title = root.querySelector('[data-role="section-title"]');
   const grid = root.querySelector('[data-role="section-grid"]');
-  const titleText = referenceGroup ? `${referenceGroup} Reference` : sectionName;
+  const titleText = referenceGroup
+    ? `${referenceGroup} Reference`
+    : sectionName;
   root.dataset.parentHref = referenceGroup
     ? "subfolder.html?section=Reference"
     : "index.html";
