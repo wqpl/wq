@@ -83,7 +83,7 @@ impl Value {
         self.len() == 0
     }
 
-    pub(crate) fn unit() -> Self {
+    pub fn unit() -> Self {
         Value::IntList(Arc::new(vec![]))
     }
 

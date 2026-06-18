@@ -539,7 +539,7 @@ fn eval_wq_script_value(session: &WasmWqSession, src: &str) -> WqResult<Value> {
     let mut buffer = String::new();
     let mut buffer_has_code = false;
     let mut consumed_bytes = 0usize;
-    let mut last_result = Value::IntList(std::sync::Arc::new(Vec::new()));
+    let mut last_result = Value::unit();
 
     for (i, raw_line) in src.lines().enumerate() {
         let next_consumed = *line_starts.get(i + 1).unwrap_or(&src.len());
