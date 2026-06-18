@@ -34,6 +34,25 @@ fn contains_op(value: &Value, needle: CasOp) -> bool {
     false
 }
 
+fn count_inverse_powers(value: &Value) -> usize {
+    if let Some((op, args)) = value.cas_op_parts() {
+        let here = usize::from(
+            op == CasOp::Power && matches!(args, [_, exp] if exp.exact_int_is(-1)),
+        );
+        return here + args.iter().map(count_inverse_powers).sum::<usize>();
+    }
+    if let Some((_name, args)) = value.cas_function_parts() {
+        return args.iter().map(count_inverse_powers).sum();
+    }
+    if let Some((_name, args)) = value.cas_apply_parts() {
+        return args.iter().map(count_inverse_powers).sum();
+    }
+    if let Some((lhs, rhs)) = value.cas_eq_parts() {
+        return count_inverse_powers(lhs) + count_inverse_powers(rhs);
+    }
+    0
+}
+
 #[test]
 fn cas_var_formats_like_identifier() {
     assert_eq!(Value::from_cas_var("x").to_string(), "x");
@@ -640,6 +659,24 @@ fn normalize_merges_multiple_reciprocals() {
         s.contains("x + 1") && s.contains("x - 1"),
         "expected combined denominator in '{}'",
         s
+    );
+}
+
+#[test]
+fn simplify_leaves_large_distinct_rational_sum_uncombined() {
+    let x = Value::from_cas_var("x");
+    let mut terms = Vec::new();
+    for offset in 1..=12 {
+        let denom = cas_add(vec![x.clone(), Value::Int(offset)])
+            .expect("linear denominator should simplify");
+        terms.push(cas_pow(denom, Value::Int(-1)).expect("reciprocal should simplify"));
+    }
+
+    let sum = cas_add(terms).expect("rational sum should simplify");
+    let simplified = simplify_cas_value(&sum).expect("rational sum should remain valid");
+    assert!(
+        count_inverse_powers(&simplified) > 1,
+        "expected large distinct rational sum to stay uncombined, got: {simplified}"
     );
 }
 

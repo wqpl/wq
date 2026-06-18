@@ -41,12 +41,20 @@ impl ConvertCtx {
     }
 }
 
+const MAX_EGG_INPUT_NODES: usize = 80;
+
 pub(super) fn rewrite_with_egg(value: &Value) -> WqResult<Option<Value>> {
+    if !egg_rewrite_may_help(value) {
+        return Ok(None);
+    }
     let mut ctx = ConvertCtx::default();
     let mut expr = RecExpr::default();
     let Some(root) = value_to_recexpr(value, &mut expr, &mut ctx)? else {
         return Ok(None);
     };
+    if expr.as_ref().len() > MAX_EGG_INPUT_NODES {
+        return Ok(None);
+    }
 
     let runner = Runner::default()
         .with_expr(&expr)
@@ -72,6 +80,71 @@ pub(super) fn rewrite_with_egg(value: &Value) -> WqResult<Option<Value>> {
             .unwrap_or_else(|| rewritten.to_string())
     );
     Ok(Some(rewritten))
+}
+
+fn egg_rewrite_may_help(value: &Value) -> bool {
+    if let Some((op, args)) = value.cas_op_parts() {
+        return match op {
+            CasOp::Add => {
+                args.iter()
+                    .any(|arg| {
+                        arg.cas_op_args(CasOp::Multiply).is_some()
+                            || arg.cas_op_args(CasOp::Power).is_some()
+                    })
+                    || args
+                        .iter()
+                        .filter(|arg| {
+                            arg.cas_function_parts()
+                                .is_some_and(|(name, _)| name == CasFunction::Ln)
+                        })
+                        .take(2)
+                        .count()
+                        >= 2
+                    || args.iter().any(egg_rewrite_may_help)
+            }
+            CasOp::Multiply => {
+                args.iter()
+                    .any(|arg| arg.cas_op_args(CasOp::Add).is_some() || is_inverse_power(arg))
+                    || args.iter().any(egg_rewrite_may_help)
+            }
+            CasOp::Power => {
+                matches!(args, [base, exp] if exp.exact_int_is(0)
+                    || exp.exact_int_is(1)
+                    || (exp.exact_int_is(2)
+                        && base
+                            .cas_function_parts()
+                            .is_some_and(|(name, _)| name == CasFunction::Abs)))
+                    || args.iter().any(egg_rewrite_may_help)
+            }
+            _ => args.iter().any(egg_rewrite_may_help),
+        };
+    }
+    if let Some((name, args)) = value.cas_function_parts() {
+        return matches!(
+            (name, args),
+            (CasFunction::Sin, [arg])
+                if arg.cas_function_parts().is_some_and(|(inner, _)| inner == CasFunction::ArcSin)
+        ) || matches!(
+            (name, args),
+            (CasFunction::Cos, [arg])
+                if arg.cas_function_parts().is_some_and(|(inner, _)| inner == CasFunction::ArcCos)
+        ) || matches!(
+            (name, args),
+            (CasFunction::Tan, [arg])
+                if arg.cas_function_parts().is_some_and(|(inner, _)| inner == CasFunction::ArcTan)
+        ) || args.iter().any(egg_rewrite_may_help);
+    }
+    if let Some((_name, args)) = value.cas_apply_parts() {
+        return args.iter().any(egg_rewrite_may_help);
+    }
+    if let Some((lhs, rhs)) = value.cas_eq_parts() {
+        return egg_rewrite_may_help(lhs) || egg_rewrite_may_help(rhs);
+    }
+    false
+}
+
+fn is_inverse_power(value: &Value) -> bool {
+    matches!(value.cas_op_args(CasOp::Power), Some([_, exp]) if exp.exact_int_is(-1))
 }
 
 fn should_accept_rewrite(original: &Value, rewritten: &Value) -> bool {

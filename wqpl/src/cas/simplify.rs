@@ -875,6 +875,9 @@ struct RationalTerm {
     core: Value,
 }
 
+const MAX_RATIONAL_COMBINE_TERMS: usize = 6;
+const MAX_RATIONAL_COMBINE_DEGREE: usize = 10;
+
 fn push_rational_term(
     terms: &mut Vec<RationalTerm>,
     denom: Value,
@@ -889,6 +892,29 @@ fn push_rational_term(
     }
     terms.push(RationalTerm { denom, numer, core });
     Ok(())
+}
+
+fn should_combine_rational_polys(d_polys: &[Vec<Value>], n_polys: &[Vec<Value>]) -> bool {
+    if d_polys.len() > MAX_RATIONAL_COMBINE_TERMS {
+        return false;
+    }
+    let denominator_degree: usize = d_polys.iter().map(|poly| poly_degree(poly)).sum();
+    if denominator_degree > MAX_RATIONAL_COMBINE_DEGREE {
+        return false;
+    }
+    let largest_numerator_degree = n_polys.iter().map(|poly| poly_degree(poly)).max().unwrap_or(0);
+    denominator_degree.saturating_add(largest_numerator_degree) <= MAX_RATIONAL_COMBINE_DEGREE
+}
+
+fn push_original_rational_terms(
+    keep: &mut Vec<(Value, Value)>,
+    terms: &[RationalTerm],
+    indices: Vec<usize>,
+) {
+    for i in indices {
+        let term = &terms[i];
+        keep.push((term.core.clone(), term.numer.clone()));
+    }
 }
 
 /// Combine rational terms sharing the same polynomial variable.
@@ -1000,29 +1026,38 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
             }
         }
         if d_polys.len() < 2 {
-            for i in succeeded {
-                let term = &terms[i];
-                keep.push((term.core.clone(), term.numer.clone()));
-            }
+            push_original_rational_terms(&mut keep, &terms, succeeded);
+            continue;
+        }
+        if !should_combine_rational_polys(&d_polys, &n_polys) {
+            push_original_rational_terms(&mut keep, &terms, succeeded);
             continue;
         }
 
         // Common denominator: ∏ Dᵢ
-        let mut d_common = vec![Value::Int(1)];
+        let mut prefix_products = Vec::with_capacity(d_polys.len() + 1);
+        prefix_products.push(vec![Value::Int(1)]);
         for d_poly in &d_polys {
-            d_common = poly_mul(&d_common, d_poly)?;
+            let prev = prefix_products
+                .last()
+                .expect("prefix products always contain an initial identity");
+            prefix_products.push(poly_mul(prev, d_poly)?);
         }
+        let mut suffix_products = vec![Vec::new(); d_polys.len() + 1];
+        suffix_products[d_polys.len()] = vec![Value::Int(1)];
+        for i in (0..d_polys.len()).rev() {
+            suffix_products[i] = poly_mul(&d_polys[i], &suffix_products[i + 1])?;
+        }
+        let mut d_common = prefix_products
+            .last()
+            .expect("prefix products include the full denominator")
+            .clone();
         normalize_poly_coeffs(&mut d_common)?;
 
         // Combined numerator: ∑ (Nᵢ · ∏_{j≠i} Dⱼ)
         let mut n_common = vec![Value::Int(0)];
         for (i, n_poly) in n_polys.iter().enumerate() {
-            let mut other_d = vec![Value::Int(1)];
-            for (j, d_poly) in d_polys.iter().enumerate() {
-                if i != j {
-                    other_d = poly_mul(&other_d, d_poly)?;
-                }
-            }
+            let other_d = poly_mul(&prefix_products[i], &suffix_products[i + 1])?;
             let term_num = poly_mul(n_poly, &other_d)?;
             n_common = poly_add(&n_common, &term_num)?;
         }
