@@ -3347,7 +3347,6 @@ impl Parser {
         self.advance();
         self.eat_trivia(true, true);
         let expr = self.parse_expression()?;
-        self.eat_trivia(true, true);
         Ok(AstNode::Literal(
             self.quote_symbolic_value(expr, &start)?,
             None,
@@ -4326,6 +4325,18 @@ mod symbolic_quote_tests {
         assert!(value.cas_function_parts().is_some());
         assert!(value.cas_apply_parts().is_none());
         assert_eq!(value.to_string(), "sin[x]");
+    }
+
+    #[test]
+    fn symbolic_quote_does_not_swallow_statement_newline() {
+        let ast = parse_input("expr:@s x^2+2*x+1\nexpr|echo").expect("script should parse");
+        let AstNode::Block(stmts) = ast else {
+            panic!("expected block, got {ast:?}");
+        };
+
+        assert_eq!(stmts.len(), 2);
+        assert!(matches!(&stmts[0], AstNode::Assignment { name, .. } if name == "expr"));
+        assert!(matches!(&stmts[1], AstNode::Pipe { .. }));
     }
 }
 

@@ -569,6 +569,17 @@ mod tests {
     }
 
     #[test]
+    fn multiline_symbolic_assignment_is_available_to_next_statement() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("expr:@s x^2+2*x+1\nexpr")
+            .expect("symbolic assignment should bind before the next statement");
+
+        assert_eq!(result.to_string(), "x^2 + 2*x + 1");
+        assert!(session.env_vars().contains_key("expr"));
+    }
+
+    #[test]
     fn test_reset_session_clears_globals() {
         let mut session = Session::new();
         session.eval_string("a:1").unwrap();
