@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::astnode::BinaryOperator;
+use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::value::Value;
 use crate::value::cell::{self, ValueCell};
 use crate::vm::inst::{DebugStmtMark, Instruction};
@@ -53,11 +53,43 @@ pub struct ClosureData {
     pub(crate) dbg_provenance: Option<DebugProvenance>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CallableExpr {
+    Const(Value),
+    Call(Value),
+    Unary {
+        op: UnaryOperator,
+        operand: Arc<CallableExpr>,
+    },
+    Binary {
+        op: BinaryOperator,
+        left: Arc<CallableExpr>,
+        right: Arc<CallableExpr>,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct FunctionCompositionData {
-    pub(crate) op: BinaryOperator,
-    pub(crate) left: Value,
-    pub(crate) right: Value,
+    pub(crate) expr: CallableExpr,
+    /// Provenance frames for callable expression values returned from earlier calls.
+    pub(crate) dbg_provenance: Option<DebugProvenance>,
+}
+
+impl CallableExpr {
+    pub(crate) fn from_value(value: Value) -> Self {
+        match value {
+            Value::FunctionComposition(data) => data.expr.clone(),
+            other if other.is_callable() => Self::Call(other),
+            other => Self::Const(other),
+        }
+    }
+
+    pub(crate) fn display_op(&self) -> Option<BinaryOperator> {
+        match self {
+            Self::Binary { op, .. } => Some(*op),
+            Self::Unary { .. } | Self::Const(_) | Self::Call(_) => None,
+        }
+    }
 }
 
 pub(crate) struct UserFunctionShape<'a> {

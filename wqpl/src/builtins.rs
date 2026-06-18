@@ -226,6 +226,14 @@ impl BuiltinFnArgs {
         self.pos.push(v)
     }
 
+    pub(crate) fn from_cloned_slice(values: &[Value]) -> Self {
+        Self {
+            pos: values.iter().cloned().collect(),
+            named: None,
+            runtime_validated: false,
+        }
+    }
+
     #[inline]
     pub(crate) fn mark_runtime_validated(&mut self) {
         self.runtime_validated = true;

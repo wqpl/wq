@@ -3287,6 +3287,16 @@ mod tests {
         panic!("expected closure payload");
     }
 
+    fn last_closure_payload(insts: &[Instruction]) -> &crate::vm::inst::ClosurePayload {
+        insts.iter()
+            .filter_map(|inst| match inst {
+                Instruction::LoadClosure(payload) => Some(payload.as_ref()),
+                _ => None,
+            })
+            .next_back()
+            .expect("expected closure payload")
+    }
+
     fn slot_named(names: &[String], name: &str) -> u16 {
         names
             .iter()
@@ -3654,6 +3664,30 @@ mod tests {
                         || matches!(data.right, Operand::Capture(_))
             )),
             "call can mutate globals, so captured a must remain dynamic: {:#?}",
+            func.instructions
+        );
+    }
+
+    #[test]
+    fn const_propagation_clears_global_facts_across_composed_callable_calls() {
+        let top = compile_source("a:1;f:{[x]'a:2;x}+1;g:f;g[0];h:{a+3};h");
+        let func = last_closure_payload(&top);
+
+        assert!(
+            func.instructions.iter().any(|inst| matches!(
+                inst,
+                Instruction::BinaryOp(data)
+                    if matches!(data.left, Operand::Capture(_))
+                        || matches!(data.right, Operand::Capture(_))
+            )),
+            "composed callable call can mutate globals, so captured a must remain dynamic: {:#?}",
+            func.instructions
+        );
+        assert!(
+            !func.instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::LoadConst(value) if **value == Value::Int(4))),
+            "captured a must not fold through composed callable call: {:#?}",
             func.instructions
         );
     }

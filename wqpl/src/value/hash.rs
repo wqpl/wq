@@ -1,9 +1,35 @@
+use std::hash::Hash as _;
 use std::sync::Arc;
 
 use num_traits::ToPrimitive;
 
 use crate::value::Value;
 use crate::value::cas::CasKind;
+use crate::value::func::CallableExpr;
+
+fn hash_callable_expr<H: std::hash::Hasher>(expr: &CallableExpr, state: &mut H) {
+    match expr {
+        CallableExpr::Const(value) => {
+            0u8.hash(state);
+            value.hash(state);
+        }
+        CallableExpr::Call(value) => {
+            1u8.hash(state);
+            value.hash(state);
+        }
+        CallableExpr::Unary { op, operand } => {
+            2u8.hash(state);
+            op.hash(state);
+            hash_callable_expr(operand, state);
+        }
+        CallableExpr::Binary { op, left, right } => {
+            3u8.hash(state);
+            op.hash(state);
+            hash_callable_expr(left, state);
+            hash_callable_expr(right, state);
+        }
+    }
+}
 
 impl std::hash::Hash for Value {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -100,9 +126,7 @@ impl std::hash::Hash for Value {
             }
             Value::FunctionComposition(data) => {
                 11u8.hash(state);
-                data.op.hash(state);
-                data.left.hash(state);
-                data.right.hash(state);
+                hash_callable_expr(&data.expr, state);
             }
             Value::Cas(cd) => {
                 18u8.hash(state);
@@ -265,9 +289,7 @@ impl PartialEq for Value {
 
             (BuiltinFunction { id: a, .. }, BuiltinFunction { id: b, .. }) => a == b,
 
-            (FunctionComposition(a), FunctionComposition(b)) => {
-                a.op == b.op && a.left == b.left && a.right == b.right
-            }
+            (FunctionComposition(a), FunctionComposition(b)) => a.expr == b.expr,
 
             (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
 

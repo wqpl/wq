@@ -594,12 +594,8 @@ fn mm_float_mm(a: &Value, b: &Value, m: usize, k: usize, n: usize) -> Option<WqR
 
 impl Value {
     pub(crate) fn mm(&self, other: &Value) -> WqResult<Value> {
-        if self.is_callable() || other.is_callable() {
-            return Ok(Value::function_composition(
-                BinaryOperator::Matmul,
-                self.clone(),
-                other.clone(),
-            ));
+        if let Some(res) = Value::lift_callable_binary(BinaryOperator::Matmul, self, other) {
+            return Ok(res);
         }
 
         // Reject non-uniform shapes

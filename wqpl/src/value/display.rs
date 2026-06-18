@@ -153,7 +153,12 @@ impl fmt::Display for Value {
             }
             Value::BuiltinFunction { name, .. } => write!(f, "<bfn '{name}'>"),
             Value::FunctionComposition(data) => {
-                write!(f, "<fn {} fn>", binary_op_display(&data.op))
+                let op = data
+                    .expr
+                    .display_op()
+                    .map(|op| binary_op_display(&op))
+                    .unwrap_or("expr");
+                write!(f, "<fn {op} fn>")
             }
             Value::Stream(_) => write!(f, "<stream>"),
             Value::Algebraic(a) => crate::value::algebraic::fmt_algebraic_human(a, f),

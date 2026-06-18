@@ -8,8 +8,8 @@ use crate::builtins::{BuiltinContext, BuiltinFnArgs, Builtins};
 use crate::interpret::vanilla::Sv4;
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::value::cell::ValueCell;
-use crate::value::func::FunctionCompositionData;
-use crate::value::{Excerpt, Value, WqResult, eval_binary};
+use crate::value::func::{CallableExpr, FunctionCompositionData};
+use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_unary};
 use crate::vm::inst::{Instruction, NamedArgMeta};
 use crate::vm::slot::Slot;
 use crate::vm::{
@@ -81,21 +81,29 @@ impl Vm {
                 "cannot pass named arguments to a composed function",
             ));
         }
-        let args: Vec<Value> = args.into_iter().collect();
-        let left = self.eval_function_composition_operand(&data.left, &args)?;
-        let right = self.eval_function_composition_operand(&data.right, &args)?;
-        eval_binary(&data.op, &left, &right)
+        let args: Sv4 = args.into_iter().collect();
+        self.eval_callable_expr(&data.expr, &args)
     }
 
-    fn eval_function_composition_operand(
+    fn eval_callable_expr(
         &mut self,
-        value: &Value,
+        expr: &CallableExpr,
         args: &[Value],
     ) -> WqResult<Value> {
-        if value.is_callable() {
-            self.call(value, crate::builtins::BuiltinFnArgs::from(args.to_vec()))
-        } else {
-            Ok(value.clone())
+        match expr {
+            CallableExpr::Const(value) => Ok(value.clone()),
+            CallableExpr::Call(value) => {
+                self.call(value, BuiltinFnArgs::from_cloned_slice(args))
+            }
+            CallableExpr::Unary { op, operand } => {
+                let value = self.eval_callable_expr(operand, args)?;
+                eval_unary(op, &value)
+            }
+            CallableExpr::Binary { op, left, right } => {
+                let left = self.eval_callable_expr(left, args)?;
+                let right = self.eval_callable_expr(right, args)?;
+                eval_binary(op, &left, &right)
+            }
         }
     }
 
@@ -936,5 +944,135 @@ fn return_stack_to_pool(pool: &mut Vec<Vec<Value>>, mut stack: Vec<Value>) {
     const MAX_STACK_POOL_CAP: usize = 16 * 1024;
     if pool.len() < MAX_POOL && stack.capacity() <= MAX_STACK_POOL_CAP {
         pool.push(stack);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use smallvec::smallvec;
+
+    use super::*;
+    use crate::astnode::{BinaryOperator, UnaryOperator};
+    use crate::value::func::FunctionData;
+    use crate::vm::inst::{Instruction, Operand};
+
+    fn make_fn(params: &[&str], instructions: Vec<Instruction>) -> Value {
+        Value::CompiledFunction(Arc::new(FunctionData {
+            params: Some(Arc::<[String]>::from(
+                params.iter().map(|name| name.to_string()).collect::<Vec<_>>(),
+            )),
+            named_params: None,
+            locals: params.len() as u16,
+            instructions: instructions.into(),
+            dbg_chunk: None,
+            dbg_stmt_spans: None,
+            dbg_source_base_offset: 0,
+            dbg_pc_spans: None,
+            dbg_stmt_marks: None,
+            dbg_local_names: None,
+            dbg_provenance: None,
+        }))
+    }
+
+    fn add_const(n: i64) -> Value {
+        make_fn(
+            &["x"],
+            vec![
+                Instruction::binary_op(
+                    BinaryOperator::Add,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Int(n))),
+                ),
+                Instruction::Return,
+            ],
+        )
+    }
+
+    fn multiply_const(n: i64) -> Value {
+        make_fn(
+            &["x"],
+            vec![
+                Instruction::binary_op(
+                    BinaryOperator::Multiply,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Int(n))),
+                ),
+                Instruction::Return,
+            ],
+        )
+    }
+
+    fn identity() -> Value {
+        make_fn(
+            &["x"],
+            vec![Instruction::LoadLocal(0), Instruction::Return],
+        )
+    }
+
+    #[test]
+    fn callable_expr_evaluates_nested_plans_without_named_args() {
+        let mut vm = Vm::new(vec![]);
+        let f = add_const(1);
+        let g = multiply_const(2);
+        let nested = Value::function_composition(
+            BinaryOperator::Multiply,
+            Value::function_composition(BinaryOperator::Add, f, g),
+            Value::Int(2),
+        );
+
+        let out = vm
+            .call(&nested, BuiltinFnArgs::from(Value::Int(3)))
+            .expect("callable expression should evaluate");
+        assert_eq!(out, Value::Int(20));
+
+        let named = BuiltinFnArgs::with_named(
+            smallvec![Value::Int(3)],
+            vec![(Arc::<str>::from("name"), Value::Int(4))],
+        );
+        let err = vm
+            .call(&nested, named)
+            .expect_err("named args should be rejected");
+        assert!(
+            err.to_string()
+                .contains("cannot pass named arguments to a composed function")
+        );
+    }
+
+    #[test]
+    fn callable_expr_reuses_constants_and_reports_leaf_arity_errors() {
+        let mut vm = Vm::new(vec![]);
+        let composed =
+            Value::function_composition(BinaryOperator::Subtract, Value::Int(10), add_const(1));
+
+        let out = vm
+            .call(&composed, BuiltinFnArgs::from(Value::Int(3)))
+            .expect("callable expression should evaluate");
+        assert_eq!(out, Value::Int(6));
+
+        let err = vm
+            .call(
+                &composed,
+                BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)]),
+            )
+            .expect_err("leaf callable arity should still be checked");
+        assert!(err.to_string().contains("arity"));
+    }
+
+    #[test]
+    fn unary_callable_expr_evaluates_pointwise() {
+        let mut vm = Vm::new(vec![]);
+        let neg = Value::unary_function_composition(UnaryOperator::Negate, add_const(1));
+        let out = vm
+            .call(&neg, BuiltinFnArgs::from(Value::Int(3)))
+            .expect("negated callable should evaluate");
+        assert_eq!(out, Value::Int(-4));
+
+        let bit_not = Value::unary_function_composition(UnaryOperator::Not, identity());
+        let out = vm
+            .call(&bit_not, BuiltinFnArgs::from(Value::Int(5)))
+            .expect("bit-not callable should evaluate");
+        assert_eq!(out, Value::Int(-6));
     }
 }

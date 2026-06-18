@@ -166,7 +166,7 @@ const OP_SHR_EXAMPLES: &[DocExample] = &[DocExample {
 pub(super) const OP_ADD: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpAdd,
     summary: "Add values with the `+` operator.",
-    details: "`+[xs;ys+]` folds addition left to right. Numeric values broadcast over compatible nested shapes, and callable operands compose with `+`.",
+    details: "`+[xs;ys+]` folds addition left to right. Numeric values broadcast over compatible nested shapes. Callable operands form pointwise callable operator expressions: `(f+g)[x]` evaluates `f[x]+g[x]`, not mathematical composition.",
     examples: OP_ADD_EXAMPLES,
     related: &["sum", "-", "*"],
 };
@@ -174,7 +174,7 @@ pub(super) const OP_ADD: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_SUB: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpSub,
     summary: "Negate or subtract values with the `-` operator.",
-    details: "`-[x]` negates one value. `-[xs;ys+]` folds subtraction left to right, using the same broadcasting and callable-composition behavior as infix `-`.",
+    details: "`-[x]` negates one value. `-[xs;ys+]` folds subtraction left to right. Callable operands use pointwise callable operator expression behavior, receiving the same positional arguments as each other.",
     examples: OP_SUB_EXAMPLES,
     related: &["neg", "+", "/"],
 };
@@ -182,7 +182,7 @@ pub(super) const OP_SUB: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_MUL: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpMul,
     summary: "Multiply values with the `*` operator.",
-    details: "`*[xs;ys+]` folds multiplication left to right. Numeric values broadcast over compatible nested shapes, and callable operands compose with `*`.",
+    details: "`*[xs;ys+]` folds multiplication left to right. Numeric values broadcast over compatible nested shapes, and callable operands form pointwise callable operator expressions.",
     examples: OP_MUL_EXAMPLES,
     related: &["product", "+", "**"],
 };

@@ -3,18 +3,10 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
-use crate::astnode::BinaryOperator;
+use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::value::op::arith::{int_bigint_pair, intlist_map, intlist_zip_map};
 use crate::value::{Value, WqResult, expected_integer1, expected_integer2};
 use crate::wqerror::{WqError, WqErrorType};
-
-fn compose_callable_binary(op: BinaryOperator, a: &Value, b: &Value) -> Option<Value> {
-    if a.is_callable() || b.is_callable() {
-        Some(Value::function_composition(op, a.clone(), b.clone()))
-    } else {
-        None
-    }
-}
 
 fn invalid_shift(v: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
@@ -99,7 +91,7 @@ fn shr_intlist(left: &Value, right: &Value) -> Option<Value> {
 }
 
 fn band_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::BitAnd, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::BitAnd, a, b) {
         return Ok(res);
     }
     match (a, b) {
@@ -115,7 +107,7 @@ fn band_atoms(a: &Value, b: &Value) -> WqResult<Value> {
 }
 
 fn bor_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::BitOr, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::BitOr, a, b) {
         return Ok(res);
     }
     match (a, b) {
@@ -131,7 +123,7 @@ fn bor_atoms(a: &Value, b: &Value) -> WqResult<Value> {
 }
 
 fn xor_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::BitXor, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::BitXor, a, b) {
         return Ok(res);
     }
     match (a, b) {
@@ -148,6 +140,9 @@ fn xor_atoms(a: &Value, b: &Value) -> WqResult<Value> {
 }
 
 fn not_atom(v: &Value) -> WqResult<Value> {
+    if let Some(res) = Value::lift_callable_unary(UnaryOperator::Not, v) {
+        return Ok(res);
+    }
     match v {
         Value::Int(x) => Ok(Value::Int(!x)),
         Value::BigInt(x) => Ok(Value::from_bigint(!&**x)),
@@ -157,7 +152,7 @@ fn not_atom(v: &Value) -> WqResult<Value> {
 }
 
 fn shl_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::Shl, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::Shl, a, b) {
         return Ok(res);
     }
     match (a, b) {
@@ -182,7 +177,7 @@ fn shl_atoms(a: &Value, b: &Value) -> WqResult<Value> {
 }
 
 fn shr_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::Shr, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::Shr, a, b) {
         return Ok(res);
     }
     match (a, b) {

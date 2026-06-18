@@ -3,6 +3,8 @@ b:{[x]2*x}
 c:a+b
 d:{[x]x<<1}
 e:{[x]x+3}
+global_combo:a+b
+local_combo:{f:a+b;f[6]}
 
 (c[3];
  (a+b)[3];
@@ -10,5 +12,12 @@ e:{[x]x+3}
  (2+a)[3];
  (a^2)[3];
  (d&e)[5];
+ ((a+b)+(a*b))[2];
+ global_combo[4];
+ local_combo[];
+ (-a)[3];
+ (~{[x]x})[5];
  ((a+b);(a*b);(b-a))|map{x[4]};
- map[(0;1;2);sin+cos])
+ map[(0;1;2);sin+cos];
+ map[(1;2;3);a+b];
+ zipw[(1;2;3);(10;20;30);{[x;y]x+y}+{[x;y]x*y}])

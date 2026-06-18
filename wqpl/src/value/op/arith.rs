@@ -5,20 +5,12 @@ use num_complex::Complex64;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use rayon::prelude::*;
 
-use crate::astnode::BinaryOperator;
+use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::cas::{cas_binary_expr, cas_unary_expr};
 use crate::value::cas::CasOp;
 use crate::value::op::PAR_BC_THRESHOLD;
 use crate::value::{Value, WqResult, expected_numeric1, expected_numeric2};
 use crate::wqerror::{WqError, WqErrorType};
-
-fn compose_callable_binary(op: BinaryOperator, a: &Value, b: &Value) -> Option<Value> {
-    if a.is_callable() || b.is_callable() {
-        Some(Value::function_composition(op, a.clone(), b.clone()))
-    } else {
-        None
-    }
-}
 
 fn algebraic_binary_op(op: &str, a: &Value, b: &Value) -> WqResult<Value> {
     use crate::value::algebraic;
@@ -179,6 +171,9 @@ fn float_bigint_ordered<'a>(a: &'a Value, b: &'a Value) -> Option<(f64, &'a BigI
 }
 
 fn neg_atom(v: &Value) -> WqResult<Value> {
+    if let Some(res) = Value::lift_callable_unary(UnaryOperator::Negate, v) {
+        return Ok(res);
+    }
     match v {
         Value::Int(n) => Ok(n
             .checked_neg()
@@ -208,7 +203,7 @@ fn exponent_too_large_err() -> WqError {
 }
 
 fn add_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::Add, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::Add, a, b) {
         return Ok(res);
     }
     match (a, b) {
@@ -300,7 +295,7 @@ fn add_intlist(left: &Value, right: &Value) -> Option<Value> {
 }
 
 fn sub_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::Subtract, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::Subtract, a, b) {
         return Ok(res);
     }
     match (a, b) {
@@ -375,7 +370,7 @@ fn sub_intlist(left: &Value, right: &Value) -> Option<Value> {
 }
 
 fn mul_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::Multiply, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::Multiply, a, b) {
         return Ok(res);
     }
     match (a, b) {
@@ -439,7 +434,7 @@ fn mul_intlist(left: &Value, right: &Value) -> Option<Value> {
 }
 
 fn div_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::Divide, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::Divide, a, b) {
         return Ok(res);
     }
     if is_zero(b) {
@@ -522,7 +517,7 @@ fn div_atoms(a: &Value, b: &Value) -> WqResult<Value> {
 }
 
 fn div_dot_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::DivideDot, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::DivideDot, a, b) {
         return Ok(res);
     }
     if is_zero(b) {
@@ -640,7 +635,7 @@ fn div_dot_atoms(a: &Value, b: &Value) -> WqResult<Value> {
 }
 
 fn mod_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::Modulo, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::Modulo, a, b) {
         return Ok(res);
     }
     if is_zero(b) {
@@ -761,7 +756,7 @@ fn floor_div_intlist(left: &Value, right: &Value) -> Option<Value> {
 }
 
 fn floor_div_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::FloorDiv, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::FloorDiv, a, b) {
         return Ok(res);
     }
     match (a, b) {
@@ -791,7 +786,7 @@ fn floor_div_atoms(a: &Value, b: &Value) -> WqResult<Value> {
 }
 
 fn pow_dot_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::PowerDot, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::PowerDot, a, b) {
         return Ok(res);
     }
     match (a, b) {
@@ -866,7 +861,7 @@ fn pow_dot_atoms(a: &Value, b: &Value) -> WqResult<Value> {
 }
 
 fn pow_atoms(a: &Value, b: &Value) -> WqResult<Value> {
-    if let Some(res) = compose_callable_binary(BinaryOperator::Power, a, b) {
+    if let Some(res) = Value::lift_callable_binary(BinaryOperator::Power, a, b) {
         return Ok(res);
     }
     match (a, b) {

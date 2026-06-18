@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use crate::astnode::BinaryOperator;
+use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::builtins::{
     BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
 };
 use crate::value::bc::{Bc1Stop, Bc2Stop};
-use crate::value::{Value, WqResult, eval_binary};
+use crate::value::func::CallableExpr;
+use crate::value::{Value, WqResult, eval_binary, eval_unary};
 use crate::vm::inst::{Instruction, Operand};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -20,6 +21,10 @@ struct PureCallback {
 enum PureExpr {
     Arg(usize),
     Const(Value),
+    Unary {
+        op: UnaryOperator,
+        operand: Box<PureExpr>,
+    },
     Binary {
         op: BinaryOperator,
         left: Box<PureExpr>,
@@ -29,6 +34,12 @@ enum PureExpr {
 
 impl PureCallback {
     fn from_func(func: &Value, arity: usize) -> Option<Self> {
+        if let Value::FunctionComposition(data) = func {
+            return Some(Self {
+                result: PureExpr::from_callable_expr(&data.expr, arity)?,
+            });
+        }
+
         let shape = func.as_user_function()?;
         if shape.named_params.is_some() {
             return None;
@@ -104,6 +115,24 @@ impl PureCallback {
 }
 
 impl PureExpr {
+    fn from_callable_expr(expr: &CallableExpr, arity: usize) -> Option<Self> {
+        match expr {
+            CallableExpr::Const(value) => Some(Self::Const(value.clone())),
+            CallableExpr::Call(value) => PureCallback::from_func(value, arity).map(|callback| {
+                callback.result
+            }),
+            CallableExpr::Unary { op, operand } => Some(Self::Unary {
+                op: *op,
+                operand: Box::new(Self::from_callable_expr(operand, arity)?),
+            }),
+            CallableExpr::Binary { op, left, right } => Some(Self::Binary {
+                op: *op,
+                left: Box::new(Self::from_callable_expr(left, arity)?),
+                right: Box::new(Self::from_callable_expr(right, arity)?),
+            }),
+        }
+    }
+
     fn eval(&self, args: &[&Value]) -> WqResult<Value> {
         match self {
             Self::Arg(slot) => {
@@ -113,6 +142,10 @@ impl PureExpr {
                 Ok((**arg).clone())
             }
             Self::Const(v) => Ok(v.clone()),
+            Self::Unary { op, operand } => {
+                let value = operand.eval(args)?;
+                eval_unary(op, &value)
+            }
             Self::Binary { op, left, right } => {
                 let left = left.eval(args)?;
                 let right = right.eval(args)?;
@@ -1267,5 +1300,100 @@ mod tests {
         let result =
             zipw(&mut vm, BuiltinFnArgs::from(smallvec![xs, ys, f])).expect("zipw succeeds");
         assert_eq!(result, Value::IntList(Arc::new(vec![5, 7, 9])));
+    }
+
+    #[test]
+    fn map_pure_fast_path_accepts_callable_expr() {
+        let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
+        let xs = Value::IntList(Arc::new(vec![1, 2, 3]));
+        let inc = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Add,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Int(1))),
+                ),
+                Instruction::Return,
+            ],
+        );
+        let double = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Multiply,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Int(2))),
+                ),
+                Instruction::Return,
+            ],
+        );
+        let f = Value::function_composition(crate::astnode::BinaryOperator::Add, inc, double);
+
+        let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
+        assert_eq!(result, Value::IntList(Arc::new(vec![4, 7, 10])));
+    }
+
+    #[test]
+    fn map_pure_fast_path_accepts_unary_callable_expr() {
+        let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
+        let xs = Value::IntList(Arc::new(vec![1, 2, 3]));
+        let inc = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Add,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Int(1))),
+                ),
+                Instruction::Return,
+            ],
+        );
+        let f = Value::unary_function_composition(crate::astnode::UnaryOperator::Negate, inc);
+
+        let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
+        assert_eq!(result, Value::IntList(Arc::new(vec![-2, -3, -4])));
+    }
+
+    #[test]
+    fn zipw_pure_fast_path_accepts_callable_expr() {
+        let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
+        let xs = Value::IntList(Arc::new(vec![1, 2, 3]));
+        let ys = Value::IntList(Arc::new(vec![4, 5, 6]));
+        let add = make_fn(
+            Some(&["x", "y"]),
+            2,
+            vec![
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Add,
+                    Operand::Local(0),
+                    Operand::Local(1),
+                ),
+                Instruction::Return,
+            ],
+        );
+        let multiply = make_fn(
+            Some(&["x", "y"]),
+            2,
+            vec![
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Multiply,
+                    Operand::Local(0),
+                    Operand::Local(1),
+                ),
+                Instruction::Return,
+            ],
+        );
+        let f = Value::function_composition(crate::astnode::BinaryOperator::Add, add, multiply);
+
+        let result =
+            zipw(&mut vm, BuiltinFnArgs::from(smallvec![xs, ys, f])).expect("zipw succeeds");
+        assert_eq!(result, Value::IntList(Arc::new(vec![9, 17, 27])));
     }
 }

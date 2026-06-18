@@ -28,9 +28,9 @@ use num_traits::ToPrimitive;
 pub(crate) use op::{eval_binary, eval_unary};
 use ordered_float::OrderedFloat;
 
-use crate::astnode::BinaryOperator;
+use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::value::cas::CasData;
-use crate::value::func::{ClosureData, FunctionCompositionData, FunctionData};
+use crate::value::func::{CallableExpr, ClosureData, FunctionCompositionData, FunctionData};
 use crate::value::stream::StreamHandle;
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -138,7 +138,69 @@ impl Value {
     }
 
     pub(crate) fn function_composition(op: BinaryOperator, left: Value, right: Value) -> Self {
-        Value::FunctionComposition(Arc::new(FunctionCompositionData { op, left, right }))
+        Value::FunctionComposition(Arc::new(FunctionCompositionData {
+            expr: CallableExpr::Binary {
+                op,
+                left: Arc::new(CallableExpr::from_value(left)),
+                right: Arc::new(CallableExpr::from_value(right)),
+            },
+            dbg_provenance: None,
+        }))
+    }
+
+    pub(crate) fn unary_function_composition(op: UnaryOperator, operand: Value) -> Self {
+        Value::FunctionComposition(Arc::new(FunctionCompositionData {
+            expr: CallableExpr::Unary {
+                op,
+                operand: Arc::new(CallableExpr::from_value(operand)),
+            },
+            dbg_provenance: None,
+        }))
+    }
+
+    pub(crate) fn lift_callable_binary(
+        op: BinaryOperator,
+        left: &Value,
+        right: &Value,
+    ) -> Option<Self> {
+        if !matches!(
+            op,
+            BinaryOperator::Add
+                | BinaryOperator::Subtract
+                | BinaryOperator::Multiply
+                | BinaryOperator::Power
+                | BinaryOperator::PowerDot
+                | BinaryOperator::Divide
+                | BinaryOperator::DivideDot
+                | BinaryOperator::Modulo
+                | BinaryOperator::Matmul
+                | BinaryOperator::BitAnd
+                | BinaryOperator::BitOr
+                | BinaryOperator::BitXor
+                | BinaryOperator::Shl
+                | BinaryOperator::Shr
+                | BinaryOperator::FloorDiv
+        ) {
+            return None;
+        }
+
+        if left.is_callable() || right.is_callable() {
+            Some(Self::function_composition(op, left.clone(), right.clone()))
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn lift_callable_unary(op: UnaryOperator, operand: &Value) -> Option<Self> {
+        if !matches!(op, UnaryOperator::Negate | UnaryOperator::Not) {
+            return None;
+        }
+
+        if operand.is_callable() {
+            Some(Self::unary_function_composition(op, operand.clone()))
+        } else {
+            None
+        }
     }
 
     pub(crate) fn can_convert_to_vec_u8(&self) -> bool {
@@ -373,6 +435,87 @@ pub(crate) fn expected_bool2(lhs: &Value, rhs: &Value) -> WqError {
 mod tests {
 
     use super::*;
+    use std::hash::{Hash, Hasher};
+
+    fn test_builtin(name: &str, id: u16) -> Value {
+        Value::builtin_function(name, id)
+    }
+
+    fn hash_value(value: &Value) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        value.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    #[test]
+    fn callable_expr_splices_existing_compositions() {
+        let f = test_builtin("f", 1);
+        let g = test_builtin("g", 2);
+        let h = test_builtin("h", 3);
+        let fg = Value::function_composition(BinaryOperator::Add, f, g);
+        let nested = Value::function_composition(BinaryOperator::Multiply, fg, h.clone());
+
+        let Value::FunctionComposition(data) = nested else {
+            unreachable!("constructor returns a function composition");
+        };
+        let CallableExpr::Binary { left, right, .. } = &data.expr else {
+            unreachable!("top-level expression is binary");
+        };
+
+        assert!(matches!(left.as_ref(), CallableExpr::Binary { .. }));
+        assert!(matches!(right.as_ref(), CallableExpr::Call(value) if value == &h));
+    }
+
+    #[test]
+    fn callable_expr_structural_equality_and_hash() {
+        let first = Value::function_composition(
+            BinaryOperator::Add,
+            test_builtin("f", 1),
+            Value::function_composition(
+                BinaryOperator::Multiply,
+                Value::Int(2),
+                test_builtin("g", 2),
+            ),
+        );
+        let second = Value::function_composition(
+            BinaryOperator::Add,
+            test_builtin("f", 1),
+            Value::function_composition(
+                BinaryOperator::Multiply,
+                Value::Int(2),
+                test_builtin("g", 2),
+            ),
+        );
+
+        assert_eq!(first, second);
+        assert_eq!(hash_value(&first), hash_value(&second));
+    }
+
+    #[test]
+    fn callable_lifting_allows_only_v2_operator_set() {
+        let f = test_builtin("f", 1);
+
+        let neg = Value::lift_callable_unary(UnaryOperator::Negate, &f)
+            .expect("negating callable should lift");
+        let Value::FunctionComposition(data) = neg else {
+            unreachable!("lift returns a function composition");
+        };
+        assert!(matches!(
+            &data.expr,
+            CallableExpr::Unary {
+                op: UnaryOperator::Negate,
+                ..
+            }
+        ));
+
+        assert!(Value::lift_callable_unary(UnaryOperator::Not, &f).is_some());
+        assert!(Value::lift_callable_unary(UnaryOperator::Count, &f).is_none());
+        assert!(Value::lift_callable_binary(BinaryOperator::Add, &f, &Value::Int(1)).is_some());
+        assert!(Value::lift_callable_binary(BinaryOperator::Equal, &f, &Value::Int(1)).is_none());
+        assert!(Value::lift_callable_binary(BinaryOperator::Lt, &f, &Value::Int(1)).is_none());
+        assert!(Value::lift_callable_binary(BinaryOperator::Cat, &f, &Value::Int(1)).is_none());
+        assert!(Value::lift_callable_binary(BinaryOperator::BoolOr, &f, &Value::Int(1)).is_none());
+    }
 
     #[test]
     fn test_arithmetic() {
