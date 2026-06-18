@@ -22,7 +22,6 @@ impl Default for BoxFormatOptions {
 enum CellRole {
     Plain,
     Axis(usize),
-    Shape(usize),
     Index { axis: usize, alternate: bool },
     Fence,
 }
@@ -127,7 +126,6 @@ fn styled_cell(text: &str, role: CellRole) -> ColoredString {
     match role {
         CellRole::Plain => text.normal(),
         CellRole::Axis(axis) => style_axis(text, axis).bold(),
-        CellRole::Shape(axis) => style_axis(text, axis),
         CellRole::Index { axis, alternate } if alternate => style_axis(text, axis).dimmed(),
         CellRole::Index { axis, .. } => style_axis(text, axis),
         CellRole::Fence => text.dimmed(),
@@ -178,24 +176,6 @@ fn axis_index_role(axis: usize, index: usize) -> CellRole {
     CellRole::Index {
         axis,
         alternate: index % 2 == 1,
-    }
-}
-
-fn dims_label(dims: &[usize]) -> String {
-    if dims.is_empty() {
-        return String::new();
-    }
-    dims.iter()
-        .map(usize::to_string)
-        .collect::<Vec<_>>()
-        .join("x")
-}
-
-fn shape_summary(v: &Value) -> String {
-    let meta = v.display_meta();
-    match &meta.shape {
-        ShapeMeta::Uniform(dims) => dims_label(dims),
-        ShapeMeta::Ragged => meta.len.to_string(),
     }
 }
 
@@ -381,11 +361,6 @@ fn format_ragged_rows(v: &Value, options: BoxFormatOptions) -> Option<String> {
     }
 
     let index_width = rows.len().saturating_sub(1).to_string().len();
-    let shape_width = rows
-        .iter()
-        .map(|row| shape_summary(row).len())
-        .max()
-        .unwrap_or(0);
     let mut lines = Vec::with_capacity(rows.len());
     for (i, row) in rows.iter().enumerate() {
         let index = pad_cell_right(
@@ -394,9 +369,8 @@ fn format_ragged_rows(v: &Value, options: BoxFormatOptions) -> Option<String> {
             axis_index_role(0, i),
             options.color,
         );
-        let shape = shape_summary(row);
-        let shape = pad_cell_right(&shape, shape_width, CellRole::Shape(1), options.color);
-        lines.push(format!("{index} {shape} {}", format_ragged_value(row)));
+        let pipe = style_text("|", CellRole::Fence, options.color);
+        lines.push(format!("{index} {pipe} {}", format_ragged_value(row)));
     }
     Some(lines.join("\n"))
 }
@@ -511,7 +485,7 @@ mod tests {
             Value::List(Arc::new(vec![Value::Int(1), Value::Int(2)])),
             Value::List(Arc::new(vec![Value::Int(42)])),
         ]));
-        assert_eq!(format_boxed(&v), "0 2 1 2\n1 1 42");
+        assert_eq!(format_boxed(&v), "0 | 1 2\n1 | 42");
     }
 
     #[test]
@@ -524,7 +498,7 @@ mod tests {
                 Value::List(Arc::new(vec![Value::Int(3), Value::Int(4)])),
             ])),
         ]));
-        assert_eq!(format_boxed(&v), "0   1\n1 3 (3 2) 3 (3 4)");
+        assert_eq!(format_boxed(&v), "0 | 1\n1 | (3 2) 3 (3 4)");
     }
 
     #[test]
@@ -538,7 +512,7 @@ mod tests {
                 Value::List(Arc::new(vec![Value::Int(3), Value::Int(4)])),
             ])),
         ]));
-        assert_eq!(format_boxed(&v), "0   1\n1 2 2 3\n2 3 4 5 (3 4)");
+        assert_eq!(format_boxed(&v), "0 | 1\n1 | 2 3\n2 | 4 5 (3 4)");
     }
 
     #[test]
@@ -555,7 +529,7 @@ mod tests {
         let v = Value::List(Arc::new(rows));
         assert_eq!(
             format_boxed(&v),
-            " 0   0\n 1 1 1\n 2 1 2\n 3 1 3\n 4 1 4\n 5 1 5\n 6 1 6\n 7 1 7\n 8 1 8\n 9 1 9\n10 1 10\n11 1 11"
+            " 0 | 0\n 1 | 1\n 2 | 2\n 3 | 3\n 4 | 4\n 5 | 5\n 6 | 6\n 7 | 7\n 8 | 8\n 9 | 9\n10 | 10\n11 | 11"
         );
     }
 
@@ -594,11 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn ragged_shape_column_has_color() {
-        let shape = styled_cell("()", CellRole::Shape(1));
-        assert_eq!(shape.fgcolor, Some(Color::Yellow));
-        assert!(!shape.style.contains(Styles::Bold));
-
+    fn axis_labels_use_bold_axis_color() {
         let axis = styled_cell("a1", CellRole::Axis(1));
         assert_eq!(axis.fgcolor, Some(Color::Yellow));
         assert!(axis.style.contains(Styles::Bold));

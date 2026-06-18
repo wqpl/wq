@@ -85,6 +85,20 @@ pub fn apply_box_spec(config: &mut BoxPrintConfig, spec: &str) -> Result<(), Str
             continue;
         }
 
+        match part {
+            "on" => {
+                *config = BoxPrintConfig::default();
+                rewrite = true;
+                continue;
+            }
+            "off" => {
+                *config = BoxPrintConfig::off();
+                rewrite = true;
+                continue;
+            }
+            _ => {}
+        }
+
         let (enabled, feature) = if let Some(feature) = part.strip_prefix('+') {
             (true, feature)
         } else if let Some(feature) = part.strip_prefix('-') {
@@ -104,7 +118,7 @@ pub fn apply_box_spec(config: &mut BoxPrintConfig, spec: &str) -> Result<(), Str
             "color" => config.color = enabled,
             _ => {
                 return Err(format!(
-                    "unknown box mode '{part}'\nAvailable: box, axis, xray, color; prefix with + or - to modify"
+                    "unknown box mode '{part}'\nAvailable: on, off, box, axis, xray, color; prefix with + or - to modify"
                 ));
             }
         }
@@ -258,6 +272,12 @@ mod tests {
 
         apply_box_spec(&mut config, "-box").expect("remove box");
         assert_eq!(config.summary(), "[color]");
+
+        apply_box_spec(&mut config, "off").expect("disable all box config");
+        assert_eq!(config.summary(), "[]");
+
+        apply_box_spec(&mut config, "on,-color").expect("enable default config without color");
+        assert_eq!(config.summary(), "[box,axis]");
 
         config.toggle_box();
         assert_eq!(config.summary(), "[]");

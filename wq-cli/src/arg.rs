@@ -187,7 +187,7 @@ struct RuntimeOpts {
     )]
     debug: Vec<String>,
 
-    /// Configure result display (box, xray, color; +/- modifies)
+    /// Configure result display (on, off, box, axis, xray, color; +/- modifies)
     #[arg(
         long = "box",
         value_name = "SPEC",
@@ -769,6 +769,21 @@ mod tests {
         assert!(rt.box_print.axis);
         assert!(rt.box_print.color);
         assert_eq!(rt.box_print.summary(), "[axis,color]");
+
+        let (rt, _) = ok(parse_args(v(&["--box", "off", "a.wq"])));
+        assert!(!rt.box_print.boxed);
+        assert!(!rt.box_print.xray);
+        assert!(!rt.box_print.axis);
+        assert!(!rt.box_print.color);
+        assert_eq!(rt.box_print.summary(), "[]");
+
+        let (rt, _) = ok(parse_args(v(&["--box", "on,-color", "a.wq"])));
+        assert!(rt.box_print.boxed);
+        assert!(!rt.box_print.xray);
+        assert!(rt.box_print.axis);
+        assert!(!rt.box_print.color);
+        assert_eq!(rt.box_print.summary(), "[box,axis]");
+
         assert_eq!(is_err(parse_args(v(&["--box", "sparkle", "a.wq"]))), 2);
 
         let mut config = BoxPrintConfig::default();

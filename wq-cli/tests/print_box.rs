@@ -82,3 +82,34 @@ fn box_flag_can_enable_xray_printing() -> Result<()> {
     assert!(stdout.contains("uniform?  T"));
     Ok(())
 }
+
+#[test]
+fn ragged_print_uses_index_fence_and_values() -> Result<()> {
+    let output = Command::cargo_bin("wq")
+        .context("cargo_bin('wq') failed")?
+        .args(["exec", "(1;(2;3);(4;5;(6;7)))", "-p"])
+        .output()
+        .context("run wq exec")?;
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).context("stdout is utf8")?;
+    assert!(stdout.contains("0 | 1"));
+    assert!(stdout.contains("1 | 2 3"));
+    assert!(stdout.contains("2 | 4 5 (6 7)"));
+    Ok(())
+}
+
+#[test]
+fn box_flag_can_disable_all_box_config() -> Result<()> {
+    let output = Command::cargo_bin("wq")
+        .context("cargo_bin('wq') failed")?
+        .args(["--box", "off", "exec", "reshape[1..=4;(2;2)]", "-p"])
+        .output()
+        .context("run wq exec")?;
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).context("stdout is utf8")?;
+    assert!(stdout.contains("((1;2);(3;4))"));
+    assert!(!stdout.contains("[xray]"));
+    Ok(())
+}
