@@ -522,8 +522,9 @@ impl RLHighlighter for WqReplHighlighter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use wq_rl::history::DefaultHistory;
+
+    use super::*;
 
     fn strip_ansi(s: &str) -> String {
         let mut out = String::new();

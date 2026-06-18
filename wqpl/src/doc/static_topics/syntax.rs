@@ -260,7 +260,13 @@ pub(super) const CALLS: StaticDoc = StaticDoc {
     summary: "Call or index with brackets and semicolons.",
     details: "`target[expr1;expr2]` passes multiple arguments or indexes multiple positions depending on the target value.",
     examples: CALL_EXAMPLES,
-    related: &["postfix", "pipes", "named-arguments", "ranges", "index-mutation"],
+    related: &[
+        "postfix",
+        "pipes",
+        "named-arguments",
+        "ranges",
+        "index-mutation",
+    ],
 };
 
 pub(super) const RANGES: StaticDoc = StaticDoc {

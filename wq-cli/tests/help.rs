@@ -74,9 +74,7 @@ fn reference_docs_fold_at_requested_width() -> Result<()> {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).context("stdout is utf8")?;
-    assert!(stdout.contains(
-        "`rand[]` returns a float in the half-open range\n`0.0..1.0`."
-    ));
+    assert!(stdout.contains("`rand[]` returns a float in the half-open range\n`0.0..1.0`."));
     Ok(())
 }
 
