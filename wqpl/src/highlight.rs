@@ -63,6 +63,96 @@ pub struct SemanticHighlightSpan {
     pub name: HighlightName,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorContext {
+    Code,
+    Comment,
+    String,
+    Tag,
+    FStringText,
+    FStringExpr,
+}
+
+impl CursorContext {
+    pub fn suppresses_completion(self) -> bool {
+        matches!(
+            self,
+            CursorContext::Comment
+                | CursorContext::String
+                | CursorContext::Tag
+                | CursorContext::FStringText
+        )
+    }
+}
+
+pub fn cursor_context_at(src: &str, pos: usize) -> CursorContext {
+    let mut lexer = Lexer::new(src).with_skip_directives(true);
+    let tokens = lexer.tokenize_recovery();
+    cursor_context_from_tokens(src, pos, &tokens)
+}
+
+fn cursor_context_from_tokens(src: &str, pos: usize, tokens: &[Token]) -> CursorContext {
+    let pos = pos.min(src.len());
+    for tok in tokens {
+        if matches!(tok.token_type, TokenType::Eof) || pos < tok.byte_start {
+            break;
+        }
+        if pos == tok.byte_start || pos > tok.byte_end {
+            continue;
+        }
+        return match &tok.token_type {
+            TokenType::Comment(_) => CursorContext::Comment,
+            TokenType::String(_) | TokenType::Character(_) => CursorContext::String,
+            TokenType::Tag(_) => CursorContext::Tag,
+            TokenType::FormatString(parts, open_quote, close_quote) => {
+                fstring_cursor_context(pos, tok, parts, *open_quote, *close_quote)
+            }
+            _ => CursorContext::Code,
+        };
+    }
+    CursorContext::Code
+}
+
+fn fstring_cursor_context(
+    pos: usize,
+    tok: &Token,
+    parts: &[crate::token::FmtPart],
+    open_quote: usize,
+    close_quote: usize,
+) -> CursorContext {
+    if pos <= open_quote {
+        return CursorContext::Code;
+    }
+
+    let closed = close_quote < tok.byte_end;
+    if closed && pos > close_quote {
+        return CursorContext::Code;
+    }
+
+    for part in parts {
+        match part {
+            crate::token::FmtPart::Text { start, end, .. } if pos >= *start && pos <= *end => {
+                return CursorContext::FStringText;
+            }
+            crate::token::FmtPart::Expr { source, start, end } if pos > *start && pos < *end => {
+                let inner = cursor_context_at(source, pos - *start);
+                return if inner == CursorContext::Code {
+                    CursorContext::FStringExpr
+                } else {
+                    inner
+                };
+            }
+            _ => {}
+        }
+    }
+
+    if pos > open_quote && (!closed || pos <= close_quote) {
+        CursorContext::FStringText
+    } else {
+        CursorContext::Code
+    }
+}
+
 #[inline]
 pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) {
     match name {
@@ -910,5 +1000,43 @@ mod tests {
         let regions = named_regions(&h.highlight_with_semantic_spans(src, &spans), src);
 
         assert!(regions.contains(&("x".to_string(), Some(HighlightName::VariableParameter))));
+    }
+
+    #[test]
+    fn cursor_context_tracks_multiline_string() {
+        let src = "\"hello\nsu";
+        assert_eq!(cursor_context_at(src, src.len()), CursorContext::String);
+    }
+
+    #[test]
+    fn cursor_context_leaves_closed_multiline_string() {
+        let src = "\"hello\nworld\" su";
+        let pos = src.len();
+        assert_eq!(cursor_context_at(src, pos), CursorContext::Code);
+    }
+
+    #[test]
+    fn cursor_context_tracks_nested_block_comment() {
+        let src = "1 /* outer /* inner */ st";
+        let pos = src.len();
+        assert_eq!(cursor_context_at(src, pos), CursorContext::Comment);
+    }
+
+    #[test]
+    fn cursor_context_distinguishes_fstring_text_and_expr() {
+        let src = "@f \"hello {ec}\"";
+        let text_pos = src.find("hello").expect("text") + 2;
+        let expr_pos = src.find("ec").expect("expr") + 2;
+
+        assert_eq!(cursor_context_at(src, text_pos), CursorContext::FStringText);
+        assert_eq!(cursor_context_at(src, expr_pos), CursorContext::FStringExpr);
+    }
+
+    #[test]
+    fn cursor_context_suppresses_string_inside_fstring_expr() {
+        let src = "@f\"{foo[\"bar\"]}\"";
+        let pos = src.find("bar").expect("inner string") + 2;
+
+        assert_eq!(cursor_context_at(src, pos), CursorContext::String);
     }
 }

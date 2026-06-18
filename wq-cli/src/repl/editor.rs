@@ -8,7 +8,7 @@ use wq_rl::hint::Hinter;
 use wq_rl::validate::{ValidationContext, ValidationResult, Validator};
 use wq_rl::{Context as RLContext, Helper};
 use wqpl::builtins::BuiltinPreset;
-use wqpl::highlight::Highlighter;
+use wqpl::highlight::{Highlighter, cursor_context_at};
 use wqpl::interpret::InterpreterKind;
 use wqpl::session::Session;
 use wqpl::session::dbglog::DEBUG_LOG_FLAG_NAMES;
@@ -90,78 +90,11 @@ impl WqReplHighlighter {
         self.repl_descs = descs;
     }
 
-    /// Return true if the cursor at `pos` sits inside a line comment (`//`)
-    /// or a non-format double-quoted string.
-    ///
-    /// Format strings (`@f"..."`) are treated as strings *except* inside
-    /// `{...}` braces, where wq expressions are allowed and hints should
-    /// appear.
-    fn cursor_in_comment_or_string(line: &str, pos: usize) -> bool {
-        let bytes = line.as_bytes();
-        let mut in_string = false;
-        let mut format_string = false;
-        let mut brace_depth: usize = 0;
-        let mut block_comment_depth: usize = 0;
-        let mut i = 0;
-
-        while i < pos && i < bytes.len() {
-            let b = bytes[i];
-
-            if !in_string && block_comment_depth == 0 {
-                if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-                    return true;
-                }
-                if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
-                    block_comment_depth += 1;
-                    i += 2;
-                    continue;
-                }
-            } else if !in_string && block_comment_depth > 0 {
-                if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
-                    block_comment_depth += 1;
-                    i += 2;
-                    continue;
-                }
-                if b == b'*' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-                    block_comment_depth = block_comment_depth.saturating_sub(1);
-                    i += 2;
-                    continue;
-                }
-            }
-
-            if in_string {
-                if b == b'\\' {
-                    i += 2;
-                    continue;
-                }
-                if b == b'"' {
-                    in_string = false;
-                    format_string = false;
-                    brace_depth = 0;
-                    i += 1;
-                    continue;
-                }
-                if format_string {
-                    if b == b'{' {
-                        brace_depth += 1;
-                    } else if b == b'}' {
-                        brace_depth = brace_depth.saturating_sub(1);
-                    }
-                }
-            } else if b == b'"' && block_comment_depth == 0 {
-                in_string = true;
-                format_string = i >= 2 && bytes[i - 2] == b'@' && bytes[i - 1] == b'f';
-            }
-            i += 1;
-        }
-
-        block_comment_depth > 0 || (in_string && (!format_string || brace_depth == 0))
-    }
-
     /// Find the start index of the "word" that ends at `pos`.
     /// For REPL commands the leading `!` is included.
     fn current_word_start(line: &str, pos: usize) -> usize {
         let bytes = line.as_bytes();
+        let pos = pos.min(bytes.len());
         let mut start = pos;
         while start > 0 {
             let b = bytes[start - 1];
@@ -174,50 +107,14 @@ impl WqReplHighlighter {
         start
     }
 
-    /// Return true if the cursor at `pos` sits inside a tag (backtick-quoted
-    /// identifier, e.g. `` `foo ``).
-    fn cursor_in_tag(line: &str, pos: usize) -> bool {
-        let bytes = line.as_bytes();
-        let mut i = 0;
-        while i < pos && i < bytes.len() {
-            if bytes[i] == b'`' {
-                // A tag starts with a backtick followed by an identifier char.
-                if i + 1 < bytes.len()
-                    && (bytes[i + 1].is_ascii_alphanumeric()
-                        || bytes[i + 1] == b'_'
-                        || bytes[i + 1] == b'?')
-                {
-                    i += 1; // skip backtick
-                    while i < pos && i < bytes.len() {
-                        let c = bytes[i];
-                        if c.is_ascii_alphanumeric() || c == b'_' || c == b'?' {
-                            i += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    if i >= pos {
-                        return true;
-                    }
-                    continue;
-                }
-            }
-            i += 1;
-        }
-        false
-    }
-
     /// Return true if completion / hints should be suppressed at `pos`.
     ///
     /// Rules:
-    /// - Inside line comments or ordinary double-quoted strings.
-    /// - Inside tags (backtick-quoted identifiers).
+    /// - Inside comments, strings, f-string text, or tags.
     /// - Words immediately preceded by `@` (e.g. `@f`, `@r`).
     fn should_suppress(&self, line: &str, pos: usize) -> bool {
-        if Self::cursor_in_comment_or_string(line, pos) {
-            return true;
-        }
-        if Self::cursor_in_tag(line, pos) {
+        let pos = pos.min(line.len());
+        if cursor_context_at(line, pos).suppresses_completion() {
             return true;
         }
         let start = Self::current_word_start(line, pos);
@@ -268,6 +165,7 @@ impl Completer for WqReplHighlighter {
         pos: usize,
         _ctx: &RLContext<'_>,
     ) -> wq_rl::Result<(usize, Vec<Self::Candidate>)> {
+        let pos = pos.min(line.len());
         if self.should_suppress(line, pos) {
             return Ok((pos, Vec::new()));
         }
@@ -398,6 +296,7 @@ impl Completer for WqReplHighlighter {
 impl Hinter for WqReplHighlighter {
     type Hint = String;
     fn hint(&self, line: &str, pos: usize, _ctx: &RLContext<'_>) -> Option<Self::Hint> {
+        let pos = pos.min(line.len());
         if !self.hints_enabled || self.should_suppress(line, pos) {
             return None;
         }
@@ -624,6 +523,7 @@ impl RLHighlighter for WqReplHighlighter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wq_rl::history::DefaultHistory;
 
     fn strip_ansi(s: &str) -> String {
         let mut out = String::new();
@@ -670,5 +570,58 @@ mod tests {
 
         assert!(out.contains("\x1b[38;5;215mx"));
         assert_eq!(strip_ansi(&out), src);
+    }
+
+    #[test]
+    fn completion_is_suppressed_inside_unterminated_multiline_string() {
+        let mut h = WqReplHighlighter::new();
+        h.set_builtin_hints(vec!["sum".to_string()], vec!["sum x".to_string()]);
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+        let src = "\"hello\nsu";
+
+        let (_, candidates) = h.complete(src, src.len(), &ctx).expect("completion");
+
+        assert!(h.should_suppress(src, src.len()));
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn completion_resumes_after_closed_multiline_string() {
+        let mut h = WqReplHighlighter::new();
+        h.set_builtin_hints(vec!["sum".to_string()], vec!["sum x".to_string()]);
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+        let src = "\"hello\nworld\"\nsu";
+
+        let (start, candidates) = h.complete(src, src.len(), &ctx).expect("completion");
+
+        assert!(!h.should_suppress(src, src.len()));
+        assert_eq!(start, src.len() - 2);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].replacement, "sum");
+    }
+
+    #[test]
+    fn fstring_text_suppresses_but_expr_allows_completion() {
+        let mut h = WqReplHighlighter::new();
+        h.set_builtin_hints(vec!["sum".to_string()], vec!["sum x".to_string()]);
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+        let text_src = "@f \"hello su\"";
+        let text_pos = text_src.find("su").expect("text") + 2;
+        let expr_src = "@f \"hello {su}\"";
+        let expr_pos = expr_src.find("su").expect("expr") + 2;
+
+        let (_, text_candidates) = h.complete(text_src, text_pos, &ctx).expect("completion");
+        let (expr_start, expr_candidates) =
+            h.complete(expr_src, expr_pos, &ctx).expect("completion");
+
+        assert!(h.should_suppress(text_src, text_pos));
+        assert!(text_candidates.is_empty());
+        assert!(!h.should_suppress(expr_src, expr_pos));
+        assert_eq!(expr_start, expr_pos - 2);
+        assert_eq!(expr_candidates.len(), 1);
+        assert_eq!(expr_candidates[0].replacement, "sum");
     }
 }
