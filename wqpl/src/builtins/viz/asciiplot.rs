@@ -9,13 +9,7 @@ use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
-    #[rustfmt::skip]
-    check_named_args(&args, BE::Asciiplot, &[
-        "size", "width", "height", "xlim", "ylim",
-        "symbols", "labels", "mode", "axes", "color", "grid",
-        "samples", "theme", "complex", "ascii",
-        "title", "xlabel", "ylabel", "caption",
-    ])?;
+    check_named_args(&args, BE::Asciiplot, super::super::ASCIIPLOT_NAMED_ARGS)?;
     if args.is_empty() {
         return Err(WqError::new(WqErrorType::Arity)
             .src(BE::Asciiplot)

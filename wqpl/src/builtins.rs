@@ -924,10 +924,10 @@ declare_builtins! {
     // Core (IO) =========================================================
     (ECHO, Echo, "echo", "echo[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS), plain(core::echo), BuiltinGroup::CoreIO),
     (E, E, "E", "E[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS, alias Echo), plain(core::echo), BuiltinGroup::CoreIO), // alias of echo
-    (PRINT, Print, "print", "print[value*]", sig!(arity!(0..), defer), plain(core::print), BuiltinGroup::CoreIO),
+    (PRINT, Print, "print", "print[value*]", sig!(arity!(0..)), plain(core::print), BuiltinGroup::CoreIO),
     (INPUT, Input, "input", "input[prompt?]", sig!(arity!(0, 1)), plain(core::input), BuiltinGroup::CoreIO),
     #[cfg(not(target_arch = "wasm32"))]
-    (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", sig!(arity!(1..), defer), plain(core::exec), BuiltinGroup::Exec),
+    (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", sig!(arity!(1..), named EXEC_NAMED_ARGS), plain(core::exec), BuiltinGroup::Exec),
 
     // ENCODING =========================================================
     (DECODE, Decode, "decode", "decode[bytes;codec;mode?]", sig!(arity!(2, 3)), plain(encoding::decode), BuiltinGroup::Encoding),
@@ -960,10 +960,10 @@ declare_builtins! {
     (UNIFORM_Q, UniformQ, "uniform?", "uniform?[xs]", sig!(arity!(1)), plain(meta::is_uniform), BuiltinGroup::Meta),
 
     // List =========================================================
-    (SUM, Sum, "sum", "sum[xs*]", sig!(arity!(1..), defer), plain(list::sum), BuiltinGroup::List),
-    (PRODUCT, Product, "product", "product[xs*]", sig!(arity!(1..), defer), plain(list::product), BuiltinGroup::List),
-    (MIN, Min, "min", "min[xs], min[xs;ys+]", sig!(arity!(1..), defer), plain(list::min), BuiltinGroup::List),
-    (MAX, Max, "max", "max[xs], max[xs;ys+]", sig!(arity!(1..), defer), plain(list::max), BuiltinGroup::List),
+    (SUM, Sum, "sum", "sum[xs*]", sig!(arity!(0..)), plain(list::sum), BuiltinGroup::List),
+    (PRODUCT, Product, "product", "product[xs*]", sig!(arity!(0..)), plain(list::product), BuiltinGroup::List),
+    (MIN, Min, "min", "min[xs], min[xs;ys+]", sig!(arity!(1..)), plain(list::min), BuiltinGroup::List),
+    (MAX, Max, "max", "max[xs], max[xs;ys+]", sig!(arity!(1..)), plain(list::max), BuiltinGroup::List),
     (FLATTEN, Flatten, "flatten", "flatten[xs]", sig!(arity!(1)), plain(list::flatten), BuiltinGroup::List),
     (REVERSE, Reverse, "reverse", "reverse[xs]", sig!(arity!(1)), plain(list::reverse), BuiltinGroup::List),
     (V, V, "V", "V[xs]", sig!(arity!(1), alias Reverse), plain(list::reverse), BuiltinGroup::List), // alias of reverse
@@ -988,8 +988,8 @@ declare_builtins! {
     (Z, Z, "Z", "Z[xs]", sig!(arity!(1), alias Where), plain(listgen::wq_where), BuiltinGroup::ListGen), // alias of where
 
     // Higher-order =========================================================
-    (APPLY, Apply, "apply", "apply[fs;x]", sig!(arity!(2), defer), with_context(ho::apply), BuiltinGroup::HigherOrder),
-    (A, A, "A", "A[fs;x]", sig!(arity!(2), defer), with_context(ho::apply), BuiltinGroup::HigherOrder), // alias of apply
+    (APPLY, Apply, "apply", "apply[fs;x]", sig!(arity!(2)), with_context(ho::apply), BuiltinGroup::HigherOrder),
+    (A, A, "A", "A[fs;x]", sig!(arity!(2), alias Apply), with_context(ho::apply), BuiltinGroup::HigherOrder), // alias of apply
     (MAP, Map, "map", "map[xs;f;d?]", sig!(arity!(2, 3)), with_context(ho::map), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
     (M, M, "M", "M[xs;f;d?]", sig!(arity!(2, 3), alias Map), with_context(ho::map), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }), // alias of map
     (FOLD, Fold, "fold", "fold[xs;f;i?]", sig!(arity!(2, 3)), with_context(ho::fold), BuiltinGroup::HigherOrder),
@@ -1029,16 +1029,16 @@ declare_builtins! {
 
     // Logical ======================================================
     (NOT, Not, "not", "not[xs]", sig!(arity!(1)), plain(logical::not), BuiltinGroup::Logical),
-    (XOR, Xor, "xor", "xor[xs;ys+]", sig!(arity!(2..), defer), plain(logical::xor), BuiltinGroup::Logical),
+    (XOR, Xor, "xor", "xor[xs;ys+]", sig!(arity!(2..)), plain(logical::xor), BuiltinGroup::Logical),
 
-    (AND, And, "and", "and[xs;ys+]", sig!(arity!(2..), defer), plain(logical::and), BuiltinGroup::Logical),
-    (OR, Or, "or", "or[xs;ys+]", sig!(arity!(2..), defer), plain(logical::or), BuiltinGroup::Logical),
+    (AND, And, "and", "and[xs;ys+]", sig!(arity!(2..)), plain(logical::and), BuiltinGroup::Logical),
+    (OR, Or, "or", "or[xs;ys+]", sig!(arity!(2..)), plain(logical::or), BuiltinGroup::Logical),
 
-    (BAND, Band, "band", "band[xs;ys+]", sig!(arity!(2..), defer), plain(logical::band), BuiltinGroup::Logical),
-    (BOR, Bor, "bor", "bor[xs;ys+]", sig!(arity!(2..), defer), plain(logical::bor), BuiltinGroup::Logical),
+    (BAND, Band, "band", "band[xs;ys+]", sig!(arity!(2..)), plain(logical::band), BuiltinGroup::Logical),
+    (BOR, Bor, "bor", "bor[xs;ys+]", sig!(arity!(2..)), plain(logical::bor), BuiltinGroup::Logical),
 
-    (SHL, Shl, "shl", "shl[xs;shift+]", sig!(arity!(2..), defer), plain(logical::shl), BuiltinGroup::Logical),
-    (SHR, Shr, "shr", "shr[xs;shift+]", sig!(arity!(2..), defer), plain(logical::shr), BuiltinGroup::Logical),
+    (SHL, Shl, "shl", "shl[xs;shift+]", sig!(arity!(2..)), plain(logical::shl), BuiltinGroup::Logical),
+    (SHR, Shr, "shr", "shr[xs;shift+]", sig!(arity!(2..)), plain(logical::shr), BuiltinGroup::Logical),
 
     // Math =========================================================
     (NEG, Neg, "neg", "neg[xs]", sig!(arity!(1)), plain(math::neg), BuiltinGroup::Math),
@@ -1112,7 +1112,7 @@ declare_builtins! {
     (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;1], factor[expr;1;var]", sig!(arity!(1, 2, 3)), plain(cas::factor_poly), BuiltinGroup::Cas),
     (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", sig!(arity!(1, 2, 4)), plain(cas::integrate), BuiltinGroup::Cas),
     (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", sig!(arity!(1, 2, 4), alias Integrate), plain(cas::integrate), BuiltinGroup::Cas), // alias of integrate
-    (LIMIT, Limit, "limit", "limit[expr;var;point], limit[expr;var;point;dir], limit[expr;vars;points]", sig!(arity!(3..), defer), plain(cas::limit), BuiltinGroup::Cas),
+    (LIMIT, Limit, "limit", "limit[expr;var;point], limit[expr;var;point;dir], limit[expr;vars;points]", sig!(arity!(3..)), plain(cas::limit), BuiltinGroup::Cas),
     (SOLVE, Solve, "solve", "solve[expr], solve[expr;var], solve[eq;var]", sig!(arity!(1, 2)), plain(cas::solve), BuiltinGroup::Cas),
     (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs;vars]", sig!(arity!(2)), plain(cas::solve_system), BuiltinGroup::Cas),
     (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", sig!(arity!(3, 4, 5)), plain(cas::brent), BuiltinGroup::Cas),
@@ -1144,46 +1144,52 @@ declare_builtins! {
         concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim;",
             "`symbols;`labels;`mode;`axes;`color;`grid;",
             "`samples;`theme;`complex;`ascii;",
-            "`title;`xlabel;`ylabel;`caption]"), sig!(arity!(1..), defer), with_context(viz::asciiplot), BuiltinGroup::Viz),
+            "`title;`xlabel;`ylabel;`caption]"), sig!(arity!(1..), named ASCIIPLOT_NAMED_ARGS), with_context(viz::asciiplot), BuiltinGroup::Viz),
 
     // Intrinsic ====================================================
-    (FMT, Fmt, "fmt", "fmt[template;v*]", sig!(arity!(1..), defer), plain(string::fmt), BuiltinGroup::Intrinsic),
+    (FMT, Fmt, "fmt", "fmt[template;v*]", sig!(arity!(1..)), plain(string::fmt), BuiltinGroup::Intrinsic),
 
-    (OP_ADD, OpAdd, "+", "+[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_add), BuiltinGroup::Intrinsic),
-    (OP_SUB, OpSub, "-", "-[x], -[xs;ys+]", sig!(arity!(1..), defer), plain(op::op_sub), BuiltinGroup::Intrinsic),
-    (OP_MUL, OpMul, "*", "*[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_mul), BuiltinGroup::Intrinsic),
-    (OP_DIV, OpDiv, "/", "/[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_div), BuiltinGroup::Intrinsic),
-    (OP_DIV_DOT, OpDivDot, "/.", "/.[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_divdot), BuiltinGroup::Intrinsic),
-    (OP_MOD, OpMod, "%", "%[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_mod), BuiltinGroup::Intrinsic),
-    (OP_FLOORDIV, OpFloorDiv, "/%", "/%[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_floordiv), BuiltinGroup::Intrinsic),
-    (OP_POWER, OpPower, "^", "^[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_power), BuiltinGroup::Intrinsic),
-    (OP_POWER_DOT, OpPowerDot, "^.", "^.[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_power_dot), BuiltinGroup::Intrinsic),
-    (OP_MATMUL, OpMatmul, "**", "**[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_matmul), BuiltinGroup::Intrinsic),
+    (OP_ADD, OpAdd, "+", "+[xs;ys+]", sig!(arity!(2..)), plain(op::op_add), BuiltinGroup::Intrinsic),
+    (OP_SUB, OpSub, "-", "-[x], -[xs;ys+]", sig!(arity!(1..)), plain(op::op_sub), BuiltinGroup::Intrinsic),
+    (OP_MUL, OpMul, "*", "*[xs;ys+]", sig!(arity!(2..)), plain(op::op_mul), BuiltinGroup::Intrinsic),
+    (OP_DIV, OpDiv, "/", "/[xs;ys+]", sig!(arity!(2..)), plain(op::op_div), BuiltinGroup::Intrinsic),
+    (OP_DIV_DOT, OpDivDot, "/.", "/.[xs;ys+]", sig!(arity!(2..)), plain(op::op_divdot), BuiltinGroup::Intrinsic),
+    (OP_MOD, OpMod, "%", "%[xs;ys+]", sig!(arity!(2..)), plain(op::op_mod), BuiltinGroup::Intrinsic),
+    (OP_FLOORDIV, OpFloorDiv, "/%", "/%[xs;ys+]", sig!(arity!(2..)), plain(op::op_floordiv), BuiltinGroup::Intrinsic),
+    (OP_POWER, OpPower, "^", "^[xs;ys+]", sig!(arity!(2..)), plain(op::op_power), BuiltinGroup::Intrinsic),
+    (OP_POWER_DOT, OpPowerDot, "^.", "^.[xs;ys+]", sig!(arity!(2..)), plain(op::op_power_dot), BuiltinGroup::Intrinsic),
+    (OP_MATMUL, OpMatmul, "**", "**[xs;ys+]", sig!(arity!(2..)), plain(op::op_matmul), BuiltinGroup::Intrinsic),
 
-    (OP_EQUAL, OpEqual, "=", "=[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_equal), BuiltinGroup::Intrinsic),
-    (OP_EQUAL_DOT, OpEqualDot, "=.", "=.[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_equal_dot), BuiltinGroup::Intrinsic),
-    (OP_TILDE, OpTilde, "~", "~[x], ~[xs;ys+]", sig!(arity!(1..), defer), plain(op::op_tilde), BuiltinGroup::Intrinsic),
-    (OP_TILDE_DOT, OpTildeDot, "~.", "~.[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_tilde_dot), BuiltinGroup::Intrinsic),
-    (OP_LT, OpLt, "<", "<[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_lt), BuiltinGroup::Intrinsic),
-    (OP_LTE, OpLte, "<=", "<=[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_lte), BuiltinGroup::Intrinsic),
-    (OP_GT, OpGt, ">", ">[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_gt), BuiltinGroup::Intrinsic),
-    (OP_GTE, OpGte, ">=", ">=[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_gte), BuiltinGroup::Intrinsic),
+    (OP_EQUAL, OpEqual, "=", "=[xs;ys+]", sig!(arity!(2..)), plain(op::op_equal), BuiltinGroup::Intrinsic),
+    (OP_EQUAL_DOT, OpEqualDot, "=.", "=.[xs;ys+]", sig!(arity!(2..)), plain(op::op_equal_dot), BuiltinGroup::Intrinsic),
+    (OP_TILDE, OpTilde, "~", "~[x], ~[xs;ys+]", sig!(arity!(1..)), plain(op::op_tilde), BuiltinGroup::Intrinsic),
+    (OP_TILDE_DOT, OpTildeDot, "~.", "~.[xs;ys+]", sig!(arity!(2..)), plain(op::op_tilde_dot), BuiltinGroup::Intrinsic),
+    (OP_LT, OpLt, "<", "<[xs;ys+]", sig!(arity!(2..)), plain(op::op_lt), BuiltinGroup::Intrinsic),
+    (OP_LTE, OpLte, "<=", "<=[xs;ys+]", sig!(arity!(2..)), plain(op::op_lte), BuiltinGroup::Intrinsic),
+    (OP_GT, OpGt, ">", ">[xs;ys+]", sig!(arity!(2..)), plain(op::op_gt), BuiltinGroup::Intrinsic),
+    (OP_GTE, OpGte, ">=", ">=[xs;ys+]", sig!(arity!(2..)), plain(op::op_gte), BuiltinGroup::Intrinsic),
 
-    (OP_CAT, OpCat, ",", ",[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_cat), BuiltinGroup::Intrinsic),
+    (OP_CAT, OpCat, ",", ",[xs;ys+]", sig!(arity!(2..)), plain(op::op_cat), BuiltinGroup::Intrinsic),
     (OP_SHARP, OpSharp, "#", "#[x]", sig!(arity!(1)), plain(op::op_sharp), BuiltinGroup::Intrinsic),
 
-    (OP_BOOL_AND, OpBoolAnd, "&|", "&|[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_bool_and), BuiltinGroup::Intrinsic),
-    (OP_BOOL_OR, OpBoolOr, r"\|", r"\|[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_bool_or), BuiltinGroup::Intrinsic),
-    (OP_BIT_AND, OpBitAnd, "&", "&[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_bit_and), BuiltinGroup::Intrinsic),
-    (OP_BIT_OR, OpBitOr, r"\", r"\[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_bit_or), BuiltinGroup::Intrinsic),
-    (OP_XOR, OpXor, r"^\", r"^\[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_xor), BuiltinGroup::Intrinsic),
-    (OP_SHL, OpShl, "<<", "<<[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_shl), BuiltinGroup::Intrinsic),
-    (OP_SHR, OpShr, ">>", ">>[xs;ys+]", sig!(arity!(2..), defer), plain(op::op_shr), BuiltinGroup::Intrinsic),
+    (OP_BOOL_AND, OpBoolAnd, "&|", "&|[xs;ys+]", sig!(arity!(2..)), plain(op::op_bool_and), BuiltinGroup::Intrinsic),
+    (OP_BOOL_OR, OpBoolOr, r"\|", r"\|[xs;ys+]", sig!(arity!(2..)), plain(op::op_bool_or), BuiltinGroup::Intrinsic),
+    (OP_BIT_AND, OpBitAnd, "&", "&[xs;ys+]", sig!(arity!(2..)), plain(op::op_bit_and), BuiltinGroup::Intrinsic),
+    (OP_BIT_OR, OpBitOr, r"\", r"\[xs;ys+]", sig!(arity!(2..)), plain(op::op_bit_or), BuiltinGroup::Intrinsic),
+    (OP_XOR, OpXor, r"^\", r"^\[xs;ys+]", sig!(arity!(2..)), plain(op::op_xor), BuiltinGroup::Intrinsic),
+    (OP_SHL, OpShl, "<<", "<<[xs;ys+]", sig!(arity!(2..)), plain(op::op_shl), BuiltinGroup::Intrinsic),
+    (OP_SHR, OpShr, ">>", ">>[xs;ys+]", sig!(arity!(2..)), plain(op::op_shr), BuiltinGroup::Intrinsic),
 
 }
 
 const ECHO_NAMED_ARGS: &[&str] = &["sep"];
 const MAXSPLIT_NAMED_ARGS: &[&str] = &["m"];
+const ASCIIPLOT_NAMED_ARGS: &[&str] = &[
+    "size", "width", "height", "xlim", "ylim", "symbols", "labels", "mode", "axes", "color",
+    "grid", "samples", "theme", "complex", "ascii", "title", "xlabel", "ylabel", "caption",
+];
+#[cfg(not(target_arch = "wasm32"))]
+const EXEC_NAMED_ARGS: &[&str] = &["stdin", "cwd", "env", "timeout", "check"];
 #[cfg(not(target_arch = "wasm32"))]
 const OPEN_NAMED_ARGS: &[&str] = &["r", "w", "a", "t", "c", "cn"];
 
@@ -1479,8 +1485,8 @@ mod tests {
             (BuiltinEnum::Shape, "1"),
             (BuiltinEnum::Depth, "1"),
             (BuiltinEnum::UniformQ, "1"),
-            (BuiltinEnum::Sum, "1.."),
-            (BuiltinEnum::Product, "1.."),
+            (BuiltinEnum::Sum, "0.."),
+            (BuiltinEnum::Product, "0.."),
             (BuiltinEnum::Min, "1.."),
             (BuiltinEnum::Max, "1.."),
             (BuiltinEnum::Flatten, "1"),
@@ -1702,29 +1708,60 @@ mod tests {
     }
 
     #[test]
-    fn runtime_call_checks_skip_custom_builtins() {
+    fn runtime_call_checks_validate_promoted_atleast_builtins() {
         let builtins = Builtins::new();
 
-        let ids = [
-            Builtins::PRINT,
-            Builtins::SUM,
-            Builtins::LIMIT,
-            Builtins::APPLY,
-            Builtins::A,
-            Builtins::FMT,
-            Builtins::ASCIIPLOT,
-            Builtins::OP_ADD,
-            #[cfg(not(target_arch = "wasm32"))]
-            Builtins::EXEC,
-        ];
+        assert!(
+            builtins
+                .validate_runtime_call_args(Builtins::PRINT, &BuiltinFnArgs::new())
+                .expect("print with zero args should pass runtime validation")
+        );
+        assert!(
+            builtins
+                .validate_runtime_call_args(Builtins::SUM, &BuiltinFnArgs::new())
+                .expect("sum with zero args should pass runtime validation")
+        );
+        assert!(
+            builtins
+                .validate_runtime_call_args(Builtins::PRODUCT, &BuiltinFnArgs::new())
+                .expect("product with zero args should pass runtime validation")
+        );
 
-        for id in ids {
-            assert!(
-                !builtins
-                    .validate_runtime_call_args(id, &BuiltinFnArgs::new())
-                    .expect("custom builtin runtime validation should not error")
-            );
+        let cases = [
+            (Builtins::MIN, BuiltinFnArgs::new(), "expected 1 or more args, got 0"),
+            (Builtins::LIMIT, BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)]), "expected 3 or more args, got 2"),
+            (Builtins::FMT, BuiltinFnArgs::new(), "expected 1 or more args, got 0"),
+            (Builtins::OP_ADD, BuiltinFnArgs::from(Value::Int(1)), "expected 2 or more args, got 1"),
+            (Builtins::OP_SUB, BuiltinFnArgs::new(), "expected 1 or more args, got 0"),
+            (Builtins::AND, BuiltinFnArgs::from(Value::Bool(true)), "expected 2 or more args, got 1"),
+        ];
+        for (id, args, expected_msg) in cases {
+            let err = builtins
+                .validate_runtime_call_args(id, &args)
+                .expect_err("promoted AtLeast builtin should reject too few args");
+            assert_eq!(err.msg.as_deref(), Some(expected_msg));
         }
+
+        assert!(
+            builtins
+                .validate_runtime_call_args(
+                    Builtins::OP_ADD,
+                    &BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)]),
+                )
+                .expect("operator with enough args should pass runtime validation")
+        );
+    }
+
+    #[test]
+    fn runtime_call_checks_cover_all_registered_builtins() {
+        let builtins = Builtins::new();
+
+        assert!(builtins.call_checks.iter().all(Option::is_some));
+        assert!(
+            Builtins::SIGNATURES
+                .iter()
+                .all(|signature| signature.validation == BuiltinValidation::Fast)
+        );
     }
 
     #[test]
@@ -1735,6 +1772,11 @@ mod tests {
             .validate_runtime_call_args(Builtins::V, &BuiltinFnArgs::new())
             .expect_err("V with zero args should fail runtime validation");
         assert_eq!(err.src.as_deref(), Some("bfn 'reverse'"));
+
+        let err = builtins
+            .validate_runtime_call_args(Builtins::A, &BuiltinFnArgs::new())
+            .expect_err("A with zero args should fail runtime validation");
+        assert_eq!(err.src.as_deref(), Some("bfn 'apply'"));
     }
 
     #[test]
@@ -1760,6 +1802,56 @@ mod tests {
             .expect_err("unknown named arg should fail runtime validation");
         assert_eq!(err.src.as_deref(), Some("bfn 'echo'"));
         assert_eq!(err.msg.as_deref(), Some("unknown named argument 'bad'"));
+
+        let print_bad_args = BuiltinFnArgs::with_named(
+            SmallVec::new(),
+            vec![(Arc::<str>::from("bad"), Value::Int(1))],
+        );
+        let err = builtins
+            .validate_runtime_call_args(Builtins::PRINT, &print_bad_args)
+            .expect_err("print should reject named args");
+        assert_eq!(err.msg.as_deref(), Some("unexpected named argument 'bad'"));
+
+        let sum_bad_args = BuiltinFnArgs::with_named(
+            SmallVec::new(),
+            vec![(Arc::<str>::from("bad"), Value::Int(1))],
+        );
+        let err = builtins
+            .validate_runtime_call_args(Builtins::SUM, &sum_bad_args)
+            .expect_err("sum should reject named args");
+        assert_eq!(err.msg.as_deref(), Some("unexpected named argument 'bad'"));
+
+        let asciiplot_args = BuiltinFnArgs::with_named(
+            SmallVec::from_vec(vec![Value::IntList(Arc::new(vec![1, 2, 3]))]),
+            vec![(Arc::<str>::from("width"), Value::Int(40))],
+        );
+        assert!(
+            builtins
+                .validate_runtime_call_args(Builtins::ASCIIPLOT, &asciiplot_args)
+                .expect("asciiplot named runtime validation should succeed")
+        );
+
+        let asciiplot_bad_args = BuiltinFnArgs::with_named(
+            SmallVec::from_vec(vec![Value::IntList(Arc::new(vec![1, 2, 3]))]),
+            vec![(Arc::<str>::from("bad"), Value::Int(1))],
+        );
+        let err = builtins
+            .validate_runtime_call_args(Builtins::ASCIIPLOT, &asciiplot_bad_args)
+            .expect_err("asciiplot should reject unknown named args");
+        assert_eq!(err.msg.as_deref(), Some("unknown named argument 'bad'"));
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let exec_args = BuiltinFnArgs::with_named(
+                SmallVec::from_vec(vec![into_wq_string("cat")]),
+                vec![(Arc::<str>::from("stdin"), into_wq_string("input"))],
+            );
+            assert!(
+                builtins
+                    .validate_runtime_call_args(Builtins::EXEC, &exec_args)
+                    .expect("exec named runtime validation should succeed")
+            );
+        }
     }
 
     #[test]

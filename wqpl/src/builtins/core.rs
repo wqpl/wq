@@ -38,7 +38,7 @@ pub(super) fn print(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn echo(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_named_args(&args, BuiltinEnum::Echo, &["sep"])?;
+    check_named_args(&args, BuiltinEnum::Echo, super::ECHO_NAMED_ARGS)?;
 
     if args.is_empty() {
         wqstdout_println("");
@@ -360,7 +360,7 @@ struct ExecOptions {
 #[cfg(not(target_arch = "wasm32"))]
 fn exec_options_from_named(args: &BuiltinFnArgs) -> WqResult<ExecOptions> {
     const SRC: BuiltinEnum = BuiltinEnum::Exec;
-    check_named_args(args, SRC, &["stdin", "cwd", "env", "timeout", "check"])?;
+    check_named_args(args, SRC, super::EXEC_NAMED_ARGS)?;
     let mut opts = ExecOptions::default();
 
     if let Some(v) = args.named("stdin") {
