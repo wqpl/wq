@@ -166,7 +166,7 @@ const OP_SHR_EXAMPLES: &[DocExample] = &[DocExample {
 pub(super) const OP_ADD: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpAdd,
     summary: "Add values with the `+` operator.",
-    details: "`+[xs;ys+]` folds addition left to right. Numeric values broadcast over compatible nested shapes. Callable operands form pointwise callable operator expressions: `(f+g)[x]` evaluates `f[x]+g[x]`, not mathematical composition.",
+    details: "`+[xs;ys+]` folds addition left to right. Numeric values broadcast over compatible nested shapes. Callable operands form pointwise callable operator expressions: `(f+g)[x]` evaluates `f[x]+g[x]`.",
     examples: OP_ADD_EXAMPLES,
     related: &["sum", "-", "*"],
 };
