@@ -10,7 +10,7 @@ use crate::cas::{
     poly_interpolate, poly_is_zero, poly_mul, poly_neg, poly_resultant, poly_scalar_mul, poly_sub,
     poly_to_expr, poly_trim, simplify_cas_value,
 };
-use crate::value::algebraic::AlgebraicData;
+use crate::value::algebraic::{AlgebraicData, AlgebraicField};
 use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
@@ -815,29 +815,24 @@ fn find_real_algebraic_root(poly: &[Value]) -> Option<Value> {
         })
         .collect();
 
-    // Use the scaled integer polynomial directly. It doesn't need to be monic
-    // for root isolation — sign changes are preserved. The AlgebraicData stores
-    // the polynomial for field identification; same_field compares by equality.
-    let poly_arc: Arc<[BigInt]> = scaled.into();
+    // Use the scaled integer polynomial for root isolation; the field
+    // constructor normalizes it before storing identity.
+    let poly_arc: Arc<[BigInt]> = Arc::from(scaled.clone());
 
     let interval = isolate_root_interval(&poly_arc)?;
 
     // Build generator α with proper basis: [0, 1, 0, ..., 0] with length = deg
     let deg = poly_arc.len().saturating_sub(1);
-    let mut coeffs = vec![Value::Int(0); deg];
-    if deg >= 2 {
-        coeffs[1] = Value::Int(1);
-    } else if deg == 1 {
+    if deg == 1 {
         // Degree 1 polynomial — the "algebraic" number is just a rational
         // (-c0/c1). Return None since it's not truly algebraic.
         return None;
     }
-    let coeffs: Arc<[Value]> = Arc::from(coeffs);
-    let alg = crate::value::algebraic::AlgebraicData {
-        poly: poly_arc,
-        interval,
-        coeffs,
+    let field = AlgebraicField::new_real_root(scaled, interval).ok()?;
+    let Value::Algebraic(alg) = AlgebraicData::generator(field).ok()? else {
+        return None;
     };
+    let alg = (*alg).clone();
     // Normalize pure-power fields (e.g. Q(∛(1/108)) → Q(∛2))
     if let Some(normalized) = crate::value::algebraic::normalize_algebraic_field(&alg) {
         return Some(Value::Algebraic(Arc::new(normalized)));
@@ -1920,19 +1915,16 @@ fn algebraic_sqrt_of_rational(value: &Value) -> Option<Value> {
         return Some(Value::from_fraction_parts(s, d));
     }
     // Not a perfect square — create Algebraic number for √(n/d) = √c / d
-    let poly: Arc<[BigInt]> = Arc::new([-c.clone(), BigInt::zero(), BigInt::one()]);
-    let interval = isolate_root_interval(&poly)?;
+    let poly = vec![-c.clone(), BigInt::zero(), BigInt::one()];
+    let poly_arc: Arc<[BigInt]> = Arc::from(poly.clone());
+    let interval = isolate_root_interval(&poly_arc)?;
     let coeff_alpha = if d.is_one() {
         Value::Int(1)
     } else {
         Value::from_fraction_parts(BigInt::one(), d)
     };
-    let coeffs: Arc<[Value]> = Arc::new([Value::Int(0), coeff_alpha]);
-    Some(Value::Algebraic(Arc::new(AlgebraicData {
-        poly,
-        interval,
-        coeffs,
-    })))
+    let field = AlgebraicField::new_real_root(poly, interval).ok()?;
+    AlgebraicData::value(field, vec![Value::Int(0), coeff_alpha]).ok()
 }
 
 fn sqrt_of_value(value: &Value) -> Option<Value> {
@@ -2440,11 +2432,12 @@ mod tests {
         let root = find_real_algebraic_root(&poly).unwrap();
         if let Value::Algebraic(a) = &root {
             // Interval should contain √2
-            let ok = a.interval.0 < 1.42 && a.interval.1 > 1.41;
+            let interval = a.interval();
+            let ok = interval.0 < 1.42 && interval.1 > 1.41;
             assert!(
                 ok,
                 "interval ({}, {}) does not contain sqrt(2)",
-                a.interval.0, a.interval.1
+                interval.0, interval.1
             );
             // Generator α: coeffs [0, 1]
             assert_eq!(a.coeffs[0], Value::Int(0));
@@ -2519,7 +2512,7 @@ mod tests {
         match &result {
             Value::Algebraic(a) => {
                 assert_eq!(
-                    &a.poly[..],
+                    a.poly(),
                     &[BigInt::from(-2), BigInt::zero(), BigInt::one()]
                 );
                 assert_eq!(a.coeffs[0], Value::Int(0));

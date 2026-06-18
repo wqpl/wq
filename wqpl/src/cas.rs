@@ -38,12 +38,12 @@ pub(crate) use rewrite::{
     rewrite_loop,
 };
 use simplify::{
-    cas_add, cas_mul, cas_neg, cas_sub, common_numeric_gcd, rebuild_scaled_term, split_add_term,
-    split_mul_factor, substitute_expr, var_name_from_value,
+    common_numeric_gcd, rebuild_scaled_term, split_add_term, split_mul_factor, substitute_expr,
+    var_name_from_value,
 };
 pub(crate) use simplify::{
-    cas_binary_expr, cas_call_expr, cas_div, cas_pow, cas_unary_expr, extract_perfect_power_factor,
-    simplify_cas_value, substitute_cas,
+    cas_add, cas_binary_expr, cas_call_expr, cas_div, cas_mul, cas_neg, cas_pow, cas_sub,
+    cas_unary_expr, extract_perfect_power_factor, simplify_cas_value, substitute_cas,
 };
 pub(crate) use solve::{solve_cas, solve_system_cas};
 

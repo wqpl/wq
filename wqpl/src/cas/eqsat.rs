@@ -1,7 +1,7 @@
 use egg::{AstSize, Extractor, Id, RecExpr, Rewrite, Runner, Symbol, define_language};
 use num_traits::{One, ToPrimitive};
 
-use super::{cas_err, expand_expr, simplify_cas_value};
+use super::{cas_err, cas_product, expand_expr, simplify_cas_value};
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
@@ -111,7 +111,7 @@ fn normalize_common_factorization(original: &Value, rewritten: Value) -> WqResul
         }
     }
     if changed {
-        simplify_cas_value(&Value::from_cas_op(CasOp::Multiply, normalized))
+        simplify_cas_value(&cas_product(normalized))
     } else {
         Ok(rewritten)
     }

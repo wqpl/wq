@@ -31,11 +31,11 @@ enum SimplifyFrame {
     Eq,
 }
 
-pub(super) fn cas_neg(arg: Value) -> WqResult<Value> {
+pub(crate) fn cas_neg(arg: Value) -> WqResult<Value> {
     cas_mul(vec![Value::Int(-1), arg])
 }
 
-pub(super) fn cas_sub(lhs: Value, rhs: Value) -> WqResult<Value> {
+pub(crate) fn cas_sub(lhs: Value, rhs: Value) -> WqResult<Value> {
     cas_add(vec![lhs, cas_neg(rhs)?])
 }
 
@@ -95,11 +95,7 @@ pub(crate) fn cas_div(lhs: Value, rhs: Value) -> WqResult<Value> {
                 let is_trivial_int = matches!(first_mul, Value::Int(n) if *n == 1 || *n == -1);
                 if !is_trivial_int {
                     let a = first_mul;
-                    let s = if rest_mul.len() == 1 {
-                        rest_mul[0].clone()
-                    } else {
-                        Value::from_cas_op(CasOp::Multiply, rest_mul.to_vec())
-                    };
+                    let s = cas_product(rest_mul.to_vec());
                     let b = const_term;
                     let new_lhs = cas_div(lhs, a.clone())?;
                     let new_rhs_second = cas_div(b.clone(), a.clone())?;
@@ -170,7 +166,7 @@ pub(super) fn split_add_term(term: &Value) -> (Value, Option<Value>) {
             {
                 let mut new_args = vec![reduced];
                 new_args.extend(rest.iter().cloned());
-                let core = Value::from_cas_op(CasOp::Multiply, new_args);
+                let core = cas_product(new_args);
                 return (content, Some(core));
             }
         }
@@ -517,11 +513,12 @@ fn radical_linear_from_algebraic(
     alg: &crate::value::algebraic::AlgebraicData,
 ) -> WqResult<Option<RadicalLinear>> {
     let deg = alg.degree();
-    if deg == 0 || alg.poly[1..deg].iter().any(|coeff| !coeff.is_zero()) {
+    let poly = alg.poly();
+    if deg == 0 || poly[1..deg].iter().any(|coeff| !coeff.is_zero()) {
         return Ok(None);
     }
-    let constant = &alg.poly[0];
-    let leading = &alg.poly[deg];
+    let constant = &poly[0];
+    let leading = &poly[deg];
     if constant.is_zero() || leading.is_zero() {
         return Ok(None);
     }
@@ -1195,7 +1192,7 @@ fn coeff_ok_in_var(coeff: &Value, var: &str) -> bool {
     detect_poly_var(coeff).is_none_or(|v| v == var)
 }
 
-pub(super) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
+pub(crate) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
     let mut flat = Vec::with_capacity(args.len());
     for arg in args {
         push_flattened(&mut flat, CasOp::Add, simplify_cas_value(&arg)?);
@@ -1323,7 +1320,7 @@ pub(super) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
     }
 }
 
-pub(super) fn cas_mul(args: Vec<Value>) -> WqResult<Value> {
+pub(crate) fn cas_mul(args: Vec<Value>) -> WqResult<Value> {
     let mut flat = Vec::with_capacity(args.len());
     for arg in args {
         push_flattened(&mut flat, CasOp::Multiply, simplify_cas_value(&arg)?);
@@ -1795,17 +1792,23 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
 
                 if let Some((op, args)) = expr.cas_known_op_parts() {
                     match (op, args) {
-                        (CasOp::Add, args) => {
+                        (CasOp::Add, args) if args.len() >= 2 => {
                             stack.push(SimplifyFrame::Add(args.len()));
                             for arg in args.iter().rev() {
                                 stack.push(SimplifyFrame::Expr(arg.clone()));
                             }
                         }
-                        (CasOp::Multiply, args) => {
+                        (CasOp::Add, _) => {
+                            return Err(cas_err("malformed '+' expression").got1(&expr));
+                        }
+                        (CasOp::Multiply, args) if args.len() >= 2 => {
                             stack.push(SimplifyFrame::Mul(args.len()));
                             for arg in args.iter().rev() {
                                 stack.push(SimplifyFrame::Expr(arg.clone()));
                             }
+                        }
+                        (CasOp::Multiply, _) => {
+                            return Err(cas_err("malformed '*' expression").got1(&expr));
                         }
                         (CasOp::Subtract, [arg]) => {
                             stack.push(SimplifyFrame::Neg);
@@ -1826,8 +1829,14 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                             stack.push(SimplifyFrame::Expr(exp.clone()));
                             stack.push(SimplifyFrame::Expr(base.clone()));
                         }
-                        _ => {
-                            results.push(expr.clone());
+                        (CasOp::Subtract, _) => {
+                            return Err(cas_err("malformed '-' expression").got1(&expr));
+                        }
+                        (CasOp::Divide, _) => {
+                            return Err(cas_err("malformed '/' expression").got1(&expr));
+                        }
+                        (CasOp::Power, _) => {
+                            return Err(cas_err("malformed '^' expression").got1(&expr));
                         }
                     }
                     continue;

@@ -283,7 +283,8 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
 
     // Algebraic numbers → evaluate using coefficients and generator's approx.
     if let Value::Algebraic(a) = expr {
-        let alpha = (a.interval.0 + a.interval.1) * 0.5;
+        let interval = a.interval();
+        let alpha = (interval.0 + interval.1) * 0.5;
         let mut result = 0.0f64;
         let mut alpha_pow = 1.0f64;
         for c in a.coeffs.iter() {

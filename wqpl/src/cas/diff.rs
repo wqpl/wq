@@ -464,7 +464,7 @@ mod tests {
     use num_traits::One as _;
 
     use super::*;
-    use crate::value::algebraic::AlgebraicData;
+    use crate::value::algebraic::{AlgebraicData, AlgebraicField};
 
     fn op(op: CasOp, args: Vec<Value>) -> Value {
         Value::from_cas_op(op, args)
@@ -472,6 +472,13 @@ mod tests {
 
     fn call(function: CasFunction, args: Vec<Value>) -> Value {
         Value::from_cas_function(function, args)
+    }
+
+    fn algebraic_value(poly: Vec<BigInt>, interval: (f64, f64), coeffs: Vec<Value>) -> Value {
+        let field = AlgebraicField::new_real_root(poly, interval).expect("valid algebraic field");
+        Value::Algebraic(Arc::new(
+            AlgebraicData::new(field, coeffs).expect("valid algebraic element"),
+        ))
     }
 
     #[test]
@@ -710,16 +717,16 @@ mod tests {
     #[test]
     fn diff_algebraic_in_cas() {
         // ∛2: poly x^3 - 2 = 0, interval (1,2), coeffs [0,1] -> α
-        let cube_root_2 = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: Arc::new([
+        let cube_root_2 = algebraic_value(
+            vec![
                 BigInt::from(-2),
                 BigInt::from(0),
                 BigInt::from(0),
                 BigInt::from(1),
-            ]),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(1)]),
-        }));
+            ],
+            (1.0, 2.0),
+            vec![Value::Int(0), Value::Int(1)],
+        );
 
         // Expression: arctan[∛2 * x]
         let expr = call(
@@ -750,16 +757,16 @@ mod tests {
 
     #[test]
     fn test_cas_mul_algebraic_fold() {
-        let a = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: Arc::new([
+        let a = algebraic_value(
+            vec![
                 BigInt::from(-1),
                 BigInt::from(0),
                 BigInt::from(0),
                 BigInt::from(108),
-            ]),
-            interval: (0.0, 1.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(1)]),
-        }));
+            ],
+            (0.0, 1.0),
+            vec![Value::Int(0), Value::Int(1)],
+        );
         let a2 = cas_pow(a.clone(), Value::Int(2)).unwrap();
 
         // Test: (-36*a^2) * (108*a^2)^(-1)
@@ -775,16 +782,16 @@ mod tests {
     #[test]
     fn diff_algebraic_complex() {
         // a = ∛(1/108)
-        let a = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: Arc::new([
+        let a = algebraic_value(
+            vec![
                 BigInt::from(-1),
                 BigInt::from(0),
                 BigInt::from(0),
                 BigInt::from(108),
-            ]),
-            interval: (0.0, 1.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(1)]),
-        }));
+            ],
+            (0.0, 1.0),
+            vec![Value::Int(0), Value::Int(1)],
+        );
         let a2 = cas_pow(a.clone(), Value::Int(2)).unwrap();
         let inner = cas_mul(vec![Value::Int(108), a2.clone()]).unwrap();
         let coeff = cas_pow(

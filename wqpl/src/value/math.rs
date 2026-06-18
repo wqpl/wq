@@ -209,10 +209,15 @@ impl Value {
             Value::Float(_) => unary_float_math("abs", v, |x| x.abs()),
             _ if v.is_complex() => Ok(Value::float(v.try_as_complex64()?.norm())),
             _ if v.is_algebraic_number() => {
-                if crate::cas::numeric_is_negative(v) {
-                    v.neg()
+                if let Value::Algebraic(a) = v {
+                    match a.sign() {
+                        crate::value::algebraic::NumericSign::Negative => v.neg(),
+                        crate::value::algebraic::NumericSign::Zero
+                        | crate::value::algebraic::NumericSign::Positive => Ok(v.clone()),
+                        crate::value::algebraic::NumericSign::Unknown => Err(expected_numeric1(v)),
+                    }
                 } else {
-                    Ok(v.clone())
+                    unreachable!("algebraic branch only handles algebraic values")
                 }
             }
             _ if v.is_fraction() => {

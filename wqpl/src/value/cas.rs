@@ -363,6 +363,33 @@ mod cas_tests {
     }
 
     #[test]
+    fn canonical_cas_constructors_collapse_empty_variadic_ops() {
+        assert_eq!(crate::cas::cas_add(vec![]), Ok(Value::Int(0)));
+        assert_eq!(crate::cas::cas_mul(vec![]), Ok(Value::Int(1)));
+    }
+
+    #[test]
+    fn cas_simplifier_rejects_malformed_fixed_arity_ops() {
+        let x = Value::from_cas_var("x");
+        assert!(crate::cas::simplify_cas_value(&Value::from_cas_op(CasOp::Add, vec![])).is_err());
+        assert!(
+            crate::cas::simplify_cas_value(&Value::from_cas_op(
+                CasOp::Multiply,
+                vec![Value::Int(1)]
+            ))
+            .is_err()
+        );
+        assert!(crate::cas::simplify_cas_value(&Value::from_cas_op(CasOp::Power, vec![x])).is_err());
+        assert!(
+            crate::cas::simplify_cas_value(&Value::from_cas_op(
+                CasOp::Divide,
+                vec![Value::Int(1), Value::Int(2), Value::Int(3)]
+            ))
+            .is_err()
+        );
+    }
+
+    #[test]
     fn cas_function_name_roundtrip() {
         for (name, function) in [
             ("sin", CasFunction::Sin),

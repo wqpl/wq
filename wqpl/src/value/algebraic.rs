@@ -3,33 +3,164 @@ use std::sync::Arc;
 
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use ordered_float::OrderedFloat;
 
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
-/// An element of a simple algebraic extension Q(α).
+/// Base coefficient field for an algebraic extension.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum AlgebraicBase {
+    Rational,
+    #[allow(dead_code)]
+    Extension(Arc<AlgebraicField>),
+}
+
+/// Root identity for an algebraic generator.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum AlgebraicRoot {
+    RealInterval {
+        lo: OrderedFloat<f64>,
+        hi: OrderedFloat<f64>,
+    },
+}
+
+impl AlgebraicRoot {
+    pub(crate) fn interval(&self) -> (f64, f64) {
+        match self {
+            Self::RealInterval { lo, hi } => (**lo, **hi),
+        }
+    }
+}
+
+/// Field descriptor for a simple algebraic extension K(α).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct AlgebraicField {
+    base: AlgebraicBase,
+    /// Primitive positive-leading integer polynomial:
+    /// poly[0] + poly[1]·x + ... + poly[n]·x^n.
+    poly: Arc<[BigInt]>,
+    /// Root identity for the generator α.
+    root: AlgebraicRoot,
+}
+
+impl AlgebraicField {
+    pub(crate) fn new_real_root(
+        poly: Vec<BigInt>,
+        interval: (f64, f64),
+    ) -> WqResult<Arc<Self>> {
+        Self::new_real_root_over(AlgebraicBase::Rational, poly, interval)
+    }
+
+    pub(crate) fn new_real_root_over(
+        base: AlgebraicBase,
+        poly: Vec<BigInt>,
+        interval: (f64, f64),
+    ) -> WqResult<Arc<Self>> {
+        let poly = normalize_field_poly(poly)?;
+        validate_real_interval(&poly, interval)?;
+        Ok(Arc::new(Self {
+            base,
+            poly: Arc::from(poly),
+            root: AlgebraicRoot::RealInterval {
+                lo: OrderedFloat(interval.0),
+                hi: OrderedFloat(interval.1),
+            },
+        }))
+    }
+
+    pub(crate) fn degree(&self) -> usize {
+        self.poly.len().saturating_sub(1)
+    }
+
+    pub(crate) fn poly(&self) -> &[BigInt] {
+        &self.poly
+    }
+
+    pub(crate) fn interval(&self) -> (f64, f64) {
+        self.root.interval()
+    }
+}
+
+/// Proven sign of an exact numeric value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NumericSign {
+    Negative,
+    Zero,
+    Positive,
+    Unknown,
+}
+
+/// An element of a simple algebraic extension K(α).
 ///
 /// Invariants:
-/// 1. `poly` is monic (leading coeff = 1) with integer coefficients.
-/// 2. `poly` is irreducible over Q (caller responsibility).
-/// 3. `interval = (lo, hi)` isolates a single real root: p(lo)·p(hi) < 0.
-///    - `interval` is the generator's, NOT the algebraic's
-/// 4. `coeffs.len() < poly.len() - 1` (degree < deg(poly)).
-/// 5. Each coeff is a "scalar": Int | BigInt | Fraction | Algebraic (tower).
+/// 1. `field` identifies the base field, normalized polynomial, and chosen root.
+/// 2. `coeffs.len() <= field.degree()` and represents
+///    c0 + c1·α + ... + c{d-1}·α^{d-1}.
+/// 3. Coefficients are exact scalars in the field base.
 #[derive(Debug, Clone)]
 pub struct AlgebraicData {
-    /// Monic minimal polynomial: poly[0] + poly[1]·x + ... + poly[n]·x^n,
-    /// poly[n] = 1.
-    pub(crate) poly: Arc<[BigInt]>,
-    /// Isolation interval distinguishing this root from its siblings.
-    pub(crate) interval: (f64, f64),
+    pub(crate) field: Arc<AlgebraicField>,
     /// Coefficients in the basis {1, α, α², ..., α^{d-1}}.
     pub(crate) coeffs: Arc<[Value]>,
 }
 
 impl AlgebraicData {
+    pub(crate) fn new(field: Arc<AlgebraicField>, mut coeffs: Vec<Value>) -> WqResult<Self> {
+        if coeffs.len() > field.degree() {
+            return Err(algebraic_err(
+                "algebraic coefficient degree exceeds field degree",
+            ));
+        }
+        if coeffs.is_empty() {
+            coeffs.push(Value::Int(0));
+        }
+        while coeffs.len() > 1 && coeffs.last().is_some_and(crate::cas::numeric_is_zero) {
+            coeffs.pop();
+        }
+        for coeff in &coeffs {
+            validate_coeff_in_base(&field, coeff)?;
+        }
+        Ok(Self {
+            field,
+            coeffs: Arc::from(coeffs),
+        })
+    }
+
+    pub(crate) fn value(field: Arc<AlgebraicField>, coeffs: Vec<Value>) -> WqResult<Value> {
+        Ok(Value::Algebraic(Arc::new(Self::new(field, coeffs)?)))
+    }
+
+    pub(crate) fn generator(field: Arc<AlgebraicField>) -> WqResult<Value> {
+        Self::value(field, vec![Value::Int(0), Value::Int(1)])
+    }
+
+    pub(crate) fn zero(field: Arc<AlgebraicField>) -> WqResult<Value> {
+        Self::value(field, vec![Value::Int(0)])
+    }
+
+    pub(crate) fn one(field: Arc<AlgebraicField>) -> WqResult<Value> {
+        Self::value(field, vec![Value::Int(1)])
+    }
+
+    pub(crate) fn constant(field: Arc<AlgebraicField>, value: Value) -> WqResult<Value> {
+        Self::value(field, vec![value])
+    }
+
+    pub(crate) fn field(&self) -> &Arc<AlgebraicField> {
+        &self.field
+    }
+
+    pub(crate) fn poly(&self) -> &[BigInt] {
+        self.field.poly()
+    }
+
+    pub(crate) fn interval(&self) -> (f64, f64) {
+        self.field.interval()
+    }
+
     pub(crate) fn degree(&self) -> usize {
-        self.poly.len().saturating_sub(1)
+        self.field.degree()
     }
 
     pub(crate) fn is_zero(&self) -> bool {
@@ -45,27 +176,21 @@ impl AlgebraicData {
     }
 
     pub(crate) fn same_field(&self, other: &Self) -> bool {
-        self.poly == other.poly
+        self.field == other.field
     }
 
-    /// Determine whether this algebraic number is certainly negative.
-    ///
-    /// Returns `true` only when the sign can be determined unambiguously
-    /// from the coefficient structure and the isolating interval.
-    pub(crate) fn is_negative(&self) -> bool {
-        // If the isolating interval is entirely negative, the generator α < 0.
-        // For general elements we conservatively return false in that case.
-        if self.interval.1 < 0.0 {
-            return false;
+    pub(crate) fn sign(&self) -> NumericSign {
+        if self.is_zero() {
+            return NumericSign::Zero;
         }
 
-        // If interval is entirely positive, α > 0.
-        if self.interval.0 > 0.0 {
+        let (lo, hi) = self.interval();
+        if lo > 0.0 {
             // Pure constant (only c0 non-zero) – sign is c0's sign.
             if !self.coeffs.is_empty() && !crate::cas::numeric_is_zero(&self.coeffs[0]) {
                 let all_higher_zero = self.coeffs[1..].iter().all(crate::cas::numeric_is_zero);
                 if all_higher_zero {
-                    return crate::cas::numeric_is_negative(&self.coeffs[0]);
+                    return numeric_sign_of_scalar(&self.coeffs[0]);
                 }
             }
 
@@ -80,12 +205,36 @@ impl AlgebraicData {
                 .collect();
 
             if non_zero_indices.len() == 1 {
-                return crate::cas::numeric_is_negative(&self.coeffs[non_zero_indices[0]]);
+                return numeric_sign_of_scalar(&self.coeffs[non_zero_indices[0]]);
             }
         }
 
-        // Ambiguous or complex case – conservative.
-        false
+        if hi < 0.0 {
+            let non_zero_indices: Vec<usize> = self
+                .coeffs
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| !crate::cas::numeric_is_zero(c))
+                .map(|(i, _)| i)
+                .collect();
+
+            if non_zero_indices.len() == 1 {
+                let idx = non_zero_indices[0];
+                let coeff_sign = numeric_sign_of_scalar(&self.coeffs[idx]);
+                return if idx.is_multiple_of(2) {
+                    coeff_sign
+                } else {
+                    negate_sign(coeff_sign)
+                };
+            }
+        }
+
+        NumericSign::Unknown
+    }
+
+    /// Determine whether this algebraic number is certainly negative.
+    pub(crate) fn is_negative(&self) -> bool {
+        self.sign() == NumericSign::Negative
     }
 }
 
@@ -118,6 +267,131 @@ fn bigint_gcd(a: &BigInt, b: &BigInt) -> BigInt {
         b = r;
     }
     a
+}
+
+fn normalize_field_poly(mut poly: Vec<BigInt>) -> WqResult<Vec<BigInt>> {
+    while poly.last().is_some_and(BigInt::is_zero) {
+        poly.pop();
+    }
+    if poly.len() < 3 {
+        return Err(algebraic_err(
+            "algebraic field polynomial must have degree at least 2",
+        ));
+    }
+
+    let mut content = BigInt::zero();
+    for coeff in &poly {
+        content = bigint_gcd(&content, &coeff.abs());
+    }
+    if content.is_zero() {
+        return Err(algebraic_err("algebraic field polynomial cannot be zero"));
+    }
+    if !content.is_one() {
+        for coeff in &mut poly {
+            *coeff /= &content;
+        }
+    }
+
+    if poly.last().is_some_and(BigInt::is_negative) {
+        for coeff in &mut poly {
+            *coeff = -coeff.clone();
+        }
+    }
+
+    Ok(poly)
+}
+
+fn eval_field_poly_f64(poly: &[BigInt], x: f64) -> Option<f64> {
+    let mut acc = 0.0f64;
+    for coeff in poly.iter().rev() {
+        acc = acc.mul_add(x, coeff.to_f64()?);
+    }
+    Some(acc)
+}
+
+fn validate_real_interval(poly: &[BigInt], interval: (f64, f64)) -> WqResult<()> {
+    let (lo, hi) = interval;
+    if !lo.is_finite() || !hi.is_finite() || lo >= hi {
+        return Err(algebraic_err(
+            "algebraic root interval must be finite with lo < hi",
+        ));
+    }
+
+    let lo_value = eval_field_poly_f64(poly, lo).ok_or_else(|| {
+        algebraic_err("algebraic field polynomial is too large to validate interval")
+    })?;
+    let hi_value = eval_field_poly_f64(poly, hi).ok_or_else(|| {
+        algebraic_err("algebraic field polynomial is too large to validate interval")
+    })?;
+    if !lo_value.is_finite() || !hi_value.is_finite() {
+        return Err(algebraic_err(
+            "algebraic field polynomial produced a non-finite interval value",
+        ));
+    }
+    if lo_value.is_sign_positive() == hi_value.is_sign_positive()
+        && lo_value != 0.0
+        && hi_value != 0.0
+    {
+        return Err(algebraic_err(
+            "algebraic root interval must bracket a real root",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_coeff_in_base(field: &AlgebraicField, coeff: &Value) -> WqResult<()> {
+    match (&field.base, coeff) {
+        (_, Value::Int(_) | Value::BigInt(_) | Value::Fraction(_)) => Ok(()),
+        (AlgebraicBase::Extension(base), Value::Algebraic(value)) if value.field == *base => Ok(()),
+        (AlgebraicBase::Rational, Value::Algebraic(_)) => Err(algebraic_err(
+            "algebraic coefficient is not in the rational base field",
+        )),
+        (AlgebraicBase::Extension(_), Value::Algebraic(_)) => Err(algebraic_err(
+            "algebraic coefficient belongs to a different base field",
+        )),
+        _ => Err(algebraic_err(
+            "algebraic coefficient must be an exact scalar in the base field",
+        )),
+    }
+}
+
+fn numeric_sign_of_scalar(value: &Value) -> NumericSign {
+    match value {
+        Value::Int(n) => match n.cmp(&0) {
+            std::cmp::Ordering::Less => NumericSign::Negative,
+            std::cmp::Ordering::Equal => NumericSign::Zero,
+            std::cmp::Ordering::Greater => NumericSign::Positive,
+        },
+        Value::BigInt(n) => {
+            if n.is_negative() {
+                NumericSign::Negative
+            } else if n.is_zero() {
+                NumericSign::Zero
+            } else {
+                NumericSign::Positive
+            }
+        }
+        Value::Fraction(fr) => {
+            if fr.numer().is_negative() {
+                NumericSign::Negative
+            } else if fr.numer().is_zero() {
+                NumericSign::Zero
+            } else {
+                NumericSign::Positive
+            }
+        }
+        Value::Algebraic(a) => a.sign(),
+        _ => NumericSign::Unknown,
+    }
+}
+
+fn negate_sign(sign: NumericSign) -> NumericSign {
+    match sign {
+        NumericSign::Negative => NumericSign::Positive,
+        NumericSign::Zero => NumericSign::Zero,
+        NumericSign::Positive => NumericSign::Negative,
+        NumericSign::Unknown => NumericSign::Unknown,
+    }
 }
 
 /// Try to recognize the generator of an algebraic field as a common radical.
@@ -232,9 +506,10 @@ fn format_approx_f64(value: f64) -> String {
 /// generator name is a recognized radical (e.g. `2^(1/2)`) when possible,
 /// otherwise a descriptive `root(...)` string.
 pub(crate) fn fmt_algebraic_human(a: &AlgebraicData, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    let name = recognize_radical_name(a.poly.as_ref(), a.interval).unwrap_or_else(|| {
-        let poly_str = poly_to_short_string(a.poly.as_ref());
-        let alpha_approx = (a.interval.0 + a.interval.1) * 0.5;
+    let interval = a.interval();
+    let name = recognize_radical_name(a.poly(), interval).unwrap_or_else(|| {
+        let poly_str = poly_to_short_string(a.poly());
+        let alpha_approx = (interval.0 + interval.1) * 0.5;
         let approx_str = format_approx_f64(alpha_approx);
         format!("root({}, {approx_str})", poly_str)
     });
@@ -333,11 +608,7 @@ pub(crate) fn algebraic_neg(a: &AlgebraicData) -> Value {
                 .expect("algebraic coefficient negation should succeed")
         })
         .collect();
-    Value::Algebraic(Arc::new(AlgebraicData {
-        poly: a.poly.clone(),
-        interval: a.interval,
-        coeffs: Arc::from(coeffs),
-    }))
+    AlgebraicData::value(a.field.clone(), coeffs).expect("negated algebraic should stay in field")
 }
 
 /// Add two algebraic numbers in the same field.
@@ -354,15 +625,10 @@ pub(crate) fn algebraic_add(a: &AlgebraicData, b: &AlgebraicData) -> WqResult<Va
         let bc = b.coeffs.get(i).unwrap_or(&Value::Int(0));
         coeffs.push(crate::cas::numeric_add(ac, bc)?);
     }
-    // Trim trailing zeros
-    while coeffs.len() > 1 && coeffs.last().is_some_and(crate::cas::numeric_is_zero) {
-        coeffs.pop();
+    if coeffs.iter().all(crate::cas::numeric_is_zero) {
+        return AlgebraicData::zero(a.field.clone());
     }
-    Ok(Value::Algebraic(Arc::new(AlgebraicData {
-        poly: a.poly.clone(),
-        interval: a.interval,
-        coeffs: Arc::from(coeffs),
-    })))
+    AlgebraicData::value(a.field.clone(), coeffs)
 }
 
 /// Subtract two algebraic numbers in the same field.
@@ -379,14 +645,10 @@ pub(crate) fn algebraic_sub(a: &AlgebraicData, b: &AlgebraicData) -> WqResult<Va
         let bc = b.coeffs.get(i).unwrap_or(&Value::Int(0));
         coeffs.push(crate::cas::numeric_sub(ac, bc)?);
     }
-    while coeffs.len() > 1 && coeffs.last().is_some_and(crate::cas::numeric_is_zero) {
-        coeffs.pop();
+    if coeffs.iter().all(crate::cas::numeric_is_zero) {
+        return AlgebraicData::zero(a.field.clone());
     }
-    Ok(Value::Algebraic(Arc::new(AlgebraicData {
-        poly: a.poly.clone(),
-        interval: a.interval,
-        coeffs: Arc::from(coeffs),
-    })))
+    AlgebraicData::value(a.field.clone(), coeffs)
 }
 
 /// Multiply two algebraic numbers in the same field: poly_mul then reduce mod
@@ -401,16 +663,12 @@ pub(crate) fn algebraic_mul(a: &AlgebraicData, b: &AlgebraicData) -> WqResult<Va
     let raw = crate::cas::poly_mul(&a.coeffs, &b.coeffs)?;
     // Reduce modulo the minimal polynomial
     let min_poly: Vec<Value> = a
-        .poly
+        .poly()
         .iter()
         .map(|c| Value::from_bigint(c.clone()))
         .collect();
     let (_, rem) = crate::cas::poly_divide(&raw, &min_poly)?;
-    Ok(Value::Algebraic(Arc::new(AlgebraicData {
-        poly: a.poly.clone(),
-        interval: a.interval,
-        coeffs: Arc::from(rem),
-    })))
+    AlgebraicData::value(a.field.clone(), rem)
 }
 
 /// Promote an Int, BigInt, or Fraction value into Q(α) as a constant element.
@@ -423,18 +681,8 @@ pub(crate) fn promote_to_algebraic(value: &Value, field: &AlgebraicData) -> WqRe
             "cannot mix algebraic numbers from different fields",
         ));
     }
-    // Scalar → constant in Q(α)
-    let mut coeffs = vec![value.clone()];
-    // Extend with zeros to match field degree
-    let degree = field.degree();
-    while coeffs.len() < degree {
-        coeffs.push(Value::Int(0));
-    }
-    Ok(Value::Algebraic(Arc::new(AlgebraicData {
-        poly: field.poly.clone(),
-        interval: field.interval,
-        coeffs: Arc::from(coeffs),
-    })))
+    // Scalar → constant in K(α)
+    AlgebraicData::constant(field.field.clone(), value.clone())
 }
 
 /// Extended Euclidean algorithm for polynomials over Q(β).
@@ -517,7 +765,7 @@ pub(crate) fn algebraic_div(a: &AlgebraicData, b: &AlgebraicData) -> WqResult<Va
     }
 
     let min_poly: Vec<Value> = b
-        .poly
+        .poly()
         .iter()
         .map(|c| Value::from_bigint(c.clone()))
         .collect();
@@ -528,31 +776,18 @@ pub(crate) fn algebraic_div(a: &AlgebraicData, b: &AlgebraicData) -> WqResult<Va
     let raw = crate::cas::poly_mul(&a.coeffs, &inv)?;
     let (_, rem) = crate::cas::poly_divide(&raw, &min_poly)?;
 
-    Ok(Value::Algebraic(Arc::new(AlgebraicData {
-        poly: a.poly.clone(),
-        interval: a.interval,
-        coeffs: Arc::from(rem),
-    })))
+    AlgebraicData::value(a.field.clone(), rem)
 }
 
 /// Raise an algebraic number to an integer power via fast exponentiation.
 pub(crate) fn algebraic_pow(a: &AlgebraicData, n: i64) -> WqResult<Value> {
     if n == 0 {
-        return Ok(Value::Algebraic(Arc::new(AlgebraicData {
-            poly: a.poly.clone(),
-            interval: a.interval,
-            coeffs: Arc::new([Value::Int(1)]),
-        })));
+        return AlgebraicData::one(a.field.clone());
     }
     if n < 0 {
-        let inv = algebraic_div(
-            &AlgebraicData {
-                poly: a.poly.clone(),
-                interval: a.interval,
-                coeffs: Arc::new([Value::Int(1)]),
-            },
-            a,
-        )?;
+        let one = AlgebraicData::new(a.field.clone(), vec![Value::Int(1)])
+            .expect("one should be valid in algebraic field");
+        let inv = algebraic_div(&one, a)?;
         let inv_a = if let Value::Algebraic(inv_a) = &inv {
             inv_a
         } else {
@@ -563,11 +798,8 @@ pub(crate) fn algebraic_pow(a: &AlgebraicData, n: i64) -> WqResult<Value> {
 
     let mut n = n as u64;
     let mut base = a.clone();
-    let mut result = AlgebraicData {
-        poly: a.poly.clone(),
-        interval: a.interval,
-        coeffs: Arc::new([Value::Int(1)]),
-    };
+    let mut result = AlgebraicData::new(a.field.clone(), vec![Value::Int(1)])
+        .expect("one should be valid in algebraic field");
     while n > 0 {
         if n & 1 == 1 {
             let prod = algebraic_mul(&result, &base)?;
@@ -609,7 +841,8 @@ pub(crate) fn algebraic_rational_pow(
 
     let deg = a.degree();
     // Only handle pure-power fields: poly = c0 + c_deg·x^deg
-    let is_pure = deg >= 1 && a.poly[1..deg].iter().all(|c| c.is_zero());
+    let poly = a.poly();
+    let is_pure = deg >= 1 && poly[1..deg].iter().all(|c| c.is_zero());
     if !is_pure {
         return Err(algebraic_err(
             "algebraic_rational_pow: field is not pure-power",
@@ -649,8 +882,8 @@ pub(crate) fn algebraic_rational_pow(
 
     // Reduce α^alpha_quot modulo the field relation α^deg = const.
     // const = -c0 / c_deg  (since α^deg = -c0/c_deg)
-    let c0 = &a.poly[0];
-    let c_deg = &a.poly[deg];
+    let c0 = &poly[0];
+    let c_deg = &poly[deg];
     if c_deg.is_zero() {
         return Err(algebraic_err(
             "algebraic_rational_pow: field constant is zero",
@@ -676,36 +909,12 @@ pub(crate) fn algebraic_rational_pow(
 
     let r_usize = usize::try_from(&r).unwrap_or(0);
 
-    // Compute numeric interval for the result.
-    // result value ≈ final_coeff_num * α^r where α ∈ (a.interval.0, a.interval.1)
-    let alpha_lo = a.interval.0;
-    let alpha_hi = a.interval.1;
-    let alpha_r_lo = alpha_lo.powf(r_usize as f64);
-    let alpha_r_hi = alpha_hi.powf(r_usize as f64);
-    let (alpha_r_lo, alpha_r_hi) = if alpha_r_lo <= alpha_r_hi {
-        (alpha_r_lo, alpha_r_hi)
-    } else {
-        (alpha_r_hi, alpha_r_lo)
-    };
-    let factor_f = final_coeff.as_f64().unwrap_or(1.0);
-    let new_lo = factor_f * alpha_r_lo;
-    let new_hi = factor_f * alpha_r_hi;
-    let new_interval = if new_lo <= new_hi {
-        (new_lo, new_hi)
-    } else {
-        (new_hi, new_lo)
-    };
-
     let mut coeffs = vec![Value::Int(0); deg];
     if r_usize < deg {
         coeffs[r_usize] = final_coeff;
     }
 
-    Ok(Value::Algebraic(Arc::new(AlgebraicData {
-        poly: a.poly.clone(),
-        interval: new_interval,
-        coeffs: Arc::from(coeffs),
-    })))
+    AlgebraicData::value(a.field.clone(), coeffs)
 }
 
 /// Euclidean division: returns (quotient, remainder) with remainder in [0,
@@ -811,7 +1020,6 @@ fn rational_pow(value: &Value, numer: &BigInt, denom: &BigInt) -> WqResult<Value
                 let mut poly = vec![BigInt::zero(); 3];
                 poly[0] = -c.clone();
                 poly[2] = BigInt::one();
-                let sqrt_poly: Arc<[BigInt]> = Arc::from(poly);
                 // Compute isolating interval numerically
                 let n_f = c.to_f64().unwrap_or(0.0);
                 let sqrt_f = n_f.sqrt();
@@ -823,20 +1031,14 @@ fn rational_pow(value: &Value, numer: &BigInt, denom: &BigInt) -> WqResult<Value
                 } else {
                     Value::from_fraction_parts(BigInt::one(), base_d.clone())
                 };
-                let coeffs: Arc<[Value]> = Arc::from(vec![Value::Int(0), alpha_coeff]);
-                let sqrt_val = Value::Algebraic(Arc::new(AlgebraicData {
-                    poly: sqrt_poly,
-                    interval: iv,
-                    coeffs,
-                }));
+                let field = AlgebraicField::new_real_root(poly, iv)?;
+                let sqrt_val =
+                    AlgebraicData::value(field.clone(), vec![Value::Int(0), alpha_coeff])?;
                 if numer.is_negative() {
                     // 1/sqrt
                     if let Value::Algebraic(a) = &sqrt_val {
-                        let one = AlgebraicData {
-                            poly: a.poly.clone(),
-                            interval: a.interval,
-                            coeffs: Arc::from(vec![Value::Int(1)]),
-                        };
+                        let one = AlgebraicData::new(field, vec![Value::Int(1)])
+                            .expect("one should be valid in sqrt field");
                         algebraic_div(&one, a)
                     } else {
                         crate::cas::numeric_div(&Value::Int(1), &sqrt_val)
@@ -894,13 +1096,14 @@ pub(crate) fn normalize_algebraic_field(a: &AlgebraicData) -> Option<AlgebraicDa
         return None;
     }
 
+    let poly = a.poly();
     // Pure-power form: only poly[0] and poly[deg] non-zero
-    if a.poly[1..deg].iter().any(|c| !c.is_zero()) {
+    if poly[1..deg].iter().any(|c| !c.is_zero()) {
         return None;
     }
 
-    let c0 = &a.poly[0];
-    let c_deg = &a.poly[deg];
+    let c0 = &poly[0];
+    let c_deg = &poly[deg];
 
     if c0.is_zero() || c_deg.is_zero() {
         return None;
@@ -962,19 +1165,18 @@ pub(crate) fn normalize_algebraic_field(a: &AlgebraicData) -> Option<AlgebraicDa
     if scale_f <= 0.0 {
         return None;
     }
-    let new_lo = a.interval.0 / scale_f;
-    let new_hi = a.interval.1 / scale_f;
+    let (lo, hi) = a.interval();
+    let new_lo = lo / scale_f;
+    let new_hi = hi / scale_f;
     let new_interval = if new_lo < new_hi {
         (new_lo, new_hi)
     } else {
         (new_hi, new_lo)
     };
 
-    Some(AlgebraicData {
-        poly: Arc::from(new_poly),
-        interval: new_interval,
-        coeffs: Arc::from(new_coeffs),
-    })
+    let field =
+        AlgebraicField::new_real_root_over(a.field.base.clone(), new_poly, new_interval).ok()?;
+    AlgebraicData::new(field, new_coeffs).ok()
 }
 
 #[cfg(test)]
@@ -991,19 +1193,121 @@ mod tests {
     }
 
     fn make_sqrt2() -> AlgebraicData {
-        AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),                             // √2 ≈ 1.414
-            coeffs: Arc::new([Value::Int(0), Value::Int(1)]), // 0 + 1·α = α
-        }
+        sqrt2_data(vec![Value::Int(0), Value::Int(1)])
     }
 
     fn make_sqrt2_times_2() -> AlgebraicData {
-        AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(2)]), // 0 + 2·α = 2√2
-        }
+        sqrt2_data(vec![Value::Int(0), Value::Int(2)])
+    }
+
+    fn sqrt2_field(interval: (f64, f64)) -> Arc<AlgebraicField> {
+        AlgebraicField::new_real_root(vec![BigInt::from(-2), BigInt::zero(), BigInt::one()], interval)
+            .expect("valid sqrt2 field")
+    }
+
+    fn algebraic_data(
+        poly: Vec<BigInt>,
+        interval: (f64, f64),
+        coeffs: Vec<Value>,
+    ) -> AlgebraicData {
+        let field = AlgebraicField::new_real_root(poly, interval).expect("valid algebraic field");
+        AlgebraicData::new(field, coeffs).expect("valid algebraic element")
+    }
+
+    fn sqrt2_data(coeffs: Vec<Value>) -> AlgebraicData {
+        AlgebraicData::new(sqrt2_field((1.0, 2.0)), coeffs).expect("valid sqrt2 element")
+    }
+
+    fn sqrt2_value(coeffs: Vec<Value>) -> Value {
+        Value::Algebraic(Arc::new(sqrt2_data(coeffs)))
+    }
+
+    #[test]
+    fn constructor_normalizes_field_and_trims_coeffs() {
+        let field = AlgebraicField::new_real_root(
+            vec![BigInt::from(4), BigInt::zero(), BigInt::from(-2)],
+            (1.0, 2.0),
+        )
+        .expect("sign-flipped non-primitive field should normalize");
+        assert_eq!(
+            field.poly(),
+            [BigInt::from(-2), BigInt::zero(), BigInt::one()]
+        );
+
+        let value =
+            AlgebraicData::new(field, vec![Value::Int(1), Value::Int(0)]).expect("valid element");
+        assert_eq!(value.coeffs.as_ref(), [Value::Int(1)]);
+    }
+
+    #[test]
+    fn constructor_rejects_bad_algebraic_data() {
+        assert!(
+            AlgebraicField::new_real_root(vec![BigInt::from(-2), BigInt::one()], (1.0, 2.0))
+                .is_err()
+        );
+        assert!(
+            AlgebraicField::new_real_root(sqrt2_poly().to_vec(), (2.0, 1.0)).is_err()
+        );
+        assert!(
+            AlgebraicField::new_real_root(sqrt2_poly().to_vec(), (2.0, 3.0)).is_err()
+        );
+
+        let field = sqrt2_field((1.0, 2.0));
+        assert!(
+            AlgebraicData::new(
+                field.clone(),
+                vec![Value::Int(0), Value::Int(1), Value::Int(0)]
+            )
+            .is_err()
+        );
+
+        let nested = Value::Algebraic(Arc::new(make_sqrt2()));
+        assert!(AlgebraicData::new(field, vec![nested]).is_err());
+    }
+
+    #[test]
+    fn same_polynomial_different_root_interval_is_not_same_field() {
+        let pos = Value::Algebraic(Arc::new(
+            AlgebraicData::new(sqrt2_field((1.0, 2.0)), vec![Value::Int(0), Value::Int(1)])
+                .expect("valid positive sqrt2"),
+        ));
+        let neg = Value::Algebraic(Arc::new(
+            AlgebraicData::new(sqrt2_field((-2.0, -1.0)), vec![Value::Int(0), Value::Int(1)])
+                .expect("valid negative sqrt2 root"),
+        ));
+
+        assert!(pos.add(&neg).is_err());
+        assert!(pos.subtract(&neg).is_err());
+        assert!(pos.multiply(&neg).is_err());
+        assert!(pos.divide(&neg).is_err());
+    }
+
+    #[test]
+    fn algebraic_rational_pow_preserves_generator_interval() {
+        let sqrt2 = AlgebraicData::new(sqrt2_field((1.0, 2.0)), vec![Value::Int(0), Value::Int(1)])
+            .expect("valid sqrt2");
+        let before = sqrt2.interval();
+
+        let result = algebraic_rational_pow(&sqrt2, &BigInt::from(2), &BigInt::from(2))
+            .expect("alpha^(2/2) stays in same field");
+
+        let Value::Algebraic(result) = result else {
+            unreachable!("algebraic rational pow returns algebraic here");
+        };
+        assert_eq!(result.interval(), before);
+    }
+
+    #[test]
+    fn algebraic_unknown_sign_abs_does_not_return_original_value() {
+        let ambiguous = Value::Algebraic(Arc::new(
+            AlgebraicData::new(sqrt2_field((1.0, 2.0)), vec![Value::Int(1), Value::Int(-2)])
+                .expect("valid multi-term algebraic"),
+        ));
+        let Value::Algebraic(data) = &ambiguous else {
+            unreachable!("constructed algebraic");
+        };
+        assert_eq!(data.sign(), NumericSign::Unknown);
+        assert!(ambiguous.abs().is_err());
     }
 
     #[test]
@@ -1017,21 +1321,13 @@ mod tests {
         let a = make_sqrt2();
         assert!(!a.is_zero());
 
-        let zero = AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(0)]),
-        };
+        let zero = sqrt2_data(vec![Value::Int(0), Value::Int(0)]);
         assert!(zero.is_zero());
     }
 
     #[test]
     fn algebraic_data_is_one() {
-        let one = AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(1), Value::Int(0)]),
-        };
+        let one = sqrt2_data(vec![Value::Int(1), Value::Int(0)]);
         assert!(one.is_one());
 
         let a = make_sqrt2();
@@ -1072,104 +1368,80 @@ mod tests {
 
     #[test]
     fn value_algebraic_display_neg_sqrt2() {
-        let neg_sqrt2 = AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(-1)]),
-        };
+        let neg_sqrt2 = sqrt2_data(vec![Value::Int(0), Value::Int(-1)]);
         let v = Value::Algebraic(Arc::new(neg_sqrt2));
         assert_eq!(v.to_string(), "-2^(1/2)");
     }
 
     #[test]
     fn value_algebraic_display_one_plus_sqrt2() {
-        let a = AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(1), Value::Int(1)]),
-        };
+        let a = sqrt2_data(vec![Value::Int(1), Value::Int(1)]);
         let v = Value::Algebraic(Arc::new(a));
         assert_eq!(v.to_string(), "1 + 2^(1/2)");
     }
 
     #[test]
     fn value_algebraic_display_fraction_coeff() {
-        let a = AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([
+        let a = sqrt2_data(vec![
                 Value::Int(0),
                 Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
-            ]),
-        };
+        ]);
         let v = Value::Algebraic(Arc::new(a));
         assert_eq!(v.to_string(), "(1/2)*2^(1/2)");
     }
 
     #[test]
     fn value_algebraic_display_cbrt_squared() {
-        let cbrt2_poly = Arc::new([
+        let cbrt2_poly = vec![
             BigInt::from(-2),
             BigInt::from(0),
             BigInt::from(0),
             BigInt::from(1),
-        ]);
-        let a = AlgebraicData {
-            poly: cbrt2_poly,
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(0), Value::Int(1)]),
-        };
+        ];
+        let a = algebraic_data(
+            cbrt2_poly,
+            (1.0, 2.0),
+            vec![Value::Int(0), Value::Int(0), Value::Int(1)],
+        );
         let v = Value::Algebraic(Arc::new(a));
         assert_eq!(v.to_string(), "(2^(1/3))^2");
     }
 
     #[test]
     fn value_algebraic_display_unrecognized_poly() {
-        // x^2 - 2x + 1 (not a pure power, so unrecognized)
-        let poly = Arc::new([BigInt::from(1), BigInt::from(-2), BigInt::from(1)]);
-        let a = AlgebraicData {
+        // x^3 - x - 1 (not a pure power, so unrecognized)
+        let poly = vec![BigInt::from(-1), BigInt::from(-1), BigInt::zero(), BigInt::one()];
+        let a = algebraic_data(
             poly,
-            interval: (0.5, 1.5),
-            coeffs: Arc::new([Value::Int(0), Value::Int(1)]),
-        };
+            (1.0, 2.0),
+            vec![Value::Int(0), Value::Int(1), Value::Int(0)],
+        );
         let v = Value::Algebraic(Arc::new(a));
-        assert_eq!(v.to_string(), "root($^2-2*$+1, 1)");
+        assert_eq!(v.to_string(), "root($^3-$-1, 1.5)");
     }
 
     #[test]
     fn value_algebraic_display_phi() {
-        let phi_poly = Arc::new([BigInt::from(-1), BigInt::from(-1), BigInt::from(1)]);
-        let a = AlgebraicData {
-            poly: phi_poly,
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(1)]),
-        };
+        let phi_poly = vec![BigInt::from(-1), BigInt::from(-1), BigInt::from(1)];
+        let a = algebraic_data(phi_poly, (1.0, 2.0), vec![Value::Int(0), Value::Int(1)]);
         let v = Value::Algebraic(Arc::new(a));
         assert_eq!(v.to_string(), "phi");
     }
 
     #[test]
     fn value_algebraic_display_one_minus_phi() {
-        let phi_poly = Arc::new([BigInt::from(-1), BigInt::from(-1), BigInt::from(1)]);
-        let a = AlgebraicData {
-            poly: phi_poly,
-            interval: (-1.0, 0.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(1)]),
-        };
+        let phi_poly = vec![BigInt::from(-1), BigInt::from(-1), BigInt::from(1)];
+        let a = algebraic_data(phi_poly, (-1.0, 0.0), vec![Value::Int(0), Value::Int(1)]);
         let v = Value::Algebraic(Arc::new(a));
         assert_eq!(v.to_string(), "1-phi");
     }
 
     #[test]
     fn value_algebraic_display_fraction_constant() {
-        let a = AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([
+        let a = sqrt2_data(vec![
                 Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
                 Value::Int(1),
-            ]),
-        };
+        ]);
         let v = Value::Algebraic(Arc::new(a));
         // Constant term 1/2 does not need parens; coefficient 1 on sqrt2 is omitted
         assert_eq!(v.to_string(), "1/2 + 2^(1/2)");
@@ -1178,11 +1450,7 @@ mod tests {
     #[test]
     fn value_algebraic_display_in_cas_product_gets_parens() {
         // Multi-term algebraic inside a CAS multiplication must be parenthesised.
-        let a = AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(-1), Value::Int(1)]),
-        };
+        let a = sqrt2_data(vec![Value::Int(-1), Value::Int(1)]);
         let alg = Value::Algebraic(Arc::new(a));
         let product =
             Value::from_cas_op(CasOp::Multiply, vec![alg.clone(), Value::from_cas_var("x")]);
@@ -1206,11 +1474,7 @@ mod tests {
 
     #[test]
     fn numeric_is_zero_with_algebraic() {
-        let zero = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(0)]),
-        }));
+        let zero = sqrt2_value(vec![Value::Int(0), Value::Int(0)]);
         assert!(crate::cas::numeric_is_zero(&zero));
 
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
@@ -1219,11 +1483,7 @@ mod tests {
 
     #[test]
     fn numeric_is_one_with_algebraic() {
-        let one = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(1), Value::Int(0)]),
-        }));
+        let one = sqrt2_value(vec![Value::Int(1), Value::Int(0)]);
         assert!(crate::cas::numeric_is_one(&one));
 
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
@@ -1235,11 +1495,7 @@ mod tests {
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
         // -√2 = 0 + (-1)·α
         let neg_sqrt2 = sqrt2.neg().unwrap();
-        let expected = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(-1)]),
-        }));
+        let expected = sqrt2_value(vec![Value::Int(0), Value::Int(-1)]);
         assert_eq!(neg_sqrt2, expected);
     }
 
@@ -1267,11 +1523,7 @@ mod tests {
         let three = Value::Int(3);
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
         let sum = three.add(&sqrt2).unwrap();
-        let expected = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(3), Value::Int(1)]),
-        }));
+        let expected = sqrt2_value(vec![Value::Int(3), Value::Int(1)]);
         assert_eq!(sum, expected);
     }
 
@@ -1281,11 +1533,7 @@ mod tests {
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
         let three = Value::Int(3);
         let sum = sqrt2.add(&three).unwrap();
-        let expected = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(3), Value::Int(1)]),
-        }));
+        let expected = sqrt2_value(vec![Value::Int(3), Value::Int(1)]);
         assert_eq!(sum, expected);
     }
 
@@ -1294,11 +1542,7 @@ mod tests {
         // α - α = 0 → coeffs [0]
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
         let diff = sqrt2.subtract(&sqrt2).unwrap();
-        let zero = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0)]),
-        }));
+        let zero = sqrt2_value(vec![Value::Int(0)]);
         assert_eq!(diff, zero);
     }
 
@@ -1307,11 +1551,7 @@ mod tests {
         // α * α = 2 → coeffs [2]
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
         let prod = sqrt2.multiply(&sqrt2).unwrap();
-        let expected = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(2)]),
-        }));
+        let expected = sqrt2_value(vec![Value::Int(2)]);
         assert_eq!(prod, expected);
     }
 
@@ -1321,11 +1561,7 @@ mod tests {
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
         let three = Value::Int(3);
         let prod = sqrt2.multiply(&three).unwrap();
-        let expected = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(3)]),
-        }));
+        let expected = sqrt2_value(vec![Value::Int(0), Value::Int(3)]);
         assert_eq!(prod, expected);
     }
 
@@ -1333,17 +1569,9 @@ mod tests {
     fn algebraic_mul_two_sqrt2_times_three_sqrt2() {
         // 2√2 * 3√2 = 6·2 = 12 → coeffs [12]
         let two_sqrt2 = Value::Algebraic(Arc::new(make_sqrt2_times_2()));
-        let three_sqrt2 = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(3)]),
-        }));
+        let three_sqrt2 = sqrt2_value(vec![Value::Int(0), Value::Int(3)]);
         let prod = two_sqrt2.multiply(&three_sqrt2).unwrap();
-        let expected = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(12)]),
-        }));
+        let expected = sqrt2_value(vec![Value::Int(12)]);
         assert_eq!(prod, expected);
     }
 
@@ -1379,7 +1607,7 @@ mod tests {
         let quot = sqrt2.divide(&sqrt2).unwrap();
         if let Value::Algebraic(a) = &quot {
             assert!(crate::cas::numeric_is_one(&a.coeffs[0]));
-            assert_eq!(a.poly, sqrt2_poly());
+            assert_eq!(a.poly(), sqrt2_poly().as_ref());
         } else {
             panic!("expected algebraic");
         }
@@ -1388,22 +1616,14 @@ mod tests {
     #[test]
     fn algebraic_div_one_by_sqrt2() {
         // 1 / √2 = √2/2 → coeffs [0, 1/2]
-        let one = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(1)]),
-        }));
+        let one = sqrt2_value(vec![Value::Int(1)]);
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
         let quot = one.divide(&sqrt2).unwrap();
         // Should be [0, 1/2]
-        let expected = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([
+        let expected = sqrt2_value(vec![
                 Value::Int(0),
                 Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
-            ]),
-        }));
+        ]);
         assert_eq!(quot, expected);
     }
 
@@ -1412,11 +1632,7 @@ mod tests {
         // (√2)^2 = 2
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
         let pow = sqrt2.power(&Value::Int(2)).unwrap();
-        let expected = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(2)]),
-        }));
+        let expected = sqrt2_value(vec![Value::Int(2)]);
         assert_eq!(pow, expected);
     }
 
@@ -1435,14 +1651,10 @@ mod tests {
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
         let three = Value::Int(3);
         let quot = sqrt2.divide(&three).unwrap();
-        let expected = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([
+        let expected = sqrt2_value(vec![
                 Value::Int(0),
                 Value::from_fraction_parts(BigInt::from(1), BigInt::from(3)),
-            ]),
-        }));
+        ]);
         assert_eq!(quot, expected);
     }
 
@@ -1458,21 +1670,13 @@ mod tests {
     #[test]
     fn numeric_is_negative_neg_sqrt2() {
         // -√2  (α = √2 in (1,2), value = -1·α)
-        let neg_sqrt2 = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(-1)]),
-        }));
+        let neg_sqrt2 = sqrt2_value(vec![Value::Int(0), Value::Int(-1)]);
         assert!(crate::cas::numeric_is_negative(&neg_sqrt2));
     }
 
     #[test]
     fn numeric_is_negative_zero() {
-        let zero = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(0)]),
-        }));
+        let zero = sqrt2_value(vec![Value::Int(0), Value::Int(0)]);
         assert!(!crate::cas::numeric_is_negative(&zero));
     }
 
@@ -1481,35 +1685,15 @@ mod tests {
         // gcd(x² - 2, x - √2) over Q(√2) should be x - √2
         // a = x² - 2 with coeffs in Q(√2): [-2, 0, 1]
         let a: Vec<Value> = vec![
-            Value::Algebraic(Arc::new(AlgebraicData {
-                poly: sqrt2_poly(),
-                interval: (1.0, 2.0),
-                coeffs: Arc::new([Value::Int(-2)]),
-            })),
-            Value::Algebraic(Arc::new(AlgebraicData {
-                poly: sqrt2_poly(),
-                interval: (1.0, 2.0),
-                coeffs: Arc::new([Value::Int(0)]),
-            })),
-            Value::Algebraic(Arc::new(AlgebraicData {
-                poly: sqrt2_poly(),
-                interval: (1.0, 2.0),
-                coeffs: Arc::new([Value::Int(1)]),
-            })),
+            sqrt2_value(vec![Value::Int(-2)]),
+            sqrt2_value(vec![Value::Int(0)]),
+            sqrt2_value(vec![Value::Int(1)]),
         ];
         // b = x - √2 with coeffs in Q(√2): [-√2, 1]
-        let neg_sqrt2 = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (-2.0, -1.0),
-            coeffs: Arc::new([Value::Int(0), Value::Int(-1)]),
-        }));
+        let neg_sqrt2 = sqrt2_value(vec![Value::Int(0), Value::Int(-1)]);
         let b: Vec<Value> = vec![
             neg_sqrt2,
-            Value::Algebraic(Arc::new(AlgebraicData {
-                poly: sqrt2_poly(),
-                interval: (1.0, 2.0),
-                coeffs: Arc::new([Value::Int(1)]),
-            })),
+            sqrt2_value(vec![Value::Int(1)]),
         ];
         let g = crate::cas::poly_gcd(&a, &b).unwrap();
         // g should be degree 1 (x - √2), i.e. monic normalization of b
@@ -1522,29 +1706,28 @@ mod tests {
     fn make_tower_sqrt3_over_sqrt2() -> (AlgebraicData, AlgebraicData) {
         // Inner field: Q(√2), β² - 2 = 0, β ∈ (1, 2)
         let inner_sqrt2 = make_sqrt2();
+        let inner_field = inner_sqrt2.field().clone();
 
         // Outer minimal polynomial: x² - 3 = 0 with coeffs in Q(√2)
         // [-3, 0, 1] where each coeff is promoted to Q(√2)
-        let zero_inner = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(0)]),
-        }));
-        let one_inner = Value::Algebraic(Arc::new(AlgebraicData {
-            poly: sqrt2_poly(),
-            interval: (1.0, 2.0),
-            coeffs: Arc::new([Value::Int(1)]),
-        }));
+        let zero_inner = AlgebraicData::value(inner_field.clone(), vec![Value::Int(0)])
+            .expect("valid zero in inner field");
+        let one_inner = AlgebraicData::value(inner_field.clone(), vec![Value::Int(1)])
+            .expect("valid one in inner field");
         // Outer field element: √3 = 0 + 1·α, where α² = 3
-        let outer_sqrt3 = AlgebraicData {
-            poly: Arc::new([
+        let outer_field = AlgebraicField::new_real_root_over(
+            AlgebraicBase::Extension(inner_field),
+            vec![
                 BigInt::from(-3), // constant: -3 (integer — the minimal poly coeffs are int)
                 BigInt::from(0),  // x coefficient
                 BigInt::from(1),  // x² coefficient (monic)
-            ]),
-            interval: (1.0, 2.0), // √3 ≈ 1.732
-            coeffs: Arc::new([zero_inner.clone(), one_inner.clone()]), // 0 + 1·α
-        };
+            ],
+            (1.0, 2.0),
+        )
+        .expect("valid outer sqrt3 field");
+        let outer_sqrt3 =
+            AlgebraicData::new(outer_field, vec![zero_inner.clone(), one_inner.clone()])
+                .expect("valid sqrt3 tower element");
 
         (inner_sqrt2, outer_sqrt3)
     }
@@ -1556,7 +1739,7 @@ mod tests {
         let a = Value::Algebraic(Arc::new(sqrt3.clone()));
         let sum = a.add(&a).unwrap();
         if let Value::Algebraic(s) = &sum {
-            assert_eq!(s.poly, sqrt3.poly);
+            assert_eq!(s.field(), sqrt3.field());
             // coeffs should be [0, 2] in Q(√2): i.e., 0 + 2·α
             assert_eq!(s.coeffs.len(), 2);
             assert!(crate::cas::numeric_is_zero(&s.coeffs[0]));
@@ -1578,7 +1761,7 @@ mod tests {
         let prod = a.multiply(&a).unwrap();
         if let Value::Algebraic(p) = &prod {
             // Result should be constant 3 in Q(√2), i.e. [3, 0] → trimmed to [3]
-            assert_eq!(p.poly, sqrt3.poly);
+            assert_eq!(p.field(), sqrt3.field());
             assert!(p.coeffs.len() <= 2);
             // First coeff should be 3 in Q(√2)
             if let Value::Algebraic(c0) = &p.coeffs[0] {

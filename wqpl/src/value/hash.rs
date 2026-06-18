@@ -185,9 +185,8 @@ impl std::hash::Hash for Value {
             }
             Value::Algebraic(a) => {
                 20u8.hash(state);
-                a.poly.hash(state);
-                a.interval.0.to_bits().hash(state);
-                a.interval.1.to_bits().hash(state);
+                a.field().hash(state);
+                a.coeffs.len().hash(state);
                 for c in a.coeffs.iter() {
                     c.hash(state);
                 }
@@ -294,8 +293,7 @@ impl PartialEq for Value {
             (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
 
             (Algebraic(a), Algebraic(b)) => {
-                a.poly == b.poly
-                    && a.interval == b.interval
+                a.field() == b.field()
                     && a.coeffs.len() == b.coeffs.len()
                     && a.coeffs.iter().zip(b.coeffs.iter()).all(|(x, y)| x == y)
             }

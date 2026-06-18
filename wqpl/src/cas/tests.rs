@@ -4,7 +4,7 @@ use num_bigint::BigInt;
 
 use super::*;
 use crate::value::Value;
-use crate::value::algebraic::AlgebraicData;
+use crate::value::algebraic::{AlgebraicData, AlgebraicField};
 use crate::value::cas::{CasFunction, CasOp};
 
 fn op(op: CasOp, args: Vec<Value>) -> Value {
@@ -599,20 +599,13 @@ fn numeric_rejects_symbolic_application() {
 }
 
 #[test]
-fn numeric_rejects_non_numeric_algebraic_coefficients() {
-    let malformed = Value::Algebraic(Arc::new(AlgebraicData {
-        poly: Arc::new([BigInt::from(-2), BigInt::from(0), BigInt::from(1)]),
-        interval: (1.0, 2.0),
-        coeffs: Arc::new([Value::from_cas_var("x")]),
-    }));
-
-    let err = eval_numeric_cas(&malformed).expect_err("symbolic coefficient should fail");
-    assert!(
-        err.msg
-            .as_deref()
-            .is_some_and(|msg| msg.contains("contains variable")),
-        "unexpected error: {err:?}",
-    );
+fn algebraic_constructor_rejects_symbolic_coefficients() {
+    let field = AlgebraicField::new_real_root(
+        vec![BigInt::from(-2), BigInt::from(0), BigInt::from(1)],
+        (1.0, 2.0),
+    )
+    .expect("valid sqrt2 field");
+    assert!(AlgebraicData::new(field, vec![Value::from_cas_var("x")]).is_err());
 }
 
 #[test]

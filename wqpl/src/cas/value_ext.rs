@@ -27,6 +27,12 @@ impl Value {
         }))
     }
 
+    /// Raw structural CAS operator builder.
+    ///
+    /// Use canonical constructors from `crate::cas` such as `cas_add`,
+    /// `cas_mul`, `cas_div`, and `cas_pow` when creating a new semantic
+    /// expression. This helper is only for preserving or rebuilding an
+    /// already-normalized shape.
     pub(crate) fn from_cas_op(op: CasOp, args: Vec<Value>) -> Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Op(op, Arc::from(args)),
@@ -39,12 +45,19 @@ impl Value {
         }))
     }
 
+    /// Raw structural CAS function builder.
+    ///
+    /// Prefer `cas_call_expr` or a function-specific canonical helper when
+    /// constructing new semantic expressions.
     pub(crate) fn from_cas_function(function: CasFunction, args: Vec<Value>) -> Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Function(function, Arc::from(args)),
         }))
     }
 
+    /// Raw structural CAS application builder.
+    ///
+    /// Prefer canonical CAS constructors for new semantic expressions.
     pub(crate) fn from_cas_apply(name: impl Into<String>, args: Vec<Value>) -> Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Apply(CasSymbol::new(name), Arc::from(args)),

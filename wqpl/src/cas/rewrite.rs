@@ -42,7 +42,7 @@ fn extract_unit_negative(arg: &Value) -> Option<Value> {
     }
     Some(match rest {
         [single] => single.clone(),
-        _ => Value::from_cas_op(CasOp::Multiply, rest.to_vec()),
+        _ => cas_product(rest.to_vec()),
     })
 }
 
@@ -711,10 +711,7 @@ fn try_combine_inv_denoms(args: &[Value]) -> WqResult<Option<Value>> {
                 new_args.push(arg.clone());
             }
             new_args.push(combined);
-            return Ok(Some(simplify_cas_value(&Value::from_cas_op(
-                CasOp::Multiply,
-                new_args,
-            ))?));
+            return Ok(Some(simplify_cas_value(&cas_product(new_args))?));
         }
     }
     Ok(None)
