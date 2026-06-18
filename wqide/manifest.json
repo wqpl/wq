@@ -1,92 +1,84 @@
 {
   "tutorials": [
     {
-      "slug": "prelude",
-      "title": "Prelude",
-      "file": "articles/wqpl/01_prelude.md",
-      "description": "A first feel for wq and its expression-oriented style.",
-      "section": "wqpl",
-      "code": "echo \"wq\""
-    },
-    {
-      "slug": "bindings",
-      "title": "Bindings",
-      "file": "articles/wqpl/02_bindings.md",
-      "description": "Bind names to values and reuse them across expressions.",
-      "section": "wqpl",
-      "code": "hobby:\"daydreaming\""
-    },
-    {
       "slug": "arithmetic",
       "title": "Arithmetic",
-      "file": "articles/wqpl/03_arithmetic.md",
-      "description": "Learn numeric operators, precedence, and elementwise math.",
+      "file": "articles/wqpl/1-Arithmetic.md",
+      "description": "Start with calculator expressions, broadcasting, and tiny numeric questions.",
       "section": "wqpl",
-      "code": "x^2+2x+1"
+      "code": "(1;2;3)^2+1"
+    },
+    {
+      "slug": "binding",
+      "title": "Binding",
+      "file": "articles/wqpl/2-Binding.md",
+      "description": "Name values, update them, unpack shapes, and checkpoint pipes.",
+      "section": "wqpl",
+      "code": "answer:3*7"
     },
     {
       "slug": "lists",
       "title": "Lists",
-      "file": "articles/wqpl/04_lists.md",
-      "description": "Work with wq's central collection type, from indexing to slicing.",
+      "file": "articles/wqpl/3-Lists.md",
+      "description": "Make list shapes, slice them with ranges, and mutate when useful.",
       "section": "wqpl",
       "code": "(1;2;3)*4"
     },
     {
       "slug": "dicts",
       "title": "Dicts",
-      "file": "articles/wqpl/05_dicts.md",
-      "description": "Store named data with symbol keys and nested values.",
+      "file": "articles/wqpl/4-Dicts.md",
+      "description": "Use tag-keyed records and see how tags also power named arguments.",
       "section": "wqpl",
       "code": "(`name:\"wq\";`age:0)"
     },
     {
-      "slug": "conditionals",
-      "title": "Conditionals",
-      "file": "articles/wqpl/06_conditionals.md",
-      "description": "Choose branches with ternary, guard, and chain expressions.",
-      "section": "wqpl",
-      "code": "$[n>0;\"+\";\"-\"]"
-    },
-    {
-      "slug": "loops",
-      "title": "Loops",
-      "file": "articles/wqpl/07_loops.md",
-      "description": "Repeat work with three styles of loops.",
-      "section": "wqpl",
-      "code": "N[3;echo _n]"
-    },
-    {
       "slug": "functions",
       "title": "Functions",
-      "file": "articles/wqpl/08_functions.md",
-      "description": "Package expressions into reusable functions and closures.",
+      "file": "articles/wqpl/5-Functions.md",
+      "description": "Package transformations and pass functions into list bfns.",
       "section": "wqpl",
-      "code": "twice:{x*2}"
+      "code": "twice:{x*2};twice 4"
     },
     {
-      "slug": "higher-order-bfns",
-      "title": "Higher-Order Bfns",
-      "file": "articles/wqpl/09_higher_order.md",
-      "description": "Transform lists with bfns like filter, map, fold, and scan.",
+      "slug": "pipes",
+      "title": "Pipes",
+      "file": "articles/wqpl/6-Pipes.md",
+      "description": "Move values left to right through transformations.",
       "section": "wqpl",
-      "code": "1..10|fold{x*y}"
+      "code": "1..=5|map{x*x}|sum"
+    },
+    {
+      "slug": "control-flow",
+      "title": "Control Flow",
+      "file": "articles/wqpl/7-Control-Flow.md",
+      "description": "Choose branches, loop with counters, and return early.",
+      "section": "wqpl",
+      "code": "n:1;$[n>0;\"+\";\"-\"]"
+    },
+    {
+      "slug": "cas",
+      "title": "CAS",
+      "file": "articles/wqpl/8-CAS.md",
+      "description": "Treat symbolic math as data with `@s` and CAS bfns.",
+      "section": "wqpl",
+      "code": "factor[@s x^2-1]"
     },
     {
       "slug": "errors",
       "title": "Errors",
-      "file": "articles/wqpl/10_error.md",
-      "description": "See how wq raises errors and turns them into values with `@t`.",
+      "file": "articles/wqpl/9-Errors.md",
+      "description": "Raise errors, assert truths, and use `@t` for probes.",
       "section": "wqpl",
       "code": "@t 1/0"
     },
     {
-      "slug": "coda",
-      "title": "Coda",
-      "file": "articles/wqpl/11_coda.md",
-      "description": "Wrap up the main ideas and pick the next direction to explore.",
+      "slug": "little-programs",
+      "title": "Little Programs",
+      "file": "articles/wqpl/10-Little-Programs.md",
+      "description": "Put lists, dicts, functions, and pipes together in tiny programs.",
       "section": "wqpl",
-      "code": "echo \"fin\""
+      "code": "scores:(10;20;30);sum scores"
     },
     {
       "slug": "installation",

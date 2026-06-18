@@ -42,9 +42,9 @@ const FEATURED_HTML = html`
           <strong>Installation</strong>
           <span>How to get a copy of wq.</span>
         </a>
-        <a class="article-link" href="article.html?slug=prelude">
-          <strong>Prelude</strong>
-          <span>A first feel of wq.</span>
+        <a class="article-link" href="article.html?slug=arithmetic">
+          <strong>Arithmetic</strong>
+          <span>Start the wq book with numbers and list math.</span>
         </a>
       </div>
     </section>
