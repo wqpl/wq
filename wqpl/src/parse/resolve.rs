@@ -967,35 +967,9 @@ impl Resolver {
             AstNode::OuterVariable(name, span) => {
                 self.lookup_fact(name, *span, true) == BindingFact::Indexable
             }
-            AstNode::CallName { name, .. } => Self::returns_atom_or_list(name),
+            AstNode::CallName { .. } => false,
             _ => false,
         }
-    }
-
-    fn returns_atom_or_list(name: &str) -> bool {
-        matches!(
-            name,
-            "keys"
-                | "map"
-                | "zipw"
-                | "filter"
-                | "flatten"
-                | "reverse"
-                | "sort"
-                | "split"
-                | "splitw"
-                | "pop"
-                | "remove"
-                | "insert"
-                | "alloc"
-                | "till"
-                | "iota"
-                | "reshape"
-                | "where"
-                | "words"
-                | "freadtln"
-                | "freadtlns"
-        )
     }
 
     fn should_call(&self, object: &AstNode) -> bool {
@@ -1260,9 +1234,7 @@ impl Resolver {
             AstNode::Group { expr, .. } => self.fact_from_ast(expr),
             AstNode::Variable(name, span) => self.lookup_fact(name, *span, false),
             AstNode::OuterVariable(name, span) => self.lookup_fact(name, *span, true),
-            AstNode::CallName { name, .. } if Self::returns_atom_or_list(name) => {
-                BindingFact::Indexable
-            }
+            AstNode::CallName { .. } => BindingFact::Unknown,
             _ => BindingFact::Unknown,
         }
     }
