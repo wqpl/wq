@@ -18,7 +18,9 @@ use wqpl::session::stdio::{
     WqStderr, WqStdin, WqStdinError, WqStdout, set_wqstderr, set_wqstdin, set_wqstdout,
 };
 use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
+use wqpl::value::{Value, WqResult};
 use wqpl::vm::Vm;
+use wqpl::wqerror::WqErrorType;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
@@ -220,10 +222,7 @@ impl WasmWqSession {
     /// Evaluate a source string and return the value's string form.
     #[wasm_bindgen]
     pub fn eval_wq(&self, src: &str) -> Result<String, JsValue> {
-        let mut vm = self.session.borrow_mut();
-        vm.dbg_set_source("<wasm>", src);
-        vm.dbg_set_offset(0);
-        match vm.eval_string(src) {
+        match eval_wq_script_value(self, src) {
             Ok(v) => {
                 let config = self.box_config.get();
                 let s = format_print_result(&v, &config, config.color);
@@ -231,7 +230,7 @@ impl WasmWqSession {
             }
             Err(e) => {
                 if e.err_type.is_runtime() {
-                    vm.dbg_print_bt();
+                    self.session.borrow_mut().dbg_print_bt();
                 }
                 Err(JsValue::from_str(&format!("{e}")))
             }
@@ -242,10 +241,7 @@ impl WasmWqSession {
     /// is a CAS expression.
     #[wasm_bindgen]
     pub fn eval_wq_result(&self, src: &str) -> Result<EvalResult, JsValue> {
-        let mut vm = self.session.borrow_mut();
-        vm.dbg_set_source("<wasm>", src);
-        vm.dbg_set_offset(0);
-        match vm.eval_string(src) {
+        match eval_wq_script_value(self, src) {
             Ok(v) => {
                 let is_cas = v.is_cas();
                 let config = self.box_config.get();
@@ -261,7 +257,7 @@ impl WasmWqSession {
             }
             Err(e) => {
                 if e.err_type.is_runtime() {
-                    vm.dbg_print_bt();
+                    self.session.borrow_mut().dbg_print_bt();
                 }
                 Err(JsValue::from_str(&format!("{e}")))
             }
@@ -526,6 +522,64 @@ impl Default for WasmWqSession {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn eval_wq_script_value(session: &WasmWqSession, src: &str) -> WqResult<Value> {
+    let mut line_starts = Vec::with_capacity(128);
+    line_starts.push(0);
+    for (i, b) in src.as_bytes().iter().enumerate() {
+        if *b == b'\n' {
+            line_starts.push(i + 1);
+        }
+    }
+    if *line_starts.last().expect("line_starts is seeded") != src.len() {
+        line_starts.push(src.len());
+    }
+
+    let mut buffer = String::new();
+    let mut buffer_has_code = false;
+    let mut consumed_bytes = 0usize;
+    let mut last_result = Value::IntList(std::sync::Arc::new(Vec::new()));
+
+    for (i, raw_line) in src.lines().enumerate() {
+        let next_consumed = *line_starts.get(i + 1).unwrap_or(&src.len());
+        let trimmed_all = raw_line.trim();
+
+        buffer.push_str(raw_line);
+        buffer.push('\n');
+
+        if trimmed_all.is_empty() || trimmed_all.starts_with("//") {
+            continue;
+        }
+
+        buffer_has_code = true;
+        let result = {
+            let mut vm = session.session.borrow_mut();
+            vm.dbg_set_source("<wasm>", src);
+            vm.dbg_set_offset(consumed_bytes);
+            vm.eval_string(&buffer)
+        };
+
+        match result {
+            Ok(value) => {
+                last_result = value;
+                buffer.clear();
+                buffer_has_code = false;
+                consumed_bytes = next_consumed;
+            }
+            Err(err) if err.err_type == WqErrorType::Eof => {}
+            Err(err) => return Err(err),
+        }
+    }
+
+    if buffer_has_code || !buffer.trim().is_empty() {
+        let mut vm = session.session.borrow_mut();
+        vm.dbg_set_source("<wasm>", src);
+        vm.dbg_set_offset(consumed_bytes);
+        last_result = vm.eval_string(&buffer)?;
+    }
+
+    Ok(last_result)
 }
 
 fn wasm_wqdb_pause_handler(host: &mut Vm) {
@@ -973,6 +1027,33 @@ mod tests {
             .clone();
         assert!(stderr.contains("wqdb: paused"));
         assert!(stderr.contains("interactive browser debugger shell is not available"));
+    }
+
+    #[test]
+    fn one_shot_eval_streams_multiline_cas_script() {
+        let result = eval_wq("expr:@s x^2+2*x+1\nexpr")
+            .expect("one-shot eval should run article-style scripts");
+
+        assert_eq!(result, "x^2 + 2*x + 1");
+    }
+
+    #[test]
+    fn one_shot_eval_accumulates_incomplete_blocks() {
+        let result = eval_wq("f:{[x]\n  x+1\n}\nf 2")
+            .expect("one-shot eval should accumulate incomplete blocks");
+
+        assert_eq!(result, "3");
+    }
+
+    #[test]
+    fn session_eval_result_streams_multiline_cas_script() {
+        let session = WasmWqSession::new();
+        let result = session
+            .eval_wq_result("expr:@s x^2+2*x+1\nexpr")
+            .expect("session eval result should run article-style scripts");
+
+        assert_eq!(result.value(), "x^2 + 2*x + 1");
+        assert!(result.is_cas());
     }
 }
 
