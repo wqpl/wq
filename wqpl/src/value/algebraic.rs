@@ -1,4 +1,4 @@
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::sync::Arc;
 
 use num_bigint::BigInt;
@@ -14,6 +14,19 @@ pub(crate) enum AlgebraicBase {
     Rational,
     #[allow(dead_code)]
     Extension(Arc<AlgebraicField>),
+}
+
+impl AlgebraicBase {
+    fn push_canonical_key(&self, out: &mut String) {
+        match self {
+            Self::Rational => out.push('Q'),
+            Self::Extension(field) => {
+                out.push_str("E(");
+                field.push_canonical_key(out);
+                out.push(')');
+            }
+        }
+    }
 }
 
 /// Root identity for an algebraic generator.
@@ -76,6 +89,22 @@ impl AlgebraicField {
 
     pub(crate) fn interval(&self) -> (f64, f64) {
         self.root.interval()
+    }
+
+    pub(crate) fn push_canonical_key(&self, out: &mut String) {
+        out.push_str("field(base:");
+        self.base.push_canonical_key(out);
+        out.push_str(";poly:");
+        for coeff in self.poly.iter() {
+            write!(out, "{coeff};").expect("writing to String should not fail");
+        }
+        match &self.root {
+            AlgebraicRoot::RealInterval { lo, hi } => {
+                write!(out, "root:R:{:016x}:{:016x}", (**lo).to_bits(), (**hi).to_bits())
+                    .expect("writing to String should not fail");
+            }
+        }
+        out.push(')');
     }
 }
 
@@ -498,6 +527,19 @@ fn format_approx_f64(value: f64) -> String {
     format!("{value}")
 }
 
+fn has_top_level_additive_operator(text: &str) -> bool {
+    let mut depth = 0usize;
+    for (idx, ch) in text.char_indices() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            '+' | '-' if depth == 0 && idx > 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
 /// Human-friendly display for an algebraic number.
 ///
 /// Formats as a linear combination `c0 + c1*name + c2*name^2 + ...` where the
@@ -515,6 +557,12 @@ pub(crate) fn fmt_algebraic_human(a: &AlgebraicData, f: &mut fmt::Formatter<'_>)
     let name_needs_parens = name
         .chars()
         .any(|c| matches!(c, '+' | '-' | '*' | '/' | '^' | '(' | ')' | ' '));
+    let name_has_top_level_add = has_top_level_additive_operator(&name);
+    let non_zero_count = a
+        .coeffs
+        .iter()
+        .filter(|c| !crate::cas::numeric_is_zero(c))
+        .count();
 
     let mut first = true;
 
@@ -566,7 +614,13 @@ pub(crate) fn fmt_algebraic_human(a: &AlgebraicData, f: &mut fmt::Formatter<'_>)
                         write!(f, "{abs_c}*")?;
                     }
                 }
-                write!(f, "{name}")?;
+                let wrap_name =
+                    name_has_top_level_add && (is_negative || !is_one || non_zero_count > 1);
+                if wrap_name {
+                    write!(f, "({name})")?;
+                } else {
+                    write!(f, "{name}")?;
+                }
             }
             _ => {
                 if !is_one {
@@ -1422,7 +1476,7 @@ mod tests {
             vec![Value::Int(0), Value::Int(1), Value::Int(0)],
         );
         let v = Value::Algebraic(Arc::new(a));
-        assert_eq!(v.to_string(), "root($^3-$-1, 1.5)");
+        assert_eq!(v.to_string(), "root(_^3-_-1, 1.5)");
     }
 
     #[test]
@@ -1439,6 +1493,23 @@ mod tests {
         let a = algebraic_data(phi_poly, (-1.0, 0.0), vec![Value::Int(0), Value::Int(1)]);
         let v = Value::Algebraic(Arc::new(a));
         assert_eq!(v.to_string(), "1-phi");
+    }
+
+    #[test]
+    fn value_algebraic_display_one_minus_phi_as_term_is_grouped() {
+        let phi_poly = vec![BigInt::from(-1), BigInt::from(-1), BigInt::from(1)];
+        let double = algebraic_data(
+            phi_poly.clone(),
+            (-1.0, 0.0),
+            vec![Value::Int(0), Value::Int(2)],
+        );
+        assert_eq!(Value::Algebraic(Arc::new(double)).to_string(), "2*(1-phi)");
+
+        let shifted = algebraic_data(phi_poly, (-1.0, 0.0), vec![Value::Int(3), Value::Int(1)]);
+        assert_eq!(
+            Value::Algebraic(Arc::new(shifted)).to_string(),
+            "3 + (1-phi)",
+        );
     }
 
     #[test]
@@ -1460,6 +1531,15 @@ mod tests {
         let product =
             Value::from_cas_op(CasOp::Multiply, vec![alg.clone(), Value::from_cas_var("x")]);
         assert_eq!(product.to_string(), "(-1 + 2^(1/2))*x");
+    }
+
+    #[test]
+    fn value_algebraic_display_one_minus_phi_in_cas_product_gets_parens() {
+        let phi_poly = vec![BigInt::from(-1), BigInt::from(-1), BigInt::from(1)];
+        let a = algebraic_data(phi_poly, (-1.0, 0.0), vec![Value::Int(0), Value::Int(1)]);
+        let alg = Value::Algebraic(Arc::new(a));
+        let product = Value::from_cas_op(CasOp::Multiply, vec![alg, Value::from_cas_var("x")]);
+        assert_eq!(product.to_string(), "(1-phi)*x");
     }
 
     #[test]

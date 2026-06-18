@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::fmt::Write as _;
 
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive};
@@ -64,6 +65,11 @@ fn push_canonical_key(value: &Value, out: &mut String) {
         out.push_str(name);
         return;
     }
+    if let Some(konst) = value.cas_const() {
+        out.push_str("s:");
+        out.push_str(konst.name());
+        return;
+    }
     if let Some((op, args)) = value.cas_op_parts() {
         out.push_str("o:");
         out.push_str(op.symbol());
@@ -97,8 +103,135 @@ fn push_canonical_key(value: &Value, out: &mut String) {
         out.push(')');
         return;
     }
+    if let Some((expr, var, point, direction)) = value.cas_limit_parts() {
+        out.push_str("l:");
+        push_canonical_key(expr, out);
+        out.push(';');
+        push_canonical_key(var, out);
+        out.push(';');
+        push_canonical_key(point, out);
+        out.push(';');
+        push_limit_direction_key(direction, out);
+        return;
+    }
+    if let Some((lhs, rhs)) = value.cas_eq_parts() {
+        out.push_str("e:");
+        push_canonical_key(lhs, out);
+        out.push(';');
+        push_canonical_key(rhs, out);
+        return;
+    }
     out.push_str("n:");
-    out.push_str(&value.to_string());
+    push_atom_key(value, out);
+}
+
+fn push_limit_direction_key(direction: Option<LimitDirection>, out: &mut String) {
+    match direction {
+        Some(LimitDirection::Left) => out.push_str("left"),
+        Some(LimitDirection::Right) => out.push_str("right"),
+        None => out.push_str("two-sided"),
+    }
+}
+
+fn push_text_key(tag: &str, text: &str, out: &mut String) {
+    out.push_str(tag);
+    write!(out, "{}:", text.len()).expect("writing to String should not fail");
+    out.push_str(text);
+    out.push(';');
+}
+
+fn push_atom_key(value: &Value, out: &mut String) {
+    match value {
+        Value::Int(n) => {
+            write!(out, "i:{n};").expect("writing to String should not fail");
+        }
+        Value::BigInt(n) => {
+            write!(out, "bi:{n};").expect("writing to String should not fail");
+        }
+        Value::Float(f) => {
+            write!(out, "f:{:016x};", (**f).to_bits()).expect("writing to String should not fail");
+        }
+        Value::Complex(z) => {
+            write!(out, "z:{:016x}:{:016x};", z.re.to_bits(), z.im.to_bits())
+                .expect("writing to String should not fail");
+        }
+        Value::Fraction(fr) => {
+            write!(out, "q:{}:{};", fr.numer(), fr.denom())
+                .expect("writing to String should not fail");
+        }
+        Value::Algebraic(a) => {
+            out.push_str("alg(");
+            a.field().push_canonical_key(out);
+            out.push_str(";coeffs:");
+            for coeff in a.coeffs.iter() {
+                push_atom_key(coeff, out);
+            }
+            out.push(')');
+        }
+        Value::Char(c) => {
+            write!(out, "ch:{:x};", *c as u32).expect("writing to String should not fail");
+        }
+        Value::Tag(s) => push_text_key("tag:", s.as_ref(), out),
+        Value::Bool(b) => {
+            write!(out, "b:{b};").expect("writing to String should not fail");
+        }
+        Value::IntList(items) => {
+            write!(out, "il:{}:", items.len()).expect("writing to String should not fail");
+            for item in items.iter() {
+                write!(out, "{item};").expect("writing to String should not fail");
+            }
+        }
+        Value::List(items) => {
+            write!(out, "list:{}:", items.len()).expect("writing to String should not fail");
+            for item in items.iter() {
+                push_atom_key(item, out);
+            }
+        }
+        Value::String(s) => push_text_key("str:", s.as_str(), out),
+        Value::Dict(map) => {
+            write!(out, "dict:{}:", map.len()).expect("writing to String should not fail");
+            let mut entries: Vec<_> = map.iter().collect();
+            entries.sort_by_key(|(key, _)| *key);
+            for (key, value) in entries {
+                push_text_key("key:", key.as_ref(), out);
+                push_atom_key(value, out);
+            }
+        }
+        Value::Cas(_) => out.push_str("cas:raw;"),
+        Value::CompiledFunction(data) => {
+            write!(out, "compiled:{:p};", std::sync::Arc::as_ptr(data))
+                .expect("writing to String should not fail");
+        }
+        Value::Closure(data) => {
+            write!(out, "closure:{:p};", std::sync::Arc::as_ptr(data))
+                .expect("writing to String should not fail");
+        }
+        Value::BuiltinFunction { name, id } => {
+            write!(out, "builtin:{id}:").expect("writing to String should not fail");
+            push_text_key("name:", name.as_ref(), out);
+        }
+        Value::LiftedCallable(data) => {
+            write!(out, "lifted:{:p};", std::sync::Arc::as_ptr(data))
+                .expect("writing to String should not fail");
+        }
+        Value::Stream(data) => {
+            write!(out, "stream:{:p};", std::sync::Arc::as_ptr(data))
+                .expect("writing to String should not fail");
+        }
+    }
+}
+
+fn has_top_level_additive_operator(text: &str) -> bool {
+    let mut depth = 0usize;
+    for (idx, ch) in text.char_indices() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            '+' | '-' if depth == 0 && idx > 0 => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 fn canonical_cmp(lhs: &Value, rhs: &Value) -> Ordering {
@@ -122,7 +255,7 @@ fn format_arg(value: &Value, parent_prec: u8) -> String {
     let needs_parens = if value.is_cas_expr() {
         precedence(value) < parent_prec
     } else {
-        rendered.contains(" + ") || rendered.contains(" - ")
+        has_top_level_additive_operator(&rendered)
     };
     if needs_parens {
         format!("({rendered})")
@@ -423,4 +556,35 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
         return format!("{}[{}]", name.as_str(), rendered_args.join(";"));
     }
     format_atom(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use num_bigint::BigInt;
+
+    use super::*;
+    use crate::value::algebraic::{AlgebraicData, AlgebraicField};
+
+    #[test]
+    fn canonical_atom_key_for_algebraic_does_not_use_display_text() {
+        let field = AlgebraicField::new_real_root(
+            vec![BigInt::from(-1), BigInt::from(-1), BigInt::from(1)],
+            (-1.0, 0.0),
+        )
+        .expect("valid phi conjugate field");
+        let value = AlgebraicData::value(field, vec![Value::Int(0), Value::Int(1)])
+            .expect("valid phi conjugate value");
+        assert_eq!(value.to_string(), "1-phi");
+
+        let mut key = String::new();
+        push_canonical_key(&value, &mut key);
+        assert!(
+            key.contains("alg("),
+            "expected structural algebraic key, got {key}",
+        );
+        assert!(
+            !key.contains("phi"),
+            "canonical key should not depend on algebraic display text: {key}",
+        );
+    }
 }
