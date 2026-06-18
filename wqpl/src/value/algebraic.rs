@@ -45,10 +45,7 @@ pub(crate) struct AlgebraicField {
 }
 
 impl AlgebraicField {
-    pub(crate) fn new_real_root(
-        poly: Vec<BigInt>,
-        interval: (f64, f64),
-    ) -> WqResult<Arc<Self>> {
+    pub(crate) fn new_real_root(poly: Vec<BigInt>, interval: (f64, f64)) -> WqResult<Arc<Self>> {
         Self::new_real_root_over(AlgebraicBase::Rational, poly, interval)
     }
 
@@ -455,6 +452,7 @@ fn recognize_radical_name(poly: &[BigInt], interval: (f64, f64)) -> Option<Strin
 /// Convert a minimal polynomial to a short human-readable string like
 /// `x^3-2*x+1`.
 fn poly_to_short_string(poly: &[BigInt]) -> String {
+    const SYMBOL: &str = "_";
     let mut parts = Vec::new();
     for (power, c) in poly.iter().enumerate().rev() {
         if c.is_zero() {
@@ -470,20 +468,20 @@ fn poly_to_short_string(poly: &[BigInt]) -> String {
                 }
             }
             1 => match (c, is_first) {
-                (c, true) if *c == BigInt::from(1) => "$".to_string(),
-                (c, true) if *c == BigInt::from(-1) => "-$".to_string(),
-                (c, false) if *c == BigInt::from(1) => "+$".to_string(),
-                (c, false) if *c == BigInt::from(-1) => "-$".to_string(),
-                (_, true) => format!("{c}*$"),
-                (_, false) => format!("{c:+}*$"),
+                (c, true) if *c == BigInt::from(1) => SYMBOL.to_string(),
+                (c, true) if *c == BigInt::from(-1) => format!("-{SYMBOL}"),
+                (c, false) if *c == BigInt::from(1) => format!("+{SYMBOL}"),
+                (c, false) if *c == BigInt::from(-1) => format!("-{SYMBOL}"),
+                (_, true) => format!("{c}*{SYMBOL}"),
+                (_, false) => format!("{c:+}*{SYMBOL}"),
             },
             n => match (c, is_first) {
-                (c, true) if *c == BigInt::from(1) => format!("$^{n}"),
-                (c, true) if *c == BigInt::from(-1) => format!("-$^{n}"),
-                (c, false) if *c == BigInt::from(1) => format!("+$^{n}"),
-                (c, false) if *c == BigInt::from(-1) => format!("-$^{n}"),
-                (_, true) => format!("{c}*$^{n}"),
-                (_, false) => format!("{c:+}*$^{n}"),
+                (c, true) if *c == BigInt::from(1) => format!("{SYMBOL}^{n}"),
+                (c, true) if *c == BigInt::from(-1) => format!("-{SYMBOL}^{n}"),
+                (c, false) if *c == BigInt::from(1) => format!("+{SYMBOL}^{n}"),
+                (c, false) if *c == BigInt::from(-1) => format!("-{SYMBOL}^{n}"),
+                (_, true) => format!("{c}*{SYMBOL}^{n}"),
+                (_, false) => format!("{c:+}*{SYMBOL}^{n}"),
             },
         };
         parts.push(term);
@@ -1201,8 +1199,11 @@ mod tests {
     }
 
     fn sqrt2_field(interval: (f64, f64)) -> Arc<AlgebraicField> {
-        AlgebraicField::new_real_root(vec![BigInt::from(-2), BigInt::zero(), BigInt::one()], interval)
-            .expect("valid sqrt2 field")
+        AlgebraicField::new_real_root(
+            vec![BigInt::from(-2), BigInt::zero(), BigInt::one()],
+            interval,
+        )
+        .expect("valid sqrt2 field")
     }
 
     fn algebraic_data(
@@ -1245,12 +1246,8 @@ mod tests {
             AlgebraicField::new_real_root(vec![BigInt::from(-2), BigInt::one()], (1.0, 2.0))
                 .is_err()
         );
-        assert!(
-            AlgebraicField::new_real_root(sqrt2_poly().to_vec(), (2.0, 1.0)).is_err()
-        );
-        assert!(
-            AlgebraicField::new_real_root(sqrt2_poly().to_vec(), (2.0, 3.0)).is_err()
-        );
+        assert!(AlgebraicField::new_real_root(sqrt2_poly().to_vec(), (2.0, 1.0)).is_err());
+        assert!(AlgebraicField::new_real_root(sqrt2_poly().to_vec(), (2.0, 3.0)).is_err());
 
         let field = sqrt2_field((1.0, 2.0));
         assert!(
@@ -1272,8 +1269,11 @@ mod tests {
                 .expect("valid positive sqrt2"),
         ));
         let neg = Value::Algebraic(Arc::new(
-            AlgebraicData::new(sqrt2_field((-2.0, -1.0)), vec![Value::Int(0), Value::Int(1)])
-                .expect("valid negative sqrt2 root"),
+            AlgebraicData::new(
+                sqrt2_field((-2.0, -1.0)),
+                vec![Value::Int(0), Value::Int(1)],
+            )
+            .expect("valid negative sqrt2 root"),
         ));
 
         assert!(pos.add(&neg).is_err());
@@ -1383,8 +1383,8 @@ mod tests {
     #[test]
     fn value_algebraic_display_fraction_coeff() {
         let a = sqrt2_data(vec![
-                Value::Int(0),
-                Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+            Value::Int(0),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
         ]);
         let v = Value::Algebraic(Arc::new(a));
         assert_eq!(v.to_string(), "(1/2)*2^(1/2)");
@@ -1410,7 +1410,12 @@ mod tests {
     #[test]
     fn value_algebraic_display_unrecognized_poly() {
         // x^3 - x - 1 (not a pure power, so unrecognized)
-        let poly = vec![BigInt::from(-1), BigInt::from(-1), BigInt::zero(), BigInt::one()];
+        let poly = vec![
+            BigInt::from(-1),
+            BigInt::from(-1),
+            BigInt::zero(),
+            BigInt::one(),
+        ];
         let a = algebraic_data(
             poly,
             (1.0, 2.0),
@@ -1439,8 +1444,8 @@ mod tests {
     #[test]
     fn value_algebraic_display_fraction_constant() {
         let a = sqrt2_data(vec![
-                Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
-                Value::Int(1),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+            Value::Int(1),
         ]);
         let v = Value::Algebraic(Arc::new(a));
         // Constant term 1/2 does not need parens; coefficient 1 on sqrt2 is omitted
@@ -1621,8 +1626,8 @@ mod tests {
         let quot = one.divide(&sqrt2).unwrap();
         // Should be [0, 1/2]
         let expected = sqrt2_value(vec![
-                Value::Int(0),
-                Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+            Value::Int(0),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
         ]);
         assert_eq!(quot, expected);
     }
@@ -1652,8 +1657,8 @@ mod tests {
         let three = Value::Int(3);
         let quot = sqrt2.divide(&three).unwrap();
         let expected = sqrt2_value(vec![
-                Value::Int(0),
-                Value::from_fraction_parts(BigInt::from(1), BigInt::from(3)),
+            Value::Int(0),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(3)),
         ]);
         assert_eq!(quot, expected);
     }
@@ -1691,10 +1696,7 @@ mod tests {
         ];
         // b = x - √2 with coeffs in Q(√2): [-√2, 1]
         let neg_sqrt2 = sqrt2_value(vec![Value::Int(0), Value::Int(-1)]);
-        let b: Vec<Value> = vec![
-            neg_sqrt2,
-            sqrt2_value(vec![Value::Int(1)]),
-        ];
+        let b: Vec<Value> = vec![neg_sqrt2, sqrt2_value(vec![Value::Int(1)])];
         let g = crate::cas::poly_gcd(&a, &b).unwrap();
         // g should be degree 1 (x - √2), i.e. monic normalization of b
         assert_eq!(crate::cas::poly_degree(&g), 1);
