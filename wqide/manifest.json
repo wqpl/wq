@@ -73,12 +73,12 @@
       "code": "@t 1/0"
     },
     {
-      "slug": "little-programs",
-      "title": "Little Programs",
-      "file": "articles/wqpl/10-Little-Programs.md",
-      "description": "Put lists, dicts, functions, and pipes together in tiny programs.",
+      "slug": "primes",
+      "title": "A Prime Sieve",
+      "file": "articles/wqpl/10-Primes.md",
+      "description": "Walk through e/primes.wq one runnable composition at a time.",
       "section": "wqpl",
-      "code": "scores:(10;20;30);sum scores"
+      "code": "x:30;p:x+1|iota|>1;where p"
     },
     {
       "slug": "installation",
