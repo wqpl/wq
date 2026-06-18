@@ -5,8 +5,7 @@
 //! leads to the differential equation  R'(x) + k·R(x) = P(x).
 //!
 //! Expanding both sides as coefficient vectors and matching from the
-//! highest degree down gives a simple back-substitution (no linear-system
-//! solve needed), so this is fast and exact.
+//! highest degree down gives a simple back-substitution.
 
 use num_bigint::BigInt;
 
@@ -47,7 +46,7 @@ pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Val
             && inner.len() == 1
         {
             if exp_arg.is_some() {
-                return Ok(None); // two exp factors — not this pattern
+                return Ok(None); // two exp factors
             }
             exp_arg = Some(inner[0].clone());
         } else if arg.is_cas_expr() {
