@@ -55,6 +55,7 @@
   - `cargo clean`, or any other destructive cargo commands
   - Any cargo commands that trigger a complete rebuild
   - `rm` or any file deletion commands, except `trash`
+- If you are given a perf-related task, prefer `hyperfine` over `time`
 - Preferred approach: Make edits manually, one precise change at a time. If batch editing is unavoidable, ask the user for permission first.
   - When performing a batch edit, you must back up the target files first (eg. copy it as `.bak`) so it can be restored without git operations.
 - When you are not sure of the user's intent, prefer asking the user instead of guessing.
