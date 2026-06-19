@@ -10,7 +10,7 @@ https://codeberg.org/wqpl
 
 ## Commit messages
 
-- Clear, capitalized, imperative title: `Fix everything`
+- Clear, uncapitalized, imperative title: `fix everything`
 - Avoid "conventional commit prefixes" (no `fix:`)
 - Avoid trailing punctuation
 - Optionally prefix the title with a crate name and colon when one crate is the clear scope: `wq-cli: did something`
