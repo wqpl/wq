@@ -12,6 +12,7 @@ use colored::Colorize as _;
 use rand::RngExt as _;
 use terminal_size::{Width, terminal_size};
 use wqpl::builtins::{BuiltinPreset, Builtins};
+use wqpl::completion as wq_completion;
 use wqpl::doc::{self, DocRenderTarget};
 use wqpl::format::{FormatConfig, Formatter};
 use wqpl::interpret::InterpreterKind;
@@ -858,15 +859,12 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
 }
 
 fn sync_builtin_hints(session: &Session) {
-    let b = session.builtins();
-    let names = b.list_functions();
-    let mut usages = Vec::with_capacity(names.len());
-    for name in &names {
-        if let Some(id) = b.get_id(name) {
-            usages.push(Builtins::usage_from_id(id as u16).unwrap_or("").to_string());
-        } else {
-            usages.push(String::new());
-        }
+    let candidates = wq_completion::builtin_completion_candidates(session.builtins(), false);
+    let mut names = Vec::with_capacity(candidates.len());
+    let mut usages = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        names.push(candidate.label);
+        usages.push(candidate.detail.unwrap_or_default());
     }
     wqstdin_set_builtin_hints(names, usages);
 }

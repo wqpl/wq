@@ -5,6 +5,7 @@ use tower_lsp::jsonrpc::{Error, Result};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 use wqpl::builtins::Builtins;
+use wqpl::completion as wq_completion;
 use wqpl::cst::GreenNode;
 use wqpl::doc::{self, DocRenderTarget, DocTopic};
 // use wqpl::format::{FormatConfig, Formatter};
@@ -832,87 +833,15 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position.position;
         let byte_offset = position_to_byte_offset(&content, pos);
 
-        if is_in_no_completion_zone(&content, byte_offset) {
-            return Ok(None);
-        }
-
-        if is_typing_non_ident(&content, byte_offset) {
-            return Ok(None);
-        }
-
-        let mut items = Vec::new();
-        let mut seen = HashMap::new();
-
         let session = Session::new();
-
-        // Local symbols (from AST when parse succeeds)
-        if let Ok(index) = session.analyze_symbols(&content) {
-            for def in &index.defs {
-                if def.kind == DefKind::Builtin {
-                    continue;
-                }
-                let kind = match def.kind {
-                    DefKind::Assignment => CompletionItemKind::VARIABLE,
-                    DefKind::Function => CompletionItemKind::FUNCTION,
-                    DefKind::Parameter => CompletionItemKind::CONSTANT,
-                    DefKind::ImplicitParam => CompletionItemKind::VARIABLE,
-                    DefKind::LoopCounter => CompletionItemKind::VARIABLE,
-                    DefKind::Builtin => unreachable!(),
-                };
-                seen.entry(def.name.clone())
-                    .or_insert_with(|| CompletionItem {
-                        label: def.name.clone(),
-                        kind: Some(kind),
-                        ..CompletionItem::default()
-                    });
-            }
-        } else {
-            // Fallback: extract assignment names from recovery token stream
-            let tokens = session.tokenize_recovery(&content);
-            for window in tokens.windows(2) {
-                if let (
-                    wqpl::token::Token {
-                        token_type: wqpl::token::TokenType::Identifier(name),
-                        ..
-                    },
-                    wqpl::token::Token {
-                        token_type: wqpl::token::TokenType::Colon,
-                        ..
-                    },
-                ) = (&window[0], &window[1])
-                {
-                    seen.entry(name.clone()).or_insert_with(|| CompletionItem {
-                        label: name.clone(),
-                        kind: Some(CompletionItemKind::VARIABLE),
-                        ..CompletionItem::default()
-                    });
-                }
-            }
+        if wq_completion::should_suppress_expression_completion(&session, &content, byte_offset) {
+            return Ok(None);
         }
 
-        // Builtins
-        let builtins = session.builtins();
-        for name in builtins.list_functions_all() {
-            let detail = builtins
-                .get_id(&name)
-                .and_then(|id| Builtins::usage_from_id(id as u16).map(|u| u.to_string()));
-            let documentation = builtins.doc_for_name(&name).map(|topic| {
-                Documentation::MarkupContent(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: doc::render_markdown(&topic, DocRenderTarget::Lsp),
-                })
-            });
-            seen.entry(name.clone()).or_insert_with(|| CompletionItem {
-                label: name,
-                kind: Some(CompletionItemKind::FUNCTION),
-                detail,
-                documentation,
-                ..CompletionItem::default()
-            });
-        }
-
-        items.extend(seen.into_values());
-        items.sort_by(|a, b| a.label.cmp(&b.label));
+        let items = wq_completion::expression_completion_candidates(&session, &content)
+            .into_iter()
+            .map(completion_item_from_wq)
+            .collect();
 
         Ok(Some(CompletionResponse::List(CompletionList {
             is_incomplete: false,
@@ -964,6 +893,33 @@ impl LanguageServer for Backend {
         }
 
         Ok(None)
+    }
+}
+
+fn completion_item_from_wq(candidate: wq_completion::CompletionCandidate) -> CompletionItem {
+    let documentation = candidate.documentation.map(|topic| {
+        Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: doc::render_markdown(&topic, DocRenderTarget::Lsp),
+        })
+    });
+    CompletionItem {
+        label: candidate.label,
+        kind: Some(completion_kind_from_wq(candidate.kind)),
+        detail: candidate.detail,
+        documentation,
+        ..CompletionItem::default()
+    }
+}
+
+fn completion_kind_from_wq(kind: wq_completion::CompletionKind) -> CompletionItemKind {
+    match kind {
+        wq_completion::CompletionKind::Assignment => CompletionItemKind::VARIABLE,
+        wq_completion::CompletionKind::Function => CompletionItemKind::FUNCTION,
+        wq_completion::CompletionKind::Parameter => CompletionItemKind::CONSTANT,
+        wq_completion::CompletionKind::ImplicitParam => CompletionItemKind::VARIABLE,
+        wq_completion::CompletionKind::LoopCounter => CompletionItemKind::VARIABLE,
+        wq_completion::CompletionKind::Builtin => CompletionItemKind::FUNCTION,
     }
 }
 
@@ -1074,87 +1030,6 @@ fn provenance_label(provenance: &SymbolProvenance) -> String {
             .map(|origin| format!("loop counter in {origin}"))
             .unwrap_or_else(|| "loop counter".to_string()),
     }
-}
-
-/// Returns true if the cursor is inside a zone where completions should not
-/// be offered: shebang / `!` directive lines, comments, or plain string
-/// literals.  Format-string `{expr}` braced expressions are allowed.
-fn is_in_no_completion_zone(content: &str, byte_offset: usize) -> bool {
-    let clamped = byte_offset.min(content.len());
-
-    // 1. Shebang or ! directive on the original source line.
-    let line_start = content[..clamped].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let line_end = content[clamped..]
-        .find('\n')
-        .map(|i| clamped + i)
-        .unwrap_or(content.len());
-    let line = &content[line_start..line_end];
-    if line_start == 0 && line.starts_with("#!") {
-        return true;
-    }
-    if line.trim_start().starts_with('!') {
-        return true;
-    }
-
-    // 2. Comments or plain strings in the preprocessed token stream.
-    let session = Session::new();
-    let tokens = session.tokenize_recovery(content);
-
-    let Some(tok) = tokens
-        .iter()
-        .find(|t| t.byte_start <= byte_offset && byte_offset < t.byte_end)
-    else {
-        return false;
-    };
-
-    match &tok.token_type {
-        wqpl::token::TokenType::Comment(_)
-        | wqpl::token::TokenType::String(_)
-        | wqpl::token::TokenType::Character(_) => true,
-        wqpl::token::TokenType::FormatString(parts, _, _) => {
-            let in_expr = parts.iter().any(|p| matches!(p,
-                wqpl::token::FmtPart::Expr { start, end, .. } if *start <= byte_offset && byte_offset < *end
-            ));
-            !in_expr
-        }
-        _ => false,
-    }
-}
-
-/// Returns true if the user is currently typing something that is not a
-/// valid identifier (e.g. a number literal), in which case completions
-/// should be suppressed.
-fn is_typing_non_ident(content: &str, byte_offset: usize) -> bool {
-    // Case 1: cursor is inside a word that starts with a digit.
-    if let Some(word) = extract_word_at(content, byte_offset)
-        && word.chars().next().is_some_and(|c| c.is_numeric())
-    {
-        return true;
-    }
-
-    // Case 2: cursor is immediately after a number/string/character literal
-    // token with only whitespace in between (e.g. `1[` or `1 `).
-    let session = Session::new();
-    let tokens = session.tokenize_recovery(content);
-
-    if let Some(tok) = tokens.iter().rev().find(|t| t.byte_end <= byte_offset) {
-        match &tok.token_type {
-            wqpl::token::TokenType::Integer(_)
-            | wqpl::token::TokenType::BigInteger(_)
-            | wqpl::token::TokenType::Float(_)
-            | wqpl::token::TokenType::Imaginary(_)
-            | wqpl::token::TokenType::Character(_)
-            | wqpl::token::TokenType::String(_) => {
-                let between = &content[tok.byte_end..byte_offset];
-                if between.chars().all(|c| c.is_whitespace()) {
-                    return true;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    false
 }
 
 fn byte_offset_to_position(src: &str, offset: usize) -> Position {

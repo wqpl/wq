@@ -1,6 +1,6 @@
 use std::vec::IntoIter;
 
-use crate::completion::Completer;
+use crate::completion::{Completer, Pair};
 use crate::config::{CompletionType, Config, EditMode};
 use crate::edit::init_state;
 use crate::highlight::Highlighter;
@@ -59,6 +59,41 @@ impl Helper for SimpleCompleter {}
 impl Highlighter for SimpleCompleter {}
 impl Validator for SimpleCompleter {}
 
+struct DescribedCompleter;
+impl Completer for DescribedCompleter {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        _line: &str,
+        _pos: usize,
+        _ctx: &Context<'_>,
+    ) -> Result<(usize, Vec<Pair>)> {
+        Ok((
+            0,
+            vec![
+                Pair::described(
+                    "assignment-forms",
+                    "assignment-forms",
+                    "Bind, update, unpack, or checkpoint values with assignment forms and more tail.",
+                ),
+                Pair::described("assert", "assert", "Assert that an expression is true."),
+            ],
+        ))
+    }
+}
+impl Hinter for DescribedCompleter {
+    type Hint = String;
+
+    fn hint(&self, _line: &str, _pos: usize, _ctx: &Context<'_>) -> Option<Self::Hint> {
+        None
+    }
+}
+
+impl Helper for DescribedCompleter {}
+impl Highlighter for DescribedCompleter {}
+impl Validator for DescribedCompleter {}
+
 #[test]
 fn complete_line() {
     let mut out = Sink::default();
@@ -98,6 +133,30 @@ fn complete_symbol() {
     assert_eq!(None, cmd);
     assert_eq!("ℏ", s.line.as_str());
     assert_eq!(3, s.line.pos());
+}
+
+#[test]
+fn list_completion_aligns_and_truncates_descriptions() {
+    let mut out = Sink::default();
+    let history = crate::history::DefaultHistory::new();
+    let helper = Some(DescribedCompleter);
+    let mut s = init_state(&mut out, "a", 1, helper.as_ref(), &history);
+    let config = Config::builder()
+        .completion_type(CompletionType::List)
+        .completion_show_all_if_ambiguous(true)
+        .build();
+    let bindings = Bindings::new();
+    let mut input_state = InputState::new(&config, &bindings);
+    let keys = Vec::new();
+    let mut rdr: IntoIter<KeyEvent> = keys.into_iter();
+
+    let cmd = super::complete_line(&mut rdr, &mut s, &mut input_state, &config).unwrap();
+
+    assert_eq!(None, cmd);
+    assert!(out.output.contains("\nassignment-forms  Bind, update"));
+    assert!(out.output.contains("\nassert            Assert that"));
+    assert!(out.output.contains("..."));
+    assert!(!out.output.contains("and more tail."));
 }
 
 // `keys`: keys to press

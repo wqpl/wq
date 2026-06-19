@@ -3,6 +3,7 @@
 mod cas;
 mod cephes;
 mod compile;
+pub mod completion;
 mod escape;
 mod lex;
 mod parse;

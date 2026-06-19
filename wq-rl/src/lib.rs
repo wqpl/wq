@@ -273,16 +273,34 @@ fn page_completions<C: Candidate, H: Helper, P: Prompt + ?Sized>(
 
     let min_col_pad = 2;
     let cols = s.out.get_columns();
-    let max_width = cmp::min(
-        cols,
-        candidates
-            .iter()
-            .map(|c| s.layout.width(c.display()))
-            .max()
-            .unwrap()
-            + min_col_pad,
-    );
-    let num_cols = cols / max_width;
+    let has_descriptions = candidates.iter().any(|c| c.description().is_some());
+    let max_width = if has_descriptions {
+        cols
+    } else {
+        cmp::min(
+            cols,
+            candidates
+                .iter()
+                .map(|c| s.layout.width(c.display()))
+                .max()
+                .unwrap()
+                + min_col_pad,
+        )
+    };
+    let num_cols = if has_descriptions { 1 } else { cols / max_width };
+    let name_width = if has_descriptions {
+        let max_name_width = cols.saturating_sub(min_col_pad + 8);
+        Some(cmp::min(
+            max_name_width,
+            candidates
+                .iter()
+                .map(|c| s.layout.width(c.display()))
+                .max()
+                .unwrap(),
+        ))
+    } else {
+        None
+    };
     let nbc = u16::try_from(candidates.len()).unwrap();
 
     let mut pause_row = s.out.get_rows() - 1;
@@ -321,12 +339,14 @@ fn page_completions<C: Candidate, H: Helper, P: Prompt + ?Sized>(
         for col in 0..num_cols {
             let i = (col * num_rows) + row;
             if i < nbc {
-                let candidate = &candidates[i as usize].display();
-                let width = s.layout.width(candidate);
+                let candidate = &candidates[i as usize];
+                let rendered =
+                    render_completion_candidate(candidate, &s.layout, cols, name_width);
+                let width = s.layout.width(&rendered);
                 if let Some(highlighter) = s.highlighter() {
-                    ab.push_str(&highlighter.highlight_candidate(candidate, CompletionType::List));
+                    ab.push_str(&highlighter.highlight_candidate(&rendered, CompletionType::List));
                 } else {
-                    ab.push_str(candidate);
+                    ab.push_str(&rendered);
                 }
                 if ((col + 1) * num_rows) + row < nbc {
                     for _ in width..max_width {
@@ -340,6 +360,60 @@ fn page_completions<C: Candidate, H: Helper, P: Prompt + ?Sized>(
     s.out.write_and_flush("\n")?;
     s.repaint(RefreshKind::Min)?;
     Ok(None)
+}
+
+fn render_completion_candidate<C: Candidate>(
+    candidate: &C,
+    layout: &crate::layout::Layout,
+    cols: Unit,
+    name_width: Option<Unit>,
+) -> String {
+    let Some(name_width) = name_width else {
+        return candidate.display().to_string();
+    };
+    let name = truncate_to_width(candidate.display(), layout, name_width);
+    let name_render_width = layout.width(&name);
+    let mut rendered = name;
+    for _ in name_render_width..name_width {
+        rendered.push(' ');
+    }
+    let Some(description) = candidate.description().filter(|desc| !desc.is_empty()) else {
+        return rendered;
+    };
+    let separator = "  ";
+    rendered.push_str(separator);
+    let used_width = name_width + layout.width(separator);
+    if used_width < cols {
+        rendered.push_str(&truncate_to_width(description, layout, cols - used_width));
+    }
+    rendered
+}
+
+fn truncate_to_width(text: &str, layout: &crate::layout::Layout, max_width: Unit) -> String {
+    if layout.width(text) <= max_width {
+        return text.to_string();
+    }
+    if max_width == 0 {
+        return String::new();
+    }
+    if max_width <= 3 {
+        return ".".repeat(usize::from(max_width));
+    }
+    let body_width = max_width - 3;
+    let mut rendered = String::new();
+    let mut width = 0;
+    for ch in text.chars() {
+        let mut buf = [0; 4];
+        let ch_str = ch.encode_utf8(&mut buf);
+        let ch_width = layout.width(ch_str);
+        if width + ch_width > body_width {
+            break;
+        }
+        rendered.push(ch);
+        width += ch_width;
+    }
+    rendered.push_str("...");
+    rendered
 }
 
 /// Incremental search

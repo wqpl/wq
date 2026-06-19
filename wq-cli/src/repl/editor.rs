@@ -175,10 +175,7 @@ impl WqReplHighlighter {
         for name in names {
             let name = name.as_ref();
             if name.starts_with(prefix) {
-                candidates.push(Pair {
-                    display: name.to_string(),
-                    replacement: name.to_string(),
-                });
+                candidates.push(Pair::new(name, name));
             }
         }
     }
@@ -190,10 +187,7 @@ impl WqReplHighlighter {
     ) {
         for (name, desc) in entries {
             if name.starts_with(prefix) {
-                candidates.push(Pair {
-                    display: format!("{name} {desc}"),
-                    replacement: name,
-                });
+                candidates.push(Pair::described(name.clone(), name, desc));
             }
         }
     }
@@ -202,14 +196,18 @@ impl WqReplHighlighter {
         self.help_topics.iter().cloned()
     }
 
+    fn help_topic_summary(&self, name: &str) -> Option<&str> {
+        self.help_topics
+            .iter()
+            .find(|(topic_name, _)| topic_name == name)
+            .map(|(_, summary)| summary.as_str())
+    }
+
     fn embedded_load_entries(prefix: &str) -> Vec<Pair> {
         embedded_aliases()
             .map(|alias| format!("<{alias}>"))
             .filter(|name| name.starts_with(prefix))
-            .map(|name| Pair {
-                display: name.clone(),
-                replacement: name,
-            })
+            .map(|name| Pair::new(name.clone(), name))
             .collect()
     }
 
@@ -366,10 +364,7 @@ impl Completer for WqReplHighlighter {
                 .zip(repl_descs.iter())
                 .filter(|(n, _)| n.starts_with(prefix))
             {
-                candidates.push(Pair {
-                    display: format!("{name} {desc}"),
-                    replacement: name.clone(),
-                });
+                candidates.push(Pair::described(name, name, desc));
             }
         } else {
             if prefix.is_empty() {
@@ -377,17 +372,11 @@ impl Completer for WqReplHighlighter {
             }
             let names = &self.builtin_names;
             for n in names.iter().filter(|n| n.starts_with(prefix)) {
-                candidates.push(Pair {
-                    display: n.clone(),
-                    replacement: n.clone(),
-                });
+                candidates.push(Pair::new(n, n));
             }
             let globals = &self.global_names;
             for n in globals.iter().filter(|n| n.starts_with(prefix)) {
-                candidates.push(Pair {
-                    display: n.clone(),
-                    replacement: n.clone(),
-                });
+                candidates.push(Pair::new(n, n));
             }
         }
         candidates.sort_by(|a, b| a.display.cmp(&b.display));
@@ -434,6 +423,9 @@ impl Hinter for WqReplHighlighter {
                             );
                         }
                         "!help" | "!h" => {
+                            if let Some(summary) = self.help_topic_summary(arg_prefix) {
+                                return Some(WqHint::info(format!("  {summary}")));
+                            }
                             candidates.extend(
                                 self.help_topics
                                     .iter()
@@ -831,6 +823,27 @@ mod tests {
         let hint = h.hint("!help", 5, &ctx).expect("hint");
 
         assert_eq!(hint.display(), "  show help");
+        assert_eq!(hint.completion(), None);
+    }
+
+    #[test]
+    fn exact_help_topic_hint_shows_summary_display_only() {
+        let h = WqReplHighlighter::new();
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let hint = h
+            .hint(
+                "!help assignment-forms",
+                "!help assignment-forms".len(),
+                &ctx,
+            )
+            .expect("hint");
+
+        assert_eq!(
+            hint.display(),
+            "  Bind, update, unpack, or checkpoint values with assignment forms."
+        );
         assert_eq!(hint.completion(), None);
     }
 }

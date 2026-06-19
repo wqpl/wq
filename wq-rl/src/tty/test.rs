@@ -91,7 +91,9 @@ impl RawReader for IntoIter<KeyEvent> {
 }
 
 #[derive(Default)]
-pub struct Sink {}
+pub struct Sink {
+    pub output: String,
+}
 
 impl Renderer for Sink {
     type Reader = IntoIter<KeyEvent>;
@@ -119,7 +121,8 @@ impl Renderer for Sink {
         pos
     }
 
-    fn write_and_flush(&mut self, _: &str) -> Result<()> {
+    fn write_and_flush(&mut self, text: &str) -> Result<()> {
+        self.output.push_str(text);
         Ok(())
     }
 

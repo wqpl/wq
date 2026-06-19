@@ -10,6 +10,10 @@ use crate::{Context, Result};
 pub trait Candidate {
     /// Text to display when listing alternatives.
     fn display(&self) -> &str;
+    /// Optional explanatory text to display after the candidate name.
+    fn description(&self) -> Option<&str> {
+        None
+    }
     /// Text to insert in line.
     fn replacement(&self) -> &str;
 }
@@ -29,13 +33,43 @@ impl<T: AsRef<str>> Candidate for T {
 pub struct Pair {
     /// Text to display when listing alternatives.
     pub display: String,
+    /// Optional explanatory text to display after the candidate.
+    pub description: Option<String>,
     /// Text to insert in line.
     pub replacement: String,
+}
+
+impl Pair {
+    /// Create a completion candidate with separate display and replacement text.
+    pub fn new(display: impl Into<String>, replacement: impl Into<String>) -> Self {
+        Self {
+            display: display.into(),
+            description: None,
+            replacement: replacement.into(),
+        }
+    }
+
+    /// Create a completion candidate with explanatory text for list displays.
+    pub fn described(
+        display: impl Into<String>,
+        replacement: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        Self {
+            display: display.into(),
+            description: Some(description.into()),
+            replacement: replacement.into(),
+        }
+    }
 }
 
 impl Candidate for Pair {
     fn display(&self) -> &str {
         self.display.as_str()
+    }
+
+    fn description(&self) -> Option<&str> {
+        self.description.as_deref()
     }
 
     fn replacement(&self) -> &str {
@@ -345,10 +379,7 @@ fn filename_complete(
                     if metadata.is_dir() {
                         path.push(sep);
                     }
-                    entries.push(Pair {
-                        display: String::from(s),
-                        replacement: escape(path, esc_char, is_break_char, quote),
-                    });
+                    entries.push(Pair::new(s, escape(path, esc_char, is_break_char, quote)));
                 } // else ignore PermissionDenied
             }
         }
