@@ -1,0 +1,8 @@
+name = "wqdb_reserved"
+source_glob = "hotchoco/wqdb_reserved/*.wq"
+exclude_marker = "//exclude"
+
+[[modes]]
+name = "exec"
+flags = ["-w", "-o", "track global", "-o", "c", "-p"]
+capture = "stdout+stderr"

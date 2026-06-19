@@ -50,6 +50,18 @@ fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
             set_breakpoint_at_pc(host, it.next()).unwrap_or_else(wqstderr_println);
             false
         }
+        "tr" | "track" => {
+            track_symbol(host, it.next(), it.next()).unwrap_or_else(wqstderr_println);
+            false
+        }
+        "it" | "tracks" => {
+            print_symbol_trackers(host);
+            false
+        }
+        "ut" | "untrack" => {
+            untrack_symbol(host, it.next()).unwrap_or_else(wqstderr_println);
+            false
+        }
         "ib" => {
             let bps = host.dbg_breakpoints();
             if bps.is_empty() {
@@ -272,6 +284,73 @@ fn set_breakpoint_at_pc(host: &mut Vm, pc_arg: Option<&str>) -> Result<(), &'sta
     });
     wqstderr_println(format!("breakpoint set at {name} pc={pc}"));
     Ok(())
+}
+
+fn track_symbol(
+    host: &mut Vm,
+    target_arg: Option<&str>,
+    name_arg: Option<&str>,
+) -> Result<(), String> {
+    let Some(target_arg) = target_arg else {
+        return Err("usage: track [global|local|capture] <name-or-slot>".to_string());
+    };
+    let msg = if let Some(name_arg) = name_arg {
+        match target_arg {
+            "global" | "g" => host.dbg_track_global_symbol(name_arg),
+            "local" | "l" => host.dbg_track_local_symbol(name_arg)?,
+            "capture" | "cap" => {
+                let slot = name_arg
+                    .parse::<u16>()
+                    .map_err(|_| "usage: track capture <slot>".to_string())?;
+                host.dbg_track_capture_slot(slot)
+            }
+            _ => return Err("usage: track [global|local|capture] <name-or-slot>".to_string()),
+        }
+    } else {
+        host.dbg_track_symbol(target_arg)?
+    };
+    if let Some(msg) = msg {
+        wqstderr_println(msg);
+    }
+    Ok(())
+}
+
+fn untrack_symbol(host: &mut Vm, arg: Option<&str>) -> Result<(), String> {
+    let Some(arg) = arg else {
+        return Err("usage: untrack <id|all>".to_string());
+    };
+    if arg == "all" {
+        host.dbg_clear_symbol_trackers();
+        wqstderr_println("cleared symbol trackers");
+        return Ok(());
+    }
+    let id = arg
+        .parse::<usize>()
+        .map_err(|_| "usage: untrack <id|all>".to_string())?;
+    if host.dbg_remove_symbol_tracker(id) {
+        wqstderr_println(format!("removed symbol tracker {id}"));
+    } else {
+        wqstderr_println(format!("symbol tracker {id} not found"));
+    }
+    Ok(())
+}
+
+fn print_symbol_trackers(host: &Vm) {
+    let trackers = host.dbg_symbol_trackers();
+    if trackers.is_empty() {
+        wqstderr_println("no symbol trackers");
+        return;
+    }
+    wqstderr_println(format!("{:<4}  {:<3}  target", "id", "en"));
+    wqstderr_println(format!("{:-<4}  {:-<3}  {:-<20}", "", "", ""));
+    for (id, enabled, target) in trackers {
+        wqstderr_println(format!(
+            "{:<4}  {:<3}  {}",
+            id,
+            if enabled { "y" } else { "n" },
+            target
+        ));
+    }
 }
 
 fn set_breakpoint_at_function(

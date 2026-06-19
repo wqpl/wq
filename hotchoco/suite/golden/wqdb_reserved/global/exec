@@ -1,0 +1,4 @@
+2
+tracking #1 global global
+[wqdb:track #1] global global store at <TEST_PATH> in <script>: <unbound> -> 1 (int)
+[wqdb:track #1] global global store at <TEST_PATH> in <script>: 1 (int) -> 2 (int)

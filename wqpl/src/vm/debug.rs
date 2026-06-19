@@ -1,5 +1,6 @@
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
-use crate::value::Value;
+use crate::session::stdio::wqstderr_println;
+use crate::value::{Excerpt, Value};
 use crate::value::func::{CallableExpr, ClosureData, FunctionData, LiftedCallableData};
 use crate::vm::Vm;
 use crate::wqdb::build::{
@@ -9,7 +10,7 @@ use crate::wqdb::data::{
     Backtrace, ChunkId, CodeLoc, DebugChunkSpec, DebugInfo, DebugLocalsFrame, DebugProvenance,
     DebugStepHints,
 };
-use crate::wqdb::model::{BreakpointKind, StepMode};
+use crate::wqdb::model::{BreakpointKind, StepMode, SymbolTrackTarget};
 
 impl Vm {
     pub fn set_bt_mode(&mut self, flag: bool) {
@@ -524,6 +525,240 @@ impl Vm {
 
     pub fn debug_info(&self) -> &DebugInfo {
         &self.debug_info
+    }
+
+    pub fn dbg_track_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
+        let current_chunk = self.loc().chunk;
+        if let Some(meta) = self.debug_info.chunk_opt(current_chunk)
+            && let Some(names) = &meta.local_names
+            && let Some(slot) = names.iter().position(|candidate| candidate == name)
+        {
+            let target = SymbolTrackTarget::Local {
+                chunk: current_chunk,
+                slot: u16::try_from(slot).map_err(|_| "local slot out of range".to_string())?,
+                name: name.to_string(),
+            };
+            let label = self.format_symbol_track_target(&target);
+            let (tracker, added) = self.wqdb.ensure_symbol_tracker(target);
+            return Ok(added.then(|| format!("tracking #{} {label}", tracker.id)));
+        }
+
+        Ok(self.dbg_track_global_symbol(name))
+    }
+
+    pub fn dbg_track_global_symbol(&mut self, name: &str) -> Option<String> {
+        let target = SymbolTrackTarget::Global {
+            name: name.to_string(),
+        };
+        let label = self.format_symbol_track_target(&target);
+        let (tracker, added) = self.wqdb.ensure_symbol_tracker(target);
+        added.then(|| format!("tracking #{} {label}", tracker.id))
+    }
+
+    pub fn dbg_track_local_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
+        let current_chunk = self.loc().chunk;
+        let meta = self.debug_info.chunk(current_chunk);
+        let names = meta
+            .local_names
+            .as_ref()
+            .ok_or_else(|| "current chunk has no local symbol names".to_string())?;
+        let slot = names
+            .iter()
+            .position(|candidate| candidate == name)
+            .ok_or_else(|| format!("local symbol '{name}' not found in current chunk"))?;
+        let target = SymbolTrackTarget::Local {
+            chunk: current_chunk,
+            slot: u16::try_from(slot).map_err(|_| "local slot out of range".to_string())?,
+            name: name.to_string(),
+        };
+        let label = self.format_symbol_track_target(&target);
+        let (tracker, added) = self.wqdb.ensure_symbol_tracker(target);
+        Ok(added.then(|| format!("tracking #{} {label}", tracker.id)))
+    }
+
+    pub fn dbg_track_capture_slot(&mut self, slot: u16) -> Option<String> {
+        let current_chunk = self.loc().chunk;
+        let target = SymbolTrackTarget::Capture {
+            chunk: current_chunk,
+            slot,
+            name: self
+                .debug_info
+                .chunk_opt(current_chunk)
+                .and_then(|meta| meta.local_names.as_ref())
+                .and_then(|names| names.get(usize::from(slot)))
+                .cloned(),
+        };
+        let label = self.format_symbol_track_target(&target);
+        let (tracker, added) = self.wqdb.ensure_symbol_tracker(target);
+        added.then(|| format!("tracking #{} {label}", tracker.id))
+    }
+
+    pub fn dbg_symbol_trackers(&self) -> Vec<(usize, bool, String)> {
+        self.wqdb
+            .symbol_trackers()
+            .iter()
+            .map(|tracker| {
+                (
+                    tracker.id,
+                    tracker.enabled,
+                    self.format_symbol_track_target(&tracker.target),
+                )
+            })
+            .collect()
+    }
+
+    pub fn dbg_remove_symbol_tracker(&mut self, id: usize) -> bool {
+        self.wqdb.remove_symbol_tracker(id)
+    }
+
+    pub fn dbg_clear_symbol_trackers(&mut self) {
+        self.wqdb.clear_symbol_trackers();
+    }
+
+    pub(crate) fn symbol_trackers_enabled(&self) -> bool {
+        self.wqdb.has_symbol_trackers()
+    }
+
+    pub(crate) fn note_global_symbol_write(
+        &mut self,
+        pc: usize,
+        name: &str,
+        op: &'static str,
+        old: Option<Value>,
+        new: Value,
+    ) {
+        self.note_symbol_write(
+            pc,
+            SymbolTrackTarget::Global {
+                name: name.to_string(),
+            },
+            op,
+            old,
+            new,
+        );
+    }
+
+    pub(crate) fn note_local_symbol_write(
+        &mut self,
+        pc: usize,
+        slot: u16,
+        op: &'static str,
+        old: Option<Value>,
+        new: Value,
+    ) {
+        let target = SymbolTrackTarget::Local {
+            chunk: self.current_chunk,
+            slot,
+            name: self
+                .local_slot_name(usize::from(slot))
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("loc[{slot}]")),
+        };
+        self.note_symbol_write(pc, target, op, old, new);
+    }
+
+    pub(crate) fn note_capture_symbol_write(
+        &mut self,
+        pc: usize,
+        slot: u16,
+        op: &'static str,
+        old: Option<Value>,
+        new: Value,
+    ) {
+        let target = SymbolTrackTarget::Capture {
+            chunk: self.current_chunk,
+            slot,
+            name: self
+                .debug_info
+                .chunk_opt(self.current_chunk)
+                .and_then(|meta| meta.local_names.as_ref())
+                .and_then(|names| names.get(usize::from(slot)))
+                .cloned(),
+        };
+        self.note_symbol_write(pc, target, op, old, new);
+    }
+
+    fn note_symbol_write(
+        &mut self,
+        pc: usize,
+        target: SymbolTrackTarget,
+        op: &'static str,
+        old: Option<Value>,
+        new: Value,
+    ) {
+        if !self.wqdb.has_symbol_trackers() {
+            return;
+        }
+
+        let trackers: Vec<_> = self
+            .wqdb
+            .symbol_trackers()
+            .iter()
+            .filter(|tracker| tracker.enabled && tracker.target.matches_event(&target))
+            .cloned()
+            .collect();
+        if trackers.is_empty() {
+            return;
+        }
+
+        let loc = CodeLoc {
+            chunk: self.current_chunk,
+            pc,
+        };
+        let location = self.format_symbol_track_loc(loc);
+        let old_text = Self::format_symbol_track_value(old.as_ref());
+        let new_text = Self::format_symbol_track_value(Some(&new));
+        for tracker in trackers {
+            wqstderr_println(format!(
+                "[wqdb:track #{}] {} {op} at {location}: {old_text} -> {new_text}",
+                tracker.id,
+                self.format_symbol_track_target(&tracker.target),
+            ));
+        }
+    }
+
+    fn format_symbol_track_value(value: Option<&Value>) -> String {
+        match value {
+            Some(value) => format!("{} ({})", value.excerpt(), value.type_name()),
+            None => "<unbound>".to_string(),
+        }
+    }
+
+    fn format_symbol_track_loc(&self, loc: CodeLoc) -> String {
+        let meta = self.debug_info.chunk(loc.chunk);
+        let span = meta.line_table.context_span_at(loc.pc);
+        if span.file_id != u32::MAX
+            && let Some(sf) = self.debug_info.file(span.file_id)
+        {
+            let (line, col) = sf.line_col(span.start as usize);
+            return format!("{}:{line}:{col} in {}", sf.path, meta.name);
+        }
+        format!("pc {} in {}", loc.pc, meta.name)
+    }
+
+    fn format_symbol_track_target(&self, target: &SymbolTrackTarget) -> String {
+        match target {
+            SymbolTrackTarget::Global { name } => format!("global {name}"),
+            SymbolTrackTarget::Local { chunk, slot, name } => {
+                let chunk_name = self
+                    .debug_info
+                    .chunk_opt(*chunk)
+                    .map(|meta| meta.name.as_ref())
+                    .unwrap_or("?");
+                format!("local {name} ({chunk_name} slot {slot})")
+            }
+            SymbolTrackTarget::Capture { chunk, slot, name } => {
+                let chunk_name = self
+                    .debug_info
+                    .chunk_opt(*chunk)
+                    .map(|meta| meta.name.as_ref())
+                    .unwrap_or("?");
+                match name {
+                    Some(name) => format!("capture {name} ({chunk_name} slot {slot})"),
+                    None => format!("capture slot {slot} ({chunk_name})"),
+                }
+            }
+        }
     }
 
     pub fn dbg_continue(&mut self) {

@@ -6,6 +6,12 @@ fin, finish   step out
 b <pc>        add breakpoint in current chunk
 ib            show breakpoints
 rs            reset breakpoints
+track <name>  track current local by name, or global if no local matches
+track global <name>
+track local <name>
+track capture <slot>
+tracks        show symbol trackers
+untrack <id|all>
 gb, globals   dump globals
 lb, locals    dump locals
 bt            show backtrace

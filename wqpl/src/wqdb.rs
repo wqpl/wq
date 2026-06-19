@@ -9,7 +9,7 @@ use colored::Colorize;
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::vm::Vm;
 use crate::wqdb::data::{CodeLoc, DebugInfo};
-use crate::wqdb::model::{Breakpoint, BreakpointKind, StepMode};
+use crate::wqdb::model::{Breakpoint, BreakpointKind, StepMode, SymbolTrackTarget, SymbolTracker};
 
 pub struct Wqdb {
     pub enabled: bool,
@@ -21,6 +21,8 @@ pub struct Wqdb {
     last_stmt: Option<CodeLoc>,
     current_pause: Option<CodeLoc>,
     step_count: u64,
+    symbol_trackers: Vec<SymbolTracker>,
+    next_symbol_tracker_id: usize,
     pub on_pause: Option<fn(&mut Vm)>,
     pub batch_cmds: Vec<String>,
 }
@@ -37,6 +39,8 @@ impl Default for Wqdb {
             last_stmt: None,
             current_pause: None,
             step_count: 0,
+            symbol_trackers: Vec::new(),
+            next_symbol_tracker_id: 1,
             on_pause: None,
             batch_cmds: Vec::new(),
         }
@@ -168,6 +172,47 @@ impl Wqdb {
 
     pub fn mode(&self) -> StepMode {
         self.mode
+    }
+
+    pub fn ensure_symbol_tracker(&mut self, target: SymbolTrackTarget) -> (&SymbolTracker, bool) {
+        if let Some(index) = self
+            .symbol_trackers
+            .iter()
+            .position(|tracker| tracker.target == target)
+        {
+            return (&self.symbol_trackers[index], false);
+        }
+        let id = self.next_symbol_tracker_id;
+        self.next_symbol_tracker_id += 1;
+        self.symbol_trackers.push(SymbolTracker {
+            id,
+            enabled: true,
+            target,
+        });
+        (
+            self.symbol_trackers
+                .last()
+                .expect("tracker was just inserted"),
+            true,
+        )
+    }
+
+    pub fn symbol_trackers(&self) -> &[SymbolTracker] {
+        &self.symbol_trackers
+    }
+
+    pub fn has_symbol_trackers(&self) -> bool {
+        self.symbol_trackers.iter().any(|tracker| tracker.enabled)
+    }
+
+    pub fn remove_symbol_tracker(&mut self, id: usize) -> bool {
+        let old_len = self.symbol_trackers.len();
+        self.symbol_trackers.retain(|tracker| tracker.id != id);
+        self.symbol_trackers.len() != old_len
+    }
+
+    pub fn clear_symbol_trackers(&mut self) {
+        self.symbol_trackers.clear();
     }
 }
 
