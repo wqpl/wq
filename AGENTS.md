@@ -44,9 +44,10 @@
     - If a new major module is added, you may create a new test config for it.
   - Key commands: `python3 hotchoco.py run`, `python3 hotchoco.py show --no-pager`, `python3 hotchoco.py accept`.
   - See `python3 hotchoco.py --help` for details.
+- After a session, recommend a good commit message based on `CONTRIBUTING.md` guidelines.
 - Do not commit unless the user explicitly asked for it.
   - If the user asked for it, commit your changes according to the requirements in `CONTRIBUTING.md`.
-- Unless the user explicitly requested, you are not allowed to build/run with `release` profile.
+- Unless the user explicitly requested, don't build/run with `release` profile.
 - Prohibited without explicit user permission:
   - Python/Perl... scripts (especially regex-based replacements) for batch editing
   - `sed`, `awk`, or any similar text-processing utilities for code changes

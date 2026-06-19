@@ -12,8 +12,9 @@ https://codeberg.org/wqpl
 
 - Clear, capitalized, imperative title: `Fix everything`
 - Avoid "conventional commit prefixes" (no `fix:`)
-- Avoid trailing punctuation in PR titles
+- Avoid trailing punctuation
 - Optionally prefix the title with a crate name when one crate is the clear scope
+- Clear, consise message body
 - Include a `Release Notes:` section as the final section
 - Use one bullet under `Release Notes:`:
   - `- Added ...`, `- Fixed ...`, or `- Improved ...` for user-facing changes, or
