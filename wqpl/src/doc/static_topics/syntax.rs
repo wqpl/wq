@@ -142,19 +142,24 @@ const NAMED_ARGUMENT_EXAMPLES: &[DocExample] = &[
 
 const PIPE_EXAMPLES: &[DocExample] = &[
     DocExample {
-        title: "Pipe as the first argument",
-        code: "10|-[3]",
-        expectation: ExampleExpectation::ResultContains("7"),
-    },
-    DocExample {
-        title: "Pipe as the last argument",
-        code: "10||-[3]",
-        expectation: ExampleExpectation::ResultContains("-7"),
-    },
-    DocExample {
-        title: "Tap returns the original value",
-        code: "5|.{x+1}",
+        title: "Pipe as the first argument for divide",
+        code: "10|/[2]",
         expectation: ExampleExpectation::ResultContains("5"),
+    },
+    DocExample {
+        title: "Pipe as the last argument for divide",
+        code: "10||/[2]",
+        expectation: ExampleExpectation::ResultContains("0.2"),
+    },
+    DocExample {
+        title: "Tap as the first argument",
+        code: "10|./[2]",
+        expectation: ExampleExpectation::ResultContains("10"),
+    },
+    DocExample {
+        title: "Tap as the last argument",
+        code: "10||./[2]",
+        expectation: ExampleExpectation::ResultContains("10"),
     },
 ];
 
@@ -171,11 +176,33 @@ const PRECEDENCE_EXAMPLES: &[DocExample] = &[
     },
 ];
 
-const CONDITIONAL_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Choose a branch",
-    code: "$[1=1;2;3]",
-    expectation: ExampleExpectation::ResultContains("2"),
-}];
+const CONDITIONAL_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Choose a branch",
+        code: "$[1=1;2;3]",
+        expectation: ExampleExpectation::ResultContains("2"),
+    },
+    DocExample {
+        title: "Use a multi-expression false branch",
+        code: "$[F;0;x:1;x]",
+        expectation: ExampleExpectation::ResultContains("1"),
+    },
+    DocExample {
+        title: "Run a multi-expression guard body",
+        code: "$.[T;x:1;x]",
+        expectation: ExampleExpectation::ResultContains("1"),
+    },
+    DocExample {
+        title: "Choose from condition/branch pairs",
+        code: "$$[F;\"a\";T;\"b\";\"c\"]",
+        expectation: ExampleExpectation::ResultContains("b"),
+    },
+    DocExample {
+        title: "Use an implicit unit chain default",
+        code: "$$[F;\"a\";F;\"b\"]",
+        expectation: ExampleExpectation::ResultContains("()"),
+    },
+];
 
 const N_LOOP_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Repeat with a counter",
@@ -342,9 +369,19 @@ pub(super) const PIPES: StaticDoc = StaticDoc {
     title: "Pipes",
     kind: DocKind::Syntax,
     group: "Syntax",
-    aliases: &["|", "||", "|.", "||.", "pipe", "pipes", "tap pipe"],
+    aliases: &[
+        "|",
+        "||",
+        "|.",
+        "||.",
+        "pipe",
+        "pipes",
+        "left pipe",
+        "right pipe",
+        "tap pipe",
+    ],
     summary: "Pipe a value into the next call.",
-    details: "`x | f[y]` behaves like `f[x;y]`, while `x || f[y]` behaves like `f[y;x]`. Dotted pipes `|.` and `||.` run the right-hand call but return the original left value, which is useful for tracing or side effects inside a pipeline. Pipes bind looser than calls and arithmetic, so `1+2|*[10]` pipes `3` into `*[10]`.",
+    details: "`x|f[y]` behaves like `f[x;y]`. Most builtins are designed with the main data as the first argument, so `|` is the everyday pipe. `x||f[y]` behaves like `f[y;x]`, putting the value last; this matters most for calls such as `/` and `-`, where `10|/[2]` is `10/2` but `10||/[2]` is `2/10`. Dotted pipes `|.` and `||.` use the same first-argument or last-argument insertion, run the right-hand call, discard its result, and return the original left value. Pipes bind looser than calls and arithmetic, so `1+2|*[10]` pipes `3` into `*[10]`.",
     examples: PIPE_EXAMPLES,
     related: &["calls", "postfix", "assignment-forms", "precedence"],
 };
@@ -373,7 +410,7 @@ pub(super) const CONDITIONALS: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["$", "$.", "$$", "conditional", "conditionals"],
     summary: "Choose between branches with dollar forms.",
-    details: "`$[c;t;f]` is a ternary. `$.[c;t]` is a guard-like conditional. `$$[...]` chains condition/action pairs.",
+    details: "`$[c;t;f]` is a ternary; extra expressions after `f` are part of the false branch, so `$[c;t;f1;f2]` runs `f1` then returns `f2` when `c` is false. `$.[c;t1;t2...]` is a guard-like conditional that runs its body only when `c` is true and otherwise returns unit. `$$[c1;t1;c2;t2;default]` checks condition/branch pairs in order; the final default is optional, and an omitted default is unit.",
     examples: CONDITIONAL_EXAMPLES,
     related: &["bool"],
 };
