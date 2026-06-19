@@ -1034,15 +1034,17 @@ impl PosixRenderer {
         highlighter: Option<&dyn Highlighter>,
         style: InputAreaStyle,
     ) {
+        let highlighted = highlighter.map(|highlighter| highlighter.highlight_hint(hint));
+        let hint = highlighted.as_deref().unwrap_or(hint);
         let mut parts = hint.split('\n');
         if let Some(first) = parts.next() {
-            self.push_highlighted_hint(first, highlighter);
+            self.buffer.push_str(first);
         }
         for part in parts {
             self.push_input_area_suffix(style);
             self.buffer.push('\n');
             self.push_input_area_prefix(style);
-            self.push_highlighted_hint(part, highlighter);
+            self.buffer.push_str(part);
         }
     }
 }

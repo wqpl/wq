@@ -20,6 +20,13 @@ const RESET: &str = "\x1b[0m";
 const REPL_INPUT_BG: &str = "\x1b[48;5;236m";
 const REPL_INPUT_RESET: &str = "\x1b[0m";
 const REPL_INPUT_TOKEN_RESET: &str = "\x1b[22;23;24;39m";
+const HINT_DIM: &str = "\x1b[38;5;244m";
+const HINT_RESET: &str = "\x1b[22;39m";
+const MENU_DOT: &str = "●";
+const MENU_DOT_DIM: &str = "\x1b[38;5;67m";
+const MENU_DOT_SELECTED: &str = "\x1b[38;5;150m";
+const MENU_FOOTER: &str = "\x1b[38;5;248m";
+const MENU_SELECTED: &str = "\x1b[1;38;5;252m";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WqHint {
@@ -167,7 +174,12 @@ impl WqReplHighlighter {
         Some((arg_start, arg_prefix))
     }
 
-    fn push_name_candidates<I, S>(candidates: &mut Vec<Pair>, names: I, prefix: &str)
+    fn push_name_candidates<I, S>(
+        candidates: &mut Vec<Pair>,
+        names: I,
+        prefix: &str,
+        kind: &str,
+    )
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -175,7 +187,7 @@ impl WqReplHighlighter {
         for name in names {
             let name = name.as_ref();
             if name.starts_with(prefix) {
-                candidates.push(Pair::new(name, name));
+                candidates.push(Pair::new(name, name).with_kind(kind));
             }
         }
     }
@@ -184,10 +196,11 @@ impl WqReplHighlighter {
         candidates: &mut Vec<Pair>,
         entries: impl IntoIterator<Item = (String, String)>,
         prefix: &str,
+        kind: &str,
     ) {
         for (name, desc) in entries {
             if name.starts_with(prefix) {
-                candidates.push(Pair::described(name.clone(), name, desc));
+                candidates.push(Pair::described(name.clone(), name, desc).with_kind(kind));
             }
         }
     }
@@ -207,7 +220,7 @@ impl WqReplHighlighter {
         embedded_aliases()
             .map(|alias| format!("<{alias}>"))
             .filter(|name| name.starts_with(prefix))
-            .map(|name| Pair::new(name.clone(), name))
+            .map(|name| Pair::new(name.clone(), name).with_kind("embedded"))
             .collect()
     }
 
@@ -265,6 +278,50 @@ impl WqReplHighlighter {
         }
     }
 
+    fn is_completion_menu_hint(hint: &str) -> bool {
+        hint.lines().any(Self::is_completion_menu_row)
+    }
+
+    fn is_completion_menu_row(line: &str) -> bool {
+        line.starts_with("> ● ") || line.starts_with("  ● ")
+    }
+
+    fn colorize_completion_menu_hint(hint: &str) -> String {
+        let mut out = String::from(HINT_DIM);
+        let is_menu = Self::is_completion_menu_hint(hint);
+        for (idx, line) in hint.split('\n').enumerate() {
+            if idx > 0 {
+                out.push('\n');
+            }
+            if let Some(rest) = line.strip_prefix("> ● ") {
+                out.push_str(MENU_SELECTED);
+                out.push_str("> ");
+                out.push_str(MENU_DOT_SELECTED);
+                out.push_str(MENU_DOT);
+                out.push(' ');
+                out.push_str(MENU_SELECTED);
+                out.push_str(rest);
+                out.push_str(HINT_DIM);
+            } else if let Some(rest) = line.strip_prefix("  ● ") {
+                out.push_str(HINT_DIM);
+                out.push_str("  ");
+                out.push_str(MENU_DOT_DIM);
+                out.push_str(MENU_DOT);
+                out.push(' ');
+                out.push_str(HINT_DIM);
+                out.push_str(rest);
+            } else if is_menu && !line.is_empty() {
+                out.push_str(MENU_FOOTER);
+                out.push_str(line);
+                out.push_str(HINT_DIM);
+            } else {
+                out.push_str(line);
+            }
+        }
+        out.push_str(HINT_RESET);
+        out
+    }
+
     fn semantic_highlight_spans(&self, text: &str) -> Vec<wqpl::highlight::SemanticHighlightSpan> {
         if !text.contains('{') && !text.contains('\'') {
             return Vec::new();
@@ -306,6 +363,7 @@ impl Completer for WqReplHighlighter {
                                 &mut candidates,
                                 BuiltinPreset::names().iter(),
                                 arg_prefix,
+                                "preset",
                             );
                         }
                         "!i" | "!interpreter" => {
@@ -313,6 +371,7 @@ impl Completer for WqReplHighlighter {
                                 &mut candidates,
                                 InterpreterKind::names().iter(),
                                 arg_prefix,
+                                "interpreter",
                             );
                         }
                         "!help" | "!h" => {
@@ -320,6 +379,7 @@ impl Completer for WqReplHighlighter {
                                 &mut candidates,
                                 self.help_topic_entries(),
                                 arg_prefix,
+                                "help",
                             );
                         }
                         "!d" | "!debug" => {
@@ -333,17 +393,28 @@ impl Completer for WqReplHighlighter {
                                         .copied(),
                                 ),
                                 arg_prefix,
+                                "debug",
                             );
                         }
                         "!fmt" => {
                             let modes = ["on", "off", "nlcd", "olw"];
-                            Self::push_name_candidates(&mut candidates, modes.iter(), arg_prefix);
+                            Self::push_name_candidates(
+                                &mut candidates,
+                                modes.iter(),
+                                arg_prefix,
+                                "mode",
+                            );
                         }
                         "!load" | "!l" => {
                             if arg_prefix.starts_with('<') {
                                 candidates.extend(Self::embedded_load_entries(arg_prefix));
                             } else {
-                                return self.path_completer.complete_path(line, pos);
+                                let (start, mut paths) =
+                                    self.path_completer.complete_path(line, pos)?;
+                                for path in &mut paths {
+                                    path.kind = Some("path".to_string());
+                                }
+                                return Ok((start, paths));
                             }
                         }
                         _ => {}
@@ -364,19 +435,45 @@ impl Completer for WqReplHighlighter {
                 .zip(repl_descs.iter())
                 .filter(|(n, _)| n.starts_with(prefix))
             {
-                candidates.push(Pair::described(name, name, desc));
+                candidates.push(Pair::described(name, name, desc).with_kind("command"));
             }
         } else {
             if prefix.is_empty() {
                 return Ok((pos, Vec::new()));
             }
             let names = &self.builtin_names;
-            for n in names.iter().filter(|n| n.starts_with(prefix)) {
-                candidates.push(Pair::new(n, n));
+            for (idx, name) in names.iter().enumerate().filter(|(_, name)| name.starts_with(prefix))
+            {
+                let candidate = self
+                    .builtin_usages
+                    .get(idx)
+                    .filter(|usage| !usage.is_empty())
+                    .map_or_else(
+                        || Pair::new(name.clone(), name.clone()),
+                        |usage| Pair::described(name.clone(), name.clone(), usage.clone()),
+                    )
+                    .with_kind("builtin");
+                candidates.push(candidate);
             }
             let globals = &self.global_names;
-            for n in globals.iter().filter(|n| n.starts_with(prefix)) {
-                candidates.push(Pair::new(n, n));
+            for (idx, name) in globals
+                .iter()
+                .enumerate()
+                .filter(|(_, name)| name.starts_with(prefix))
+            {
+                let ty = self.global_types.get(idx).cloned().unwrap_or_default();
+                let excerpt = self.global_excerpts.get(idx).cloned().unwrap_or_default();
+                let description = match (ty.is_empty(), excerpt.is_empty()) {
+                    (true, true) => None,
+                    (true, false) => Some(excerpt),
+                    (false, true) => Some(format!(":{ty}")),
+                    (false, false) => Some(format!(":{ty} {excerpt}")),
+                };
+                let candidate = description.map_or_else(
+                    || Pair::new(name.clone(), name.clone()),
+                    |desc| Pair::described(name.clone(), name.clone(), desc),
+                );
+                candidates.push(candidate.with_kind("global"));
             }
         }
         candidates.sort_by(|a, b| a.display.cmp(&b.display));
@@ -599,7 +696,11 @@ impl RLHighlighter for WqReplHighlighter {
 
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
         if cfg!(unix) {
-            Cow::Owned(format!("\x1b[38;5;244m{hint}\x1b[39m"))
+            if Self::is_completion_menu_hint(hint) {
+                Cow::Owned(Self::colorize_completion_menu_hint(hint))
+            } else {
+                Cow::Owned(format!("{HINT_DIM}{hint}{HINT_RESET}"))
+            }
         } else {
             Cow::Borrowed(hint)
         }
@@ -621,6 +722,7 @@ impl RLHighlighter for WqReplHighlighter {
 #[cfg(test)]
 mod tests {
     use wq_rl::history::DefaultHistory;
+    use wq_rl::highlight::Highlighter as _;
     use wq_rl::hint::Hint as _;
 
     use super::*;
@@ -660,6 +762,28 @@ mod tests {
 
         assert!(out.contains("\x1b[38;5;39ma\x1b[22;23;24;39m"));
         assert_eq!(strip_ansi(&out), src);
+    }
+
+    #[test]
+    fn completion_menu_hint_coloring_preserves_visible_text() {
+        let h = WqReplHighlighter::new();
+        let src =
+            "\n> ● alpha    first item\n  ● beta     second item\n  1-2 of 2  selected 1/2  builtin  alpha";
+        let out = h.highlight_hint(src);
+
+        if cfg!(unix) {
+            assert!(out.contains(MENU_DOT_SELECTED));
+            assert!(out.contains(MENU_FOOTER));
+        }
+        assert_eq!(strip_ansi(&out), src);
+
+        let selected_line = "> ● alpha    first item";
+        let selected_out = h.highlight_hint(selected_line);
+
+        if cfg!(unix) {
+            assert!(selected_out.contains(MENU_DOT_SELECTED));
+        }
+        assert_eq!(strip_ansi(&selected_out), selected_line);
     }
 
     #[test]
@@ -723,6 +847,34 @@ mod tests {
         assert_eq!(expr_start, expr_pos - 2);
         assert_eq!(expr_candidates.len(), 1);
         assert_eq!(expr_candidates[0].replacement, "sum");
+    }
+
+    #[test]
+    fn expression_completion_carries_menu_metadata() {
+        let mut h = WqReplHighlighter::new();
+        h.set_builtin_hints(vec!["sum".to_string()], vec!["sum[xs*]".to_string()]);
+        h.set_global_hints(
+            vec!["score".to_string()],
+            vec!["num".to_string()],
+            vec!["score:42".to_string()],
+        );
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let (_, candidates) = h.complete("s", 1, &ctx).expect("completion");
+        let sum = candidates
+            .iter()
+            .find(|candidate| candidate.replacement == "sum")
+            .expect("sum candidate");
+        let score = candidates
+            .iter()
+            .find(|candidate| candidate.replacement == "score")
+            .expect("score candidate");
+
+        assert_eq!(sum.kind.as_deref(), Some("builtin"));
+        assert_eq!(sum.description.as_deref(), Some("sum[xs*]"));
+        assert_eq!(score.kind.as_deref(), Some("global"));
+        assert_eq!(score.description.as_deref(), Some(":num score:42"));
     }
 
     #[test]

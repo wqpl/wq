@@ -14,6 +14,10 @@ pub trait Candidate {
     fn description(&self) -> Option<&str> {
         None
     }
+    /// Optional category used by richer completion displays.
+    fn kind(&self) -> Option<&str> {
+        None
+    }
     /// Text to insert in line.
     fn replacement(&self) -> &str;
 }
@@ -35,6 +39,8 @@ pub struct Pair {
     pub display: String,
     /// Optional explanatory text to display after the candidate.
     pub description: Option<String>,
+    /// Optional category used by richer completion displays.
+    pub kind: Option<String>,
     /// Text to insert in line.
     pub replacement: String,
 }
@@ -45,6 +51,7 @@ impl Pair {
         Self {
             display: display.into(),
             description: None,
+            kind: None,
             replacement: replacement.into(),
         }
     }
@@ -58,8 +65,15 @@ impl Pair {
         Self {
             display: display.into(),
             description: Some(description.into()),
+            kind: None,
             replacement: replacement.into(),
         }
+    }
+
+    /// Attach a category for richer completion displays.
+    pub fn with_kind(mut self, kind: impl Into<String>) -> Self {
+        self.kind = Some(kind.into());
+        self
     }
 }
 
@@ -70,6 +84,10 @@ impl Candidate for Pair {
 
     fn description(&self) -> Option<&str> {
         self.description.as_deref()
+    }
+
+    fn kind(&self) -> Option<&str> {
+        self.kind.as_deref()
     }
 
     fn replacement(&self) -> &str {

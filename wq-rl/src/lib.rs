@@ -273,6 +273,11 @@ fn complete_hint_line<H: Helper, P: Prompt + ?Sized>(s: &mut State<'_, '_, H, P>
 }
 
 const MENU_MAX_ROWS: usize = 8;
+const MENU_MARKER: &str = "●";
+const MENU_FALLBACK_KIND: &str = "candidate";
+const MENU_RIGHT_GUARD_WIDTH: Unit = 1;
+const MENU_ROW_PREFIX_WIDTH: Unit = 4;
+const MENU_FOOTER_PREFIX_WIDTH: Unit = 2;
 
 fn menu_completions<H: Helper, P: Prompt + ?Sized>(
     rdr: &mut <Terminal as Term>::Reader,
@@ -285,7 +290,12 @@ fn menu_completions<H: Helper, P: Prompt + ?Sized>(
     let mark = s.changes.begin();
     let mut selected = 0usize;
     loop {
-        let menu = render_completion_menu(candidates, &s.layout, s.out.get_columns(), selected);
+        let input_area_padding = s
+            .highlighter()
+            .and_then(|highlighter| highlighter.input_area_style())
+            .map_or(0, |style| style.horizontal_padding);
+        let cols = s.out.get_columns().saturating_sub(input_area_padding);
+        let menu = render_completion_menu(candidates, &s.layout, cols, selected);
         s.refresh_line_with_msg(Some(&menu), CmdKind::ForcedRefresh)?;
         let cmd = s.next_cmd(input_state, rdr, true, true)?;
         match cmd {
@@ -345,7 +355,7 @@ fn render_completion_menu<C: Candidate>(
     let window_end = (window_start + row_count).min(candidates.len());
     let visible = &candidates[window_start..window_end];
     let has_descriptions = visible.iter().any(|c| c.description().is_some());
-    let row_width = cols.saturating_sub(2);
+    let row_width = cols.saturating_sub(MENU_ROW_PREFIX_WIDTH + MENU_RIGHT_GUARD_WIDTH);
     let name_width = if has_descriptions {
         let max_name_width = row_width.saturating_sub(10);
         Some(
@@ -364,20 +374,49 @@ fn render_completion_menu<C: Candidate>(
         let index = window_start + offset;
         menu.push('\n');
         menu.push_str(if index == selected { "> " } else { "  " });
+        menu.push_str(MENU_MARKER);
+        menu.push(' ');
         menu.push_str(&render_completion_candidate(
             candidate, layout, row_width, name_width,
         ));
     }
-    if candidates.len() > row_count {
-        menu.push('\n');
-        menu.push_str(&format!(
-            "  {}-{} of {}",
-            window_start + 1,
-            window_end,
-            candidates.len()
-        ));
-    }
+    menu.push('\n');
+    menu.push_str("  ");
+    menu.push_str(&render_completion_menu_footer(
+        candidates,
+        layout,
+        cols.saturating_sub(MENU_FOOTER_PREFIX_WIDTH + MENU_RIGHT_GUARD_WIDTH),
+        window_start,
+        window_end,
+        selected,
+    ));
     menu
+}
+
+fn render_completion_menu_footer<C: Candidate>(
+    candidates: &[C],
+    layout: &crate::layout::Layout,
+    cols: Unit,
+    window_start: usize,
+    window_end: usize,
+    selected: usize,
+) -> String {
+    let selected_candidate = &candidates[selected];
+    let kind = selected_candidate
+        .kind()
+        .filter(|kind| !kind.is_empty())
+        .unwrap_or(MENU_FALLBACK_KIND);
+    let footer = format!(
+        "{}-{} of {}  selected {}/{}  {}  {}",
+        window_start + 1,
+        window_end,
+        candidates.len(),
+        selected + 1,
+        candidates.len(),
+        kind,
+        selected_candidate.display()
+    );
+    truncate_to_width(&footer, layout, cols)
 }
 
 fn page_completions<C: Candidate, H: Helper, P: Prompt + ?Sized>(
@@ -486,7 +525,7 @@ fn render_completion_candidate<C: Candidate>(
     name_width: Option<Unit>,
 ) -> String {
     let Some(name_width) = name_width else {
-        return candidate.display().to_string();
+        return truncate_to_width(candidate.display(), layout, cols);
     };
     let name = truncate_to_width(candidate.display(), layout, name_width);
     let name_render_width = layout.width(&name);

@@ -109,8 +109,8 @@ impl Completer for MenuCompleter {
         Ok((
             0,
             vec![
-                Pair::described("alpha", "alpha", "first item"),
-                Pair::described("beta", "beta", "second item"),
+                Pair::described("alpha", "alpha", "first item").with_kind("builtin"),
+                Pair::described("beta", "beta", "second item").with_kind("global"),
                 Pair::described("charlie", "charlie", "third item"),
                 Pair::described("delta", "delta", "fourth item"),
                 Pair::described("echo", "echo", "fifth item"),
@@ -217,9 +217,12 @@ fn menu_completion_is_bounded_without_prompt_or_pager() {
     let cmd = super::complete_line(&mut rdr, &mut s, &mut input_state, &config).expect("complete");
 
     assert_eq!(None, cmd);
-    assert!(out.output.contains("\n> alpha    first item"));
-    assert!(out.output.contains("\n  hotel    eighth item"));
-    assert!(out.output.contains("\n  1-8 of 10"));
+    assert!(out.output.contains("\n> ● alpha    first item"));
+    assert!(out.output.contains("\n  ● hotel    eighth item"));
+    assert!(
+        out.output
+            .contains("\n  1-8 of 10  selected 1/10  builtin  alpha")
+    );
     assert!(!out.output.contains("india"));
     assert!(!out.output.contains("Display all"));
     assert!(!out.output.contains("--More--"));
@@ -243,6 +246,35 @@ fn menu_completion_accepts_selected_candidate() {
 
     assert_eq!(None, cmd);
     assert_eq!("beta", s.line.as_str());
+    assert!(
+        out.output
+            .contains("\n  1-8 of 10  selected 2/10  global  beta")
+    );
+}
+
+#[test]
+fn menu_completion_reserves_right_edge_for_long_text() {
+    let mut out = Sink::default();
+    let history = crate::history::DefaultHistory::new();
+    let helper = Some(MenuCompleter);
+    let s = init_state(&mut out, "", 0, helper.as_ref(), &history);
+    let cols = 24;
+    let candidates = vec![
+        Pair::described(
+            "alpha",
+            "alpha",
+            "long text excerpt that should be truncated before the terminal edge",
+        )
+        .with_kind("builtin"),
+        Pair::described("beta", "beta", "second item").with_kind("global"),
+    ];
+
+    let menu = super::render_completion_menu(&candidates, &s.layout, cols, 0);
+
+    assert!(menu.contains("..."));
+    for line in menu.lines().filter(|line| !line.is_empty()) {
+        assert!(s.layout.width(line) < cols, "{line}");
+    }
 }
 
 #[test]
