@@ -2,27 +2,65 @@
 
 use std::borrow::Cow;
 
-use wq_rl::completion::{Completer, Pair};
+use wq_rl::completion::{Completer, FilenameCompleter, Pair};
 use wq_rl::highlight::{CmdKind, Highlighter as RLHighlighter, InputAreaStyle};
-use wq_rl::hint::Hinter;
+use wq_rl::hint::{Hint as RLHint, Hinter};
 use wq_rl::validate::{ValidationContext, ValidationResult, Validator};
 use wq_rl::{Context as RLContext, Helper};
 use wqpl::builtins::BuiltinPreset;
+use wqpl::doc::{self, DocKind};
 use wqpl::highlight::{Highlighter, cursor_context_at};
 use wqpl::interpret::InterpreterKind;
 use wqpl::session::Session;
 use wqpl::session::dbglog::DEBUG_LOG_FLAG_NAMES;
+
+use crate::load::embed::embedded_aliases;
 
 const RESET: &str = "\x1b[0m";
 const REPL_INPUT_BG: &str = "\x1b[48;5;236m";
 const REPL_INPUT_RESET: &str = "\x1b[0m";
 const REPL_INPUT_TOKEN_RESET: &str = "\x1b[22;23;24;39m";
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WqHint {
+    display: String,
+    completion: Option<String>,
+}
+
+impl WqHint {
+    fn completion(text: impl Into<String>) -> Self {
+        let text = text.into();
+        Self {
+            display: text.clone(),
+            completion: Some(text),
+        }
+    }
+
+    fn info(text: impl Into<String>) -> Self {
+        Self {
+            display: text.into(),
+            completion: None,
+        }
+    }
+}
+
+impl RLHint for WqHint {
+    fn display(&self) -> &str {
+        &self.display
+    }
+
+    fn completion(&self) -> Option<&str> {
+        self.completion.as_deref()
+    }
+}
+
 pub struct WqReplHighlighter {
     highlighter: Highlighter,
+    path_completer: FilenameCompleter,
     enabled: bool,
     builtin_names: Vec<String>,
     builtin_usages: Vec<String>,
+    help_topics: Vec<(String, String)>,
     global_names: Vec<String>,
     global_types: Vec<String>,
     global_excerpts: Vec<String>,
@@ -41,9 +79,11 @@ impl WqReplHighlighter {
     pub fn new() -> Self {
         Self {
             highlighter: Highlighter::new(),
+            path_completer: FilenameCompleter::new(),
             enabled: true,
             builtin_names: Vec::new(),
             builtin_usages: Vec::new(),
+            help_topics: Self::collect_help_topics(),
             global_names: Vec::new(),
             global_types: Vec::new(),
             global_excerpts: Vec::new(),
@@ -88,6 +128,89 @@ impl WqReplHighlighter {
     pub fn set_repl_hints(&mut self, names: Vec<String>, descs: Vec<String>) {
         self.repl_names = names;
         self.repl_descs = descs;
+    }
+
+    fn collect_help_topics() -> Vec<(String, String)> {
+        let mut topics = Vec::new();
+        for topic in doc::all_topics() {
+            let mut names = Vec::new();
+            if topic.kind == DocKind::Builtin {
+                names.extend(topic.aliases.clone());
+            } else {
+                names.push(topic.id.clone());
+                names.extend(topic.aliases.clone());
+            }
+            for name in names {
+                topics.push((name, topic.summary.clone()));
+            }
+        }
+        topics.sort_by(|a, b| a.0.cmp(&b.0));
+        topics.dedup_by(|a, b| a.0 == b.0);
+        topics
+    }
+
+    fn first_arg_prefix(line: &str, pos: usize, cmd_end: usize) -> Option<(usize, &str)> {
+        let after_cmd = line.get(cmd_end..pos)?;
+        let leading_ws = after_cmd
+            .char_indices()
+            .find(|(_, ch)| !ch.is_ascii_whitespace())
+            .map(|(idx, _)| idx)
+            .unwrap_or(after_cmd.len());
+        let arg_start = cmd_end + leading_ws;
+        let arg_prefix = line.get(arg_start..pos)?;
+        if !arg_prefix.is_empty() && arg_prefix.chars().last().is_some_and(char::is_whitespace) {
+            return None;
+        }
+        if arg_prefix.split_whitespace().nth(1).is_some() {
+            return None;
+        }
+        Some((arg_start, arg_prefix))
+    }
+
+    fn push_name_candidates<I, S>(candidates: &mut Vec<Pair>, names: I, prefix: &str)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        for name in names {
+            let name = name.as_ref();
+            if name.starts_with(prefix) {
+                candidates.push(Pair {
+                    display: name.to_string(),
+                    replacement: name.to_string(),
+                });
+            }
+        }
+    }
+
+    fn push_described_candidates(
+        candidates: &mut Vec<Pair>,
+        entries: impl IntoIterator<Item = (String, String)>,
+        prefix: &str,
+    ) {
+        for (name, desc) in entries {
+            if name.starts_with(prefix) {
+                candidates.push(Pair {
+                    display: format!("{name} {desc}"),
+                    replacement: name,
+                });
+            }
+        }
+    }
+
+    fn help_topic_entries(&self) -> impl Iterator<Item = (String, String)> + '_ {
+        self.help_topics.iter().cloned()
+    }
+
+    fn embedded_load_entries(prefix: &str) -> Vec<Pair> {
+        embedded_aliases()
+            .map(|alias| format!("<{alias}>"))
+            .filter(|name| name.starts_with(prefix))
+            .map(|name| Pair {
+                display: name.clone(),
+                replacement: name,
+            })
+            .collect()
     }
 
     /// Find the start index of the "word" that ends at `pos`.
@@ -177,79 +300,59 @@ impl Completer for WqReplHighlighter {
             // Check if we're completing an argument (cursor after first whitespace word)
             if let Some(first_space) = trimmed.find(|c: char| c.is_ascii_whitespace()) {
                 let cmd_end = line.len() - trimmed.len() + first_space;
-                if pos > cmd_end {
-                    // Only complete the first argument; skip if more words already exist.
-                    let words_before = line[..start].split_whitespace().count();
-                    if words_before >= 2 {
-                        return Ok((start, Vec::new()));
-                    }
+                if let Some((arg_start, arg_prefix)) = Self::first_arg_prefix(line, pos, cmd_end) {
                     let cmd_word = &trimmed[..first_space];
-                    let arg_prefix = prefix;
                     match cmd_word {
                         "!bfn" => {
-                            for name in BuiltinPreset::names()
-                                .iter()
-                                .filter(|n| n.starts_with(arg_prefix))
-                            {
-                                candidates.push(Pair {
-                                    display: name.to_string(),
-                                    replacement: name.to_string(),
-                                });
-                            }
+                            Self::push_name_candidates(
+                                &mut candidates,
+                                BuiltinPreset::names().iter(),
+                                arg_prefix,
+                            );
                         }
                         "!i" | "!interpreter" => {
-                            for name in InterpreterKind::names()
-                                .iter()
-                                .filter(|n| n.starts_with(arg_prefix))
-                            {
-                                candidates.push(Pair {
-                                    display: name.to_string(),
-                                    replacement: name.to_string(),
-                                });
-                            }
+                            Self::push_name_candidates(
+                                &mut candidates,
+                                InterpreterKind::names().iter(),
+                                arg_prefix,
+                            );
                         }
                         "!help" | "!h" => {
-                            let names = &self.builtin_names;
-                            for name in names.iter().filter(|n| n.starts_with(arg_prefix)) {
-                                candidates.push(Pair {
-                                    display: name.clone(),
-                                    replacement: name.clone(),
-                                });
-                            }
+                            Self::push_described_candidates(
+                                &mut candidates,
+                                self.help_topic_entries(),
+                                arg_prefix,
+                            );
                         }
                         "!d" | "!debug" => {
                             let aliases = ["0", "1", "2", "3", "4"];
-                            for name in aliases
-                                .iter()
-                                .copied()
-                                .chain(
+                            Self::push_name_candidates(
+                                &mut candidates,
+                                aliases.iter().copied().chain(
                                     DEBUG_LOG_FLAG_NAMES
                                         .iter()
                                         .flat_map(|(names, _)| names.iter())
                                         .copied(),
-                                )
-                                .filter(|n| n.starts_with(arg_prefix))
-                            {
-                                candidates.push(Pair {
-                                    display: name.to_string(),
-                                    replacement: name.to_string(),
-                                });
-                            }
+                                ),
+                                arg_prefix,
+                            );
                         }
                         "!fmt" => {
                             let modes = ["on", "off", "nlcd", "olw"];
-                            for mode in modes.iter().filter(|n| n.starts_with(arg_prefix)) {
-                                candidates.push(Pair {
-                                    display: mode.to_string(),
-                                    replacement: mode.to_string(),
-                                });
+                            Self::push_name_candidates(&mut candidates, modes.iter(), arg_prefix);
+                        }
+                        "!load" | "!l" => {
+                            if arg_prefix.starts_with('<') {
+                                candidates.extend(Self::embedded_load_entries(arg_prefix));
+                            } else {
+                                return self.path_completer.complete_path(line, pos);
                             }
                         }
                         _ => {}
                     }
                     candidates.sort_by(|a, b| a.display.cmp(&b.display));
                     candidates.dedup_by(|a, b| a.display == b.display);
-                    return Ok((start, candidates));
+                    return Ok((arg_start, candidates));
                 }
             }
             // Command name completion
@@ -294,7 +397,7 @@ impl Completer for WqReplHighlighter {
 }
 
 impl Hinter for WqReplHighlighter {
-    type Hint = String;
+    type Hint = WqHint;
     fn hint(&self, line: &str, pos: usize, _ctx: &RLContext<'_>) -> Option<Self::Hint> {
         let pos = pos.min(line.len());
         if !self.hints_enabled || self.should_suppress(line, pos) {
@@ -310,14 +413,8 @@ impl Hinter for WqReplHighlighter {
             // REPL command argument hinting
             if let Some(first_space) = trimmed.find(|c: char| c.is_ascii_whitespace()) {
                 let cmd_end = line.len() - trimmed.len() + first_space;
-                if pos > cmd_end {
-                    // Only hint the first argument; skip if more words already exist.
-                    let words_before = line[..start].split_whitespace().count();
-                    if words_before >= 2 {
-                        return None;
-                    }
+                if let Some((_, arg_prefix)) = Self::first_arg_prefix(line, pos, cmd_end) {
                     let cmd_word = &trimmed[..first_space];
-                    let arg_prefix = prefix;
                     let mut candidates: Vec<String> = Vec::new();
                     match cmd_word {
                         "!bfn" => {
@@ -337,9 +434,11 @@ impl Hinter for WqReplHighlighter {
                             );
                         }
                         "!help" | "!h" => {
-                            let names = &self.builtin_names;
                             candidates.extend(
-                                names.iter().filter(|n| n.starts_with(arg_prefix)).cloned(),
+                                self.help_topics
+                                    .iter()
+                                    .filter(|(name, _)| name.starts_with(arg_prefix))
+                                    .map(|(name, _)| name.clone()),
                             );
                         }
                         "!d" | "!debug" => {
@@ -367,6 +466,13 @@ impl Hinter for WqReplHighlighter {
                                     .map(|n| n.to_string()),
                             );
                         }
+                        "!load" | "!l" if arg_prefix.starts_with('<') => {
+                            candidates.extend(
+                                embedded_aliases()
+                                    .map(|alias| format!("<{alias}>"))
+                                    .filter(|name| name.starts_with(arg_prefix)),
+                            );
+                        }
                         _ => {}
                     }
                     candidates.sort();
@@ -376,7 +482,7 @@ impl Hinter for WqReplHighlighter {
                         return None;
                     }
                     let suffix = &name[arg_prefix.len()..];
-                    return Some(suffix.to_string());
+                    return Some(WqHint::completion(suffix));
                 }
             }
             // REPL command name hinting
@@ -401,10 +507,10 @@ impl Hinter for WqReplHighlighter {
             let idx = matches[0];
             let (name, hint) = &merged[idx];
             if name == prefix {
-                return hint.as_ref().map(|h| h.to_string());
+                return hint.as_ref().map(|h| WqHint::info(h.to_string()));
             }
             let suffix = &name[prefix.len()..];
-            return Some(suffix.to_string());
+            return Some(WqHint::completion(suffix));
         }
 
         // Builtin + global hinting
@@ -438,10 +544,10 @@ impl Hinter for WqReplHighlighter {
         let idx = matches[0];
         let (name, hint) = &merged[idx];
         if name == prefix {
-            return hint.as_ref().map(|h| h.to_string());
+            return hint.as_ref().map(|h| WqHint::info(h.to_string()));
         }
         let suffix = &name[prefix.len()..];
-        Some(suffix.to_string())
+        Some(WqHint::completion(suffix))
     }
 }
 
@@ -523,6 +629,7 @@ impl RLHighlighter for WqReplHighlighter {
 #[cfg(test)]
 mod tests {
     use wq_rl::history::DefaultHistory;
+    use wq_rl::hint::Hint as _;
 
     use super::*;
 
@@ -624,5 +731,106 @@ mod tests {
         assert_eq!(expr_start, expr_pos - 2);
         assert_eq!(expr_candidates.len(), 1);
         assert_eq!(expr_candidates[0].replacement, "sum");
+    }
+
+    #[test]
+    fn hint_prefix_completion_is_insertable() {
+        let mut h = WqReplHighlighter::new();
+        h.set_builtin_hints(vec!["sum".to_string()], vec!["sum[xs*]".to_string()]);
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let hint = h.hint("su", 2, &ctx).expect("hint");
+
+        assert_eq!(hint.display(), "m");
+        assert_eq!(hint.completion(), Some("m"));
+    }
+
+    #[test]
+    fn exact_builtin_usage_hint_is_display_only() {
+        let mut h = WqReplHighlighter::new();
+        h.set_builtin_hints(vec!["sum".to_string()], vec!["sum[xs*]".to_string()]);
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let hint = h.hint("sum", 3, &ctx).expect("hint");
+
+        assert_eq!(hint.display(), "  sum[xs*]");
+        assert_eq!(hint.completion(), None);
+    }
+
+    #[test]
+    fn command_completion_includes_load_directives() {
+        let mut h = WqReplHighlighter::new();
+        h.set_repl_hints(
+            vec![
+                "!load".to_string(),
+                "!l".to_string(),
+                "!p".to_string(),
+                "!help".to_string(),
+            ],
+            vec![
+                "load embedded script or file".to_string(),
+                "load embedded script or file".to_string(),
+                "load prelude".to_string(),
+                "show help".to_string(),
+            ],
+        );
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let (_, load_candidates) = h.complete("!lo", 3, &ctx).expect("completion");
+        let (_, p_candidates) = h.complete("!p", 2, &ctx).expect("completion");
+
+        assert!(load_candidates.iter().any(|c| c.replacement == "!load"));
+        assert!(p_candidates.iter().any(|c| c.replacement == "!p"));
+    }
+
+    #[test]
+    fn help_completion_includes_static_topics() {
+        let h = WqReplHighlighter::new();
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let (start, candidates) = h
+            .complete("!help assign", "!help assign".len(), &ctx)
+            .expect("completion");
+
+        assert_eq!(start, "!help ".len());
+        assert!(
+            candidates
+                .iter()
+                .any(|c| c.replacement == "assignment-forms")
+        );
+    }
+
+    #[test]
+    fn load_completion_includes_embedded_alias() {
+        let h = WqReplHighlighter::new();
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let (start, candidates) = h
+            .complete("!load <pre", "!load <pre".len(), &ctx)
+            .expect("completion");
+
+        assert_eq!(start, "!load ".len());
+        assert!(candidates.iter().any(|c| c.replacement == "<prelude>"));
+    }
+
+    #[test]
+    fn exact_command_hint_is_display_only() {
+        let mut h = WqReplHighlighter::new();
+        h.set_repl_hints(
+            vec!["!help".to_string()],
+            vec!["show help".to_string()],
+        );
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let hint = h.hint("!help", 5, &ctx).expect("hint");
+
+        assert_eq!(hint.display(), "  show help");
+        assert_eq!(hint.completion(), None);
     }
 }

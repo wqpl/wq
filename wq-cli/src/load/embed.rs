@@ -14,6 +14,10 @@ static EMBEDDED: &[EmbeddedScript] = &[EmbeddedScript {
     content: include_str!("../../wqstd/prelude.wq"),
 }];
 
+pub fn embedded_aliases() -> impl Iterator<Item = &'static str> {
+    EMBEDDED.iter().flat_map(|script| script.aliases.iter().copied())
+}
+
 pub fn lookup_embedded_by_alias(name: &str) -> Option<&'static EmbeddedScript> {
     let n = name.trim().trim_matches(['<', '>']);
     let n = n.strip_suffix(".wq").unwrap_or(n); // .wq optional for embedded alias
