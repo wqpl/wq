@@ -2203,3 +2203,14 @@ pub(crate) fn substitute_cas(expr: &Value, var: &Value, val: &Value) -> WqResult
     let expr = simplify_cas_value(expr)?;
     simplify_cas_value(&substitute_expr(&expr, &var, val)?)
 }
+
+pub(crate) fn substitute_cas_bindings(
+    expr: &Value,
+    bindings: &[(Arc<str>, Value)],
+) -> WqResult<Value> {
+    let mut result = expr.clone();
+    for (name, value) in bindings {
+        result = substitute_cas(&result, &Value::from_cas_var(name.as_ref()), value)?;
+    }
+    Ok(result)
+}

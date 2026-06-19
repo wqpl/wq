@@ -19,11 +19,18 @@ const REWRITE_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("1"),
 }];
 
-const NUMERIC_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Evaluate symbolic constants and functions",
-    code: "numeric @s sin[0]+cos[0]",
-    expectation: ExampleExpectation::ResultContains("1.0"),
-}];
+const NUMERIC_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Evaluate symbolic constants and functions",
+        code: "numeric @s sin[0]+cos[0]",
+        expectation: ExampleExpectation::ResultContains("1.0"),
+    },
+    DocExample {
+        title: "Evaluate after binding symbols",
+        code: "@s sin[x]+y | numeric[`x:0;`y:2]",
+        expectation: ExampleExpectation::ResultContains("2.0"),
+    },
+];
 
 const DIFF_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Differentiate a polynomial",
@@ -31,11 +38,18 @@ const DIFF_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("3*x^2"),
 }];
 
-const SUBSTITUTE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Apply a list of equations",
-    code: "substitute[@s x+y;(eq[@s x;2];eq[@s y;3])]",
-    expectation: ExampleExpectation::ResultContains("5"),
-}];
+const SUBSTITUTE_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Bind a symbol with a named argument",
+        code: "@s x^2+y | substitute[`x:2]",
+        expectation: ExampleExpectation::ResultContains("y + 4"),
+    },
+    DocExample {
+        title: "Apply a list of equations",
+        code: "substitute[@s x+y;(eq[@s x;2];eq[@s y;3])]",
+        expectation: ExampleExpectation::ResultContains("5"),
+    },
+];
 
 const EXPAND_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Expand a binomial",
@@ -118,7 +132,7 @@ pub(super) const REWRITE: BuiltinDoc = BuiltinDoc {
 pub(super) const NUMERIC: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Numeric,
     summary: "Evaluate a symbolic expression numerically.",
-    details: "`numeric[expr]` evaluates CAS constants and functions once all symbolic variables have been removed or substituted. It errors when the expression still depends on a variable.",
+    details: "`numeric[expr]` evaluates CAS constants and functions once all symbolic variables have been removed or substituted. Named arguments bind symbols before evaluation, so ``expr|numeric[`x:1]`` substitutes `x` and then evaluates. It errors when the expression still depends on a variable.",
     examples: NUMERIC_EXAMPLES,
     related: &["substitute", "simplify", "float"],
 };
@@ -134,7 +148,7 @@ pub(super) const DIFF: BuiltinDoc = BuiltinDoc {
 pub(super) const SUBSTITUTE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Substitute,
     summary: "Replace symbols or subexpressions in a CAS expression.",
-    details: "`substitute[expr;var;val]` replaces `var` with `val`. The two-argument form accepts one `eq[lhs;rhs]` or a list of equations, applying list entries in order.",
+    details: "``substitute[expr;`name:val...]`` binds symbols by name. `substitute[expr;var;val]` replaces `var` with `val`. The two-argument form accepts one `eq[lhs;rhs]` or a list of equations, applying list entries in order.",
     examples: SUBSTITUTE_EXAMPLES,
     related: &["eq", "numeric", "simplify"],
 };

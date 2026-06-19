@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use smallvec::SmallVec;
 
-use super::{Sv4, index_load_err, named_arg_index_err, not_bound_err, vm_err};
+use super::{
+    Sv4, cas_binding_call_arg_err, index_load_err, named_arg_index_err, not_bound_err, vm_err,
+};
 use crate::interpret::InterpreterHook;
 use crate::value::{Value, WqResult};
 use crate::vm::call::{CallSpec, ResolvedCallable};
@@ -98,6 +100,15 @@ pub(super) fn dispatch_postfix(
         }
         Value::CompiledFunction { .. } | Value::Closure { .. } => {
             dispatch_user_value_cached(vm, idx, target, argc, spec_dispatch, user_dispatch, hooks)
+        }
+        Value::Cas(_) if vm.pending_named_meta.is_some() => {
+            let args = vm.take_call_args_from_stack(argc)?;
+            if !args.is_empty() {
+                return Err(cas_binding_call_arg_err());
+            }
+            let result = crate::cas::substitute_cas_bindings(target, args.named_items())?;
+            vm.stack.push(result);
+            Ok(false)
         }
         _ => {
             if vm.pending_named_meta.take().is_some() {

@@ -221,6 +221,9 @@ impl BuiltinFnArgs {
     pub fn has_named(&self) -> bool {
         self.named.is_some()
     }
+    pub(crate) fn named_items(&self) -> &[(Arc<str>, Value)] {
+        self.named.as_deref().unwrap_or(&[])
+    }
     pub fn push(&mut self, v: Value) {
         self.runtime_validated = false;
         self.pos.push(v)
@@ -1103,10 +1106,10 @@ declare_builtins! {
     (EQ, Eq, "eq", "eq[lhs;rhs]", sig!(arity!(2)), plain(cas::eq), BuiltinGroup::Cas),
     (SIMPLIFY, Simplify, "simplify", "simplify[expr]", sig!(arity!(1)), plain(cas::simplify), BuiltinGroup::Cas),
     (REWRITE, Rewrite, "rewrite", "rewrite[expr]", sig!(arity!(1)), plain(cas::rewrite), BuiltinGroup::Cas),
-    (NUMERIC, Numeric, "numeric", "numeric[expr]", sig!(arity!(1)), plain(cas::numeric), BuiltinGroup::Cas),
+    (NUMERIC, Numeric, "numeric", "numeric[expr], numeric[expr;`name:val...]", sig!(arity!(1), defer), plain(cas::numeric), BuiltinGroup::Cas),
     (DIFF, Diff, "diff", "diff[expr;var?]", sig!(arity!(1, 2)), plain(cas::diff), BuiltinGroup::Cas),
     (D, D, "D", "D[expr;var?]", sig!(arity!(1, 2), alias Diff), plain(cas::diff), BuiltinGroup::Cas), // alias of diff
-    (SUBSTITUTE, Substitute, "substitute", "substitute[expr;eqs], substitute[expr;var;val]", sig!(arity!(2, 3)), plain(cas::substitute), BuiltinGroup::Cas),
+    (SUBSTITUTE, Substitute, "substitute", "substitute[expr;eqs], substitute[expr;var;val], substitute[expr;`name:val...]", sig!(arity!(1, 2, 3), defer), plain(cas::substitute), BuiltinGroup::Cas),
     (EXPAND, Expand, "expand", "expand[expr]", sig!(arity!(1)), plain(cas::expand), BuiltinGroup::Cas),
     (FACTOR_COMMON, FactorCommon, "factor_common", "factor_common[expr]", sig!(arity!(1)), plain(cas::factor_common), BuiltinGroup::Cas),
     (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;1], factor[expr;1;var]", sig!(arity!(1, 2, 3)), plain(cas::factor_poly), BuiltinGroup::Cas),
@@ -1336,6 +1339,20 @@ pub(super) fn check_arity_named(
 
     check_arity_inner(builtin, arity, args)?;
     check_named_args(args, builtin, allowed)
+}
+
+/// Like check_arity but accepts arbitrary named args.
+#[inline]
+pub(super) fn check_arity_any_named(
+    builtin: BuiltinEnum,
+    arity: impl AsRef<[usize]>,
+    args: &BuiltinFnArgs,
+) -> WqResult<()> {
+    if args.runtime_validated() {
+        return Ok(());
+    }
+
+    check_arity_inner(builtin, arity, args)
 }
 
 /// Validate that all provided named args are in the allowed list.
@@ -1603,7 +1620,7 @@ mod tests {
             (BuiltinEnum::Numeric, "1"),
             (BuiltinEnum::Diff, "1 2"),
             (BuiltinEnum::D, "1 2"),
-            (BuiltinEnum::Substitute, "2 3"),
+            (BuiltinEnum::Substitute, "1 2 3"),
             (BuiltinEnum::Expand, "1"),
             (BuiltinEnum::FactorCommon, "1"),
             (BuiltinEnum::Factor, "1 2 3"),
@@ -1687,10 +1704,10 @@ mod tests {
         assert!(
             builtins
                 .validate_runtime_call_args(
-                    Builtins::SUBSTITUTE,
+                    Builtins::FIND,
                     &BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)]),
                 )
-                .expect("substitute runtime validation should succeed")
+                .expect("find runtime validation should succeed")
         );
         assert!(
             builtins
@@ -1756,11 +1773,27 @@ mod tests {
     fn runtime_call_checks_cover_all_registered_builtins() {
         let builtins = Builtins::new();
 
-        assert!(builtins.call_checks.iter().all(Option::is_some));
-        assert!(
+        let deferred: Vec<_> = Builtins::ENUMS
+            .iter()
+            .zip(Builtins::SIGNATURES.iter())
+            .filter_map(|(builtin, signature)| {
+                (signature.validation == BuiltinValidation::Defer).then_some(*builtin)
+            })
+            .collect();
+        assert_eq!(deferred, vec![BuiltinEnum::Numeric, BuiltinEnum::Substitute]);
+        assert!(builtins
+            .call_checks
+            .iter()
+            .zip(Builtins::SIGNATURES.iter())
+            .all(|(check, signature)| {
+                check.is_some() == (signature.validation == BuiltinValidation::Fast)
+            }));
+        assert_eq!(
             Builtins::SIGNATURES
                 .iter()
-                .all(|signature| signature.validation == BuiltinValidation::Fast)
+                .filter(|signature| signature.validation == BuiltinValidation::Fast)
+                .count(),
+            builtins.call_checks.iter().filter(|check| check.is_some()).count()
         );
     }
 

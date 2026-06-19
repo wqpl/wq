@@ -1,10 +1,11 @@
-use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
+use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity, check_arity_any_named};
 use crate::cas::diff::diff_cas;
 use crate::cas::integrate::{definite_integrate_cas, integrate_cas};
 use crate::cas::limit::{limit_cas, parse_limit_direction};
 use crate::cas::{
     eval_numeric_cas, expand_cas, factor_cas, infer_single_cas_var, normalize_root_objective_cas,
     rewrite_cas, simplify_cas_value, solve_cas, solve_system_cas, substitute_cas,
+    substitute_cas_bindings,
 };
 use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
@@ -29,8 +30,14 @@ pub(super) fn rewrite(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn numeric(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BuiltinEnum::Numeric, [1], &args)?;
-    eval_numeric_cas(&args[0]).map_err(|e| e.src(BuiltinEnum::Numeric))
+    check_arity_any_named(BuiltinEnum::Numeric, [1], &args)?;
+    let expr = if args.has_named() {
+        substitute_cas_bindings(&args[0], args.named_items())
+            .map_err(|e| e.src(BuiltinEnum::Numeric))?
+    } else {
+        args[0].clone()
+    };
+    eval_numeric_cas(&expr).map_err(|e| e.src(BuiltinEnum::Numeric))
 }
 
 pub(super) fn diff(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -48,37 +55,48 @@ pub(super) fn diff(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn substitute(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BuiltinEnum::Substitute, [2, 3], &args)?;
+    let arity = if args.has_named() {
+        &[1, 2, 3][..]
+    } else {
+        &[2, 3][..]
+    };
+    check_arity_any_named(BuiltinEnum::Substitute, arity, &args)?;
+    let named = args.named_items().to_vec();
     let mut iter = args.into_iter();
-    let first = iter.next().unwrap();
-    let second = iter.next().unwrap();
+    let first = iter.next().expect("substitute arity checked");
+    let Some(second) = iter.next() else {
+        return substitute_cas_bindings(&first, &named).map_err(|e| e.src(BuiltinEnum::Substitute));
+    };
 
     if let Some(third) = iter.next() {
-        return substitute_cas(&first, &second, &third);
+        let result = substitute_cas(&first, &second, &third)?;
+        return substitute_cas_bindings(&result, &named).map_err(|e| e.src(BuiltinEnum::Substitute));
     }
-    if let Some((lhs, rhs)) = second.cas_eq_parts() {
-        return substitute_cas(&first, lhs, rhs);
-    }
-    let items = match second {
-        Value::List(items) => items,
-        other => {
-            return Err(WqError::new(WqErrorType::Domain)
-                .src(BuiltinEnum::Substitute)
-                .msg("substitute expects an equation or a list of equations")
-                .got1(&other));
-        }
-    };
-    let mut result = first;
-    for item in items.iter() {
-        let Some((lhs, rhs)) = item.cas_eq_parts() else {
-            return Err(WqError::new(WqErrorType::Domain)
-                .src(BuiltinEnum::Substitute)
-                .msg("substitute expects a list of equations")
-                .got1(item));
+    let result = if let Some((lhs, rhs)) = second.cas_eq_parts() {
+        substitute_cas(&first, lhs, rhs)?
+    } else {
+        let items = match second {
+            Value::List(items) => items,
+            other => {
+                return Err(WqError::new(WqErrorType::Domain)
+                    .src(BuiltinEnum::Substitute)
+                    .msg("substitute expects an equation or a list of equations")
+                    .got1(&other));
+            }
         };
-        result = substitute_cas(&result, lhs, rhs)?;
-    }
-    Ok(result)
+        let mut result = first;
+        for item in items.iter() {
+            let Some((lhs, rhs)) = item.cas_eq_parts() else {
+                return Err(WqError::new(WqErrorType::Domain)
+                    .src(BuiltinEnum::Substitute)
+                    .msg("substitute expects a list of equations")
+                    .got1(item));
+            };
+            result = substitute_cas(&result, lhs, rhs)?;
+        }
+        result
+    };
+    substitute_cas_bindings(&result, &named).map_err(|e| e.src(BuiltinEnum::Substitute))
 }
 
 pub(super) fn expand(args: BuiltinFnArgs) -> WqResult<Value> {

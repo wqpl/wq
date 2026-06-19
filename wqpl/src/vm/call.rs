@@ -37,6 +37,12 @@ impl Vm {
         let argc = args.len();
         match func {
             Value::LiftedCallable(data) => self.call_function_composition(data, args),
+            Value::Cas(_) if args.has_named() => {
+                if !args.is_empty() {
+                    return Err(arity_err_vm("CAS binding call expects named arguments only"));
+                }
+                crate::cas::substitute_cas_bindings(func, args.named_items())
+            }
             Value::CompiledFunction(_) | Value::Closure(_) => {
                 let base = self.stack.len();
                 self.stack.extend(args);
@@ -468,6 +474,10 @@ impl Vm {
     pub(crate) fn invoke_bfn_value(&mut self, id: u16, argc: usize) -> WqResult<Value> {
         let taken = self.take_builtin_args_from_stack(argc)?;
         self.call_builtin_id(id, taken.args)
+    }
+
+    pub(crate) fn take_call_args_from_stack(&mut self, argc: usize) -> WqResult<BuiltinFnArgs> {
+        Ok(self.take_builtin_args_from_stack(argc)?.args)
     }
 
     fn take_builtin_args_from_stack(&mut self, argc: usize) -> WqResult<TakenBuiltinArgs> {

@@ -1474,6 +1474,13 @@ fn named_arg_index_err() -> WqError {
         .msg("cannot pass named arguments when indexing a non-function value")
 }
 
+#[inline]
+fn cas_binding_call_arg_err() -> WqError {
+    WqError::new(WqErrorType::Arity)
+        .src(NAME)
+        .msg("CAS binding call expects named arguments only")
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

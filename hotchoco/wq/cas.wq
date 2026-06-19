@@ -13,6 +13,16 @@ diff[@s x^2+2*x+1] | echo
 //test substitute a numeric value into an expression
 substitute[@s x^2+1;@sx;5] | echo
 
+//test substitute a named binding through a pipe
+@s x^2+y | substitute[`x:2] | echo
+
+//test evaluate a symbolic expression with named numeric bindings
+@s sin[x]+y | numeric[`x:0;`y:2] | echo
+
+//test call a CAS value with named bindings
+f:@s x^2+y
+f[`x:2] | echo
+
 //test expand a binomial square
 expand[@s (x+1)^2] | echo
 
