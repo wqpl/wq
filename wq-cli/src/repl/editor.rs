@@ -174,12 +174,7 @@ impl WqReplHighlighter {
         Some((arg_start, arg_prefix))
     }
 
-    fn push_name_candidates<I, S>(
-        candidates: &mut Vec<Pair>,
-        names: I,
-        prefix: &str,
-        kind: &str,
-    )
+    fn push_name_candidates<I, S>(candidates: &mut Vec<Pair>, names: I, prefix: &str, kind: &str)
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -442,7 +437,10 @@ impl Completer for WqReplHighlighter {
                 return Ok((pos, Vec::new()));
             }
             let names = &self.builtin_names;
-            for (idx, name) in names.iter().enumerate().filter(|(_, name)| name.starts_with(prefix))
+            for (idx, name) in names
+                .iter()
+                .enumerate()
+                .filter(|(_, name)| name.starts_with(prefix))
             {
                 let candidate = self
                     .builtin_usages
@@ -721,9 +719,9 @@ impl RLHighlighter for WqReplHighlighter {
 
 #[cfg(test)]
 mod tests {
-    use wq_rl::history::DefaultHistory;
     use wq_rl::highlight::Highlighter as _;
     use wq_rl::hint::Hint as _;
+    use wq_rl::history::DefaultHistory;
 
     use super::*;
 
@@ -767,8 +765,7 @@ mod tests {
     #[test]
     fn completion_menu_hint_coloring_preserves_visible_text() {
         let h = WqReplHighlighter::new();
-        let src =
-            "\n> ● alpha    first item\n  ● beta     second item\n  1-2 of 2  selected 1/2  builtin  alpha";
+        let src = "\n> ● alpha    first item\n  ● beta     second item\n  1-2 of 2  selected 1/2  builtin  alpha";
         let out = h.highlight_hint(src);
 
         if cfg!(unix) {
@@ -965,10 +962,7 @@ mod tests {
     #[test]
     fn exact_command_hint_is_display_only() {
         let mut h = WqReplHighlighter::new();
-        h.set_repl_hints(
-            vec!["!help".to_string()],
-            vec!["show help".to_string()],
-        );
+        h.set_repl_hints(vec!["!help".to_string()], vec!["show help".to_string()]);
         let history = DefaultHistory::new();
         let ctx = RLContext::new(&history);
 

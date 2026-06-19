@@ -434,8 +434,9 @@ pub(crate) fn expected_bool2(lhs: &Value, rhs: &Value) -> WqError {
 #[cfg(test)]
 mod tests {
 
-    use super::*;
     use std::hash::{Hash, Hasher};
+
+    use super::*;
 
     fn test_builtin(name: &str, id: u16) -> Value {
         Value::builtin_function(name, id)

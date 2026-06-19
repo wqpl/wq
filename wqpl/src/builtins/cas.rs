@@ -70,7 +70,8 @@ pub(super) fn substitute(args: BuiltinFnArgs) -> WqResult<Value> {
 
     if let Some(third) = iter.next() {
         let result = substitute_cas(&first, &second, &third)?;
-        return substitute_cas_bindings(&result, &named).map_err(|e| e.src(BuiltinEnum::Substitute));
+        return substitute_cas_bindings(&result, &named)
+            .map_err(|e| e.src(BuiltinEnum::Substitute));
     }
     let result = if let Some((lhs, rhs)) = second.cas_eq_parts() {
         substitute_cas(&first, lhs, rhs)?

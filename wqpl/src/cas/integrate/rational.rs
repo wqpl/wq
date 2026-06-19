@@ -2511,10 +2511,7 @@ mod tests {
         let result = algebraic_sqrt_of_rational(&Value::Int(2)).unwrap();
         match &result {
             Value::Algebraic(a) => {
-                assert_eq!(
-                    a.poly(),
-                    &[BigInt::from(-2), BigInt::zero(), BigInt::one()]
-                );
+                assert_eq!(a.poly(), &[BigInt::from(-2), BigInt::zero(), BigInt::one()]);
                 assert_eq!(a.coeffs[0], Value::Int(0));
                 assert_eq!(a.coeffs[1], Value::Int(1));
             }

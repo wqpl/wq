@@ -37,14 +37,14 @@ pub(crate) use rewrite::{
     cas_product, contains_cas_var, infer_single_cas_var, normalize_root_objective_cas, rewrite_cas,
     rewrite_loop,
 };
-use simplify::{
-    common_numeric_gcd, rebuild_scaled_term, split_add_term, split_mul_factor, substitute_expr,
-    var_name_from_value,
-};
 pub(crate) use simplify::{
     cas_add, cas_binary_expr, cas_call_expr, cas_div, cas_mul, cas_neg, cas_pow, cas_sub,
     cas_unary_expr, extract_perfect_power_factor, simplify_cas_value, substitute_cas,
     substitute_cas_bindings, with_cas_div_cache,
+};
+use simplify::{
+    common_numeric_gcd, rebuild_scaled_term, split_add_term, split_mul_factor, substitute_expr,
+    var_name_from_value,
 };
 pub(crate) use solve::{solve_cas, solve_system_cas};
 

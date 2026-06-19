@@ -1,4 +1,5 @@
-use std::{cell::RefCell, sync::Arc};
+use std::cell::RefCell;
+use std::sync::Arc;
 
 use ahash::AHashMap;
 use num_bigint::BigInt;
@@ -979,7 +980,11 @@ fn should_combine_rational_polys(d_polys: &[Vec<Value>], n_polys: &[Vec<Value>])
     if denominator_degree > MAX_RATIONAL_COMBINE_DEGREE {
         return false;
     }
-    let largest_numerator_degree = n_polys.iter().map(|poly| poly_degree(poly)).max().unwrap_or(0);
+    let largest_numerator_degree = n_polys
+        .iter()
+        .map(|poly| poly_degree(poly))
+        .max()
+        .unwrap_or(0);
     denominator_degree.saturating_add(largest_numerator_degree) <= MAX_RATIONAL_COMBINE_DEGREE
 }
 

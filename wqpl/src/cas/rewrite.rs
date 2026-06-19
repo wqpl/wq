@@ -1330,10 +1330,9 @@ mod tests {
     #[test]
     fn factor_binary_product_skips_non_unit_plain_var_common_factor() {
         let x = Value::from_cas_var("x");
-        let term1 = cas_mul(vec![Value::Int(2), x.clone(), Value::from_cas_var("y")])
-            .expect("term1");
-        let term2 = cas_mul(vec![Value::Int(-3), x, Value::from_cas_var("z")])
-            .expect("term2");
+        let term1 =
+            cas_mul(vec![Value::Int(2), x.clone(), Value::from_cas_var("y")]).expect("term1");
+        let term2 = cas_mul(vec![Value::Int(-3), x, Value::from_cas_var("z")]).expect("term2");
 
         let result = try_factor_binary_product(&[term1, term2]).expect("factor");
         assert!(

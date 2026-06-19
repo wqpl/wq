@@ -443,7 +443,11 @@ fn page_completions<C: Candidate, H: Helper, P: Prompt + ?Sized>(
                 + min_col_pad,
         )
     };
-    let num_cols = if has_descriptions { 1 } else { cols / max_width };
+    let num_cols = if has_descriptions {
+        1
+    } else {
+        cols / max_width
+    };
     let name_width = if has_descriptions {
         let max_name_width = cols.saturating_sub(min_col_pad + 8);
         Some(cmp::min(
@@ -496,8 +500,7 @@ fn page_completions<C: Candidate, H: Helper, P: Prompt + ?Sized>(
             let i = (col * num_rows) + row;
             if i < nbc {
                 let candidate = &candidates[i as usize];
-                let rendered =
-                    render_completion_candidate(candidate, &s.layout, cols, name_width);
+                let rendered = render_completion_candidate(candidate, &s.layout, cols, name_width);
                 let width = s.layout.width(&rendered);
                 if let Some(highlighter) = s.highlighter() {
                     ab.push_str(&highlighter.highlight_candidate(&rendered, CompletionType::List));

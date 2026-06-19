@@ -39,7 +39,9 @@ impl Vm {
             Value::LiftedCallable(data) => self.call_function_composition(data, args),
             Value::Cas(_) if args.has_named() => {
                 if !args.is_empty() {
-                    return Err(arity_err_vm("CAS binding call expects named arguments only"));
+                    return Err(arity_err_vm(
+                        "CAS binding call expects named arguments only",
+                    ));
                 }
                 crate::cas::substitute_cas_bindings(func, args.named_items())
             }

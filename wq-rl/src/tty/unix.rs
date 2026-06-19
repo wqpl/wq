@@ -2021,7 +2021,10 @@ mod test {
         .unwrap();
 
         assert!(out.buffer.contains("abc\x1b[K\x1b[0m\n\x1b[48;5;236m "));
-        assert!(out.buffer.contains("> alpha    first item\x1b[K\x1b[0m\n\x1b[48;5;236m "));
+        assert!(
+            out.buffer
+                .contains("> alpha    first item\x1b[K\x1b[0m\n\x1b[48;5;236m ")
+        );
         assert!(out.buffer.contains("  beta     second item\x1b[K\x1b[0m"));
     }
 }

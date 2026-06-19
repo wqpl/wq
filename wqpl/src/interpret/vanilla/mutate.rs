@@ -83,7 +83,9 @@ pub(super) fn mutate_target(
                     }
                     Ok(result)
                 })
-                .ok_or_else(|| not_bound_err(format!("'{name}' has not been bound to a value")))??;
+                .ok_or_else(|| {
+                    not_bound_err(format!("'{name}' has not been bound to a value"))
+                })??;
             if let Some((old, new)) = change {
                 vm.note_global_symbol_write(pc, name, op, Some(old), new);
             }

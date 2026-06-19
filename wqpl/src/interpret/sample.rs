@@ -146,13 +146,11 @@ impl InstructionArt {
 
         self.fade();
 
-        let seed = mix(
-            signal.salt
-                ^ (pc as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
-                ^ (self.ops as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9)
-                ^ ((vm.stack.len() as u64) << 32)
-                ^ ((vm.locals.len() as u64) << 48),
-        );
+        let seed = mix(signal.salt
+            ^ (pc as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            ^ (self.ops as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9)
+            ^ ((vm.stack.len() as u64) << 32)
+            ^ ((vm.locals.len() as u64) << 48));
         let x = (seed as usize) % WIDTH;
         let y = ((seed >> 16) as usize) % HEIGHT;
         self.paint(x, y, signal);
@@ -601,9 +599,12 @@ mod tests {
 
         assert_eq!(art.ops, 1);
         assert_eq!(art.last_label, "op");
-        assert!(art.pixels.iter().flatten().any(|pixel| {
-            pixel.heat > 0 && pixel.color == DotColor::Yellow
-        }));
+        assert!(
+            art.pixels
+                .iter()
+                .flatten()
+                .any(|pixel| { pixel.heat > 0 && pixel.color == DotColor::Yellow })
+        );
     }
 
     #[test]

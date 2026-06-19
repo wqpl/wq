@@ -171,12 +171,12 @@ fn terms_share_factor(lhs: &Value, rhs: &Value) -> bool {
         lhs.cas_op_args(CasOp::Multiply),
         rhs.cas_op_args(CasOp::Multiply),
     ) {
-        (Some(lhs_factors), Some(rhs_factors)) => lhs_factors
-            .iter()
-            .any(|lhs_factor| {
-                is_factorable_common_factor(lhs_factor)
-                    && rhs_factors.iter().any(|rhs_factor| lhs_factor == rhs_factor)
-            }),
+        (Some(lhs_factors), Some(rhs_factors)) => lhs_factors.iter().any(|lhs_factor| {
+            is_factorable_common_factor(lhs_factor)
+                && rhs_factors
+                    .iter()
+                    .any(|rhs_factor| lhs_factor == rhs_factor)
+        }),
         (Some(lhs_factors), None) => lhs_factors
             .iter()
             .any(|lhs_factor| lhs_factor == rhs && is_factorable_common_factor(rhs)),
@@ -695,10 +695,7 @@ mod tests {
         let expr = Value::from_cas_op(
             CasOp::Multiply,
             vec![
-                Value::from_cas_op(
-                    CasOp::Add,
-                    vec![Value::from_cas_var("x"), Value::Int(1)],
-                ),
+                Value::from_cas_op(CasOp::Add, vec![Value::from_cas_var("x"), Value::Int(1)]),
                 Value::from_cas_op(
                     CasOp::Power,
                     vec![

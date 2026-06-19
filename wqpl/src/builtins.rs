@@ -1745,12 +1745,36 @@ mod tests {
         );
 
         let cases = [
-            (Builtins::MIN, BuiltinFnArgs::new(), "expected 1 or more args, got 0"),
-            (Builtins::LIMIT, BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)]), "expected 3 or more args, got 2"),
-            (Builtins::FMT, BuiltinFnArgs::new(), "expected 1 or more args, got 0"),
-            (Builtins::OP_ADD, BuiltinFnArgs::from(Value::Int(1)), "expected 2 or more args, got 1"),
-            (Builtins::OP_SUB, BuiltinFnArgs::new(), "expected 1 or more args, got 0"),
-            (Builtins::AND, BuiltinFnArgs::from(Value::Bool(true)), "expected 2 or more args, got 1"),
+            (
+                Builtins::MIN,
+                BuiltinFnArgs::new(),
+                "expected 1 or more args, got 0",
+            ),
+            (
+                Builtins::LIMIT,
+                BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)]),
+                "expected 3 or more args, got 2",
+            ),
+            (
+                Builtins::FMT,
+                BuiltinFnArgs::new(),
+                "expected 1 or more args, got 0",
+            ),
+            (
+                Builtins::OP_ADD,
+                BuiltinFnArgs::from(Value::Int(1)),
+                "expected 2 or more args, got 1",
+            ),
+            (
+                Builtins::OP_SUB,
+                BuiltinFnArgs::new(),
+                "expected 1 or more args, got 0",
+            ),
+            (
+                Builtins::AND,
+                BuiltinFnArgs::from(Value::Bool(true)),
+                "expected 2 or more args, got 1",
+            ),
         ];
         for (id, args, expected_msg) in cases {
             let err = builtins
@@ -1780,20 +1804,29 @@ mod tests {
                 (signature.validation == BuiltinValidation::Defer).then_some(*builtin)
             })
             .collect();
-        assert_eq!(deferred, vec![BuiltinEnum::Numeric, BuiltinEnum::Substitute]);
-        assert!(builtins
-            .call_checks
-            .iter()
-            .zip(Builtins::SIGNATURES.iter())
-            .all(|(check, signature)| {
-                check.is_some() == (signature.validation == BuiltinValidation::Fast)
-            }));
+        assert_eq!(
+            deferred,
+            vec![BuiltinEnum::Numeric, BuiltinEnum::Substitute]
+        );
+        assert!(
+            builtins
+                .call_checks
+                .iter()
+                .zip(Builtins::SIGNATURES.iter())
+                .all(|(check, signature)| {
+                    check.is_some() == (signature.validation == BuiltinValidation::Fast)
+                })
+        );
         assert_eq!(
             Builtins::SIGNATURES
                 .iter()
                 .filter(|signature| signature.validation == BuiltinValidation::Fast)
                 .count(),
-            builtins.call_checks.iter().filter(|check| check.is_some()).count()
+            builtins
+                .call_checks
+                .iter()
+                .filter(|check| check.is_some())
+                .count()
         );
     }
 

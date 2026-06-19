@@ -379,7 +379,9 @@ mod cas_tests {
             ))
             .is_err()
         );
-        assert!(crate::cas::simplify_cas_value(&Value::from_cas_op(CasOp::Power, vec![x])).is_err());
+        assert!(
+            crate::cas::simplify_cas_value(&Value::from_cas_op(CasOp::Power, vec![x])).is_err()
+        );
         assert!(
             crate::cas::simplify_cas_value(&Value::from_cas_op(
                 CasOp::Divide,

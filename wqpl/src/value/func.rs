@@ -71,7 +71,8 @@ pub(crate) enum CallableExpr {
 #[derive(Debug, Clone)]
 pub struct LiftedCallableData {
     pub(crate) expr: CallableExpr,
-    /// Provenance frames for callable expression values returned from earlier calls.
+    /// Provenance frames for callable expression values returned from earlier
+    /// calls.
     pub(crate) dbg_provenance: Option<DebugProvenance>,
 }
 

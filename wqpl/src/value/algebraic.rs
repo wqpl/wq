@@ -100,8 +100,13 @@ impl AlgebraicField {
         }
         match &self.root {
             AlgebraicRoot::RealInterval { lo, hi } => {
-                write!(out, "root:R:{:016x}:{:016x}", (**lo).to_bits(), (**hi).to_bits())
-                    .expect("writing to String should not fail");
+                write!(
+                    out,
+                    "root:R:{:016x}:{:016x}",
+                    (**lo).to_bits(),
+                    (**hi).to_bits()
+                )
+                .expect("writing to String should not fail");
             }
         }
         out.push(')');
@@ -120,9 +125,10 @@ pub(crate) enum NumericSign {
 /// An element of a simple algebraic extension K(α).
 ///
 /// Invariants:
-/// 1. `field` identifies the base field, normalized polynomial, and chosen root.
-/// 2. `coeffs.len() <= field.degree()` and represents
-///    c0 + c1·α + ... + c{d-1}·α^{d-1}.
+/// 1. `field` identifies the base field, normalized polynomial, and chosen
+///    root.
+/// 2. `coeffs.len() <= field.degree()` and represents c0 + c1·α + ... +
+///    c{d-1}·α^{d-1}.
 /// 3. Coefficients are exact scalars in the field base.
 #[derive(Debug, Clone)]
 pub struct AlgebraicData {

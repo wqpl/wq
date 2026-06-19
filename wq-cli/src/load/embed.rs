@@ -15,7 +15,9 @@ static EMBEDDED: &[EmbeddedScript] = &[EmbeddedScript {
 }];
 
 pub fn embedded_aliases() -> impl Iterator<Item = &'static str> {
-    EMBEDDED.iter().flat_map(|script| script.aliases.iter().copied())
+    EMBEDDED
+        .iter()
+        .flat_map(|script| script.aliases.iter().copied())
 }
 
 pub fn lookup_embedded_by_alias(name: &str) -> Option<&'static EmbeddedScript> {

@@ -46,7 +46,8 @@ pub struct Pair {
 }
 
 impl Pair {
-    /// Create a completion candidate with separate display and replacement text.
+    /// Create a completion candidate with separate display and replacement
+    /// text.
     pub fn new(display: impl Into<String>, replacement: impl Into<String>) -> Self {
         Self {
             display: display.into(),

@@ -65,12 +65,7 @@ struct DescribedCompleter;
 impl Completer for DescribedCompleter {
     type Candidate = Pair;
 
-    fn complete(
-        &self,
-        _line: &str,
-        _pos: usize,
-        _ctx: &Context<'_>,
-    ) -> Result<(usize, Vec<Pair>)> {
+    fn complete(&self, _line: &str, _pos: usize, _ctx: &Context<'_>) -> Result<(usize, Vec<Pair>)> {
         Ok((
             0,
             vec![
@@ -100,12 +95,7 @@ struct MenuCompleter;
 impl Completer for MenuCompleter {
     type Candidate = Pair;
 
-    fn complete(
-        &self,
-        _line: &str,
-        _pos: usize,
-        _ctx: &Context<'_>,
-    ) -> Result<(usize, Vec<Pair>)> {
+    fn complete(&self, _line: &str, _pos: usize, _ctx: &Context<'_>) -> Result<(usize, Vec<Pair>)> {
         Ok((
             0,
             vec![
@@ -291,8 +281,8 @@ fn menu_completion_interrupt_clears_hint() {
     let keys = vec![E(K::Char('C'), M::CTRL)];
     let mut rdr: IntoIter<KeyEvent> = keys.into_iter();
 
-    let err = super::complete_line(&mut rdr, &mut s, &mut input_state, &config)
-        .expect_err("interrupt");
+    let err =
+        super::complete_line(&mut rdr, &mut s, &mut input_state, &config).expect_err("interrupt");
 
     assert!(matches!(err, ReadlineError::Interrupted));
     assert_eq!("a", s.line.as_str());
@@ -305,10 +295,14 @@ fn menu_completion_interrupts_readline() {
     let config = Config::builder()
         .completion_type(CompletionType::Menu)
         .build();
-    let mut editor = crate::Editor::<MenuCompleter, crate::history::DefaultHistory>::with_config(config)
-        .expect("editor");
+    let mut editor =
+        crate::Editor::<MenuCompleter, crate::history::DefaultHistory>::with_config(config)
+            .expect("editor");
     editor.set_helper(Some(MenuCompleter));
-    editor.term.keys.extend([E(K::Tab, M::NONE), E(K::Char('C'), M::CTRL)]);
+    editor
+        .term
+        .keys
+        .extend([E(K::Tab, M::NONE), E(K::Char('C'), M::CTRL)]);
 
     let err = editor
         .readline_with_initial(">>", ("a", ""))

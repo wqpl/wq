@@ -1461,7 +1461,10 @@ mod tests {
             ],
         );
         let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
-        assert_eq!(result, Value::IntList(Arc::new(vec![1, 2, 3, 4, 5, 6, 7, 8, 9])));
+        assert_eq!(
+            result,
+            Value::IntList(Arc::new(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]))
+        );
     }
 
     #[test]

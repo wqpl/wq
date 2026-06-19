@@ -36,9 +36,8 @@ fn contains_op(value: &Value, needle: CasOp) -> bool {
 
 fn count_inverse_powers(value: &Value) -> usize {
     if let Some((op, args)) = value.cas_op_parts() {
-        let here = usize::from(
-            op == CasOp::Power && matches!(args, [_, exp] if exp.exact_int_is(-1)),
-        );
+        let here =
+            usize::from(op == CasOp::Power && matches!(args, [_, exp] if exp.exact_int_is(-1)));
         return here + args.iter().map(count_inverse_powers).sum::<usize>();
     }
     if let Some((_name, args)) = value.cas_function_parts() {

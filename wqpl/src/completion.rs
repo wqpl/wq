@@ -75,9 +75,8 @@ pub fn expression_completion_candidates(
         }
     } else {
         for name in fallback_assignment_names(session, content) {
-            seen.entry(name.clone()).or_insert_with(|| {
-                CompletionCandidate::new(name, CompletionKind::Assignment)
-            });
+            seen.entry(name.clone())
+                .or_insert_with(|| CompletionCandidate::new(name, CompletionKind::Assignment));
         }
     }
 
@@ -259,12 +258,16 @@ mod tests {
         let session = Session::new();
         let candidates = expression_completion_candidates(&session, "x:1; f:{[y] y+x}");
 
-        assert!(candidates.iter().any(|c| {
-            c.label == "x" && c.kind == CompletionKind::Assignment
-        }));
-        assert!(candidates.iter().any(|c| {
-            c.label == "f" && c.kind == CompletionKind::Function
-        }));
+        assert!(
+            candidates
+                .iter()
+                .any(|c| { c.label == "x" && c.kind == CompletionKind::Assignment })
+        );
+        assert!(
+            candidates
+                .iter()
+                .any(|c| { c.label == "f" && c.kind == CompletionKind::Function })
+        );
         assert!(candidates.iter().any(|c| {
             c.label == "sum" && c.kind == CompletionKind::Builtin && c.detail.is_some()
         }));

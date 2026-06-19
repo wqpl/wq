@@ -3288,7 +3288,8 @@ mod tests {
     }
 
     fn last_closure_payload(insts: &[Instruction]) -> &crate::vm::inst::ClosurePayload {
-        insts.iter()
+        insts
+            .iter()
             .filter_map(|inst| match inst {
                 Instruction::LoadClosure(payload) => Some(payload.as_ref()),
                 _ => None,
@@ -3684,9 +3685,9 @@ mod tests {
             func.instructions
         );
         assert!(
-            !func.instructions
-                .iter()
-                .any(|inst| matches!(inst, Instruction::LoadConst(value) if **value == Value::Int(4))),
+            !func.instructions.iter().any(
+                |inst| matches!(inst, Instruction::LoadConst(value) if **value == Value::Int(4))
+            ),
             "captured a must not fold through composed callable call: {:#?}",
             func.instructions
         );

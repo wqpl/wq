@@ -86,10 +86,7 @@ const WQDB_COMMANDS: &[WqdbCommandSpec] = &[
     WqdbCommandSpec {
         command: WqdbCommand::BreakFunction,
         aliases: &["bf"],
-        args: &[
-            WqdbUsageArg::Required("func"),
-            WqdbUsageArg::Optional("pc"),
-        ],
+        args: &[WqdbUsageArg::Required("func"), WqdbUsageArg::Optional("pc")],
         summary: "add breakpoint in a function",
     },
     WqdbCommandSpec {
@@ -342,7 +339,11 @@ fn print_wqdb_help() {
     }
     wqstderr_println("");
     wqstderr_println(format!("{}", "track scopes".bold()));
-    let track_name = format!("{} {}", styled_command("track"), styled_required_arg("name"));
+    let track_name = format!(
+        "{} {}",
+        styled_command("track"),
+        styled_required_arg("name")
+    );
     wqstderr_println(format!(
         "  {} {}",
         track_name,
@@ -362,7 +363,11 @@ fn print_wqdb_help() {
         "  {} {} {} {} {} {} {}",
         styled_stop_hook_command(
             "add",
-            Some(format!("{} {}", styled_flag("-o"), styled_required_arg("cmd"))),
+            Some(format!(
+                "{} {}",
+                styled_flag("-o"),
+                styled_required_arg("cmd")
+            )),
         ),
         styled_separator(),
         styled_stop_hook_command("list", None),
@@ -383,7 +388,11 @@ fn print_wqdb_help() {
         "  Use {} for commands that should run every time execution stops.",
         styled_stop_hook_command(
             "add",
-            Some(format!("{} {}", styled_flag("-o"), styled_required_arg("cmd"))),
+            Some(format!(
+                "{} {}",
+                styled_flag("-o"),
+                styled_required_arg("cmd")
+            )),
         )
     ));
 }
@@ -769,8 +778,8 @@ fn stop_hook_cmd(host: &mut Vm, cmd: &str) -> Result<(), String> {
 }
 
 fn add_stop_hook(host: &mut Vm, cmd: &str) -> Result<(), String> {
-    let hook_cmd = command_after_option_o(cmd)
-        .ok_or_else(|| "usage: stop-hook add -o <cmd>".to_string())?;
+    let hook_cmd =
+        command_after_option_o(cmd).ok_or_else(|| "usage: stop-hook add -o <cmd>".to_string())?;
     if hook_cmd.is_empty() {
         return Err("usage: stop-hook add -o <cmd>".to_string());
     }
@@ -789,10 +798,7 @@ fn command_after_option_o(cmd: &str) -> Option<String> {
                 .next_back()
                 .is_some_and(char::is_whitespace);
         let after = pos + 2;
-        let after_ok = cmd[after..]
-            .chars()
-            .next()
-            .is_some_and(char::is_whitespace);
+        let after_ok = cmd[after..].chars().next().is_some_and(char::is_whitespace);
         if before_ok && after_ok {
             return Some(cmd[after..].trim().to_string());
         }
@@ -1182,7 +1188,10 @@ mod tests {
             Some(StopHookCommand::Delete)
         );
         assert_eq!(StopHookCommand::parse("rm"), Some(StopHookCommand::Delete));
-        assert_eq!(StopHookCommand::parse("clear"), Some(StopHookCommand::Clear));
+        assert_eq!(
+            StopHookCommand::parse("clear"),
+            Some(StopHookCommand::Clear)
+        );
         assert_eq!(StopHookCommand::parse("x"), None);
     }
 }

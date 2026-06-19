@@ -1,7 +1,7 @@
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
-use crate::value::{Excerpt, Value};
 use crate::value::func::{CallableExpr, ClosureData, FunctionData, LiftedCallableData};
+use crate::value::{Excerpt, Value};
 use crate::vm::Vm;
 use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,

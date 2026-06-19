@@ -530,9 +530,10 @@ fn compute_dirty_byte_range(old: &str, new: &str) -> (usize, usize, usize, usize
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
     use crate::cst::GreenChild;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn root_nodes(root: &crate::cst::GreenNode) -> Vec<crate::cst::GreenNode> {
         root.children()
@@ -636,7 +637,9 @@ mod tests {
         session.eval_string("x+:1").expect("second eval should run");
         assert_eq!(PAUSES.load(Ordering::SeqCst), 1);
 
-        session.eval_string("@p x").expect("explicit pause should run");
+        session
+            .eval_string("@p x")
+            .expect("explicit pause should run");
         assert_eq!(PAUSES.load(Ordering::SeqCst), 2);
     }
 

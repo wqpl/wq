@@ -333,19 +333,17 @@ impl Interpreter for VanillaInterpreter {
                         })?;
                         let track = vm.symbol_trackers_enabled();
                         let new = track.then(|| val.clone());
-                        let old = {
-                            let cell = vm
-                                .captures
-                                .last()
-                                .and_then(|c| c.get(slot))
-                                .ok_or_else(|| {
-                                    vm_err(format!("invalid capture slot {slot_num}"))
-                                })?;
-                            let mut target = cell.lock().expect("poisoned capture");
-                            let old = track.then(|| target.clone());
-                            *target = val;
-                            old
-                        };
+                        let old =
+                            {
+                                let cell =
+                                    vm.captures.last().and_then(|c| c.get(slot)).ok_or_else(
+                                        || vm_err(format!("invalid capture slot {slot_num}")),
+                                    )?;
+                                let mut target = cell.lock().expect("poisoned capture");
+                                let old = track.then(|| target.clone());
+                                *target = val;
+                                old
+                            };
                         if let Some(new) = new {
                             vm.note_capture_symbol_write(idx, *i, "store", old, new);
                         }
@@ -756,13 +754,7 @@ impl Interpreter for VanillaInterpreter {
                                 .attach_note(format!("when trying to assign to {name}[{idx}]")));
                         }
                         if let Some((old, new)) = change {
-                            vm.note_global_symbol_write(
-                                pc,
-                                name,
-                                "index-assign",
-                                Some(old),
-                                new,
-                            );
+                            vm.note_global_symbol_write(pc, name, "index-assign", Some(old), new);
                         }
                     }
                     Instruction::IndexAssignLocal(slot) => {
@@ -788,8 +780,8 @@ impl Interpreter for VanillaInterpreter {
                                 None => vm_err(format!("invalid local slot {slot}")),
                             })?;
                             let old = track.then(|| slot_ref.read());
-                            let assigned =
-                                slot_ref.with_mut(|target| target.assign_by_index(&idx, val.clone()));
+                            let assigned = slot_ref
+                                .with_mut(|target| target.assign_by_index(&idx, val.clone()));
                             if assigned.is_some()
                                 && let Some(old) = old
                             {
@@ -871,7 +863,8 @@ impl Interpreter for VanillaInterpreter {
                         let success = {
                             let slot_ref = vm.local_slot_mut(*slot)?;
                             let old = track.then(|| slot_ref.read());
-                            let success = slot_ref.with_mut(|target| target.assign_by_index(&idx, val));
+                            let success =
+                                slot_ref.with_mut(|target| target.assign_by_index(&idx, val));
                             if success.is_some()
                                 && let Some(old) = old
                             {
