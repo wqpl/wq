@@ -13,7 +13,7 @@ https://codeberg.org/wqpl
 - Clear, capitalized, imperative title: `Fix everything`
 - Avoid "conventional commit prefixes" (no `fix:`)
 - Avoid trailing punctuation
-- Optionally prefix the title with a crate name when one crate is the clear scope
+- Optionally prefix the title with a crate name and colon when one crate is the clear scope: `wq-cli: did something`
 - Clear, consise message body
 - Include a `Release Notes:` section as the final section
 - Use one bullet under `Release Notes:`:
