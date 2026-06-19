@@ -1,0 +1,7 @@
+3
+stop hook #1 added
+stop hook #2 added
+breakpoint set at <script> pc=4
+name  value  type
+----  -----  ----
+x     2      int 

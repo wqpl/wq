@@ -62,6 +62,10 @@ fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
             untrack_symbol(host, it.next()).unwrap_or_else(wqstderr_println);
             false
         }
+        "stop-hook" | "sh" => {
+            stop_hook_cmd(host, cmd).unwrap_or_else(wqstderr_println);
+            false
+        }
         "ib" => {
             let bps = host.dbg_breakpoints();
             if bps.is_empty() {
@@ -210,21 +214,15 @@ fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
 
 pub fn wqdb_shell(host: &mut Vm) {
     if !host.wqdb.batch_cmds.is_empty() {
-        let cmds = host.wqdb.batch_cmds.clone();
-        let mut should_exit = false;
-        for cmd in &cmds {
-            let trimmed = cmd.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            should_exit = exec_single_wqdb_cmd(host, trimmed);
-            if should_exit {
-                break;
-            }
-        }
+        let cmds = std::mem::take(&mut host.wqdb.batch_cmds);
+        let should_exit = exec_wqdb_cmds(host, &cmds);
         if !should_exit {
             host.dbg_continue();
         }
+        return;
+    }
+
+    if exec_stop_hooks(host) {
         return;
     }
 
@@ -261,6 +259,31 @@ pub fn wqdb_shell(host: &mut Vm) {
             }
         }
     }
+}
+
+fn exec_wqdb_cmds(host: &mut Vm, cmds: &[String]) -> bool {
+    let mut should_exit = false;
+    for cmd in cmds {
+        let trimmed = cmd.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        should_exit = exec_single_wqdb_cmd(host, trimmed);
+        if should_exit {
+            break;
+        }
+    }
+    should_exit
+}
+
+fn exec_stop_hooks(host: &mut Vm) -> bool {
+    let cmds: Vec<String> = host
+        .wqdb
+        .stop_hook_commands()
+        .into_iter()
+        .map(|(_, cmd)| cmd)
+        .collect();
+    exec_wqdb_cmds(host, &cmds)
 }
 
 fn set_breakpoint_at_pc(host: &mut Vm, pc_arg: Option<&str>) -> Result<(), &'static str> {
@@ -349,6 +372,97 @@ fn print_symbol_trackers(host: &Vm) {
             id,
             if enabled { "y" } else { "n" },
             target
+        ));
+    }
+}
+
+fn stop_hook_cmd(host: &mut Vm, cmd: &str) -> Result<(), String> {
+    let mut it = cmd.split_whitespace();
+    let _ = it.next();
+    match it.next() {
+        Some("add") => add_stop_hook(host, cmd),
+        Some("list") | Some("ls") => {
+            print_stop_hooks(host);
+            Ok(())
+        }
+        Some("delete" | "del" | "remove" | "rm") => delete_stop_hook(host, it.next()),
+        Some("clear") => {
+            host.wqdb.clear_stop_hooks();
+            wqstderr_println("cleared stop hooks");
+            Ok(())
+        }
+        _ => Err("usage: stop-hook add -o <cmd> | stop-hook list | stop-hook delete <id|all>"
+            .to_string()),
+    }
+}
+
+fn add_stop_hook(host: &mut Vm, cmd: &str) -> Result<(), String> {
+    let hook_cmd = command_after_option_o(cmd)
+        .ok_or_else(|| "usage: stop-hook add -o <cmd>".to_string())?;
+    if hook_cmd.is_empty() {
+        return Err("usage: stop-hook add -o <cmd>".to_string());
+    }
+    let hook = host.wqdb.add_stop_hook(hook_cmd);
+    wqstderr_println(format!("stop hook #{} added", hook.id));
+    Ok(())
+}
+
+fn command_after_option_o(cmd: &str) -> Option<String> {
+    let mut offset = 0;
+    while let Some(pos) = cmd[offset..].find("-o") {
+        let pos = offset + pos;
+        let before_ok = pos == 0
+            || cmd[..pos]
+                .chars()
+                .next_back()
+                .is_some_and(char::is_whitespace);
+        let after = pos + 2;
+        let after_ok = cmd[after..]
+            .chars()
+            .next()
+            .is_some_and(char::is_whitespace);
+        if before_ok && after_ok {
+            return Some(cmd[after..].trim().to_string());
+        }
+        offset = after;
+    }
+    None
+}
+
+fn delete_stop_hook(host: &mut Vm, arg: Option<&str>) -> Result<(), String> {
+    let Some(arg) = arg else {
+        return Err("usage: stop-hook delete <id|all>".to_string());
+    };
+    if arg == "all" {
+        host.wqdb.clear_stop_hooks();
+        wqstderr_println("cleared stop hooks");
+        return Ok(());
+    }
+    let id = arg
+        .parse::<usize>()
+        .map_err(|_| "usage: stop-hook delete <id|all>".to_string())?;
+    if host.wqdb.remove_stop_hook(id) {
+        wqstderr_println(format!("removed stop hook {id}"));
+    } else {
+        wqstderr_println(format!("stop hook {id} not found"));
+    }
+    Ok(())
+}
+
+fn print_stop_hooks(host: &Vm) {
+    let hooks = host.wqdb.stop_hooks();
+    if hooks.is_empty() {
+        wqstderr_println("no stop hooks");
+        return;
+    }
+    wqstderr_println(format!("{:<4}  {:<3}  command", "id", "en"));
+    wqstderr_println(format!("{:-<4}  {:-<3}  {:-<20}", "", "", ""));
+    for hook in hooks {
+        wqstderr_println(format!(
+            "{:<4}  {:<3}  {}",
+            hook.id,
+            if hook.enabled { "y" } else { "n" },
+            hook.command
         ));
     }
 }

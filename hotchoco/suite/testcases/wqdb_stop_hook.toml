@@ -1,0 +1,19 @@
+name = "wqdb_stop_hook"
+source_glob = "hotchoco/wqdb_stop_hook/*.wq"
+exclude_marker = "//exclude"
+
+[[modes]]
+name = "exec"
+flags = [
+  "-w",
+  "-o",
+  "stop-hook add -o gb",
+  "-o",
+  "stop-hook add -o c",
+  "-o",
+  "b 4",
+  "-o",
+  "c",
+  "-p",
+]
+capture = "stdout+stderr"

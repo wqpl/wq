@@ -9,7 +9,9 @@ use colored::Colorize;
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::vm::Vm;
 use crate::wqdb::data::{CodeLoc, DebugInfo};
-use crate::wqdb::model::{Breakpoint, BreakpointKind, StepMode, SymbolTrackTarget, SymbolTracker};
+use crate::wqdb::model::{
+    Breakpoint, BreakpointKind, StepMode, StopHook, SymbolTrackTarget, SymbolTracker,
+};
 
 pub struct Wqdb {
     pub enabled: bool,
@@ -23,6 +25,8 @@ pub struct Wqdb {
     step_count: u64,
     symbol_trackers: Vec<SymbolTracker>,
     next_symbol_tracker_id: usize,
+    stop_hooks: Vec<StopHook>,
+    next_stop_hook_id: usize,
     pub on_pause: Option<fn(&mut Vm)>,
     pub batch_cmds: Vec<String>,
 }
@@ -41,6 +45,8 @@ impl Default for Wqdb {
             step_count: 0,
             symbol_trackers: Vec::new(),
             next_symbol_tracker_id: 1,
+            stop_hooks: Vec::new(),
+            next_stop_hook_id: 1,
             on_pause: None,
             batch_cmds: Vec::new(),
         }
@@ -213,6 +219,39 @@ impl Wqdb {
 
     pub fn clear_symbol_trackers(&mut self) {
         self.symbol_trackers.clear();
+    }
+
+    pub fn add_stop_hook(&mut self, command: String) -> &StopHook {
+        let id = self.next_stop_hook_id;
+        self.next_stop_hook_id += 1;
+        self.stop_hooks.push(StopHook {
+            id,
+            enabled: true,
+            command,
+        });
+        self.stop_hooks.last().expect("stop hook was just inserted")
+    }
+
+    pub fn stop_hooks(&self) -> &[StopHook] {
+        &self.stop_hooks
+    }
+
+    pub fn stop_hook_commands(&self) -> Vec<(usize, String)> {
+        self.stop_hooks
+            .iter()
+            .filter(|hook| hook.enabled)
+            .map(|hook| (hook.id, hook.command.clone()))
+            .collect()
+    }
+
+    pub fn remove_stop_hook(&mut self, id: usize) -> bool {
+        let old_len = self.stop_hooks.len();
+        self.stop_hooks.retain(|hook| hook.id != id);
+        self.stop_hooks.len() != old_len
+    }
+
+    pub fn clear_stop_hooks(&mut self) {
+        self.stop_hooks.clear();
     }
 }
 

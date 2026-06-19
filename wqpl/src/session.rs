@@ -343,9 +343,12 @@ impl Session {
         // and cause unnecessary COW deep clones during mutation.
         drop(ast);
         drop(parser);
-        // If wqdb is enabled (persistently or armed just once), step-in
+        // If wqdb was newly enabled, stop at the next eval entry.  After the
+        // user continues, later streaming-loader chunks should not re-enter
+        // the debugger unless a breakpoint, explicit @p, or step mode asks
+        // for it.
         // Note: on_pause callback must be set externally via set_pause_callback()
-        if temp_wqdb_on || self.vm.wqdb.enabled {
+        if temp_wqdb_on {
             self.vm.dbg_step_in();
         }
         self.vm.interpreter_kind = self.interpreter;
@@ -526,6 +529,7 @@ fn compute_dirty_byte_range(old: &str, new: &str) -> (usize, usize, usize, usize
 mod tests {
     use super::*;
     use crate::cst::GreenChild;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn root_nodes(root: &crate::cst::GreenNode) -> Vec<crate::cst::GreenNode> {
         root.children()
@@ -607,6 +611,30 @@ mod tests {
             session.vm.wqdb.on_pause.is_some(),
             "on_pause callback should survive reset_session"
         );
+    }
+
+    #[test]
+    fn wqdb_auto_entry_is_armed_once() {
+        static PAUSES: AtomicUsize = AtomicUsize::new(0);
+
+        fn count_pause(vm: &mut crate::vm::Vm) {
+            PAUSES.fetch_add(1, Ordering::SeqCst);
+            vm.dbg_continue();
+        }
+
+        PAUSES.store(0, Ordering::SeqCst);
+        let mut session = Session::new();
+        session.set_pause_callback(Some(count_pause));
+        session.set_wqdb(true);
+
+        session.eval_string("x:1").expect("first eval should run");
+        assert_eq!(PAUSES.load(Ordering::SeqCst), 1);
+
+        session.eval_string("x+:1").expect("second eval should run");
+        assert_eq!(PAUSES.load(Ordering::SeqCst), 1);
+
+        session.eval_string("@p x").expect("explicit pause should run");
+        assert_eq!(PAUSES.load(Ordering::SeqCst), 2);
     }
 
     #[test]

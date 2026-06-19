@@ -12,9 +12,16 @@ track local <name>
 track capture <slot>
 tracks        show symbol trackers
 untrack <id|all>
+stop-hook add -o <cmd>
+stop-hook list
+stop-hook delete <id|all>
 gb, globals   dump globals
 lb, locals    dump locals
 bt            show backtrace
 p, peek <n>   peek +-n lines (def=3)
 i, ins <n>    peek +-n insts (def=5)
 h, help       show this help
+
+CLI -o/--wqdb-cmd commands run once at the first debugger stop. Use
+stop-hook add -o <cmd> for commands that should run every time execution
+stops.

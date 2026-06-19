@@ -77,3 +77,10 @@ pub struct SymbolTracker {
     pub enabled: bool,
     pub target: SymbolTrackTarget,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StopHook {
+    pub id: usize,
+    pub enabled: bool,
+    pub command: String,
+}
