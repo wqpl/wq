@@ -56,7 +56,7 @@ impl InterpreterKind {
     pub fn create(&self) -> Box<dyn Interpreter> {
         match self {
             InterpreterKind::Vanilla => Box::new(VanillaInterpreter),
-            InterpreterKind::Sample => Box::new(SampleInterpreter),
+            InterpreterKind::Sample => Box::new(SampleInterpreter::default()),
             InterpreterKind::Profiler => Box::new(ProfilerInterpreter::default()),
         }
     }

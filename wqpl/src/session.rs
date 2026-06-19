@@ -353,7 +353,10 @@ impl Session {
         }
         self.vm.interpreter_kind = self.interpreter;
         let result = match self.interpreter {
-            InterpreterKind::Sample => self.vm.run_with_interpreter(&mut SampleInterpreter),
+            InterpreterKind::Sample => {
+                let mut sample = SampleInterpreter::default();
+                self.vm.run_with_interpreter(&mut sample)
+            }
             InterpreterKind::Vanilla => self.vm.run_with_interpreter(&mut VanillaInterpreter),
             InterpreterKind::Profiler => self.vm.run_with_interpreter(&mut self.profiler),
         };
