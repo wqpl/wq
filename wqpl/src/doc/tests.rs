@@ -26,6 +26,11 @@ fn every_builtin_has_a_doc_topic() {
 fn resolves_keywords_and_depth_modifiers() {
     assert_eq!(resolve("@r").expect("@r doc").id, "at-return".to_string());
     assert_eq!(resolve("@12").expect("@12 doc").id, "at-depth".to_string());
+    assert_eq!(resolve("wqdb").expect("wqdb doc").id, "wqdb".to_string());
+    assert_eq!(
+        resolve("debugger").expect("debugger doc").id,
+        "wqdb".to_string()
+    );
     assert_eq!(
         resolve("words").expect("words doc").builtin,
         Some(BuiltinEnum::Words)

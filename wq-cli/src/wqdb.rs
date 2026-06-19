@@ -23,50 +23,422 @@ pub fn enter_wqdb_after_err(s: &mut Session) {
     wqdb_shell(host);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WqdbCommand {
+    Continue,
+    StepIn,
+    StepOver,
+    Finish,
+    BreakFunction,
+    BreakPc,
+    Breakpoints,
+    ResetBreakpoints,
+    Track,
+    Tracks,
+    Untrack,
+    StopHook,
+    Backtrace,
+    Peek,
+    Instructions,
+    Locals,
+    Globals,
+    Help,
+}
+
+struct WqdbCommandSpec {
+    command: WqdbCommand,
+    aliases: &'static [&'static str],
+    args: &'static [WqdbUsageArg],
+    summary: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WqdbUsageArg {
+    Required(&'static str),
+    Optional(&'static str),
+}
+
+const WQDB_COMMANDS: &[WqdbCommandSpec] = &[
+    WqdbCommandSpec {
+        command: WqdbCommand::Continue,
+        aliases: &["c", "continue"],
+        args: &[],
+        summary: "continue",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::StepOver,
+        aliases: &["n", "next", "over"],
+        args: &[],
+        summary: "step over",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::StepIn,
+        aliases: &["s", "step"],
+        args: &[],
+        summary: "step in",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Finish,
+        aliases: &["fin", "finish", "out"],
+        args: &[],
+        summary: "step out",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::BreakFunction,
+        aliases: &["bf"],
+        args: &[
+            WqdbUsageArg::Required("func"),
+            WqdbUsageArg::Optional("pc"),
+        ],
+        summary: "add breakpoint in a function",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::BreakPc,
+        aliases: &["b"],
+        args: &[WqdbUsageArg::Required("pc")],
+        summary: "add breakpoint in current chunk",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Breakpoints,
+        aliases: &["ib"],
+        args: &[],
+        summary: "show breakpoints",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::ResetBreakpoints,
+        aliases: &["rs"],
+        args: &[WqdbUsageArg::Optional("id|line")],
+        summary: "toggle breakpoints",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Track,
+        aliases: &["tr", "track"],
+        args: &[
+            WqdbUsageArg::Optional("scope"),
+            WqdbUsageArg::Required("name"),
+        ],
+        summary: "track a global, local, or capture",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Tracks,
+        aliases: &["it", "tracks"],
+        args: &[],
+        summary: "show symbol trackers",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Untrack,
+        aliases: &["ut", "untrack"],
+        args: &[WqdbUsageArg::Required("id|all")],
+        summary: "remove symbol trackers",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::StopHook,
+        aliases: &["stop-hook", "sh"],
+        args: &[WqdbUsageArg::Required("action")],
+        summary: "manage commands that run on each stop",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Backtrace,
+        aliases: &["bt"],
+        args: &[],
+        summary: "show backtrace",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Peek,
+        aliases: &["p", "peek"],
+        args: &[WqdbUsageArg::Required("n")],
+        summary: "peek +-n lines (def=3)",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Instructions,
+        aliases: &["i", "ins"],
+        args: &[WqdbUsageArg::Required("n")],
+        summary: "peek +-n insts (def=5)",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Locals,
+        aliases: &["lb", "locals"],
+        args: &[],
+        summary: "dump locals",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Globals,
+        aliases: &["gb", "globals"],
+        args: &[],
+        summary: "dump globals",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Help,
+        aliases: &["h", "help"],
+        args: &[],
+        summary: "show this help",
+    },
+];
+
+impl WqdbCommand {
+    fn parse(name: &str) -> Option<Self> {
+        WQDB_COMMANDS
+            .iter()
+            .find(|spec| spec.aliases.contains(&name))
+            .map(|spec| spec.command)
+    }
+}
+
+impl WqdbUsageArg {
+    fn plain(self) -> String {
+        match self {
+            Self::Required(name) => format!("<{name}>"),
+            Self::Optional(name) => format!("[{name}]"),
+        }
+    }
+
+    fn styled(self) -> String {
+        match self {
+            Self::Required(name) => styled_required_arg(name),
+            Self::Optional(name) => styled_optional_arg(name),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrackScope {
+    Global,
+    Local,
+    Capture,
+}
+
+impl TrackScope {
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "global" | "g" => Some(Self::Global),
+            "local" | "l" => Some(Self::Local),
+            "capture" | "cap" => Some(Self::Capture),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StopHookCommand {
+    Add,
+    List,
+    Delete,
+    Clear,
+}
+
+impl StopHookCommand {
+    fn parse(name: &str) -> Option<Self> {
+        match name {
+            "add" => Some(Self::Add),
+            "list" | "ls" => Some(Self::List),
+            "delete" | "del" | "remove" | "rm" => Some(Self::Delete),
+            "clear" => Some(Self::Clear),
+            _ => None,
+        }
+    }
+}
+
+fn command_usage_plain(spec: &WqdbCommandSpec) -> String {
+    let mut usage = spec.aliases.join(" | ");
+    for arg in spec.args {
+        usage.push(' ');
+        usage.push_str(&arg.plain());
+    }
+    usage
+}
+
+fn command_usage_styled(spec: &WqdbCommandSpec) -> String {
+    let mut usage = String::new();
+    for (idx, alias) in spec.aliases.iter().enumerate() {
+        if idx > 0 {
+            usage.push_str(&format!(" {} ", styled_separator()));
+        }
+        usage.push_str(&styled_command(alias));
+    }
+    for arg in spec.args {
+        usage.push(' ');
+        usage.push_str(&arg.styled());
+    }
+    usage
+}
+
+fn styled_command(text: &str) -> String {
+    text.green().to_string()
+}
+
+fn styled_subcommand(text: &str) -> String {
+    text.bright_cyan().to_string()
+}
+
+fn styled_flag(text: &str) -> String {
+    text.bright_magenta().to_string()
+}
+
+fn styled_required_arg(name: &str) -> String {
+    format!(
+        "{}{}{}",
+        "<".bright_black(),
+        name.bright_yellow(),
+        ">".bright_black()
+    )
+}
+
+fn styled_optional_arg(name: &str) -> String {
+    format!(
+        "{}{}{}",
+        "[".bright_black(),
+        name.bright_yellow(),
+        "]".bright_black()
+    )
+}
+
+fn styled_separator() -> String {
+    "|".bright_black().to_string()
+}
+
+fn styled_track_command(scope: &str, arg: &str) -> String {
+    format!(
+        "{} {} {}",
+        styled_command("track"),
+        styled_subcommand(scope),
+        styled_required_arg(arg)
+    )
+}
+
+fn styled_stop_hook_command(action: &str, suffix: Option<String>) -> String {
+    match suffix {
+        Some(suffix) => format!(
+            "{} {} {suffix}",
+            styled_command("stop-hook"),
+            styled_subcommand(action)
+        ),
+        None => format!(
+            "{} {}",
+            styled_command("stop-hook"),
+            styled_subcommand(action)
+        ),
+    }
+}
+
+fn wqdb_help_row(spec: &WqdbCommandSpec, usage_width: usize) -> String {
+    let usage = command_usage_styled(spec);
+    let padding = usage_width - command_usage_plain(spec).len();
+    format!("  {usage}{:padding$}  {}", "", spec.summary)
+}
+
+fn print_wqdb_help() {
+    let usage_width = WQDB_COMMANDS
+        .iter()
+        .map(|spec| command_usage_plain(spec).len())
+        .max()
+        .unwrap_or(0);
+    wqstderr_println(format!(
+        "{} {}",
+        "wqdb".bold().bright_magenta(),
+        "=======================================".bright_black()
+    ));
+    for spec in WQDB_COMMANDS {
+        wqstderr_println(wqdb_help_row(spec, usage_width));
+    }
+    wqstderr_println("");
+    wqstderr_println(format!("{}", "track scopes".bold()));
+    let track_name = format!("{} {}", styled_command("track"), styled_required_arg("name"));
+    wqstderr_println(format!(
+        "  {} {}",
+        track_name,
+        "resolves a current local by name, or a global if no local matches".bright_black()
+    ));
+    wqstderr_println(format!(
+        "  {} {} {} {} {}",
+        styled_track_command("global", "name"),
+        styled_separator(),
+        styled_track_command("local", "name"),
+        styled_separator(),
+        styled_track_command("capture", "slot")
+    ));
+    wqstderr_println("");
+    wqstderr_println(format!("{}", "stop hooks".bold()));
+    wqstderr_println(format!(
+        "  {} {} {} {} {} {} {}",
+        styled_stop_hook_command(
+            "add",
+            Some(format!("{} {}", styled_flag("-o"), styled_required_arg("cmd"))),
+        ),
+        styled_separator(),
+        styled_stop_hook_command("list", None),
+        styled_separator(),
+        styled_stop_hook_command("delete", Some(styled_required_arg("id|all"))),
+        styled_separator(),
+        styled_stop_hook_command("clear", None)
+    ));
+    wqstderr_println("");
+    wqstderr_println(format!("{}", "batch commands".bold()));
+    wqstderr_println(format!(
+        "  CLI {}{}{} commands run once at the first debugger stop.",
+        styled_flag("-o"),
+        "/".bright_black(),
+        styled_flag("--wqdb-cmd")
+    ));
+    wqstderr_println(format!(
+        "  Use {} for commands that should run every time execution stops.",
+        styled_stop_hook_command(
+            "add",
+            Some(format!("{} {}", styled_flag("-o"), styled_required_arg("cmd"))),
+        )
+    ));
+}
+
 fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
     let mut it = cmd.split_whitespace();
-    match it.next().unwrap_or("") {
-        "c" | "continue" => {
+    let Some(name) = it.next() else {
+        return false;
+    };
+    let Some(command) = WqdbCommand::parse(name) else {
+        wqstderr_println(format!("unknown wqdb command '{name}', type 'h' for help").as_str());
+        return false;
+    };
+    match command {
+        WqdbCommand::Continue => {
             host.dbg_continue();
             true
         }
-        "s" | "step" => {
+        WqdbCommand::StepIn => {
             host.dbg_step_in();
             true
         }
-        "n" | "next" | "over" => {
+        WqdbCommand::StepOver => {
             host.dbg_step_over();
             true
         }
-        "fin" | "finish" | "out" => {
+        WqdbCommand::Finish => {
             host.dbg_step_out();
             true
         }
-        "bf" => {
+        WqdbCommand::BreakFunction => {
             set_breakpoint_at_function(host, it.next(), it.next()).unwrap_or_else(wqstderr_println);
             false
         }
-        "b" => {
+        WqdbCommand::BreakPc => {
             set_breakpoint_at_pc(host, it.next()).unwrap_or_else(wqstderr_println);
             false
         }
-        "tr" | "track" => {
+        WqdbCommand::Track => {
             track_symbol(host, it.next(), it.next()).unwrap_or_else(wqstderr_println);
             false
         }
-        "it" | "tracks" => {
+        WqdbCommand::Tracks => {
             print_symbol_trackers(host);
             false
         }
-        "ut" | "untrack" => {
+        WqdbCommand::Untrack => {
             untrack_symbol(host, it.next()).unwrap_or_else(wqstderr_println);
             false
         }
-        "stop-hook" | "sh" => {
+        WqdbCommand::StopHook => {
             stop_hook_cmd(host, cmd).unwrap_or_else(wqstderr_println);
             false
         }
-        "ib" => {
+        WqdbCommand::Breakpoints => {
             let bps = host.dbg_breakpoints();
             if bps.is_empty() {
                 wqstderr_println("no breakpoints");
@@ -90,7 +462,7 @@ fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
             }
             false
         }
-        "bt" => {
+        WqdbCommand::Backtrace => {
             let frames = host.bt_frames();
             let di = host.debug_info();
             for (idx, (loc, name)) in frames.iter().enumerate() {
@@ -99,7 +471,7 @@ fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
             }
             false
         }
-        "rs" => {
+        WqdbCommand::ResetBreakpoints => {
             if let Some(arg) = it.next() {
                 if let Ok(id) = arg.parse::<usize>() {
                     if let Some(new_state) = host.dbg_toggle_break_id(id) {
@@ -142,21 +514,21 @@ fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
             }
             false
         }
-        "p" | "peek" => {
+        WqdbCommand::Peek => {
             let n = it.next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(3);
             peek_context(host, n);
             false
         }
-        "i" | "ins" => {
+        WqdbCommand::Instructions => {
             let n = it.next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(5);
             peek_instructions(host, n);
             false
         }
-        "lb" | "locals" => {
+        WqdbCommand::Locals => {
             print_locals(host);
             false
         }
-        "gb" | "globals" => {
+        WqdbCommand::Globals => {
             let globals = host.dbg_globals();
             if globals.is_empty() {
                 wqstderr_println("no globals");
@@ -201,12 +573,8 @@ fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
             }
             false
         }
-        "h" | "help" => {
-            wqstderr_println(include_str!("../../d/wqdb"));
-            false
-        }
-        other => {
-            wqstderr_println(format!("unknown wqdb command '{other}', type 'h' for help").as_str());
+        WqdbCommand::Help => {
+            print_wqdb_help();
             false
         }
     }
@@ -318,16 +686,16 @@ fn track_symbol(
         return Err("usage: track [global|local|capture] <name-or-slot>".to_string());
     };
     let msg = if let Some(name_arg) = name_arg {
-        match target_arg {
-            "global" | "g" => host.dbg_track_global_symbol(name_arg),
-            "local" | "l" => host.dbg_track_local_symbol(name_arg)?,
-            "capture" | "cap" => {
+        match TrackScope::parse(target_arg) {
+            Some(TrackScope::Global) => host.dbg_track_global_symbol(name_arg),
+            Some(TrackScope::Local) => host.dbg_track_local_symbol(name_arg)?,
+            Some(TrackScope::Capture) => {
                 let slot = name_arg
                     .parse::<u16>()
                     .map_err(|_| "usage: track capture <slot>".to_string())?;
                 host.dbg_track_capture_slot(slot)
             }
-            _ => return Err("usage: track [global|local|capture] <name-or-slot>".to_string()),
+            None => return Err("usage: track [global|local|capture] <name-or-slot>".to_string()),
         }
     } else {
         host.dbg_track_symbol(target_arg)?
@@ -379,20 +747,24 @@ fn print_symbol_trackers(host: &Vm) {
 fn stop_hook_cmd(host: &mut Vm, cmd: &str) -> Result<(), String> {
     let mut it = cmd.split_whitespace();
     let _ = it.next();
-    match it.next() {
-        Some("add") => add_stop_hook(host, cmd),
-        Some("list") | Some("ls") => {
+    let Some(action) = it.next().and_then(StopHookCommand::parse) else {
+        return Err(
+            "usage: stop-hook add -o <cmd> | stop-hook list | stop-hook delete <id|all> | stop-hook clear"
+                .to_string(),
+        );
+    };
+    match action {
+        StopHookCommand::Add => add_stop_hook(host, cmd),
+        StopHookCommand::List => {
             print_stop_hooks(host);
             Ok(())
         }
-        Some("delete" | "del" | "remove" | "rm") => delete_stop_hook(host, it.next()),
-        Some("clear") => {
+        StopHookCommand::Delete => delete_stop_hook(host, it.next()),
+        StopHookCommand::Clear => {
             host.wqdb.clear_stop_hooks();
             wqstderr_println("cleared stop hooks");
             Ok(())
         }
-        _ => Err("usage: stop-hook add -o <cmd> | stop-hook list | stop-hook delete <id|all>"
-            .to_string()),
     }
 }
 
@@ -735,5 +1107,82 @@ fn peek_instructions(host: &mut Vm, n: usize) {
         } else {
             wqstderr_println(format!("{pc:>4}    {text}"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_aliases_parse_to_typed_commands() {
+        assert_eq!(WqdbCommand::parse("c"), Some(WqdbCommand::Continue));
+        assert_eq!(WqdbCommand::parse("continue"), Some(WqdbCommand::Continue));
+        assert_eq!(WqdbCommand::parse("over"), Some(WqdbCommand::StepOver));
+        assert_eq!(WqdbCommand::parse("track"), Some(WqdbCommand::Track));
+        assert_eq!(WqdbCommand::parse("sh"), Some(WqdbCommand::StopHook));
+        assert_eq!(WqdbCommand::parse("unknown"), None);
+    }
+
+    #[test]
+    fn command_aliases_are_unique() {
+        let mut aliases = std::collections::HashSet::new();
+        for spec in WQDB_COMMANDS {
+            for alias in spec.aliases {
+                assert!(aliases.insert(*alias), "duplicate wqdb alias: {alias}");
+            }
+        }
+    }
+
+    #[test]
+    fn command_usage_renders_pipe_separated_aliases() {
+        let continue_spec = WQDB_COMMANDS
+            .iter()
+            .find(|spec| spec.command == WqdbCommand::Continue)
+            .expect("continue command spec");
+        let break_fn_spec = WQDB_COMMANDS
+            .iter()
+            .find(|spec| spec.command == WqdbCommand::BreakFunction)
+            .expect("break function command spec");
+
+        assert_eq!(command_usage_plain(continue_spec), "c | continue");
+        assert_eq!(command_usage_plain(break_fn_spec), "bf <func> [pc]");
+    }
+
+    #[test]
+    fn command_help_rows_are_indented() {
+        let usage_width = WQDB_COMMANDS
+            .iter()
+            .map(|spec| command_usage_plain(spec).len())
+            .max()
+            .expect("wqdb commands");
+        let row = wqdb_help_row(&WQDB_COMMANDS[0], usage_width);
+
+        assert!(row.starts_with("  "));
+    }
+
+    #[test]
+    fn track_scope_aliases_parse_to_typed_scopes() {
+        assert_eq!(TrackScope::parse("global"), Some(TrackScope::Global));
+        assert_eq!(TrackScope::parse("g"), Some(TrackScope::Global));
+        assert_eq!(TrackScope::parse("local"), Some(TrackScope::Local));
+        assert_eq!(TrackScope::parse("l"), Some(TrackScope::Local));
+        assert_eq!(TrackScope::parse("capture"), Some(TrackScope::Capture));
+        assert_eq!(TrackScope::parse("cap"), Some(TrackScope::Capture));
+        assert_eq!(TrackScope::parse("x"), None);
+    }
+
+    #[test]
+    fn stop_hook_aliases_parse_to_typed_commands() {
+        assert_eq!(StopHookCommand::parse("add"), Some(StopHookCommand::Add));
+        assert_eq!(StopHookCommand::parse("list"), Some(StopHookCommand::List));
+        assert_eq!(StopHookCommand::parse("ls"), Some(StopHookCommand::List));
+        assert_eq!(
+            StopHookCommand::parse("delete"),
+            Some(StopHookCommand::Delete)
+        );
+        assert_eq!(StopHookCommand::parse("rm"), Some(StopHookCommand::Delete));
+        assert_eq!(StopHookCommand::parse("clear"), Some(StopHookCommand::Clear));
+        assert_eq!(StopHookCommand::parse("x"), None);
     }
 }

@@ -6,6 +6,12 @@ const OPERATOR_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("6"),
 }];
 
+const WQDB_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Pause from source",
+    code: "@p x",
+    expectation: ExampleExpectation::NoRun("pauses in the host debugger"),
+}];
+
 pub(super) const BUILTINS: StaticDoc = StaticDoc {
     id: "builtins",
     title: "Builtins",
@@ -28,4 +34,16 @@ pub(super) const OPERATORS: StaticDoc = StaticDoc {
     details: "Most binary operators broadcast over compatible values. The comma operator concatenates, while leading comma enlists a value.",
     examples: OPERATOR_EXAMPLES,
     related: &["builtins", "lists", "pipes"],
+};
+
+pub(super) const WQDB: StaticDoc = StaticDoc {
+    id: "wqdb",
+    title: "wqdb",
+    kind: DocKind::Guide,
+    group: "Debugging",
+    aliases: &["debugger", "debugging"],
+    summary: "wqdb is the source-level debugger used by wq hosts.",
+    details: "wqdb pauses execution at source locations, records backtraces and locals, and gives hosts enough debug metadata to implement stepping, breakpoints, symbol tracking, and stop hooks. The core `wqpl` crate owns this debug model and APIs such as pause state, breakpoint state, and source-location metadata. Concrete command names, aliases, colored terminal help, and command-line flags such as `-w`, `-o`, and `--wqdb-script` belong to the host application. In the standard CLI, `@p` pauses in wqdb when debugging is enabled, `-w` enables wqdb, and repeated `-o <cmd>` values run once at the first debugger stop.",
+    examples: WQDB_EXAMPLES,
+    related: &["@p", "@d", "assignment-forms"],
 };

@@ -7,6 +7,7 @@ use super::model::{DocTopic, StaticDoc};
 pub(super) const STATIC_DOCS: &[StaticDoc] = &[
     guides::BUILTINS,
     guides::OPERATORS,
+    guides::WQDB,
     keywords::AT_ASSERT,
     keywords::AT_BREAK,
     keywords::AT_CONTINUE,
