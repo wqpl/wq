@@ -1,0 +1,59 @@
+============================
+Symbolic Quote Before Pipe
+============================
+@s x^2 | diff
+
+---
+
+(source_file
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (bool_or_expr
+              (bool_and_expr
+                (comparison_expr
+                  (bit_or_expr
+                    (bit_xor_expr
+                      (bit_and_expr
+                        (shift_expr
+                          (additive_expr
+                            (multiplicative_expr
+                              (range_expr
+                                (unary_expr
+                                  (power_expr
+                                    (postfix_expr
+                                      (primary
+                                        (symbolic_form
+                                          (comma_expr
+                                            (bool_or_expr
+                                              (bool_and_expr
+                                                (comparison_expr
+                                                  (bit_or_expr
+                                                    (bit_xor_expr
+                                                      (bit_and_expr
+                                                        (shift_expr
+                                                          (additive_expr
+                                                            (multiplicative_expr
+                                                              (range_expr
+                                                                (unary_expr
+                                                                  (power_expr
+                                                                    (postfix_expr
+                                                                      (primary
+                                                                        (variable_ref
+                                                                          (identifier))))
+                                                                    (unary_expr
+                                                                      (power_expr
+                                                                        (postfix_expr
+                                                                          (primary
+                                                                            (literal
+                                                                              (integer)))))))))))))))))))))))))))))))))))
+          (pipe_operator)
+          (pipe_rhs_expr
+            (pipe_postfix_expr
+              (primary
+                (variable_ref
+                  (identifier)))))))))
+  (separator
+    (newline)))

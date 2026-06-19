@@ -3346,7 +3346,7 @@ impl Parser {
             .ok_or_else(|| self.eof_error_here("unexpected end of input after @s"))?;
         self.advance();
         self.eat_trivia(true, true);
-        let expr = self.parse_expression()?;
+        let expr = self.parse_comma()?;
         Ok(AstNode::Literal(
             self.quote_symbolic_value(expr, &start)?,
             None,
@@ -4337,6 +4337,19 @@ mod symbolic_quote_tests {
         assert_eq!(stmts.len(), 2);
         assert!(matches!(&stmts[0], AstNode::Assignment { name, .. } if name == "expr"));
         assert!(matches!(&stmts[1], AstNode::Pipe { .. }));
+    }
+
+    #[test]
+    fn symbolic_quote_does_not_swallow_pipe() {
+        let ast = parse_input("@s x^2|diff").expect("script should parse");
+        let AstNode::Pipe { input, effect, .. } = ast else {
+            panic!("expected pipe, got {ast:?}");
+        };
+        let AstNode::Literal(value, _) = input.as_ref() else {
+            panic!("expected symbolic input, got {input:?}");
+        };
+        assert_eq!(value.to_string(), "x^2");
+        assert!(matches!(effect.as_ref(), AstNode::Variable(name, _) if name == "diff"));
     }
 }
 

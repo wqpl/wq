@@ -1301,7 +1301,7 @@
       "required": true,
       "types": [
         {
-          "type": "expression",
+          "type": "comma_expr",
           "named": true
         }
       ]

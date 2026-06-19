@@ -2179,7 +2179,7 @@
         },
         {
           "type": "SYMBOL",
-          "name": "expression"
+          "name": "comma_expr"
         }
       ]
     },

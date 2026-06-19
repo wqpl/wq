@@ -15,10 +15,10 @@ Once you have a symbolic value, apply CAS functions to that value.
 
 ```wq
 expr:@s x^2+2*x+1
-(diff expr)|echo
+expr|diff|echo
 ```
 
-Use parentheses when piping around symbolic expressions. Otherwise the pipe can become part of what `@s` tries to quote.
+`@s` quotes the symbolic expression, then the value can move through normal pipes.
 
 ## Factor And Solve
 
@@ -44,5 +44,5 @@ The roots are values now, so list arithmetic works.
 
 - `@s expr` creates a symbolic expression.
 - After `@s`, pass the symbolic value to CAS functions.
-- Prefer `factor[@s ...]` or parentheses when pipes are nearby.
+- Pipes stay outside the symbolic quote, so `@s x^2|diff` works as ordinary value flow.
 - Ordinary arithmetic and CAS arithmetic are related, but not the same mode.

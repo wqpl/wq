@@ -418,7 +418,7 @@ export default grammar({
     assert_form: ($) => seq("@a", $.expression),
     debug_form: ($) => seq("@d", $.unary_expr),
     pause_form: ($) => seq("@p", optional($.unary_expr)),
-    symbolic_form: ($) => seq("@s", $.expression),
+    symbolic_form: ($) => seq("@s", $.comma_expr),
 
     magic_command: (_) => token(seq("!", /[^\n]*/)),
 
