@@ -213,6 +213,9 @@ pub fn execute<H: Helper, P: Prompt + ?Sized>(
             s.edit_indent(&mvt, config.indent_size(), false)?;
         }
         Cmd::Interrupt => {
+            if s.has_hint() || !s.is_default_prompt() || s.highlight_char {
+                s.refresh_line_with_msg(None, CmdKind::ForcedRefresh)?;
+            }
             // Move to end, in case cursor was in the middle of the
             // line, so that next thing application prints goes after
             // the input

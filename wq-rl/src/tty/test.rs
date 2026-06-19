@@ -93,6 +93,7 @@ impl RawReader for IntoIter<KeyEvent> {
 #[derive(Default)]
 pub struct Sink {
     pub output: String,
+    pub hints: Vec<Option<String>>,
 }
 
 impl Renderer for Sink {
@@ -107,11 +108,15 @@ impl Renderer for Sink {
         _prompt: &P,
         _continuation_prompt: Option<&str>,
         _line: &LineBuffer,
-        _hint: Option<&str>,
+        hint: Option<&str>,
         _old_layout: Option<&Layout>,
         _new_layout: &Layout,
         _highlighter: Option<&dyn Highlighter>,
     ) -> Result<()> {
+        self.hints.push(hint.map(str::to_owned));
+        if let Some(hint) = hint {
+            self.output.push_str(hint);
+        }
         Ok(())
     }
 

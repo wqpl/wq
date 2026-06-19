@@ -6,11 +6,13 @@ use crate::edit::init_state;
 use crate::highlight::Highlighter;
 use crate::hint::Hinter;
 use crate::history::History as _;
-use crate::keymap::{Bindings, Cmd, InputState};
+use crate::keymap::{Bindings, Cmd, InputState, Refresher as _};
 use crate::keys::{KeyCode as K, KeyEvent, KeyEvent as E, Modifiers as M};
 use crate::tty::Sink;
 use crate::validate::Validator;
-use crate::{Context, DefaultEditor, Helper, Result, apply_backspace_direct, readline_direct};
+use crate::{
+    Context, DefaultEditor, Helper, ReadlineError, Result, apply_backspace_direct, readline_direct,
+};
 
 mod common;
 mod emacs;
@@ -94,6 +96,45 @@ impl Helper for DescribedCompleter {}
 impl Highlighter for DescribedCompleter {}
 impl Validator for DescribedCompleter {}
 
+struct MenuCompleter;
+impl Completer for MenuCompleter {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        _line: &str,
+        _pos: usize,
+        _ctx: &Context<'_>,
+    ) -> Result<(usize, Vec<Pair>)> {
+        Ok((
+            0,
+            vec![
+                Pair::described("alpha", "alpha", "first item"),
+                Pair::described("beta", "beta", "second item"),
+                Pair::described("charlie", "charlie", "third item"),
+                Pair::described("delta", "delta", "fourth item"),
+                Pair::described("echo", "echo", "fifth item"),
+                Pair::described("foxtrot", "foxtrot", "sixth item"),
+                Pair::described("golf", "golf", "seventh item"),
+                Pair::described("hotel", "hotel", "eighth item"),
+                Pair::described("india", "india", "ninth item"),
+                Pair::described("juliet", "juliet", "tenth item"),
+            ],
+        ))
+    }
+}
+impl Hinter for MenuCompleter {
+    type Hint = String;
+
+    fn hint(&self, line: &str, _pos: usize, _ctx: &Context<'_>) -> Option<Self::Hint> {
+        (line == "a").then(|| "bs".to_string())
+    }
+}
+
+impl Helper for MenuCompleter {}
+impl Highlighter for MenuCompleter {}
+impl Validator for MenuCompleter {}
+
 #[test]
 fn complete_line() {
     let mut out = Sink::default();
@@ -157,6 +198,118 @@ fn list_completion_aligns_and_truncates_descriptions() {
     assert!(out.output.contains("\nassert            Assert that"));
     assert!(out.output.contains("..."));
     assert!(!out.output.contains("and more tail."));
+}
+
+#[test]
+fn menu_completion_is_bounded_without_prompt_or_pager() {
+    let mut out = Sink::default();
+    let history = crate::history::DefaultHistory::new();
+    let helper = Some(MenuCompleter);
+    let mut s = init_state(&mut out, "", 0, helper.as_ref(), &history);
+    let config = Config::builder()
+        .completion_type(CompletionType::Menu)
+        .build();
+    let bindings = Bindings::new();
+    let mut input_state = InputState::new(&config, &bindings);
+    let keys = vec![E::ESC];
+    let mut rdr: IntoIter<KeyEvent> = keys.into_iter();
+
+    let cmd = super::complete_line(&mut rdr, &mut s, &mut input_state, &config).expect("complete");
+
+    assert_eq!(None, cmd);
+    assert!(out.output.contains("\n> alpha    first item"));
+    assert!(out.output.contains("\n  hotel    eighth item"));
+    assert!(out.output.contains("\n  1-8 of 10"));
+    assert!(!out.output.contains("india"));
+    assert!(!out.output.contains("Display all"));
+    assert!(!out.output.contains("--More--"));
+}
+
+#[test]
+fn menu_completion_accepts_selected_candidate() {
+    let mut out = Sink::default();
+    let history = crate::history::DefaultHistory::new();
+    let helper = Some(MenuCompleter);
+    let mut s = init_state(&mut out, "", 0, helper.as_ref(), &history);
+    let config = Config::builder()
+        .completion_type(CompletionType::Menu)
+        .build();
+    let bindings = Bindings::new();
+    let mut input_state = InputState::new(&config, &bindings);
+    let keys = vec![E(K::Tab, M::NONE), E::ENTER];
+    let mut rdr: IntoIter<KeyEvent> = keys.into_iter();
+
+    let cmd = super::complete_line(&mut rdr, &mut s, &mut input_state, &config).expect("complete");
+
+    assert_eq!(None, cmd);
+    assert_eq!("beta", s.line.as_str());
+}
+
+#[test]
+fn menu_completion_interrupt_clears_hint() {
+    let mut out = Sink::default();
+    let history = crate::history::DefaultHistory::new();
+    let helper = Some(MenuCompleter);
+    let mut s = init_state(&mut out, "a", 1, helper.as_ref(), &history);
+    let config = Config::builder()
+        .completion_type(CompletionType::Menu)
+        .build();
+    let bindings = Bindings::new();
+    let mut input_state = InputState::new(&config, &bindings);
+    let keys = vec![E(K::Char('C'), M::CTRL)];
+    let mut rdr: IntoIter<KeyEvent> = keys.into_iter();
+
+    let err = super::complete_line(&mut rdr, &mut s, &mut input_state, &config)
+        .expect_err("interrupt");
+
+    assert!(matches!(err, ReadlineError::Interrupted));
+    assert_eq!("a", s.line.as_str());
+    assert!(s.hint.is_none());
+    assert!(!out.output.ends_with("bs"));
+}
+
+#[test]
+fn menu_completion_interrupts_readline() {
+    let config = Config::builder()
+        .completion_type(CompletionType::Menu)
+        .build();
+    let mut editor = crate::Editor::<MenuCompleter, crate::history::DefaultHistory>::with_config(config)
+        .expect("editor");
+    editor.set_helper(Some(MenuCompleter));
+    editor.term.keys.extend([E(K::Tab, M::NONE), E(K::Char('C'), M::CTRL)]);
+
+    let err = editor
+        .readline_with_initial(">>", ("a", ""))
+        .expect_err("interrupt");
+
+    assert!(matches!(err, ReadlineError::Interrupted));
+}
+
+#[test]
+fn interrupt_clears_visible_hint() {
+    let mut out = Sink::default();
+    let history = crate::history::DefaultHistory::new();
+    let helper = Some(MenuCompleter);
+    let mut s = init_state(&mut out, "a", 1, helper.as_ref(), &history);
+    let config = Config::builder().build();
+    let bindings = Bindings::new();
+    let input_state = InputState::new(&config, &bindings);
+    let mut kill_ring = crate::kill_ring::KillRing::new(60);
+
+    s.refresh_line().expect("paint hint");
+    assert!(s.hint.is_some());
+
+    let result = crate::command::execute(
+        Cmd::Interrupt,
+        &mut s,
+        &input_state,
+        &mut kill_ring,
+        &config,
+    );
+
+    assert!(matches!(result, Err(ReadlineError::Interrupted)));
+    assert!(s.hint.is_none());
+    assert!(matches!(out.hints.last(), Some(None)));
 }
 
 // `keys`: keys to press

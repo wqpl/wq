@@ -127,6 +127,15 @@ fn complete_line<H: Helper, P: Prompt + ?Sized>(
             }
         }
         Ok(Some(cmd))
+    } else if CompletionType::Menu == config.completion_type() {
+        if let Some(lcp) = longest_common_prefix(&candidates)
+            && (lcp.len() > s.line.pos() - start || candidates.len() == 1)
+        {
+            completer.update(&mut s.line, start, lcp, &mut s.changes);
+            s.refresh_line()?;
+            return Ok(None);
+        }
+        menu_completions(rdr, s, input_state, completer, start, &candidates)
     } else if CompletionType::List == config.completion_type() {
         if let Some(lcp) = longest_common_prefix(&candidates) {
             // if we can extend the item, extend it
@@ -261,6 +270,114 @@ fn complete_hint_line<H: Helper, P: Prompt + ?Sized>(s: &mut State<'_, '_, H, P>
         s.out.beep()?;
     }
     s.refresh_line()
+}
+
+const MENU_MAX_ROWS: usize = 8;
+
+fn menu_completions<H: Helper, P: Prompt + ?Sized>(
+    rdr: &mut <Terminal as Term>::Reader,
+    s: &mut State<'_, '_, H, P>,
+    input_state: &mut InputState,
+    completer: &H,
+    start: usize,
+    candidates: &[H::Candidate],
+) -> Result<Option<Cmd>> {
+    let mark = s.changes.begin();
+    let mut selected = 0usize;
+    loop {
+        let menu = render_completion_menu(candidates, &s.layout, s.out.get_columns(), selected);
+        s.refresh_line_with_msg(Some(&menu), CmdKind::ForcedRefresh)?;
+        let cmd = s.next_cmd(input_state, rdr, true, true)?;
+        match cmd {
+            Cmd::Complete | Cmd::LineDownOrNextHistory(_) | Cmd::NextHistory => {
+                selected = (selected + 1) % candidates.len();
+            }
+            Cmd::CompleteBackward | Cmd::LineUpOrPreviousHistory(_) | Cmd::PreviousHistory => {
+                selected = if selected == 0 {
+                    candidates.len() - 1
+                } else {
+                    selected - 1
+                };
+            }
+            Cmd::AcceptLine | Cmd::Newline | Cmd::AcceptOrInsertLine { .. } => {
+                completer.update(
+                    &mut s.line,
+                    start,
+                    candidates[selected].replacement(),
+                    &mut s.changes,
+                );
+                s.changes.end();
+                s.refresh_line()?;
+                return Ok(None);
+            }
+            Cmd::Abort => {
+                s.changes.truncate(mark);
+                s.refresh_line()?;
+                return Ok(None);
+            }
+            Cmd::Interrupt => {
+                s.changes.truncate(mark);
+                s.refresh_line_with_msg(None, CmdKind::ForcedRefresh)?;
+                s.move_cursor_to_end()?;
+                return Err(ReadlineError::Interrupted);
+            }
+            _ => {
+                s.changes.truncate(mark);
+                s.refresh_line()?;
+                return Ok(Some(cmd));
+            }
+        }
+    }
+}
+
+fn render_completion_menu<C: Candidate>(
+    candidates: &[C],
+    layout: &crate::layout::Layout,
+    cols: Unit,
+    selected: usize,
+) -> String {
+    let row_count = candidates.len().min(MENU_MAX_ROWS);
+    let window_start = if selected >= row_count {
+        selected + 1 - row_count
+    } else {
+        0
+    };
+    let window_end = (window_start + row_count).min(candidates.len());
+    let visible = &candidates[window_start..window_end];
+    let has_descriptions = visible.iter().any(|c| c.description().is_some());
+    let row_width = cols.saturating_sub(2);
+    let name_width = if has_descriptions {
+        let max_name_width = row_width.saturating_sub(10);
+        Some(
+            visible
+                .iter()
+                .map(|c| layout.width(c.display()))
+                .max()
+                .map_or(0, |width| width.min(max_name_width)),
+        )
+    } else {
+        None
+    };
+
+    let mut menu = String::new();
+    for (offset, candidate) in visible.iter().enumerate() {
+        let index = window_start + offset;
+        menu.push('\n');
+        menu.push_str(if index == selected { "> " } else { "  " });
+        menu.push_str(&render_completion_candidate(
+            candidate, layout, row_width, name_width,
+        ));
+    }
+    if candidates.len() > row_count {
+        menu.push('\n');
+        menu.push_str(&format!(
+            "  {}-{} of {}",
+            window_start + 1,
+            window_end,
+            candidates.len()
+        ));
+    }
+    menu
 }
 
 fn page_completions<C: Candidate, H: Helper, P: Prompt + ?Sized>(

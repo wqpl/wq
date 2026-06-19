@@ -11,7 +11,10 @@ pub(crate) struct RustylineInput {
 
 impl RustylineInput {
     pub(crate) fn new() -> wq_rl::Result<Self> {
-        let config = wq_rl::Config::builder().hint_accept_enabled(true).build();
+        let config = wq_rl::Config::builder()
+            .hint_accept_enabled(true)
+            .completion_type(wq_rl::CompletionType::Menu)
+            .build();
         let mut rl: Editor<WqReplHighlighter, _> = Editor::with_config(config)?;
         rl.set_helper(Some(WqReplHighlighter::new()));
         Ok(Self { rl })

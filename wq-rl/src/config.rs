@@ -346,6 +346,8 @@ pub enum CompletionType {
     /// When more than one match, list all matches
     /// (like in Bash/Readline).
     List,
+    /// Show a bounded completion menu below the prompt.
+    Menu,
 
     /// Complete the match using fuzzy search and selection
     /// (like fzf and plugins)

@@ -1019,6 +1019,32 @@ impl PosixRenderer {
             self.push_input_area_blank(style);
         }
     }
+
+    fn push_highlighted_hint(&mut self, hint: &str, highlighter: Option<&dyn Highlighter>) {
+        if let Some(highlighter) = highlighter {
+            self.buffer.push_str(&highlighter.highlight_hint(hint));
+        } else {
+            self.buffer.push_str(hint);
+        }
+    }
+
+    fn push_input_area_hint(
+        &mut self,
+        hint: &str,
+        highlighter: Option<&dyn Highlighter>,
+        style: InputAreaStyle,
+    ) {
+        let mut parts = hint.split('\n');
+        if let Some(first) = parts.next() {
+            self.push_highlighted_hint(first, highlighter);
+        }
+        for part in parts {
+            self.push_input_area_suffix(style);
+            self.buffer.push('\n');
+            self.push_input_area_prefix(style);
+            self.push_highlighted_hint(part, highlighter);
+        }
+    }
 }
 
 impl Renderer for PosixRenderer {
@@ -1164,10 +1190,10 @@ impl Renderer for PosixRenderer {
         }
         // display hint
         if let Some(hint) = hint {
-            if let Some(highlighter) = highlighter {
-                self.buffer.push_str(&highlighter.highlight_hint(hint));
+            if let Some(style) = input_area_style {
+                self.push_input_area_hint(hint, highlighter, style);
             } else {
-                self.buffer.push_str(hint);
+                self.push_highlighted_hint(hint, highlighter);
             }
         }
         if let Some(style) = input_area_style {
@@ -1954,5 +1980,46 @@ mod test {
             "\x1b[48;5;236m\x1b[K\x1b[0m\n\x1b[48;5;236m > abc\x1b[K\x1b[0m\n\x1b[48;5;236m\x1b[K\x1b[0m\x1b[1A\r\x1b[6C",
             out.buffer
         );
+    }
+
+    #[test]
+    fn input_area_style_fills_multiline_hint_rows() {
+        let mut out = PosixRenderer::new(
+            AltFd(libc::STDOUT_FILENO),
+            4,
+            true,
+            true,
+            GraphemeClusterMode::default(),
+            BellStyle::default(),
+        );
+        let prompt = "> ";
+        let style = TestInputArea
+            .input_area_style()
+            .expect("test highlighter has input area style");
+        let mut prompt_size =
+            out.calculate_position(prompt, Position::default(), Position::default());
+        prompt_size.row += style.vertical_padding;
+        prompt_size.col += style.horizontal_padding;
+
+        let line = LineBuffer::init("abc", 3);
+        let hint = "\n> alpha    first item\n  beta     second item";
+        let mut layout = out.compute_layout(prompt_size, None, true, &line, Some(hint));
+        layout.input_area_top_padding = style.vertical_padding;
+        layout.input_area_bottom_padding = style.vertical_padding;
+
+        out.refresh_line(
+            prompt,
+            None,
+            &line,
+            Some(hint),
+            None,
+            &layout,
+            Some(&TestInputArea),
+        )
+        .unwrap();
+
+        assert!(out.buffer.contains("abc\x1b[K\x1b[0m\n\x1b[48;5;236m "));
+        assert!(out.buffer.contains("> alpha    first item\x1b[K\x1b[0m\n\x1b[48;5;236m "));
+        assert!(out.buffer.contains("  beta     second item\x1b[K\x1b[0m"));
     }
 }
