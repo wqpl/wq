@@ -615,8 +615,9 @@ impl Vm {
         self.wqdb.clear_symbol_trackers();
     }
 
+    #[inline]
     pub(crate) fn symbol_trackers_enabled(&self) -> bool {
-        self.wqdb.has_symbol_trackers()
+        self.wqdb.enabled && self.wqdb.has_symbol_trackers()
     }
 
     pub(crate) fn note_global_symbol_write(
@@ -686,7 +687,7 @@ impl Vm {
         old: Option<Value>,
         new: Value,
     ) {
-        if !self.wqdb.has_symbol_trackers() {
+        if !self.symbol_trackers_enabled() {
             return;
         }
 

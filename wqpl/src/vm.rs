@@ -468,4 +468,19 @@ mod tests {
             "debug artifacts should be enabled when on_pause is registered"
         );
     }
+
+    #[test]
+    fn symbol_trackers_are_inert_when_wqdb_disabled() {
+        let mut vm = Vm::new(Vec::new());
+        assert!(!vm.symbol_trackers_enabled());
+
+        vm.dbg_track_global_symbol("x");
+        assert!(!vm.symbol_trackers_enabled());
+
+        vm.wqdb.enabled = true;
+        assert!(vm.symbol_trackers_enabled());
+
+        vm.wqdb.enabled = false;
+        assert!(!vm.symbol_trackers_enabled());
+    }
 }

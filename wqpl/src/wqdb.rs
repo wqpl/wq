@@ -207,6 +207,7 @@ impl Wqdb {
         &self.symbol_trackers
     }
 
+    #[inline]
     pub fn has_symbol_trackers(&self) -> bool {
         self.symbol_trackers.iter().any(|tracker| tracker.enabled)
     }
