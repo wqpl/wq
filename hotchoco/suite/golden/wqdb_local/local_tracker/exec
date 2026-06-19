@@ -1,0 +1,7 @@
+13
+breakpoint set at bump pc=1
+stop hook #1 added
+stop hook #2 added
+tracking #1 local x (bump slot 0)
+[wqdb:track #1] local x (bump slot 0) store at <TEST_PATH> in bump: 10 (int) -> 11 (int)
+[wqdb:track #1] local x (bump slot 0) store at <TEST_PATH> in bump: 11 (int) -> 13 (int)

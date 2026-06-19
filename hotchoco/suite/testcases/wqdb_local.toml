@@ -1,0 +1,19 @@
+name = "wqdb_local"
+source_glob = "hotchoco/wqdb_local/*.wq"
+exclude_marker = "//exclude"
+
+[[modes]]
+name = "exec"
+flags = [
+  "-w",
+  "-o",
+  "bf bump",
+  "-o",
+  "stop-hook add -o track local x",
+  "-o",
+  "stop-hook add -o c",
+  "-o",
+  "c",
+  "-p",
+]
+capture = "stdout+stderr"
