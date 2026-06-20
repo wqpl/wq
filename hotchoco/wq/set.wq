@@ -3,6 +3,8 @@ unique[(1;2;3)]|echo
 unique[(1;1;2;3)]|echo
 unique[()]|echo
 unique[42]|echo
+counts[(2;1;2;3;1;2)]|echo
+counts["banana"]|echo
 
 // Membership tests with normal containers
 in?[2;(1;2;3)]|echo

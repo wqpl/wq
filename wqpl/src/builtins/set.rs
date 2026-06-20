@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity, type_mismatch};
 use crate::value::{IntoWqValue, Value, WqResult};
@@ -26,6 +26,17 @@ fn unique_items(items: impl IntoIterator<Item = Value>) -> Vec<Value> {
     out
 }
 
+fn unique_int_items(items: impl IntoIterator<Item = i64>) -> Vec<i64> {
+    let mut seen = IndexSet::new();
+    let mut out = Vec::new();
+    for item in items {
+        if seen.insert(item) {
+            out.push(item);
+        }
+    }
+    out
+}
+
 fn item_set(v: &Value) -> IndexSet<Value> {
     seq_items(v).into_iter().collect()
 }
@@ -36,11 +47,21 @@ fn list_value(items: Vec<Value>) -> Value {
 
 pub(super) fn unique(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Unique, [1], &args)?;
+    if let Value::IntList(items) = &args[0] {
+        return Ok(Value::IntList(Arc::new(unique_int_items(
+            items.iter().copied(),
+        ))));
+    }
     Ok(list_value(unique_items(seq_items(&args[0]))))
 }
 
 pub(super) fn union(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Union, [2], &args)?;
+    if let (Value::IntList(lhs), Value::IntList(rhs)) = (&args[0], &args[1]) {
+        return Ok(Value::IntList(Arc::new(unique_int_items(
+            lhs.iter().chain(rhs.iter()).copied(),
+        ))));
+    }
     Ok(list_value(unique_items(
         seq_items(&args[0]).into_iter().chain(seq_items(&args[1])),
     )))
@@ -48,6 +69,16 @@ pub(super) fn union(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn intersect(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Intersect, [2], &args)?;
+    if let (Value::IntList(lhs), Value::IntList(rhs)) = (&args[0], &args[1]) {
+        let rhs: IndexSet<i64> = rhs.iter().copied().collect();
+        let mut seen = IndexSet::new();
+        return Ok(Value::IntList(Arc::new(
+            lhs.iter()
+                .copied()
+                .filter(|item| rhs.contains(item) && seen.insert(*item))
+                .collect(),
+        )));
+    }
     let rhs = item_set(&args[1]);
     Ok(list_value(unique_items(
         seq_items(&args[0])
@@ -58,6 +89,15 @@ pub(super) fn intersect(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn without(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Without, [2], &args)?;
+    if let (Value::IntList(lhs), Value::IntList(rhs)) = (&args[0], &args[1]) {
+        let rhs: IndexSet<i64> = rhs.iter().copied().collect();
+        return Ok(Value::IntList(Arc::new(
+            lhs.iter()
+                .copied()
+                .filter(|item| !rhs.contains(item))
+                .collect(),
+        )));
+    }
     let rhs = item_set(&args[1]);
     Ok(list_value(
         seq_items(&args[0])
@@ -69,6 +109,23 @@ pub(super) fn without(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn symdiff(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Symdiff, [2], &args)?;
+    if let (Value::IntList(lhs), Value::IntList(rhs)) = (&args[0], &args[1]) {
+        let lhs_set: IndexSet<i64> = lhs.iter().copied().collect();
+        let rhs_set: IndexSet<i64> = rhs.iter().copied().collect();
+        let mut seen = IndexSet::new();
+        let mut out = Vec::new();
+        for item in lhs.iter().copied() {
+            if !rhs_set.contains(&item) && seen.insert(item) {
+                out.push(item);
+            }
+        }
+        for item in rhs.iter().copied() {
+            if !lhs_set.contains(&item) && seen.insert(item) {
+                out.push(item);
+            }
+        }
+        return Ok(Value::IntList(Arc::new(out)));
+    }
     let lhs = item_set(&args[0]);
     let rhs = item_set(&args[1]);
     let out = seq_items(&args[0])
@@ -104,27 +161,56 @@ pub(super) fn proper_superset(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn member(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::MemberQ, [2], &args)?;
+    if let Value::IntList(rhs) = &args[1] {
+        let rhs: IndexSet<i64> = rhs.iter().copied().collect();
+        return match &args[0] {
+            Value::Int(n) => Ok(Value::Bool(rhs.contains(n))),
+            Value::IntList(lhs) => Ok(Value::List(Arc::new(
+                lhs.iter().map(|item| Value::Bool(rhs.contains(item))).collect(),
+            ))),
+            lhs => Ok(member_result(
+                lhs,
+                seq_items(lhs)
+                    .into_iter()
+                    .map(|item| Value::Bool(matches!(item, Value::Int(n) if rhs.contains(&n))))
+                    .collect(),
+            )),
+        };
+    }
     let rhs = item_set(&args[1]);
     let results: Vec<Value> = seq_items(&args[0])
         .into_iter()
         .map(|item| Value::Bool(rhs.contains(&item)))
         .collect();
-    if args[0].is_atom() {
-        Ok(results
+    Ok(member_result(&args[0], results))
+}
+
+fn member_result(lhs: &Value, results: Vec<Value>) -> Value {
+    if lhs.is_atom() {
+        results
             .into_iter()
             .next()
-            .expect("atom has one member result"))
+            .expect("atom has one member result")
     } else {
-        Ok(Value::from_items(results))
+        Value::from_items(results)
     }
 }
 
 fn is_subset(lhs: &Value, rhs: &Value) -> bool {
+    if let (Value::IntList(lhs), Value::IntList(rhs)) = (lhs, rhs) {
+        let rhs: IndexSet<i64> = rhs.iter().copied().collect();
+        return lhs.iter().all(|item| rhs.contains(item));
+    }
     let rhs = item_set(rhs);
     item_set(lhs).iter().all(|item| rhs.contains(item))
 }
 
 fn is_proper_subset(lhs: &Value, rhs: &Value) -> bool {
+    if let (Value::IntList(lhs), Value::IntList(rhs)) = (lhs, rhs) {
+        let lhs: IndexSet<i64> = lhs.iter().copied().collect();
+        let rhs: IndexSet<i64> = rhs.iter().copied().collect();
+        return lhs.len() < rhs.len() && lhs.iter().all(|item| rhs.contains(item));
+    }
     let lhs = item_set(lhs);
     let rhs = item_set(rhs);
     lhs.len() < rhs.len() && lhs.iter().all(|item| rhs.contains(item))
@@ -226,6 +312,10 @@ pub(super) fn has(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn disjoint(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::DisjointQ, [2], &args)?;
+    if let (Value::IntList(lhs), Value::IntList(rhs)) = (&args[0], &args[1]) {
+        let rhs: IndexSet<i64> = rhs.iter().copied().collect();
+        return Ok(Value::Bool(!lhs.iter().any(|item| rhs.contains(item))));
+    }
     let b = item_set(&args[1]);
     for v in seq_items(&args[0]) {
         if b.contains(&v) {
@@ -233,6 +323,37 @@ pub(super) fn disjoint(args: BuiltinFnArgs) -> WqResult<Value> {
         }
     }
     Ok(Value::Bool(true))
+}
+
+pub(super) fn counts(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Counts, [1], &args)?;
+    if let Value::IntList(items) = &args[0] {
+        let mut counts = IndexMap::<i64, i64>::new();
+        for item in items.iter().copied() {
+            counts.entry(item).and_modify(|count| *count += 1).or_insert(1);
+        }
+        return Ok(count_int_pairs(counts));
+    }
+
+    let mut counts = IndexMap::<Value, i64>::new();
+    for item in seq_items(&args[0]) {
+        counts.entry(item).and_modify(|count| *count += 1).or_insert(1);
+    }
+    Ok(Value::List(Arc::new(
+        counts
+            .into_iter()
+            .map(|(item, count)| Value::List(Arc::new(vec![item, Value::Int(count)])))
+            .collect(),
+    )))
+}
+
+fn count_int_pairs(counts: IndexMap<i64, i64>) -> Value {
+    Value::List(Arc::new(
+        counts
+            .into_iter()
+            .map(|(item, count)| Value::List(Arc::new(vec![Value::Int(item), Value::Int(count)])))
+            .collect(),
+    ))
 }
 
 pub(super) fn multiplicity(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -320,6 +441,95 @@ mod tests {
     }
 
     #[test]
+    fn intlist_fast_paths_match_list_contracts() {
+        let a_int = Value::IntList(Arc::new(vec![2, 1, 2, 3]));
+        let b_int = Value::IntList(Arc::new(vec![3, 4, 1]));
+        let a_list = Value::List(Arc::new(vec![
+            Value::Int(2),
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+        ]));
+        let b_list = Value::List(Arc::new(vec![
+            Value::Int(3),
+            Value::Int(4),
+            Value::Int(1),
+        ]));
+
+        assert_eq!(
+            unique(BuiltinFnArgs::from(smallvec![a_int.clone()]))
+                .expect("int-list unique should succeed"),
+            unique(BuiltinFnArgs::from(smallvec![a_list.clone()]))
+                .expect("list unique should succeed")
+        );
+        assert_eq!(
+            union(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
+                .expect("int-list union should succeed"),
+            union(BuiltinFnArgs::from(smallvec![a_list.clone(), b_list.clone()]))
+                .expect("list union should succeed")
+        );
+        assert_eq!(
+            intersect(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
+                .expect("int-list intersect should succeed"),
+            intersect(BuiltinFnArgs::from(smallvec![a_list.clone(), b_list.clone()]))
+                .expect("list intersect should succeed")
+        );
+        assert_eq!(
+            without(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
+                .expect("int-list without should succeed"),
+            without(BuiltinFnArgs::from(smallvec![a_list.clone(), b_list.clone()]))
+                .expect("list without should succeed")
+        );
+        assert_eq!(
+            symdiff(BuiltinFnArgs::from(smallvec![a_int, b_int]))
+                .expect("int-list symdiff should succeed"),
+            symdiff(BuiltinFnArgs::from(smallvec![a_list, b_list]))
+                .expect("list symdiff should succeed")
+        );
+    }
+
+    #[test]
+    fn counts_returns_first_seen_value_counts() {
+        let xs = Value::List(Arc::new(vec![
+            Value::Int(1),
+            Value::String(Arc::new("a".to_string())),
+            Value::Int(1),
+            Value::List(Arc::new(vec![Value::Int(2), Value::Int(3)])),
+            Value::String(Arc::new("a".to_string())),
+        ]));
+
+        assert_eq!(
+            counts(BuiltinFnArgs::from(smallvec![xs])).expect("counts should succeed"),
+            Value::List(Arc::new(vec![
+                Value::List(Arc::new(vec![Value::Int(1), Value::Int(2)])),
+                Value::List(Arc::new(vec![
+                    Value::String(Arc::new("a".to_string())),
+                    Value::Int(2)
+                ])),
+                Value::List(Arc::new(vec![
+                    Value::List(Arc::new(vec![Value::Int(2), Value::Int(3)])),
+                    Value::Int(1)
+                ])),
+            ]))
+        );
+    }
+
+    #[test]
+    fn counts_intlist_uses_first_seen_order() {
+        assert_eq!(
+            counts(BuiltinFnArgs::from(smallvec![Value::IntList(Arc::new(vec![
+                2, 1, 2, 3, 1, 2
+            ]))]))
+            .expect("counts should succeed"),
+            Value::List(Arc::new(vec![
+                Value::List(Arc::new(vec![Value::Int(2), Value::Int(3)])),
+                Value::List(Arc::new(vec![Value::Int(1), Value::Int(2)])),
+                Value::List(Arc::new(vec![Value::Int(3), Value::Int(1)])),
+            ]))
+        );
+    }
+
+    #[test]
     fn unique_uses_value_hash_contract_for_complex_values() {
         let zero = Value::from_complex64(num_complex::Complex64::new(0.0, 0.0));
         let signed_zero = Value::from_complex64(num_complex::Complex64::new(-0.0, -0.0));
@@ -386,6 +596,18 @@ mod tests {
         assert_eq!(
             member(BuiltinFnArgs::from(smallvec![Value::Int(2), haystack]))
                 .expect("scalar member should succeed"),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn member_non_int_atom_with_intlist_rhs_returns_scalar_bool() {
+        assert_eq!(
+            member(BuiltinFnArgs::from(smallvec![
+                Value::Tag(Arc::from("x")),
+                Value::IntList(Arc::new(vec![1, 2, 3])),
+            ]))
+            .expect("scalar member should succeed"),
             Value::Bool(false)
         );
     }

@@ -180,6 +180,7 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     fraction::FRACTION,
     fraction::FRACTIONL,
     set::UNIQUE,
+    set::COUNTS,
     set::UNION,
     set::INTERSECT,
     set::WITHOUT,

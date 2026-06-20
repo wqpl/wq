@@ -1015,6 +1015,7 @@ declare_builtins! {
 
     // Set ==========================================================
     (UNIQUE, Unique, "unique", "unique[xs]", sig!(arity!(1)), plain(set::unique), BuiltinGroup::Set),
+    (COUNTS, Counts, "counts", "counts[xs]", sig!(arity!(1)), plain(set::counts), BuiltinGroup::Set),
     (UNION, Union, "union", "union[xs;ys]", sig!(arity!(2)), plain(set::union), BuiltinGroup::Set),
     (INTERSECT, Intersect, "intersect", "intersect[xs;ys]", sig!(arity!(2)), plain(set::intersect), BuiltinGroup::Set),
     (WITHOUT, Without, "without", "without[xs;ys]", sig!(arity!(2)), plain(set::without), BuiltinGroup::Set),
@@ -1543,6 +1544,7 @@ mod tests {
             (BuiltinEnum::IdxToKey, "2"),
             (BuiltinEnum::KeyToIdx, "2"),
             (BuiltinEnum::Unique, "1"),
+            (BuiltinEnum::Counts, "1"),
             (BuiltinEnum::Union, "2"),
             (BuiltinEnum::Intersect, "2"),
             (BuiltinEnum::Without, "2"),

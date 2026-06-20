@@ -7,6 +7,12 @@ const UNIQUE_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("(2;1;3)"),
 }];
 
+const COUNTS_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Count distinct characters",
+    code: "counts \"banana\"|len",
+    expectation: ExampleExpectation::ResultContains("3"),
+}];
+
 const UNION_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Combine two sequences",
     code: "union[(2;1;2);(1;3)]",
@@ -97,6 +103,14 @@ pub(super) const UNIQUE: BuiltinDoc = BuiltinDoc {
     details: "`unique` views lists and int lists as their items, strings as characters, dicts as keys, and atoms as singleton values. It returns the first occurrence of each distinct item.",
     examples: UNIQUE_EXAMPLES,
     related: &["union", "multiplicity"],
+};
+
+pub(super) const COUNTS: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Counts,
+    summary: "Count distinct items in first-seen order.",
+    details: "`counts[xs]` returns a list of `(item;count)` pairs. Lists and int lists contribute items, strings contribute characters, dicts contribute keys, and atoms behave as singletons.",
+    examples: COUNTS_EXAMPLES,
+    related: &["unique", "multiplicity", "member?"],
 };
 
 pub(super) const UNION: BuiltinDoc = BuiltinDoc {
