@@ -24,6 +24,7 @@ const htmlEntries = [
   "index.html",
   "article.html",
   "playground.html",
+  "viz.html",
   "repl.html",
   "more.html",
   "subfolder.html",

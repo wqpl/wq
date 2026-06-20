@@ -104,8 +104,13 @@ function dispatchEditorInput(el) {
 
 export function createWqEditor(textarea, options = {}) {
   const el = document.createElement("div");
-  const initialValue = normalizeEditorText(textarea.value || "");
   const multilineMode = options.multilineMode || "plain";
+  const singleLineMode = multilineMode === "none";
+  const normalizeValue = (text) => {
+    const normalized = normalizeEditorText(text);
+    return singleLineMode ? normalized.replace(/\n+/g, " ") : normalized;
+  };
+  const initialValue = normalizeValue(textarea.value || "");
   let value = initialValue;
   let selection = {
     start: value.length,
@@ -117,7 +122,7 @@ export function createWqEditor(textarea, options = {}) {
   el.classList.add("wq-editor");
   el.id = textarea.id;
   el.setAttribute("role", "textbox");
-  el.setAttribute("aria-multiline", "true");
+  el.setAttribute("aria-multiline", singleLineMode ? "false" : "true");
   el.setAttribute("contenteditable", "true");
   el.setAttribute("spellcheck", textarea.getAttribute("spellcheck") || "false");
   el.setAttribute("autocapitalize", "off");
@@ -162,7 +167,7 @@ export function createWqEditor(textarea, options = {}) {
   }
 
   function setValue(nextValue, opts = {}) {
-    value = normalizeEditorText(nextValue);
+    value = normalizeValue(nextValue);
     if (opts.selectionStart !== undefined || opts.selectionEnd !== undefined) {
       const start = opts.selectionStart ?? selection.start;
       const end = opts.selectionEnd ?? start;
@@ -191,7 +196,7 @@ export function createWqEditor(textarea, options = {}) {
     const currentSelection = selectionOffsets(el, value) || selection;
     const start = Math.min(currentSelection.start, currentSelection.end);
     const end = Math.max(currentSelection.start, currentSelection.end);
-    const insert = normalizeEditorText(text);
+    const insert = normalizeValue(text);
     value = value.slice(0, start) + insert + value.slice(end);
     const caret = start + insert.length;
     selection = { start: caret, end: caret };
@@ -204,6 +209,10 @@ export function createWqEditor(textarea, options = {}) {
   });
 
   el.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && singleLineMode) {
+      event.preventDefault();
+      return;
+    }
     if (event.key === "Enter" && shouldInsertNewline(event)) {
       event.preventDefault();
       replaceSelection("\n");
@@ -211,11 +220,13 @@ export function createWqEditor(textarea, options = {}) {
   });
 
   el.addEventListener("beforeinput", (event) => {
-    if (
-      multilineMode === "plain" &&
-      (event.inputType === "insertParagraph" ||
-        event.inputType === "insertLineBreak")
-    ) {
+    const isLineBreak =
+      event.inputType === "insertParagraph" || event.inputType === "insertLineBreak";
+    if (singleLineMode && isLineBreak) {
+      event.preventDefault();
+      return;
+    }
+    if (multilineMode === "plain" && isLineBreak) {
       event.preventDefault();
       replaceSelection("\n");
     }
@@ -234,7 +245,7 @@ export function createWqEditor(textarea, options = {}) {
 
   el.addEventListener("compositionend", () => {
     composing = false;
-    const nextValue = normalizeEditorText(el.textContent || "");
+    const nextValue = normalizeValue(el.textContent || "");
     const nextSelection = selectionOffsets(el, nextValue.length) || {
       start: nextValue.length,
       end: nextValue.length,
@@ -248,10 +259,10 @@ export function createWqEditor(textarea, options = {}) {
 
   el.addEventListener("input", () => {
     if (composing) {
-      value = normalizeEditorText(el.textContent || "");
+      value = normalizeValue(el.textContent || "");
       return;
     }
-    const nextValue = normalizeEditorText(el.textContent || "");
+    const nextValue = normalizeValue(el.textContent || "");
     const currentSelection = selectionOffsets(el, nextValue.length);
     value = nextValue;
     if (currentSelection) {

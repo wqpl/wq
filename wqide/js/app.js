@@ -7,7 +7,7 @@ function html(strings, ...values) {
   return strings.reduce((acc, str, i) => acc + str + (values[i] || ""), "");
 }
 
-const ROUTE_ORDER = ["featured", "playground", "repl", "more"];
+const ROUTE_ORDER = ["featured", "playground", "viz", "repl", "more"];
 const SHELL_HTML = html`
   <header class="topbar">
     <div class="topbar-row">
@@ -19,6 +19,7 @@ const SHELL_HTML = html`
     <nav class="tabs" role="tablist" aria-label="Sections">
       <a href="index.html" data-nav="featured">Featured</a>
       <a href="playground.html" data-nav="playground">Playground</a>
+      <a href="viz.html" data-nav="viz">Viz</a>
       <a href="repl.html" data-nav="repl">REPL</a>
       <a href="more.html" data-nav="more">More</a>
     </nav>
@@ -351,6 +352,308 @@ const PLAYGROUND_HTML = html`
         </div>
         <div class="symbol-panel-list" data-symbol-list></div>
       </aside>
+    </div>
+  </main>
+`;
+
+const VIZ_HTML = html`
+  <main class="wrap viz-wrap">
+    <div class="viz-shell">
+      <section class="viz-topbar" aria-label="Viz summary">
+        <div class="viz-stage-title">
+          <h1 data-viz-title>Function plot</h1>
+          <span data-viz-subtitle>asciiplot</span>
+        </div>
+        <div class="viz-stage-actions">
+          <label class="viz-live-switch">
+            <input type="checkbox" data-viz-toggle="autoRun" checked />
+            <span>Live</span>
+          </label>
+          <div class="viz-layout-toggle" role="group" aria-label="Control layout">
+            <button class="active" type="button" data-viz-layout-option="below">Below</button>
+            <button type="button" data-viz-layout-option="side">Side</button>
+          </div>
+          <span class="viz-builtin-chip" data-viz-builtin>asciiplot</span>
+          <span class="viz-status" data-viz-status>ready</span>
+          <button class="btn primary" type="button" data-viz-run>Refresh</button>
+          <button class="btn" type="button" data-viz-open>Open in Playground</button>
+        </div>
+      </section>
+
+      <section class="viz-presets" aria-labelledby="vizPresetHeading">
+        <div class="viz-panel-head">
+          <h2 id="vizPresetHeading">Presets</h2>
+        </div>
+        <div class="viz-preset-list" role="list">
+          <button class="viz-preset active" type="button" data-viz-preset="trig">
+            <span class="viz-preset-title">Function plot</span>
+            <span class="viz-preset-meta">sin / cos</span>
+          </button>
+          <button class="viz-preset" type="button" data-viz-preset="data">
+            <span class="viz-preset-title">Data series</span>
+            <span class="viz-preset-meta">raw values</span>
+          </button>
+          <button class="viz-preset" type="button" data-viz-preset="cas">
+            <span class="viz-preset-title">CAS curve</span>
+            <span class="viz-preset-meta">symbolic x</span>
+          </button>
+          <button class="viz-preset" type="button" data-viz-preset="modes">
+            <span class="viz-preset-title">Mode mixer</span>
+            <span class="viz-preset-meta">line + scatter</span>
+          </button>
+          <button class="viz-preset" type="button" data-viz-preset="bars">
+            <span class="viz-preset-title">Bars</span>
+            <span class="viz-preset-meta">series values</span>
+          </button>
+          <button class="viz-preset" type="button" data-viz-preset="complex">
+            <span class="viz-preset-title">Complex plane</span>
+            <span class="viz-preset-meta">sqrt[x]</span>
+          </button>
+          <button class="viz-preset" type="button" data-viz-preset="table">
+            <span class="viz-preset-title">Show table</span>
+            <span class="viz-preset-meta">dict rows</span>
+          </button>
+        </div>
+      </section>
+
+      <div class="viz-workbench">
+        <section class="viz-stage" aria-label="Viz output">
+          <div class="viz-output-frame">
+            <div class="viz-output-head">
+              <span>Output</span>
+            </div>
+            <pre class="viz-output" data-viz-output aria-live="polite"></pre>
+          </div>
+
+          <section class="viz-control-group viz-data-panel" data-viz-control-group="source">
+            <div class="viz-control-head">
+              <h2>Data</h2>
+            </div>
+            <div class="viz-field viz-output-kind" data-viz-select="sourceKind">
+              <label>Output</label>
+              <button
+                class="viz-select-button"
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded="false">
+                <span data-viz-select-value>plot</span>
+              </button>
+              <div class="viz-select-menu" role="listbox">
+                <button type="button" role="option" data-viz-option="plot">plot</button>
+                <button type="button" role="option" data-viz-option="table">table</button>
+              </div>
+            </div>
+            <div class="viz-series-editor" data-viz-series-editor>
+              <div class="viz-series-list" data-viz-series-list></div>
+              <button class="viz-small-btn" type="button" data-viz-add-series>Add series</button>
+            </div>
+            <div class="viz-table-config" data-viz-table-config>
+              <div class="viz-control-grid">
+                <div class="viz-field" data-viz-select="tableShape">
+                  <label>Shape</label>
+                  <button
+                    class="viz-select-button"
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded="false">
+                    <span data-viz-select-value>list of dicts</span>
+                  </button>
+                  <div class="viz-select-menu" role="listbox">
+                    <button type="button" role="option" data-viz-option="list">list of dicts</button>
+                    <button type="button" role="option" data-viz-option="dict">dict of lists</button>
+                    <button type="button" role="option" data-viz-option="matrix">dict of dicts</button>
+                  </div>
+                </div>
+                <label class="viz-range">
+                  <span>Rows</span>
+                  <input type="range" min="3" max="8" value="5" data-viz-range="rows" />
+                  <strong data-viz-range-value="rows">5</strong>
+                </label>
+              </div>
+            </div>
+            <label class="viz-text-field viz-text-field-tall viz-table-source" data-viz-table-source>
+              <span>Table value</span>
+              <textarea rows="6" spellcheck="false" data-viz-input="sourceExpr"></textarea>
+            </label>
+          </section>
+
+          <details class="viz-code-panel">
+            <summary>Code</summary>
+            <pre><code data-viz-code></code></pre>
+          </details>
+        </section>
+
+        <aside class="viz-controls viz-style-panel" aria-label="Viz style controls">
+          <section class="viz-control-group" data-viz-control-group="plot">
+            <div class="viz-control-head">
+              <h2>Plot</h2>
+            </div>
+            <div class="viz-control-grid">
+              <div class="viz-field" data-viz-select="mode">
+                <label>Mode</label>
+                <button
+                  class="viz-select-button"
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded="false">
+                  <span data-viz-select-value>line</span>
+                </button>
+                <div class="viz-select-menu" role="listbox">
+                  <button type="button" role="option" data-viz-option="line">line</button>
+                  <button type="button" role="option" data-viz-option="scatter">scatter</button>
+                  <button type="button" role="option" data-viz-option="step">step</button>
+                  <button type="button" role="option" data-viz-option="bar">bar</button>
+                  <button type="button" role="option" data-viz-option="area">area</button>
+                </div>
+              </div>
+              <div class="viz-field" data-viz-select="complex">
+                <label>Complex</label>
+                <button
+                  class="viz-select-button"
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded="false">
+                  <span data-viz-select-value>re</span>
+                </button>
+                <div class="viz-select-menu" role="listbox">
+                  <button type="button" role="option" data-viz-option="re">re</button>
+                  <button type="button" role="option" data-viz-option="im">im</button>
+                  <button type="button" role="option" data-viz-option="abs">abs</button>
+                  <button type="button" role="option" data-viz-option="arg">arg</button>
+                  <button type="button" role="option" data-viz-option="plane">plane</button>
+                </div>
+              </div>
+              <div class="viz-field" data-viz-select="theme">
+                <label>Theme</label>
+                <button
+                  class="viz-select-button"
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded="false">
+                  <span data-viz-select-value>none</span>
+                </button>
+                <div class="viz-select-menu" role="listbox">
+                  <button type="button" role="option" data-viz-option="none">none</button>
+                  <button type="button" role="option" data-viz-option="scientific">scientific</button>
+                  <button type="button" role="option" data-viz-option="minimal">minimal</button>
+                  <button type="button" role="option" data-viz-option="dark">dark</button>
+                </div>
+              </div>
+              <div class="viz-field" data-viz-select="axes">
+                <label>Axes</label>
+                <button
+                  class="viz-select-button"
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded="false">
+                  <span data-viz-select-value>full</span>
+                </button>
+                <div class="viz-select-menu" role="listbox">
+                  <button type="button" role="option" data-viz-option="full">full</button>
+                  <button type="button" role="option" data-viz-option="minimal">minimal</button>
+                  <button type="button" role="option" data-viz-option="off">off</button>
+                </div>
+              </div>
+              <div class="viz-field" data-viz-select="grid">
+                <label>Grid</label>
+                <button
+                  class="viz-select-button"
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded="false">
+                  <span data-viz-select-value>4</span>
+                </button>
+                <div class="viz-select-menu" role="listbox">
+                  <button type="button" role="option" data-viz-option="off">off</button>
+                  <button type="button" role="option" data-viz-option="4">4</button>
+                  <button type="button" role="option" data-viz-option="8">8</button>
+                </div>
+              </div>
+              <div class="viz-field" data-viz-select="palette">
+                <label>Palette</label>
+                <button
+                  class="viz-select-button"
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded="false">
+                  <span data-viz-select-value>classic</span>
+                </button>
+                <div class="viz-select-menu" role="listbox">
+                  <button type="button" role="option" data-viz-option="classic">classic</button>
+                  <button type="button" role="option" data-viz-option="bright">bright</button>
+                  <button type="button" role="option" data-viz-option="ink">ink</button>
+                  <button type="button" role="option" data-viz-option="off">off</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="viz-control-group" data-viz-control-group="limits">
+            <div class="viz-control-head">
+              <h2>Bounds</h2>
+            </div>
+            <label class="viz-range">
+              <span>Width</span>
+              <input type="range" min="40" max="120" value="90" data-viz-range="width" />
+              <strong data-viz-range-value="width">90</strong>
+            </label>
+            <label class="viz-range">
+              <span>Height</span>
+              <input type="range" min="10" max="32" value="24" data-viz-range="height" />
+              <strong data-viz-range-value="height">24</strong>
+            </label>
+            <label class="viz-range">
+              <span>Samples</span>
+              <input type="range" min="20" max="260" step="10" value="140" data-viz-range="samples" />
+              <strong data-viz-range-value="samples">140</strong>
+            </label>
+            <div class="viz-inline-fields">
+              <label class="viz-text-field">
+                <span>X lim</span>
+                <input type="text" spellcheck="false" data-viz-input="xlimText" />
+              </label>
+              <label class="viz-text-field">
+                <span>Y lim</span>
+                <input type="text" spellcheck="false" data-viz-input="ylimText" />
+              </label>
+            </div>
+            <div class="viz-inline-fields">
+              <label class="viz-text-field">
+                <span>Title</span>
+                <input type="text" spellcheck="false" data-viz-input="titleText" />
+              </label>
+              <label class="viz-text-field">
+                <span>X label</span>
+                <input type="text" spellcheck="false" data-viz-input="xlabelText" />
+              </label>
+              <label class="viz-text-field">
+                <span>Y label</span>
+                <input type="text" spellcheck="false" data-viz-input="ylabelText" />
+              </label>
+            </div>
+          </section>
+
+          <section class="viz-control-group" data-viz-control-group="series">
+            <div class="viz-control-head">
+              <h2>Series</h2>
+            </div>
+            <div class="viz-switch-row">
+              <label class="viz-switch">
+                <input type="checkbox" data-viz-toggle="labels" checked />
+                <span>Labels</span>
+              </label>
+              <label class="viz-switch">
+                <input type="checkbox" data-viz-toggle="seriesOptions" checked />
+                <span>Per-series</span>
+              </label>
+              <label class="viz-switch">
+                <input type="checkbox" data-viz-toggle="ascii" />
+                <span>ASCII</span>
+              </label>
+            </div>
+          </section>
+        </aside>
+      </div>
     </div>
   </main>
 `;
@@ -799,6 +1102,9 @@ function parseRoute() {
   if (file === "playground.html") {
     return { key: "playground", area: "playground", params };
   }
+  if (file === "viz.html") {
+    return { key: "viz", area: "viz", params };
+  }
   if (file === "repl.html") {
     return { key: "repl", area: "repl", params };
   }
@@ -862,6 +1168,7 @@ function getLastNavMap() {
   return {
     featured: getClean("nav:last:featured", "index.html"),
     playground: getClean("nav:last:playground", "playground.html"),
+    viz: getClean("nav:last:viz", "viz.html"),
     repl: getClean("nav:last:repl", "repl.html"),
     more: getClean("nav:last:more", "more.html"),
   };
@@ -872,9 +1179,11 @@ function getAreaBaseHref(nav) {
     ? "index.html"
     : nav === "playground"
       ? "playground.html"
-      : nav === "repl"
-        ? "repl.html"
-        : "more.html";
+      : nav === "viz"
+        ? "viz.html"
+        : nav === "repl"
+          ? "repl.html"
+          : "more.html";
 }
 
 function getTabTargetHref(nav) {
@@ -1303,6 +1612,21 @@ async function mountPlayground(route) {
   showView(root);
 }
 
+async function mountViz(route) {
+  const root = getView("viz", VIZ_HTML);
+  const mod = await import("./viz.js");
+  if (!root.dataset.booted) {
+    if (mod.mountViz) {
+      await mod.mountViz(root);
+    }
+    root.dataset.booted = "true";
+  }
+  await mod.activateViz?.(root);
+  mod.applyVizRoute?.(root, route.params);
+  document.title = "wqide - Viz";
+  showView(root);
+}
+
 async function mountRepl(route) {
   const root = getView("repl", REPL_HTML);
   const mod = await import("./repl.js");
@@ -1332,6 +1656,10 @@ async function renderRoute() {
   }
   if (route.key === "playground") {
     await mountPlayground(route);
+    return;
+  }
+  if (route.key === "viz") {
+    await mountViz(route);
     return;
   }
   if (route.key === "repl") {
