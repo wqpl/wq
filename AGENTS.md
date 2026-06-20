@@ -44,9 +44,8 @@
     - If a new major module is added, you may create a new test config for it.
   - Key commands: `python3 hotchoco.py run`, `python3 hotchoco.py show --no-pager`, `python3 hotchoco.py accept`.
   - See `python3 hotchoco.py --help` for details.
-- After a session, recommend a good commit message based on `CONTRIBUTING.md` guidelines.
-- Do not commit unless the user explicitly asked for it.
-  - If the user asked for it, commit your changes according to the requirements in `CONTRIBUTING.md`.
+- After a session, recommend a good commit message based on the appendix guidelines.
+  - Do not commit unless the user explicitly asked for it.
 - Unless the user explicitly requested, don't build/run with `release` profile.
 - Prohibited without explicit user permission:
   - Python/Perl... scripts (especially regex-based replacements) for batch editing
@@ -73,3 +72,16 @@
 | --------------- | ------------- | ------------ | ----------------------------------------------------------------------------------------------------- |
 | let chains      | Rust 1.88.0   | 2025-06-26   | Stable only in Rust 2024 edition. Allows `if let ... && let ... && condition` and similar in `while`. |
 | `if let` guards | Rust 1.95.0   | 2026-04-16   | Stabilizes `if let` guards on `match` arms, e.g. `pat if let Some(x) = expr => ...`.                  |
+
+## Commit messages
+
+- Clear, uncapitalized, imperative title: `fix everything`
+- Avoid "conventional commit prefixes" (no `fix:`)
+- Avoid trailing punctuation
+- Optionally prefix the title with a crate name and colon when one crate is the clear scope: `wq-cli: did something`
+- Clear, consise message body
+- Include a `Release Notes:` section as the final section
+- Use one bullet under `Release Notes:`:
+  - `- Added ...`, `- Fixed ...`, or `- Improved ...` for user-facing changes, or
+  - `- N/A` for docs-only and other non-user-facing changes.
+- Format release notes exactly with a blank line after the heading, for example:
