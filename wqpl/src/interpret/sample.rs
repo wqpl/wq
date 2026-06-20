@@ -431,6 +431,7 @@ fn is_jump(op: &Instruction) -> bool {
         op,
         I::Jump(_)
             | I::JumpIfFalse(_)
+            | I::JumpIfCmpFalse(_)
             | I::JumpIfGE(_)
             | I::JumpIfLEZLocal(_, _)
             | I::BoolAndLazy(_)
@@ -525,6 +526,7 @@ fn instruction_amount(op: &Instruction) -> usize {
         | I::JumpIfGE(target)
         | I::BoolAndLazy(target)
         | I::BoolOrLazy(target) => *target,
+        I::JumpIfCmpFalse(data) => data.target,
         I::JumpIfLEZLocal(slot, target) => usize::from(*slot) ^ *target,
         I::MakeRange {
             inclusive,

@@ -13,7 +13,7 @@ use crate::value::{Value, WqResult, eval_binary, eval_unary};
 use crate::vm::call::{
     CallSpec, LocalCallable, PeekLocalCallable, PeekLocalUser, peek_local_callable,
 };
-use crate::vm::inst::{BinaryOpData, Capture, Instruction, Operand};
+use crate::vm::inst::{BinaryOpData, Capture, CmpBranchData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
 use crate::vm::{Frame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
 use crate::wqdb::build::{
@@ -1200,6 +1200,13 @@ impl Interpreter for VanillaInterpreter {
                             vm.pc = target;
                         }
                     }
+                    Instruction::JumpIfCmpFalse(data) => {
+                        let target = data.target;
+                        let cond = eval_cmp_branch_condition(vm, idx, data, hooks)?;
+                        if !cond {
+                            vm.pc = target;
+                        }
+                    }
                     Instruction::JumpIfGE(pos) => {
                         let target = *pos;
                         // Pop right then left, jump if left >= right
@@ -1580,8 +1587,17 @@ impl VanillaInterpreter {
 // int fast path =================================
 
 fn try_eval_int_binary(vm: &mut Vm, data: &BinaryOpData) -> Option<Value> {
-    let right_is_stack = matches!(data.right, Operand::Stack);
-    let left_is_stack = matches!(data.left, Operand::Stack);
+    try_eval_int_binary_operands(vm, data.op, &data.left, &data.right)
+}
+
+fn try_eval_int_binary_operands(
+    vm: &mut Vm,
+    op: BinaryOperator,
+    left_operand: &Operand,
+    right_operand: &Operand,
+) -> Option<Value> {
+    let right_is_stack = matches!(right_operand, Operand::Stack);
+    let left_is_stack = matches!(left_operand, Operand::Stack);
     let stack_len = vm.stack.len();
     let stack_count = usize::from(right_is_stack) + usize::from(left_is_stack);
     if stack_count > stack_len {
@@ -1598,14 +1614,81 @@ fn try_eval_int_binary(vm: &mut Vm, data: &BinaryOpData) -> Option<Value> {
     } else {
         None
     };
-    let right = int_operand(vm, &data.right, right_stack_idx)?;
-    let left = int_operand(vm, &data.left, left_stack_idx)?;
-    let result = eval_int_binary(data.op, left, right)?;
+    let right = int_operand(vm, right_operand, right_stack_idx)?;
+    let left = int_operand(vm, left_operand, left_stack_idx)?;
+    let result = eval_int_binary(op, left, right)?;
 
     if stack_count > 0 {
         vm.stack.truncate(stack_len - stack_count);
     }
     Some(result)
+}
+
+fn try_eval_int_cmp_branch(
+    vm: &mut Vm,
+    op: BinaryOperator,
+    left_operand: &Operand,
+    right_operand: &Operand,
+) -> Option<bool> {
+    let right_is_stack = matches!(right_operand, Operand::Stack);
+    let left_is_stack = matches!(left_operand, Operand::Stack);
+    let stack_len = vm.stack.len();
+    let stack_count = usize::from(right_is_stack) + usize::from(left_is_stack);
+    if stack_count > stack_len {
+        return None;
+    }
+
+    let right_stack_idx = if right_is_stack {
+        Some(stack_len - 1)
+    } else {
+        None
+    };
+    let left_stack_idx = if left_is_stack {
+        Some(stack_len - 1 - usize::from(right_is_stack))
+    } else {
+        None
+    };
+    let right = int_operand(vm, right_operand, right_stack_idx)?;
+    let left = int_operand(vm, left_operand, left_stack_idx)?;
+    let result = eval_int_comparison(op, left, right)?;
+
+    if stack_count > 0 {
+        vm.stack.truncate(stack_len - stack_count);
+    }
+    Some(result)
+}
+
+fn eval_cmp_branch_condition(
+    vm: &mut Vm,
+    idx: usize,
+    data: &CmpBranchData,
+    hooks: &dyn InterpreterHook,
+) -> WqResult<bool> {
+    if let Some(result) = try_eval_int_cmp_branch(vm, data.op, &data.left, &data.right) {
+        return Ok(result);
+    }
+
+    let result = if let Some(result) =
+        try_eval_int_binary_operands(vm, data.op, &data.left, &data.right)
+    {
+        result
+    } else {
+        let right = resolve_operand(vm, idx, &data.right, 1, hooks)
+            .map_err(|e| e.src(format!("compare branch {:?} right operand", data.op)))?;
+        let left = resolve_operand(vm, idx, &data.left, 0, hooks)
+            .map_err(|e| e.src(format!("compare branch {:?} left operand", data.op)))?;
+        eval_binary(&data.op, &left, &right)?
+    };
+
+    result.try_to_rust_bool().ok_or_else(|| {
+        attach_pc_source_ctx(
+            vm,
+            idx,
+            domain_err_vm("invalid control flow condition, expected bool")
+                .got1(&result)
+                .attach_note("this value is used as a branch or loop condition"),
+        )
+    })
 }
 
 fn int_operand(vm: &Vm, operand: &Operand, stack_idx: Option<usize>) -> Option<i64> {
@@ -1673,6 +1756,21 @@ fn eval_int_binary(op: BinaryOperator, left: i64, right: i64) -> Option<Value> {
     }?;
 
     Some(result)
+}
+
+fn eval_int_comparison(op: BinaryOperator, left: i64, right: i64) -> Option<bool> {
+    use BinaryOperator::*;
+
+    match op {
+        Equal | EqualDot => Some(left == right),
+        NotEqual | NotEqualDot => Some(left != right),
+        Lt => Some(left < right),
+        Lte => Some(left <= right),
+        Gt => Some(left > right),
+        Gte => Some(left >= right),
+        Add | Subtract | Multiply | Power | PowerDot | Divide | DivideDot | Modulo | Matmul
+        | BoolAnd | BoolOr | Cat | BitAnd | BitOr | Shl | Shr | BitXor | FloorDiv => None,
+    }
 }
 
 // error helpers ===================================
@@ -1767,6 +1865,18 @@ mod tests {
     fn run_vm_result(insts: Vec<Instruction>) -> WqResult<Value> {
         let len = insts.len();
         let mut vm = Vm::new(insts);
+        let mut interpreter = VanillaInterpreter;
+        interpreter.interpret(&mut vm, len)
+    }
+
+    fn run_vm_result_with_locals(
+        insts: Vec<Instruction>,
+        locals: Vec<Value>,
+    ) -> WqResult<Value> {
+        let len = insts.len();
+        let mut vm = Vm::new(insts);
+        vm.locals
+            .push(locals.into_iter().map(Slot::Value).collect());
         let mut interpreter = VanillaInterpreter;
         interpreter.interpret(&mut vm, len)
     }
@@ -1932,6 +2042,139 @@ mod tests {
             ]);
 
             assert_eq!(actual, expected, "{op:?} {left} {right}");
+        }
+    }
+
+    #[test]
+    fn cmp_branch_fast_path_reads_local_operands() {
+        let out = run_vm_result_with_locals(
+            vec![
+                Instruction::jump_if_cmp_false(
+                    BinaryOperator::Lt,
+                    Operand::Local(0),
+                    Operand::Local(1),
+                    3,
+                ),
+                Instruction::load_const(Value::Int(42)),
+                Instruction::Return,
+                Instruction::load_const(Value::Int(99)),
+                Instruction::Return,
+            ],
+            vec![Value::Int(1), Value::Int(2)],
+        )
+        .expect("execute");
+
+        assert_eq!(out, Value::Int(42));
+
+        let out = run_vm_result_with_locals(
+            vec![
+                Instruction::jump_if_cmp_false(
+                    BinaryOperator::Lt,
+                    Operand::Local(0),
+                    Operand::Local(1),
+                    3,
+                ),
+                Instruction::load_const(Value::Int(42)),
+                Instruction::Return,
+                Instruction::load_const(Value::Int(99)),
+                Instruction::Return,
+            ],
+            vec![Value::Int(3), Value::Int(2)],
+        )
+        .expect("execute");
+
+        assert_eq!(out, Value::Int(99));
+    }
+
+    #[test]
+    fn cmp_branch_fallback_matches_value_comparison() {
+        let out = run_vm_result(vec![
+            Instruction::jump_if_cmp_false(
+                BinaryOperator::Lt,
+                Operand::const_val(Value::float(1.5)),
+                Operand::const_val(Value::float(2.0)),
+                3,
+            ),
+            Instruction::load_const(Value::Int(42)),
+            Instruction::Return,
+            Instruction::load_const(Value::Int(99)),
+            Instruction::Return,
+        ])
+        .expect("execute");
+
+        assert_eq!(out, Value::Int(42));
+
+        let out = run_vm_result(vec![
+            Instruction::jump_if_cmp_false(
+                BinaryOperator::Lt,
+                Operand::const_val(Value::float(3.0)),
+                Operand::const_val(Value::float(2.0)),
+                3,
+            ),
+            Instruction::load_const(Value::Int(42)),
+            Instruction::Return,
+            Instruction::load_const(Value::Int(99)),
+            Instruction::Return,
+        ])
+        .expect("execute");
+
+        assert_eq!(out, Value::Int(99));
+    }
+
+    #[test]
+    fn cmp_branch_matches_binary_jump_for_scalar_cases() {
+        use BinaryOperator::*;
+
+        let cases = [
+            (Equal, Value::Int(1), Value::Int(1)),
+            (Equal, Value::Int(1), Value::Int(2)),
+            (EqualDot, Value::Int(2), Value::Int(2)),
+            (NotEqual, Value::Int(1), Value::Int(2)),
+            (NotEqualDot, Value::Int(2), Value::Int(2)),
+            (Lt, Value::Int(1), Value::Int(2)),
+            (Lt, Value::Int(2), Value::Int(1)),
+            (Lte, Value::Int(2), Value::Int(2)),
+            (Gt, Value::Int(3), Value::Int(2)),
+            (Gte, Value::Int(2), Value::Int(3)),
+            (Lt, Value::float(1.5), Value::float(2.0)),
+            (Gt, Value::float(1.5), Value::float(2.0)),
+        ];
+
+        for (op, left, right) in cases {
+            let expected = run_vm(vec![
+                Instruction::load_const(left.clone()),
+                Instruction::load_const(right.clone()),
+                Instruction::binary_op(op, Operand::Stack, Operand::Stack),
+                Instruction::JumpIfFalse(6),
+                Instruction::load_const(Value::Int(42)),
+                Instruction::Return,
+                Instruction::load_const(Value::Int(99)),
+                Instruction::Return,
+            ]);
+            let fused_const = run_vm(vec![
+                Instruction::jump_if_cmp_false(
+                    op,
+                    Operand::const_val(left.clone()),
+                    Operand::const_val(right.clone()),
+                    3,
+                ),
+                Instruction::load_const(Value::Int(42)),
+                Instruction::Return,
+                Instruction::load_const(Value::Int(99)),
+                Instruction::Return,
+            ]);
+            let fused_stack = run_vm(vec![
+                Instruction::load_const(left.clone()),
+                Instruction::load_const(right.clone()),
+                Instruction::jump_if_cmp_false(op, Operand::Stack, Operand::Stack, 5),
+                Instruction::load_const(Value::Int(42)),
+                Instruction::Return,
+                Instruction::load_const(Value::Int(99)),
+                Instruction::Return,
+            ]);
+
+            assert_eq!(fused_const, expected, "{op:?} const");
+            assert_eq!(fused_stack, expected, "{op:?} stack");
         }
     }
 

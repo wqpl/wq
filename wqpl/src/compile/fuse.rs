@@ -29,6 +29,16 @@ struct Stats {
     idx_global_pop: usize,
     lt_jifalse: usize,
     ll0_gt_jifalse: usize,
+    cmp_jifalse: usize,
+}
+
+fn is_branch_comparison(op: BinaryOperator) -> bool {
+    use BinaryOperator::*;
+
+    matches!(
+        op,
+        Equal | EqualDot | NotEqual | NotEqualDot | Lt | Lte | Gt | Gte
+    )
 }
 
 fn has_fusable_patterns(code: &[Instruction]) -> bool {
@@ -70,6 +80,14 @@ fn has_fusable_patterns(code: &[Instruction]) -> bool {
             && data.op == BinaryOperator::Lt
             && let Operand::Stack = &data.left
             && let Operand::Stack = &data.right
+            && let JumpIfFalse(_) = &code[i + 1]
+        {
+            return true;
+        }
+        // Generic comparison ; JIFalse
+        if i + 1 < n
+            && let BinaryOp(data) = &code[i]
+            && is_branch_comparison(data.op)
             && let JumpIfFalse(_) = &code[i + 1]
         {
             return true;
@@ -290,6 +308,26 @@ fn fuse_once(
             i += 2;
             continue;
         }
+        // cmp+branch: BinaryOp(cmp, lhs, rhs); JIFalse -> JumpIfCmpFalse.
+        if i + 1 < n
+            && let BinaryOp(data) = &old[i]
+            && is_branch_comparison(data.op)
+            && let JumpIfFalse(pos) = &old[i + 1]
+        {
+            out.push(Instruction::jump_if_cmp_false(
+                data.op,
+                data.left.clone(),
+                data.right.clone(),
+                *pos,
+            ));
+            origin.push(i);
+            keep[i] = true;
+            keep[i + 1] = false;
+            stats.cmp_jifalse += 1;
+            changed_any = true;
+            i += 2;
+            continue;
+        }
         out.push(old[i].clone());
         origin.push(i);
         keep[i] = true;
@@ -329,6 +367,9 @@ fn fuse_once(
                 JumpIfLEZLocal(_, pos) => {
                     *pos = old_to_new[*pos];
                 }
+                JumpIfCmpFalse(data) => {
+                    data.target = old_to_new[data.target];
+                }
                 BoolAndLazy(pos) | BoolOrLazy(pos) => {
                     *pos = old_to_new[*pos];
                 }
@@ -359,4 +400,71 @@ fn fuse_once(
         *code = old;
     }
     changed_any
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fuses_local_compare_jump_false_and_remaps_targets() {
+        let mut code = vec![
+            Instruction::binary_op(BinaryOperator::Lt, Operand::Local(0), Operand::Local(1)),
+            Instruction::JumpIfFalse(4),
+            Instruction::load_const(Value::Int(1)),
+            Instruction::Jump(5),
+            Instruction::load_const(Value::Int(2)),
+            Instruction::Return,
+        ];
+        let mut stats = Stats::default();
+
+        let changed = fuse_once(&mut code, None, None, &mut stats);
+
+        assert!(changed);
+        assert_eq!(
+            code,
+            vec![
+                Instruction::jump_if_cmp_false(
+                    BinaryOperator::Lt,
+                    Operand::Local(0),
+                    Operand::Local(1),
+                    3,
+                ),
+                Instruction::load_const(Value::Int(1)),
+                Instruction::Jump(4),
+                Instruction::load_const(Value::Int(2)),
+                Instruction::Return,
+            ]
+        );
+        assert_eq!(stats.cmp_jifalse, 1);
+    }
+
+    #[test]
+    fn preserves_local_gt_zero_special_case() {
+        let mut code = vec![
+            Instruction::binary_op(
+                BinaryOperator::Gt,
+                Operand::Local(0),
+                Operand::const_val(Value::Int(0)),
+            ),
+            Instruction::JumpIfFalse(3),
+            Instruction::load_const(Value::Int(1)),
+            Instruction::Return,
+        ];
+        let mut stats = Stats::default();
+
+        let changed = fuse_once(&mut code, None, None, &mut stats);
+
+        assert!(changed);
+        assert_eq!(
+            code,
+            vec![
+                Instruction::JumpIfLEZLocal(0, 2),
+                Instruction::load_const(Value::Int(1)),
+                Instruction::Return,
+            ]
+        );
+        assert_eq!(stats.ll0_gt_jifalse, 1);
+        assert_eq!(stats.cmp_jifalse, 0);
+    }
 }

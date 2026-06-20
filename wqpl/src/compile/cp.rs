@@ -681,6 +681,19 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
                 None => vec![(pc + 1, state.clone()), (*target, state)],
             }
         }
+        I::JumpIfCmpFalse(data) => {
+            let right = resolve_transfer_operand(&mut state, &data.right);
+            let left = resolve_transfer_operand(&mut state, &data.left);
+            let cond = left
+                .zip(right)
+                .and_then(|(left, right)| eval_binary(&data.op, &left, &right).ok())
+                .and_then(|value| value.try_to_rust_bool());
+            match cond {
+                Some(true) => fallthrough(pc, state),
+                Some(false) => vec![(data.target, state)],
+                None => vec![(pc + 1, state.clone()), (data.target, state)],
+            }
+        }
         I::JumpIfGE(target) => {
             state.pop();
             state.pop();
@@ -808,6 +821,11 @@ fn rewrite_instruction(inst: &mut Instruction, state: &State) -> bool {
                 *inst = Instruction::load_const(value);
                 return true;
             }
+            changed
+        }
+        Instruction::JumpIfCmpFalse(data) => {
+            let mut changed = rewrite_operand(&mut data.left, state);
+            changed |= rewrite_operand(&mut data.right, state);
             changed
         }
         Instruction::UnaryOp(data) => {
@@ -1024,6 +1042,10 @@ fn note_inst_locals(inst: &Instruction, count: &mut usize) {
             note_operand_locals(&data.left, count);
             note_operand_locals(&data.right, count);
         }
+        I::JumpIfCmpFalse(data) => {
+            note_operand_locals(&data.left, count);
+            note_operand_locals(&data.right, count);
+        }
         I::UnaryOp(data) => note_operand_locals(&data.operand, count),
         I::IndexMutate {
             target: StoreTarget::Local(slot),
@@ -1050,6 +1072,10 @@ fn note_inst_captures(inst: &Instruction, count: &mut usize) {
         | I::IndexAssignCapture(slot)
         | I::IndexAssignCaptureDrop(slot) => note_slot(*slot, count),
         I::BinaryOp(data) => {
+            note_operand_captures(&data.left, count);
+            note_operand_captures(&data.right, count);
+        }
+        I::JumpIfCmpFalse(data) => {
             note_operand_captures(&data.left, count);
             note_operand_captures(&data.right, count);
         }

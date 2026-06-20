@@ -79,6 +79,14 @@ pub(crate) struct BinaryOpData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CmpBranchData {
+    pub(crate) op: BinaryOperator,
+    pub(crate) left: Operand,
+    pub(crate) right: Operand,
+    pub(crate) target: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct UnaryOpData {
     pub(crate) op: UnaryOperator,
     pub(crate) operand: Operand,
@@ -199,6 +207,8 @@ pub(crate) enum Instruction {
     IndexAssignCaptureDrop(u16),
     Jump(usize),
     JumpIfFalse(usize),
+    /// Evaluate a comparison and jump if its boolean result is false.
+    JumpIfCmpFalse(Box<CmpBranchData>),
     /// Jump if left >= right (pops two operands)
     JumpIfGE(usize),
     /// Jump if local slot value <= 0
@@ -236,6 +246,20 @@ impl Instruction {
 
     pub(crate) fn binary_op(op: BinaryOperator, left: Operand, right: Operand) -> Self {
         Self::BinaryOp(Box::new(BinaryOpData { op, left, right }))
+    }
+
+    pub(crate) fn jump_if_cmp_false(
+        op: BinaryOperator,
+        left: Operand,
+        right: Operand,
+        target: usize,
+    ) -> Self {
+        Self::JumpIfCmpFalse(Box::new(CmpBranchData {
+            op,
+            left,
+            right,
+            target,
+        }))
     }
 
     pub(crate) fn unary_op(op: UnaryOperator, operand: Operand) -> Self {
@@ -363,8 +387,13 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         | I::TailCallUser(_, _) => (Call, false),
 
         // Jumps / branches
-        I::Jump(_) | I::JumpIfFalse(_) | I::JumpIfGE(_) | I::JumpIfLEZLocal(_, _)
-        | I::BoolAndLazy(_) | I::BoolOrLazy(_) => (Jump, false),
+        I::Jump(_)
+        | I::JumpIfFalse(_)
+        | I::JumpIfCmpFalse(_)
+        | I::JumpIfGE(_)
+        | I::JumpIfLEZLocal(_, _)
+        | I::BoolAndLazy(_)
+        | I::BoolOrLazy(_) => (Jump, false),
 
         I::IndexMutate { .. } => (Store, false),
 
@@ -728,6 +757,7 @@ impl InstPrettyDumper {
             | Instruction::JumpIfLEZLocal(_, target)
             | Instruction::BoolAndLazy(target)
             | Instruction::BoolOrLazy(target) => Some(*target),
+            Instruction::JumpIfCmpFalse(data) => Some(data.target),
             _ => None,
         }
     }
