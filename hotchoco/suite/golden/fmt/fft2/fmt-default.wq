@@ -1,0 +1,36 @@
+PI:3.141592653589793
+EPS64:2.220446049250313e-16
+cis:{complex[cos x;sin x]}
+tw:{[n]iota (n/%2)|M {-2*PI*x/n|cis}}
+bf:{apply[({x 0+x 1};{x 0-x 1});x]}
+fft2_:{[xs]
+  n:#xs
+  $.[n=0
+    raise "fft2: empty input"]
+  $.[n=1
+    @r xs+0.0i]
+  $.[n%2=1
+    raise "fft2: length must be a power of 2"]
+  h:n/%2
+  (e;o):(xs[2*iota h];xs[1+2*iota h])|M fft2_
+  zip[e;zipw[tw n;o;*]]|M bf|transpose|flatten}
+clean:{[s;o]
+  eps:32*EPS64*#s*$[(mx:max abs o)>0
+    mx
+    1.0]
+  s|M {
+    complex[
+      $[eps>abs re x
+        0.0
+        re x];
+      $[eps>abs im x
+        0.0
+        im x]]}}
+fft2:{fft2_ x|clean x}
+ifft2:{
+  i:1.0/#x
+  x|M conj|fft2_|M {i*conj x}|clean x}
+
+echo fft2 (0;0;1;0;0;0;0;0)
+echo fft2 (1;0;-1;0;1;0;-1;0)
+echo ifft2 fft2 (1;2;3;4)
