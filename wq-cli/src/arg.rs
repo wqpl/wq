@@ -1,6 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use clap::builder::styling::{AnsiColor, Effects, Style, Styles};
@@ -89,19 +90,25 @@ pub enum CliCommand {
     },
 }
 
-const HELP_HEADER: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
-const HELP_USAGE: Style = AnsiColor::Yellow.on_default().effects(Effects::BOLD);
-const HELP_LITERAL: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
+const HELP_HEADER_EFFECTS: Effects = Effects::new()
+    .insert(Effects::BOLD)
+    .insert(Effects::UNDERLINE);
+
+const HELP_HEADER: Style = AnsiColor::White.on_default().effects(HELP_HEADER_EFFECTS);
+
+const HELP_LITERAL: Style = AnsiColor::BrightMagenta.on_default().effects(Effects::BOLD);
 const HELP_PLACEHOLDER: Style = AnsiColor::Blue.on_default();
+const HELP_ERROR: Style = AnsiColor::BrightRed.on_default().effects(Effects::BOLD);
+const HELP_WARNING: Style = AnsiColor::BrightYellow.on_default().effects(Effects::BOLD);
 
 const HELP_STYLES: Styles = Styles::styled()
     .header(HELP_HEADER)
-    .usage(HELP_USAGE)
+    .usage(HELP_HEADER)
     .literal(HELP_LITERAL)
     .placeholder(HELP_PLACEHOLDER)
-    .error(AnsiColor::Red.on_default().effects(Effects::BOLD))
-    .valid(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
-    .invalid(AnsiColor::Yellow.on_default().effects(Effects::BOLD));
+    .error(HELP_ERROR)
+    .valid(HELP_LITERAL)
+    .invalid(HELP_WARNING);
 
 /// The wq Programming Language, https://wq-pl.com
 ///
@@ -270,88 +277,12 @@ fn parse_fold_width(s: &str) -> Result<usize, String> {
     }
 }
 
-fn print_debug_help() {
-    let token = "token".red();
-    let cst = "cst".cyan();
-    let ast = "ast".yellow();
-    let ast_v = "ast-v".bright_yellow();
-    let inst = "inst".green();
-    let inst_v = "inst-v".bright_green();
-    let wqdb_1 = "wqdb".magenta();
-    let wqdb_2 = "wqdb-v".bright_magenta();
-    let value = "value".yellow();
-    let cas = "cas".yellow();
-    let cas_v = "cas-v".yellow();
-
-    println!();
-    println!("{}", "Debug flags".bold().underline());
-    println!(
-        "  {token}, {cst}, {ast}, {ast_v}, {inst}, {inst_v}, {wqdb_1}, {wqdb_2}, {value}, {cas}, {cas_v}"
-    );
-
-    println!();
-    println!("{}", "Debug aliases".bold().underline());
-    println!(
-        "  0=off 1={inst} 2={inst},{ast} 3={inst},{ast},{value} 4={inst},{ast},{value},{inst_v},{ast_v}"
-    );
-}
-
-fn print_runtime_help() {
-    println!();
-    println!("{}", "Interpreters".bold().underline());
-    println!("  vanilla, profiler, sample");
-
-    println!();
-    println!("{}", "Builtins".bold().underline());
-    println!("  all, constrained, pure, minimal");
-
-    println!();
-    println!("{}", "Exit Codes".bold().underline());
-    println!("  0  Success");
-    println!("  2  Incorrect Usage");
-}
-
-fn print_examples_top() {
-    println!();
-    println!("{}", "Examples".bold().underline());
-    println!("  1. Run a script:");
-    println!("     {}", "wq /path/to/script.wq".cyan());
-    println!("  2. Run a notebook interactively:");
-    println!("     {}", "wq /path/to/notebook.wq.md".cyan());
-    println!("  3. Run a notebook non-interactively:");
-    println!(
-        "     {}",
-        "wq --run-notebook /path/to/notebook.wq.md".cyan()
-    );
-    println!("  4. Run code & dump instructions & print final evaluation:");
-    println!("     {}", "wq exec \"echo(1+1)\" -d1 -p".cyan());
-    println!("  5. Ditto + dump AST + profiler:");
-    println!("     {}", "wq exec \"echo(1+1)\" -i p -d2 -p".cyan());
-    println!("  6. Format a script:");
-    println!("     {}", "wq fmt script.wq".cyan());
-    println!("  7. Debug a script with wqdb:");
-    println!("     {}", "wq -w -o bt -o c script.wq".cyan());
-}
-
 fn print_after_help() {
-    print_debug_help();
-    print_runtime_help();
-    print_examples_top();
+    print!("{}", after_help_text());
 }
 
 fn print_after_help_exec() {
-    print_debug_help();
-    print_runtime_help();
-    println!();
-    println!("{}", "Examples".bold().underline());
-    println!("  1. Execute inline code:");
-    println!("     {}", "wq exec \"echo(1+1)\"".cyan());
-    println!("  2. Execute from stdin:");
-    println!("     {}", "echo '1+1' | wq exec -".cyan());
-    println!("  3. Execute with debug output and print result:");
-    println!("     {}", "wq exec \"echo(1+1)\" -d1 -p".cyan());
-    println!("  4. Execute with AST dump and profiler:");
-    println!("     {}", "wq exec \"echo(1+1)\" -i p -d2 -p".cyan());
+    print!("{}", after_help_exec_text());
 }
 
 /// Parse args (excluding argv[0]).
@@ -553,58 +484,98 @@ fn render_command_help(command: &mut clap::Command) -> String {
 
 fn after_help_text() -> String {
     let mut out = String::new();
-    out.push_str("\nDebug flags\n");
-    out.push_str("  token, cst, ast, ast-v, inst, inst-v, wqdb, wqdb-v, value, cas, cas-v\n");
-    out.push_str("\nDebug aliases\n");
-    out.push_str("  0=off 1=inst 2=inst,ast 3=inst,ast,value 4=inst,ast,value,inst-v,ast-v\n");
-    out.push_str(&runtime_help_text());
-    out.push_str("\nExamples\n");
-    out.push_str("  1. Run a script:\n");
-    out.push_str("     wq /path/to/script.wq\n");
-    out.push_str("  2. Run a notebook interactively:\n");
-    out.push_str("     wq /path/to/notebook.wq.md\n");
-    out.push_str("  3. Run a notebook non-interactively:\n");
-    out.push_str("     wq --run-notebook /path/to/notebook.wq.md\n");
-    out.push_str("  4. Run code & dump instructions & print final evaluation:\n");
-    out.push_str("     wq exec \"echo(1+1)\" -d1 -p\n");
-    out.push_str("  5. Ditto + dump AST + profiler:\n");
-    out.push_str("     wq exec \"echo(1+1)\" -i p -d2 -p\n");
-    out.push_str("  6. Format a script:\n");
-    out.push_str("     wq fmt script.wq\n");
-    out.push_str("  7. Debug a script with wqdb:\n");
-    out.push_str("     wq -w -o bt -o c script.wq\n");
+    write_common_appendix(&mut out);
+    write_top_examples(&mut out);
     out
 }
 
 fn after_help_exec_text() -> String {
     let mut out = String::new();
-    out.push_str("\nDebug flags\n");
-    out.push_str("  token, cst, ast, ast-v, inst, inst-v, wqdb, wqdb-v, value, cas, cas-v\n");
-    out.push_str("\nDebug aliases\n");
-    out.push_str("  0=off 1=inst 2=inst,ast 3=inst,ast,value 4=inst,ast,value,inst-v,ast-v\n");
-    out.push_str(&runtime_help_text());
-    out.push_str("\nExamples\n");
-    out.push_str("  1. Execute inline code:\n");
-    out.push_str("     wq exec \"echo(1+1)\"\n");
-    out.push_str("  2. Execute from stdin:\n");
-    out.push_str("     echo '1+1' | wq exec -\n");
-    out.push_str("  3. Execute with debug output and print result:\n");
-    out.push_str("     wq exec \"echo(1+1)\" -d1 -p\n");
-    out.push_str("  4. Execute with AST dump and profiler:\n");
-    out.push_str("     wq exec \"echo(1+1)\" -i p -d2 -p\n");
+    write_common_appendix(&mut out);
+    write_exec_examples(&mut out);
     out
 }
 
-fn runtime_help_text() -> String {
-    let mut out = String::new();
-    out.push_str("\nInterpreters\n");
-    out.push_str("  vanilla, profiler, sample\n");
-    out.push_str("\nBuiltins\n");
-    out.push_str("  all, constrained, pure, minimal\n");
-    out.push_str("\nExit Codes\n");
-    out.push_str("  0  Success\n");
-    out.push_str("  2  Incorrect Usage\n");
-    out
+fn write_common_appendix(out: &mut String) {
+    write_debug_help(out);
+    write_runtime_help(out);
+}
+
+fn write_debug_help(out: &mut String) {
+    let token = "token".red();
+    let cst = "cst".cyan();
+    let ast = "ast".yellow();
+    let ast_v = "ast-v".bright_yellow();
+    let inst = "inst".green();
+    let inst_v = "inst-v".bright_green();
+    let wqdb_1 = "wqdb".magenta();
+    let wqdb_2 = "wqdb-v".bright_magenta();
+    let value = "value".yellow();
+    let cas = "cas".yellow();
+    let cas_v = "cas-v".yellow();
+
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", "Debug flags".bold().underline());
+    let _ = writeln!(
+        out,
+        "  {token}, {cst}, {ast}, {ast_v}, {inst}, {inst_v}, {wqdb_1}, {wqdb_2}, {value}, {cas}, {cas_v}"
+    );
+
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", "Debug aliases".bold().underline());
+    let _ = writeln!(
+        out,
+        "  0=off 1={inst} 2={inst},{ast} 3={inst},{ast},{value} 4={inst},{ast},{value},{inst_v},{ast_v}"
+    );
+}
+
+fn write_runtime_help(out: &mut String) {
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", "Interpreters".bold().underline());
+    let _ = writeln!(out, "  vanilla, profiler, sample");
+
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", "Builtins".bold().underline());
+    let _ = writeln!(out, "  all, constrained, pure, minimal");
+
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", "Exit Codes".bold().underline());
+    let _ = writeln!(out, "  0  Success");
+    let _ = writeln!(out, "  2  Incorrect Usage");
+}
+
+fn write_top_examples(out: &mut String) {
+    let wq = "wq".bright_magenta();
+
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", "Examples".bold().underline());
+    let _ = writeln!(out, "  1. Run a script:");
+    let _ = writeln!(out, "     {wq} {}", "script.wq".blue());
+    let _ = writeln!(out, "  2. Evaluate inline code and print the result:");
+    let _ = writeln!(out, "     {wq} {}", "exec '1+1' -p".blue());
+    let _ = writeln!(out, "  3. Inspect AST and instructions for inline code:");
+    let _ = writeln!(out, "     {wq} {}", "exec '1+1' -d ast,inst -p".blue());
+    let _ = writeln!(out, "  4. Format a script:");
+    let _ = writeln!(out, "     {wq} {}", "fmt script.wq".blue());
+    let _ = writeln!(out, "  5. Debug a script with wqdb:");
+    let _ = writeln!(out, "     {wq} {}", "-w -o bt -o c script.wq".blue());
+    let _ = writeln!(out, "  6. Open a notebook step-by-step:");
+    let _ = writeln!(out, "     {wq} {}", "notes.wq.md".blue());
+    let _ = writeln!(out, "  7. Run a notebook without prompts:");
+    let _ = writeln!(out, "     {wq} {}", "--run-notebook notes.wq.md".blue());
+}
+
+fn write_exec_examples(out: &mut String) {
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", "Examples".bold().underline());
+    let _ = writeln!(out, "  1. Evaluate inline code:");
+    let _ = writeln!(out, "     {}", "wq exec '1+1' -p".cyan());
+    let _ = writeln!(out, "  2. Read code from stdin:");
+    let _ = writeln!(out, "     {}", "echo '1+1' | wq exec - -p".cyan());
+    let _ = writeln!(out, "  3. Dump AST and instructions:");
+    let _ = writeln!(out, "     {}", "wq exec '1+1' -d ast,inst -p".cyan());
+    let _ = writeln!(out, "  4. Run with the profiler interpreter:");
+    let _ = writeln!(out, "     {}", "wq exec '1+1' -i profiler -p".cyan());
 }
 
 #[cfg(test)]
@@ -689,6 +660,27 @@ mod tests {
             is_err(parse_args(v(&["help", "map", "--fold-width", "0"]))),
             2
         );
+    }
+
+    #[test]
+    fn rendered_top_level_help_includes_note_rendered_appendix() {
+        let text = render_cli_help(None).expect("top-level help");
+
+        assert!(text.contains("Usage: wq"));
+        assert!(text.contains("Debug flags"));
+        assert!(text.contains("Run a script"));
+        assert!(text.contains("wq script.wq"));
+        assert!(text.contains("wq exec '1+1' -d ast,inst -p"));
+    }
+
+    #[test]
+    fn rendered_exec_help_uses_exec_appendix() {
+        let text = render_cli_help(Some("exec")).expect("exec help");
+
+        assert!(text.contains("Usage: wq exec"));
+        assert!(text.contains("Evaluate inline code"));
+        assert!(text.contains("wq exec '1+1' -p"));
+        assert!(!text.contains("Run a script"));
     }
 
     #[test]

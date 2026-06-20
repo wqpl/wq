@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::io::{IsTerminal as _, Write as _};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use colored::Colorize as _;
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
@@ -395,6 +397,41 @@ pub(crate) fn render_markdown_document(
         out.push_str("\n\n");
     }
     out.trim_end().to_string()
+}
+
+pub(crate) fn print_or_page(text: &str, no_pager: bool) {
+    if no_pager || !std::io::stdout().is_terminal() {
+        println!("{text}");
+        return;
+    }
+
+    let pager = std::env::var("PAGER").unwrap_or_else(|_| "less -R".to_string());
+    let mut parts = pager.split_whitespace();
+    let Some(program) = parts.next() else {
+        println!("{text}");
+        return;
+    };
+    let args: Vec<&str> = parts.collect();
+
+    let child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .spawn();
+    let Ok(mut child) = child else {
+        println!("{text}");
+        return;
+    };
+
+    if let Some(stdin) = child.stdin.as_mut()
+        && stdin.write_all(text.as_bytes()).is_err()
+    {
+        println!("{text}");
+        return;
+    }
+
+    if child.wait().is_err() {
+        println!("{text}");
+    }
 }
 
 pub fn run_notebook(path: &Path, mut rtflags: RuntimeFlags, interactive: bool) {

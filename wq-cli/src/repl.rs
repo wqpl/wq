@@ -13,7 +13,7 @@ use rand::RngExt as _;
 use terminal_size::{Width, terminal_size};
 use wqpl::builtins::{BuiltinPreset, Builtins};
 use wqpl::completion as wq_completion;
-use wqpl::doc::{self, DocRenderTarget};
+use wqpl::doc;
 use wqpl::format::{FormatConfig, Formatter};
 use wqpl::interpret::InterpreterKind;
 use wqpl::session::Session;
@@ -36,7 +36,7 @@ use crate::msg::{
 use crate::repl::editor::WqReplHighlighter;
 use crate::repl::input::RustylineInput;
 use crate::wqdb::enter_wqdb_after_err;
-use crate::{apply_builtins_flag, apply_interpreter_flag, note, wqdb_pause_handler};
+use crate::{apply_builtins_flag, apply_interpreter_flag, wqdb_pause_handler};
 
 #[derive(Debug, Clone)]
 enum ReplCommand {
@@ -521,18 +521,16 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::Help(opt) => {
                         if let Some(name) = opt {
                             if let Some(topic) = doc::resolve(&name) {
-                                let markdown = doc::render_markdown_with_options(
-                                    &topic,
-                                    DocRenderTarget::Cli,
-                                    doc::MarkdownRenderOptions {
-                                        fold_width: crate::help::auto_fold_width(
-                                            terminal_size().map(|(Width(width), _)| width as usize),
-                                        ),
-                                    },
+                                let fold_width = crate::help::auto_fold_width(
+                                    terminal_size().map(|(Width(width), _)| width as usize),
                                 );
                                 println!(
                                     "{}",
-                                    note::render_markdown_document(&markdown, Some(&highlighter))
+                                    crate::help::render_reference_topic(
+                                        &topic,
+                                        fold_width,
+                                        &highlighter
+                                    )
                                 );
                             } else {
                                 system_msg_out(
