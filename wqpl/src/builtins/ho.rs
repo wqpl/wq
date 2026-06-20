@@ -96,26 +96,26 @@ impl PureCallback {
                     let target = stack.pop()?;
                     stack.push(Self::index_expr(target, vec![index]));
                 }
-                Instruction::Postfix(argc) | Instruction::TailPostfix(argc) if *argc == 1 => {
-                    let index = stack.pop()?;
+                Instruction::Postfix(argc) | Instruction::TailPostfix(argc) if *argc > 0 => {
+                    let args = Self::index_args(&mut stack, *argc)?;
                     let target = stack.pop()?;
-                    stack.push(Self::index_expr(target, vec![index]));
+                    stack.push(Self::index_expr(target, args));
                 }
                 Instruction::PostfixLocal(slot, argc)
                 | Instruction::TailPostfixLocal(slot, argc)
-                    if *argc == 1 =>
+                    if *argc > 0 =>
                 {
-                    let index = stack.pop()?;
+                    let args = Self::index_args(&mut stack, *argc)?;
                     let target = Self::local_expr(*slot, arity)?;
-                    stack.push(Self::index_expr(target, vec![index]));
+                    stack.push(Self::index_expr(target, args));
                 }
                 Instruction::PostfixCapture(slot, argc)
                 | Instruction::TailPostfixCapture(slot, argc)
-                    if *argc == 1 =>
+                    if *argc > 0 =>
                 {
-                    let index = stack.pop()?;
+                    let args = Self::index_args(&mut stack, *argc)?;
                     let target = Self::capture_expr(&captures, *slot)?;
-                    stack.push(Self::index_expr(target, vec![index]));
+                    stack.push(Self::index_expr(target, args));
                 }
                 _ => return None,
             }
@@ -151,6 +151,11 @@ impl PureCallback {
             target: Box::new(target),
             args: args.into_boxed_slice(),
         }
+    }
+
+    fn index_args(stack: &mut Vec<PureExpr>, argc: usize) -> Option<Vec<PureExpr>> {
+        let base = stack.len().checked_sub(argc)?;
+        Some(stack.drain(base..).collect())
     }
 
     fn operand_expr(
@@ -1464,6 +1469,63 @@ mod tests {
         assert_eq!(
             result,
             Value::IntList(Arc::new(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]))
+        );
+    }
+
+    #[test]
+    fn map_pure_fast_path_accepts_multi_arg_local_indexing() {
+        let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
+        let xs = Value::List(Arc::new(vec![
+            Value::IntList(Arc::new(vec![1, 2, 3])),
+            Value::IntList(Arc::new(vec![4, 5, 6])),
+        ]));
+        let f = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::load_const(Value::Int(2)),
+                Instruction::load_const(Value::Int(0)),
+                Instruction::TailPostfixLocal(0, 2),
+                Instruction::Return,
+            ],
+        );
+        let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::IntList(Arc::new(vec![3, 1])),
+                Value::IntList(Arc::new(vec![6, 4])),
+            ]))
+        );
+    }
+
+    #[test]
+    fn map_pure_fast_path_accepts_multi_arg_stack_indexing() {
+        let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
+        let xs = Value::List(Arc::new(vec![
+            Value::IntList(Arc::new(vec![1, 2, 3])),
+            Value::IntList(Arc::new(vec![4, 5, 6])),
+        ]));
+        let f = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::LoadLocal(0),
+                Instruction::load_const(Value::Int(1)),
+                Instruction::load_const(Value::Int(0)),
+                Instruction::TailPostfix(2),
+                Instruction::Return,
+            ],
+        );
+        let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::IntList(Arc::new(vec![2, 1])),
+                Value::IntList(Arc::new(vec![5, 4])),
+            ]))
         );
     }
 
