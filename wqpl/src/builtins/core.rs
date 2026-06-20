@@ -641,6 +641,18 @@ mod tests {
     }
 
     #[test]
+    fn hash_respects_complex_value_equality() {
+        let lhs = Value::from_complex64(num_complex::Complex64::new(0.0, 0.0));
+        let rhs = Value::from_complex64(num_complex::Complex64::new(-0.0, -0.0));
+
+        assert_eq!(lhs, rhs);
+        assert_eq!(
+            hash(BuiltinFnArgs::from(lhs)).expect("hash should succeed"),
+            hash(BuiltinFnArgs::from(rhs)).expect("hash should succeed")
+        );
+    }
+
+    #[test]
     fn chr_single_int() {
         let result = chr(BuiltinFnArgs::from(Value::Int(65))).unwrap();
         assert_eq!(result, Value::Char('A'));

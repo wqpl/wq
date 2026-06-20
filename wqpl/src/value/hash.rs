@@ -2,6 +2,7 @@ use std::hash::Hash as _;
 use std::sync::Arc;
 
 use num_traits::ToPrimitive;
+use ordered_float::OrderedFloat;
 
 use crate::value::Value;
 use crate::value::cas::CasKind;
@@ -69,7 +70,7 @@ impl std::hash::Hash for Value {
                 6u8.hash(state);
                 v.len().hash(state);
                 for item in v.iter() {
-                    item.hash(state);
+                    Value::Int(*item).hash(state);
                 }
             }
             Value::List(v) => {
@@ -99,8 +100,8 @@ impl std::hash::Hash for Value {
             }
             Value::Complex(z) => {
                 14u8.hash(state);
-                z.re.to_bits().hash(state);
-                z.im.to_bits().hash(state);
+                OrderedFloat(z.re).hash(state);
+                OrderedFloat(z.im).hash(state);
             }
             Value::Fraction(fd) => {
                 15u8.hash(state);
@@ -239,7 +240,10 @@ impl PartialEq for Value {
                     .all(|(lhs, rhs)| Arc::ptr_eq(lhs, rhs))
             }
 
-            (Complex(a), Complex(b)) => a == b,
+            (Complex(a), Complex(b)) => {
+                OrderedFloat(a.re) == OrderedFloat(b.re)
+                    && OrderedFloat(a.im) == OrderedFloat(b.im)
+            }
             (Fraction(a), Fraction(b)) => a == b,
 
             (Cas(a), Cas(b)) => match (&a.kind, &b.kind) {
@@ -308,6 +312,8 @@ mod hash_tests {
     use std::hash::{Hash, Hasher};
 
     use indexmap::IndexMap;
+    use num_bigint::BigInt;
+    use num_complex::Complex64;
 
     use super::*;
     use crate::value::cas::CasFunction;
@@ -316,6 +322,40 @@ mod hash_tests {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         v.hash(&mut hasher);
         hasher.finish()
+    }
+
+    fn assert_equal_values_hash_equal(lhs: Value, rhs: Value) {
+        assert_eq!(lhs, rhs);
+        assert_eq!(hash_value(&lhs), hash_value(&rhs));
+    }
+
+    #[test]
+    fn equal_values_hash_equal_across_representations() {
+        assert_equal_values_hash_equal(
+            Value::Int(42),
+            Value::BigInt(Arc::new(BigInt::from(42))),
+        );
+        assert_equal_values_hash_equal(
+            Value::IntList(Arc::new(vec![1, 2, 3])),
+            Value::List(Arc::new(vec![Value::Int(1), Value::Int(2), Value::Int(3)])),
+        );
+        assert_equal_values_hash_equal(
+            Value::String(Arc::new("abc".to_string())),
+            Value::List(Arc::new(vec![Value::Char('a'), Value::Char('b'), Value::Char('c')])),
+        );
+        assert_equal_values_hash_equal(Value::float(0.0), Value::float(-0.0));
+    }
+
+    #[test]
+    fn complex_hash_matches_float_component_equality() {
+        assert_equal_values_hash_equal(
+            Value::from_complex64(Complex64::new(0.0, 0.0)),
+            Value::from_complex64(Complex64::new(-0.0, -0.0)),
+        );
+        assert_equal_values_hash_equal(
+            Value::from_complex64(Complex64::new(f64::NAN, 0.0)),
+            Value::from_complex64(Complex64::new(f64::from_bits(0x7ff8_0000_0000_0001), -0.0)),
+        );
     }
 
     #[test]

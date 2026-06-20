@@ -320,6 +320,28 @@ mod tests {
     }
 
     #[test]
+    fn unique_uses_value_hash_contract_for_complex_values() {
+        let zero = Value::from_complex64(num_complex::Complex64::new(0.0, 0.0));
+        let signed_zero = Value::from_complex64(num_complex::Complex64::new(-0.0, -0.0));
+        let nan = Value::from_complex64(num_complex::Complex64::new(f64::NAN, 0.0));
+        let same_nan = Value::from_complex64(num_complex::Complex64::new(
+            f64::from_bits(0x7ff8_0000_0000_0001),
+            -0.0,
+        ));
+
+        assert_eq!(
+            unique(BuiltinFnArgs::from(smallvec![Value::List(Arc::new(vec![
+                zero.clone(),
+                signed_zero,
+                nan.clone(),
+                same_nan,
+            ]))]))
+            .expect("unique should succeed"),
+            Value::List(Arc::new(vec![zero, nan]))
+        );
+    }
+
+    #[test]
     fn list_set_predicates_ignore_multiplicity() {
         let small = Value::IntList(Arc::new(vec![1, 1, 2]));
         let large = Value::IntList(Arc::new(vec![1, 2, 3]));
