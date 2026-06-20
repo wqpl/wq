@@ -1042,20 +1042,7 @@ fn find_real_roots_poly(poly: &[Value]) -> (Vec<Value>, Vec<Value>) {
         && let Ok(Some(factors)) = factor_by_radical_formula(&remaining)
     {
         for factor in factors {
-            let fd = poly_degree(&factor);
-            if fd == 1 {
-                // Linear factor: extract rational root
-                let root = numeric_mul(&factor[0], &Value::Int(-1))
-                    .map(|r| eval_exact_numeric_div(&r, &factor[1]).unwrap_or(r))
-                    .unwrap_or_else(|_| factor[0].clone());
-                if !rational.contains(&root) {
-                    rational.push(root);
-                }
-            } else if let Some(alg_root) = find_real_algebraic_root(&factor)
-                && !algebraic.contains(&alg_root)
-            {
-                algebraic.push(alg_root);
-            }
+            collect_real_roots_from_factor(&factor, &mut rational, &mut algebraic);
         }
         return (rational, algebraic);
     }
@@ -1092,18 +1079,7 @@ fn find_real_roots_poly(poly: &[Value]) -> (Vec<Value>, Vec<Value>) {
             && let Ok(Some(factors)) = factor_by_radical_formula(&current)
         {
             for factor in factors {
-                if poly_degree(&factor) == 1 {
-                    let root = numeric_mul(&factor[0], &Value::Int(-1))
-                        .map(|r| eval_exact_numeric_div(&r, &factor[1]).unwrap_or(r))
-                        .unwrap_or_else(|_| factor[0].clone());
-                    if !rational.contains(&root) {
-                        rational.push(root);
-                    }
-                } else if let Some(alg_root) = find_real_algebraic_root(&factor)
-                    && !algebraic.contains(&alg_root)
-                {
-                    algebraic.push(alg_root);
-                }
+                collect_real_roots_from_factor(&factor, &mut rational, &mut algebraic);
             }
             return (rational, algebraic);
         }
@@ -1128,6 +1104,94 @@ fn find_real_roots_poly(poly: &[Value]) -> (Vec<Value>, Vec<Value>) {
     }
 
     (rational, algebraic)
+}
+
+fn collect_real_roots_from_factor(
+    factor: &[Value],
+    rational: &mut Vec<Value>,
+    algebraic: &mut Vec<Value>,
+) {
+    match poly_degree(factor) {
+        0 => {}
+        1 => {
+            let root = numeric_mul(&factor[0], &Value::Int(-1))
+                .map(|r| eval_exact_numeric_div(&r, &factor[1]).unwrap_or(r))
+                .unwrap_or_else(|_| factor[0].clone());
+            push_real_root(root, rational, algebraic);
+        }
+        2 => {
+            if let Ok(Some(roots)) = real_quadratic_roots(factor) {
+                for root in roots {
+                    push_real_root(root, rational, algebraic);
+                }
+                return;
+            }
+            push_algebraic_root_and_checked_negation(factor, rational, algebraic);
+        }
+        _ => push_algebraic_root_and_checked_negation(factor, rational, algebraic),
+    }
+}
+
+fn real_quadratic_roots(poly: &[Value]) -> WqResult<Option<Vec<Value>>> {
+    if poly_degree(poly) != 2 {
+        return Ok(None);
+    }
+
+    let c = poly.first().cloned().unwrap_or(Value::Int(0));
+    let b = poly.get(1).cloned().unwrap_or(Value::Int(0));
+    let a = poly.get(2).cloned().unwrap_or(Value::Int(0));
+    if numeric_is_zero(&a) {
+        return Ok(None);
+    }
+
+    let four_ac = numeric_mul(&Value::Int(4), &numeric_mul(&a, &c)?)?;
+    let disc = numeric_sub(&numeric_mul(&b, &b)?, &four_ac)?;
+    if numeric_is_negative(&disc) {
+        return Ok(Some(Vec::new()));
+    }
+
+    let neg_b = numeric_mul(&b, &Value::Int(-1))?;
+    let two_a = numeric_mul(&Value::Int(2), &a)?;
+    if numeric_is_zero(&disc) {
+        return Ok(Some(vec![eval_exact_numeric_div(&neg_b, &two_a)?]));
+    }
+
+    let Some(sqrt_disc) = algebraic_sqrt_of_rational(&disc) else {
+        return Ok(None);
+    };
+    let r1 = eval_exact_numeric_div(&numeric_add(&neg_b, &sqrt_disc)?, &two_a)?;
+    let r2 = eval_exact_numeric_div(&numeric_sub(&neg_b, &sqrt_disc)?, &two_a)?;
+    Ok(Some(vec![r1, r2]))
+}
+
+fn push_algebraic_root_and_checked_negation(
+    factor: &[Value],
+    rational: &mut Vec<Value>,
+    algebraic: &mut Vec<Value>,
+) {
+    let Some(alg_root) = find_real_algebraic_root(factor) else {
+        return;
+    };
+    push_real_root(alg_root.clone(), rational, algebraic);
+
+    let neg_root = numeric_mul(&alg_root, &Value::Int(-1)).ok();
+    if let Some(neg) = neg_root
+        && let Ok(val) = poly_evaluate(factor, &neg)
+        && numeric_is_zero(&val)
+    {
+        push_real_root(neg, rational, algebraic);
+    }
+}
+
+fn push_real_root(root: Value, rational: &mut Vec<Value>, algebraic: &mut Vec<Value>) {
+    let roots = if root.is_algebraic_number() {
+        algebraic
+    } else {
+        rational
+    };
+    if !roots.contains(&root) {
+        roots.push(root);
+    }
 }
 
 /// Factor a square-free polynomial into linear and quadratic irreducible
@@ -1200,7 +1264,7 @@ fn solve_cubic_by_rational_root(poly: &[Value]) -> WqResult<Option<Vec<Vec<Value
 /// Factor a quartic into two quadratics via exact Ferrari formula.
 ///
 /// Uses exact Value arithmetic. Handles the case where the resolvent cubic has
-/// a rational root m with `2m - p >= 0`. For irreducible resolvent cubics,
+/// a rational root m with `2m - p > 0`. For irreducible resolvent cubics,
 /// returns `Ok(None)` (fallback to Rothstein-Trager).
 fn solve_quartic_exact(coeffs: &[Value]) -> WqResult<Option<Vec<Vec<Value>>>> {
     if poly_degree(coeffs) != 4 {
@@ -1378,12 +1442,10 @@ fn find_good_resolvent_root(cubic_coeffs: &[Value], p: &Value) -> WqResult<Optio
     }
 
     // Fallback: try algebraic root isolation
-    if let Some(alg_root) = find_real_algebraic_root(cubic_coeffs) {
-        let two_m = numeric_mul(&two, &alg_root)?;
-        let s_sq = numeric_sub(&two_m, p)?;
-        if !numeric_is_negative(&s_sq) {
-            return Ok(Some(alg_root));
-        }
+    if let Some(alg_root) = find_real_algebraic_root(cubic_coeffs)
+        && is_good(&alg_root)?
+    {
+        return Ok(Some(alg_root));
     }
 
     Ok(None)
@@ -1847,6 +1909,7 @@ fn integrate_one_over_quadratic(c_val: &Value, b: &Value, c: &Value, var: &str) 
                 a_sq.format_cas().unwrap_or_default()
             ))
         })?;
+        let a = simplify_cas_value(&a)?;
 
         let two_a = cas_mul(vec![Value::Int(2), a.clone()])?;
         let inner = cas_div(
@@ -1858,7 +1921,7 @@ fn integrate_one_over_quadratic(c_val: &Value, b: &Value, c: &Value, var: &str) 
             vec![Value::from_cas_function(CasFunction::Abs, vec![inner])],
         );
         let result = cas_mul(vec![cas_div(c_val.clone(), two_a)?, log])?;
-        Ok(result)
+        simplify_cas_value(&result)
     } else {
         // k_sq = a^2, denominator is (x+b/2)^2 + a^2
         let a = sqrt_of_quadratic_constant(&k_sq).ok_or_else(|| {
@@ -1867,11 +1930,12 @@ fn integrate_one_over_quadratic(c_val: &Value, b: &Value, c: &Value, var: &str) 
                 k_sq.format_cas().unwrap_or_default()
             ))
         })?;
+        let a = simplify_cas_value(&a)?;
 
-        let arctan_arg = cas_div(x_plus_shift, a.clone())?;
+        let arctan_arg = simplify_cas_value(&cas_div(x_plus_shift, a.clone())?)?;
         let arctan = Value::from_cas_function(CasFunction::ArcTan, vec![arctan_arg]);
         let result = cas_mul(vec![cas_div(c_val.clone(), a)?, arctan])?;
-        Ok(result)
+        simplify_cas_value(&result)
     }
 }
 
@@ -1912,6 +1976,9 @@ fn negated_value(value: &Value) -> Option<Value> {
 }
 
 fn sqrt_of_quadratic_constant(value: &Value) -> Option<Value> {
+    if let Some(root) = algebraic_sqrt_of_rational(value) {
+        return Some(root);
+    }
     if let Some(root) = sqrt_of_value(value) {
         return Some(root);
     }
@@ -2532,14 +2599,20 @@ mod tests {
         // Roots: 1, √2, -√2
         let poly = vec![Value::Int(2), Value::Int(-2), Value::Int(-1), Value::Int(1)];
         let (rational, algebraic) = find_real_roots_poly(&poly);
-        // Should find at least one rational or algebraic root
-        let total_roots = rational.len() + algebraic.len();
-        assert!(
-            total_roots >= 1,
-            "expected at least one root, got rational={:?} algebraic={:?}",
+        assert_eq!(rational, vec![Value::Int(1)]);
+        assert_eq!(
+            algebraic.len(),
+            2,
+            "expected ±sqrt(2), got rational={:?} algebraic={:?}",
             rational,
             algebraic
         );
+        assert!(algebraic.iter().any(numeric_is_negative));
+        assert!(algebraic.iter().any(|root| !numeric_is_negative(root)));
+        for root in &algebraic {
+            let value = poly_evaluate(&poly, root).unwrap();
+            assert!(numeric_is_zero(&value), "root {root} leaves value {value}");
+        }
     }
 
     #[test]
@@ -2619,9 +2692,17 @@ mod tests {
             assert_eq!(f.last(), Some(&Value::Int(1)));
         }
         // Multiply factors to get original
-        let product = poly_mul(&factors[0], &factors[1]).unwrap();
-        poly_trim(&mut product.clone());
+        let mut product = poly_mul(&factors[0], &factors[1]).unwrap();
+        poly_trim(&mut product);
         assert_eq!(poly_degree(&product), 4);
+        assert_eq!(product.len(), poly.len());
+        for (actual, expected) in product.iter().zip(&poly) {
+            let diff = numeric_sub(actual, expected).unwrap();
+            assert!(
+                numeric_is_zero(&diff),
+                "expected product coefficient {expected}, got {actual}"
+            );
+        }
     }
 
     #[test]
@@ -2670,5 +2751,9 @@ mod tests {
         let s = result.to_string();
         assert!(s.contains("arctan"), "expected arctan, got: {s}");
         assert!(s.contains("2^(1/2)"), "expected 2^(1/2), got: {s}");
+        assert!(
+            !s.contains("1/2^(-1/2)"),
+            "expected reciprocal radical to simplify, got: {s}"
+        );
     }
 }

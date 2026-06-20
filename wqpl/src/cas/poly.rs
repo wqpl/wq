@@ -155,16 +155,35 @@ pub(crate) fn poly_evaluate(coeffs: &[Value], x: &Value) -> WqResult<Value> {
     Ok(result)
 }
 
+fn poly_make_monic(mut poly: Vec<Value>) -> WqResult<Vec<Value>> {
+    poly_trim(&mut poly);
+    if poly_is_zero(&poly) {
+        return Ok(poly);
+    }
+
+    let lc = poly.last().expect("non-zero poly").clone();
+    if numeric_is_negative(&lc) {
+        poly = poly_neg(&poly);
+    }
+    let lc = poly.last().expect("non-zero poly").clone();
+    if !numeric_is_one(&lc) {
+        let scale = eval_exact_numeric_div(&Value::Int(1), &lc)?;
+        poly = poly_scalar_mul(&poly, &scale)?;
+        poly_trim(&mut poly);
+    }
+    Ok(poly)
+}
+
 pub(crate) fn poly_gcd(a: &[Value], b: &[Value]) -> WqResult<Vec<Value>> {
     let mut a = a.to_vec();
     let mut b = b.to_vec();
     poly_trim(&mut a);
     poly_trim(&mut b);
     if poly_is_zero(&a) {
-        return Ok(b);
+        return poly_make_monic(b);
     }
     if poly_is_zero(&b) {
-        return Ok(a);
+        return poly_make_monic(a);
     }
     while !poly_is_zero(&b) {
         let (_, r) = poly_divide(&a, &b)?;
@@ -172,19 +191,7 @@ pub(crate) fn poly_gcd(a: &[Value], b: &[Value]) -> WqResult<Vec<Value>> {
         b = r;
         poly_trim(&mut b);
     }
-    poly_trim(&mut a);
-    if !a.is_empty() {
-        let lc = a.last().expect("non-empty poly").clone();
-        if numeric_is_negative(&lc) {
-            a = poly_neg(&a);
-        }
-        let lc = a.last().expect("non-empty poly").clone();
-        if !numeric_is_one(&lc) {
-            let scale = eval_exact_numeric_div(&Value::Int(1), &lc)?;
-            a = poly_scalar_mul(&a, &scale)?;
-        }
-    }
-    Ok(a)
+    poly_make_monic(a)
 }
 
 /// Compute the resultant of two polynomials using the subresultant PRS
@@ -589,4 +596,21 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
         };
     }
     Err(cas_err("solve expected a symbolic polynomial expression").got1(expr))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn poly_gcd_zero_argument_is_monic() {
+        let gcd = poly_gcd(&[Value::Int(4)], &[Value::Int(0)]).unwrap();
+        assert_eq!(gcd.len(), 1);
+        assert!(numeric_is_one(&gcd[0]), "expected monic gcd, got {gcd:?}");
+
+        let gcd = poly_gcd(&[Value::Int(0)], &[Value::Int(-2), Value::Int(-2)]).unwrap();
+        assert_eq!(gcd.len(), 2);
+        assert!(numeric_is_one(&gcd[0]), "expected monic constant term, got {gcd:?}");
+        assert!(numeric_is_one(&gcd[1]), "expected monic leading term, got {gcd:?}");
+    }
 }
