@@ -667,10 +667,12 @@ const SUBFOLDER_HTML = html`
   <main class="wrap">
     <nav class="breadcrumbs" aria-label="Breadcrumb">
       <button class="crumb-back" type="button" aria-label="Go back">
-        &#8592;
+        <span aria-hidden="true">&#8592;</span>
       </button>
-      <a href="index.html">~</a> <span class="sep">/</span>
-      <span data-role="section-crumb">Basics</span>
+      <div class="crumb-path">
+        <a href="index.html">~</a><span class="sep">/</span
+        ><span class="crumb-current" data-role="section-crumb">Basics</span>
+      </div>
     </nav>
 
     <div class="folder-head"><h1 data-role="section-title"></h1></div>
@@ -685,12 +687,20 @@ const ARTICLE_HTML = html`
   <main class="wrap">
     <nav class="breadcrumbs" aria-label="Breadcrumb">
       <button class="crumb-back" type="button" aria-label="Go back">
-        &#8592;
+        <span aria-hidden="true">&#8592;</span>
       </button>
-      <a href="index.html">~</a> <span class="sep">/</span>
-      <a data-role="article-section-link" href="subfolder.html">Section</a>
-      <span class="sep">/</span>
-      <span data-role="article-title-crumb">Loading...</span>
+      <div class="crumb-path">
+        <a href="index.html">~</a><span class="sep">/</span
+        ><a
+          class="crumb-section"
+          data-role="article-section-link"
+          href="subfolder.html"
+          >Section</a
+        ><span class="sep">/</span
+        ><span class="crumb-current" data-role="article-title-crumb"
+          >Loading...</span
+        >
+      </div>
     </nav>
 
     <div class="layout-3col">
@@ -1108,7 +1118,7 @@ async function mountSubfolder(route) {
     : "index.html";
   if (crumb) {
     crumb.textContent = referenceGroup
-      ? `Reference / ${referenceGroup}`
+      ? `Reference/${referenceGroup}`
       : sectionName;
   }
   if (title) title.textContent = titleText;
