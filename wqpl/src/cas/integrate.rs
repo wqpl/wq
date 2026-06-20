@@ -13,7 +13,6 @@ mod elliptic;
 mod exp_poly;
 mod irrational;
 mod liouville;
-mod partial_fractions;
 mod polynomial;
 pub(crate) mod rational;
 mod substitution;
@@ -114,10 +113,6 @@ const STRATEGIES: &[(&str, IntegrateStrategy)] = &[
     ("liouville", liouville::integrate_liouville),
     ("rational", rational::integrate_by_rational),
     ("byparts", byparts::integrate_by_parts),
-    (
-        "partial_fractions",
-        partial_fractions::integrate_by_partial_fractions,
-    ),
 ];
 
 pub(super) const MAX_DEPTH: usize = 20;
@@ -587,6 +582,76 @@ mod tests {
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "arctan[x]");
+    }
+
+    #[test]
+    fn integrate_one_over_x2_plus_symbolic_square() {
+        let expr = op(
+            CasOp::Power,
+            vec![
+                op(
+                    CasOp::Add,
+                    vec![
+                        op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
+                        op(CasOp::Power, vec![Value::from_cas_var("a"), Value::Int(2)]),
+                    ],
+                ),
+                Value::Int(-1),
+            ],
+        );
+        let result = integrate_cas(&expr, &Value::from_cas_var("x"))
+            .expect("symbolic square denominator should integrate");
+        assert_eq!(result.to_string(), "arctan[x/a]/a");
+    }
+
+    #[test]
+    fn integrate_one_over_x2_minus_symbolic_square() {
+        let a_sq = op(CasOp::Power, vec![Value::from_cas_var("a"), Value::Int(2)]);
+        let expr = op(
+            CasOp::Power,
+            vec![
+                op(
+                    CasOp::Add,
+                    vec![
+                        op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
+                        op(CasOp::Multiply, vec![Value::Int(-1), a_sq]),
+                    ],
+                ),
+                Value::Int(-1),
+            ],
+        );
+        let result = integrate_cas(&expr, &Value::from_cas_var("x"))
+            .expect("symbolic square difference should integrate");
+        assert_eq!(result.to_string(), "ln[abs[(x - a)/(x + a)]]/2/a");
+    }
+
+    #[test]
+    fn integrate_unknown_factor_over_quadratic_is_unsupported() {
+        let reciprocal = op(
+            CasOp::Power,
+            vec![
+                op(
+                    CasOp::Add,
+                    vec![
+                        op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
+                        Value::Int(1),
+                    ],
+                ),
+                Value::Int(-1),
+            ],
+        );
+        let expr = op(
+            CasOp::Multiply,
+            vec![
+                Value::from_cas_apply("f", vec![Value::from_cas_var("x")]),
+                reciprocal,
+            ],
+        );
+        let result = integrate_cas(&expr, &Value::from_cas_var("x"));
+        assert!(
+            result.is_err(),
+            "expected unsupported integral, got {result:?}"
+        );
     }
 
     #[test]

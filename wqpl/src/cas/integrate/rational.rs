@@ -1838,18 +1838,17 @@ fn integrate_one_over_quadratic(c_val: &Value, b: &Value, c: &Value, var: &str) 
     // x + b/2
     let x_plus_shift = cas_add(vec![Value::from_cas_var(var), b_half.clone()])?;
 
-    if numeric_is_negative(&k_sq) {
+    if let Some(a_sq) = negated_value(&k_sq) {
         // k_sq = -a^2, so denominator is (x+b/2)^2 - a^2 = (x+b/2 - a)(x+b/2 + a)
-        let a_sq = numeric_mul(&k_sq, &Value::Int(-1))?;
         let a_sq = unwrap_constant_algebraic(a_sq);
-        let a = sqrt_of_value(&a_sq).ok_or_else(|| {
+        let a = sqrt_of_quadratic_constant(&a_sq).ok_or_else(|| {
             cas_err(format!(
                 "cannot compute sqrt of {}",
                 a_sq.format_cas().unwrap_or_default()
             ))
         })?;
 
-        let two_a = numeric_mul(&Value::Int(2), &a)?;
+        let two_a = cas_mul(vec![Value::Int(2), a.clone()])?;
         let inner = cas_div(
             cas_sub(x_plus_shift.clone(), a.clone())?,
             cas_add(vec![x_plus_shift, a])?,
@@ -1858,11 +1857,11 @@ fn integrate_one_over_quadratic(c_val: &Value, b: &Value, c: &Value, var: &str) 
             CasFunction::Ln,
             vec![Value::from_cas_function(CasFunction::Abs, vec![inner])],
         );
-        let result = cas_mul(vec![eval_exact_numeric_div(c_val, &two_a)?, log])?;
+        let result = cas_mul(vec![cas_div(c_val.clone(), two_a)?, log])?;
         Ok(result)
     } else {
         // k_sq = a^2, denominator is (x+b/2)^2 + a^2
-        let a = sqrt_of_value(&k_sq).ok_or_else(|| {
+        let a = sqrt_of_quadratic_constant(&k_sq).ok_or_else(|| {
             cas_err(format!(
                 "cannot compute sqrt of {}",
                 k_sq.format_cas().unwrap_or_default()
@@ -1871,9 +1870,64 @@ fn integrate_one_over_quadratic(c_val: &Value, b: &Value, c: &Value, var: &str) 
 
         let arctan_arg = cas_div(x_plus_shift, a.clone())?;
         let arctan = Value::from_cas_function(CasFunction::ArcTan, vec![arctan_arg]);
-        let result = cas_mul(vec![eval_exact_numeric_div(c_val, &a)?, arctan])?;
+        let result = cas_mul(vec![cas_div(c_val.clone(), a)?, arctan])?;
         Ok(result)
     }
+}
+
+fn negated_value(value: &Value) -> Option<Value> {
+    if let Some((numer, denom)) = value.rational_parts()
+        && numer < BigInt::zero()
+    {
+        return Some(Value::from_fraction_parts(-numer, denom));
+    }
+    if let Value::Float(f) = value
+        && **f < 0.0
+    {
+        return Some(Value::float(-**f));
+    }
+    if let Some((CasOp::Multiply, args)) = value.cas_op_parts() {
+        let mut positive = Vec::with_capacity(args.len());
+        let mut stripped_sign = false;
+        for arg in args {
+            if !stripped_sign
+                && let Some(positive_arg) = negated_value(arg)
+            {
+                positive.push(positive_arg);
+                stripped_sign = true;
+            } else {
+                positive.push(arg.clone());
+            }
+        }
+        if !stripped_sign {
+            return None;
+        }
+        return match positive.len() {
+            0 => Some(Value::Int(1)),
+            1 => positive.pop(),
+            _ => cas_mul(positive).ok(),
+        };
+    }
+    None
+}
+
+fn sqrt_of_quadratic_constant(value: &Value) -> Option<Value> {
+    if let Some(root) = sqrt_of_value(value) {
+        return Some(root);
+    }
+    if let Some((CasOp::Power, [base, exp])) = value.cas_op_parts()
+        && exp.exact_int().is_some_and(|n| n == BigInt::from(2))
+    {
+        return Some(base.clone());
+    }
+    if let Some((CasOp::Multiply, args)) = value.cas_op_parts() {
+        let mut roots = Vec::with_capacity(args.len());
+        for arg in args {
+            roots.push(sqrt_of_quadratic_constant(arg)?);
+        }
+        return cas_mul(roots).ok();
+    }
+    None
 }
 
 /// Create a Value representing the positive square root of a positive rational.
