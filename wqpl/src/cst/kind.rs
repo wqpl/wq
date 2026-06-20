@@ -134,6 +134,7 @@ pub enum SyntaxKind {
     Semicolon,
     Comma,
     Bang,
+    ScriptLine,
 
     /// A token the lexer could not classify; emitted in recovery mode so the
     /// CST still covers every byte of source.
@@ -148,6 +149,8 @@ pub enum SyntaxKind {
     /// Top of the tree. Every parse produces exactly one of these.
     Root,
     Block,
+    Shebang,
+    ScriptDirective,
 
     // ----- expression-shaped nodes -----
     LiteralExpr,
@@ -323,10 +326,13 @@ impl SyntaxKind {
             Semicolon => "SEMI",
             Comma => "COMMA_TOK",
             Bang => "BANG",
+            ScriptLine => "SCRIPT_LINE",
             ErrorTok => "ERROR_TOK",
             __LastToken => "__LAST_TOKEN",
             Root => "ROOT",
             Block => "BLOCK",
+            Shebang => "SHEBANG",
+            ScriptDirective => "SCRIPT_DIRECTIVE",
             LiteralExpr => "LITERAL_EXPR",
             VarExpr => "VAR_EXPR",
             OuterVarExpr => "OUTER_VAR_EXPR",

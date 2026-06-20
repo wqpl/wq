@@ -559,10 +559,7 @@ impl Parser {
     }
 
     fn parse_reused_sequence_item(&self, text: &str, offset: usize) -> Option<ReusedSequenceItem> {
-        let tokens = Lexer::new(text)
-            .with_skip_directives(true)
-            .tokenize()
-            .ok()?;
+        let tokens = Lexer::new(text).tokenize().ok()?;
         let mut parser = Parser::new_with_builtins(tokens, text.to_string(), self.builtins.clone());
         if let Some(path) = &self.source_path {
             parser.set_source_path(path.clone());
@@ -2813,13 +2810,20 @@ impl Parser {
     /// Recursively add `offset` to every span in an AST so that sub-expressions
     /// parsed from a snippet (e.g. inside an f-string `{…}`) map back to the
     /// correct positions in the original source.
-    fn offset_spans(node: &mut AstNode, offset: usize) {
+    pub(crate) fn offset_spans(node: &mut AstNode, offset: usize) {
         #![deny(clippy::wildcard_enum_match_arm)]
         match node {
-            AstNode::Literal(_, span)
-            | AstNode::Error(_, span)
-            | AstNode::Variable(_, span)
-            | AstNode::OuterVariable(_, span) => {
+            AstNode::Error(err, span) => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
+                if let Some(span) = &mut err.span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
+            }
+            AstNode::Literal(_, span) | AstNode::Variable(_, span) | AstNode::OuterVariable(_, span) => {
                 if let Some(span) = span {
                     span.0 += offset;
                     span.1 += offset;

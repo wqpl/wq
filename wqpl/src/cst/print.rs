@@ -19,6 +19,7 @@ fn kind_color(kind: SyntaxKind) -> Color {
     match kind {
         // Trivia — dim so it doesn't compete with real tokens.
         Whitespace | Newline | Comment => Color::BrightBlack,
+        ScriptLine => Color::BrightYellow,
 
         // Literals
         IntLit | BigIntLit | FloatLit | ImagLit | CharLit | StringLit | TagLit | InfLit
@@ -50,6 +51,7 @@ fn kind_color(kind: SyntaxKind) -> Color {
         // Internal nodes — expressions are magenta, containers white, errors bright magenta
         Root => Color::White,
         Block => Color::White,
+        Shebang | ScriptDirective => Color::BrightYellow,
         LiteralExpr | VarExpr | OuterVarExpr => Color::Cyan,
         BinaryExpr | UnaryExpr | ComparisonChainExpr | RangeExpr => Color::Yellow,
         AssignExpr

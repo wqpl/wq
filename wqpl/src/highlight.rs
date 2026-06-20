@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::builtins::Builtins;
 use crate::lex::Lexer;
+use crate::script::{ScriptItem, ScriptSpan, parse_script_items};
 use crate::token::{Token, TokenType};
 
 pub const ANSI_RESET: &str = "\x1b[0m";
@@ -71,6 +72,7 @@ pub enum CursorContext {
     Tag,
     FStringText,
     FStringExpr,
+    Meta,
 }
 
 impl CursorContext {
@@ -81,12 +83,23 @@ impl CursorContext {
                 | CursorContext::String
                 | CursorContext::Tag
                 | CursorContext::FStringText
+                | CursorContext::Meta
         )
     }
 }
 
 pub fn cursor_context_at(src: &str, pos: usize) -> CursorContext {
-    let mut lexer = Lexer::new(src).with_skip_directives(true);
+    if let Some(items) = script_items_with_meta(src) {
+        let pos = pos.min(src.len());
+        if items.iter().any(|item| match item {
+            ScriptItem::Shebang { span } => span_contains_pos(*span, pos),
+            ScriptItem::Directive(directive) => span_contains_pos(directive.span(), pos),
+            ScriptItem::Code { .. } => false,
+        }) {
+            return CursorContext::Meta;
+        }
+    }
+    let mut lexer = Lexer::new(src);
     let tokens = lexer.tokenize_recovery();
     cursor_context_from_tokens(src, pos, &tokens)
 }
@@ -270,7 +283,11 @@ impl Highlighter {
         src: &str,
         semantic_spans: &[SemanticHighlightSpan],
     ) -> Vec<HighlightEvent> {
-        let mut lexer = Lexer::new(src).with_skip_directives(true);
+        if let Some(items) = script_items_with_meta(src) {
+            return self.highlight_script_items(src, &items, semantic_spans);
+        }
+
+        let mut lexer = Lexer::new(src);
         let tokens = lexer.tokenize_recovery();
         let keyword_spans = Self::keyword_spans_from_tokens(&tokens);
         Self::events_from_tokens(&tokens, &self.builtins, &keyword_spans, semantic_spans)
@@ -395,6 +412,63 @@ impl Highlighter {
             }
             _ => None,
         }
+    }
+
+    fn highlight_script_items(
+        &self,
+        src: &str,
+        items: &[ScriptItem],
+        semantic_spans: &[SemanticHighlightSpan],
+    ) -> Vec<HighlightEvent> {
+        let mut events = Vec::new();
+        let mut cursor = 0usize;
+
+        for item in items {
+            let span = item.span();
+            if span.start > cursor {
+                events.push(HighlightEvent::Source {
+                    start: cursor,
+                    end: span.start,
+                });
+            }
+
+            match item {
+                ScriptItem::Shebang { .. } | ScriptItem::Directive(_) => {
+                    events.push(HighlightEvent::HighlightStart(HighlightName::Meta));
+                    events.push(HighlightEvent::Source {
+                        start: span.start,
+                        end: span.end,
+                    });
+                    events.push(HighlightEvent::HighlightEnd);
+                }
+                ScriptItem::Code { .. } => {
+                    let source = &src[span.as_range()];
+                    let mut lexer = Lexer::new(source);
+                    let tokens = lexer.tokenize_recovery();
+                    let keyword_spans = Self::keyword_spans_from_tokens(&tokens);
+                    let nested_semantic_spans =
+                        Self::nested_semantic_spans(semantic_spans, span.start, span.end);
+                    let chunk_events = Self::events_from_tokens(
+                        &tokens,
+                        &self.builtins,
+                        &keyword_spans,
+                        &nested_semantic_spans,
+                    );
+                    push_offset_events(&mut events, chunk_events, span.start);
+                }
+            }
+
+            cursor = span.end;
+        }
+
+        if cursor < src.len() {
+            events.push(HighlightEvent::Source {
+                start: cursor,
+                end: src.len(),
+            });
+        }
+
+        events
     }
 
     fn events_from_tokens(
@@ -709,6 +783,40 @@ impl Highlighter {
     }
 }
 
+fn script_items_with_meta(src: &str) -> Option<Vec<ScriptItem>> {
+    if !src.contains('!') {
+        return None;
+    }
+    let items = parse_script_items(src);
+    has_script_meta(&items).then_some(items)
+}
+
+fn has_script_meta(items: &[ScriptItem]) -> bool {
+    items
+        .iter()
+        .any(|item| matches!(item, ScriptItem::Shebang { .. } | ScriptItem::Directive(_)))
+}
+
+fn span_contains_pos(span: ScriptSpan, pos: usize) -> bool {
+    span.start <= pos && pos < span.end
+}
+
+fn push_offset_events(
+    events: &mut Vec<HighlightEvent>,
+    chunk_events: Vec<HighlightEvent>,
+    offset: usize,
+) {
+    for event in chunk_events {
+        match event {
+            HighlightEvent::Source { start, end } => events.push(HighlightEvent::Source {
+                start: start + offset,
+                end: end + offset,
+            }),
+            other => events.push(other),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -764,6 +872,27 @@ mod tests {
         let h = Highlighter::new();
         let events = h.highlight(src);
         assert_eq!(reconstruct(&events, src), src);
+    }
+
+    #[test]
+    fn test_script_directive_covers_whole_source_as_meta() {
+        let src = "a:1\n!l ./lib.wq\nb:2\n";
+        let h = Highlighter::new();
+        let events = h.highlight(src);
+
+        assert_eq!(reconstruct(&events, src), src);
+        assert!(events.iter().any(|event| matches!(
+            event,
+            HighlightEvent::HighlightStart(HighlightName::Meta)
+        )));
+    }
+
+    #[test]
+    fn test_cursor_context_in_script_directive_is_meta() {
+        let src = "a:1\n!l ./lib.wq\nb:2\n";
+        let pos = src.find("lib").expect("directive has lib path");
+
+        assert_eq!(cursor_context_at(src, pos), CursorContext::Meta);
     }
 
     /// Strip ANSI escape sequences so we can compare visible text.

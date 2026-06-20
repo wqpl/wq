@@ -5,6 +5,7 @@ use colored::Colorize;
 
 use crate::astnode::AstNode;
 use crate::builtins::BuiltinPreset;
+use crate::cst::{GreenChild, GreenNode, GreenNodeBuilder, GreenToken, SyntaxKind};
 use crate::compile::Compiler;
 use crate::interpret::InterpreterKind;
 use crate::interpret::profiler::ProfilerInterpreter;
@@ -13,10 +14,11 @@ use crate::interpret::vanilla::VanillaInterpreter;
 use crate::lex::Lexer;
 use crate::parse::resolve::Resolver;
 use crate::parse::{Parser, fold};
+use crate::script::{ScriptItem, ScriptSpan, parse_script_items};
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
 use crate::symbol::SymbolIndex;
-use crate::token::fmt_tokens_table;
+use crate::token::{FmtPart, Token, TokenType, fmt_tokens_table};
 use crate::value::{Value, WqResult};
 use crate::vm::inst::{InstPrettyDumper, Instruction};
 use crate::vm::{GlobalMap, Vm};
@@ -26,6 +28,7 @@ use crate::wqdb::build::{
 };
 use crate::wqdb::data::DebugInfo;
 use crate::wqdb::{self};
+use crate::wqerror::WqError;
 use crate::wqerror::WqErrorType;
 
 pub struct Session {
@@ -371,7 +374,25 @@ impl Session {
     /// Parse and analyze symbols in `input` without executing.
     /// Returns a `SymbolIndex` that can be queried for definitions and uses.
     pub fn analyze_symbols(&self, input: &str) -> WqResult<SymbolIndex> {
-        let tokens = Lexer::new(input).with_skip_directives(true).tokenize()?;
+        if input.contains('!') {
+            let items = parse_script_items(input);
+            if has_script_meta(&items) {
+                let (ast, eof_errors) = self.parse_script_ast(input, &items)?;
+                let ast = Resolver::with_builtins(self.vm.builtins.clone()).resolve(ast);
+                let mut index = SymbolIndex::analyze(&ast, &self.vm.builtins);
+                for eof_err in eof_errors {
+                    let span = eof_err.span.unwrap_or((input.len(), input.len()));
+                    index.errors.push((span, eof_err));
+                }
+                return Ok(index);
+            }
+        }
+
+        self.analyze_symbols_code(input)
+    }
+
+    fn analyze_symbols_code(&self, input: &str) -> WqResult<SymbolIndex> {
+        let tokens = Lexer::new(input).tokenize()?;
         let mut parser =
             Parser::new_with_builtins(tokens, input.to_string(), self.vm.builtins.clone());
         let ast = parser.parse()?;
@@ -388,9 +409,30 @@ impl Session {
     /// tokens. Useful for diagnostics and completions on syntactically
     /// broken code.
     pub fn tokenize_recovery(&self, input: &str) -> Vec<crate::token::Token> {
-        crate::lex::Lexer::new(input)
-            .with_skip_directives(true)
-            .tokenize_recovery()
+        if input.contains('!') {
+            let items = parse_script_items(input);
+            if has_script_meta(&items) {
+                let mut tokens = Vec::new();
+                for item in &items {
+                    let ScriptItem::Code { span } = item else {
+                        continue;
+                    };
+                    let mut lexer = Lexer::new(&input[span.as_range()]);
+                    let chunk_tokens = lexer.tokenize_recovery();
+                    for mut token in chunk_tokens {
+                        if matches!(token.token_type, TokenType::Eof) {
+                            continue;
+                        }
+                        offset_token(&mut token, span.start);
+                        tokens.push(token);
+                    }
+                }
+                tokens.push(eof_token_for(input));
+                return tokens;
+            }
+        }
+
+        crate::lex::Lexer::new(input).tokenize_recovery()
     }
 
     /// Parse `input` and return both the AST and the green CST.
@@ -409,7 +451,14 @@ impl Session {
         &self,
         input: &str,
     ) -> WqResult<(crate::astnode::AstNode, crate::cst::GreenNode)> {
-        let tokens = Lexer::new(input).with_skip_directives(true).tokenize()?;
+        if input.contains('!') {
+            let items = parse_script_items(input);
+            if has_script_meta(&items) {
+                return self.parse_script_with_cst(input, &items);
+            }
+        }
+
+        let tokens = Lexer::new(input).tokenize()?;
         let mut parser =
             Parser::new_with_builtins(tokens, input.to_string(), self.vm.builtins.clone());
         parser.enable_cst();
@@ -425,10 +474,17 @@ impl Session {
         input: &str,
         previous: &crate::cst::GreenNode,
     ) -> WqResult<(crate::astnode::AstNode, crate::cst::GreenNode)> {
+        if input.contains('!') {
+            let items = parse_script_items(input);
+            if has_script_meta(&items) {
+                return self.parse_script_with_cst(input, &items);
+            }
+        }
+
         let previous_text = previous.text();
         let (old_start, old_end, new_start, new_end) =
             compute_dirty_byte_range(&previous_text, input);
-        let tokens = Lexer::new(input).with_skip_directives(true).tokenize()?;
+        let tokens = Lexer::new(input).tokenize()?;
         let mut parser =
             Parser::new_with_builtins(tokens, input.to_string(), self.vm.builtins.clone());
         parser.enable_cst_with_cache(previous, old_start, old_end, new_start, new_end);
@@ -436,6 +492,120 @@ impl Session {
         let cst = parser
             .take_cst()
             .expect("enable_cst_with_cache was just called, so take_cst yields Some");
+        Ok((ast, cst))
+    }
+
+    fn parse_script_ast(
+        &self,
+        input: &str,
+        items: &[ScriptItem],
+    ) -> WqResult<(AstNode, Vec<WqError>)> {
+        let mut statements = Vec::new();
+        let mut eof_errors = Vec::new();
+        for item in items {
+            let ScriptItem::Code { span } = item else {
+                continue;
+            };
+            let (ast, eof_error) = self.parse_script_code_ast(input, *span)?;
+            push_script_ast(&mut statements, ast);
+            if let Some(eof_error) = eof_error {
+                eof_errors.push(eof_error);
+            }
+        }
+        Ok((script_ast_from_statements(statements), eof_errors))
+    }
+
+    fn parse_script_code_ast(
+        &self,
+        input: &str,
+        span: ScriptSpan,
+    ) -> WqResult<(AstNode, Option<WqError>)> {
+        let source = &input[span.as_range()];
+        let tokens = Lexer::new(source).with_ctx(input, span.start).tokenize()?;
+        let mut parser =
+            Parser::new_with_builtins(tokens, source.to_string(), self.vm.builtins.clone());
+        let mut ast = match parser.parse() {
+            Ok(ast) => ast,
+            Err(mut err) => {
+                offset_error_span(&mut err, span.start);
+                return Err(err);
+            }
+        };
+        Parser::offset_spans(&mut ast, span.start);
+        let eof_error = parser.eof_error().cloned().map(|mut err| {
+            offset_error_span(&mut err, span.start);
+            err
+        });
+        Ok((ast, eof_error))
+    }
+
+    fn parse_script_with_cst(
+        &self,
+        input: &str,
+        items: &[ScriptItem],
+    ) -> WqResult<(AstNode, GreenNode)> {
+        let mut builder = GreenNodeBuilder::new();
+        builder.start_node(SyntaxKind::Root);
+        let mut cursor = 0usize;
+        let mut statements = Vec::new();
+
+        for item in items {
+            let span = item.span();
+            if span.start > cursor {
+                push_script_trivia(&mut builder, &input[cursor..span.start]);
+            }
+
+            match item {
+                ScriptItem::Shebang { span } => {
+                    push_script_line_node(&mut builder, input, *span, SyntaxKind::Shebang);
+                }
+                ScriptItem::Directive(directive) => {
+                    push_script_line_node(
+                        &mut builder,
+                        input,
+                        directive.span(),
+                        SyntaxKind::ScriptDirective,
+                    );
+                }
+                ScriptItem::Code { span } => {
+                    let (ast, cst) = self.parse_script_code_cst(input, *span)?;
+                    push_script_ast(&mut statements, ast);
+                    append_root_children(&mut builder, &cst);
+                }
+            }
+
+            cursor = span.end;
+        }
+
+        if cursor < input.len() {
+            push_script_trivia(&mut builder, &input[cursor..]);
+        }
+
+        builder.finish_node();
+        Ok((script_ast_from_statements(statements), builder.finish()))
+    }
+
+    fn parse_script_code_cst(
+        &self,
+        input: &str,
+        span: ScriptSpan,
+    ) -> WqResult<(AstNode, GreenNode)> {
+        let source = &input[span.as_range()];
+        let tokens = Lexer::new(source).with_ctx(input, span.start).tokenize()?;
+        let mut parser =
+            Parser::new_with_builtins(tokens, source.to_string(), self.vm.builtins.clone());
+        parser.enable_cst();
+        let mut ast = match parser.parse() {
+            Ok(ast) => ast,
+            Err(mut err) => {
+                offset_error_span(&mut err, span.start);
+                return Err(err);
+            }
+        };
+        Parser::offset_spans(&mut ast, span.start);
+        let cst = parser
+            .take_cst()
+            .expect("enable_cst was just called, so take_cst yields Some");
         Ok((ast, cst))
     }
 
@@ -504,6 +674,133 @@ impl Default for Session {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn has_script_meta(items: &[ScriptItem]) -> bool {
+    items
+        .iter()
+        .any(|item| matches!(item, ScriptItem::Shebang { .. } | ScriptItem::Directive(_)))
+}
+
+fn push_script_ast(statements: &mut Vec<AstNode>, ast: AstNode) {
+    match ast {
+        AstNode::Block(nodes) => statements.extend(nodes),
+        node => statements.push(node),
+    }
+}
+
+fn script_ast_from_statements(mut statements: Vec<AstNode>) -> AstNode {
+    if statements.len() == 1 {
+        statements.remove(0)
+    } else {
+        AstNode::Block(statements)
+    }
+}
+
+fn push_script_line_node(
+    builder: &mut GreenNodeBuilder,
+    input: &str,
+    span: ScriptSpan,
+    kind: SyntaxKind,
+) {
+    let text = &input[span.as_range()];
+    let (line, newline) = text
+        .strip_suffix('\n')
+        .map_or((text, None), |line| (line, Some("\n")));
+    builder.start_node(kind);
+    if !line.is_empty() {
+        builder.token(SyntaxKind::ScriptLine, line);
+    }
+    builder.finish_node();
+    if let Some(newline) = newline {
+        builder.token(SyntaxKind::Newline, newline);
+    }
+}
+
+fn push_script_trivia(builder: &mut GreenNodeBuilder, text: &str) {
+    let mut line_start = 0usize;
+    for (idx, ch) in text.char_indices() {
+        if ch != '\n' {
+            continue;
+        }
+        push_script_trivia_line(builder, &text[line_start..idx]);
+        builder.token(SyntaxKind::Newline, "\n");
+        line_start = idx + ch.len_utf8();
+    }
+    if line_start < text.len() {
+        push_script_trivia_line(builder, &text[line_start..]);
+    }
+}
+
+fn push_script_trivia_line(builder: &mut GreenNodeBuilder, line: &str) {
+    let trimmed = line.trim_start_matches([' ', '\t', '\r']);
+    let leading_len = line.len() - trimmed.len();
+    let rest = &line[leading_len..];
+    if rest.starts_with("//") {
+        if leading_len > 0 {
+            builder.token(SyntaxKind::Whitespace, &line[..leading_len]);
+        }
+        builder.token(SyntaxKind::Comment, rest);
+    } else if !line.is_empty() {
+        builder.token(SyntaxKind::Whitespace, line);
+    }
+}
+
+fn append_root_children(builder: &mut GreenNodeBuilder, root: &GreenNode) {
+    for child in root.children() {
+        append_green_child(builder, child);
+    }
+}
+
+fn append_green_child(builder: &mut GreenNodeBuilder, child: &GreenChild) {
+    match child {
+        GreenChild::Node(node) => builder.append_node(node.clone()),
+        GreenChild::Token(token) => append_green_token(builder, token),
+    }
+}
+
+fn append_green_token(builder: &mut GreenNodeBuilder, token: &GreenToken) {
+    builder.token(token.kind(), token.text());
+}
+
+fn offset_error_span(err: &mut WqError, offset: usize) {
+    if let Some((start, end)) = &mut err.span {
+        *start += offset;
+        *end += offset;
+    }
+}
+
+fn offset_token(token: &mut Token, offset: usize) {
+    token.byte_start += offset;
+    token.byte_end += offset;
+    if let TokenType::FormatString(parts, open_quote, close_quote) = &mut token.token_type {
+        *open_quote += offset;
+        *close_quote += offset;
+        for part in parts {
+            match part {
+                FmtPart::Text { start, end, .. } | FmtPart::Expr { start, end, .. } => {
+                    *start += offset;
+                    *end += offset;
+                }
+            }
+        }
+    }
+}
+
+fn eof_token_for(input: &str) -> Token {
+    let line = input.bytes().filter(|b| *b == b'\n').count() + 1;
+    let column = input
+        .rsplit('\n')
+        .next()
+        .map_or(1, |line| line.chars().count() + 1);
+    Token::new(
+        TokenType::Eof,
+        input.chars().count() + 1,
+        line,
+        column,
+        input.len(),
+        input.len(),
+    )
 }
 
 fn compute_dirty_byte_range(old: &str, new: &str) -> (usize, usize, usize, usize) {
@@ -680,6 +977,57 @@ mod tests {
             .count();
 
         assert_eq!(read_count, 512);
+    }
+
+    #[test]
+    fn script_directive_cst_round_trips_with_meta_node() {
+        let session = Session::new();
+        let src = "a:1\n!l ./lib.wq\nb:a\n";
+        let (_, green) = session.parse_with_cst(src).expect("script parse");
+
+        assert_eq!(green.text(), src);
+        assert!(green.children().iter().any(|child| {
+            matches!(
+                child,
+                GreenChild::Node(node) if node.kind() == crate::cst::SyntaxKind::ScriptDirective
+            )
+        }));
+    }
+
+    #[test]
+    fn tokenize_recovery_omits_script_directive_errors() {
+        let session = Session::new();
+        let tokens = session.tokenize_recovery("a:1\n!l ./lib.wq\nb:2\n");
+
+        assert!(
+            !tokens
+                .iter()
+                .any(|token| matches!(token.token_type, crate::token::TokenType::Error)),
+            "directive path should not be lexed as wq code: {tokens:#?}",
+        );
+    }
+
+    #[test]
+    fn script_symbols_keep_offsets_after_directive() {
+        let session = Session::new();
+        let src = "a:1\n!l ./lib.wq\nb:a\n";
+        let index = session
+            .analyze_symbols(src)
+            .expect("script symbols should analyze");
+        let def_idx = index
+            .defs
+            .iter()
+            .position(|def| {
+                def.name == "a" && matches!(def.kind, crate::symbol::DefKind::Assignment)
+            })
+            .expect("a assignment should be defined");
+        let use_start = src.rfind('a').expect("source contains a read");
+
+        assert!(index.occurrences().into_iter().any(|occurrence| {
+            occurrence.def_idx == def_idx
+                && occurrence.span == (use_start, use_start + 1)
+                && matches!(occurrence.kind, crate::symbol::UseKind::Read)
+        }));
     }
 
     #[test]

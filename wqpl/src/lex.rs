@@ -20,7 +20,7 @@ pub(crate) struct Lexer<'a> {
     la2: Option<char>,
     // Current byte position (immediately after `current_char`)
     byte_pos: usize,
-    // Byte position of the start of the current line (used for directive skipping)
+    // Byte position of the start of the current line.
     line_start_byte_pos: usize,
     // Optional global source context for better error spans
     global_source: Option<&'a str>,
@@ -32,8 +32,6 @@ pub(crate) struct Lexer<'a> {
     // When true, unterminated strings/comments emit a partial token instead
     // of an error so that syntax highlighting can continue to the end.
     recovery_mode: bool,
-    // When true, shebang (`#!`) and leading `!` directive lines are skipped.
-    skip_directives: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -60,7 +58,6 @@ impl<'a> Lexer<'a> {
             base_offset: 0,
             source_path: None,
             recovery_mode: false,
-            skip_directives: false,
         };
         lexer.advance();
         lexer
@@ -86,11 +83,6 @@ impl<'a> Lexer<'a> {
         self.line_base = line_base;
         self.col_base = col_base;
         self.base_offset = base_offset;
-        self
-    }
-
-    pub(crate) fn with_skip_directives(mut self, skip: bool) -> Self {
-        self.skip_directives = skip;
         self
     }
 
@@ -1310,39 +1302,10 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 Some('#') => {
-                    if self.skip_directives
-                        && nxt == Some('!')
-                        && self.source[self.line_start_byte_pos..self.byte_pos]
-                            .chars()
-                            .all(|c| c.is_whitespace())
-                    {
-                        self.advance(); // '#'
-                        self.advance(); // '!'
-                        while let Some(ch) = self.current_char {
-                            if ch == '\n' {
-                                break;
-                            }
-                            self.advance();
-                        }
-                        continue;
-                    }
                     self.advance();
                     return emit(TokenType::Sharp, self.byte_pos);
                 }
                 Some('!') => {
-                    if self.skip_directives
-                        && self.source[self.line_start_byte_pos..self.byte_pos]
-                            .chars()
-                            .all(|c| c.is_whitespace())
-                    {
-                        while let Some(ch) = self.current_char {
-                            if ch == '\n' {
-                                break;
-                            }
-                            self.advance();
-                        }
-                        continue;
-                    }
                     self.advance();
                     return emit(TokenType::Bang, self.byte_pos);
                 }
