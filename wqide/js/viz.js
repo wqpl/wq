@@ -30,8 +30,12 @@ const DEFAULT_STATE = {
   width: 90,
   height: 24,
   samples: 140,
-  xlimText: "0;6.283",
-  ylimText: "",
+  xlimMinText: "0",
+  xlimMaxText: "6.283",
+  ylimMinText: "",
+  ylimMaxText: "",
+  xlimLocked: false,
+  ylimLocked: false,
   titleText: "sin and cos",
   xlabelText: "x",
   ylabelText: "y",
@@ -61,8 +65,10 @@ const PRESETS = {
     width: 90,
     height: 24,
     samples: 140,
-    xlimText: "0;6.283",
-    ylimText: "",
+    xlimMinText: "0",
+    xlimMaxText: "6.283",
+    ylimMinText: "",
+    ylimMaxText: "",
     titleText: "sin and cos",
     xlabelText: "x",
     ylabelText: "y",
@@ -84,8 +90,10 @@ const PRESETS = {
     width: 86,
     height: 20,
     samples: 80,
-    xlimText: "",
-    ylimText: "",
+    xlimMinText: "",
+    xlimMaxText: "",
+    ylimMinText: "",
+    ylimMaxText: "",
     titleText: "raw values",
     xlabelText: "index",
     ylabelText: "value",
@@ -108,8 +116,10 @@ const PRESETS = {
     width: 92,
     height: 24,
     samples: 170,
-    xlimText: "-4;4",
-    ylimText: "",
+    xlimMinText: "-4",
+    xlimMaxText: "4",
+    ylimMinText: "",
+    ylimMaxText: "",
     titleText: "symbolic curves",
     xlabelText: "x",
     ylabelText: "y",
@@ -131,8 +141,10 @@ const PRESETS = {
     width: 92,
     height: 24,
     samples: 160,
-    xlimText: "0;6.283",
-    ylimText: "",
+    xlimMinText: "0",
+    xlimMaxText: "6.283",
+    ylimMinText: "",
+    ylimMaxText: "",
     titleText: "mode mixer",
     xlabelText: "x",
     ylabelText: "y",
@@ -154,8 +166,10 @@ const PRESETS = {
     width: 78,
     height: 18,
     samples: 80,
-    xlimText: "",
-    ylimText: "",
+    xlimMinText: "",
+    xlimMaxText: "",
+    ylimMinText: "",
+    ylimMaxText: "",
     titleText: "bar values",
     xlabelText: "index",
     ylabelText: "value",
@@ -175,8 +189,10 @@ const PRESETS = {
     width: 90,
     height: 24,
     samples: 180,
-    xlimText: "-8;8",
-    ylimText: "",
+    xlimMinText: "-8",
+    xlimMaxText: "8",
+    ylimMinText: "",
+    ylimMaxText: "",
     titleText: "sqrt complex plane",
     xlabelText: "real",
     ylabelText: "imag",
@@ -208,6 +224,25 @@ const SERIES_MODE_OPTIONS = [
   ["area", "area"],
 ];
 
+const LIMIT_INPUTS = {
+  xlimMinText: {
+    partnerKey: "xlimMaxText",
+    lockKey: "xlimLocked",
+  },
+  xlimMaxText: {
+    partnerKey: "xlimMinText",
+    lockKey: "xlimLocked",
+  },
+  ylimMinText: {
+    partnerKey: "ylimMaxText",
+    lockKey: "ylimLocked",
+  },
+  ylimMaxText: {
+    partnerKey: "ylimMinText",
+    lockKey: "ylimLocked",
+  },
+};
+
 function boolLit(value) {
   return value ? "T" : "F";
 }
@@ -233,14 +268,37 @@ function cloneSeries(series) {
   }));
 }
 
+function splitLimitText(text) {
+  const value = String(text || "").trim();
+  if (!value) return ["", ""];
+  const unwrapped = value.startsWith("(") && value.endsWith(")") ? value.slice(1, -1) : value;
+  const range = unwrapped.match(/^(.+)\.\.(.+)$/);
+  if (range) return [range[1].trim(), range[2].trim()];
+  const parts = unwrapped.replace(",", ";").split(";");
+  if (parts.length < 2) return [value, ""];
+  return [parts[0].trim(), parts[1].trim()];
+}
+
+function hydrateLimitState(state) {
+  if (state.xlimText !== undefined) {
+    [state.xlimMinText, state.xlimMaxText] = splitLimitText(state.xlimText);
+    delete state.xlimText;
+  }
+  if (state.ylimText !== undefined) {
+    [state.ylimMinText, state.ylimMaxText] = splitLimitText(state.ylimText);
+    delete state.ylimText;
+  }
+  return state;
+}
+
 function stateForPreset(key) {
   const preset = PRESETS[key] || PRESETS.trig;
-  return {
+  return hydrateLimitState({
     ...DEFAULT_STATE,
     ...preset,
     series: cloneSeries(preset.series || DEFAULT_STATE.series),
     preset: key,
-  };
+  });
 }
 
 function colorOption(state) {
@@ -258,20 +316,10 @@ function axesOption(state) {
   return named("axes", wqString(state.axes));
 }
 
-function tupleLiteral(text) {
-  const value = String(text || "").trim();
-  if (!value) return "";
-  if (value.startsWith("(") && value.endsWith(")")) return value;
-  const range = value.match(/^(.+)\.\.(.+)$/);
-  if (range) return `(${range[1].trim()};${range[2].trim()})`;
-  const normalized = value.replace(",", ";");
-  if (normalized.includes(";")) return `(${normalized})`;
-  return value;
-}
-
-function rangeOption(name, text) {
-  const tuple = tupleLiteral(text);
-  return tuple ? named(name, tuple) : null;
+function limitOption(name, minText, maxText) {
+  const minValue = String(minText || "").trim();
+  const maxValue = String(maxText || "").trim();
+  return minValue && maxValue ? named(name, `(${minValue};${maxValue})`) : null;
 }
 
 function textOption(name, text) {
@@ -330,8 +378,8 @@ function plotOptions(state) {
     args.push(named("complex", wqString(state.complex)));
   }
   for (const option of [
-    rangeOption("xlim", state.xlimText),
-    rangeOption("ylim", state.ylimText),
+    limitOption("xlim", state.xlimMinText, state.xlimMaxText),
+    limitOption("ylim", state.ylimMinText, state.ylimMaxText),
     textOption("title", state.titleText),
     textOption("xlabel", state.xlabelText),
     textOption("ylabel", state.ylabelText),
@@ -493,6 +541,37 @@ function setInputValue(instance, key, value) {
   instance.state[key] = value;
   const input = instance.inputs[key];
   if (input) input.value = value;
+}
+
+function finiteNumber(text) {
+  const value = Number(String(text || "").trim());
+  return Number.isFinite(value) ? value : null;
+}
+
+function formatLimitNumber(value) {
+  if (!Number.isFinite(value)) return "";
+  const rounded = Number(value.toFixed(6));
+  return String(rounded);
+}
+
+function setLimitInputValue(instance, key, value) {
+  const meta = LIMIT_INPUTS[key];
+  if (!meta) {
+    setInputValue(instance, key, value);
+    return;
+  }
+
+  const previousValue = instance.state[key] || "";
+  setInputValue(instance, key, value);
+  if (!instance.state[meta.lockKey]) return;
+
+  const previousNumber = finiteNumber(previousValue);
+  const nextNumber = finiteNumber(value);
+  const partnerNumber = finiteNumber(instance.state[meta.partnerKey]);
+  if (previousNumber === null || nextNumber === null || partnerNumber === null) return;
+
+  const partnerValue = formatLimitNumber(partnerNumber + nextNumber - previousNumber);
+  setInputValue(instance, meta.partnerKey, partnerValue);
 }
 
 function syncTableSource(instance) {
@@ -907,7 +986,7 @@ export async function mountViz(root) {
   });
   Object.entries(instance.inputs).forEach(([key, input]) => {
     input.addEventListener("input", () => {
-      instance.state[key] = input.value;
+      setLimitInputValue(instance, key, input.value);
       updateView(instance);
     });
   });

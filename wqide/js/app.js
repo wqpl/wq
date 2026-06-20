@@ -607,15 +607,45 @@ const VIZ_HTML = html`
               <input type="range" min="20" max="260" step="10" value="140" data-viz-range="samples" />
               <strong data-viz-range-value="samples">140</strong>
             </label>
-            <div class="viz-inline-fields">
-              <label class="viz-text-field">
-                <span>X lim</span>
-                <input type="text" spellcheck="false" data-viz-input="xlimText" />
-              </label>
-              <label class="viz-text-field">
-                <span>Y lim</span>
-                <input type="text" spellcheck="false" data-viz-input="ylimText" />
-              </label>
+            <div class="viz-limit-grid">
+              <div class="viz-limit-pair" role="group" aria-labelledby="viz-xlim-label">
+                <div class="viz-limit-pair-head">
+                  <span id="viz-xlim-label">X lim</span>
+                  <label class="viz-lock-toggle">
+                    <input type="checkbox" data-viz-toggle="xlimLocked" />
+                    <span>Lock</span>
+                  </label>
+                </div>
+                <div class="viz-limit-inputs">
+                  <label class="viz-text-field">
+                    <span>Min</span>
+                    <input type="text" spellcheck="false" data-viz-input="xlimMinText" />
+                  </label>
+                  <label class="viz-text-field">
+                    <span>Max</span>
+                    <input type="text" spellcheck="false" data-viz-input="xlimMaxText" />
+                  </label>
+                </div>
+              </div>
+              <div class="viz-limit-pair" role="group" aria-labelledby="viz-ylim-label">
+                <div class="viz-limit-pair-head">
+                  <span id="viz-ylim-label">Y lim</span>
+                  <label class="viz-lock-toggle">
+                    <input type="checkbox" data-viz-toggle="ylimLocked" />
+                    <span>Lock</span>
+                  </label>
+                </div>
+                <div class="viz-limit-inputs">
+                  <label class="viz-text-field">
+                    <span>Min</span>
+                    <input type="text" spellcheck="false" data-viz-input="ylimMinText" />
+                  </label>
+                  <label class="viz-text-field">
+                    <span>Max</span>
+                    <input type="text" spellcheck="false" data-viz-input="ylimMaxText" />
+                  </label>
+                </div>
+              </div>
             </div>
             <div class="viz-inline-fields">
               <label class="viz-text-field">
