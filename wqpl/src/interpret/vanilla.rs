@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use indexmap::IndexMap;
 use smallvec::SmallVec;
 
+use crate::astnode::BinaryOperator;
 use crate::interpret::{Interpreter, InterpreterHook, NO_OP_HOOK};
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
@@ -12,7 +13,7 @@ use crate::value::{Value, WqResult, eval_binary, eval_unary};
 use crate::vm::call::{
     CallSpec, LocalCallable, PeekLocalCallable, PeekLocalUser, peek_local_callable,
 };
-use crate::vm::inst::{Capture, Instruction};
+use crate::vm::inst::{BinaryOpData, Capture, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
 use crate::vm::{Frame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
 use crate::wqdb::build::{
@@ -351,6 +352,11 @@ impl Interpreter for VanillaInterpreter {
 
                     Instruction::BinaryOp(data) => {
                         let op = data.op;
+                        if let Some(result) = try_eval_int_binary(vm, data) {
+                            hooks.on_binary_result(&op, &result);
+                            vm.stack.push(result);
+                            continue;
+                        }
                         let right = resolve_operand(vm, idx, &data.right, 1, hooks)
                             .map_err(|e| e.src(format!("binary op {op:?} right operand")))?;
                         let left = resolve_operand(vm, idx, &data.left, 0, hooks)
@@ -1571,6 +1577,106 @@ impl VanillaInterpreter {
     }
 }
 
+// int fast path =================================
+
+fn try_eval_int_binary(vm: &mut Vm, data: &BinaryOpData) -> Option<Value> {
+    let right_is_stack = matches!(data.right, Operand::Stack);
+    let left_is_stack = matches!(data.left, Operand::Stack);
+    let stack_len = vm.stack.len();
+    let stack_count = usize::from(right_is_stack) + usize::from(left_is_stack);
+    if stack_count > stack_len {
+        return None;
+    }
+
+    let right_stack_idx = if right_is_stack {
+        Some(stack_len - 1)
+    } else {
+        None
+    };
+    let left_stack_idx = if left_is_stack {
+        Some(stack_len - 1 - usize::from(right_is_stack))
+    } else {
+        None
+    };
+    let right = int_operand(vm, &data.right, right_stack_idx)?;
+    let left = int_operand(vm, &data.left, left_stack_idx)?;
+    let result = eval_int_binary(data.op, left, right)?;
+
+    if stack_count > 0 {
+        vm.stack.truncate(stack_len - stack_count);
+    }
+    Some(result)
+}
+
+fn int_operand(vm: &Vm, operand: &Operand, stack_idx: Option<usize>) -> Option<i64> {
+    match operand {
+        Operand::Stack => match vm.stack.get(stack_idx?)? {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        },
+        Operand::Const(value) => match &**value {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        },
+        Operand::Local(slot) => {
+            let frame = vm.locals.last()?;
+            let slot = frame.get(usize::from(*slot))?;
+            slot.with_ref(|value| match value {
+                Value::Int(n) => Some(*n),
+                _ => None,
+            })
+        }
+        Operand::Capture(_) | Operand::Var(_) | Operand::Self_ => None,
+    }
+}
+
+fn eval_int_binary(op: BinaryOperator, left: i64, right: i64) -> Option<Value> {
+    use BinaryOperator::*;
+
+    let result = match op {
+        Add => left.checked_add(right).map(Value::Int),
+        Subtract => left.checked_sub(right).map(Value::Int),
+        Multiply => left.checked_mul(right).map(Value::Int),
+        Divide => (right != 0).then(|| Value::float(left as f64 / right as f64)),
+        Modulo => {
+            if right == 0 || left == i64::MIN && right == -1 {
+                None
+            } else {
+                Some(Value::Int(left % right))
+            }
+        }
+        FloorDiv => {
+            if right == 0 || left == i64::MIN && right == -1 {
+                None
+            } else {
+                let q0 = left / right;
+                let r = left % right;
+                Some(Value::Int(if r == 0 || (left ^ right) >= 0 {
+                    q0
+                } else {
+                    q0 - 1
+                }))
+            }
+        }
+        Equal | EqualDot => Some(Value::Bool(left == right)),
+        NotEqual | NotEqualDot => Some(Value::Bool(left != right)),
+        Lt => Some(Value::Bool(left < right)),
+        Lte => Some(Value::Bool(left <= right)),
+        Gt => Some(Value::Bool(left > right)),
+        Gte => Some(Value::Bool(left >= right)),
+        BitAnd => Some(Value::Int(left & right)),
+        BitOr => Some(Value::Int(left | right)),
+        BitXor => Some(Value::Int(left ^ right)),
+        Shl => (right >= 0).then(|| Value::Int(left.wrapping_shl(right as u32))),
+        Shr => (right >= 0).then(|| Value::Int(left.wrapping_shr(right as u32))),
+        Power | PowerDot | DivideDot | Matmul | Cat | BoolAnd | BoolOr => None,
+    }?;
+
+    Some(result)
+}
+
+// error helpers ===================================
+
 #[inline]
 fn vm_err(msg: impl Into<String>) -> WqError {
     WqError::new(WqErrorType::Vm).src(NAME).msg(msg.into())
@@ -1611,14 +1717,16 @@ fn cas_binding_call_arg_err() -> WqError {
 mod tests {
     use std::sync::Arc;
 
+    use num_bigint::BigInt;
+
     use crate::astnode::BinaryOperator;
     use crate::builtins::BuiltinFnArgs;
     use crate::interpret::Interpreter;
     use crate::interpret::vanilla::VanillaInterpreter;
-    use crate::value::Value;
+    use crate::value::{Value, WqResult, eval_binary};
     use crate::value::func::FunctionData;
-    use crate::vm::Vm;
-    use crate::vm::inst::{Instruction, Operand};
+    use crate::vm::inst::{BinaryOpData, Instruction, Operand};
+    use crate::vm::{Slot, Vm};
 
     #[test]
     fn invalid_local_slot_errors_include_slot_name_note() {
@@ -1653,10 +1761,14 @@ mod tests {
     }
 
     fn run_vm(insts: Vec<Instruction>) -> Value {
+        run_vm_result(insts).expect("execute")
+    }
+
+    fn run_vm_result(insts: Vec<Instruction>) -> WqResult<Value> {
         let len = insts.len();
         let mut vm = Vm::new(insts);
         let mut interpreter = VanillaInterpreter;
-        interpreter.interpret(&mut vm, len).expect("execute")
+        interpreter.interpret(&mut vm, len)
     }
 
     fn make_fn(params: Option<&[&str]>, locals: u16, instructions: Vec<Instruction>) -> Value {
@@ -1675,6 +1787,152 @@ mod tests {
             dbg_local_names: None,
             dbg_provenance: None,
         }))
+    }
+
+    #[test]
+    fn int_binary_fast_path_consumes_stack_operands_on_success() {
+        let mut vm = Vm::new(Vec::new());
+        vm.stack.push(Value::Int(9));
+        vm.stack.push(Value::Int(3));
+        let data = BinaryOpData {
+            op: BinaryOperator::Subtract,
+            left: Operand::Stack,
+            right: Operand::Stack,
+        };
+
+        let result = super::try_eval_int_binary(&mut vm, &data);
+
+        assert_eq!(result, Some(Value::Int(6)));
+        assert!(vm.stack.is_empty());
+    }
+
+    #[test]
+    fn int_binary_fast_path_leaves_stack_on_overflow_bailout() {
+        let mut vm = Vm::new(Vec::new());
+        vm.stack.push(Value::Int(i64::MAX));
+        vm.stack.push(Value::Int(1));
+        let data = BinaryOpData {
+            op: BinaryOperator::Add,
+            left: Operand::Stack,
+            right: Operand::Stack,
+        };
+
+        let result = super::try_eval_int_binary(&mut vm, &data);
+
+        assert_eq!(result, None);
+        assert_eq!(vm.stack, vec![Value::Int(i64::MAX), Value::Int(1)]);
+
+        let generic = run_vm(vec![
+            Instruction::load_const(Value::Int(i64::MAX)),
+            Instruction::load_const(Value::Int(1)),
+            Instruction::binary_op(BinaryOperator::Add, Operand::Stack, Operand::Stack),
+            Instruction::Return,
+        ]);
+        assert_eq!(
+            generic,
+            Value::from_bigint(BigInt::from(i64::MAX) + BigInt::from(1))
+        );
+    }
+
+    #[test]
+    fn int_binary_fast_path_reads_local_and_const_operands() {
+        let mut vm = Vm::new(Vec::new());
+        vm.locals.push(vec![Slot::Value(Value::Int(40))]);
+        let data = BinaryOpData {
+            op: BinaryOperator::Add,
+            left: Operand::Local(0),
+            right: Operand::const_val(Value::Int(2)),
+        };
+
+        let result = super::try_eval_int_binary(&mut vm, &data);
+
+        assert_eq!(result, Some(Value::Int(42)));
+        assert!(vm.stack.is_empty());
+    }
+
+    #[test]
+    fn int_binary_fast_path_matches_eval_binary_for_supported_cases() {
+        use BinaryOperator::*;
+
+        let cases = [
+            (Add, 2, 3),
+            (Add, -4, 7),
+            (Subtract, 2, 7),
+            (Multiply, -6, 7),
+            (Divide, 7, 2),
+            (Divide, -7, 2),
+            (Modulo, 7, 3),
+            (Modulo, -7, 3),
+            (FloorDiv, 7, 3),
+            (FloorDiv, -7, 3),
+            (FloorDiv, 7, -3),
+            (FloorDiv, -7, -3),
+            (Equal, 5, 5),
+            (EqualDot, 5, 6),
+            (NotEqual, 5, 6),
+            (NotEqualDot, 5, 5),
+            (Lt, -1, 2),
+            (Lte, 2, 2),
+            (Gt, 3, 2),
+            (Gte, 2, 3),
+            (BitAnd, 0b1100, 0b1010),
+            (BitOr, 0b1100, 0b1010),
+            (BitXor, 0b1100, 0b1010),
+            (Shl, 3, 2),
+            (Shl, 1, 65),
+            (Shr, -8, 1),
+            (Shr, 8, 65),
+        ];
+
+        for (op, left, right) in cases {
+            let expected = eval_binary(&op, &Value::Int(left), &Value::Int(right))
+                .expect("generic int math should succeed");
+            let mut vm = Vm::new(Vec::new());
+            vm.stack.push(Value::Int(left));
+            vm.stack.push(Value::Int(right));
+            let data = BinaryOpData {
+                op,
+                left: Operand::Stack,
+                right: Operand::Stack,
+            };
+
+            let fast = super::try_eval_int_binary(&mut vm, &data);
+
+            assert_eq!(fast, Some(expected), "{op:?} {left} {right}");
+            assert!(vm.stack.is_empty(), "{op:?} left stack behind");
+        }
+    }
+
+    #[test]
+    fn int_binary_vm_matches_eval_binary_for_edge_cases() {
+        use BinaryOperator::*;
+
+        let cases = [
+            (Add, i64::MAX, 1),
+            (Subtract, i64::MIN, 1),
+            (Multiply, i64::MAX, 2),
+            (Divide, 1, 0),
+            (DivideDot, 7, 2),
+            (Modulo, 1, 0),
+            (FloorDiv, 1, 0),
+            (FloorDiv, i64::MIN, -1),
+            (Power, 2, 10),
+            (PowerDot, 2, -3),
+            (Shl, 1, -1),
+            (Shr, 1, -1),
+        ];
+
+        for (op, left, right) in cases {
+            let expected = eval_binary(&op, &Value::Int(left), &Value::Int(right));
+            let actual = run_vm_result(vec![
+                Instruction::load_const(Value::Int(left)),
+                Instruction::load_const(Value::Int(right)),
+                Instruction::binary_op(op, Operand::Stack, Operand::Stack),
+                Instruction::Return,
+            ]);
+
+            assert_eq!(actual, expected, "{op:?} {left} {right}");
+        }
     }
 
     #[test]
