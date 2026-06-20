@@ -1,4 +1,3 @@
-pub mod directive;
 pub mod embed;
 pub mod report;
 
@@ -8,12 +7,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use wqpl::script::{ScriptDirective, ScriptItem, ScriptSpan, parse_script_items};
 use wqpl::session::Session;
 use wqpl::value::Value;
 use wqpl::vm::GlobalMap;
-use wqpl::wqerror::WqErrorType;
 
-use crate::load::directive::{Directive, parse_meta_directive};
 use crate::load::embed::lookup_embedded_by_alias;
 use crate::load::report::{LoadError, LoadErrorKind, LoadReport};
 
@@ -89,125 +87,94 @@ impl<'a> Loader<'a> {
         display_label: &str,
         loading: &RefCell<HashSet<PathBuf>>,
     ) -> Result<(), LoadError> {
-        // Precompute line start byte offsets
-        let mut line_starts = Vec::with_capacity(128);
-        line_starts.push(0);
-        for (i, b) in content.as_bytes().iter().enumerate() {
-            if *b == b'\n' {
-                line_starts.push(i + 1);
-            }
-        }
-        if *line_starts.last().unwrap() != content.len() {
-            line_starts.push(content.len());
-        }
-        let mut buffer = String::new();
-        let mut buffer_has_code = false;
-        let mut consumed_bytes: usize = 0;
-        for (i, raw_line) in content.lines().enumerate() {
-            let next_consumed = *line_starts.get(i + 1).unwrap_or(&content.len());
-            // Shebang on first line
-            if i == 0 && raw_line.starts_with("#!") {
-                consumed_bytes = next_consumed;
-                continue;
-            }
-            let trimmed_leading = raw_line.trim_start();
-            let trimmed_all = raw_line.trim();
-            // Meta directives only when the buffer has no code
-            if !buffer_has_code && trimmed_leading.starts_with('!') {
-                match parse_meta_directive(trimmed_leading) {
-                    Some(Directive::PreludeAlias) => {
-                        // alias for !load <prelude>
-                        consumed_bytes = next_consumed;
-                        self.load_embedded_or_file(
-                            "prelude",
-                            base_dir,
-                            display_label,
-                            content,
-                            consumed_bytes,
-                            loading,
-                        )?;
-                        continue;
-                    }
-                    Some(Directive::LoadEmbeddedOrFile(name)) => {
-                        consumed_bytes = next_consumed;
-                        self.load_embedded_or_file(
-                            &name,
-                            base_dir,
-                            display_label,
-                            content,
-                            consumed_bytes,
-                            loading,
-                        )?;
-                        continue;
-                    }
-                    Some(Directive::LoadPath(path_str)) => {
-                        consumed_bytes = next_consumed;
-                        let sub_path = resolve_load_path(base_dir, &path_str);
-                        let mut nested = Loader::new(self.session, self.silent);
-                        // Inherit current import stack snapshot for nested loader
-                        nested.stack = Rc::new(RefCell::new(self.stack.borrow().clone()));
-                        // Share the embedded registry across this call graph
-                        nested.embedded_loaded = self.embedded_loaded.clone();
-                        let child = nested.load_script(&sub_path, loading)?;
-                        self.warnings.extend(child.warnings);
-                        self.last_loaded_label = Some(child.label);
-                        if let Some(result) = child.result {
-                            self.last_result = Some(result);
-                        }
-                        // Restore parent file source context
-                        self.session.dbg_set_source(display_label, content);
-                        self.session.dbg_set_offset(consumed_bytes);
-                        continue;
-                    }
-                    None => {
-                        return Err(LoadError::with_stack(
-                            LoadErrorKind::Directive(trimmed_leading.to_string()),
-                            &self.stack.borrow(),
-                        ));
-                    }
+        for item in parse_script_items(content) {
+            match item {
+                ScriptItem::Shebang { .. } => {}
+                ScriptItem::Directive(directive) => {
+                    self.eval_directive(directive, base_dir, display_label, content, loading)?;
                 }
-            }
-            // Preserve original line to keep byte positions
-            buffer.push_str(raw_line);
-            buffer.push('\n');
-            if trimmed_all.is_empty() || trimmed_all.starts_with("//") {
-                continue;
-            }
-            buffer_has_code = true;
-            self.session.dbg_set_offset(consumed_bytes);
-            match self.session.eval_string(&buffer) {
-                Ok(result) => {
-                    self.last_result = Some(result);
-                    buffer.clear();
-                    buffer_has_code = false;
-                    consumed_bytes = next_consumed;
-                }
-                Err(err) => {
-                    if err.err_type == WqErrorType::Eof {
-                        // continue accumulating lines for this chunk
-                        continue;
-                    } else {
-                        return Err(LoadError::with_stack(
-                            LoadErrorKind::Eval(display_label.to_string(), Box::new(err)),
-                            &self.stack.borrow(),
-                        ));
-                    }
+                ScriptItem::Code { span } => {
+                    self.eval_code_span(content, display_label, span)?;
                 }
             }
         }
-        // Flush any trailing chunk
-        if !buffer.trim().is_empty() {
-            self.session.dbg_set_offset(consumed_bytes);
-            match self.session.eval_string(&buffer) {
-                Ok(result) => {
+        Ok(())
+    }
+
+    fn eval_code_span(
+        &mut self,
+        content: &str,
+        display_label: &str,
+        span: ScriptSpan,
+    ) -> Result<(), LoadError> {
+        let chunk = &content[span.as_range()];
+        if chunk.trim().is_empty() {
+            return Ok(());
+        }
+        self.session.dbg_set_offset(span.start);
+        match self.session.eval_string(chunk) {
+            Ok(result) => {
+                self.last_result = Some(result);
+                Ok(())
+            }
+            Err(err) => Err(LoadError::with_stack(
+                LoadErrorKind::Eval(display_label.to_string(), Box::new(err)),
+                &self.stack.borrow(),
+            )),
+        }
+    }
+
+    fn eval_directive(
+        &mut self,
+        directive: ScriptDirective,
+        base_dir: &Path,
+        display_label: &str,
+        content: &str,
+        loading: &RefCell<HashSet<PathBuf>>,
+    ) -> Result<(), LoadError> {
+        let restore_offset = directive.span().end;
+        match directive {
+            ScriptDirective::PreludeAlias { .. } => {
+                self.load_embedded_or_file(
+                    "prelude",
+                    base_dir,
+                    display_label,
+                    content,
+                    restore_offset,
+                    loading,
+                )?;
+            }
+            ScriptDirective::LoadEmbeddedOrFile { name, .. } => {
+                self.load_embedded_or_file(
+                    &name,
+                    base_dir,
+                    display_label,
+                    content,
+                    restore_offset,
+                    loading,
+                )?;
+            }
+            ScriptDirective::LoadPath { path, .. } => {
+                let sub_path = resolve_load_path(base_dir, &path);
+                let mut nested = Loader::new(self.session, self.silent);
+                // Inherit current import stack snapshot for nested loader.
+                nested.stack = Rc::new(RefCell::new(self.stack.borrow().clone()));
+                // Share the embedded registry across this call graph.
+                nested.embedded_loaded = self.embedded_loaded.clone();
+                let child = nested.load_script(&sub_path, loading)?;
+                self.warnings.extend(child.warnings);
+                self.last_loaded_label = Some(child.label);
+                if let Some(result) = child.result {
                     self.last_result = Some(result);
                 }
-                Err(err) => {
-                    return Err(LoadError::with_stack(
-                        LoadErrorKind::Eval(display_label.to_string(), Box::new(err)),
-                        &self.stack.borrow(),
-                    ));
-                }
+                self.session.dbg_set_source(display_label, content);
+                self.session.dbg_set_offset(restore_offset);
+            }
+            ScriptDirective::Unknown { text, .. } => {
+                return Err(LoadError::with_stack(
+                    LoadErrorKind::Directive(text),
+                    &self.stack.borrow(),
+                ));
             }
         }
         Ok(())

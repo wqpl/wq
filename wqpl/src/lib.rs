@@ -17,6 +17,7 @@ pub mod doc;
 pub mod format;
 pub mod highlight;
 pub mod interpret;
+pub mod script;
 pub mod session;
 pub mod symbol;
 pub mod token;
