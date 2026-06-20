@@ -27,8 +27,9 @@ pub(super) const ASCIIPLOT: BuiltinDoc = BuiltinDoc {
     details: concat!(
         "`asciiplot[data+;opts]` writes a plot to stdout and returns unit. Data args can be ",
         "non-empty y-value lists, non-empty `((x;y);...)` point lists, callables, CAS ",
-        "expressions, or series config dicts like (`fn:sin;`xlim:(0;6.283)); config dicts ",
-        "require `fn` and use their own `xlim` when sampling. Callables and CAS expressions ",
+        "expressions, or series config dicts like (`fn:sin;`xlim:(0;6.283);`label:\"sin\"); ",
+        "config dicts require `fn`, use their own `xlim` when sampling, and set ",
+        "`symbol`, `mode`, and `label` for that series. Callables and CAS expressions ",
         "sample `samples` points over `xlim` (default -10..10, default sample count is the plot ",
         "width) and may add adaptive points across skipped gaps. Size comes from `size:(w;h)`, ",
         "`width`, `height`, or the current terminal when unset. Global options are `xlim`, ",

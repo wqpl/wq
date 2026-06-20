@@ -42,14 +42,19 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
         return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg("expected each arg to be (a list of numbers) or (a list of 2‑element numeric lists)").attach_note(
                 "e.g. (1;2;3), ((1;2);(2;4))"));
     }
-    let mut all_series: Vec<Vec<(f64, f64)>> = Vec::with_capacity(configs.len());
+    let mut all_series: Vec<PlotSeries> = Vec::with_capacity(configs.len());
     for config in &configs {
         let points = match &config.data {
             SeriesData::Raw(xy) => xy.clone(),
             SeriesData::Callable(func) => sample_callable_series(vm, func, &opts, config.xlim)?,
             SeriesData::Cas(expr) => sample_cas_series(expr, &opts, config.xlim)?,
         };
-        all_series.push(points);
+        all_series.push(PlotSeries {
+            points,
+            symbol: config.symbol,
+            mode: config.mode,
+            label: config.label.clone(),
+        });
     }
     let rendered = render_ascii_plot(&all_series, &opts);
     wqstdout_println(rendered);
@@ -57,7 +62,6 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
 }
 
 #[derive(Clone)]
-#[expect(dead_code)]
 struct SeriesConfig {
     data: SeriesData,
     xlim: Option<(f64, f64)>,
@@ -71,6 +75,13 @@ enum SeriesData {
     Raw(Vec<(f64, f64)>),
     Callable(Value),
     Cas(Value),
+}
+
+struct PlotSeries {
+    points: Vec<(f64, f64)>,
+    symbol: Option<char>,
+    mode: Option<PlotMode>,
+    label: Option<String>,
 }
 
 fn parse_series_arg(arg: &Value, _opts: &PlotOptions) -> WqResult<SeriesConfig> {
@@ -634,7 +645,7 @@ fn pair_as_f64(value: &Value) -> Option<(f64, f64)> {
     Some((a, b))
 }
 
-fn render_ascii_plot(series_list: &[Vec<(f64, f64)>], opts: &PlotOptions) -> String {
+fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
     let width = opts.width;
     let height = opts.height;
     let width = max(10, width);
@@ -644,7 +655,7 @@ fn render_ascii_plot(series_list: &[Vec<(f64, f64)>], opts: &PlotOptions) -> Str
         let mut min_x = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
         for s in series_list {
-            for &(x, _) in s {
+            for &(x, _) in &s.points {
                 if x < min_x {
                     min_x = x;
                 }
@@ -659,7 +670,7 @@ fn render_ascii_plot(series_list: &[Vec<(f64, f64)>], opts: &PlotOptions) -> Str
         let mut min_y = f64::INFINITY;
         let mut max_y = f64::NEG_INFINITY;
         for s in series_list {
-            for &(_, y) in s {
+            for &(_, y) in &s.points {
                 if y < min_y {
                     min_y = y;
                 }
@@ -869,11 +880,13 @@ fn render_ascii_plot(series_list: &[Vec<(f64, f64)>], opts: &PlotOptions) -> Str
         }
     }
     // draw series
-    for (si, series) in series_list.iter().enumerate() {
+    for (si, plot_series) in series_list.iter().enumerate() {
+        let series = &plot_series.points;
         if series.is_empty() {
             continue;
         }
-        let symbol = opts.symbols[si % opts.symbols.len()];
+        let symbol = plot_series_symbol(Some(plot_series), si, opts);
+        let mode = plot_series.mode.unwrap_or(opts.mode);
         let color: Option<Color> = match &opts.color {
             ColorMode::On => Some(series_color(si)),
             ColorMode::Off => None,
@@ -892,7 +905,7 @@ fn render_ascii_plot(series_list: &[Vec<(f64, f64)>], opts: &PlotOptions) -> Str
             let row = ((height as f64 - 1.0) - ty * (height as f64 - 1.0)).round() as isize;
             pts.push((col, row));
         }
-        match opts.mode {
+        match mode {
             PlotMode::Line => {
                 for w in pts.windows(2) {
                     let (x0, y0) = w[0];
@@ -1063,16 +1076,39 @@ fn render_ascii_plot(series_list: &[Vec<(f64, f64)>], opts: &PlotOptions) -> Str
         out.push_str(xlabel);
         out.push('\n');
     }
-    // Legend (optional) — shown when labels are provided
-    if let Some(labels) = &opts.labels {
-        let mut leg_parts = Vec::new();
-        for (i, label) in labels.iter().enumerate() {
-            let sym = opts.symbols[i % opts.symbols.len()];
+    // Legend (optional) — shown when global or per-series labels are provided
+    let legend_len = opts
+        .labels
+        .as_ref()
+        .map_or(series_list.len(), |labels| labels.len().max(series_list.len()));
+    let mut leg_parts = Vec::new();
+    for i in 0..legend_len {
+        let label = series_list
+            .get(i)
+            .and_then(|series| series.label.as_deref())
+            .or_else(|| {
+                opts.labels
+                    .as_ref()
+                    .and_then(|labels| labels.get(i).map(String::as_str))
+            });
+        if let Some(label) = label {
+            let sym = plot_series_symbol(series_list.get(i), i, opts);
             leg_parts.push(format!("{}({})", label, sym));
         }
+    }
+    if !leg_parts.is_empty() {
         out.push_str(&format!("{}\n", leg_parts.join(", ")));
     }
     out
+}
+
+fn plot_series_symbol(series: Option<&PlotSeries>, idx: usize, opts: &PlotOptions) -> char {
+    let fallback = if opts.symbols.is_empty() {
+        '·'
+    } else {
+        opts.symbols[idx % opts.symbols.len()]
+    };
+    series.and_then(|series| series.symbol).unwrap_or(fallback)
 }
 
 fn format_number(v: f64) -> String {
@@ -1353,6 +1389,62 @@ mod tests {
         );
         set_wqstdout(None);
         assert_eq!(result.unwrap(), Value::unit());
+    }
+
+    #[test]
+    fn render_uses_per_series_symbols_in_legend() {
+        let opts = PlotOptions {
+            width: 10,
+            height: 5,
+            axes: AxesMode::Off,
+            color: ColorMode::Off,
+            ..PlotOptions::default()
+        };
+        let series = vec![
+            PlotSeries {
+                points: vec![(0.0, 0.0)],
+                symbol: Some('s'),
+                mode: None,
+                label: Some("sine".to_string()),
+            },
+            PlotSeries {
+                points: vec![(1.0, 1.0)],
+                symbol: Some('c'),
+                mode: None,
+                label: Some("cosine".to_string()),
+            },
+        ];
+
+        let rendered = render_ascii_plot(&series, &opts);
+
+        assert!(rendered.contains("sine(s)"));
+        assert!(rendered.contains("cosine(c)"));
+    }
+
+    #[test]
+    fn render_uses_per_series_mode() {
+        let opts = PlotOptions {
+            width: 9,
+            height: 5,
+            xlim: Some((0.0, 2.0)),
+            ylim: Some((0.0, 2.0)),
+            symbols: vec!['*'],
+            mode: PlotMode::Line,
+            axes: AxesMode::Off,
+            color: ColorMode::Off,
+            ..PlotOptions::default()
+        };
+        let series = vec![PlotSeries {
+            points: vec![(0.0, 0.0), (1.0, 2.0), (2.0, 0.0)],
+            symbol: Some('*'),
+            mode: Some(PlotMode::Scatter),
+            label: None,
+        }];
+
+        let rendered = render_ascii_plot(&series, &opts);
+        let plotted_points = rendered.chars().filter(|&ch| ch == '*').count();
+
+        assert_eq!(plotted_points, 3);
     }
 
     #[test]
