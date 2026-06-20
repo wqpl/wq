@@ -655,6 +655,35 @@ mod tests {
     }
 
     #[test]
+    fn integrate_trig_over_quadratic_is_unsupported() {
+        let reciprocal = op(
+            CasOp::Power,
+            vec![
+                op(
+                    CasOp::Add,
+                    vec![
+                        op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
+                        Value::Int(1),
+                    ],
+                ),
+                Value::Int(-1),
+            ],
+        );
+        let expr = op(
+            CasOp::Multiply,
+            vec![
+                call(CasFunction::Sin, vec![Value::from_cas_var("x")]),
+                reciprocal,
+            ],
+        );
+        let result = integrate_cas(&expr, &Value::from_cas_var("x"));
+        assert!(
+            result.is_err(),
+            "expected unsupported integral, got {result:?}"
+        );
+    }
+
+    #[test]
     fn integrate_erf() {
         let expr = call(CasFunction::Erf, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();

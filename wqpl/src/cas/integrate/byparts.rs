@@ -6,9 +6,9 @@ use num_bigint::BigInt;
 use super::{MAX_DEPTH, integrate_expr_with_depth, split_off_numeric};
 use crate::cas::diff::diff_expr;
 use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, extract_linear_coefficients,
-    numeric_is_one, numeric_is_zero, poly_derivative, poly_from_expr, poly_is_zero, poly_to_expr,
-    simplify_cas_value,
+    cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, contains_cas_var,
+    extract_linear_coefficients, numeric_is_one, numeric_is_zero, poly_derivative,
+    poly_from_expr, poly_is_zero, poly_to_expr, simplify_cas_value,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
@@ -148,6 +148,13 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
         cas_trace!(DebugLogFlags::CAS, "[cas] byparts exit (too_few_symbolic)");
         return Ok(None);
     }
+    if has_trig_over_non_polynomial_factor(&symbolic, var) {
+        cas_trace!(
+            DebugLogFlags::CAS,
+            "[cas] byparts exit (trig_non_polynomial_mix)"
+        );
+        return Ok(None);
+    }
 
     // 3. Cycle guard for ordinary by-parts ──────────────────────────────────
     let key = format!("{}|{}", canonical_key(expr), var);
@@ -191,6 +198,33 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
     }
     cas_trace!(DebugLogFlags::CAS, "[cas] byparts exit (no_candidate)");
     Ok(None)
+}
+
+fn has_trig_over_non_polynomial_factor(symbolic: &[Value], var: &str) -> bool {
+    symbolic.iter().any(is_trig_like_factor)
+        && symbolic.iter().any(|factor| {
+            !is_trig_like_factor(factor)
+                && contains_cas_var(factor, var)
+                && poly_from_expr(factor, var).is_err()
+        })
+}
+
+fn is_trig_like_factor(expr: &Value) -> bool {
+    expr.cas_function_parts().is_some_and(|(name, args)| {
+        args.len() == 1
+            && matches!(
+                name,
+                CasFunction::Sin
+                    | CasFunction::Cos
+                    | CasFunction::Tan
+                    | CasFunction::Sec
+                    | CasFunction::Csc
+                    | CasFunction::Cot
+                    | CasFunction::Sinh
+                    | CasFunction::Cosh
+                    | CasFunction::Tanh
+            )
+    })
 }
 
 /// Extract the argument from an exponential factor.
