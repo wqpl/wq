@@ -1874,6 +1874,53 @@ mod tests {
     }
 
     #[test]
+    fn integrate_one_over_sqrt_shifted_scaled_cubic() {
+        // ∫ dx/√((2x+1)³+1) reduces through u = x + 1/2.
+        let x = Value::from_cas_var("x");
+        let two_x = cas_mul(vec![Value::Int(2), x]).expect("2*x");
+        let affine = cas_add(vec![two_x, Value::Int(1)]).expect("affine expression");
+        let affine_cubed = cas_pow(affine, Value::Int(3)).expect("affine cube");
+        let inner = cas_add(vec![affine_cubed, Value::Int(1)]).expect("cubic expression");
+        let expr = cas_pow(
+            inner,
+            Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2)),
+        )
+        .expect("inverse square root");
+
+        let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
+        let s = result.to_string();
+
+        assert!(!s.contains("unsupported"), "got unsupported: {s}");
+        assert!(s.contains("ellik"), "expected ellik in result: {s}");
+        assert!(s.contains("arccos"), "expected arccos in result: {s}");
+    }
+
+    #[test]
+    fn integrate_sqrt_shifted_scaled_cubic() {
+        // ∫ √((2x+1)³+1) dx keeps the algebraic part and elliptic correction.
+        let x = Value::from_cas_var("x");
+        let two_x = cas_mul(vec![Value::Int(2), x]).expect("2*x");
+        let affine = cas_add(vec![two_x, Value::Int(1)]).expect("affine expression");
+        let affine_cubed = cas_pow(affine, Value::Int(3)).expect("affine cube");
+        let inner = cas_add(vec![affine_cubed, Value::Int(1)]).expect("cubic expression");
+        let expr = cas_pow(
+            inner,
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        )
+        .expect("square root");
+
+        let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
+        let s = result.to_string();
+
+        assert!(!s.contains("unsupported"), "got unsupported: {s}");
+        assert!(s.contains("ellik"), "expected ellik in result: {s}");
+        assert!(
+            s.contains("((x + 1/2)^3 + 1/8)^(1/2)") && s.contains("x + 1/2"),
+            "expected algebraic radical in result: {s}"
+        );
+    }
+
+    #[test]
     fn integrate_one_over_sqrt_x4_plus_x() {
         // x^4+x has rational root 0.  With x=1/t:
         // int dx/sqrt(x^4+x) = -int dt/sqrt(t^3+1), reusing the cubic path.

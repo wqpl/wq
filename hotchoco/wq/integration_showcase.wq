@@ -326,3 +326,12 @@ echo diff integrate @s 1/(x*sqrt[x^2+1])
 
 echo integrate @s sqrt[x^3+1]
 echo diff integrate @s sqrt[x^3+1]
+
+
+// new 2
+
+echo integrate[@s 1/sqrt[(2*x+1)^3+1];@s x]
+echo diff integrate[@s 1/sqrt[(2*x+1)^3+1];@s x]
+
+echo integrate[@s sqrt[(2*x+1)^3+1];@s x]
+echo diff integrate[@s sqrt[(2*x+1)^3+1];@s x]
