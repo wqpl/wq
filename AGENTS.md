@@ -30,12 +30,11 @@
       - e.g. `diff integrate @s 1/(x^3-2)`
     - A bare `x^3-2` without `@s` is evaluation and is not related to CAS.
   - postfix binds tighter than operators, `echo 1+2` <=> `(echo 1)+2` => prints `1`, evals to `()/*unit*/+2` => evals to `2`. Does not evaluate to `3` and print `3`.
-
 - Ensure `cargo clippy --all-targets -- -D warnings` passes.
-  - You are not allowed to use `#[allow(...)]` to pass clippy.
-    - An exception is dead code, where you are allowed to use `#[allow(...)]` instead of deleting it
-  - If you can't pass clippy by fixing code for any reason, you must ask the user whether it's fine to use `#[allow(...)]`
-  - If you find passing clippy requiring a large-scope edit, pause and ask the user.
+  - Avoid using `#[allow(...)]` to pass clippy.
+    - An exception is dead code that won't be used anymore, where you are allowed to use `#[allow(...)]` instead of deleting it
+  - If you can't pass clippy by fixing code for any reason, ask the user whether it's fine to use `#[allow(...)]`
+  - If passing clippy requires a large-scope edit, pause and ask the user.
 - Do not run formatting commands.
 - If you changed wq lexer/grammar, also update `wq-ts/grammar.js` and verify it with `tree-sitter generate` and a new corpse test
 - Delevopment should be test-driven. Choose between unit tests and snapshot tests depending on situation.
