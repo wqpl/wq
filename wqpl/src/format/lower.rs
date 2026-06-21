@@ -23,8 +23,9 @@
 //!   surrounding whitespace).
 //!
 //! Width-aware breaking is applied at separator-joined constructs (argument
-//! lists, list/dict literals, set literals): if the flat form exceeds the
-//! configured width, the renderer breaks on the `Line` between separators.
+//! lists, list/dict literals, set literals) and binary / comparison chains: if
+//! the flat form exceeds the configured width, the renderer breaks at the soft
+//! line opportunities.
 
 use super::FormatConfig;
 use super::doc::Doc;
@@ -261,11 +262,35 @@ impl<'a> LowerCtx<'a> {
         })
     }
 
-    /// Same as [`Self::tight_concat`]. Kept distinct so binary lowering can
-    /// later wrap in `Doc::group(...)` for width-aware breaking without
-    /// affecting other tight concatenators.
+    fn push_binary_parts(&self, node: &SyntaxNode, out: &mut Vec<Doc>) {
+        for elem in node.children_with_tokens() {
+            match elem {
+                SyntaxElement::Token(t) if t.kind().is_trivia() => {}
+                SyntaxElement::Token(t) => {
+                    out.push(Doc::text(t.text().to_string()) + Doc::line_soft());
+                }
+                SyntaxElement::Node(n)
+                    if matches!(
+                        n.kind(),
+                        SyntaxKind::BinaryExpr | SyntaxKind::ComparisonChainExpr
+                    ) =>
+                {
+                    self.push_binary_parts(&n, out);
+                }
+                SyntaxElement::Node(n) => out.push(self.node(&n)),
+            }
+        }
+    }
+
+    /// Binary and comparison-chain expressions keep their tight flat spelling
+    /// but break after operators when they exceed the configured width.
     fn binary(&self, node: &SyntaxNode) -> Doc {
-        self.tight_concat(node)
+        if Self::contains_comment(node) {
+            return Doc::text(node.text());
+        }
+        let mut parts = Vec::new();
+        self.push_binary_parts(node, &mut parts);
+        Doc::group(Doc::nest(self.indent(), Doc::join(Doc::nil(), parts)))
     }
 
     /// `(expr)`: emit literal parens around the inner expression. If the
@@ -863,6 +888,16 @@ mod tests {
     fn binary_glues_tightly() {
         assert_eq!(fmt("1+2", 80), "1+2");
         assert_eq!(fmt("1 + 2", 80), "1+2");
+    }
+
+    #[test]
+    fn binary_wraps_when_width_exceeded() {
+        assert_eq!(fmt("1111+2222+3333", 10), "1111+\n  2222+\n  3333");
+    }
+
+    #[test]
+    fn comparison_chain_wraps_when_width_exceeded() {
+        assert_eq!(fmt("1111<2222<3333", 10), "1111<\n  2222<\n  3333");
     }
 
     #[test]

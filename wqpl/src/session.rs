@@ -952,6 +952,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_newline_after_binary_operator_as_continuation() {
+        let mut session = Session::new();
+
+        assert_eq!(session.eval_string("1+\n  2").unwrap(), Value::Int(3));
+        assert_eq!(session.eval_string("32*\n  2").unwrap(), Value::Int(64));
+        assert_eq!(
+            session.eval_string("1<\n  2<\n  3").unwrap(),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
     fn symbols_handle_long_left_deep_binary_chain() {
         let terms = std::iter::repeat_n("a", 512).collect::<Vec<_>>().join("+");
         let code = format!("a:1\nb:2\nc:{terms}");

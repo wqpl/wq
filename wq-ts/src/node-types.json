@@ -25,6 +25,10 @@
         {
           "type": "multiplicative_expr",
           "named": true
+        },
+        {
+          "type": "newline",
+          "named": true
         }
       ]
     }
@@ -149,6 +153,10 @@
       "required": true,
       "types": [
         {
+          "type": "newline",
+          "named": true
+        },
+        {
           "type": "shift_expr",
           "named": true
         }
@@ -177,6 +185,10 @@
         {
           "type": "bit_xor_expr",
           "named": true
+        },
+        {
+          "type": "newline",
+          "named": true
         }
       ]
     }
@@ -202,6 +214,10 @@
       "types": [
         {
           "type": "bit_and_expr",
+          "named": true
+        },
+        {
+          "type": "newline",
           "named": true
         }
       ]
@@ -263,6 +279,10 @@
         {
           "type": "comparison_expr",
           "named": true
+        },
+        {
+          "type": "newline",
+          "named": true
         }
       ]
     }
@@ -288,6 +308,10 @@
       "types": [
         {
           "type": "bool_and_expr",
+          "named": true
+        },
+        {
+          "type": "newline",
           "named": true
         }
       ]
@@ -322,6 +346,10 @@
       "types": [
         {
           "type": "bool_or_expr",
+          "named": true
+        },
+        {
+          "type": "newline",
           "named": true
         }
       ]
@@ -368,6 +396,10 @@
       "types": [
         {
           "type": "bit_or_expr",
+          "named": true
+        },
+        {
+          "type": "newline",
           "named": true
         }
       ]
@@ -546,13 +578,130 @@
   {
     "type": "juxtaposition_arg",
     "named": true,
-    "fields": {},
+    "fields": {
+      "operator": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "..",
+            "named": false
+          },
+          {
+            "type": "..=",
+            "named": false
+          },
+          {
+            "type": "^",
+            "named": false
+          },
+          {
+            "type": "^.",
+            "named": false
+          }
+        ]
+      },
+      "step_operator": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "..",
+            "named": false
+          }
+        ]
+      }
+    },
     "children": {
-      "multiple": false,
-      "required": true,
+      "multiple": true,
+      "required": false,
       "types": [
         {
-          "type": "range_expr",
+          "type": "assert_form",
+          "named": true
+        },
+        {
+          "type": "block_form",
+          "named": true
+        },
+        {
+          "type": "break_form",
+          "named": true
+        },
+        {
+          "type": "conditional",
+          "named": true
+        },
+        {
+          "type": "conditional_chain",
+          "named": true
+        },
+        {
+          "type": "conditional_dot",
+          "named": true
+        },
+        {
+          "type": "continue_form",
+          "named": true
+        },
+        {
+          "type": "debug_form",
+          "named": true
+        },
+        {
+          "type": "function_literal",
+          "named": true
+        },
+        {
+          "type": "literal",
+          "named": true
+        },
+        {
+          "type": "n_loop",
+          "named": true
+        },
+        {
+          "type": "newline",
+          "named": true
+        },
+        {
+          "type": "outer_variable",
+          "named": true
+        },
+        {
+          "type": "paren_expr",
+          "named": true
+        },
+        {
+          "type": "pause_form",
+          "named": true
+        },
+        {
+          "type": "return_form",
+          "named": true
+        },
+        {
+          "type": "suffix",
+          "named": true
+        },
+        {
+          "type": "symbolic_form",
+          "named": true
+        },
+        {
+          "type": "try_form",
+          "named": true
+        },
+        {
+          "type": "unary_expr",
+          "named": true
+        },
+        {
+          "type": "variable_ref",
+          "named": true
+        },
+        {
+          "type": "w_loop",
           "named": true
         }
       ]
@@ -667,6 +816,10 @@
       "multiple": true,
       "required": true,
       "types": [
+        {
+          "type": "newline",
+          "named": true
+        },
         {
           "type": "range_expr",
           "named": true
@@ -1011,6 +1164,10 @@
       "required": true,
       "types": [
         {
+          "type": "newline",
+          "named": true
+        },
+        {
           "type": "postfix_expr",
           "named": true
         },
@@ -1216,6 +1373,10 @@
       "types": [
         {
           "type": "additive_expr",
+          "named": true
+        },
+        {
+          "type": "newline",
           "named": true
         }
       ]

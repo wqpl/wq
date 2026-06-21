@@ -1391,6 +1391,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
+            self.eat_trivia(true, true);
             self.ensure_rhs(&op_tok, "binary operator")?;
             let right = self.parse_bool_and()?;
             left = AstNode::BinaryOp {
@@ -1413,6 +1414,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
+            self.eat_trivia(true, true);
             self.ensure_rhs(&op_tok, "binary operator")?;
             let right = self.parse_comparison()?;
             left = AstNode::BinaryOp {
@@ -1455,6 +1457,7 @@ impl Parser {
                     break;
                 }
                 self.advance();
+                self.eat_trivia(true, true);
                 let expr = self.parse_bool_or()?;
                 items.push(expr);
             }
@@ -1476,6 +1479,7 @@ impl Parser {
                 break;
             }
             self.advance(); // eat ','
+            self.eat_trivia(true, true);
             let right = self.parse_bool_or()?;
             items.push(right);
         }
@@ -1555,6 +1559,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
+            self.eat_trivia(true, true);
             self.ensure_rhs(&op_tok, "comparison operator")?;
             let right = self.parse_bitor()?;
             rest.push((op, right));
@@ -1591,6 +1596,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
+            self.eat_trivia(true, true);
             self.ensure_rhs(&op_tok, "binary operator")?;
             let right = self.parse_bitxor()?;
             left = AstNode::BinaryOp {
@@ -1613,6 +1619,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
+            self.eat_trivia(true, true);
             self.ensure_rhs(&op_tok, "binary operator")?;
             let right = self.parse_bitand()?;
             left = AstNode::BinaryOp {
@@ -1635,6 +1642,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
+            self.eat_trivia(true, true);
             self.ensure_rhs(&op_tok, "binary operator")?;
             let right = self.parse_shift()?;
             left = AstNode::BinaryOp {
@@ -1658,6 +1666,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
+            self.eat_trivia(true, true);
             self.ensure_rhs(&op_tok, "binary operator")?;
             let right = self.parse_additive()?;
             left = AstNode::BinaryOp {
@@ -1681,6 +1690,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
+            self.eat_trivia(true, true);
             self.ensure_rhs(&op_tok, "binary operator")?;
             let right = self.parse_multiplicative()?;
             left = AstNode::BinaryOp {
@@ -1711,6 +1721,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
+            self.eat_trivia(true, true);
             self.ensure_rhs(&op_tok, "binary operator")?;
             let right = self.parse_range()?;
             left = AstNode::BinaryOp {
@@ -1815,6 +1826,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
+            self.eat_trivia(true, true);
             self.ensure_rhs(&tok, "binary operator")?;
             operators.push(op);
             operands.push(self.parse_unary()?);

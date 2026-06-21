@@ -62,13 +62,24 @@ export default grammar({
 
   rules: {
     source_file: ($) =>
-      seq(optional($.shebang), repeat(choice($.statement, $.separator))),
+      seq(optional($.shebang), optional($._statement_sequence)),
 
     statement: ($) => choice($.magic_command, $.expression),
 
     separator: ($) => choice(";", $.newline),
 
-    block: ($) => repeat1(choice($.statement, $.separator)),
+    block: ($) => $._statement_sequence,
+
+    _statement_sequence: ($) =>
+      choice(
+        repeat1($.separator),
+        seq(
+          repeat($.separator),
+          $.statement,
+          repeat(seq(repeat1($.separator), $.statement)),
+          repeat($.separator),
+        ),
+      ),
 
     expression: ($) => $.assignment_expr,
 
@@ -153,9 +164,15 @@ export default grammar({
       choice(
         prec.left(
           PREC.COMMA,
-          seq($.bool_or_expr, repeat1(seq(",", $.bool_or_expr))),
+          seq(
+            $.bool_or_expr,
+            repeat1(seq(",", continuation($, $.bool_or_expr))),
+          ),
         ),
-        prec(PREC.COMMA, repeat1(seq(",", $.bool_or_expr))),
+        prec(
+          PREC.COMMA,
+          repeat1(seq(",", continuation($, $.bool_or_expr))),
+        ),
         $.bool_or_expr,
       ),
 
@@ -170,7 +187,10 @@ export default grammar({
           seq(
             $.bit_or_expr,
             repeat1(
-              seq(field("operator", $.comparison_operator), $.bit_or_expr),
+              seq(
+                field("operator", $.comparison_operator),
+                continuation($, $.bit_or_expr),
+              ),
             ),
           ),
         ),
@@ -227,7 +247,7 @@ export default grammar({
           seq(
             $.postfix_expr,
             field("operator", choice("^.", "^")),
-            $.unary_expr,
+            continuation($, $.unary_expr),
           ),
         ),
         $.postfix_expr,
@@ -248,7 +268,72 @@ export default grammar({
     juxtaposition_suffix: ($) =>
       prec(PREC.POSTFIX, seq(optional($.depth_modifier), $.juxtaposition_arg)),
 
-    juxtaposition_arg: ($) => $.range_expr,
+    juxtaposition_arg: ($) => $._juxtaposition_range_expr,
+
+    _juxtaposition_range_expr: ($) =>
+      choice(
+        prec.right(
+          PREC.RANGE,
+          seq(
+            $._juxtaposition_unary_expr,
+            field("operator", choice("..=", "..")),
+            $.unary_expr,
+            optional(seq(field("step_operator", ".."), $.unary_expr)),
+          ),
+        ),
+        $._juxtaposition_unary_expr,
+      ),
+
+    _juxtaposition_unary_expr: ($) =>
+      choice(
+        prec(PREC.UNARY, seq(repeat1("#"), $._juxtaposition_power_expr)),
+        $._juxtaposition_power_expr,
+      ),
+
+    _juxtaposition_power_expr: ($) =>
+      choice(
+        prec.right(
+          PREC.POWER,
+          seq(
+            $._juxtaposition_postfix_expr,
+            field("operator", choice("^.", "^")),
+            continuation($, $.unary_expr),
+          ),
+        ),
+        $._juxtaposition_postfix_expr,
+      ),
+
+    _juxtaposition_postfix_expr: ($) =>
+      choice(
+        $._juxtaposition_primary,
+        prec.left(
+          PREC.POSTFIX,
+          seq($._juxtaposition_postfix_expr, $.suffix),
+        ),
+      ),
+
+    _juxtaposition_primary: ($) =>
+      choice(
+        $.literal,
+        $.outer_variable,
+        $.variable_ref,
+        $.function_literal,
+        $.paren_expr,
+        $.conditional,
+        $.conditional_dot,
+        $.conditional_chain,
+        $.w_loop,
+        $.n_loop,
+        $.block_form,
+        $.return_form,
+        $.break_form,
+        $.continue_form,
+        $.try_form,
+        $.assert_form,
+        $.debug_form,
+        $.pause_form,
+        $.symbolic_form,
+      ),
 
     depth_modifier: (_) => token(seq("@", /[0-9](?:_?[0-9])*/)),
 
@@ -451,8 +536,15 @@ function binary($, operand, precedence, operator) {
   return choice(
     prec.left(
       precedence,
-      seq(operand, repeat1(seq(field("operator", operator), operand))),
+      seq(
+        operand,
+        repeat1(seq(field("operator", operator), continuation($, operand))),
+      ),
     ),
     operand,
   );
+}
+
+function continuation($, operand) {
+  return seq(optional(repeat1($.newline)), operand);
 }

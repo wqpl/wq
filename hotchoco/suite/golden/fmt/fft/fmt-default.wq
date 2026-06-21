@@ -36,9 +36,12 @@ ifft_radix2:{
   i:1.0/#x
   x|M {conj x}|fft_radix2|M {i*conj x}}
 clean:{[s;o]
-  eps:32*EPS64*#s*$[(mx:max abs o)>0
-    mx
-    1.0]
+  eps:32*
+    EPS64*
+    #s*
+    $[(mx:max abs o)>0
+      mx
+      1.0]
   s|M {
     complex[
       $[eps>abs re x

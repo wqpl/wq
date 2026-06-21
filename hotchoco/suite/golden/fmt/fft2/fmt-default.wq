@@ -15,9 +15,12 @@ fft2_:{[xs]
   (e;o):(xs[2*iota h];xs[1+2*iota h])|M fft2_
   zip[e;zipw[tw n;o;*]]|M bf|transpose|flatten}
 clean:{[s;o]
-  eps:32*EPS64*#s*$[(mx:max abs o)>0
-    mx
-    1.0]
+  eps:32*
+    EPS64*
+    #s*
+    $[(mx:max abs o)>0
+      mx
+      1.0]
   s|M {
     complex[
       $[eps>abs re x

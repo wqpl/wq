@@ -57,3 +57,111 @@ Symbolic Quote Before Pipe
                   (identifier)))))))))
   (separator
     (newline)))
+
+============================
+Binary Continuation Lines
+============================
+1111+
+  2222+
+  3333
+1<
+  2<
+  3
+
+---
+
+(source_file
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (bool_or_expr
+              (bool_and_expr
+                (comparison_expr
+                  (bit_or_expr
+                    (bit_xor_expr
+                      (bit_and_expr
+                        (shift_expr
+                          (additive_expr
+                            (multiplicative_expr
+                              (range_expr
+                                (unary_expr
+                                  (power_expr
+                                    (postfix_expr
+                                      (primary
+                                        (literal
+                                          (integer))))))))
+                            (newline)
+                            (multiplicative_expr
+                              (range_expr
+                                (unary_expr
+                                  (power_expr
+                                    (postfix_expr
+                                      (primary
+                                        (literal
+                                          (integer))))))))
+                            (newline)
+                            (multiplicative_expr
+                              (range_expr
+                                (unary_expr
+                                  (power_expr
+                                    (postfix_expr
+                                      (primary
+                                        (literal
+                                          (integer)))))))))))))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (bool_or_expr
+              (bool_and_expr
+                (comparison_expr
+                  (bit_or_expr
+                    (bit_xor_expr
+                      (bit_and_expr
+                        (shift_expr
+                          (additive_expr
+                            (multiplicative_expr
+                              (range_expr
+                                (unary_expr
+                                  (power_expr
+                                    (postfix_expr
+                                      (primary
+                                        (literal
+                                          (integer)))))))))))))
+                  operator: (comparison_operator)
+                  (newline)
+                  (bit_or_expr
+                    (bit_xor_expr
+                      (bit_and_expr
+                        (shift_expr
+                          (additive_expr
+                            (multiplicative_expr
+                              (range_expr
+                                (unary_expr
+                                  (power_expr
+                                    (postfix_expr
+                                      (primary
+                                        (literal
+                                          (integer)))))))))))))
+                  operator: (comparison_operator)
+                  (newline)
+                  (bit_or_expr
+                    (bit_xor_expr
+                      (bit_and_expr
+                        (shift_expr
+                          (additive_expr
+                            (multiplicative_expr
+                              (range_expr
+                                (unary_expr
+                                  (power_expr
+                                    (postfix_expr
+                                      (primary
+                                        (literal
+                                          (integer)))))))))))))))))))))
+  (separator
+    (newline)))
