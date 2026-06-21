@@ -1148,7 +1148,7 @@ declare_builtins! {
         concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim;",
             "`x;`y;`symbols;`labels;`mode;`axes;`color;`grid;",
             "`samples;`theme;`complex;`ascii;",
-            "`title;`xlabel;`ylabel;`caption]"), sig!(arity!(1..), named ASCIIPLOT_NAMED_ARGS), with_context(viz::asciiplot), BuiltinGroup::Viz),
+            "`ticklabels;`title;`xlabel;`ylabel;`caption]"), sig!(arity!(1..), named ASCIIPLOT_NAMED_ARGS), with_context(viz::asciiplot), BuiltinGroup::Viz),
 
     // Intrinsic ====================================================
     (FMT, Fmt, "fmt", "fmt[template;v*]", sig!(arity!(1..)), plain(string::fmt), BuiltinGroup::Intrinsic),
@@ -1192,7 +1192,7 @@ const SHOWTABLE_NAMED_ARGS: &[&str] = &["cols", "limit", "width", "style", "miss
 const ASCIIPLOT_NAMED_ARGS: &[&str] = &[
     "size", "width", "height", "xlim", "ylim", "x", "y", "symbols", "labels", "mode", "axes",
     "color", "grid", "samples", "theme", "complex", "ascii", "title", "xlabel", "ylabel",
-    "caption",
+    "caption", "ticklabels",
 ];
 #[cfg(not(target_arch = "wasm32"))]
 const EXEC_NAMED_ARGS: &[&str] = &["stdin", "cwd", "env", "timeout", "check"];

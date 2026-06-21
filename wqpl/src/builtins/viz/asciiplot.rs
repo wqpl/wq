@@ -45,13 +45,14 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
     }
     let mut all_series: Vec<PlotSeries> = Vec::with_capacity(configs.len());
     for config in &configs {
-        let points = match &config.data {
+        let sampled = match &config.data {
             SeriesData::Raw(xy) => xy.clone(),
             SeriesData::Callable(func) => sample_callable_series(vm, func, &opts, config.xlim)?,
             SeriesData::Cas(expr) => sample_cas_series(expr, &opts, config.xlim)?,
         };
         all_series.push(PlotSeries {
-            points,
+            points: sampled.points,
+            breaks_after: sampled.breaks_after,
             symbol: config.symbol,
             mode: config.mode,
             label: config.label.clone(),
@@ -73,27 +74,66 @@ struct SeriesConfig {
 
 #[derive(Clone)]
 enum SeriesData {
-    Raw(Vec<(f64, f64)>),
+    Raw(SampledSeries<f64>),
     Callable(Value),
     Cas(Value),
 }
 
 struct PlotSeries {
     points: Vec<(f64, f64)>,
+    breaks_after: Vec<usize>,
     symbol: Option<char>,
     mode: Option<PlotMode>,
     label: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct SampledSeries<T> {
+    points: Vec<(f64, T)>,
+    breaks_after: Vec<usize>,
+}
+
+impl<T> SampledSeries<T> {
+    fn new() -> Self {
+        Self {
+            points: Vec::new(),
+            breaks_after: Vec::new(),
+        }
+    }
+
+    fn from_points(points: Vec<(f64, T)>) -> Self {
+        Self {
+            points,
+            breaks_after: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, point: (f64, T), break_before: bool) {
+        if break_before {
+            self.break_before_next();
+        }
+        self.points.push(point);
+    }
+
+    fn break_before_next(&mut self) {
+        let Some(idx) = self.points.len().checked_sub(1) else {
+            return;
+        };
+        if self.breaks_after.last().copied() != Some(idx) {
+            self.breaks_after.push(idx);
+        }
+    }
+}
+
 fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfig>> {
     match arg {
         Value::IntList(arr) if !arr.is_empty() => Ok(vec![SeriesConfig {
-            data: SeriesData::Raw(
+            data: SeriesData::Raw(SampledSeries::from_points(
                 arr.iter()
                     .enumerate()
                     .map(|(i, &y)| (i as f64, y as f64))
                     .collect(),
-            ),
+            )),
             xlim: None,
             symbol: None,
             mode: None,
@@ -109,7 +149,7 @@ fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfi
             }) && !items.is_empty() =>
         {
             Ok(vec![SeriesConfig {
-                data: SeriesData::Raw(
+                data: SeriesData::Raw(SampledSeries::from_points(
                     items
                         .iter()
                         .map(|it| {
@@ -122,7 +162,7 @@ fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfi
                             )
                         })
                         .collect(),
-                ),
+                )),
                 xlim: None,
                 symbol: None,
                 mode: None,
@@ -131,7 +171,7 @@ fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfi
         }
         Value::List(items) if items.iter().all(|v| v.as_f64().is_some()) && !items.is_empty() => {
             Ok(vec![SeriesConfig {
-                data: SeriesData::Raw(
+                data: SeriesData::Raw(SampledSeries::from_points(
                     items
                         .iter()
                         .enumerate()
@@ -142,7 +182,7 @@ fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfi
                             )
                         })
                         .collect(),
-                ),
+                )),
                 xlim: None,
                 symbol: None,
                 mode: None,
@@ -372,7 +412,7 @@ fn table_series_configs(table: TableData, opts: &PlotOptions) -> WqResult<Vec<Se
         }
 
         configs.push(SeriesConfig {
-            data: SeriesData::Raw(points),
+            data: SeriesData::Raw(SampledSeries::from_points(points)),
             xlim: None,
             symbol: None,
             mode: None,
@@ -406,24 +446,23 @@ fn sample_callable_series(
     func: &Value,
     opts: &PlotOptions,
     xlim: Option<(f64, f64)>,
-) -> WqResult<Vec<(f64, f64)>> {
+) -> WqResult<SampledSeries<f64>> {
     let (xmin, xmax) = xlim.or(opts.xlim).unwrap_or((-10.0, 10.0));
     let initial_samples = opts.samples.unwrap_or(opts.width).max(2);
 
     if opts.complex_mode == "plane" {
         let mut sampler = |x: f64| -> Option<Value> { vm.call(func, Value::float(x).into()).ok() };
-        let raw = sample_with_adaptive(xmin, xmax, initial_samples, true, &mut sampler);
-        Ok(transform_complex_plane(&raw))
+        let raw = sample_with_segments(xmin, xmax, initial_samples, &mut sampler);
+        Ok(transform_complex_plane(raw))
     } else {
         let mut sampler = |x: f64| -> Option<f64> {
             let y = vm.call(func, Value::float(x).into()).ok()?;
             extract_numeric_component(&y, &opts.complex_mode)
         };
-        Ok(sample_with_adaptive(
+        Ok(sample_real_with_segments(
             xmin,
             xmax,
             initial_samples,
-            true,
             &mut sampler,
         ))
     }
@@ -433,7 +472,7 @@ fn sample_cas_series(
     expr: &Value,
     opts: &PlotOptions,
     xlim: Option<(f64, f64)>,
-) -> WqResult<Vec<(f64, f64)>> {
+) -> WqResult<SampledSeries<f64>> {
     let (xmin, xmax) = xlim.or(opts.xlim).unwrap_or((-10.0, 10.0));
     let initial_samples = opts.samples.unwrap_or(opts.width).max(2);
 
@@ -445,8 +484,8 @@ fn sample_cas_series(
                 .map_err(|e| e.src(BE::Asciiplot))
                 .ok()
         };
-        let raw = sample_with_adaptive(xmin, xmax, initial_samples, true, &mut sampler);
-        Ok(transform_complex_plane(&raw))
+        let raw = sample_with_segments(xmin, xmax, initial_samples, &mut sampler);
+        Ok(transform_complex_plane(raw))
     } else {
         let mut sampler = |x: f64| -> Option<f64> {
             let y = substitute_cas(expr, &var, &Value::float(x))
@@ -454,71 +493,148 @@ fn sample_cas_series(
                 .ok()?;
             extract_numeric_component(&y, &opts.complex_mode)
         };
-        Ok(sample_with_adaptive(
+        Ok(sample_real_with_segments(
             xmin,
             xmax,
             initial_samples,
-            true,
             &mut sampler,
         ))
     }
 }
 
-fn sample_with_adaptive<T, F>(
+fn sample_with_segments<T, F>(
     xmin: f64,
     xmax: f64,
     initial_samples: usize,
-    adaptive: bool,
     sampler: &mut F,
-) -> Vec<(f64, T)>
+) -> SampledSeries<T>
 where
-    T: Clone,
     F: FnMut(f64) -> Option<T>,
 {
-    let step = if initial_samples > 1 {
-        (xmax - xmin) / (initial_samples.saturating_sub(1)) as f64
+    sampled_from_raw_samples(collect_samples(xmin, xmax, initial_samples, sampler), &[])
+}
+
+fn sample_real_with_segments<F>(
+    xmin: f64,
+    xmax: f64,
+    initial_samples: usize,
+    sampler: &mut F,
+) -> SampledSeries<f64>
+where
+    F: FnMut(f64) -> Option<f64>,
+{
+    let samples = collect_samples(xmin, xmax, initial_samples, sampler);
+    let breaks = real_discontinuity_breaks(&samples);
+    sampled_from_raw_samples(samples, &breaks)
+}
+
+fn collect_samples<T, F>(
+    xmin: f64,
+    xmax: f64,
+    initial_samples: usize,
+    sampler: &mut F,
+) -> Vec<(f64, Option<T>)>
+where
+    F: FnMut(f64) -> Option<T>,
+{
+    let count = initial_samples.max(1);
+    let step = if count > 1 {
+        (xmax - xmin) / (count.saturating_sub(1)) as f64
     } else {
         0.0
     };
 
-    let mut points = Vec::with_capacity(initial_samples);
-    for i in 0..initial_samples {
+    let mut samples = Vec::with_capacity(count);
+    for i in 0..count {
         let x = xmin + step * i as f64;
-        if let Some(y) = sampler(x) {
-            points.push((x, y));
+        samples.push((x, sampler(x)));
+    }
+    samples
+}
+
+fn sampled_from_raw_samples<T>(
+    samples: Vec<(f64, Option<T>)>,
+    break_after_raw: &[bool],
+) -> SampledSeries<T> {
+    let mut out = SampledSeries::new();
+    let mut break_before_next_finite = false;
+    for (idx, (x, y)) in samples.into_iter().enumerate() {
+        if let Some(y) = y {
+            out.push((x, y), break_before_next_finite);
+            break_before_next_finite = false;
+        } else {
+            break_before_next_finite = true;
+        }
+        if break_after_raw.get(idx).copied().unwrap_or(false) {
+            break_before_next_finite = true;
+        }
+    }
+    out
+}
+
+fn real_discontinuity_breaks(samples: &[(f64, Option<f64>)]) -> Vec<bool> {
+    let mut deltas = vec![None; samples.len().saturating_sub(1)];
+    let mut finite_deltas = Vec::new();
+    let mut max_abs_y = 0.0_f64;
+
+    for &(_, y) in samples {
+        if let Some(y) = y
+            && y.is_finite()
+        {
+            max_abs_y = max_abs_y.max(y.abs());
         }
     }
 
-    if !adaptive || points.len() < 2 || step <= 0.0 {
-        return points;
-    }
-
-    let max_total = initial_samples * 2;
-    let mut result = Vec::with_capacity(points.len());
-    result.push(points[0].clone());
-
-    for i in 1..points.len() {
-        let gap = points[i].0 - points[i - 1].0;
-
-        if gap > 3.0 * step && result.len() + 3 <= max_total {
-            for j in 1..=3 {
-                let x = points[i - 1].0 + gap * j as f64 / 4.0;
-                if let Some(y) = sampler(x) {
-                    result.push((x, y));
-                    if result.len() >= max_total {
-                        break;
-                    }
-                }
+    for idx in 0..samples.len().saturating_sub(1) {
+        if let (Some(y0), Some(y1)) = (samples[idx].1, samples[idx + 1].1) {
+            let delta = (y1 - y0).abs();
+            if delta.is_finite() {
+                deltas[idx] = Some(delta);
+                finite_deltas.push(delta);
             }
         }
-        if result.len() < max_total {
-            result.push(points[i].clone());
-        } else {
-            break;
+    }
+
+    let typical = median(&mut finite_deltas).unwrap_or(0.0);
+    let epsilon = typical.max(max_abs_y * 1e-12).max(1e-12);
+    let mut breaks = vec![false; samples.len().saturating_sub(1)];
+
+    for idx in 0..deltas.len() {
+        let Some(delta) = deltas[idx] else {
+            continue;
+        };
+        if delta <= epsilon {
+            continue;
+        }
+
+        let left = idx
+            .checked_sub(1)
+            .and_then(|left_idx| deltas[left_idx])
+            .unwrap_or(0.0);
+        let right = deltas.get(idx + 1).and_then(|d| *d).unwrap_or(0.0);
+        let local = left.max(right).max(epsilon);
+        let (Some(y0), Some(y1)) = (samples[idx].1, samples[idx + 1].1) else {
+            continue;
+        };
+        let sign_flip = (y0 < 0.0 && y1 > 0.0) || (y0 > 0.0 && y1 < 0.0);
+        let much_larger_than_typical = delta > epsilon * 20.0;
+        let isolated_jump = delta > local * 8.0;
+        let sign_flip_jump = sign_flip && delta > epsilon * 2.5 && delta > local * 1.2;
+
+        if (much_larger_than_typical && isolated_jump) || sign_flip_jump {
+            breaks[idx] = true;
         }
     }
 
-    result
+    breaks
+}
+
+fn median(values: &mut [f64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_by(f64::total_cmp);
+    Some(values[values.len() / 2])
 }
 
 fn expect_real_sample(value: &Value) -> Option<f64> {
@@ -557,13 +673,39 @@ fn extract_numeric_component(value: &Value, mode: &str) -> Option<f64> {
     }
 }
 
-fn transform_complex_plane(raw: &[(f64, Value)]) -> Vec<(f64, f64)> {
-    raw.iter()
-        .filter_map(|(_x, v)| {
-            let z = v.as_complex64()?;
-            Some((z.re, z.im))
-        })
-        .collect()
+fn transform_complex_plane(raw: SampledSeries<Value>) -> SampledSeries<f64> {
+    filter_map_sampled(raw, |_x, v| {
+        let z = v.as_complex64()?;
+        Some((z.re, z.im))
+    })
+}
+
+fn filter_map_sampled<T, U, F>(raw: SampledSeries<T>, mut f: F) -> SampledSeries<U>
+where
+    F: FnMut(f64, T) -> Option<(f64, U)>,
+{
+    let SampledSeries {
+        points,
+        breaks_after,
+    } = raw;
+    let mut out = SampledSeries::new();
+    let mut break_idx = 0;
+    let mut break_before_next = false;
+
+    for (idx, (x, value)) in points.into_iter().enumerate() {
+        if let Some(mapped) = f(x, value) {
+            out.push(mapped, break_before_next);
+            break_before_next = false;
+        } else {
+            break_before_next = true;
+        }
+        if breaks_after.get(break_idx).copied() == Some(idx) {
+            break_before_next = true;
+            break_idx += 1;
+        }
+    }
+
+    out
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -629,6 +771,7 @@ struct PlotOptions {
     theme: Option<String>,
     complex_mode: String,
     ascii: bool,
+    tick_labels: bool,
     title: Option<String>,
     xlabel: Option<String>,
     ylabel: Option<String>,
@@ -680,6 +823,7 @@ impl Default for PlotOptions {
             theme: None,
             complex_mode: "re".to_string(),
             ascii: false,
+            tick_labels: false,
             title: None,
             xlabel: None,
             ylabel: None,
@@ -811,6 +955,9 @@ impl PlotOptions {
         }
         if let Some(Value::Bool(b)) = args.named("ascii") {
             self.ascii = *b;
+        }
+        if let Some(Value::Bool(b)) = args.named("ticklabels") {
+            self.tick_labels = *b;
         }
         if let Some(v) = args.named("title")
             && let Ok(s) = v.to_rust_string_with_note()
@@ -947,8 +1094,8 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
         GridMode::Density(x, y) => (*x, *y),
     };
     if gx > 0 && gy > 0 {
-        let xticks = nice_ticks(xmin, xmax, gx);
-        let yticks = nice_ticks(ymin, ymax, gy);
+        let xticks = ticks_in_range(xmin, xmax, gx);
+        let yticks = ticks_in_range(ymin, ymax, gy);
         let grid_color = Some(Color::BrightBlack);
         let ch_h = if opts.ascii { '.' } else { '┈' };
         let ch_v = if opts.ascii { ':' } else { '┊' };
@@ -1073,8 +1220,8 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
             }
             // Tick marks
             let tick_count = 5usize;
-            let xticks = nice_ticks(xmin, xmax, tick_count);
-            let yticks = nice_ticks(ymin, ymax, tick_count);
+            let xticks = ticks_in_range(xmin, xmax, tick_count);
+            let yticks = ticks_in_range(ymin, ymax, tick_count);
             for xv in &xticks {
                 let t = (*xv - xmin) / xspan;
                 let col = (t * (width as f64 - 1.0)).round() as isize;
@@ -1137,13 +1284,15 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
         }
         match mode {
             PlotMode::Line => {
-                for w in pts.windows(2) {
+                for (idx, w) in pts.windows(2).enumerate() {
+                    if plot_series.breaks_after.contains(&idx) {
+                        continue;
+                    }
                     let (x0, y0) = w[0];
                     let (x1, y1) = w[1];
                     plot_line(&mut grid, x0, y0, x1, y1, symbol, color);
                 }
-                if pts.len() == 1 {
-                    let (x, y) = pts[0];
+                for &(x, y) in &pts {
                     set_cell_layer(
                         &mut grid,
                         x,
@@ -1169,7 +1318,10 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
                 }
             }
             PlotMode::Step => {
-                for w in pts.windows(2) {
+                for (idx, w) in pts.windows(2).enumerate() {
+                    if plot_series.breaks_after.contains(&idx) {
+                        continue;
+                    }
                     let (x0, y0) = w[0];
                     let (x1, y1) = w[1];
                     // horizontal, then vertical
@@ -1205,7 +1357,10 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
                 } else {
                     height as isize - 1
                 };
-                for w in pts.windows(2) {
+                for (idx, w) in pts.windows(2).enumerate() {
+                    if plot_series.breaks_after.contains(&idx) {
+                        continue;
+                    }
                     let (x0, y0) = w[0];
                     let (x1, y1) = w[1];
                     let line = rasterize_line(x0, y0, x1, y1);
@@ -1244,13 +1399,31 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
             }
         }
     }
-    // Convert grid to string, with y labels at the end of first and last rows
+    // Convert grid to string, with optional interior tick labels.
     let mut out = String::new();
     let ylabel_width = opts.ylabel.as_ref().map_or(0, |yl| yl.len() + 1);
+    let label_tick_x = if gx > 0 { gx } else { 5 };
+    let label_tick_y = if gy > 0 { gy } else { 5 };
+    let y_tick_rows = if opts.tick_labels {
+        y_tick_label_rows(height, ymin, ymax, yspan, label_tick_y)
+    } else {
+        vec![None; height]
+    };
+    let y_tick_width = y_tick_rows
+        .iter()
+        .filter_map(|label| label.as_ref().map(String::len))
+        .max()
+        .unwrap_or(0);
+    let y_tick_prefix_width = if y_tick_width > 0 {
+        y_tick_width + 1
+    } else {
+        0
+    };
+    let left_label_width = ylabel_width + y_tick_prefix_width;
     // Title
     if let Some(ref title) = opts.title {
         let tw = width.max(title.len());
-        let pad = tw.saturating_sub(title.len()) / 2 + ylabel_width;
+        let pad = tw.saturating_sub(title.len()) / 2 + left_label_width;
         out.push_str(&" ".repeat(pad));
         out.push_str(title);
         out.push('\n');
@@ -1266,14 +1439,21 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
         } else {
             line.push_str(&" ".repeat(ylabel_width));
         }
+        if y_tick_width > 0 {
+            if let Some(label) = &y_tick_rows[i] {
+                line.push_str(&format!("{label:>y_tick_width$} "));
+            } else {
+                line.push_str(&" ".repeat(y_tick_prefix_width));
+            }
+        }
         for cell in row {
             line.push_str(&paint_char(cell.ch, cell.color));
         }
-        if i == 0 {
+        if !opts.tick_labels && i == 0 {
             line.push(' ');
             line.push_str(&format_number(ymax));
         }
-        if i + 1 == height {
+        if !opts.tick_labels && i + 1 == height {
             line.push(' ');
             line.push_str(&format_number(ymin));
         }
@@ -1285,23 +1465,27 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
     let left = format_number(xmin);
     let right = format_number(xmax);
     let mut xline = String::new();
-    xline.push_str(&" ".repeat(ylabel_width));
-    xline.push_str(&left);
-    if width > left.len() + right.len() {
-        let spaces = width - left.len() - right.len();
-        for _ in 0..spaces {
+    xline.push_str(&" ".repeat(left_label_width));
+    if opts.tick_labels {
+        xline.push_str(&x_tick_label_line(width, xmin, xmax, xspan, label_tick_x));
+    } else {
+        xline.push_str(&left);
+        if width > left.len() + right.len() {
+            let spaces = width - left.len() - right.len();
+            for _ in 0..spaces {
+                xline.push(' ');
+            }
+        } else {
             xline.push(' ');
         }
-    } else {
-        xline.push(' ');
+        xline.push_str(&right);
     }
-    xline.push_str(&right);
     out.push_str(&xline);
     out.push('\n');
     // xlabel
     if let Some(ref xlabel) = opts.xlabel {
         let tw = width.max(xlabel.len());
-        let pad = tw.saturating_sub(xlabel.len()) / 2 + ylabel_width;
+        let pad = tw.saturating_sub(xlabel.len()) / 2 + left_label_width;
         out.push_str(&" ".repeat(pad));
         out.push_str(xlabel);
         out.push('\n');
@@ -1351,6 +1535,109 @@ fn format_number(v: f64) -> String {
     } else {
         format!("{:.3}", v)
     }
+}
+
+fn ticks_in_range(minv: f64, maxv: f64, target: usize) -> Vec<f64> {
+    let lo = minv.min(maxv);
+    let hi = minv.max(maxv);
+    let eps = ((hi - lo).abs() * 1e-9).max(1e-12);
+    nice_ticks(minv, maxv, target)
+        .into_iter()
+        .filter(|tick| *tick >= lo - eps && *tick <= hi + eps)
+        .collect()
+}
+
+fn tick_label_values(minv: f64, maxv: f64, target: usize) -> Vec<f64> {
+    let lo = minv.min(maxv);
+    let hi = minv.max(maxv);
+    let eps = ((hi - lo).abs() * 1e-9).max(1e-12);
+    let mut values = Vec::new();
+    values.push(minv);
+    for tick in ticks_in_range(minv, maxv, target) {
+        if (tick - minv).abs() > eps && (tick - maxv).abs() > eps {
+            values.push(tick);
+        }
+    }
+    values.push(maxv);
+    values.sort_by(f64::total_cmp);
+    values.dedup_by(|a, b| (*a - *b).abs() <= eps);
+    if minv > maxv {
+        values.reverse();
+    }
+    values.retain(|value| *value >= lo - eps && *value <= hi + eps);
+    values
+}
+
+fn x_tick_label_line(width: usize, xmin: f64, xmax: f64, xspan: f64, target: usize) -> String {
+    let labels: Vec<(usize, String)> = tick_label_values(xmin, xmax, target)
+        .into_iter()
+        .map(|value| {
+            let t = (value - xmin) / xspan;
+            let col = (t * (width as f64 - 1.0)).round() as isize;
+            let col = min(width as isize - 1, max(0, col)) as usize;
+            (col, format_number(value))
+        })
+        .collect();
+    render_positioned_labels(width, &labels)
+}
+
+fn y_tick_label_rows(
+    height: usize,
+    ymin: f64,
+    ymax: f64,
+    yspan: f64,
+    target: usize,
+) -> Vec<Option<String>> {
+    let mut rows = vec![None; height];
+    for value in tick_label_values(ymin, ymax, target) {
+        let t = (value - ymin) / yspan;
+        let row = ((height as f64 - 1.0) - t * (height as f64 - 1.0)).round() as isize;
+        let row = min(height as isize - 1, max(0, row)) as usize;
+        let label = format_number(value);
+        if rows[row]
+            .as_ref()
+            .map(|current: &String| label.len() > current.len())
+            .unwrap_or(true)
+        {
+            rows[row] = Some(label);
+        }
+    }
+    rows
+}
+
+fn render_positioned_labels(width: usize, labels: &[(usize, String)]) -> String {
+    let mut chars = vec![' '; width];
+    let mut last_end = None;
+
+    for (idx, (col, label)) in labels.iter().enumerate() {
+        let len = label.chars().count();
+        if len == 0 || len > width {
+            continue;
+        }
+        let mut start = if idx == 0 {
+            0
+        } else if idx + 1 == labels.len() {
+            width - len
+        } else {
+            col.saturating_sub(len / 2).min(width - len)
+        };
+
+        if let Some(end) = last_end
+            && start <= end
+        {
+            start = end + 1;
+        }
+        if start + len > width {
+            continue;
+        }
+
+        for (offset, ch) in label.chars().enumerate() {
+            chars[start + offset] = ch;
+        }
+        last_end = Some(start + len - 1);
+    }
+
+    chars.into_iter().collect()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1571,7 +1858,7 @@ mod tests {
 
     fn assert_raw_points(config: &SeriesConfig, expected: &[(f64, f64)]) {
         match &config.data {
-            SeriesData::Raw(points) => assert_eq!(points.as_slice(), expected),
+            SeriesData::Raw(series) => assert_eq!(series.points.as_slice(), expected),
             SeriesData::Callable(_) | SeriesData::Cas(_) => {
                 panic!("expected table-shaped data to produce raw points")
             }
@@ -1587,7 +1874,8 @@ mod tests {
             ..PlotOptions::default()
         };
         let series = sample_cas_series(&expr, &opts, None).unwrap();
-        assert_eq!(series, vec![(0.0, 0.0), (1.0, 1.0), (2.0, 4.0)]);
+        assert_eq!(series.points, vec![(0.0, 0.0), (1.0, 1.0), (2.0, 4.0)]);
+        assert!(series.breaks_after.is_empty());
     }
 
     #[test]
@@ -1605,7 +1893,8 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(series, vec![(-1.0, 1.0), (0.0, 0.0), (1.0, 1.0)]);
+        assert_eq!(series.points, vec![(-1.0, 1.0), (0.0, 0.0), (1.0, 1.0)]);
+        assert!(series.breaks_after.is_empty());
     }
 
     #[test]
@@ -1705,12 +1994,14 @@ mod tests {
         let series = vec![
             PlotSeries {
                 points: vec![(0.0, 0.0)],
+                breaks_after: Vec::new(),
                 symbol: Some('s'),
                 mode: None,
                 label: Some("sine".to_string()),
             },
             PlotSeries {
                 points: vec![(1.0, 1.0)],
+                breaks_after: Vec::new(),
                 symbol: Some('c'),
                 mode: None,
                 label: Some("cosine".to_string()),
@@ -1738,6 +2029,7 @@ mod tests {
         };
         let series = vec![PlotSeries {
             points: vec![(0.0, 0.0), (1.0, 2.0), (2.0, 0.0)],
+            breaks_after: Vec::new(),
             symbol: Some('*'),
             mode: Some(PlotMode::Scatter),
             label: None,
@@ -1766,8 +2058,8 @@ mod tests {
         )
         .unwrap();
         // Only non-negative x values (0, 1, 2) should produce valid points
-        assert!(!series.is_empty());
-        for (x, _y) in &series {
+        assert!(!series.points.is_empty());
+        for (x, _y) in &series.points {
             assert!(*x >= 0.0);
         }
     }
@@ -1781,17 +2073,14 @@ mod tests {
             ..PlotOptions::default()
         };
         let series = sample_cas_series(&expr, &opts, None).unwrap();
-        assert!(!series.is_empty());
-        for (x, _y) in &series {
+        assert!(!series.points.is_empty());
+        for (x, _y) in &series.points {
             assert!(*x >= 0.0);
         }
     }
 
     #[test]
-    fn adaptive_sampling_refines_gaps() {
-        // A function that is valid everywhere but has a sharp jump at x=0
-        // We'll use abs(x) which is smooth, but we can test the adaptive logic
-        // by checking that more points are generated when adaptive is on.
+    fn sample_callable_series_keeps_smooth_series_continuous() {
         let opts = PlotOptions {
             width: 5,
             xlim: Some((-1.0, 1.0)),
@@ -1805,9 +2094,101 @@ mod tests {
             None,
         )
         .unwrap();
-        // With width=5, initial_samples=5, max_total=10.
-        // abs is valid everywhere, so adaptive may or may not trigger.
-        // Just ensure it doesn't panic and returns valid data.
-        assert!(!series.is_empty());
+        assert!(!series.points.is_empty());
+        assert!(series.breaks_after.is_empty());
+    }
+
+    #[test]
+    fn sampler_breaks_across_invalid_gap() {
+        let mut sampler = |x: f64| if x == 0.0 { None } else { Some(1.0 / x) };
+
+        let series = sample_real_with_segments(-1.0, 1.0, 3, &mut sampler);
+
+        assert_eq!(series.points, vec![(-1.0, -1.0), (1.0, 1.0)]);
+        assert_eq!(series.breaks_after, vec![0]);
+    }
+
+    #[test]
+    fn sampler_breaks_across_finite_asymptote_jump() {
+        let mut sampler = |x: f64| Some(1.0 / x);
+
+        let series = sample_real_with_segments(-1.0, 1.0, 4, &mut sampler);
+
+        assert_eq!(series.breaks_after, vec![1]);
+    }
+
+    #[test]
+    fn sampler_breaks_across_isolated_jump() {
+        let mut sampler = |x: f64| Some(if x < 0.0 { 0.0 } else { 10.0 });
+
+        let series = sample_real_with_segments(-1.0, 1.0, 5, &mut sampler);
+
+        assert_eq!(
+            series.points,
+            vec![(-1.0, 0.0), (-0.5, 0.0), (0.0, 10.0), (0.5, 10.0), (1.0, 10.0)]
+        );
+        assert_eq!(series.breaks_after, vec![1]);
+    }
+
+    #[test]
+    fn render_line_honors_segment_breaks() {
+        let opts = PlotOptions {
+            width: 5,
+            height: 5,
+            xlim: Some((0.0, 1.0)),
+            ylim: Some((0.0, 4.0)),
+            symbols: vec!['*'],
+            axes: AxesMode::Off,
+            color: ColorMode::Off,
+            ..PlotOptions::default()
+        };
+        let series = vec![PlotSeries {
+            points: vec![(0.0, 0.0), (1.0, 4.0)],
+            breaks_after: vec![0],
+            symbol: Some('*'),
+            mode: None,
+            label: None,
+        }];
+
+        let rendered = render_ascii_plot(&series, &opts);
+        let plotted_points = rendered.chars().filter(|&ch| ch == '*').count();
+
+        assert_eq!(plotted_points, 2);
+    }
+
+    #[test]
+    fn render_ticklabels_adds_interior_x_and_y_labels() {
+        let opts = PlotOptions {
+            width: 21,
+            height: 7,
+            xlim: Some((0.0, 4.0)),
+            ylim: Some((0.0, 4.0)),
+            grid: GridMode::Density(4, 4),
+            tick_labels: true,
+            axes: AxesMode::Full,
+            ascii: true,
+            color: ColorMode::Off,
+            ..PlotOptions::default()
+        };
+        let series = vec![PlotSeries {
+            points: vec![(2.0, 2.0)],
+            breaks_after: Vec::new(),
+            symbol: Some('*'),
+            mode: Some(PlotMode::Scatter),
+            label: None,
+        }];
+
+        let rendered = render_ascii_plot(&series, &opts);
+        let lines: Vec<&str> = rendered.lines().collect();
+        let x_labels = lines[opts.height];
+
+        assert!(x_labels.contains('1'));
+        assert!(x_labels.contains('2'));
+        assert!(x_labels.contains('3'));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.trim_start().starts_with("2 "))
+        );
     }
 }
