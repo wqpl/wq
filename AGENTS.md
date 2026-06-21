@@ -66,6 +66,7 @@
   - Prefer `pub(crate)` over `pub`.
   - Avoid `pub` if it is not intended to be public API.
 - If you touched Python code, run ruff.
+- If you are using Playwright but chrome isn't available, use webkit.
 - Use these newer Rust features when they improve code style:
 
 | Feature         | Stabilized in | Release date | Notes                                                                                                 |
