@@ -3206,7 +3206,7 @@ impl Parser {
     /// `!` is treated as a separator when it is at brace-depth 0.
     /// wq does not use `!` as an operator (`~=` is not-equal), so there is no
     /// ambiguity to resolve.
-    fn split_expr_and_format_spec(inner: &str) -> (&str, Option<&str>) {
+    pub(crate) fn split_expr_and_format_spec(inner: &str) -> (&str, Option<&str>) {
         let mut depth = 0i32;
         let mut in_str = false;
         let mut prev_escape = false;
@@ -3243,6 +3243,47 @@ impl Parser {
         (inner, None)
     }
 
+    pub(crate) fn matching_fstring_brace(source: &str, open: usize) -> Option<usize> {
+        if !source.is_char_boundary(open) || !source[open..].starts_with('{') {
+            return None;
+        }
+
+        let mut depth = 1usize;
+        let mut i = open + '{'.len_utf8();
+        let mut in_string = false;
+        let mut escaped = false;
+
+        while i < source.len() {
+            let c = source[i..].chars().next().expect("i is inside source");
+            if in_string {
+                if c == '\\' && !escaped {
+                    escaped = true;
+                } else if c == '"' && !escaped {
+                    in_string = false;
+                    escaped = false;
+                } else {
+                    escaped = false;
+                }
+                i += c.len_utf8();
+                continue;
+            }
+
+            match c {
+                '"' => in_string = true,
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(i);
+                    }
+                }
+                _ => {}
+            }
+            i += c.len_utf8();
+        }
+        None
+    }
+
     /// Scan a format-spec string for `{expr}` dynamic width/precision
     /// placeholders. Each one is parsed into an AstNode and replaced with `{}`
     /// in the returned encoded spec.
@@ -3258,24 +3299,11 @@ impl Parser {
         while i < spec_str.len() {
             let c = spec_str[i..].chars().next().unwrap();
             if c == '{' {
-                let mut depth = 1;
-                let mut j = i + c.len_utf8();
-                while j < spec_str.len() && depth > 0 {
-                    let c2 = spec_str[j..].chars().next().unwrap();
-                    match c2 {
-                        '{' => depth += 1,
-                        '}' => depth -= 1,
-                        _ => {}
-                    }
-                    if depth > 0 {
-                        j += c2.len_utf8();
-                    }
-                }
-                if depth != 0 {
+                let Some(j) = Self::matching_fstring_brace(spec_str, i) else {
                     return Err(
                         WqError::new(WqErrorType::Syntax).msg("unmatched '{' in format spec")
                     );
-                }
+                };
 
                 let inner_start = i + c.len_utf8();
                 let inner = &spec_str[inner_start..j];
@@ -4171,6 +4199,47 @@ mod fstring_span_tests {
             panic!("expected Variable for width, got {:?}", spec_exprs[0]);
         };
         assert_eq!(w_name, "width");
+    }
+
+    #[test]
+    fn fstring_dynamic_spec_expr_allows_quoted_brace() {
+        let src = r##"@f"{value!>{"}"}}""##;
+        let mut lex = Lexer::new(src);
+        let tokens = lex.tokenize().unwrap();
+        let mut p = Parser::new(tokens, src.to_string());
+        let ast = p.parse().unwrap();
+
+        let AstNode::FString { parts, .. } = ast else {
+            panic!("expected FString, got {ast:?}");
+        };
+        assert_eq!(parts.len(), 1);
+        let (spec, encoded_spec, spec_exprs) = match &parts[0] {
+            crate::astnode::FStringPart::Expr {
+                spec,
+                encoded_spec,
+                spec_exprs,
+                ..
+            } => (spec, encoded_spec, spec_exprs),
+            other => panic!("expected Expr part, got {other:?}"),
+        };
+
+        assert_eq!(spec.as_deref(), Some(r#">{"}"}"#));
+        assert_eq!(encoded_spec.as_deref(), Some(">{}"));
+        assert_eq!(spec_exprs.len(), 1);
+        assert!(matches!(spec_exprs[0], AstNode::Literal(..)));
+    }
+
+    #[test]
+    fn fstring_format_spec_unmatched_dynamic_brace_still_errors() {
+        let parser = Parser::new(Vec::new(), String::new());
+        let err = parser
+            .encode_format_spec(">{x", 0)
+            .expect_err("unmatched dynamic spec brace should fail");
+
+        assert!(
+            err.to_string().contains("unmatched '{' in format spec"),
+            "unexpected error: {err}"
+        );
     }
 }
 

@@ -29,19 +29,38 @@
 
 use super::FormatConfig;
 use super::doc::Doc;
+use super::render::render;
 use crate::cst::{SyntaxElement, SyntaxKind, SyntaxNode};
+use crate::lex::Lexer;
+use crate::parse::Parser;
+use crate::token::{FmtPart, TokenType};
 
 pub(super) fn lower(root: &SyntaxNode, config: &FormatConfig) -> Doc {
-    LowerCtx { config }.node(root)
+    LowerCtx {
+        config,
+        mode: LowerMode::Normal,
+    }
+    .node(root)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LowerMode {
+    Normal,
+    Inline,
 }
 
 struct LowerCtx<'a> {
     config: &'a FormatConfig,
+    mode: LowerMode,
 }
 
 impl<'a> LowerCtx<'a> {
     fn indent(&self) -> i32 {
         self.config.indent_size as i32
+    }
+
+    fn is_inline_like(&self) -> bool {
+        self.config.one_line_wizard || self.mode == LowerMode::Inline
     }
 
     /// Lower a sequence of statement-level children, attaching trivia
@@ -64,14 +83,16 @@ impl<'a> LowerCtx<'a> {
     ///   [`Doc::blank`].
     /// * `Whitespace` tokens are dropped (the formatter regenerates them).
     ///
-    /// In `one_line_wizard` mode the whole sequence collapses to a single
-    /// line; comments are dropped entirely in that mode since there is no
-    /// place to put them without breaking the one-line invariant.
+    /// In inline-like mode the whole sequence collapses to a single line;
+    /// comments are dropped entirely in that mode since there is no place to
+    /// put them without breaking the one-line invariant. Callers that need
+    /// comment-safe inline formatting must reject commented subtrees before
+    /// lowering.
     fn lower_stmt_sequence<I>(&self, iter: I) -> Doc
     where
         I: IntoIterator<Item = SyntaxElement>,
     {
-        if self.config.one_line_wizard {
+        if self.is_inline_like() {
             // In one-line mode trivia is dropped; just `;`-join statements.
             let stmts: Vec<Doc> = iter
                 .into_iter()
@@ -149,8 +170,9 @@ impl<'a> LowerCtx<'a> {
             | SyntaxKind::OuterVarExpr
             | SyntaxKind::EllipsisExpr
             | SyntaxKind::BreakExpr
-            | SyntaxKind::ContinueExpr
-            | SyntaxKind::FStringExpr => self.verbatim_concat(node),
+            | SyntaxKind::ContinueExpr => self.verbatim_concat(node),
+
+            SyntaxKind::FStringExpr => self.fstring(node),
 
             SyntaxKind::ParenExpr => self.paren(node),
             SyntaxKind::ListExpr => self.list_or_dict(node, /* dict = */ false),
@@ -232,6 +254,146 @@ impl<'a> LowerCtx<'a> {
             }
         }
         out
+    }
+
+    fn fstring(&self, node: &SyntaxNode) -> Doc {
+        let Some(text) = node.descendants_with_tokens().find_map(|elem| {
+            if let SyntaxElement::Token(t) = elem
+                && t.kind() == SyntaxKind::FString
+            {
+                Some(t.text().to_string())
+            } else {
+                None
+            }
+        }) else {
+            return self.verbatim_concat(node);
+        };
+
+        Doc::text(
+            self.format_fstring_token(&text)
+                .unwrap_or_else(|| text.to_string()),
+        )
+    }
+
+    fn format_fstring_token(&self, text: &str) -> Option<String> {
+        let mut lexer = Lexer::new(text);
+        let tokens = lexer.tokenize().ok()?;
+        let token = tokens
+            .into_iter()
+            .find(|token| !matches!(token.token_type, TokenType::Eof))?;
+        let TokenType::FormatString(parts, ..) = token.token_type else {
+            return None;
+        };
+
+        let mut out = String::new();
+        let mut cursor = 0;
+        for part in parts {
+            match part {
+                FmtPart::Text { end, .. } => {
+                    Self::push_checked_slice(&mut out, text, cursor, end)?;
+                    cursor = end;
+                }
+                FmtPart::Expr { source, start, end } => {
+                    Self::push_checked_slice(&mut out, text, cursor, start)?;
+                    out.push_str(
+                        &self
+                            .format_fstring_expr(&source)
+                            .unwrap_or_else(|| source.to_string()),
+                    );
+                    cursor = end;
+                }
+            }
+        }
+        Self::push_checked_slice(&mut out, text, cursor, text.len())?;
+        Some(out)
+    }
+
+    fn push_checked_slice(out: &mut String, text: &str, start: usize, end: usize) -> Option<()> {
+        if start > end
+            || end > text.len()
+            || !text.is_char_boundary(start)
+            || !text.is_char_boundary(end)
+        {
+            return None;
+        }
+        out.push_str(&text[start..end]);
+        Some(())
+    }
+
+    fn format_fstring_expr(&self, source: &str) -> Option<String> {
+        let inner = source.strip_prefix('{')?.strip_suffix('}')?;
+        let (expr, spec) = Parser::split_expr_and_format_spec(inner);
+        let formatted_expr = self.format_inline_expr(expr)?;
+        let Some(spec) = spec else {
+            return Some(format!("{{{formatted_expr}}}"));
+        };
+        Some(format!(
+            "{{{formatted_expr}!{}}}",
+            self.format_fstring_spec(spec)
+        ))
+    }
+
+    fn format_fstring_spec(&self, spec: &str) -> String {
+        let mut out = String::new();
+        let mut cursor = 0;
+        while cursor < spec.len() {
+            let c = spec[cursor..]
+                .chars()
+                .next()
+                .expect("cursor is inside spec");
+            if c != '{' {
+                out.push(c);
+                cursor += c.len_utf8();
+                continue;
+            }
+
+            let Some(close) = Parser::matching_fstring_brace(spec, cursor) else {
+                out.push_str(&spec[cursor..]);
+                break;
+            };
+            let inner_start = cursor + c.len_utf8();
+            let inner = &spec[inner_start..close];
+            if let Some(formatted) = self.format_inline_expr(inner) {
+                out.push('{');
+                out.push_str(&formatted);
+                out.push('}');
+            } else {
+                out.push_str(&spec[cursor..close + '}'.len_utf8()]);
+            }
+            cursor = close + '}'.len_utf8();
+        }
+        out
+    }
+
+    fn format_inline_expr(&self, source: &str) -> Option<String> {
+        let source = source.trim();
+        if source.is_empty() {
+            return None;
+        }
+
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize().ok()?;
+        let mut parser = Parser::new(tokens, source.to_string());
+        parser.enable_cst();
+        let _ast = parser.parse().ok()?;
+        let green = parser.take_cst()?;
+        let root = SyntaxNode::new_root(green);
+        if Self::contains_comment_or_error(&root) {
+            return None;
+        }
+        let doc = LowerCtx {
+            config: self.config,
+            mode: LowerMode::Inline,
+        }
+        .node(&root);
+        Some(render(&doc, usize::MAX))
+    }
+
+    fn contains_comment_or_error(node: &SyntaxNode) -> bool {
+        node.descendants_with_tokens().any(|elem| match elem {
+            SyntaxElement::Token(t) => t.kind() == SyntaxKind::Comment,
+            SyntaxElement::Node(n) => n.kind() == SyntaxKind::ErrorNode,
+        })
     }
 
     /// Concatenate non-trivia children tightly: token texts and lowered
@@ -704,7 +866,7 @@ impl<'a> LowerCtx<'a> {
             |e| matches!(e, SyntaxElement::Token(t) if matches!(t.kind(), SyntaxKind::Comment)),
         );
         let open = Doc::text(format!("{prefix}{{"));
-        if self.config.one_line_wizard {
+        if self.is_inline_like() {
             let body = self.lower_stmt_sequence(body_elems);
             return open + params + body + Doc::text("}");
         }
@@ -810,7 +972,7 @@ impl<'a> LowerCtx<'a> {
             return open + Doc::text("]");
         }
         let body = self.lower_stmt_sequence(body_elems);
-        if self.config.one_line_wizard {
+        if self.is_inline_like() {
             return open + body + Doc::text("]");
         }
         // The head (first statement) sits directly after `[`; subsequent
@@ -834,7 +996,7 @@ impl<'a> LowerCtx<'a> {
 
     fn at_keyword_expr(&self, node: &SyntaxNode) -> Doc {
         // CST shape: `@x` token (a single AtSomething), then a body node.
-        // Emit `@x` + " " + body (or `@x` + body in one_line_wizard mode).
+        // Emit `@x` + " " + body (or `@x` + body in inline-like mode).
         let mut keyword = Doc::nil();
         let mut body = Doc::nil();
         for elem in node.children_with_tokens() {
@@ -850,7 +1012,7 @@ impl<'a> LowerCtx<'a> {
         }
         if body.is_nil() {
             keyword
-        } else if self.config.one_line_wizard {
+        } else if self.is_inline_like() {
             keyword + body
         } else {
             keyword + Doc::text(" ") + body
@@ -882,6 +1044,40 @@ mod tests {
         assert_eq!(fmt("1", 80), "1");
         assert_eq!(fmt("foo", 80), "foo");
         assert_eq!(fmt("\"hi\"", 80), "\"hi\"");
+    }
+
+    #[test]
+    fn fstring_formats_interpolation_expr() {
+        assert_eq!(fmt(r#"@f"{ 1 + 2 }""#, 80), r#"@f"{1+2}""#);
+    }
+
+    #[test]
+    fn fstring_formats_dynamic_spec_expr() {
+        assert_eq!(
+            fmt(r#"@f"{ value !>{ width + 1 }}""#, 80),
+            r#"@f"{value!>{width+1}}""#
+        );
+    }
+
+    #[test]
+    fn fstring_formats_interpolation_control_form_inline() {
+        assert_eq!(fmt(r#"@f"{ $[x; 1; 0] }""#, 80), r#"@f"{$[x;1;0]}""#);
+    }
+
+    #[test]
+    fn fstring_preserves_commented_interpolation_verbatim() {
+        assert_eq!(
+            fmt(r#"@f"{1 /*inner*/ + 2}""#, 80),
+            r#"@f"{1 /*inner*/ + 2}""#
+        );
+    }
+
+    #[test]
+    fn fstring_formats_dynamic_spec_expr_with_quoted_brace() {
+        assert_eq!(
+            fmt(r##"@f"{value!>{"}"}}""##, 80),
+            r##"@f"{value!>{"}"}}""##
+        );
     }
 
     #[test]

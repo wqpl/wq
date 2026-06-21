@@ -37,8 +37,8 @@ pub(crate) fn escape_string_inner(s: &str, quote: char) -> String {
 ///
 /// Not currently called (the old AST-based formatter used it; the CST
 /// formatter pulls string text verbatim from the source). Kept as a public
-/// primitive because the f-string / interpolation re-formatter that lands
-/// in a later phase will want to re-quote dynamically produced strings.
+/// primitive for callers that need to synthesize quoted string literals
+/// without duplicating escape rules.
 #[allow(dead_code)]
 pub(crate) fn quote_string(s: &str, quote: char) -> String {
     let mut out = String::with_capacity(s.len() + 2);

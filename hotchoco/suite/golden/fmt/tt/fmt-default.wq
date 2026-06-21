@@ -162,7 +162,7 @@ print_ast:{[node;d;isleft]
   $.[d>0
     prefix:@f"{prefix}{$[isleft;"└";"├"]}---"]
   label:$$[node `op=OP_VAR
-    @f"VAR('{node`var}')"
+    @f"VAR('{node `var}')"
     node `op=OP_AND
     "AND(&)"
     node `op=OP_OR
