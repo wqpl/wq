@@ -252,6 +252,15 @@ impl<'a> LowerCtx<'a> {
         out
     }
 
+    fn contains_comment(node: &SyntaxNode) -> bool {
+        node.descendants_with_tokens().any(|elem| {
+            matches!(
+                elem,
+                SyntaxElement::Token(t) if t.kind() == SyntaxKind::Comment
+            )
+        })
+    }
+
     /// Same as [`Self::tight_concat`]. Kept distinct so binary lowering can
     /// later wrap in `Doc::group(...)` for width-aware breaking without
     /// affecting other tight concatenators.
@@ -259,9 +268,13 @@ impl<'a> LowerCtx<'a> {
         self.tight_concat(node)
     }
 
-    /// `(expr)`: emit literal parens around the inner expression. Comments
-    /// inside are preserved verbatim (TODO Phase 4G).
+    /// `(expr)`: emit literal parens around the inner expression. If the
+    /// parenthesized subtree contains a comment, keep that source verbatim so
+    /// expression-level trivia is not lost.
     fn paren(&self, node: &SyntaxNode) -> Doc {
+        if Self::contains_comment(node) {
+            return Doc::text(node.text());
+        }
         let inner = node
             .children()
             .next()
@@ -861,6 +874,11 @@ mod tests {
     #[test]
     fn paren_preserved() {
         assert_eq!(fmt("(1+2)*3", 80), "(1+2)*3");
+    }
+
+    #[test]
+    fn paren_preserves_inner_comment() {
+        assert_eq!(fmt("(1 /*inner*/ + 2)", 80), "(1 /*inner*/ + 2)");
     }
 
     #[test]
