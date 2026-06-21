@@ -192,7 +192,8 @@ window.initTutorialUI = function initTutorialUI() {
     actions.className = "code-actions";
 
     const btn = document.createElement("button");
-    btn.className = "copy-btn";
+    btn.className = "code-action-btn";
+    btn.dataset.action = "copy";
     btn.textContent = "Copy";
     actions.appendChild(btn);
     header.appendChild(actions);
@@ -200,7 +201,8 @@ window.initTutorialUI = function initTutorialUI() {
     if (lang === "wq" && !noRun) {
       const run = document.createElement("button");
       run.type = "button";
-      run.className = "copy-btn";
+      run.className = "code-action-btn";
+      run.dataset.action = "run";
       run.textContent = "Run";
       run.addEventListener("click", async () => {
         const code = pre.innerText || (codeEl ? codeEl.innerText : "");
