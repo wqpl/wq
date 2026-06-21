@@ -3033,7 +3033,7 @@ textarea.editor-text.repl-input,
   font-size: 12px;
   border: 0;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: 999px;
   cursor: pointer;
   background: #c9f5c9;
   border: 1px solid #b5e6b5;
