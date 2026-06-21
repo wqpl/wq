@@ -1,11 +1,18 @@
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
 use crate::builtins::BuiltinEnum;
 
-const SHOWTABLE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Print a one-row dict as a table",
-    code: "showtable (`name:`ada;`age:37)",
-    expectation: ExampleExpectation::NoRun("writes a table to stdout"),
-}];
+const SHOWTABLE_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Print a one-row dict as a table",
+        code: "showtable (`name:`ada;`age:37)",
+        expectation: ExampleExpectation::NoRun("writes a table to stdout"),
+    },
+    DocExample {
+        title: "Select columns, limit rows, and write Markdown",
+        code: "grades:(`name:(\"ada\";\"grace\";\"katherine\");`score:(97;99;98);`note:(\"compiler\";\"navy\";\"orbit\")); showtable[grades;`cols:(\"name\";\"score\");`limit:2;`style:\"markdown\"]",
+        expectation: ExampleExpectation::NoRun("writes a Markdown table to stdout"),
+    },
+];
 
 const ASCIIPLOT_EXAMPLES: &[DocExample] = &[
     DocExample {
@@ -23,7 +30,19 @@ const ASCIIPLOT_EXAMPLES: &[DocExample] = &[
 pub(super) const SHOWTABLE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Showtable,
     summary: "Print table-shaped values as aligned text.",
-    details: "`showtable[table]` accepts a dict of scalars, a list of dicts, a dict of lists, or a dict of dicts. Dict keys become column headers, dict-of-dicts outer keys become the `row` column, sparse rows are padded with empty cells, and the formatted table is written to stdout. Strings and char-only lists render as scalar cells; other lists in dict-of-lists inputs expand as columns. The result value is unit.",
+    details: concat!(
+        "`showtable[table;opts]` accepts a dict of scalars, a list of dicts, a dict of lists, ",
+        "or a dict of dicts. Dict keys become column headers, dict-of-dicts outer keys become ",
+        "the `row` column, sparse rows are padded with empty cells, and the formatted table is ",
+        "written to stdout. Strings and char-only lists render as scalar cells; other lists in ",
+        "dict-of-lists inputs expand as columns. Numeric columns are right-aligned using display ",
+        "width, so wide Unicode cells line up with narrow cells. Options are `cols`, `limit`, ",
+        "`width`, `style`, and `missing`. `cols` selects named columns in the given order and ",
+        "errors when a selected column is absent. `limit` prints the first N rows and appends an ",
+        "omitted-row footer when rows remain. `width` truncates each cell to N display columns. ",
+        "`missing` replaces sparse empty cells. `style` is `\"plain\"`, `\"markdown\"`, or `\"md\"`. ",
+        "The result value is unit."
+    ),
     examples: SHOWTABLE_EXAMPLES,
     related: &["asciiplot", "keys", "zip"],
 };

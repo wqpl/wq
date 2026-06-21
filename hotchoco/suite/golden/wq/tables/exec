@@ -1,17 +1,17 @@
 id name    age dept
-1  "Steve" 30  `HR
-2  "Alex"  25  `IT
-3  "Sunny" 27  `Sales
+ 1 "Steve"  30 `HR
+ 2 "Alex"   25 `IT
+ 3 "Sunny"  27 `Sales
 ================================
 name    math eng sci
-"Steve" 85   88  90
-"Alex"  90   93  89
-"Sunny" 78   82  85
+"Steve"   85  88  90
+"Alex"    90  93  89
+"Sunny"   78  82  85
 ================================
 row    price qty brand
-laptop 1200  10  "D"
-mouse  25    100 "L"
-desk   300   15  "I"
+laptop  1200  10 "D"
+mouse     25 100 "L"
+desk     300  15 "I"
 ================================
 id   cust   items
 1001 "A123" ((`p:"Pen";`q:2);(`p:"Notebook";`q:1))

@@ -417,6 +417,10 @@ const VIZ_HTML = html`
             <span class="viz-preset-title">Show table</span>
             <span class="viz-preset-meta">string cells</span>
           </button>
+          <button class="viz-preset" type="button" data-viz-preset="tableMap">
+            <span class="viz-preset-title">Math map</span>
+            <span class="viz-preset-meta">dict of dicts</span>
+          </button>
         </div>
       </section>
 
@@ -475,29 +479,49 @@ const VIZ_HTML = html`
                     <span data-viz-select-value>list of dicts</span>
                   </button>
                   <div class="viz-select-menu" role="listbox">
-                    <button type="button" role="option" data-viz-option="text">text cells</button>
-                    <button type="button" role="option" data-viz-option="list">list of dicts</button>
-                    <button type="button" role="option" data-viz-option="dict">dict of lists</button>
-                    <button type="button" role="option" data-viz-option="matrix">dict of dicts</button>
+                    <button type="button" role="option" data-viz-option="text">biology cells</button>
+                    <button type="button" role="option" data-viz-option="list">physics rows</button>
+                    <button type="button" role="option" data-viz-option="dict">chem columns</button>
+                    <button type="button" role="option" data-viz-option="matrix">math map</button>
                   </div>
                 </div>
-                <label class="viz-range">
+                <div class="viz-stepper" role="group" aria-label="Generated rows">
                   <span>Rows</span>
-                  <input type="range" min="3" max="8" value="5" data-viz-range="rows" />
-                  <strong data-viz-range-value="rows">5</strong>
-                </label>
+                  <button
+                    class="viz-stepper-btn"
+                    type="button"
+                    aria-label="Fewer rows"
+                    data-viz-step="rows"
+                    data-viz-step-delta="-1">-</button>
+                  <input type="number" min="1" max="8" value="5" data-viz-range="rows" />
+                  <button
+                    class="viz-stepper-btn"
+                    type="button"
+                    aria-label="More rows"
+                    data-viz-step="rows"
+                    data-viz-step-delta="1">+</button>
+                </div>
               </div>
             </div>
-            <label class="viz-text-field viz-text-field-tall viz-table-source" data-viz-table-source>
+            <label
+              class="viz-text-field viz-text-field-tall viz-table-source"
+              data-viz-table-source>
               <span>Table value</span>
-              <textarea rows="6" spellcheck="false" data-viz-input="sourceExpr"></textarea>
+              <textarea
+                class="editor-text"
+                rows="6"
+                spellcheck="false"
+                data-viz-input="sourceExpr"></textarea>
             </label>
           </section>
 
-          <details class="viz-code-panel">
-            <summary>Code</summary>
-            <pre><code data-viz-code></code></pre>
-          </details>
+          <div class="viz-code-panel-wrap">
+            <details class="viz-code-panel">
+              <summary>Code</summary>
+              <pre><code data-viz-code></code></pre>
+            </details>
+            <button class="viz-code-copy" type="button" data-viz-copy-code>Copy</button>
+          </div>
         </section>
 
         <aside class="viz-controls viz-style-panel" aria-label="Viz style controls">
@@ -696,6 +720,49 @@ const VIZ_HTML = html`
               <label class="viz-switch">
                 <input type="checkbox" data-viz-toggle="ascii" />
                 <span>ASCII</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="viz-control-group" data-viz-control-group="table">
+            <div class="viz-control-head">
+              <h2>Table Display</h2>
+            </div>
+            <div class="viz-control-grid">
+              <div class="viz-field" data-viz-select="tableStyle">
+                <label>Style</label>
+                <button
+                  class="viz-select-button"
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded="false">
+                  <span data-viz-select-value>plain</span>
+                </button>
+                <div class="viz-select-menu" role="listbox">
+                  <button type="button" role="option" data-viz-option="plain">plain</button>
+                  <button type="button" role="option" data-viz-option="markdown">markdown</button>
+                </div>
+              </div>
+              <label class="viz-text-field">
+                <span>Columns</span>
+                <input type="text" spellcheck="false" data-viz-input="tableColsText" />
+              </label>
+              <label class="viz-text-field">
+                <span>Limit</span>
+                <input type="text" inputmode="numeric" spellcheck="false" data-viz-input="tableLimitText" />
+              </label>
+              <label class="viz-text-field">
+                <span>Cell width</span>
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  spellcheck="false"
+                  placeholder="auto"
+                  data-viz-input="tableWidthText" />
+              </label>
+              <label class="viz-text-field">
+                <span>Missing</span>
+                <input type="text" spellcheck="false" data-viz-input="tableMissingText" />
               </label>
             </div>
           </section>

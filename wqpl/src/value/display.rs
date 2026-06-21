@@ -4,6 +4,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 use unicode_segmentation::UnicodeSegmentation as _;
+use unicode_width::UnicodeWidthChar as _;
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::astnode::binary_op_display;
@@ -174,23 +175,62 @@ pub(crate) fn into_wq_string<S: Into<String>>(s: S) -> Value {
     Value::String(Arc::new(s.into()))
 }
 
-pub fn format_table_value(val: &Value) -> Option<String> {
-    if val.is_atom() || val.is_empty() || matches!(val, Value::Complex(_) | Value::Cas(_)) {
-        return None;
-    }
-    if let Some((headers, rows)) = parse_list_of_dicts(val) {
-        return Some(format_table(&headers, &rows));
-    }
-    if let Some((headers, rows)) = parse_dict_of_dicts(val) {
-        return Some(format_table(&headers, &rows));
-    }
-    if let Some((headers, rows)) = parse_dict_table(val) {
-        return Some(format_table(&headers, &rows));
-    }
-    None
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TableStyle {
+    Plain,
+    Markdown,
 }
 
-fn parse_dict_table(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TableFormatOptions {
+    pub columns: Option<Vec<String>>,
+    pub limit: Option<usize>,
+    pub max_cell_width: Option<usize>,
+    pub missing: String,
+    pub style: TableStyle,
+}
+
+impl Default for TableFormatOptions {
+    fn default() -> Self {
+        Self {
+            columns: None,
+            limit: None,
+            max_cell_width: None,
+            missing: String::new(),
+            style: TableStyle::Plain,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TableData {
+    headers: Vec<String>,
+    rows: Vec<Vec<String>>,
+}
+
+pub fn format_table_value(val: &Value) -> Option<String> {
+    format_table_value_with_options(val, &TableFormatOptions::default())
+        .ok()
+        .flatten()
+}
+
+pub fn format_table_value_with_options(
+    val: &Value,
+    opts: &TableFormatOptions,
+) -> Result<Option<String>, String> {
+    if val.is_atom() || val.is_empty() || matches!(val, Value::Complex(_) | Value::Cas(_)) {
+        return Ok(None);
+    }
+    let table = parse_list_of_dicts(val)
+        .or_else(|| parse_dict_of_dicts(val))
+        .or_else(|| parse_dict_table(val));
+    table
+        .as_ref()
+        .map(|table| format_table(table, opts).map(Some))
+        .unwrap_or(Ok(None))
+}
+
+fn parse_dict_table(val: &Value) -> Option<TableData> {
     let Value::Dict(map) = val else {
         return None;
     };
@@ -218,7 +258,7 @@ fn is_char_list(items: &[Value]) -> bool {
     !items.is_empty() && items.iter().all(|item| matches!(item, Value::Char(_)))
 }
 
-fn parse_list_of_dicts(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
+fn parse_list_of_dicts(val: &Value) -> Option<TableData> {
     if let Value::List(rows) = val
         && rows
             .iter()
@@ -248,12 +288,15 @@ fn parse_list_of_dicts(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
                 data.push(r);
             }
         }
-        return Some((headers, data));
+        return Some(TableData {
+            headers,
+            rows: data,
+        });
     }
     None
 }
 
-fn parse_dict_of_lists(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
+fn parse_dict_of_lists(val: &Value) -> Option<TableData> {
     if let Value::Dict(map) = val
         && map.values().all(is_table_column_value)
     {
@@ -295,12 +338,15 @@ fn parse_dict_of_lists(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
             }
             data.push(row);
         }
-        return Some((headers, data));
+        return Some(TableData {
+            headers,
+            rows: data,
+        });
     }
     None
 }
 
-fn parse_dict_of_dicts(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
+fn parse_dict_of_dicts(val: &Value) -> Option<TableData> {
     if let Value::Dict(map) = val
         && map
             .values()
@@ -339,20 +385,109 @@ fn parse_dict_of_dicts(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
             }
             data.push(row);
         }
-        return Some((headers, data));
+        return Some(TableData {
+            headers,
+            rows: data,
+        });
     }
     None
 }
 
-fn format_table(headers: &[String], rows: &[Vec<String>]) -> String {
-    let mut table = Vec::new();
-    if !headers.is_empty() {
-        table.push(headers.to_vec());
+fn format_table(table: &TableData, opts: &TableFormatOptions) -> Result<String, String> {
+    let prepared = prepare_table(table, opts)?;
+    Ok(match opts.style {
+        TableStyle::Plain => format_plain_table(&prepared),
+        TableStyle::Markdown => format_markdown_table(&prepared),
+    })
+}
+
+struct PreparedTable {
+    headers: Vec<String>,
+    rows: Vec<Vec<String>>,
+    numeric_columns: Vec<bool>,
+    omitted_rows: usize,
+}
+
+fn prepare_table(table: &TableData, opts: &TableFormatOptions) -> Result<PreparedTable, String> {
+    let indices = if let Some(columns) = &opts.columns {
+        let mut indices = Vec::with_capacity(columns.len());
+        for name in columns {
+            let Some(idx) = table.headers.iter().position(|header| header == name) else {
+                return Err(format!("table column `{name}` was not found"));
+            };
+            indices.push(idx);
+        }
+        indices
+    } else {
+        (0..table.headers.len()).collect()
+    };
+
+    let mut headers = Vec::with_capacity(indices.len());
+    for idx in &indices {
+        headers.push(format_table_cell(&table.headers[*idx], opts));
     }
-    table.extend_from_slice(rows);
-    let ncols = table.iter().map(|r| r.len()).max().unwrap_or(0);
+
+    let row_limit = opts.limit.unwrap_or(table.rows.len()).min(table.rows.len());
+    let omitted_rows = table.rows.len().saturating_sub(row_limit);
+    let mut rows = Vec::with_capacity(row_limit);
+    for source_row in table.rows.iter().take(row_limit) {
+        let mut row = Vec::with_capacity(indices.len());
+        for idx in &indices {
+            let raw = source_row.get(*idx).map(String::as_str).unwrap_or("");
+            row.push(format_table_cell(raw, opts));
+        }
+        rows.push(row);
+    }
+
+    let numeric_columns = (0..headers.len())
+        .map(|idx| {
+            let mut seen = false;
+            for row in &rows {
+                let Some(cell) = row.get(idx) else {
+                    continue;
+                };
+                if cell == &opts.missing || cell.is_empty() {
+                    continue;
+                }
+                seen = true;
+                if !is_numeric_cell(cell) {
+                    return false;
+                }
+            }
+            seen
+        })
+        .collect();
+
+    Ok(PreparedTable {
+        headers,
+        rows,
+        numeric_columns,
+        omitted_rows,
+    })
+}
+
+fn format_table_cell(cell: &str, opts: &TableFormatOptions) -> String {
+    let value = if cell.is_empty() {
+        opts.missing.clone()
+    } else {
+        cell.to_string()
+    };
+    if let Some(max_width) = opts.max_cell_width {
+        truncate_display(&value, max_width)
+    } else {
+        value
+    }
+}
+
+fn format_plain_table(prepared: &PreparedTable) -> String {
+    let mut render_rows = Vec::new();
+    if !prepared.headers.is_empty() {
+        render_rows.push(prepared.headers.clone());
+    }
+    render_rows.extend_from_slice(&prepared.rows);
+    let ncols = render_rows.iter().map(|r| r.len()).max().unwrap_or(0);
     let mut widths = vec![0usize; ncols];
-    for row in &table {
+    for row in &render_rows {
         for (j, cell) in row.iter().enumerate() {
             let width = display_width(cell);
             if widths[j] < width {
@@ -360,19 +495,146 @@ fn format_table(headers: &[String], rows: &[Vec<String>]) -> String {
             }
         }
     }
-    let mut lines = Vec::with_capacity(table.len());
-    for row in table {
+    let mut lines = Vec::with_capacity(render_rows.len());
+    for (row_idx, row) in render_rows.into_iter().enumerate() {
         let mut parts = Vec::new();
         for (j, cell) in row.iter().enumerate() {
             let padding = widths[j].saturating_sub(display_width(cell));
-            parts.push(format!("{}{}", cell, " ".repeat(padding)));
+            let align_right =
+                row_idx > 0 && prepared.numeric_columns.get(j).copied().unwrap_or(false);
+            if align_right {
+                parts.push(format!("{}{}", " ".repeat(padding), cell));
+            } else {
+                parts.push(format!("{}{}", cell, " ".repeat(padding)));
+            }
         }
         lines.push(parts.join(" ").trim_end().to_string());
+    }
+    if prepared.omitted_rows > 0 {
+        lines.push(format!("... {} more rows", prepared.omitted_rows));
     }
     lines.join("\n")
 }
 
+fn format_markdown_table(table: &PreparedTable) -> String {
+    let headers: Vec<String> = table
+        .headers
+        .iter()
+        .map(|cell| escape_markdown_cell(cell))
+        .collect();
+    let rows: Vec<Vec<String>> = table
+        .rows
+        .iter()
+        .map(|row| row.iter().map(|cell| escape_markdown_cell(cell)).collect())
+        .collect();
+    let ncols = headers.len();
+    let mut widths = vec![0usize; ncols];
+    for (idx, cell) in headers.iter().enumerate() {
+        widths[idx] = widths[idx].max(display_width(cell));
+    }
+    for row in &rows {
+        for (idx, cell) in row.iter().enumerate() {
+            widths[idx] = widths[idx].max(display_width(cell));
+        }
+    }
+
+    let mut lines = Vec::with_capacity(rows.len() + 3);
+    lines.push(markdown_row(&headers, &widths, &table.numeric_columns, false));
+    let separator: Vec<String> = (0..ncols)
+        .map(|idx| {
+            let width = widths[idx].max(3);
+            if table.numeric_columns.get(idx).copied().unwrap_or(false) {
+                format!("{}:", "-".repeat(width.saturating_sub(1)))
+            } else {
+                "-".repeat(width)
+            }
+        })
+        .collect();
+    lines.push(markdown_row(
+        &separator,
+        &widths,
+        &table.numeric_columns,
+        false,
+    ));
+    for row in rows {
+        lines.push(markdown_row(&row, &widths, &table.numeric_columns, true));
+    }
+    if table.omitted_rows > 0 {
+        lines.push(format!("... {} more rows", table.omitted_rows));
+    }
+    lines.join("\n")
+}
+
+fn markdown_row(
+    row: &[String],
+    widths: &[usize],
+    numeric_columns: &[bool],
+    align_numbers: bool,
+) -> String {
+    let mut parts = Vec::new();
+    for (idx, cell) in row.iter().enumerate() {
+        let width = widths.get(idx).copied().unwrap_or_default();
+        let padding = width.saturating_sub(display_width(cell));
+        if align_numbers && numeric_columns.get(idx).copied().unwrap_or(false) {
+            parts.push(format!(" {}{} ", " ".repeat(padding), cell));
+        } else {
+            parts.push(format!(" {}{} ", cell, " ".repeat(padding)));
+        }
+    }
+    format!("|{}|", parts.join("|"))
+}
+
+fn escape_markdown_cell(cell: &str) -> String {
+    cell.replace('|', "\\|")
+}
+
+fn is_numeric_cell(cell: &str) -> bool {
+    let visible = visible_text(cell);
+    let text = visible.trim();
+    !text.is_empty() && text.parse::<f64>().is_ok()
+}
+
+fn truncate_display(text: &str, max_width: usize) -> String {
+    if display_width(text) <= max_width {
+        return text.to_string();
+    }
+    if max_width == 0 {
+        return String::new();
+    }
+    if max_width == 1 {
+        return "…".to_string();
+    }
+
+    let target = max_width - 1;
+    let mut out = String::new();
+    let mut used = 0usize;
+    for grapheme in text.graphemes(true) {
+        let width = grapheme_width(grapheme);
+        if used + width > target {
+            break;
+        }
+        out.push_str(grapheme);
+        used += width;
+    }
+    out.push('…');
+    out
+}
+
+fn grapheme_width(grapheme: &str) -> usize {
+    if grapheme == "\n" {
+        return 0;
+    }
+    grapheme
+        .chars()
+        .map(|ch| ch.width().unwrap_or(0))
+        .sum::<usize>()
+}
+
 fn display_width(text: &str) -> usize {
+    visible_text(text).as_str().width()
+}
+
+fn visible_text(text: &str) -> String {
     let mut visible = String::new();
     let mut chars = text.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -387,7 +649,7 @@ fn display_width(text: &str) -> usize {
             visible.push(ch);
         }
     }
-    visible.as_str().width()
+    visible
 }
 
 pub trait Excerpt {

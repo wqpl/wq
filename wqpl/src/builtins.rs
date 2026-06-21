@@ -1143,7 +1143,7 @@ declare_builtins! {
     (DICT, Dict, "dict", "dict[x]", sig!(arity!(1)), plain(wqtype::to_dict), BuiltinGroup::Type),
 
     // Visualization =========================================================
-    (SHOWTABLE, Showtable, "showtable", "showtable[table]", sig!(arity!(1)), plain(viz::show_table), BuiltinGroup::Viz),
+    (SHOWTABLE, Showtable, "showtable", "showtable[table;`cols;`limit;`width;`style;`missing]", sig!(arity!(1), named SHOWTABLE_NAMED_ARGS), plain(viz::show_table), BuiltinGroup::Viz),
     (ASCIIPLOT, Asciiplot, "asciiplot",
         concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim;",
             "`x;`y;`symbols;`labels;`mode;`axes;`color;`grid;",
@@ -1188,6 +1188,7 @@ declare_builtins! {
 
 const ECHO_NAMED_ARGS: &[&str] = &["sep"];
 const MAXSPLIT_NAMED_ARGS: &[&str] = &["m"];
+const SHOWTABLE_NAMED_ARGS: &[&str] = &["cols", "limit", "width", "style", "missing"];
 const ASCIIPLOT_NAMED_ARGS: &[&str] = &[
     "size", "width", "height", "xlim", "ylim", "x", "y", "symbols", "labels", "mode", "axes",
     "color", "grid", "samples", "theme", "complex", "ascii", "title", "xlabel", "ylabel",

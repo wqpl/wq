@@ -19,7 +19,7 @@ const DEFAULT_STATE = {
   title: "Function plot",
   subtitle: "asciiplot / function source",
   sourceKind: "plot",
-  sourceExpr: buildTableValue("list", 5),
+  sourceExpr: "",
   layout: "below",
   mode: "line",
   complex: "re",
@@ -51,6 +51,11 @@ const DEFAULT_STATE = {
   ],
   tableShape: "list",
   rows: 5,
+  tableColsText: "",
+  tableLimitText: "",
+  tableWidthText: "",
+  tableStyle: "plain",
+  tableMissingText: "",
 };
 
 const PRESETS = {
@@ -237,9 +242,27 @@ const PRESETS = {
     title: "Show table",
     subtitle: "showtable / table source",
     sourceKind: "table",
-    sourceExpr: buildTableValue("text", 5),
+    sourceExpr: "",
     tableShape: "text",
     rows: 5,
+    tableColsText: "species;tissue;observation;markers",
+    tableLimitText: "",
+    tableWidthText: "",
+    tableStyle: "plain",
+    tableMissingText: "",
+  },
+  tableMap: {
+    title: "Math map",
+    subtitle: "showtable / dict of dicts",
+    sourceKind: "table",
+    sourceExpr: "",
+    tableShape: "matrix",
+    rows: 5,
+    tableColsText: "row;kind;dim;invariant;value",
+    tableLimitText: "",
+    tableWidthText: "",
+    tableStyle: "plain",
+    tableMissingText: "",
   },
 };
 
@@ -257,6 +280,37 @@ const SERIES_MODE_OPTIONS = [
   ["bar", "bar"],
   ["area", "area"],
 ];
+
+const TABLE_SHAPE_DEFAULTS = {
+  text: {
+    tableColsText: "species;tissue;observation;markers",
+    tableLimitText: "",
+    tableWidthText: "",
+    tableStyle: "plain",
+    tableMissingText: "",
+  },
+  list: {
+    tableColsText: "system;observable;unit;value",
+    tableLimitText: "",
+    tableWidthText: "",
+    tableStyle: "plain",
+    tableMissingText: "",
+  },
+  dict: {
+    tableColsText: "element;symbol;z;mass",
+    tableLimitText: "",
+    tableWidthText: "",
+    tableStyle: "plain",
+    tableMissingText: "",
+  },
+  matrix: {
+    tableColsText: "row;kind;dim;invariant;value",
+    tableLimitText: "",
+    tableWidthText: "",
+    tableStyle: "plain",
+    tableMissingText: "",
+  },
+};
 
 const LIMIT_INPUTS = {
   xlimMinText: {
@@ -327,12 +381,16 @@ function hydrateLimitState(state) {
 
 function stateForPreset(key) {
   const preset = PRESETS[key] || PRESETS.trig;
-  return hydrateLimitState({
+  const state = hydrateLimitState({
     ...DEFAULT_STATE,
     ...preset,
     series: cloneSeries(preset.series || DEFAULT_STATE.series),
     preset: key,
   });
+  if (state.sourceKind === "table" && !state.sourceExpr) {
+    state.sourceExpr = buildTableValue(state.tableShape, state.rows);
+  }
+  return state;
 }
 
 function colorOption(state) {
@@ -361,6 +419,11 @@ function textOption(name, text) {
   return value ? named(name, wqString(value)) : null;
 }
 
+function numberTextOption(name, text) {
+  const value = String(text || "").trim();
+  return value ? named(name, value) : null;
+}
+
 function textListOption(name, text) {
   const values = String(text || "")
     .split(/[;,\n]+/)
@@ -369,6 +432,13 @@ function textListOption(name, text) {
   if (!values.length) return null;
   if (values.length === 1) return named(name, wqString(values[0]));
   return named(name, `(${values.map(wqString).join(";")})`);
+}
+
+function indentWqBlock(text) {
+  return String(text)
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n");
 }
 
 function defaultSeriesForKind(kind) {
@@ -464,63 +534,137 @@ function buildPlotCode(state) {
   return plotCall(args);
 }
 
+const BIOLOGY_ROWS = [
+  ["yeast", "bud", "cell cycle", ["cdc28", "cln3"]],
+  ["arabidopsis", "leaf", "stomata", ["guard", "chlorophyll"]],
+  ["zebrafish", "embryo", "somite wave", ["notch", "fgf"]],
+  ["e coli", "culture", "log phase", ["lac", "oriC"]],
+  ["drosophila", "wing", "pattern", ["hedgehog", "wingless"]],
+  ["mouse", "hippocampus", "slice", ["ca1", "synapse"]],
+  ["human", "fibroblast", "repair", ["brca1", "p53"]],
+  ["xenopus", "oocyte", "gradient", ["bmp", "wnt"]],
+];
+
+const PHYSICS_ROWS = [
+  ["pendulum", "period", "s", "2.01"],
+  ["spring", "frequency", "Hz", "3.18"],
+  ["capacitor", "charge", "uC", "47.2"],
+  ["photon", "energy", "eV", "1.91"],
+  ["orbit", "speed", "km/s", "7.67"],
+  ["gas", "pressure", "kPa", "101.3"],
+  ["coil", "field", "mT", "12.4"],
+  ["slab", "flux", "W/m2", "1361"],
+];
+
+const CHEMISTRY_COLUMNS = [
+  {
+    key: "element",
+    values: ["hydrogen", "oxygen", "carbon", "sodium", "chlorine", "iron", "copper", "calcium"].map(
+      wqString,
+    ),
+  },
+  {
+    key: "symbol",
+    values: ["H", "O", "C", "Na", "Cl", "Fe", "Cu", "Ca"].map(wqTag),
+  },
+  {
+    key: "z",
+    values: ["1", "8", "6", "11", "17", "26", "29", "20"],
+  },
+  {
+    key: "mass",
+    values: ["1.008", "15.999", "12.011", "22.990", "35.450", "55.845", "63.546", "40.078"],
+  },
+];
+
+const MATH_ROWS = [
+  ["identity", "matrix", "2x2", "det", "1"],
+  ["rotation", "matrix", "2x2", "trace", "1.414"],
+  ["prime", "number", "scalar", "mod", "7"],
+  ["fibonacci", "sequence", "n", "term", "55"],
+  ["gaussian", "function", "R", "area", "1"],
+  ["fourier", "basis", "N", "mode", "3"],
+  ["euler", "formula", "C", "phase", "3.142"],
+  ["simplex", "polytope", "3D", "faces", "4"],
+];
+
+function inlineWqList(items) {
+  return `(${items.join(";")})`;
+}
+
+function tableDict(fields) {
+  return `(${fields.map(([key, value]) => `${wqTag(key)}:${value}`).join(";")})`;
+}
+
+function formatListRows(rows) {
+  if (!rows.length) return "()";
+  return `(\n${rows.map((row) => `  ${row}`).join(";\n")}\n)`;
+}
+
+function formatDictEntries(entries) {
+  if (!entries.length) return "()";
+  return `(\n${entries.map((entry) => `  ${entry.key}:${entry.value}`).join(";\n")}\n)`;
+}
+
+function buildTextTableRow([species, tissue, observation, markers]) {
+  return tableDict([
+    ["species", wqString(species)],
+    ["tissue", wqString(tissue)],
+    ["observation", wqString(observation)],
+    ["markers", inlineWqList(markers.map(wqString))],
+  ]);
+}
+
+function buildPhysicsTableRow([system, observable, unit, value]) {
+  return tableDict([
+    ["system", wqString(system)],
+    ["observable", wqString(observable)],
+    ["unit", wqString(unit)],
+    ["value", value],
+  ]);
+}
+
+function buildMathTableEntry([key, kind, dim, invariant, value]) {
+  return {
+    key: wqTag(key),
+    value: tableDict([
+      ["kind", wqString(kind)],
+      ["dim", wqString(dim)],
+      ["invariant", wqString(invariant)],
+      ["value", value],
+    ]),
+  };
+}
+
+function tableRowsForShape(shape) {
+  if (shape === "text") return BIOLOGY_ROWS.map(buildTextTableRow);
+  if (shape === "matrix") {
+    return MATH_ROWS.map(buildMathTableEntry).map((entry) => `${entry.key}:${entry.value}`);
+  }
+  return PHYSICS_ROWS.map(buildPhysicsTableRow);
+}
+
 function buildListTableValue(rows) {
-  const entries = [
-    ["asciiplot", "line", "sin", 100],
-    ["asciiplot", "scatter", "cos", 120],
-    ["asciiplot", "bar", "values", 8],
-    ["asciiplot", "plane", "sqrt", 140],
-    ["showtable", "table", "dict", 5],
-    ["asciiplot", "area", "wave", 80],
-    ["showtable", "sparse", "rows", 6],
-    ["asciiplot", "step", "round", 40],
-  ].slice(0, rows);
-  return `(${entries
-    .map(
-      ([builtin, mode, data, points]) =>
-        `(\`builtin:${wqTag(builtin)};\`mode:${wqTag(mode)};\`data:${wqTag(data)};\`points:${points})`,
-    )
-    .join(";")})`;
+  return formatListRows(tableRowsForShape("list").slice(0, clampRows(rows)));
 }
 
 function buildDictTableValue(rows) {
-  const series = ["sin", "cos", "sqrt", "bars", "table", "area", "sparse", "step"].slice(0, rows);
-  const modes = ["line", "scatter", "plane", "bar", "table", "area", "rows", "step"].slice(0, rows);
-  const points = [100, 120, 140, 8, 5, 80, 6, 40].slice(0, rows);
-  return `(\`series:(${series.map(wqTag).join(";")});\`mode:(${modes
-    .map(wqTag)
-    .join(";")});\`points:(${points.join(";")}))`;
+  const rowCount = clampRows(rows);
+  return formatDictEntries(
+    CHEMISTRY_COLUMNS.map((column) => ({
+      key: wqTag(column.key),
+      value: inlineWqList(column.values.slice(0, rowCount)),
+    })),
+  );
 }
 
 function buildMatrixTableValue(rows) {
-  const names = ["plot", "table", "legend", "grid", "axis", "color", "theme", "ascii"].slice(0, rows);
-  return `(${names
-    .map((name, idx) => {
-      const ready = idx % 2 === 0 ? "T" : "F";
-      return `\`${name}:(\`builtin:${idx === 1 ? wqTag("showtable") : wqTag("asciiplot")};\`ready:${ready};\`rank:${idx + 1})`;
-    })
-    .join(";")})`;
+  const entries = MATH_ROWS.slice(0, clampRows(rows)).map(buildMathTableEntry);
+  return formatDictEntries(entries);
 }
 
 function buildTextTableValue(rows) {
-  const entries = [
-    ["Ada", "Zürich", "compiler notes", ["unicode", "wide"]],
-    ["Mina", "東京", "display width", ["table", "cells"]],
-    ["Sunny", "Seoul", "string columns", ["cli", "wqide"]],
-    ["Noor", "Cairo", "nested list cell", ["showtable", "viz"]],
-    ["Kai", "Montréal", "quoted text", ["format", "wq"]],
-    ["Iris", "Dublin", "sparse-safe", ["rows", "cols"]],
-    ["Alex", "Lagos", "terminal fit", ["width", "ansi"]],
-    ["Ren", "Taipei", "cell coercion", ["strings", "lists"]],
-  ].slice(0, rows);
-  return `(${entries
-    .map(
-      ([name, city, note, tags]) =>
-        `(\`name:${wqString(name)};\`city:${wqString(city)};\`note:${wqString(note)};\`tags:(${tags
-          .map(wqString)
-          .join(";")}))`,
-    )
-    .join(";")})`;
+  return formatListRows(tableRowsForShape("text").slice(0, clampRows(rows)));
 }
 
 function buildTableValue(shape, rows) {
@@ -530,9 +674,194 @@ function buildTableValue(shape, rows) {
   return buildListTableValue(rows);
 }
 
+function scanWqTopLevel(text, visit) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let idx = 0; idx < text.length; idx += 1) {
+    const char = text[idx];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === "(" || char === "[" || char === "{") {
+      depth += 1;
+    } else if (char === ")" || char === "]" || char === "}") {
+      depth -= 1;
+      if (depth < 0) return false;
+    }
+    if (visit(char, idx, depth) === false) return false;
+  }
+  return depth === 0 && !inString;
+}
+
+function unwrapWqParens(text) {
+  const value = String(text || "").trim();
+  if (!value.startsWith("(") || !value.endsWith(")")) return null;
+  let validOuter = false;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let idx = 0; idx < value.length; idx += 1) {
+    const char = value[idx];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === "(" || char === "[" || char === "{") {
+      depth += 1;
+    } else if (char === ")" || char === "]" || char === "}") {
+      depth -= 1;
+      if (depth < 0) return null;
+      if (depth === 0) {
+        if (idx !== value.length - 1) return null;
+        validOuter = true;
+      }
+    }
+  }
+  return validOuter && depth === 0 && !inString ? value.slice(1, -1).trim() : null;
+}
+
+function splitWqTopLevel(text, delimiter = ";") {
+  const parts = [];
+  let start = 0;
+  const valid = scanWqTopLevel(text, (char, idx, depth) => {
+    if (char === delimiter && depth === 0) {
+      parts.push(text.slice(start, idx).trim());
+      start = idx + 1;
+    }
+    return true;
+  });
+  if (!valid) return null;
+  const tail = text.slice(start).trim();
+  if (tail) parts.push(tail);
+  return parts.filter(Boolean);
+}
+
+function topLevelIndexOf(text, needle) {
+  let found = -1;
+  scanWqTopLevel(text, (char, idx, depth) => {
+    if (char === needle && depth === 0) {
+      found = idx;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+function parseWqListItems(text) {
+  const body = unwrapWqParens(text);
+  if (body === null) return null;
+  if (!body) return [];
+  return splitWqTopLevel(body);
+}
+
+function keyNameFromWq(key) {
+  const value = key.trim();
+  return value.startsWith("`") ? value.slice(1) : value;
+}
+
+function parseWqDictEntries(text) {
+  const items = parseWqListItems(text);
+  if (!items) return null;
+  const entries = [];
+  for (const item of items) {
+    const colon = topLevelIndexOf(item, ":");
+    if (colon < 0) return null;
+    const key = item.slice(0, colon).trim();
+    const value = item.slice(colon + 1).trim();
+    if (!key || !value) return null;
+    entries.push({
+      key,
+      keyName: keyNameFromWq(key),
+      value,
+    });
+  }
+  return entries;
+}
+
+function resizeListRows(source, shape, rows) {
+  const currentRows = parseWqListItems(source);
+  if (!currentRows) return null;
+  const generatedRows = tableRowsForShape(shape);
+  const nextRows = currentRows.slice(0, rows);
+  for (let idx = currentRows.length; idx < rows; idx += 1) {
+    nextRows.push(generatedRows[idx] || generatedRows[generatedRows.length - 1]);
+  }
+  return formatListRows(nextRows);
+}
+
+function resizeDictColumns(source, rows) {
+  const entries = parseWqDictEntries(source);
+  if (!entries) return null;
+  const generatedColumns = new Map(CHEMISTRY_COLUMNS.map((column) => [column.key, column.values]));
+  const nextEntries = entries.map((entry) => {
+    const values = parseWqListItems(entry.value);
+    if (!values) return entry;
+    const generatedValues = generatedColumns.get(entry.keyName);
+    const nextValues = values.slice(0, rows);
+    for (let idx = values.length; idx < rows; idx += 1) {
+      nextValues.push(generatedValues?.[idx] || '""');
+    }
+    return {
+      ...entry,
+      value: inlineWqList(nextValues),
+    };
+  });
+  return formatDictEntries(nextEntries);
+}
+
+function resizeDictRows(source, rows) {
+  const entries = parseWqDictEntries(source);
+  if (!entries) return null;
+  const generatedEntries = MATH_ROWS.map(buildMathTableEntry);
+  const nextEntries = entries.slice(0, rows);
+  for (let idx = entries.length; idx < rows; idx += 1) {
+    nextEntries.push(generatedEntries[idx] || generatedEntries[generatedEntries.length - 1]);
+  }
+  return formatDictEntries(nextEntries);
+}
+
+function resizeTableValue(source, shape, rows) {
+  const rowCount = clampRows(rows);
+  if (shape === "dict") return resizeDictColumns(source, rowCount);
+  if (shape === "matrix") return resizeDictRows(source, rowCount);
+  return resizeListRows(source, shape, rowCount);
+}
+
 function buildTableCode(state) {
   const source = String(state.sourceExpr || "").trim() || buildTableValue(state.tableShape, state.rows);
-  return source.startsWith("showtable") ? source : `showtable ${source}`;
+  if (source.startsWith("showtable")) return source;
+  const args = [
+    indentWqBlock(source),
+    textListOption("cols", state.tableColsText),
+    numberTextOption("limit", state.tableLimitText),
+    numberTextOption("width", state.tableWidthText),
+    named("style", wqString(state.tableStyle || "plain")),
+    textOption("missing", state.tableMissingText),
+  ].filter(Boolean);
+  return `showtable[\n${args.join(";\n")}\n]`;
 }
 
 function buildCode(state) {
@@ -582,11 +911,11 @@ function setSelectValue(instance, key, value) {
 }
 
 function setRangeValue(instance, key, value) {
-  instance.state[key] = Number(value);
+  instance.state[key] = key === "rows" ? clampRows(value) : Number(value);
   const input = instance.ranges[key];
   const label = instance.root.querySelector(`[data-viz-range-value="${key}"]`);
-  if (input) input.value = String(value);
-  if (label) label.textContent = String(value);
+  if (input) input.value = String(instance.state[key]);
+  if (label) label.textContent = String(instance.state[key]);
 }
 
 function setToggleValue(instance, key, value) {
@@ -609,6 +938,12 @@ function setInputValue(instance, key, value) {
   instance.state[key] = value;
   const input = instance.inputs[key];
   if (input) input.value = value;
+}
+
+function clampRows(value) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return 1;
+  return Math.max(1, Math.min(8, number));
 }
 
 function finiteNumber(text) {
@@ -642,23 +977,32 @@ function setLimitInputValue(instance, key, value) {
   setInputValue(instance, meta.partnerKey, partnerValue);
 }
 
-function syncTableSource(instance) {
+function syncTableSource(instance, options = {}) {
   if (instance.state.sourceKind !== "table") return;
-  setInputValue(
-    instance,
-    "sourceExpr",
-    buildTableValue(instance.state.tableShape, instance.state.rows),
-  );
+  instance.state.rows = clampRows(instance.state.rows);
+  const current = String(instance.state.sourceExpr || "");
+  const next =
+    options.preserveCurrent === false || !current.trim()
+      ? buildTableValue(instance.state.tableShape, instance.state.rows)
+      : resizeTableValue(current, instance.state.tableShape, instance.state.rows);
+  if (next !== null) {
+    setInputValue(instance, "sourceExpr", next);
+  }
+}
+
+function syncTableDisplayDefaults(instance, shape) {
+  const defaults = TABLE_SHAPE_DEFAULTS[shape] || TABLE_SHAPE_DEFAULTS.text;
+  for (const [key, value] of Object.entries(defaults)) {
+    setInputValue(instance, key, value);
+  }
+  setSelectValue(instance, "tableStyle", defaults.tableStyle);
 }
 
 function seedSourceForKind(instance, kind) {
   instance.state.series = kind === "table" ? [] : cloneSeries(defaultSeriesForKind("function"));
   if (kind === "table") {
-    setInputValue(
-      instance,
-      "sourceExpr",
-      buildTableValue(instance.state.tableShape, instance.state.rows),
-    );
+    syncTableDisplayDefaults(instance, instance.state.tableShape);
+    syncTableSource(instance, { preserveCurrent: false });
   }
   renderSeriesEditor(instance);
 }
@@ -866,6 +1210,48 @@ function renderCode(instance) {
   }
 }
 
+function setCopyCodeState(instance, text, tone = "") {
+  if (!instance.copyCodeBtn) return;
+  clearTimeout(instance.copyCodeTimer);
+  instance.copyCodeBtn.textContent = text;
+  instance.copyCodeBtn.dataset.tone = tone;
+  if (text !== "Copy") {
+    instance.copyCodeTimer = setTimeout(() => {
+      instance.copyCodeBtn.textContent = "Copy";
+      instance.copyCodeBtn.dataset.tone = "";
+    }, 1400);
+  }
+}
+
+async function writeClipboardText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const scratch = document.createElement("textarea");
+  scratch.value = text;
+  scratch.setAttribute("readonly", "");
+  scratch.style.position = "fixed";
+  scratch.style.opacity = "0";
+  document.body.appendChild(scratch);
+  scratch.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    scratch.remove();
+  }
+}
+
+async function copyCode(instance) {
+  if (!instance.code) renderCode(instance);
+  try {
+    await writeClipboardText(instance.code || "");
+    setCopyCodeState(instance, "Copied", "ok");
+  } catch (_err) {
+    setCopyCodeState(instance, "Failed", "error");
+  }
+}
+
 function scheduleRun(instance, delay = 160) {
   clearTimeout(instance.autoTimer);
   if (!instance.state.autoRun) {
@@ -981,7 +1367,8 @@ function wireSelect(instance, field) {
       seedSourceForKind(instance, nextValue);
     }
     if (key === "tableShape") {
-      syncTableSource(instance);
+      syncTableDisplayDefaults(instance, nextValue);
+      syncTableSource(instance, { preserveCurrent: false });
     }
     closeSelect(field);
     updateView(instance);
@@ -990,6 +1377,13 @@ function wireSelect(instance, field) {
 
 export async function mountViz(root) {
   await ensureWasm();
+  const tableSourceTextarea = root.querySelector('textarea[data-viz-input="sourceExpr"]');
+  const tableSourceEditor = tableSourceTextarea
+    ? createWqEditor(tableSourceTextarea, { multilineMode: "plain" })
+    : null;
+  if (tableSourceEditor) {
+    tableSourceEditor.element.dataset.vizInput = "sourceExpr";
+  }
   const instance = {
     root,
     state: stateForPreset("trig"),
@@ -1003,12 +1397,15 @@ export async function mountViz(root) {
     status: root.querySelector("[data-viz-status]"),
     output: root.querySelector("[data-viz-output]"),
     codeEl: root.querySelector("[data-viz-code]"),
+    copyCodeBtn: root.querySelector("[data-viz-copy-code]"),
+    copyCodeTimer: 0,
     runBtn: root.querySelector("[data-viz-run]"),
     openBtn: root.querySelector("[data-viz-open]"),
     addSeriesBtn: root.querySelector("[data-viz-add-series]"),
     seriesList: root.querySelector("[data-viz-series-list]"),
     presetButtons: Array.from(root.querySelectorAll("[data-viz-preset]")),
     layoutButtons: Array.from(root.querySelectorAll("[data-viz-layout-option]")),
+    stepButtons: Array.from(root.querySelectorAll("[data-viz-step]")),
     selects: {},
     ranges: Object.fromEntries(
       Array.from(root.querySelectorAll("[data-viz-range]")).map((input) => [
@@ -1029,6 +1426,9 @@ export async function mountViz(root) {
       ]),
     ),
   };
+  if (tableSourceEditor) {
+    instance.inputs.sourceExpr = tableSourceEditor;
+  }
   instances.set(root, instance);
 
   root.querySelectorAll("[data-viz-select]").forEach((field) => {
@@ -1037,6 +1437,19 @@ export async function mountViz(root) {
   Object.entries(instance.ranges).forEach(([key, input]) => {
     input.addEventListener("input", () => {
       setRangeValue(instance, key, input.value);
+      if (key === "rows") {
+        syncTableSource(instance);
+      }
+      updateView(instance);
+    });
+  });
+  instance.stepButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.vizStep;
+      const input = instance.ranges[key];
+      const delta = Number(button.dataset.vizStepDelta) || 0;
+      const current = Number(input?.value || instance.state[key] || 0);
+      setRangeValue(instance, key, current + delta);
       if (key === "rows") {
         syncTableSource(instance);
       }
@@ -1080,6 +1493,9 @@ export async function mountViz(root) {
   });
   instance.runBtn?.addEventListener("click", async () => {
     await runViz(instance);
+  });
+  instance.copyCodeBtn?.addEventListener("click", async () => {
+    await copyCode(instance);
   });
   instance.openBtn?.addEventListener("click", () => {
     window.navigate(`playground.html?code=${encodeURIComponent(instance.code)}`);
