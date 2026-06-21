@@ -18,8 +18,8 @@
   - leading `,` is enlist
   - `$[c;t;f]` is ternary. If false, every expression after the second semicolon belongs to the false branch, so `$[c;t;f1;f2]` runs `f1` then returns `f2` when `c` is false.
   - `$.[c;t1;t2...]` is a guard. It runs the body only when `c` is true; otherwise it returns unit `()`.
-  - `$$[c1;t1;c2;t2;default]` is a condition/branch chain. Conditions are checked in order. The final default is optional; omitted default is unit.
-  - `|` is pipe, which inserts lhs as the first arg to a rhs call
+  - `$$[c1;t1;c2;t2;default]` is a condition chain. Conditions are checked in order. The final default is optional; omitted default is unit.
+  - `|` is pipe, which inserts lhs as the first arg to rhs call
   - `\` or `bor[...]` (backslash) is bitwise or.
   - `\|` (backslash pipe) is short-circuit bool or.
   - `or[...]` is eager bool or.
@@ -32,7 +32,7 @@
   - postfix binds tighter than operators, `echo 1+2` <=> `(echo 1)+2` => prints `1`, evals to `()/*unit*/+2` => evals to `2`. Does not evaluate to `3` and print `3`.
 - Ensure `cargo clippy --all-targets -- -D warnings` passes.
   - Avoid using `#[allow(...)]` to pass clippy.
-    - An exception is dead code that won't be used anymore, where you are allowed to use `#[allow(...)]` instead of deleting it
+    - An exception is dead code that won't be used anymore, where you are allowed to use `#[allow(...)]` instead of removing it
   - If you can't pass clippy by fixing code for any reason, ask the user whether it's fine to use `#[allow(...)]`
   - If passing clippy requires a large-scope edit, pause and ask the user.
 - Do not run formatting commands.
@@ -46,19 +46,17 @@
     - If a new major module is added, you may create a new test config for it.
   - Key commands: `python3 hotchoco.py run`, `python3 hotchoco.py show --no-pager`, `python3 hotchoco.py accept`.
   - See `python3 hotchoco.py --help` for details.
-- After a session, recommend a good commit message based on the appendix guidelines.
+- At handoff, recommend a good commit message based on the appendix guidelines.
   - Do not commit unless the user explicitly asked for it.
-- Unless the user explicitly requested, don't build/run with `release` profile.
+- Unless the user explicitly requested/approved, don't build/run with `release` profile.
 - Prohibited without explicit user permission:
   - Python/Perl... scripts (especially regex-based replacements) for batch editing
   - `sed`, `awk`, or any similar text-processing utilities for code changes
   - `git checkout`, `git restore`, `git reset`, or any other destructive git mutations
   - `cargo clean`, or any other destructive cargo commands
-  - Any cargo commands that trigger a complete rebuild
-  - `rm` or any file deletion commands, except `trash`
+  - Any cargo commands that force a complete rebuild
+  - `rm`. prefer `trash` instead.
 - If you are given a perf-related task, prefer `hyperfine` over `time`
-- Preferred approach: Make edits manually, one precise change at a time. If batch editing is unavoidable, ask the user for permission first.
-  - When performing a batch edit, you must back up the target files first (eg. copy it as `.bak`) so it can be restored without git operations.
 - When you are not sure of the user's intent, prefer asking the user instead of guessing.
 - Avoid `panic!` outside tests. Prefer `unreachable!` or `debug_assert!` instead.
 - Avoid `unwrap()`. Prefer `expect()`.
@@ -79,6 +77,19 @@
 
 ## Commit messages
 
+At the final handoff only, recommend one commit message when this session produced an actual change that is ready to commit.
+
+Do not recommend a commit message when:
+
+- the user is only asking questions, brainstorming, debugging conceptually, or requesting an explanation;
+- no files were changed;
+- the change is only hypothetical, suggested, or not yet implemented;
+- the user is continuing to polish a previous uncommitted change and the current response is not a final handoff.
+
+When continuing an existing uncommitted change, update the previous recommendation only at the final handoff instead of emitting a new commit message after every follow-up.
+
+Use:
+
 - Clear, uncapitalized, imperative title: `fix everything`
 - Avoid "conventional commit prefixes" (no `fix:`)
 - Avoid trailing punctuation
@@ -86,6 +97,9 @@
 - Clear, consise message body
 - Include a `Release Notes:` section as the final section
 - Use one bullet under `Release Notes:`:
-  - `- Added ...`, `- Fixed ...`, or `- Improved ...` for user-facing changes, or
-  - `- N/A` for docs-only and other non-user-facing changes.
+  - `- Added ...` for a new user-facing capability;
+  - `- Fixed ...` for a user-facing bug fix;
+  - `- Improved ...` for a user-facing refinement to existing behavior;
+  - `- N/A` for refactors, tests, tooling, formatting, docs-only changes, internal cleanup, dependency changes, CI/build changes, or any change with no direct user-visible effect.
+  - Do not write release notes such as “Improved internals,” “Improved maintainability,” or “Improved tests.” If the user cannot directly observe the change in product behavior, output `- N/A`.
 - Format release notes exactly with a blank line after the heading, for example:
