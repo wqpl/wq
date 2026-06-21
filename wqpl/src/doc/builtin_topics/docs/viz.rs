@@ -7,11 +7,18 @@ const SHOWTABLE_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::NoRun("writes a table to stdout"),
 }];
 
-const ASCIIPLOT_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Plot a sampled function",
-    code: "asciiplot[sin;`xlim:(0;6.283);`size:(40;10);`samples:80;`grid:4;`ascii:T;`color:F;`symbols:\"*\";`caption:(\"Sine\";\"x\";\"y\");`labels:(\"sin\")]",
-    expectation: ExampleExpectation::NoRun("writes a terminal plot to stdout"),
-}];
+const ASCIIPLOT_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Plot a sampled function",
+        code: "asciiplot[sin;`xlim:(0;6.283);`size:(40;10);`samples:80;`grid:4;`ascii:T;`color:F;`symbols:\"*\";`caption:(\"Sine\";\"x\";\"y\");`labels:(\"sin\")]",
+        expectation: ExampleExpectation::NoRun("writes a terminal plot to stdout"),
+    },
+    DocExample {
+        title: "Plot columns from table-shaped data",
+        code: "data:(`x:(0;1;2);`sin:(0;0.84;0.91);`cos:(1;0.54;-0.42)); asciiplot[data;`x:\"x\";`y:(\"sin\";\"cos\")]",
+        expectation: ExampleExpectation::NoRun("writes a terminal plot to stdout"),
+    },
+];
 
 pub(super) const SHOWTABLE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Showtable,
@@ -27,13 +34,17 @@ pub(super) const ASCIIPLOT: BuiltinDoc = BuiltinDoc {
     details: concat!(
         "`asciiplot[data+;opts]` writes a plot to stdout and returns unit. Data args can be ",
         "non-empty y-value lists, non-empty `((x;y);...)` point lists, callables, CAS ",
-        "expressions, or series config dicts like ``(`fn:sin;`xlim:(0;6.283);`label:\"sin\")``; ",
+        "expressions, table-shaped dict-of-lists or list-of-dicts values, or series config dicts ",
+        "like ``(`fn:sin;`xlim:(0;6.283);`label:\"sin\")``; ",
         "config dicts require `fn`, use their own `xlim` when sampling, and set ",
         "`symbol`, `mode`, and `label` for that series. Callables and CAS expressions ",
         "sample `samples` points over `xlim` (default -10..10, default sample count is the plot ",
-        "width) and may add adaptive points across skipped gaps. Size comes from `size:(w;h)`, ",
+        "width) and insert adaptive points across skipped gaps. Table-shaped inputs use row index ",
+        "values for x when `x` is unset, use the named x column when `x` is set, plot all numeric ",
+        "columns except the x column when `y` is unset, and plot only the named y column or columns ",
+        "when `y` is set. Size comes from `size:(w;h)`, ",
         "`width`, `height`, or the current terminal when unset. Global options are `xlim`, ",
-        "`ylim`, `symbols`, `labels`, `mode`, `axes`, `color`, `grid`, `samples`, `theme`, ",
+        "`ylim`, `x`, `y`, `symbols`, `labels`, `mode`, `axes`, `color`, `grid`, `samples`, `theme`, ",
         "`complex`, `ascii`, `title`, `xlabel`, `ylabel`, and `caption`. `mode` is `line`, ",
         "`scatter`, `step`, `bar`, or `area` (also `l`, `sc`, `st`, `b`, `a`). `axes` accepts ",
         "`T`, `F`, `\"full\"`, or `\"minimal\"`; `grid` accepts `T`, `F`, an integer density, ",

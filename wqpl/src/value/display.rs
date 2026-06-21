@@ -4,6 +4,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 use unicode_segmentation::UnicodeSegmentation as _;
+use unicode_width::UnicodeWidthStr as _;
 
 use crate::astnode::binary_op_display;
 use crate::value::Value;
@@ -341,8 +342,9 @@ fn format_table(headers: &[String], rows: &[Vec<String>]) -> String {
     let mut widths = vec![0usize; ncols];
     for row in &table {
         for (j, cell) in row.iter().enumerate() {
-            if widths[j] < cell.len() {
-                widths[j] = cell.len();
+            let width = display_width(cell);
+            if widths[j] < width {
+                widths[j] = width;
             }
         }
     }
@@ -350,11 +352,30 @@ fn format_table(headers: &[String], rows: &[Vec<String>]) -> String {
     for row in table {
         let mut parts = Vec::new();
         for (j, cell) in row.iter().enumerate() {
-            parts.push(format!("{:<width$}", cell, width = widths[j]));
+            let padding = widths[j].saturating_sub(display_width(cell));
+            parts.push(format!("{}{}", cell, " ".repeat(padding)));
         }
         lines.push(parts.join(" ").trim_end().to_string());
     }
     lines.join("\n")
+}
+
+fn display_width(text: &str) -> usize {
+    let mut visible = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' && chars.peek() == Some(&'[') {
+            chars.next();
+            for code_ch in chars.by_ref() {
+                if ('@'..='~').contains(&code_ch) {
+                    break;
+                }
+            }
+        } else {
+            visible.push(ch);
+        }
+    }
+    visible.as_str().width()
 }
 
 pub trait Excerpt {

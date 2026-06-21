@@ -1146,7 +1146,7 @@ declare_builtins! {
     (SHOWTABLE, Showtable, "showtable", "showtable[table]", sig!(arity!(1)), plain(viz::show_table), BuiltinGroup::Viz),
     (ASCIIPLOT, Asciiplot, "asciiplot",
         concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim;",
-            "`symbols;`labels;`mode;`axes;`color;`grid;",
+            "`x;`y;`symbols;`labels;`mode;`axes;`color;`grid;",
             "`samples;`theme;`complex;`ascii;",
             "`title;`xlabel;`ylabel;`caption]"), sig!(arity!(1..), named ASCIIPLOT_NAMED_ARGS), with_context(viz::asciiplot), BuiltinGroup::Viz),
 
@@ -1189,8 +1189,9 @@ declare_builtins! {
 const ECHO_NAMED_ARGS: &[&str] = &["sep"];
 const MAXSPLIT_NAMED_ARGS: &[&str] = &["m"];
 const ASCIIPLOT_NAMED_ARGS: &[&str] = &[
-    "size", "width", "height", "xlim", "ylim", "symbols", "labels", "mode", "axes", "color",
-    "grid", "samples", "theme", "complex", "ascii", "title", "xlabel", "ylabel", "caption",
+    "size", "width", "height", "xlim", "ylim", "x", "y", "symbols", "labels", "mode", "axes",
+    "color", "grid", "samples", "theme", "complex", "ascii", "title", "xlabel", "ylabel",
+    "caption",
 ];
 #[cfg(not(target_arch = "wasm32"))]
 const EXEC_NAMED_ARGS: &[&str] = &["stdin", "cwd", "env", "timeout", "check"];

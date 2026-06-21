@@ -54,6 +54,25 @@ mod tests {
     }
 
     #[test]
+    fn formats_unicode_with_display_width() {
+        let value = Value::List(Arc::new(vec![
+            Value::Dict(Arc::new(IndexMap::from([
+                ("name".into(), Value::Tag("猫".into())),
+                ("age".into(), Value::Int(7)),
+            ]))),
+            Value::Dict(Arc::new(IndexMap::from([
+                ("name".into(), Value::Tag("ada".into())),
+                ("age".into(), Value::Int(85)),
+            ]))),
+        ]));
+
+        assert_eq!(
+            format_table_value(&value).as_deref(),
+            Some("name age\n`猫  7\n`ada 85")
+        );
+    }
+
+    #[test]
     fn rejects_non_table_values() {
         assert_eq!(format_table_value(&Value::Int(1)), None);
     }

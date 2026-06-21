@@ -2131,6 +2131,9 @@ body {
 .viz-table-source {
   display: none;
 }
+[data-viz-source-kind="table"] .viz-table-plot-config {
+  display: none;
+}
 [data-viz-source-kind="table"] .viz-series-editor {
   display: none;
 }

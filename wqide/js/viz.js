@@ -36,6 +36,8 @@ const DEFAULT_STATE = {
   ylimMaxText: "",
   xlimLocked: false,
   ylimLocked: false,
+  tableXText: "",
+  tableYText: "",
   titleText: "sin and cos",
   xlabelText: "x",
   ylabelText: "y",
@@ -100,6 +102,38 @@ const PRESETS = {
     series: [
       { expr: "(3;7;4;8;5;9;6;11)", label: "north", symbol: "#", mode: "bar" },
       { expr: "(2;5;7;4;10;6;12;8)", label: "south", symbol: "+", mode: "bar" },
+    ],
+    seriesOptions: false,
+  },
+  tablePlot: {
+    title: "Table plot",
+    subtitle: "asciiplot / table columns",
+    sourceKind: "plot",
+    mode: "line",
+    complex: "re",
+    theme: "none",
+    axes: "full",
+    grid: "4",
+    palette: "bright",
+    width: 90,
+    height: 22,
+    samples: 80,
+    xlimMinText: "0",
+    xlimMaxText: "5",
+    ylimMinText: "",
+    ylimMaxText: "",
+    tableXText: "x",
+    tableYText: "sin;cos",
+    titleText: "table columns",
+    xlabelText: "x",
+    ylabelText: "value",
+    series: [
+      {
+        expr: "(`x:(0;1;2;3;4;5);`sin:(0;0.84;0.91;0.14;-0.76;-0.96);`cos:(1;0.54;-0.42;-0.99;-0.65;0.28))",
+        label: "",
+        symbol: "",
+        mode: "",
+      },
     ],
     seriesOptions: false,
   },
@@ -327,6 +361,16 @@ function textOption(name, text) {
   return value ? named(name, wqString(value)) : null;
 }
 
+function textListOption(name, text) {
+  const values = String(text || "")
+    .split(/[;,\n]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!values.length) return null;
+  if (values.length === 1) return named(name, wqString(values[0]));
+  return named(name, `(${values.map(wqString).join(";")})`);
+}
+
 function defaultSeriesForKind(kind) {
   if (kind === "data") {
     return [{ expr: "(3;7;4;8;5;9;6;11)", label: "score", symbol: "#", mode: "bar" }];
@@ -380,6 +424,8 @@ function plotOptions(state) {
   for (const option of [
     limitOption("xlim", state.xlimMinText, state.xlimMaxText),
     limitOption("ylim", state.ylimMinText, state.ylimMaxText),
+    textOption("x", state.tableXText),
+    textListOption("y", state.tableYText),
     textOption("title", state.titleText),
     textOption("xlabel", state.xlabelText),
     textOption("ylabel", state.ylabelText),

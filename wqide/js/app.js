@@ -393,6 +393,10 @@ const VIZ_HTML = html`
             <span class="viz-preset-title">Data series</span>
             <span class="viz-preset-meta">raw values</span>
           </button>
+          <button class="viz-preset" type="button" data-viz-preset="tablePlot">
+            <span class="viz-preset-title">Table plot</span>
+            <span class="viz-preset-meta">x + y columns</span>
+          </button>
           <button class="viz-preset" type="button" data-viz-preset="cas">
             <span class="viz-preset-title">CAS curve</span>
             <span class="viz-preset-meta">symbolic x</span>
@@ -446,6 +450,18 @@ const VIZ_HTML = html`
             <div class="viz-series-editor" data-viz-series-editor>
               <div class="viz-series-list" data-viz-series-list></div>
               <button class="viz-small-btn" type="button" data-viz-add-series>Add series</button>
+            </div>
+            <div class="viz-table-plot-config" data-viz-table-plot-config>
+              <div class="viz-inline-fields">
+                <label class="viz-text-field">
+                  <span>X column</span>
+                  <input type="text" spellcheck="false" data-viz-input="tableXText" />
+                </label>
+                <label class="viz-text-field">
+                  <span>Y columns</span>
+                  <input type="text" spellcheck="false" data-viz-input="tableYText" />
+                </label>
+              </div>
             </div>
             <div class="viz-table-config" data-viz-table-config>
               <div class="viz-control-grid">

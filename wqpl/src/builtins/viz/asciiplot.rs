@@ -1,6 +1,7 @@
 use std::cmp::{max, min};
 
 use colored::{Color, Colorize};
+use indexmap::IndexMap;
 
 use crate::builtins::{BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_named_args};
 use crate::cas::{infer_single_cas_var, substitute_cas};
@@ -36,7 +37,7 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
     // Collect series configs
     let mut configs: Vec<SeriesConfig> = Vec::new();
     for arg in args {
-        configs.push(parse_series_arg(&arg, &opts)?);
+        configs.extend(parse_series_arg(&arg, &opts)?);
     }
     if configs.is_empty() {
         return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg("expected each arg to be (a list of numbers) or (a list of 2‑element numeric lists)").attach_note(
@@ -84,9 +85,9 @@ struct PlotSeries {
     label: Option<String>,
 }
 
-fn parse_series_arg(arg: &Value, _opts: &PlotOptions) -> WqResult<SeriesConfig> {
+fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfig>> {
     match arg {
-        Value::IntList(arr) if !arr.is_empty() => Ok(SeriesConfig {
+        Value::IntList(arr) if !arr.is_empty() => Ok(vec![SeriesConfig {
             data: SeriesData::Raw(
                 arr.iter()
                     .enumerate()
@@ -97,7 +98,7 @@ fn parse_series_arg(arg: &Value, _opts: &PlotOptions) -> WqResult<SeriesConfig> 
             symbol: None,
             mode: None,
             label: None,
-        }),
+        }]),
         Value::List(items)
             if items.iter().all(|it| {
                 if let Value::List(ref pair) = *it {
@@ -107,7 +108,7 @@ fn parse_series_arg(arg: &Value, _opts: &PlotOptions) -> WqResult<SeriesConfig> 
                 }
             }) && !items.is_empty() =>
         {
-            Ok(SeriesConfig {
+            Ok(vec![SeriesConfig {
                 data: SeriesData::Raw(
                     items
                         .iter()
@@ -115,7 +116,10 @@ fn parse_series_arg(arg: &Value, _opts: &PlotOptions) -> WqResult<SeriesConfig> 
                             let Value::List(ref pair) = *it else {
                                 unreachable!();
                             };
-                            (pair[0].as_f64().unwrap(), pair[1].as_f64().unwrap())
+                            (
+                                pair[0].as_f64().expect("guard checked x is numeric"),
+                                pair[1].as_f64().expect("guard checked y is numeric"),
+                            )
                         })
                         .collect(),
                 ),
@@ -123,32 +127,46 @@ fn parse_series_arg(arg: &Value, _opts: &PlotOptions) -> WqResult<SeriesConfig> 
                 symbol: None,
                 mode: None,
                 label: None,
-            })
+            }])
         }
         Value::List(items) if items.iter().all(|v| v.as_f64().is_some()) && !items.is_empty() => {
-            Ok(SeriesConfig {
+            Ok(vec![SeriesConfig {
                 data: SeriesData::Raw(
                     items
                         .iter()
                         .enumerate()
-                        .map(|(i, y)| (i as f64, y.as_f64().unwrap()))
+                        .map(|(i, y)| {
+                            (
+                                i as f64,
+                                y.as_f64().expect("guard checked list item is numeric"),
+                            )
+                        })
                         .collect(),
                 ),
                 xlim: None,
                 symbol: None,
                 mode: None,
                 label: None,
-            })
+            }])
         }
-        _ if arg.is_cas_expr() => Ok(SeriesConfig {
+        Value::List(_) => {
+            if let Some(table) = parse_table_arg(arg) {
+                table_series_configs(table, opts)
+            } else {
+                Err(expected_series_arg_error())
+            }
+        }
+        _ if arg.is_cas_expr() => Ok(vec![SeriesConfig {
             data: SeriesData::Cas(arg.clone()),
             xlim: None,
             symbol: None,
             mode: None,
             label: None,
-        }),
+        }]),
         Value::Dict(map) => {
-            if let Some(fn_val) = map.get("fn") {
+            if let Some(fn_val) = map.get("fn")
+                && (fn_val.is_callable() || fn_val.is_cas_expr())
+            {
                 let xlim = map.get("xlim").and_then(pair_as_f64);
                 let symbol = map.get("symbol").and_then(|v| match v {
                     Value::Char(c) => Some(*c),
@@ -162,45 +180,225 @@ fn parse_series_arg(arg: &Value, _opts: &PlotOptions) -> WqResult<SeriesConfig> 
                     .get("label")
                     .and_then(|v| v.to_rust_string_with_note().ok());
 
-                let data = match fn_val {
-                    v if v.is_callable() => SeriesData::Callable(fn_val.clone()),
-                    _ if fn_val.is_cas_expr() => SeriesData::Cas(fn_val.clone()),
-                    _ => {
-                        return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg(
-                            "series config `fn` must be a callable function or CAS expression",
-                        ));
-                    }
+                let data = if fn_val.is_callable() {
+                    SeriesData::Callable(fn_val.clone())
+                } else {
+                    SeriesData::Cas(fn_val.clone())
                 };
 
-                Ok(SeriesConfig {
+                Ok(vec![SeriesConfig {
                     data,
                     xlim,
                     symbol,
                     mode,
                     label,
-                })
+                }])
+            } else if let Some(table) = parse_table_arg(arg) {
+                table_series_configs(table, opts)
+            } else if map.contains_key("fn") {
+                Err(WqError::new(WqErrorType::Domain)
+                    .src(BE::Asciiplot)
+                    .msg("series config `fn` must be a callable function or CAS expression"))
             } else {
                 Err(WqError::new(WqErrorType::Domain)
                     .src(BE::Asciiplot)
                     .msg(
                         "expected each arg to be point data, a function, a CAS expression, \
-                         or a series config dict with `fn`",
+                         table-shaped data, or a series config dict with `fn`",
                     )
-                    .attach_note("e.g. (1;2;3), ((1;2);(2;4)), {x*x}, or @s x^2"))
+                    .attach_note(
+                        "e.g. (1;2;3), ((1;2);(2;4)), {x*x}, @s x^2, or (`x:(0;1);`y:(2;3))",
+                    ))
             }
         }
-        v if v.is_callable() => Ok(SeriesConfig {
+        v if v.is_callable() => Ok(vec![SeriesConfig {
             data: SeriesData::Callable(arg.clone()),
             xlim: None,
             symbol: None,
             mode: None,
             label: None,
-        }),
-        _ => Err(WqError::new(WqErrorType::Domain)
-            .src(BE::Asciiplot)
-            .msg("expected each arg to be point data, a function, or a symbolic CAS expression")
-            .attach_note("e.g. (1;2;3), ((1;2);(2;4)), {x*x}, or @s x^2")),
+        }]),
+        _ => Err(expected_series_arg_error()),
     }
+}
+
+#[derive(Clone)]
+struct TableData {
+    headers: Vec<String>,
+    columns: IndexMap<String, Vec<Option<Value>>>,
+    nrows: usize,
+}
+
+fn parse_table_arg(arg: &Value) -> Option<TableData> {
+    match arg {
+        Value::Dict(map) => parse_dict_of_lists_table(map),
+        Value::List(rows) => parse_list_of_dicts_table(rows),
+        _ => None,
+    }
+}
+
+fn parse_dict_of_lists_table(map: &IndexMap<std::sync::Arc<str>, Value>) -> Option<TableData> {
+    if map.is_empty()
+        || !map
+            .values()
+            .all(|v| matches!(v, Value::List(_) | Value::IntList(_)))
+    {
+        return None;
+    }
+
+    let headers: Vec<String> = map.keys().map(|k| k.to_string()).collect();
+    let nrows = map.values().map(column_len).max().unwrap_or(0);
+    let mut columns = IndexMap::new();
+    for (key, value) in map.iter() {
+        let mut column = Vec::with_capacity(nrows);
+        for idx in 0..nrows {
+            column.push(column_item(value, idx));
+        }
+        columns.insert(key.to_string(), column);
+    }
+    Some(TableData {
+        headers,
+        columns,
+        nrows,
+    })
+}
+
+fn parse_list_of_dicts_table(rows: &[Value]) -> Option<TableData> {
+    if rows.is_empty() || !rows.iter().all(|row| matches!(row, Value::Dict(_))) {
+        return None;
+    }
+
+    let mut headers: Vec<String> = Vec::new();
+    for row in rows {
+        let Value::Dict(map) = row else {
+            unreachable!();
+        };
+        for key in map.keys() {
+            if !headers.iter().any(|header| header == key.as_ref()) {
+                headers.push(key.to_string());
+            }
+        }
+    }
+
+    let nrows = rows.len();
+    let mut columns = IndexMap::new();
+    for header in &headers {
+        let mut column = Vec::with_capacity(nrows);
+        for row in rows {
+            let Value::Dict(map) = row else {
+                unreachable!();
+            };
+            column.push(map.get(header.as_str()).cloned());
+        }
+        columns.insert(header.clone(), column);
+    }
+    Some(TableData {
+        headers,
+        columns,
+        nrows,
+    })
+}
+
+fn column_len(value: &Value) -> usize {
+    match value {
+        Value::List(items) => items.len(),
+        Value::IntList(items) => items.len(),
+        _ => 0,
+    }
+}
+
+fn column_item(value: &Value, idx: usize) -> Option<Value> {
+    match value {
+        Value::List(items) => items.get(idx).cloned(),
+        Value::IntList(items) => items.get(idx).copied().map(Value::Int),
+        _ => None,
+    }
+}
+
+fn table_series_configs(table: TableData, opts: &PlotOptions) -> WqResult<Vec<SeriesConfig>> {
+    let x_column = opts.table_x.as_deref();
+    if let Some(name) = x_column
+        && !table.columns.contains_key(name)
+    {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Asciiplot)
+            .msg(format!("table x column `{name}` was not found")));
+    }
+
+    let y_columns = if let Some(columns) = &opts.table_y {
+        for name in columns {
+            if !table.columns.contains_key(name) {
+                return Err(WqError::new(WqErrorType::Domain)
+                    .src(BE::Asciiplot)
+                    .msg(format!("table y column `{name}` was not found")));
+            }
+        }
+        columns.clone()
+    } else {
+        table
+            .headers
+            .iter()
+            .filter(|name| Some(name.as_str()) != x_column)
+            .filter(|name| table_column_has_number(&table, name))
+            .cloned()
+            .collect()
+    };
+
+    if y_columns.is_empty() {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Asciiplot)
+            .msg("table-shaped data has no numeric y columns to plot"));
+    }
+
+    let mut configs = Vec::with_capacity(y_columns.len());
+    for y_name in y_columns {
+        let mut points = Vec::new();
+        for idx in 0..table.nrows {
+            let x = if let Some(name) = x_column {
+                table_cell_as_f64(&table, name, idx)
+            } else {
+                Some(idx as f64)
+            };
+            let y = table_cell_as_f64(&table, &y_name, idx);
+            if let (Some(x), Some(y)) = (x, y) {
+                points.push((x, y));
+            }
+        }
+
+        if points.is_empty() {
+            return Err(WqError::new(WqErrorType::Domain)
+                .src(BE::Asciiplot)
+                .msg(format!("table y column `{y_name}` has no numeric points")));
+        }
+
+        configs.push(SeriesConfig {
+            data: SeriesData::Raw(points),
+            xlim: None,
+            symbol: None,
+            mode: None,
+            label: Some(y_name),
+        });
+    }
+
+    Ok(configs)
+}
+
+fn table_column_has_number(table: &TableData, name: &str) -> bool {
+    (0..table.nrows).any(|idx| table_cell_as_f64(table, name, idx).is_some())
+}
+
+fn table_cell_as_f64(table: &TableData, name: &str, idx: usize) -> Option<f64> {
+    let value = table.columns.get(name)?.get(idx)?.as_ref()?;
+    expect_real_sample(value)
+}
+
+fn expected_series_arg_error() -> WqError {
+    WqError::new(WqErrorType::Domain)
+        .src(BE::Asciiplot)
+        .msg(
+            "expected each arg to be point data, a function, a symbolic CAS expression, or table-shaped data",
+        )
+        .attach_note("e.g. (1;2;3), ((1;2);(2;4)), {x*x}, @s x^2, or (`x:(0;1);`y:(2;3))")
 }
 
 fn sample_callable_series(
@@ -395,6 +593,24 @@ fn parse_plot_mode(value: &Value) -> Option<PlotMode> {
     })
 }
 
+fn parse_column_name(value: &Value) -> Option<String> {
+    let name = match value {
+        Value::Tag(sym) => sym.to_string(),
+        _ => value.to_rust_string_with_note().ok()?,
+    };
+    if name.is_empty() { None } else { Some(name) }
+}
+
+fn parse_column_names(value: &Value) -> Option<Vec<String>> {
+    let names = match value {
+        Value::List(items) if !items.iter().all(|item| matches!(item, Value::Char(_))) => {
+            items.iter().filter_map(parse_column_name).collect()
+        }
+        _ => parse_column_name(value).map(|name| vec![name])?,
+    };
+    if names.is_empty() { None } else { Some(names) }
+}
+
 #[derive(Clone)]
 struct PlotOptions {
     width: usize,
@@ -403,6 +619,8 @@ struct PlotOptions {
     ylim: Option<(f64, f64)>,
     symbols: Vec<char>,
     labels: Option<Vec<String>>,
+    table_x: Option<String>,
+    table_y: Option<Vec<String>>,
     mode: PlotMode,
     axes: AxesMode,
     color: ColorMode,
@@ -452,6 +670,8 @@ impl Default for PlotOptions {
             ylim: None,
             symbols: vec!['·'],
             labels: None,
+            table_x: None,
+            table_y: None,
             mode: PlotMode::Line,
             axes: AxesMode::Full,
             color: ColorMode::On,
@@ -565,6 +785,16 @@ impl PlotOptions {
             if !labs.is_empty() {
                 self.labels = Some(labs);
             }
+        }
+        if let Some(v) = args.named("x")
+            && let Some(name) = parse_column_name(v)
+        {
+            self.table_x = Some(name);
+        }
+        if let Some(v) = args.named("y")
+            && let Some(names) = parse_column_names(v)
+        {
+            self.table_y = Some(names);
         }
         if let Some(v) = args.named("samples").and_then(|v| v.as_i64()) {
             self.samples = Some(max(1, v as usize));
@@ -1322,6 +1552,7 @@ fn nice_ticks(minv: f64, maxv: f64, target: usize) -> Vec<f64> {
 mod tests {
     use std::sync::Arc;
 
+    use indexmap::IndexMap;
     use smallvec::smallvec;
 
     use super::*;
@@ -1336,6 +1567,15 @@ mod tests {
         fn print(&mut self, _s: &str) {}
 
         fn println(&mut self, _s: &str) {}
+    }
+
+    fn assert_raw_points(config: &SeriesConfig, expected: &[(f64, f64)]) {
+        match &config.data {
+            SeriesData::Raw(points) => assert_eq!(points.as_slice(), expected),
+            SeriesData::Callable(_) | SeriesData::Cas(_) => {
+                panic!("expected table-shaped data to produce raw points")
+            }
+        }
     }
 
     #[test]
@@ -1366,6 +1606,68 @@ mod tests {
         )
         .unwrap();
         assert_eq!(series, vec![(-1.0, 1.0), (0.0, 0.0), (1.0, 1.0)]);
+    }
+
+    #[test]
+    fn table_dict_of_lists_expands_to_selected_y_columns() {
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            ("x".into(), Value::IntList(Arc::new(vec![0, 1, 2]))),
+            (
+                "sin".into(),
+                Value::List(Arc::new(vec![
+                    Value::float(0.0),
+                    Value::float(0.84),
+                    Value::float(0.91),
+                ])),
+            ),
+            (
+                "cos".into(),
+                Value::List(Arc::new(vec![
+                    Value::float(1.0),
+                    Value::float(0.54),
+                    Value::float(-0.42),
+                ])),
+            ),
+        ])));
+        let opts = PlotOptions {
+            table_x: Some("x".to_string()),
+            table_y: Some(vec!["sin".to_string(), "cos".to_string()]),
+            ..PlotOptions::default()
+        };
+
+        let configs = parse_series_arg(&value, &opts).expect("table should parse");
+
+        assert_eq!(configs.len(), 2);
+        assert_eq!(configs[0].label.as_deref(), Some("sin"));
+        assert_eq!(configs[1].label.as_deref(), Some("cos"));
+        assert_raw_points(&configs[0], &[(0.0, 0.0), (1.0, 0.84), (2.0, 0.91)]);
+        assert_raw_points(&configs[1], &[(0.0, 1.0), (1.0, 0.54), (2.0, -0.42)]);
+    }
+
+    #[test]
+    fn table_list_of_dicts_uses_numeric_columns_when_y_is_unset() {
+        let value = Value::List(Arc::new(vec![
+            Value::Dict(Arc::new(IndexMap::from([
+                ("x".into(), Value::Int(0)),
+                ("sin".into(), Value::float(0.0)),
+                ("name".into(), Value::Tag("a".into())),
+            ]))),
+            Value::Dict(Arc::new(IndexMap::from([
+                ("x".into(), Value::Int(1)),
+                ("sin".into(), Value::float(0.84)),
+                ("name".into(), Value::Tag("b".into())),
+            ]))),
+        ]));
+        let opts = PlotOptions {
+            table_x: Some("x".to_string()),
+            ..PlotOptions::default()
+        };
+
+        let configs = parse_series_arg(&value, &opts).expect("table should parse");
+
+        assert_eq!(configs.len(), 1);
+        assert_eq!(configs[0].label.as_deref(), Some("sin"));
+        assert_raw_points(&configs[0], &[(0.0, 0.0), (1.0, 0.84)]);
     }
 
     #[test]
