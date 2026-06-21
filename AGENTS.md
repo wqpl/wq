@@ -2,8 +2,7 @@
 
 - Use `cargo run -p wq-cli -- --help` to understand CLI usage
   - eg. `cargo run -p wq-cli -- exec 'inline code' -d ast,inst -p`
-- Read `e/*.wq`, `lex.rs`, `parse.rs` to understand wq grammar
-  - skip if your work is unrelated to wq semantics
+- Read `e/*.wq` to understand wq grammar
   - `lhs:rhs` is assignment
   - `a=b` is equality
   - list is `(1;2;3)`
@@ -17,6 +16,9 @@
   - `+` is broadcasting add
   - binary `,` is cat
   - leading `,` is enlist
+  - `$[c;t;f]` is ternary. If false, every expression after the second semicolon belongs to the false branch, so `$[c;t;f1;f2]` runs `f1` then returns `f2` when `c` is false.
+  - `$.[c;t1;t2...]` is a guard. It runs the body only when `c` is true; otherwise it returns unit `()`.
+  - `$$[c1;t1;c2;t2;default]` is a condition/branch chain. Conditions are checked in order. The final default is optional; omitted default is unit.
   - `|` is pipe, which inserts lhs as the first arg to a rhs call
   - `\` or `bor[...]` (backslash) is bitwise or.
   - `\|` (backslash pipe) is short-circuit bool or.
@@ -28,6 +30,7 @@
       - e.g. `diff integrate @s 1/(x^3-2)`
     - A bare `x^3-2` without `@s` is evaluation and is not related to CAS.
   - postfix binds tighter than operators, `echo 1+2` <=> `(echo 1)+2` => prints `1`, evals to `()/*unit*/+2` => evals to `2`. Does not evaluate to `3` and print `3`.
+
 - Ensure `cargo clippy --all-targets -- -D warnings` passes.
   - You are not allowed to use `#[allow(...)]` to pass clippy.
     - An exception is dead code, where you are allowed to use `#[allow(...)]` instead of deleting it
