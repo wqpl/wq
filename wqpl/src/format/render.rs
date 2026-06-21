@@ -14,6 +14,7 @@
 //! deeply nested documents do not blow the stack.
 
 use super::doc::Doc;
+use unicode_width::UnicodeWidthStr as _;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
@@ -224,16 +225,9 @@ impl RenderState {
     }
 }
 
-/// Best-effort visual width. For ASCII this is the byte length; for non-
-/// ASCII it falls back to `char` count (which is wrong for some grapheme
-/// clusters but correct enough for ordinary source text). Used only to
-/// decide whether a flat layout fits.
+/// Terminal display width used to decide whether a flat layout fits.
 fn visual_width(s: &str) -> usize {
-    if s.is_ascii() {
-        s.len()
-    } else {
-        s.chars().count()
-    }
+    s.width()
 }
 
 /// Check whether the doc starting at `frame`, plus the remaining stack,

@@ -95,12 +95,17 @@ fn format_script<P: AsRef<Path>>(filename: P, opts: FmtOpts) {
     let path = filename.as_ref();
     match std::fs::read_to_string(path) {
         Ok(content) => {
-            let fmt = Formatter::new(FormatConfig {
+            let mut config = FormatConfig {
                 indent_size: 2,
                 nlcd: opts.nlcd,
                 one_line_wizard: opts.olw,
                 ..FormatConfig::default()
-            });
+            };
+            if let Some(width) = opts.max_width {
+                config.max_width = width;
+            }
+            config.wrap_only = opts.wrap_only;
+            let fmt = Formatter::new(config);
             match fmt.format_script(&content) {
                 Ok(out) => println!("{out}"),
                 Err(err) => {

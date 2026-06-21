@@ -1285,17 +1285,45 @@ impl ReplFmtState {
                 "on" => self.enabled = true,
                 "off" => self.enabled = false,
                 "nlcd" => {
+                    self.opts.wrap_only = false;
                     self.opts.nlcd = !self.opts.nlcd;
                     saw_mode_toggle = true;
                 }
                 "olw" => {
+                    self.opts.wrap_only = false;
                     self.opts.olw = !self.opts.olw;
                     saw_mode_toggle = true;
                 }
+                "wrap" | "wrap-only" => {
+                    self.opts.wrap_only = !self.opts.wrap_only;
+                    if self.opts.wrap_only {
+                        self.opts.nlcd = false;
+                        self.opts.olw = false;
+                    }
+                    saw_mode_toggle = true;
+                }
+                "full" | "nowrap" | "no-wrap" => {
+                    self.opts.wrap_only = false;
+                    saw_mode_toggle = true;
+                }
                 other => {
-                    return Err(format!(
-                        "unknown fmt mode '{other}'\nAvailable: on, off, nlcd, olw"
-                    ));
+                    if let Some(width) = parse_wrap_only_width_mode(other)? {
+                        self.opts.max_width = Some(width);
+                        self.opts.wrap_only = true;
+                        self.opts.nlcd = false;
+                        self.opts.olw = false;
+                        saw_mode_toggle = true;
+                    } else if let Some(width_mode) = parse_width_mode(other)? {
+                        match width_mode {
+                            WidthMode::Set(width) => self.opts.max_width = Some(width),
+                            WidthMode::Clear => self.opts.max_width = None,
+                        }
+                        saw_mode_toggle = true;
+                    } else {
+                        return Err(format!(
+                            "unknown fmt mode '{other}'\nAvailable: on, off, nlcd, olw, wrap-only, width=COLS, nowrap"
+                        ));
+                    }
                 }
             }
         }
@@ -1306,21 +1334,32 @@ impl ReplFmtState {
     }
 
     fn config(&self) -> FormatConfig {
-        FormatConfig {
+        let mut config = FormatConfig {
             indent_size: 2,
             nlcd: self.opts.nlcd,
             one_line_wizard: self.opts.olw,
             ..FormatConfig::default()
+        };
+        if let Some(width) = self.opts.max_width {
+            config.max_width = width;
         }
+        config.wrap_only = self.opts.wrap_only;
+        config
     }
 
     fn modes(&self) -> String {
         let mut modes = Vec::new();
+        if self.opts.wrap_only {
+            modes.push("wrap-only".to_string());
+        }
+        if let Some(width) = self.opts.max_width {
+            modes.push(format!("width={width}"));
+        }
         if self.opts.nlcd {
-            modes.push("nlcd");
+            modes.push("nlcd".to_string());
         }
         if self.opts.olw {
-            modes.push("olw");
+            modes.push("olw".to_string());
         }
         if modes.is_empty() {
             "default".into()
@@ -1335,6 +1374,46 @@ impl ReplFmtState {
             if self.enabled { "on" } else { "off" },
             self.modes()
         )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WidthMode {
+    Set(usize),
+    Clear,
+}
+
+fn parse_wrap_only_width_mode(mode: &str) -> Result<Option<usize>, String> {
+    let width = mode
+        .strip_prefix("wrap=")
+        .or_else(|| mode.strip_prefix("wrap:"))
+        .or_else(|| mode.strip_prefix("wrap "));
+    let Some(width) = width else {
+        return Ok(None);
+    };
+    parse_fmt_width(width.trim()).map(Some)
+}
+
+fn parse_width_mode(mode: &str) -> Result<Option<WidthMode>, String> {
+    let width = mode
+        .strip_prefix("width=")
+        .or_else(|| mode.strip_prefix("width:"))
+        .or_else(|| mode.strip_prefix("width "));
+    let Some(width) = width else {
+        return Ok(None);
+    };
+    let width = width.trim();
+    if matches!(width, "default" | "off" | "none") {
+        return Ok(Some(WidthMode::Clear));
+    }
+    parse_fmt_width(width).map(WidthMode::Set).map(Some)
+}
+
+fn parse_fmt_width(width: &str) -> Result<usize, String> {
+    match width.parse::<usize>() {
+        Ok(n) if n > 0 => Ok(n),
+        Ok(_) => Err("fmt wrap width must be at least 1".to_string()),
+        Err(_) => Err(format!("invalid fmt wrap width: {width}")),
     }
 }
 
@@ -1486,5 +1565,46 @@ mod tests {
             ReplCommand::parse("!d.-inst"),
             ReplCommand::DebugOneshot(spec) if spec == "-inst"
         ));
+    }
+
+    #[test]
+    fn fmt_repl_wrap_only_mode_sets_width() {
+        let mut state = ReplFmtState::default();
+        state.toggle_modes("width=32").expect("width mode parses");
+        state.toggle_modes("wrap-only").expect("wrap mode parses");
+
+        assert!(state.enabled);
+        assert_eq!(state.opts.max_width, Some(32));
+        assert!(state.opts.wrap_only);
+        assert_eq!(state.modes(), "wrap-only,width=32");
+        let config = state.config();
+        assert!(config.wrap_only);
+        assert_eq!(config.max_width, 32);
+    }
+
+    #[test]
+    fn fmt_repl_normal_modes_clear_wrap_only() {
+        let mut state = ReplFmtState::default();
+        state.toggle_modes("wrap 32").expect("wrap mode parses");
+        state.toggle_modes("nlcd").expect("nlcd mode parses");
+
+        assert_eq!(state.opts.max_width, Some(32));
+        assert!(!state.opts.wrap_only);
+        assert!(state.opts.nlcd);
+        assert!(!state.config().wrap_only);
+    }
+
+    #[test]
+    fn fmt_repl_width_without_wrap_only_uses_normal_formatter() {
+        let mut state = ReplFmtState::default();
+        state.toggle_modes("width=44").expect("width mode parses");
+
+        assert!(state.enabled);
+        assert_eq!(state.opts.max_width, Some(44));
+        assert!(!state.opts.wrap_only);
+        assert_eq!(state.modes(), "width=44");
+        let config = state.config();
+        assert_eq!(config.max_width, 44);
+        assert!(!config.wrap_only);
     }
 }

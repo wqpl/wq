@@ -6,6 +6,9 @@ use std::process::{Command, Stdio};
 
 use colored::Colorize as _;
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use terminal_size::{Width, terminal_size};
+use unicode_width::UnicodeWidthStr as _;
+use wqpl::format::{FormatConfig, Formatter};
 use wqpl::session::Session;
 use wqpl::session::dbglog::set_debug_log_flags;
 use wqpl::session::stdio::{WqStdinError, set_wqstdin, wqstdin_add_history, wqstdin_readline};
@@ -253,10 +256,36 @@ pub(crate) fn format_code_fence(
     code: &str,
     highlighter: Option<&WqReplHighlighter>,
 ) -> String {
+    format_code_fence_with_width(lang, code, highlighter, None)
+}
+
+const DEFAULT_CODE_FENCE_WRAP_WIDTH: usize = 100;
+const CODE_FENCE_PREFIX_WIDTH: usize = 2;
+const MIN_DETECTED_CODE_FENCE_WRAP_WIDTH: usize = 20;
+
+fn format_code_fence_with_width(
+    lang: &str,
+    code: &str,
+    highlighter: Option<&WqReplHighlighter>,
+    wrap_width: Option<usize>,
+) -> String {
     let mut out = String::new();
-    let max_line_len = code.lines().map(|l| l.chars().count()).max().unwrap_or(0);
-    let top_dashes = (max_line_len.saturating_sub(lang.chars().count() + 1)).max(40);
-    let bottom_dashes = lang.chars().count() + 2 + top_dashes;
+    let is_wq = is_wq_fence_lang(lang);
+    let code_width = code_fence_wrap_width(wrap_width);
+    let display_source = if is_wq {
+        smart_wrap_wq_code(code, code_width).unwrap_or_else(|| code.to_string())
+    } else {
+        code.to_string()
+    };
+
+    let max_line_len = display_source
+        .lines()
+        .map(terminal_width)
+        .max()
+        .unwrap_or(0);
+    let lang_width = terminal_width(lang);
+    let top_dashes = (max_line_len.saturating_sub(lang_width + 1)).max(40);
+    let bottom_dashes = lang_width + 2 + top_dashes;
     out.push_str(&format!(
         "{} {} {}\n",
         "+".dimmed(),
@@ -264,13 +293,12 @@ pub(crate) fn format_code_fence(
         "-".repeat(top_dashes).dimmed()
     ));
 
-    let is_wq = lang == "wq" || lang.starts_with("wq ");
     let display_code = if is_wq {
         highlighter
-            .map(|h| h.highlight_text(code))
-            .unwrap_or_else(|| code.to_string())
+            .map(|h| h.highlight_text(&display_source))
+            .unwrap_or_else(|| display_source.clone())
     } else {
-        code.to_string()
+        display_source
     };
 
     for line in display_code.lines() {
@@ -286,6 +314,43 @@ pub(crate) fn format_code_fence(
         "-".repeat(bottom_dashes).dimmed()
     ));
     out
+}
+
+fn is_wq_fence_lang(lang: &str) -> bool {
+    lang == "wq" || lang.starts_with("wq ")
+}
+
+fn code_fence_wrap_width(explicit: Option<usize>) -> usize {
+    explicit
+        .filter(|width| *width > 0)
+        .or_else(detected_code_fence_wrap_width)
+        .unwrap_or(DEFAULT_CODE_FENCE_WRAP_WIDTH)
+}
+
+fn detected_code_fence_wrap_width() -> Option<usize> {
+    terminal_size()
+        .map(|(Width(width), _)| usize::from(width).saturating_sub(CODE_FENCE_PREFIX_WIDTH))
+        .filter(|width| *width >= MIN_DETECTED_CODE_FENCE_WRAP_WIDTH)
+}
+
+fn smart_wrap_wq_code(code: &str, width: usize) -> Option<String> {
+    if code.lines().all(|line| terminal_width(line) <= width) {
+        return None;
+    }
+
+    let formatter = Formatter::new(FormatConfig {
+        max_width: width,
+        wrap_only: true,
+        ..FormatConfig::default()
+    });
+    formatter
+        .format_script(code)
+        .ok()
+        .filter(|formatted| formatted != code)
+}
+
+fn terminal_width(s: &str) -> usize {
+    s.width()
 }
 
 pub(crate) fn render_terminal(md: &str) -> String {
@@ -984,5 +1049,44 @@ mod tests {
         let out = format_code_fence("wq", "1+1", Some(&hl));
         // Wq fences should have ANSI reset per line
         assert!(out.contains("\x1b[0m"));
+    }
+
+    #[test]
+    fn test_format_code_fence_wraps_long_wq_at_formatter_breaks() {
+        let out = format_code_fence_with_width(
+            "wq",
+            "f[(1;2;3;4;5;6;7;8;9;10)]",
+            None,
+            Some(12),
+        );
+
+        assert!(out.contains("| f[(1;2;3;4;\x1b[0m\n"), "got: {out:?}");
+        assert!(out.contains("|     5;6;7;8;\x1b[0m\n"), "got: {out:?}");
+        assert!(out.contains("|     9;10)]\x1b[0m\n"), "got: {out:?}");
+        assert!(
+            !out.contains("| f[(1;2;3;4;5;6;7;8;9;10)]\x1b[0m\n"),
+            "got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn test_format_code_fence_preserves_non_wq() {
+        let out = format_code_fence_with_width("python", "print('abcdef')", None, Some(6));
+
+        assert!(out.contains("| print('abcdef')\n"), "got: {out:?}");
+    }
+
+    #[test]
+    fn test_format_code_fence_uses_terminal_width_for_wide_text() {
+        assert_eq!(terminal_width("界"), 2);
+
+        let wide_text = "界".repeat(25);
+        let out = format_code_fence_with_width("python", &wide_text, None, Some(80));
+        let mut lines = out.lines();
+        let top = lines.next().expect("top fence line");
+        let bottom = out.lines().last().expect("bottom fence line");
+
+        assert_eq!(top, format!("+ python {}", "-".repeat(43)));
+        assert_eq!(bottom, format!("+{}", "-".repeat(51)));
     }
 }
