@@ -4,9 +4,10 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 use super::eqsat::rewrite_with_egg;
 use super::{
     cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub, collect_single_poly_var,
-    common_numeric_gcd, eval_numeric_binary, expand_expr, extract_perfect_power_factor,
-    factor_expr, numeric_is_negative, numeric_is_one, poly_degree, poly_from_expr,
-    rebuild_scaled_term, simplify_cas_value, split_add_term, with_cas_div_cache,
+    common_numeric_gcd, eval_exact_numeric_div, eval_numeric_binary, expand_expr,
+    extract_perfect_power_factor, factor_expr, numeric_add, numeric_is_negative, numeric_is_one,
+    numeric_is_zero, numeric_mul, numeric_sub, poly_degree, poly_divide, poly_from_expr,
+    poly_is_zero, rebuild_scaled_term, simplify_cas_value, split_add_term, with_cas_div_cache,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -628,6 +629,366 @@ fn exact_int_value_is(value: &Value, expected: i64) -> bool {
         .is_some_and(|int| int == expected)
 }
 
+#[derive(Clone)]
+struct ShiftedCubicRootBase {
+    leading: Value,
+    monic_base: Value,
+    shift: Value,
+    constant: Value,
+    var: String,
+}
+
+struct CubicRootTerm {
+    scale: Value,
+    numerator: Value,
+    base: Value,
+    exp: Value,
+}
+
+fn numeric_values_equal(lhs: &Value, rhs: &Value) -> bool {
+    numeric_sub(lhs, rhs).is_ok_and(|diff| numeric_is_zero(&diff))
+}
+
+fn shifted_binomial_cubic_root_base(base: &Value) -> WqResult<Option<ShiftedCubicRootBase>> {
+    let expanded = simplify_cas_value(&expand_expr(base)?)?;
+    let mut found_var = None;
+    if !collect_single_poly_var(&expanded, &mut found_var) {
+        return Ok(None);
+    }
+    let Some(var) = found_var else {
+        return Ok(None);
+    };
+    let coeffs = match poly_from_expr(&expanded, &var) {
+        Ok(coeffs) if poly_degree(&coeffs) == 3 => coeffs,
+        _ => return Ok(None),
+    };
+
+    let zero = Value::Int(0);
+    let c0 = coeffs.first().cloned().unwrap_or_else(|| zero.clone());
+    let c1 = coeffs.get(1).cloned().unwrap_or_else(|| zero.clone());
+    let c2 = coeffs.get(2).cloned().unwrap_or_else(|| zero.clone());
+    let c3 = coeffs.get(3).cloned().unwrap_or(zero);
+    if numeric_is_zero(&c3) {
+        return Ok(None);
+    }
+
+    let three = Value::Int(3);
+    let twenty_seven = Value::Int(27);
+    let c2_sq = numeric_mul(&c2, &c2)?;
+    let three_c3 = numeric_mul(&three, &c3)?;
+    let expected_c1 = match eval_exact_numeric_div(&c2_sq, &three_c3) {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    if !numeric_values_equal(&c1, &expected_c1) {
+        return Ok(None);
+    }
+
+    let c2_cubed = numeric_mul(&c2_sq, &c2)?;
+    let c3_sq = numeric_mul(&c3, &c3)?;
+    let denom = numeric_mul(&twenty_seven, &c3_sq)?;
+    let shifted_constant = match eval_exact_numeric_div(&c2_cubed, &denom) {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    let q = numeric_sub(&c0, &shifted_constant)?;
+    let constant = match eval_exact_numeric_div(&q, &c3) {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+    let shift = match eval_exact_numeric_div(&c2, &three_c3) {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+
+    let x = Value::from_cas_var(var.clone());
+    let u = if numeric_is_zero(&shift) {
+        x
+    } else {
+        cas_add(vec![x, shift.clone()])?
+    };
+    let monic_base = cas_add(vec![cas_pow(u, Value::Int(3))?, constant.clone()])?;
+
+    Ok(Some(ShiftedCubicRootBase {
+        leading: c3,
+        monic_base,
+        shift,
+        constant,
+        var,
+    }))
+}
+
+fn push_power_factor(
+    powers: &mut Vec<(Value, Value)>,
+    base: Value,
+    exp: Value,
+) -> WqResult<()> {
+    for (existing_base, existing_exp) in powers.iter_mut() {
+        if *existing_base == base {
+            *existing_exp = numeric_add(existing_exp, &exp)?;
+            return Ok(());
+        }
+    }
+    powers.push((base, exp));
+    Ok(())
+}
+
+fn reduce_rational_power_base(base: &Value, exp: &Value) -> Option<(Value, Value)> {
+    let (bn, bd) = base.rational_parts()?;
+    let (en, ed) = exp.rational_parts()?;
+    if ed.is_one() {
+        return None;
+    }
+    let max_q = ed.to_u32()?.min(12);
+    for q in (2..=max_q).rev() {
+        let Some(root_n) = perfect_power_root(&bn, q) else {
+            continue;
+        };
+        let Some(root_d) = perfect_power_root(&bd, q) else {
+            continue;
+        };
+        let root = Value::from_fraction_parts(root_n, root_d);
+        if root == *base {
+            continue;
+        }
+        let new_exp = Value::from_fraction_parts(en.clone() * BigInt::from(q), ed.clone());
+        return Some((root, new_exp));
+    }
+    None
+}
+
+fn simplify_var_free_product(factors: Vec<Value>) -> WqResult<Value> {
+    let mut numeric = Value::Int(1);
+    let mut powers = Vec::new();
+    let mut pending = factors;
+    while let Some(factor) = pending.pop() {
+        let factor = simplify_cas_value(&factor)?;
+        if numeric_is_one(&factor) {
+            continue;
+        }
+        if let Some((CasOp::Multiply, args)) = factor.cas_op_parts()
+            && !contains_symbolic_var(&factor)
+        {
+            pending.extend(args.iter().cloned());
+            continue;
+        }
+        if !factor.is_cas_expr() {
+            numeric = numeric_mul(&numeric, &factor)?;
+            continue;
+        }
+        if contains_symbolic_var(&factor) {
+            return cas_mul(vec![numeric, factor]);
+        }
+        if let Some((CasOp::Power, [base, exp])) = factor.cas_op_parts()
+            && exp.rational_parts().is_some()
+            && !contains_symbolic_var(base)
+        {
+            let (base, exp) = reduce_rational_power_base(base, exp)
+                .unwrap_or_else(|| (base.clone(), exp.clone()));
+            push_power_factor(&mut powers, base, exp)?;
+        } else {
+            push_power_factor(&mut powers, factor, Value::Int(1))?;
+        }
+    }
+
+    let mut out = Vec::new();
+    for (base, exp) in powers {
+        if numeric_is_zero(&exp) {
+            continue;
+        }
+        let powered = pow_constant_factor(&base, &exp)?;
+        if !powered.is_cas_expr() {
+            numeric = numeric_mul(&numeric, &powered)?;
+        } else {
+            out.push(powered);
+        }
+    }
+    if !numeric_is_one(&numeric) || out.is_empty() {
+        out.push(numeric);
+    }
+    cas_mul(out)
+}
+
+fn display_half_power_parts(base: &Value, exp: &Value) -> WqResult<(Value, Value)> {
+    if let Some((display_base, scale)) = integer_affine_cubic_display(base)? {
+        let scale_exp = numeric_mul(exp, &Value::Int(-1))?;
+        Ok((pow_constant_factor(&scale, &scale_exp)?, display_base))
+    } else {
+        Ok((Value::Int(1), base.clone()))
+    }
+}
+
+fn normalize_cubic_root_term(term: &Value) -> WqResult<Option<CubicRootTerm>> {
+    let (coeff, core) = split_add_term(term);
+    let Some(core) = core else {
+        return Ok(None);
+    };
+
+    let mut root: Option<(ShiftedCubicRootBase, Value)> = None;
+    let mut scale_factors = vec![coeff];
+    let mut numerator_factors = Vec::new();
+    for factor in product_factors(&core) {
+        if root.is_none()
+            && let Some((CasOp::Power, [base, exp])) = factor.cas_op_parts()
+            && (exp.exact_half() || exp.exact_neg_half())
+            && let Some(root_base) = shifted_binomial_cubic_root_base(base)?
+        {
+            root = Some((root_base, exp.clone()));
+            continue;
+        }
+        if contains_symbolic_var(&factor) {
+            numerator_factors.push(factor);
+        } else {
+            scale_factors.push(factor);
+        }
+    }
+    let Some((root_base, exp)) = root else {
+        return Ok(None);
+    };
+    scale_factors.push(pow_constant_factor(&root_base.leading, &exp)?);
+    let scale = simplify_var_free_product(scale_factors)?;
+    let numerator = simplify_cas_value(&cas_product(numerator_factors))?;
+
+    Ok(Some(CubicRootTerm {
+        scale,
+        numerator,
+        base: root_base.monic_base,
+        exp,
+    }))
+}
+
+fn constant_poly_quotient(numer: &Value, denom: &Value) -> WqResult<Option<Value>> {
+    let mut found_var = None;
+    if !collect_single_poly_var(denom, &mut found_var) {
+        return Ok(None);
+    }
+    let Some(var) = found_var else {
+        return Ok(None);
+    };
+    let numer = simplify_cas_value(&expand_expr(numer)?)?;
+    let denom = simplify_cas_value(&expand_expr(denom)?)?;
+    let n_poly = match poly_from_expr(&numer, &var) {
+        Ok(poly) => poly,
+        Err(_) => return Ok(None),
+    };
+    let d_poly = match poly_from_expr(&denom, &var) {
+        Ok(poly) => poly,
+        Err(_) => return Ok(None),
+    };
+    let (quotient, remainder) = poly_divide(&n_poly, &d_poly)?;
+    if !poly_is_zero(&remainder) || poly_degree(&quotient) != 0 {
+        return Ok(None);
+    }
+    Ok(quotient.first().cloned())
+}
+
+fn integer_affine_cubic_display(base: &Value) -> WqResult<Option<(Value, Value)>> {
+    let Some(parts) = shifted_binomial_cubic_root_base(base)? else {
+        return Ok(None);
+    };
+    if !numeric_is_one(&parts.leading) {
+        return Ok(None);
+    }
+    let Some((_, shift_denom)) = parts.shift.rational_parts() else {
+        return Ok(None);
+    };
+    if shift_denom.is_one() {
+        return Ok(None);
+    }
+
+    let divisor = shift_denom.pow(3);
+    let scale = Value::from_bigint(divisor);
+    let d = Value::from_bigint(shift_denom);
+    let x = Value::from_cas_var(parts.var);
+    let affine_x = cas_mul(vec![d.clone(), x])?;
+    let affine_const = numeric_mul(&d, &parts.shift)?;
+    let affine = cas_add(vec![affine_x, affine_const])?;
+    let display_const = numeric_mul(&scale, &parts.constant)?;
+    let display_base = cas_add(vec![cas_pow(affine, Value::Int(3))?, display_const])?;
+
+    Ok(Some((display_base, scale)))
+}
+
+fn display_scaled_half_power(base: &Value, exp: &Value) -> WqResult<Value> {
+    let (scale, display_base) = display_half_power_parts(base, exp)?;
+    let root = cas_mul(vec![scale, cas_pow(display_base, exp.clone())?])?;
+    simplify_cas_value(&root)
+}
+
+fn try_collapse_cubic_root_sum(args: &[Value]) -> WqResult<Option<Value>> {
+    if args.len() < 2 {
+        return Ok(None);
+    }
+
+    let mut terms = Vec::with_capacity(args.len());
+    for arg in args {
+        let Some(term) = normalize_cubic_root_term(arg)? else {
+            return Ok(None);
+        };
+        if !term.exp.exact_half() && !term.exp.exact_neg_half() {
+            return Ok(None);
+        }
+        terms.push(term);
+    }
+
+    let base = terms[0].base.clone();
+    if terms.iter().any(|term| term.base != base) {
+        return Ok(None);
+    }
+
+    let mut half_terms = Vec::new();
+    let mut inv_half_terms = Vec::new();
+    for term in terms {
+        let scaled = cas_mul(vec![term.scale, term.numerator])?;
+        if term.exp.exact_half() {
+            half_terms.push(scaled);
+        } else {
+            inv_half_terms.push(scaled);
+        }
+    }
+    if half_terms.is_empty() || inv_half_terms.is_empty() {
+        return Ok(None);
+    }
+
+    let half_numer = cas_add(half_terms)?;
+    let inv_half_numer = cas_add(inv_half_terms)?;
+    let combined_numer = cas_add(vec![cas_mul(vec![half_numer, base.clone()])?, inv_half_numer])?;
+    let Some(quotient) = constant_poly_quotient(&combined_numer, &base)? else {
+        return Ok(None);
+    };
+    let root = display_scaled_half_power(
+        &base,
+        &Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+    )?;
+    Ok(Some(cas_mul(vec![quotient, root])?))
+}
+
+fn try_normalize_standalone_cubic_root_product(
+    value: &Value,
+    args: &[Value],
+) -> WqResult<Option<Value>> {
+    if args
+        .iter()
+        .any(|arg| !arg.is_cas_expr() && !numeric_is_one(arg))
+    {
+        return Ok(None);
+    }
+    let Some(term) = normalize_cubic_root_term(value)? else {
+        return Ok(None);
+    };
+    if !numeric_is_one(&term.numerator) {
+        return Ok(None);
+    }
+    let (display_scale, display_base) = display_half_power_parts(&term.base, &term.exp)?;
+    let scale = simplify_var_free_product(vec![term.scale, display_scale])?;
+    let normalized = cas_mul(vec![scale, cas_pow(display_base, term.exp)?])?;
+    if normalized == *value {
+        Ok(None)
+    } else {
+        Ok(Some(normalized))
+    }
+}
+
 /// (+ (* A B) (* (* -1 A) C)) → (* A (+ B (* -1 C))).
 /// Also handles non-unit negative coefficients for function/app common factors,
 /// such as exponential terms produced by differentiation.
@@ -974,6 +1335,9 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
         if let Some(result) = try_combine_var_free_denominator_sum(args)? {
             return Ok(Some(result));
         }
+        if let Some(result) = try_collapse_cubic_root_sum(args)? {
+            return Ok(Some(result));
+        }
         if let Some(result) = try_factor_var_free_binary_sum(value, args)? {
             return Ok(Some(result));
         }
@@ -1010,6 +1374,12 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
                 .collect::<WqResult<_>>()?;
             return Ok(Some(cas_add(new_args)?));
         }
+    }
+
+    if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
+        && let Some(result) = try_normalize_standalone_cubic_root_product(value, args)?
+    {
+        return Ok(Some(result));
     }
 
     if let Some((CasOp::Multiply, args)) = value.cas_op_parts()

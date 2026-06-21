@@ -917,20 +917,40 @@ mod tests {
         use crate::cas::integrate::integrate_cas;
 
         let x = Value::from_cas_var("x");
-        let two_x = cas_mul(vec![Value::Int(2), x]).expect("2*x");
+        let two_x = cas_mul(vec![Value::Int(2), x.clone()]).expect("2*x");
         let affine = cas_add(vec![two_x, Value::Int(1)]).expect("2*x+1");
-        let affine_cubed = cas_pow(affine, Value::Int(3)).expect("(2*x+1)^3");
+        let affine_cubed = cas_pow(affine.clone(), Value::Int(3)).expect("(2*x+1)^3");
         let inner = cas_add(vec![affine_cubed, Value::Int(1)]).expect("(2*x+1)^3+1");
         let integrand = cas_pow(
-            inner,
+            inner.clone(),
             Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2)),
         )
         .expect("inverse radical");
 
-        let integral = integrate_cas(&integrand, &Value::from_cas_var("x")).unwrap();
-        let derivative = diff_cas(&integral, &Value::from_cas_var("x")).unwrap();
-        let s = derivative.to_string();
+        let integral = integrate_cas(&integrand, &x).unwrap();
+        let derivative = diff_cas(&integral, &x).unwrap();
 
-        assert_eq!(s, "8^(-1/6)*(4*x^3 + 6*x^2 + 3*x + 1)^(-1/2)");
+        assert_eq!(derivative.to_string(), "((2*x + 1)^3 + 1)^(-1/2)");
+    }
+
+    #[test]
+    fn diff_integrate_shifted_scaled_cubic_sqrt_roundtrips() {
+        use crate::cas::integrate::integrate_cas;
+
+        let x = Value::from_cas_var("x");
+        let two_x = cas_mul(vec![Value::Int(2), x.clone()]).expect("2*x");
+        let affine = cas_add(vec![two_x, Value::Int(1)]).expect("2*x+1");
+        let affine_cubed = cas_pow(affine, Value::Int(3)).expect("(2*x+1)^3");
+        let inner = cas_add(vec![affine_cubed, Value::Int(1)]).expect("(2*x+1)^3+1");
+        let integrand = cas_pow(
+            inner.clone(),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        )
+        .expect("radical");
+
+        let integral = integrate_cas(&integrand, &x).unwrap();
+        let derivative = diff_cas(&integral, &x).unwrap();
+
+        assert_eq!(derivative.to_string(), "((2*x + 1)^3 + 1)^(1/2)");
     }
 }
