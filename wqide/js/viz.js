@@ -237,8 +237,8 @@ const PRESETS = {
     title: "Show table",
     subtitle: "showtable / table source",
     sourceKind: "table",
-    sourceExpr: buildTableValue("list", 5),
-    tableShape: "list",
+    sourceExpr: buildTableValue("text", 5),
+    tableShape: "text",
     rows: 5,
   },
 };
@@ -502,7 +502,29 @@ function buildMatrixTableValue(rows) {
     .join(";")})`;
 }
 
+function buildTextTableValue(rows) {
+  const entries = [
+    ["Ada", "Zürich", "compiler notes", ["unicode", "wide"]],
+    ["Mina", "東京", "display width", ["table", "cells"]],
+    ["Sunny", "Seoul", "string columns", ["cli", "wqide"]],
+    ["Noor", "Cairo", "nested list cell", ["showtable", "viz"]],
+    ["Kai", "Montréal", "quoted text", ["format", "wq"]],
+    ["Iris", "Dublin", "sparse-safe", ["rows", "cols"]],
+    ["Alex", "Lagos", "terminal fit", ["width", "ansi"]],
+    ["Ren", "Taipei", "cell coercion", ["strings", "lists"]],
+  ].slice(0, rows);
+  return `(${entries
+    .map(
+      ([name, city, note, tags]) =>
+        `(\`name:${wqString(name)};\`city:${wqString(city)};\`note:${wqString(note)};\`tags:(${tags
+          .map(wqString)
+          .join(";")}))`,
+    )
+    .join(";")})`;
+}
+
 function buildTableValue(shape, rows) {
+  if (shape === "text") return buildTextTableValue(rows);
   if (shape === "dict") return buildDictTableValue(rows);
   if (shape === "matrix") return buildMatrixTableValue(rows);
   return buildListTableValue(rows);

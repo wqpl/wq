@@ -35,6 +35,51 @@ mod tests {
     }
 
     #[test]
+    fn formats_char_lists_as_scalar_cells() {
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            (
+                "name".into(),
+                Value::List(Arc::new(vec![
+                    Value::Char('a'),
+                    Value::Char('d'),
+                    Value::Char('a'),
+                ])),
+            ),
+            ("age".into(), Value::Int(37)),
+        ])));
+
+        assert_eq!(
+            format_table_value(&value).as_deref(),
+            Some("name  age\n\"ada\" 37")
+        );
+    }
+
+    #[test]
+    fn formats_dict_of_dicts_with_row_column() {
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            (
+                "laptop".into(),
+                Value::Dict(Arc::new(IndexMap::from([
+                    ("price".into(), Value::Int(1200)),
+                    ("qty".into(), Value::Int(10)),
+                ]))),
+            ),
+            (
+                "mouse".into(),
+                Value::Dict(Arc::new(IndexMap::from([
+                    ("price".into(), Value::Int(25)),
+                    ("qty".into(), Value::Int(100)),
+                ]))),
+            ),
+        ])));
+
+        assert_eq!(
+            format_table_value(&value).as_deref(),
+            Some("row    price qty\nlaptop 1200  10\nmouse  25    100")
+        );
+    }
+
+    #[test]
     fn formats_list_of_dicts_with_sparse_columns() {
         let value = Value::List(Arc::new(vec![
             Value::Dict(Arc::new(IndexMap::from([(

@@ -415,7 +415,7 @@ const VIZ_HTML = html`
           </button>
           <button class="viz-preset" type="button" data-viz-preset="table">
             <span class="viz-preset-title">Show table</span>
-            <span class="viz-preset-meta">dict rows</span>
+            <span class="viz-preset-meta">string cells</span>
           </button>
         </div>
       </section>
@@ -475,6 +475,7 @@ const VIZ_HTML = html`
                     <span data-viz-select-value>list of dicts</span>
                   </button>
                   <div class="viz-select-menu" role="listbox">
+                    <button type="button" role="option" data-viz-option="text">text cells</button>
                     <button type="button" role="option" data-viz-option="list">list of dicts</button>
                     <button type="button" role="option" data-viz-option="dict">dict of lists</button>
                     <button type="button" role="option" data-viz-option="matrix">dict of dicts</button>

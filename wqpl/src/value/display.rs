@@ -178,30 +178,44 @@ pub fn format_table_value(val: &Value) -> Option<String> {
     if val.is_atom() || val.is_empty() || matches!(val, Value::Complex(_) | Value::Cas(_)) {
         return None;
     }
-    if let Value::Dict(map) = val {
-        let mut wrapped: IndexMap<Arc<str>, Value> = IndexMap::new();
-        for (k, v) in map.iter() {
-            if matches!(v, Value::List(_) | Value::IntList(_)) {
-                wrapped.insert(k.clone(), v.clone());
-            } else {
-                wrapped.insert(k.clone(), Value::List(Arc::new(vec![v.clone()])));
-            }
-        }
-        let wrapped_val = Value::Dict(Arc::new(wrapped));
-        if let Some((headers, rows)) = parse_dict_of_lists(&wrapped_val) {
-            return Some(format_table(&headers, &rows));
-        }
-    }
     if let Some((headers, rows)) = parse_list_of_dicts(val) {
-        return Some(format_table(&headers, &rows));
-    }
-    if let Some((headers, rows)) = parse_dict_of_lists(val) {
         return Some(format_table(&headers, &rows));
     }
     if let Some((headers, rows)) = parse_dict_of_dicts(val) {
         return Some(format_table(&headers, &rows));
     }
+    if let Some((headers, rows)) = parse_dict_table(val) {
+        return Some(format_table(&headers, &rows));
+    }
     None
+}
+
+fn parse_dict_table(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
+    let Value::Dict(map) = val else {
+        return None;
+    };
+    let mut wrapped: IndexMap<Arc<str>, Value> = IndexMap::new();
+    for (k, v) in map.iter() {
+        if is_table_column_value(v) {
+            wrapped.insert(k.clone(), v.clone());
+        } else {
+            wrapped.insert(k.clone(), Value::List(Arc::new(vec![v.clone()])));
+        }
+    }
+    let wrapped_val = Value::Dict(Arc::new(wrapped));
+    parse_dict_of_lists(&wrapped_val)
+}
+
+fn is_table_column_value(value: &Value) -> bool {
+    match value {
+        Value::IntList(_) => true,
+        Value::List(items) => !is_char_list(items),
+        _ => false,
+    }
+}
+
+fn is_char_list(items: &[Value]) -> bool {
+    !items.is_empty() && items.iter().all(|item| matches!(item, Value::Char(_)))
 }
 
 fn parse_list_of_dicts(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
@@ -241,9 +255,7 @@ fn parse_list_of_dicts(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
 
 fn parse_dict_of_lists(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
     if let Value::Dict(map) = val
-        && map
-            .values()
-            .all(|v| matches!(v, Value::List(_) | Value::IntList(_)))
+        && map.values().all(is_table_column_value)
     {
         let headers: Vec<String> = map.keys().map(|k| k.to_string()).collect();
         let nrows = map
@@ -306,7 +318,7 @@ fn parse_dict_of_dicts(val: &Value) -> Option<(Vec<String>, Vec<Vec<String>>)> {
             }
         }
         let mut headers = Vec::with_capacity(columns.len() + 1);
-        headers.push(String::new());
+        headers.push("row".to_string());
         headers.extend(columns.clone());
         let mut data = Vec::new();
         for row_name in &row_names {

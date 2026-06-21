@@ -23,7 +23,7 @@ const ASCIIPLOT_EXAMPLES: &[DocExample] = &[
 pub(super) const SHOWTABLE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Showtable,
     summary: "Print table-shaped values as aligned text.",
-    details: "`showtable[table]` accepts a dict of scalars, a list of dicts, a dict of lists, or a dict of dicts. Dict keys become column headers, dict-of-dicts outer keys become row labels, sparse rows are padded with empty cells, and the formatted table is written to stdout. The result value is unit.",
+    details: "`showtable[table]` accepts a dict of scalars, a list of dicts, a dict of lists, or a dict of dicts. Dict keys become column headers, dict-of-dicts outer keys become the `row` column, sparse rows are padded with empty cells, and the formatted table is written to stdout. Strings and char-only lists render as scalar cells; other lists in dict-of-lists inputs expand as columns. The result value is unit.",
     examples: SHOWTABLE_EXAMPLES,
     related: &["asciiplot", "keys", "zip"],
 };
