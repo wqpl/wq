@@ -1,10 +1,29 @@
 import { parseMarkdown } from "./markdown.js";
 import { getDocIndex, getDocMarkdown } from "./wq-shared.js";
+import {
+  FEATURED_SECTION_CARDS,
+  buildFeaturedSearchIndex,
+  searchFeaturedItems,
+} from "./featured-search.js";
 
 console.debug("[wqide] app shell loaded");
 
 function html(strings, ...values) {
   return strings.reduce((acc, str, i) => acc + str + (values[i] || ""), "");
+}
+
+function featuredDefaultCardHtml(item, index) {
+  return html`
+    ${index ? '<div class="divider"></div>' : ""}
+    <section class="card" data-featured-default-card>
+      <h2>${item.title}</h2>
+      <p>${item.description}</p>
+      <span class="code">${item.code}</span>
+      <a class="stretched" href="${item.href}" aria-label="${item.label}">
+        Open
+      </a>
+    </section>
+  `;
 }
 
 const ROUTE_ORDER = ["featured", "playground", "viz", "repl", "more"];
@@ -50,59 +69,37 @@ const FEATURED_HTML = html`
       </div>
     </section>
 
-    <section class="card">
-      <h2>The wq Programming Language</h2>
-      <p>A short journey through the fundamentals of wq.</p>
-      <span class="code">f:{(f_:{$[x=0;y;f_[x-1;z;y+z]]})[x;0;1]}</span>
-      <a
-        class="stretched"
-        href="subfolder.html?section=wqpl"
-        aria-label="Open wqpl folder"
-        >Open</a
-      >
+    <section class="featured-search" aria-labelledby="featuredSearchHeading">
+      <div class="featured-search-head">
+        <h2 id="featuredSearchHeading">Search</h2>
+        <span
+          class="featured-search-count"
+          data-featured-search-count
+          aria-live="polite"></span>
+      </div>
+      <div class="featured-search-box">
+        <input
+          id="featuredSearchInput"
+          data-featured-search-input
+          type="search"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Search docs, tutorials, builtins, syntax" />
+        <button
+          class="featured-search-clear"
+          data-featured-search-clear
+          type="button"
+          aria-label="Clear search"
+          hidden>
+          x
+        </button>
+      </div>
     </section>
 
-    <div class="divider"></div>
-
-    <section class="card">
-      <h2>Reference Docs</h2>
-      <p>Generated docs for builtins, syntax, keywords, and guides.</p>
-      <span class="code">help map</span>
-      <a
-        class="stretched"
-        href="subfolder.html?section=Reference"
-        aria-label="Open Reference docs folder"
-        >Open</a
-      >
-    </section>
-
-    <div class="divider"></div>
-
-    <section class="card">
-      <h2>Misc</h2>
-      <p>Installation, CLI usage, etc.</p>
-      <span class="code">!wqdb</span>
-      <a
-        class="stretched"
-        href="subfolder.html?section=Misc"
-        aria-label="Open Misc folder"
-        >Open</a
-      >
-    </section>
-
-    <div class="divider"></div>
-
-    <section class="card">
-      <h2>WIP</h2>
-      <p>Tests and WIP articles.</p>
-      <span class="code">//todo</span>
-      <a
-        class="stretched"
-        href="subfolder.html?section=WIP"
-        aria-label="Open WIP folder"
-        >Open</a
-      >
-    </section>
+    <div class="featured-search-results grid" data-featured-search-results hidden></div>
+    <div class="featured-default" data-featured-default>
+      ${FEATURED_SECTION_CARDS.map(featuredDefaultCardHtml).join("")}
+    </div>
   </main>
 `;
 
@@ -1149,6 +1146,7 @@ document.body.innerHTML = SHELL_HTML;
 const main = document.getElementById("appMain");
 const state = {
   manifestPromise: null,
+  featuredSearchIndexPromise: null,
   tutorialModulePromise: null,
   views: new Map(),
   activeRoute: null,
@@ -1376,6 +1374,176 @@ async function getTutorialModule() {
   return state.tutorialModulePromise;
 }
 
+async function getFeaturedSearchIndex() {
+  if (!state.featuredSearchIndexPromise) {
+    state.featuredSearchIndexPromise = Promise.allSettled([
+      getManifest(),
+      getDocIndex(),
+    ]).then(([manifestResult, docsResult]) => {
+      const warnings = [];
+      const tutorials =
+        manifestResult.status === "fulfilled"
+          ? manifestResult.value.tutorials || []
+          : [];
+      const docs = docsResult.status === "fulfilled" ? docsResult.value : [];
+      if (manifestResult.status === "rejected") {
+        console.warn("featured search manifest load failed", manifestResult.reason);
+        warnings.push("Tutorials unavailable.");
+      }
+      if (docsResult.status === "rejected") {
+        console.warn("featured search docs load failed", docsResult.reason);
+        warnings.push("Reference docs unavailable.");
+      }
+      return {
+        index: buildFeaturedSearchIndex({ tutorials, docs }),
+        warnings,
+      };
+    });
+  }
+  return state.featuredSearchIndexPromise;
+}
+
+function setFeaturedSearchQueryParam(query) {
+  const params = new URLSearchParams(location.search);
+  const trimmed = query.trim();
+  if (trimmed) {
+    params.set("q", trimmed);
+  } else {
+    params.delete("q");
+  }
+  const next =
+    location.pathname +
+    (params.toString() ? `?${params.toString()}` : "") +
+    (location.hash || "");
+  const current = location.pathname + location.search + location.hash;
+  if (next !== current) {
+    history.replaceState({}, "", next);
+  }
+  persistNav("featured");
+  updateNav("featured");
+}
+
+function setFeaturedSearchStatus(root, text) {
+  const count = root.querySelector("[data-featured-search-count]");
+  if (count) count.textContent = text;
+}
+
+function clearFeaturedSearchResults(root) {
+  const results = root.querySelector("[data-featured-search-results]");
+  const defaults = root.querySelector("[data-featured-default]");
+  if (results) {
+    results.innerHTML = "";
+    results.hidden = true;
+  }
+  if (defaults) defaults.hidden = false;
+  setFeaturedSearchStatus(root, "");
+}
+
+function renderFeaturedSearchResults(root, matches, warnings) {
+  const results = root.querySelector("[data-featured-search-results]");
+  if (!results) return;
+  results.innerHTML = "";
+  if (matches.length) {
+    matches.forEach((item) => appendSectionCard(results, item));
+  } else {
+    const empty = document.createElement("p");
+    empty.className = "featured-search-empty";
+    empty.textContent = "No results.";
+    results.appendChild(empty);
+  }
+  const resultText =
+    matches.length === 1 ? "1 result" : `${matches.length} results`;
+  setFeaturedSearchStatus(
+    root,
+    [resultText, ...(warnings || [])].filter(Boolean).join(" "),
+  );
+}
+
+async function runFeaturedSearch(root, query) {
+  const input = root.querySelector("[data-featured-search-input]");
+  const clear = root.querySelector("[data-featured-search-clear]");
+  const results = root.querySelector("[data-featured-search-results]");
+  const defaults = root.querySelector("[data-featured-default]");
+  const trimmed = query.trim();
+  const seq = Number(root.dataset.featuredSearchSeq || 0) + 1;
+  root.dataset.featuredSearchSeq = String(seq);
+  if (clear) clear.hidden = !trimmed;
+  if (!trimmed) {
+    clearFeaturedSearchResults(root);
+    return;
+  }
+  if (defaults) defaults.hidden = true;
+  if (results) {
+    results.hidden = false;
+    results.innerHTML = "";
+  }
+  setFeaturedSearchStatus(root, "Searching...");
+  try {
+    const { index, warnings } = await getFeaturedSearchIndex();
+    if (root.dataset.featuredSearchSeq !== String(seq)) return;
+    if (input && input.value.trim() !== trimmed) return;
+    const matches = searchFeaturedItems(index, trimmed);
+    renderFeaturedSearchResults(root, matches, warnings);
+  } catch (err) {
+    console.error("featured search failed", err);
+    if (root.dataset.featuredSearchSeq === String(seq)) {
+      renderFeaturedSearchResults(root, [], ["Search unavailable."]);
+    }
+  }
+}
+
+function clearFeaturedSearch(root) {
+  const input = root.querySelector("[data-featured-search-input]");
+  if (!input) return;
+  input.value = "";
+  setFeaturedSearchQueryParam("");
+  runFeaturedSearch(root, "");
+}
+
+function wireFeaturedSearch(root) {
+  const input = root.querySelector("[data-featured-search-input]");
+  const clear = root.querySelector("[data-featured-search-clear]");
+  if (!input || input.dataset.wired === "true") return;
+  input.dataset.wired = "true";
+  input.addEventListener("input", () => {
+    setFeaturedSearchQueryParam(input.value);
+    runFeaturedSearch(root, input.value);
+  });
+  input.addEventListener("focus", () => {
+    getFeaturedSearchIndex().catch((err) => {
+      console.warn("featured search preload failed", err);
+    });
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && input.value) {
+      event.preventDefault();
+      clearFeaturedSearch(root);
+      return;
+    }
+    if (event.key === "Enter" && input.value.trim()) {
+      const firstLink = root.querySelector(
+        "[data-featured-search-results] a.stretched",
+      );
+      if (firstLink) {
+        event.preventDefault();
+        navigate(firstLink.getAttribute("href"));
+      }
+    }
+  });
+  clear?.addEventListener("click", () => {
+    clearFeaturedSearch(root);
+    input.focus();
+  });
+}
+
+function applyFeaturedSearchRoute(root, route) {
+  const input = root.querySelector("[data-featured-search-input]");
+  if (!input) return;
+  const query = route?.params?.get("q") || "";
+  if (input.value !== query) input.value = query;
+  runFeaturedSearch(root, query);
+}
+
 function isReferenceSection(sectionName) {
   return sectionName.toLowerCase() === "reference";
 }
@@ -1436,6 +1604,13 @@ function referenceTopicCards(topics, group) {
 function appendSectionCard(grid, item) {
   const card = document.createElement("section");
   card.className = "card";
+  if (item.meta) {
+    const meta = document.createElement("span");
+    meta.className = "card-meta";
+    if (item.type) meta.dataset.cardKind = item.type;
+    meta.textContent = item.meta;
+    card.appendChild(meta);
+  }
   const h2 = document.createElement("h2");
   h2.textContent = item.title;
   const p = document.createElement("p");
@@ -1508,8 +1683,10 @@ function wireBackButton(root) {
   });
 }
 
-async function mountFeatured() {
+async function mountFeatured(route) {
   const root = getView("featured", FEATURED_HTML);
+  wireFeaturedSearch(root);
+  applyFeaturedSearchRoute(root, route);
   document.title = "wqide - Featured";
   showView(root);
 }
@@ -1765,7 +1942,7 @@ async function renderRoute() {
   persistNav(route.area);
   updateNav(route.area);
   if (route.key === "featured") {
-    await mountFeatured();
+    await mountFeatured(route);
     return;
   }
   if (route.key === "playground") {
@@ -1792,7 +1969,7 @@ async function renderRoute() {
     await mountArticle(route);
     return;
   }
-  await mountFeatured();
+  await mountFeatured(route);
 }
 
 document.querySelectorAll(".tabs a").forEach((a) => {

@@ -10,6 +10,7 @@
     "build:wasm:dev": "wasm-pack build ../wq-wasm --target web --dev",
     "dev": "npm run build:wasm:dev && vite",
     "dev:site": "vite",
+    "test": "node --test js/*.test.js",
     "preview": "vite preview"
   },
   "repository": {
