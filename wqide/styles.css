@@ -1012,6 +1012,7 @@ body {
   align-items: center;
 }
 .runtime-panel {
+  --runtime-panel-padding: var(--space-4);
   display: none;
   position: absolute;
   left: 50%;
@@ -1021,7 +1022,7 @@ body {
   width: max-content;
   max-width: min(340px, calc(100vw - 32px));
   max-height: var(--runtime-panel-max-h, min(360px, calc(100vh - 24px)));
-  padding: var(--space-4);
+  padding: var(--runtime-panel-padding);
   border: 1px solid var(--surface-border-soft);
   border-radius: var(--radius-panel);
   background: var(--surface-bg);
@@ -1036,12 +1037,31 @@ body {
   gap: var(--space-3);
 }
 .runtime-panel-head {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  margin: calc(-1 * var(--runtime-panel-padding))
+    calc(-1 * var(--runtime-panel-padding)) 0;
+  padding: 9px 12px 8px;
+  border-bottom: 1px solid var(--surface-border-muted);
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+  background: var(--surface-bg-soft);
   text-align: center;
-  width: 100%;
+  width: calc(
+    100% + var(--runtime-panel-padding) + var(--runtime-panel-padding)
+  );
+}
+.runtime-panel-head .mini {
+  display: inline-flex;
+  align-items: center;
+  color: var(--surface-text);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  opacity: 1;
 }
 .runtime-panel .pills {
   flex-wrap: wrap;
