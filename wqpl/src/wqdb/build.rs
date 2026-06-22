@@ -25,6 +25,7 @@ pub(crate) fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::inst
                 // | StoreCapture(_)
                 | StoreCaptureKeep(_)
                 | CallBuiltinId(_, _)
+                | CallBuiltinDiscardId(_, _)
                 | CallLocal(_, _)
                 | CallUser(_, _)
                 | CallAnon(_)
@@ -163,6 +164,7 @@ fn apply_stmt_spans_exact(
                 let is_call = matches!(
                     code.get(pc),
                     Some(CallBuiltinId(_, _))
+                        | Some(CallBuiltinDiscardId(_, _))
                         // | Some(CallBuiltin(_, _))
                         | Some(CallLocal(_, _))
                         | Some(CallUser(_, _))

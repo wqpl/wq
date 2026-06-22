@@ -139,6 +139,15 @@ impl Value {
         self.bc1_until_with_path(stop, &mut f, &mut path)
     }
 
+    pub(crate) fn bc1_for_each_until<F>(&self, stop: Bc1Stop, f: F) -> BcResult<()>
+    where
+        F: FnMut(&Value) -> WqResult<Value>,
+    {
+        let mut path = Vec::new();
+        let mut f = f;
+        self.bc1_for_each_until_with_path(stop, &mut f, &mut path)
+    }
+
     fn bc1_until_with_path<F>(
         &self,
         stop: Bc1Stop,
@@ -196,6 +205,57 @@ impl Value {
 
             _ => unreachable!("bc1: is_atom guard excludes other variants"),
         }
+    }
+
+    fn bc1_for_each_until_with_path<F>(
+        &self,
+        stop: Bc1Stop,
+        f: &mut F,
+        path: &mut Vec<usize>,
+    ) -> BcResult<()>
+    where
+        F: FnMut(&Value) -> WqResult<Value>,
+    {
+        let should_stop = match stop {
+            Bc1Stop::Atom => self.is_atom(),
+            Bc1Stop::AtomOrDepth(el) => self.is_atom() || path.len() as i64 >= el,
+        };
+        if should_stop {
+            return f(self).map(|_| ()).bc_at_path(path);
+        }
+        match self {
+            Value::List(a) => {
+                for (i, x) in a.iter().enumerate() {
+                    path.push(i);
+                    x.bc1_for_each_until_with_path(stop, f, path)?;
+                    path.pop();
+                }
+            }
+            Value::IntList(a) => {
+                for (i, &x) in a.iter().enumerate() {
+                    path.push(i);
+                    f(&Value::Int(x)).map(|_| ()).bc_at_path(path)?;
+                    path.pop();
+                }
+            }
+            Value::Dict(m) => {
+                for (i, (_, v)) in m.iter().enumerate() {
+                    path.push(i);
+                    v.bc1_for_each_until_with_path(stop, f, path)?;
+                    path.pop();
+                }
+            }
+            Value::String(s) => {
+                for (i, c) in s.chars().enumerate() {
+                    path.push(i);
+                    f(&Value::Char(c)).map(|_| ()).bc_at_path(path)?;
+                    path.pop();
+                }
+            }
+
+            _ => unreachable!("bc1: is_atom guard excludes other variants"),
+        }
+        Ok(())
     }
 }
 

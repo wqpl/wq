@@ -460,6 +460,7 @@ fn is_call(op: &Instruction) -> bool {
     matches!(
         op,
         I::CallBuiltinId(_, _)
+            | I::CallBuiltinDiscardId(_, _)
             | I::CallLocal(_, _)
             | I::CallUser(_, _)
             | I::TailCallLocal(_, _)
@@ -499,7 +500,9 @@ fn instruction_amount(op: &Instruction) -> usize {
         | I::TailPostfix(count)
         | I::CallAnon(count)
         | I::TailCallAnon(count) => *count,
-        I::CallBuiltinId(id, argc) => usize::from(*id) ^ usize::from(*argc),
+        I::CallBuiltinId(id, argc) | I::CallBuiltinDiscardId(id, argc) => {
+            usize::from(*id) ^ usize::from(*argc)
+        }
         I::CallLocal(slot, argc)
         | I::TailCallLocal(slot, argc)
         | I::PostfixLocal(slot, argc)

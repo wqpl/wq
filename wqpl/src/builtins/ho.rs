@@ -335,48 +335,84 @@ pub(super) fn apply(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
     }
 }
 
-/// map[xs;f;d?]
-pub(super) fn map(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
-    #[inline]
-    fn eff_layers(raw_d: &Value, total_depth: i64) -> Option<i64> {
-        match raw_d {
-            // non-negative: go min(d, D) layers
-            Value::Int(n) if *n >= 0 => Some((*n).min(total_depth)),
-            // negative: "cut |d| from xs.depth()" -> L = max(0, D + d)
-            Value::Int(n) => Some((total_depth + *n).max(0)),
-            // +inf: go fully (atoms only) -> L = D
-            Value::Float(n) if n.is_infinite() && n.is_sign_positive() => Some(total_depth),
-            // -inf: apply at root -> L = 0
-            Value::Float(n) if n.is_infinite() && n.is_sign_negative() => Some(0),
-            _ => None,
+pub(super) fn apply_discard(
+    vm: &mut dyn BuiltinContext,
+    args: BuiltinFnArgs,
+) -> WqResult<Value> {
+    check_arity(BE::Apply, [2, 2], &args)?;
+    let (fs, x) = (&args[0], &args[1]);
+    match fs {
+        Value::List(items) => {
+            for f in items.iter() {
+                vm.call(f, BuiltinFnArgs::from(x.clone()))?;
+            }
+        }
+        _ => {
+            vm.call(fs, BuiltinFnArgs::from(x.clone()))?;
         }
     }
+    Ok(Value::unit())
+}
 
-    fn _map(vm: &mut dyn BuiltinContext, xs: &Value, f: &Value, d: &Value) -> WqResult<Value> {
-        let el = match eff_layers(d, xs.depth()) {
-            Some(l) => l,
-            None => return Err(type_mismatch(BE::Map, 0, "int, inf or -inf", d)),
-        };
-        // atoms are always leaves; stop after traversing L layers from the root
-        let stop = Bc1Stop::AtomOrDepth(el);
-        let pure = PureCallback::from_func(f, 1);
-        let op1 = |v: &Value| call_pure_or_vm1(vm, f, pure.as_ref(), v);
-        xs.bc1_until(stop, op1)
-            .map_err(|e| e.into_wqerror().src(BE::Map))
-    }
-
+/// map[xs;f;d?]
+pub(super) fn map(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Map, [2, 3], &args)?;
     match args.len() {
         2 => {
             let (xs, f) = (&args[0], &args[1]);
-            _map(vm, xs, f, &Value::Int(1))
+            map_impl(vm, xs, f, &Value::Int(1))
         }
         3 => {
             let (xs, f, d) = (&args[0], &args[1], &args[2]);
-            _map(vm, xs, f, d)
+            map_impl(vm, xs, f, d)
         }
         _ => unreachable!(),
     }
+}
+
+pub(super) fn map_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Map, [2, 3], &args)?;
+    match args.len() {
+        2 => {
+            let (xs, f) = (&args[0], &args[1]);
+            map_discard_impl(vm, xs, f, &Value::Int(1))
+        }
+        3 => {
+            let (xs, f, d) = (&args[0], &args[1], &args[2]);
+            map_discard_impl(vm, xs, f, d)
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn map_stop(xs: &Value, d: &Value) -> WqResult<Bc1Stop> {
+    let el = match eff_layers(d, xs.depth()) {
+        Some(l) => l,
+        None => return Err(type_mismatch(BE::Map, 0, "int, inf or -inf", d)),
+    };
+    Ok(Bc1Stop::AtomOrDepth(el))
+}
+
+fn map_impl(vm: &mut dyn BuiltinContext, xs: &Value, f: &Value, d: &Value) -> WqResult<Value> {
+    let stop = map_stop(xs, d)?;
+    let pure = PureCallback::from_func(f, 1);
+    let op1 = |v: &Value| call_pure_or_vm1(vm, f, pure.as_ref(), v);
+    xs.bc1_until(stop, op1)
+        .map_err(|e| e.into_wqerror().src(BE::Map))
+}
+
+fn map_discard_impl(
+    vm: &mut dyn BuiltinContext,
+    xs: &Value,
+    f: &Value,
+    d: &Value,
+) -> WqResult<Value> {
+    let stop = map_stop(xs, d)?;
+    let pure = PureCallback::from_func(f, 1);
+    let op1 = |v: &Value| call_pure_or_vm1(vm, f, pure.as_ref(), v);
+    xs.bc1_for_each_until(stop, op1)
+        .map_err(|e| e.into_wqerror().src(BE::Map))?;
+    Ok(Value::unit())
 }
 
 #[inline]
@@ -870,6 +906,37 @@ pub(super) fn filter(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
         }
         other => Ok(other),
     }
+}
+
+pub(super) fn filter_discard(
+    vm: &mut dyn BuiltinContext,
+    args: BuiltinFnArgs,
+) -> WqResult<Value> {
+    check_arity(BE::Filter, [2], &args)?;
+    let mut iter = args.into_iter();
+    let xs = iter.next().unwrap();
+    let func = iter.next().unwrap();
+    let pure = PureCallback::from_func(&func, 1);
+    match xs {
+        Value::IntList(items) => {
+            for &item in items.iter() {
+                let val = Value::Int(item);
+                filter_predicate(vm, &func, pure.as_ref(), &val)?;
+            }
+        }
+        Value::List(items) => {
+            for item in items.iter() {
+                filter_predicate(vm, &func, pure.as_ref(), item)?;
+            }
+        }
+        Value::Dict(map) => {
+            for value in map.values() {
+                filter_predicate(vm, &func, pure.as_ref(), value)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(Value::unit())
 }
 
 /// zipw[xs;ys;f;d?]

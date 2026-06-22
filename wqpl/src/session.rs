@@ -875,6 +875,36 @@ mod tests {
     }
 
     #[test]
+    fn discarded_map_preserves_callback_side_effects() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("f:{n:0;til 4|M{[x]'n+:x};n};f[]")
+            .expect("discarded map should eval");
+
+        assert_eq!(result, Value::Int(6));
+    }
+
+    #[test]
+    fn discarded_apply_preserves_callback_side_effects() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("f:{n:0;A[({[x]'n+:x};{[x]'n+:x*2});3];n};f[]")
+            .expect("discarded apply should eval");
+
+        assert_eq!(result, Value::Int(9));
+    }
+
+    #[test]
+    fn discarded_filter_preserves_callback_side_effects() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("f:{n:0;filter[(1;2;3);{[x]'n+:x;x%2=1}];n};f[]")
+            .expect("discarded filter should eval");
+
+        assert_eq!(result, Value::Int(6));
+    }
+
+    #[test]
     fn index_path_assignment_updates_nested_value() {
         let mut session = Session::new();
         let result = session

@@ -612,6 +612,16 @@ impl Compiler {
         self.dbg_pc_spans.push(None);
     }
 
+    fn builtin_call_inst(&self, id: usize, argc: usize) -> Instruction {
+        let id = u16::try_from(id).expect("builtin id overflow");
+        let argc = u16::try_from(argc).expect("argc overflow");
+        if !self.value_needed && Builtins::has_discard_fn_from_id(id) {
+            Instruction::CallBuiltinDiscardId(id, argc)
+        } else {
+            Instruction::CallBuiltinId(id, argc)
+        }
+    }
+
     fn stmt_span_count(node: &AstNode) -> usize {
         match node {
             AstNode::Block(stmts) => stmts.iter().map(Self::stmt_span_count).sum(),
@@ -1108,10 +1118,8 @@ impl Compiler {
                 let start = self.instructions.len();
                 if let Some(id) = self.builtins.get_id(name) {
                     self.compile_call_args(args)?;
-                    self.instructions.push(Instruction::CallBuiltinId(
-                        id.try_into().expect("builtin id overflow"),
-                        args.len().try_into().expect("argc overflow"),
-                    ));
+                    self.instructions
+                        .push(self.builtin_call_inst(id, args.len()));
                 } else if self.fn_depth > 0 {
                     // Inside a function
                     //  locals => CallLocal
@@ -1180,10 +1188,8 @@ impl Compiler {
                     let args =
                         self.expand_depth_sugar_args(name, sugar, items.to_vec(), *depth, *span)?;
                     self.compile_call_args(&args)?;
-                    self.instructions.push(Instruction::CallBuiltinId(
-                        u16::try_from(id).expect("builtin id overflow"),
-                        u16::try_from(args.len()).expect("argc overflow"),
-                    ));
+                    self.instructions
+                        .push(self.builtin_call_inst(id, args.len()));
                     let end = self.instructions.len();
                     self.fill_span_range(start, end, *span);
                     return Ok(());
@@ -1208,10 +1214,8 @@ impl Compiler {
                 if let Some(id) = builtin_id {
                     // Builtin call: don't compile the callee, only the args
                     self.compile_call_args(items)?;
-                    self.instructions.push(Instruction::CallBuiltinId(
-                        u16::try_from(id).expect("builtin id overflow"),
-                        u16::try_from(items.len()).expect("argc overflow"),
-                    ));
+                    self.instructions
+                        .push(self.builtin_call_inst(id, items.len()));
                 } else {
                     // Non-builtin: compile the callee first, then the args
                     let mut optimized = false;
@@ -3753,6 +3757,64 @@ mod tests {
                 .any(|inst| matches!(inst, Instruction::CallBuiltinId(id, argc)
                     if *id == findw_id && *argc == 4)),
             "expected findw call with threshold and depth arguments: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn discarded_map_uses_discard_builtin_call() {
+        let top = compile_source("til 3|M{x};42");
+        let map_alias_id = builtin_id("M");
+
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, argc)
+                    if *id == map_alias_id && *argc == 2)),
+            "expected discarded M call: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn discarded_apply_alias_uses_discard_builtin_call() {
+        let top = compile_source("A[({x};{x+1});3];42");
+        let apply_alias_id = builtin_id("A");
+
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, argc)
+                    if *id == apply_alias_id && *argc == 2)),
+            "expected discarded A call: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn discarded_filter_uses_discard_builtin_call() {
+        let top = compile_source("filter[(1;2;3);{x>1}];42");
+        let filter_id = builtin_id("filter");
+
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, argc)
+                    if *id == filter_id && *argc == 2)),
+            "expected discarded filter call: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn value_needed_map_uses_normal_builtin_call() {
+        let top = compile_source("til 3|M{x}");
+        let map_alias_id = builtin_id("M");
+
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::CallBuiltinId(id, argc)
+                    if *id == map_alias_id && *argc == 2)),
+            "expected value-producing M call: {top:#?}",
+        );
+        assert!(
+            !top.iter()
+                .any(|inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, _)
+                    if *id == map_alias_id)),
+            "final M call should keep its value: {top:#?}",
         );
     }
 

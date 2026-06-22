@@ -551,7 +551,7 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push_unknown();
             fallthrough(pc, state)
         }
-        I::CallBuiltinId(_, argc) => {
+        I::CallBuiltinId(_, argc) | I::CallBuiltinDiscardId(_, argc) => {
             state.pop_args(usize::from(*argc));
             state.clear_volatile_facts();
             state.push_unknown();

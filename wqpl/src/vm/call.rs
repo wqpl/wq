@@ -4,7 +4,7 @@ use std::sync::Arc;
 use ahash::AHashMap;
 use smallvec::SmallVec;
 
-use crate::builtins::{BuiltinContext, BuiltinFnArgs, Builtins};
+use crate::builtins::{BuiltinContext, BuiltinEnum, BuiltinFnArgs, Builtins};
 use crate::interpret::vanilla::Sv4;
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::value::cell::ValueCell;
@@ -473,6 +473,47 @@ impl Vm {
     }
 
     #[inline]
+    pub(crate) fn invoke_bfn_discard_id(&mut self, id: u16, argc: u16) -> WqResult<Value> {
+        let argc = usize::from(argc);
+        let taken = self.take_builtin_args_from_stack(argc)?;
+        if self.builtins.is_enabled_id(id) {
+            self.call_builtin_discard_id(id, taken.args)
+        } else {
+            let name = Builtins::name_from_id(id).ok_or_else(|| vm_err("invalid builtin id"))?;
+            if let Some(val) = self.lookup_global(name) {
+                match &val {
+                    Value::BuiltinFunction {
+                        name: bname,
+                        id: builtin_id,
+                    } => {
+                        if taken.had_named_meta {
+                            Err(arity_err_vm(format!(
+                                "cannot pass named arguments to builtin override '{bname}'"
+                            )))
+                        } else {
+                            self.call_builtin_discard_id(*builtin_id, taken.args)
+                        }
+                    }
+                    _ => {
+                        // User override: push positional args back, then call.
+                        let pos_len = taken.args.len();
+                        self.stack.extend(taken.args);
+                        self.invoke_user(&val, pos_len, None).map(|_| Value::unit())
+                    }
+                }
+            } else {
+                Err(
+                    not_bound_err(format!("'{name}' has not been bound to a value")).attach_note(
+                        format!(
+                            "a builtin named '{name}' exists but is disabled in the current preset"
+                        ),
+                    ),
+                )
+            }
+        }
+    }
+
+    #[inline]
     pub(crate) fn invoke_bfn_value(&mut self, id: u16, argc: usize) -> WqResult<Value> {
         let taken = self.take_builtin_args_from_stack(argc)?;
         self.call_builtin_id(id, taken.args)
@@ -520,17 +561,45 @@ impl Vm {
     fn call_builtin_id(
         &mut self,
         id: u16,
+        args: crate::builtins::BuiltinFnArgs,
+    ) -> WqResult<Value> {
+        self.call_builtin_id_inner(id, args, false)
+    }
+
+    #[inline]
+    fn call_builtin_discard_id(
+        &mut self,
+        id: u16,
+        args: crate::builtins::BuiltinFnArgs,
+    ) -> WqResult<Value> {
+        self.call_builtin_id_inner(id, args, true)
+    }
+
+    #[inline]
+    fn call_builtin_id_inner(
+        &mut self,
+        id: u16,
         mut args: crate::builtins::BuiltinFnArgs,
+        discard_result: bool,
     ) -> WqResult<Value> {
         let argc = args.len();
         let func = *self
             .builtins
             .get_fn_by_id(usize::from(id))
             .ok_or_else(|| vm_err("invalid builtin id"))?;
+        let builtin = BuiltinEnum::from_id(id).ok_or_else(|| vm_err("invalid builtin id"))?;
         if self.builtins.validate_runtime_call_args(id, &args)? {
             args.mark_runtime_validated();
         }
-        let result = func.invoke(self, args)?;
+        let result = if discard_result {
+            if let Some(discard_fn) = builtin.discard_fn() {
+                discard_fn(self, args)?
+            } else {
+                func.invoke(self, args).map(|_| Value::unit())?
+            }
+        } else {
+            func.invoke(self, args)?
+        };
         if let Some(name) = Builtins::name_from_id(id)
             && let Some(hooks) = self.hooks
         {

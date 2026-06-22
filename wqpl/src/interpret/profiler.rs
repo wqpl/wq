@@ -488,6 +488,7 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::BoolAndLazy(_) => "BoolAndLazy",
         I::BoolOrLazy(_) => "BoolOrLazy",
         I::CallBuiltinId(_, _) => "CallBuiltinId",
+        I::CallBuiltinDiscardId(_, _) => "CallBuiltinDiscardId",
         I::CallLocal(_, _) => "CallLocal",
         I::CallUser(_, _) => "CallUser",
         I::TailCallLocal(_, _) => "TailCallLocal",
@@ -576,6 +577,10 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         I::CallBuiltinId(id, argc) => {
             let name = Builtins::name_from_id(*id).unwrap_or("<invalid>");
             format!("CallBuiltin({name}/{argc})")
+        }
+        I::CallBuiltinDiscardId(id, argc) => {
+            let name = Builtins::name_from_id(*id).unwrap_or("<invalid>");
+            format!("CallBuiltinDiscard({name}/{argc})")
         }
         I::CallLocal(slot, argc) => format!("CallLocal({slot}/{argc})"),
         I::CallUser(name, argc) => format!("CallUser({name}/{argc})"),

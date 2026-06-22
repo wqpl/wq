@@ -811,6 +811,19 @@ macro_rules! __declare_builtins_impl {
                     _ => None,
                 }
             }
+
+            pub(crate) fn canonical(self) -> Self {
+                self.signature().source.unwrap_or(self)
+            }
+
+            pub(crate) fn discard_fn(self) -> Option<BuiltinContextFn> {
+                match self.canonical() {
+                    BuiltinEnum::Apply => Some(ho::apply_discard),
+                    BuiltinEnum::Map => Some(ho::map_discard),
+                    BuiltinEnum::Filter => Some(ho::filter_discard),
+                    _ => None,
+                }
+            }
         }
 
         pub const BUILTIN_GROUPS: &[BuiltinGroup] = &[
@@ -887,6 +900,13 @@ macro_rules! __declare_builtins_impl {
             pub fn doc_for_id(id: u16) -> Option<crate::doc::DocTopic> {
                 let builtin = BuiltinEnum::from_id(id)?;
                 Some(crate::doc::builtin_topic(builtin))
+            }
+
+            #[inline]
+            pub(crate) fn has_discard_fn_from_id(id: u16) -> bool {
+                BuiltinEnum::from_id(id)
+                    .and_then(BuiltinEnum::discard_fn)
+                    .is_some()
             }
 
             #[inline]

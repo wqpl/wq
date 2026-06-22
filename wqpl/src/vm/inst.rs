@@ -154,6 +154,9 @@ pub(crate) enum Instruction {
     // CallBuiltin(String, usize),
     /// Builtin call resolved to an ID at compile time for faster dispatch
     CallBuiltinId(u16, u16),
+    /// Builtin call whose result is only needed as unit because the expression
+    /// result will be discarded.
+    CallBuiltinDiscardId(u16, u16),
     /// Call a function stored in a local slot
     CallLocal(u16, usize),
     CallUser(Arc<str>, usize),
@@ -293,6 +296,7 @@ impl Instruction {
                 | I::CmpChain(_)
                 | I::Cat(_)
                 | I::CallBuiltinId(_, _)
+                | I::CallBuiltinDiscardId(_, _)
                 | I::CallUser(_, _)
                 | I::CallAnon(_)
                 | I::CallLocal(_, _)
@@ -363,6 +367,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
 
         // Calls
         I::CallBuiltinId(_, _)
+        | I::CallBuiltinDiscardId(_, _)
         | I::CallLocal(_, _)
         | I::TailCallLocal(_, _)
         | I::Postfix(_)
@@ -590,7 +595,8 @@ impl InstPrettyDumper {
 
         // Builtin name
         if self.show_builtin_names
-            && let Instruction::CallBuiltinId(id, _) = inst
+            && let Instruction::CallBuiltinId(id, _) | Instruction::CallBuiltinDiscardId(id, _) =
+                inst
         {
             let idx = *id as usize;
             if let Some(name) = Builtins::NAMES.get(idx) {

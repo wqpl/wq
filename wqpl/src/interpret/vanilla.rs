@@ -344,6 +344,10 @@ impl Interpreter for VanillaInterpreter {
                         let result = vm.invoke_bfn_id(*id, *argc)?;
                         vm.stack.push(result);
                     }
+                    Instruction::CallBuiltinDiscardId(id, argc) => {
+                        let result = vm.invoke_bfn_discard_id(*id, *argc)?;
+                        vm.stack.push(result);
+                    }
                     Instruction::CallUser(name, argc) => {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc, || format!("fn '{name}' args"))?;
