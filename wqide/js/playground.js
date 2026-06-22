@@ -7,6 +7,7 @@ import {
   get_symbol_index_json,
 } from "wq-wasm";
 import { createAnsiRenderer } from "./ansi.js";
+import { getPlaygroundExample } from "./playground-examples.js";
 import {
   ensureWasm,
   DEBUG_FLAGS,
@@ -84,37 +85,6 @@ function syncBoxControls(instance) {
 }
 
 const instances = new WeakMap();
-const PLAYGROUND_TEMPLATES = {
-  asciiplot: {
-    code: "iota 80|map{50+35*sin[x/7]+12*sin[x/2]}|asciiplot",
-    stdin: "",
-  },
-  primes: {
-    code: `primes:{p:iota[x+1]>1;limit:floor sqrt x;i:2
-  W[i<=limit;$.[p[i];j:i*i;p[j+i*iota[1+floor[(x-j)/i]]]:false];i:$[i=2;3;i+2]];where p}
-primes[10000][-3..=-1]`,
-    stdin: "",
-  },
-  stdin: {
-    code: 'name:input[];echo@f"Hello, {name}"',
-    stdin: "C",
-  },
-  cowsay: {
-    code: `repeat:{[s;n]acc:();N[n;acc:acc,s];acc}
-cowsay:{[msg]border:repeat["-";#msg+2]
-  echo(" ",border)
-  echo("< ",str msg," >")
-  echo(" ",border)
-  echo"        \\\\   ^__^"
-  echo"         \\\\  (oo)\\\\_______"
-  echo"            (__)\\\\       )\\\\/\\\\"
-  echo"                 ||-----w-|"
-  echo"                 ||      ||"
-}
-cowsay input[]`,
-    stdin: "Moooving on!",
-  },
-};
 
 function refreshLines(instance) {
   const lines = instance.ta.value.split("\n").length || 1;
@@ -910,10 +880,10 @@ export async function mountPlayground(root) {
   }
   templateButtons.forEach((button) => {
     button.addEventListener("click", () => {
-      const template = PLAYGROUND_TEMPLATES[button.dataset.template];
-      if (!template) return;
-      ta.value = template.code;
-      stdinInput.value = template.stdin;
+      const example = getPlaygroundExample(button.dataset.template);
+      if (!example) return;
+      ta.value = example.code;
+      stdinInput.value = example.stdin;
       refreshLines(instance);
       scheduleSymbolRefresh(instance);
       requestPanelHeightSync(instance);

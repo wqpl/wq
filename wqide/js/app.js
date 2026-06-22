@@ -1,5 +1,5 @@
 import { parseMarkdown } from "./markdown.js";
-import { getDocIndex, getDocMarkdown } from "./wq-shared.js";
+import { escapeHtml, getDocIndex, getDocMarkdown } from "./wq-shared.js";
 import {
   FEATURED_SECTION_CARDS,
   buildFeaturedSearchIndex,
@@ -14,6 +14,7 @@ import {
   referenceSubfolderTitle,
   referenceTopicCards,
 } from "./reference-cards.js";
+import { PLAYGROUND_EXAMPLES } from "./playground-examples.js";
 
 console.debug("[wqide] app shell loaded");
 
@@ -32,6 +33,22 @@ function featuredDefaultCardHtml(item, index) {
         Open
       </a>
     </section>
+  `;
+}
+
+function playgroundExampleCardHtml(example, index) {
+  const accent = (index % 4) + 1;
+  return html`
+    <button
+      class="playground-template-card playground-template-card-${accent}"
+      type="button"
+      data-template="${escapeHtml(example.id)}">
+      <strong>${escapeHtml(example.title)}</strong>
+      <span class="playground-template-desc"
+        >${escapeHtml(example.description)}</span
+      >
+      <code class="playground-template-code">${escapeHtml(example.sourcePath)}</code>
+    </button>
   `;
 }
 
@@ -118,46 +135,7 @@ const PLAYGROUND_HTML = html`
       <aside class="playground-sidebar" aria-labelledby="templateHeading">
         <h2 id="templateHeading">Examples</h2>
         <div class="playground-template-list" role="list">
-          <button
-            class="playground-template-card playground-template-card-1"
-            type="button"
-            data-template="asciiplot">
-            <strong>Asciiplot</strong>
-            <span class="playground-template-desc"
-              >Plot ASCII art from numeric data.</span
-            >
-            <code class="playground-template-code">... |asciiplot</code>
-          </button>
-          <button
-            class="playground-template-card playground-template-card-2"
-            type="button"
-            data-template="stdin">
-            <strong>Input</strong>
-            <span class="playground-template-desc"
-              >Preload stdin and test interactive input handling.</span
-            >
-            <code class="playground-template-code">input[]</code>
-          </button>
-          <button
-            class="playground-template-card playground-template-card-3"
-            type="button"
-            data-template="primes">
-            <strong>Primes</strong>
-            <span class="playground-template-desc"
-              >Generate prime numbers up to a given limit.</span
-            >
-            <code class="playground-template-code">primes[100][-3..=-1]</code>
-          </button>
-          <button
-            class="playground-template-card playground-template-card-4"
-            type="button"
-            data-template="cowsay">
-            <strong>Cowsay</strong>
-            <span class="playground-template-desc"
-              >An ASCII cow that moos.</span
-            >
-            <code class="playground-template-code">cowsay:{...}</code>
-          </button>
+          ${PLAYGROUND_EXAMPLES.map(playgroundExampleCardHtml).join("")}
         </div>
       </aside>
 
