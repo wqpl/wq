@@ -6,6 +6,7 @@ use colored::Colorize;
 use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::builtins::Builtins;
 use crate::value::Value;
+use crate::wqdb::data::ChunkId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Capture {
@@ -22,6 +23,8 @@ pub struct ClosurePayload {
     pub(crate) locals: u16,
     pub(crate) captures: Vec<Capture>,
     pub(crate) instructions: Arc<[Instruction]>,
+    /// Debug chunk id registered for this closure payload's code.
+    pub(crate) dbg_chunk: Option<ChunkId>,
     /// Statement spans for the function body (byte start,end in source)
     pub(crate) dbg_stmt_spans: Arc<[(usize, usize)]>,
     /// Exact per-pc statement spans when available.

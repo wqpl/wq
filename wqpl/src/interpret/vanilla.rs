@@ -13,7 +13,7 @@ use crate::value::{Value, WqResult, eval_binary, eval_unary};
 use crate::vm::call::{
     CallSpec, LocalCallable, PeekLocalCallable, PeekLocalUser, peek_local_callable,
 };
-use crate::vm::inst::{BinaryOpData, Capture, CmpBranchData, Instruction, Operand};
+use crate::vm::inst::{BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
 use crate::vm::{Frame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
 use crate::wqdb::build::{
@@ -231,8 +231,6 @@ impl Interpreter for VanillaInterpreter {
                                 }
                             }
                         }
-                        // Register a debug chunk for this closure's code (wqdb or bt mode)
-                        let mut chunk_opt: Option<ChunkId> = None;
                         let instructions = &payload.instructions;
                         let dbg_stmt_spans = &payload.dbg_stmt_spans;
                         let dbg_pc_spans = &payload.dbg_pc_spans;
@@ -240,48 +238,7 @@ impl Interpreter for VanillaInterpreter {
                         let dbg_local_names = &payload.dbg_local_names;
                         let params = &payload.params;
                         let source_base_offset = vm.resolved_debug_base_offset();
-                        if vm.debug_artifacts_enabled() {
-                            let file_id = vm.debug_info.chunk(vm.current_chunk).file_id;
-                            let id = vm.debug_info.new_chunk("<fn>", file_id, instructions.len());
-                            if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-                                eprintln!(
-                                    "[wqdb]: LoadClosure new chunk={id:?} file_id={file_id} instructions={} base_offset={}",
-                                    instructions.len(),
-                                    source_base_offset,
-                                );
-                            }
-                            {
-                                let base_offs = source_base_offset;
-                                let table = &mut vm.debug_info.chunk_mut(id).line_table;
-                                if !dbg_pc_spans.is_empty() && !dbg_stmt_marks.is_empty() {
-                                    apply_stmt_debug_exact_offs(
-                                        table,
-                                        file_id,
-                                        dbg_pc_spans,
-                                        dbg_stmt_marks,
-                                        base_offs,
-                                    );
-                                } else if !dbg_stmt_spans.is_empty() {
-                                    apply_stmt_spans_exact_offs(
-                                        table,
-                                        instructions.as_ref(),
-                                        file_id,
-                                        dbg_stmt_spans,
-                                        base_offs,
-                                    );
-                                } else {
-                                    mark_stmt_heuristic(table, instructions.as_ref());
-                                }
-                            }
-                            if !dbg_local_names.is_empty() {
-                                vm.debug_info.chunk_mut(id).local_names =
-                                    Some(dbg_local_names.iter().cloned().collect());
-                            } else if let Some(ps) = params.as_ref() {
-                                vm.debug_info.chunk_mut(id).local_names =
-                                    Some(ps.iter().cloned().collect());
-                            }
-                            chunk_opt = Some(id);
-                        }
+                        let chunk_opt = load_closure_debug_chunk(vm, payload, source_base_offset);
                         hooks.on_closure_capture_alloc(&|| captured_vals.len());
                         vm.stack.push(Value::Closure(Arc::new(ClosureData {
                             params: params.clone(),
@@ -1482,6 +1439,67 @@ impl Interpreter for VanillaInterpreter {
     }
 }
 
+fn load_closure_debug_chunk(
+    vm: &mut Vm,
+    payload: &ClosurePayload,
+    source_base_offset: usize,
+) -> Option<ChunkId> {
+    if !vm.debug_artifacts_enabled() {
+        return None;
+    }
+    let file_id = vm.debug_info.chunk(vm.current_chunk).file_id;
+    if let Some(id) = payload.dbg_chunk
+        && vm
+            .debug_info
+            .chunk_opt(id)
+            .is_some_and(|meta| meta.file_id == file_id && meta.len == payload.instructions.len())
+    {
+        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
+            eprintln!("[wqdb]: LoadClosure reuse chunk={id:?}");
+        }
+        return Some(id);
+    }
+
+    let instructions = &payload.instructions;
+    let id = vm.debug_info.new_chunk("<fn>", file_id, instructions.len());
+    if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
+        eprintln!(
+            "[wqdb]: LoadClosure new chunk={id:?} file_id={file_id} instructions={} base_offset={}",
+            instructions.len(),
+            source_base_offset,
+        );
+    }
+    {
+        let table = &mut vm.debug_info.chunk_mut(id).line_table;
+        if !payload.dbg_pc_spans.is_empty() && !payload.dbg_stmt_marks.is_empty() {
+            apply_stmt_debug_exact_offs(
+                table,
+                file_id,
+                payload.dbg_pc_spans.as_ref(),
+                payload.dbg_stmt_marks.as_ref(),
+                source_base_offset,
+            );
+        } else if !payload.dbg_stmt_spans.is_empty() {
+            apply_stmt_spans_exact_offs(
+                table,
+                instructions.as_ref(),
+                file_id,
+                payload.dbg_stmt_spans.as_ref(),
+                source_base_offset,
+            );
+        } else {
+            mark_stmt_heuristic(table, instructions.as_ref());
+        }
+    }
+    if !payload.dbg_local_names.is_empty() {
+        vm.debug_info.chunk_mut(id).local_names =
+            Some(payload.dbg_local_names.iter().cloned().collect());
+    } else if let Some(ps) = payload.params.as_ref() {
+        vm.debug_info.chunk_mut(id).local_names = Some(ps.iter().cloned().collect());
+    }
+    Some(id)
+}
+
 impl VanillaInterpreter {
     fn build_local_callable(
         &self,
@@ -1834,8 +1852,9 @@ mod tests {
     use crate::interpret::vanilla::VanillaInterpreter;
     use crate::value::{Value, WqResult, eval_binary};
     use crate::value::func::FunctionData;
-    use crate::vm::inst::{BinaryOpData, Instruction, Operand};
+    use crate::vm::inst::{BinaryOpData, ClosurePayload, Instruction, Operand};
     use crate::vm::{Slot, Vm};
+    use crate::wqdb::data::ChunkId;
 
     #[test]
     fn invalid_local_slot_errors_include_slot_name_note() {
@@ -1908,6 +1927,41 @@ mod tests {
             dbg_local_names: None,
             dbg_provenance: None,
         }))
+    }
+
+    #[test]
+    fn load_closure_reuses_registered_debug_chunk() {
+        let payload = ClosurePayload {
+            params: None,
+            named_params: None,
+            locals: 0,
+            captures: Vec::new(),
+            instructions: vec![Instruction::Return].into(),
+            dbg_chunk: Some(ChunkId(1)),
+            dbg_stmt_spans: Vec::<(usize, usize)>::new().into(),
+            dbg_pc_spans: Vec::<Option<(usize, usize)>>::new().into(),
+            dbg_stmt_marks: Vec::new().into(),
+            dbg_local_names: Vec::<String>::new().into(),
+        };
+        let mut vm = Vm::new(vec![Instruction::load_closure(payload)]);
+        vm.runtime_debug_info = true;
+        let file_id = vm.debug_info.new_file("<test>", "");
+        let script_chunk = vm.debug_info.new_chunk("<script>", file_id, 1);
+        let closure_chunk = vm.debug_info.new_chunk("<fn>", file_id, 1);
+        vm.current_chunk = script_chunk;
+
+        let mut interpreter = VanillaInterpreter;
+        let result = interpreter.interpret(&mut vm, 1).expect("execute");
+
+        assert_eq!(closure_chunk, ChunkId(1));
+        let Value::Closure(closure) = result else {
+            panic!("expected closure");
+        };
+        assert_eq!(closure.dbg_chunk, Some(closure_chunk));
+        assert!(
+            vm.debug_info.chunk_opt(ChunkId(2)).is_none(),
+            "loading a pre-registered closure must not allocate another debug chunk"
+        );
     }
 
     #[test]

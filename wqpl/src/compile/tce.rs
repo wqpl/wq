@@ -266,6 +266,7 @@ mod tests {
             locals: 1,
             captures: vec![],
             instructions: vec![Instruction::CallLocal(0, 1), Instruction::Return].into(),
+            dbg_chunk: None,
             dbg_stmt_spans: vec![].into(),
             dbg_pc_spans: vec![].into(),
             dbg_stmt_marks: vec![].into(),

@@ -4,8 +4,8 @@
 // register_function_chunks
 
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
-use crate::vm::inst::DebugStmtMark;
-use crate::wqdb::data::{DebugInfo, LineTable, Span};
+use crate::vm::inst::{ClosurePayload, DebugStmtMark, Instruction};
+use crate::wqdb::data::{ChunkId, DebugInfo, LineTable, Span};
 
 pub(crate) fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::inst::Instruction]) {
     use crate::vm::inst::Instruction::*;
@@ -296,14 +296,66 @@ pub fn apply_stmt_debug_exact_offs(
     }
 }
 
-/// Register chunks for nested non-capturing functions and mark their statement
-/// PCs. Recursively descends into both `LoadConst` compiled functions and
+fn register_closure_payload_chunk(
+    di: &mut DebugInfo,
+    file_id: u32,
+    payload: &mut ClosurePayload,
+    name: Option<std::sync::Arc<str>>,
+    base_offset: usize,
+) -> ChunkId {
+    let chunk = di.new_chunk("<fn>", file_id, payload.instructions.len());
+    if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
+        eprintln!(
+            "[wqdb]: register_function_chunks new chunk={chunk:?} name={} file_id={} instructions={} base_offset={}",
+            di.chunk(chunk).name,
+            file_id,
+            payload.instructions.len(),
+            base_offset,
+        );
+    }
+    {
+        let table = &mut di.chunk_mut(chunk).line_table;
+        if !payload.dbg_pc_spans.is_empty() && !payload.dbg_stmt_marks.is_empty() {
+            apply_stmt_debug_exact_offs(
+                table,
+                file_id,
+                payload.dbg_pc_spans.as_ref(),
+                payload.dbg_stmt_marks.as_ref(),
+                base_offset,
+            );
+        } else if !payload.dbg_stmt_spans.is_empty() {
+            apply_stmt_spans_exact_offs(
+                table,
+                payload.instructions.as_ref(),
+                file_id,
+                payload.dbg_stmt_spans.as_ref(),
+                base_offset,
+            );
+        } else {
+            mark_stmt_heuristic(table, payload.instructions.as_ref());
+        }
+    }
+    if !payload.dbg_local_names.is_empty() {
+        di.chunk_mut(chunk).local_names = Some(payload.dbg_local_names.iter().cloned().collect());
+    } else if let Some(params) = payload.params.as_ref() {
+        di.chunk_mut(chunk).local_names = Some(params.iter().cloned().collect());
+    }
+    if let Some(name) = name {
+        di.chunk_mut(chunk).name = name.clone();
+        di.by_name.insert(name, chunk);
+    }
+    payload.dbg_chunk = Some(chunk);
+    chunk
+}
+
+/// Register chunks for nested functions and mark their statement PCs.
+/// Recursively descends into both `LoadConst` compiled functions and
 /// `LoadClosure` payloads so that deeply-nested functions get their debug
 /// chunks (and the correct `file_id`) assigned eagerly at compile time.
 pub(crate) fn register_function_chunks(
     di: &mut DebugInfo,
     file_id: u32,
-    code: &mut [crate::vm::inst::Instruction],
+    code: &mut [Instruction],
     base_offset: usize,
 ) {
     use crate::value::Value;
@@ -372,6 +424,9 @@ pub(crate) fn register_function_chunks(
                     }
                 }
                 LoadClosure(payload) => {
+                    if payload.dbg_chunk.is_none() {
+                        register_closure_payload_chunk(di, file_id, payload, next_name, base_offset);
+                    }
                     let nested = std::sync::Arc::make_mut(&mut payload.instructions);
                     register_function_chunks(di, file_id, nested, base_offset);
                 }
@@ -380,5 +435,52 @@ pub(crate) fn register_function_chunks(
         }
 
         i += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wqdb::data::ChunkId;
+
+    fn empty_payload() -> ClosurePayload {
+        ClosurePayload {
+            params: None,
+            named_params: None,
+            locals: 0,
+            captures: Vec::new(),
+            instructions: vec![Instruction::Return].into(),
+            dbg_chunk: None,
+            dbg_stmt_spans: Vec::<(usize, usize)>::new().into(),
+            dbg_pc_spans: Vec::<Option<(usize, usize)>>::new().into(),
+            dbg_stmt_marks: Vec::new().into(),
+            dbg_local_names: Vec::<String>::new().into(),
+        }
+    }
+
+    #[test]
+    fn register_function_chunks_assigns_stable_closure_chunk() {
+        let mut di = DebugInfo::default();
+        let file_id = di.new_file("<test>", "");
+        let mut code = vec![Instruction::LoadClosure(Box::new(empty_payload()))];
+
+        register_function_chunks(&mut di, file_id, &mut code, 0);
+
+        let Instruction::LoadClosure(payload) = &code[0] else {
+            panic!("expected closure payload");
+        };
+        assert_eq!(payload.dbg_chunk, Some(ChunkId(0)));
+        assert_eq!(di.chunk(ChunkId(0)).len, 1);
+
+        register_function_chunks(&mut di, file_id, &mut code, 0);
+
+        let Instruction::LoadClosure(payload) = &code[0] else {
+            panic!("expected closure payload");
+        };
+        assert_eq!(payload.dbg_chunk, Some(ChunkId(0)));
+        assert!(
+            di.chunk_opt(ChunkId(1)).is_none(),
+            "registering the same closure payload twice must not allocate a second chunk"
+        );
     }
 }
