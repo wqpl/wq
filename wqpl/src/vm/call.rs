@@ -561,51 +561,53 @@ impl Vm {
     fn call_builtin_id(
         &mut self,
         id: u16,
-        args: crate::builtins::BuiltinFnArgs,
-    ) -> WqResult<Value> {
-        self.call_builtin_id_inner(id, args, false)
-    }
-
-    #[inline]
-    fn call_builtin_discard_id(
-        &mut self,
-        id: u16,
-        args: crate::builtins::BuiltinFnArgs,
-    ) -> WqResult<Value> {
-        self.call_builtin_id_inner(id, args, true)
-    }
-
-    #[inline]
-    fn call_builtin_id_inner(
-        &mut self,
-        id: u16,
         mut args: crate::builtins::BuiltinFnArgs,
-        discard_result: bool,
     ) -> WqResult<Value> {
         let argc = args.len();
         let func = *self
             .builtins
             .get_fn_by_id(usize::from(id))
             .ok_or_else(|| vm_err("invalid builtin id"))?;
-        let builtin = BuiltinEnum::from_id(id).ok_or_else(|| vm_err("invalid builtin id"))?;
         if self.builtins.validate_runtime_call_args(id, &args)? {
             args.mark_runtime_validated();
         }
-        let result = if discard_result {
-            if let Some(discard_fn) = builtin.discard_fn() {
-                discard_fn(self, args)?
-            } else {
-                func.invoke(self, args).map(|_| Value::unit())?
-            }
-        } else {
-            func.invoke(self, args)?
-        };
-        if let Some(name) = Builtins::name_from_id(id)
-            && let Some(hooks) = self.hooks
-        {
-            unsafe { hooks.as_ref() }.on_builtin_result(name, argc, &result);
-        }
+        let result = func.invoke(self, args)?;
+        self.record_builtin_result(id, argc, &result);
         Ok(result)
+    }
+
+    #[inline]
+    fn call_builtin_discard_id(
+        &mut self,
+        id: u16,
+        mut args: crate::builtins::BuiltinFnArgs,
+    ) -> WqResult<Value> {
+        let argc = args.len();
+        let func = *self
+            .builtins
+            .get_fn_by_id(usize::from(id))
+            .ok_or_else(|| vm_err("invalid builtin id"))?;
+        if self.builtins.validate_runtime_call_args(id, &args)? {
+            args.mark_runtime_validated();
+        }
+        let result = if let Some(discard_fn) =
+            BuiltinEnum::from_id(id).and_then(BuiltinEnum::discard_fn)
+        {
+            discard_fn(self, args)?
+        } else {
+            func.invoke(self, args).map(|_| Value::unit())?
+        };
+        self.record_builtin_result(id, argc, &result);
+        Ok(result)
+    }
+
+    #[inline]
+    fn record_builtin_result(&self, id: u16, argc: usize, result: &Value) {
+        if let Some(hooks) = self.hooks
+            && let Some(name) = Builtins::name_from_id(id)
+        {
+            unsafe { hooks.as_ref() }.on_builtin_result(name, argc, result);
+        }
     }
 
     #[inline]
