@@ -36,6 +36,7 @@ const docs = [
     title: "map builtin",
     group: "List",
     summary: "Apply a function to each item.",
+    usage: "map[xs;f;d?]",
     aliases: ["map", "M"],
   },
   {
@@ -69,6 +70,7 @@ test("indexes reference aliases and help commands", () => {
   const index = buildFeaturedSearchIndex({ tutorials, docs });
   const results = searchFeaturedItems(index, "help map");
   assert.equal(results[0].title, "map builtin");
+  assert.equal(results[0].code, "map[xs;f;d?]");
   assert.equal(results[0].href, "article.html?slug=ref:map");
 });
 

@@ -651,6 +651,12 @@ pub fn get_doc_index_json() -> String {
         out.push(',');
         push_json_field(&mut out, "summary", &topic.summary);
         out.push(',');
+        if let Some(builtin) = topic.builtin {
+            push_json_field(&mut out, "usage", builtin.usage());
+        } else {
+            push_json_field(&mut out, "usage", "");
+        }
+        out.push(',');
         out.push_str("\"aliases\":[");
         for (alias_idx, alias) in topic.aliases.iter().enumerate() {
             if alias_idx > 0 {
@@ -972,6 +978,7 @@ mod tests {
     fn doc_exports_smoke() {
         let index = get_doc_index_json();
         assert!(index.contains("\"id\":\"builtin.map\""));
+        assert!(index.contains("\"usage\":\"map[xs;f;d?]\""));
         assert!(index.contains("\"id\":\"at-return\""));
 
         let markdown = get_doc_markdown("map").expect("map doc renders");

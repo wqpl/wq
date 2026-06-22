@@ -5,6 +5,15 @@ import {
   buildFeaturedSearchIndex,
   searchFeaturedItems,
 } from "./featured-search.js";
+import {
+  BUILTINS_GROUP,
+  referenceBuiltinGroupCards,
+  referenceParentHref,
+  referenceRootCards,
+  referenceSubfolderCrumb,
+  referenceSubfolderTitle,
+  referenceTopicCards,
+} from "./reference-cards.js";
 
 console.debug("[wqide] app shell loaded");
 
@@ -1444,7 +1453,7 @@ function renderFeaturedSearchResults(root, matches, warnings) {
   if (!results) return;
   results.innerHTML = "";
   if (matches.length) {
-    matches.forEach((item) => appendSectionCard(results, item));
+    matches.forEach((item) => appendSectionCard(results, item, { showMeta: true }));
   } else {
     const empty = document.createElement("p");
     empty.className = "featured-search-empty";
@@ -1548,63 +1557,10 @@ function isReferenceSection(sectionName) {
   return sectionName.toLowerCase() === "reference";
 }
 
-function docQueryForTopic(topic) {
-  if (topic.kind === "builtin") {
-    return topic.aliases?.[0] || topic.title.replace(/ builtin$/, "");
-  }
-  return topic.id;
-}
-
-function docCardCode(topic) {
-  const query = docQueryForTopic(topic);
-  return topic.kind === "builtin" ? `help ${query}` : query;
-}
-
-function pluralizeTopic(count) {
-  return count === 1 ? "topic" : "topics";
-}
-
-function referenceGroupCards(topics) {
-  const groups = new Map();
-  for (const topic of topics) {
-    const group = topic.group || "Reference";
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push(topic);
-  }
-  return Array.from(groups, ([group, items]) => {
-    const sample = items.slice(0, 3).map(docCardCode).join("  ");
-    return {
-      title: group,
-      description: `${items.length} ${pluralizeTopic(items.length)} covering ${items
-        .slice(0, 2)
-        .map((topic) => topic.title)
-        .join(", ")}${items.length > 2 ? ", ..." : ""}`,
-      code: sample,
-      href: `subfolder.html?section=Reference&group=${encodeURIComponent(group)}`,
-      label: `Open ${group} reference topics`,
-    };
-  });
-}
-
-function referenceTopicCards(topics, group) {
-  return topics
-    .filter((topic) => topic.group === group)
-    .map((topic) => {
-      const query = docQueryForTopic(topic);
-      return {
-        title: topic.title,
-        description: `${topic.kind}: ${topic.summary}`,
-        code: docCardCode(topic),
-        href: `article.html?slug=ref:${encodeURIComponent(query)}`,
-        label: `${topic.title} reference`,
-      };
-    });
-}
-
-function appendSectionCard(grid, item) {
+function appendSectionCard(grid, item, options = {}) {
   const card = document.createElement("section");
   card.className = "card";
-  if (item.meta) {
+  if (options.showMeta && item.meta) {
     const meta = document.createElement("span");
     meta.className = "card-meta";
     if (item.type) meta.dataset.cardKind = item.type;
@@ -1703,31 +1659,41 @@ async function mountSubfolder(route) {
   const referenceGroup = isReferenceSection(sectionName)
     ? (route.params.get("group") || "").trim()
     : "";
-  const key = referenceGroup
+  const builtinGroup = referenceGroup === BUILTINS_GROUP
+    ? (route.params.get("builtinGroup") || "").trim()
+    : "";
+  const key = builtinGroup
+    ? `subfolder:${sectionName}:${referenceGroup}:${builtinGroup}`
+    : referenceGroup
     ? `subfolder:${sectionName}:${referenceGroup}`
     : `subfolder:${sectionName}`;
   const root = getView(key, SUBFOLDER_HTML);
   const crumb = root.querySelector('[data-role="section-crumb"]');
   const title = root.querySelector('[data-role="section-title"]');
   const grid = root.querySelector('[data-role="section-grid"]');
-  const titleText = referenceGroup
-    ? `${referenceGroup} Reference`
+  const titleText = isReferenceSection(sectionName)
+    ? referenceSubfolderTitle({ sectionName, referenceGroup, builtinGroup })
     : sectionName;
-  root.dataset.parentHref = referenceGroup
-    ? "subfolder.html?section=Reference"
+  root.dataset.parentHref = isReferenceSection(sectionName)
+    ? referenceParentHref({ referenceGroup, builtinGroup })
     : "index.html";
   if (crumb) {
-    crumb.textContent = referenceGroup
-      ? `Reference/${referenceGroup}`
+    crumb.textContent = isReferenceSection(sectionName)
+      ? referenceSubfolderCrumb({ sectionName, referenceGroup, builtinGroup })
       : sectionName;
   }
   if (title) title.textContent = titleText;
   wireBackButton(root);
   if (grid && !grid.dataset.loadedFor) {
+    const docs = isReferenceSection(sectionName) ? await getDocIndex() : [];
     const list = isReferenceSection(sectionName)
-      ? referenceGroup
-        ? referenceTopicCards(await getDocIndex(), referenceGroup)
-        : referenceGroupCards(await getDocIndex())
+      ? builtinGroup
+        ? referenceTopicCards(docs, { builtinGroup })
+        : referenceGroup === BUILTINS_GROUP
+          ? referenceBuiltinGroupCards(docs)
+          : referenceGroup
+            ? referenceTopicCards(docs, { group: referenceGroup })
+            : referenceRootCards(docs)
       : ((await getManifest()).tutorials || []).filter(
           (t) => (t.section || "").toLowerCase() === sectionName.toLowerCase(),
         );

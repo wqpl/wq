@@ -1,3 +1,11 @@
+import {
+  displayReferenceGroup,
+  docCardCode,
+  docQueryForTopic,
+  referenceBuiltinGroupCards,
+  referenceRootCards,
+} from "./reference-cards.js";
+
 export const FEATURED_SECTION_CARDS = [
   {
     id: "wqpl",
@@ -16,7 +24,7 @@ export const FEATURED_SECTION_CARDS = [
     meta: "Section",
     title: "Reference Docs",
     description: "Generated docs for builtins, syntax, keywords, and guides.",
-    code: "help map",
+    code: "map",
     href: "subfolder.html?section=Reference",
     label: "Open Reference docs folder",
     terms: "builtins syntax keywords guides docs help reference",
@@ -84,34 +92,14 @@ function searchNeedles(query) {
   };
 }
 
-export function docQueryForTopic(topic) {
-  if (topic?.kind === "builtin") {
-    return topic.aliases?.[0] || topic.title?.replace(/ builtin$/, "") || "";
-  }
-  return topic?.id || topic?.title || "";
-}
-
 function referenceGroupEntries(docs) {
-  const groups = new Map();
-  for (const topic of docs) {
-    const group = topic.group || "Reference";
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push(topic);
-  }
-  return Array.from(groups, ([group, items]) => ({
-    id: `reference-group:${group}`,
-    type: "reference-group",
-    meta: "Reference group",
-    title: `${group} Reference`,
-    description: `${items.length} ${items.length === 1 ? "topic" : "topics"} covering ${items
-      .slice(0, 3)
-      .map((topic) => topic.title)
-      .join(", ")}`,
-    code: items.slice(0, 3).map(docQueryForTopic).join("  "),
-    href: `subfolder.html?section=Reference&group=${encodeURIComponent(group)}`,
-    label: `Open ${group} reference topics`,
-    terms: [group, "reference", "docs", items.map((topic) => topic.summary)],
-  }));
+  return [...referenceRootCards(docs), ...referenceBuiltinGroupCards(docs)].map(
+    (entry) => ({
+      ...entry,
+      id: `reference-group:${entry.href}`,
+      terms: [entry.title, entry.description, entry.code, "reference", "docs"],
+    }),
+  );
 }
 
 function tutorialEntries(tutorials) {
@@ -141,10 +129,12 @@ function referenceTopicEntries(docs) {
     return {
       id: `reference:${query}`,
       type: "reference",
-      meta: topic.group ? `${topic.group} reference` : "Reference",
+      meta: topic.group
+        ? `${displayReferenceGroup(topic.group)} reference`
+        : "Reference",
       title: topic.title,
       description: topic.summary ? `${topic.kind}: ${topic.summary}` : topic.kind,
-      code: topic.kind === "builtin" ? `help ${query}` : query,
+      code: docCardCode(topic),
       href: `article.html?slug=ref:${encodeURIComponent(query)}`,
       label: `${topic.title} reference`,
       terms: [
@@ -154,6 +144,7 @@ function referenceTopicEntries(docs) {
         topic.summary,
         topic.aliases,
         query,
+        topic.usage,
         topic.kind === "builtin" ? `help ${query}` : "",
       ],
     };
