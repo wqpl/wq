@@ -6,7 +6,20 @@ use num_traits::ToPrimitive;
 use crate::value::{IntoWqValue as _, Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
+pub(crate) enum BulkIndexKey<'a> {
+    IntList(&'a [i64]),
+    List(&'a [Value]),
+}
+
 impl Value {
+    pub(crate) fn bulk_index_key(&self) -> Option<BulkIndexKey<'_>> {
+        match self {
+            Value::IntList(idxs) => Some(BulkIndexKey::IntList(idxs.as_slice())),
+            Value::List(idxs) => Some(BulkIndexKey::List(idxs.as_slice())),
+            _ => None,
+        }
+    }
+
     /// Index into a list or dict
     /// Index with multiple raw arguments, avoiding the `Value::from_items`
     /// allocation when the caller already has a `Vec<Value>` of indices.
@@ -400,10 +413,9 @@ fn normalize_list_indices(idxs: &[Value], len: usize) -> Option<Vec<usize>> {
 
 /// Resolve bulk indices from `Value::IntList` or `Value::List`.
 fn resolve_many_idx(key: &Value, len: usize) -> Option<Vec<usize>> {
-    match key {
-        Value::IntList(idxs) => normalize_many(idxs.iter().copied(), len),
-        Value::List(idxs) => normalize_list_indices(idxs, len),
-        _ => None,
+    match key.bulk_index_key()? {
+        BulkIndexKey::IntList(idxs) => normalize_many(idxs.iter().copied(), len),
+        BulkIndexKey::List(idxs) => normalize_list_indices(idxs, len),
     }
 }
 

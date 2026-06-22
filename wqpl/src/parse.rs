@@ -1256,7 +1256,11 @@ impl Parser {
                         name_span: var_span,
                     };
                 }
-                AstNode::Index { object, index, .. } => {
+                AstNode::Index {
+                    object,
+                    index,
+                    ..
+                } => {
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
@@ -2133,7 +2137,11 @@ impl Parser {
                     name_span: var_span,
                 })
             }
-            AstNode::Index { object, index, .. } => {
+            AstNode::Index {
+                object,
+                index,
+                ..
+            } => {
                 self.advance();
                 let span = self.cst_close_with_span(pending, SyntaxKind::IndexAssignExpr);
                 Ok(AstNode::IndexAssign {
@@ -3148,6 +3156,7 @@ impl Parser {
                 object,
                 index,
                 span,
+                ..
             } => {
                 if let Some(span) = span {
                     span.0 += offset;

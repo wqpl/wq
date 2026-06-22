@@ -827,6 +827,7 @@ fn compute_dirty_byte_range(old: &str, new: &str) -> (usize, usize, usize, usize
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
@@ -871,6 +872,146 @@ mod tests {
         let mut session = Session::new();
         assert_eq!(session.eval_string("true|~").unwrap(), Value::Bool(false));
         assert_eq!(session.eval_string("1|~").unwrap(), Value::Int(!1));
+    }
+
+    #[test]
+    fn index_path_assignment_updates_nested_value() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("lst:((0;0);(0;0));lst[0][0]:1;lst")
+            .expect("deep index assignment should eval");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::IntList(Arc::new(vec![1, 0])),
+                Value::IntList(Arc::new(vec![0, 0])),
+            ]))
+        );
+    }
+
+    #[test]
+    fn index_path_assignment_keeps_final_bulk_semantics() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("lst:((0;0);(0;0));lst[0][0;1]:(2;3);lst")
+            .expect("deep bulk index assignment should eval");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::IntList(Arc::new(vec![2, 3])),
+                Value::IntList(Arc::new(vec![0, 0])),
+            ]))
+        );
+    }
+
+    #[test]
+    fn index_path_assignment_keeps_top_level_bulk_semantics() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("lst:((0;0);(0;0));lst[0;1]:(0;1);lst")
+            .expect("top-level bulk index assignment should eval");
+
+        assert_eq!(result, Value::IntList(Arc::new(vec![0, 1])));
+    }
+
+    #[test]
+    fn index_path_update_reads_and_writes_nested_value() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("lst:((1;2);(3;4));lst[1][0]+:10;lst")
+            .expect("deep augmented index assignment should eval");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::IntList(Arc::new(vec![1, 2])),
+                Value::IntList(Arc::new(vec![13, 4])),
+            ]))
+        );
+    }
+
+    #[test]
+    fn index_path_update_handles_outer_variable() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("f:{m:((1;2);(3;4));g:{'m[0][1]+:10};g[];m};f[]")
+            .expect("deep assignment through an outer variable should eval");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::IntList(Arc::new(vec![1, 12])),
+                Value::IntList(Arc::new(vec![3, 4])),
+            ]))
+        );
+    }
+
+    #[test]
+    fn whitespace_after_bracket_assigns_through_index_path() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("lst:((0;0);(0;0));lst[0] 0:1;lst")
+            .expect("whitespace final segment should assign through the path");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::IntList(Arc::new(vec![1, 0])),
+                Value::IntList(Arc::new(vec![0, 0])),
+            ]))
+        );
+    }
+
+    #[test]
+    fn whitespace_postfix_stays_single_final_path_segment() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("lst:(((0;0);(0;0));((0;0);(0;0)));lst[0][1]0 0:9;lst")
+            .expect("whitespace postfix expression should be the final path segment");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![
+                Value::List(Arc::new(vec![
+                    Value::IntList(Arc::new(vec![0, 0])),
+                    Value::IntList(Arc::new(vec![9, 0])),
+                ])),
+                Value::List(Arc::new(vec![
+                    Value::IntList(Arc::new(vec![0, 0])),
+                    Value::IntList(Arc::new(vec![0, 0])),
+                ])),
+            ]))
+        );
+    }
+
+    #[test]
+    fn index_path_assignment_rejects_bulk_prefix() {
+        let mut session = Session::new();
+        let err = session
+            .eval_string("lst:((0;0);(0;0));lst[0;1][0]:1")
+            .expect_err("bulk prefix should not become deep assignment");
+
+        assert!(
+            err.to_string()
+                .contains("bulk index cannot appear before the final path segment"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn index_path_assignment_rejects_dynamic_bulk_prefix() {
+        let mut session = Session::new();
+        let err = session
+            .eval_string("i:(0;1);lst:((0;0);(0;0));lst[i][0]:9")
+            .expect_err("dynamic bulk prefix should not become deep assignment");
+
+        assert!(
+            err.to_string()
+                .contains("bulk index cannot appear before the final path segment"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

@@ -87,6 +87,21 @@ const INDEX_MUTATION_EXAMPLES: &[DocExample] = &[
         expectation: ExampleExpectation::ResultContains("(10;25;30)"),
     },
     DocExample {
+        title: "Assign through a deep index path",
+        code: "xs:((0;0);(0;0));xs[0][0]:1;xs",
+        expectation: ExampleExpectation::ResultContains("((1;0);(0;0))"),
+    },
+    DocExample {
+        title: "Mix bracket and postfix path segments",
+        code: "xs:((0;0);(0;0));xs[0] 1:2;xs",
+        expectation: ExampleExpectation::ResultContains("((0;2);(0;0))"),
+    },
+    DocExample {
+        title: "Bulk assign at a deep leaf",
+        code: "xs:((0;0);(0;0));xs[0][0;1]:(2;3);xs",
+        expectation: ExampleExpectation::ResultContains("((2;3);(0;0))"),
+    },
+    DocExample {
         title: "Pop the last item",
         code: "xs:(10;20;30);xs[!];xs",
         expectation: ExampleExpectation::ResultContains("(10;20)"),
@@ -315,7 +330,7 @@ pub(super) const INDEX_MUTATION: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["index assignment", "mutation", "mutating index", "[!]"],
     summary: "Mutate list contents through index assignment and bang indexing.",
-    details: "`xs i:v` assigns through ordinary postfix indexing, and `xs i+:v` reads, updates, and writes the indexed element. Bang indexing mutates list shape: `xs[!]` pops the last item, `xs[!i]` removes the item at `i`, and `xs[!i]:v` inserts `v` at that position. These forms are useful for stack-like and in-place list workflows.",
+    details: "`xs i:v` assigns through ordinary postfix indexing, and `xs i+:v` reads, updates, and writes the indexed element. Index chains assign through nested containers, so `xs[0][1]:v` and `xs[0] 1:v` descend into `xs[0]` and write index `1`; semicolons stay bulk assignment at that depth, so `xs[0;1]:v` still writes top-level positions while `xs[0][0;1]:v` writes multiple positions inside `xs[0]`. Bang indexing mutates list shape: `xs[!]` pops the last item, `xs[!i]` removes the item at `i`, and `xs[!i]:v` inserts `v` at that position. These forms are useful for stack-like and in-place list workflows.",
     examples: INDEX_MUTATION_EXAMPLES,
     related: &["assignment-forms", "calls", "lists", "ranges"],
 };

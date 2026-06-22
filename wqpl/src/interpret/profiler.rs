@@ -519,6 +519,7 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
 
         I::MakeRange { .. } => "MakeRange",
         I::Index => "Index",
+        I::CheckScalarPathIndex => "CheckScalarPathIndex",
         I::IndexLoadLocal(_) => "IndexLoadLocal",
         I::IndexLoadCapture(_) => "IndexLoadCapture",
         I::IndexLoadVar(_) => "IndexLoadVar",
@@ -634,6 +635,7 @@ fn instruction_profile_key(inst: &Instruction) -> String {
             has_step,
         } => format!("MakeRange(inclusive={inclusive}, step={has_step})"),
         I::Index => "Index".to_string(),
+        I::CheckScalarPathIndex => "CheckScalarPathIndex".to_string(),
         I::IndexLoadLocal(slot) => format!("IndexLoadLocal({slot})"),
         I::IndexLoadCapture(slot) => format!("IndexLoadCapture({slot})"),
         I::IndexLoadVar(name) => format!("IndexLoadVar({name})"),

@@ -732,7 +732,11 @@ impl Resolver {
                     name_span: *item_span,
                 });
             }
-            AstNode::Index { object, index, .. } => {
+            AstNode::Index {
+                object,
+                index,
+                ..
+            } => {
                 stmts.push(AstNode::IndexAssign {
                     object: object.clone(),
                     index: index.clone(),
@@ -892,7 +896,11 @@ impl Resolver {
                 span: *item_span,
                 name_span: *item_span,
             }],
-            AstNode::Index { object, index, .. } => vec![AstNode::IndexAssign {
+            AstNode::Index {
+                object,
+                index,
+                ..
+            } => vec![AstNode::IndexAssign {
                 object: object.clone(),
                 index: index.clone(),
                 op: aug_op,

@@ -21,6 +21,17 @@ enum MethodDispatchKind {
     Call,
 }
 
+#[derive(Clone, Copy)]
+enum IndexPathRoot<'a> {
+    Variable(&'a str),
+    OuterVariable(&'a str, AstSpan),
+}
+
+struct IndexPathTarget<'a> {
+    root: IndexPathRoot<'a>,
+    indices: Vec<&'a AstNode>,
+}
+
 pub(crate) struct Compiler {
     pub(crate) instructions: Vec<Instruction>,
     builtins: Builtins,
@@ -150,6 +161,189 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn next_temp_name(&mut self, prefix: &str) -> String {
+        let id = self.gensym;
+        self.gensym = self.gensym.wrapping_add(1);
+        format!("--vm-{prefix}-{id}")
+    }
+
+    fn collect_index_path<'a>(
+        &self,
+        object: &'a AstNode,
+        index: &'a AstNode,
+        span: AstSpan,
+    ) -> WqResult<Option<IndexPathTarget<'a>>> {
+        let mut indices = vec![index];
+        let mut current = object;
+        loop {
+            match current {
+                AstNode::Index {
+                    object,
+                    index,
+                    ..
+                } => {
+                    if Self::is_bulk_path_prefix_index(index) {
+                        return Err(self.syntax_err_at(
+                            span,
+                            "bulk index cannot appear before the final path segment",
+                        ));
+                    }
+                    indices.push(index);
+                    current = object;
+                }
+                AstNode::Postfix {
+                    object,
+                    items,
+                    explicit_call: false,
+                    depth: None,
+                    ..
+                } => {
+                    let [item] = items.as_slice() else {
+                        return Err(self.syntax_err_at(
+                            span,
+                            "bulk index cannot appear before the final path segment",
+                        ));
+                    };
+                    indices.push(item);
+                    current = object;
+                }
+                AstNode::Variable(name, _) => {
+                    if indices.len() < 2 {
+                        return Ok(None);
+                    }
+                    indices.reverse();
+                    return Ok(Some(IndexPathTarget {
+                        root: IndexPathRoot::Variable(name),
+                        indices,
+                    }));
+                }
+                AstNode::OuterVariable(name, name_span) => {
+                    if indices.len() < 2 {
+                        return Ok(None);
+                    }
+                    indices.reverse();
+                    return Ok(Some(IndexPathTarget {
+                        root: IndexPathRoot::OuterVariable(name, *name_span),
+                        indices,
+                    }));
+                }
+                _ => return Ok(None),
+            }
+        }
+    }
+
+    fn is_bulk_path_prefix_index(index: &AstNode) -> bool {
+        matches!(
+            index,
+            AstNode::List(_)
+                | AstNode::Literal(Value::List(_) | Value::IntList(_), _)
+        )
+    }
+
+    fn compile_index_path_assign(
+        &mut self,
+        target: IndexPathTarget<'_>,
+        op: Option<BinaryOperator>,
+        value: &AstNode,
+    ) -> WqResult<()> {
+        let mut index_names = Vec::with_capacity(target.indices.len());
+        for (pos, index) in target.indices.iter().enumerate() {
+            let name = self.next_temp_name("idx-path-index");
+            self.compile_expr(index)?;
+            if pos + 1 < target.indices.len() {
+                self.instructions.push(Instruction::CheckScalarPathIndex);
+            }
+            self.emit_store(&name);
+            index_names.push(name);
+        }
+
+        let value_name = self.next_temp_name("idx-path-value");
+        if let Some(op) = op {
+            self.emit_index_path_load(target.root, &index_names)?;
+            self.compile_expr(value)?;
+            self.instructions
+                .push(Instruction::binary_op(op, Operand::Stack, Operand::Stack));
+            self.emit_store(&value_name);
+        } else {
+            self.compile_expr(value)?;
+            self.emit_store(&value_name);
+        }
+
+        let mut child_name = value_name.clone();
+        for level in (1..index_names.len()).rev() {
+            let parent_name = self.next_temp_name("idx-path-parent");
+            self.emit_index_path_load(target.root, &index_names[..level])?;
+            self.emit_store(&parent_name);
+            self.emit_load(&index_names[level], None);
+            self.emit_load(&child_name, None);
+            self.push_index_assign_name_drop(&parent_name);
+            child_name = parent_name;
+        }
+
+        self.emit_load(&index_names[0], None);
+        self.emit_load(&child_name, None);
+        self.push_index_assign_root_drop(target.root);
+        self.emit_load(&value_name, None);
+        Ok(())
+    }
+
+    fn emit_index_path_load(
+        &mut self,
+        root: IndexPathRoot<'_>,
+        index_names: &[String],
+    ) -> WqResult<()> {
+        match root {
+            IndexPathRoot::Variable(name) => self.emit_load(name, None),
+            IndexPathRoot::OuterVariable(name, name_span) => self.emit_outer_load(name, name_span)?,
+        }
+        for name in index_names {
+            self.emit_load(name, None);
+            self.instructions.push(Instruction::Index);
+        }
+        Ok(())
+    }
+
+    fn push_index_assign_name_drop(&mut self, name: &str) {
+        if self.fn_depth > 0 && self.is_local(name) {
+            let slot = self.local_slot(name);
+            self.instructions.push(Instruction::IndexAssignLocalDrop(slot));
+        } else {
+            self.instructions
+                .push(Instruction::IndexAssignVarDrop(name.into()));
+        }
+    }
+
+    fn push_index_assign_root_drop(&mut self, root: IndexPathRoot<'_>) {
+        match root {
+            IndexPathRoot::Variable(name) => {
+                if self.fn_depth > 0 && self.is_local(name) {
+                    let slot = self.local_slot(name);
+                    self.instructions.push(Instruction::IndexAssignLocalDrop(slot));
+                } else if self.is_ref_default_name(name) {
+                    if let Some(idx) = self.ref_capture_map.get(name) {
+                        self.instructions
+                            .push(Instruction::IndexAssignCaptureDrop(*idx));
+                    } else {
+                        self.instructions
+                            .push(Instruction::IndexAssignVarDrop(name.into()));
+                    }
+                } else {
+                    self.instructions
+                        .push(Instruction::IndexAssignVarDrop(name.into()));
+                }
+            }
+            IndexPathRoot::OuterVariable(name, _) => {
+                if let Some(idx) = self.ref_capture_map.get(name) {
+                    self.instructions
+                        .push(Instruction::IndexAssignCaptureDrop(*idx));
+                } else {
+                    self.instructions
+                        .push(Instruction::IndexAssignVarDrop(name.into()));
+                }
+            }
+        }
     }
 
     fn method_lookup_target(object: &AstNode) -> Option<(&AstNode, Arc<str>)> {
@@ -965,6 +1159,7 @@ impl Compiler {
                 explicit_call: _,
                 depth,
                 span,
+                ..
             } => {
                 let start = self.instructions.len();
                 if let Some(depth) = depth {
@@ -1168,6 +1363,7 @@ impl Compiler {
                 object,
                 index,
                 span,
+                ..
             } => {
                 let start = self.instructions.len();
                 let mut optimized = false;
@@ -1207,118 +1403,125 @@ impl Compiler {
                 index,
                 op,
                 value,
-                ..
-            } => match &**object {
-                AstNode::Variable(name, _) => {
-                    if let Some(op) = op {
-                        let tmp_id = {
-                            let v = self.gensym;
-                            self.gensym = self.gensym.wrapping_add(1);
-                            v
-                        };
-                        let tmp_name = format!("--vm-idx-assign-{tmp_id}");
-                        self.compile_expr(index)?;
-                        self.emit_store(&tmp_name);
-                        self.emit_load(&tmp_name, None); // for the assignment
-                        self.emit_load(&tmp_name, None); // for the load
-                        if self.fn_depth > 0 && self.is_local(name) {
-                            let slot = self.local_slot(name);
-                            self.instructions.push(Instruction::IndexLoadLocal(slot));
-                        } else if self.is_ref_default_name(name) {
-                            self.push_ref_default_index_load(name);
-                        } else {
-                            self.instructions
-                                .push(Instruction::IndexLoadVar(name.clone().into()));
-                        }
-                        if *op == BinaryOperator::Cat {
-                            self.compile_expr(value)?;
-                            self.instructions.push(Instruction::Cat(2));
-                        } else {
-                            let right_op = self.compile_expr_as_operand(value)?;
-                            self.instructions.push(Instruction::binary_op(
-                                *op,
-                                Operand::Stack,
-                                right_op,
-                            ));
-                        }
-                        if self.fn_depth > 0 && self.is_local(name) {
-                            let slot = self.local_slot(name);
-                            self.instructions.push(Instruction::IndexAssignLocal(slot));
-                        } else if self.is_ref_default_name(name) {
-                            self.push_ref_default_index_assign(name);
-                        } else {
-                            self.instructions
-                                .push(Instruction::IndexAssignVar(name.clone().into()));
-                        }
-                    } else {
-                        if self.fn_depth > 0 && self.is_local(name) {
-                            let slot = self.local_slot(name);
-                            self.compile_expr(index)?;
-                            self.compile_expr(value)?;
-                            self.instructions.push(Instruction::IndexAssignLocal(slot));
-                        } else if self.is_ref_default_name(name) {
-                            self.compile_expr(index)?;
-                            self.compile_expr(value)?;
-                            self.push_ref_default_index_assign(name);
-                        } else {
-                            self.compile_expr(index)?;
-                            self.compile_expr(value)?;
-                            self.instructions
-                                .push(Instruction::IndexAssignVar(name.clone().into()));
-                        }
-                    }
+                span,
+            } => {
+                if let Some(target) = self.collect_index_path(object, index, *span)? {
+                    self.compile_index_path_assign(target, *op, value)?;
+                    return Ok(());
                 }
-                AstNode::OuterVariable(name, _) => {
-                    if let Some(op) = op {
-                        let tmp_id = {
-                            let v = self.gensym;
-                            self.gensym = self.gensym.wrapping_add(1);
-                            v
-                        };
-                        let tmp_name = format!("--vm-idx-assign-{tmp_id}");
-                        self.compile_expr(index)?;
-                        self.emit_store(&tmp_name);
-                        self.emit_load(&tmp_name, None); // for assignment
-                        if let Some(idx) = self.ref_capture_map.get(name).copied() {
-                            self.emit_load(&tmp_name, None); // for load
-                            self.instructions.push(Instruction::IndexLoadCapture(idx));
+
+                match &**object {
+                    AstNode::Variable(name, _) => {
+                        if let Some(op) = op {
+                            let tmp_id = {
+                                let v = self.gensym;
+                                self.gensym = self.gensym.wrapping_add(1);
+                                v
+                            };
+                            let tmp_name = format!("--vm-idx-assign-{tmp_id}");
+                            self.compile_expr(index)?;
+                            self.emit_store(&tmp_name);
+                            self.emit_load(&tmp_name, None); // for the assignment
+                            self.emit_load(&tmp_name, None); // for the load
+                            if self.fn_depth > 0 && self.is_local(name) {
+                                let slot = self.local_slot(name);
+                                self.instructions.push(Instruction::IndexLoadLocal(slot));
+                            } else if self.is_ref_default_name(name) {
+                                self.push_ref_default_index_load(name);
+                            } else {
+                                self.instructions
+                                    .push(Instruction::IndexLoadVar(name.clone().into()));
+                            }
+                            if *op == BinaryOperator::Cat {
+                                self.compile_expr(value)?;
+                                self.instructions.push(Instruction::Cat(2));
+                            } else {
+                                let right_op = self.compile_expr_as_operand(value)?;
+                                self.instructions.push(Instruction::binary_op(
+                                    *op,
+                                    Operand::Stack,
+                                    right_op,
+                                ));
+                            }
+                            if self.fn_depth > 0 && self.is_local(name) {
+                                let slot = self.local_slot(name);
+                                self.instructions.push(Instruction::IndexAssignLocal(slot));
+                            } else if self.is_ref_default_name(name) {
+                                self.push_ref_default_index_assign(name);
+                            } else {
+                                self.instructions
+                                    .push(Instruction::IndexAssignVar(name.clone().into()));
+                            }
                         } else {
-                            self.emit_load(&tmp_name, None); // for load
-                            self.instructions
-                                .push(Instruction::IndexLoadVar(name.clone().into()));
+                            if self.fn_depth > 0 && self.is_local(name) {
+                                let slot = self.local_slot(name);
+                                self.compile_expr(index)?;
+                                self.compile_expr(value)?;
+                                self.instructions.push(Instruction::IndexAssignLocal(slot));
+                            } else if self.is_ref_default_name(name) {
+                                self.compile_expr(index)?;
+                                self.compile_expr(value)?;
+                                self.push_ref_default_index_assign(name);
+                            } else {
+                                self.compile_expr(index)?;
+                                self.compile_expr(value)?;
+                                self.instructions
+                                    .push(Instruction::IndexAssignVar(name.clone().into()));
+                            }
                         }
-                        if *op == BinaryOperator::Cat {
+                    },
+                    AstNode::OuterVariable(name, _) => {
+                        if let Some(op) = op {
+                            let tmp_id = {
+                                let v = self.gensym;
+                                self.gensym = self.gensym.wrapping_add(1);
+                                v
+                            };
+                            let tmp_name = format!("--vm-idx-assign-{tmp_id}");
+                            self.compile_expr(index)?;
+                            self.emit_store(&tmp_name);
+                            self.emit_load(&tmp_name, None); // for assignment
+                            if let Some(idx) = self.ref_capture_map.get(name).copied() {
+                                self.emit_load(&tmp_name, None); // for load
+                                self.instructions.push(Instruction::IndexLoadCapture(idx));
+                            } else {
+                                self.emit_load(&tmp_name, None); // for load
+                                self.instructions
+                                    .push(Instruction::IndexLoadVar(name.clone().into()));
+                            }
+                            if *op == BinaryOperator::Cat {
+                                self.compile_expr(value)?;
+                                self.instructions.push(Instruction::Cat(2));
+                            } else {
+                                let right_op = self.compile_expr_as_operand(value)?;
+                                self.instructions.push(Instruction::binary_op(
+                                    *op,
+                                    Operand::Stack,
+                                    right_op,
+                                ));
+                            }
+                            if let Some(idx) = self.ref_capture_map.get(name) {
+                                self.instructions
+                                    .push(Instruction::IndexAssignCapture(*idx));
+                            } else {
+                                self.instructions
+                                    .push(Instruction::IndexAssignVar(name.clone().into()));
+                            }
+                        } else {
+                            self.compile_expr(index)?;
                             self.compile_expr(value)?;
-                            self.instructions.push(Instruction::Cat(2));
-                        } else {
-                            let right_op = self.compile_expr_as_operand(value)?;
-                            self.instructions.push(Instruction::binary_op(
-                                *op,
-                                Operand::Stack,
-                                right_op,
-                            ));
+                            if let Some(idx) = self.ref_capture_map.get(name) {
+                                self.instructions
+                                    .push(Instruction::IndexAssignCapture(*idx));
+                            } else {
+                                self.instructions
+                                    .push(Instruction::IndexAssignVar(name.clone().into()));
+                            }
                         }
-                        if let Some(idx) = self.ref_capture_map.get(name) {
-                            self.instructions
-                                .push(Instruction::IndexAssignCapture(*idx));
-                        } else {
-                            self.instructions
-                                .push(Instruction::IndexAssignVar(name.clone().into()));
-                        }
-                    } else {
-                        self.compile_expr(index)?;
-                        self.compile_expr(value)?;
-                        if let Some(idx) = self.ref_capture_map.get(name) {
-                            self.instructions
-                                .push(Instruction::IndexAssignCapture(*idx));
-                        } else {
-                            self.instructions
-                                .push(Instruction::IndexAssignVar(name.clone().into()));
-                        }
-                    }
+                    },
+                    _ => return Err(self.syntax_err_here("Invalid index assignment target")),
                 }
-                _ => return Err(self.syntax_err_here("Invalid index assignment target")),
-            },
+            }
             AstNode::Function {
                 params,
                 ref_capture,

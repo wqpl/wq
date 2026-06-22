@@ -642,6 +642,17 @@ impl Interpreter for VanillaInterpreter {
                             None => return Err(index_load_err(&idx_val, &obj)),
                         }
                     }
+                    Instruction::CheckScalarPathIndex => {
+                        let Some(idx_val) = vm.stack.last() else {
+                            return Err(vm_err("path index"));
+                        };
+                        if idx_val.bulk_index_key().is_some() {
+                            return Err(index_err(
+                                "bulk index cannot appear before the final path segment",
+                            )
+                            .attach_note(format!("index: '{idx_val}'")));
+                        }
+                    }
 
                     Instruction::IndexLoadVar(name) => {
                         let idx_val = pop1_stack(&mut vm.stack, || "index".into())?;

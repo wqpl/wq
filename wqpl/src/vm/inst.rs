@@ -196,6 +196,7 @@ pub(crate) enum Instruction {
         has_step: bool,
     },
     Index,
+    CheckScalarPathIndex,
     IndexLoadLocal(u16),
     IndexLoadCapture(u16),
     IndexLoadVar(Arc<str>),
@@ -407,7 +408,8 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         I::UnaryOp(_) | I::BinaryOp(_) | I::CmpChain(_) => (Op, false),
 
         // Indexing
-        I::Index | I::IndexLoadLocal(_)
+        I::Index | I::CheckScalarPathIndex
+        | I::IndexLoadLocal(_)
         | I::IndexLoadCapture(_)
         | I::IndexLoadVar(_)
         | I::IndexAssignVar(_)
