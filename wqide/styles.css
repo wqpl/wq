@@ -1246,6 +1246,12 @@ body {
 .playground-shell > * {
   min-width: 0;
 }
+.playground-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-width: 0;
+}
 .playground-sidebar {
   display: flex;
   flex-direction: column;
@@ -1515,6 +1521,7 @@ body {
   height: 340px;
   min-height: 0;
   overflow: hidden;
+  border-radius: 0 0 var(--radius-surface) var(--radius-surface);
 }
 .gutter {
   background: var(--surface-bg-head);
@@ -1581,9 +1588,9 @@ textarea.editor-text.repl-input,
 
 /* Playground output panel */
 .run-output-panel {
-  border-top: 1px solid var(--surface-border-soft);
+  border: 1px solid var(--surface-border-soft);
   background: var(--surface-bg-output);
-  border-radius: 0 0 var(--radius-surface) var(--radius-surface);
+  border-radius: var(--radius-surface);
   overflow: hidden;
   max-width: 100%;
   min-width: 0;
@@ -1643,13 +1650,17 @@ textarea.editor-text.repl-input,
   overflow-x: auto;
   overflow-y: auto;
   white-space: pre;
+  height: clamp(180px, 24vh, 280px);
   max-height: 280px;
-  min-height: 0;
+  min-height: 180px;
   min-width: 0;
   scrollbar-width: thin;
 }
 .run-output-body:empty {
-  display: none;
+  color: var(--surface-text-muted);
+}
+.run-output-body:empty::before {
+  content: "No output yet.";
 }
 .run-output-body::-webkit-scrollbar {
   width: 6px;

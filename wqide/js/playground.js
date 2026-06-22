@@ -413,7 +413,6 @@ function jumpToSymbol(instance, span) {
 async function doEval(instance) {
   instance.runBtn.disabled = true;
   instance.output.innerHTML = "";
-  instance.outputPanel.hidden = true;
 
   // stdout/stderr — no bar
   const streamRenderer = createAnsiRenderer(instance.output);
@@ -430,12 +429,10 @@ async function doEval(instance) {
       set_stdout_callback((chunk) => {
         streamRenderer.append(chunk);
         instance.output.scrollTop = instance.output.scrollHeight;
-        instance.outputPanel.hidden = false;
       });
       set_stderr_callback((chunk) => {
         streamRenderer.append("\x1b[31m" + chunk + "\x1b[0m");
         instance.output.scrollTop = instance.output.scrollHeight;
-        instance.outputPanel.hidden = false;
       });
       const queue = [...stdinArr];
       set_stdin_callback((_prompt) =>
@@ -498,7 +495,6 @@ async function doEval(instance) {
       );
       instance.output.scrollTop = instance.output.scrollHeight;
     }
-    instance.outputPanel.hidden = false;
     requestPanelHeightSync(instance);
   } catch (err) {
     console.error(err);
@@ -508,7 +504,6 @@ async function doEval(instance) {
     instance.output.appendChild(bar);
     const errorRenderer = createAnsiRenderer(instance.output, bar);
     errorRenderer.append(alignTurnBody((err?.message ?? String(err)) + "\n"));
-    instance.outputPanel.hidden = false;
     requestPanelHeightSync(instance);
     instance.output.scrollTop = instance.output.scrollHeight;
   } finally {
@@ -757,7 +752,6 @@ export async function mountPlayground(root) {
   });
   const gutter = root.querySelector(".gutter");
   const output = root.querySelector(".run-output-body");
-  const outputPanel = root.querySelector(".run-output-panel");
   const stdinInput = root.querySelector("#stdin");
   const clearOutBtn = root.querySelector("#clearOutBtn");
   const makePosterBtn = root.querySelector("#makePosterBtn");
@@ -781,7 +775,6 @@ export async function mountPlayground(root) {
     ta,
     gutter,
     output,
-    outputPanel,
     stdinInput,
     clearOutBtn,
     runBtn,
@@ -848,7 +841,6 @@ export async function mountPlayground(root) {
   });
   clearOutBtn?.addEventListener("click", () => {
     instance.output.innerHTML = "";
-    instance.outputPanel.hidden = true;
     requestPanelHeightSync(instance);
   });
   makePosterBtn?.addEventListener("click", async () => {
@@ -933,7 +925,6 @@ export async function mountPlayground(root) {
     ta.value = "";
     stdinInput.value = "";
     instance.output.innerHTML = "";
-    instance.outputPanel.hidden = true;
     refreshLines(instance);
     instance.timeMode = false;
     setActive(timeBtn, false);

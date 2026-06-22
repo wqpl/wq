@@ -161,8 +161,9 @@ const PLAYGROUND_HTML = html`
         </div>
       </aside>
 
-      <div class="editor" role="region" aria-label="Playground code editor">
-        <div class="toolbar">
+      <div class="playground-main">
+        <div class="editor" role="region" aria-label="Playground code editor">
+          <div class="toolbar">
           <div class="toolbar-main">
             <div class="toolbar-left">
               <button id="runBtn" class="btn primary" type="button">
@@ -328,7 +329,7 @@ const PLAYGROUND_HTML = html`
               placeholder="Provide stdin for your program..."></textarea>
           </div>
         </div>
-        <div class="editor-area">
+          <div class="editor-area">
           <div class="gutter" aria-hidden="true"></div>
           <div class="codepane">
             <textarea
@@ -337,9 +338,15 @@ const PLAYGROUND_HTML = html`
               spellcheck="false"></textarea>
           </div>
         </div>
-        <div class="run-output-panel" aria-live="polite" hidden>
+        </div>
+
+        <div
+          class="run-output-panel"
+          role="region"
+          aria-labelledby="runOutputHeading"
+          aria-live="polite">
           <div class="run-output-header">
-            <span class="run-output-title">Output</span>
+            <span id="runOutputHeading" class="run-output-title">Output</span>
             <button id="clearOutBtn" class="run-output-clear" type="button">
               Clear
             </button>
