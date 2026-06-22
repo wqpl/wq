@@ -237,7 +237,7 @@ impl Compiler {
     fn is_bulk_path_prefix_index(index: &AstNode) -> bool {
         matches!(
             index,
-            AstNode::List(_)
+            AstNode::List(..)
                 | AstNode::Literal(Value::List(_) | Value::IntList(_), _)
         )
     }
@@ -624,7 +624,7 @@ impl Compiler {
 
     fn stmt_span_count(node: &AstNode) -> usize {
         match node {
-            AstNode::Block(stmts) => stmts.iter().map(Self::stmt_span_count).sum(),
+            AstNode::Block(stmts, _) => stmts.iter().map(Self::stmt_span_count).sum(),
             AstNode::BlockExpr(stmts, _) => {
                 1 + stmts.iter().map(Self::stmt_span_count).sum::<usize>()
             }
@@ -705,29 +705,7 @@ impl Compiler {
     }
 
     fn ast_node_span(node: &AstNode) -> Option<(usize, usize)> {
-        match node {
-            AstNode::Literal(_, span)
-            | AstNode::Variable(_, span)
-            | AstNode::OuterVariable(_, span)
-            | AstNode::Assignment { span, .. }
-            | AstNode::OuterAssignment { span, .. }
-            | AstNode::Index { span, .. }
-            | AstNode::IndexAssign { span, .. }
-            | AstNode::Postfix { span, .. }
-            | AstNode::PipeTap { span, .. }
-            | AstNode::Pipe { span, .. }
-            | AstNode::CallName { span, .. }
-            | AstNode::CallAnonymous { span, .. }
-            | AstNode::Assert { span, .. }
-            | AstNode::Debug { span, .. }
-            | AstNode::Pause { span, .. }
-            | AstNode::FString { span, .. } => *span,
-            AstNode::Block(stmts) | AstNode::BlockExpr(stmts, _) => {
-                stmts.last().and_then(Self::ast_node_span)
-            }
-            AstNode::UnpackAssignment { .. } => None,
-            other => other.span(),
-        }
+        node.span()
     }
 
     /// Return the span of the last expression in an AST node.
@@ -791,7 +769,7 @@ impl Compiler {
 
     fn compile_stmt_sequence_inner(&mut self, node: &AstNode, value_needed: bool) -> WqResult<()> {
         match node {
-            AstNode::Block(stmts) => {
+            AstNode::Block(stmts, _) => {
                 if stmts.is_empty() {
                     self.emit_load_const(Value::unit());
                     return Ok(());
@@ -857,7 +835,7 @@ impl Compiler {
             AstNode::NamedArg { value, .. } => {
                 return self.compile_node(value);
             }
-            AstNode::Ellipsis => {
+            AstNode::Ellipsis(_) => {
                 return Err(self.syntax_err_here(
                     "'...' placeholder is only valid in unpack assignment pattern",
                 ));
@@ -884,6 +862,7 @@ impl Compiler {
                     params,
                     ref_capture,
                     body,
+                    ..
                 } = &**value
                 {
                     // Reserve slot for recursion when in a local scope
@@ -1045,6 +1024,7 @@ impl Compiler {
                 left,
                 operator,
                 right,
+                ..
             } => match operator {
                 BinaryOperator::BoolAnd => {
                     self.compile_lazy_binary_chain(left, *operator, right)?;
@@ -1054,7 +1034,7 @@ impl Compiler {
                 }
                 _ => self.compile_binary_chain(left, *operator, right)?,
             },
-            AstNode::ComparisonChain { first, rest } => {
+            AstNode::ComparisonChain { first, rest, .. } => {
                 self.compile_expr(first)?;
                 let mut ops: Vec<BinaryOperator> = Vec::with_capacity(rest.len());
                 for (op, node) in rest {
@@ -1064,7 +1044,7 @@ impl Compiler {
                 self.instructions
                     .push(Instruction::CmpChain(ops.into_boxed_slice()));
             }
-            AstNode::Cat(items) => {
+            AstNode::Cat(items, _) => {
                 for item in items {
                     self.compile_expr(item)?;
                 }
@@ -1075,6 +1055,7 @@ impl Compiler {
                 end,
                 step,
                 inclusive,
+                ..
             } => {
                 self.compile_expr(start)?;
                 self.compile_expr(end)?;
@@ -1097,14 +1078,14 @@ impl Compiler {
                 let op = self.compile_expr_as_operand(operand)?;
                 self.instructions.push(Instruction::unary_op(*operator, op));
             }
-            AstNode::List(elements) => {
+            AstNode::List(elements, _) => {
                 for elem in elements {
                     self.compile_expr(elem)?;
                 }
                 self.instructions
                     .push(Instruction::MakeList(elements.len()));
             }
-            AstNode::Dict(pairs) => {
+            AstNode::Dict(pairs, _) => {
                 for (k, v) in pairs {
                     self.emit_load_const(Value::Tag(k.clone().into()));
                     self.compile_expr(v)?;
@@ -1285,7 +1266,7 @@ impl Compiler {
                 let end = self.instructions.len();
                 self.fill_span_range(start, end, *span);
             }
-            AstNode::Break => {
+            AstNode::Break(_) => {
                 if let Some(loop_info) = self.loop_stack.last_mut() {
                     let pos = self.instructions.len();
                     self.instructions.push(Instruction::Jump(0));
@@ -1294,7 +1275,7 @@ impl Compiler {
                     return Err(self.syntax_err_here("@b outside loop"));
                 }
             }
-            AstNode::Continue => {
+            AstNode::Continue(_) => {
                 if let Some(loop_info) = self.loop_stack.last_mut() {
                     let pos = self.instructions.len();
                     self.instructions.push(Instruction::Jump(0));
@@ -1303,7 +1284,7 @@ impl Compiler {
                     return Err(self.syntax_err_here("@c outside loop"));
                 }
             }
-            AstNode::Return(expr) => {
+            AstNode::Return(expr, _) => {
                 if self.fn_depth == 0 {
                     return Err(self.syntax_err_here("@r outside function"));
                 }
@@ -1356,7 +1337,7 @@ impl Compiler {
                     self.emit_load_const(Value::unit());
                 }
             }
-            AstNode::Try(expr) => {
+            AstNode::Try(expr, _) => {
                 let pos = self.instructions.len();
                 self.instructions.push(Instruction::Try(0));
                 self.compile_expr(expr)?;
@@ -1532,6 +1513,7 @@ impl Compiler {
                 params,
                 ref_capture,
                 body,
+                ..
             } => {
                 let mut capture_needs =
                     function_capture_needs(body, params.as_deref(), *ref_capture, None);
@@ -1910,7 +1892,7 @@ impl Compiler {
                     self.emit_load_const(Value::unit());
                 }
             }
-            AstNode::Block(_) | AstNode::BlockExpr(..) => {
+            AstNode::Block(..) | AstNode::BlockExpr(..) => {
                 self.compile_stmt_sequence_inner(node, self.value_needed)?;
             }
             AstNode::UnpackAssignment { .. } => {
@@ -1971,7 +1953,7 @@ impl Compiler {
 
     fn is_empty_index_expr(index: &AstNode) -> bool {
         match index {
-            AstNode::List(items) => items.is_empty(),
+            AstNode::List(items, _) => items.is_empty(),
             AstNode::Literal(Value::IntList(items), _) => items.is_empty(),
             AstNode::Literal(Value::List(items), _) => items.is_empty(),
             _ => false,
@@ -2308,6 +2290,7 @@ impl Compiler {
             left: next_left,
             operator: next_operator,
             right: next_right,
+            ..
         } = left
         {
             if matches!(
@@ -2341,6 +2324,7 @@ impl Compiler {
             left: next_left,
             operator: next_operator,
             right: next_right,
+            ..
         } = left
         {
             if *next_operator != operator {
@@ -2600,10 +2584,10 @@ fn collect_ref_default_assignment_needs_inner(
         | AstNode::Literal(..)
         | AstNode::Variable(..)
         | AstNode::OuterVariable(..)
-        | AstNode::Ellipsis
+        | AstNode::Ellipsis(_)
         | AstNode::PipeInput
-        | AstNode::Break
-        | AstNode::Continue
+        | AstNode::Break(_)
+        | AstNode::Continue(_)
         | AstNode::Function { .. } => {}
         AstNode::Assignment { name, value, .. } => {
             if available.contains(name) && !excluded.contains(name) {
@@ -2618,7 +2602,7 @@ fn collect_ref_default_assignment_needs_inner(
             collect_ref_default_assignment_needs_inner(left, available, excluded, needs);
             collect_ref_default_assignment_needs_inner(right, available, excluded, needs);
         }
-        AstNode::ComparisonChain { first, rest } => {
+        AstNode::ComparisonChain { first, rest, .. } => {
             collect_ref_default_assignment_needs_inner(first, available, excluded, needs);
             for (_, node) in rest {
                 collect_ref_default_assignment_needs_inner(node, available, excluded, needs);
@@ -2636,12 +2620,12 @@ fn collect_ref_default_assignment_needs_inner(
                 collect_ref_default_assignment_needs_inner(step, available, excluded, needs);
             }
         }
-        AstNode::Cat(items) | AstNode::List(items) | AstNode::Block(items) => {
+        AstNode::Cat(items, _) | AstNode::List(items, _) | AstNode::Block(items, _) => {
             for item in items {
                 collect_ref_default_assignment_needs_inner(item, available, excluded, needs);
             }
         }
-        AstNode::Dict(pairs) => {
+        AstNode::Dict(pairs, _) => {
             for (_, value) in pairs {
                 collect_ref_default_assignment_needs_inner(value, available, excluded, needs);
             }
@@ -2697,12 +2681,12 @@ fn collect_ref_default_assignment_needs_inner(
         | AstNode::Debug { expr: value, .. } => {
             collect_ref_default_assignment_needs_inner(value, available, excluded, needs);
         }
-        AstNode::Pause { expr, .. } | AstNode::Return(expr) => {
+        AstNode::Pause { expr, .. } | AstNode::Return(expr, _) => {
             if let Some(expr) = expr {
                 collect_ref_default_assignment_needs_inner(expr, available, excluded, needs);
             }
         }
-        AstNode::Try(expr) => {
+        AstNode::Try(expr, _) => {
             collect_ref_default_assignment_needs_inner(expr, available, excluded, needs);
         }
         AstNode::Conditional {
@@ -2766,10 +2750,10 @@ fn collect_ref_default_assignment_needs_inner(
 
 fn has_ctrl(node: &AstNode) -> bool {
     match node {
-        AstNode::Break | AstNode::Continue | AstNode::Return(_) => true,
+        AstNode::Break(_) | AstNode::Continue(_) | AstNode::Return(..) => true,
         AstNode::Debug { expr, .. } => has_ctrl(expr),
         AstNode::Pause { .. } => true,
-        AstNode::Block(stmts) => stmts.iter().any(has_ctrl),
+        AstNode::Block(stmts, _) => stmts.iter().any(has_ctrl),
         AstNode::BlockExpr(stmts, _) => stmts.iter().any(has_ctrl),
         AstNode::Conditional {
             true_branch,
@@ -2784,14 +2768,14 @@ fn has_ctrl(node: &AstNode) -> bool {
         AstNode::PipeTap { input, effect, .. } => has_ctrl(input) || has_ctrl(effect),
         AstNode::Postfix { object, items, .. } => has_ctrl(object) || items.iter().any(has_ctrl),
         AstNode::BinaryOp { left, right, .. } => has_ctrl(left) || has_ctrl(right),
-        AstNode::ComparisonChain { first, rest } => {
+        AstNode::ComparisonChain { first, rest, .. } => {
             has_ctrl(first) || rest.iter().any(|(_, node)| has_ctrl(node))
         }
         AstNode::CallName { args, .. }
         | AstNode::CallAnonymous { args, .. }
-        | AstNode::Cat(args)
-        | AstNode::List(args) => args.iter().any(has_ctrl),
-        AstNode::Dict(pairs) => pairs.iter().any(|(_, v)| has_ctrl(v)),
+        | AstNode::Cat(args, _)
+        | AstNode::List(args, _) => args.iter().any(has_ctrl),
+        AstNode::Dict(pairs, _) => pairs.iter().any(|(_, v)| has_ctrl(v)),
         AstNode::ConditionalChain { .. } => {
             unreachable!("ConditionalChain should have been resolved before compilation")
         }
@@ -2820,7 +2804,7 @@ fn has_ctrl(node: &AstNode) -> bool {
 fn const_body_value(node: &AstNode) -> Option<Value> {
     match node {
         AstNode::Literal(value, ..) => Some(value.clone()),
-        AstNode::Block(stmts) | AstNode::BlockExpr(stmts, _) => {
+        AstNode::Block(stmts, _) | AstNode::BlockExpr(stmts, _) => {
             stmts.last().and_then(const_body_value)
         }
         AstNode::Group { expr, .. } => const_body_value(expr),
@@ -2835,7 +2819,9 @@ fn pure_const_body(node: &AstNode) -> bool {
 
     match node {
         AstNode::Literal(..) => true,
-        AstNode::Block(stmts) | AstNode::BlockExpr(stmts, _) => stmts.iter().all(pure_const_body),
+        AstNode::Block(stmts, _) | AstNode::BlockExpr(stmts, _) => {
+            stmts.iter().all(pure_const_body)
+        }
         AstNode::Group { expr, .. } => pure_const_body(expr),
         AstNode::UnpackAssignment { .. } => false,
         _ => false,
@@ -2869,24 +2855,27 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
         | AstNode::Literal(..)
         | AstNode::Variable(_, _)
         | AstNode::OuterVariable(_, _)
-        | AstNode::Ellipsis
-        | AstNode::Break
-        | AstNode::Continue => node.clone(),
+        | AstNode::Ellipsis(_)
+        | AstNode::Break(_)
+        | AstNode::Continue(_) => node.clone(),
         AstNode::BinaryOp {
             left,
             operator,
             right,
+            span,
         } => AstNode::BinaryOp {
             left: Box::new(replace_pipe_input(left, temp_name)),
             operator: *operator,
             right: Box::new(replace_pipe_input(right, temp_name)),
+            span: *span,
         },
-        AstNode::ComparisonChain { first, rest } => AstNode::ComparisonChain {
+        AstNode::ComparisonChain { first, rest, span } => AstNode::ComparisonChain {
             first: Box::new(replace_pipe_input(first, temp_name)),
             rest: rest
                 .iter()
                 .map(|(op, node)| (*op, replace_pipe_input(node, temp_name)))
                 .collect(),
+            span: *span,
         },
         AstNode::UnaryOp {
             operator,
@@ -2902,6 +2891,7 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
             end,
             step,
             inclusive,
+            span,
         } => AstNode::Range {
             start: Box::new(replace_pipe_input(start, temp_name)),
             end: Box::new(replace_pipe_input(end, temp_name)),
@@ -2909,6 +2899,7 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
                 .as_ref()
                 .map(|step| Box::new(replace_pipe_input(step, temp_name))),
             inclusive: *inclusive,
+            span: *span,
         },
         AstNode::Assignment {
             name,
@@ -2936,23 +2927,26 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
             span: *span,
             name_span: *name_span,
         },
-        AstNode::Cat(items) => AstNode::Cat(
+        AstNode::Cat(items, span) => AstNode::Cat(
             items
                 .iter()
                 .map(|item| replace_pipe_input(item, temp_name))
                 .collect(),
+            *span,
         ),
-        AstNode::List(items) => AstNode::List(
+        AstNode::List(items, span) => AstNode::List(
             items
                 .iter()
                 .map(|item| replace_pipe_input(item, temp_name))
                 .collect(),
+            *span,
         ),
-        AstNode::Dict(pairs) => AstNode::Dict(
+        AstNode::Dict(pairs, span) => AstNode::Dict(
             pairs
                 .iter()
                 .map(|(k, v)| (k.clone(), replace_pipe_input(v, temp_name)))
                 .collect(),
+            *span,
         ),
 
         AstNode::Postfix {
@@ -3039,10 +3033,12 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
             params,
             ref_capture,
             body,
+            span,
         } => AstNode::Function {
             params: params.clone(),
             ref_capture: *ref_capture,
             body: Box::new(replace_pipe_input(body, temp_name)),
+            span: *span,
         },
         AstNode::Conditional {
             condition,
@@ -3077,9 +3073,10 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
         AstNode::ConditionalDot { .. } => {
             unreachable!("ConditionalDot should have been resolved before compilation")
         }
-        AstNode::Return(expr) => AstNode::Return(
+        AstNode::Return(expr, span) => AstNode::Return(
             expr.as_ref()
                 .map(|expr| Box::new(replace_pipe_input(expr, temp_name))),
+            *span,
         ),
         AstNode::Assert { expr, span } => AstNode::Assert {
             expr: Box::new(replace_pipe_input(expr, temp_name)),
@@ -3095,12 +3092,13 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
                 .map(|expr| Box::new(replace_pipe_input(expr, temp_name))),
             span: *span,
         },
-        AstNode::Try(expr) => AstNode::Try(Box::new(replace_pipe_input(expr, temp_name))),
-        AstNode::Block(stmts) => AstNode::Block(
+        AstNode::Try(expr, span) => AstNode::Try(Box::new(replace_pipe_input(expr, temp_name)), *span),
+        AstNode::Block(stmts, span) => AstNode::Block(
             stmts
                 .iter()
                 .map(|stmt| replace_pipe_input(stmt, temp_name))
                 .collect(),
+            *span,
         ),
         AstNode::BlockExpr(stmts, span) => AstNode::BlockExpr(
             stmts
@@ -3188,10 +3186,10 @@ fn collect_capture_needs(
     match node {
         AstNode::Error(..)
         | AstNode::Literal(..)
-        | AstNode::Ellipsis
+        | AstNode::Ellipsis(_)
         | AstNode::PipeInput
-        | AstNode::Break
-        | AstNode::Continue => {}
+        | AstNode::Break(_)
+        | AstNode::Continue(_) => {}
         AstNode::Variable(name, _) => {
             if !scope_has(locals, name) && defining_name != Some(name.as_str()) {
                 if ref_capture {
@@ -3222,7 +3220,7 @@ fn collect_capture_needs(
             collect_capture_needs(left, locals, needs, ref_capture, defining_name);
             collect_capture_needs(right, locals, needs, ref_capture, defining_name);
         }
-        AstNode::ComparisonChain { first, rest } => {
+        AstNode::ComparisonChain { first, rest, .. } => {
             collect_capture_needs(first, locals, needs, ref_capture, defining_name);
             for (_, node) in rest {
                 collect_capture_needs(node, locals, needs, ref_capture, defining_name);
@@ -3248,6 +3246,7 @@ fn collect_capture_needs(
                     params,
                     ref_capture: child_ref_capture,
                     body,
+                    ..
                 } = &**value
             {
                 locals.insert(name.clone());
@@ -3271,12 +3270,12 @@ fn collect_capture_needs(
             collect_capture_needs(value, locals, needs, ref_capture, defining_name);
             needs.by_ref.insert(name.clone());
         }
-        AstNode::Cat(items) | AstNode::List(items) => {
+        AstNode::Cat(items, _) | AstNode::List(items, _) => {
             for item in items {
                 collect_capture_needs(item, locals, needs, ref_capture, defining_name);
             }
         }
-        AstNode::Dict(pairs) => {
+        AstNode::Dict(pairs, _) => {
             for (_, value) in pairs {
                 collect_capture_needs(value, locals, needs, ref_capture, defining_name);
             }
@@ -3335,6 +3334,7 @@ fn collect_capture_needs(
             params,
             ref_capture: child_ref_capture,
             body,
+            ..
         } => {
             let nested_needs =
                 function_capture_needs(body, params.as_deref(), *child_ref_capture, None);
@@ -3369,7 +3369,7 @@ fn collect_capture_needs(
             locals.insert("_n".to_string());
             collect_capture_needs(body, locals, needs, ref_capture, defining_name);
         }
-        AstNode::Return(expr) => {
+        AstNode::Return(expr, _) => {
             if let Some(expr) = expr {
                 collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
             }
@@ -3385,10 +3385,10 @@ fn collect_capture_needs(
                 collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
             }
         }
-        AstNode::Try(expr) => {
+        AstNode::Try(expr, _) => {
             collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
         }
-        AstNode::Block(stmts) | AstNode::BlockExpr(stmts, _) => {
+        AstNode::Block(stmts, _) | AstNode::BlockExpr(stmts, _) => {
             for stmt in stmts {
                 collect_capture_needs(stmt, locals, needs, ref_capture, defining_name);
             }

@@ -464,7 +464,7 @@ impl SymbolAnalyzer {
             AstNode::BinaryOp { left, right, .. } => {
                 self.analyze_binary_chain(left, right);
             }
-            AstNode::ComparisonChain { first, rest } => {
+            AstNode::ComparisonChain { first, rest, .. } => {
                 self.analyze(first);
                 for (_, n) in rest {
                     self.analyze(n);
@@ -500,6 +500,7 @@ impl SymbolAnalyzer {
                     params,
                     ref_capture,
                     body,
+                    ..
                 } = &**value
                 {
                     // Named function: name is visible in body for recursion.
@@ -585,13 +586,13 @@ impl SymbolAnalyzer {
                 let def_idx = self.resolve_outer(name);
                 self.add_use(name, *name_span, UseKind::OuterWrite, def_idx);
             }
-            AstNode::Ellipsis => {}
-            AstNode::List(items) | AstNode::Cat(items) => {
+            AstNode::Ellipsis(_) => {}
+            AstNode::List(items, _) | AstNode::Cat(items, _) => {
                 for item in items {
                     self.analyze(item);
                 }
             }
-            AstNode::Dict(pairs) => {
+            AstNode::Dict(pairs, _) => {
                 for (_, v) in pairs {
                     self.analyze(v);
                 }
@@ -662,13 +663,13 @@ impl SymbolAnalyzer {
                 params,
                 ref_capture,
                 body,
+                span,
             } => {
                 // Anonymous function: create a synthetic def so inner assignments
                 // can be nested under it in the symbol tree.
-                let lambda_span = body.span();
                 let parent = self.func_stack.last().copied();
                 let lambda_idx =
-                    self.add_def("{...}", lambda_span, None, DefKind::Function, None, parent);
+                    self.add_def("{...}", *span, None, DefKind::Function, None, parent);
                 self.func_stack.push(lambda_idx);
                 self.push_scope();
                 self.ref_capture_stack.push(*ref_capture);
@@ -752,8 +753,8 @@ impl SymbolAnalyzer {
                 self.bind("_n", def_idx);
                 self.analyze(body);
             }
-            AstNode::Break | AstNode::Continue => {}
-            AstNode::Return(expr) => {
+            AstNode::Break(_) | AstNode::Continue(_) => {}
+            AstNode::Return(expr, _) => {
                 if let Some(e) = expr {
                     self.analyze(e);
                 }
@@ -766,10 +767,10 @@ impl SymbolAnalyzer {
                     self.analyze(expr);
                 }
             }
-            AstNode::Try(expr) => {
+            AstNode::Try(expr, _) => {
                 self.analyze(expr);
             }
-            AstNode::Block(stmts) | AstNode::BlockExpr(stmts, ..) => {
+            AstNode::Block(stmts, _) | AstNode::BlockExpr(stmts, ..) => {
                 for stmt in stmts {
                     self.analyze(stmt);
                 }
@@ -817,12 +818,12 @@ impl SymbolAnalyzer {
                     self.analyze(item);
                 }
             }
-            AstNode::List(items) => {
+            AstNode::List(items, _) => {
                 for item in items {
                     self.analyze_unpack_target(item);
                 }
             }
-            AstNode::Ellipsis => {}
+            AstNode::Ellipsis(_) => {}
             _ => self.analyze(node),
         }
     }

@@ -684,7 +684,7 @@ fn has_script_meta(items: &[ScriptItem]) -> bool {
 
 fn push_script_ast(statements: &mut Vec<AstNode>, ast: AstNode) {
     match ast {
-        AstNode::Block(nodes) => statements.extend(nodes),
+        AstNode::Block(nodes, _) => statements.extend(nodes),
         node => statements.push(node),
     }
 }
@@ -693,7 +693,19 @@ fn script_ast_from_statements(mut statements: Vec<AstNode>) -> AstNode {
     if statements.len() == 1 {
         statements.remove(0)
     } else {
-        AstNode::Block(statements)
+        let span = ast_span_for_items(&statements);
+        AstNode::Block(statements, span)
+    }
+}
+
+fn ast_span_for_items(items: &[AstNode]) -> Option<(usize, usize)> {
+    match (
+        items.first().and_then(AstNode::span),
+        items.last().and_then(AstNode::span),
+    ) {
+        (Some((start, _)), Some((_, end))) => Some((start, end)),
+        (Some(span), None) | (None, Some(span)) => Some(span),
+        (None, None) => None,
     }
 }
 

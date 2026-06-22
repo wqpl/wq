@@ -13,9 +13,9 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
         | Literal(..)
         | Variable(_, _)
         | OuterVariable(_, _)
-        | Break
-        | Continue
-        | Ellipsis
+        | Break(..)
+        | Continue(..)
+        | Ellipsis(..)
         | PipeInput => node,
         UnaryOp {
             operator,
@@ -42,19 +42,22 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             left,
             operator,
             right,
-        } => fold_binary_chain(*left, operator, *right),
-        ComparisonChain { first, rest } => ComparisonChain {
+            span,
+        } => fold_binary_chain(*left, operator, *right, span),
+        ComparisonChain { first, rest, span } => ComparisonChain {
             first: Box::new(fold(*first)),
             rest: rest
                 .into_iter()
                 .map(|(op, node)| (op, fold(node)))
                 .collect(),
+            span,
         },
         Range {
             start,
             end,
             step,
             inclusive,
+            span,
         } => {
             let start = Box::new(fold(*start));
             let end = Box::new(fold(*end));
@@ -102,6 +105,7 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
                                         end,
                                         step,
                                         inclusive,
+                                        span,
                                     };
                                 }
                             };
@@ -121,12 +125,13 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
                                         end,
                                         step,
                                         inclusive,
+                                        span,
                                     };
                                 }
                             };
                         }
                     }
-                    return AstNode::Literal(Value::IntList(Arc::new(items)), None);
+                    return AstNode::Literal(Value::IntList(Arc::new(items)), span);
                 }
             }
 
@@ -169,7 +174,7 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
                         items.push(Value::float(cur));
                     }
                 }
-                return AstNode::Literal(Value::List(Arc::new(items)), None);
+                return AstNode::Literal(Value::List(Arc::new(items)), span);
             }
 
             AstNode::Range {
@@ -177,9 +182,10 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
                 end,
                 step,
                 inclusive,
+                span,
             }
         }
-        List(items) => {
+        List(items, span) => {
             let items: Vec<AstNode> = items.into_iter().map(fold).collect();
             if items.iter().all(|n| matches!(n, Literal(..))) {
                 let mut values = Vec::with_capacity(items.len());
@@ -188,16 +194,16 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
                         values.push(v);
                     }
                 }
-                Literal(Value::from_items(values), None)
+                Literal(Value::from_items(values), span)
             } else {
-                List(items)
+                List(items, span)
             }
         }
-        Cat(items) => {
+        Cat(items, span) => {
             let items: Vec<AstNode> = items.into_iter().map(fold).collect();
-            Cat(items)
+            Cat(items, span)
         }
-        Dict(pairs) => {
+        Dict(pairs, span) => {
             let pairs: Vec<(String, AstNode)> =
                 pairs.into_iter().map(|(k, v)| (k, fold(v))).collect();
             // If all values are literals, fold into a literal dict value
@@ -208,9 +214,9 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
                         map.insert(k.into(), val);
                     }
                 }
-                Literal(Value::Dict(Arc::new(map)), None)
+                Literal(Value::Dict(Arc::new(map)), span)
             } else {
-                Dict(pairs)
+                Dict(pairs, span)
             }
         }
 
@@ -368,10 +374,12 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             params,
             ref_capture,
             body,
+            span,
         } => Function {
             params,
             ref_capture,
             body: Box::new(fold(*body)),
+            span,
         },
         Conditional {
             condition,
@@ -458,9 +466,9 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             expr: expr.map(|expr| Box::new(fold(*expr))),
             span,
         },
-        Return(expr) => Return(expr.map(|e| Box::new(fold(*e)))),
-        Try(expr) => Try(Box::new(fold(*expr))),
-        Block(stmts) => Block(stmts.into_iter().map(fold).collect()),
+        Return(expr, span) => Return(expr.map(|e| Box::new(fold(*e))), span),
+        Try(expr, span) => Try(Box::new(fold(*expr)), span),
+        Block(stmts, span) => Block(stmts.into_iter().map(fold).collect(), span),
         BlockExpr(stmts, span) => BlockExpr(stmts.into_iter().map(fold).collect(), span),
         NamedArg { name, value, span } => NamedArg {
             name,
@@ -480,10 +488,11 @@ fn fold_binary_chain(
     left: AstNode,
     operator: crate::astnode::BinaryOperator,
     right: AstNode,
+    span: crate::astnode::AstSpan,
 ) -> AstNode {
     use AstNode::*;
 
-    let mut chain = vec![(operator, right)];
+    let mut chain = vec![(operator, right, span)];
     let mut current = left;
     let mut folded = loop {
         match current {
@@ -491,25 +500,27 @@ fn fold_binary_chain(
                 left,
                 operator,
                 right,
+                span,
             } => {
-                chain.push((operator, *right));
+                chain.push((operator, *right, span));
                 current = *left;
             }
             other => break fold(other),
         }
     };
 
-    for (operator, right) in chain.into_iter().rev() {
+    for (operator, right, span) in chain.into_iter().rev() {
         let folded_right = fold(right);
         if let (Literal(lv, _), Literal(rv, _)) = (&folded, &folded_right)
             && let Ok(res) = eval_binary(&operator, lv, rv)
         {
-            folded = Literal(res, None);
+            folded = Literal(res, span);
         } else {
             folded = BinaryOp {
                 left: Box::new(folded),
                 operator,
                 right: Box::new(folded_right),
+                span,
             };
         }
     }
@@ -528,6 +539,7 @@ mod tests {
             left: Box::new(AstNode::Literal(Value::Int(1), None)),
             operator: BinaryOperator::Add,
             right: Box::new(AstNode::Literal(Value::Int(1), None)),
+            span: None,
         };
         let folded = fold(ast);
         assert_eq!(folded, AstNode::Literal(Value::Int(2), None));
@@ -540,17 +552,18 @@ mod tests {
             AstNode::Literal(Value::Int(2), None),
             AstNode::Literal(Value::Int(3), None),
             AstNode::Literal(Value::Int(4), None),
-        ]);
+        ], None);
         let l2 = AstNode::List(vec![
             AstNode::Literal(Value::Int(3), None),
             AstNode::Literal(Value::Int(4), None),
             AstNode::Literal(Value::Int(5), None),
             AstNode::Literal(Value::Int(6), None),
-        ]);
+        ], None);
         let ast = AstNode::BinaryOp {
             left: Box::new(l1),
             operator: BinaryOperator::Add,
             right: Box::new(l2),
+            span: None,
         };
         let folded = fold(ast);
         assert_eq!(
@@ -566,6 +579,7 @@ mod tests {
             end: Box::new(AstNode::Literal(Value::Int(5), None)),
             step: None,
             inclusive: false,
+            span: None,
         };
         let folded = fold(ast);
         assert_eq!(
@@ -581,6 +595,7 @@ mod tests {
             end: Box::new(AstNode::Literal(Value::Int(5), None)),
             step: Some(Box::new(AstNode::Literal(Value::Int(2), None))),
             inclusive: true,
+            span: None,
         };
         let folded = fold(ast);
         assert_eq!(

@@ -44,11 +44,13 @@ pub enum AstNode {
         left: Box<AstNode>,
         operator: BinaryOperator,
         right: Box<AstNode>,
+        span: AstSpan,
     },
     /// Chain of comparison operators like `a < b <= c`
     ComparisonChain {
         first: Box<AstNode>,
         rest: Vec<(BinaryOperator, AstNode)>,
+        span: AstSpan,
     },
     UnaryOp {
         operator: UnaryOperator,
@@ -64,6 +66,7 @@ pub enum AstNode {
         end: Box<AstNode>,
         step: Option<Box<AstNode>>,
         inclusive: bool,
+        span: AstSpan,
     },
     Assignment {
         name: String,
@@ -87,13 +90,13 @@ pub enum AstNode {
         span: AstSpan,
     },
     /// Ellipsis (for unpack patterns)
-    Ellipsis,
+    Ellipsis(AstSpan),
     /// List construction
-    List(Vec<AstNode>),
+    List(Vec<AstNode>, AstSpan),
     /// N-ary concatenation (comma-separated items)
-    Cat(Vec<AstNode>),
+    Cat(Vec<AstNode>, AstSpan),
     /// Dictionary construction
-    Dict(Vec<(String, AstNode)>),
+    Dict(Vec<(String, AstNode)>, AstSpan),
     /// Generic postfix expression
     Postfix {
         object: Box<AstNode>,
@@ -168,6 +171,7 @@ pub enum AstNode {
         params: Option<Vec<Parameter>>, // None for implicit params (x, y, z)
         ref_capture: bool,
         body: Box<AstNode>,
+        span: AstSpan,
     },
     /// Conditional expression
     Conditional {
@@ -198,9 +202,9 @@ pub enum AstNode {
         body: Box<AstNode>,
         span: AstSpan,
     },
-    Break,
-    Continue,
-    Return(Option<Box<AstNode>>),
+    Break(AstSpan),
+    Continue(AstSpan),
+    Return(Option<Box<AstNode>>, AstSpan),
     Assert {
         expr: Box<AstNode>,
         span: AstSpan,
@@ -213,9 +217,9 @@ pub enum AstNode {
         expr: Option<Box<AstNode>>,
         span: AstSpan,
     },
-    Try(Box<AstNode>),
+    Try(Box<AstNode>, AstSpan),
     /// Sequence of statements
-    Block(Vec<AstNode>),
+    Block(Vec<AstNode>, AstSpan),
     /// Block expression from B[...]
     BlockExpr(Vec<AstNode>, AstSpan),
     /// F-string literal (@f"...{expr}...")
@@ -456,13 +460,13 @@ fn node_color(node: &AstNode) -> Color {
         | ConditionalChain { .. }
         | WLoop { .. }
         | NLoop { .. }
-        | Break
-        | Continue
+        | Break(..)
+        | Continue(..)
         | Return(..)
         | Try(..) => Color::Green,
         Cat(..) | List(..) | Dict(..) | Block(..) | BlockExpr(..) => Color::White,
         Index { .. } | MutatingIndex { .. } => Color::BrightBlue,
-        Assert { .. } | Debug { .. } | Pause { .. } | PipeInput | Ellipsis => Color::BrightRed,
+        Assert { .. } | Debug { .. } | Pause { .. } | PipeInput | Ellipsis(..) => Color::BrightRed,
         UnpackAssignment { .. } => Color::Red,
         NamedArg { .. } => Color::BrightBlue,
         Error(..) => Color::BrightMagenta,
@@ -562,115 +566,40 @@ fn pretty_group(depth: usize, head: String, children: Vec<Pretty>, color: Color)
 impl AstNode {
     pub(crate) fn span(&self) -> AstSpan {
         use AstNode::*;
-        fn merge(a: AstSpan, b: AstSpan) -> AstSpan {
-            match (a, b) {
-                (Some((s1, e1)), Some((s2, e2))) => Some((s1.min(s2), e1.max(e2))),
-                (a, None) => a,
-                (None, b) => b,
-            }
-        }
         match self {
             Error(_, s) | Literal(_, s) | Variable(_, s) | OuterVariable(_, s) => *s,
-            Assignment { span, .. }
+            BinaryOp { span, .. }
+            | ComparisonChain { span, .. }
+            | Range { span, .. }
+            | Assignment { span, .. }
             | OuterAssignment { span, .. }
+            | UnpackAssignment { span, .. }
             | Postfix { span, .. }
             | Pipe { span, .. }
             | PipeTap { span, .. }
             | CallName { span, .. }
             | CallAnonymous { span, .. }
+            | Index { span, .. }
             | IndexAssign { span, .. }
             | MutatingIndex { span, .. }
             | MutatingIndexAssign { span, .. }
+            | Function { span, .. }
+            | Conditional { span, .. }
+            | ConditionalDot { span, .. }
+            | ConditionalChain { span, .. }
+            | WLoop { span, .. }
+            | NLoop { span, .. }
             | Assert { span, .. }
             | Debug { span, .. }
             | Pause { span, .. }
             | NamedArg { span, .. }
-            | FString { span, .. } => *span,
-            BinaryOp { left, right, .. } => {
-                let mut span = right.span();
-                let mut current = left.as_ref();
-                while let BinaryOp {
-                    left: next_left,
-                    right: next_right,
-                    ..
-                } = current
-                {
-                    span = merge(next_right.span(), span);
-                    current = next_left;
-                }
-                merge(current.span(), span)
-            }
-            ComparisonChain { first, rest } => {
-                let mut s = first.span();
-                for (_, n) in rest {
-                    s = merge(s, n.span());
-                }
-                s
-            }
-            UnaryOp { span, .. } | Group { span, .. } => *span,
-            Range {
-                start, end, step, ..
-            } => {
-                let mut s = merge(start.span(), end.span());
-                if let Some(step) = step {
-                    s = merge(s, step.span());
-                }
-                s
-            }
-            Cat(items) | List(items) | Block(items) => {
-                if items.is_empty() {
-                    None
-                } else {
-                    merge(
-                        items.first().and_then(|n| n.span()),
-                        items.last().and_then(|n| n.span()),
-                    )
-                }
-            }
+            | FString { span, .. }
+            | UnaryOp { span, .. }
+            | Group { span, .. } => *span,
+            Cat(_, span) | List(_, span) | Dict(_, span) | Block(_, span) => *span,
             BlockExpr(_, span) => *span,
-            Dict(kvs) => {
-                if kvs.is_empty() {
-                    None
-                } else {
-                    merge(
-                        kvs.first().and_then(|(_, v)| v.span()),
-                        kvs.last().and_then(|(_, v)| v.span()),
-                    )
-                }
-            }
-
-            Index { span, .. } => *span,
-            Function { params, body, .. } => {
-                let mut s = body.span();
-                if let Some(ps) = params {
-                    for p in ps {
-                        s = merge(s, p.span());
-                    }
-                }
-                s
-            }
-            Conditional { span, .. } | ConditionalDot { span, .. } => *span,
-            ConditionalChain { span, .. } => *span,
-            WLoop { span, .. } => *span,
-            NLoop { span, .. } => *span,
-            Return(opt) => opt.as_ref().and_then(|v| v.span()),
-            Try(expr) => expr.span(),
-            UnpackAssignment { span, lhs, rhs, .. } => {
-                // Prefer the parser-stored span (covers `(`...rhs.end). Fall
-                // back to merging children for legacy callers that built
-                // `UnpackAssignment` by hand without filling `span`.
-                if span.is_some() {
-                    *span
-                } else {
-                    let mut s = merge(
-                        lhs.first().and_then(|n| n.span()),
-                        lhs.last().and_then(|n| n.span()),
-                    );
-                    s = merge(s, rhs.span());
-                    s
-                }
-            }
-            Ellipsis | PipeInput | Break | Continue => None,
+            Return(_, span) | Try(_, span) | Ellipsis(span) | Break(span) | Continue(span) => *span,
+            PipeInput => None,
         }
     }
 
@@ -717,13 +646,14 @@ impl AstNode {
                 left,
                 operator,
                 right,
+                ..
             } => {
                 let head = format!("BOP[{}]{note}", binary_op_display(operator));
                 let l = left.pretty_with_depth(depth + 1, src);
                 let r = right.pretty_with_depth(depth + 1, src);
                 pretty_group(depth, head, vec![l, r], color)
             }
-            ComparisonChain { first, rest } => {
+            ComparisonChain { first, rest, .. } => {
                 let mut children = vec![first.pretty_with_depth(depth + 1, src)];
                 for (op, node) in rest {
                     children.push(pretty_leaf(binary_op_display(op), "", Color::White));
@@ -737,6 +667,7 @@ impl AstNode {
                 end,
                 step,
                 inclusive,
+                ..
             } => {
                 let mut children = vec![
                     start.pretty_with_depth(depth + 1, src),
@@ -772,8 +703,8 @@ impl AstNode {
                 let val_p = value.pretty_with_depth(depth + 1, src);
                 pretty_group(depth, head, vec![name_p, val_p], color)
             }
-            Ellipsis => pretty_leaf("...", &note, color),
-            List(items) => {
+            Ellipsis(_) => pretty_leaf("...", &note, color),
+            List(items, _) => {
                 let children: Vec<Pretty> = items
                     .iter()
                     .map(|i| i.pretty_with_depth(depth + 1, src))
@@ -781,7 +712,7 @@ impl AstNode {
                 let head = format!("LIST{note}");
                 pretty_group(depth, head, children, color)
             }
-            Cat(items) => {
+            Cat(items, _) => {
                 let children: Vec<Pretty> = items
                     .iter()
                     .map(|i| i.pretty_with_depth(depth + 1, src))
@@ -789,7 +720,7 @@ impl AstNode {
                 let head = format!("CAT{note}");
                 pretty_group(depth, head, children, color)
             }
-            Dict(kvs) => {
+            Dict(kvs, _) => {
                 let mut children = Vec::with_capacity(kvs.len());
                 for (k, v) in kvs {
                     let v_p = v.pretty_with_depth(depth + 2, src);
@@ -928,6 +859,7 @@ impl AstNode {
                 params,
                 ref_capture,
                 body,
+                ..
             } => {
                 let params_p = match params {
                     Some(ps) if !ps.is_empty() => {
@@ -1033,9 +965,9 @@ impl AstNode {
                 ];
                 pretty_group(depth, head, children, color)
             }
-            Break => pretty_leaf("@b", &note, color),
-            Continue => pretty_leaf("@c", &note, color),
-            Return(opt) => {
+            Break(_) => pretty_leaf("@b", &note, color),
+            Continue(_) => pretty_leaf("@c", &note, color),
+            Return(opt, _) => {
                 let mut children = Vec::new();
                 if let Some(v) = opt {
                     children.push(v.pretty_with_depth(depth + 1, src));
@@ -1061,12 +993,12 @@ impl AstNode {
                 let head = format!("@p{note}");
                 pretty_group(depth, head, children, color)
             }
-            Try(expr) => {
+            Try(expr, _) => {
                 let head = format!("@t{note}");
                 let child = expr.pretty_with_depth(depth + 1, src);
                 pretty_group(depth, head, vec![child], color)
             }
-            Block(stmts) => {
+            Block(stmts, _) => {
                 let children: Vec<Pretty> = stmts
                     .iter()
                     .map(|s| s.pretty_with_depth(depth + 1, src))
@@ -1159,6 +1091,7 @@ mod tests {
             left: Box::new(AstNode::Literal(Value::Int(1), Some((0, 1)))),
             operator: BinaryOperator::Add,
             right: Box::new(AstNode::Literal(Value::Int(2), Some((2, 3)))),
+            span: Some((0, 3)),
         };
 
         let pretty = ast.sexpr_pretty_with_source("1+2");

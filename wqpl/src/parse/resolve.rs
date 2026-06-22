@@ -90,6 +90,7 @@ impl Resolver {
                     params,
                     ref_capture,
                     body,
+                    span: function_span,
                 } = *value
                 {
                     self.bind_current_scope(name.clone(), binding.clone());
@@ -99,6 +100,7 @@ impl Resolver {
                         params,
                         ref_capture,
                         *body,
+                        function_span,
                         Some((name.clone(), binding.clone())),
                     );
 
@@ -106,6 +108,7 @@ impl Resolver {
                         params,
                         ref_capture,
                         body,
+                        ..
                     } = &value
                     {
                         captured_by_ref = Some(function_ref_capture_names(
@@ -197,7 +200,7 @@ impl Resolver {
                     let idx = if items.len() == 1 {
                         Box::new(items.into_iter().next().unwrap())
                     } else {
-                        Box::new(AstNode::List(items))
+                        Box::new(AstNode::List(items, None))
                     };
                     return AstNode::Index {
                         object,
@@ -256,24 +259,28 @@ impl Resolver {
                 left,
                 operator,
                 right,
-            } => self.resolve_binary_chain(*left, operator, *right),
-            AstNode::ComparisonChain { first, rest } => AstNode::ComparisonChain {
+                span,
+            } => self.resolve_binary_chain(*left, operator, *right, span),
+            AstNode::ComparisonChain { first, rest, span } => AstNode::ComparisonChain {
                 first: Box::new(self.resolve_node(*first)),
                 rest: rest
                     .into_iter()
                     .map(|(op, node)| (op, self.resolve_node(node)))
                     .collect(),
+                span,
             },
             AstNode::Range {
                 start,
                 end,
                 step,
                 inclusive,
+                span,
             } => AstNode::Range {
                 start: Box::new(self.resolve_node(*start)),
                 end: Box::new(self.resolve_node(*end)),
                 step: step.map(|s| Box::new(self.resolve_node(*s))),
                 inclusive,
+                span,
             },
             AstNode::UnaryOp {
                 operator,
@@ -288,17 +295,18 @@ impl Resolver {
                 expr: Box::new(self.resolve_node(*expr)),
                 span,
             },
-            AstNode::Cat(items) => {
-                AstNode::Cat(items.into_iter().map(|n| self.resolve_node(n)).collect())
+            AstNode::Cat(items, span) => {
+                AstNode::Cat(items.into_iter().map(|n| self.resolve_node(n)).collect(), span)
             }
-            AstNode::List(items) => {
-                AstNode::List(items.into_iter().map(|n| self.resolve_node(n)).collect())
+            AstNode::List(items, span) => {
+                AstNode::List(items.into_iter().map(|n| self.resolve_node(n)).collect(), span)
             }
-            AstNode::Dict(pairs) => AstNode::Dict(
+            AstNode::Dict(pairs, span) => AstNode::Dict(
                 pairs
                     .into_iter()
                     .map(|(k, v)| (k, self.resolve_node(v)))
                     .collect(),
+                span,
             ),
             AstNode::CallName {
                 name,
@@ -393,7 +401,8 @@ impl Resolver {
                 params,
                 ref_capture,
                 body,
-            } => self.resolve_function(params, ref_capture, *body, None),
+                span,
+            } => self.resolve_function(params, ref_capture, *body, span, None),
             AstNode::ConditionalDot {
                 condition,
                 true_branch,
@@ -488,11 +497,13 @@ impl Resolver {
                 expr: expr.map(|expr| Box::new(self.resolve_node(*expr))),
                 span,
             },
-            AstNode::Return(expr) => AstNode::Return(expr.map(|e| Box::new(self.resolve_node(*e)))),
+            AstNode::Return(expr, span) => {
+                AstNode::Return(expr.map(|e| Box::new(self.resolve_node(*e))), span)
+            }
             // AstNode::Assert(e) => AstNode::Assert(Box::new(self.resolve_node(*e))),
-            AstNode::Try(e) => AstNode::Try(Box::new(self.resolve_node(*e))),
-            AstNode::Block(stmts) => {
-                AstNode::Block(stmts.into_iter().map(|s| self.resolve_node(s)).collect())
+            AstNode::Try(e, span) => AstNode::Try(Box::new(self.resolve_node(*e)), span),
+            AstNode::Block(stmts, span) => {
+                AstNode::Block(stmts.into_iter().map(|s| self.resolve_node(s)).collect(), span)
             }
             AstNode::BlockExpr(stmts, span) => AstNode::BlockExpr(
                 stmts.into_iter().map(|s| self.resolve_node(s)).collect(),
@@ -558,8 +569,9 @@ impl Resolver {
         left: AstNode,
         operator: BinaryOperator,
         right: AstNode,
+        span: AstSpan,
     ) -> AstNode {
-        let mut chain = vec![(operator, right)];
+        let mut chain = vec![(operator, right, span)];
         let mut current = left;
         let mut resolved = loop {
             match current {
@@ -567,19 +579,21 @@ impl Resolver {
                     left,
                     operator,
                     right,
+                    span,
                 } => {
-                    chain.push((operator, *right));
+                    chain.push((operator, *right, span));
                     current = *left;
                 }
                 other => break self.resolve_node(other),
             }
         };
 
-        for (operator, right) in chain.into_iter().rev() {
+        for (operator, right, span) in chain.into_iter().rev() {
             resolved = AstNode::BinaryOp {
                 left: Box::new(resolved),
                 operator,
                 right: Box::new(self.resolve_node(right)),
+                span,
             };
         }
         resolved
@@ -596,15 +610,15 @@ impl Resolver {
         // expand directly without creating a temporary.
         if op.is_none() {
             let values_opt = match &rhs {
-                AstNode::List(items) => Some(items.clone()),
-                AstNode::Dict(pairs) => Some(pairs.iter().map(|(_, v)| v.clone()).collect()),
+                AstNode::List(items, _) => Some(items.clone()),
+                AstNode::Dict(pairs, _) => Some(pairs.iter().map(|(_, v)| v.clone()).collect()),
                 _ => None,
             };
 
             if let Some(values) = values_opt
                 && let Some(stmts) = self.try_lower_literal_unpack(&lhs, values, span)
             {
-                return AstNode::Block(stmts);
+                return AstNode::Block(stmts, span);
             }
         }
 
@@ -617,9 +631,9 @@ impl Resolver {
             span,
             name_span: span,
         }];
-        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis));
+        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis(_)));
         for (pos, item) in lhs.iter().enumerate() {
-            if matches!(item, AstNode::Ellipsis) {
+            if matches!(item, AstNode::Ellipsis(_)) {
                 break;
             }
             stmts.extend(self.make_unpack_assign(item, &tmp_name, pos as i64, span, op));
@@ -630,7 +644,7 @@ impl Resolver {
                 stmts.extend(self.make_unpack_assign(item, &tmp_name, pos, span, op));
             }
         }
-        AstNode::Block(stmts)
+        AstNode::Block(stmts, span)
     }
 
     /// Try to lower an unpack assignment when RHS is a literal list/dict.
@@ -644,7 +658,7 @@ impl Resolver {
         span: AstSpan,
     ) -> Option<Vec<AstNode>> {
         let bound_names = collect_bound_names(lhs);
-        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis));
+        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis(_)));
 
         // Length check
         match ellipsis_idx {
@@ -688,11 +702,11 @@ impl Resolver {
         stmts: &mut Vec<AstNode>,
         bound_names: &[(usize, String)],
     ) -> Option<()> {
-        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis));
+        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis(_)));
 
         // Prefix items
         for (i, item) in lhs.iter().enumerate() {
-            if matches!(item, AstNode::Ellipsis) {
+            if matches!(item, AstNode::Ellipsis(_)) {
                 break;
             }
             let value = values.get(i)?.clone();
@@ -754,7 +768,7 @@ impl Resolver {
                 let index = if items.len() == 1 {
                     Box::new(items[0].clone())
                 } else {
-                    Box::new(AstNode::List(items.clone()))
+                    Box::new(AstNode::List(items.clone(), None))
                 };
                 stmts.push(AstNode::IndexAssign {
                     object: object.clone(),
@@ -764,12 +778,12 @@ impl Resolver {
                     span,
                 });
             }
-            AstNode::Ellipsis => {}
-            AstNode::List(inner_items) => {
+            AstNode::Ellipsis(_) => {}
+            AstNode::List(inner_items, _) => {
                 // Try recursive optimization if value is also a literal list/dict
                 let sub_values_opt = match &value {
-                    AstNode::List(inner) => Some(inner.clone()),
-                    AstNode::Dict(pairs) => Some(pairs.iter().map(|(_, v)| v.clone()).collect()),
+                    AstNode::List(inner, _) => Some(inner.clone()),
+                    AstNode::Dict(pairs, _) => Some(pairs.iter().map(|(_, v)| v.clone()).collect()),
                     _ => None,
                 };
 
@@ -803,9 +817,9 @@ impl Resolver {
                 });
                 let ellipsis_idx = inner_items
                     .iter()
-                    .position(|n| matches!(n, AstNode::Ellipsis));
+                    .position(|n| matches!(n, AstNode::Ellipsis(_)));
                 for (pos, item) in inner_items.iter().enumerate() {
-                    if matches!(item, AstNode::Ellipsis) {
+                    if matches!(item, AstNode::Ellipsis(_)) {
                         break;
                     }
                     stmts.extend(self.make_unpack_assign(item, &sub_tmp, pos as i64, span, None));
@@ -839,7 +853,7 @@ impl Resolver {
         prior_forbidden: &HashSet<&str>,
     ) -> Option<Vec<AstNode>> {
         let bound_names = collect_bound_names(lhs);
-        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis));
+        let ellipsis_idx = lhs.iter().position(|n| matches!(n, AstNode::Ellipsis(_)));
 
         match ellipsis_idx {
             None => {
@@ -916,7 +930,7 @@ impl Resolver {
                 let index = if items.len() == 1 {
                     Box::new(items[0].clone())
                 } else {
-                    Box::new(AstNode::List(items.clone()))
+                    Box::new(AstNode::List(items.clone(), None))
                 };
                 vec![AstNode::IndexAssign {
                     object: object.clone(),
@@ -926,8 +940,8 @@ impl Resolver {
                     span,
                 }]
             }
-            AstNode::Ellipsis => vec![],
-            AstNode::List(inner_items) => {
+            AstNode::Ellipsis(_) => vec![],
+            AstNode::List(inner_items, _) => {
                 let sub_tmp = format!("--resolver-unpack-{}", self.gensym);
                 self.gensym += 1;
                 let mut stmts = vec![AstNode::Assignment {
@@ -939,9 +953,9 @@ impl Resolver {
                 }];
                 let ellipsis_idx = inner_items
                     .iter()
-                    .position(|n| matches!(n, AstNode::Ellipsis));
+                    .position(|n| matches!(n, AstNode::Ellipsis(_)));
                 for (pos, item) in inner_items.iter().enumerate() {
-                    if matches!(item, AstNode::Ellipsis) {
+                    if matches!(item, AstNode::Ellipsis(_)) {
                         break;
                     }
                     stmts.extend(self.make_unpack_assign(item, &sub_tmp, pos as i64, span, None));
@@ -968,7 +982,7 @@ impl Resolver {
             return false;
         }
         match object {
-            AstNode::List(_) | AstNode::Dict(_) => true,
+            AstNode::List(..) | AstNode::Dict(..) => true,
             AstNode::Variable(name, span) => {
                 self.lookup_fact(name, *span, false) == BindingFact::Indexable
             }
@@ -1033,6 +1047,7 @@ impl Resolver {
         params: Option<Vec<Parameter>>,
         ref_capture: bool,
         body: AstNode,
+        span: AstSpan,
         recursive_binding: Option<(String, BindingId)>,
     ) -> AstNode {
         self.scopes.push(HashMap::new());
@@ -1077,6 +1092,7 @@ impl Resolver {
             params,
             ref_capture,
             body,
+            span,
         }
     }
 
@@ -1237,7 +1253,7 @@ impl Resolver {
     fn fact_from_ast(&self, node: &AstNode) -> BindingFact {
         match node {
             AstNode::Function { .. } => BindingFact::Callable,
-            AstNode::Cat(_) | AstNode::List(_) | AstNode::Dict(_) => BindingFact::Indexable,
+            AstNode::Cat(..) | AstNode::List(..) | AstNode::Dict(..) => BindingFact::Indexable,
             AstNode::Literal(value, _) => Self::fact_from_value(value),
             AstNode::Group { expr, .. } => self.fact_from_ast(expr),
             AstNode::Variable(name, span) => self.lookup_fact(name, *span, false),
@@ -1295,11 +1311,13 @@ impl Resolver {
                 params,
                 ref_capture,
                 body,
+                span: function_span,
             } => AstNode::CallAnonymous {
                 object: Box::new(AstNode::Function {
                     params,
                     ref_capture,
                     body,
+                    span: function_span,
                 }),
                 args: vec![input],
                 span,
@@ -1444,12 +1462,12 @@ impl Resolver {
                 span,
             ),
             AstNode::Pause { .. }
-            | AstNode::Break
-            | AstNode::Continue
-            | AstNode::Return(_)
+            | AstNode::Break(_)
+            | AstNode::Continue(_)
+            | AstNode::Return(..)
             | AstNode::Assert { .. }
             | AstNode::Debug { .. }
-            | AstNode::Try(_) => Self::pipe_effect_rhs(right, input, span),
+            | AstNode::Try(..) => Self::pipe_effect_rhs(right, input, span),
             _ => AstNode::Postfix {
                 object: Box::new(right),
                 items: vec![input],
@@ -1462,7 +1480,7 @@ impl Resolver {
 
     fn pipe_effect_rhs(effect: AstNode, input: AstNode, span: AstSpan) -> AstNode {
         match effect {
-            AstNode::Return(None) => AstNode::Return(Some(Box::new(input))),
+            AstNode::Return(None, return_span) => AstNode::Return(Some(Box::new(input)), return_span),
             effect => AstNode::PipeTap {
                 input: Box::new(input),
                 effect: Box::new(effect),
@@ -1488,7 +1506,7 @@ fn collect_bound_names(items: &[AstNode]) -> Vec<(usize, String)> {
             AstNode::Variable(name, _) if name != "_" => {
                 names.push((i, name.clone()));
             }
-            AstNode::List(inner) => {
+            AstNode::List(inner, _) => {
                 for (_, inner_name) in collect_bound_names(inner) {
                     names.push((i, inner_name));
                 }
@@ -1509,7 +1527,7 @@ fn expr_uses_vars(node: &AstNode, vars: &HashSet<&str>) -> bool {
         AstNode::BinaryOp { left, right, .. } => {
             expr_uses_vars(left, vars) || expr_uses_vars(right, vars)
         }
-        AstNode::ComparisonChain { first, rest } => {
+        AstNode::ComparisonChain { first, rest, .. } => {
             expr_uses_vars(first, vars) || rest.iter().any(|(_, n)| expr_uses_vars(n, vars))
         }
         AstNode::UnaryOp { operand, .. } => expr_uses_vars(operand, vars),
@@ -1524,10 +1542,10 @@ fn expr_uses_vars(node: &AstNode, vars: &HashSet<&str>) -> bool {
         AstNode::Assignment { value, .. } | AstNode::OuterAssignment { value, .. } => {
             expr_uses_vars(value, vars)
         }
-        AstNode::Cat(items) | AstNode::List(items) => {
+        AstNode::Cat(items, _) | AstNode::List(items, _) => {
             items.iter().any(|item| expr_uses_vars(item, vars))
         }
-        AstNode::Dict(pairs) => pairs.iter().any(|(_, v)| expr_uses_vars(v, vars)),
+        AstNode::Dict(pairs, _) => pairs.iter().any(|(_, v)| expr_uses_vars(v, vars)),
         AstNode::Postfix { object, items, .. } => {
             expr_uses_vars(object, vars) || items.iter().any(|item| expr_uses_vars(item, vars))
         }
@@ -1588,11 +1606,11 @@ fn expr_uses_vars(node: &AstNode, vars: &HashSet<&str>) -> bool {
         AstNode::NLoop { count, body, .. } => {
             expr_uses_vars(count, vars) || expr_uses_vars(body, vars)
         }
-        AstNode::Return(expr) => expr.as_ref().is_some_and(|e| expr_uses_vars(e, vars)),
+        AstNode::Return(expr, _) => expr.as_ref().is_some_and(|e| expr_uses_vars(e, vars)),
         AstNode::Assert { expr, .. } | AstNode::Debug { expr, .. } => expr_uses_vars(expr, vars),
         AstNode::Pause { expr, .. } => expr.as_ref().is_some_and(|expr| expr_uses_vars(expr, vars)),
-        AstNode::Try(expr) => expr_uses_vars(expr, vars),
-        AstNode::Block(items) | AstNode::BlockExpr(items, ..) => {
+        AstNode::Try(expr, _) => expr_uses_vars(expr, vars),
+        AstNode::Block(items, _) | AstNode::BlockExpr(items, ..) => {
             items.iter().any(|item| expr_uses_vars(item, vars))
         }
         AstNode::FString { parts, .. } => parts.iter().any(|p| match p {
@@ -1633,7 +1651,7 @@ mod tests {
 
     fn stmt(ast: &AstNode, idx: usize) -> &AstNode {
         match ast {
-            AstNode::Block(stmts) => &stmts[idx],
+            AstNode::Block(stmts, _) => &stmts[idx],
             other => panic!("expected block, got {other:?}"),
         }
     }
@@ -1680,7 +1698,7 @@ mod tests {
             AstNode::BinaryOp { left, right, .. } => {
                 contains_call_name(left, target) || contains_call_name(right, target)
             }
-            AstNode::ComparisonChain { first, rest } => {
+            AstNode::ComparisonChain { first, rest, .. } => {
                 contains_call_name(first, target)
                     || rest
                         .iter()
@@ -1688,7 +1706,7 @@ mod tests {
             }
             AstNode::UnaryOp { operand, .. }
             | AstNode::Group { expr: operand, .. }
-            | AstNode::Try(operand) => contains_call_name(operand, target),
+            | AstNode::Try(operand, _) => contains_call_name(operand, target),
             AstNode::Range {
                 start, end, step, ..
             } => {
@@ -1698,13 +1716,13 @@ mod tests {
                         .as_ref()
                         .is_some_and(|step| contains_call_name(step, target))
             }
-            AstNode::Cat(items) | AstNode::List(items) | AstNode::Block(items) => {
+            AstNode::Cat(items, _) | AstNode::List(items, _) | AstNode::Block(items, _) => {
                 items.iter().any(|item| contains_call_name(item, target))
             }
             AstNode::BlockExpr(items, _) => {
                 items.iter().any(|item| contains_call_name(item, target))
             }
-            AstNode::Dict(pairs) => pairs
+            AstNode::Dict(pairs, _) => pairs
                 .iter()
                 .any(|(_, value)| contains_call_name(value, target)),
             AstNode::Function { body, .. }
@@ -1739,7 +1757,7 @@ mod tests {
             AstNode::Pipe { input, effect, .. } | AstNode::PipeTap { input, effect, .. } => {
                 contains_call_name(input, target) || contains_call_name(effect, target)
             }
-            AstNode::Return(expr) => expr
+            AstNode::Return(expr, _) => expr
                 .as_ref()
                 .is_some_and(|expr| contains_call_name(expr, target)),
             AstNode::FString { parts, .. } => parts.iter().any(|part| match part {
@@ -1762,9 +1780,9 @@ mod tests {
             | AstNode::Variable(..)
             | AstNode::OuterVariable(..)
             | AstNode::PipeInput
-            | AstNode::Break
-            | AstNode::Continue
-            | AstNode::Ellipsis
+            | AstNode::Break(_)
+            | AstNode::Continue(_)
+            | AstNode::Ellipsis(_)
             | AstNode::Error(..) => false,
         }
     }

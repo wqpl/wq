@@ -526,6 +526,26 @@ impl Parser {
         let _ = self.cst_close_with_span(pending, kind);
     }
 
+    fn span_from_byte_start(&self, byte_start: usize) -> AstSpan {
+        Some((byte_start, self.last_consumed_byte_end()))
+    }
+
+    fn merge_spans(a: AstSpan, b: AstSpan) -> AstSpan {
+        match (a, b) {
+            (Some((a_start, a_end)), Some((b_start, b_end))) => {
+                Some((a_start.min(b_start), a_end.max(b_end)))
+            }
+            (Some(span), None) | (None, Some(span)) => Some(span),
+            (None, None) => None,
+        }
+    }
+
+    fn span_for_items(items: &[AstNode]) -> AstSpan {
+        let start = items.first().and_then(AstNode::span);
+        let end = items.last().and_then(AstNode::span);
+        Self::merge_spans(start, end)
+    }
+
     fn is_reuse_sequence_context(kind: SyntaxKind) -> bool {
         matches!(
             kind,
@@ -849,6 +869,39 @@ impl Parser {
         }
     }
 
+    fn eat_rhs_trivia(&mut self, op_tok: &Token, ctx: &str) -> WqResult<()> {
+        loop {
+            match self.current_token().map(|t| &t.token_type) {
+                Some(TokenType::Newline) => {
+                    let Some(next) = self.next_rhs_continuation_token() else {
+                        return Err(self.missing_rhs(op_tok, ctx));
+                    };
+                    if matches!(next.token_type, TokenType::Eof) || next.column <= 1 {
+                        return Err(self.missing_rhs(op_tok, ctx));
+                    }
+                    self.advance();
+                }
+                Some(TokenType::Comment(_)) => {
+                    self.advance();
+                }
+                _ => break,
+            }
+        }
+        self.ensure_rhs(op_tok, ctx)
+    }
+
+    fn next_rhs_continuation_token(&self) -> Option<&Token> {
+        let mut offset = 1;
+        while let Some(tok) = self.tokens.get(self.current + offset) {
+            if matches!(tok.token_type, TokenType::Comment(_) | TokenType::Newline) {
+                offset += 1;
+                continue;
+            }
+            return Some(tok);
+        }
+        None
+    }
+
     fn assignment_op_from_token_type(tt: &TokenType) -> Option<Option<BinaryOperator>> {
         match tt {
             TokenType::Colon => Some(None),
@@ -1015,7 +1068,8 @@ impl Parser {
         if statements.len() == 1 {
             Ok(statements.remove(0))
         } else {
-            Ok(AstNode::Block(statements))
+            let span = Self::span_for_items(&statements);
+            Ok(AstNode::Block(statements, span))
         }
     }
 
@@ -1120,7 +1174,8 @@ impl Parser {
         let block = if statements.len() == 1 {
             statements.remove(0)
         } else {
-            AstNode::Block(statements)
+            let span = Self::span_for_items(&statements);
+            AstNode::Block(statements, span)
         };
         Ok((block, spans))
     }
@@ -1173,7 +1228,7 @@ impl Parser {
                     explicit_call: false,
                     ..
                 } => {}
-                AstNode::Ellipsis => {
+                AstNode::Ellipsis(_) => {
                     if saw_ellipsis {
                         return Err(
                             self.syntax_err(colon_tok, "invalid unpack assignment: multiple '...'")
@@ -1181,7 +1236,7 @@ impl Parser {
                     }
                     saw_ellipsis = true;
                 }
-                AstNode::List(inner) => {
+                AstNode::List(inner, _) => {
                     self.validate_unpack_targets(inner, colon_tok)?;
                 }
                 other => {
@@ -1210,7 +1265,7 @@ impl Parser {
 
             match expr {
                 // Unpack assignment: (x;y):rhs
-                AstNode::List(items) => {
+                AstNode::List(items, _) => {
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
@@ -1302,7 +1357,7 @@ impl Parser {
                     let index = if items.len() == 1 {
                         Box::new(items.into_iter().next().expect("len == 1"))
                     } else {
-                        Box::new(AstNode::List(items))
+                        Box::new(AstNode::List(items, None))
                     };
                     expr = AstNode::IndexAssign {
                         object,
@@ -1364,14 +1419,13 @@ impl Parser {
             // and then the operator itself.
             self.eat_trivia(true, true);
             self.advance();
-            self.eat_trivia(true, true);
             let op_name = match kind {
                 PipeKind::Pipe => "'|'",
                 PipeKind::PipeDot => "'|.'",
                 PipeKind::PipePipe => "'||'",
                 PipeKind::PipePipeDot => "'||.'",
             };
-            self.ensure_rhs(&token, &format!("{op_name} operator"))?;
+            self.eat_rhs_trivia(&token, &format!("{op_name} operator"))?;
             let right = self.parse_pipe_rhs_expr()?;
             // Iterating on `||` etc. nests the PipeExpr left-associatively,
             // mirroring the AST. `pending` is `Copy`, safe to reuse.
@@ -1395,13 +1449,14 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            self.eat_trivia(true, true);
-            self.ensure_rhs(&op_tok, "binary operator")?;
+            self.eat_rhs_trivia(&op_tok, "binary operator")?;
             let right = self.parse_bool_and()?;
+            let span = Self::merge_spans(left.span(), right.span());
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 operator: op,
                 right: Box::new(right),
+                span,
             };
             self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
             self.cst_finish_node();
@@ -1418,13 +1473,14 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            self.eat_trivia(true, true);
-            self.ensure_rhs(&op_tok, "binary operator")?;
+            self.eat_rhs_trivia(&op_tok, "binary operator")?;
             let right = self.parse_comparison()?;
+            let span = Self::merge_spans(left.span(), right.span());
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 operator: op,
                 right: Box::new(right),
+                span,
             };
             self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
             self.cst_finish_node();
@@ -1433,7 +1489,7 @@ impl Parser {
     }
 
     fn parse_comma(&mut self) -> WqResult<AstNode> {
-        let cp = self.cst_checkpoint();
+        let pending = self.cst_open();
         let mut items = Vec::new();
         if let Some(token) = self.current_token()
             && token.token_type == TokenType::Comma
@@ -1465,9 +1521,10 @@ impl Parser {
                 let expr = self.parse_bool_or()?;
                 items.push(expr);
             }
-            self.cst_start_node_at(cp, SyntaxKind::ListExpr);
+            let span = self.span_from_byte_start(pending.byte_start);
+            self.cst_start_node_at(pending.cp, SyntaxKind::ListExpr);
             self.cst_finish_node();
-            return Ok(AstNode::List(items));
+            return Ok(AstNode::List(items, span));
         }
         let first = self.parse_bool_or()?;
         let mut items = vec![first];
@@ -1491,24 +1548,26 @@ impl Parser {
             return Ok(items.pop().expect("len == 1"));
         }
         // Merge List nodes: [1;2],[3;4] → [1;2;3;4]
-        if items.iter().all(|item| matches!(item, AstNode::List(_))) {
+        if items.iter().all(|item| matches!(item, AstNode::List(..))) {
             let mut merged = vec![];
             for item in items {
-                if let AstNode::List(mut inner) = item {
+                if let AstNode::List(mut inner, _) = item {
                     merged.append(&mut inner);
                 }
             }
-            self.cst_start_node_at(cp, SyntaxKind::ListExpr);
+            let span = self.span_from_byte_start(pending.byte_start);
+            self.cst_start_node_at(pending.cp, SyntaxKind::ListExpr);
             self.cst_finish_node();
-            return Ok(AstNode::List(merged));
+            return Ok(AstNode::List(merged, span));
         }
-        self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
+        let span = self.span_from_byte_start(pending.byte_start);
+        self.cst_start_node_at(pending.cp, SyntaxKind::BinaryExpr);
         self.cst_finish_node();
-        Ok(AstNode::Cat(items))
+        Ok(AstNode::Cat(items, span))
     }
 
     fn parse_range(&mut self) -> WqResult<AstNode> {
-        let cp = self.cst_checkpoint();
+        let pending = self.cst_open();
         let start = self.parse_unary()?;
         if let Some(token) = self.current_token().cloned() {
             let inclusive = match token.token_type {
@@ -1517,14 +1576,14 @@ impl Parser {
                 _ => return Ok(start),
             };
             self.advance();
-            self.ensure_rhs(&token, "range operator")?;
+            self.eat_rhs_trivia(&token, "range operator")?;
             let end = self.parse_unary()?;
             let mut step_node = None;
             if let Some(next_tok) = self.current_token().cloned() {
                 match next_tok.token_type {
                     TokenType::Range => {
                         self.advance();
-                        self.ensure_rhs(&next_tok, "range step operator")?;
+                        self.eat_rhs_trivia(&next_tok, "range step operator")?;
                         let step_expr = self.parse_unary()?;
                         step_node = Some(Box::new(step_expr));
                     }
@@ -1534,20 +1593,22 @@ impl Parser {
                     _ => {}
                 }
             }
-            self.cst_start_node_at(cp, SyntaxKind::RangeExpr);
+            let span = self.span_from_byte_start(pending.byte_start);
+            self.cst_start_node_at(pending.cp, SyntaxKind::RangeExpr);
             self.cst_finish_node();
             return Ok(AstNode::Range {
                 start: Box::new(start),
                 end: Box::new(end),
                 step: step_node,
                 inclusive,
+                span,
             });
         }
         Ok(start)
     }
 
     fn parse_comparison(&mut self) -> WqResult<AstNode> {
-        let cp = self.cst_checkpoint();
+        let pending = self.cst_open();
         let first = self.parse_bitor()?;
         let mut rest: Vec<(BinaryOperator, AstNode)> = Vec::new();
         while let Some(token) = self.current_token().cloned() {
@@ -1563,8 +1624,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            self.eat_trivia(true, true);
-            self.ensure_rhs(&op_tok, "comparison operator")?;
+            self.eat_rhs_trivia(&op_tok, "comparison operator")?;
             let right = self.parse_bitor()?;
             rest.push((op, right));
         }
@@ -1572,20 +1632,24 @@ impl Parser {
             0 => Ok(first),
             1 => {
                 let (op, rhs) = rest.into_iter().next().unwrap();
-                self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
+                let span = self.span_from_byte_start(pending.byte_start);
+                self.cst_start_node_at(pending.cp, SyntaxKind::BinaryExpr);
                 self.cst_finish_node();
                 Ok(AstNode::BinaryOp {
                     left: Box::new(first),
                     operator: op,
                     right: Box::new(rhs),
+                    span,
                 })
             }
             _ => {
-                self.cst_start_node_at(cp, SyntaxKind::ComparisonChainExpr);
+                let span = self.span_from_byte_start(pending.byte_start);
+                self.cst_start_node_at(pending.cp, SyntaxKind::ComparisonChainExpr);
                 self.cst_finish_node();
                 Ok(AstNode::ComparisonChain {
                     first: Box::new(first),
                     rest,
+                    span,
                 })
             }
         }
@@ -1600,13 +1664,14 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            self.eat_trivia(true, true);
-            self.ensure_rhs(&op_tok, "binary operator")?;
+            self.eat_rhs_trivia(&op_tok, "binary operator")?;
             let right = self.parse_bitxor()?;
+            let span = Self::merge_spans(left.span(), right.span());
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 operator: op,
                 right: Box::new(right),
+                span,
             };
             self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
             self.cst_finish_node();
@@ -1623,13 +1688,14 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            self.eat_trivia(true, true);
-            self.ensure_rhs(&op_tok, "binary operator")?;
+            self.eat_rhs_trivia(&op_tok, "binary operator")?;
             let right = self.parse_bitand()?;
+            let span = Self::merge_spans(left.span(), right.span());
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 operator: op,
                 right: Box::new(right),
+                span,
             };
             self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
             self.cst_finish_node();
@@ -1646,13 +1712,14 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            self.eat_trivia(true, true);
-            self.ensure_rhs(&op_tok, "binary operator")?;
+            self.eat_rhs_trivia(&op_tok, "binary operator")?;
             let right = self.parse_shift()?;
+            let span = Self::merge_spans(left.span(), right.span());
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 operator: op,
                 right: Box::new(right),
+                span,
             };
             self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
             self.cst_finish_node();
@@ -1670,13 +1737,14 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            self.eat_trivia(true, true);
-            self.ensure_rhs(&op_tok, "binary operator")?;
+            self.eat_rhs_trivia(&op_tok, "binary operator")?;
             let right = self.parse_additive()?;
+            let span = Self::merge_spans(left.span(), right.span());
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 operator: op,
                 right: Box::new(right),
+                span,
             };
             self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
             self.cst_finish_node();
@@ -1694,13 +1762,14 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            self.eat_trivia(true, true);
-            self.ensure_rhs(&op_tok, "binary operator")?;
+            self.eat_rhs_trivia(&op_tok, "binary operator")?;
             let right = self.parse_multiplicative()?;
+            let span = Self::merge_spans(left.span(), right.span());
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 operator: op,
                 right: Box::new(right),
+                span,
             };
             self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
             self.cst_finish_node();
@@ -1725,13 +1794,14 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            self.eat_trivia(true, true);
-            self.ensure_rhs(&op_tok, "binary operator")?;
+            self.eat_rhs_trivia(&op_tok, "binary operator")?;
             let right = self.parse_range()?;
+            let span = Self::merge_spans(left.span(), right.span());
             left = AstNode::BinaryOp {
                 left: Box::new(left),
                 operator: op,
                 right: Box::new(right),
+                span,
             };
             self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
             self.cst_finish_node();
@@ -1830,8 +1900,7 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            self.eat_trivia(true, true);
-            self.ensure_rhs(&tok, "binary operator")?;
+            self.eat_rhs_trivia(&tok, "binary operator")?;
             operators.push(op);
             operands.push(self.parse_unary()?);
         }
@@ -1840,10 +1909,12 @@ impl Parser {
         let mut it = operands.into_iter().rev();
         let mut acc = it.next().expect("parse_postfix always pushes one operand");
         for (left, op) in it.zip(operators.into_iter().rev()) {
+            let span = Self::merge_spans(left.span(), acc.span());
             acc = AstNode::BinaryOp {
                 left: Box::new(left),
                 operator: op,
                 right: Box::new(acc),
+                span,
             };
         }
         if chain_applied {
@@ -1985,7 +2056,7 @@ impl Parser {
                         let index = if items.len() == 1 {
                             Box::new(items.into_iter().next().expect("len == 1"))
                         } else {
-                            Box::new(AstNode::List(items))
+                            Box::new(AstNode::List(items, None))
                         };
                         expr = AstNode::MutatingIndex {
                             object: Box::new(expr),
@@ -2173,7 +2244,7 @@ impl Parser {
                 let index = if items.len() == 1 {
                     Box::new(items.into_iter().next().expect("len == 1"))
                 } else {
-                    Box::new(AstNode::List(items))
+                    Box::new(AstNode::List(items, None))
                 };
                 Ok(AstNode::IndexAssign {
                     object,
@@ -2243,14 +2314,15 @@ impl Parser {
                     span,
                 }
             } else {
-                AstNode::List(elements)
+                let span = Some((lparen_start, self.last_consumed_byte_end()));
+                AstNode::List(elements, span)
             })
         })();
         self.bracket_depth -= 1;
         result
     }
 
-    fn parse_paren_dict(&mut self) -> WqResult<AstNode> {
+    fn parse_paren_dict(&mut self, lparen_start: usize) -> WqResult<AstNode> {
         self.bracket_depth += 1;
         let result = {
             let mut pairs = Vec::new();
@@ -2308,7 +2380,10 @@ impl Parser {
                     break Ok(());
                 }
             };
-            res.map(|()| AstNode::Dict(pairs))
+            res.map(|()| {
+                let span = Some((lparen_start, self.last_consumed_byte_end()));
+                AstNode::Dict(pairs, span)
+            })
         };
         self.bracket_depth -= 1;
         result
@@ -2355,14 +2430,14 @@ impl Parser {
             AstNode::Group { .. } => SyntaxKind::ParenExpr,
             AstNode::FString { .. } => SyntaxKind::FStringExpr,
             AstNode::Return(..) => SyntaxKind::ReturnExpr,
-            AstNode::Break => SyntaxKind::BreakExpr,
-            AstNode::Continue => SyntaxKind::ContinueExpr,
+            AstNode::Break(_) => SyntaxKind::BreakExpr,
+            AstNode::Continue(_) => SyntaxKind::ContinueExpr,
             AstNode::Assert { .. } => SyntaxKind::AssertExpr,
             AstNode::Debug { .. } => SyntaxKind::DebugExpr,
             AstNode::Pause { .. } => SyntaxKind::PauseExpr,
             AstNode::Try(..) => SyntaxKind::TryExpr,
 
-            AstNode::Ellipsis => SyntaxKind::EllipsisExpr,
+            AstNode::Ellipsis(_) => SyntaxKind::EllipsisExpr,
             AstNode::Error(..) => SyntaxKind::ErrorNode,
             // The following variants never come out of `parse_primary_inner`
             // — they are produced by higher-precedence parse layers that
@@ -2488,13 +2563,14 @@ impl Parser {
 
                 TokenType::AtBreak => {
                     self.advance();
-                    Ok(AstNode::Break)
+                    Ok(AstNode::Break(Some((token.byte_start, token.byte_end))))
                 }
                 TokenType::AtContinue => {
                     self.advance();
-                    Ok(AstNode::Continue)
+                    Ok(AstNode::Continue(Some((token.byte_start, token.byte_end))))
                 }
                 TokenType::AtReturn => {
+                    let start = token.byte_start;
                     self.advance();
                     if let Some(tok) = self.current_token() {
                         if matches!(
@@ -2506,13 +2582,16 @@ impl Parser {
                                 | TokenType::Newline
                                 | TokenType::Eof
                         ) {
-                            Ok(AstNode::Return(None))
+                            Ok(AstNode::Return(None, Some((start, token.byte_end))))
                         } else {
                             let expr = self.parse_expression()?;
-                            Ok(AstNode::Return(Some(Box::new(expr))))
+                            Ok(AstNode::Return(
+                                Some(Box::new(expr)),
+                                Some((start, self.last_consumed_byte_end())),
+                            ))
                         }
                     } else {
-                        Ok(AstNode::Return(None))
+                        Ok(AstNode::Return(None, Some((start, token.byte_end))))
                     }
                 }
 
@@ -2553,9 +2632,13 @@ impl Parser {
                     })
                 }
                 TokenType::AtTry => {
+                    let start = token.byte_start;
                     self.advance();
                     let e = self.parse_expression()?;
-                    Ok(AstNode::Try(Box::new(e)))
+                    Ok(AstNode::Try(
+                        Box::new(e),
+                        Some((start, self.last_consumed_byte_end())),
+                    ))
                 }
 
                 TokenType::Identifier(name) => {
@@ -2610,7 +2693,7 @@ impl Parser {
                         self.current_token().map(|t| &t.token_type),
                         Some(TokenType::LeftBrace)
                     ) {
-                        return self.parse_function(true);
+                        return self.parse_function(true, start_byte);
                     }
                     let (name, end_byte) = match self.current_token().map(|t| (&t.token_type, t)) {
                         Some((TokenType::Identifier(name), t)) => {
@@ -2633,7 +2716,7 @@ impl Parser {
                     Ok(AstNode::OuterVariable(name, Some((start_byte, end_byte))))
                 }
                 TokenType::AtSymbolic => self.parse_symbolic_quote(),
-                TokenType::LeftBrace => self.parse_function(false),
+                TokenType::LeftBrace => self.parse_function(false, token.byte_start),
                 TokenType::LeftParen => {
                     let lparen_start = token.byte_start;
                     self.advance(); // '('
@@ -2648,7 +2731,8 @@ impl Parser {
                         self.eat_trivia(true, true);
                         if self.is_token(&TokenType::RightParen) {
                             self.advance();
-                            return Ok(AstNode::Dict(Vec::new()));
+                            let span = Some((lparen_start, self.last_consumed_byte_end()));
+                            return Ok(AstNode::Dict(Vec::new(), span));
                         } else if let Some(t) = self.current_token().cloned() {
                             return Err(self.syntax_err(&t, "expected closing ')' for empty dict"));
                         } else {
@@ -2657,7 +2741,8 @@ impl Parser {
                     }
                     if self.is_token(&TokenType::RightParen) {
                         self.advance();
-                        return Ok(AstNode::List(Vec::new()));
+                        let span = Some((lparen_start, self.last_consumed_byte_end()));
+                        return Ok(AstNode::List(Vec::new(), span));
                     }
                     // Decide dict vs list: Symbol ':' lookahead (no deep skipping)
                     let mut is_dict = false;
@@ -2671,14 +2756,14 @@ impl Parser {
                         is_dict = true;
                     }
                     if is_dict {
-                        self.parse_paren_dict()
+                        self.parse_paren_dict(lparen_start)
                     } else {
                         self.parse_paren_list(lparen_start)
                     }
                 }
                 TokenType::Ellipsis => {
                     self.advance();
-                    Ok(AstNode::Ellipsis)
+                    Ok(AstNode::Ellipsis(Some((token.byte_start, token.byte_end))))
                 }
                 TokenType::Plus => {
                     let span = (token.byte_start, token.byte_end);
@@ -2849,11 +2934,13 @@ impl Parser {
                     span.1 += offset;
                 }
             }
-            AstNode::Ellipsis
-            | AstNode::PipeInput
-            | AstNode::Break
-            | AstNode::Continue
-            | AstNode::Return(None) => {}
+            AstNode::PipeInput => {}
+            AstNode::Ellipsis(span) | AstNode::Break(span) | AstNode::Continue(span) => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
+            }
             AstNode::NamedArg { value, span, .. } => {
                 Self::offset_spans(value, offset);
                 if let Some(span) = span {
@@ -3030,7 +3117,11 @@ impl Parser {
                 }
             }
 
-            AstNode::BinaryOp { left, right, .. } => {
+            AstNode::BinaryOp { left, right, span, .. } => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
                 Self::offset_spans(left, offset);
                 Self::offset_spans(right, offset);
             }
@@ -3048,15 +3139,27 @@ impl Parser {
                 }
                 Self::offset_spans(expr, offset);
             }
-            AstNode::ComparisonChain { first, rest } => {
+            AstNode::ComparisonChain { first, rest, span } => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
                 Self::offset_spans(first, offset);
                 for (_, n) in rest {
                     Self::offset_spans(n, offset);
                 }
             }
             AstNode::Range {
-                start, end, step, ..
+                start,
+                end,
+                step,
+                span,
+                ..
             } => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
                 Self::offset_spans(start, offset);
                 Self::offset_spans(end, offset);
                 if let Some(s) = step {
@@ -3126,13 +3229,27 @@ impl Parser {
                 Self::offset_spans(count, offset);
                 Self::offset_spans(body, offset);
             }
-            AstNode::Return(Some(expr)) => {
+            AstNode::Return(expr, span) => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
+                if let Some(expr) = expr {
+                    Self::offset_spans(expr, offset);
+                }
+            }
+            AstNode::Try(expr, span) => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
                 Self::offset_spans(expr, offset);
             }
-            AstNode::Try(expr) => {
-                Self::offset_spans(expr, offset);
-            }
-            AstNode::Cat(items) | AstNode::List(items) | AstNode::Block(items) => {
+            AstNode::Cat(items, span) | AstNode::List(items, span) | AstNode::Block(items, span) => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
                 for item in items {
                     Self::offset_spans(item, offset);
                 }
@@ -3146,7 +3263,11 @@ impl Parser {
                     Self::offset_spans(item, offset);
                 }
             }
-            AstNode::Dict(pairs) => {
+            AstNode::Dict(pairs, span) => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
                 for (_, v) in pairs {
                     Self::offset_spans(v, offset);
                 }
@@ -3191,7 +3312,13 @@ impl Parser {
                 Self::offset_spans(index, offset);
                 Self::offset_spans(value, offset);
             }
-            AstNode::Function { params, body, .. } => {
+            AstNode::Function {
+                params, body, span, ..
+            } => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
                 if let Some(ps) = params {
                     for p in ps.iter_mut() {
                         match p {
@@ -3504,6 +3631,7 @@ impl Parser {
                 left,
                 operator: BinaryOperator::Equal,
                 right,
+                ..
             } => Ok(Value::from_cas_eq(
                 self.quote_symbolic_value(*left, start)?,
                 self.quote_symbolic_value(*right, start)?,
@@ -3526,6 +3654,7 @@ impl Parser {
                 left,
                 operator,
                 right,
+                ..
             } => {
                 let lhs = self.quote_symbolic_value(*left, start)?;
                 let rhs = self.quote_symbolic_value(*right, start)?;
@@ -3585,13 +3714,13 @@ impl Parser {
                     )),
                 }
             }
-            List(items) => Ok(Value::List(Arc::new(
+            List(items, _) => Ok(Value::List(Arc::new(
                 items
                     .into_iter()
                     .map(|item| self.quote_symbolic_value(item, start))
                     .collect::<WqResult<Vec<_>>>()?,
             ))),
-            Dict(pairs) => Ok(Value::Dict(Arc::new(
+            Dict(pairs, _) => Ok(Value::Dict(Arc::new(
                 pairs
                     .into_iter()
                     .map(|(key, value)| Ok((key.into(), self.quote_symbolic_value(value, start)?)))
@@ -3606,7 +3735,7 @@ impl Parser {
 
     // fn ====================================================================================
 
-    fn parse_function(&mut self, ref_capture: bool) -> WqResult<AstNode> {
+    fn parse_function(&mut self, ref_capture: bool, start_byte: usize) -> WqResult<AstNode> {
         self.advance(); // '{'
         let mut params = None;
         // Optional parameter list: {[a;b]}
@@ -3714,6 +3843,7 @@ impl Parser {
         self.fn_span_stack.push(Vec::new());
         let (body, _) = self.parse_block_with_spans()?;
         self.consume(TokenType::RightBrace)?;
+        let span = Some((start_byte, self.last_consumed_byte_end()));
         let mut spans = self.fn_span_stack.pop().unwrap_or_default();
         Self::normalize_stmt_spans(&mut spans);
         self.fn_spans[slot] = spans;
@@ -3721,6 +3851,7 @@ impl Parser {
             params,
             ref_capture,
             body: Box::new(body),
+            span,
         })
     }
 
@@ -3808,7 +3939,8 @@ impl Parser {
         Ok(if stmts.len() == 1 {
             stmts.remove(0)
         } else {
-            AstNode::Block(stmts)
+            let span = Self::span_for_items(&stmts);
+            AstNode::Block(stmts, span)
         })
     }
 
@@ -3831,7 +3963,7 @@ impl Parser {
                 self.record_stmt_span_idx(header_start_idx, self.current.saturating_sub(1));
                 return Ok(AstNode::Conditional {
                     condition: Box::new(condition),
-                    true_branch: Box::new(AstNode::Block(Vec::new())),
+                    true_branch: Box::new(AstNode::Block(Vec::new(), None)),
                     false_branch: None,
                     span: Some((header_start_byte, header_end_byte)),
                 });
@@ -3885,7 +4017,7 @@ impl Parser {
                 self.record_stmt_span_idx(header_start_idx, self.current.saturating_sub(1));
                 return Ok(AstNode::ConditionalDot {
                     condition: Box::new(condition),
-                    true_branch: Box::new(AstNode::Block(Vec::new())),
+                    true_branch: Box::new(AstNode::Block(Vec::new(), None)),
                     span: Some((header_start_byte, header_end_byte)),
                 });
             }
@@ -3924,7 +4056,7 @@ impl Parser {
             }
             let item = if self.is_token(&TokenType::Semicolon) || self.is_token(&TokenType::Newline)
             {
-                AstNode::Block(Vec::new())
+                AstNode::Block(Vec::new(), None)
             } else {
                 self.parse_expression()?
             };
@@ -3949,7 +4081,7 @@ impl Parser {
         }
         self.consume(TokenType::RightBracket)?;
         if items.len().is_multiple_of(2) {
-            items.push(AstNode::Block(Vec::new()));
+            items.push(AstNode::Block(Vec::new(), None));
         }
         let default_branch = Box::new(items.pop().expect("items non-empty"));
         let mut pairs = Vec::new();
@@ -3988,7 +4120,7 @@ impl Parser {
             let header_end_byte = self.last_consumed_byte_end();
             self.record_stmt_span_idx(header_start_idx, self.current.saturating_sub(1));
             let stmts = match body {
-                AstNode::Block(stmts) => stmts,
+                AstNode::Block(stmts, _) => stmts,
                 other => vec![other],
             };
             Ok(AstNode::BlockExpr(
@@ -4026,7 +4158,7 @@ impl Parser {
                 self.record_stmt_span_idx(header_start_idx, self.current.saturating_sub(1));
                 return Ok(AstNode::WLoop {
                     condition: Box::new(condition),
-                    body: Box::new(AstNode::Block(Vec::new())),
+                    body: Box::new(AstNode::Block(Vec::new(), None)),
                     span: Some((header_start_byte, header_end_byte)),
                 });
             }
@@ -4071,7 +4203,7 @@ impl Parser {
                 self.record_stmt_span_idx(header_start_idx, self.current.saturating_sub(1));
                 return Ok(AstNode::NLoop {
                     count: Box::new(count_expr),
-                    body: Box::new(AstNode::Block(Vec::new())),
+                    body: Box::new(AstNode::Block(Vec::new(), None)),
                     span: Some((header_start_byte, header_end_byte)),
                 });
             }
@@ -4267,7 +4399,7 @@ mod sync_tests {
     fn sync_skips_broken_stmt_and_parses_rest() {
         let ast = parse_input("a:1\nx +\nb:2").unwrap();
         let stmts = match ast {
-            AstNode::Block(stmts) => stmts,
+            AstNode::Block(stmts, _) => stmts,
             other => vec![other],
         };
         assert_eq!(stmts.len(), 3);
@@ -4280,7 +4412,7 @@ mod sync_tests {
     fn sync_does_not_consume_semicolon_inside_bracket() {
         let ast = parse_input("N[3; x + ; y]\na:1").unwrap();
         let stmts = match ast {
-            AstNode::Block(stmts) => stmts,
+            AstNode::Block(stmts, _) => stmts,
             other => vec![other],
         };
         // Should get: Error(N[...), Variable(y), Error(]), Assignment(a)
@@ -4295,7 +4427,7 @@ mod sync_tests {
     fn sync_consumes_right_bracket_to_avoid_spin() {
         let ast = parse_input("N[3; x +]\na:1").unwrap();
         let stmts = match ast {
-            AstNode::Block(stmts) => stmts,
+            AstNode::Block(stmts, _) => stmts,
             other => vec![other],
         };
         let has_a = stmts
@@ -4308,14 +4440,14 @@ mod sync_tests {
     fn sync_inside_block() {
         let ast = parse_input("{a:1\nx +\nb:2}").unwrap();
         let stmts = match ast {
-            AstNode::Block(stmts) => stmts,
+            AstNode::Block(stmts, _) => stmts,
             other => vec![other],
         };
         // outer block has one stmt: the function literal
         assert_eq!(stmts.len(), 1);
         let fn_body = match &stmts[0] {
             AstNode::Function { body, .. } => match body.as_ref() {
-                AstNode::Block(b) => b.clone(),
+                AstNode::Block(b, _) => b.clone(),
                 other => vec![other.clone()],
             },
             _ => panic!("expected Function, got {:?}", stmts[0]),
@@ -4330,7 +4462,7 @@ mod sync_tests {
     fn sync_in_paren_list() {
         let ast = parse_input("(a; b + ; c)\nd:1").unwrap();
         let stmts = match ast {
-            AstNode::Block(stmts) => stmts,
+            AstNode::Block(stmts, _) => stmts,
             other => vec![other],
         };
         let has_d = stmts
@@ -4360,7 +4492,7 @@ mod sync_tests {
     fn nested_bracket_sync() {
         let ast = parse_input("N[3; W[x > ; y]]\na:1").unwrap();
         let stmts = match ast {
-            AstNode::Block(stmts) => stmts,
+            AstNode::Block(stmts, _) => stmts,
             other => vec![other],
         };
         let has_a = stmts
@@ -4424,7 +4556,7 @@ mod symbolic_quote_tests {
     #[test]
     fn symbolic_quote_does_not_swallow_statement_newline() {
         let ast = parse_input("expr:@s x^2+2*x+1\nexpr|echo").expect("script should parse");
-        let AstNode::Block(stmts) = ast else {
+        let AstNode::Block(stmts, _) = ast else {
             panic!("expected block, got {ast:?}");
         };
 
@@ -4483,7 +4615,7 @@ mod err_span_tests {
     fn syntax_error_span_is_exact_token() {
         let ast = parse_input("[ b ]").unwrap();
         let stmts = match ast {
-            AstNode::Block(s) => s,
+            AstNode::Block(s, _) => s,
             other => vec![other],
         };
         assert_eq!(stmts.len(), 1);
@@ -4503,7 +4635,7 @@ mod err_span_tests {
     fn error_span_does_not_bleed_across_expression() {
         let ast = parse_input("echo [1+").unwrap();
         let stmts = match ast {
-            AstNode::Block(s) => s,
+            AstNode::Block(s, _) => s,
             other => vec![other],
         };
         assert_eq!(stmts.len(), 1);
@@ -4524,7 +4656,7 @@ mod err_span_tests {
     fn multi_line_error_span_is_exact() {
         let ast = parse_input("{ a }\n[ b ]").unwrap();
         let stmts = match ast {
-            AstNode::Block(s) => s,
+            AstNode::Block(s, _) => s,
             other => vec![other],
         };
         assert_eq!(stmts.len(), 2);
@@ -4604,7 +4736,7 @@ mod coloncolon_conditional_tests {
         let (cond, true_br, false_br) = assert_conditional(&ast);
         assert!(matches!(cond, AstNode::Literal(Value::Int(1), _)));
         assert!(matches!(true_br, AstNode::Literal(Value::Int(2), _)));
-        let AstNode::Block(stmts) = false_br.unwrap() else {
+        let AstNode::Block(stmts, _) = false_br.unwrap() else {
             panic!("expected Block for false branch, got {false_br:?}");
         };
         assert_eq!(stmts.len(), 2);
@@ -4626,7 +4758,7 @@ mod coloncolon_conditional_tests {
         let ast = parse_input("$[1;;3]").unwrap();
         let (cond, true_br, false_br) = assert_conditional(&ast);
         assert!(matches!(cond, AstNode::Literal(Value::Int(1), _)));
-        assert_eq!(true_br, &AstNode::Block(Vec::new()));
+        assert_eq!(true_br, &AstNode::Block(Vec::new(), None));
         assert!(matches!(false_br, Some(AstNode::Literal(Value::Int(3), _))));
     }
 
@@ -4636,7 +4768,7 @@ mod coloncolon_conditional_tests {
         let (cond, true_br, false_br) = assert_conditional(&ast);
         assert!(matches!(cond, AstNode::Literal(Value::Int(1), _)));
         assert!(matches!(true_br, AstNode::Literal(Value::Int(2), _)));
-        assert_eq!(false_br, Some(&AstNode::Block(Vec::new())));
+        assert_eq!(false_br, Some(&AstNode::Block(Vec::new(), None)));
     }
 
     // --- $$[ ... ] ---
@@ -4670,7 +4802,7 @@ mod coloncolon_conditional_tests {
         let (pairs, default_branch) = assert_conditional_chain(&ast);
         assert_eq!(pairs.len(), 1);
         assert!(matches!(&pairs[0].0, AstNode::BinaryOp { .. }));
-        assert_eq!(&pairs[0].1, &AstNode::Block(Vec::new()));
+        assert_eq!(&pairs[0].1, &AstNode::Block(Vec::new(), None));
         assert!(matches!(default_branch, AstNode::Literal(Value::Int(0), _)));
     }
 
@@ -4705,7 +4837,7 @@ mod coloncolon_conditional_tests {
         let ast = parse_input("W[1;]").unwrap();
         let (cond, body) = assert_w_loop(&ast);
         assert!(matches!(cond, AstNode::Literal(Value::Int(1), _)));
-        assert_eq!(body, &AstNode::Block(Vec::new()));
+        assert_eq!(body, &AstNode::Block(Vec::new(), None));
     }
 
     #[test]
@@ -4721,7 +4853,7 @@ mod coloncolon_conditional_tests {
         let ast = parse_input("N[1;]").unwrap();
         let (count, body) = assert_n_loop(&ast);
         assert!(matches!(count, AstNode::Literal(Value::Int(1), _)));
-        assert_eq!(body, &AstNode::Block(Vec::new()));
+        assert_eq!(body, &AstNode::Block(Vec::new(), None));
     }
 
     // --- $.[ ... ] ---
@@ -4750,7 +4882,7 @@ mod coloncolon_conditional_tests {
         let ast = parse_input("$.[1;]").unwrap();
         let (cond, true_br) = assert_conditional_dot(&ast);
         assert!(matches!(cond, AstNode::Literal(Value::Int(1), _)));
-        assert_eq!(true_br, &AstNode::Block(Vec::new()));
+        assert_eq!(true_br, &AstNode::Block(Vec::new(), None));
     }
 }
 
@@ -4894,7 +5026,7 @@ mod cst_integration_tests {
         assert_eq!(cst.text(), src);
         // AST has the middle stmt as Error.
         let stmts = match ast {
-            AstNode::Block(s) => s,
+            AstNode::Block(s, _) => s,
             other => vec![other],
         };
         assert!(matches!(&stmts[1], AstNode::Error(..)));
@@ -5066,18 +5198,18 @@ mod cst_integration_tests {
         assert_eq!(names, vec!["x".to_string(), "y".to_string()]);
     }
 
-    /// Returns the parser-stored span field, *not* the computed
-    /// merge-of-children span exposed by [`AstNode::span`]. Variants without
-    /// a stored span field return `None` (the test then skips them — their
-    /// effective span is the aggregate of their children, which the test
-    /// verifies indirectly by walking the children).
+    /// Returns the parser-stored span field. `None` is valid for synthetic
+    /// nodes that do not correspond to a source range.
     fn stored_span(node: &AstNode) -> AstSpan {
         match node {
             AstNode::Literal(_, s)
             | AstNode::Variable(_, s)
             | AstNode::OuterVariable(_, s)
             | AstNode::Error(_, s) => *s,
-            AstNode::Assignment { span, .. }
+            AstNode::BinaryOp { span, .. }
+            | AstNode::ComparisonChain { span, .. }
+            | AstNode::Range { span, .. }
+            | AstNode::Assignment { span, .. }
             | AstNode::OuterAssignment { span, .. }
             | AstNode::Postfix { span, .. }
             | AstNode::Pipe { span, .. }
@@ -5088,6 +5220,7 @@ mod cst_integration_tests {
             | AstNode::IndexAssign { span, .. }
             | AstNode::MutatingIndex { span, .. }
             | AstNode::MutatingIndexAssign { span, .. }
+            | AstNode::Function { span, .. }
             | AstNode::Assert { span, .. }
             | AstNode::Debug { span, .. }
             | AstNode::Pause { span, .. }
@@ -5101,36 +5234,23 @@ mod cst_integration_tests {
             | AstNode::WLoop { span, .. }
             | AstNode::NLoop { span, .. }
             | AstNode::NamedArg { span, .. }
-            | AstNode::UnpackAssignment { span, .. } => *span,
-            // Spans for these variants are derived from children — see
-            // `AstNode::span()`. They are not "owned" anywhere, so they
-            // cannot drift from the CST and don't need checking here.
-            AstNode::BinaryOp { .. }
-            | AstNode::ComparisonChain { .. }
-            | AstNode::Range { .. }
-            | AstNode::List(_)
-            | AstNode::Cat(_)
-            | AstNode::Block(_)
-            | AstNode::Dict(_)
-            | AstNode::Function { .. }
-            | AstNode::Return(_)
-            | AstNode::Try(_)
-            | AstNode::Break
-            | AstNode::Continue
-            | AstNode::PipeInput
-            | AstNode::Ellipsis => None,
+            | AstNode::UnpackAssignment { span, .. }
+            | AstNode::Return(_, span)
+            | AstNode::Try(_, span)
+            | AstNode::Break(span)
+            | AstNode::Continue(span)
+            | AstNode::Ellipsis(span) => *span,
+            AstNode::List(_, span)
+            | AstNode::Cat(_, span)
+            | AstNode::Block(_, span)
+            | AstNode::Dict(_, span) => *span,
+            AstNode::PipeInput => None,
         }
     }
 
-    /// For every AST node whose variant carries a parser-stored span
-    /// field, the byte range must match the `text_range()` of *some*
-    /// descendant green node in the CST. This is the Phase 3 invariant:
-    /// the parser no longer hand-tracks spans, so a misaligned span here
-    /// means a regression in span derivation.
-    ///
-    /// Variants whose span is computed by merging children (e.g.
-    /// `BinaryOp`, `List`) are skipped — those cannot drift independently
-    /// of their children, which are themselves checked.
+    /// For every AST node whose variant carries a parser-stored span field,
+    /// the byte range must match the `text_range()` of *some* descendant
+    /// green node in the CST.
     #[test]
     fn ast_spans_correspond_to_cst_ranges() {
         let snippets: &[&str] = &[
@@ -5214,13 +5334,13 @@ mod cst_integration_tests {
             AstNode::Group { .. } => "Group",
             AstNode::FString { .. } => "FString",
             AstNode::Return(..) => "Return",
-            AstNode::Break => "Break",
-            AstNode::Continue => "Continue",
+            AstNode::Break(_) => "Break",
+            AstNode::Continue(_) => "Continue",
             AstNode::Assert { .. } => "Assert",
             AstNode::Debug { .. } => "Debug",
             AstNode::Pause { .. } => "Pause",
             AstNode::Try(..) => "Try",
-            AstNode::Ellipsis => "Ellipsis",
+            AstNode::Ellipsis(_) => "Ellipsis",
             AstNode::Error(..) => "Error",
             AstNode::PipeInput => "PipeInput",
             AstNode::Postfix { .. } => "Postfix",
@@ -5250,11 +5370,11 @@ mod cst_integration_tests {
     fn collect_children(node: &AstNode) -> Vec<&AstNode> {
         let mut out = Vec::new();
         match node {
-            AstNode::Block(items) | AstNode::List(items) | AstNode::Cat(items) => {
+            AstNode::Block(items, _) | AstNode::List(items, _) | AstNode::Cat(items, _) => {
                 out.extend(items.iter())
             }
             AstNode::BlockExpr(items, _) => out.extend(items.iter()),
-            AstNode::Dict(pairs) => out.extend(pairs.iter().map(|(_, v)| v)),
+            AstNode::Dict(pairs, _) => out.extend(pairs.iter().map(|(_, v)| v)),
             AstNode::Assignment { value, .. } | AstNode::OuterAssignment { value, .. } => {
                 out.push(value)
             }
@@ -5296,7 +5416,7 @@ mod cst_integration_tests {
                 out.push(right);
             }
             AstNode::UnaryOp { operand, .. } => out.push(operand),
-            AstNode::ComparisonChain { first, rest } => {
+            AstNode::ComparisonChain { first, rest, .. } => {
                 out.push(first);
                 out.extend(rest.iter().map(|(_, n)| n));
             }
@@ -5371,7 +5491,7 @@ mod cst_integration_tests {
                     }
                 }
             }
-            AstNode::Return(Some(e)) | AstNode::Try(e) => out.push(e),
+            AstNode::Return(Some(e), _) | AstNode::Try(e, _) => out.push(e),
             AstNode::Assert { expr, .. } | AstNode::Debug { expr, .. } => out.push(expr),
             AstNode::Pause {
                 expr: Some(expr), ..
@@ -5380,12 +5500,12 @@ mod cst_integration_tests {
             AstNode::Literal(_, _)
             | AstNode::Variable(_, _)
             | AstNode::OuterVariable(_, _)
-            | AstNode::Break
-            | AstNode::Continue
-            | AstNode::Return(None)
+            | AstNode::Break(_)
+            | AstNode::Continue(_)
+            | AstNode::Return(None, _)
             | AstNode::Pause { expr: None, .. }
             | AstNode::PipeInput
-            | AstNode::Ellipsis
+            | AstNode::Ellipsis(_)
             | AstNode::Error(_, _) => {}
         }
         out
