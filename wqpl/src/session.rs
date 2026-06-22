@@ -1082,6 +1082,53 @@ mod tests {
     }
 
     #[test]
+    fn idle_pause_callback_does_not_prepare_debug_artifacts_when_bt_is_off() {
+        fn dummy_pause(_vm: &mut crate::vm::Vm) {}
+
+        let mut session = Session::new();
+        session.set_pause_callback(Some(dummy_pause));
+        session.set_bt_mode(false);
+        session.set_wqdb(false);
+
+        let result = session
+            .eval_string("f:{x+1}; f 1")
+            .expect("plain eval should run with idle pause callback");
+
+        assert_eq!(result, Value::Int(2));
+        assert!(
+            session.vm.debug_info.by_name.is_empty(),
+            "idle pause callback should not create debug chunks when bt and wqdb are off"
+        );
+    }
+
+    #[test]
+    fn pause_instruction_prepares_debug_artifacts_even_when_bt_is_off() {
+        static PAUSES: AtomicUsize = AtomicUsize::new(0);
+
+        fn count_pause(vm: &mut crate::vm::Vm) {
+            PAUSES.fetch_add(1, Ordering::SeqCst);
+            vm.dbg_continue();
+        }
+
+        PAUSES.store(0, Ordering::SeqCst);
+        let mut session = Session::new();
+        session.set_pause_callback(Some(count_pause));
+        session.set_bt_mode(false);
+        session.set_wqdb(false);
+
+        let result = session
+            .eval_string("@p 1")
+            .expect("explicit pause should run without bt");
+
+        assert_eq!(result, Value::Int(1));
+        assert_eq!(PAUSES.load(Ordering::SeqCst), 1);
+        assert!(
+            !session.vm.debug_info.by_name.is_empty(),
+            "@p should still request debug artifacts for the pause callback"
+        );
+    }
+
+    #[test]
     fn evals_long_left_deep_binary_chain() {
         let terms = std::iter::repeat_n("a", 512).collect::<Vec<_>>().join("+");
         let code = format!("a:1\nb:2\nc:{terms}");

@@ -216,7 +216,7 @@ impl Vm {
     /// logging and does not affect backtraces or debug artifacts.
     #[inline]
     pub(crate) fn debug_artifacts_enabled(&self) -> bool {
-        self.runtime_debug_info || self.wqdb.enabled || self.bt_mode || self.wqdb.on_pause.is_some()
+        self.runtime_debug_info || self.wqdb.enabled || self.bt_mode
     }
 
     pub fn set_runtime_debug_info(&mut self, flag: bool) {
@@ -454,7 +454,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn debug_artifacts_enabled_when_on_pause_set() {
+    fn idle_pause_callback_does_not_enable_debug_artifacts() {
         let mut vm = Vm::new(Vec::new());
         vm.set_bt_mode(false);
         vm.wqdb.enabled = false;
@@ -464,8 +464,8 @@ mod tests {
         fn dummy(_: &mut Vm) {}
         vm.wqdb.on_pause = Some(dummy);
         assert!(
-            vm.debug_artifacts_enabled(),
-            "debug artifacts should be enabled when on_pause is registered"
+            !vm.debug_artifacts_enabled(),
+            "an installed pause callback is only a hook, not an active debug-artifact request"
         );
     }
 

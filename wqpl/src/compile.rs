@@ -1338,6 +1338,7 @@ impl Compiler {
                 }
             }
             AstNode::Pause { expr, span } => {
+                self.has_runtime_debug = true;
                 let has_expr = expr.is_some();
                 if let Some(expr) = expr {
                     self.compile_expr(expr)?;
