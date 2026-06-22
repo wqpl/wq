@@ -68,6 +68,9 @@
 - If you touched Python code, run ruff.
 - If you are using Playwright but chrome isn't available, use webkit.
 - If you changed `wqpl/viz`, also update `wqide/viz`.
+- If you added/changed syntax feature or builtin, also update:
+  - `wqpl/doc`
+  - optionally `d/articles/wqpl` if it is core to the language
 - Use these newer Rust features when they improve code style:
 
 | Feature         | Stabilized in | Release date | Notes                                                                                                 |
