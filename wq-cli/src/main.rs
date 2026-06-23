@@ -65,10 +65,8 @@ fn main() {
                 exec::exec_script(&path, rtflags)
             })
         }
-        CliCommand::Notebook(path, interactive) => {
-            spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
-                note::run_notebook(&path, rtflags, interactive)
-            });
+        CliCommand::Markdown { path, no_pager } => {
+            note::run_markdown(&path, no_pager);
             0
         }
         CliCommand::Symbols { script, name } => {

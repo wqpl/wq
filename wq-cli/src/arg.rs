@@ -23,7 +23,6 @@ pub struct RuntimeFlags {
     pub builtins: Option<String>,
     pub print: bool,                // default: false
     pub stack_size_mebibyte: usize, // default: 12
-    pub run_notebook: bool,         // default: false
     pub experimental: Vec<String>,
     pub box_print: BoxPrintConfig,
 }
@@ -46,7 +45,6 @@ impl RuntimeFlags {
             builtins: None,
             print: false,
             stack_size_mebibyte: DEFAULT_STACK_SIZE_MEBIBYTE,
-            run_notebook: false,
             experimental: Vec::new(),
             box_print: BoxPrintConfig::default(),
         }
@@ -71,7 +69,7 @@ pub enum ExecSource {
 pub enum CliCommand {
     Repl,
     Script(PathBuf),
-    Notebook(PathBuf, bool), // path, interactive
+    Markdown { path: PathBuf, no_pager: bool },
     Exec(ExecSource),
     Fmt {
         script: PathBuf,
@@ -114,7 +112,7 @@ const HELP_STYLES: Styles = Styles::styled()
 
 /// The wq Programming Language, https://wq-pl.com
 ///
-/// Run an interactive wq REPL, wq scripts, or wq notebooks.
+/// Run an interactive wq REPL, wq scripts, or render Markdown docs.
 #[derive(Parser, Debug, Clone)]
 #[command(
     name = "wq",
@@ -131,11 +129,11 @@ struct CliArgs {
     #[command(subcommand)]
     command: Option<Commands>,
 
-    /// Script or notebook to run (positional alternative to subcommands)
+    /// Script or Markdown file to run (positional alternative to subcommands)
     script: Option<PathBuf>,
 }
 
-/// Global runtime options applicable to most wq commands.
+/// Global options applicable to most wq commands.
 #[derive(Parser, Debug, Clone)]
 struct RuntimeOpts {
     /// Print the final evaluation result
@@ -170,9 +168,9 @@ struct RuntimeOpts {
     #[arg(long = "exp", value_name = "NAME", global = true)]
     exp: Vec<String>,
 
-    /// Run a notebook non-interactively
-    #[arg(long)]
-    run_notebook: bool,
+    /// Print rendered help and Markdown files directly instead of using $PAGER
+    #[arg(long, global = true)]
+    no_pager: bool,
 
     /// Thread stack size in MiB (2-64)
     #[arg(long, value_name = "MiB", value_parser = parse_stack_size, global = true)]
@@ -255,9 +253,6 @@ enum Commands {
     },
     /// Show wq command help or language reference docs.
     Help {
-        /// Print directly instead of using $PAGER for reference docs
-        #[arg(long)]
-        no_pager: bool,
         /// Fold reference docs at this many columns (default: terminal width)
         #[arg(long, value_name = "COLS", value_parser = parse_fold_width)]
         fold_width: Option<usize>,
@@ -333,6 +328,7 @@ where
     };
 
     let mut rt = RuntimeFlags::new();
+    let no_pager = cli.runtime.no_pager;
     rt.print = cli.runtime.print;
     rt.wqdb = cli.runtime.wqdb;
     rt.wqdb_cmds = cli.runtime.wqdb_cmds;
@@ -386,7 +382,6 @@ where
             return Err(2);
         }
     }
-    rt.run_notebook = cli.runtime.run_notebook;
     if let Some(spec) = cli.runtime.box_display
         && let Err(message) = apply_box_spec(&mut rt.box_print, &spec)
     {
@@ -445,7 +440,6 @@ where
                 CliCommand::Dap { script }
             }
             Commands::Help {
-                no_pager,
                 fold_width,
                 topic,
                 doc_topic,
@@ -458,13 +452,29 @@ where
         }
     } else if let Some(path) = cli.script {
         if path.extension().is_some_and(|e| e == "md") {
-            CliCommand::Notebook(path, !rt.run_notebook)
+            CliCommand::Markdown { path, no_pager }
         } else {
             CliCommand::Script(path)
         }
     } else {
         CliCommand::Repl
     };
+
+    if no_pager
+        && !matches!(
+            &cmd,
+            CliCommand::Markdown { .. } | CliCommand::Help { .. }
+        )
+    {
+        let err = CliArgs::command().error(
+            clap::error::ErrorKind::InvalidValue,
+            "--no-pager only applies to Markdown files and `wq help`",
+        );
+        if !silent {
+            let _ = err.print();
+        }
+        return Err(2);
+    }
 
     Ok((rt, cmd))
 }
@@ -579,10 +589,10 @@ fn write_top_examples(out: &mut String) {
     let _ = writeln!(out, "     {wq} {}", "fmt script.wq".blue());
     let _ = writeln!(out, "  5. Debug a script with wqdb:");
     let _ = writeln!(out, "     {wq} {}", "-w -o bt -o c script.wq".blue());
-    let _ = writeln!(out, "  6. Open a notebook step-by-step:");
+    let _ = writeln!(out, "  6. Render a Markdown note:");
     let _ = writeln!(out, "     {wq} {}", "notes.wq.md".blue());
-    let _ = writeln!(out, "  7. Run a notebook without prompts:");
-    let _ = writeln!(out, "     {wq} {}", "--run-notebook notes.wq.md".blue());
+    let _ = writeln!(out, "  7. Render a Markdown note without a pager:");
+    let _ = writeln!(out, "     {wq} {}", "--no-pager notes.wq.md".blue());
 }
 
 fn write_exec_examples(out: &mut String) {
@@ -680,6 +690,25 @@ mod tests {
             is_err(parse_args(v(&["help", "map", "--fold-width", "0"]))),
             2
         );
+    }
+
+    #[test]
+    fn help_no_pager_uses_global_flag() {
+        let (_, cmd) = ok(parse_args(v(&["help", "--no-pager", "map"])));
+        match cmd {
+            CliCommand::Help {
+                no_pager,
+                topic,
+                prefer_doc_topic,
+                fold_width,
+            } => {
+                assert!(no_pager);
+                assert_eq!(topic.as_deref(), Some("map"));
+                assert!(!prefer_doc_topic);
+                assert_eq!(fold_width, None);
+            }
+            _ => panic!("expected Help"),
+        }
     }
 
     #[test]
@@ -921,38 +950,38 @@ mod tests {
     }
 
     #[test]
-    fn notebook_route_by_extension() {
+    fn markdown_route_by_extension() {
         let (_, cmd) = ok(parse_args(v(&["notes.md"])));
         match cmd {
-            CliCommand::Notebook(path, interactive) => {
+            CliCommand::Markdown { path, no_pager } => {
                 assert_eq!(path, PathBuf::from("notes.md"));
-                assert!(interactive);
+                assert!(!no_pager);
             }
-            _ => panic!("expected Notebook"),
+            _ => panic!("expected Markdown"),
         }
     }
 
     #[test]
-    fn notebook_non_interactive_flag() {
-        let (_, cmd) = ok(parse_args(v(&["--run-notebook", "notes.md"])));
+    fn markdown_no_pager_flag() {
+        let (_, cmd) = ok(parse_args(v(&["--no-pager", "notes.md"])));
         match cmd {
-            CliCommand::Notebook(path, interactive) => {
+            CliCommand::Markdown { path, no_pager } => {
                 assert_eq!(path, PathBuf::from("notes.md"));
-                assert!(!interactive);
+                assert!(no_pager);
             }
-            _ => panic!("expected Notebook"),
+            _ => panic!("expected Markdown"),
         }
     }
 
     #[test]
-    fn notebook_flag_ignored_for_wq_files() {
-        let (_, cmd) = ok(parse_args(v(&["--run-notebook", "script.wq"])));
-        match cmd {
-            CliCommand::Script(path) => {
-                assert_eq!(path, PathBuf::from("script.wq"));
-            }
-            _ => panic!("expected Script"),
-        }
+    fn removed_run_notebook_flag_errors() {
+        assert_eq!(is_err(parse_args(v(&["--run-notebook", "notes.md"]))), 2);
+    }
+
+    #[test]
+    fn no_pager_only_applies_to_rendered_markdown_or_help() {
+        assert_eq!(is_err(parse_args(v(&["--no-pager", "script.wq"]))), 2);
+        assert_eq!(is_err(parse_args(v(&["--no-pager"]))), 2);
     }
 
     #[test]

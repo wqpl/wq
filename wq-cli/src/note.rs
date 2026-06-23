@@ -1,7 +1,5 @@
-use std::cell::RefCell;
-use std::collections::HashSet;
 use std::io::{IsTerminal as _, Write as _};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use colored::Colorize as _;
@@ -9,16 +7,8 @@ use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use terminal_size::{Width, terminal_size};
 use unicode_width::UnicodeWidthStr as _;
 use wqpl::format::{FormatConfig, Formatter};
-use wqpl::session::Session;
-use wqpl::session::dbglog::set_debug_log_flags;
-use wqpl::session::stdio::{WqStdinError, set_wqstdin, wqstdin_add_history, wqstdin_readline};
 
-use crate::arg::RuntimeFlags;
-use crate::load::eval_inline_with_load;
-use crate::msg::{MsgType, print_load_error, system_msg_err, system_msg_out};
 use crate::repl::editor::WqReplHighlighter;
-use crate::repl::input::RustylineInput;
-use crate::{apply_builtins_flag, apply_interpreter_flag, wqdb_pause_handler};
 
 #[derive(Debug, Clone)]
 pub enum Segment {
@@ -27,40 +17,7 @@ pub enum Segment {
     CodeFence { lang: String, code: String },
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct NotebookConfig {
-    pub builtins: Option<String>,
-    pub interpreter: Option<String>,
-    pub wqdb: Option<bool>,
-    pub wqdb_cmds: Option<Vec<String>>,
-    pub dry: Option<bool>,
-    pub no_bt: Option<bool>,
-    pub print: Option<bool>,
-    pub stack_size: Option<usize>,
-    pub debug: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Notebook {
-    pub config: NotebookConfig,
-    pub segments: Vec<Segment>,
-}
-
-pub fn parse_notebook(content: &str) -> Result<Notebook, String> {
-    let (frontmatter, body) = split_frontmatter(content);
-
-    let config = if let Some(frontmatter) = frontmatter {
-        parse_frontmatter(frontmatter)?
-    } else {
-        NotebookConfig::default()
-    };
-
-    let segments = split_markdown_blocks(parse_segments(body));
-
-    Ok(Notebook { config, segments })
-}
-
-fn split_frontmatter(content: &str) -> (Option<&str>, &str) {
+fn strip_frontmatter(content: &str) -> &str {
     let mut rest = content;
 
     // Skip optional shebang line
@@ -68,13 +25,13 @@ fn split_frontmatter(content: &str) -> (Option<&str>, &str) {
         if let Some(idx) = rest.find('\n') {
             rest = &rest[idx + 1..];
         } else {
-            return (None, "");
+            return "";
         }
     }
 
     let trimmed = rest.trim_start();
     if !trimmed.starts_with("---") {
-        return (None, rest);
+        return rest;
     }
 
     let after_open = &trimmed[3..];
@@ -84,62 +41,17 @@ fn split_frontmatter(content: &str) -> (Option<&str>, &str) {
         let nl_idx = slice.find('\n').unwrap_or(slice.len());
         let line = slice[..nl_idx].trim_end();
         if line == "---" {
-            let frontmatter = after_open[..pos].trim();
             let body = if nl_idx < slice.len() {
                 &slice[nl_idx + 1..]
             } else {
                 ""
             };
-            return (Some(frontmatter), body);
+            return body;
         }
         pos += nl_idx + 1;
     }
 
-    (None, rest)
-}
-
-fn parse_frontmatter(frontmatter: &str) -> Result<NotebookConfig, String> {
-    let table: toml::Table = frontmatter
-        .parse()
-        .map_err(|e| format!("TOML parse error: {e}"))?;
-    let mut config = NotebookConfig::default();
-
-    if let Some(v) = table.get("builtins").and_then(|v| v.as_str()) {
-        config.builtins = Some(v.to_string());
-    }
-    if let Some(v) = table.get("interpreter").and_then(|v| v.as_str()) {
-        config.interpreter = Some(v.to_string());
-    }
-    if let Some(v) = table.get("wqdb").and_then(|v| v.as_bool()) {
-        config.wqdb = Some(v);
-    }
-    if let Some(v) = table.get("wqdb_cmds").and_then(|v| v.as_array()) {
-        let mut cmds = Vec::new();
-        for item in v {
-            let s = item
-                .as_str()
-                .ok_or("wqdb_cmds must be an array of strings")?;
-            cmds.push(s.to_string());
-        }
-        config.wqdb_cmds = Some(cmds);
-    }
-    if let Some(v) = table.get("dry").and_then(|v| v.as_bool()) {
-        config.dry = Some(v);
-    }
-    if let Some(v) = table.get("no_bt").and_then(|v| v.as_bool()) {
-        config.no_bt = Some(v);
-    }
-    if let Some(v) = table.get("print").and_then(|v| v.as_bool()) {
-        config.print = Some(v);
-    }
-    if let Some(v) = table.get("stack_size").and_then(|v| v.as_integer()) {
-        config.stack_size = Some(v as usize);
-    }
-    if let Some(v) = table.get("debug").and_then(|v| v.as_str()) {
-        config.debug = Some(v.to_string());
-    }
-
-    Ok(config)
+    rest
 }
 
 fn split_markdown_blocks(segments: Vec<Segment>) -> Vec<Segment> {
@@ -499,439 +411,15 @@ pub(crate) fn print_or_page(text: &str, no_pager: bool) {
     }
 }
 
-pub fn run_notebook(path: &Path, mut rtflags: RuntimeFlags, interactive: bool) {
+pub fn run_markdown(path: &Path, no_pager: bool) {
     let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
         eprintln!("Cannot read {}: {e}", path.display());
         std::process::exit(1);
     });
 
-    let notebook = match parse_notebook(&content) {
-        Ok(n) => n,
-        Err(e) => {
-            eprintln!("Notebook parse error: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    // Apply preamble config to rtflags
-    if let Some(v) = &notebook.config.builtins {
-        rtflags.builtins = Some(v.clone());
-    }
-    if let Some(v) = &notebook.config.interpreter {
-        rtflags.interpreter = Some(v.clone());
-    }
-    if let Some(v) = notebook.config.wqdb {
-        rtflags.wqdb = v;
-    }
-    if let Some(v) = &notebook.config.wqdb_cmds {
-        rtflags.wqdb_cmds = v.clone();
-    }
-    if let Some(v) = notebook.config.dry {
-        rtflags.dry = v;
-    }
-    if let Some(v) = notebook.config.no_bt {
-        rtflags.bt = !v;
-    }
-    if let Some(v) = notebook.config.print {
-        rtflags.print = v;
-    }
-    if let Some(v) = notebook.config.stack_size {
-        rtflags.stack_size_mebibyte = v;
-    }
-    if let Some(v) = &notebook.config.debug {
-        match wqpl::session::dbglog::DebugLogFlags::parse(v) {
-            Ok(flags) => rtflags.debug_flags = flags,
-            Err(e) => {
-                eprintln!("Invalid debug flags in preamble: {e}");
-                std::process::exit(2);
-            }
-        }
-    }
-
-    let mut session = Session::new();
-    session.set_pause_callback(Some(wqdb_pause_handler));
-    set_debug_log_flags(rtflags.debug_flags);
-    session.set_bt_mode(rtflags.bt);
-    set_wqstdin(Box::new(RustylineInput::new().unwrap()));
-    session.set_wqdb(rtflags.wqdb);
-    if !rtflags.wqdb_cmds.is_empty() {
-        session.set_wqdb_batch_cmds(rtflags.wqdb_cmds.clone());
-    }
-    session.set_dry_mode(rtflags.dry);
-    apply_builtins_flag(&mut session, &rtflags);
-    apply_interpreter_flag(&mut session, &rtflags);
-
     let highlighter = WqReplHighlighter::new();
-    if interactive {
-        run_interactive(session, notebook, rtflags, path, &highlighter);
-    } else {
-        run_non_interactive(session, notebook, rtflags, &highlighter);
-    }
-}
-
-fn run_non_interactive(
-    mut session: Session,
-    notebook: Notebook,
-    rtflags: RuntimeFlags,
-    highlighter: &WqReplHighlighter,
-) {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let loading = RefCell::new(HashSet::new());
-
-    for segment in &notebook.segments {
-        match segment {
-            Segment::Markdown(md) => {
-                println!("{}", render_terminal(md));
-            }
-            Segment::Heading { level, text } => {
-                println!("{}", format_heading(*level, text));
-            }
-            Segment::CodeFence { lang, code } => {
-                if lang == "wq" || lang.starts_with("wq ") {
-                    println!("{}", format_code_fence(lang, code, Some(highlighter)));
-                    if !rtflags.dry {
-                        match eval_inline_with_load(&mut session, code, &cwd, &loading, false) {
-                            Ok(report) => {
-                                for w in &report.warnings {
-                                    eprintln!("warning: {w}");
-                                }
-                                if rtflags.print
-                                    && let Some(result) = report.result
-                                {
-                                    println!("{}", result);
-                                }
-                            }
-                            Err(err) => {
-                                print_load_error(&err, &mut session);
-                                std::process::exit(1);
-                            }
-                        }
-                    } else {
-                        println!("{}", "dry run: skipped".dimmed());
-                    }
-                } else {
-                    println!("{}", format_code_fence(lang, code, Some(highlighter)));
-                }
-            }
-        }
-        println!();
-    }
-}
-
-fn run_interactive(
-    mut session: Session,
-    notebook: Notebook,
-    rtflags: RuntimeFlags,
-    path: &Path,
-    highlighter: &WqReplHighlighter,
-) {
-    println!(
-        "{} {}",
-        "wq notebook".magenta(),
-        path.display().to_string().dimmed()
-    );
-    println!(
-        "{}",
-        "Commands: [n]ext [p]rev [r]un [s]kip [g]oto [c]hapters [l]ist [q]uit".dimmed()
-    );
-    println!();
-
-    let segments = notebook.segments;
-    let total = segments.len().saturating_sub(1);
-    let mut pos = 0usize;
-    let mut last_shown_pos: Option<usize> = None;
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let loading = RefCell::new(HashSet::new());
-
-    loop {
-        // Show the current segment if we haven't shown it yet.
-        if pos < segments.len() && last_shown_pos != Some(pos) {
-            println!("{}", format!("[{pos}/{total}]").dimmed());
-            match &segments[pos] {
-                Segment::Markdown(md) => {
-                    println!("{}", render_terminal(md));
-                }
-                Segment::Heading { level, text } => {
-                    println!("{}", format_heading(*level, text));
-                }
-                Segment::CodeFence { lang, code } => {
-                    println!("{}", format_code_fence(lang, code, Some(highlighter)));
-                }
-            }
-            last_shown_pos = Some(pos);
-            println!();
-        }
-
-        if pos >= segments.len() {
-            println!("\n{}", "== The End ==".green());
-            break;
-        }
-
-        // Determine prompt based on current segment type
-        let (chapter_count, segment_count) = {
-            let chapter_count = segments[..=pos]
-                .iter()
-                .filter(|s| matches!(s, Segment::Heading { .. }))
-                .count()
-                .max(1);
-            let last_heading_pos = segments[..=pos]
-                .iter()
-                .enumerate()
-                .filter(|(_, s)| matches!(s, Segment::Heading { .. }))
-                .map(|(i, _)| i)
-                .next_back()
-                .unwrap_or(0);
-            let segment_count = pos - last_heading_pos + 1;
-            (chapter_count, segment_count)
-        };
-
-        let prompt_str = format!("wq[{chapter_count}][{segment_count}] ");
-        let prompt = match &segments[pos] {
-            Segment::CodeFence { lang, .. } if lang == "wq" || lang.starts_with("wq ") => {
-                if cfg!(windows) {
-                    prompt_str
-                } else {
-                    format!("{} ", prompt_str.cyan())
-                }
-            }
-            _ => {
-                if cfg!(windows) {
-                    prompt_str
-                } else {
-                    format!("{} ", prompt_str.magenta())
-                }
-            }
-        };
-
-        match wqstdin_readline(&prompt) {
-            Ok(line) => {
-                println!();
-                let input = line.trim();
-                if !input.is_empty() {
-                    wqstdin_add_history(input);
-                }
-
-                match input {
-                    "n" | "next" => {
-                        pos += 1;
-                    }
-                    "s" | "skip" => {
-                        pos += 1;
-                    }
-                    "p" | "prev" => {
-                        pos = pos.saturating_sub(1);
-                    }
-                    "r" | "run" => {
-                        if let Segment::CodeFence { code, .. } = &segments[pos] {
-                            if !rtflags.dry {
-                                match eval_inline_with_load(
-                                    &mut session,
-                                    code,
-                                    &cwd,
-                                    &loading,
-                                    false,
-                                ) {
-                                    Ok(report) => {
-                                        if let Some(result) = report.result {
-                                            system_msg_err(format!("{result}"), MsgType::Success);
-                                        }
-                                        for w in &report.warnings {
-                                            system_msg_err(format!("warning: {w}"), MsgType::Info);
-                                        }
-                                        println!();
-                                    }
-                                    Err(err) => {
-                                        print_load_error(&err, &mut session);
-                                        println!();
-                                    }
-                                }
-                            } else {
-                                system_msg_out("dry run: skipped".to_string(), MsgType::Info);
-                            }
-                        } else {
-                            system_msg_out("not at a code cell".to_string(), MsgType::Info);
-                        }
-                    }
-                    "q" | "quit" | "!!" => {
-                        system_msg_out("bye..".to_string(), MsgType::Info);
-                        break;
-                    }
-                    "c" | "chapters" => {
-                        system_msg_err(format!("segment {pos} / {total}"), MsgType::Info);
-                        for (i, seg) in segments.iter().enumerate() {
-                            if let Segment::Heading { level, text } = seg {
-                                let marker = if i == pos { ">" } else { " " };
-                                println!(
-                                    "{} [{:>3}] {} {}",
-                                    marker,
-                                    i,
-                                    "  ".repeat((*level as usize).saturating_sub(1)),
-                                    text.dimmed()
-                                );
-                            }
-                        }
-                    }
-                    "l" | "list" => {
-                        for (i, seg) in segments.iter().enumerate() {
-                            let marker = if i == pos { ">" } else { " " };
-                            match seg {
-                                Segment::Heading { level, text } => {
-                                    println!(
-                                        "{} [{:>3}] H{} {}",
-                                        marker,
-                                        i,
-                                        "#".repeat(*level as usize),
-                                        text.dimmed()
-                                    );
-                                }
-                                Segment::Markdown(text) => {
-                                    let preview: String =
-                                        text.chars().filter(|c| !c.is_control()).take(40).collect();
-                                    println!("{} [{:>3}] M {}", marker, i, preview.dimmed());
-                                }
-                                Segment::CodeFence { lang, .. } => {
-                                    println!("{} [{:>3}] C <{}>", marker, i, lang.dimmed());
-                                }
-                            }
-                        }
-                    }
-                    cmd if cmd.starts_with("g ") || cmd.starts_with("goto ") => {
-                        let idx = cmd
-                            .split_whitespace()
-                            .nth(1)
-                            .and_then(|s| s.parse::<usize>().ok());
-                        if let Some(i) = idx {
-                            if i < segments.len() {
-                                pos = i;
-                            } else {
-                                system_msg_err(
-                                    format!(
-                                        "index out of bounds (valid: 0-{})",
-                                        segments.len().saturating_sub(1)
-                                    ),
-                                    MsgType::Error,
-                                );
-                            }
-                        } else {
-                            system_msg_err(
-                                format!(
-                                    "usage: goto <index> (valid: 0-{})",
-                                    segments.len().saturating_sub(1)
-                                ),
-                                MsgType::Error,
-                            );
-                        }
-                    }
-                    cmd if cmd.starts_with('!') => {
-                        if cmd == "!reset" || cmd == "!r" {
-                            session.reset_session();
-                            system_msg_out("session reset".to_string(), MsgType::Info);
-                        } else if cmd == "!gb" || cmd == "!g" {
-                            let env = session.env_vars();
-                            if env.is_empty() {
-                                system_msg_out("no global bindings".to_string(), MsgType::Info);
-                            } else {
-                                let mut name_w = "name".len();
-                                let mut value_w = "value".len();
-                                let mut type_w = "type".len();
-                                for (name, v) in env.clone() {
-                                    name_w = name_w.max(name.len());
-                                    value_w = value_w.max(v.to_string().len());
-                                    type_w = type_w.max(v.type_name().len());
-                                }
-                                println!(
-                                    "{:<name_w$}  {:<value_w$}  {:<type_w$}",
-                                    "name",
-                                    "value",
-                                    "type",
-                                    name_w = name_w,
-                                    value_w = value_w,
-                                    type_w = type_w
-                                );
-                                println!(
-                                    "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
-                                    "",
-                                    "",
-                                    "",
-                                    name_w = name_w,
-                                    value_w = value_w,
-                                    type_w = type_w
-                                );
-                                for (name, v) in env.clone() {
-                                    println!(
-                                        "{:<name_w$}  {:<value_w$}  {:<type_w$}",
-                                        name,
-                                        v.to_string(),
-                                        v.type_name(),
-                                        name_w = name_w,
-                                        value_w = value_w,
-                                        type_w = type_w
-                                    );
-                                }
-                            }
-                        } else {
-                            match eval_inline_with_load(&mut session, cmd, &cwd, &loading, false) {
-                                Ok(report) => {
-                                    if let Some(result) = report.result {
-                                        println!("{}", result);
-                                    }
-                                    for w in &report.warnings {
-                                        system_msg_err(format!("warning: {w}"), MsgType::Info);
-                                    }
-                                }
-                                Err(err) => {
-                                    system_msg_err(format!("{err:?}"), MsgType::Error);
-                                }
-                            }
-                        }
-                    }
-                    "" => {}
-                    cmd if cmd == "e" || cmd == "exec" => {
-                        system_msg_err("usage: e <code> | exec <code>".to_string(), MsgType::Error);
-                    }
-                    cmd if cmd.starts_with("e ") || cmd.starts_with("exec ") => {
-                        let code = cmd.split_once(' ').map(|x| x.1).unwrap_or("").trim();
-                        if code.is_empty() {
-                            system_msg_err(
-                                "usage: e <code> | exec <code>".to_string(),
-                                MsgType::Error,
-                            );
-                        } else if !rtflags.dry {
-                            match eval_inline_with_load(&mut session, code, &cwd, &loading, false) {
-                                Ok(report) => {
-                                    if let Some(result) = report.result {
-                                        system_msg_err(format!("{result}"), MsgType::Success);
-                                    }
-                                    for w in &report.warnings {
-                                        system_msg_err(format!("warning: {w}"), MsgType::Info);
-                                    }
-                                    println!();
-                                }
-                                Err(err) => {
-                                    print_load_error(&err, &mut session);
-                                    println!();
-                                }
-                            }
-                        } else {
-                            system_msg_out("dry run: skipped".to_string(), MsgType::Info);
-                        }
-                    }
-                    _ => {
-                        system_msg_err(
-                            "unknown command (try: n r s p c l g e q)".to_string(),
-                            MsgType::Error,
-                        );
-                    }
-                }
-            }
-            Err(WqStdinError::Eof) => break,
-            Err(WqStdinError::Interrupted) => continue,
-            Err(WqStdinError::Other(e)) => {
-                system_msg_err(format!("input error: {e}"), MsgType::Error);
-                break;
-            }
-        }
-    }
+    let rendered = render_markdown_document(strip_frontmatter(&content), Some(&highlighter));
+    print_or_page(&rendered, no_pager);
 }
 
 #[cfg(test)]
@@ -939,69 +427,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_split_frontmatter_basic() {
+    fn test_strip_frontmatter_basic() {
         let content = "---\nbuiltins = \"all\"\n---\n# Hello\n";
-        let (fm, body) = split_frontmatter(content);
-        assert_eq!(fm, Some("builtins = \"all\""));
-        assert_eq!(body, "# Hello\n");
+        assert_eq!(strip_frontmatter(content), "# Hello\n");
     }
 
     #[test]
-    fn test_split_frontmatter_no_frontmatter() {
+    fn test_strip_frontmatter_no_frontmatter() {
         let content = "# Hello\n";
-        let (fm, body) = split_frontmatter(content);
-        assert_eq!(fm, None);
-        assert_eq!(body, "# Hello\n");
+        assert_eq!(strip_frontmatter(content), "# Hello\n");
     }
 
     #[test]
-    fn test_split_frontmatter_with_shebang() {
+    fn test_strip_frontmatter_with_shebang() {
         let content = "#!/usr/bin/env wq\n---\nbuiltins = \"all\"\n---\n# Hello\n";
-        let (fm, body) = split_frontmatter(content);
-        assert_eq!(fm, Some("builtins = \"all\""));
-        assert_eq!(body, "# Hello\n");
+        assert_eq!(strip_frontmatter(content), "# Hello\n");
     }
 
     #[test]
-    fn test_split_frontmatter_dash_in_escaped_value() {
-        // Literal newlines inside basic TOML strings are invalid;
-        // users should use \n escapes or multi-line strings.
-        // This test ensures a frontmatter without raw --- works.
+    fn test_strip_frontmatter_dash_in_escaped_value() {
         let content = "---\ndesc = \"foo\\n---\\nbar\"\n---\n# Hello\n";
-        let (fm, body) = split_frontmatter(content);
-        assert_eq!(fm, Some("desc = \"foo\\n---\\nbar\""));
-        assert_eq!(body, "# Hello\n");
+        assert_eq!(strip_frontmatter(content), "# Hello\n");
     }
 
     #[test]
-    fn test_split_frontmatter_no_trailing_newline() {
+    fn test_strip_frontmatter_no_trailing_newline() {
         let content = "---\nbuiltins = \"all\"\n---";
-        let (fm, body) = split_frontmatter(content);
-        assert_eq!(fm, Some("builtins = \"all\""));
-        assert_eq!(body, "");
+        assert_eq!(strip_frontmatter(content), "");
     }
 
     #[test]
-    fn test_parse_frontmatter_wqdb_cmds() {
-        let fm = "wqdb_cmds = [\"bt\", \"c\"]\nprint = true";
-        let config = parse_frontmatter(fm).unwrap();
-        assert_eq!(
-            config.wqdb_cmds,
-            Some(vec!["bt".to_string(), "c".to_string()])
-        );
-        assert_eq!(config.print, Some(true));
-    }
-
-    #[test]
-    fn test_parse_notebook_happy_path() {
+    fn test_strip_frontmatter_keeps_markdown_segments() {
         let content = "---\nbuiltins = \"all\"\n---\n# Title\n\nText.\n\n```wq\n1+1\n```\n\n## Sub\n\nMore text.\n"
             .replace("\r\n", "\n");
-        let nb = parse_notebook(&content).unwrap();
-        assert_eq!(nb.config.builtins, Some("all".to_string()));
-        assert!(!nb.segments.is_empty());
-        assert!(matches!(nb.segments[0], Segment::Heading { level: 1, .. }));
-        let has_code = nb
-            .segments
+        let segments = split_markdown_blocks(parse_segments(strip_frontmatter(&content)));
+        assert!(!segments.is_empty());
+        assert!(matches!(segments[0], Segment::Heading { level: 1, .. }));
+        let has_code = segments
             .iter()
             .any(|s| matches!(s, Segment::CodeFence { lang, .. } if lang == "wq"));
         assert!(has_code);
