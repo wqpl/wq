@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use colored::Colorize;
 use wqpl::session::Session;
+use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::symbol::UseKind;
 
 pub fn run_symbols<P: AsRef<Path>>(path: P, name: &str) {
@@ -60,12 +60,7 @@ fn print_symbol_result(src: &str, result: &wqpl::symbol::SymbolQueryResult) {
     let ref_capture_note = if ref_capture_count == 0 {
         String::new()
     } else {
-        format!(
-            "  {}",
-            format!("ref captures: {ref_capture_count}")
-                .magenta()
-                .bold()
-        )
+        format!("  {}", symbol_emphasis(&format!("ref captures: {ref_capture_count}")))
     };
     match result.def_span {
         Some((start, _)) => {
@@ -78,17 +73,37 @@ fn print_symbol_result(src: &str, result: &wqpl::symbol::SymbolQueryResult) {
     }
     for loc in &result.uses {
         let (l, c) = line_col(src, loc.span.0);
-        let kind_str = match loc.kind {
-            UseKind::Read => "read       ".normal(),
-            UseKind::Write => "write      ".normal(),
-            UseKind::OuterRead => "outer-ref-r".magenta().bold(),
-            UseKind::OuterWrite => "outer-ref-w".magenta().bold(),
-            UseKind::RefCaptureRead => "ref-read   ".magenta().bold(),
-            UseKind::RefCaptureWrite => "ref-write  ".magenta().bold(),
-        };
+        let kind_str = use_kind_label(loc.kind);
         let snippet = snippet_at(src, loc.span);
         println!("  {} {}:{}  {}", kind_str, l, c, snippet);
     }
+}
+
+fn use_kind_label(kind: UseKind) -> String {
+    use_kind_label_with_color_mode(kind, ColorMode::Auto)
+}
+
+fn use_kind_label_with_color_mode(kind: UseKind, color_mode: ColorMode) -> String {
+    match kind {
+        UseKind::Read => "read       ".to_string(),
+        UseKind::Write => "write      ".to_string(),
+        UseKind::OuterRead => symbol_emphasis_with_color_mode("outer-ref-r", color_mode),
+        UseKind::OuterWrite => symbol_emphasis_with_color_mode("outer-ref-w", color_mode),
+        UseKind::RefCaptureRead => symbol_emphasis_with_color_mode("ref-read   ", color_mode),
+        UseKind::RefCaptureWrite => symbol_emphasis_with_color_mode("ref-write  ", color_mode),
+    }
+}
+
+fn symbol_emphasis(text: &str) -> String {
+    symbol_emphasis_with_color_mode(text, ColorMode::Auto)
+}
+
+fn symbol_emphasis_with_color_mode(text: &str, color_mode: ColorMode) -> String {
+    paint(
+        text,
+        TextStyle::new().fg(AnsiColor::Magenta).bold(),
+        color_mode,
+    )
 }
 
 fn line_col(src: &str, byte_offset: usize) -> (usize, usize) {
@@ -120,5 +135,22 @@ fn snippet_at(src: &str, span: (usize, usize)) -> String {
         slice[..pos].to_string()
     } else {
         slice.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ref_capture_labels_use_explicit_style_renderer() {
+        assert_eq!(
+            use_kind_label_with_color_mode(UseKind::RefCaptureRead, ColorMode::Always),
+            "\x1b[1;35mref-read   \x1b[0m"
+        );
+        assert_eq!(
+            use_kind_label_with_color_mode(UseKind::Read, ColorMode::Always),
+            "read       "
+        );
     }
 }
