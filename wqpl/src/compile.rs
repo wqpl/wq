@@ -3438,16 +3438,24 @@ mod tests {
     use crate::parse::{Parser, fold};
 
     fn compile_source_with_spans(src: &str) -> (Vec<Instruction>, Vec<Option<(usize, usize)>>) {
+        compile_source_with_globals(src, Default::default())
+    }
+
+    fn compile_source_with_globals(
+        src: &str,
+        globals: crate::vm::GlobalMap,
+    ) -> (Vec<Instruction>, Vec<Option<(usize, usize)>>) {
         let mut lexer = Lexer::new(src);
         let tokens = lexer.tokenize().expect("tokenize");
-        let mut parser = Parser::new(tokens, src.to_string());
+        let builtins = crate::builtins::Builtins::new();
+        let mut parser = Parser::new_with_builtins(tokens, src.to_string(), builtins.clone());
         let ast = parser.parse().expect("parse");
-        let mut resolver = Resolver::new();
+        let mut resolver = Resolver::from_env(globals.clone(), builtins.clone());
         let ast = resolver.resolve(ast);
         let ast = fold::fold(ast);
-        let mut compiler = Compiler::new();
+        let mut compiler = Compiler::new_with_builtins(builtins);
         compiler.compile(&ast).expect("compile");
-        compiler.propagate_constants();
+        compiler.propagate_constants_with_globals(&globals);
         compiler.rewrite_tail_calls();
         (compiler.instructions, compiler.dbg_pc_spans)
     }
@@ -3958,6 +3966,44 @@ mod tests {
             ),
             "captured a must not fold through composed callable call: {:#?}",
             func.instructions
+        );
+    }
+
+    #[test]
+    fn const_propagation_uses_seeded_global_values() {
+        let globals = crate::vm::GlobalMap::from_iter([("a".to_string(), Value::Int(1))]);
+        let (top, _) = compile_source_with_globals("b:a+2\nb", globals);
+
+        assert!(
+            top.windows(2).any(|pair| matches!(
+                (&pair[0], &pair[1]),
+                (Instruction::LoadConst(value), Instruction::StoreVarKeep(name))
+                    if **value == Value::Int(3) && name.as_ref() == "b"
+            )),
+            "streamed assignment should fold using seeded global a: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn const_propagation_seeds_global_values_into_closure_captures() {
+        let globals = crate::vm::GlobalMap::from_iter([("a".to_string(), Value::Int(1))]);
+        let (top, _) = compile_source_with_globals("f:{a+2}\nf", globals);
+
+        let func = first_closure_payload(&top);
+        assert!(
+            matches!(
+                func.captures.as_slice(),
+                [Capture::Global(name, _)] if name.as_str() == "a"
+            ),
+            "expected closure to capture global a: {:#?}",
+            func.captures,
+        );
+        assert!(
+            func.instructions
+                .iter()
+                .any(|inst| matches!(inst, Instruction::LoadConst(value) if **value == Value::Int(3))),
+            "streamed closure should fold captured global a: {:#?}",
+            func.instructions,
         );
     }
 

@@ -1,0 +1,10 @@
+name = "fmt_wrap"
+source_glob = "hotchoco/fmt/*.wq"
+exclude_marker = "//exclude"
+output_extension = ".wq"
+
+[[modes]]
+name = "wrap-only-width-8"
+subcommand = "fmt"
+flags = ["--wrap-only", "--width", "8"]
+capture = "stdout"
