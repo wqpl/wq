@@ -146,13 +146,56 @@ impl AlgebraicRoot {
     }
 }
 
+/// Defining polynomial for a simple algebraic extension.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum AlgebraicFieldPoly {
+    /// Primitive positive-leading integer polynomial:
+    /// poly[0] + poly[1]·x + ... + poly[n]·x^n.
+    Integer(Arc<[BigInt]>),
+}
+
+impl AlgebraicFieldPoly {
+    fn new_integer(poly: Vec<BigInt>) -> WqResult<Self> {
+        Ok(Self::Integer(Arc::from(normalize_field_poly(poly)?)))
+    }
+
+    #[cfg(test)]
+    fn from_integer_coeffs_unchecked(poly: Vec<BigInt>) -> Self {
+        Self::Integer(Arc::from(poly))
+    }
+
+    fn as_integer(&self) -> &[BigInt] {
+        match self {
+            Self::Integer(poly) => poly,
+        }
+    }
+
+    fn degree(&self) -> usize {
+        self.as_integer().len().saturating_sub(1)
+    }
+
+    fn validate_invariants(&self) -> WqResult<()> {
+        match self {
+            Self::Integer(poly) => validate_normalized_field_poly(poly),
+        }
+    }
+
+    fn push_canonical_key(&self, out: &mut String) {
+        match self {
+            Self::Integer(poly) => {
+                for coeff in poly.iter() {
+                    write!(out, "{coeff};").expect("writing to String should not fail");
+                }
+            }
+        }
+    }
+}
+
 /// Field descriptor for a simple algebraic extension K(α).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct AlgebraicField {
     base: AlgebraicBase,
-    /// Primitive positive-leading integer polynomial:
-    /// poly[0] + poly[1]·x + ... + poly[n]·x^n.
-    poly: Arc<[BigInt]>,
+    poly: AlgebraicFieldPoly,
     /// Root identity for the generator α.
     root: AlgebraicRoot,
 }
@@ -167,11 +210,11 @@ impl AlgebraicField {
         poly: Vec<BigInt>,
         interval: (f64, f64),
     ) -> WqResult<Arc<Self>> {
-        let poly = normalize_field_poly(poly)?;
-        validate_real_interval(&poly, interval)?;
+        let poly = AlgebraicFieldPoly::new_integer(poly)?;
+        validate_real_interval(poly.as_integer(), interval)?;
         let field = Arc::new(Self {
             base,
-            poly: Arc::from(poly),
+            poly,
             root: AlgebraicRoot::real_from_interval(interval),
         });
         debug_assert!(
@@ -182,11 +225,11 @@ impl AlgebraicField {
     }
 
     pub(crate) fn degree(&self) -> usize {
-        self.poly.len().saturating_sub(1)
+        self.poly.degree()
     }
 
     pub(crate) fn poly(&self) -> &[BigInt] {
-        &self.poly
+        self.poly.as_integer()
     }
 
     pub(crate) fn interval(&self) -> (f64, f64) {
@@ -194,8 +237,8 @@ impl AlgebraicField {
     }
 
     pub(crate) fn validate_invariants(&self) -> WqResult<()> {
-        validate_normalized_field_poly(&self.poly)?;
-        self.root.validate(&self.poly)?;
+        self.poly.validate_invariants()?;
+        self.root.validate(self.poly())?;
         if let AlgebraicBase::Extension(base) = &self.base {
             base.validate_invariants()?;
         }
@@ -206,9 +249,7 @@ impl AlgebraicField {
         out.push_str("field(base:");
         self.base.push_canonical_key(out);
         out.push_str(";poly:");
-        for coeff in self.poly.iter() {
-            write!(out, "{coeff};").expect("writing to String should not fail");
-        }
+        self.poly.push_canonical_key(out);
         self.root.push_canonical_key(out);
         out.push(')');
     }
@@ -1489,10 +1530,35 @@ mod tests {
     }
 
     #[test]
+    fn field_poly_wrapper_validates_integer_coefficients() {
+        let poly = AlgebraicFieldPoly::new_integer(vec![
+            BigInt::from(4),
+            BigInt::zero(),
+            BigInt::from(-2),
+        ])
+        .expect("integer field polynomial should normalize");
+        assert_eq!(
+            poly.as_integer(),
+            [BigInt::from(-2), BigInt::zero(), BigInt::one()]
+        );
+
+        let non_primitive = AlgebraicFieldPoly::from_integer_coeffs_unchecked(vec![
+            BigInt::from(-4),
+            BigInt::zero(),
+            BigInt::from(2),
+        ]);
+        assert!(non_primitive.validate_invariants().is_err());
+    }
+
+    #[test]
     fn invariant_validation_rejects_internal_bad_shapes() {
         let non_primitive_field = AlgebraicField {
             base: AlgebraicBase::Rational,
-            poly: Arc::from(vec![BigInt::from(-4), BigInt::zero(), BigInt::from(2)]),
+            poly: AlgebraicFieldPoly::from_integer_coeffs_unchecked(vec![
+                BigInt::from(-4),
+                BigInt::zero(),
+                BigInt::from(2),
+            ]),
             root: AlgebraicRoot::real_from_interval((1.0, 2.0)),
         };
         assert!(non_primitive_field.validate_invariants().is_err());
@@ -1519,8 +1585,11 @@ mod tests {
 
     #[test]
     fn root_isolation_does_not_define_field_identity() {
-        let poly: Arc<[BigInt]> =
-            Arc::from(vec![BigInt::from(-2), BigInt::zero(), BigInt::one()]);
+        let poly = AlgebraicFieldPoly::from_integer_coeffs_unchecked(vec![
+            BigInt::from(-2),
+            BigInt::zero(),
+            BigInt::one(),
+        ]);
         let coarse = AlgebraicField {
             base: AlgebraicBase::Rational,
             poly: poly.clone(),
