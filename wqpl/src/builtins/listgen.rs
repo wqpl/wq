@@ -349,6 +349,20 @@ pub(super) fn wq_where(args: BuiltinFnArgs) -> WqResult<Value> {
                 }
                 Ok(())
             }
+            Value::BoolList(items) => {
+                for (i, &b) in items.iter().enumerate() {
+                    if b {
+                        let mut coord = prefix.clone();
+                        coord.push(i.try_into().map_err(|e| {
+                            WqError::new(WqErrorType::Domain)
+                                .src(BE::Where)
+                                .attach_note(e)
+                        })?);
+                        push_coord(out, coord);
+                    }
+                }
+                Ok(())
+            }
             Value::Int(n) => {
                 if *n != 0 {
                     push_coord(out, prefix.clone());
@@ -382,12 +396,25 @@ pub(super) fn wq_where(args: BuiltinFnArgs) -> WqResult<Value> {
             }
             Ok(Value::IntList(Arc::new(indices)))
         }
+        Value::BoolList(items) => {
+            let mut indices = Vec::new();
+            for (i, b) in items.iter().enumerate() {
+                if *b {
+                    indices.push(i.try_into().map_err(|e| {
+                        WqError::new(WqErrorType::Domain)
+                            .src(BE::Where)
+                            .attach_note(e)
+                    })?);
+                }
+            }
+            Ok(Value::IntList(Arc::new(indices)))
+        }
         // Generic list: nested -> coordinate vectors (with atom for length-1), else flat
         // ints/bools.
         Value::List(items) => {
             let has_nested = items
                 .iter()
-                .any(|x| matches!(x, Value::List(_) | Value::IntList(_)));
+                .any(|x| matches!(x, Value::List(_) | Value::IntList(_) | Value::BoolList(_)));
             if has_nested {
                 let mut out = Vec::new();
                 let mut pref = Vec::new();

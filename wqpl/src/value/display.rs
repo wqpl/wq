@@ -45,6 +45,7 @@ impl fmt::Display for Value {
             }
             Value::Tag(s) => write!(f, "`{s}"),
             Value::Bool(b) => write!(f, "{}", if *b { "T" } else { "F" }),
+            Value::BoolList(items) => fmt_bool_slice(f, items),
             Value::IntList(_) | Value::IntRange(_) => fmt_int_seq(
                 f,
                 self.packed_int_seq()
@@ -79,7 +80,7 @@ impl fmt::Display for Value {
                 } else if items.len() == 1 {
                     let item = &items[0];
                     match item {
-                        Value::List(_) | Value::IntList(_) | Value::IntRange(_)
+                        Value::List(_) | Value::IntList(_) | Value::IntRange(_) | Value::BoolList(_)
                             if !item.is_unit() =>
                         // Nest a 1‑element list inside another 1‑element list
                         // renders as ,(,a) instead of the invalid ,,a.
@@ -182,6 +183,21 @@ fn fmt_int_seq(f: &mut fmt::Formatter<'_>, items: ExactIntSeq<'_>) -> fmt::Resul
         write!(f, "({})", strs.join(";"))
     }
 }
+
+fn fmt_bool_slice(f: &mut fmt::Formatter<'_>, items: &[bool]) -> fmt::Result {
+    if items.is_empty() {
+        return write!(f, "()");
+    }
+    if items.len() == 1 {
+        write!(f, ",{}", if items[0] { "T" } else { "F" })
+    } else {
+        let strs: Vec<&str> = items
+            .iter()
+            .map(|item| if *item { "T" } else { "F" })
+            .collect();
+        write!(f, "({})", strs.join(";"))
+    }
+}
 pub(crate) fn escape_str_for_display(s: &str) -> String {
     crate::escape::escape_string_inner(s, '"')
 }
@@ -263,7 +279,7 @@ fn parse_dict_table(val: &Value) -> Option<TableData> {
 
 fn is_table_column_value(value: &Value) -> bool {
     match value {
-        Value::IntList(_) => true,
+        Value::IntList(_) | Value::BoolList(_) => true,
         Value::List(items) => !is_char_list(items),
         _ => false,
     }
@@ -321,6 +337,7 @@ fn parse_dict_of_lists(val: &Value) -> Option<TableData> {
             .filter_map(|v| match v {
                 Value::List(items) => Some(items.len()),
                 Value::IntList(items) => Some(items.len()),
+                Value::BoolList(items) => Some(items.len()),
                 _ => None,
             })
             .max()
@@ -341,6 +358,13 @@ fn parse_dict_of_lists(val: &Value) -> Option<TableData> {
                         Value::IntList(items) => {
                             if let Some(v) = items.get(i) {
                                 row.push(v.to_string());
+                            } else {
+                                row.push(String::new());
+                            }
+                        }
+                        Value::BoolList(items) => {
+                            if let Some(v) = items.get(i) {
+                                row.push(if *v { "T".to_string() } else { "F".to_string() });
                             } else {
                                 row.push(String::new());
                             }

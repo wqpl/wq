@@ -11,7 +11,7 @@ impl Value {
     pub(crate) fn bulk_index_key(&self) -> Option<()> {
         matches!(
             self,
-            Value::IntList(_) | Value::IntRange(_) | Value::List(_)
+            Value::IntList(_) | Value::IntRange(_) | Value::BoolList(_) | Value::List(_)
         )
         .then_some(())
     }
@@ -209,6 +209,54 @@ impl Value {
                 }
                 Some(())
             }
+            Value::BoolList(items) => {
+                if let Some(idx) = resolve_single_idx(key, items.len()) {
+                    if let Value::Bool(v) = value {
+                        Arc::make_mut(items)[idx] = v;
+                    } else {
+                        let mut list = promote_bools(items);
+                        list[idx] = value;
+                        *self = Value::List(Arc::new(list));
+                    }
+                    return Some(());
+                }
+                let idxs = resolve_many_idx(key, items.len())?;
+                match value {
+                    Value::Bool(v) => {
+                        for idx in idxs {
+                            Arc::make_mut(items)[idx] = v;
+                        }
+                    }
+                    Value::BoolList(vals) => {
+                        assign_bool_slice_to_bool_list(items, idxs, vals.as_slice())?;
+                    }
+                    Value::List(vals) => {
+                        if idxs.len() != vals.len() {
+                            return None;
+                        }
+                        if let Some(bools) = collect_bools(&vals) {
+                            let items = Arc::make_mut(items);
+                            for (idx, val) in idxs.into_iter().zip(bools) {
+                                items[idx] = val;
+                            }
+                        } else {
+                            let mut list = promote_bools(items);
+                            for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
+                                list[idx] = val;
+                            }
+                            *self = Value::List(Arc::new(list));
+                        }
+                    }
+                    atom => {
+                        let mut list = promote_bools(items);
+                        for idx in idxs {
+                            list[idx] = atom.clone();
+                        }
+                        *self = Value::List(Arc::new(list));
+                    }
+                }
+                Some(())
+            }
             Value::String(s) => {
                 let len = s.chars().count();
                 if let Some(idx) = resolve_single_idx(key, len) {
@@ -375,8 +423,22 @@ fn collect_exact_ints(values: &[Value]) -> Option<Vec<i64>> {
         .collect()
 }
 
+fn collect_bools(values: &[Value]) -> Option<Vec<bool>> {
+    values
+        .iter()
+        .map(|v| match v {
+            Value::Bool(b) => Some(*b),
+            _ => None,
+        })
+        .collect()
+}
+
 fn promote_ints(items: &[i64]) -> Vec<Value> {
     items.iter().copied().map(Value::Int).collect()
+}
+
+fn promote_bools(items: &[bool]) -> Vec<Value> {
+    items.iter().copied().map(Value::Bool).collect()
 }
 
 fn assign_list_bulk(items: &mut [Value], idxs: Vec<usize>, value: Value) -> Option<()> {
@@ -387,6 +449,14 @@ fn assign_list_bulk(items: &mut [Value], idxs: Vec<usize>, value: Value) -> Opti
             }
             for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
                 items[idx] = val;
+            }
+        }
+        Value::BoolList(vals) => {
+            if idxs.len() != vals.len() {
+                return None;
+            }
+            for (idx, val) in idxs.into_iter().zip(vals.iter().copied()) {
+                items[idx] = Value::Bool(val);
             }
         }
         other => {
@@ -427,6 +497,21 @@ fn assign_exact_int_seq_to_list(
     }
     for (idx, val) in idxs.into_iter().zip(vals.iter()) {
         items[idx] = Value::Int(val);
+    }
+    Some(())
+}
+
+fn assign_bool_slice_to_bool_list(
+    items: &mut Arc<Vec<bool>>,
+    idxs: Vec<usize>,
+    vals: &[bool],
+) -> Option<()> {
+    if idxs.len() != vals.len() {
+        return None;
+    }
+    let items = Arc::make_mut(items);
+    for (idx, val) in idxs.into_iter().zip(vals.iter().copied()) {
+        items[idx] = val;
     }
     Some(())
 }
@@ -478,6 +563,14 @@ fn assign_dict_bulk(
             }
             for (key, value) in keys.into_iter().zip(vals.iter().cloned()) {
                 assign_dict_entry(map, key, value)?;
+            }
+        }
+        Value::BoolList(vals) => {
+            if keys.len() != vals.len() {
+                return None;
+            }
+            for (key, value) in keys.into_iter().zip(vals.iter().copied()) {
+                assign_dict_entry(map, key, Value::Bool(value))?;
             }
         }
         atom => {
@@ -571,6 +664,52 @@ pub(crate) fn insert_in_place(
                 let mut base = std::mem::take(Arc::make_mut(items))
                     .into_iter()
                     .map(Value::Int)
+                    .collect::<Vec<_>>();
+                let mut tail = base.split_off(idx);
+                base.extend(values);
+                base.append(&mut tail);
+                *data = Value::List(Arc::new(base));
+            }
+            Ok(data.clone())
+        }
+        Value::BoolList(items) => {
+            let (positions, is_multi) = parse_insert_positions(dsts, items.len())?;
+            if positions.is_empty() {
+                return Ok(data.clone());
+            }
+
+            if is_multi {
+                if let Some(values) = bool_insert_pairwise(xs, positions.len()) {
+                    let base = std::mem::take(Arc::make_mut(items));
+                    *items = Arc::new(insert_many_owned(
+                        base,
+                        positions.into_iter().zip(values).collect::<Vec<_>>(),
+                    ));
+                    return Ok(data.clone());
+                }
+
+                let values = list_insert_pairwise(xs, positions.len())?;
+                let base = std::mem::take(Arc::make_mut(items))
+                    .into_iter()
+                    .map(Value::Bool)
+                    .collect::<Vec<_>>();
+                *data = Value::List(Arc::new(insert_many_owned(
+                    base,
+                    positions.into_iter().zip(values).collect(),
+                )));
+            } else {
+                let idx = positions[0];
+                if let Some(values) = bool_insert_items(xs) {
+                    let mut tail = Arc::make_mut(items).split_off(idx);
+                    Arc::make_mut(items).extend(values);
+                    Arc::make_mut(items).append(&mut tail);
+                    return Ok(data.clone());
+                }
+
+                let values = list_insert_items(xs);
+                let mut base = std::mem::take(Arc::make_mut(items))
+                    .into_iter()
+                    .map(Value::Bool)
                     .collect::<Vec<_>>();
                 let mut tail = base.split_off(idx);
                 base.extend(values);
@@ -681,6 +820,19 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
                 Value::IntList(Arc::new(removed))
             }
         }
+        Value::BoolList(items) => {
+            let split = items.len().saturating_sub(n);
+            let removed = Arc::make_mut(items).split_off(split);
+            if n == 1 {
+                removed
+                    .into_iter()
+                    .next()
+                    .map(Value::Bool)
+                    .unwrap_or_else(Value::unit)
+            } else {
+                Value::BoolList(Arc::new(removed))
+            }
+        }
         Value::List(items) => {
             let split = items.len().saturating_sub(n);
             let removed = Arc::make_mut(items).split_off(split);
@@ -758,6 +910,21 @@ pub(crate) fn remove_in_place(data: &mut Value, idx: &Value) -> WqResult<Value> 
                 Ok(Value::Int(Arc::make_mut(items).remove(positions[0])))
             }
         }
+        Value::BoolList(items) => {
+            let (positions, is_multi) = parse_remove_positions(idx, items.len())?;
+            if is_multi {
+                ensure_unique_positions(&positions, "remove indices")?;
+                let removed = positions.iter().map(|&i| items[i]).collect::<Vec<_>>();
+                let mut sorted = positions;
+                sorted.sort_unstable_by(|a, b| b.cmp(a));
+                for idx in sorted {
+                    Arc::make_mut(items).remove(idx);
+                }
+                Ok(Value::BoolList(Arc::new(removed)))
+            } else {
+                Ok(Value::Bool(Arc::make_mut(items).remove(positions[0])))
+            }
+        }
         Value::List(items) => {
             let (positions, is_multi) = parse_remove_positions(idx, items.len())?;
             if is_multi {
@@ -816,6 +983,7 @@ pub(crate) fn remove_in_place(data: &mut Value, idx: &Value) -> WqResult<Value> 
 fn list_insert_items(xs: &Value) -> Vec<Value> {
     match xs {
         Value::List(items) => items.iter().cloned().collect(),
+        Value::BoolList(items) => items.iter().copied().map(Value::Bool).collect(),
         other => other
             .packed_int_seq()
             .map(|items| items.iter().map(Value::Int).collect())
@@ -826,6 +994,9 @@ fn list_insert_items(xs: &Value) -> Vec<Value> {
 fn list_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<Value>> {
     match xs {
         Value::List(items) if items.len() == len => Ok(items.iter().cloned().collect()),
+        Value::BoolList(items) if items.len() == len => {
+            Ok(items.iter().copied().map(Value::Bool).collect())
+        }
         other => {
             if let Some(items) = other.packed_int_seq() {
                 return if items.len() == len {
@@ -836,7 +1007,10 @@ fn list_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<Value>> {
                 };
             }
             // Broadcast a single (non-container) value to all positions.
-            if !matches!(xs, Value::List(_) | Value::IntList(_) | Value::IntRange(_)) {
+            if !matches!(
+                xs,
+                Value::List(_) | Value::IntList(_) | Value::IntRange(_) | Value::BoolList(_)
+            ) {
                 Ok(vec![xs.clone(); len])
             } else {
                 Err(WqError::new(WqErrorType::Domain)
@@ -859,13 +1033,35 @@ fn exact_int_insert_pairwise(xs: &Value, len: usize) -> Option<Vec<i64>> {
     (items.len() == len).then(|| items.to_vec())
 }
 
+fn bool_insert_items(xs: &Value) -> Option<Vec<bool>> {
+    match xs {
+        Value::Bool(b) => Some(vec![*b]),
+        Value::BoolList(items) => Some(items.iter().copied().collect()),
+        Value::List(items) => collect_bools(items),
+        _ => None,
+    }
+}
+
+fn bool_insert_pairwise(xs: &Value, len: usize) -> Option<Vec<bool>> {
+    match xs {
+        Value::Bool(b) => Some(vec![*b; len]),
+        Value::BoolList(items) if items.len() == len => Some(items.iter().copied().collect()),
+        Value::List(items) if items.len() == len => collect_bools(items),
+        _ => None,
+    }
+}
+
 fn string_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<String>> {
     match xs {
         Value::List(items) if items.len() == len => items
             .iter()
             .map(Value::to_rust_string_with_note)
             .collect::<WqResult<Vec<_>>>(),
-        _ if !matches!(xs, Value::List(_) | Value::IntList(_) | Value::IntRange(_)) => {
+        _ if !matches!(
+            xs,
+            Value::List(_) | Value::IntList(_) | Value::IntRange(_) | Value::BoolList(_)
+        ) =>
+        {
             Ok(vec![xs.to_rust_string_with_note()?; len])
         }
         other => {
@@ -1273,6 +1469,24 @@ mod tests {
 
         assert_eq!(list.assign_by_index(&Value::Int(1), Value::Int(99)), Some(()));
         assert_eq!(list, Value::IntList(Arc::new(vec![10, 99, 14])));
+    }
+
+    #[test]
+    fn boollist_assignment_preserves_or_widens_storage() {
+        let mut list = Value::BoolList(Arc::new(vec![true, false, true]));
+
+        assert_eq!(list.assign_by_index(&Value::Int(1), Value::Bool(true)), Some(()));
+        assert_eq!(list, Value::BoolList(Arc::new(vec![true, true, true])));
+
+        assert_eq!(list.assign_by_index(&Value::Int(0), Value::Int(1)), Some(()));
+        assert_eq!(
+            list,
+            Value::List(Arc::new(vec![
+                Value::Int(1),
+                Value::Bool(true),
+                Value::Bool(true)
+            ]))
+        );
     }
 
     #[test]

@@ -175,6 +175,12 @@ fn push_atom_key(value: &Value, out: &mut String) {
         Value::Bool(b) => {
             write!(out, "b:{b};").expect("writing to String should not fail");
         }
+        Value::BoolList(items) => {
+            write!(out, "bl:{}:", items.len()).expect("writing to String should not fail");
+            for item in items.iter() {
+                write!(out, "{item};").expect("writing to String should not fail");
+            }
+        }
         Value::IntList(_) | Value::IntRange(_) => {
             let items = value
                 .packed_int_seq()

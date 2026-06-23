@@ -43,6 +43,7 @@ pub(crate) enum ValueSeq<'a> {
     List(&'a [Value]),
     IntList(&'a [i64]),
     IntRange(&'a IntRangeData),
+    BoolList(&'a [bool]),
     String(&'a str),
 }
 
@@ -145,6 +146,7 @@ impl<'a> ValueSeq<'a> {
             Value::List(items) => Some(Self::List(items.as_slice())),
             Value::IntList(items) => Some(Self::IntList(items.as_slice())),
             Value::IntRange(range) => Some(Self::IntRange(range)),
+            Value::BoolList(items) => Some(Self::BoolList(items.as_slice())),
             Value::String(s) => Some(Self::String(s.as_str())),
             _ => None,
         }
@@ -155,6 +157,7 @@ impl<'a> ValueSeq<'a> {
             Self::List(items) => items.len(),
             Self::IntList(items) => items.len(),
             Self::IntRange(range) => range.len(),
+            Self::BoolList(items) => items.len(),
             Self::String(s) => s.chars().count(),
         }
     }
@@ -164,6 +167,7 @@ impl<'a> ValueSeq<'a> {
             Self::List(items) => items.get(idx).cloned(),
             Self::IntList(items) => items.get(idx).copied().map(Value::Int),
             Self::IntRange(range) => range.get(idx).map(Value::Int),
+            Self::BoolList(items) => items.get(idx).copied().map(Value::Bool),
             Self::String(s) => s.chars().nth(idx).map(Value::Char),
         }
     }
@@ -191,6 +195,13 @@ impl<'a> ValueSeq<'a> {
                 }
                 Some(Value::IntList(Arc::new(out)))
             }
+            Self::BoolList(items) => {
+                let mut out = Vec::with_capacity(indices.len());
+                for &idx in indices {
+                    out.push(*items.get(idx)?);
+                }
+                Some(Value::BoolList(Arc::new(out)))
+            }
             Self::String(s) => {
                 let chars = s.chars().collect::<Vec<_>>();
                 let mut out = String::with_capacity(indices.len());
@@ -207,6 +218,7 @@ impl<'a> ValueSeq<'a> {
             Self::List(items) => Box::new(items.iter().cloned()),
             Self::IntList(items) => Box::new(items.iter().copied().map(Value::Int)),
             Self::IntRange(range) => Box::new(range.iter().map(Value::Int)),
+            Self::BoolList(items) => Box::new(items.iter().copied().map(Value::Bool)),
             Self::String(s) => Box::new(s.chars().map(Value::Char)),
         }
     }
@@ -224,6 +236,7 @@ pub(crate) struct ValueSeqBuilder {
 enum ValueSeqBuilderState {
     Empty { capacity: usize },
     Int(Vec<i64>),
+    Bool(Vec<bool>),
     String(String),
     General(Vec<Value>),
 }
@@ -246,6 +259,11 @@ impl ValueSeqBuilder {
                 items.push(i);
                 ValueSeqBuilderState::Int(items)
             }
+            (ValueSeqBuilderState::Empty { capacity }, Value::Bool(b)) => {
+                let mut items = Vec::with_capacity(capacity);
+                items.push(b);
+                ValueSeqBuilderState::Bool(items)
+            }
             (ValueSeqBuilderState::Empty { capacity }, Value::Char(c)) => {
                 let mut s = String::with_capacity(capacity);
                 s.push(c);
@@ -264,6 +282,17 @@ impl ValueSeqBuilder {
             (ValueSeqBuilderState::Int(items), value) => {
                 let mut out = Vec::with_capacity(items.len() + 1);
                 out.extend(items.into_iter().map(Value::Int));
+                out.push(value);
+                ValueSeqBuilderState::General(out)
+            }
+
+            (ValueSeqBuilderState::Bool(mut items), Value::Bool(b)) => {
+                items.push(b);
+                ValueSeqBuilderState::Bool(items)
+            }
+            (ValueSeqBuilderState::Bool(items), value) => {
+                let mut out = Vec::with_capacity(items.len() + 1);
+                out.extend(items.into_iter().map(Value::Bool));
                 out.push(value);
                 ValueSeqBuilderState::General(out)
             }
@@ -290,6 +319,7 @@ impl ValueSeqBuilder {
         match self.state {
             ValueSeqBuilderState::Empty { .. } => Value::unit(),
             ValueSeqBuilderState::Int(items) => Value::IntList(Arc::new(items)),
+            ValueSeqBuilderState::Bool(items) => Value::BoolList(Arc::new(items)),
             ValueSeqBuilderState::String(s) => Value::String(Arc::new(s)),
             ValueSeqBuilderState::General(items) => Value::List(Arc::new(items)),
         }
@@ -325,6 +355,10 @@ mod tests {
             Value::IntList(Arc::new(vec![1, 2]))
         );
         assert_eq!(
+            ValueSeqBuilder::from_items(vec![Value::Bool(true), Value::Bool(false)]),
+            Value::BoolList(Arc::new(vec![true, false]))
+        );
+        assert_eq!(
             ValueSeqBuilder::from_items(vec![Value::Char('a'), Value::Char('b')]),
             Value::String(Arc::new("ab".to_owned()))
         );
@@ -354,6 +388,18 @@ mod tests {
         assert_eq!(
             seq.gather(&[0, 2, 3]),
             Some(Value::IntList(Arc::new(vec![10, 6, 4])))
+        );
+    }
+
+    #[test]
+    fn bool_list_reads_without_widening() {
+        let value = Value::BoolList(Arc::new(vec![true, false, true]));
+        let seq = ValueSeq::from_value(&value).expect("bool-list is sequence-like");
+
+        assert_eq!(seq.get(1), Some(Value::Bool(false)));
+        assert_eq!(
+            seq.gather(&[0, 2]),
+            Some(Value::BoolList(Arc::new(vec![true, true])))
         );
     }
 

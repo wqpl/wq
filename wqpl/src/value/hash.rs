@@ -76,7 +76,11 @@ impl std::hash::Hash for Value {
                 5u8.hash(state);
                 b.hash(state);
             }
-            Value::IntList(_) | Value::IntRange(_) | Value::List(_) | Value::String(_) => {
+            Value::IntList(_)
+            | Value::IntRange(_)
+            | Value::BoolList(_)
+            | Value::List(_)
+            | Value::String(_) => {
                 unreachable!("sequence values are handled before scalar hash dispatch")
             }
             Value::Dict(m) => {

@@ -1060,25 +1060,17 @@ mod tests {
 
     #[test]
     fn where_on_nested_bool_matrix() {
-        // ((true;false;false); (false;true;false); (false;false;true))
+        let flat = Value::BoolList(Arc::new(vec![false, true, true]));
+        let res = wq_where(BuiltinFnArgs::from(flat)).expect("where should accept bool-list");
+        assert_eq!(res, Value::IntList(Arc::new(vec![1, 2])));
+
         let mat = Value::List(Arc::new(vec![
-            Value::List(Arc::new(vec![
-                Value::Bool(true),
-                Value::Bool(false),
-                Value::Bool(false),
-            ])),
-            Value::List(Arc::new(vec![
-                Value::Bool(false),
-                Value::Bool(true),
-                Value::Bool(false),
-            ])),
-            Value::List(Arc::new(vec![
-                Value::Bool(false),
-                Value::Bool(false),
-                Value::Bool(true),
-            ])),
+            Value::BoolList(Arc::new(vec![true, false, false])),
+            Value::BoolList(Arc::new(vec![false, true, false])),
+            Value::BoolList(Arc::new(vec![false, false, true])),
         ]));
-        let res = wq_where(BuiltinFnArgs::from(mat)).unwrap();
+        let res = wq_where(BuiltinFnArgs::from(mat))
+            .expect("where should accept nested bool-list rows");
         assert_eq!(
             res,
             Value::List(Arc::new(vec![

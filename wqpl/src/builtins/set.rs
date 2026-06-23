@@ -8,6 +8,7 @@ use crate::value::{IntoWqValue, Value, WqResult};
 fn seq_items(v: &Value) -> Vec<Value> {
     match v {
         Value::IntList(items) => items.iter().copied().map(Value::Int).collect(),
+        Value::BoolList(items) => items.iter().copied().map(Value::Bool).collect(),
         Value::List(items) => items.iter().cloned().collect(),
         Value::String(s) => s.chars().map(Value::Char).collect(),
         Value::Dict(map) => map.keys().cloned().map(Value::Tag).collect(),

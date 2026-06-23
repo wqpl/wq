@@ -56,6 +56,41 @@ impl Value {
         }
 
         match (self, other) {
+            (Value::Bool(a), Value::Bool(b)) => Value::BoolList(Arc::new(vec![a, b])),
+            (Value::BoolList(mut a), Value::BoolList(b)) => {
+                Arc::make_mut(&mut a).extend(b.iter().copied());
+                Value::BoolList(a)
+            }
+            (Value::BoolList(mut a), Value::Bool(b)) => {
+                Arc::make_mut(&mut a).push(b);
+                Value::BoolList(a)
+            }
+            (Value::Bool(a), Value::BoolList(b)) => {
+                let mut res = Vec::with_capacity(b.len() + 1);
+                res.push(a);
+                res.extend(b.iter().copied());
+                Value::BoolList(Arc::new(res))
+            }
+            (Value::BoolList(a), Value::List(b)) => {
+                let mut res: Vec<Value> = a.iter().copied().map(Value::Bool).collect();
+                res.extend(b.iter().cloned());
+                Value::List(Arc::new(res))
+            }
+            (Value::List(mut a), Value::BoolList(b)) => {
+                Arc::make_mut(&mut a).extend(b.iter().copied().map(Value::Bool));
+                Value::List(a)
+            }
+            (Value::BoolList(a), b) => {
+                let mut res: Vec<Value> = a.iter().copied().map(Value::Bool).collect();
+                res.push(b);
+                Value::List(Arc::new(res))
+            }
+            (a, Value::BoolList(b)) => {
+                let mut res = Vec::with_capacity(b.len() + 1);
+                res.push(a);
+                res.extend(b.iter().copied().map(Value::Bool));
+                Value::List(Arc::new(res))
+            }
             (Value::List(mut a), Value::List(b)) => {
                 Arc::make_mut(&mut a).extend(b.iter().cloned());
                 Value::List(a)
@@ -117,16 +152,37 @@ impl Value {
             return Value::IntList(Arc::new(res));
         }
 
+        // All Bool / BoolList: pre-allocate a single BoolList.
+        if values
+            .iter()
+            .all(|v| matches!(v, Value::Bool(_) | Value::BoolList(_)))
+        {
+            let total_len: usize = values.iter().map(|v| v.len()).sum();
+            let mut res = Vec::with_capacity(total_len);
+            for v in values {
+                match v {
+                    Value::Bool(b) => res.push(b),
+                    Value::BoolList(items) => res.extend(items.iter().copied()),
+                    _ => unreachable!(),
+                }
+            }
+            return Value::BoolList(Arc::new(res));
+        }
+
         // All List / IntList / Set: pre-allocate a single List.
         if values
             .iter()
-            .all(|v| matches!(v, Value::List(_)) || v.packed_int_seq().is_some())
+            .all(|v| {
+                matches!(v, Value::List(_) | Value::BoolList(_)) || v.packed_int_seq().is_some()
+            })
         {
             let total_len: usize = values.iter().map(|v| v.len()).sum();
             let mut res: Vec<Value> = Vec::with_capacity(total_len);
             for v in values {
                 if let Some(items) = v.packed_int_seq() {
                     res.extend(items.iter().map(Value::Int));
+                } else if let Value::BoolList(items) = v {
+                    res.extend(items.iter().copied().map(Value::Bool));
                 } else if let Value::List(l) = v {
                     res.extend(l.iter().cloned());
                 } else {
@@ -162,6 +218,9 @@ impl Value {
                         .packed_int_seq()
                         .expect("checked packed int sequence");
                     out.extend(items.iter().map(Value::Int));
+                }
+                Value::BoolList(items) => {
+                    out.extend(items.iter().copied().map(Value::Bool));
                 }
 
                 other => out.push(other.clone()),

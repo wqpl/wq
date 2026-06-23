@@ -50,6 +50,7 @@ pub enum Value {
     Bool(bool),
     IntList(Arc<Vec<i64>>),
     IntRange(Arc<seq::IntRangeData>),
+    BoolList(Arc<Vec<bool>>),
     List(Arc<Vec<Value>>),
     /// Heap-allocated string with copy-on-write mutation support.
     String(Arc<String>),
@@ -263,7 +264,7 @@ impl Value {
     /// - `Char` → single-character string
     /// - `String` → cloned string
     /// - `List` where every element is string-like → concatenated string
-    /// - empty `IntList` → empty string
+    /// - empty list-like values → empty string
     /// - everything else → `None`
     pub(crate) fn try_flatten_to_string(&self) -> Option<String> {
         match self {
@@ -282,7 +283,7 @@ impl Value {
                 }
                 Some(out)
             }
-            Value::IntList(items) if items.is_empty() => Some(String::new()),
+            v if v.is_unit() => Some(String::new()),
             _ => None,
         }
     }
@@ -350,6 +351,7 @@ impl Value {
 
             Value::IntRange(_) => "list",
             Value::IntList(_) => "list",
+            Value::BoolList(_) => "list",
             Value::List(_) => "list",
             Value::String(_) => "list",
 
@@ -380,6 +382,7 @@ impl Value {
             Value::Bool(_) => "bool",
             Value::IntRange(_) => "int-list",
             Value::IntList(_) => "int-list",
+            Value::BoolList(_) => "bool-list",
             Value::List(_) => "list",
             Value::String(_) => "string",
             Value::Cas(_) => "cas",
@@ -535,6 +538,15 @@ mod tests {
         assert_eq!(list.len(), 3);
         assert_eq!(list.index(&Value::Int(0)), Some(Value::Int(1)));
         assert_eq!(list.index(&Value::Int(-1)), Some(Value::Int(3)));
+
+        assert_eq!(
+            Value::Bool(true).cat(Value::Bool(false)),
+            Value::BoolList(Arc::new(vec![true, false]))
+        );
+
+        let empty_bools = Value::BoolList(Arc::new(vec![]));
+        assert!(empty_bools.is_unit());
+        assert_eq!(empty_bools.try_flatten_to_string(), Some(String::new()));
     }
 
     #[test]

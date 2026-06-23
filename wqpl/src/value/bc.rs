@@ -192,6 +192,15 @@ impl Value {
                 }
                 Ok(Value::from_items(out))
             }
+            Value::BoolList(a) => {
+                let mut out = Vec::with_capacity(a.len());
+                for (i, &x) in a.iter().enumerate() {
+                    path.push(i);
+                    out.push(f(&Value::Bool(x)).bc_at_path(path)?);
+                    path.pop();
+                }
+                Ok(Value::from_items(out))
+            }
             Value::Dict(m) => {
                 let mut out = IndexMap::with_capacity(m.len());
                 for (i, (k, v)) in m.iter().enumerate() {
@@ -251,6 +260,13 @@ impl Value {
                 for (i, x) in a.iter().enumerate() {
                     path.push(i);
                     f(&Value::Int(x)).map(|_| ()).bc_at_path(path)?;
+                    path.pop();
+                }
+            }
+            Value::BoolList(a) => {
+                for (i, &x) in a.iter().enumerate() {
+                    path.push(i);
+                    f(&Value::Bool(x)).map(|_| ()).bc_at_path(path)?;
                     path.pop();
                 }
             }
@@ -316,6 +332,16 @@ where
             for (i, y) in items.iter().enumerate() {
                 path.push(i);
                 let rhs = Value::Int(y);
+                out.push(op(atom, &rhs).bc_at_path(path)?);
+                path.pop();
+            }
+            Ok(Value::from_items(out))
+        }
+        Value::BoolList(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for (i, &y) in items.iter().enumerate() {
+                path.push(i);
+                let rhs = Value::Bool(y);
                 out.push(op(atom, &rhs).bc_at_path(path)?);
                 path.pop();
             }
@@ -388,6 +414,16 @@ where
             }
             Ok(Value::from_items(out))
         }
+        Value::BoolList(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for (i, &x) in items.iter().enumerate() {
+                path.push(i);
+                let lhs = Value::Bool(x);
+                out.push(op(&lhs, atom).bc_at_path(path)?);
+                path.pop();
+            }
+            Ok(Value::from_items(out))
+        }
         Value::Dict(map) => {
             let mut out = IndexMap::with_capacity(map.len());
             for (i, (k, v)) in map.iter().enumerate() {
@@ -438,6 +474,18 @@ where
     }
     if let Value::IntRange(range) = right {
         let right = Value::IntList(Arc::new(range.to_vec()));
+        return zip_containers(left, &right, stop, op, path);
+    }
+    if let Value::BoolList(items) = left {
+        let left = Value::List(Arc::new(
+            items.iter().copied().map(Value::Bool).collect(),
+        ));
+        return zip_containers(&left, right, stop, op, path);
+    }
+    if let Value::BoolList(items) = right {
+        let right = Value::List(Arc::new(
+            items.iter().copied().map(Value::Bool).collect(),
+        ));
         return zip_containers(left, &right, stop, op, path);
     }
 
@@ -724,5 +772,26 @@ impl Value {
         } else {
             zip_containers(self, other, stop, op, path)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    #[test]
+    fn bool_list_broadcasts_as_bool_atoms() {
+        let value = Value::BoolList(Arc::new(vec![true, false]));
+
+        assert_eq!(
+            value.bool_or(&Value::Bool(true)).expect("bool broadcast"),
+            Value::BoolList(Arc::new(vec![true, true]))
+        );
+        assert_eq!(
+            value.bool_and(&Value::Bool(false)).expect("bool broadcast"),
+            Value::BoolList(Arc::new(vec![false, false]))
+        );
     }
 }
