@@ -499,6 +499,19 @@ fn integrate_proper_rational(
     factors: &[(Vec<Value>, usize)],
     var: &str,
 ) -> WqResult<Value> {
+    // Repeated quadratic Hermite reduction rewrites the whole rational
+    // function, including all coprime denominator factors.  Handle one such
+    // factor before the per-factor partial fraction loop so the remaining
+    // factors are not integrated twice.
+    if let Some((factor, mult)) = factors
+        .iter()
+        .find(|(factor, mult)| *mult > 1 && poly_degree(factor) == 2)
+    {
+        let b = factor.get(1).cloned().unwrap_or(Value::Int(0));
+        let c = factor.first().cloned().unwrap_or(Value::Int(0));
+        return integrate_repeated_quadratic(numer, denom, factor, &b, &c, *mult, var);
+    }
+
     let mut result_terms: Vec<Value> = Vec::new();
 
     for (factor, mult) in factors {
@@ -2166,147 +2179,97 @@ fn hermite_reduce_one_step(
         return Ok((Value::Int(0), numer.to_vec(), mult));
     }
 
-    // Extract: D = F^m * rest, and we have deg(F) = 2.
-    // We need P(x) = p1*x + p0 (deg < deg(F)) such that:
-    //   d/dx[P / F^(m-1)] = N/F^m + Q/F^(m-1)
-    //
-    // Expand: P'*F - (m-1)*P*F' = N - Q*F
-    // This gives: Q = (P'*F - (m-1)*P*F' - N) / (-F)
-    //          = N/F - P' + (m-1)*P*F'/F
-    //
-    // We want P such that Q = N/F - P' + (m-1)*P*F'/F has no denominator
-    // (i.e., is a polynomial with deg < deg(D) - deg(F)).
-
     let factor_pow = poly_pow(factor, mult)?;
     let (rest, _) = poly_divide(denom, &factor_pow)?;
 
-    // For deg(F) = 2, F = [c, b, 1], F' = [b, 2, 0] → [b, 2]
+    // For deg(F) = 2, F = [c, b, 1], F' = [b, 2, 0] -> [b, 2].
+    //
+    // With D = F^m * R, choose S with deg(S) < deg(F) so that the derivative
+    // of S / F^(m-1) cancels one F from the original denominator:
+    //
+    //   N - R * (S' * F - (m - 1) * S * F') == 0 mod F
+    //
     let f_deriv = poly_derivative(factor);
+    let m_minus_1 = Value::from_bigint(BigInt::from(mult - 1));
+    let n_mod = poly_remainder(numer, factor)?;
 
-    let p_coeffs = if poly_degree(&rest) == 0 {
-        // R = 1 (pure power F^m).  The congruence P·R ≡ N (mod F)
-        // gives P ≡ N (mod F) which is not the correct Hermite P.
-        // Solve the full linear system: find P=[p₀,p₁] such that
-        // (N − P'F + (m−1)PF') / F has no remainder.
-        let n_mod = poly_remainder(numer, factor)?;
-
-        // Contribution of p₀=1, p₁=0 to deriv = P'F − (m−1)PF'
-        let p0_c = vec![Value::Int(1), Value::Int(0)];
-        let p0_d = poly_derivative(&p0_c);
-        let t1_0 = poly_mul(&p0_d, factor)?;
-        let t2i_0 = poly_mul(&p0_c, &f_deriv)?;
-        let m1 = Value::from_bigint(BigInt::from(mult - 1));
-        let t2_0 = poly_scalar_mul(&t2i_0, &m1)?;
-        let deriv_0 = poly_sub(&t1_0, &t2_0)?;
-        let r_p0 = poly_remainder(&deriv_0, factor)?;
-
-        // Contribution of p₀=0, p₁=1
-        let p1_c = vec![Value::Int(0), Value::Int(1)];
-        let p1_d = poly_derivative(&p1_c);
-        let t1_1 = poly_mul(&p1_d, factor)?;
-        let t2i_1 = poly_mul(&p1_c, &f_deriv)?;
-        let t2_1 = poly_scalar_mul(&t2i_1, &m1)?;
-        let deriv_1 = poly_sub(&t1_1, &t2_1)?;
-        let r_p1 = poly_remainder(&deriv_1, factor)?;
-
-        // Solve [r_p0  r_p1] [p₀; p₁] = n_mod  (2×2 via Cramer)
-        let (r00, r10) = (
-            r_p0.first().cloned().unwrap_or(Value::Int(0)),
-            r_p0.get(1).cloned().unwrap_or(Value::Int(0)),
-        );
-        let (r01, r11) = (
-            r_p1.first().cloned().unwrap_or(Value::Int(0)),
-            r_p1.get(1).cloned().unwrap_or(Value::Int(0)),
-        );
-        let (n0, n1) = (
-            n_mod.first().cloned().unwrap_or(Value::Int(0)),
-            n_mod.get(1).cloned().unwrap_or(Value::Int(0)),
-        );
-
-        let det = numeric_sub(&numeric_mul(&r00, &r11)?, &numeric_mul(&r01, &r10)?)?;
-        if numeric_is_zero(&det) {
-            return Err(cas_err("Hermite R=1: singular system for P"));
-        }
-        let p0 = eval_exact_numeric_div(
-            &numeric_sub(&numeric_mul(&n0, &r11)?, &numeric_mul(&n1, &r01)?)?,
-            &det,
-        )?;
-        let p1 = eval_exact_numeric_div(
-            &numeric_sub(&numeric_mul(&r00, &n1)?, &numeric_mul(&r10, &n0)?)?,
-            &det,
-        )?;
-        vec![p0, p1]
-    } else {
-        // R ≠ 1: use the congruence P·R ≡ N (mod F)
-        let n_mod_f = poly_remainder(numer, factor)?;
-        let r_mod_f = poly_remainder(&rest, factor)?;
-        let (p1, p0) =
-            solve_linear_coeffs_mod_quadratic(&n_mod_f, &r_mod_f, factor, &factor[1], &factor[0])?;
-        vec![p0, p1]
+    let hermite_remainder = |p_coeffs: Vec<Value>| -> WqResult<Vec<Value>> {
+        let p_deriv = poly_derivative(&p_coeffs);
+        let term1 = poly_mul(&p_deriv, factor)?;
+        let term2_inner = poly_mul(&p_coeffs, &f_deriv)?;
+        let term2 = poly_scalar_mul(&term2_inner, &m_minus_1)?;
+        let deriv_numer = poly_sub(&term1, &term2)?;
+        let with_rest = poly_mul(&rest, &deriv_numer)?;
+        poly_remainder(&with_rest, factor)
     };
 
-    // Now compute Q = N/F - P' + (m-1)*P*F'/F
-    // But simpler: Q = N - P'*F + (m-1)*P*F' / F  ... no.
+    let r_p0 = hermite_remainder(vec![Value::Int(1), Value::Int(0)])?;
+    let r_p1 = hermite_remainder(vec![Value::Int(0), Value::Int(1)])?;
 
-    // Let me use the direct formula:
-    // N/F^m = d/dx(P/F^(m-1)) - Q/F^(m-1)
-    // => Q = P'*F - (m-1)*P*F' + N/F
+    // Solve [r_p0  r_p1] [p0; p1] = n_mod (2x2 via Cramer).
+    let (r00, r10) = (
+        r_p0.first().cloned().unwrap_or(Value::Int(0)),
+        r_p0.get(1).cloned().unwrap_or(Value::Int(0)),
+    );
+    let (r01, r11) = (
+        r_p1.first().cloned().unwrap_or(Value::Int(0)),
+        r_p1.get(1).cloned().unwrap_or(Value::Int(0)),
+    );
+    let (n0, n1) = (
+        n_mod.first().cloned().unwrap_or(Value::Int(0)),
+        n_mod.get(1).cloned().unwrap_or(Value::Int(0)),
+    );
 
-    // Q = (N/F) - P' + (m-1)*P*F'/F
-    // Multiply by rest: Q_total = Q * rest
-    // Q_total * F^(m-1) + P * rest = ...
+    let det = numeric_sub(&numeric_mul(&r00, &r11)?, &numeric_mul(&r01, &r10)?)?;
+    if numeric_is_zero(&det) {
+        return Err(cas_err("Hermite reduction: singular system for S"));
+    }
+    let p0 = eval_exact_numeric_div(
+        &numeric_sub(&numeric_mul(&n0, &r11)?, &numeric_mul(&n1, &r01)?)?,
+        &det,
+    )?;
+    let p1 = eval_exact_numeric_div(
+        &numeric_sub(&numeric_mul(&r00, &n1)?, &numeric_mul(&r10, &n0)?)?,
+        &det,
+    )?;
+    let mut p_coeffs = vec![p0, p1];
+    poly_trim(&mut p_coeffs);
 
-    // OK this is getting quite involved. Let me use a simpler computational
-    // approach. Compute P directly, then compute the remaining integral
-    // recursively.
-
-    // Actually, for the Hermite reduction, we can use:
-    // Q = (N - d/dx(P * rest * F^(m-1))) / (rest * F^(m-1))
-    //   where P is chosen so that Q has no denominator
-
-    // Or equivalently: the rational part is P / F^(m-1)
-    // and the new integrand is Q / (F^(m-1) * rest)
-
-    // Compute P * rest (this will be the rational part numerator before division by
-    // F^(m-1)):
-    let p_rest = poly_mul(&p_coeffs, &rest)?;
-
-    // Compute d/dx(P * rest / F^(m-1)):
+    // Compute d/dx(S / F^(m-1)):
     // d/dx [num / F^(m-1)] = (num' * F^(m-1) - num * (m-1) * F^(m-2) * F') /
     // F^(2m-2)                       = (num' * F - num * (m-1) * F') / F^m
 
-    let p_rest_deriv = poly_derivative(&p_rest);
-    let term1 = poly_mul(&p_rest_deriv, factor)?; // num' * F
+    let p_deriv = poly_derivative(&p_coeffs);
+    let term1 = poly_mul(&p_deriv, factor)?; // num' * F
 
-    let m_minus_1 = BigInt::from(mult - 1);
-    let term2_inner = poly_mul(&p_rest, &f_deriv)?; // num * F'
-    let m_minus_1_val = Value::from_bigint(m_minus_1);
-    let term2 = poly_scalar_mul(&term2_inner, &m_minus_1_val)?; // (m-1) * num * F'
+    let term2_inner = poly_mul(&p_coeffs, &f_deriv)?; // num * F'
+    let term2 = poly_scalar_mul(&term2_inner, &m_minus_1)?; // (m-1) * num * F'
 
     let deriv_numer = poly_sub(&term1, &term2)?; // num' * F - (m-1) * num * F'
 
     // The derivative gives: deriv_numer / F^m
-    // We want N/F^m - deriv_numer/F^m = (N - deriv_numer)/F^m which should
-    // simplify to Q_new/F^(m-1)  (i.e., one factor of F cancels).
+    // We want N/(F^m*R) - deriv_numer/F^m, so use common denominator F^m*R:
+    // (N - R*deriv_numer)/(F^m*R), which should simplify to
+    // Q_new/(F^(m-1)*R).
     //
-    // So: new_numer = (N - deriv_numer) / F, new_denom = F^(m-1)
+    // new_numer = (N - R*deriv_numer) / F, new_denom = F^(m-1)*R.
 
-    let diff = poly_sub(numer, &deriv_numer)?; // N - deriv_numer
-    let (q_new, rem) = poly_divide(&diff, factor)?; // (N - deriv_numer) / F
+    let deriv_numer_with_rest = poly_mul(&rest, &deriv_numer)?;
+    let diff = poly_sub(numer, &deriv_numer_with_rest)?; // N - R*deriv_numer
+    let (q_new, rem) = poly_divide(&diff, factor)?; // (N - R*deriv_numer) / F
 
     if !poly_is_zero(&rem) {
-        // The Hermite reduction didn't cancel cleanly — fall back to treating
-        // this factor as simple quadratic (loses some precision for high
-        // multiplicities but still produces correct result).
-        return Ok((Value::Int(0), numer.to_vec(), mult));
+        return Err(cas_err(
+            "Hermite reduction failed to cancel a repeated quadratic factor",
+        ));
     }
 
-    // Rational part: P * rest / F^(m-1)
+    // Rational part: S / F^(m-1)
     let f_pow_m1 = poly_pow(factor, mult - 1)?;
-    let rational_part = if poly_is_zero(&p_rest) {
+    let rational_part = if poly_is_zero(&p_coeffs) {
         Value::Int(0)
     } else {
-        let num_expr = poly_to_expr(&p_rest, var)?;
+        let num_expr = poly_to_expr(&p_coeffs, var)?;
         let denom_expr = poly_to_expr(&f_pow_m1, var)?;
         cas_div(num_expr, denom_expr)?
     };
@@ -2544,6 +2507,74 @@ mod tests {
         );
         let result = integrate_by_rational(&expr, "x").unwrap().unwrap();
         assert_eq!(result.to_string(), "arctan[x/2]/2");
+    }
+
+    #[test]
+    fn test_hermite_reduces_repeated_quadratic_with_rest() {
+        // 1 / ((x²+1)² * (x+1)) should reduce to:
+        //   (x+1)/(4*(x²+1)) + ∫ (x+3)/(4*(x²+1)*(x+1)) dx
+        let factor = vec![Value::Int(1), Value::Int(0), Value::Int(1)];
+        let rest = vec![Value::Int(1), Value::Int(1)];
+        let denom = poly_mul(&poly_pow(&factor, 2).unwrap(), &rest).unwrap();
+
+        let (rational_part, new_numer, reduced_pow) =
+            hermite_reduce_one_step(&[Value::Int(1)], &denom, &factor, 2, "x").unwrap();
+
+        assert_eq!(reduced_pow, 1);
+        assert_eq!(
+            new_numer,
+            vec![
+                Value::from_fraction_parts(BigInt::from(3), BigInt::from(4)),
+                Value::from_fraction_parts(BigInt::from(1), BigInt::from(4)),
+            ]
+        );
+        assert_eq!(rational_part.to_string(), "(x/4 + 1/4)/(x^2 + 1)");
+    }
+
+    #[test]
+    fn test_integrate_repeated_quadratic_with_rest() {
+        use crate::cas::diff::diff_cas;
+        use crate::cas::integrate::integrate_cas;
+        use crate::cas::{eval_numeric_cas, substitute_cas};
+
+        let x = Value::from_cas_var("x");
+        let x2_plus_1 = op(
+            CasOp::Add,
+            vec![
+                op(CasOp::Power, vec![x.clone(), Value::Int(2)]),
+                Value::Int(1),
+            ],
+        );
+        let x_plus_1 = op(CasOp::Add, vec![x.clone(), Value::Int(1)]);
+        let denom = op(
+            CasOp::Multiply,
+            vec![
+                op(CasOp::Power, vec![x2_plus_1, Value::Int(2)]),
+                x_plus_1,
+            ],
+        );
+        let expr = op(CasOp::Power, vec![denom, Value::Int(-1)]);
+
+        let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
+        let s = result.to_string();
+        assert!(
+            s.contains("ln[abs[x + 1]]/4"),
+            "expected single linear-factor contribution, got: {s}"
+        );
+
+        let derivative = diff_cas(&result, &Value::from_cas_var("x")).unwrap();
+        let difference = cas_sub(derivative, expr).unwrap();
+        let at_two = substitute_cas(
+            &difference,
+            &Value::from_cas_var("x"),
+            &Value::Int(2),
+        )
+        .unwrap();
+        let numeric = eval_numeric_cas(&at_two).unwrap();
+        let f = numeric
+            .as_f64()
+            .expect("numeric derivative check should produce a float");
+        assert!(f.abs() < 1e-12, "expected derivative difference 0, got {f}");
     }
 
     #[test]
