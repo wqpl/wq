@@ -23,6 +23,9 @@ pub enum AnsiColor {
     Cyan,
     Blue,
     Magenta,
+    Purple,
+    BrightBlack,
+    BrightRed,
     BrightYellow,
 }
 
@@ -35,6 +38,9 @@ impl AnsiColor {
             Self::Cyan => "36",
             Self::Blue => "34",
             Self::Magenta => "35",
+            Self::Purple => "35",
+            Self::BrightBlack => "90",
+            Self::BrightRed => "91",
             Self::BrightYellow => "93",
         }
     }
@@ -45,6 +51,7 @@ pub struct TextStyle {
     fg: Option<AnsiColor>,
     bold: bool,
     dimmed: bool,
+    italic: bool,
     underline: bool,
 }
 
@@ -54,6 +61,7 @@ impl TextStyle {
             fg: None,
             bold: false,
             dimmed: false,
+            italic: false,
             underline: false,
         }
     }
@@ -70,6 +78,11 @@ impl TextStyle {
 
     pub const fn dimmed(mut self) -> Self {
         self.dimmed = true;
+        self
+    }
+
+    pub const fn italic(mut self) -> Self {
+        self.italic = true;
         self
     }
 
@@ -90,6 +103,9 @@ pub fn paint(text: &str, style: TextStyle, color_mode: ColorMode) -> String {
     }
     if style.dimmed {
         codes.push("2");
+    }
+    if style.italic {
+        codes.push("3");
     }
     if style.underline {
         codes.push("4");

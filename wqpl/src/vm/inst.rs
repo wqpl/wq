@@ -1,10 +1,9 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use colored::Colorize;
-
 use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::builtins::Builtins;
+use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::Value;
 use crate::wqdb::data::ChunkId;
 
@@ -468,23 +467,22 @@ impl InstPrettyDumper {
         if !self.colorize {
             return opcode.to_string();
         }
-        let styled = match class {
-            InstClass::Load => opcode.red(),
-            InstClass::Store => opcode.green(),
-            InstClass::Call => opcode.blue(),
-            InstClass::Jump => opcode.yellow(),
-            InstClass::Stack => opcode.bright_black(),
-            InstClass::Op => opcode.magenta(),
-            InstClass::Indexing => opcode.purple(),
-            InstClass::Construct => opcode.bright_red(),
-            InstClass::Try => opcode.bright_yellow(),
-            // InstClass::Other => opcode.normal(),
+        let color = match class {
+            InstClass::Load => AnsiColor::Red,
+            InstClass::Store => AnsiColor::Green,
+            InstClass::Call => AnsiColor::Blue,
+            InstClass::Jump => AnsiColor::Yellow,
+            InstClass::Stack => AnsiColor::BrightBlack,
+            InstClass::Op => AnsiColor::Magenta,
+            InstClass::Indexing => AnsiColor::Purple,
+            InstClass::Construct => AnsiColor::BrightRed,
+            InstClass::Try => AnsiColor::BrightYellow,
         };
+        let mut style = TextStyle::new().fg(color);
         if is_special {
-            styled.bold().italic().to_string()
-        } else {
-            styled.to_string()
+            style = style.bold().italic();
         }
+        paint(opcode, style, ColorMode::Always)
     }
 
     fn dump_chunk(
@@ -692,7 +690,11 @@ impl InstPrettyDumper {
         } else if self.colorize {
             format!(
                 "{base}  {}",
-                format!("// {}", comments.join("; ")).bright_black()
+                paint(
+                    &format!("// {}", comments.join("; ")),
+                    TextStyle::new().fg(AnsiColor::BrightBlack),
+                    ColorMode::Always,
+                )
             )
         } else {
             format!("{base}  // {}", comments.join("; "))
@@ -771,5 +773,34 @@ impl InstPrettyDumper {
             Instruction::JumpIfCmpFalse(data) => Some(data.target),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn highlight_inst_uses_explicit_opcode_color() {
+        let dumper = InstPrettyDumper::new(true, true);
+        let rendered = dumper.highlight_inst(&Instruction::load_const(Value::Int(1)));
+
+        assert_eq!(rendered, "\x1b[31mLoadConst\x1b[0m(Int(1))");
+    }
+
+    #[test]
+    fn highlight_inst_styles_special_opcodes_bold_italic() {
+        let dumper = InstPrettyDumper::new(true, true);
+        let rendered = dumper.highlight_inst(&Instruction::LoadSelf);
+
+        assert_eq!(rendered, "\x1b[1;3;31mLoadSelf\x1b[0m");
+    }
+
+    #[test]
+    fn highlight_inst_can_render_plain_opcode() {
+        let dumper = InstPrettyDumper::new(true, false);
+        let rendered = dumper.highlight_inst(&Instruction::load_const(Value::Int(1)));
+
+        assert_eq!(rendered, "LoadConst(Int(1))");
     }
 }
