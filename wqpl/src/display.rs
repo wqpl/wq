@@ -1,8 +1,7 @@
 use std::fmt::Write as _;
 
-use colored::Colorize as _;
-
 use crate::boxmode::{BoxFormatOptions, format_boxed_with};
+use crate::style::{ColorMode, TextStyle, paint};
 use crate::value::Value;
 use crate::value::display::format_table_value;
 
@@ -188,7 +187,7 @@ pub fn format_xray_info(v: &Value, color: bool) -> String {
 
 fn style_label(text: &str, color: bool) -> String {
     if color {
-        text.dimmed().to_string()
+        paint(text, TextStyle::new().dimmed(), ColorMode::Always)
     } else {
         text.to_string()
     }

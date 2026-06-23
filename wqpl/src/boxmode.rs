@@ -1,5 +1,4 @@
-use colored::{ColoredString, Colorize as _};
-
+use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::Value;
 use crate::value::meta::ShapeMeta;
 
@@ -119,27 +118,31 @@ fn style_text(text: &str, role: CellRole, color: bool) -> String {
     if !color || text.is_empty() {
         return text.to_string();
     }
-    styled_cell(text, role).to_string()
+    paint(text, cell_style(role), ColorMode::Always)
 }
 
-fn styled_cell(text: &str, role: CellRole) -> ColoredString {
+fn cell_style(role: CellRole) -> TextStyle {
     match role {
-        CellRole::Plain => text.normal(),
-        CellRole::Axis(axis) => style_axis(text, axis).bold(),
-        CellRole::Index { axis, alternate } if alternate => style_axis(text, axis).dimmed(),
-        CellRole::Index { axis, .. } => style_axis(text, axis),
-        CellRole::Fence => text.dimmed(),
+        CellRole::Plain => TextStyle::new(),
+        CellRole::Axis(axis) => axis_style(axis).bold(),
+        CellRole::Index { axis, alternate } if alternate => axis_style(axis).dimmed(),
+        CellRole::Index { axis, .. } => axis_style(axis),
+        CellRole::Fence => TextStyle::new().dimmed(),
     }
 }
 
-fn style_axis(text: &str, axis: usize) -> ColoredString {
+fn axis_style(axis: usize) -> TextStyle {
+    TextStyle::new().fg(axis_color(axis))
+}
+
+fn axis_color(axis: usize) -> AnsiColor {
     match axis % 6 {
-        0 => text.cyan(),
-        1 => text.yellow(),
-        2 => text.magenta(),
-        3 => text.green(),
-        4 => text.blue(),
-        _ => text.red(),
+        0 => AnsiColor::Cyan,
+        1 => AnsiColor::Yellow,
+        2 => AnsiColor::Magenta,
+        3 => AnsiColor::Green,
+        4 => AnsiColor::Blue,
+        _ => AnsiColor::Red,
     }
 }
 
@@ -429,8 +432,6 @@ pub fn format_boxed(v: &Value) -> String {
 mod tests {
     use std::sync::Arc;
 
-    use colored::{Color, Styles};
-
     use super::*;
     use crate::value::into_wq_string;
 
@@ -569,9 +570,10 @@ mod tests {
 
     #[test]
     fn axis_labels_use_bold_axis_color() {
-        let axis = styled_cell("a1", CellRole::Axis(1));
-        assert_eq!(axis.fgcolor, Some(Color::Yellow));
-        assert!(axis.style.contains(Styles::Bold));
+        assert_eq!(
+            style_text("a1", CellRole::Axis(1), true),
+            "\x1b[1;33ma1\x1b[0m"
+        );
     }
 
     #[test]
@@ -580,18 +582,15 @@ mod tests {
             Value::List(Arc::new(vec![Value::Int(1), Value::Int(2)])),
             Value::List(Arc::new(vec![Value::Int(3), Value::Int(4)])),
         ]));
-        let col_axis = styled_cell("a1", CellRole::Axis(1));
-        let row_axis = styled_cell("a0", CellRole::Axis(0));
-        let fence = styled_cell("|", CellRole::Fence);
-        let alternate = styled_cell(" 1", axis_index_role(0, 1));
+        let col_axis = style_text("a1", CellRole::Axis(1), true);
+        let row_axis = style_text("a0", CellRole::Axis(0), true);
+        let fence = style_text("|", CellRole::Fence, true);
+        let alternate = style_text(" 1", axis_index_role(0, 1), true);
 
-        assert_eq!(col_axis.fgcolor, Some(Color::Yellow));
-        assert!(col_axis.style.contains(Styles::Bold));
-        assert_eq!(row_axis.fgcolor, Some(Color::Cyan));
-        assert!(row_axis.style.contains(Styles::Bold));
-        assert!(fence.style.contains(Styles::Dimmed));
-        assert_eq!(alternate.fgcolor, Some(Color::Cyan));
-        assert!(alternate.style.contains(Styles::Dimmed));
+        assert_eq!(col_axis, "\x1b[1;33ma1\x1b[0m");
+        assert_eq!(row_axis, "\x1b[1;36ma0\x1b[0m");
+        assert_eq!(fence, "\x1b[2m|\x1b[0m");
+        assert_eq!(alternate, "\x1b[2;36m 1\x1b[0m");
         assert_eq!(
             format_boxed_with(&v, BoxFormatOptions::default()),
             format_boxed(&v)
