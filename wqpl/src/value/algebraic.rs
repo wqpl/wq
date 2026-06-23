@@ -29,19 +29,119 @@ impl AlgebraicBase {
     }
 }
 
-/// Root identity for an algebraic generator.
+/// Stable identity for a selected real root of a field polynomial.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct RealRootIdentity {
+    lo: OrderedFloat<f64>,
+    hi: OrderedFloat<f64>,
+}
+
+impl RealRootIdentity {
+    fn from_interval(interval: (f64, f64)) -> Self {
+        Self {
+            lo: OrderedFloat(interval.0),
+            hi: OrderedFloat(interval.1),
+        }
+    }
+
+    fn interval(&self) -> (f64, f64) {
+        (*self.lo, *self.hi)
+    }
+}
+
+/// Current isolating interval for a selected real root.
+#[derive(Debug, Clone)]
+pub(crate) struct RealRootIsolation {
+    lo: OrderedFloat<f64>,
+    hi: OrderedFloat<f64>,
+}
+
+impl RealRootIsolation {
+    fn from_interval(interval: (f64, f64)) -> Self {
+        Self {
+            lo: OrderedFloat(interval.0),
+            hi: OrderedFloat(interval.1),
+        }
+    }
+
+    fn interval(&self) -> (f64, f64) {
+        (*self.lo, *self.hi)
+    }
+}
+
+/// Root identity and current isolation for an algebraic generator.
+#[derive(Debug, Clone)]
 pub(crate) enum AlgebraicRoot {
-    RealInterval {
-        lo: OrderedFloat<f64>,
-        hi: OrderedFloat<f64>,
+    Real {
+        identity: RealRootIdentity,
+        isolation: RealRootIsolation,
     },
 }
 
-impl AlgebraicRoot {
-    pub(crate) fn interval(&self) -> (f64, f64) {
+impl PartialEq for AlgebraicRoot {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Real { identity: a, .. }, Self::Real { identity: b, .. }) => a == b,
+        }
+    }
+}
+
+impl Eq for AlgebraicRoot {}
+
+impl std::hash::Hash for AlgebraicRoot {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            Self::RealInterval { lo, hi } => (**lo, **hi),
+            Self::Real { identity, .. } => {
+                std::hash::Hash::hash(&0u8, state);
+                std::hash::Hash::hash(identity, state);
+            }
+        }
+    }
+}
+
+impl AlgebraicRoot {
+    fn real_from_interval(interval: (f64, f64)) -> Self {
+        Self::Real {
+            identity: RealRootIdentity::from_interval(interval),
+            isolation: RealRootIsolation::from_interval(interval),
+        }
+    }
+
+    fn interval(&self) -> (f64, f64) {
+        match self {
+            Self::Real { isolation, .. } => isolation.interval(),
+        }
+    }
+
+    fn validate(&self, poly: &[BigInt]) -> WqResult<()> {
+        match self {
+            Self::Real {
+                identity,
+                isolation,
+            } => {
+                validate_real_interval(poly, identity.interval())?;
+                validate_real_interval(poly, isolation.interval())
+            }
+        }
+    }
+
+    fn push_canonical_key(&self, out: &mut String) {
+        match self {
+            Self::Real { identity, .. } => {
+                let (lo, hi) = identity.interval();
+                write!(out, "root:R:{:016x}:{:016x}", lo.to_bits(), hi.to_bits())
+                    .expect("writing to String should not fail");
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+impl AlgebraicRoot {
+    fn real_with_isolation(identity: (f64, f64), isolation: (f64, f64)) -> Self {
+        Self::Real {
+            identity: RealRootIdentity::from_interval(identity),
+            isolation: RealRootIsolation::from_interval(isolation),
         }
     }
 }
@@ -72,10 +172,7 @@ impl AlgebraicField {
         let field = Arc::new(Self {
             base,
             poly: Arc::from(poly),
-            root: AlgebraicRoot::RealInterval {
-                lo: OrderedFloat(interval.0),
-                hi: OrderedFloat(interval.1),
-            },
+            root: AlgebraicRoot::real_from_interval(interval),
         });
         debug_assert!(
             field.validate_invariants().is_ok(),
@@ -98,7 +195,7 @@ impl AlgebraicField {
 
     pub(crate) fn validate_invariants(&self) -> WqResult<()> {
         validate_normalized_field_poly(&self.poly)?;
-        validate_real_interval(&self.poly, self.interval())?;
+        self.root.validate(&self.poly)?;
         if let AlgebraicBase::Extension(base) = &self.base {
             base.validate_invariants()?;
         }
@@ -112,17 +209,7 @@ impl AlgebraicField {
         for coeff in self.poly.iter() {
             write!(out, "{coeff};").expect("writing to String should not fail");
         }
-        match &self.root {
-            AlgebraicRoot::RealInterval { lo, hi } => {
-                write!(
-                    out,
-                    "root:R:{:016x}:{:016x}",
-                    (**lo).to_bits(),
-                    (**hi).to_bits()
-                )
-                .expect("writing to String should not fail");
-            }
-        }
+        self.root.push_canonical_key(out);
         out.push(')');
     }
 }
@@ -1388,10 +1475,7 @@ mod tests {
         let non_primitive_field = AlgebraicField {
             base: AlgebraicBase::Rational,
             poly: Arc::from(vec![BigInt::from(-4), BigInt::zero(), BigInt::from(2)]),
-            root: AlgebraicRoot::RealInterval {
-                lo: OrderedFloat(1.0),
-                hi: OrderedFloat(2.0),
-            },
+            root: AlgebraicRoot::real_from_interval((1.0, 2.0)),
         };
         assert!(non_primitive_field.validate_invariants().is_err());
 
@@ -1413,6 +1497,38 @@ mod tests {
             coeffs: Arc::from(vec![Value::Algebraic(Arc::new(make_sqrt2()))]),
         };
         assert!(nested.validate_invariants().is_err());
+    }
+
+    #[test]
+    fn root_isolation_does_not_define_field_identity() {
+        let poly: Arc<[BigInt]> =
+            Arc::from(vec![BigInt::from(-2), BigInt::zero(), BigInt::one()]);
+        let coarse = AlgebraicField {
+            base: AlgebraicBase::Rational,
+            poly: poly.clone(),
+            root: AlgebraicRoot::real_with_isolation((1.0, 2.0), (1.0, 2.0)),
+        };
+        let refined = AlgebraicField {
+            base: AlgebraicBase::Rational,
+            poly,
+            root: AlgebraicRoot::real_with_isolation((1.0, 2.0), (1.4, 1.5)),
+        };
+
+        coarse
+            .validate_invariants()
+            .expect("coarse field should be valid");
+        refined
+            .validate_invariants()
+            .expect("refined field should be valid");
+        assert_eq!(coarse, refined);
+        assert_eq!(coarse.interval(), (1.0, 2.0));
+        assert_eq!(refined.interval(), (1.4, 1.5));
+
+        let mut coarse_key = String::new();
+        coarse.push_canonical_key(&mut coarse_key);
+        let mut refined_key = String::new();
+        refined.push_canonical_key(&mut refined_key);
+        assert_eq!(coarse_key, refined_key);
     }
 
     #[test]
