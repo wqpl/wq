@@ -1,8 +1,6 @@
 pub mod dbglog;
 pub mod stdio;
 
-use colored::Colorize;
-
 use crate::astnode::AstNode;
 use crate::builtins::BuiltinPreset;
 use crate::cst::{GreenChild, GreenNode, GreenNodeBuilder, GreenToken, SyntaxKind};
@@ -17,6 +15,7 @@ use crate::parse::{Parser, fold};
 use crate::script::{ScriptItem, ScriptSpan, parse_script_items};
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
+use crate::style::{ColorMode, TextStyle, paint};
 use crate::symbol::SymbolIndex;
 use crate::token::{FmtPart, Token, TokenType, fmt_tokens_table};
 use crate::value::{Value, WqResult};
@@ -30,6 +29,14 @@ use crate::wqdb::data::DebugInfo;
 use crate::wqdb::{self};
 use crate::wqerror::WqError;
 use crate::wqerror::WqErrorType;
+
+fn debug_header(text: &str) -> String {
+    debug_header_with_color_mode(text, ColorMode::Auto)
+}
+
+fn debug_header_with_color_mode(text: &str, color_mode: ColorMode) -> String {
+    paint(text, TextStyle::new().bold().underline(), color_mode)
+}
 
 pub struct Session {
     vm: Vm,
@@ -161,8 +168,7 @@ impl Session {
         }
         let tokens = lexer.tokenize()?;
         if get_debug_log_flags().contains(DebugLogFlags::TOKEN) {
-            let header = "TOKEN".bold().underline().to_string();
-            wqstderr_println(header);
+            wqstderr_println(debug_header("TOKEN"));
             wqstderr_println(fmt_tokens_table(&tokens));
             wqstderr_println("");
         }
@@ -201,16 +207,14 @@ impl Session {
             let cst = parser
                 .take_cst()
                 .expect("enable_cst was just called, so take_cst yields Some");
-            let header = "CST".bold().underline().to_string();
-            wqstderr_println(header);
+            wqstderr_println(debug_header("CST"));
             wqstderr_println(crate::cst::SyntaxNode::new_root(cst).pretty_print());
             wqstderr_println("");
         }
 
         let dump_ast = |s: &str, ast: &AstNode, flag: u16| {
             if get_debug_log_flags().contains(flag) {
-                let header = s.bold().underline().to_string();
-                wqstderr_println(header);
+                wqstderr_println(debug_header(s));
                 wqstderr_println(ast.sexpr_pretty_with_source(ast_src));
                 wqstderr_println("");
             }
@@ -238,8 +242,7 @@ impl Session {
 
         let dump_inst = |s: &str, inst: &Vec<Instruction>, flag: u16| {
             if get_debug_log_flags().contains(flag) {
-                let header = s.bold().underline().to_string();
-                wqstderr_println(header);
+                wqstderr_println(debug_header(s));
                 let lines = InstPrettyDumper::new(true, true).with_pc().render(inst);
                 for line in lines {
                     wqstderr_println(line);
@@ -844,6 +847,15 @@ mod tests {
 
     use super::*;
     use crate::cst::GreenChild;
+
+    #[test]
+    fn debug_header_renders_with_explicit_color_mode() {
+        assert_eq!(debug_header_with_color_mode("TOKEN", ColorMode::Never), "TOKEN");
+        assert_eq!(
+            debug_header_with_color_mode("TOKEN", ColorMode::Always),
+            "\x1b[1;4mTOKEN\x1b[0m"
+        );
+    }
 
     fn root_nodes(root: &crate::cst::GreenNode) -> Vec<crate::cst::GreenNode> {
         root.children()
