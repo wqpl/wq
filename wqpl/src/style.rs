@@ -1,3 +1,11 @@
+use std::sync::atomic::{AtomicU8, Ordering};
+
+const COLOR_OVERRIDE_INHERIT: u8 = 0;
+const COLOR_OVERRIDE_OFF: u8 = 1;
+const COLOR_OVERRIDE_ON: u8 = 2;
+
+static COLOR_OVERRIDE: AtomicU8 = AtomicU8::new(COLOR_OVERRIDE_INHERIT);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorMode {
     Auto,
@@ -8,10 +16,35 @@ pub enum ColorMode {
 impl ColorMode {
     pub fn should_colorize(self) -> bool {
         match self {
-            Self::Auto => colored::control::SHOULD_COLORIZE.should_colorize(),
+            Self::Auto => color_override()
+                .unwrap_or_else(|| colored::control::SHOULD_COLORIZE.should_colorize()),
             Self::Always => true,
             Self::Never => false,
         }
+    }
+}
+
+pub fn set_color_override(on: Option<bool>) {
+    COLOR_OVERRIDE.store(encode_color_override(on), Ordering::Relaxed);
+}
+
+pub fn color_override() -> Option<bool> {
+    decode_color_override(COLOR_OVERRIDE.load(Ordering::Relaxed))
+}
+
+const fn encode_color_override(on: Option<bool>) -> u8 {
+    match on {
+        Some(true) => COLOR_OVERRIDE_ON,
+        Some(false) => COLOR_OVERRIDE_OFF,
+        None => COLOR_OVERRIDE_INHERIT,
+    }
+}
+
+const fn decode_color_override(raw: u8) -> Option<bool> {
+    match raw {
+        COLOR_OVERRIDE_ON => Some(true),
+        COLOR_OVERRIDE_OFF => Some(false),
+        _ => None,
     }
 }
 
@@ -137,4 +170,17 @@ pub fn paint(text: &str, style: TextStyle, color_mode: ColorMode) -> String {
 
 pub fn plain(text: &str) -> String {
     text.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn color_override_encoding_round_trips_without_global_mutation() {
+        assert_eq!(decode_color_override(encode_color_override(None)), None);
+        assert_eq!(decode_color_override(encode_color_override(Some(false))), Some(false));
+        assert_eq!(decode_color_override(encode_color_override(Some(true))), Some(true));
+        assert_eq!(decode_color_override(42), None);
+    }
 }

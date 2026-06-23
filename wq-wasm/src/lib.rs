@@ -17,7 +17,7 @@ use wqpl::session::dbglog::DebugLogFlags;
 use wqpl::session::stdio::{
     WqStderr, WqStdin, WqStdinError, WqStdout, set_wqstderr, set_wqstdin, set_wqstdout,
 };
-use wqpl::style::ColorMode;
+use wqpl::style::{self, ColorMode};
 use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
 use wqpl::value::{Value, WqResult};
 use wqpl::vm::Vm;
@@ -28,7 +28,7 @@ use wqpl::wqerror::{WqError, WqErrorType};
 pub fn main_js() {
     // std::panic::set_hook(Box::new(console_error_panic_hook::hook));
     console::log_1(&"Hello from Rust!".into());
-    colored::control::set_override(true);
+    style::set_color_override(Some(true));
 }
 
 // JS stream adapters
@@ -1164,7 +1164,7 @@ fn col_wrap(items: &[String], columns: usize, gutter: usize) -> String {
 
 #[wasm_bindgen]
 pub fn set_ansi_styles_enabled(on: bool) {
-    colored::control::set_override(on);
+    style::set_color_override(Some(on));
 }
 
 /// Highlight wq source code and return HTML with CSS class names.
