@@ -1,8 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
-use colored::Colorize;
-
 use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::builtins::Builtins;
 use crate::interpret::vanilla::VanillaInterpreter;
@@ -75,10 +73,10 @@ impl Drop for ProfilerInterpreter {
             return;
         }
 
-        eprintln!("{}", "\nPROFILE".bold().underline());
+        eprintln!("{}", format_profile_title("\nPROFILE"));
         eprintln!(
             "{}: inst={} | max-stack={} | final-stack={} | call-depth={}",
-            "Run".underline(),
+            format_profile_header("Run"),
             stats.total_ops,
             stats.max_stack_len,
             stats.final_stack_len,
@@ -135,7 +133,7 @@ impl Drop for ProfilerInterpreter {
         if total_alloc_events > 0 {
             eprintln!(
                 "{}: {} events, {} aggregate items",
-                "Instruction allocations".underline(),
+                format_profile_header("Instruction allocations"),
                 total_alloc_events,
                 total_alloc_units
             );
@@ -342,7 +340,7 @@ fn print_count_table(title: &str, counts: &HashMap<String, usize>, total: usize,
     sorted.sort_by(|(a_name, a_count), (b_name, b_count)| {
         b_count.cmp(a_count).then_with(|| a_name.cmp(b_name))
     });
-    eprintln!("{}", title.underline());
+    eprintln!("{}", format_profile_header(title));
     let max_count = sorted.first().map(|(_, count)| **count).unwrap_or(0);
     for (name, count) in sorted.into_iter().take(limit) {
         eprintln!(
@@ -381,7 +379,7 @@ fn print_sequence_outputs(outputs: &HashMap<String, SequenceOutputStats>) {
             .then_with(|| a_name.cmp(b_name))
     });
 
-    eprintln!("{}", "Container-producing results".underline());
+    eprintln!("{}", format_profile_header("Container-producing results"));
     for (name, stats) in sorted.into_iter().take(16) {
         eprintln!(
             "{:>6} events | {:>8} items | avg {:>6.2} | {:<34} | {}",
@@ -396,6 +394,22 @@ fn print_sequence_outputs(outputs: &HashMap<String, SequenceOutputStats>) {
 
 fn format_len_hist(lens: &BTreeMap<usize, usize>, limit: usize) -> String {
     format_len_hist_with_color_mode(lens, limit, ColorMode::Auto)
+}
+
+fn format_profile_title(text: &str) -> String {
+    format_profile_title_with_color_mode(text, ColorMode::Auto)
+}
+
+fn format_profile_title_with_color_mode(text: &str, color_mode: ColorMode) -> String {
+    paint(text, TextStyle::new().bold().underline(), color_mode)
+}
+
+fn format_profile_header(text: &str) -> String {
+    format_profile_header_with_color_mode(text, ColorMode::Auto)
+}
+
+fn format_profile_header_with_color_mode(text: &str, color_mode: ColorMode) -> String {
+    paint(text, TextStyle::new().underline(), color_mode)
 }
 
 fn format_len_hist_with_color_mode(
@@ -778,6 +792,18 @@ mod tests {
     fn profiler_defaults_to_summary_mode() {
         let profiler = ProfilerInterpreter::default();
         assert!(!profiler.trace);
+    }
+
+    #[test]
+    fn profile_headers_use_explicit_style_renderer() {
+        assert_eq!(
+            format_profile_title_with_color_mode("PROFILE", ColorMode::Always),
+            "\x1b[1;4mPROFILE\x1b[0m"
+        );
+        assert_eq!(
+            format_profile_header_with_color_mode("Run", ColorMode::Never),
+            "Run"
+        );
     }
 
     #[test]
