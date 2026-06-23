@@ -6,9 +6,9 @@ use std::path::PathBuf;
 
 use clap::builder::styling::{AnsiColor, Effects, Style, Styles};
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
-use colored::Colorize;
 pub use wqpl::display::{BoxPrintConfig, apply_box_spec};
 use wqpl::session::dbglog::DebugLogFlags;
+use wqpl::style::{AnsiColor as WqAnsiColor, ColorMode, TextStyle, paint};
 
 pub const DEFAULT_STACK_SIZE_MEBIBYTE: usize = 12;
 
@@ -531,27 +531,27 @@ fn write_common_appendix(out: &mut String) {
 }
 
 fn write_debug_help(out: &mut String) {
-    let token = "token".red();
-    let cst = "cst".cyan();
-    let ast = "ast".yellow();
-    let ast_v = "ast-v".bright_yellow();
-    let inst = "inst".green();
-    let inst_v = "inst-v".bright_green();
-    let wqdb_1 = "wqdb".magenta();
-    let wqdb_2 = "wqdb-v".bright_magenta();
-    let value = "value".yellow();
-    let cas = "cas".yellow();
-    let cas_v = "cas-v".yellow();
+    let token = help_color("token", WqAnsiColor::Red);
+    let cst = help_color("cst", WqAnsiColor::Cyan);
+    let ast = help_color("ast", WqAnsiColor::Yellow);
+    let ast_v = help_color("ast-v", WqAnsiColor::BrightYellow);
+    let inst = help_color("inst", WqAnsiColor::Green);
+    let inst_v = help_color("inst-v", WqAnsiColor::BrightGreen);
+    let wqdb_1 = help_color("wqdb", WqAnsiColor::Magenta);
+    let wqdb_2 = help_color("wqdb-v", WqAnsiColor::BrightMagenta);
+    let value = help_color("value", WqAnsiColor::Yellow);
+    let cas = help_color("cas", WqAnsiColor::Yellow);
+    let cas_v = help_color("cas-v", WqAnsiColor::Yellow);
 
     let _ = writeln!(out);
-    let _ = writeln!(out, "{}", "Debug flags".bold().underline());
+    let _ = writeln!(out, "{}", help_header("Debug flags"));
     let _ = writeln!(
         out,
         "  {token}, {cst}, {ast}, {ast_v}, {inst}, {inst_v}, {wqdb_1}, {wqdb_2}, {value}, {cas}, {cas_v}"
     );
 
     let _ = writeln!(out);
-    let _ = writeln!(out, "{}", "Debug aliases".bold().underline());
+    let _ = writeln!(out, "{}", help_header("Debug aliases"));
     let _ = writeln!(
         out,
         "  0=off 1={inst} 2={inst},{ast} 3={inst},{ast},{value} 4={inst},{ast},{value},{inst_v},{ast_v}"
@@ -560,52 +560,92 @@ fn write_debug_help(out: &mut String) {
 
 fn write_runtime_help(out: &mut String) {
     let _ = writeln!(out);
-    let _ = writeln!(out, "{}", "Interpreters".bold().underline());
+    let _ = writeln!(out, "{}", help_header("Interpreters"));
     let _ = writeln!(out, "  vanilla, profiler, sample");
 
     let _ = writeln!(out);
-    let _ = writeln!(out, "{}", "Builtins".bold().underline());
+    let _ = writeln!(out, "{}", help_header("Builtins"));
     let _ = writeln!(out, "  all, constrained, pure, minimal");
 
     let _ = writeln!(out);
-    let _ = writeln!(out, "{}", "Exit Codes".bold().underline());
+    let _ = writeln!(out, "{}", help_header("Exit Codes"));
     let _ = writeln!(out, "  0  Success");
     let _ = writeln!(out, "  1  Execution Error");
     let _ = writeln!(out, "  2  Incorrect Usage");
 }
 
 fn write_top_examples(out: &mut String) {
-    let wq = "wq".bright_magenta();
+    let wq = help_color("wq", WqAnsiColor::BrightMagenta);
 
     let _ = writeln!(out);
-    let _ = writeln!(out, "{}", "Examples".bold().underline());
+    let _ = writeln!(out, "{}", help_header("Examples"));
     let _ = writeln!(out, "  1. Run a script:");
-    let _ = writeln!(out, "     {wq} {}", "script.wq".blue());
+    let _ = writeln!(out, "     {wq} {}", help_color("script.wq", WqAnsiColor::Blue));
     let _ = writeln!(out, "  2. Evaluate inline code and print the result:");
-    let _ = writeln!(out, "     {wq} {}", "exec '1+1' -p".blue());
+    let _ = writeln!(out, "     {wq} {}", help_color("exec '1+1' -p", WqAnsiColor::Blue));
     let _ = writeln!(out, "  3. Inspect AST and instructions for inline code:");
-    let _ = writeln!(out, "     {wq} {}", "exec '1+1' -d ast,inst -p".blue());
+    let _ = writeln!(
+        out,
+        "     {wq} {}",
+        help_color("exec '1+1' -d ast,inst -p", WqAnsiColor::Blue)
+    );
     let _ = writeln!(out, "  4. Format a script:");
-    let _ = writeln!(out, "     {wq} {}", "fmt script.wq".blue());
+    let _ = writeln!(out, "     {wq} {}", help_color("fmt script.wq", WqAnsiColor::Blue));
     let _ = writeln!(out, "  5. Debug a script with wqdb:");
-    let _ = writeln!(out, "     {wq} {}", "-w -o bt -o c script.wq".blue());
+    let _ = writeln!(
+        out,
+        "     {wq} {}",
+        help_color("-w -o bt -o c script.wq", WqAnsiColor::Blue)
+    );
     let _ = writeln!(out, "  6. Render a Markdown note:");
-    let _ = writeln!(out, "     {wq} {}", "notes.wq.md".blue());
+    let _ = writeln!(out, "     {wq} {}", help_color("notes.wq.md", WqAnsiColor::Blue));
     let _ = writeln!(out, "  7. Render a Markdown note without a pager:");
-    let _ = writeln!(out, "     {wq} {}", "--no-pager notes.wq.md".blue());
+    let _ = writeln!(
+        out,
+        "     {wq} {}",
+        help_color("--no-pager notes.wq.md", WqAnsiColor::Blue)
+    );
 }
 
 fn write_exec_examples(out: &mut String) {
     let _ = writeln!(out);
-    let _ = writeln!(out, "{}", "Examples".bold().underline());
+    let _ = writeln!(out, "{}", help_header("Examples"));
     let _ = writeln!(out, "  1. Evaluate inline code:");
-    let _ = writeln!(out, "     {}", "wq exec '1+1' -p".cyan());
+    let _ = writeln!(out, "     {}", help_color("wq exec '1+1' -p", WqAnsiColor::Cyan));
     let _ = writeln!(out, "  2. Read code from stdin:");
-    let _ = writeln!(out, "     {}", "echo '1+1' | wq exec - -p".cyan());
+    let _ = writeln!(
+        out,
+        "     {}",
+        help_color("echo '1+1' | wq exec - -p", WqAnsiColor::Cyan)
+    );
     let _ = writeln!(out, "  3. Dump AST and instructions:");
-    let _ = writeln!(out, "     {}", "wq exec '1+1' -d ast,inst -p".cyan());
+    let _ = writeln!(
+        out,
+        "     {}",
+        help_color("wq exec '1+1' -d ast,inst -p", WqAnsiColor::Cyan)
+    );
     let _ = writeln!(out, "  4. Run with the profiler interpreter:");
-    let _ = writeln!(out, "     {}", "wq exec '1+1' -i profiler -p".cyan());
+    let _ = writeln!(
+        out,
+        "     {}",
+        help_color("wq exec '1+1' -i profiler -p", WqAnsiColor::Cyan)
+    );
+}
+
+fn help_color(text: &str, color: WqAnsiColor) -> String {
+    help_paint(text, TextStyle::new().fg(color))
+}
+
+fn help_header(text: &str) -> String {
+    help_paint(text, TextStyle::new().bold().underline())
+}
+
+fn help_paint(text: &str, style: TextStyle) -> String {
+    help_paint_with_color_mode(text, style, ColorMode::Auto)
+}
+
+fn help_paint_with_color_mode(text: &str, style: TextStyle, color_mode: ColorMode) -> String {
+    paint(text, style, color_mode)
 }
 
 #[cfg(test)]
@@ -619,6 +659,18 @@ mod tests {
         I: IntoIterator<Item = OsString>,
     {
         super::parse_args(args, true)
+    }
+
+    #[test]
+    fn help_appendix_uses_explicit_style_renderer() {
+        assert_eq!(
+            help_paint_with_color_mode(
+                "Examples",
+                TextStyle::new().bold().underline(),
+                ColorMode::Always,
+            ),
+            "\x1b[1;4mExamples\x1b[0m"
+        );
     }
 
     fn v(xs: &[&str]) -> Vec<OsString> {
