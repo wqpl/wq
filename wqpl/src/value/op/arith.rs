@@ -14,68 +14,21 @@ use crate::wqerror::{WqError, WqErrorType};
 
 fn algebraic_binary_op(op: &str, a: &Value, b: &Value) -> WqResult<Value> {
     use crate::value::algebraic;
-    let (a_is_alg, b_is_alg) = (a.is_algebraic_number(), b.is_algebraic_number());
-    match (a_is_alg, b_is_alg) {
-        (true, true) => {
-            let aa = if let Value::Algebraic(aa) = a {
-                aa
-            } else {
-                unreachable!()
-            };
-            let ab = if let Value::Algebraic(ab) = b {
-                ab
-            } else {
-                unreachable!()
-            };
-            match op {
-                "+" => algebraic::algebraic_add(aa, ab),
-                "-" => algebraic::algebraic_sub(aa, ab),
-                "*" => algebraic::algebraic_mul(aa, ab),
-                "/" => algebraic::algebraic_div(aa, ab),
-                _ => unreachable!(),
-            }
-        }
-        (true, false) => {
-            let aa = if let Value::Algebraic(aa) = a {
-                aa
-            } else {
-                unreachable!()
-            };
-            let promoted = algebraic::promote_to_algebraic(b, aa)?;
-            let ab = if let Value::Algebraic(ab) = &promoted {
-                ab
-            } else {
-                unreachable!()
-            };
-            match op {
-                "+" => algebraic::algebraic_add(aa, ab),
-                "-" => algebraic::algebraic_sub(aa, ab),
-                "*" => algebraic::algebraic_mul(aa, ab),
-                "/" => algebraic::algebraic_div(aa, ab),
-                _ => unreachable!(),
-            }
-        }
-        (false, true) => {
-            let ab = if let Value::Algebraic(ab) = b {
-                ab
-            } else {
-                unreachable!()
-            };
-            let promoted = algebraic::promote_to_algebraic(a, ab)?;
-            let aa = if let Value::Algebraic(aa) = &promoted {
-                aa
-            } else {
-                unreachable!()
-            };
-            match op {
-                "+" => algebraic::algebraic_add(aa, ab),
-                "-" => algebraic::algebraic_sub(aa, ab),
-                "*" => algebraic::algebraic_mul(aa, ab),
-                "/" => algebraic::algebraic_div(aa, ab),
-                _ => unreachable!(),
-            }
-        }
-        (false, false) => unreachable!(),
+    let Some((a, b)) = algebraic::coerce_to_common_field(a, b)? else {
+        unreachable!()
+    };
+    let Value::Algebraic(aa) = &a else {
+        unreachable!()
+    };
+    let Value::Algebraic(ab) = &b else {
+        unreachable!()
+    };
+    match op {
+        "+" => algebraic::algebraic_add(aa, ab),
+        "-" => algebraic::algebraic_sub(aa, ab),
+        "*" => algebraic::algebraic_mul(aa, ab),
+        "/" => algebraic::algebraic_div(aa, ab),
+        _ => unreachable!(),
     }
 }
 

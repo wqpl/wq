@@ -910,6 +910,24 @@ pub(crate) fn promote_to_algebraic(value: &Value, field: &AlgebraicData) -> WqRe
     AlgebraicData::constant(field.field.clone(), value.clone())
 }
 
+/// Coerce two values into a common algebraic field when either side is
+/// algebraic.  Currently supports same-field algebraics and exact scalar
+/// promotion into an existing algebraic field.  Future tower/compositum
+/// coercion should grow from this boundary.
+pub(crate) fn coerce_to_common_field(lhs: &Value, rhs: &Value) -> WqResult<Option<(Value, Value)>> {
+    match (lhs, rhs) {
+        (Value::Algebraic(a), _) => {
+            let rhs = promote_to_algebraic(rhs, a)?;
+            Ok(Some((lhs.clone(), rhs)))
+        }
+        (_, Value::Algebraic(b)) => {
+            let lhs = promote_to_algebraic(lhs, b)?;
+            Ok(Some((lhs, rhs.clone())))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// Extended Euclidean algorithm for polynomials over Q(β).
 ///
 /// Returns `(g, s, t)` such that `s·a + t·b = g = gcd(a, b)`.
@@ -1571,6 +1589,45 @@ mod tests {
         assert!(pos.subtract(&neg).is_err());
         assert!(pos.multiply(&neg).is_err());
         assert!(pos.divide(&neg).is_err());
+    }
+
+    #[test]
+    fn common_field_coercion_promotes_exact_scalar() {
+        let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
+        let Some((lhs, rhs)) = coerce_to_common_field(&Value::Int(3), &sqrt2).unwrap() else {
+            panic!("expected algebraic coercion");
+        };
+
+        let (Value::Algebraic(lhs), Value::Algebraic(rhs)) = (&lhs, &rhs) else {
+            panic!("expected both sides to be algebraic");
+        };
+        assert!(lhs.same_field(rhs));
+        assert_eq!(lhs.coeffs.as_ref(), [Value::Int(3)]);
+        assert_eq!(rhs.coeffs.as_ref(), [Value::Int(0), Value::Int(1)]);
+    }
+
+    #[test]
+    fn common_field_coercion_ignores_plain_scalars() {
+        assert!(coerce_to_common_field(&Value::Int(1), &Value::Int(2))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn common_field_coercion_rejects_different_fields() {
+        let pos = Value::Algebraic(Arc::new(
+            AlgebraicData::new(sqrt2_field((1.0, 2.0)), vec![Value::Int(0), Value::Int(1)])
+                .expect("valid positive sqrt2"),
+        ));
+        let neg = Value::Algebraic(Arc::new(
+            AlgebraicData::new(
+                sqrt2_field((-2.0, -1.0)),
+                vec![Value::Int(0), Value::Int(1)],
+            )
+            .expect("valid negative sqrt2 root"),
+        ));
+
+        assert!(coerce_to_common_field(&pos, &neg).is_err());
     }
 
     #[test]
