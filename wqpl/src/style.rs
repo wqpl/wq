@@ -23,9 +23,12 @@ pub enum AnsiColor {
     Cyan,
     Blue,
     Magenta,
+    White,
     Purple,
     BrightBlack,
+    BrightBlue,
     BrightRed,
+    BrightMagenta,
     BrightYellow,
 }
 
@@ -38,9 +41,12 @@ impl AnsiColor {
             Self::Cyan => "36",
             Self::Blue => "34",
             Self::Magenta => "35",
+            Self::White => "37",
             Self::Purple => "35",
             Self::BrightBlack => "90",
+            Self::BrightBlue => "94",
             Self::BrightRed => "91",
+            Self::BrightMagenta => "95",
             Self::BrightYellow => "93",
         }
     }

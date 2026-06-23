@@ -1,6 +1,5 @@
-use colored::{Color, Colorize};
-
 use crate::highlight::Highlighter as SyntaxHighlighter;
+use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::Value;
 use crate::wqerror::WqError;
 
@@ -437,23 +436,23 @@ fn visible_len(s: &str) -> usize {
 }
 
 /// Color used for a given AST node type in the pretty printer.
-fn node_color(node: &AstNode) -> Color {
+fn node_color(node: &AstNode) -> AnsiColor {
     use AstNode::*;
     match node {
-        Literal(..) | FString { .. } => Color::Cyan,
-        Variable(..) | OuterVariable(..) => Color::Blue,
+        Literal(..) | FString { .. } => AnsiColor::Cyan,
+        Variable(..) | OuterVariable(..) => AnsiColor::Blue,
         Assignment { .. }
         | OuterAssignment { .. }
         | IndexAssign { .. }
-        | MutatingIndexAssign { .. } => Color::Red,
+        | MutatingIndexAssign { .. } => AnsiColor::Red,
         Function { .. }
         | CallName { .. }
         | CallAnonymous { .. }
         | Postfix { .. }
         | Pipe { .. }
-        | PipeTap { .. } => Color::Magenta,
+        | PipeTap { .. } => AnsiColor::Magenta,
         BinaryOp { .. } | UnaryOp { .. } | ComparisonChain { .. } | Range { .. } | Group { .. } => {
-            Color::Yellow
+            AnsiColor::Yellow
         }
         Conditional { .. }
         | ConditionalDot { .. }
@@ -463,13 +462,15 @@ fn node_color(node: &AstNode) -> Color {
         | Break(..)
         | Continue(..)
         | Return(..)
-        | Try(..) => Color::Green,
-        Cat(..) | List(..) | Dict(..) | Block(..) | BlockExpr(..) => Color::White,
-        Index { .. } | MutatingIndex { .. } => Color::BrightBlue,
-        Assert { .. } | Debug { .. } | Pause { .. } | PipeInput | Ellipsis(..) => Color::BrightRed,
-        UnpackAssignment { .. } => Color::Red,
-        NamedArg { .. } => Color::BrightBlue,
-        Error(..) => Color::BrightMagenta,
+        | Try(..) => AnsiColor::Green,
+        Cat(..) | List(..) | Dict(..) | Block(..) | BlockExpr(..) => AnsiColor::White,
+        Index { .. } | MutatingIndex { .. } => AnsiColor::BrightBlue,
+        Assert { .. } | Debug { .. } | Pause { .. } | PipeInput | Ellipsis(..) => {
+            AnsiColor::BrightRed
+        }
+        UnpackAssignment { .. } => AnsiColor::Red,
+        NamedArg { .. } => AnsiColor::BrightBlue,
+        Error(..) => AnsiColor::BrightMagenta,
     }
 }
 
@@ -479,8 +480,16 @@ fn budget(depth: usize) -> usize {
     60usize.saturating_sub(depth * 2)
 }
 
-fn pretty_leaf(text: &str, note: &str, color: Color) -> Pretty {
-    let body = text.color(color).bold().to_string();
+fn pretty_style(color: AnsiColor) -> TextStyle {
+    TextStyle::new().fg(color).bold()
+}
+
+fn pretty_paint(text: &str, color: AnsiColor) -> String {
+    paint(text, pretty_style(color), ColorMode::Always)
+}
+
+fn pretty_leaf(text: &str, note: &str, color: AnsiColor) -> Pretty {
+    let body = pretty_paint(text, color);
     let flat = if note.is_empty() {
         body
     } else {
@@ -497,7 +506,7 @@ fn pretty_leaf(text: &str, note: &str, color: Color) -> Pretty {
 /// Color the first "word" of a head string (the label) while leaving any
 /// trailing span untouched. If the label already contains ANSI escapes,
 /// leave the whole head unchanged.
-fn colorize_head(head: &str, color: Color) -> String {
+fn colorize_head(head: &str, color: AnsiColor) -> String {
     if head.starts_with('(') {
         return head.to_string();
     }
@@ -510,14 +519,14 @@ fn colorize_head(head: &str, color: Color) -> String {
     if label.contains('\x1b') {
         head.to_string()
     } else {
-        format!("{}{}", label.color(color).bold(), rest)
+        format!("{}{}", pretty_paint(label, color), rest)
     }
 }
 
-fn pretty_group(depth: usize, head: String, children: Vec<Pretty>, color: Color) -> Pretty {
+fn pretty_group(depth: usize, head: String, children: Vec<Pretty>, color: AnsiColor) -> Pretty {
     let colored_head = colorize_head(&head, color);
-    let open = "(".color(color).bold().to_string();
-    let close = ")".color(color).bold().to_string();
+    let open = pretty_paint("(", color);
+    let close = pretty_paint(")", color);
 
     let mut flat_parts = vec![colored_head.clone()];
     flat_parts.extend(children.iter().map(|c| c.flat.clone()));
@@ -656,7 +665,11 @@ impl AstNode {
             ComparisonChain { first, rest, .. } => {
                 let mut children = vec![first.pretty_with_depth(depth + 1, src)];
                 for (op, node) in rest {
-                    children.push(pretty_leaf(binary_op_display(op), "", Color::White));
+                    children.push(pretty_leaf(
+                        binary_op_display(op),
+                        "",
+                        AnsiColor::White,
+                    ));
                     children.push(node.pretty_with_depth(depth + 1, src));
                 }
                 let head = format!("CMP-CHAIN{note}");
@@ -687,7 +700,7 @@ impl AstNode {
                 } else {
                     format!("ASSIGN{note}")
                 };
-                let name_p = pretty_leaf(&atom_ident(name), "", Color::White);
+                let name_p = pretty_leaf(&atom_ident(name), "", AnsiColor::White);
                 let val_p = value.pretty_with_depth(depth + 1, src);
                 pretty_group(depth, head, vec![name_p, val_p], color)
             }
@@ -699,7 +712,7 @@ impl AstNode {
                 } else {
                     format!("OUTER-ASSIGN{note}")
                 };
-                let name_p = pretty_leaf(&atom_ident(name), "", Color::White);
+                let name_p = pretty_leaf(&atom_ident(name), "", AnsiColor::White);
                 let val_p = value.pretty_with_depth(depth + 1, src);
                 pretty_group(depth, head, vec![name_p, val_p], color)
             }
@@ -728,7 +741,7 @@ impl AstNode {
                         depth + 1,
                         atom_ident(k),
                         vec![v_p],
-                        Color::White,
+                        AnsiColor::White,
                     ));
                 }
                 let head = format!("DICT{note}");
@@ -863,12 +876,12 @@ impl AstNode {
             } => {
                 let params_p = match params {
                     Some(ps) if !ps.is_empty() => {
-                        let first = pretty_leaf(&atom_ident(ps[0].name()), "", Color::White);
+                        let first = pretty_leaf(&atom_ident(ps[0].name()), "", AnsiColor::White);
                         let rest: Vec<Pretty> = ps[1..]
                             .iter()
                             .map(|p| match p {
                                 Parameter::Pos { name, .. } => {
-                                    pretty_leaf(&atom_ident(name), "", Color::White)
+                                    pretty_leaf(&atom_ident(name), "", AnsiColor::White)
                                 }
                                 Parameter::Named {
                                     name,
@@ -877,21 +890,30 @@ impl AstNode {
                                 } => pretty_leaf(
                                     &format!("`{}:...", atom_ident(name)),
                                     "",
-                                    Color::White,
+                                    AnsiColor::White,
                                 ),
                                 Parameter::Named {
                                     name,
                                     default: None,
                                     ..
                                 } => {
-                                    pretty_leaf(&format!("`{}", atom_ident(name)), "", Color::White)
+                                    pretty_leaf(
+                                        &format!("`{}", atom_ident(name)),
+                                        "",
+                                        AnsiColor::White,
+                                    )
                                 }
                             })
                             .collect();
-                        pretty_group(depth + 1, first.flat, rest, Color::White)
+                        pretty_group(depth + 1, first.flat, rest, AnsiColor::White)
                     }
-                    Some(_) => pretty_group(depth + 1, String::new(), vec![], Color::White),
-                    None => pretty_group(depth + 1, "implicit".to_string(), vec![], Color::White),
+                    Some(_) => pretty_group(depth + 1, String::new(), vec![], AnsiColor::White),
+                    None => pretty_group(
+                        depth + 1,
+                        "implicit".to_string(),
+                        vec![],
+                        AnsiColor::White,
+                    ),
                 };
                 let head = if *ref_capture {
                     format!("FN'{note}")
@@ -1104,5 +1126,15 @@ mod tests {
             strip_ansi(&pretty).contains(" [1:1-1:4] 1+2"),
             "visible source note text changed, got: {pretty:?}"
         );
+    }
+
+    #[test]
+    fn ast_pretty_printer_uses_explicit_style_renderer() {
+        let ast = AstNode::Literal(Value::Int(1), None);
+
+        let pretty = ast.sexpr_pretty();
+
+        assert_eq!(pretty, "\x1b[1;36mLIT[Int(1)]\x1b[0m");
+        assert_eq!(strip_ansi(&pretty), "LIT[Int(1)]");
     }
 }
