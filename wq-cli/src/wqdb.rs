@@ -1,10 +1,10 @@
 #![cfg(not(target_arch = "wasm32"))]
 
-use colored::Colorize;
 use wqpl::session::Session;
 use wqpl::session::stdio::{
     WqStdinError, wqstderr_print, wqstderr_println, wqstdin_readline, wqstdin_with_highlight_off,
 };
+use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::Excerpt;
 use wqpl::vm::Vm;
 use wqpl::wqdb::data::{CodeLoc, DebugInfo, DebugLocalsFrame};
@@ -16,8 +16,8 @@ pub fn enter_wqdb_after_err(s: &mut Session) {
     let host = s.vm_mut();
     wqstderr_println(format!(
         "{}: {}",
-        "wqdb".bold().bright_magenta(),
-        "error occurred".red(),
+        wqdb_title("wqdb"),
+        wqdb_color("error occurred", AnsiColor::Red),
     ));
     print_crash_locals(host);
     wqdb_shell(host);
@@ -260,37 +260,69 @@ fn command_usage_styled(spec: &WqdbCommandSpec) -> String {
 }
 
 fn styled_command(text: &str) -> String {
-    text.green().to_string()
+    styled_command_with_color_mode(text, ColorMode::Auto)
+}
+
+fn styled_command_with_color_mode(text: &str, color_mode: ColorMode) -> String {
+    wqdb_paint_with_color_mode(text, TextStyle::new().fg(AnsiColor::Green), color_mode)
 }
 
 fn styled_subcommand(text: &str) -> String {
-    text.bright_cyan().to_string()
+    wqdb_color(text, AnsiColor::BrightCyan)
 }
 
 fn styled_flag(text: &str) -> String {
-    text.bright_magenta().to_string()
+    wqdb_color(text, AnsiColor::BrightMagenta)
 }
 
 fn styled_required_arg(name: &str) -> String {
     format!(
         "{}{}{}",
-        "<".bright_black(),
-        name.bright_yellow(),
-        ">".bright_black()
+        wqdb_dim("<"),
+        wqdb_color(name, AnsiColor::BrightYellow),
+        wqdb_dim(">")
     )
 }
 
 fn styled_optional_arg(name: &str) -> String {
     format!(
         "{}{}{}",
-        "[".bright_black(),
-        name.bright_yellow(),
-        "]".bright_black()
+        wqdb_dim("["),
+        wqdb_color(name, AnsiColor::BrightYellow),
+        wqdb_dim("]")
     )
 }
 
 fn styled_separator() -> String {
-    "|".bright_black().to_string()
+    wqdb_dim("|")
+}
+
+fn wqdb_title(text: &str) -> String {
+    wqdb_paint(text, TextStyle::new().fg(AnsiColor::BrightMagenta).bold())
+}
+
+fn wqdb_bold(text: &str) -> String {
+    wqdb_paint(text, TextStyle::new().bold())
+}
+
+fn wqdb_header(text: &str) -> String {
+    wqdb_paint(text, TextStyle::new().bold().underline())
+}
+
+fn wqdb_dim(text: &str) -> String {
+    wqdb_color(text, AnsiColor::BrightBlack)
+}
+
+fn wqdb_color(text: &str, color: AnsiColor) -> String {
+    wqdb_paint(text, TextStyle::new().fg(color))
+}
+
+fn wqdb_paint(text: &str, style: TextStyle) -> String {
+    wqdb_paint_with_color_mode(text, style, ColorMode::Auto)
+}
+
+fn wqdb_paint_with_color_mode(text: &str, style: TextStyle, color_mode: ColorMode) -> String {
+    paint(text, style, color_mode)
 }
 
 fn styled_track_command(scope: &str, arg: &str) -> String {
@@ -331,14 +363,14 @@ fn print_wqdb_help() {
         .unwrap_or(0);
     wqstderr_println(format!(
         "{} {}",
-        "wqdb".bold().bright_magenta(),
-        "=======================================".bright_black()
+        wqdb_title("wqdb"),
+        wqdb_dim("=======================================")
     ));
     for spec in WQDB_COMMANDS {
         wqstderr_println(wqdb_help_row(spec, usage_width));
     }
     wqstderr_println("");
-    wqstderr_println(format!("{}", "track scopes".bold()));
+    wqstderr_println(wqdb_bold("track scopes"));
     let track_name = format!(
         "{} {}",
         styled_command("track"),
@@ -347,7 +379,7 @@ fn print_wqdb_help() {
     wqstderr_println(format!(
         "  {} {}",
         track_name,
-        "resolves a current local by name, or a global if no local matches".bright_black()
+        wqdb_dim("resolves a current local by name, or a global if no local matches")
     ));
     wqstderr_println(format!(
         "  {} {} {} {} {}",
@@ -358,7 +390,7 @@ fn print_wqdb_help() {
         styled_track_command("capture", "slot")
     ));
     wqstderr_println("");
-    wqstderr_println(format!("{}", "stop hooks".bold()));
+    wqstderr_println(wqdb_bold("stop hooks"));
     wqstderr_println(format!(
         "  {} {} {} {} {} {} {}",
         styled_stop_hook_command(
@@ -377,11 +409,11 @@ fn print_wqdb_help() {
         styled_stop_hook_command("clear", None)
     ));
     wqstderr_println("");
-    wqstderr_println(format!("{}", "batch commands".bold()));
+    wqstderr_println(wqdb_bold("batch commands"));
     wqstderr_println(format!(
         "  CLI {}{}{} commands run once at the first debugger stop.",
         styled_flag("-o"),
-        "/".bright_black(),
+        wqdb_dim("/"),
         styled_flag("--wqdb-cmd")
     ));
     wqstderr_println(format!(
@@ -611,8 +643,8 @@ pub fn wqdb_shell(host: &mut Vm) {
         #[cfg(not(target_os = "windows"))]
         let prompt = format!(
             "{}[{}] ",
-            "wqdb".bold().bright_magenta(),
-            dbg_line.to_string().bright_blue()
+            wqdb_title("wqdb"),
+            wqdb_color(&dbg_line.to_string(), AnsiColor::BrightBlue)
         );
         #[cfg(target_os = "windows")]
         let prompt = format!("wqdb[{dbg_line}] ");
@@ -1076,10 +1108,10 @@ fn peek_context(host: &mut Vm, n: usize) {
         for ln in lo_ln..=hi_ln {
             if ln == l {
                 wqstderr_println(
-                    format!("{:>4} -> {}", ln, sf.line_snippet(ln).trim())
-                        .green()
-                        .bold()
-                        .to_string(),
+                    wqdb_paint(
+                        &format!("{:>4} -> {}", ln, sf.line_snippet(ln).trim()),
+                        TextStyle::new().fg(AnsiColor::Green).bold(),
+                    ),
                 );
             } else {
                 wqstderr_println(format!("{:>4}    {}", ln, sf.line_snippet(ln).trim()));
@@ -1100,7 +1132,7 @@ fn peek_instructions(host: &mut Vm, n: usize) {
         return;
     }
 
-    wqstderr_println("INST".bold().underline().to_string());
+    wqstderr_println(wqdb_header("INST"));
 
     let start = loc.pc.saturating_sub(n);
     let end = (loc.pc + n).min(len.saturating_sub(1));
@@ -1109,7 +1141,10 @@ fn peek_instructions(host: &mut Vm, n: usize) {
             .dbg_ins_at(pc)
             .unwrap_or_else(|| "<unavailable>".to_string());
         if pc == loc.pc {
-            wqstderr_println(format!("{pc:>4} -> {text}").green().bold().to_string());
+            wqstderr_println(wqdb_paint(
+                &format!("{pc:>4} -> {text}"),
+                TextStyle::new().fg(AnsiColor::Green).bold(),
+            ));
         } else {
             wqstderr_println(format!("{pc:>4}    {text}"));
         }
@@ -1153,6 +1188,22 @@ mod tests {
 
         assert_eq!(command_usage_plain(continue_spec), "c | continue");
         assert_eq!(command_usage_plain(break_fn_spec), "bf <func> [pc]");
+    }
+
+    #[test]
+    fn command_styles_use_explicit_style_renderer() {
+        assert_eq!(
+            styled_command_with_color_mode("continue", ColorMode::Always),
+            "\x1b[32mcontinue\x1b[0m"
+        );
+        assert_eq!(
+            wqdb_paint_with_color_mode(
+                "INST",
+                TextStyle::new().bold().underline(),
+                ColorMode::Never,
+            ),
+            "INST"
+        );
     }
 
     #[test]
