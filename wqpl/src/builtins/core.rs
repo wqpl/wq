@@ -333,14 +333,10 @@ pub(super) fn exec(args: BuiltinFnArgs) -> WqResult<Value> {
             .msg("program name cannot be empty"));
     }
 
+    let has_named_options = args.has_named();
     let opts = exec_options_from_named(&args)?;
-    let has_opts = opts.stdin.is_some()
-        || opts.cwd.is_some()
-        || opts.env.is_some()
-        || opts.timeout.is_some()
-        || !opts.check;
 
-    if has_opts {
+    if has_named_options {
         exec_extended(&parts, opts)
     } else {
         exec_simple(&parts)
@@ -366,27 +362,28 @@ fn exec_options_from_named(args: &BuiltinFnArgs) -> WqResult<ExecOptions> {
     if let Some(v) = args.named("stdin") {
         opts.stdin = Some(
             v.to_rust_string_with_note()
-                .map_err(|e| e.src(SRC).attach_note("named arg 'stdin' must be a string"))?,
+                .map_err(|e| exec_named_arg_error(e, "stdin", "a string"))?,
         );
     }
     if let Some(v) = args.named("cwd") {
         opts.cwd = Some(
             v.to_rust_string_with_note()
-                .map_err(|e| e.src(SRC).attach_note("named arg 'cwd' must be a string"))?,
+                .map_err(|e| exec_named_arg_error(e, "cwd", "a string"))?,
         );
     }
     if let Some(v) = args.named("env") {
         let Value::Dict(env_map) = v else {
-            return Err(
-                type_mismatch(SRC, 0, "dict", v).attach_note("named arg 'env' must be a dict")
-            );
+            return Err(exec_named_type_error("env", "dict", v));
         };
         let mut pairs = Vec::with_capacity(env_map.len());
         for (ek, ev) in env_map.iter() {
             let key = ek.to_string();
             let val = ev
                 .to_rust_string_with_note()
-                .map_err(|e| e.src(SRC).attach_note("env values must be strings"))?;
+                .map_err(|e| {
+                    exec_named_arg_error(e, "env", "a dict of string values")
+                        .attach_note(format!("at env key '{key}'"))
+                })?;
             pairs.push((key, val));
         }
         opts.env = Some(pairs);
@@ -395,16 +392,13 @@ fn exec_options_from_named(args: &BuiltinFnArgs) -> WqResult<ExecOptions> {
         opts.timeout = Some(match v {
             Value::Int(n) if *n >= 0 => *n as u64,
             _ => {
-                return Err(type_mismatch(SRC, 0, "non-negative int", v)
-                    .attach_note("named arg 'timeout' must be a non-negative int"));
+                return Err(exec_named_type_error("timeout", "non-negative int", v));
             }
         });
     }
     if let Some(v) = args.named("check") {
         let Value::Bool(b) = v else {
-            return Err(
-                type_mismatch(SRC, 0, "bool", v).attach_note("named arg 'check' must be a bool")
-            );
+            return Err(exec_named_type_error("check", "bool", v));
         };
         opts.check = *b;
         // Restore default: when check is omitted, it's true.
@@ -413,6 +407,53 @@ fn exec_options_from_named(args: &BuiltinFnArgs) -> WqResult<ExecOptions> {
     }
 
     Ok(opts)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn exec_named_arg_error(err: WqError, name: &str, expected: &str) -> WqError {
+    err.src(BuiltinEnum::Exec)
+        .attach_note(format!("at named arg '{name}'"))
+        .attach_note(format!("named arg '{name}' must be {expected}"))
+        .attach_note(format!("usage: {}", BuiltinEnum::Exec.usage()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn exec_named_type_error(name: &str, expected: &str, got: &Value) -> WqError {
+    WqError::new(WqErrorType::Domain)
+        .src(BuiltinEnum::Exec)
+        .msg(format!("expected {expected}"))
+        .attach_note(format!("at named arg '{name}'"))
+        .got1(got)
+        .attach_note(format!("usage: {}", BuiltinEnum::Exec.usage()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const EXEC_OUTPUT_EXCERPT_LIMIT: usize = 8_192;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn exec_output_excerpt(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    if text.len() <= EXEC_OUTPUT_EXCERPT_LIMIT {
+        return text.into_owned();
+    }
+
+    let mut end = EXEC_OUTPUT_EXCERPT_LIMIT;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut excerpt = text[..end].to_string();
+    excerpt.push_str("...");
+    excerpt
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn exec_attach_output_excerpt(err: WqError, label: &str, bytes: &[u8]) -> WqError {
+    let excerpt = exec_output_excerpt(bytes);
+    if excerpt.is_empty() {
+        err
+    } else {
+        err.attach_note(format!("{label} excerpt: {excerpt}"))
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -433,16 +474,13 @@ fn exec_simple(parts: &[String]) -> WqResult<Value> {
             .code()
             .map(|c| c.to_string())
             .unwrap_or_else(|| "terminated by signal".into());
-        let mut err = String::from_utf8_lossy(&output.stderr).into_owned();
-        if err.len() > 8_192 {
-            err.truncate(8_192);
-            err.push_str("...");
-        }
-        return Err(WqError::new(WqErrorType::Exec)
+        let mut wq_err = WqError::new(WqErrorType::Exec)
             .src(BuiltinEnum::Exec)
             .msg("exec failed")
-            .attach_note(format!("exit code: {code}"))
-            .attach_note(format!("stderr excerpt: {err}")));
+            .attach_note(format!("exit code: {code}"));
+        wq_err = exec_attach_output_excerpt(wq_err, "stderr", &output.stderr);
+        wq_err = exec_attach_output_excerpt(wq_err, "stdout", &output.stdout);
+        return Err(wq_err);
     }
 
     Ok(Value::List(Arc::new(stdout_to_lines(&output.stdout))))
@@ -569,26 +607,12 @@ fn exec_extended(parts: &[String], opts: ExecOptions) -> WqResult<Value> {
             .code()
             .map(|c| c.to_string())
             .unwrap_or_else(|| "terminated by signal".into());
-        let mut err = String::from_utf8_lossy(&stderr).into_owned();
-        if err.len() > 8_192 {
-            err.truncate(8_192);
-            err.push_str("...");
-        }
-        let mut out = String::from_utf8_lossy(&stdout).into_owned();
-        if out.len() > 8_192 {
-            out.truncate(8_192);
-            out.push_str("...");
-        }
         let mut wq_err = WqError::new(WqErrorType::Exec)
             .src(BuiltinEnum::Exec)
             .msg("exec failed")
             .attach_note(format!("exit code: {code_str}"));
-        if !err.is_empty() {
-            wq_err = wq_err.attach_note(format!("stderr excerpt: {err}"));
-        }
-        if !out.is_empty() {
-            wq_err = wq_err.attach_note(format!("stdout excerpt: {out}"));
-        }
+        wq_err = exec_attach_output_excerpt(wq_err, "stderr", &stderr);
+        wq_err = exec_attach_output_excerpt(wq_err, "stdout", &stdout);
         return Err(wq_err);
     }
 
@@ -750,18 +774,20 @@ mod tests {
         }
 
         #[test]
-        fn exec_named_opts_returns_dict() {
-            // No named opts → exec_simple path
-            let result = exec(BuiltinFnArgs::from(smallvec![
-                into_wq_string("echo"),
-                into_wq_string("hello")
-            ]))
+        fn exec_check_true_option_returns_dict() {
+            let result = exec(BuiltinFnArgs::with_named(
+                smallvec![into_wq_string("printf"), into_wq_string("hello")],
+                vec![(Arc::from("check"), Value::Bool(true))],
+            ))
             .unwrap();
-            match result {
-                Value::List(lines) => {
-                    assert_eq!(lines.len(), 1);
-                    assert_eq!(lines[0], into_wq_string("hello"));
-                }
+            let Value::Dict(dict) = result else {
+                panic!("expected dict, got {result:?}");
+            };
+            assert_eq!(dict.get("success"), Some(&Value::Bool(true)));
+            assert_eq!(dict.get("code"), Some(&Value::Int(0)));
+            let stdout = dict.get("stdout").unwrap();
+            match stdout {
+                Value::List(lines) => assert_eq!(&**lines, &[into_wq_string("hello")]),
                 other => panic!("expected list, got {other:?}"),
             }
         }
@@ -805,11 +831,72 @@ mod tests {
         }
 
         #[test]
-        #[ignore]
+        fn exec_simple_failure_includes_stdout_and_stderr() {
+            let err = exec(BuiltinFnArgs::from(smallvec![
+                into_wq_string("sh"),
+                into_wq_string("-c"),
+                into_wq_string("printf out; printf err >&2; exit 7"),
+            ]))
+            .unwrap_err();
+            let text = err.to_string();
+            assert!(
+                text.contains("stderr excerpt: err"),
+                "expected stderr excerpt, got {text}"
+            );
+            assert!(
+                text.contains("stdout excerpt: out"),
+                "expected stdout excerpt, got {text}"
+            );
+        }
+
+        #[test]
+        fn exec_named_type_errors_name_option() {
+            fn assert_named_error(name: &str, value: Value) {
+                let err = exec(BuiltinFnArgs::with_named(
+                    smallvec![into_wq_string("printf"), into_wq_string("hello")],
+                    vec![(Arc::from(name), value)],
+                ))
+                .unwrap_err();
+                let text = err.to_string();
+                assert!(
+                    text.contains(&format!("at named arg '{name}'")),
+                    "expected named arg note, got {text}"
+                );
+                assert!(
+                    !text.contains("at arg[0]"),
+                    "named arg error should not point at positional arg 0: {text}"
+                );
+            }
+
+            assert_named_error("timeout", into_wq_string("soon"));
+            assert_named_error("check", Value::Int(1));
+        }
+
+        #[test]
+        fn exec_env_value_errors_name_key() {
+            let mut env = indexmap::IndexMap::new();
+            env.insert(Arc::from("WQ_TEST_VAR"), Value::Int(42));
+            let err = exec(BuiltinFnArgs::with_named(
+                smallvec![into_wq_string("printf"), into_wq_string("hello")],
+                vec![(Arc::from("env"), Value::Dict(Arc::new(env)))],
+            ))
+            .unwrap_err();
+            let text = err.to_string();
+            assert!(
+                text.contains("at named arg 'env'"),
+                "expected env named arg note, got {text}"
+            );
+            assert!(
+                text.contains("at env key 'WQ_TEST_VAR'"),
+                "expected env key note, got {text}"
+            );
+        }
+
+        #[test]
         fn exec_timeout_kills_child() {
             let err = exec(BuiltinFnArgs::with_named(
-                smallvec![into_wq_string("sleep"), into_wq_string("10")],
-                vec![(Arc::from("timeout"), Value::Int(2))],
+                smallvec![into_wq_string("sleep"), into_wq_string("1")],
+                vec![(Arc::from("timeout"), Value::Int(0))],
             ))
             .unwrap_err();
             assert!(

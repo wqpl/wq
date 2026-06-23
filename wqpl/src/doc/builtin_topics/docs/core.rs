@@ -80,11 +80,33 @@ const INPUT_EXAMPLES: &[DocExample] = &[DocExample {
 }];
 
 #[cfg(not(target_arch = "wasm32"))]
-const EXEC_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Run a host command",
-    code: "exec[\"printf\";\"hi\"]",
-    expectation: ExampleExpectation::NoRun("spawns a host process"),
-}];
+const EXEC_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Run a host command",
+        code: "exec[\"printf\";\"hi\"]",
+        expectation: ExampleExpectation::NoRun("spawns a host process"),
+    },
+    DocExample {
+        title: "Send text to stdin",
+        code: "exec[\"cat\";`stdin:\"hello\"]",
+        expectation: ExampleExpectation::NoRun("spawns a host process"),
+    },
+    DocExample {
+        title: "Run from a working directory",
+        code: "exec[\"pwd\";`cwd:\"/tmp\"]",
+        expectation: ExampleExpectation::NoRun("depends on the local filesystem"),
+    },
+    DocExample {
+        title: "Set environment and timeout",
+        code: "exec[\"sh\";\"-c\";\"printf %s $WQ_MODE\";`env:(`WQ_MODE:\"demo\");`timeout:5]",
+        expectation: ExampleExpectation::NoRun("spawns a host process"),
+    },
+    DocExample {
+        title: "Inspect a non-zero exit status",
+        code: "exec[\"sh\";\"-c\";\"exit 7\";`check:false]",
+        expectation: ExampleExpectation::NoRun("spawns a host process"),
+    },
+];
 
 const LEN_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Count list items",
@@ -200,7 +222,20 @@ pub(super) const INPUT: BuiltinDoc = BuiltinDoc {
 pub(super) const EXEC: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Exec,
     summary: "Run a host process and capture its output.",
-    details: "`exec` converts its positional arguments to command parts. Without named options it returns stdout as a list of lines; with options such as `stdin`, `cwd`, `env`, `timeout`, or `check`, it returns a dict containing `stdout`, `stderr`, `code`, and `success`.",
+    details: concat!(
+        "`exec` converts its positional arguments to command parts and runs them without a shell.\n\n",
+        "Return shape:\n\n",
+        "- Without named options, it returns stdout as a list of lines.\n",
+        "- With any named option, it returns a dict containing `stdout`, `stderr`, `code`, and `success`; ",
+        "`stdout` and `stderr` are lists of lines, `code` is the process exit code, and `success` is true when the process exited successfully.\n\n",
+        "Named options:\n\n",
+        "- `stdin`: string written to the child process's standard input.\n",
+        "- `cwd`: string path used as the child process's working directory; it must exist and be a directory.\n",
+        "- `env`: dict of environment variables to add or override, with tag keys and string values.\n",
+        "- `timeout`: non-negative integer number of seconds; when it expires, `exec` kills the child and raises an exec error.\n",
+        "- `check`: bool that defaults to true; with `check:true`, a non-zero exit raises an exec error, while `check:false` returns the structured result so code can inspect `code`, `success`, and captured output.\n\n",
+        "When checking is enabled, failures include the exit code plus stderr and stdout excerpts when available."
+    ),
     examples: EXEC_EXAMPLES,
     related: &["input", "open", "freadt"],
 };
