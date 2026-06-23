@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
-use colored::Colorize as _;
 use rand::RngExt as _;
 use terminal_size::{Width, terminal_size};
 use wqpl::builtins::{BuiltinPreset, Builtins};
@@ -23,6 +22,7 @@ use wqpl::session::stdio::{
     wqstdin_hints_enabled, wqstdin_readline, wqstdin_set_builtin_hints, wqstdin_set_global_hints,
     wqstdin_set_highlight, wqstdin_set_hints_enabled, wqstdin_set_repl_hints,
 };
+use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::{Excerpt, Value};
 
 use crate::arg::{BoxPrintConfig, FmtOpts, RuntimeFlags, apply_box_spec};
@@ -37,6 +37,52 @@ use crate::repl::editor::WqReplHighlighter;
 use crate::repl::input::RustylineInput;
 use crate::wqdb::enter_wqdb_after_err;
 use crate::{apply_builtins_flag, apply_interpreter_flag, wqdb_pause_handler};
+
+fn repl_color(text: &str, color: AnsiColor) -> String {
+    repl_paint(text, TextStyle::new().fg(color))
+}
+
+fn repl_dim(text: &str) -> String {
+    repl_paint(text, TextStyle::new().dimmed())
+}
+
+fn repl_underline(text: &str) -> String {
+    repl_paint(text, TextStyle::new().underline())
+}
+
+fn repl_status(on: bool) -> String {
+    repl_underline(if on { "on" } else { "off" })
+}
+
+fn repl_bold_underline(text: &str) -> String {
+    repl_paint(text, TextStyle::new().bold().underline())
+}
+
+fn repl_paint(text: &str, style: TextStyle) -> String {
+    repl_paint_with_color_mode(text, style, ColorMode::Auto)
+}
+
+fn repl_paint_with_color_mode(text: &str, style: TextStyle, color_mode: ColorMode) -> String {
+    paint(text, style, color_mode)
+}
+
+fn repl_rgb(text: &str, red: u8, green: u8, blue: u8) -> String {
+    repl_rgb_with_color_mode(text, red, green, blue, ColorMode::Auto)
+}
+
+fn repl_rgb_with_color_mode(
+    text: &str,
+    red: u8,
+    green: u8,
+    blue: u8,
+    color_mode: ColorMode,
+) -> String {
+    if color_mode.should_colorize() {
+        format!("\x1b[38;2;{red};{green};{blue}m{text}\x1b[0m")
+    } else {
+        text.to_string()
+    }
+}
 
 #[derive(Debug, Clone)]
 enum ReplCommand {
@@ -260,7 +306,11 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
         let prompt = if cfg!(windows) {
             format!("wq[{line_number}] ")
         } else {
-            format!("{}[{}] ", "wq".magenta(), line_number.to_string().blue())
+            format!(
+                "{}[{}] ",
+                repl_color("wq", AnsiColor::Magenta),
+                repl_color(&line_number.to_string(), AnsiColor::Blue)
+            )
         };
 
         match wqstdin_readline(&prompt) {
@@ -287,7 +337,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         let on = !wqstdin_hints_enabled();
                         wqstdin_set_hints_enabled(on);
                         system_msg_out(
-                            format!("hint -> {}", (if on { "on" } else { "off" }).underline()),
+                            format!("hint -> {}", repl_status(on)),
                             MsgType::Info,
                         );
                         continue;
@@ -300,10 +350,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         dry_mode = !dry_mode;
                         session.set_dry_mode(dry_mode);
                         system_msg_out(
-                            format!(
-                                "dry -> {}",
-                                (if dry_mode { "on" } else { "off" }).underline()
-                            ),
+                            format!("dry -> {}", repl_status(dry_mode)),
                             MsgType::Info,
                         );
                         continue;
@@ -353,7 +400,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                             system_msg_err(
                                 format!(
                                     "Current: {}\nAvailable: {names}",
-                                    current.name().bold().underline()
+                                    repl_bold_underline(current.name())
                                 ),
                                 MsgType::Info,
                             );
@@ -416,7 +463,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::Box => {
                         box_config.toggle_box();
                         system_msg_out(
-                            format!("box -> {}", box_config.summary().underline()),
+                            format!("box -> {}", repl_underline(&box_config.summary())),
                             MsgType::Info,
                         );
                         continue;
@@ -425,7 +472,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         match apply_box_spec(&mut box_config, &spec) {
                             Ok(()) => {
                                 system_msg_out(
-                                    format!("box -> {}", box_config.summary().underline()),
+                                    format!("box -> {}", repl_underline(&box_config.summary())),
                                     MsgType::Info,
                                 );
                             }
@@ -437,10 +484,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         let bt_mode = !session.get_bt_mode();
                         session.set_bt_mode(bt_mode);
                         system_msg_out(
-                            format!(
-                                "backtrace -> {}",
-                                (if bt_mode { "on" } else { "off" }).underline()
-                            ),
+                            format!("backtrace -> {}", repl_status(bt_mode)),
                             MsgType::Info,
                         );
                         continue;
@@ -448,7 +492,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::Xray => {
                         box_config.toggle_xray();
                         system_msg_out(
-                            format!("box -> {}", box_config.summary().underline()),
+                            format!("box -> {}", repl_underline(&box_config.summary())),
                             MsgType::Info,
                         );
                         continue;
@@ -457,7 +501,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         let current = session.interpreter_name();
                         let list = format!(
                             "Current: {}\nAvailable: {}",
-                            current.underline(),
+                            repl_underline(current),
                             InterpreterKind::names().join(", ")
                         );
                         system_msg_out(list, MsgType::Info);
@@ -478,10 +522,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::Time => {
                         time_mode = !time_mode;
                         system_msg_out(
-                            format!(
-                                "time -> {}",
-                                (if time_mode { "on" } else { "off" }).underline()
-                            ),
+                            format!("time -> {}", repl_status(time_mode)),
                             MsgType::Info,
                         );
                         continue;
@@ -489,7 +530,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::TimeOneshot => {
                         oneshot_time = true;
                         system_msg_out(
-                            format!("time -> {}", "on for next eval".underline()),
+                            format!("time -> {}", repl_underline("on for next eval")),
                             MsgType::Info,
                         );
                         continue;
@@ -497,15 +538,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::Wqdb => {
                         session.set_wqdb(!session.is_wqdb_enabled());
                         system_msg_out(
-                            format!(
-                                "wqdb -> {}",
-                                (if session.is_wqdb_enabled() {
-                                    "on"
-                                } else {
-                                    "off"
-                                })
-                                .underline()
-                            ),
+                            format!("wqdb -> {}", repl_status(session.is_wqdb_enabled())),
                             MsgType::Info,
                         );
                         continue;
@@ -513,7 +546,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::WqdbOneshot => {
                         oneshot_wqdb = true;
                         system_msg_out(
-                            format!("wqdb -> {}", "on for next eval".underline()),
+                            format!("wqdb -> {}", repl_underline("on for next eval")),
                             MsgType::Info,
                         );
                         continue;
@@ -544,11 +577,11 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                             let width = lines.iter().map(|l| vis_width(l)).max().unwrap_or(0);
                             let top = format!("┌{}┐", "─".repeat(width + 4));
                             let bot = format!("└{}┘", "─".repeat(width + 4));
-                            println!("{}", top.dimmed());
+                            println!("{}", repl_dim(&top));
                             for line in lines {
                                 println!("│  {}  │", pad_vis(line.to_string(), width));
                             }
-                            println!("{}", bot.dimmed());
+                            println!("{}", repl_dim(&bot));
                         }
                         continue;
                     }
@@ -564,7 +597,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         };
                         set_debug_log_flags(next);
                         system_msg_out(
-                            format!("debug flags -> {}", format_debug_flags(next).underline()),
+                            format!("debug flags -> {}", repl_underline(&format_debug_flags(next))),
                             MsgType::Info,
                         );
                         continue;
@@ -577,7 +610,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                                 system_msg_out(
                                     format!(
                                         "debug flags -> {} for next eval",
-                                        format_debug_flags(flags).underline()
+                                        repl_underline(&format_debug_flags(flags))
                                     ),
                                     MsgType::Info,
                                 );
@@ -596,7 +629,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                                 system_msg_out(
                                     format!(
                                         "debug flags -> {}",
-                                        format_debug_flags(flags).underline()
+                                        repl_underline(&format_debug_flags(flags))
                                     ),
                                     MsgType::Info,
                                 );
@@ -615,14 +648,14 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     // }
                     ReplCommand::DryQuery => {
                         system_msg_out(
-                            format!("dry: {}", (if dry_mode { "on" } else { "off" }).underline()),
+                            format!("dry: {}", repl_status(dry_mode)),
                             MsgType::Info,
                         );
                         continue;
                     }
                     ReplCommand::BoxQuery => {
                         system_msg_out(
-                            format!("box: {}", box_config.summary().underline()),
+                            format!("box: {}", repl_underline(&box_config.summary())),
                             MsgType::Info,
                         );
                         continue;
@@ -630,20 +663,14 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::BacktraceQuery => {
                         let bt_mode = session.get_bt_mode();
                         system_msg_out(
-                            format!(
-                                "backtrace: {}",
-                                (if bt_mode { "on" } else { "off" }).underline()
-                            ),
+                            format!("backtrace: {}", repl_status(bt_mode)),
                             MsgType::Info,
                         );
                         continue;
                     }
                     ReplCommand::XrayQuery => {
                         system_msg_out(
-                            format!(
-                                "xray: {}",
-                                (if box_config.shows_xray() { "on" } else { "off" }).underline()
-                            ),
+                            format!("xray: {}", repl_status(box_config.shows_xray())),
                             MsgType::Info,
                         );
                         continue;
@@ -651,7 +678,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::HighlightQuery => {
                         let on = wqstdin_highlight_enabled();
                         system_msg_out(
-                            format!("highlight: {}", (if on { "on" } else { "off" }).underline()),
+                            format!("highlight: {}", repl_status(on)),
                             MsgType::Info,
                         );
                         continue;
@@ -659,7 +686,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::HintQuery => {
                         let on = wqstdin_hints_enabled();
                         system_msg_out(
-                            format!("hint: {}", (if on { "on" } else { "off" }).underline()),
+                            format!("hint: {}", repl_status(on)),
                             MsgType::Info,
                         );
                         continue;
@@ -672,7 +699,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         } else {
                             "off"
                         };
-                        system_msg_out(format!("time: {}", status.underline()), MsgType::Info);
+                        system_msg_out(format!("time: {}", repl_underline(status)), MsgType::Info);
                         continue;
                     }
                     ReplCommand::WqdbQuery => {
@@ -683,7 +710,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         } else {
                             "off"
                         };
-                        system_msg_out(format!("wqdb: {}", status.underline()), MsgType::Info);
+                        system_msg_out(format!("wqdb: {}", repl_underline(status)), MsgType::Info);
                         continue;
                     }
                     ReplCommand::FmtQuery => {
@@ -693,20 +720,14 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::TypeShow => {
                         show_type = !show_type;
                         system_msg_out(
-                            format!(
-                                "type -> {}",
-                                (if show_type { "on" } else { "off" }).underline()
-                            ),
+                            format!("type -> {}", repl_status(show_type)),
                             MsgType::Info,
                         );
                         continue;
                     }
                     ReplCommand::TypeQuery => {
                         system_msg_out(
-                            format!(
-                                "type: {}",
-                                (if show_type { "on" } else { "off" }).underline()
-                            ),
+                            format!("type: {}", repl_status(show_type)),
                             MsgType::Info,
                         );
                         continue;
@@ -938,16 +959,20 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
 
     let mut lines: Vec<String> = Vec::new();
 
-    lines.push(top.dimmed().to_string());
+    lines.push(repl_dim(&top));
     let title = format!(
         "{}         {}",
-        format!("wq {WQ_VERSION}").magenta(),
-        "(c) tttiw  (l) MIT".dimmed()
+        repl_color(&format!("wq {WQ_VERSION}"), AnsiColor::Magenta),
+        repl_dim("(c) tttiw  (l) MIT")
     );
     lines.push(format!("│  {}  │", pad_vis(title, INNER)));
-    let hints = format!("{}  {}", "!help".green(), "!exit".green());
+    let hints = format!(
+        "{}  {}",
+        repl_color("!help", AnsiColor::Green),
+        repl_color("!exit", AnsiColor::Green)
+    );
     lines.push(format!("│  {}  │", pad_vis(hints, INNER)));
-    lines.push(sep.dimmed().to_string());
+    lines.push(repl_dim(&sep));
 
     const SECOND_COL: usize = 31;
 
@@ -962,79 +987,83 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
 
     let mut host_line = format!(
         "{}  {}",
-        pad_label("host".blue().to_string(), 4),
-        RUSTC_HOST.dimmed()
+        pad_label(repl_color("host", AnsiColor::Blue), 4),
+        repl_dim(RUSTC_HOST)
     );
     host_line.push_str(&" ".repeat(SECOND_COL.saturating_sub(vis_width(&host_line))));
     host_line.push_str(&format!(
         "{}  {}",
-        pad_label("avpa".blue().to_string(), 5),
-        avpa.dimmed()
+        pad_label(repl_color("avpa", AnsiColor::Blue), 5),
+        repl_dim(&avpa)
     ));
     lines.push(format!("│  {}  │", pad_vis(host_line, INNER)));
 
     let mut pid_line = format!(
         "{}  {}",
-        pad_label("pid".blue().to_string(), 4),
-        pid.dimmed()
+        pad_label(repl_color("pid", AnsiColor::Blue), 4),
+        repl_dim(&pid)
     );
     pid_line.push_str(&" ".repeat(SECOND_COL.saturating_sub(vis_width(&pid_line))));
     pid_line.push_str(&format!(
         "{}  {}",
-        pad_label("stack".blue().to_string(), 5),
-        stack_size.to_string().dimmed()
+        pad_label(repl_color("stack", AnsiColor::Blue), 5),
+        repl_dim(&stack_size.to_string())
     ));
     lines.push(format!("│  {}  │", pad_vis(pid_line, INNER)));
 
-    let cwd_prefix = format!("{}  ", pad_label("cwd".blue().to_string(), 4));
+    let cwd_prefix = format!("{}  ", pad_label(repl_color("cwd", AnsiColor::Blue), 4));
     let cwd_prefix_vis = vis_width(&cwd_prefix);
     let cwd_avail = INNER.saturating_sub(cwd_prefix_vis).max(1);
     let cwd_lines = wrap_text(&cwd, cwd_avail);
     for (i, chunk) in cwd_lines.iter().enumerate() {
         let content = if i == 0 {
-            format!("{}{}", cwd_prefix, chunk.dimmed())
+            format!("{}{}", cwd_prefix, repl_dim(chunk))
         } else {
-            format!("{}{}", " ".repeat(cwd_prefix_vis), chunk.dimmed())
+            format!("{}{}", " ".repeat(cwd_prefix_vis), repl_dim(chunk))
         };
         lines.push(format!("│  {}  │", pad_vis(content, INNER)));
     }
 
     let mut profile_line = format!(
         "{}  {}  o{}",
-        "profile".red(),
-        BUILD_PROFILE.dimmed(),
+        repl_color("profile", AnsiColor::Red),
+        repl_dim(BUILD_PROFILE),
         BUILD_OPT_LEVEL
     );
     profile_line.push_str(&" ".repeat(SECOND_COL.saturating_sub(vis_width(&profile_line))));
     profile_line.push_str(&format!(
         "{}  {}",
-        pad_label("llvm".red().to_string(), 5),
-        RUSTC_LLVM_VERSION.dimmed()
+        pad_label(repl_color("llvm", AnsiColor::Red), 5),
+        repl_dim(RUSTC_LLVM_VERSION)
     ));
     lines.push(format!("│  {}  │", pad_vis(profile_line, INNER)));
 
     lines.push(format!(
         "│  {}  │",
         pad_vis(
-            format!("{}  {}", "rustc".red(), rustc_ver_short.dimmed()),
+            format!(
+                "{}  {}",
+                repl_color("rustc", AnsiColor::Red),
+                repl_dim(rustc_ver_short)
+            ),
             INNER
         )
     ));
 
     let mut interp_line = format!(
         "{}  {}",
-        "interpreter".bright_yellow(),
-        evaluator.interpreter_name().dimmed()
+        repl_color("interpreter", AnsiColor::BrightYellow),
+        repl_dim(evaluator.interpreter_name())
     );
     interp_line.push_str(&" ".repeat(SECOND_COL.saturating_sub(vis_width(&interp_line))));
     interp_line.push_str(&format!(
         "{}  {}",
-        pad_label("bfn".bright_yellow().to_string(), 5),
-        evaluator.builtins_preset().name().dimmed()
+        pad_label(repl_color("bfn", AnsiColor::BrightYellow), 5),
+        repl_dim(evaluator.builtins_preset().name())
     ));
     lines.push(format!("│  {}  │", pad_vis(interp_line, INNER)));
 
-    lines.push(bot.dimmed().to_string());
+    lines.push(repl_dim(&bot));
 
     let term_w = terminal_size()
         .map(|(Width(w), _)| w as usize)
@@ -1077,7 +1106,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         .flat_map(|&ch| {
             palette
                 .iter()
-                .map(|(r, g, b)| ch.truecolor(*r, *g, *b).to_string())
+                .map(|(r, g, b)| repl_rgb(ch, *r, *g, *b))
         })
         .collect();
 
@@ -1100,7 +1129,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         .flat_map(|&ch| {
             palette
                 .iter()
-                .map(|(r, g, b)| ch.truecolor(*r, *g, *b).to_string())
+                .map(|(r, g, b)| repl_rgb(ch, *r, *g, *b))
         })
         .collect();
 
@@ -1248,7 +1277,7 @@ fn format_repl_result_with_type(
         let mut out = String::with_capacity(resstr.len() + pad + type_str.len() + 20);
         out.push_str(lines[0]);
         out.push_str(&" ".repeat(pad));
-        out.push_str(&type_str.dimmed().to_string());
+        out.push_str(&repl_dim(type_str));
         for line in &lines[1..] {
             out.push('\n');
             out.push_str(line);
@@ -1259,7 +1288,7 @@ fn format_repl_result_with_type(
         let pad = term_w.saturating_sub(PREFIX_W + type_vis);
         resstr.push('\n');
         resstr.push_str(&" ".repeat(pad));
-        resstr.push_str(&type_str.dimmed().to_string());
+        resstr.push_str(&repl_dim(type_str));
     }
 
     resstr
@@ -1441,15 +1470,21 @@ fn print_goodbye() {
     } else {
         [":D", ":D", ":D", ":D", ":)"]
     };
-    print!("{}", "\u{258D} goodbye! ".cyan());
+    print!("{}", repl_color("\u{258D} goodbye! ", AnsiColor::Cyan));
     stdout.flush().unwrap();
     thread::sleep(Duration::from_millis(250));
     for &face in &frames {
-        print!("\r{}", format!("\u{258D} goodbye! {face}").cyan());
+        print!(
+            "\r{}",
+            repl_color(&format!("\u{258D} goodbye! {face}"), AnsiColor::Cyan)
+        );
         stdout.flush().unwrap();
         thread::sleep(Duration::from_millis(300));
     }
-    print!("\r{}", "\u{258D} goodbye!        ".cyan());
+    print!(
+        "\r{}",
+        repl_color("\u{258D} goodbye!        ", AnsiColor::Cyan)
+    );
     println!();
 }
 
@@ -1508,9 +1543,9 @@ fn dump_builtins(builtins: &Builtins) {
         let right = dash_len - left;
         println!(
             "{}{}{}",
-            "-".repeat(left).dimmed(),
-            title.magenta(),
-            "-".repeat(right).dimmed()
+            repl_dim(&"-".repeat(left)),
+            repl_color(&title, AnsiColor::Magenta),
+            repl_dim(&"-".repeat(right))
         );
 
         if names.is_empty() {
@@ -1548,6 +1583,26 @@ fn dump_builtins(builtins: &Builtins) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repl_styles_use_explicit_renderer() {
+        assert_eq!(
+            repl_paint_with_color_mode(
+                "wq",
+                TextStyle::new().fg(AnsiColor::Magenta),
+                ColorMode::Always,
+            ),
+            "\x1b[35mwq\x1b[0m"
+        );
+        assert_eq!(
+            repl_paint_with_color_mode("on", TextStyle::new().underline(), ColorMode::Never),
+            "on"
+        );
+        assert_eq!(
+            repl_rgb_with_color_mode("*", 1, 2, 3, ColorMode::Always),
+            "\x1b[38;2;1;2;3m*\x1b[0m"
+        );
+    }
 
     #[test]
     fn debug_repl_commands_accept_modifier_specs() {
