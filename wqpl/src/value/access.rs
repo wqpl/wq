@@ -3,6 +3,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use num_traits::ToPrimitive;
 
+use crate::value::seq::ValueSeq;
 use crate::value::{IntoWqValue as _, Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -24,29 +25,12 @@ impl Value {
     /// Index with multiple raw arguments, avoiding the `Value::from_items`
     /// allocation when the caller already has a `Vec<Value>` of indices.
     pub(crate) fn index_many(&self, keys: &[Value]) -> Option<Value> {
-        match self {
-            // list[x;y;z] ============================================================
-            Value::IntList(items) => {
-                let idxs = normalize_list_indices(keys, items.len())?;
-                let mut out = Vec::with_capacity(idxs.len());
-                for &idx in &idxs {
-                    out.push(*items.get(idx)?);
-                }
-                Some(Value::IntList(Arc::new(out)))
-            }
-            // string[x;y;z] ==========================================================
-            Value::String(s) => {
-                let len = s.chars().count();
-                let idxs = normalize_list_indices(keys, len)?;
-                Some(Value::String(Arc::new(
-                    idxs.iter().filter_map(|&idx| s.chars().nth(idx)).collect(),
-                )))
-            }
-            Value::List(items) => {
-                let idxs = normalize_list_indices(keys, items.len())?;
-                gather(items, &idxs).map(Value::from_items)
-            }
+        if let Some(seq) = ValueSeq::from_value(self) {
+            let idxs = normalize_list_indices(keys, seq.len())?;
+            return seq.gather(&idxs);
+        }
 
+        match self {
             // dict[x;y;z] ============================================================
             Value::Dict(map) => {
                 let mut result = Vec::with_capacity(keys.len());
@@ -81,36 +65,16 @@ impl Value {
     }
 
     pub(crate) fn index(&self, key: &Value) -> Option<Value> {
-        match (self, key) {
-            // list[x] ================================================================
-            (Value::IntList(items), key) => resolve_single_idx(key, items.len())
-                .and_then(|idx| items.get(idx).copied().map(Value::Int))
+        if let Some(seq) = ValueSeq::from_value(self) {
+            return resolve_single_idx(key, seq.len())
+                .and_then(|idx| seq.get(idx))
                 .or_else(|| {
-                    let idxs = resolve_many_idx(key, items.len())?;
-                    let mut out = Vec::with_capacity(idxs.len());
-                    for &idx in &idxs {
-                        out.push(*items.get(idx)?);
-                    }
-                    Some(Value::IntList(Arc::new(out)))
-                }),
-            (Value::String(s), key) => {
-                let len = s.chars().count();
-                resolve_single_idx(key, len)
-                    .and_then(|idx| s.chars().nth(idx).map(Value::Char))
-                    .or_else(|| {
-                        let idxs = resolve_many_idx(key, len)?;
-                        Some(Value::String(Arc::new(
-                            idxs.iter().filter_map(|&idx| s.chars().nth(idx)).collect(),
-                        )))
-                    })
-            }
-            (Value::List(items), key) => resolve_single_idx(key, items.len())
-                .and_then(|idx| items.get(idx).cloned())
-                .or_else(|| {
-                    let idxs = resolve_many_idx(key, items.len())?;
-                    gather(items, &idxs).map(Value::from_items)
-                }),
+                    let idxs = resolve_many_idx(key, seq.len())?;
+                    seq.gather(&idxs)
+                });
+        }
 
+        match (self, key) {
             // dict[x] ================================================================
             (Value::Dict(map), key) => resolve_single_idx(key, map.len())
                 .and_then(|idx| map.get_index(idx).map(|(_, v)| v.clone()))
@@ -524,15 +488,6 @@ fn assign_dict_bulk(
         }
     }
     Some(())
-}
-
-/// Gather helper: map `indices` into cloned values from `items`.
-fn gather<T: Clone>(items: &[T], indices: &[usize]) -> Option<Vec<T>> {
-    let mut out = Vec::with_capacity(indices.len());
-    for &idx in indices {
-        out.push(items.get(idx)?.clone());
-    }
-    Some(out)
 }
 
 // in-place mutation ================================================

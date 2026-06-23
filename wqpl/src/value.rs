@@ -12,6 +12,7 @@ pub mod mat;
 pub mod math;
 pub mod meta;
 pub mod op;
+pub(crate) mod seq;
 pub mod stream;
 
 use std::borrow::Cow;
@@ -68,10 +69,11 @@ pub enum Value {
 impl Value {
     /// Get the length of a value
     pub fn len(&self) -> usize {
+        if let Some(seq) = seq::ValueSeq::from_value(self) {
+            return seq.len();
+        }
+
         match self {
-            Value::List(items) => items.len(),
-            Value::IntList(items) => items.len(),
-            Value::String(s) => s.chars().count(),
             Value::Dict(map) => map.len(),
 
             _ => 1, // Atoms have length 1
@@ -95,7 +97,7 @@ impl Value {
     }
 
     pub fn is_list_like(&self) -> bool {
-        matches!(self, Value::List(_) | Value::IntList(_) | Value::String(_))
+        seq::ValueSeq::from_value(self).is_some()
     }
 
     pub fn is_unit(&self) -> bool {
@@ -115,10 +117,7 @@ impl Value {
     }
 
     pub fn is_atom(&self) -> bool {
-        !matches!(
-            self,
-            Value::IntList(_) | Value::List(_) | Value::Dict(_) | Value::String(_)
-        )
+        seq::ValueSeq::from_value(self).is_none() && !matches!(self, Value::Dict(_))
     }
 
     pub(crate) fn is_string_like(&self) -> bool {

@@ -5,6 +5,7 @@ use num_complex::Complex64;
 use num_rational::Ratio;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
+use crate::value::seq::ValueSeqBuilder;
 use crate::value::{Value, expected_numeric1, into_wq_string};
 use crate::wqerror::WqError;
 
@@ -35,29 +36,7 @@ impl Value {
     /// Construct a list value from items, promoting to IntList if all items are
     /// ints, or to String if all items are chars.
     pub(crate) fn from_items(items: Vec<Value>) -> Value {
-        if items.iter().all(|v| matches!(v, Value::Int(_))) {
-            Value::IntList(Arc::new(
-                items
-                    .iter()
-                    .map(|v| match v {
-                        Value::Int(i) => *i,
-                        _ => unreachable!(),
-                    })
-                    .collect(),
-            ))
-        } else if items.iter().all(|v| matches!(v, Value::Char(_))) {
-            Value::String(Arc::new(
-                items
-                    .iter()
-                    .map(|v| match v {
-                        Value::Char(c) => *c,
-                        _ => unreachable!(),
-                    })
-                    .collect(),
-            ))
-        } else {
-            Value::List(Arc::new(items))
-        }
+        ValueSeqBuilder::from_items(items)
     }
 
     pub(crate) fn value_from_str_chunks(chunks: Vec<String>) -> Value {
