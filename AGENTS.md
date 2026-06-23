@@ -16,6 +16,9 @@
   - `+` is broadcasting add
   - binary `,` is cat
   - leading `,` is enlist
+  - `/` is classic division and integer division produces floats. `/.` is exact division and preserves rational fractions when possible.
+  - `^` is classic/runtime power; negative or fractional numeric exponents may produce floats/complex values. `^.` is exact power. Use exact operands such as `1/.3`, not `1/3`, when you need exact fractional exponents.
+  - CAS simplification (`@s`, `cas_*`, `numeric_*`) should preserve exact constants where possible. It may use exact dot arithmetic internally even when the symbolic surface operator is `CasOp::Divide` or `CasOp::Power`.
   - `$[c;t;f]` is ternary. If false, every expression after the second semicolon belongs to the false branch, so `$[c;t;f1;f2]` runs `f1` then returns `f2` when `c` is false.
   - `$.[c;t1;t2...]` is a guard. It runs the body only when `c` is true; otherwise it returns unit `()`.
   - `$$[c1;t1;c2;t2;default]` is a condition chain. Conditions are checked in order. The final default is optional; omitted default is unit.

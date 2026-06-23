@@ -42,6 +42,23 @@ Divide by zero and wq stops you where the bad expression happened:
 1/0
 ```
 
+## Power Has Flavors Too
+
+`^` is the everyday runtime power operator. Positive integer powers stay exact when they can, but negative or fractional numeric powers use classic floating-point arithmetic.
+
+```wq
+2^8           |echo
+2^-3          |echo
+(8/.27)^(1/.3)|echo
+```
+
+`^.` asks for exact exponentiation. Pair it with exact operands such as `/.` when the exponent is fractional:
+
+```wq
+2^.-3           |echo
+(8/.27)^.(1/.3) |echo
+```
+
 ## Lists Join In
 
 A list is written with parentheses and semicolons:
@@ -112,6 +129,6 @@ Plain `=` compares whole values. Dotted `=.` compares through matching leaves:
 ## Keep
 
 - `+ - * / % ^` are the everyday arithmetic operators.
-- `/%` is floor division; `/.` is exact division.
+- `/%` is floor division; `/.` is exact division; `^.` is exact power.
 - Arithmetic broadcasts over compatible list shapes.
 - `,` concatenates; `+` never means concatenate.

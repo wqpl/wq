@@ -43,11 +43,18 @@ const OP_FLOORDIV_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("3"),
 }];
 
-const OP_POWER_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Raise to a power",
-    code: "^[2;3]",
-    expectation: ExampleExpectation::ResultContains("8"),
-}];
+const OP_POWER_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Raise to a power",
+        code: "^[2;3]",
+        expectation: ExampleExpectation::ResultContains("8"),
+    },
+    DocExample {
+        title: "Use classic fractional power",
+        code: "^[8/.27;1/.3]",
+        expectation: ExampleExpectation::ResultContains("0.666"),
+    },
+];
 
 const OP_POWER_DOT_EXAMPLES: &[DocExample] = &[
     DocExample {
@@ -205,7 +212,7 @@ pub(super) const OP_DIV: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_DIV_DOT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpDivDot,
     summary: "Divide values exactly with the `/.` operator.",
-    details: "`/.[xs;ys+]` folds exact division left to right, preserving fraction-like results when possible instead of immediately converting integer division to float.",
+    details: "`/.[xs;ys+]` folds exact division left to right, preserving fraction-like results when possible instead of immediately converting integer division to float. Use it inside exact exponent literals such as `1/.3`.",
     examples: OP_DIV_DOT_EXAMPLES,
     related: &["/", "fraction", "^."],
 };
@@ -229,7 +236,7 @@ pub(super) const OP_FLOORDIV: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_POWER: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpPower,
     summary: "Raise values to powers with the `^` operator.",
-    details: "`^[xs;ys+]` folds exponentiation left to right. Integer positive powers stay exact when possible; other numeric cases follow the runtime power operation.",
+    details: "`^[xs;ys+]` folds exponentiation left to right. Integer positive powers stay exact when possible; negative or fractional numeric exponents follow the classic runtime power operation and may produce floats or complex values.",
     examples: OP_POWER_EXAMPLES,
     related: &["^.", "sqrt", "exp"],
 };
@@ -237,7 +244,7 @@ pub(super) const OP_POWER: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_POWER_DOT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpPowerDot,
     summary: "Raise values to exact powers with the `^.` operator.",
-    details: "`^.[xs;ys+]` folds exact exponentiation left to right. Negative integer exponents and exact fractional exponents with rational results can produce exact fraction-like results.",
+    details: "`^.[xs;ys+]` folds exact exponentiation left to right. Negative integer exponents and exact fractional exponents with rational results can produce exact fraction-like results. Use `/.` to write exact rational exponents, for example `1/.3`; `1/3` is already a float.",
     examples: OP_POWER_DOT_EXAMPLES,
     related: &["^", "/.", "fraction"],
 };

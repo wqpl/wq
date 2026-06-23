@@ -78,6 +78,8 @@ impl NumericOp {
     }
 
     fn eval(self, lhs: &Value, rhs: &Value) -> WqResult<Value> {
+        // CAS simplification keeps numeric constants exact where possible even
+        // though the public symbolic operator spelling is `/` or `^`.
         let res = match self {
             Self::Add => lhs.add(rhs),
             Self::Subtract => lhs.subtract(rhs),
@@ -382,5 +384,31 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
         .got1(expr))
     } else {
         Err(cas_err("expected symbolic expression for numeric evaluation").got1(expr))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use num_bigint::BigInt;
+
+    use super::*;
+
+    #[test]
+    fn cas_numeric_division_uses_exact_arithmetic() {
+        assert_eq!(
+            eval_numeric_binary("/", &Value::Int(1), &Value::Int(3)).unwrap(),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(3))
+        );
+    }
+
+    #[test]
+    fn cas_numeric_power_uses_exact_arithmetic() {
+        let base = Value::from_fraction_parts(BigInt::from(8), BigInt::from(27));
+        let exp = Value::from_fraction_parts(BigInt::from(1), BigInt::from(3));
+
+        assert_eq!(
+            numeric_pow(&base, &exp).unwrap(),
+            Value::from_fraction_parts(BigInt::from(2), BigInt::from(3))
+        );
     }
 }

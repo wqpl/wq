@@ -889,20 +889,6 @@ fn pow_atoms(a: &Value, b: &Value) -> WqResult<Value> {
                 .unwrap_or_else(|| Value::from_bigint(BigInt::from(*x).pow(uy))))
         }
         (Value::Int(0), Value::Int(y)) if *y < 0 => Err(zero_to_negative_power_err()),
-        // (Value::Int(x), Value::Int(y)) if *y < 0 => {
-        //     let abs_y = y.unsigned_abs();
-        //     if let Ok(uy) = u32::try_from(abs_y)
-        //         && let Some(pow_val) = x.checked_pow(uy)
-        //     {
-        //         Ok(Value::from_fraction_parts(BigInt::one(), BigInt::from(pow_val)))
-        //     } else if let Ok(uy) = u32::try_from(abs_y) {
-        //         let big_x = BigInt::from(*x);
-        //         let big_pow = big_x.pow(uy);
-        //         Ok(Value::from_fraction_parts(BigInt::one(), big_pow))
-        //     } else {
-        //         Err(exponent_too_large_err())
-        //     }
-        // }
         (Value::Int(x), Value::Int(y)) if *y < 0 => Ok(Value::float((*x as f64).powf(*y as f64))),
         (Value::Float(f), Value::Float(y)) if **f == 0.0 && **y < 0.0 => {
             Err(zero_to_negative_power_err())
@@ -1207,6 +1193,38 @@ mod tests {
         assert_eq!(
             a.divide(&Value::Int(3)).unwrap(),
             Value::from_fraction_parts(BigInt::from(1), BigInt::from(2))
+        );
+    }
+
+    #[test]
+    fn classic_int_division_returns_float() {
+        assert_eq!(
+            Value::Int(1).divide(&Value::Int(3)).unwrap(),
+            Value::float(1.0 / 3.0)
+        );
+    }
+
+    #[test]
+    fn exact_int_division_returns_fraction() {
+        assert_eq!(
+            Value::Int(1).divide_dot(&Value::Int(3)).unwrap(),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(3))
+        );
+    }
+
+    #[test]
+    fn classic_negative_integer_power_returns_float() {
+        assert_eq!(
+            Value::Int(2).power(&Value::Int(-3)).unwrap(),
+            Value::float(0.125)
+        );
+    }
+
+    #[test]
+    fn exact_negative_integer_power_returns_fraction() {
+        assert_eq!(
+            Value::Int(2).power_dot(&Value::Int(-3)).unwrap(),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(8))
         );
     }
 
