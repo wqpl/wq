@@ -160,6 +160,22 @@ fn simplify_large_squarefree_sqrt_stays_symbolic() {
 }
 
 #[test]
+fn simplify_exact_odd_root_of_negative_rational() {
+    let expr = op(
+        CasOp::Power,
+        vec![
+            Value::from_fraction_parts(BigInt::from(-8), BigInt::from(27)),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(3)),
+        ],
+    );
+
+    assert_eq!(
+        simplify_cas_value(&expr).unwrap(),
+        Value::from_fraction_parts(BigInt::from(-2), BigInt::from(3))
+    );
+}
+
+#[test]
 fn rewrite_combines_log_terms() {
     let expr = op(
         CasOp::Add,

@@ -49,11 +49,18 @@ const OP_POWER_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("8"),
 }];
 
-const OP_POWER_DOT_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Raise to a power exactly",
-    code: "^.[2;-3]",
-    expectation: ExampleExpectation::ResultContains("1/8"),
-}];
+const OP_POWER_DOT_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Raise to a power exactly",
+        code: "^.[2;-3]",
+        expectation: ExampleExpectation::ResultContains("1/8"),
+    },
+    DocExample {
+        title: "Take an exact fractional power",
+        code: "^.[8/.27;1/.3]",
+        expectation: ExampleExpectation::ResultContains("2/3"),
+    },
+];
 
 const OP_MATMUL_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Compute a dot product",
@@ -230,7 +237,7 @@ pub(super) const OP_POWER: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_POWER_DOT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpPowerDot,
     summary: "Raise values to exact powers with the `^.` operator.",
-    details: "`^.[xs;ys+]` folds exact exponentiation left to right. Negative integer exponents can produce exact fraction-like results.",
+    details: "`^.[xs;ys+]` folds exact exponentiation left to right. Negative integer exponents and exact fractional exponents with rational results can produce exact fraction-like results.",
     examples: OP_POWER_DOT_EXAMPLES,
     related: &["^", "/.", "fraction"],
 };

@@ -1601,16 +1601,24 @@ fn is_perfect_power(n: &BigInt, q: &BigInt) -> bool {
     if n.is_zero() || n.is_one() {
         return true;
     }
-    if n.is_negative() {
+    let Some(q_u) = q.to_u32() else {
+        return false;
+    };
+    if q_u == 0 {
         return false;
     }
-    if let (Some(n_f), Some(q_u)) = (n.to_f64(), q.to_u32()) {
+    if n.is_negative() && q_u.is_multiple_of(2) {
+        return false;
+    }
+
+    let abs_n = n.abs();
+    if let Some(n_f) = abs_n.to_f64() {
         let root_f = n_f.powf(1.0 / q_u as f64);
         let candidate = root_f.round() as i64;
         for c in [candidate - 1, candidate, candidate + 1] {
-            if c > 0 {
+            if c >= 0 {
                 let c_bi = BigInt::from(c);
-                if c_bi.pow(q_u) == *n {
+                if c_bi.pow(q_u) == abs_n {
                     return true;
                 }
             }

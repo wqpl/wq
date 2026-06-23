@@ -77,6 +77,54 @@ fn rational_exponent(v: &Value) -> Option<BigInt> {
     if denom.is_one() { Some(numer) } else { None }
 }
 
+fn exact_nth_root_bigint(n: &BigInt, q: u32) -> Option<BigInt> {
+    if q == 0 {
+        return None;
+    }
+    if n.is_zero() || n.is_one() {
+        return Some(n.clone());
+    }
+    if n.is_negative() && q.is_multiple_of(2) {
+        return None;
+    }
+
+    let abs_n = n.abs();
+    let root_f = abs_n.to_f64()?.powf(1.0 / q as f64);
+    if !root_f.is_finite() || root_f > i64::MAX as f64 {
+        return None;
+    }
+
+    let candidate = root_f.round() as i64;
+    for c in [candidate - 1, candidate, candidate + 1] {
+        if c < 0 {
+            continue;
+        }
+        let root = BigInt::from(c);
+        if root.pow(q) == abs_n {
+            return Some(if n.is_negative() { -root } else { root });
+        }
+    }
+    None
+}
+
+fn exact_rational_fractional_pow(
+    base_n: &BigInt,
+    base_d: &BigInt,
+    exp_n: &BigInt,
+    exp_d: &BigInt,
+) -> Option<Value> {
+    let q = exp_d.to_u32()?;
+    let root_n = exact_nth_root_bigint(base_n, q)?;
+    let root_d = exact_nth_root_bigint(base_d, q)?;
+    let p = exp_n.abs().to_u32()?;
+
+    if exp_n.is_negative() {
+        Some(Value::from_fraction_parts(root_d.pow(p), root_n.pow(p)))
+    } else {
+        Some(Value::from_fraction_parts(root_n.pow(p), root_d.pow(p)))
+    }
+}
+
 fn int_float_pair(a: &Value, b: &Value) -> Option<(i64, f64)> {
     match (a, b) {
         (Value::Int(x), Value::Float(y)) => Some((*x, **y)),
@@ -808,6 +856,22 @@ fn pow_dot_atoms(a: &Value, b: &Value) -> WqResult<Value> {
                 Ok(Value::from_bigint(BigInt::from(*base).pow(exp_u32)))
             }
         }
+        _ if a.is_fraction() || b.is_fraction() => {
+            if let (Some((base_n, base_d)), Some((exp_n, exp_d))) =
+                (a.rational_parts(), b.rational_parts())
+                && !exp_d.is_one()
+            {
+                if base_n.is_zero() && exp_n.is_negative() {
+                    return Err(zero_to_negative_power_err());
+                }
+                if let Some(exact) =
+                    exact_rational_fractional_pow(&base_n, &base_d, &exp_n, &exp_d)
+                {
+                    return Ok(exact);
+                }
+            }
+            pow_atoms(a, b)
+        }
         // Everything else delegates to pow_atoms
         _ => pow_atoms(a, b),
     }
@@ -972,33 +1036,13 @@ fn pow_atoms(a: &Value, b: &Value) -> WqResult<Value> {
             } else if let (Some((base_n, base_d)), Some((_exp_n, exp_d))) =
                 (a.rational_parts(), b.rational_parts())
             {
-                if !exp_d.is_one() {
-                    fn is_perfect_power_val(n: &BigInt, q: u32) -> bool {
-                        if n.is_zero() || n.is_one() {
-                            return true;
-                        }
-                        if n.is_negative() && q.is_multiple_of(2) {
-                            return false;
-                        }
-                        if let Some(f) = n.to_f64() {
-                            let root_f = f.powf(1.0 / q as f64);
-                            let c = root_f.round() as i64;
-                            for cand in [c - 1, c, c + 1] {
-                                if (cand > 0 || (cand == 0 && q > 0))
-                                    && BigInt::from(cand).pow(q) == *n
-                                {
-                                    return true;
-                                }
-                            }
-                        }
-                        false
-                    }
-                    if let Some(exp_d_u32) = exp_d.to_u32() {
-                        let is_exact = is_perfect_power_val(&base_n, exp_d_u32)
-                            && is_perfect_power_val(&base_d, exp_d_u32);
-                        if !is_exact {
-                            return cas_binary_expr(CasOp::Power, a, b);
-                        }
+                if !exp_d.is_one()
+                    && let Some(exp_d_u32) = exp_d.to_u32()
+                {
+                    let is_exact = exact_nth_root_bigint(&base_n, exp_d_u32).is_some()
+                        && exact_nth_root_bigint(&base_d, exp_d_u32).is_some();
+                    if !is_exact {
+                        return cas_binary_expr(CasOp::Power, a, b);
                     }
                 }
                 let base = a.as_f64().ok_or_else(|| expected_numeric2(a, b))?;
@@ -1163,6 +1207,61 @@ mod tests {
         assert_eq!(
             a.divide(&Value::Int(3)).unwrap(),
             Value::from_fraction_parts(BigInt::from(1), BigInt::from(2))
+        );
+    }
+
+    #[test]
+    fn perfect_rational_fractional_power_stays_exact() {
+        let base = Value::from_fraction_parts(BigInt::from(8), BigInt::from(27));
+        let exp = Value::from_fraction_parts(BigInt::from(1), BigInt::from(3));
+
+        assert_eq!(
+            base.power_dot(&exp).unwrap(),
+            Value::from_fraction_parts(BigInt::from(2), BigInt::from(3))
+        );
+    }
+
+    #[test]
+    fn classic_rational_fractional_power_stays_float() {
+        let base = Value::from_fraction_parts(BigInt::from(8), BigInt::from(27));
+        let exp = Value::from_fraction_parts(BigInt::from(1), BigInt::from(3));
+
+        let result = base.power(&exp).unwrap();
+        assert!(matches!(result, Value::Float(_)));
+        let f = result.as_f64().expect("classic power returns a float");
+        assert!((f - 2.0 / 3.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn rational_fractional_power_with_integer_numerator_stays_exact() {
+        let base = Value::from_fraction_parts(BigInt::from(27), BigInt::from(8));
+        let exp = Value::from_fraction_parts(BigInt::from(2), BigInt::from(3));
+
+        assert_eq!(
+            base.power_dot(&exp).unwrap(),
+            Value::from_fraction_parts(BigInt::from(9), BigInt::from(4))
+        );
+    }
+
+    #[test]
+    fn negative_rational_fractional_power_stays_exact() {
+        let base = Value::from_fraction_parts(BigInt::from(8), BigInt::from(27));
+        let exp = Value::from_fraction_parts(BigInt::from(-1), BigInt::from(3));
+
+        assert_eq!(
+            base.power_dot(&exp).unwrap(),
+            Value::from_fraction_parts(BigInt::from(3), BigInt::from(2))
+        );
+    }
+
+    #[test]
+    fn odd_root_of_negative_rational_stays_exact() {
+        let base = Value::from_fraction_parts(BigInt::from(-8), BigInt::from(27));
+        let exp = Value::from_fraction_parts(BigInt::from(1), BigInt::from(3));
+
+        assert_eq!(
+            base.power_dot(&exp).unwrap(),
+            Value::from_fraction_parts(BigInt::from(-2), BigInt::from(3))
         );
     }
 }
