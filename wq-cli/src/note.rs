@@ -274,7 +274,7 @@ pub(crate) fn render_terminal(md: &str) -> String {
     let mut in_em = false;
     let mut in_link = false;
     let mut in_list: Vec<bool> = Vec::new();
-    let mut in_item = false;
+    let mut item_continuation_indent: Vec<String> = Vec::new();
     let mut item_number: Vec<usize> = Vec::new();
 
     for event in parser {
@@ -282,7 +282,7 @@ pub(crate) fn render_terminal(md: &str) -> String {
             Event::Start(Tag::Paragraph) => _in_paragraph = true,
             Event::End(TagEnd::Paragraph) => {
                 _in_paragraph = false;
-                if in_item {
+                if !item_continuation_indent.is_empty() {
                     out.push('\n');
                 } else {
                     out.push('\n');
@@ -306,17 +306,18 @@ pub(crate) fn render_terminal(md: &str) -> String {
                 out.push('\n');
             }
             Event::Start(Tag::Item) => {
-                in_item = true;
                 let indent = "  ".repeat(in_list.len().saturating_sub(1));
                 let marker = if *in_list.last().unwrap_or(&false) {
                     format!("{}. ", *item_number.last().unwrap_or(&1))
                 } else {
                     "• ".to_string()
                 };
+                item_continuation_indent
+                    .push(format!("{}{}", indent, " ".repeat(marker.chars().count())));
                 out.push_str(&format!("{}{}", indent, marker.dimmed()));
             }
             Event::End(TagEnd::Item) => {
-                in_item = false;
+                item_continuation_indent.pop();
                 out.push('\n');
                 if let Some(num) = item_number.last_mut() {
                     *num += 1;
@@ -329,8 +330,12 @@ pub(crate) fn render_terminal(md: &str) -> String {
             Event::Code(code) => {
                 out.push_str(&format!("`{}`", code.dimmed()));
             }
-            Event::SoftBreak => out.push('\n'),
-            Event::HardBreak => out.push('\n'),
+            Event::SoftBreak | Event::HardBreak => {
+                out.push('\n');
+                if let Some(indent) = item_continuation_indent.last() {
+                    out.push_str(indent);
+                }
+            }
             Event::Rule => out.push_str(&format!("{}\n", "─".repeat(40).dimmed())),
             Event::Html(html) => out.push_str(&html),
             _ => {}
@@ -494,6 +499,14 @@ mod tests {
         let out = render_terminal(md);
         assert!(out.contains('a'));
         assert!(out.contains('b'));
+    }
+
+    #[test]
+    fn test_render_terminal_list_soft_break_indents_continuation() {
+        let md = "- alpha\n  beta\n";
+        let out = render_terminal(md);
+
+        assert!(out.contains("alpha\n  beta"));
     }
 
     // #[test]

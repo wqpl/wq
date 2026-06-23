@@ -97,7 +97,19 @@ fn fold_markdown(markdown: &str, width: usize) -> String {
             flush_paragraph(&mut out, &mut paragraph, width);
             push_line(&mut out, line);
             in_fence = !in_fence;
-        } else if in_fence || should_preserve_line(line) || line.trim().is_empty() {
+        } else if in_fence || line.trim().is_empty() {
+            flush_paragraph(&mut out, &mut paragraph, width);
+            push_line(&mut out, line);
+        } else if let Some(item) = parse_list_item(line) {
+            flush_paragraph(&mut out, &mut paragraph, width);
+            fold_prefixed_text(
+                &mut out,
+                &item.prefix,
+                &" ".repeat(item.prefix.chars().count()),
+                item.body,
+                width,
+            );
+        } else if should_preserve_line(line) {
             flush_paragraph(&mut out, &mut paragraph, width);
             push_line(&mut out, line);
         } else {
@@ -117,24 +129,79 @@ fn flush_paragraph(out: &mut String, paragraph: &mut String, width: usize) {
         return;
     }
 
-    let mut line = String::new();
-    for word in paragraph.split_whitespace() {
+    fold_prefixed_text(out, "", "", paragraph, width);
+    paragraph.clear();
+}
+
+fn fold_prefixed_text(
+    out: &mut String,
+    first_prefix: &str,
+    continuation_prefix: &str,
+    text: &str,
+    width: usize,
+) {
+    let mut line = first_prefix.to_string();
+    let mut line_width = first_prefix.chars().count();
+    let mut has_word = false;
+
+    for word in text.split_whitespace() {
         let word_width = word.chars().count();
-        let line_width = line.chars().count();
-        let separator_width = usize::from(!line.is_empty());
-        if !line.is_empty() && line_width + separator_width + word_width > width {
+        let separator_width = usize::from(has_word);
+        if has_word && line_width + separator_width + word_width > width {
             push_line(out, &line);
             line.clear();
+            line.push_str(continuation_prefix);
+            line_width = continuation_prefix.chars().count();
+            has_word = false;
         }
-        if !line.is_empty() {
+        if has_word {
             line.push(' ');
+            line_width += 1;
         }
         line.push_str(word);
+        line_width += word_width;
+        has_word = true;
     }
-    if !line.is_empty() {
+
+    if has_word || !first_prefix.is_empty() {
         push_line(out, &line);
     }
-    paragraph.clear();
+}
+
+struct ListItem<'a> {
+    prefix: String,
+    body: &'a str,
+}
+
+fn parse_list_item(line: &str) -> Option<ListItem<'_>> {
+    let indent_len = line.bytes().take_while(|byte| *byte == b' ').count();
+    if indent_len > 3 || line.as_bytes().get(indent_len) == Some(&b'\t') {
+        return None;
+    }
+
+    let rest = &line[indent_len..];
+    if rest.starts_with("- ") || rest.starts_with("* ") {
+        let body_start = indent_len + 2;
+        return Some(ListItem {
+            prefix: line[..body_start].to_string(),
+            body: line[body_start..].trim_start(),
+        });
+    }
+
+    let marker_end = rest
+        .bytes()
+        .position(|byte| !byte.is_ascii_digit())
+        .filter(|idx| *idx > 0)?;
+    let marker = rest.as_bytes().get(marker_end)?;
+    if !matches!(marker, b'.' | b')') || rest.as_bytes().get(marker_end + 1) != Some(&b' ') {
+        return None;
+    }
+
+    let body_start = indent_len + marker_end + 2;
+    Some(ListItem {
+        prefix: line[..body_start].to_string(),
+        body: line[body_start..].trim_start(),
+    })
 }
 
 fn should_preserve_line(line: &str) -> bool {
@@ -170,12 +237,34 @@ mod tests {
 
     #[test]
     fn folding_preserves_code_fences_and_blocks() {
-        let markdown = "before the code fence wraps\n\n```wq\nthis line is intentionally long and must stay whole\n```\n\n    indented block stays whole";
+        let markdown = "before the code fence wraps\n\n```wq\n- this line is intentionally long and must stay whole\n```\n\n    indented block stays whole";
         let folded = fold_markdown(markdown, 12);
 
         assert!(folded.contains("before the\ncode fence\nwraps"));
-        assert!(folded.contains("this line is intentionally long and must stay whole"));
+        assert!(folded.contains("- this line is intentionally long and must stay whole"));
         assert!(folded.contains("    indented block stays whole"));
+    }
+
+    #[test]
+    fn folds_markdown_list_items() {
+        let markdown = "- alpha beta gamma delta epsilon\n- short";
+        let folded = fold_markdown(markdown, 16);
+
+        assert_eq!(
+            folded,
+            "- alpha beta\n  gamma delta\n  epsilon\n- short"
+        );
+    }
+
+    #[test]
+    fn folds_ordered_and_nested_list_items() {
+        let markdown = "12. alpha beta gamma delta\n  - alpha beta gamma";
+        let folded = fold_markdown(markdown, 16);
+
+        assert_eq!(
+            folded,
+            "12. alpha beta\n    gamma delta\n  - alpha beta\n    gamma"
+        );
     }
 
     #[test]
