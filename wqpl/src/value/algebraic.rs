@@ -69,14 +69,19 @@ impl AlgebraicField {
     ) -> WqResult<Arc<Self>> {
         let poly = normalize_field_poly(poly)?;
         validate_real_interval(&poly, interval)?;
-        Ok(Arc::new(Self {
+        let field = Arc::new(Self {
             base,
             poly: Arc::from(poly),
             root: AlgebraicRoot::RealInterval {
                 lo: OrderedFloat(interval.0),
                 hi: OrderedFloat(interval.1),
             },
-        }))
+        });
+        debug_assert!(
+            field.validate_invariants().is_ok(),
+            "constructed algebraic field violates invariants"
+        );
+        Ok(field)
     }
 
     pub(crate) fn degree(&self) -> usize {
@@ -89,6 +94,15 @@ impl AlgebraicField {
 
     pub(crate) fn interval(&self) -> (f64, f64) {
         self.root.interval()
+    }
+
+    pub(crate) fn validate_invariants(&self) -> WqResult<()> {
+        validate_normalized_field_poly(&self.poly)?;
+        validate_real_interval(&self.poly, self.interval())?;
+        if let AlgebraicBase::Extension(base) = &self.base {
+            base.validate_invariants()?;
+        }
+        Ok(())
     }
 
     pub(crate) fn push_canonical_key(&self, out: &mut String) {
@@ -153,10 +167,15 @@ impl AlgebraicData {
         for coeff in &coeffs {
             validate_coeff_in_base(&field, coeff)?;
         }
-        Ok(Self {
+        let data = Self {
             field,
             coeffs: Arc::from(coeffs),
-        })
+        };
+        debug_assert!(
+            data.validate_invariants().is_ok(),
+            "constructed algebraic data violates invariants"
+        );
+        Ok(data)
     }
 
     pub(crate) fn value(field: Arc<AlgebraicField>, coeffs: Vec<Value>) -> WqResult<Value> {
@@ -193,6 +212,37 @@ impl AlgebraicData {
 
     pub(crate) fn degree(&self) -> usize {
         self.field.degree()
+    }
+
+    pub(crate) fn validate_invariants(&self) -> WqResult<()> {
+        self.field.validate_invariants()?;
+        if self.coeffs.is_empty() {
+            return Err(algebraic_err(
+                "algebraic coefficient vector must not be empty",
+            ));
+        }
+        if self.coeffs.len() > self.field.degree() {
+            return Err(algebraic_err(
+                "algebraic coefficient degree exceeds field degree",
+            ));
+        }
+        if self.coeffs.len() > 1
+            && self
+                .coeffs
+                .last()
+                .is_some_and(crate::cas::numeric_is_zero)
+        {
+            return Err(algebraic_err(
+                "algebraic coefficient vector must be trimmed",
+            ));
+        }
+        for coeff in self.coeffs.iter() {
+            validate_coeff_in_base(&self.field, coeff)?;
+            if let Value::Algebraic(coeff_data) = coeff {
+                coeff_data.validate_invariants()?;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn is_zero(&self) -> bool {
@@ -331,6 +381,36 @@ fn normalize_field_poly(mut poly: Vec<BigInt>) -> WqResult<Vec<BigInt>> {
     }
 
     Ok(poly)
+}
+
+fn validate_normalized_field_poly(poly: &[BigInt]) -> WqResult<()> {
+    if poly.len() < 3 {
+        return Err(algebraic_err(
+            "algebraic field polynomial must have degree at least 2",
+        ));
+    }
+    if poly.last().is_some_and(BigInt::is_zero) {
+        return Err(algebraic_err(
+            "algebraic field polynomial must be trimmed",
+        ));
+    }
+    if !poly.last().is_some_and(BigInt::is_positive) {
+        return Err(algebraic_err(
+            "algebraic field polynomial must have positive leading coefficient",
+        ));
+    }
+
+    let mut content = BigInt::zero();
+    for coeff in poly {
+        content = bigint_gcd(&content, &coeff.abs());
+    }
+    if content != BigInt::one() {
+        return Err(algebraic_err(
+            "algebraic field polynomial must be primitive",
+        ));
+    }
+
+    Ok(())
 }
 
 fn eval_field_poly_f64(poly: &[BigInt], x: f64) -> Option<f64> {
@@ -1298,6 +1378,41 @@ mod tests {
         let value =
             AlgebraicData::new(field, vec![Value::Int(1), Value::Int(0)]).expect("valid element");
         assert_eq!(value.coeffs.as_ref(), [Value::Int(1)]);
+        value
+            .validate_invariants()
+            .expect("constructor output should satisfy invariants");
+    }
+
+    #[test]
+    fn invariant_validation_rejects_internal_bad_shapes() {
+        let non_primitive_field = AlgebraicField {
+            base: AlgebraicBase::Rational,
+            poly: Arc::from(vec![BigInt::from(-4), BigInt::zero(), BigInt::from(2)]),
+            root: AlgebraicRoot::RealInterval {
+                lo: OrderedFloat(1.0),
+                hi: OrderedFloat(2.0),
+            },
+        };
+        assert!(non_primitive_field.validate_invariants().is_err());
+
+        let field = sqrt2_field((1.0, 2.0));
+        let untrimmed = AlgebraicData {
+            field: field.clone(),
+            coeffs: Arc::from(vec![Value::Int(1), Value::Int(0)]),
+        };
+        assert!(untrimmed.validate_invariants().is_err());
+
+        let too_long = AlgebraicData {
+            field: field.clone(),
+            coeffs: Arc::from(vec![Value::Int(0), Value::Int(1), Value::Int(1)]),
+        };
+        assert!(too_long.validate_invariants().is_err());
+
+        let nested = AlgebraicData {
+            field,
+            coeffs: Arc::from(vec![Value::Algebraic(Arc::new(make_sqrt2()))]),
+        };
+        assert!(nested.validate_invariants().is_err());
     }
 
     #[test]
