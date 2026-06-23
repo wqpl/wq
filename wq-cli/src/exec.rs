@@ -13,7 +13,7 @@ use crate::repl::input::RustylineInput;
 use crate::wqdb::enter_wqdb_after_err;
 use crate::{apply_builtins_flag, apply_interpreter_flag, wqdb_pause_handler};
 
-pub fn exec_script<P: AsRef<Path>>(filename: P, rtflags: RuntimeFlags) {
+pub fn exec_script<P: AsRef<Path>>(filename: P, rtflags: RuntimeFlags) -> i32 {
     let mut evaluator = Session::new();
     evaluator.set_pause_callback(Some(wqdb_pause_handler));
     dbglog::set_debug_log_flags(rtflags.debug_flags);
@@ -41,17 +41,19 @@ pub fn exec_script<P: AsRef<Path>>(filename: P, rtflags: RuntimeFlags) {
             if rtflags.dry {
                 print_dry_run_status();
             }
+            0
         }
         Err(err) => {
             print_load_error(&err, &mut evaluator);
             if evaluator.is_wqdb_enabled() && err.is_runtime() {
                 enter_wqdb_after_err(&mut evaluator);
             }
+            1
         }
     }
 }
 
-pub fn exec_cmd(content: &str, rtflags: RuntimeFlags) {
+pub fn exec_cmd(content: &str, rtflags: RuntimeFlags) -> i32 {
     let mut session = Session::new();
     session.set_pause_callback(Some(wqdb_pause_handler));
     dbglog::set_debug_log_flags(rtflags.debug_flags);
@@ -80,12 +82,14 @@ pub fn exec_cmd(content: &str, rtflags: RuntimeFlags) {
             if rtflags.dry {
                 print_dry_run_status();
             }
+            0
         }
         Err(err) => {
             print_load_error(&err, &mut session);
             if session.is_wqdb_enabled() && err.is_runtime() {
                 enter_wqdb_after_err(&mut session);
             }
+            1
         }
     }
 }

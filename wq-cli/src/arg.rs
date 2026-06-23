@@ -560,6 +560,7 @@ fn write_runtime_help(out: &mut String) {
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", "Exit Codes".bold().underline());
     let _ = writeln!(out, "  0  Success");
+    let _ = writeln!(out, "  1  Execution Error");
     let _ = writeln!(out, "  2  Incorrect Usage");
 }
 

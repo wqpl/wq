@@ -43,42 +43,47 @@ fn main() {
         Ok(v) => v,
         Err(code) => std::process::exit(code),
     };
-    match cmd {
+    let code = match cmd {
         CliCommand::Fmt { script, opts } => {
             format_script(&script, opts);
+            0
         }
         CliCommand::Exec(ExecSource::Inline(src)) => {
             spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
                 exec::exec_cmd(&src, rtflags)
-            });
+            })
         }
         CliCommand::Exec(ExecSource::Stdin) => {
             let mut input = String::new();
             let _ = std::io::stdin().read_to_string(&mut input);
             spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
                 exec::exec_cmd(&input, rtflags)
-            });
+            })
         }
         CliCommand::Script(path) => {
             spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
                 exec::exec_script(&path, rtflags)
-            });
+            })
         }
         CliCommand::Notebook(path, interactive) => {
             spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
                 note::run_notebook(&path, rtflags, interactive)
             });
+            0
         }
         CliCommand::Symbols { script, name } => {
             symbol::run_symbols(&script, &name);
+            0
         }
         CliCommand::Repl => {
             spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
                 repl::enter_repl(rtflags)
             });
+            0
         }
         CliCommand::Dap { script } => {
             dap::run_dap(script);
+            0
         }
         CliCommand::Help {
             no_pager,
@@ -87,7 +92,11 @@ fn main() {
             fold_width,
         } => {
             help::run(topic, no_pager, prefer_doc_topic, fold_width);
+            0
         }
+    };
+    if code != 0 {
+        std::process::exit(code);
     }
 }
 
