@@ -4,7 +4,7 @@ import {
   set_stderr_callback,
   highlight_wq,
 } from "wq-wasm";
-import { createAnsiRenderer } from "./ansi.js";
+import { createOutputRenderer } from "./ansi.js";
 import { createWqEditor } from "./editor.js";
 import { alignTurnBody, ensureWasm, escapeHtml, queueEval } from "./wq-shared.js";
 
@@ -1418,16 +1418,16 @@ async function runViz(instance) {
   instance.output.innerHTML = "";
   instance.runBtn.disabled = true;
   setStatus(instance, "running");
-  const renderer = createAnsiRenderer(instance.output);
+  const renderer = createOutputRenderer(instance.output);
   try {
     await ensureWasm();
     const result = await queueEval(() => {
       set_stdout_callback((chunk) => {
-        renderer.append(chunk);
+        renderer.appendLegacyAnsi(chunk);
         instance.output.scrollTop = instance.output.scrollHeight;
       });
       set_stderr_callback((chunk) => {
-        renderer.append("\x1b[31m" + chunk + "\x1b[0m");
+        renderer.appendStyledText(chunk, "error");
         instance.output.scrollTop = instance.output.scrollHeight;
       });
       const session = new WasmWqSession();
@@ -1443,8 +1443,8 @@ async function runViz(instance) {
       bar.className = "repl-bar repl-bar-success";
       bar.textContent = "\u258d ";
       instance.output.appendChild(bar);
-      const resultRenderer = createAnsiRenderer(instance.output, bar);
-      resultRenderer.append(alignTurnBody(String(result.value)) + "\n");
+      const resultRenderer = createOutputRenderer(instance.output, bar);
+      resultRenderer.appendOutput(alignTurnBody(String(result.value)) + "\n");
     }
     setStatus(instance, "done", "ok");
   } catch (err) {
@@ -1452,8 +1452,11 @@ async function runViz(instance) {
     bar.className = "repl-bar repl-bar-error";
     bar.textContent = "\u258d ";
     instance.output.appendChild(bar);
-    const errorRenderer = createAnsiRenderer(instance.output, bar);
-    errorRenderer.append(alignTurnBody((err?.message ?? String(err)) + "\n"));
+    const errorRenderer = createOutputRenderer(instance.output, bar);
+    errorRenderer.appendOutput(
+      alignTurnBody((err?.message ?? String(err)) + "\n"),
+      "error",
+    );
     setStatus(instance, "error", "error");
   } finally {
     instance.isRunning = false;

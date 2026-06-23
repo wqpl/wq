@@ -189,7 +189,7 @@ function hasTextStyle(state) {
   );
 }
 
-function appendText(fragment, documentRef, state, text) {
+function appendParsedText(fragment, documentRef, state, text) {
   if (!text) return;
   if (!hasTextStyle(state)) {
     fragment.appendChild(documentRef.createTextNode(text));
@@ -245,14 +245,14 @@ function renderChunk(documentRef, state, input) {
   while (cursor < input.length) {
     const escIndex = input.indexOf("\u001b", cursor);
     if (escIndex === -1) {
-      appendText(fragment, documentRef, state, input.slice(cursor));
+      appendParsedText(fragment, documentRef, state, input.slice(cursor));
       break;
     }
 
-    appendText(fragment, documentRef, state, input.slice(cursor, escIndex));
+    appendParsedText(fragment, documentRef, state, input.slice(cursor, escIndex));
 
     if (input[escIndex + 1] !== "[") {
-      appendText(fragment, documentRef, state, "\u001b");
+      appendParsedText(fragment, documentRef, state, "\u001b");
       cursor = escIndex + 1;
       continue;
     }
@@ -277,17 +277,65 @@ function renderChunk(documentRef, state, input) {
   return fragment;
 }
 
-export function createAnsiRenderer(root, prefixNode = null) {
+function outputTextClass(options) {
+  if (!options) return "";
+  if (typeof options === "string") return `output-text-${options}`;
+  if (options.className) return String(options.className);
+  if (options.kind) return `output-text-${options.kind}`;
+  return "";
+}
+
+function appendPlainText(root, chunk, options = null) {
+  const text = String(chunk);
+  if (!text) return;
+
+  const className = outputTextClass(options);
+  if (!className) {
+    root.appendChild(root.ownerDocument.createTextNode(text));
+    return;
+  }
+
+  const span = root.ownerDocument.createElement("span");
+  span.className = className;
+  span.textContent = text;
+  root.appendChild(span);
+}
+
+function containsAnsiEscape(input) {
+  return String(input).includes("\u001b");
+}
+
+export function createOutputRenderer(root, prefixNode = null) {
   const state = createState();
   let pending = "";
 
+  const appendLegacyAnsi = (chunk) => {
+    const { content, tail } = splitIncompleteEscape(pending + String(chunk));
+    pending = tail;
+    if (!content) return;
+    root.appendChild(renderChunk(root.ownerDocument, state, content));
+  };
+
+  const appendText = (chunk, options = null) => {
+    pending = "";
+    resetState(state);
+    appendPlainText(root, chunk, options);
+  };
+
+  const appendOutput = (chunk, options = null) => {
+    if (containsAnsiEscape(chunk)) {
+      appendLegacyAnsi(chunk);
+    } else {
+      appendText(chunk, options);
+    }
+  };
+
   return {
-    append(chunk) {
-      const { content, tail } = splitIncompleteEscape(pending + String(chunk));
-      pending = tail;
-      if (!content) return;
-      root.appendChild(renderChunk(root.ownerDocument, state, content));
-    },
+    append: appendLegacyAnsi,
+    appendLegacyAnsi,
+    appendOutput,
+    appendText,
+    appendStyledText: appendText,
     clear() {
       pending = "";
       resetState(state);
@@ -297,6 +345,14 @@ export function createAnsiRenderer(root, prefixNode = null) {
       }
     },
   };
+}
+
+// Deprecated: ANSI parsing is now a legacy compatibility path. New callers should
+// import createOutputRenderer and choose appendText/appendStyledText for UI-owned
+// strings, appendOutput for complete backend strings, or appendLegacyAnsi only
+// for streamed backend output that may still contain SGR.
+export function createAnsiRenderer(root, prefixNode = null) {
+  return createOutputRenderer(root, prefixNode);
 }
 
 export function renderAnsiToText(input) {

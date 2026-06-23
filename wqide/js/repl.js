@@ -6,7 +6,7 @@ import {
   set_stdin_callback,
   highlight_wq,
 } from "wq-wasm";
-import { createAnsiRenderer } from "./ansi.js";
+import { createOutputRenderer } from "./ansi.js";
 import {
   ensureWasm,
   getWqVersion,
@@ -229,9 +229,10 @@ function createTurn(kind, label, body, msgType = null) {
     bar.className = `repl-bar repl-bar-${msgType || "info"}`;
     bar.textContent = "\u258d ";
     content.appendChild(bar);
-    content.__ansiRenderer = createAnsiRenderer(content, bar);
+    content.__outputRenderer = createOutputRenderer(content, bar);
     if (body) {
-      content.__ansiRenderer.append(body);
+      const style = msgType === "error" ? "error" : null;
+      content.__outputRenderer.appendOutput(body, style);
     }
   }
 
@@ -390,12 +391,12 @@ function append(chunk, msgType = "info") {
   line.className = "repl-line";
   const content = document.createElement("pre");
   content.className = "repl-line-body repl-line-body-system";
-  content.__ansiRenderer = createAnsiRenderer(content);
+  content.__outputRenderer = createOutputRenderer(content);
   const aligned = alignTurnBody(chunk);
   if (msgType === "error") {
-    content.__ansiRenderer.append("\x1b[31m" + aligned + "\x1b[0m");
+    content.__outputRenderer.appendStyledText(aligned, "error");
   } else {
-    content.__ansiRenderer.append(aligned);
+    content.__outputRenderer.appendOutput(aligned);
   }
   line.appendChild(content);
   turn.appendChild(line);

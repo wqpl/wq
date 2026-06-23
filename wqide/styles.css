@@ -979,6 +979,9 @@ body {
 .repl-bar-error {
   color: #d03030;
 }
+.output-text-error {
+  color: #d03030;
+}
 .repl-bar-success {
   color: #2a8a2a;
 }
@@ -2043,6 +2046,9 @@ textarea.editor-text.repl-input,
   line-height: 1.28;
   letter-spacing: 0;
   white-space: pre;
+}
+.viz-output .output-text-error {
+  color: #ff8a8a;
 }
 .viz-code-panel summary {
   display: flex;

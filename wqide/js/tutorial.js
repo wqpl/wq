@@ -7,7 +7,7 @@ import {
   set_stdin_callback,
   set_stderr_callback,
 } from "wq-wasm";
-import { createAnsiRenderer } from "./ansi.js";
+import { createOutputRenderer } from "./ansi.js";
 import { ensureWasm, queueEval, createOutputBar } from "./wq-shared.js";
 
 let __outlineObserver = null;
@@ -234,8 +234,8 @@ window.initTutorialUI = function initTutorialUI() {
         }
         const codeOut = panel.querySelector("code");
         const outputRenderer =
-          codeOut.__ansiRenderer ||
-          (codeOut.__ansiRenderer = createAnsiRenderer(codeOut));
+          codeOut.__outputRenderer ||
+          (codeOut.__outputRenderer = createOutputRenderer(codeOut));
 
         run.disabled = true;
         // stream printed output; clear previous
@@ -244,10 +244,10 @@ window.initTutorialUI = function initTutorialUI() {
           await ensureWasm();
           const result = await queueEval(() => {
             set_stdout_callback((chunk) => {
-              outputRenderer.append(chunk);
+              outputRenderer.appendLegacyAnsi(chunk);
             });
             set_stderr_callback((chunk) => {
-              outputRenderer.append(chunk);
+              outputRenderer.appendStyledText(chunk, "error");
             });
             const queue = [...stdinArr];
             set_stdin_callback((_prompt) =>
@@ -262,7 +262,7 @@ window.initTutorialUI = function initTutorialUI() {
           ) {
             const needsNL =
               codeOut.textContent && !codeOut.textContent.endsWith("\n");
-            outputRenderer.append(
+            outputRenderer.appendText(
               (needsNL ? "\n" : "") + "\u{258D} " + String(result),
             );
           }
@@ -271,8 +271,11 @@ window.initTutorialUI = function initTutorialUI() {
           outputRenderer.clear();
           const bar = createOutputBar("error");
           codeOut.appendChild(bar);
-          const errorRenderer = createAnsiRenderer(codeOut, bar);
-          errorRenderer.append((err?.message ?? String(err)) + "\n");
+          const errorRenderer = createOutputRenderer(codeOut, bar);
+          errorRenderer.appendOutput(
+            (err?.message ?? String(err)) + "\n",
+            "error",
+          );
         } finally {
           run.disabled = false;
         }

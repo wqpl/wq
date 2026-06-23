@@ -6,7 +6,7 @@ import {
   highlight_wq,
   get_symbol_index_json,
 } from "wq-wasm";
-import { createAnsiRenderer } from "./ansi.js";
+import { createOutputRenderer } from "./ansi.js";
 import { getPlaygroundExample } from "./playground-examples.js";
 import {
   ensureWasm,
@@ -385,7 +385,7 @@ async function doEval(instance) {
   instance.output.innerHTML = "";
 
   // stdout/stderr — no bar
-  const streamRenderer = createAnsiRenderer(instance.output);
+  const streamRenderer = createOutputRenderer(instance.output);
 
   try {
     const code = instance.ta.value;
@@ -397,11 +397,11 @@ async function doEval(instance) {
     const start = performance.now();
     const result = await queueEval(() => {
       set_stdout_callback((chunk) => {
-        streamRenderer.append(chunk);
+        streamRenderer.appendLegacyAnsi(chunk);
         instance.output.scrollTop = instance.output.scrollHeight;
       });
       set_stderr_callback((chunk) => {
-        streamRenderer.append("\x1b[31m" + chunk + "\x1b[0m");
+        streamRenderer.appendStyledText(chunk, "error");
         instance.output.scrollTop = instance.output.scrollHeight;
       });
       const queue = [...stdinArr];
@@ -442,16 +442,16 @@ async function doEval(instance) {
         bar.className = "repl-bar repl-bar-success";
         bar.textContent = "\u258d ";
         instance.output.appendChild(bar);
-        const resultRenderer = createAnsiRenderer(instance.output, bar);
-        resultRenderer.append(alignTurnBody(String(result.value)) + "\n");
+        const resultRenderer = createOutputRenderer(instance.output, bar);
+        resultRenderer.appendOutput(alignTurnBody(String(result.value)) + "\n");
       }
       if (readBoxFlags(instance).includes("xray") && result.xray) {
         const xrayBar = document.createElement("span");
         xrayBar.className = "repl-bar repl-bar-info";
         xrayBar.textContent = "\u258d ";
         instance.output.appendChild(xrayBar);
-        const xrayRenderer = createAnsiRenderer(instance.output, xrayBar);
-        xrayRenderer.append(alignTurnBody(String(result.xray)) + "\n");
+        const xrayRenderer = createOutputRenderer(instance.output, xrayBar);
+        xrayRenderer.appendOutput(alignTurnBody(String(result.xray)) + "\n");
       }
       instance.output.scrollTop = instance.output.scrollHeight;
     }
@@ -459,7 +459,7 @@ async function doEval(instance) {
       const needsNL =
         instance.output.textContent &&
         !instance.output.textContent.endsWith("\n");
-      streamRenderer.append(
+      streamRenderer.appendText(
         (needsNL ? "\n" : "") +
           alignTurnBody(`time elapsed: ${end - start}ms\n`),
       );
@@ -472,8 +472,11 @@ async function doEval(instance) {
     bar.className = "repl-bar repl-bar-error";
     bar.textContent = "\u258d ";
     instance.output.appendChild(bar);
-    const errorRenderer = createAnsiRenderer(instance.output, bar);
-    errorRenderer.append(alignTurnBody((err?.message ?? String(err)) + "\n"));
+    const errorRenderer = createOutputRenderer(instance.output, bar);
+    errorRenderer.appendOutput(
+      alignTurnBody((err?.message ?? String(err)) + "\n"),
+      "error",
+    );
     requestPanelHeightSync(instance);
     instance.output.scrollTop = instance.output.scrollHeight;
   } finally {
@@ -484,7 +487,7 @@ async function doEval(instance) {
 
 async function runForPoster(instance) {
   const stdoutDiv = document.createElement("div");
-  const stdoutRenderer = createAnsiRenderer(stdoutDiv);
+  const stdoutRenderer = createOutputRenderer(stdoutDiv);
   const resultDiv = document.createElement("div");
   const errorDiv = document.createElement("div");
 
@@ -494,9 +497,9 @@ async function runForPoster(instance) {
       ? instance.stdinInput.value.replace(/\\n/g, "\n").split(/\r?\n/)
       : [];
     await ensureWasm();
-    set_stdout_callback((chunk) => stdoutRenderer.append(chunk));
+    set_stdout_callback((chunk) => stdoutRenderer.appendLegacyAnsi(chunk));
     set_stderr_callback((chunk) =>
-      stdoutRenderer.append("\x1b[31m" + chunk + "\x1b[0m"),
+      stdoutRenderer.appendStyledText(chunk, "error"),
     );
     const queue = [...stdinArr];
     set_stdin_callback((_prompt) =>
@@ -526,16 +529,16 @@ async function runForPoster(instance) {
           bar.className = "repl-bar repl-bar-success";
           bar.textContent = "\u258d ";
           resultDiv.appendChild(bar);
-          const resultRenderer = createAnsiRenderer(resultDiv, bar);
-          resultRenderer.append(alignTurnBody(String(result.value)) + "\n");
+          const resultRenderer = createOutputRenderer(resultDiv, bar);
+          resultRenderer.appendOutput(alignTurnBody(String(result.value)) + "\n");
         }
         if (readBoxFlags(instance).includes("xray") && result.xray) {
           const bar = document.createElement("span");
           bar.className = "repl-bar repl-bar-info";
           bar.textContent = "\u258d ";
           resultDiv.appendChild(bar);
-          const resultRenderer = createAnsiRenderer(resultDiv, bar);
-          resultRenderer.append(alignTurnBody(String(result.xray)) + "\n");
+          const resultRenderer = createOutputRenderer(resultDiv, bar);
+          resultRenderer.appendOutput(alignTurnBody(String(result.xray)) + "\n");
         }
       }
     } finally {
@@ -546,8 +549,11 @@ async function runForPoster(instance) {
     bar.className = "repl-bar repl-bar-error";
     bar.textContent = "\u258d ";
     errorDiv.appendChild(bar);
-    const errorRenderer = createAnsiRenderer(errorDiv, bar);
-    errorRenderer.append(alignTurnBody((err?.message ?? String(err)) + "\n"));
+    const errorRenderer = createOutputRenderer(errorDiv, bar);
+    errorRenderer.appendOutput(
+      alignTurnBody((err?.message ?? String(err)) + "\n"),
+      "error",
+    );
   }
 
   return {
