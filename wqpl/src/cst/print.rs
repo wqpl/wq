@@ -4,33 +4,32 @@
 //! s-expression layout with heuristic line-breaking, ANSI colouring by
 //! [`SyntaxKind`], and optional source-span annotations.
 
-use colored::{Color, Colorize};
-
 use super::green::{GreenChild, GreenNode, GreenToken};
 use super::kind::SyntaxKind;
 use super::red::{SyntaxElement, SyntaxNode, SyntaxToken, TextRange};
+use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 
 // -----------------------------------------------------------------------
 // Colour scheme
 // -----------------------------------------------------------------------
 
-fn kind_color(kind: SyntaxKind) -> Color {
+fn kind_color(kind: SyntaxKind) -> AnsiColor {
     use SyntaxKind::*;
     match kind {
         // Trivia — dim so it doesn't compete with real tokens.
-        Whitespace | Newline | Comment => Color::BrightBlack,
-        ScriptLine => Color::BrightYellow,
+        Whitespace | Newline | Comment => AnsiColor::BrightBlack,
+        ScriptLine => AnsiColor::BrightYellow,
 
         // Literals
         IntLit | BigIntLit | FloatLit | ImagLit | CharLit | StringLit | TagLit | InfLit
-        | TrueKw | FalseKw | FString => Color::Cyan,
+        | TrueKw | FalseKw | FString => AnsiColor::Cyan,
 
         // Identifiers
-        Ident | Apostrophe => Color::Blue,
+        Ident | Apostrophe => AnsiColor::Blue,
 
         // Keywords / directives
         AtAssert | AtBreak | AtContinue | AtReturn | AtDebug | AtPause | AtDepth | AtSymbolic
-        | AtTry | Dollar | DollarDot | DollarDollar => Color::Green,
+        | AtTry | Dollar | DollarDot | DollarDollar => AnsiColor::Green,
 
         // Operators
         Plus | Minus | Star | Slash | SlashDot | Percent | Power | PowerDot | Matmul | FloorDiv
@@ -38,38 +37,38 @@ fn kind_color(kind: SyntaxKind) -> Color {
         | StarColon | SlashColon | SlashDotColon | PercentColon | PowerColon | PowerDotColon
         | CommaColon | BoolAndColon | BoolOrColon | BitAndColon | BitOrColon | ShlColon
         | ShrColon | BitXorColon | FloorDivColon | EqEq | EqDot | NotEq | NotEqDot | Lt | Le
-        | Gt | Ge => Color::Yellow,
+        | Gt | Ge => AnsiColor::Yellow,
 
         // Punctuation / brackets
         Colon | Hash | Pipe | PipeDot | PipePipe | PipePipeDot | RangeOp | RangeIncOp | LParen
         | RParen | LBrack | RBrack | LBrace | RBrace | Semicolon | Comma | Bang | Ellipsis
-        | Backtick => Color::White,
+        | Backtick => AnsiColor::White,
 
         // Error token
-        ErrorTok => Color::BrightMagenta,
+        ErrorTok => AnsiColor::BrightMagenta,
 
         // Internal nodes — expressions are magenta, containers white, errors bright magenta
-        Root => Color::White,
-        Block => Color::White,
-        Shebang | ScriptDirective => Color::BrightYellow,
-        LiteralExpr | VarExpr | OuterVarExpr => Color::Cyan,
-        BinaryExpr | UnaryExpr | ComparisonChainExpr | RangeExpr => Color::Yellow,
+        Root => AnsiColor::White,
+        Block => AnsiColor::White,
+        Shebang | ScriptDirective => AnsiColor::BrightYellow,
+        LiteralExpr | VarExpr | OuterVarExpr => AnsiColor::Cyan,
+        BinaryExpr | UnaryExpr | ComparisonChainExpr | RangeExpr => AnsiColor::Yellow,
         AssignExpr
         | OuterAssignExpr
         | UnpackAssignExpr
         | IndexAssignExpr
-        | MutatingIndexAssignExpr => Color::Red,
-        MutatingIndexExpr => Color::BrightBlue,
-        ListExpr | DictExpr | ParenExpr | BlockExpr => Color::White,
-        PostfixExpr | NamedArgExpr | ArgList => Color::Magenta,
-        FStringExpr => Color::Cyan,
+        | MutatingIndexAssignExpr => AnsiColor::Red,
+        MutatingIndexExpr => AnsiColor::BrightBlue,
+        ListExpr | DictExpr | ParenExpr | BlockExpr => AnsiColor::White,
+        PostfixExpr | NamedArgExpr | ArgList => AnsiColor::Magenta,
+        FStringExpr => AnsiColor::Cyan,
         CondExpr | CondDotExpr | CondChainExpr | WLoopExpr | NLoopExpr | FunctionExpr
         | ParamList | Param | ReturnExpr | AssertExpr | DebugExpr | PauseExpr | TryExpr
         | SymbolicExpr | BreakExpr | ContinueExpr | EllipsisExpr | PipeExpr | PipeTapExpr
-        | DictPair => Color::Green,
-        ErrorNode => Color::BrightMagenta,
+        | DictPair => AnsiColor::Green,
+        ErrorNode => AnsiColor::BrightMagenta,
 
-        __LastToken => Color::White,
+        __LastToken => AnsiColor::White,
     }
 }
 
@@ -107,8 +106,16 @@ struct Pretty {
     multi: String,
 }
 
-fn pretty_leaf(text: &str, note: &str, color: Color) -> Pretty {
-    let body = text.color(color).bold().to_string();
+fn pretty_style(color: AnsiColor) -> TextStyle {
+    TextStyle::new().fg(color).bold()
+}
+
+fn pretty_paint(text: &str, color: AnsiColor) -> String {
+    paint(text, pretty_style(color), ColorMode::Always)
+}
+
+fn pretty_leaf(text: &str, note: &str, color: AnsiColor) -> Pretty {
+    let body = pretty_paint(text, color);
     let flat = if note.is_empty() {
         body
     } else {
@@ -122,10 +129,10 @@ fn pretty_leaf(text: &str, note: &str, color: Color) -> Pretty {
     }
 }
 
-fn pretty_group(depth: usize, head: String, children: Vec<Pretty>, color: Color) -> Pretty {
-    let colored_head = head.color(color).bold().to_string();
-    let open = "(".color(color).bold().to_string();
-    let close = ")".color(color).bold().to_string();
+fn pretty_group(depth: usize, head: String, children: Vec<Pretty>, color: AnsiColor) -> Pretty {
+    let colored_head = pretty_paint(&head, color);
+    let open = pretty_paint("(", color);
+    let close = pretty_paint(")", color);
 
     let mut flat_parts = vec![colored_head.clone()];
     flat_parts.extend(children.iter().map(|c| c.flat.clone()));
@@ -347,12 +354,38 @@ mod tests {
         GreenChild::Node(GreenNode::new(kind, children))
     }
 
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
     #[test]
     fn green_token_display_includes_text() {
         let t = GreenToken::new(SyntaxKind::IntLit, "42");
         let s = format!("{t}");
         assert!(s.contains("INT"), "{s}");
         assert!(s.contains("42"), "{s}");
+    }
+
+    #[test]
+    fn green_token_display_uses_explicit_style_renderer() {
+        let t = GreenToken::new(SyntaxKind::IntLit, "42");
+        let s = format!("{t}");
+
+        assert_eq!(s, "\x1b[1;36mINT \"42\"\x1b[0m");
+        assert_eq!(strip_ansi(&s), "INT \"42\"");
     }
 
     #[test]
