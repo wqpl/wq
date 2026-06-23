@@ -181,6 +181,12 @@ fn push_atom_key(value: &Value, out: &mut String) {
                 write!(out, "{item};").expect("writing to String should not fail");
             }
         }
+        Value::IntRange(items) => {
+            write!(out, "il:{}:", items.len()).expect("writing to String should not fail");
+            for item in items.iter() {
+                write!(out, "{item};").expect("writing to String should not fail");
+            }
+        }
         Value::List(items) => {
             write!(out, "list:{}:", items.len()).expect("writing to String should not fail");
             for item in items.iter() {

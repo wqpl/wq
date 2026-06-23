@@ -2,9 +2,45 @@ use std::sync::Arc;
 
 use crate::value::Value;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntRangeData {
+    start: i64,
+    step: i64,
+    len: usize,
+}
+
+impl IntRangeData {
+    pub(crate) fn new(start: i64, step: i64, len: usize) -> Self {
+        debug_assert!(step != 0);
+        Self { start, step, len }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    pub(crate) fn get(&self, idx: usize) -> Option<i64> {
+        if idx >= self.len {
+            return None;
+        }
+        let idx = i128::try_from(idx).ok()?;
+        let value = i128::from(self.start).checked_add(i128::from(self.step).checked_mul(idx)?)?;
+        i64::try_from(value).ok()
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = i64> + '_ {
+        (0..self.len).filter_map(|idx| self.get(idx))
+    }
+
+    pub(crate) fn to_vec(&self) -> Vec<i64> {
+        self.iter().collect()
+    }
+}
+
 pub(crate) enum ValueSeq<'a> {
     List(&'a [Value]),
     IntList(&'a [i64]),
+    IntRange(&'a IntRangeData),
     String(&'a str),
 }
 
@@ -13,6 +49,7 @@ impl<'a> ValueSeq<'a> {
         match value {
             Value::List(items) => Some(Self::List(items.as_slice())),
             Value::IntList(items) => Some(Self::IntList(items.as_slice())),
+            Value::IntRange(range) => Some(Self::IntRange(range)),
             Value::String(s) => Some(Self::String(s.as_str())),
             _ => None,
         }
@@ -22,6 +59,7 @@ impl<'a> ValueSeq<'a> {
         match self {
             Self::List(items) => items.len(),
             Self::IntList(items) => items.len(),
+            Self::IntRange(range) => range.len(),
             Self::String(s) => s.chars().count(),
         }
     }
@@ -30,6 +68,7 @@ impl<'a> ValueSeq<'a> {
         match self {
             Self::List(items) => items.get(idx).cloned(),
             Self::IntList(items) => items.get(idx).copied().map(Value::Int),
+            Self::IntRange(range) => range.get(idx).map(Value::Int),
             Self::String(s) => s.chars().nth(idx).map(Value::Char),
         }
     }
@@ -50,6 +89,13 @@ impl<'a> ValueSeq<'a> {
                 }
                 Some(Value::IntList(Arc::new(out)))
             }
+            Self::IntRange(range) => {
+                let mut out = Vec::with_capacity(indices.len());
+                for &idx in indices {
+                    out.push(range.get(idx)?);
+                }
+                Some(Value::IntList(Arc::new(out)))
+            }
             Self::String(s) => {
                 let chars = s.chars().collect::<Vec<_>>();
                 let mut out = String::with_capacity(indices.len());
@@ -60,6 +106,20 @@ impl<'a> ValueSeq<'a> {
             }
         }
     }
+
+    pub(crate) fn values(&self) -> Box<dyn Iterator<Item = Value> + '_> {
+        match self {
+            Self::List(items) => Box::new(items.iter().cloned()),
+            Self::IntList(items) => Box::new(items.iter().copied().map(Value::Int)),
+            Self::IntRange(range) => Box::new(range.iter().map(Value::Int)),
+            Self::String(s) => Box::new(s.chars().map(Value::Char)),
+        }
+    }
+
+    pub(crate) fn eq_values(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.values().zip(other.values()).all(|(x, y)| x == y)
+    }
+
 }
 
 pub(crate) struct ValueSeqBuilder {
@@ -178,6 +238,25 @@ mod tests {
         assert_eq!(
             ValueSeqBuilder::from_items(vec![Value::Int(1), Value::Char('a')]),
             Value::List(Arc::new(vec![Value::Int(1), Value::Char('a')]))
+        );
+    }
+
+    #[test]
+    fn int_range_reads_without_materializing() {
+        let range = IntRangeData::new(2, 3, 4);
+        assert_eq!(range.get(0), Some(2));
+        assert_eq!(range.get(3), Some(11));
+        assert_eq!(range.get(4), None);
+        assert_eq!(range.to_vec(), vec![2, 5, 8, 11]);
+    }
+
+    #[test]
+    fn int_range_gathers_as_intlist() {
+        let value = Value::IntRange(Arc::new(IntRangeData::new(10, -2, 4)));
+        let seq = ValueSeq::from_value(&value).expect("range is sequence-like");
+        assert_eq!(
+            seq.gather(&[0, 2, 3]),
+            Some(Value::IntList(Arc::new(vec![10, 6, 4])))
         );
     }
 }

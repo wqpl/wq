@@ -55,6 +55,17 @@ impl fmt::Display for Value {
                     write!(f, "({})", strs.join(";"))
                 }
             }
+            Value::IntRange(range) => {
+                if range.len() == 0 {
+                    return write!(f, "()");
+                }
+                if range.len() == 1 {
+                    write!(f, ",{}", range.get(0).expect("range len is one"))
+                } else {
+                    let strs: Vec<String> = range.iter().map(|v| v.to_string()).collect();
+                    write!(f, "({})", strs.join(";"))
+                }
+            }
             Value::String(s) => {
                 if s.is_empty() {
                     return write!(f, "\"\"");
@@ -84,7 +95,8 @@ impl fmt::Display for Value {
                 } else if items.len() == 1 {
                     let item = &items[0];
                     match item {
-                        Value::List(_) | Value::IntList(_) if !item.is_unit() =>
+                        Value::List(_) | Value::IntList(_) | Value::IntRange(_)
+                            if !item.is_unit() =>
                         // Nest a 1‑element list inside another 1‑element list
                         // renders as ,(,a) instead of the invalid ,,a.
                         {

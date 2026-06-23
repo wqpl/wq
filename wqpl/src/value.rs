@@ -12,7 +12,7 @@ pub mod mat;
 pub mod math;
 pub mod meta;
 pub mod op;
-pub(crate) mod seq;
+pub mod seq;
 pub mod stream;
 
 use std::borrow::Cow;
@@ -49,6 +49,7 @@ pub enum Value {
     Tag(Arc<str>),
     Bool(bool),
     IntList(Arc<Vec<i64>>),
+    IntRange(Arc<seq::IntRangeData>),
     List(Arc<Vec<Value>>),
     /// Heap-allocated string with copy-on-write mutation support.
     String(Arc<String>),
@@ -207,6 +208,7 @@ impl Value {
             Value::Int(n) => u8::try_from(*n).is_ok(),
             Value::BigInt(n) => n.to_u8().is_some(),
             Value::IntList(items) => items.iter().all(|&n| u8::try_from(n).is_ok()),
+            Value::IntRange(items) => items.iter().all(|n| u8::try_from(n).is_ok()),
             Value::List(items) => items.iter().all(|v| match v {
                 Value::Int(n) => u8::try_from(*n).is_ok(),
                 Value::BigInt(n) => n.to_u8().is_some(),
@@ -307,6 +309,17 @@ impl Value {
                     })
                 })
                 .collect(),
+            Value::IntRange(l) => l
+                .iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    u8::try_from(n).map_err(|_| {
+                        WqError::new(WqErrorType::Domain)
+                            .msg(EXP)
+                            .unexpected_element(&Value::Int(n), i)
+                    })
+                })
+                .collect(),
             Value::List(items) => items
                 .iter()
                 .enumerate()
@@ -351,6 +364,7 @@ impl Value {
             Value::Bool(_) => "bool",
             Value::Tag(_) => "tag",
 
+            Value::IntRange(_) => "list",
             Value::IntList(_) => "list",
             Value::List(_) => "list",
             Value::String(_) => "list",
@@ -380,6 +394,7 @@ impl Value {
             Value::Char(_) => "char",
             Value::Tag(_) => "tag",
             Value::Bool(_) => "bool",
+            Value::IntRange(_) => "int-list",
             Value::IntList(_) => "int-list",
             Value::List(_) => "list",
             Value::String(_) => "string",

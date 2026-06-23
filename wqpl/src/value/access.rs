@@ -9,6 +9,7 @@ use crate::wqerror::{WqError, WqErrorType};
 
 pub(crate) enum BulkIndexKey<'a> {
     IntList(&'a [i64]),
+    IntRange(&'a crate::value::seq::IntRangeData),
     List(&'a [Value]),
 }
 
@@ -16,6 +17,7 @@ impl Value {
     pub(crate) fn bulk_index_key(&self) -> Option<BulkIndexKey<'_>> {
         match self {
             Value::IntList(idxs) => Some(BulkIndexKey::IntList(idxs.as_slice())),
+            Value::IntRange(idxs) => Some(BulkIndexKey::IntRange(idxs)),
             Value::List(idxs) => Some(BulkIndexKey::List(idxs.as_slice())),
             _ => None,
         }
@@ -164,6 +166,7 @@ impl Value {
     /// Mutate list or dict element by index/key. Returns `Some(())` on success
     /// and `None` if the key does not exist or the types are incompatible.
     pub(crate) fn assign_by_index(&mut self, key: &Value, value: Value) -> Option<()> {
+        materialize_int_range(self);
         match self {
             Value::IntList(items) => {
                 if let Some(idx) = resolve_single_idx(key, items.len()) {
@@ -188,6 +191,14 @@ impl Value {
                             return None;
                         }
                         for (idx, val) in idxs.into_iter().zip(vals.iter().copied()) {
+                            Arc::make_mut(items)[idx] = val;
+                        }
+                    }
+                    Value::IntRange(vals) => {
+                        if idxs.len() != vals.len() {
+                            return None;
+                        }
+                        for (idx, val) in idxs.into_iter().zip(vals.iter()) {
                             Arc::make_mut(items)[idx] = val;
                         }
                     }
@@ -305,6 +316,11 @@ impl Value {
                             let keys = idxs.into_iter().map(DictBulkKey::Position).collect();
                             assign_dict_bulk(Arc::make_mut(map), keys, value)
                         }
+                        Value::IntRange(idxs) => {
+                            let idxs = normalize_many(idxs.iter(), map.len())?;
+                            let keys = idxs.into_iter().map(DictBulkKey::Position).collect();
+                            assign_dict_bulk(Arc::make_mut(map), keys, value)
+                        }
                         _ => None,
                     }
                 }
@@ -379,6 +395,7 @@ fn normalize_list_indices(idxs: &[Value], len: usize) -> Option<Vec<usize>> {
 fn resolve_many_idx(key: &Value, len: usize) -> Option<Vec<usize>> {
     match key.bulk_index_key()? {
         BulkIndexKey::IntList(idxs) => normalize_many(idxs.iter().copied(), len),
+        BulkIndexKey::IntRange(idxs) => normalize_many(idxs.iter(), len),
         BulkIndexKey::List(idxs) => normalize_list_indices(idxs, len),
     }
 }
@@ -412,6 +429,14 @@ fn assign_list_bulk(items: &mut [Value], idxs: Vec<usize>, value: Value) -> Opti
                 return None;
             }
             for (idx, val) in idxs.into_iter().zip(vals.iter().copied()) {
+                items[idx] = Value::Int(val);
+            }
+        }
+        Value::IntRange(vals) => {
+            if idxs.len() != vals.len() {
+                return None;
+            }
+            for (idx, val) in idxs.into_iter().zip(vals.iter()) {
                 items[idx] = Value::Int(val);
             }
         }
@@ -481,6 +506,14 @@ fn assign_dict_bulk(
                 assign_dict_entry(map, key, Value::Int(value))?;
             }
         }
+        Value::IntRange(vals) => {
+            if keys.len() != vals.len() {
+                return None;
+            }
+            for (key, value) in keys.into_iter().zip(vals.iter()) {
+                assign_dict_entry(map, key, Value::Int(value))?;
+            }
+        }
         atom => {
             for key in keys {
                 assign_dict_entry(map, key, atom.clone())?;
@@ -497,6 +530,7 @@ pub(crate) fn insert_in_place(
     xs: &Value,
     dsts: Option<&Value>,
 ) -> WqResult<Value> {
+    materialize_int_range(data);
     if data.is_string_like() {
         insert_string_in_place(data, dsts, xs)?;
         return Ok(data.clone());
@@ -636,6 +670,7 @@ pub(crate) fn parse_pop_count(arg: &Value) -> WqResult<usize> {
 }
 
 pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
+    materialize_int_range(data);
     if n == 0 {
         return Ok(Value::unit());
     }
@@ -707,6 +742,7 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
 }
 
 pub(crate) fn remove_in_place(data: &mut Value, idx: &Value) -> WqResult<Value> {
+    materialize_int_range(data);
     // Direct String handling — avoid List<Char> round-trip allocation.
     if let Value::String(s) = data {
         let chars: Vec<char> = s.chars().collect();
@@ -806,6 +842,7 @@ fn list_insert_items(xs: &Value) -> Vec<Value> {
     match xs {
         Value::List(items) => items.iter().cloned().collect(),
         Value::IntList(items) => items.iter().copied().map(Value::Int).collect(),
+        Value::IntRange(items) => items.iter().map(Value::Int).collect(),
         other => vec![other.clone()],
     }
 }
@@ -816,8 +853,11 @@ fn list_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<Value>> {
         Value::IntList(items) if items.len() == len => {
             Ok(items.iter().copied().map(Value::Int).collect())
         }
+        Value::IntRange(items) if items.len() == len => Ok(items.iter().map(Value::Int).collect()),
         // Broadcast a single (non-container) value to all positions.
-        _ if !matches!(xs, Value::List(_) | Value::IntList(_)) => Ok(vec![xs.clone(); len]),
+        _ if !matches!(xs, Value::List(_) | Value::IntList(_) | Value::IntRange(_)) => {
+            Ok(vec![xs.clone(); len])
+        }
         _ => Err(WqError::new(WqErrorType::Domain)
             .msg("dsts and xs must have matching lengths for pairwise insert")),
     }
@@ -828,6 +868,7 @@ fn exact_int_insert_items(xs: &Value) -> Option<Vec<i64>> {
         Value::Int(i) => Some(vec![*i]),
         Value::BigInt(b) => b.to_i64().map(|i| vec![i]),
         Value::IntList(items) => Some(items.iter().copied().collect()),
+        Value::IntRange(items) => Some(items.to_vec()),
         Value::List(items) => items.iter().map(int_arg_to_i64).collect(),
         _ => None,
     }
@@ -838,6 +879,7 @@ fn exact_int_insert_pairwise(xs: &Value, len: usize) -> Option<Vec<i64>> {
         Value::Int(i) => Some(vec![*i; len]),
         Value::BigInt(b) => b.to_i64().map(|i| vec![i; len]),
         Value::IntList(items) if items.len() == len => Some(items.iter().copied().collect()),
+        Value::IntRange(items) if items.len() == len => Some(items.to_vec()),
         Value::List(items) if items.len() == len => items.iter().map(int_arg_to_i64).collect(),
         _ => None,
     }
@@ -849,7 +891,7 @@ fn string_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<String>> {
             .iter()
             .map(Value::to_rust_string_with_note)
             .collect::<WqResult<Vec<_>>>(),
-        _ if !matches!(xs, Value::List(_) | Value::IntList(_)) => {
+        _ if !matches!(xs, Value::List(_) | Value::IntList(_) | Value::IntRange(_)) => {
             Ok(vec![xs.to_rust_string_with_note()?; len])
         }
         other => {
@@ -969,6 +1011,18 @@ fn dict_remove_keys(
             }
             Ok((keys, true))
         }
+        Value::IntRange(idxs) => {
+            let mut keys = Vec::with_capacity(idxs.len());
+            for idx in idxs.iter() {
+                let pos = normalize_remove_idx(idx, map.len())
+                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?;
+                let (key, _) = map
+                    .get_index(pos)
+                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove key"))?;
+                keys.push(key.clone());
+            }
+            Ok((keys, true))
+        }
         Value::List(items) => {
             let mut keys: Vec<Arc<str>> = Vec::with_capacity(items.len());
             for item in items.iter() {
@@ -1063,6 +1117,15 @@ fn parse_remove_positions(idx: &Value, len: usize) -> WqResult<(Vec<usize>, bool
             }
             Ok((out, true))
         }
+        Value::IntRange(idxs) => {
+            let mut out = Vec::with_capacity(idxs.len());
+            for idx in idxs.iter() {
+                out.push(normalize_remove_idx(idx, len).ok_or_else(|| {
+                    WqError::new(WqErrorType::Domain).msg("invalid remove index")
+                })?);
+            }
+            Ok((out, true))
+        }
         Value::List(idxs) => {
             let mut out = Vec::with_capacity(idxs.len());
             for idx in idxs.iter() {
@@ -1103,6 +1166,15 @@ fn parse_insert_positions(dsts: Option<&Value>, len: usize) -> WqResult<(Vec<usi
         Some(Value::IntList(idxs)) => {
             let mut out = Vec::with_capacity(idxs.len());
             for &idx in idxs.iter() {
+                out.push(normalize_insert_idx(idx, len).ok_or_else(|| {
+                    WqError::new(WqErrorType::Domain).msg("invalid insert index")
+                })?);
+            }
+            Ok((out, true))
+        }
+        Some(Value::IntRange(idxs)) => {
+            let mut out = Vec::with_capacity(idxs.len());
+            for idx in idxs.iter() {
                 out.push(normalize_insert_idx(idx, len).ok_or_else(|| {
                     WqError::new(WqErrorType::Domain).msg("invalid insert index")
                 })?);
@@ -1157,6 +1229,12 @@ fn insert_string_chunks(base: &[char], mut ops: Vec<(usize, String)>) -> String 
         }
     }
     out
+}
+
+fn materialize_int_range(value: &mut Value) {
+    if let Value::IntRange(range) = value {
+        *value = Value::IntList(Arc::new(range.to_vec()));
+    }
 }
 
 #[cfg(test)]
@@ -1258,6 +1336,14 @@ mod tests {
                 Value::Int(7)
             ]))
         );
+    }
+
+    #[test]
+    fn int_range_assign_materializes_before_mutating() {
+        let mut list = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(10, 2, 3)));
+
+        assert_eq!(list.assign_by_index(&Value::Int(1), Value::Int(99)), Some(()));
+        assert_eq!(list, Value::IntList(Arc::new(vec![10, 99, 14])));
     }
 
     #[test]

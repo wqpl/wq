@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::value::seq::IntRangeData;
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -22,43 +23,35 @@ fn make_range_int(start: i64, end: i64, step: i64, inclusive: bool) -> WqResult<
     if step == 0 {
         return Err(WqError::new(WqErrorType::Domain).msg("range step cannot be 0"));
     }
-    let mut cur = start;
-    let capacity = if step > 0 && end >= start {
+    let len = if step > 0 && end >= start {
         let diff = end.abs_diff(start);
         let steps = diff / step as u64;
-        let mut cap = usize::try_from(steps).unwrap_or(0);
-        if inclusive || !diff.is_multiple_of(step as u64) {
-            cap += 1;
-        }
-        cap
+        let len = if inclusive || !diff.is_multiple_of(step as u64) {
+            steps.checked_add(1)
+        } else {
+            Some(steps)
+        };
+        range_len_to_usize(len)?
     } else if step < 0 && start >= end {
         let diff = start.abs_diff(end);
         let steps = diff / step.unsigned_abs();
-        let mut cap = usize::try_from(steps).unwrap_or(0);
-        if inclusive || !diff.is_multiple_of(step.unsigned_abs()) {
-            cap += 1;
-        }
-        cap
+        let len = if inclusive || !diff.is_multiple_of(step.unsigned_abs()) {
+            steps.checked_add(1)
+        } else {
+            Some(steps)
+        };
+        range_len_to_usize(len)?
     } else {
         0
     };
-    let mut items: Vec<i64> = Vec::with_capacity(capacity);
-    if step > 0 {
-        while if inclusive { cur <= end } else { cur < end } {
-            items.push(cur);
-            cur = cur
-                .checked_add(step)
-                .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("range overflow"))?;
-        }
-    } else {
-        while if inclusive { cur >= end } else { cur > end } {
-            items.push(cur);
-            cur = cur
-                .checked_add(step)
-                .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("range overflow"))?;
-        }
-    }
-    Ok(Value::IntList(Arc::new(items)))
+    Ok(Value::IntRange(Arc::new(IntRangeData::new(
+        start, step, len,
+    ))))
+}
+
+fn range_len_to_usize(len: Option<u64>) -> WqResult<usize> {
+    len.and_then(|len| usize::try_from(len).ok())
+        .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("range too large"))
 }
 
 fn make_range_float(
@@ -123,8 +116,25 @@ fn make_range_float(
 #[inline]
 pub(super) fn range_alloc_len(value: &Value) -> usize {
     match value {
+        Value::IntRange(items) => items.len(),
         Value::IntList(items) => items.len(),
         Value::List(items) => items.len(),
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn integer_range_stays_virtual_but_displays_as_list() {
+        let value = make_range(&Value::Int(1), &Value::Int(5), None, false)
+            .expect("valid integer range");
+
+        assert!(matches!(value, Value::IntRange(_)));
+        assert_eq!(value.to_string(), "(1;2;3;4)");
+        assert_eq!(value, Value::IntList(Arc::new(vec![1, 2, 3, 4])));
+        assert_eq!(value.index(&Value::Int(2)), Some(Value::Int(3)));
     }
 }

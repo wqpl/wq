@@ -4,6 +4,7 @@ use std::sync::Arc;
 use num_traits::ToPrimitive;
 use ordered_float::OrderedFloat;
 
+use crate::value::seq::ValueSeq;
 use crate::value::Value;
 use crate::value::cas::CasKind;
 use crate::value::func::CallableExpr;
@@ -35,7 +36,16 @@ fn hash_callable_expr<H: std::hash::Hasher>(expr: &CallableExpr, state: &mut H) 
 impl std::hash::Hash for Value {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // - Int and BigInt cross-equality
-        // - IntList and List cross-equality
+        // - Sequence representation cross-equality
+        if let Some(seq) = ValueSeq::from_value(self) {
+            6u8.hash(state);
+            seq.len().hash(state);
+            for item in seq.values() {
+                item.hash(state);
+            }
+            return;
+        }
+
         match self {
             Value::Int(n) => {
                 0u8.hash(state);
@@ -66,27 +76,8 @@ impl std::hash::Hash for Value {
                 5u8.hash(state);
                 b.hash(state);
             }
-            Value::IntList(v) => {
-                6u8.hash(state);
-                v.len().hash(state);
-                for item in v.iter() {
-                    Value::Int(*item).hash(state);
-                }
-            }
-            Value::List(v) => {
-                6u8.hash(state);
-                v.len().hash(state);
-                for item in v.iter() {
-                    item.hash(state);
-                }
-            }
-            Value::String(s) => {
-                // Hash identically to List<Char> for cross-equality consistency.
-                6u8.hash(state);
-                s.chars().count().hash(state);
-                for c in s.chars() {
-                    Value::Char(c).hash(state);
-                }
+            Value::IntList(_) | Value::IntRange(_) | Value::List(_) | Value::String(_) => {
+                unreachable!("sequence values are handled before scalar hash dispatch")
             }
             Value::Dict(m) => {
                 7u8.hash(state);
@@ -202,6 +193,10 @@ impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         if self.is_unit() && other.is_unit() {
             return true;
+        }
+        if let (Some(left), Some(right)) = (ValueSeq::from_value(self), ValueSeq::from_value(other))
+        {
+            return left.eq_values(&right);
         }
 
         use Value::*;
@@ -338,6 +333,10 @@ mod hash_tests {
         assert_equal_values_hash_equal(
             Value::IntList(Arc::new(vec![1, 2, 3])),
             Value::List(Arc::new(vec![Value::Int(1), Value::Int(2), Value::Int(3)])),
+        );
+        assert_equal_values_hash_equal(
+            Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, 1, 3))),
+            Value::IntList(Arc::new(vec![1, 2, 3])),
         );
         assert_equal_values_hash_equal(
             Value::String(Arc::new("abc".to_string())),

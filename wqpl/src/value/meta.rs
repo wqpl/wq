@@ -27,6 +27,7 @@ impl Value {
             Value::Algebraic(v) => Arc::strong_count(v),
 
             Value::IntList(v) => Arc::strong_count(v),
+            Value::IntRange(v) => Arc::strong_count(v),
             Value::List(v) => Arc::strong_count(v),
             Value::String(v) => Arc::strong_count(v),
             Value::Dict(v) => Arc::strong_count(v),
@@ -55,6 +56,7 @@ impl Value {
     pub(crate) fn shape_uniform(&self) -> Option<Vec<usize>> {
         match self {
             Value::IntList(items) => Some(vec![items.len()]),
+            Value::IntRange(items) => Some(vec![items.len()]),
             Value::List(items) => {
                 if items.is_empty() {
                     Some(vec![0])
@@ -119,7 +121,7 @@ impl Value {
 
     pub fn depth(&self) -> i64 {
         match self {
-            Value::IntList(_) => 1,
+            Value::IntList(_) | Value::IntRange(_) => 1,
             Value::List(items) => {
                 if items.is_empty() {
                     1

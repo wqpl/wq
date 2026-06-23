@@ -183,6 +183,15 @@ impl Value {
                 }
                 Ok(Value::from_items(out))
             }
+            Value::IntRange(a) => {
+                let mut out = Vec::with_capacity(a.len());
+                for (i, x) in a.iter().enumerate() {
+                    path.push(i);
+                    out.push(f(&Value::Int(x)).bc_at_path(path)?);
+                    path.pop();
+                }
+                Ok(Value::from_items(out))
+            }
             Value::Dict(m) => {
                 let mut out = IndexMap::with_capacity(m.len());
                 for (i, (k, v)) in m.iter().enumerate() {
@@ -238,6 +247,13 @@ impl Value {
                     path.pop();
                 }
             }
+            Value::IntRange(a) => {
+                for (i, x) in a.iter().enumerate() {
+                    path.push(i);
+                    f(&Value::Int(x)).map(|_| ()).bc_at_path(path)?;
+                    path.pop();
+                }
+            }
             Value::Dict(m) => {
                 for (i, (_, v)) in m.iter().enumerate() {
                     path.push(i);
@@ -288,6 +304,16 @@ where
         Value::IntList(items) => {
             let mut out = Vec::with_capacity(items.len());
             for (i, &y) in items.iter().enumerate() {
+                path.push(i);
+                let rhs = Value::Int(y);
+                out.push(op(atom, &rhs).bc_at_path(path)?);
+                path.pop();
+            }
+            Ok(Value::from_items(out))
+        }
+        Value::IntRange(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for (i, y) in items.iter().enumerate() {
                 path.push(i);
                 let rhs = Value::Int(y);
                 out.push(op(atom, &rhs).bc_at_path(path)?);
@@ -352,6 +378,16 @@ where
             }
             Ok(Value::from_items(out))
         }
+        Value::IntRange(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for (i, x) in items.iter().enumerate() {
+                path.push(i);
+                let lhs = Value::Int(x);
+                out.push(op(&lhs, atom).bc_at_path(path)?);
+                path.pop();
+            }
+            Ok(Value::from_items(out))
+        }
         Value::Dict(map) => {
             let mut out = IndexMap::with_capacity(map.len());
             for (i, (k, v)) in map.iter().enumerate() {
@@ -396,6 +432,15 @@ fn zip_containers<F>(
 where
     F: FnMut(&Value, &Value) -> WqResult<Value>,
 {
+    if let Value::IntRange(range) = left {
+        let left = Value::IntList(Arc::new(range.to_vec()));
+        return zip_containers(&left, right, stop, op, path);
+    }
+    if let Value::IntRange(range) = right {
+        let right = Value::IntList(Arc::new(range.to_vec()));
+        return zip_containers(left, &right, stop, op, path);
+    }
+
     match (left, right) {
         // ── Same type pairs = 5 ──────────────────────────────────────────
         (Value::IntList(a), Value::IntList(b)) => {
