@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use num_traits::ToPrimitive;
+
 use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +44,99 @@ pub(crate) enum ValueSeq<'a> {
     IntList(&'a [i64]),
     IntRange(&'a IntRangeData),
     String(&'a str),
+}
+
+pub(crate) enum ExactIntSeq<'a> {
+    Scalar(i64),
+    PackedSlice(&'a [i64]),
+    PackedRange(&'a IntRangeData),
+    General(Vec<i64>),
+}
+
+impl<'a> ExactIntSeq<'a> {
+    pub(crate) fn from_value(value: &'a Value) -> Option<Self> {
+        match value {
+            Value::Int(i) => Some(Self::Scalar(*i)),
+            Value::BigInt(b) => b.to_i64().map(Self::Scalar),
+            Value::IntList(_) | Value::IntRange(_) => Self::from_packed_value(value),
+            Value::List(items) => items
+                .iter()
+                .map(exact_int_atom)
+                .collect::<Option<Vec<_>>>()
+                .map(Self::General),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn from_native_value(value: &'a Value) -> Option<Self> {
+        match value {
+            Value::Int(i) => Some(Self::Scalar(*i)),
+            Value::IntList(_) | Value::IntRange(_) => Self::from_packed_value(value),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn from_packed_value(value: &'a Value) -> Option<Self> {
+        match value {
+            Value::IntList(items) => Some(Self::PackedSlice(items.as_slice())),
+            Value::IntRange(range) => Some(Self::PackedRange(range)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Self::Scalar(_) => 1,
+            Self::PackedSlice(items) => items.len(),
+            Self::PackedRange(range) => range.len(),
+            Self::General(items) => items.len(),
+        }
+    }
+
+    pub(crate) fn is_scalar(&self) -> bool {
+        matches!(self, Self::Scalar(_))
+    }
+
+    pub(crate) fn is_packed(&self) -> bool {
+        matches!(self, Self::PackedSlice(_) | Self::PackedRange(_))
+    }
+
+    pub(crate) fn iter(&self) -> Box<dyn Iterator<Item = i64> + '_> {
+        match self {
+            Self::Scalar(i) => Box::new(std::iter::once(*i)),
+            Self::PackedSlice(items) => Box::new(items.iter().copied()),
+            Self::PackedRange(range) => Box::new(range.iter()),
+            Self::General(items) => Box::new(items.iter().copied()),
+        }
+    }
+
+    pub(crate) fn to_vec(&self) -> Vec<i64> {
+        self.iter().collect()
+    }
+}
+
+fn exact_int_atom(value: &Value) -> Option<i64> {
+    match value {
+        Value::Int(i) => Some(*i),
+        Value::BigInt(b) => b.to_i64(),
+        _ => None,
+    }
+}
+
+impl Value {
+    pub(crate) fn exact_int_seq(&self) -> Option<ExactIntSeq<'_>> {
+        ExactIntSeq::from_value(self)
+    }
+
+    pub(crate) fn native_int_seq(&self) -> Option<ExactIntSeq<'_>> {
+        ExactIntSeq::from_native_value(self)
+    }
+
+    pub(crate) fn packed_int_seq(&self) -> Option<ExactIntSeq<'_>> {
+        let seq = ExactIntSeq::from_packed_value(self)?;
+        debug_assert!(seq.is_packed());
+        Some(seq)
+    }
 }
 
 impl<'a> ValueSeq<'a> {
@@ -211,6 +306,8 @@ impl ValueSeqBuilder {
 
 #[cfg(test)]
 mod tests {
+    use num_bigint::BigInt;
+
     use super::*;
 
     #[test]
@@ -258,5 +355,33 @@ mod tests {
             seq.gather(&[0, 2, 3]),
             Some(Value::IntList(Arc::new(vec![10, 6, 4])))
         );
+    }
+
+    #[test]
+    fn exact_int_seq_preserves_source_shape() {
+        let scalar = Value::Int(7);
+        let seq = scalar.exact_int_seq().expect("int is an exact int sequence");
+        assert!(seq.is_scalar());
+        assert!(!seq.is_packed());
+        assert_eq!(seq.to_vec(), vec![7]);
+
+        let packed = Value::IntRange(Arc::new(IntRangeData::new(1, 2, 3)));
+        let seq = packed
+            .exact_int_seq()
+            .expect("range is an exact int sequence");
+        assert!(!seq.is_scalar());
+        assert!(seq.is_packed());
+        assert_eq!(seq.to_vec(), vec![1, 3, 5]);
+
+        let general = Value::List(Arc::new(vec![
+            Value::Int(1),
+            Value::from_bigint(BigInt::from(2)),
+        ]));
+        let seq = general
+            .exact_int_seq()
+            .expect("list<int> is an exact int sequence");
+        assert!(!seq.is_scalar());
+        assert!(!seq.is_packed());
+        assert_eq!(seq.to_vec(), vec![1, 2]);
     }
 }

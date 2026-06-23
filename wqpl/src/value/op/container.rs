@@ -18,67 +18,44 @@ impl Value {
             return Value::String(Arc::from(s));
         }
 
+        if let (Some(a), Some(b)) = (self.native_int_seq(), other.native_int_seq()) {
+            let mut res = Vec::with_capacity(a.len() + b.len());
+            res.extend(a.iter());
+            res.extend(b.iter());
+            return Value::IntList(Arc::new(res));
+        }
+
+        if let Some(a) = self.packed_int_seq()
+            && let Value::List(b) = &other
+        {
+            let mut res: Vec<Value> = a.iter().map(Value::Int).collect();
+            res.extend(b.iter().cloned());
+            return Value::List(Arc::new(res));
+        }
+
+        if let Value::List(a) = &self
+            && let Some(b) = other.packed_int_seq()
+        {
+            let mut res: Vec<Value> = Vec::with_capacity(a.len() + b.len());
+            res.extend(a.iter().cloned());
+            res.extend(b.iter().map(Value::Int));
+            return Value::List(Arc::new(res));
+        }
+
+        if let Some(a) = self.packed_int_seq() {
+            let mut res: Vec<Value> = a.iter().map(Value::Int).collect();
+            res.push(other);
+            return Value::List(Arc::new(res));
+        }
+
+        if let Some(b) = other.packed_int_seq() {
+            let mut res = Vec::with_capacity(b.len() + 1);
+            res.push(self);
+            res.extend(b.iter().map(Value::Int));
+            return Value::List(Arc::new(res));
+        }
+
         match (self, other) {
-            (Value::IntRange(a), Value::IntRange(b)) => {
-                let mut res = Vec::with_capacity(a.len() + b.len());
-                res.extend(a.iter());
-                res.extend(b.iter());
-                Value::IntList(Arc::new(res))
-            }
-            (Value::IntRange(a), Value::IntList(b)) => {
-                let mut res = Vec::with_capacity(a.len() + b.len());
-                res.extend(a.iter());
-                res.extend(b.iter().copied());
-                Value::IntList(Arc::new(res))
-            }
-            (Value::IntList(mut a), Value::IntRange(b)) => {
-                Arc::make_mut(&mut a).extend(b.iter());
-                Value::IntList(a)
-            }
-            (Value::IntList(mut a), Value::IntList(b)) => {
-                Arc::make_mut(&mut a).extend(b.iter().copied());
-                Value::IntList(a)
-            }
-            (Value::IntRange(a), Value::Int(bv)) => {
-                let mut res = Vec::with_capacity(a.len() + 1);
-                res.extend(a.iter());
-                res.push(bv);
-                Value::IntList(Arc::new(res))
-            }
-            (Value::IntList(mut a), Value::Int(bv)) => {
-                Arc::make_mut(&mut a).push(bv);
-                Value::IntList(a)
-            }
-            (Value::Int(av), Value::IntRange(b)) => {
-                let mut res = Vec::with_capacity(b.len() + 1);
-                res.push(av);
-                res.extend(b.iter());
-                Value::IntList(Arc::new(res))
-            }
-            (Value::Int(av), Value::IntList(b)) => {
-                let mut res = Vec::with_capacity(b.len() + 1);
-                res.push(av);
-                res.extend(b.iter().copied());
-                Value::IntList(Arc::new(res))
-            }
-            (Value::IntRange(a), Value::List(b)) => {
-                let mut res: Vec<Value> = a.iter().map(Value::Int).collect();
-                res.extend(b.iter().cloned());
-                Value::List(Arc::new(res))
-            }
-            (Value::IntList(a), Value::List(b)) => {
-                let mut res: Vec<Value> = a.iter().copied().map(Value::Int).collect();
-                res.extend(b.iter().cloned());
-                Value::List(Arc::new(res))
-            }
-            (Value::List(mut a), Value::IntRange(b)) => {
-                Arc::make_mut(&mut a).extend(b.iter().map(Value::Int));
-                Value::List(a)
-            }
-            (Value::List(mut a), Value::IntList(b)) => {
-                Arc::make_mut(&mut a).extend(b.iter().copied().map(Value::Int));
-                Value::List(a)
-            }
             (Value::List(mut a), Value::List(b)) => {
                 Arc::make_mut(&mut a).extend(b.iter().cloned());
                 Value::List(a)
@@ -89,36 +66,13 @@ impl Value {
                 Value::List(a)
             }
 
-            (Value::IntList(a), b) => {
-                let mut res: Vec<Value> = a.iter().copied().map(Value::Int).collect();
-                res.push(b);
-                Value::List(Arc::new(res))
-            }
-            (Value::IntRange(a), b) => {
-                let mut res: Vec<Value> = a.iter().map(Value::Int).collect();
-                res.push(b);
-                Value::List(Arc::new(res))
-            }
             (a, Value::List(b)) => {
                 let mut res = Vec::with_capacity(b.len() + 1);
                 res.push(a);
                 res.extend(b.iter().cloned());
                 Value::List(Arc::new(res))
             }
-            (a, Value::IntRange(b)) => {
-                let mut res = Vec::with_capacity(b.len() + 1);
-                res.push(a);
-                res.extend(b.iter().map(Value::Int));
-                Value::List(Arc::new(res))
-            }
-            (a, Value::IntList(b)) => {
-                let mut res = Vec::with_capacity(b.len() + 1);
-                res.push(a);
-                res.extend(b.iter().copied().map(Value::Int));
-                Value::List(Arc::new(res))
-            }
 
-            (Value::Int(a), Value::Int(b)) => Value::IntList(Arc::new(vec![a, b])),
             (a, b) => Value::List(Arc::new(vec![a, b])),
         }
     }
@@ -151,19 +105,14 @@ impl Value {
         }
 
         // All Int / IntList: pre-allocate a single IntList.
-        if values
-            .iter()
-            .all(|v| matches!(v, Value::Int(_) | Value::IntList(_) | Value::IntRange(_)))
-        {
+        if values.iter().all(|v| v.native_int_seq().is_some()) {
             let total_len: usize = values.iter().map(|v| v.len()).sum();
             let mut res = Vec::with_capacity(total_len);
             for v in values {
-                match v {
-                    Value::Int(i) => res.push(i),
-                    Value::IntList(l) => res.extend(l.iter().copied()),
-                    Value::IntRange(l) => res.extend(l.iter()),
-                    _ => unreachable!(),
-                }
+                let items = v
+                    .native_int_seq()
+                    .expect("all values are native int sequences");
+                res.extend(items.iter());
             }
             return Value::IntList(Arc::new(res));
         }
@@ -171,17 +120,17 @@ impl Value {
         // All List / IntList / Set: pre-allocate a single List.
         if values
             .iter()
-            .all(|v| matches!(v, Value::List(_) | Value::IntList(_) | Value::IntRange(_)))
+            .all(|v| matches!(v, Value::List(_)) || v.packed_int_seq().is_some())
         {
             let total_len: usize = values.iter().map(|v| v.len()).sum();
             let mut res: Vec<Value> = Vec::with_capacity(total_len);
             for v in values {
-                match v {
-                    Value::List(l) => res.extend(l.iter().cloned()),
-                    Value::IntList(l) => res.extend(l.iter().copied().map(Value::Int)),
-                    Value::IntRange(l) => res.extend(l.iter().map(Value::Int)),
-
-                    _ => unreachable!(),
+                if let Some(items) = v.packed_int_seq() {
+                    res.extend(items.iter().map(Value::Int));
+                } else if let Value::List(l) = v {
+                    res.extend(l.iter().cloned());
+                } else {
+                    unreachable!();
                 }
             }
             return Value::List(Arc::new(res));
@@ -208,10 +157,10 @@ impl Value {
                 Value::String(s) => {
                     out.extend(s.chars().map(Value::Char));
                 }
-                Value::IntList(items) => {
-                    out.extend(items.iter().copied().map(Value::Int));
-                }
-                Value::IntRange(items) => {
+                items if items.packed_int_seq().is_some() => {
+                    let items = items
+                        .packed_int_seq()
+                        .expect("checked packed int sequence");
                     out.extend(items.iter().map(Value::Int));
                 }
 

@@ -8,6 +8,7 @@ use unicode_width::UnicodeWidthChar as _;
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::astnode::binary_op_display;
+use crate::value::seq::ExactIntSeq;
 use crate::value::Value;
 
 impl fmt::Display for Value {
@@ -44,28 +45,11 @@ impl fmt::Display for Value {
             }
             Value::Tag(s) => write!(f, "`{s}"),
             Value::Bool(b) => write!(f, "{}", if *b { "T" } else { "F" }),
-            Value::IntList(items) => {
-                if items.is_empty() {
-                    return write!(f, "()");
-                }
-                if items.len() == 1 {
-                    write!(f, ",{}", items[0])
-                } else {
-                    let strs: Vec<String> = items.iter().map(|v| v.to_string()).collect();
-                    write!(f, "({})", strs.join(";"))
-                }
-            }
-            Value::IntRange(range) => {
-                if range.len() == 0 {
-                    return write!(f, "()");
-                }
-                if range.len() == 1 {
-                    write!(f, ",{}", range.get(0).expect("range len is one"))
-                } else {
-                    let strs: Vec<String> = range.iter().map(|v| v.to_string()).collect();
-                    write!(f, "({})", strs.join(";"))
-                }
-            }
+            Value::IntList(_) | Value::IntRange(_) => fmt_int_seq(
+                f,
+                self.packed_int_seq()
+                    .expect("int-list and int-range are packed int sequences"),
+            ),
             Value::String(s) => {
                 if s.is_empty() {
                     return write!(f, "\"\"");
@@ -177,6 +161,25 @@ impl fmt::Display for Value {
             Value::Stream(_) => write!(f, "<stream>"),
             Value::Algebraic(a) => crate::value::algebraic::fmt_algebraic_human(a, f),
         }
+    }
+}
+
+fn fmt_int_seq(f: &mut fmt::Formatter<'_>, items: ExactIntSeq<'_>) -> fmt::Result {
+    if items.len() == 0 {
+        return write!(f, "()");
+    }
+    if items.len() == 1 {
+        write!(
+            f,
+            ",{}",
+            items
+                .iter()
+                .next()
+                .expect("single-item exact int sequence has one item")
+        )
+    } else {
+        let strs: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+        write!(f, "({})", strs.join(";"))
     }
 }
 pub(crate) fn escape_str_for_display(s: &str) -> String {

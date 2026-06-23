@@ -3,24 +3,17 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use num_traits::ToPrimitive;
 
-use crate::value::seq::ValueSeq;
+use crate::value::seq::{ExactIntSeq, ValueSeq};
 use crate::value::{IntoWqValue as _, Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(crate) enum BulkIndexKey<'a> {
-    IntList(&'a [i64]),
-    IntRange(&'a crate::value::seq::IntRangeData),
-    List(&'a [Value]),
-}
-
 impl Value {
-    pub(crate) fn bulk_index_key(&self) -> Option<BulkIndexKey<'_>> {
-        match self {
-            Value::IntList(idxs) => Some(BulkIndexKey::IntList(idxs.as_slice())),
-            Value::IntRange(idxs) => Some(BulkIndexKey::IntRange(idxs)),
-            Value::List(idxs) => Some(BulkIndexKey::List(idxs.as_slice())),
-            _ => None,
-        }
+    pub(crate) fn bulk_index_key(&self) -> Option<()> {
+        matches!(
+            self,
+            Value::IntList(_) | Value::IntRange(_) | Value::List(_)
+        )
+        .then_some(())
     }
 
     /// Index into a list or dict
@@ -186,22 +179,6 @@ impl Value {
                             Arc::make_mut(items)[idx] = v;
                         }
                     }
-                    Value::IntList(vals) => {
-                        if idxs.len() != vals.len() {
-                            return None;
-                        }
-                        for (idx, val) in idxs.into_iter().zip(vals.iter().copied()) {
-                            Arc::make_mut(items)[idx] = val;
-                        }
-                    }
-                    Value::IntRange(vals) => {
-                        if idxs.len() != vals.len() {
-                            return None;
-                        }
-                        for (idx, val) in idxs.into_iter().zip(vals.iter()) {
-                            Arc::make_mut(items)[idx] = val;
-                        }
-                    }
                     Value::List(vals) => {
                         if idxs.len() != vals.len() {
                             return None;
@@ -219,11 +196,15 @@ impl Value {
                         }
                     }
                     atom => {
-                        let mut list = promote_ints(items);
-                        for idx in idxs {
-                            list[idx] = atom.clone();
+                        if let Some(vals) = atom.packed_int_seq() {
+                            assign_exact_int_seq_to_int_list(items, idxs, vals)?;
+                        } else {
+                            let mut list = promote_ints(items);
+                            for idx in idxs {
+                                list[idx] = atom.clone();
+                            }
+                            *self = Value::List(Arc::new(list));
                         }
-                        *self = Value::List(Arc::new(list));
                     }
                 }
                 Some(())
@@ -311,17 +292,12 @@ impl Value {
                             let keys = normalize_dict_bulk_keys(keys, map.len())?;
                             assign_dict_bulk(Arc::make_mut(map), keys, value)
                         }
-                        Value::IntList(idxs) => {
-                            let idxs = normalize_many(idxs.iter().copied(), map.len())?;
-                            let keys = idxs.into_iter().map(DictBulkKey::Position).collect();
-                            assign_dict_bulk(Arc::make_mut(map), keys, value)
-                        }
-                        Value::IntRange(idxs) => {
+                        key => {
+                            let idxs = key.exact_int_seq()?;
                             let idxs = normalize_many(idxs.iter(), map.len())?;
                             let keys = idxs.into_iter().map(DictBulkKey::Position).collect();
                             assign_dict_bulk(Arc::make_mut(map), keys, value)
                         }
-                        _ => None,
                     }
                 }
             },
@@ -380,24 +356,13 @@ fn normalize_many(idxs: impl IntoIterator<Item = i64>, len: usize) -> Option<Vec
 }
 
 fn normalize_list_indices(idxs: &[Value], len: usize) -> Option<Vec<usize>> {
-    let raw = idxs
-        .iter()
-        .map(|v| match v {
-            Value::Int(i) => Some(*i),
-            Value::BigInt(b) => b.to_i64(),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>()?;
+    let raw = idxs.iter().map(int_arg_to_i64).collect::<Option<Vec<_>>>()?;
     normalize_many(raw, len)
 }
 
-/// Resolve bulk indices from `Value::IntList` or `Value::List`.
+/// Resolve bulk indices from an exact-int sequence.
 fn resolve_many_idx(key: &Value, len: usize) -> Option<Vec<usize>> {
-    match key.bulk_index_key()? {
-        BulkIndexKey::IntList(idxs) => normalize_many(idxs.iter().copied(), len),
-        BulkIndexKey::IntRange(idxs) => normalize_many(idxs.iter(), len),
-        BulkIndexKey::List(idxs) => normalize_list_indices(idxs, len),
-    }
+    normalize_many(key.exact_int_seq()?.iter(), len)
 }
 
 fn collect_exact_ints(values: &[Value]) -> Option<Vec<i64>> {
@@ -424,27 +389,44 @@ fn assign_list_bulk(items: &mut [Value], idxs: Vec<usize>, value: Value) -> Opti
                 items[idx] = val;
             }
         }
-        Value::IntList(vals) => {
-            if idxs.len() != vals.len() {
-                return None;
-            }
-            for (idx, val) in idxs.into_iter().zip(vals.iter().copied()) {
-                items[idx] = Value::Int(val);
-            }
-        }
-        Value::IntRange(vals) => {
-            if idxs.len() != vals.len() {
-                return None;
-            }
-            for (idx, val) in idxs.into_iter().zip(vals.iter()) {
-                items[idx] = Value::Int(val);
+        other => {
+            if let Some(vals) = other.packed_int_seq() {
+                assign_exact_int_seq_to_list(items, idxs, vals)?;
+            } else {
+                for idx in idxs {
+                    items[idx] = other.clone();
+                }
             }
         }
-        atom => {
-            for idx in idxs {
-                items[idx] = atom.clone();
-            }
-        }
+    }
+    Some(())
+}
+
+fn assign_exact_int_seq_to_int_list(
+    items: &mut Arc<Vec<i64>>,
+    idxs: Vec<usize>,
+    vals: ExactIntSeq<'_>,
+) -> Option<()> {
+    if idxs.len() != vals.len() {
+        return None;
+    }
+    let items = Arc::make_mut(items);
+    for (idx, val) in idxs.into_iter().zip(vals.iter()) {
+        items[idx] = val;
+    }
+    Some(())
+}
+
+fn assign_exact_int_seq_to_list(
+    items: &mut [Value],
+    idxs: Vec<usize>,
+    vals: ExactIntSeq<'_>,
+) -> Option<()> {
+    if idxs.len() != vals.len() {
+        return None;
+    }
+    for (idx, val) in idxs.into_iter().zip(vals.iter()) {
+        items[idx] = Value::Int(val);
     }
     Some(())
 }
@@ -498,25 +480,18 @@ fn assign_dict_bulk(
                 assign_dict_entry(map, key, value)?;
             }
         }
-        Value::IntList(vals) => {
-            if keys.len() != vals.len() {
-                return None;
-            }
-            for (key, value) in keys.into_iter().zip(vals.iter().copied()) {
-                assign_dict_entry(map, key, Value::Int(value))?;
-            }
-        }
-        Value::IntRange(vals) => {
-            if keys.len() != vals.len() {
-                return None;
-            }
-            for (key, value) in keys.into_iter().zip(vals.iter()) {
-                assign_dict_entry(map, key, Value::Int(value))?;
-            }
-        }
         atom => {
-            for key in keys {
-                assign_dict_entry(map, key, atom.clone())?;
+            if let Some(vals) = atom.packed_int_seq() {
+                if keys.len() != vals.len() {
+                    return None;
+                }
+                for (key, value) in keys.into_iter().zip(vals.iter()) {
+                    assign_dict_entry(map, key, Value::Int(value))?;
+                }
+            } else {
+                for key in keys {
+                    assign_dict_entry(map, key, atom.clone())?;
+                }
             }
         }
     }
@@ -841,48 +816,47 @@ pub(crate) fn remove_in_place(data: &mut Value, idx: &Value) -> WqResult<Value> 
 fn list_insert_items(xs: &Value) -> Vec<Value> {
     match xs {
         Value::List(items) => items.iter().cloned().collect(),
-        Value::IntList(items) => items.iter().copied().map(Value::Int).collect(),
-        Value::IntRange(items) => items.iter().map(Value::Int).collect(),
-        other => vec![other.clone()],
+        other => other
+            .packed_int_seq()
+            .map(|items| items.iter().map(Value::Int).collect())
+            .unwrap_or_else(|| vec![other.clone()]),
     }
 }
 
 fn list_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<Value>> {
     match xs {
         Value::List(items) if items.len() == len => Ok(items.iter().cloned().collect()),
-        Value::IntList(items) if items.len() == len => {
-            Ok(items.iter().copied().map(Value::Int).collect())
+        other => {
+            if let Some(items) = other.packed_int_seq() {
+                return if items.len() == len {
+                    Ok(items.iter().map(Value::Int).collect())
+                } else {
+                    Err(WqError::new(WqErrorType::Domain)
+                        .msg("dsts and xs must have matching lengths for pairwise insert"))
+                };
+            }
+            // Broadcast a single (non-container) value to all positions.
+            if !matches!(xs, Value::List(_) | Value::IntList(_) | Value::IntRange(_)) {
+                Ok(vec![xs.clone(); len])
+            } else {
+                Err(WqError::new(WqErrorType::Domain)
+                    .msg("dsts and xs must have matching lengths for pairwise insert"))
+            }
         }
-        Value::IntRange(items) if items.len() == len => Ok(items.iter().map(Value::Int).collect()),
-        // Broadcast a single (non-container) value to all positions.
-        _ if !matches!(xs, Value::List(_) | Value::IntList(_) | Value::IntRange(_)) => {
-            Ok(vec![xs.clone(); len])
-        }
-        _ => Err(WqError::new(WqErrorType::Domain)
-            .msg("dsts and xs must have matching lengths for pairwise insert")),
     }
 }
 
 fn exact_int_insert_items(xs: &Value) -> Option<Vec<i64>> {
-    match xs {
-        Value::Int(i) => Some(vec![*i]),
-        Value::BigInt(b) => b.to_i64().map(|i| vec![i]),
-        Value::IntList(items) => Some(items.iter().copied().collect()),
-        Value::IntRange(items) => Some(items.to_vec()),
-        Value::List(items) => items.iter().map(int_arg_to_i64).collect(),
-        _ => None,
-    }
+    xs.exact_int_seq().map(|items| items.to_vec())
 }
 
 fn exact_int_insert_pairwise(xs: &Value, len: usize) -> Option<Vec<i64>> {
-    match xs {
-        Value::Int(i) => Some(vec![*i; len]),
-        Value::BigInt(b) => b.to_i64().map(|i| vec![i; len]),
-        Value::IntList(items) if items.len() == len => Some(items.iter().copied().collect()),
-        Value::IntRange(items) if items.len() == len => Some(items.to_vec()),
-        Value::List(items) if items.len() == len => items.iter().map(int_arg_to_i64).collect(),
-        _ => None,
+    let items = xs.exact_int_seq()?;
+    if items.is_scalar() {
+        let value = items.iter().next().expect("scalar exact int sequence has one item");
+        return Some(vec![value; len]);
     }
+    (items.len() == len).then(|| items.to_vec())
 }
 
 fn string_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<String>> {
@@ -1097,48 +1071,13 @@ fn int_arg_to_i64(value: &Value) -> Option<i64> {
 }
 
 fn parse_remove_positions(idx: &Value, len: usize) -> WqResult<(Vec<usize>, bool)> {
-    match idx {
-        Value::Int(i) => normalize_remove_idx(*i, len)
-            .map(|idx| (vec![idx], false))
-            .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove index")),
-        Value::BigInt(b) => normalize_remove_idx(
-            b.to_i64()
-                .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove index"))?,
-            len,
-        )
-        .map(|idx| (vec![idx], false))
-        .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove index")),
-        Value::IntList(idxs) => {
-            let mut out = Vec::with_capacity(idxs.len());
-            for &idx in idxs.iter() {
-                out.push(normalize_remove_idx(idx, len).ok_or_else(|| {
-                    WqError::new(WqErrorType::Domain).msg("invalid remove index")
-                })?);
-            }
-            Ok((out, true))
-        }
-        Value::IntRange(idxs) => {
-            let mut out = Vec::with_capacity(idxs.len());
-            for idx in idxs.iter() {
-                out.push(normalize_remove_idx(idx, len).ok_or_else(|| {
-                    WqError::new(WqErrorType::Domain).msg("invalid remove index")
-                })?);
-            }
-            Ok((out, true))
-        }
-        Value::List(idxs) => {
-            let mut out = Vec::with_capacity(idxs.len());
-            for idx in idxs.iter() {
-                let raw = int_arg_to_i64(idx)
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid remove index"))?;
-                out.push(normalize_remove_idx(raw, len).ok_or_else(|| {
-                    WqError::new(WqErrorType::Domain).msg("invalid remove index")
-                })?);
-            }
-            Ok((out, true))
-        }
-        _ => Err(WqError::new(WqErrorType::Domain).msg("expected int or list<int> index")),
-    }
+    parse_exact_int_positions(
+        idx,
+        len,
+        normalize_remove_idx,
+        "invalid remove index",
+        "expected int or list<int> index",
+    )
 }
 
 fn ensure_unique_positions(positions: &[usize], what: &str) -> WqResult<()> {
@@ -1153,49 +1092,39 @@ fn ensure_unique_positions(positions: &[usize], what: &str) -> WqResult<()> {
 fn parse_insert_positions(dsts: Option<&Value>, len: usize) -> WqResult<(Vec<usize>, bool)> {
     match dsts {
         None => Ok(((1..len).collect(), true)),
-        Some(Value::Int(i)) => normalize_insert_idx(*i, len)
-            .map(|idx| (vec![idx], false))
-            .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid insert index")),
-        Some(Value::BigInt(b)) => normalize_insert_idx(
-            b.to_i64()
-                .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid insert index"))?,
+        Some(dsts) => parse_exact_int_positions(
+            dsts,
             len,
-        )
-        .map(|idx| (vec![idx], false))
-        .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid insert index")),
-        Some(Value::IntList(idxs)) => {
-            let mut out = Vec::with_capacity(idxs.len());
-            for &idx in idxs.iter() {
-                out.push(normalize_insert_idx(idx, len).ok_or_else(|| {
-                    WqError::new(WqErrorType::Domain).msg("invalid insert index")
-                })?);
-            }
-            Ok((out, true))
-        }
-        Some(Value::IntRange(idxs)) => {
-            let mut out = Vec::with_capacity(idxs.len());
-            for idx in idxs.iter() {
-                out.push(normalize_insert_idx(idx, len).ok_or_else(|| {
-                    WqError::new(WqErrorType::Domain).msg("invalid insert index")
-                })?);
-            }
-            Ok((out, true))
-        }
-        Some(Value::List(idxs)) => {
-            let mut out = Vec::with_capacity(idxs.len());
-            for idx in idxs.iter() {
-                let raw = int_arg_to_i64(idx)
-                    .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid insert index"))?;
-                out.push(normalize_insert_idx(raw, len).ok_or_else(|| {
-                    WqError::new(WqErrorType::Domain).msg("invalid insert index")
-                })?);
-            }
-            Ok((out, true))
-        }
-        Some(_) => {
-            Err(WqError::new(WqErrorType::Domain).msg("expected int or list<int> destination"))
-        }
+            normalize_insert_idx,
+            "invalid insert index",
+            "expected int or list<int> destination",
+        ),
     }
+}
+
+fn parse_exact_int_positions(
+    value: &Value,
+    len: usize,
+    normalize: fn(i64, usize) -> Option<usize>,
+    invalid_msg: &'static str,
+    expected_msg: &'static str,
+) -> WqResult<(Vec<usize>, bool)> {
+    let Some(items) = value.exact_int_seq() else {
+        let msg = if matches!(value, Value::List(_)) {
+            invalid_msg
+        } else {
+            expected_msg
+        };
+        return Err(WqError::new(WqErrorType::Domain).msg(msg));
+    };
+
+    let mut out = Vec::with_capacity(items.len());
+    for idx in items.iter() {
+        out.push(
+            normalize(idx, len).ok_or_else(|| WqError::new(WqErrorType::Domain).msg(invalid_msg))?,
+        );
+    }
+    Ok((out, !items.is_scalar()))
 }
 
 fn insert_many_owned<T>(base: Vec<T>, mut ops: Vec<(usize, T)>) -> Vec<T> {
