@@ -2,11 +2,11 @@ use std::io::{IsTerminal as _, Write as _};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use colored::Colorize as _;
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use terminal_size::{Width, terminal_size};
 use unicode_width::UnicodeWidthStr as _;
 use wqpl::format::{FormatConfig, Formatter};
+use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 
 use crate::repl::editor::WqReplHighlighter;
 
@@ -153,14 +153,34 @@ fn parse_segments(markdown: &str) -> Vec<Segment> {
 }
 
 pub(crate) fn format_heading(level: u8, text: &str) -> String {
+    format_heading_with_color_mode(level, text, ColorMode::Auto)
+}
+
+fn format_heading_with_color_mode(level: u8, text: &str, color_mode: ColorMode) -> String {
     let prefix = "#".repeat(level as usize);
     let colored = match level {
-        1 => prefix.magenta().bold(),
-        2 => prefix.blue().bold(),
-        3 => prefix.cyan().bold(),
-        _ => prefix.dimmed().bold(),
+        1 => note_paint_with_color_mode(
+            &prefix,
+            TextStyle::new().fg(AnsiColor::Magenta).bold(),
+            color_mode,
+        ),
+        2 => note_paint_with_color_mode(
+            &prefix,
+            TextStyle::new().fg(AnsiColor::Blue).bold(),
+            color_mode,
+        ),
+        3 => note_paint_with_color_mode(
+            &prefix,
+            TextStyle::new().fg(AnsiColor::Cyan).bold(),
+            color_mode,
+        ),
+        _ => note_paint_with_color_mode(&prefix, TextStyle::new().dimmed().bold(), color_mode),
     };
-    format!("{} {}", colored, text.bold())
+    format!(
+        "{} {}",
+        colored,
+        note_paint_with_color_mode(text, TextStyle::new().bold(), color_mode)
+    )
 }
 
 pub(crate) fn format_code_fence(
@@ -200,9 +220,9 @@ fn format_code_fence_with_width(
     let bottom_dashes = lang_width + 2 + top_dashes;
     out.push_str(&format!(
         "{} {} {}\n",
-        "+".dimmed(),
-        lang.dimmed(),
-        "-".repeat(top_dashes).dimmed()
+        note_dim("+"),
+        note_dim(lang),
+        note_dim(&"-".repeat(top_dashes))
     ));
 
     let display_code = if is_wq {
@@ -215,15 +235,15 @@ fn format_code_fence_with_width(
 
     for line in display_code.lines() {
         if is_wq {
-            out.push_str(&format!("{} {}\x1b[0m\n", "|".dimmed(), line));
+            out.push_str(&format!("{} {}\x1b[0m\n", note_dim("|"), line));
         } else {
-            out.push_str(&format!("{} {}\n", "|".dimmed(), line));
+            out.push_str(&format!("{} {}\n", note_dim("|"), line));
         }
     }
     out.push_str(&format!(
         "{}{}",
-        "+".dimmed(),
-        "-".repeat(bottom_dashes).dimmed()
+        note_dim("+"),
+        note_dim(&"-".repeat(bottom_dashes))
     ));
     out
 }
@@ -314,7 +334,7 @@ pub(crate) fn render_terminal(md: &str) -> String {
                 };
                 item_continuation_indent
                     .push(format!("{}{}", indent, " ".repeat(marker.chars().count())));
-                out.push_str(&format!("{}{}", indent, marker.dimmed()));
+                out.push_str(&format!("{}{}", indent, note_dim(&marker)));
             }
             Event::End(TagEnd::Item) => {
                 item_continuation_indent.pop();
@@ -328,7 +348,7 @@ pub(crate) fn render_terminal(md: &str) -> String {
                 out.push_str(&s);
             }
             Event::Code(code) => {
-                out.push_str(&format!("`{}`", code.dimmed()));
+                out.push_str(&format!("`{}`", note_dim(&code)));
             }
             Event::SoftBreak | Event::HardBreak => {
                 out.push('\n');
@@ -336,7 +356,7 @@ pub(crate) fn render_terminal(md: &str) -> String {
                     out.push_str(indent);
                 }
             }
-            Event::Rule => out.push_str(&format!("{}\n", "─".repeat(40).dimmed())),
+            Event::Rule => out.push_str(&format!("{}\n", note_dim(&"─".repeat(40)))),
             Event::Html(html) => out.push_str(&html),
             _ => {}
         }
@@ -346,17 +366,43 @@ pub(crate) fn render_terminal(md: &str) -> String {
 }
 
 fn apply_text_style(text: &str, strong: bool, em: bool, link: bool) -> String {
+    apply_text_style_with_color_mode(text, strong, em, link, ColorMode::Auto)
+}
+
+fn apply_text_style_with_color_mode(
+    text: &str,
+    strong: bool,
+    em: bool,
+    link: bool,
+    color_mode: ColorMode,
+) -> String {
     if strong && em {
-        text.bold().italic().to_string()
+        note_paint_with_color_mode(text, TextStyle::new().bold().italic(), color_mode)
     } else if strong {
-        text.bold().to_string()
+        note_paint_with_color_mode(text, TextStyle::new().bold(), color_mode)
     } else if em {
-        text.italic().to_string()
+        note_paint_with_color_mode(text, TextStyle::new().italic(), color_mode)
     } else if link {
-        text.underline().blue().to_string()
+        note_paint_with_color_mode(
+            text,
+            TextStyle::new().fg(AnsiColor::Blue).underline(),
+            color_mode,
+        )
     } else {
         text.to_string()
     }
+}
+
+fn note_dim(text: &str) -> String {
+    note_paint(text, TextStyle::new().dimmed())
+}
+
+fn note_paint(text: &str, style: TextStyle) -> String {
+    note_paint_with_color_mode(text, style, ColorMode::Auto)
+}
+
+fn note_paint_with_color_mode(text: &str, style: TextStyle, color_mode: ColorMode) -> String {
+    paint(text, style, color_mode)
 }
 
 pub(crate) fn render_markdown_document(
@@ -491,6 +537,18 @@ mod tests {
         let md = "**hello**";
         let out = render_terminal(md);
         assert!(out.contains("hello"));
+    }
+
+    #[test]
+    fn heading_and_link_styles_use_explicit_renderer() {
+        assert_eq!(
+            format_heading_with_color_mode(1, "Title", ColorMode::Always),
+            "\x1b[1;35m#\x1b[0m \x1b[1mTitle\x1b[0m"
+        );
+        assert_eq!(
+            apply_text_style_with_color_mode("wq", false, false, true, ColorMode::Never),
+            "wq"
+        );
     }
 
     #[test]
