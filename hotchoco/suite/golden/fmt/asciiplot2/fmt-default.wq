@@ -12,11 +12,11 @@ asciiplot[sqrt;`complex:"plane";`size:(40;10)]
 // Theta function: delta builtin
 asciiplot[delta;`xlim:(-2;2);`size:(40;5);`samples:81]
 
-// Scientific theme with title and labels
+// Maximal theme with title and labels
 asciiplot[
   sin;
   cos;
-  `theme:"scientific";
+  `theme:"maximal";
   `size:(50;12);
   `title:"Trigonometric Functions";
   `xlabel:"x (radians)";

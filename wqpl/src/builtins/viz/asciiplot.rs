@@ -21,11 +21,6 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
     let explicit_size = opts.apply_from_named(&args)?;
     #[cfg(target_arch = "wasm32")]
     let _ = explicit_size;
-    // Apply theme preset before terminal sizing
-    let theme = opts.theme.clone();
-    if let Some(ref t) = theme {
-        opts.apply_theme(t);
-    }
     // Terminal auto-size: only when width/height/size not explicitly set
     #[cfg(not(target_arch = "wasm32"))]
     if !explicit_size && let Some((term_w, term_h)) = terminal_size::terminal_size() {
@@ -768,7 +763,6 @@ struct PlotOptions {
     color: ColorMode,
     grid: GridMode,
     samples: Option<usize>,
-    theme: Option<String>,
     complex_mode: String,
     ascii: bool,
     tick_labels: bool,
@@ -820,7 +814,6 @@ impl Default for PlotOptions {
             color: ColorMode::On,
             grid: GridMode::Off,
             samples: None,
-            theme: None,
             complex_mode: "re".to_string(),
             ascii: false,
             tick_labels: false,
@@ -835,6 +828,11 @@ impl PlotOptions {
     fn apply_from_named(&mut self, args: &BuiltinFnArgs) -> WqResult<bool> {
         let mut explicit_size = false;
 
+        if let Some(v) = args.named("theme")
+            && let Ok(theme) = v.to_rust_string_with_note()
+        {
+            self.apply_theme(&theme);
+        }
         if let Some((a, b)) = args.named("size").and_then(pair_as_f64) {
             self.width = max(10, a as usize);
             self.height = max(5, b as usize);
@@ -943,11 +941,6 @@ impl PlotOptions {
         if let Some(v) = args.named("samples").and_then(|v| v.as_i64()) {
             self.samples = Some(max(1, v as usize));
         }
-        if let Some(v) = args.named("theme")
-            && let Ok(s) = v.to_rust_string_with_note()
-        {
-            self.theme = Some(s);
-        }
         if let Some(v) = args.named("complex")
             && let Ok(s) = v.to_rust_string_with_note()
         {
@@ -998,14 +991,9 @@ impl PlotOptions {
                 self.grid = GridMode::Off;
                 self.color = ColorMode::On;
             }
-            "scientific" => {
+            "maximal" => {
                 self.axes = AxesMode::Full;
                 self.grid = GridMode::On;
-                self.color = ColorMode::On;
-            }
-            "dark" => {
-                self.axes = AxesMode::Full;
-                self.grid = GridMode::Off;
                 self.color = ColorMode::On;
             }
             _ => {}
@@ -1863,6 +1851,45 @@ mod tests {
                 panic!("expected table-shaped data to produce raw points")
             }
         }
+    }
+
+    fn string_value(s: &str) -> Value {
+        Value::String(Arc::new(s.to_owned()))
+    }
+
+    #[test]
+    fn maximal_theme_sets_full_axes_grid_and_color() {
+        let mut opts = PlotOptions::default();
+
+        opts.apply_from_named(&BuiltinFnArgs::with_named(
+            smallvec![],
+            vec![(Arc::from("theme"), string_value("maximal"))],
+        ))
+        .expect("theme option should parse");
+
+        assert!(matches!(opts.axes, AxesMode::Full));
+        assert!(matches!(opts.grid, GridMode::On));
+        assert!(matches!(opts.color, ColorMode::On));
+    }
+
+    #[test]
+    fn named_options_override_theme() {
+        let mut opts = PlotOptions::default();
+
+        opts.apply_from_named(&BuiltinFnArgs::with_named(
+            smallvec![],
+            vec![
+                (Arc::from("theme"), string_value("minimal")),
+                (Arc::from("axes"), Value::Bool(true)),
+                (Arc::from("grid"), Value::Bool(true)),
+                (Arc::from("color"), Value::Bool(false)),
+            ],
+        ))
+        .expect("theme option should parse");
+
+        assert!(matches!(opts.axes, AxesMode::Full));
+        assert!(matches!(opts.grid, GridMode::On));
+        assert!(matches!(opts.color, ColorMode::Off));
     }
 
     #[test]

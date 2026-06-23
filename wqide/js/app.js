@@ -566,9 +566,8 @@ const VIZ_HTML = html`
                 </button>
                 <div class="viz-select-menu" role="listbox">
                   <button type="button" role="option" data-viz-option="none">none</button>
-                  <button type="button" role="option" data-viz-option="scientific">scientific</button>
                   <button type="button" role="option" data-viz-option="minimal">minimal</button>
-                  <button type="button" role="option" data-viz-option="dark">dark</button>
+                  <button type="button" role="option" data-viz-option="maximal">maximal</button>
                 </div>
               </div>
               <div class="viz-field" data-viz-select="axes">

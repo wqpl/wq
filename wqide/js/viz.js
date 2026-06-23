@@ -272,6 +272,19 @@ const PALETTES = {
   ink: ["cyan", "yellow", "white", "green"],
 };
 
+const THEME_PRESETS = {
+  minimal: {
+    axes: "off",
+    grid: "off",
+    palette: "classic",
+  },
+  maximal: {
+    axes: "full",
+    grid: "4",
+    palette: "classic",
+  },
+};
+
 const SERIES_MODE_OPTIONS = [
   ["", "plot"],
   ["line", "line"],
@@ -480,14 +493,16 @@ function plotOptions(state) {
     named("mode", wqString(state.mode)),
     named("size", `(${state.width};${state.height})`),
     named("samples", state.samples),
-    axesOption(state),
-    gridOption(state),
-    named("ascii", boolLit(state.ascii)),
-    colorOption(state),
   ];
   if (state.theme !== "none") {
     args.push(named("theme", wqString(state.theme)));
   }
+  args.push(
+    axesOption(state),
+    gridOption(state),
+    named("ascii", boolLit(state.ascii)),
+    colorOption(state),
+  );
   if (state.complex !== "re") {
     args.push(named("complex", wqString(state.complex)));
   }
@@ -908,6 +923,14 @@ function setSelectValue(instance, key, value) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
   });
+}
+
+function applyThemePresetToControls(instance, theme) {
+  const preset = THEME_PRESETS[theme];
+  if (!preset) return;
+  for (const [key, value] of Object.entries(preset)) {
+    setSelectValue(instance, key, value);
+  }
 }
 
 function setRangeValue(instance, key, value) {
@@ -1365,6 +1388,9 @@ function wireSelect(instance, field) {
     setSelectValue(instance, key, nextValue);
     if (key === "sourceKind" && nextValue !== previousValue) {
       seedSourceForKind(instance, nextValue);
+    }
+    if (key === "theme" && nextValue !== previousValue) {
+      applyThemePresetToControls(instance, nextValue);
     }
     if (key === "tableShape") {
       syncTableDisplayDefaults(instance, nextValue);
