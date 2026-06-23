@@ -17,10 +17,11 @@ use wqpl::session::dbglog::DebugLogFlags;
 use wqpl::session::stdio::{
     WqStderr, WqStdin, WqStdinError, WqStdout, set_wqstderr, set_wqstdin, set_wqstdout,
 };
+use wqpl::style::ColorMode;
 use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
 use wqpl::value::{Value, WqResult};
 use wqpl::vm::Vm;
-use wqpl::wqerror::WqErrorType;
+use wqpl::wqerror::{WqError, WqErrorType};
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
@@ -232,7 +233,8 @@ impl WasmWqSession {
                 if e.err_type.is_runtime() {
                     self.session.borrow_mut().dbg_print_bt();
                 }
-                Err(JsValue::from_str(&format!("{e}")))
+                let config = self.box_config.get();
+                Err(JsValue::from_str(&format_wasm_error(&e, config)))
             }
         }
     }
@@ -259,7 +261,8 @@ impl WasmWqSession {
                 if e.err_type.is_runtime() {
                     self.session.borrow_mut().dbg_print_bt();
                 }
-                Err(JsValue::from_str(&format!("{e}")))
+                let config = self.box_config.get();
+                Err(JsValue::from_str(&format_wasm_error(&e, config)))
             }
         }
     }
@@ -580,6 +583,18 @@ fn eval_wq_script_value(session: &WasmWqSession, src: &str) -> WqResult<Value> {
     }
 
     Ok(last_result)
+}
+
+fn wasm_color_mode(config: BoxPrintConfig) -> ColorMode {
+    if config.color {
+        ColorMode::Always
+    } else {
+        ColorMode::Never
+    }
+}
+
+fn format_wasm_error(err: &WqError, config: BoxPrintConfig) -> String {
+    err.render_with_color_mode(wasm_color_mode(config))
 }
 
 fn wasm_wqdb_pause_handler(host: &mut Vm) {
@@ -1011,6 +1026,23 @@ mod tests {
             !json.contains('\u{1b}'),
             "symbol JSON should not contain terminal escape sequences: {json:?}",
         );
+    }
+
+    #[test]
+    fn wasm_error_formatting_follows_box_color_flag() {
+        let session = WasmWqSession::new();
+        let err = eval_wq_script_value(&session, "1+").expect_err("incomplete input should error");
+        let color_config = BoxPrintConfig::default();
+        let plain_config = BoxPrintConfig {
+            color: false,
+            ..BoxPrintConfig::default()
+        };
+
+        let colored = format_wasm_error(&err, color_config);
+        let plain = format_wasm_error(&err, plain_config);
+
+        assert!(colored.contains('\u{1b}'));
+        assert!(!plain.contains('\u{1b}'));
     }
 
     #[test]
