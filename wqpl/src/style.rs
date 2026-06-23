@@ -17,6 +17,7 @@ impl ColorMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnsiColor {
+    Black,
     Red,
     Green,
     Yellow,
@@ -27,14 +28,18 @@ pub enum AnsiColor {
     Purple,
     BrightBlack,
     BrightBlue,
+    BrightGreen,
     BrightRed,
+    BrightCyan,
     BrightMagenta,
     BrightYellow,
+    BrightWhite,
 }
 
 impl AnsiColor {
     const fn fg_code(self) -> &'static str {
         match self {
+            Self::Black => "30",
             Self::Red => "31",
             Self::Green => "32",
             Self::Yellow => "33",
@@ -45,9 +50,12 @@ impl AnsiColor {
             Self::Purple => "35",
             Self::BrightBlack => "90",
             Self::BrightBlue => "94",
+            Self::BrightGreen => "92",
             Self::BrightRed => "91",
+            Self::BrightCyan => "96",
             Self::BrightMagenta => "95",
             Self::BrightYellow => "93",
+            Self::BrightWhite => "97",
         }
     }
 }

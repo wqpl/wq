@@ -1,11 +1,11 @@
 use std::cmp::{max, min};
 
-use colored::{Color, Colorize};
 use indexmap::IndexMap;
 
 use crate::builtins::{BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_named_args};
 use crate::cas::{infer_single_cas_var, substitute_cas};
 use crate::session::stdio::wqstdout_println;
+use crate::style::{AnsiColor, ColorMode as StyleColorMode, TextStyle, paint};
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -782,7 +782,7 @@ enum AxesMode {
 enum ColorMode {
     On,
     Off,
-    Custom(Vec<Color>),
+    Custom(Vec<AnsiColor>),
 }
 
 impl ColorMode {
@@ -1084,7 +1084,7 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
     if gx > 0 && gy > 0 {
         let xticks = ticks_in_range(xmin, xmax, gx);
         let yticks = ticks_in_range(ymin, ymax, gy);
-        let grid_color = Some(Color::BrightBlack);
+        let grid_color = Some(AnsiColor::BrightBlack);
         let ch_h = if opts.ascii { '.' } else { '┈' };
         let ch_v = if opts.ascii { ':' } else { '┊' };
         for yv in yticks {
@@ -1252,7 +1252,7 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
         }
         let symbol = plot_series_symbol(Some(plot_series), si, opts);
         let mode = plot_series.mode.unwrap_or(opts.mode);
-        let color: Option<Color> = match &opts.color {
+        let color: Option<AnsiColor> = match &opts.color {
             ColorMode::On => Some(series_color(si)),
             ColorMode::Off => None,
             ColorMode::Custom(p) => p
@@ -1639,7 +1639,7 @@ enum Layer {
 struct Cell {
     ch: char,
     layer: Layer,
-    color: Option<Color>,
+    color: Option<AnsiColor>,
 }
 impl Cell {
     fn new(ch: char) -> Self {
@@ -1657,7 +1657,7 @@ fn set_cell_layer(
     y: isize,
     ch: char,
     layer: Layer,
-    color: Option<Color>,
+    color: Option<AnsiColor>,
     color_on: bool,
 ) {
     if y >= 0 && (y as usize) < grid.len() && x >= 0 && (x as usize) < grid[0].len() {
@@ -1702,15 +1702,15 @@ fn plot_line(
     x1: isize,
     y1: isize,
     ch: char,
-    color: Option<Color>,
+    color: Option<AnsiColor>,
 ) {
     for (x, y) in rasterize_line(x0, y0, x1, y1) {
         set_cell_layer(grid, x, y, ch, Layer::Data, color, color.is_some());
     }
 }
 
-fn series_color(idx: usize) -> Color {
-    use Color::*;
+fn series_color(idx: usize) -> AnsiColor {
+    use AnsiColor::*;
     let palette = [
         Red,
         Green,
@@ -1728,18 +1728,26 @@ fn series_color(idx: usize) -> Color {
     palette[idx % palette.len()]
 }
 
-fn paint_char(ch: char, color: Option<Color>) -> String {
+fn paint_char(ch: char, color: Option<AnsiColor>) -> String {
+    paint_char_with_color_mode(ch, color, StyleColorMode::Auto)
+}
+
+fn paint_char_with_color_mode(
+    ch: char,
+    color: Option<AnsiColor>,
+    color_mode: StyleColorMode,
+) -> String {
     let s = ch.to_string();
     if let Some(c) = color {
-        s.color(c).to_string()
+        paint(&s, TextStyle::new().fg(c), color_mode)
     } else {
         s
     }
 }
 
-fn parse_palette(val: &Value) -> Option<Vec<Color>> {
-    use Color::*;
-    fn name_to_color<S: AsRef<str>>(s: S) -> Option<Color> {
+fn parse_palette(val: &Value) -> Option<Vec<AnsiColor>> {
+    use AnsiColor::*;
+    fn name_to_color<S: AsRef<str>>(s: S) -> Option<AnsiColor> {
         match s.as_ref().to_ascii_lowercase().as_str() {
             "black" | "bl" => Some(Black),
             "red" | "r" => Some(Red),
@@ -2039,6 +2047,18 @@ mod tests {
 
         assert!(rendered.contains("sine(s)"));
         assert!(rendered.contains("cosine(c)"));
+    }
+
+    #[test]
+    fn plot_chars_use_explicit_style_renderer() {
+        assert_eq!(
+            paint_char_with_color_mode('*', Some(AnsiColor::BrightCyan), StyleColorMode::Always),
+            "\x1b[96m*\x1b[0m"
+        );
+        assert_eq!(
+            paint_char_with_color_mode('*', Some(AnsiColor::BrightCyan), StyleColorMode::Never),
+            "*"
+        );
     }
 
     #[test]
