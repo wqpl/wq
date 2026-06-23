@@ -32,6 +32,7 @@ import {
   queueEval,
 } from "./wq-shared.js";
 import { createWqEditor } from "./editor.js";
+import { countGlobalsTableRows, normalizeGlobalsTable } from "./repl-globals.js";
 
 let session = null;
 let stdinQueue = [];
@@ -427,6 +428,20 @@ function autoSizeComposer() {
   ui.codeEl.style.height = `${nextHeight}px`;
 }
 
+function syncGlobalsPanel() {
+  if (!ui?.globalsBody) return;
+  let table = "no global bindings";
+  try {
+    table = normalizeGlobalsTable(ensureSession().get_env_table());
+  } catch (err) {
+    table = err?.message ?? String(err);
+  }
+  const count = countGlobalsTableRows(table);
+  ui.globalsBody.textContent = table;
+  ui.globalsCount.textContent = String(count);
+  ui.globalsPanel?.classList.toggle("empty", count === 0);
+}
+
 function setButtonStatus(btn, label) {
   if (!btn) return;
   const idle = btn.dataset.idleLabel || btn.textContent;
@@ -520,6 +535,7 @@ function resetSession() {
   syncBoxControl();
   setActive(ui.pillTime, false);
   syncDebugControls();
+  syncGlobalsPanel();
 }
 
 function boolWord(on) {
@@ -987,6 +1003,7 @@ async function doEval({ recordHistory = true } = {}) {
     oneshotDebug = null;
     oneshotWqdb = false;
     syncDebugControls();
+    syncGlobalsPanel();
     ui.evalBtn.disabled = false;
     currentTurn = null;
   }
@@ -1141,6 +1158,10 @@ export async function mountRepl(root) {
     historySearchInput: root.querySelector("#historySearchInput"),
     historySearchResults: root.querySelector("#historySearchResults"),
     clearHistoryBtn: root.querySelector("#clearHistoryBtn"),
+    globalsPanel: root.querySelector(".globals-panel"),
+    globalsBody: root.querySelector("#globalsBody"),
+    globalsCount: root.querySelector("#globalsCount"),
+    refreshGlobalsBtn: root.querySelector("#refreshGlobalsBtn"),
   };
 
   bindRuntimeCallbacks();
@@ -1180,6 +1201,9 @@ export async function mountRepl(root) {
       renderHistoryMatches(ui.historySearchInput, ui.historySearchResults);
       positionHistorySearch();
     }
+  });
+  ui.refreshGlobalsBtn?.addEventListener("click", () => {
+    syncGlobalsPanel();
   });
   ui.openInPlaygroundBtn?.addEventListener("click", () => {
     let code = ui.codeEl.value.trim();
@@ -1344,6 +1368,7 @@ export function activateRepl() {
   bindRuntimeCallbacks();
   syncBoxControl();
   syncDebugControls();
+  syncGlobalsPanel();
 }
 
 export function applyReplRoute(root, params) {
