@@ -2107,7 +2107,7 @@ textarea.editor-text.repl-input,
 }
 .viz-field label,
 .viz-text-field > span,
-.viz-range span,
+.viz-range > span,
 .viz-stepper span,
 .viz-switch span {
   color: #496f86;
@@ -2234,15 +2234,26 @@ textarea.editor-text.repl-input,
   gap: 8px;
   align-items: center;
 }
-.viz-range input {
+.viz-range-smart {
+  grid-template-columns: minmax(58px, 0.45fr) minmax(0, 1fr) minmax(76px, max-content) auto;
+}
+.viz-range > input {
   width: 100%;
   accent-color: #7a2a6b;
 }
-.viz-range strong {
+.viz-range > input:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+.viz-range > strong {
   color: var(--surface-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   text-align: right;
+}
+.viz-auto-toggle {
+  justify-self: end;
+  white-space: nowrap;
 }
 .viz-stepper {
   display: grid;
@@ -3614,7 +3625,10 @@ textarea.editor-text.repl-input,
   .viz-range {
     grid-template-columns: 1fr 42px;
   }
-  .viz-range span {
+  .viz-range-smart {
+    grid-template-columns: minmax(0, 1fr) minmax(76px, max-content) auto;
+  }
+  .viz-range > span {
     grid-column: 1 / -1;
   }
   .toolbar-main {

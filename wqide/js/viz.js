@@ -28,6 +28,7 @@ const DEFAULT_STATE = {
   grid: "4",
   palette: "classic",
   width: 90,
+  widthAuto: true,
   height: 24,
   samples: 140,
   xlimMinText: "0",
@@ -285,6 +286,10 @@ const THEME_PRESETS = {
   },
 };
 
+const PLOT_WIDTH_MIN = 40;
+const PLOT_WIDTH_MAX = 120;
+const PLOT_WIDTH_LABEL_GUTTER = 10;
+
 const SERIES_MODE_OPTIONS = [
   ["", "plot"],
   ["line", "line"],
@@ -412,6 +417,26 @@ function colorOption(state) {
   return named("color", `(${colors.map(wqString).join(";")})`);
 }
 
+function clampPlotWidth(value) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return DEFAULT_STATE.width;
+  return Math.max(PLOT_WIDTH_MIN, Math.min(PLOT_WIDTH_MAX, number));
+}
+
+function effectivePlotWidth(state) {
+  if (!state.widthAuto) return clampPlotWidth(state.width);
+  return clampPlotWidth(state.computedWidth ?? state.width);
+}
+
+function textColumnCount(value) {
+  return Array.from(String(value || "").trim()).length;
+}
+
+function plotWidthReserve(state) {
+  const ylabelWidth = textColumnCount(state.ylabelText);
+  return PLOT_WIDTH_LABEL_GUTTER + (ylabelWidth ? ylabelWidth + 1 : 0);
+}
+
 function gridOption(state) {
   return named("grid", state.grid === "off" ? "F" : state.grid);
 }
@@ -491,7 +516,7 @@ function symbolsOption(series) {
 function plotOptions(state) {
   const args = [
     named("mode", wqString(state.mode)),
-    named("size", `(${state.width};${state.height})`),
+    named("size", `(${effectivePlotWidth(state)};${state.height})`),
     named("samples", state.samples),
   ];
   if (state.theme !== "none") {
@@ -933,7 +958,78 @@ function applyThemePresetToControls(instance, theme) {
   }
 }
 
+function cssPixels(value) {
+  const number = Number.parseFloat(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function outputFontForMeasure(output) {
+  const style = window.getComputedStyle(output);
+  return [
+    style.fontStyle,
+    style.fontVariant,
+    style.fontWeight,
+    style.fontSize,
+    style.fontFamily,
+  ].join(" ");
+}
+
+function measureOutputCharWidth(output) {
+  if (!output || typeof document === "undefined") return null;
+  const canvas =
+    measureOutputCharWidth.canvas || (measureOutputCharWidth.canvas = document.createElement("canvas"));
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  context.font = outputFontForMeasure(output);
+  const width = context.measureText("0000000000").width / 10;
+  return width > 0 ? width : null;
+}
+
+function measureOutputPlotWidth(instance) {
+  const output = instance.output;
+  if (!output || typeof window === "undefined") return null;
+  const style = window.getComputedStyle(output);
+  const innerWidth =
+    output.clientWidth - cssPixels(style.paddingLeft) - cssPixels(style.paddingRight);
+  const charWidth = measureOutputCharWidth(output);
+  if (innerWidth <= 0 || !charWidth) return null;
+  return clampPlotWidth(Math.floor(innerWidth / charWidth) - plotWidthReserve(instance.state));
+}
+
+function syncWidthControl(instance) {
+  const input = instance.ranges.width;
+  const label = instance.root.querySelector('[data-viz-range-value="width"]');
+  const manualWidth = clampPlotWidth(instance.state.width);
+  const plotWidth = effectivePlotWidth(instance.state);
+
+  if (input) {
+    input.value = String(manualWidth);
+    input.disabled = !!instance.state.widthAuto;
+    input.title = instance.state.widthAuto ? "Auto width is on" : "";
+  }
+  if (label) {
+    label.textContent = instance.state.widthAuto ? `auto ${plotWidth}` : String(manualWidth);
+  }
+}
+
+function refreshAutoWidth(instance) {
+  const nextWidth = measureOutputPlotWidth(instance);
+  if (nextWidth === null) {
+    syncWidthControl(instance);
+    return false;
+  }
+  const changed = nextWidth !== instance.state.computedWidth;
+  instance.state.computedWidth = nextWidth;
+  syncWidthControl(instance);
+  return changed && !!instance.state.widthAuto;
+}
+
 function setRangeValue(instance, key, value) {
+  if (key === "width") {
+    instance.state.width = clampPlotWidth(value);
+    syncWidthControl(instance);
+    return;
+  }
   instance.state[key] = key === "rows" ? clampRows(value) : Number(value);
   const input = instance.ranges[key];
   const label = instance.root.querySelector(`[data-viz-range-value="${key}"]`);
@@ -945,6 +1041,9 @@ function setToggleValue(instance, key, value) {
   instance.state[key] = !!value;
   const input = instance.toggles[key];
   if (input) input.checked = !!value;
+  if (key === "widthAuto") {
+    syncWidthControl(instance);
+  }
 }
 
 function setLayoutValue(instance, value) {
@@ -1297,6 +1396,7 @@ function updateView(instance, options = {}) {
   instance.root.dataset.vizBuiltin = builtin;
   instance.root.dataset.vizSourceKind = sourceKind;
   instance.root.dataset.vizLayout = instance.state.layout || "below";
+  refreshAutoWidth(instance);
   renderCode(instance);
   if (options.run === false) {
     setStatus(instance, "ready");
@@ -1312,7 +1412,7 @@ async function runViz(instance) {
     setStatus(instance, "queued");
     return;
   }
-  if (!instance.code) renderCode(instance);
+  if (refreshAutoWidth(instance) || !instance.code) renderCode(instance);
   instance.isRunning = true;
   instance.pendingRun = false;
   instance.output.innerHTML = "";
@@ -1462,6 +1562,9 @@ export async function mountViz(root) {
   });
   Object.entries(instance.ranges).forEach(([key, input]) => {
     input.addEventListener("input", () => {
+      if (key === "width") {
+        setToggleValue(instance, "widthAuto", false);
+      }
       setRangeValue(instance, key, input.value);
       if (key === "rows") {
         syncTableSource(instance);
@@ -1475,6 +1578,9 @@ export async function mountViz(root) {
       const input = instance.ranges[key];
       const delta = Number(button.dataset.vizStepDelta) || 0;
       const current = Number(input?.value || instance.state[key] || 0);
+      if (key === "width") {
+        setToggleValue(instance, "widthAuto", false);
+      }
       setRangeValue(instance, key, current + delta);
       if (key === "rows") {
         syncTableSource(instance);
@@ -1485,6 +1591,9 @@ export async function mountViz(root) {
   Object.entries(instance.toggles).forEach(([key, input]) => {
     input.addEventListener("change", () => {
       setToggleValue(instance, key, input.checked);
+      if (key === "widthAuto" && input.checked) {
+        refreshAutoWidth(instance);
+      }
       if (key === "labels" || key === "seriesOptions") {
         renderSeriesEditor(instance);
       }
@@ -1532,6 +1641,15 @@ export async function mountViz(root) {
       closeAllSelects(root);
     }
   });
+
+  if (typeof ResizeObserver !== "undefined" && instance.output) {
+    instance.widthObserver = new ResizeObserver(() => {
+      if (refreshAutoWidth(instance)) {
+        updateView(instance, { delay: 80 });
+      }
+    });
+    instance.widthObserver.observe(instance.output);
+  }
 
   applyPreset(instance, "trig", { run: false });
   await runViz(instance);

@@ -623,11 +623,21 @@ const VIZ_HTML = html`
             <div class="viz-control-head">
               <h2>Bounds</h2>
             </div>
-            <label class="viz-range">
+            <div class="viz-range viz-range-smart">
               <span>Width</span>
-              <input type="range" min="40" max="120" value="90" data-viz-range="width" />
-              <strong data-viz-range-value="width">90</strong>
-            </label>
+              <input
+                type="range"
+                min="40"
+                max="120"
+                value="90"
+                data-viz-range="width"
+                aria-label="Manual plot width" />
+              <strong data-viz-range-value="width">auto 90</strong>
+              <label class="viz-lock-toggle viz-auto-toggle">
+                <input type="checkbox" data-viz-toggle="widthAuto" checked />
+                <span>Auto</span>
+              </label>
+            </div>
             <label class="viz-range">
               <span>Height</span>
               <input type="range" min="10" max="32" value="24" data-viz-range="height" />
