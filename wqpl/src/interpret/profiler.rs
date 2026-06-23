@@ -1,12 +1,13 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
-use colored::{ColoredString, Colorize};
+use colored::Colorize;
 
 use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::builtins::Builtins;
 use crate::interpret::vanilla::VanillaInterpreter;
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
+use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::{Value, WqResult};
 use crate::vm::Vm;
 use crate::vm::inst::Instruction;
@@ -200,16 +201,17 @@ impl InterpreterHook for ProfilerInterpreter {
         stats.max_stack_len = stats.max_stack_len.max(vm.stack.len());
         stats.max_call_depth = stats.max_call_depth.max(call_depth);
 
-        fn colorize_number(n: usize, width: usize) -> ColoredString {
+        fn colorize_number(n: usize, width: usize) -> String {
             let s = format!("{n:0width$}");
-            match n % 6 {
-                0 => s.normal(),
-                1 => s.red(),
-                2 => s.yellow(),
-                3 => s.green(),
-                4 => s.blue(),
-                _ => s.magenta(),
-            }
+            let color = match n % 6 {
+                0 => return s,
+                1 => AnsiColor::Red,
+                2 => AnsiColor::Yellow,
+                3 => AnsiColor::Green,
+                4 => AnsiColor::Blue,
+                _ => AnsiColor::Magenta,
+            };
+            paint(&s, TextStyle::new().fg(color), ColorMode::Auto)
         }
 
         if self.trace {
@@ -393,6 +395,14 @@ fn print_sequence_outputs(outputs: &HashMap<String, SequenceOutputStats>) {
 }
 
 fn format_len_hist(lens: &BTreeMap<usize, usize>, limit: usize) -> String {
+    format_len_hist_with_color_mode(lens, limit, ColorMode::Auto)
+}
+
+fn format_len_hist_with_color_mode(
+    lens: &BTreeMap<usize, usize>,
+    limit: usize,
+    color_mode: ColorMode,
+) -> String {
     if lens.is_empty() {
         return "sizes -".to_string();
     }
@@ -407,7 +417,7 @@ fn format_len_hist(lens: &BTreeMap<usize, usize>, limit: usize) -> String {
         .map(|(len, count)| {
             format!(
                 "{len}:{count} {}",
-                format_count_bar(*count, max_count, HIST_BAR_WIDTH)
+                format_count_bar_with_color_mode(*count, max_count, HIST_BAR_WIDTH, color_mode)
             )
         })
         .collect::<Vec<_>>();
@@ -415,23 +425,49 @@ fn format_len_hist(lens: &BTreeMap<usize, usize>, limit: usize) -> String {
 }
 
 fn format_count_bar(value: usize, max: usize, width: usize) -> String {
+    format_count_bar_with_color_mode(value, max, width, ColorMode::Auto)
+}
+
+fn format_count_bar_with_color_mode(
+    value: usize,
+    max: usize,
+    width: usize,
+    color_mode: ColorMode,
+) -> String {
     let filled = scaled_len(value, max, width);
     let empty = width.saturating_sub(filled);
     let filled_bar = "+".repeat(filled);
     format!(
         "[{}{}]",
-        colorize_heat(&filled_bar, value, max),
-        " ".repeat(empty).dimmed()
+        colorize_heat(&filled_bar, value, max, color_mode),
+        paint(&" ".repeat(empty), TextStyle::new().dimmed(), color_mode)
     )
 }
 
 fn format_hit_miss_bar(hits: usize, total: usize, width: usize) -> String {
+    format_hit_miss_bar_with_color_mode(hits, total, width, ColorMode::Auto)
+}
+
+fn format_hit_miss_bar_with_color_mode(
+    hits: usize,
+    total: usize,
+    width: usize,
+    color_mode: ColorMode,
+) -> String {
     let hit_width = scaled_len(hits, total, width);
     let miss_width = width.saturating_sub(hit_width);
     format!(
         "[{}{}]",
-        "+".repeat(hit_width).green().bold(),
-        "-".repeat(miss_width).red()
+        paint(
+            &"+".repeat(hit_width),
+            TextStyle::new().fg(AnsiColor::Green).bold(),
+            color_mode,
+        ),
+        paint(
+            &"-".repeat(miss_width),
+            TextStyle::new().fg(AnsiColor::Red),
+            color_mode,
+        )
     )
 }
 
@@ -442,17 +478,21 @@ fn scaled_len(value: usize, max: usize, width: usize) -> usize {
     value.saturating_mul(width).div_ceil(max).clamp(1, width)
 }
 
-fn colorize_heat(text: &str, value: usize, max: usize) -> ColoredString {
+fn colorize_heat(text: &str, value: usize, max: usize, color_mode: ColorMode) -> String {
     if max == 0 || value == 0 {
-        return text.normal();
+        return text.to_string();
     }
     let share = pct(value, max);
     if share >= 66.0 {
-        text.red().bold()
+        paint(
+            text,
+            TextStyle::new().fg(AnsiColor::Red).bold(),
+            color_mode,
+        )
     } else if share >= 33.0 {
-        text.yellow()
+        paint(text, TextStyle::new().fg(AnsiColor::Yellow), color_mode)
     } else {
-        text.green()
+        paint(text, TextStyle::new().fg(AnsiColor::Green), color_mode)
     }
 }
 
@@ -742,16 +782,18 @@ mod tests {
 
     #[test]
     fn profile_count_bar_scales_to_width() {
-        colored::control::set_override(false);
-        assert_eq!(format_count_bar(5, 10, 10), "[+++++     ]");
-        colored::control::unset_override();
+        assert_eq!(
+            format_count_bar_with_color_mode(5, 10, 10, ColorMode::Never),
+            "[+++++     ]"
+        );
     }
 
     #[test]
     fn profile_hit_miss_bar_splits_hits_and_misses() {
-        colored::control::set_override(false);
-        assert_eq!(format_hit_miss_bar(3, 4, 8), "[++++++--]");
-        colored::control::unset_override();
+        assert_eq!(
+            format_hit_miss_bar_with_color_mode(3, 4, 8, ColorMode::Never),
+            "[++++++--]"
+        );
     }
 
     #[test]
@@ -760,12 +802,10 @@ mod tests {
         lens.insert(2, 1);
         lens.insert(4, 3);
 
-        colored::control::set_override(false);
         assert_eq!(
-            format_len_hist(&lens, 2),
+            format_len_hist_with_color_mode(&lens, 2, ColorMode::Never),
             "sizes 4:3 [++++++++++]  2:1 [++++      ]"
         );
-        colored::control::unset_override();
     }
 
     #[test]

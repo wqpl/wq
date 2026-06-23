@@ -4,9 +4,8 @@ pub mod model;
 
 use std::collections::{HashMap, HashSet};
 
-use colored::Colorize;
-
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
+use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::vm::Vm;
 use crate::wqdb::data::{CodeLoc, DebugInfo};
 use crate::wqdb::model::{
@@ -261,6 +260,15 @@ pub fn format_span_snippet(
     start_byte: usize,
     end_byte: usize,
 ) -> String {
+    format_span_snippet_with_color_mode(sf, start_byte, end_byte, ColorMode::Auto)
+}
+
+pub fn format_span_snippet_with_color_mode(
+    sf: &crate::wqdb::data::SourceFile,
+    start_byte: usize,
+    end_byte: usize,
+    color_mode: ColorMode,
+) -> String {
     let end_byte = end_byte.max(start_byte.saturating_add(1));
     let (l, _) = sf.line_col(start_byte);
     let line_text = sf.line_text(l);
@@ -269,7 +277,7 @@ pub fn format_span_snippet(
     let span_end = end_byte.min(line_end);
     let rel_start = span_start.saturating_sub(line_start);
     let rel_end = span_end.saturating_sub(line_start);
-    let use_color = colored::control::SHOULD_COLORIZE.should_colorize();
+    let use_color = color_mode.should_colorize();
     let mut out = String::new();
 
     let prefix_gut = format!("  {l} ->");
@@ -280,7 +288,14 @@ pub fn format_span_snippet(
         let after_span = &line_text[rel_end..];
         let mut line_display = String::new();
         line_display.push_str(before_span);
-        line_display.push_str(&span_text.green().bold().underline().to_string());
+        line_display.push_str(&paint(
+            span_text,
+            TextStyle::new()
+                .fg(AnsiColor::Green)
+                .bold()
+                .underline(),
+            color_mode,
+        ));
         line_display.push_str(after_span);
         line_display
     } else {
@@ -302,14 +317,30 @@ pub fn format_span_snippet(
 }
 
 pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> String {
+    format_frame_with_color_mode(di, loc, name, is_last, ColorMode::Auto)
+}
+
+pub fn format_frame_with_color_mode(
+    di: &DebugInfo,
+    loc: CodeLoc,
+    name: &str,
+    is_last: bool,
+    color_mode: ColorMode,
+) -> String {
     let meta = match di.chunk_opt(loc.chunk) {
         Some(m) => m,
         None => {
             let bullet = if is_last { '●' } else { '○' };
-            let gutter = "│ ".bright_yellow().to_string();
-            let mut out = format!("{bullet} at {name}, ?:?:?")
-                .bright_yellow()
-                .to_string();
+            let gutter = paint(
+                "│ ",
+                TextStyle::new().fg(AnsiColor::BrightYellow),
+                color_mode,
+            );
+            let mut out = paint(
+                &format!("{bullet} at {name}, ?:?:?"),
+                TextStyle::new().fg(AnsiColor::BrightYellow),
+                color_mode,
+            );
             out.push('\n');
             out.push_str(&gutter);
             out.push_str(&format!("{:>4} -> ?", "?"));
@@ -321,8 +352,12 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
         span = meta.line_table.context_span_at(loc.pc);
     }
     let bullet = if is_last { '●' } else { '○' };
-    let gutter = "│ ".bright_yellow().to_string();
-    let use_inline_underline = colored::control::SHOULD_COLORIZE.should_colorize();
+    let gutter = paint(
+        "│ ",
+        TextStyle::new().fg(AnsiColor::BrightYellow),
+        color_mode,
+    );
+    let use_inline_underline = color_mode.should_colorize();
     // Check if this is an uncertain location before trying file lookup
     if span.file_id == u32::MAX {
         // Try a more helpful fallback: use the first statement in this chunk
@@ -341,17 +376,21 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
         }
         if span.file_id == u32::MAX {
             if let Some(sf) = di.file(meta.file_id) {
-                let mut out = format!("{bullet} at {name}, {}:?:?", sf.path)
-                    .bright_yellow()
-                    .to_string();
+                let mut out = paint(
+                    &format!("{bullet} at {name}, {}:?:?", sf.path),
+                    TextStyle::new().fg(AnsiColor::BrightYellow),
+                    color_mode,
+                );
                 out.push('\n');
                 out.push_str(&gutter);
                 out.push_str(&format!("{:>4} -> ?", "?"));
                 return out;
             }
-            let mut out = format!("{bullet} at {name}, ?:?:?")
-                .bright_yellow()
-                .to_string();
+            let mut out = paint(
+                &format!("{bullet} at {name}, ?:?:?"),
+                TextStyle::new().fg(AnsiColor::BrightYellow),
+                color_mode,
+            );
             out.push('\n');
             out.push_str(&gutter);
             out.push_str(&format!("{:>4} -> ?", "?"));
@@ -366,9 +405,11 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
             .saturating_sub(1)
             .min(sf.text.len().saturating_sub(1));
         let (end_line, _) = sf.line_col(end_lookup);
-        let mut out = format!("{bullet} at {name}, {}:{}:{}", sf.path, l, c)
-            .bright_yellow()
-            .to_string();
+        let mut out = paint(
+            &format!("{bullet} at {name}, {}:{}:{}", sf.path, l, c),
+            TextStyle::new().fg(AnsiColor::BrightYellow),
+            color_mode,
+        );
         out.push('\n');
         // Clamp 1-based line numbers correctly within [1, total]
         let total = sf.line_starts.len();
@@ -387,7 +428,11 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
             let has_overlap = span_start < line_end && span_end > line_start;
             out.push_str(&gutter);
             if ln == l {
-                out.push_str(&format!("{:>4} -> ", ln).green().bold().to_string());
+                out.push_str(&paint(
+                    &format!("{:>4} -> ", ln),
+                    TextStyle::new().fg(AnsiColor::Green).bold(),
+                    color_mode,
+                ));
             } else {
                 out.push_str(&format!("{:>4}    ", ln));
             }
@@ -396,11 +441,14 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
                 let rel_end = span_end - line_start;
                 out.push_str(&line_text[..rel_start]);
                 out.push_str(
-                    &line_text[rel_start..rel_end]
-                        .green()
-                        .bold()
-                        .underline()
-                        .to_string(),
+                    &paint(
+                        &line_text[rel_start..rel_end],
+                        TextStyle::new()
+                            .fg(AnsiColor::Green)
+                            .bold()
+                            .underline(),
+                        color_mode,
+                    ),
                 );
                 out.push_str(&line_text[rel_end..]);
             } else {
@@ -413,10 +461,11 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
                 out.push_str(&gutter);
                 out.push_str("        ");
                 out.push_str(
-                    &format!("{}{}", " ".repeat(pointer_start), "~".repeat(pointer_width))
-                        .green()
-                        .bold()
-                        .to_string(),
+                    &paint(
+                        &format!("{}{}", " ".repeat(pointer_start), "~".repeat(pointer_width)),
+                        TextStyle::new().fg(AnsiColor::Green).bold(),
+                        color_mode,
+                    ),
                 );
                 out.push('\n');
             }
@@ -424,9 +473,11 @@ pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> 
         out
     } else {
         // Unknown file but known chunk
-        let mut out = format!("{bullet} at {}, chunk {:?}, pc {}", name, meta.id, loc.pc)
-            .yellow()
-            .to_string();
+        let mut out = paint(
+            &format!("{bullet} at {}, chunk {:?}, pc {}", name, meta.id, loc.pc),
+            TextStyle::new().fg(AnsiColor::Yellow),
+            color_mode,
+        );
         out.push('\n');
         out.push_str(&gutter);
         out.push_str(&format!("{:>4} -> ?", "?"));
@@ -460,9 +511,8 @@ mod tests {
             );
         }
 
-        colored::control::set_override(true);
-        let rendered = format_frame(&di, CodeLoc { chunk, pc: 1 }, "a", true);
-        colored::control::unset_override();
+        let rendered =
+            format_frame_with_color_mode(&di, CodeLoc { chunk, pc: 1 }, "a", true, ColorMode::Always);
 
         assert!(rendered.contains("2 -> "), "frame was: {rendered}");
         assert!(rendered.contains("1/0"), "frame was: {rendered}");

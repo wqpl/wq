@@ -465,9 +465,7 @@ mod tests {
             },
         ];
 
-        colored::control::set_override(true);
         let rendered = render_trace_line(&vm, 0, &Value::Int(3), &records);
-        colored::control::unset_override();
 
         assert!(
             rendered.contains("\x1b[38;5;220m1\x1b[0m\x1b[38;5;208m+\x1b[0m"),

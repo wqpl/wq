@@ -1,5 +1,4 @@
-use colored::Colorize;
-
+use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::{Excerpt as _, Value};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -169,7 +168,13 @@ pub(crate) fn byte_to_line_col(src: &str, byte_pos: usize) -> (usize, usize) {
 }
 
 /// Render a source snippet for a byte span, aligned with backtrace style.
-fn render_span_snippet(src: &str, path: &str, start: usize, end: usize) -> String {
+fn render_span_snippet(
+    src: &str,
+    path: &str,
+    start: usize,
+    end: usize,
+    color_mode: ColorMode,
+) -> String {
     let (line, col) = byte_to_line_col(src, start);
     let line_start = src[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
     let line_end = src[start..]
@@ -181,7 +186,7 @@ fn render_span_snippet(src: &str, path: &str, start: usize, end: usize) -> Strin
     let rel_end = end.min(line_end).saturating_sub(line_start);
     let width = src_line[rel_start..rel_end].chars().count().max(1);
 
-    let use_color = colored::control::SHOULD_COLORIZE.should_colorize();
+    let use_color = color_mode.should_colorize();
     let mut out = String::new();
     use std::fmt::Write;
 
@@ -198,7 +203,14 @@ fn render_span_snippet(src: &str, path: &str, start: usize, end: usize) -> Strin
             "{}{}{}{}",
             prefix,
             before,
-            span_text.green().bold().underline(),
+            paint(
+                span_text,
+                TextStyle::new()
+                    .fg(AnsiColor::Green)
+                    .bold()
+                    .underline(),
+                color_mode,
+            ),
             after,
         )
         .unwrap();
@@ -215,27 +227,38 @@ fn render_span_snippet(src: &str, path: &str, start: usize, end: usize) -> Strin
 
 impl std::fmt::Display for WqError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.render_with_color_mode(ColorMode::Auto))
+    }
+}
+
+impl WqError {
+    pub fn render_with_color_mode(&self, color_mode: ColorMode) -> String {
         let mut output = String::new();
         use std::fmt::Write;
 
-        write!(output, "{}: ", self.err_type.name().bold().underline())?;
+        let err_type = paint(
+            self.err_type.name(),
+            TextStyle::new().bold().underline(),
+            color_mode,
+        );
+        write!(output, "{err_type}: ").expect("writing to string must not fail");
         if let Some(m) = &self.msg {
-            write!(output, "{m}")?;
+            write!(output, "{m}").expect("writing to string must not fail");
         }
-        writeln!(output)?;
+        writeln!(output).expect("writing to string must not fail");
         if let Some(s) = &self.src {
-            writeln!(output, "- from {s}")?;
+            writeln!(output, "- from {s}").expect("writing to string must not fail");
         }
         if let (Some((start, end)), Some(ctx)) = (self.span, self.source_ctx.as_ref()) {
-            let snippet = render_span_snippet(&ctx.text, &ctx.path, start, end);
+            let snippet = render_span_snippet(&ctx.text, &ctx.path, start, end, color_mode);
             let prefix = "- ";
             let cont = " ".repeat(prefix.chars().count());
             let mut lines = snippet.lines();
             if let Some(first) = lines.next() {
-                writeln!(output, "{}{}", prefix, first)?;
+                writeln!(output, "{}{}", prefix, first).expect("writing to string must not fail");
             }
             for line in lines {
-                writeln!(output, "{}{}", cont, line)?;
+                writeln!(output, "{}{}", cont, line).expect("writing to string must not fail");
             }
         }
         if !self.notes.is_empty() {
@@ -244,13 +267,49 @@ impl std::fmt::Display for WqError {
                 let cont = " ".repeat(prefix.chars().count());
                 let mut lines = note.lines();
                 if let Some(first) = lines.next() {
-                    writeln!(output, "{}{}", prefix, first)?;
+                    writeln!(output, "{}{}", prefix, first).expect("writing to string must not fail");
                 }
                 for line in lines {
-                    writeln!(output, "{}{}", cont, line)?;
+                    writeln!(output, "{}{}", cont, line).expect("writing to string must not fail");
                 }
             }
         }
-        write!(f, "{}", output.trim_end_matches('\n'))
+        output.trim_end_matches('\n').to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::style::ColorMode;
+
+    #[test]
+    fn render_with_color_mode_never_uses_plain_pointer() {
+        let err = WqError::new(WqErrorType::Syntax)
+            .msg("unexpected token")
+            .span(Some((2, 3)))
+            .source_ctx("x\n1+2\n", "<test>");
+
+        let rendered = err.render_with_color_mode(ColorMode::Never);
+
+        assert!(rendered.contains("syntax: unexpected token"));
+        assert!(rendered.contains("at <test>:2:1"));
+        assert!(rendered.contains("   2 -> 1+2"));
+        assert!(rendered.contains("        ~"));
+        assert!(!rendered.contains("\x1b["));
+    }
+
+    #[test]
+    fn render_with_color_mode_always_styles_error_and_span() {
+        let err = WqError::new(WqErrorType::Syntax)
+            .msg("unexpected token")
+            .span(Some((2, 3)))
+            .source_ctx("x\n1+2\n", "<test>");
+
+        let rendered = err.render_with_color_mode(ColorMode::Always);
+
+        assert!(rendered.contains("\x1b[1;4msyntax\x1b[0m: unexpected token"));
+        assert!(rendered.contains("\x1b[1;4;32m1\x1b[0m+2"));
+        assert!(!rendered.contains("        ~"));
     }
 }
