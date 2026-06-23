@@ -1,5 +1,5 @@
-use colored::Colorize;
 use wqpl::session::Session;
+use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 
 use crate::load::report::{LoadError, LoadErrorKind, LoadReport};
 
@@ -10,20 +10,28 @@ pub enum MsgType {
 }
 
 fn format_msg(msg: impl Into<String>, msg_type: MsgType) -> String {
+    format_msg_with_color_mode(msg, msg_type, ColorMode::Auto)
+}
+
+fn format_msg_with_color_mode(
+    msg: impl Into<String>,
+    msg_type: MsgType,
+    color_mode: ColorMode,
+) -> String {
     let msg = msg.into();
     let mut lines = msg.lines();
     let mut formatted = String::new();
     if let Some(first) = lines.next() {
         let prompt = "\u{258D}";
         let colored_prompt = match msg_type {
-            MsgType::Info => prompt.cyan(),
-            MsgType::Error => prompt.red(),
-            MsgType::Success => prompt.green(),
+            MsgType::Info => paint(prompt, TextStyle::new().fg(AnsiColor::Cyan), color_mode),
+            MsgType::Error => paint(prompt, TextStyle::new().fg(AnsiColor::Red), color_mode),
+            MsgType::Success => paint(prompt, TextStyle::new().fg(AnsiColor::Green), color_mode),
         };
         let colored_first = match msg_type {
-            MsgType::Info => first.cyan(),
-            MsgType::Error => first.red(),
-            MsgType::Success => first.into(),
+            MsgType::Info => paint(first, TextStyle::new().fg(AnsiColor::Cyan), color_mode),
+            MsgType::Error => paint(first, TextStyle::new().fg(AnsiColor::Red), color_mode),
+            MsgType::Success => first.to_string(),
         };
         formatted.push_str(&format!("{colored_prompt} {colored_first}\n"));
     }
@@ -34,11 +42,6 @@ fn format_msg(msg: impl Into<String>, msg_type: MsgType) -> String {
         formatted.pop();
     }
     formatted
-    // match msg_type {
-    //     MsgType::Info => formatted.cyan().to_string(),
-    //     MsgType::Error => formatted.black().on_bright_red().to_string(),
-    //     MsgType::Success => formatted,
-    // }
 }
 
 pub fn system_msg_out(msg: impl Into<String>, msg_type: MsgType) {
@@ -116,4 +119,25 @@ pub fn print_load_report(report: &LoadReport) {
 
 pub fn print_dry_run_status() {
     system_msg_out("dry: skipped execution".to_string(), MsgType::Info);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_message_uses_explicit_style_renderer() {
+        assert_eq!(
+            format_msg_with_color_mode("oops\nagain", MsgType::Error, ColorMode::Always),
+            "\x1b[31m\u{258D}\x1b[0m \x1b[31moops\x1b[0m\n  again"
+        );
+    }
+
+    #[test]
+    fn success_message_can_render_without_color() {
+        assert_eq!(
+            format_msg_with_color_mode("loaded", MsgType::Success, ColorMode::Never),
+            "\u{258D} loaded"
+        );
+    }
 }
