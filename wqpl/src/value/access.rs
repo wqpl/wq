@@ -3,7 +3,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use num_traits::ToPrimitive;
 
-use crate::value::seq::{ExactIntSeq, ValueSeq};
+use crate::value::seq::{ExactIntSeq, ListStorageSeq, ValueSeq};
 use crate::value::{IntoWqValue as _, Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -442,31 +442,16 @@ fn promote_bools(items: &[bool]) -> Vec<Value> {
 }
 
 fn assign_list_bulk(items: &mut [Value], idxs: Vec<usize>, value: Value) -> Option<()> {
-    match value {
-        Value::List(vals) => {
-            if idxs.len() != vals.len() {
-                return None;
-            }
-            for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
-                items[idx] = val;
-            }
+    if let Some(values) = ListStorageSeq::from_value(&value) {
+        if idxs.len() != values.len() {
+            return None;
         }
-        Value::BoolList(vals) => {
-            if idxs.len() != vals.len() {
-                return None;
-            }
-            for (idx, val) in idxs.into_iter().zip(vals.iter().copied()) {
-                items[idx] = Value::Bool(val);
-            }
+        for (idx, val) in idxs.into_iter().zip(values.values()) {
+            items[idx] = val;
         }
-        other => {
-            if let Some(vals) = other.packed_int_seq() {
-                assign_exact_int_seq_to_list(items, idxs, vals)?;
-            } else {
-                for idx in idxs {
-                    items[idx] = other.clone();
-                }
-            }
+    } else {
+        for idx in idxs {
+            items[idx] = value.clone();
         }
     }
     Some(())
@@ -483,20 +468,6 @@ fn assign_exact_int_seq_to_int_list(
     let items = Arc::make_mut(items);
     for (idx, val) in idxs.into_iter().zip(vals.iter()) {
         items[idx] = val;
-    }
-    Some(())
-}
-
-fn assign_exact_int_seq_to_list(
-    items: &mut [Value],
-    idxs: Vec<usize>,
-    vals: ExactIntSeq<'_>,
-) -> Option<()> {
-    if idxs.len() != vals.len() {
-        return None;
-    }
-    for (idx, val) in idxs.into_iter().zip(vals.iter()) {
-        items[idx] = Value::Int(val);
     }
     Some(())
 }
@@ -556,36 +527,16 @@ fn assign_dict_bulk(
     keys: Vec<DictBulkKey>,
     value: Value,
 ) -> Option<()> {
-    match value {
-        Value::List(vals) => {
-            if keys.len() != vals.len() {
-                return None;
-            }
-            for (key, value) in keys.into_iter().zip(vals.iter().cloned()) {
-                assign_dict_entry(map, key, value)?;
-            }
+    if let Some(values) = ListStorageSeq::from_value(&value) {
+        if keys.len() != values.len() {
+            return None;
         }
-        Value::BoolList(vals) => {
-            if keys.len() != vals.len() {
-                return None;
-            }
-            for (key, value) in keys.into_iter().zip(vals.iter().copied()) {
-                assign_dict_entry(map, key, Value::Bool(value))?;
-            }
+        for (key, value) in keys.into_iter().zip(values.values()) {
+            assign_dict_entry(map, key, value)?;
         }
-        atom => {
-            if let Some(vals) = atom.packed_int_seq() {
-                if keys.len() != vals.len() {
-                    return None;
-                }
-                for (key, value) in keys.into_iter().zip(vals.iter()) {
-                    assign_dict_entry(map, key, Value::Int(value))?;
-                }
-            } else {
-                for key in keys {
-                    assign_dict_entry(map, key, atom.clone())?;
-                }
-            }
+    } else {
+        for key in keys {
+            assign_dict_entry(map, key, value.clone())?;
         }
     }
     Some(())
@@ -981,42 +932,21 @@ pub(crate) fn remove_in_place(data: &mut Value, idx: &Value) -> WqResult<Value> 
 }
 
 fn list_insert_items(xs: &Value) -> Vec<Value> {
-    match xs {
-        Value::List(items) => items.iter().cloned().collect(),
-        Value::BoolList(items) => items.iter().copied().map(Value::Bool).collect(),
-        other => other
-            .packed_int_seq()
-            .map(|items| items.iter().map(Value::Int).collect())
-            .unwrap_or_else(|| vec![other.clone()]),
-    }
+    ListStorageSeq::from_value(xs)
+        .map(|items| items.to_values_vec())
+        .unwrap_or_else(|| vec![xs.clone()])
 }
 
 fn list_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<Value>> {
-    match xs {
-        Value::List(items) if items.len() == len => Ok(items.iter().cloned().collect()),
-        Value::BoolList(items) if items.len() == len => {
-            Ok(items.iter().copied().map(Value::Bool).collect())
+    if let Some(items) = ListStorageSeq::from_value(xs) {
+        if items.len() == len {
+            Ok(items.to_values_vec())
+        } else {
+            Err(WqError::new(WqErrorType::Domain)
+                .msg("dsts and xs must have matching lengths for pairwise insert"))
         }
-        other => {
-            if let Some(items) = other.packed_int_seq() {
-                return if items.len() == len {
-                    Ok(items.iter().map(Value::Int).collect())
-                } else {
-                    Err(WqError::new(WqErrorType::Domain)
-                        .msg("dsts and xs must have matching lengths for pairwise insert"))
-                };
-            }
-            // Broadcast a single (non-container) value to all positions.
-            if !matches!(
-                xs,
-                Value::List(_) | Value::IntList(_) | Value::IntRange(_) | Value::BoolList(_)
-            ) {
-                Ok(vec![xs.clone(); len])
-            } else {
-                Err(WqError::new(WqErrorType::Domain)
-                    .msg("dsts and xs must have matching lengths for pairwise insert"))
-            }
-        }
+    } else {
+        Ok(vec![xs.clone(); len])
     }
 }
 
@@ -1057,11 +987,7 @@ fn string_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<String>> {
             .iter()
             .map(Value::to_rust_string_with_note)
             .collect::<WqResult<Vec<_>>>(),
-        _ if !matches!(
-            xs,
-            Value::List(_) | Value::IntList(_) | Value::IntRange(_) | Value::BoolList(_)
-        ) =>
-        {
+        _ if ListStorageSeq::from_value(xs).is_none() => {
             Ok(vec![xs.to_rust_string_with_note()?; len])
         }
         other => {

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::value::seq::ListStorageSeq;
 use crate::value::Value;
 
 impl Value {
@@ -169,25 +170,14 @@ impl Value {
             return Value::BoolList(Arc::new(res));
         }
 
-        // All List / IntList / Set: pre-allocate a single List.
-        if values
-            .iter()
-            .all(|v| {
-                matches!(v, Value::List(_) | Value::BoolList(_)) || v.packed_int_seq().is_some()
-            })
-        {
+        // All generic or packed list storage: pre-allocate a single List.
+        if values.iter().all(|v| ListStorageSeq::from_value(v).is_some()) {
             let total_len: usize = values.iter().map(|v| v.len()).sum();
             let mut res: Vec<Value> = Vec::with_capacity(total_len);
             for v in values {
-                if let Some(items) = v.packed_int_seq() {
-                    res.extend(items.iter().map(Value::Int));
-                } else if let Value::BoolList(items) = v {
-                    res.extend(items.iter().copied().map(Value::Bool));
-                } else if let Value::List(l) = v {
-                    res.extend(l.iter().cloned());
-                } else {
-                    unreachable!();
-                }
+                let items = ListStorageSeq::from_value(&v)
+                    .expect("all values are generic or packed list storage");
+                res.extend(items.values());
             }
             return Value::List(Arc::new(res));
         }

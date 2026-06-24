@@ -54,6 +54,18 @@ pub(crate) enum ExactIntSeq<'a> {
     General(Vec<i64>),
 }
 
+/// Sequence view for list storage variants that should expand as list items.
+///
+/// Unlike [`ValueSeq`], this intentionally excludes strings: strings are
+/// sequence-like for indexing and broadcasting, but list insertion and generic
+/// list mutation treat them as scalar values unless a string-specific path says
+/// otherwise.
+pub(crate) enum ListStorageSeq<'a> {
+    List(&'a [Value]),
+    Int(ExactIntSeq<'a>),
+    Bool(&'a [bool]),
+}
+
 impl<'a> ExactIntSeq<'a> {
     pub(crate) fn from_value(value: &'a Value) -> Option<Self> {
         match value {
@@ -137,6 +149,39 @@ impl Value {
         let seq = ExactIntSeq::from_packed_value(self)?;
         debug_assert!(seq.is_packed());
         Some(seq)
+    }
+}
+
+impl<'a> ListStorageSeq<'a> {
+    pub(crate) fn from_value(value: &'a Value) -> Option<Self> {
+        match value {
+            Value::List(items) => Some(Self::List(items.as_slice())),
+            Value::IntList(_) | Value::IntRange(_) => {
+                Some(Self::Int(ExactIntSeq::from_packed_value(value)?))
+            }
+            Value::BoolList(items) => Some(Self::Bool(items.as_slice())),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Self::List(items) => items.len(),
+            Self::Int(items) => items.len(),
+            Self::Bool(items) => items.len(),
+        }
+    }
+
+    pub(crate) fn values(&self) -> Box<dyn Iterator<Item = Value> + '_> {
+        match self {
+            Self::List(items) => Box::new(items.iter().cloned()),
+            Self::Int(items) => Box::new(items.iter().map(Value::Int)),
+            Self::Bool(items) => Box::new(items.iter().copied().map(Value::Bool)),
+        }
+    }
+
+    pub(crate) fn to_values_vec(&self) -> Vec<Value> {
+        self.values().collect()
     }
 }
 
@@ -401,6 +446,23 @@ mod tests {
             seq.gather(&[0, 2]),
             Some(Value::BoolList(Arc::new(vec![true, true])))
         );
+    }
+
+    #[test]
+    fn list_storage_seq_expands_list_storage_but_excludes_strings() {
+        let bools = Value::BoolList(Arc::new(vec![true, false]));
+        let seq = ListStorageSeq::from_value(&bools).expect("bool-list is list storage");
+        assert_eq!(seq.to_values_vec(), vec![Value::Bool(true), Value::Bool(false)]);
+
+        let ints = Value::IntRange(Arc::new(IntRangeData::new(2, 3, 3)));
+        let seq = ListStorageSeq::from_value(&ints).expect("int-range is list storage");
+        assert_eq!(
+            seq.to_values_vec(),
+            vec![Value::Int(2), Value::Int(5), Value::Int(8)]
+        );
+
+        let string = Value::String(Arc::new("ab".to_owned()));
+        assert!(ListStorageSeq::from_value(&string).is_none());
     }
 
     #[test]

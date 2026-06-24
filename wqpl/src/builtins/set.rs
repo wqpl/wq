@@ -3,13 +3,15 @@ use std::sync::Arc;
 use indexmap::{IndexMap, IndexSet};
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity, type_mismatch};
+use crate::value::seq::ListStorageSeq;
 use crate::value::{IntoWqValue, Value, WqResult};
 
 fn seq_items(v: &Value) -> Vec<Value> {
+    if let Some(items) = ListStorageSeq::from_value(v) {
+        return items.to_values_vec();
+    }
+
     match v {
-        Value::IntList(items) => items.iter().copied().map(Value::Int).collect(),
-        Value::BoolList(items) => items.iter().copied().map(Value::Bool).collect(),
-        Value::List(items) => items.iter().cloned().collect(),
         Value::String(s) => s.chars().map(Value::Char).collect(),
         Value::Dict(map) => map.keys().cloned().map(Value::Tag).collect(),
         atom => vec![atom.clone()],
@@ -241,15 +243,11 @@ fn eff_layers(raw_d: &Value, total_depth: i64) -> Option<i64> {
 }
 
 fn contains_shallow(elem: &Value, container: &Value) -> bool {
+    if let Some(items) = ListStorageSeq::from_value(container) {
+        return items.values().any(|item| &item == elem);
+    }
+
     match container {
-        Value::IntList(items) => {
-            if let Value::Int(n) = elem {
-                items.contains(n)
-            } else {
-                false
-            }
-        }
-        Value::List(items) => items.contains(elem),
         Value::String(s) => matches!(elem, Value::Char(ch) if s.contains(*ch)),
         Value::Dict(map) => {
             if let Value::Tag(s) = elem {
@@ -267,14 +265,17 @@ fn contains_at_depth(elem: &Value, container: &Value, depth: i64) -> bool {
         return contains_shallow(elem, container);
     }
 
+    if let Some(items) = ListStorageSeq::from_value(container) {
+        return items
+            .values()
+            .any(|item| contains_at_depth(elem, &item, depth - 1));
+    }
+
     match container {
-        Value::List(items) => items
-            .iter()
-            .any(|item| contains_at_depth(elem, item, depth - 1)),
         Value::Dict(map) => map
             .values()
             .any(|item| contains_at_depth(elem, item, depth - 1)),
-        Value::IntList(_) | Value::String(_) => contains_shallow(elem, container),
+        Value::String(_) => contains_shallow(elem, container),
         atom => contains_shallow(elem, atom),
     }
 }
@@ -361,15 +362,15 @@ pub(super) fn multiplicity(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Multiplicity, [2], &args)?;
     let elem = &args[0];
     let container = &args[1];
+    if let Some(items) = ListStorageSeq::from_value(container) {
+        return Ok(items
+            .values()
+            .filter(|item| item == elem)
+            .count()
+            .into_wq_value());
+    }
+
     match container {
-        Value::IntList(items) => {
-            if let Value::Int(n) = elem {
-                Ok(items.iter().filter(|&&x| x == *n).count().into_wq_value())
-            } else {
-                Ok(Value::Int(0))
-            }
-        }
-        Value::List(items) => Ok(items.iter().filter(|x| *x == elem).count().into_wq_value()),
         Value::String(s) => {
             if let Value::Char(ch) = elem {
                 Ok(s.chars().filter(|c| c == ch).count().into_wq_value())
@@ -393,6 +394,7 @@ mod tests {
     use smallvec::smallvec;
 
     use super::*;
+    use crate::value::seq::IntRangeData;
 
     #[test]
     fn carproduct_basic() {
@@ -486,6 +488,22 @@ mod tests {
                 .expect("int-list symdiff should succeed"),
             symdiff(BuiltinFnArgs::from(smallvec![a_list, b_list]))
                 .expect("list symdiff should succeed")
+        );
+    }
+
+    #[test]
+    fn int_range_set_items_match_list_contracts() {
+        let range = Value::IntRange(Arc::new(IntRangeData::new(2, 1, 4)));
+
+        assert_eq!(
+            unique(BuiltinFnArgs::from(smallvec![range.clone()]))
+                .expect("range unique should succeed"),
+            Value::IntList(Arc::new(vec![2, 3, 4, 5]))
+        );
+        assert_eq!(
+            in_(BuiltinFnArgs::from(smallvec![Value::Int(4), range]))
+                .expect("range membership should succeed"),
+            Value::Bool(true)
         );
     }
 
