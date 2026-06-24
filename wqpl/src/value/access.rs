@@ -166,83 +166,12 @@ impl Value {
         }
 
         materialize_int_range(self);
+        if let Some(len) = packed_list_len(self) {
+            let idxs = normalize_list_indices(keys, len)?;
+            return assign_packed_list_indices(self, idxs, PackedAssignMode::Bulk, value);
+        }
+
         match self {
-            Value::IntList(items) => {
-                let idxs = normalize_list_indices(keys, items.len())?;
-                match value {
-                    Value::Int(v) => {
-                        for idx in idxs {
-                            Arc::make_mut(items)[idx] = v;
-                        }
-                    }
-                    Value::List(vals) => {
-                        if idxs.len() != vals.len() {
-                            return None;
-                        }
-                        if let Some(ints) = collect_exact_ints(&vals) {
-                            for (idx, val) in idxs.into_iter().zip(ints) {
-                                Arc::make_mut(items)[idx] = val;
-                            }
-                        } else {
-                            let mut list = promote_ints(items);
-                            for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
-                                list[idx] = val;
-                            }
-                            *self = Value::List(Arc::new(list));
-                        }
-                    }
-                    atom => {
-                        if let Some(vals) = atom.packed_int_seq() {
-                            assign_exact_int_seq_to_int_list(items, idxs, vals)?;
-                        } else {
-                            let mut list = promote_ints(items);
-                            for idx in idxs {
-                                list[idx] = atom.clone();
-                            }
-                            *self = Value::List(Arc::new(list));
-                        }
-                    }
-                }
-                Some(())
-            }
-            Value::BoolList(items) => {
-                let idxs = normalize_list_indices(keys, items.len())?;
-                match value {
-                    Value::Bool(v) => {
-                        for idx in idxs {
-                            Arc::make_mut(items)[idx] = v;
-                        }
-                    }
-                    Value::BoolList(vals) => {
-                        assign_bool_slice_to_bool_list(items, idxs, vals.as_slice())?;
-                    }
-                    Value::List(vals) => {
-                        if idxs.len() != vals.len() {
-                            return None;
-                        }
-                        if let Some(bools) = collect_bools(&vals) {
-                            let items = Arc::make_mut(items);
-                            for (idx, val) in idxs.into_iter().zip(bools) {
-                                items[idx] = val;
-                            }
-                        } else {
-                            let mut list = promote_bools(items);
-                            for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
-                                list[idx] = val;
-                            }
-                            *self = Value::List(Arc::new(list));
-                        }
-                    }
-                    atom => {
-                        let mut list = promote_bools(items);
-                        for idx in idxs {
-                            list[idx] = atom.clone();
-                        }
-                        *self = Value::List(Arc::new(list));
-                    }
-                }
-                Some(())
-            }
             Value::String(s) => {
                 let idxs = normalize_list_indices(keys, s.chars().count())?;
                 match value {
@@ -303,103 +232,15 @@ impl Value {
     /// and `None` if the key does not exist or the types are incompatible.
     pub(crate) fn assign_by_index(&mut self, key: &Value, value: Value) -> Option<()> {
         materialize_int_range(self);
+        if let Some(len) = packed_list_len(self) {
+            if let Some(idx) = resolve_single_idx(key, len) {
+                return assign_packed_list_indices(self, vec![idx], PackedAssignMode::Scalar, value);
+            }
+            let idxs = resolve_many_idx(key, len)?;
+            return assign_packed_list_indices(self, idxs, PackedAssignMode::Bulk, value);
+        }
+
         match self {
-            Value::IntList(items) => {
-                if let Some(idx) = resolve_single_idx(key, items.len()) {
-                    if let Value::Int(v) = value {
-                        Arc::make_mut(items)[idx] = v;
-                    } else {
-                        let mut list = promote_ints(items);
-                        list[idx] = value;
-                        *self = Value::List(Arc::new(list));
-                    }
-                    return Some(());
-                }
-                let idxs = resolve_many_idx(key, items.len())?;
-                match value {
-                    Value::Int(v) => {
-                        for idx in idxs {
-                            Arc::make_mut(items)[idx] = v;
-                        }
-                    }
-                    Value::List(vals) => {
-                        if idxs.len() != vals.len() {
-                            return None;
-                        }
-                        if let Some(ints) = collect_exact_ints(&vals) {
-                            for (idx, val) in idxs.into_iter().zip(ints) {
-                                Arc::make_mut(items)[idx] = val;
-                            }
-                        } else {
-                            let mut list = promote_ints(items);
-                            for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
-                                list[idx] = val;
-                            }
-                            *self = Value::List(Arc::new(list));
-                        }
-                    }
-                    atom => {
-                        if let Some(vals) = atom.packed_int_seq() {
-                            assign_exact_int_seq_to_int_list(items, idxs, vals)?;
-                        } else {
-                            let mut list = promote_ints(items);
-                            for idx in idxs {
-                                list[idx] = atom.clone();
-                            }
-                            *self = Value::List(Arc::new(list));
-                        }
-                    }
-                }
-                Some(())
-            }
-            Value::BoolList(items) => {
-                if let Some(idx) = resolve_single_idx(key, items.len()) {
-                    if let Value::Bool(v) = value {
-                        Arc::make_mut(items)[idx] = v;
-                    } else {
-                        let mut list = promote_bools(items);
-                        list[idx] = value;
-                        *self = Value::List(Arc::new(list));
-                    }
-                    return Some(());
-                }
-                let idxs = resolve_many_idx(key, items.len())?;
-                match value {
-                    Value::Bool(v) => {
-                        for idx in idxs {
-                            Arc::make_mut(items)[idx] = v;
-                        }
-                    }
-                    Value::BoolList(vals) => {
-                        assign_bool_slice_to_bool_list(items, idxs, vals.as_slice())?;
-                    }
-                    Value::List(vals) => {
-                        if idxs.len() != vals.len() {
-                            return None;
-                        }
-                        if let Some(bools) = collect_bools(&vals) {
-                            let items = Arc::make_mut(items);
-                            for (idx, val) in idxs.into_iter().zip(bools) {
-                                items[idx] = val;
-                            }
-                        } else {
-                            let mut list = promote_bools(items);
-                            for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
-                                list[idx] = val;
-                            }
-                            *self = Value::List(Arc::new(list));
-                        }
-                    }
-                    atom => {
-                        let mut list = promote_bools(items);
-                        for idx in idxs {
-                            list[idx] = atom.clone();
-                        }
-                        *self = Value::List(Arc::new(list));
-                    }
-                }
-                Some(())
-            }
             Value::String(s) => {
                 let len = s.chars().count();
                 if let Some(idx) = resolve_single_idx(key, len) {
@@ -582,6 +423,203 @@ fn promote_ints(items: &[i64]) -> Vec<Value> {
 
 fn promote_bools(items: &[bool]) -> Vec<Value> {
     items.iter().copied().map(Value::Bool).collect()
+}
+
+enum PackedListAssignment {
+    KeepPacked,
+    Promote(Vec<Value>),
+}
+
+#[derive(Clone, Copy)]
+enum PackedAssignMode {
+    Scalar,
+    Bulk,
+}
+
+enum PackedListMut<'a> {
+    Int(&'a mut Arc<Vec<i64>>),
+    Bool(&'a mut Arc<Vec<bool>>),
+}
+
+impl<'a> PackedListMut<'a> {
+    fn from_value(value: &'a mut Value) -> Option<Self> {
+        match value {
+            Value::IntList(items) => Some(Self::Int(items)),
+            Value::BoolList(items) => Some(Self::Bool(items)),
+            _ => None,
+        }
+    }
+
+    fn assign_indices(
+        &mut self,
+        idxs: Vec<usize>,
+        mode: PackedAssignMode,
+        value: Value,
+    ) -> Option<PackedListAssignment> {
+        match self {
+            Self::Int(items) => assign_int_list_indices(items, idxs, mode, value),
+            Self::Bool(items) => assign_bool_list_indices(items, idxs, mode, value),
+        }
+    }
+}
+
+fn packed_list_len(value: &Value) -> Option<usize> {
+    match value {
+        Value::IntList(items) => Some(items.len()),
+        Value::BoolList(items) => Some(items.len()),
+        _ => None,
+    }
+}
+
+fn assign_packed_list_indices(
+    data: &mut Value,
+    idxs: Vec<usize>,
+    mode: PackedAssignMode,
+    value: Value,
+) -> Option<()> {
+    if idxs.is_empty() {
+        return None;
+    }
+    let assignment = {
+        let mut target = PackedListMut::from_value(data)?;
+        target.assign_indices(idxs, mode, value)?
+    };
+    match assignment {
+        PackedListAssignment::KeepPacked => {}
+        PackedListAssignment::Promote(items) => {
+            *data = Value::List(Arc::new(items));
+        }
+    }
+    Some(())
+}
+
+fn assign_int_list_indices(
+    items: &mut Arc<Vec<i64>>,
+    idxs: Vec<usize>,
+    mode: PackedAssignMode,
+    value: Value,
+) -> Option<PackedListAssignment> {
+    if matches!(mode, PackedAssignMode::Scalar) {
+        let idx = idxs
+            .into_iter()
+            .next()
+            .expect("single packed-list assignment has one index");
+        return match value {
+            Value::Int(v) => {
+                Arc::make_mut(items)[idx] = v;
+                Some(PackedListAssignment::KeepPacked)
+            }
+            value => {
+                let mut list = promote_ints(items);
+                list[idx] = value;
+                Some(PackedListAssignment::Promote(list))
+            }
+        };
+    }
+
+    match value {
+        Value::Int(v) => {
+            let items = Arc::make_mut(items);
+            for idx in idxs {
+                items[idx] = v;
+            }
+            Some(PackedListAssignment::KeepPacked)
+        }
+        Value::List(vals) => {
+            if idxs.len() != vals.len() {
+                return None;
+            }
+            if let Some(ints) = collect_exact_ints(&vals) {
+                let items = Arc::make_mut(items);
+                for (idx, val) in idxs.into_iter().zip(ints) {
+                    items[idx] = val;
+                }
+                Some(PackedListAssignment::KeepPacked)
+            } else {
+                let mut list = promote_ints(items);
+                for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
+                    list[idx] = val;
+                }
+                Some(PackedListAssignment::Promote(list))
+            }
+        }
+        atom => {
+            if let Some(vals) = atom.packed_int_seq() {
+                assign_exact_int_seq_to_int_list(items, idxs, vals)?;
+                Some(PackedListAssignment::KeepPacked)
+            } else {
+                let mut list = promote_ints(items);
+                for idx in idxs {
+                    list[idx] = atom.clone();
+                }
+                Some(PackedListAssignment::Promote(list))
+            }
+        }
+    }
+}
+
+fn assign_bool_list_indices(
+    items: &mut Arc<Vec<bool>>,
+    idxs: Vec<usize>,
+    mode: PackedAssignMode,
+    value: Value,
+) -> Option<PackedListAssignment> {
+    if matches!(mode, PackedAssignMode::Scalar) {
+        let idx = idxs
+            .into_iter()
+            .next()
+            .expect("single packed-list assignment has one index");
+        return match value {
+            Value::Bool(v) => {
+                Arc::make_mut(items)[idx] = v;
+                Some(PackedListAssignment::KeepPacked)
+            }
+            value => {
+                let mut list = promote_bools(items);
+                list[idx] = value;
+                Some(PackedListAssignment::Promote(list))
+            }
+        };
+    }
+
+    match value {
+        Value::Bool(v) => {
+            let items = Arc::make_mut(items);
+            for idx in idxs {
+                items[idx] = v;
+            }
+            Some(PackedListAssignment::KeepPacked)
+        }
+        Value::BoolList(vals) => {
+            assign_bool_slice_to_bool_list(items, idxs, vals.as_slice())?;
+            Some(PackedListAssignment::KeepPacked)
+        }
+        Value::List(vals) => {
+            if idxs.len() != vals.len() {
+                return None;
+            }
+            if let Some(bools) = collect_bools(&vals) {
+                let items = Arc::make_mut(items);
+                for (idx, val) in idxs.into_iter().zip(bools) {
+                    items[idx] = val;
+                }
+                Some(PackedListAssignment::KeepPacked)
+            } else {
+                let mut list = promote_bools(items);
+                for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
+                    list[idx] = val;
+                }
+                Some(PackedListAssignment::Promote(list))
+            }
+        }
+        atom => {
+            let mut list = promote_bools(items);
+            for idx in idxs {
+                list[idx] = atom.clone();
+            }
+            Some(PackedListAssignment::Promote(list))
+        }
+    }
 }
 
 fn assign_list_bulk(items: &mut [Value], idxs: Vec<usize>, value: Value) -> Option<()> {
@@ -1550,6 +1588,30 @@ mod tests {
     }
 
     #[test]
+    fn intlist_bulk_assign_accepts_packed_int_rhs() {
+        let mut list = Value::IntList(Arc::new(vec![10, 20, 30, 40]));
+        let values = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(7, 2, 2)));
+
+        assert_eq!(
+            list.assign_by_indices(&[Value::Int(1), Value::Int(3)], values),
+            Some(())
+        );
+        assert_eq!(list, Value::IntList(Arc::new(vec![10, 7, 30, 9])));
+    }
+
+    #[test]
+    fn intlist_one_item_bulk_assign_uses_pairwise_rhs() {
+        let mut list = Value::IntList(Arc::new(vec![10, 20, 30]));
+        let key = Value::List(Arc::new(vec![Value::Int(1)]));
+
+        assert_eq!(
+            list.assign_by_index(&key, Value::IntList(Arc::new(vec![99]))),
+            Some(())
+        );
+        assert_eq!(list, Value::IntList(Arc::new(vec![10, 99, 30])));
+    }
+
+    #[test]
     fn intlist_bulk_assign_promotes_for_non_int_values() {
         let mut list = Value::IntList(Arc::new(vec![10, 20, 30]));
 
@@ -1605,6 +1667,39 @@ mod tests {
             Some(())
         );
         assert_eq!(list, Value::BoolList(Arc::new(vec![false, false, false])));
+    }
+
+    #[test]
+    fn boollist_one_item_bulk_assign_uses_pairwise_rhs() {
+        let mut list = Value::BoolList(Arc::new(vec![true, false, true]));
+        let key = Value::List(Arc::new(vec![Value::Int(1)]));
+
+        assert_eq!(
+            list.assign_by_index(&key, Value::BoolList(Arc::new(vec![true]))),
+            Some(())
+        );
+        assert_eq!(list, Value::BoolList(Arc::new(vec![true, true, true])));
+    }
+
+    #[test]
+    fn boollist_bulk_assign_promotes_pairwise_for_mixed_values() {
+        let mut list = Value::BoolList(Arc::new(vec![true, false, true]));
+
+        assert_eq!(
+            list.assign_by_indices(
+                &[Value::Int(0), Value::Int(2)],
+                Value::List(Arc::new(vec![Value::Bool(false), Value::Int(7)])),
+            ),
+            Some(())
+        );
+        assert_eq!(
+            list,
+            Value::List(Arc::new(vec![
+                Value::Bool(false),
+                Value::Bool(false),
+                Value::Int(7),
+            ]))
+        );
     }
 
     #[test]
