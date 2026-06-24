@@ -173,6 +173,24 @@ impl Compiler {
         }
     }
 
+    fn compile_index_arg_temps(&mut self, index: &AstNode) -> WqResult<Vec<String>> {
+        let items = Self::synthetic_index_items(index).unwrap_or(std::slice::from_ref(index));
+        let mut names = Vec::with_capacity(items.len());
+        for item in items {
+            let name = self.next_temp_name("idx-arg");
+            self.compile_expr(item)?;
+            self.emit_store(&name);
+            names.push(name);
+        }
+        Ok(names)
+    }
+
+    fn emit_index_arg_loads(&mut self, names: &[String]) {
+        for name in names {
+            self.emit_load(name, None);
+        }
+    }
+
     fn synthetic_index_items(index: &AstNode) -> Option<&[AstNode]> {
         match index {
             AstNode::List(items, None) => Some(items.as_slice()),
@@ -213,6 +231,33 @@ impl Compiler {
             Instruction::Index
         } else {
             Instruction::IndexMany(argc)
+        }
+    }
+
+    fn index_assign_local_inst(slot: u16, argc: usize) -> Instruction {
+        debug_assert!(argc > 0);
+        if argc == 1 {
+            Instruction::IndexAssignLocal(slot)
+        } else {
+            Instruction::IndexManyAssignLocal(slot, argc)
+        }
+    }
+
+    fn index_assign_capture_inst(slot: u16, argc: usize) -> Instruction {
+        debug_assert!(argc > 0);
+        if argc == 1 {
+            Instruction::IndexAssignCapture(slot)
+        } else {
+            Instruction::IndexManyAssignCapture(slot, argc)
+        }
+    }
+
+    fn index_assign_var_inst(name: Arc<str>, argc: usize) -> Instruction {
+        debug_assert!(argc > 0);
+        if argc == 1 {
+            Instruction::IndexAssignVar(name)
+        } else {
+            Instruction::IndexManyAssignVar(name, argc)
         }
     }
 
@@ -1455,24 +1500,19 @@ impl Compiler {
                 match &**object {
                     AstNode::Variable(name, _) => {
                         if let Some(op) = op {
-                            let tmp_id = {
-                                let v = self.gensym;
-                                self.gensym = self.gensym.wrapping_add(1);
-                                v
-                            };
-                            let tmp_name = format!("--vm-idx-assign-{tmp_id}");
-                            self.compile_expr(index)?;
-                            self.emit_store(&tmp_name);
-                            self.emit_load(&tmp_name, None); // for the assignment
-                            self.emit_load(&tmp_name, None); // for the load
+                            let index_names = self.compile_index_arg_temps(index)?;
+                            let argc = index_names.len();
+                            self.emit_index_arg_loads(&index_names); // for the assignment
+                            self.emit_index_arg_loads(&index_names); // for the load
                             if self.fn_depth > 0 && self.is_local(name) {
                                 let slot = self.local_slot(name);
-                                self.instructions.push(Instruction::IndexLoadLocal(slot));
+                                self.instructions
+                                    .push(Self::index_load_local_inst(slot, argc));
                             } else if self.is_ref_default_name(name) {
-                                self.push_ref_default_index_load(name, 1);
+                                self.push_ref_default_index_load(name, argc);
                             } else {
                                 self.instructions
-                                    .push(Instruction::IndexLoadVar(name.clone().into()));
+                                    .push(Self::index_load_var_inst(name.clone().into(), argc));
                             }
                             if *op == BinaryOperator::Cat {
                                 self.compile_expr(value)?;
@@ -1487,49 +1527,46 @@ impl Compiler {
                             }
                             if self.fn_depth > 0 && self.is_local(name) {
                                 let slot = self.local_slot(name);
-                                self.instructions.push(Instruction::IndexAssignLocal(slot));
+                                self.instructions
+                                    .push(Self::index_assign_local_inst(slot, argc));
                             } else if self.is_ref_default_name(name) {
-                                self.push_ref_default_index_assign(name);
+                                self.push_ref_default_index_assign(name, argc);
                             } else {
                                 self.instructions
-                                    .push(Instruction::IndexAssignVar(name.clone().into()));
+                                    .push(Self::index_assign_var_inst(name.clone().into(), argc));
                             }
                         } else {
                             if self.fn_depth > 0 && self.is_local(name) {
                                 let slot = self.local_slot(name);
-                                self.compile_expr(index)?;
-                                self.compile_expr(value)?;
-                                self.instructions.push(Instruction::IndexAssignLocal(slot));
-                            } else if self.is_ref_default_name(name) {
-                                self.compile_expr(index)?;
-                                self.compile_expr(value)?;
-                                self.push_ref_default_index_assign(name);
-                            } else {
-                                self.compile_expr(index)?;
+                                let argc = self.compile_index_args(index)?;
                                 self.compile_expr(value)?;
                                 self.instructions
-                                    .push(Instruction::IndexAssignVar(name.clone().into()));
+                                    .push(Self::index_assign_local_inst(slot, argc));
+                            } else if self.is_ref_default_name(name) {
+                                let argc = self.compile_index_args(index)?;
+                                self.compile_expr(value)?;
+                                self.push_ref_default_index_assign(name, argc);
+                            } else {
+                                let argc = self.compile_index_args(index)?;
+                                self.compile_expr(value)?;
+                                self.instructions
+                                    .push(Self::index_assign_var_inst(name.clone().into(), argc));
                             }
                         }
                     },
                     AstNode::OuterVariable(name, _) => {
                         if let Some(op) = op {
-                            let tmp_id = {
-                                let v = self.gensym;
-                                self.gensym = self.gensym.wrapping_add(1);
-                                v
-                            };
-                            let tmp_name = format!("--vm-idx-assign-{tmp_id}");
-                            self.compile_expr(index)?;
-                            self.emit_store(&tmp_name);
-                            self.emit_load(&tmp_name, None); // for assignment
+                            let index_names = self.compile_index_arg_temps(index)?;
+                            let argc = index_names.len();
+                            self.emit_index_arg_loads(&index_names); // for assignment
                             if let Some(idx) = self.ref_capture_map.get(name).copied() {
-                                self.emit_load(&tmp_name, None); // for load
-                                self.instructions.push(Instruction::IndexLoadCapture(idx));
-                            } else {
-                                self.emit_load(&tmp_name, None); // for load
+                                self.emit_index_arg_loads(&index_names); // for load
                                 self.instructions
-                                    .push(Instruction::IndexLoadVar(name.clone().into()));
+                                    .push(Self::index_load_capture_inst(idx, argc));
+                            } else {
+                                self.emit_index_arg_loads(&index_names); // for load
+                                self.instructions
+                                    .push(Self::index_load_var_inst(name.clone().into(), argc));
                             }
                             if *op == BinaryOperator::Cat {
                                 self.compile_expr(value)?;
@@ -1544,20 +1581,20 @@ impl Compiler {
                             }
                             if let Some(idx) = self.ref_capture_map.get(name) {
                                 self.instructions
-                                    .push(Instruction::IndexAssignCapture(*idx));
+                                    .push(Self::index_assign_capture_inst(*idx, argc));
                             } else {
                                 self.instructions
-                                    .push(Instruction::IndexAssignVar(name.clone().into()));
+                                    .push(Self::index_assign_var_inst(name.clone().into(), argc));
                             }
                         } else {
-                            self.compile_expr(index)?;
+                            let argc = self.compile_index_args(index)?;
                             self.compile_expr(value)?;
                             if let Some(idx) = self.ref_capture_map.get(name) {
                                 self.instructions
-                                    .push(Instruction::IndexAssignCapture(*idx));
+                                    .push(Self::index_assign_capture_inst(*idx, argc));
                             } else {
                                 self.instructions
-                                    .push(Instruction::IndexAssignVar(name.clone().into()));
+                                    .push(Self::index_assign_var_inst(name.clone().into(), argc));
                             }
                         }
                     },
@@ -2142,13 +2179,13 @@ impl Compiler {
         }
     }
 
-    fn push_ref_default_index_assign(&mut self, name: &str) {
+    fn push_ref_default_index_assign(&mut self, name: &str, argc: usize) {
         if let Some(idx) = self.ref_capture_map.get(name) {
             self.instructions
-                .push(Instruction::IndexAssignCapture(*idx));
+                .push(Self::index_assign_capture_inst(*idx, argc));
         } else {
             self.instructions
-                .push(Instruction::IndexAssignVar(name.to_string().into()));
+                .push(Self::index_assign_var_inst(name.to_string().into(), argc));
         }
     }
 
@@ -3950,6 +3987,73 @@ mod tests {
             top.iter()
                 .any(|inst| matches!(inst, Instruction::IndexLoadVar(name) if name.as_ref() == "xs")),
             "explicit list index should use single-index load: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn optimized_multi_index_assign_avoids_helper_list_materialization() {
+        let top = compile_source("xs:(10;20;30); xs[0;2]:99");
+
+        assert!(
+            top.iter().any(
+                |inst| matches!(inst, Instruction::IndexManyAssignVar(name, 2)
+                    if name.as_ref() == "xs")
+            ),
+            "expected IndexManyAssignVar: {top:#?}",
+        );
+        assert!(
+            !top.iter().any(|inst| matches!(
+                inst,
+                Instruction::LoadConst(value)
+                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [0, 2])
+            )),
+            "synthetic multi-index assignment args should not materialize as a list: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn optimized_multi_index_augmented_assign_avoids_helper_list_materialization() {
+        let top = compile_source("xs:(10;20;30); xs[0;2]+:1");
+
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::IndexManyLoadVar(name, 2)
+                    if name.as_ref() == "xs")),
+            "expected IndexManyLoadVar for augmented assignment read: {top:#?}",
+        );
+        assert!(
+            top.iter().any(
+                |inst| matches!(inst, Instruction::IndexManyAssignVar(name, 2)
+                    if name.as_ref() == "xs")
+            ),
+            "expected IndexManyAssignVar for augmented assignment write: {top:#?}",
+        );
+        assert!(
+            !top.iter().any(|inst| matches!(
+                inst,
+                Instruction::LoadConst(value)
+                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [0, 2])
+            )),
+            "synthetic augmented assignment args should not materialize as a list: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn explicit_list_index_assign_still_materializes_list_key() {
+        let top = compile_source("xs:(10;20;30); xs[(0;2)]:99");
+
+        assert!(
+            top.iter().any(|inst| matches!(
+                inst,
+                Instruction::LoadConst(value)
+                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [0, 2])
+            )),
+            "explicit list assignment index should stay a list key: {top:#?}",
+        );
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::IndexAssignVar(name) if name.as_ref() == "xs")),
+            "explicit list assignment index should use single-index assign: {top:#?}",
         );
     }
 

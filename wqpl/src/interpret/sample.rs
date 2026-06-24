@@ -413,9 +413,15 @@ fn is_store(op: &Instruction) -> bool {
             | I::IndexAssignVar(_)
             | I::IndexAssignLocal(_)
             | I::IndexAssignCapture(_)
+            | I::IndexManyAssignVar(_, _)
+            | I::IndexManyAssignLocal(_, _)
+            | I::IndexManyAssignCapture(_, _)
             | I::IndexAssignVarDrop(_)
             | I::IndexAssignLocalDrop(_)
             | I::IndexAssignCaptureDrop(_)
+            | I::IndexManyAssignVarDrop(_, _)
+            | I::IndexManyAssignLocalDrop(_, _)
+            | I::IndexManyAssignCaptureDrop(_, _)
             | I::IndexMutate { .. }
     )
 }
@@ -459,6 +465,12 @@ fn is_index(op: &Instruction) -> bool {
             | I::IndexManyLoadLocal(_, _)
             | I::IndexManyLoadCapture(_, _)
             | I::IndexManyLoadVar(_, _)
+            | I::IndexManyAssignLocal(_, _)
+            | I::IndexManyAssignCapture(_, _)
+            | I::IndexManyAssignVar(_, _)
+            | I::IndexManyAssignLocalDrop(_, _)
+            | I::IndexManyAssignCaptureDrop(_, _)
+            | I::IndexManyAssignVarDrop(_, _)
     )
 }
 
@@ -518,7 +530,11 @@ fn instruction_amount(op: &Instruction) -> usize {
         | I::PostfixCapture(slot, argc)
         | I::TailPostfixCapture(slot, argc)
         | I::IndexManyLoadLocal(slot, argc)
-        | I::IndexManyLoadCapture(slot, argc) => usize::from(*slot) ^ *argc,
+        | I::IndexManyLoadCapture(slot, argc)
+        | I::IndexManyAssignLocal(slot, argc)
+        | I::IndexManyAssignCapture(slot, argc)
+        | I::IndexManyAssignLocalDrop(slot, argc)
+        | I::IndexManyAssignCaptureDrop(slot, argc) => usize::from(*slot) ^ *argc,
         I::CallUser(name, argc) | I::TailCallUser(name, argc) => name.len() ^ *argc,
         I::PostfixMethodLocal(slot, name, argc)
         | I::TailPostfixMethodLocal(slot, name, argc)
@@ -530,7 +546,9 @@ fn instruction_amount(op: &Instruction) -> usize {
         | I::TailCallMethodCapture(slot, name, argc) => usize::from(*slot) ^ name.len() ^ *argc,
         I::PostfixVar(name, argc)
         | I::TailPostfixVar(name, argc)
-        | I::IndexManyLoadVar(name, argc) => name.len() ^ *argc,
+        | I::IndexManyLoadVar(name, argc)
+        | I::IndexManyAssignVar(name, argc)
+        | I::IndexManyAssignVarDrop(name, argc) => name.len() ^ *argc,
         I::PostfixMethodVar(receiver, name, argc)
         | I::TailPostfixMethodVar(receiver, name, argc)
         | I::CallMethodVar(receiver, name, argc)

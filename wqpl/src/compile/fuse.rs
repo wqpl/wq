@@ -59,6 +59,9 @@ fn has_fusable_patterns(code: &[Instruction]) -> bool {
                 | (IndexAssignCapture(_), Pop)
                 | (IndexAssignLocal(_), Pop)
                 | (IndexAssignVar(_), Pop)
+                | (IndexManyAssignCapture(_, _), Pop)
+                | (IndexManyAssignLocal(_, _), Pop)
+                | (IndexManyAssignVar(_, _), Pop)
                 | (LoadLocal(_), Index) => return true,
                 (LoadConst(_), Pop) => return true,
                 _ => {}
@@ -230,6 +233,16 @@ fn fuse_once(
                     i += 2;
                     continue;
                 }
+                (IndexManyAssignLocal(slot, argc), Pop) => {
+                    out.push(IndexManyAssignLocalDrop(*slot, *argc));
+                    origin.push(i);
+                    keep[i] = true;
+                    keep[i + 1] = false;
+                    stats.idx_local_pop += 1;
+                    changed_any = true;
+                    i += 2;
+                    continue;
+                }
                 (IndexAssignCapture(slot), Pop) => {
                     out.push(IndexAssignCaptureDrop(*slot));
                     origin.push(i);
@@ -239,8 +252,27 @@ fn fuse_once(
                     i += 2;
                     continue;
                 }
+                (IndexManyAssignCapture(slot, argc), Pop) => {
+                    out.push(IndexManyAssignCaptureDrop(*slot, *argc));
+                    origin.push(i);
+                    keep[i] = true;
+                    keep[i + 1] = false;
+                    changed_any = true;
+                    i += 2;
+                    continue;
+                }
                 (IndexAssignVar(name), Pop) => {
                     out.push(IndexAssignVarDrop(name.clone()));
+                    origin.push(i);
+                    keep[i] = true;
+                    keep[i + 1] = false;
+                    stats.idx_global_pop += 1;
+                    changed_any = true;
+                    i += 2;
+                    continue;
+                }
+                (IndexManyAssignVar(name, argc), Pop) => {
+                    out.push(IndexManyAssignVarDrop(name.clone(), *argc));
                     origin.push(i);
                     keep[i] = true;
                     keep[i + 1] = false;

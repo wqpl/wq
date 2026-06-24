@@ -354,7 +354,7 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             span,
         } => IndexAssign {
             object: Box::new(fold(*object)),
-            index: Box::new(fold(*index)),
+            index: Box::new(fold_index_child(*index)),
             op,
             value: Box::new(fold(*value)),
             span,

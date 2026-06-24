@@ -585,9 +585,15 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::IndexAssignVar(_) => "IndexAssignVar",
         I::IndexAssignLocal(_) => "IndexAssignLocal",
         I::IndexAssignCapture(_) => "IndexAssignCapture",
+        I::IndexManyAssignVar(_, _) => "IndexManyAssignVar",
+        I::IndexManyAssignLocal(_, _) => "IndexManyAssignLocal",
+        I::IndexManyAssignCapture(_, _) => "IndexManyAssignCapture",
         I::IndexAssignVarDrop(_) => "IndexAssignVarDrop",
         I::IndexAssignLocalDrop(_) => "IndexAssignLocalDrop",
         I::IndexAssignCaptureDrop(_) => "IndexAssignCaptureDrop",
+        I::IndexManyAssignVarDrop(_, _) => "IndexManyAssignVarDrop",
+        I::IndexManyAssignLocalDrop(_, _) => "IndexManyAssignLocalDrop",
+        I::IndexManyAssignCaptureDrop(_, _) => "IndexManyAssignCaptureDrop",
         I::Jump(_) => "Jump",
         I::JumpIfFalse(_) => "JumpIfFalse",
         I::JumpIfCmpFalse(_) => "JumpIfCmpFalse",
@@ -709,9 +715,23 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         I::IndexAssignVar(name) => format!("IndexAssignVar({name})"),
         I::IndexAssignLocal(slot) => format!("IndexAssignLocal({slot})"),
         I::IndexAssignCapture(slot) => format!("IndexAssignCapture({slot})"),
+        I::IndexManyAssignVar(name, argc) => format!("IndexManyAssignVar({name}/{argc})"),
+        I::IndexManyAssignLocal(slot, argc) => format!("IndexManyAssignLocal({slot}/{argc})"),
+        I::IndexManyAssignCapture(slot, argc) => {
+            format!("IndexManyAssignCapture({slot}/{argc})")
+        }
         I::IndexAssignVarDrop(name) => format!("IndexAssignVarDrop({name})"),
         I::IndexAssignLocalDrop(slot) => format!("IndexAssignLocalDrop({slot})"),
         I::IndexAssignCaptureDrop(slot) => format!("IndexAssignCaptureDrop({slot})"),
+        I::IndexManyAssignVarDrop(name, argc) => {
+            format!("IndexManyAssignVarDrop({name}/{argc})")
+        }
+        I::IndexManyAssignLocalDrop(slot, argc) => {
+            format!("IndexManyAssignLocalDrop({slot}/{argc})")
+        }
+        I::IndexManyAssignCaptureDrop(slot, argc) => {
+            format!("IndexManyAssignCaptureDrop({slot}/{argc})")
+        }
         I::Jump(_) => "Jump".to_string(),
         I::JumpIfFalse(_) => "JumpIfFalse".to_string(),
         I::JumpIfCmpFalse(data) => format!("JumpIfCmpFalse({:?})", data.op),

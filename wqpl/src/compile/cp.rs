@@ -539,16 +539,36 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(value);
             fallthrough(pc, state)
         }
+        I::IndexManyAssignLocal(slot, argc) => {
+            let value = state.pop();
+            let args = state.pop_args(*argc);
+            assign_local_indices(&mut state, *slot, args, value.clone());
+            state.push(value);
+            fallthrough(pc, state)
+        }
         I::IndexAssignLocalDrop(slot) => {
             let value = state.pop();
             let index = state.pop();
             assign_local_index(&mut state, *slot, index, value);
             fallthrough(pc, state)
         }
+        I::IndexManyAssignLocalDrop(slot, argc) => {
+            let value = state.pop();
+            let args = state.pop_args(*argc);
+            assign_local_indices(&mut state, *slot, args, value);
+            fallthrough(pc, state)
+        }
         I::IndexAssignCapture(slot) => {
             let value = state.pop();
             let index = state.pop();
             assign_capture_index(&mut state, *slot, index, value.clone());
+            state.push(value);
+            fallthrough(pc, state)
+        }
+        I::IndexManyAssignCapture(slot, argc) => {
+            let value = state.pop();
+            let args = state.pop_args(*argc);
+            assign_capture_indices(&mut state, *slot, args, value.clone());
             state.push(value);
             fallthrough(pc, state)
         }
@@ -559,15 +579,34 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(value);
             fallthrough(pc, state)
         }
+        I::IndexManyAssignVar(name, argc) => {
+            let value = state.pop();
+            state.pop_args(*argc);
+            state.set_global(name, None);
+            state.push(value);
+            fallthrough(pc, state)
+        }
         I::IndexAssignCaptureDrop(slot) => {
             let value = state.pop();
             let index = state.pop();
             assign_capture_index(&mut state, *slot, index, value);
             fallthrough(pc, state)
         }
+        I::IndexManyAssignCaptureDrop(slot, argc) => {
+            let value = state.pop();
+            let args = state.pop_args(*argc);
+            assign_capture_indices(&mut state, *slot, args, value);
+            fallthrough(pc, state)
+        }
         I::IndexAssignVarDrop(name) => {
             state.pop();
             state.pop();
+            state.set_global(name, None);
+            fallthrough(pc, state)
+        }
+        I::IndexManyAssignVarDrop(name, argc) => {
+            state.pop();
+            state.pop_args(*argc);
             state.set_global(name, None);
             fallthrough(pc, state)
         }
@@ -954,6 +993,31 @@ fn assign_local_index(state: &mut State, slot: u16, index: Option<Value>, value:
     }
 }
 
+fn assign_local_indices(
+    state: &mut State,
+    slot: u16,
+    args: Option<Vec<Value>>,
+    value: Option<Value>,
+) {
+    let Some(args) = args else {
+        state.set_local(slot, None);
+        return;
+    };
+    let Some(value) = value else {
+        state.set_local(slot, None);
+        return;
+    };
+    let Some(mut target) = state.local(slot) else {
+        state.set_local(slot, None);
+        return;
+    };
+    if target.assign_by_indices(&args, value).is_some() {
+        state.set_local(slot, Some(target));
+    } else {
+        state.set_local(slot, None);
+    }
+}
+
 fn assign_capture_index(state: &mut State, slot: u16, index: Option<Value>, value: Option<Value>) {
     let Some(index) = index else {
         state.set_capture(slot, None);
@@ -968,6 +1032,31 @@ fn assign_capture_index(state: &mut State, slot: u16, index: Option<Value>, valu
         return;
     };
     if target.assign_by_index(&index, value).is_some() {
+        state.set_capture(slot, Some(target));
+    } else {
+        state.set_capture(slot, None);
+    }
+}
+
+fn assign_capture_indices(
+    state: &mut State,
+    slot: u16,
+    args: Option<Vec<Value>>,
+    value: Option<Value>,
+) {
+    let Some(args) = args else {
+        state.set_capture(slot, None);
+        return;
+    };
+    let Some(value) = value else {
+        state.set_capture(slot, None);
+        return;
+    };
+    let Some(mut target) = state.capture(slot) else {
+        state.set_capture(slot, None);
+        return;
+    };
+    if target.assign_by_indices(&args, value).is_some() {
         state.set_capture(slot, Some(target));
     } else {
         state.set_capture(slot, None);
@@ -1082,7 +1171,9 @@ fn note_inst_locals(inst: &Instruction, count: &mut usize) {
         | I::IndexLoadLocal(slot)
         | I::IndexManyLoadLocal(slot, _)
         | I::IndexAssignLocal(slot)
+        | I::IndexManyAssignLocal(slot, _)
         | I::IndexAssignLocalDrop(slot)
+        | I::IndexManyAssignLocalDrop(slot, _)
         | I::JumpIfLEZLocal(slot, _) => note_slot(*slot, count),
         I::BinaryOp(data) => {
             note_operand_locals(&data.left, count);
@@ -1117,7 +1208,9 @@ fn note_inst_captures(inst: &Instruction, count: &mut usize) {
         | I::IndexLoadCapture(slot)
         | I::IndexManyLoadCapture(slot, _)
         | I::IndexAssignCapture(slot)
-        | I::IndexAssignCaptureDrop(slot) => note_slot(*slot, count),
+        | I::IndexManyAssignCapture(slot, _)
+        | I::IndexAssignCaptureDrop(slot)
+        | I::IndexManyAssignCaptureDrop(slot, _) => note_slot(*slot, count),
         I::BinaryOp(data) => {
             note_operand_captures(&data.left, count);
             note_operand_captures(&data.right, count);

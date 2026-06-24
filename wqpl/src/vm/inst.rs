@@ -212,9 +212,15 @@ pub(crate) enum Instruction {
     IndexAssignVar(Arc<str>),
     IndexAssignLocal(u16),
     IndexAssignCapture(u16),
+    IndexManyAssignVar(Arc<str>, usize),
+    IndexManyAssignLocal(u16, usize),
+    IndexManyAssignCapture(u16, usize),
     IndexAssignVarDrop(Arc<str>),
     IndexAssignLocalDrop(u16),
     IndexAssignCaptureDrop(u16),
+    IndexManyAssignVarDrop(Arc<str>, usize),
+    IndexManyAssignLocalDrop(u16, usize),
+    IndexManyAssignCaptureDrop(u16, usize),
     Jump(usize),
     JumpIfFalse(usize),
     /// Evaluate a comparison and jump if its boolean result is false.
@@ -324,6 +330,9 @@ impl Instruction {
                 | I::IndexAssignVar(_)
                 | I::IndexAssignLocal(_)
                 | I::IndexAssignCapture(_)
+                | I::IndexManyAssignVar(_, _)
+                | I::IndexManyAssignLocal(_, _)
+                | I::IndexManyAssignCapture(_, _)
                 | I::IndexMutate { .. }
         )
     }
@@ -435,7 +444,13 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         | I::IndexAssignLocal(_)
         | I::IndexAssignLocalDrop(_)
         | I::IndexAssignCapture(_)
-        | I::IndexAssignCaptureDrop(_) => (Indexing, false),
+        | I::IndexAssignCaptureDrop(_)
+        | I::IndexManyAssignVar(_, _)
+        | I::IndexManyAssignVarDrop(_, _)
+        | I::IndexManyAssignLocal(_, _)
+        | I::IndexManyAssignLocalDrop(_, _)
+        | I::IndexManyAssignCapture(_, _)
+        | I::IndexManyAssignCaptureDrop(_, _) => (Indexing, false),
 
         // Constructors
         I::MakeList(_) | I::MakeDict(_) | I::MakeRange { .. } | I::Cat(_) => (Construct, false),
@@ -627,6 +642,8 @@ impl InstPrettyDumper {
             | Instruction::CallMethodLocal(slot, _, _)
             | Instruction::TailCallMethodLocal(slot, _, _)
             | Instruction::IndexAssignLocal(slot)
+            | Instruction::IndexManyAssignLocal(slot, _)
+            | Instruction::IndexManyAssignLocalDrop(slot, _)
             | Instruction::IndexMutate {
                 target: StoreTarget::Local(slot),
                 ..
@@ -650,6 +667,8 @@ impl InstPrettyDumper {
         | Instruction::IndexManyLoadCapture(i, _)
         | Instruction::PostfixCapture(i, _)
         | Instruction::TailPostfixCapture(i, _)
+        | Instruction::IndexManyAssignCapture(i, _)
+        | Instruction::IndexManyAssignCaptureDrop(i, _)
         | Instruction::IndexMutate { target: StoreTarget::Capture(i), .. } = *inst
         {
             let desc =

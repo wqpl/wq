@@ -156,6 +156,149 @@ impl Value {
         }
     }
 
+    /// Mutate by multiple raw index keys without first materializing them as a
+    /// list key. Returns `Some(())` on success and `None` on incompatible keys.
+    pub(crate) fn assign_by_indices(&mut self, keys: &[Value], value: Value) -> Option<()> {
+        match keys {
+            [] => return None,
+            [key] => return self.assign_by_index(key, value),
+            _ => {}
+        }
+
+        materialize_int_range(self);
+        match self {
+            Value::IntList(items) => {
+                let idxs = normalize_list_indices(keys, items.len())?;
+                match value {
+                    Value::Int(v) => {
+                        for idx in idxs {
+                            Arc::make_mut(items)[idx] = v;
+                        }
+                    }
+                    Value::List(vals) => {
+                        if idxs.len() != vals.len() {
+                            return None;
+                        }
+                        if let Some(ints) = collect_exact_ints(&vals) {
+                            for (idx, val) in idxs.into_iter().zip(ints) {
+                                Arc::make_mut(items)[idx] = val;
+                            }
+                        } else {
+                            let mut list = promote_ints(items);
+                            for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
+                                list[idx] = val;
+                            }
+                            *self = Value::List(Arc::new(list));
+                        }
+                    }
+                    atom => {
+                        if let Some(vals) = atom.packed_int_seq() {
+                            assign_exact_int_seq_to_int_list(items, idxs, vals)?;
+                        } else {
+                            let mut list = promote_ints(items);
+                            for idx in idxs {
+                                list[idx] = atom.clone();
+                            }
+                            *self = Value::List(Arc::new(list));
+                        }
+                    }
+                }
+                Some(())
+            }
+            Value::BoolList(items) => {
+                let idxs = normalize_list_indices(keys, items.len())?;
+                match value {
+                    Value::Bool(v) => {
+                        for idx in idxs {
+                            Arc::make_mut(items)[idx] = v;
+                        }
+                    }
+                    Value::BoolList(vals) => {
+                        assign_bool_slice_to_bool_list(items, idxs, vals.as_slice())?;
+                    }
+                    Value::List(vals) => {
+                        if idxs.len() != vals.len() {
+                            return None;
+                        }
+                        if let Some(bools) = collect_bools(&vals) {
+                            let items = Arc::make_mut(items);
+                            for (idx, val) in idxs.into_iter().zip(bools) {
+                                items[idx] = val;
+                            }
+                        } else {
+                            let mut list = promote_bools(items);
+                            for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
+                                list[idx] = val;
+                            }
+                            *self = Value::List(Arc::new(list));
+                        }
+                    }
+                    atom => {
+                        let mut list = promote_bools(items);
+                        for idx in idxs {
+                            list[idx] = atom.clone();
+                        }
+                        *self = Value::List(Arc::new(list));
+                    }
+                }
+                Some(())
+            }
+            Value::String(s) => {
+                let idxs = normalize_list_indices(keys, s.chars().count())?;
+                match value {
+                    Value::List(vals) => {
+                        if idxs.len() != vals.len() {
+                            return None;
+                        }
+                        if let Some(chars) = vals
+                            .iter()
+                            .map(|v| match v {
+                                Value::Char(c) => Some(*c),
+                                _ => None,
+                            })
+                            .collect::<Option<Vec<_>>>()
+                        {
+                            let s = Arc::make_mut(s);
+                            for (byte_idx, ch) in idxs.into_iter().zip(chars) {
+                                assign_string_char(s, byte_idx, ch);
+                            }
+                        } else {
+                            let mut list: Vec<Value> = s.chars().map(Value::Char).collect();
+                            for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
+                                list[idx] = val;
+                            }
+                            *self = Value::List(Arc::new(list));
+                        }
+                    }
+                    Value::Char(c) => {
+                        let s = Arc::make_mut(s);
+                        for byte_idx in idxs {
+                            assign_string_char(s, byte_idx, c);
+                        }
+                    }
+                    other => {
+                        let mut list: Vec<Value> = s.chars().map(Value::Char).collect();
+                        for idx in idxs {
+                            list[idx] = other.clone();
+                        }
+                        *self = Value::List(Arc::new(list));
+                    }
+                }
+                Some(())
+            }
+            Value::List(items) => {
+                let idxs = normalize_list_indices(keys, items.len())?;
+                let items = Arc::make_mut(items);
+                assign_list_bulk(items, idxs, value)
+            }
+            Value::Dict(map) => {
+                let keys = normalize_dict_bulk_keys(keys, map.len())?;
+                assign_dict_bulk(Arc::make_mut(map), keys, value)
+            }
+            _ => None,
+        }
+    }
+
     /// Mutate list or dict element by index/key. Returns `Some(())` on success
     /// and `None` if the key does not exist or the types are incompatible.
     pub(crate) fn assign_by_index(&mut self, key: &Value, value: Value) -> Option<()> {
@@ -1343,6 +1486,30 @@ mod tests {
     }
 
     #[test]
+    fn list_bulk_assign_accepts_raw_index_keys() {
+        let mut list = Value::List(Arc::new(vec![
+            Value::Int(0),
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+        ]));
+
+        assert_eq!(
+            list.assign_by_indices(&[Value::Int(0), Value::Int(2)], Value::Bool(true)),
+            Some(())
+        );
+        assert_eq!(
+            list,
+            Value::List(Arc::new(vec![
+                Value::Bool(true),
+                Value::Int(1),
+                Value::Bool(true),
+                Value::Int(3),
+            ]))
+        );
+    }
+
+    #[test]
     fn list_bulk_assign_is_atomic_on_bad_index() {
         let mut list = Value::List(Arc::new(vec![Value::Int(0), Value::Int(1), Value::Int(2)]));
         let original = list.clone();
@@ -1361,6 +1528,20 @@ mod tests {
         assert_eq!(
             list.assign_by_index(
                 &Value::List(Arc::new(vec![Value::Int(1), Value::Int(3)])),
+                Value::List(Arc::new(vec![Value::Int(99), Value::Int(77)])),
+            ),
+            Some(())
+        );
+        assert_eq!(list, Value::IntList(Arc::new(vec![10, 99, 30, 77])));
+    }
+
+    #[test]
+    fn intlist_bulk_assign_accepts_raw_index_keys() {
+        let mut list = Value::IntList(Arc::new(vec![10, 20, 30, 40]));
+
+        assert_eq!(
+            list.assign_by_indices(
+                &[Value::Int(1), Value::Int(3)],
                 Value::List(Arc::new(vec![Value::Int(99), Value::Int(77)])),
             ),
             Some(())
@@ -1416,12 +1597,38 @@ mod tests {
     }
 
     #[test]
+    fn boollist_bulk_assign_accepts_raw_index_keys() {
+        let mut list = Value::BoolList(Arc::new(vec![true, false, true]));
+
+        assert_eq!(
+            list.assign_by_indices(&[Value::Int(0), Value::Int(2)], Value::Bool(false)),
+            Some(())
+        );
+        assert_eq!(list, Value::BoolList(Arc::new(vec![false, false, false])));
+    }
+
+    #[test]
     fn dict_bulk_assign_supports_pairwise_intlist_rhs() {
         let mut dict = sample_dict();
 
         assert_eq!(
             dict.assign_by_index(
                 &Value::List(Arc::new(vec![Value::Tag("a".into()), Value::Int(1)])),
+                Value::IntList(Arc::new(vec![7, 9]))
+            ),
+            Some(())
+        );
+        assert_eq!(dict.index(&Value::Tag("a".into())), Some(Value::Int(7)));
+        assert_eq!(dict.index(&Value::Tag("b".into())), Some(Value::Int(9)));
+    }
+
+    #[test]
+    fn dict_bulk_assign_accepts_raw_index_keys() {
+        let mut dict = sample_dict();
+
+        assert_eq!(
+            dict.assign_by_indices(
+                &[Value::Tag("a".into()), Value::Int(1)],
                 Value::IntList(Arc::new(vec![7, 9]))
             ),
             Some(())
@@ -1508,6 +1715,14 @@ mod tests {
         let vals = Value::List(Arc::new(vec![Value::Char('a'), Value::Char('b')]));
         assert_eq!(s.assign_by_index(&keys, vals), Some(()));
         // h e l l o → h a l b o
+        assert_eq!(s.to_string(), "\"halbo\"");
+    }
+
+    #[test]
+    fn string_assign_multi_accepts_raw_index_keys() {
+        let mut s = crate::value::into_wq_string("hello");
+        let vals = Value::List(Arc::new(vec![Value::Char('a'), Value::Char('b')]));
+        assert_eq!(s.assign_by_indices(&[Value::Int(1), Value::Int(3)], vals), Some(()));
         assert_eq!(s.to_string(), "\"halbo\"");
     }
 
