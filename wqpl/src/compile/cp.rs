@@ -457,6 +457,17 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(result);
             fallthrough(pc, state)
         }
+        I::IndexMany(argc) => {
+            let args = state.pop_args(*argc);
+            let object = state.pop();
+            let result = object
+                .as_ref()
+                .zip(args.as_ref())
+                .and_then(|(object, args)| postfix_index(object, args))
+                .and_then(trackable_value);
+            state.push(result);
+            fallthrough(pc, state)
+        }
         I::CheckScalarPathIndex => fallthrough(pc, state),
         I::IndexLoadLocal(slot) => {
             let index = state.pop();
@@ -464,6 +475,17 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
                 .local(*slot)
                 .zip(index)
                 .and_then(|(object, index)| object.index(&index))
+                .and_then(trackable_value);
+            state.push(result);
+            fallthrough(pc, state)
+        }
+        I::IndexManyLoadLocal(slot, argc) => {
+            let args = state.pop_args(*argc);
+            let result = state
+                .local(*slot)
+                .as_ref()
+                .zip(args.as_ref())
+                .and_then(|(object, args)| postfix_index(object, args))
                 .and_then(trackable_value);
             state.push(result);
             fallthrough(pc, state)
@@ -478,12 +500,34 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(result);
             fallthrough(pc, state)
         }
+        I::IndexManyLoadCapture(slot, argc) => {
+            let args = state.pop_args(*argc);
+            let result = state
+                .capture(*slot)
+                .as_ref()
+                .zip(args.as_ref())
+                .and_then(|(object, args)| postfix_index(object, args))
+                .and_then(trackable_value);
+            state.push(result);
+            fallthrough(pc, state)
+        }
         I::IndexLoadVar(name) => {
             let index = state.pop();
             let result = state
                 .global(name)
                 .zip(index)
                 .and_then(|(object, index)| object.index(&index))
+                .and_then(trackable_value);
+            state.push(result);
+            fallthrough(pc, state)
+        }
+        I::IndexManyLoadVar(name, argc) => {
+            let args = state.pop_args(*argc);
+            let result = state
+                .global(name)
+                .as_ref()
+                .zip(args.as_ref())
+                .and_then(|(object, args)| postfix_index(object, args))
                 .and_then(trackable_value);
             state.push(result);
             fallthrough(pc, state)
@@ -1036,6 +1080,7 @@ fn note_inst_locals(inst: &Instruction, count: &mut usize) {
         | I::PostfixLocal(slot, _)
         | I::TailPostfixLocal(slot, _)
         | I::IndexLoadLocal(slot)
+        | I::IndexManyLoadLocal(slot, _)
         | I::IndexAssignLocal(slot)
         | I::IndexAssignLocalDrop(slot)
         | I::JumpIfLEZLocal(slot, _) => note_slot(*slot, count),
@@ -1070,6 +1115,7 @@ fn note_inst_captures(inst: &Instruction, count: &mut usize) {
         | I::PostfixCapture(slot, _)
         | I::TailPostfixCapture(slot, _)
         | I::IndexLoadCapture(slot)
+        | I::IndexManyLoadCapture(slot, _)
         | I::IndexAssignCapture(slot)
         | I::IndexAssignCaptureDrop(slot) => note_slot(*slot, count),
         I::BinaryOp(data) => {

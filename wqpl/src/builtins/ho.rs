@@ -96,6 +96,21 @@ impl PureCallback {
                     let target = stack.pop()?;
                     stack.push(Self::index_expr(target, vec![index]));
                 }
+                Instruction::IndexMany(argc) if *argc > 0 => {
+                    let args = Self::index_args(&mut stack, *argc)?;
+                    let target = stack.pop()?;
+                    stack.push(Self::index_expr(target, args));
+                }
+                Instruction::IndexManyLoadLocal(slot, argc) if *argc > 0 => {
+                    let args = Self::index_args(&mut stack, *argc)?;
+                    let target = Self::local_expr(*slot, arity)?;
+                    stack.push(Self::index_expr(target, args));
+                }
+                Instruction::IndexManyLoadCapture(slot, argc) if *argc > 0 => {
+                    let args = Self::index_args(&mut stack, *argc)?;
+                    let target = Self::capture_expr(&captures, *slot)?;
+                    stack.push(Self::index_expr(target, args));
+                }
                 Instruction::Postfix(argc) | Instruction::TailPostfix(argc) if *argc > 0 => {
                     let args = Self::index_args(&mut stack, *argc)?;
                     let target = stack.pop()?;

@@ -163,6 +163,59 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_index_args(&mut self, index: &AstNode) -> WqResult<usize> {
+        if let Some(items) = Self::synthetic_index_items(index) {
+            self.compile_call_args(items)?;
+            Ok(items.len())
+        } else {
+            self.compile_expr(index)?;
+            Ok(1)
+        }
+    }
+
+    fn synthetic_index_items(index: &AstNode) -> Option<&[AstNode]> {
+        match index {
+            AstNode::List(items, None) => Some(items.as_slice()),
+            _ => None,
+        }
+    }
+
+    fn index_load_local_inst(slot: u16, argc: usize) -> Instruction {
+        debug_assert!(argc > 0);
+        if argc == 1 {
+            Instruction::IndexLoadLocal(slot)
+        } else {
+            Instruction::IndexManyLoadLocal(slot, argc)
+        }
+    }
+
+    fn index_load_capture_inst(slot: u16, argc: usize) -> Instruction {
+        debug_assert!(argc > 0);
+        if argc == 1 {
+            Instruction::IndexLoadCapture(slot)
+        } else {
+            Instruction::IndexManyLoadCapture(slot, argc)
+        }
+    }
+
+    fn index_load_var_inst(name: Arc<str>, argc: usize) -> Instruction {
+        debug_assert!(argc > 0);
+        if argc == 1 {
+            Instruction::IndexLoadVar(name)
+        } else {
+            Instruction::IndexManyLoadVar(name, argc)
+        }
+    }
+
+    fn index_inst(argc: usize) -> Instruction {
+        debug_assert!(argc > 0);
+        if argc == 1 {
+            Instruction::Index
+        } else {
+            Instruction::IndexMany(argc)
+        }
+    }
+
     fn next_temp_name(&mut self, prefix: &str) -> String {
         let id = self.gensym;
         self.gensym = self.gensym.wrapping_add(1);
@@ -1357,30 +1410,32 @@ impl Compiler {
                 if let AstNode::Variable(name, _) = &**object {
                     if self.is_local(name) {
                         let slot = self.locals[name];
-                        self.compile_expr(index)?;
-                        self.instructions.push(Instruction::IndexLoadLocal(slot));
+                        let argc = self.compile_index_args(index)?;
+                        self.instructions
+                            .push(Self::index_load_local_inst(slot, argc));
                         optimized = true;
                     } else if self.is_ref_default_name(name) {
-                        self.compile_expr(index)?;
-                        self.push_ref_default_index_load(name);
+                        let argc = self.compile_index_args(index)?;
+                        self.push_ref_default_index_load(name, argc);
                         optimized = true;
                     } else if self.fn_depth == 0 {
-                        self.compile_expr(index)?;
+                        let argc = self.compile_index_args(index)?;
                         self.instructions
-                            .push(Instruction::IndexLoadVar(name.clone().into()));
+                            .push(Self::index_load_var_inst(name.clone().into(), argc));
                         optimized = true;
                     }
                 } else if let AstNode::OuterVariable(name, _) = &**object
                     && let Some(idx) = self.ref_capture_map.get(name).copied()
                 {
-                    self.compile_expr(index)?;
-                    self.instructions.push(Instruction::IndexLoadCapture(idx));
+                    let argc = self.compile_index_args(index)?;
+                    self.instructions
+                        .push(Self::index_load_capture_inst(idx, argc));
                     optimized = true;
                 }
                 if !optimized {
                     self.compile_expr(object)?;
-                    self.compile_expr(index)?;
-                    self.instructions.push(Instruction::Index);
+                    let argc = self.compile_index_args(index)?;
+                    self.instructions.push(Self::index_inst(argc));
                 }
                 let end = self.instructions.len();
                 self.fill_span_range(start, end, *span);
@@ -1414,7 +1469,7 @@ impl Compiler {
                                 let slot = self.local_slot(name);
                                 self.instructions.push(Instruction::IndexLoadLocal(slot));
                             } else if self.is_ref_default_name(name) {
-                                self.push_ref_default_index_load(name);
+                                self.push_ref_default_index_load(name, 1);
                             } else {
                                 self.instructions
                                     .push(Instruction::IndexLoadVar(name.clone().into()));
@@ -2077,12 +2132,13 @@ impl Compiler {
         true
     }
 
-    fn push_ref_default_index_load(&mut self, name: &str) {
+    fn push_ref_default_index_load(&mut self, name: &str, argc: usize) {
         if let Some(idx) = self.ref_capture_map.get(name) {
-            self.instructions.push(Instruction::IndexLoadCapture(*idx));
+            self.instructions
+                .push(Self::index_load_capture_inst(*idx, argc));
         } else {
             self.instructions
-                .push(Instruction::IndexLoadVar(name.to_string().into()));
+                .push(Self::index_load_var_inst(name.to_string().into(), argc));
         }
     }
 
@@ -3849,6 +3905,52 @@ mod tests {
         let start = src.find("xs[0]").expect("index source");
 
         assert_eq!(pc_spans[index_pc], Some((start, start + "xs[0]".len())));
+    }
+
+    #[test]
+    fn optimized_multi_index_load_avoids_helper_list_materialization() {
+        let top = compile_source("xs:(10;20;30); xs[0;2]");
+
+        assert!(
+            top.windows(3).any(|insts| matches!(
+                insts,
+                [
+                    Instruction::LoadConst(first),
+                    Instruction::LoadConst(second),
+                    Instruction::IndexManyLoadVar(name, 2),
+                ] if **first == Value::Int(0)
+                    && **second == Value::Int(2)
+                    && name.as_ref() == "xs"
+            )),
+            "expected scalar index args followed by IndexManyLoadVar: {top:#?}",
+        );
+        assert!(
+            !top.iter().any(|inst| matches!(
+                inst,
+                Instruction::LoadConst(value)
+                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [0, 2])
+            )),
+            "synthetic multi-index args should not materialize as a list: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn explicit_list_index_still_materializes_list_key() {
+        let top = compile_source("xs:(10;20;30); xs[(0;2)]");
+
+        assert!(
+            top.iter().any(|inst| matches!(
+                inst,
+                Instruction::LoadConst(value)
+                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [0, 2])
+            )),
+            "explicit list index should stay a list key: {top:#?}",
+        );
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::IndexLoadVar(name) if name.as_ref() == "xs")),
+            "explicit list index should use single-index load: {top:#?}",
+        );
     }
 
     #[test]

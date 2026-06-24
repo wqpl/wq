@@ -334,7 +334,7 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             span,
         } => Index {
             object: Box::new(fold(*object)),
-            index: Box::new(fold(*index)),
+            index: Box::new(fold_index_child(*index)),
             span,
         },
         MutatingIndex {
@@ -481,6 +481,13 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
         FString { .. } => {
             unreachable!("FString should have been resolved before fold")
         }
+    }
+}
+
+fn fold_index_child(node: AstNode) -> AstNode {
+    match node {
+        AstNode::List(items, None) => AstNode::List(items.into_iter().map(fold).collect(), None),
+        other => fold(other),
     }
 }
 

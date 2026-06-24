@@ -603,6 +603,11 @@ impl Interpreter for VanillaInterpreter {
                             None => return Err(index_load_err(&idx_val, &obj)),
                         }
                     }
+                    Instruction::IndexMany(argc) => {
+                        let args = take_index_args(&mut vm.stack, *argc)?;
+                        let obj = pop1_stack(&mut vm.stack, || "object for indexing".into())?;
+                        index_with_args(&mut vm.stack, &obj, args)?;
+                    }
                     Instruction::CheckScalarPathIndex => {
                         let Some(idx_val) = vm.stack.last() else {
                             return Err(vm_err("path index"));
@@ -646,6 +651,35 @@ impl Interpreter for VanillaInterpreter {
                             )));
                         }
                     }
+                    Instruction::IndexManyLoadVar(name, argc) => {
+                        let args = take_index_args(&mut vm.stack, *argc)?;
+
+                        let mut slot_opt = vm.inline_cache[idx].slot;
+                        if slot_opt.is_none()
+                            && let Some(slot) = vm.lookup_global_slot(name)
+                        {
+                            vm.inline_cache[idx].slot = Some(slot);
+                            slot_opt = Some(slot);
+                        }
+
+                        let global_val_opt = if let Some(slot) = slot_opt {
+                            vm.global_slot_value(slot)
+                        } else {
+                            vm.lookup_global_ref(name)
+                        };
+
+                        if let Some(global_val) = global_val_opt {
+                            let value = index_value_with_args(global_val, args)?;
+                            vm.stack.push(value);
+                        } else if vm.builtins.is_disabled_name(name) {
+                            return Err(not_bound_err(format!("'{name}' has not been bound to a value"))
+                                .attach_note(format!("a builtin named '{name}' exists but is disabled in the current preset")));
+                        } else {
+                            return Err(not_bound_err(format!(
+                                "'{name}' has not been bound to a value"
+                            )));
+                        }
+                    }
                     Instruction::IndexLoadLocal(slot) => {
                         let slot = usize::from(*slot);
                         let idx_val = pop1_stack(&mut vm.stack, || "index".into())?;
@@ -655,6 +689,12 @@ impl Interpreter for VanillaInterpreter {
                             None => return Err(index_load_err(&idx_val, &target)),
                         }
                     }
+                    Instruction::IndexManyLoadLocal(slot, argc) => {
+                        let slot = usize::from(*slot);
+                        let args = take_index_args(&mut vm.stack, *argc)?;
+                        let target = read_local_target(vm, slot)?;
+                        index_with_args(&mut vm.stack, &target, args)?;
+                    }
                     Instruction::IndexLoadCapture(slot) => {
                         let slot = usize::from(*slot);
                         let idx_val = pop1_stack(&mut vm.stack, || "index".into())?;
@@ -663,6 +703,12 @@ impl Interpreter for VanillaInterpreter {
                             Some(v) => vm.stack.push(v),
                             None => return Err(index_load_err(&idx_val, &target)),
                         }
+                    }
+                    Instruction::IndexManyLoadCapture(slot, argc) => {
+                        let slot = usize::from(*slot);
+                        let args = take_index_args(&mut vm.stack, *argc)?;
+                        let target = read_capture_target(vm, slot)?;
+                        index_with_args(&mut vm.stack, &target, args)?;
                     }
 
                     Instruction::IndexAssignVar(name) => {
@@ -1803,6 +1849,41 @@ fn eval_int_comparison(op: BinaryOperator, left: i64, right: i64) -> Option<bool
         Gte => Some(left >= right),
         Add | Subtract | Multiply | Power | PowerDot | Divide | DivideDot | Modulo | Matmul
         | BoolAnd | BoolOr | Cat | BitAnd | BitOr | Shl | Shr | BitXor | FloorDiv => None,
+    }
+}
+
+fn take_index_args(stack: &mut Vec<Value>, argc: usize) -> WqResult<Sv4> {
+    ensure_stack_len(stack, argc, || "index args".into())?;
+    let base = stack.len() - argc;
+    let mut args = Sv4::new();
+    args.extend(stack.drain(base..));
+    Ok(args)
+}
+
+fn index_with_args(stack: &mut Vec<Value>, target: &Value, args: Sv4) -> WqResult<()> {
+    let value = index_value_with_args(target, args)?;
+    stack.push(value);
+    Ok(())
+}
+
+fn index_value_with_args(target: &Value, args: Sv4) -> WqResult<Value> {
+    let result = if args.len() == 1 {
+        target.index(&args[0])
+    } else {
+        target.index_many(&args)
+    };
+    match result {
+        Some(value) => Ok(value),
+        None => {
+            let idx = if args.len() == 1 {
+                args.into_iter()
+                    .next()
+                    .expect("single index arg should exist")
+            } else {
+                Value::from_items(args.into_vec())
+            };
+            Err(index_load_err(&idx, target))
+        }
     }
 }
 

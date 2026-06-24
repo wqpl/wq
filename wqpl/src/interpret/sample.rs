@@ -451,7 +451,14 @@ fn is_index(op: &Instruction) -> bool {
     use Instruction as I;
     matches!(
         op,
-        I::Index | I::IndexLoadLocal(_) | I::IndexLoadCapture(_) | I::IndexLoadVar(_)
+        I::Index
+            | I::IndexMany(_)
+            | I::IndexLoadLocal(_)
+            | I::IndexLoadCapture(_)
+            | I::IndexLoadVar(_)
+            | I::IndexManyLoadLocal(_, _)
+            | I::IndexManyLoadCapture(_, _)
+            | I::IndexManyLoadVar(_, _)
     )
 }
 
@@ -496,6 +503,7 @@ fn instruction_amount(op: &Instruction) -> usize {
         I::Cat(count)
         | I::MakeList(count)
         | I::MakeDict(count)
+        | I::IndexMany(count)
         | I::Postfix(count)
         | I::TailPostfix(count)
         | I::CallAnon(count)
@@ -508,7 +516,9 @@ fn instruction_amount(op: &Instruction) -> usize {
         | I::PostfixLocal(slot, argc)
         | I::TailPostfixLocal(slot, argc)
         | I::PostfixCapture(slot, argc)
-        | I::TailPostfixCapture(slot, argc) => usize::from(*slot) ^ *argc,
+        | I::TailPostfixCapture(slot, argc)
+        | I::IndexManyLoadLocal(slot, argc)
+        | I::IndexManyLoadCapture(slot, argc) => usize::from(*slot) ^ *argc,
         I::CallUser(name, argc) | I::TailCallUser(name, argc) => name.len() ^ *argc,
         I::PostfixMethodLocal(slot, name, argc)
         | I::TailPostfixMethodLocal(slot, name, argc)
@@ -518,7 +528,9 @@ fn instruction_amount(op: &Instruction) -> usize {
         | I::TailPostfixMethodCapture(slot, name, argc)
         | I::CallMethodCapture(slot, name, argc)
         | I::TailCallMethodCapture(slot, name, argc) => usize::from(*slot) ^ name.len() ^ *argc,
-        I::PostfixVar(name, argc) | I::TailPostfixVar(name, argc) => name.len() ^ *argc,
+        I::PostfixVar(name, argc)
+        | I::TailPostfixVar(name, argc)
+        | I::IndexManyLoadVar(name, argc) => name.len() ^ *argc,
         I::PostfixMethodVar(receiver, name, argc)
         | I::TailPostfixMethodVar(receiver, name, argc)
         | I::CallMethodVar(receiver, name, argc)

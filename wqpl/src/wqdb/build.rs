@@ -39,6 +39,10 @@ pub(crate) fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::inst
                 | PostfixMethodVar(_, _, _)
                 | CallMethodVar(_, _, _)
                 | Index
+                | IndexMany(_)
+                | IndexManyLoadLocal(_, _)
+                | IndexManyLoadCapture(_, _)
+                | IndexManyLoadVar(_, _)
                 | IndexAssignVar(_)
                 | IndexAssignLocal(_)
                 | IndexAssignCapture(_)

@@ -201,10 +201,14 @@ pub(crate) enum Instruction {
         has_step: bool,
     },
     Index,
+    IndexMany(usize),
     CheckScalarPathIndex,
     IndexLoadLocal(u16),
     IndexLoadCapture(u16),
     IndexLoadVar(Arc<str>),
+    IndexManyLoadLocal(u16, usize),
+    IndexManyLoadCapture(u16, usize),
+    IndexManyLoadVar(Arc<str>, usize),
     IndexAssignVar(Arc<str>),
     IndexAssignLocal(u16),
     IndexAssignCapture(u16),
@@ -310,9 +314,13 @@ impl Instruction {
                 | I::PostfixMethodVar(_, _, _)
                 | I::CallMethodVar(_, _, _)
                 | I::Index
+                | I::IndexMany(_)
                 | I::IndexLoadLocal(_)
                 | I::IndexLoadCapture(_)
                 | I::IndexLoadVar(_)
+                | I::IndexManyLoadLocal(_, _)
+                | I::IndexManyLoadCapture(_, _)
+                | I::IndexManyLoadVar(_, _)
                 | I::IndexAssignVar(_)
                 | I::IndexAssignLocal(_)
                 | I::IndexAssignCapture(_)
@@ -415,10 +423,13 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         I::UnaryOp(_) | I::BinaryOp(_) | I::CmpChain(_) => (Op, false),
 
         // Indexing
-        I::Index | I::CheckScalarPathIndex
+        I::Index | I::IndexMany(_) | I::CheckScalarPathIndex
         | I::IndexLoadLocal(_)
         | I::IndexLoadCapture(_)
         | I::IndexLoadVar(_)
+        | I::IndexManyLoadLocal(_, _)
+        | I::IndexManyLoadCapture(_, _)
+        | I::IndexManyLoadVar(_, _)
         | I::IndexAssignVar(_)
         | I::IndexAssignVarDrop(_)
         | I::IndexAssignLocal(_)
@@ -608,6 +619,7 @@ impl InstPrettyDumper {
             | Instruction::StoreLocal(slot)
             | Instruction::StoreLocalKeep(slot)
             | Instruction::IndexLoadLocal(slot)
+            | Instruction::IndexManyLoadLocal(slot, _)
             | Instruction::PostfixLocal(slot, _)
             | Instruction::TailPostfixLocal(slot, _)
             | Instruction::PostfixMethodLocal(slot, _, _)
@@ -635,6 +647,7 @@ impl InstPrettyDumper {
         // | Instruction::StoreCapture(i)
         | Instruction::StoreCaptureKeep(i)
         | Instruction::IndexLoadCapture(i)
+        | Instruction::IndexManyLoadCapture(i, _)
         | Instruction::PostfixCapture(i, _)
         | Instruction::TailPostfixCapture(i, _)
         | Instruction::IndexMutate { target: StoreTarget::Capture(i), .. } = *inst
