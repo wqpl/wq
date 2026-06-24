@@ -261,6 +261,33 @@ impl Compiler {
         }
     }
 
+    fn index_assign_local_drop_inst(slot: u16, argc: usize) -> Instruction {
+        debug_assert!(argc > 0);
+        if argc == 1 {
+            Instruction::IndexAssignLocalDrop(slot)
+        } else {
+            Instruction::IndexManyAssignLocalDrop(slot, argc)
+        }
+    }
+
+    fn index_assign_capture_drop_inst(slot: u16, argc: usize) -> Instruction {
+        debug_assert!(argc > 0);
+        if argc == 1 {
+            Instruction::IndexAssignCaptureDrop(slot)
+        } else {
+            Instruction::IndexManyAssignCaptureDrop(slot, argc)
+        }
+    }
+
+    fn index_assign_var_drop_inst(name: Arc<str>, argc: usize) -> Instruction {
+        debug_assert!(argc > 0);
+        if argc == 1 {
+            Instruction::IndexAssignVarDrop(name)
+        } else {
+            Instruction::IndexManyAssignVarDrop(name, argc)
+        }
+    }
+
     fn next_temp_name(&mut self, prefix: &str) -> String {
         let id = self.gensym;
         self.gensym = self.gensym.wrapping_add(1);
@@ -347,14 +374,17 @@ impl Compiler {
         value: &AstNode,
     ) -> WqResult<()> {
         let mut index_names = Vec::with_capacity(target.indices.len());
+        let final_index_pos = target.indices.len() - 1;
         for (pos, index) in target.indices.iter().enumerate() {
-            let name = self.next_temp_name("idx-path-index");
-            self.compile_expr(index)?;
-            if pos + 1 < target.indices.len() {
+            if pos == final_index_pos {
+                index_names.push(self.compile_index_arg_temps(index)?);
+            } else {
+                let name = self.next_temp_name("idx-path-index");
+                self.compile_expr(index)?;
                 self.instructions.push(Instruction::CheckScalarPathIndex);
+                self.emit_store(&name);
+                index_names.push(vec![name]);
             }
-            self.emit_store(&name);
-            index_names.push(name);
         }
 
         let value_name = self.next_temp_name("idx-path-value");
@@ -374,15 +404,15 @@ impl Compiler {
             let parent_name = self.next_temp_name("idx-path-parent");
             self.emit_index_path_load(target.root, &index_names[..level])?;
             self.emit_store(&parent_name);
-            self.emit_load(&index_names[level], None);
+            self.emit_index_arg_loads(&index_names[level]);
             self.emit_load(&child_name, None);
-            self.push_index_assign_name_drop(&parent_name);
+            self.push_index_assign_name_drop(&parent_name, index_names[level].len());
             child_name = parent_name;
         }
 
-        self.emit_load(&index_names[0], None);
+        self.emit_index_arg_loads(&index_names[0]);
         self.emit_load(&child_name, None);
-        self.push_index_assign_root_drop(target.root);
+        self.push_index_assign_root_drop(target.root, index_names[0].len());
         self.emit_load(&value_name, None);
         Ok(())
     }
@@ -390,55 +420,57 @@ impl Compiler {
     fn emit_index_path_load(
         &mut self,
         root: IndexPathRoot<'_>,
-        index_names: &[String],
+        index_names: &[Vec<String>],
     ) -> WqResult<()> {
         match root {
             IndexPathRoot::Variable(name) => self.emit_load(name, None),
             IndexPathRoot::OuterVariable(name, name_span) => self.emit_outer_load(name, name_span)?,
         }
-        for name in index_names {
-            self.emit_load(name, None);
-            self.instructions.push(Instruction::Index);
+        for names in index_names {
+            self.emit_index_arg_loads(names);
+            self.instructions.push(Self::index_inst(names.len()));
         }
         Ok(())
     }
 
-    fn push_index_assign_name_drop(&mut self, name: &str) {
+    fn push_index_assign_name_drop(&mut self, name: &str, argc: usize) {
         if self.fn_depth > 0 && self.is_local(name) {
             let slot = self.local_slot(name);
-            self.instructions.push(Instruction::IndexAssignLocalDrop(slot));
+            self.instructions
+                .push(Self::index_assign_local_drop_inst(slot, argc));
         } else {
             self.instructions
-                .push(Instruction::IndexAssignVarDrop(name.into()));
+                .push(Self::index_assign_var_drop_inst(name.into(), argc));
         }
     }
 
-    fn push_index_assign_root_drop(&mut self, root: IndexPathRoot<'_>) {
+    fn push_index_assign_root_drop(&mut self, root: IndexPathRoot<'_>, argc: usize) {
         match root {
             IndexPathRoot::Variable(name) => {
                 if self.fn_depth > 0 && self.is_local(name) {
                     let slot = self.local_slot(name);
-                    self.instructions.push(Instruction::IndexAssignLocalDrop(slot));
+                    self.instructions
+                        .push(Self::index_assign_local_drop_inst(slot, argc));
                 } else if self.is_ref_default_name(name) {
                     if let Some(idx) = self.ref_capture_map.get(name) {
                         self.instructions
-                            .push(Instruction::IndexAssignCaptureDrop(*idx));
+                            .push(Self::index_assign_capture_drop_inst(*idx, argc));
                     } else {
                         self.instructions
-                            .push(Instruction::IndexAssignVarDrop(name.into()));
+                            .push(Self::index_assign_var_drop_inst(name.into(), argc));
                     }
                 } else {
                     self.instructions
-                        .push(Instruction::IndexAssignVarDrop(name.into()));
+                        .push(Self::index_assign_var_drop_inst(name.into(), argc));
                 }
             }
             IndexPathRoot::OuterVariable(name, _) => {
                 if let Some(idx) = self.ref_capture_map.get(name) {
                     self.instructions
-                        .push(Instruction::IndexAssignCaptureDrop(*idx));
+                        .push(Self::index_assign_capture_drop_inst(*idx, argc));
                 } else {
                     self.instructions
-                        .push(Instruction::IndexAssignVarDrop(name.into()));
+                        .push(Self::index_assign_var_drop_inst(name.into(), argc));
                 }
             }
         }
@@ -4054,6 +4086,70 @@ mod tests {
             top.iter()
                 .any(|inst| matches!(inst, Instruction::IndexAssignVar(name) if name.as_ref() == "xs")),
             "explicit list assignment index should use single-index assign: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn nested_path_final_multi_index_assign_avoids_helper_list_materialization() {
+        let top = compile_source("xs:((10;20;30);(40;50;60)); xs[0][1;2]:99");
+
+        assert!(
+            top.iter().any(
+                |inst| matches!(inst, Instruction::IndexManyAssignVarDrop(_, 2))
+            ),
+            "expected final path segment to use IndexManyAssignVarDrop: {top:#?}",
+        );
+        assert!(
+            !top.iter().any(|inst| matches!(
+                inst,
+                Instruction::LoadConst(value)
+                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [1, 2])
+            )),
+            "synthetic final path index should not materialize as a list: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn nested_path_explicit_list_final_index_still_materializes_list_key() {
+        let top = compile_source("xs:((10;20;30);(40;50;60)); xs[0][(1;2)]:99");
+
+        assert!(
+            top.iter().any(|inst| matches!(
+                inst,
+                Instruction::LoadConst(value)
+                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [1, 2])
+            )),
+            "explicit final path list index should stay a list key: {top:#?}",
+        );
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::IndexAssignVarDrop(_))),
+            "explicit final path list index should use single-index assignment: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn nested_path_final_multi_index_augmented_assign_avoids_helper_list_materialization() {
+        let top = compile_source("xs:((10;20;30);(40;50;60)); xs[0][1;2]+:1");
+
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::IndexMany(2))),
+            "expected final path augmented read to use IndexMany: {top:#?}",
+        );
+        assert!(
+            top.iter().any(
+                |inst| matches!(inst, Instruction::IndexManyAssignVarDrop(_, 2))
+            ),
+            "expected final path augmented write to use IndexManyAssignVarDrop: {top:#?}",
+        );
+        assert!(
+            !top.iter().any(|inst| matches!(
+                inst,
+                Instruction::LoadConst(value)
+                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [1, 2])
+            )),
+            "synthetic final path augmented index should not materialize as a list: {top:#?}",
         );
     }
 
