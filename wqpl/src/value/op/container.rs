@@ -57,6 +57,41 @@ impl Value {
         }
 
         match (self, other) {
+            (Value::Float(a), Value::Float(b)) => Value::FloatList(Arc::new(vec![a, b])),
+            (Value::FloatList(mut a), Value::FloatList(b)) => {
+                Arc::make_mut(&mut a).extend(b.iter().copied());
+                Value::FloatList(a)
+            }
+            (Value::FloatList(mut a), Value::Float(b)) => {
+                Arc::make_mut(&mut a).push(b);
+                Value::FloatList(a)
+            }
+            (Value::Float(a), Value::FloatList(b)) => {
+                let mut res = Vec::with_capacity(b.len() + 1);
+                res.push(a);
+                res.extend(b.iter().copied());
+                Value::FloatList(Arc::new(res))
+            }
+            (Value::FloatList(a), Value::List(b)) => {
+                let mut res: Vec<Value> = a.iter().copied().map(Value::Float).collect();
+                res.extend(b.iter().cloned());
+                Value::List(Arc::new(res))
+            }
+            (Value::List(mut a), Value::FloatList(b)) => {
+                Arc::make_mut(&mut a).extend(b.iter().copied().map(Value::Float));
+                Value::List(a)
+            }
+            (Value::FloatList(a), b) => {
+                let mut res: Vec<Value> = a.iter().copied().map(Value::Float).collect();
+                res.push(b);
+                Value::List(Arc::new(res))
+            }
+            (a, Value::FloatList(b)) => {
+                let mut res = Vec::with_capacity(b.len() + 1);
+                res.push(a);
+                res.extend(b.iter().copied().map(Value::Float));
+                Value::List(Arc::new(res))
+            }
             (Value::Bool(a), Value::Bool(b)) => Value::BoolList(Arc::new(vec![a, b])),
             (Value::BoolList(mut a), Value::BoolList(b)) => {
                 Arc::make_mut(&mut a).extend(b.iter().copied());
@@ -153,6 +188,23 @@ impl Value {
             return Value::IntList(Arc::new(res));
         }
 
+        // All Float / FloatList: pre-allocate a single FloatList.
+        if values
+            .iter()
+            .all(|v| matches!(v, Value::Float(_) | Value::FloatList(_)))
+        {
+            let total_len: usize = values.iter().map(|v| v.len()).sum();
+            let mut res = Vec::with_capacity(total_len);
+            for v in values {
+                match v {
+                    Value::Float(f) => res.push(f),
+                    Value::FloatList(items) => res.extend(items.iter().copied()),
+                    _ => unreachable!(),
+                }
+            }
+            return Value::FloatList(Arc::new(res));
+        }
+
         // All Bool / BoolList: pre-allocate a single BoolList.
         if values
             .iter()
@@ -211,6 +263,9 @@ impl Value {
                 }
                 Value::BoolList(items) => {
                     out.extend(items.iter().copied().map(Value::Bool));
+                }
+                Value::FloatList(items) => {
+                    out.extend(items.iter().copied().map(Value::Float));
                 }
 
                 other => out.push(other.clone()),

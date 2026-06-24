@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use num_traits::ToPrimitive;
+use ordered_float::OrderedFloat;
 
 use crate::value::Value;
 
@@ -43,6 +44,7 @@ pub(crate) enum ValueSeq<'a> {
     List(&'a [Value]),
     IntList(&'a [i64]),
     IntRange(&'a IntRangeData),
+    FloatList(&'a [OrderedFloat<f64>]),
     BoolList(&'a [bool]),
     String(&'a str),
 }
@@ -63,6 +65,7 @@ pub(crate) enum ExactIntSeq<'a> {
 pub(crate) enum ListStorageSeq<'a> {
     List(&'a [Value]),
     Int(ExactIntSeq<'a>),
+    Float(&'a [OrderedFloat<f64>]),
     Bool(&'a [bool]),
 }
 
@@ -159,6 +162,7 @@ impl<'a> ListStorageSeq<'a> {
             Value::IntList(_) | Value::IntRange(_) => {
                 Some(Self::Int(ExactIntSeq::from_packed_value(value)?))
             }
+            Value::FloatList(items) => Some(Self::Float(items.as_slice())),
             Value::BoolList(items) => Some(Self::Bool(items.as_slice())),
             _ => None,
         }
@@ -168,6 +172,7 @@ impl<'a> ListStorageSeq<'a> {
         match self {
             Self::List(items) => items.len(),
             Self::Int(items) => items.len(),
+            Self::Float(items) => items.len(),
             Self::Bool(items) => items.len(),
         }
     }
@@ -176,6 +181,7 @@ impl<'a> ListStorageSeq<'a> {
         match self {
             Self::List(items) => Box::new(items.iter().cloned()),
             Self::Int(items) => Box::new(items.iter().map(Value::Int)),
+            Self::Float(items) => Box::new(items.iter().copied().map(Value::Float)),
             Self::Bool(items) => Box::new(items.iter().copied().map(Value::Bool)),
         }
     }
@@ -191,6 +197,7 @@ impl<'a> ValueSeq<'a> {
             Value::List(items) => Some(Self::List(items.as_slice())),
             Value::IntList(items) => Some(Self::IntList(items.as_slice())),
             Value::IntRange(range) => Some(Self::IntRange(range)),
+            Value::FloatList(items) => Some(Self::FloatList(items.as_slice())),
             Value::BoolList(items) => Some(Self::BoolList(items.as_slice())),
             Value::String(s) => Some(Self::String(s.as_str())),
             _ => None,
@@ -202,6 +209,7 @@ impl<'a> ValueSeq<'a> {
             Self::List(items) => items.len(),
             Self::IntList(items) => items.len(),
             Self::IntRange(range) => range.len(),
+            Self::FloatList(items) => items.len(),
             Self::BoolList(items) => items.len(),
             Self::String(s) => s.chars().count(),
         }
@@ -212,6 +220,7 @@ impl<'a> ValueSeq<'a> {
             Self::List(items) => items.get(idx).cloned(),
             Self::IntList(items) => items.get(idx).copied().map(Value::Int),
             Self::IntRange(range) => range.get(idx).map(Value::Int),
+            Self::FloatList(items) => items.get(idx).copied().map(Value::Float),
             Self::BoolList(items) => items.get(idx).copied().map(Value::Bool),
             Self::String(s) => s.chars().nth(idx).map(Value::Char),
         }
@@ -240,6 +249,13 @@ impl<'a> ValueSeq<'a> {
                 }
                 Some(Value::IntList(Arc::new(out)))
             }
+            Self::FloatList(items) => {
+                let mut out = Vec::with_capacity(indices.len());
+                for &idx in indices {
+                    out.push(*items.get(idx)?);
+                }
+                Some(Value::FloatList(Arc::new(out)))
+            }
             Self::BoolList(items) => {
                 let mut out = Vec::with_capacity(indices.len());
                 for &idx in indices {
@@ -263,6 +279,7 @@ impl<'a> ValueSeq<'a> {
             Self::List(items) => Box::new(items.iter().cloned()),
             Self::IntList(items) => Box::new(items.iter().copied().map(Value::Int)),
             Self::IntRange(range) => Box::new(range.iter().map(Value::Int)),
+            Self::FloatList(items) => Box::new(items.iter().copied().map(Value::Float)),
             Self::BoolList(items) => Box::new(items.iter().copied().map(Value::Bool)),
             Self::String(s) => Box::new(s.chars().map(Value::Char)),
         }
@@ -281,6 +298,7 @@ pub(crate) struct ValueSeqBuilder {
 enum ValueSeqBuilderState {
     Empty { capacity: usize },
     Int(Vec<i64>),
+    Float(Vec<OrderedFloat<f64>>),
     Bool(Vec<bool>),
     String(String),
     General(Vec<Value>),
@@ -309,6 +327,11 @@ impl ValueSeqBuilder {
                 items.push(b);
                 ValueSeqBuilderState::Bool(items)
             }
+            (ValueSeqBuilderState::Empty { capacity }, Value::Float(f)) => {
+                let mut items = Vec::with_capacity(capacity);
+                items.push(f);
+                ValueSeqBuilderState::Float(items)
+            }
             (ValueSeqBuilderState::Empty { capacity }, Value::Char(c)) => {
                 let mut s = String::with_capacity(capacity);
                 s.push(c);
@@ -327,6 +350,17 @@ impl ValueSeqBuilder {
             (ValueSeqBuilderState::Int(items), value) => {
                 let mut out = Vec::with_capacity(items.len() + 1);
                 out.extend(items.into_iter().map(Value::Int));
+                out.push(value);
+                ValueSeqBuilderState::General(out)
+            }
+
+            (ValueSeqBuilderState::Float(mut items), Value::Float(f)) => {
+                items.push(f);
+                ValueSeqBuilderState::Float(items)
+            }
+            (ValueSeqBuilderState::Float(items), value) => {
+                let mut out = Vec::with_capacity(items.len() + 1);
+                out.extend(items.into_iter().map(Value::Float));
                 out.push(value);
                 ValueSeqBuilderState::General(out)
             }
@@ -364,6 +398,7 @@ impl ValueSeqBuilder {
         match self.state {
             ValueSeqBuilderState::Empty { .. } => Value::unit(),
             ValueSeqBuilderState::Int(items) => Value::IntList(Arc::new(items)),
+            ValueSeqBuilderState::Float(items) => Value::FloatList(Arc::new(items)),
             ValueSeqBuilderState::Bool(items) => Value::BoolList(Arc::new(items)),
             ValueSeqBuilderState::String(s) => Value::String(Arc::new(s)),
             ValueSeqBuilderState::General(items) => Value::List(Arc::new(items)),
@@ -402,6 +437,10 @@ mod tests {
         assert_eq!(
             ValueSeqBuilder::from_items(vec![Value::Bool(true), Value::Bool(false)]),
             Value::BoolList(Arc::new(vec![true, false]))
+        );
+        assert_eq!(
+            ValueSeqBuilder::from_items(vec![Value::float(1.5), Value::float(2.5)]),
+            Value::FloatList(Arc::new(vec![OrderedFloat(1.5), OrderedFloat(2.5)]))
         );
         assert_eq!(
             ValueSeqBuilder::from_items(vec![Value::Char('a'), Value::Char('b')]),

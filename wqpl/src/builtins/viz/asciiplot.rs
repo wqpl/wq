@@ -134,6 +134,18 @@ fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfi
             mode: None,
             label: None,
         }]),
+        Value::FloatList(arr) if !arr.is_empty() => Ok(vec![SeriesConfig {
+            data: SeriesData::Raw(SampledSeries::from_points(
+                arr.iter()
+                    .enumerate()
+                    .map(|(i, &y)| (i as f64, y.0))
+                    .collect(),
+            )),
+            xlim: None,
+            symbol: None,
+            mode: None,
+            label: None,
+        }]),
         Value::List(items)
             if items.iter().all(|it| {
                 if let Value::List(ref pair) = *it {
@@ -338,6 +350,7 @@ fn column_len(value: &Value) -> usize {
     match value {
         Value::List(items) => items.len(),
         Value::IntList(items) => items.len(),
+        Value::FloatList(items) => items.len(),
         _ => 0,
     }
 }
@@ -346,6 +359,7 @@ fn column_item(value: &Value, idx: usize) -> Option<Value> {
     match value {
         Value::List(items) => items.get(idx).cloned(),
         Value::IntList(items) => items.get(idx).copied().map(Value::Int),
+        Value::FloatList(items) => items.get(idx).copied().map(Value::Float),
         _ => None,
     }
 }
@@ -1005,6 +1019,7 @@ fn pair_as_f64(value: &Value) -> Option<(f64, f64)> {
     let (a, b) = match value {
         Value::List(items) if items.len() == 2 => (items[0].as_f64()?, items[1].as_f64()?),
         Value::IntList(items) if items.len() == 2 => (items[0] as f64, items[1] as f64),
+        Value::FloatList(items) if items.len() == 2 => (items[0].0, items[1].0),
         _ => return None,
     };
     Some((a, b))

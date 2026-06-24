@@ -78,6 +78,7 @@ impl std::hash::Hash for Value {
             }
             Value::IntList(_)
             | Value::IntRange(_)
+            | Value::FloatList(_)
             | Value::BoolList(_)
             | Value::List(_)
             | Value::String(_) => {

@@ -90,6 +90,13 @@ pub(super) fn sum(args: BuiltinFnArgs) -> WqResult<Value> {
                     })
                 }
             }
+            Value::FloatList(items) => {
+                let mut acc = 0.0;
+                for item in items.iter() {
+                    acc += item.0;
+                }
+                Ok(Value::float(acc))
+            }
             Value::List(items) => {
                 if items.is_empty() {
                     return Ok(Value::Int(0));
@@ -196,6 +203,16 @@ pub(super) fn product(args: BuiltinFnArgs) -> WqResult<Value> {
                     })
                 }
             }
+            Value::FloatList(items) => {
+                if items.is_empty() {
+                    return Ok(Value::Int(1));
+                }
+                let mut acc = 1.0;
+                for item in items.iter() {
+                    acc *= item.0;
+                }
+                Ok(Value::float(acc))
+            }
             Value::List(items) => {
                 if items.is_empty() {
                     return Ok(Value::Int(1));
@@ -249,6 +266,10 @@ pub(super) fn min(args: BuiltinFnArgs) -> WqResult<Value> {
                     });
                 }
                 return Ok(min_int.map(Value::Int).unwrap_or_else(Value::unit));
+            }
+            Value::FloatList(items) => {
+                let min_float = items.iter().copied().min();
+                return Ok(min_float.map(Value::Float).unwrap_or_else(Value::unit));
             }
             Value::Dict(items) => items.values().collect(),
 
@@ -318,6 +339,10 @@ pub(super) fn max(args: BuiltinFnArgs) -> WqResult<Value> {
                 }
                 return Ok(max_int.map(Value::Int).unwrap_or_else(Value::unit));
             }
+            Value::FloatList(items) => {
+                let max_float = items.iter().copied().max();
+                return Ok(max_float.map(Value::Float).unwrap_or_else(Value::unit));
+            }
             Value::Dict(items) => items.values().collect(),
 
             _atom => return Ok(args.into_iter().next().unwrap()),
@@ -381,6 +406,11 @@ pub(super) fn reverse(args: BuiltinFnArgs) -> WqResult<Value> {
             Arc::make_mut(&mut reversed).reverse();
             Ok(Value::IntList(reversed))
         }
+        Value::FloatList(items) => {
+            let mut reversed = Arc::clone(items);
+            Arc::make_mut(&mut reversed).reverse();
+            Ok(Value::FloatList(reversed))
+        }
         Value::Dict(items) => {
             let mut reversed = items.clone();
             Arc::make_mut(&mut reversed).reverse();
@@ -404,6 +434,16 @@ pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
                 slice.sort();
             }
             Value::IntList(sorted)
+        }
+        Value::FloatList(items) => {
+            let mut sorted = Arc::clone(items);
+            let slice = Arc::make_mut(&mut sorted);
+            if slice.len() > 2000 {
+                slice.par_sort();
+            } else {
+                slice.sort();
+            }
+            Value::FloatList(sorted)
         }
         Value::List(items) => {
             let mut sorted: Vec<Value> = items.iter().cloned().collect();
@@ -526,6 +566,22 @@ pub(super) fn split(args: BuiltinFnArgs) -> WqResult<Value> {
                 }
             }
             chunks.push(Value::IntList(Arc::new(current)));
+            Ok(Value::List(Arc::new(chunks)))
+        }
+        Value::FloatList(items) => {
+            let mut chunks = Vec::new();
+            let mut current = Vec::new();
+            let limit = maxsplit.unwrap_or(usize::MAX);
+            let mut splits_done = 0;
+            for &item in items.iter() {
+                if delim.is_some_and(|d| Value::Float(item) == *d) && splits_done < limit {
+                    chunks.push(Value::FloatList(Arc::new(std::mem::take(&mut current))));
+                    splits_done += 1;
+                } else {
+                    current.push(item);
+                }
+            }
+            chunks.push(Value::FloatList(Arc::new(current)));
             Ok(Value::List(Arc::new(chunks)))
         }
         // List split

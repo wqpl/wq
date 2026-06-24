@@ -50,6 +50,7 @@ pub enum Value {
     Bool(bool),
     IntList(Arc<Vec<i64>>),
     IntRange(Arc<seq::IntRangeData>),
+    FloatList(Arc<Vec<OrderedFloat<f64>>>),
     BoolList(Arc<Vec<bool>>),
     List(Arc<Vec<Value>>),
     /// Heap-allocated string with copy-on-write mutation support.
@@ -351,6 +352,7 @@ impl Value {
 
             Value::IntRange(_) => "list",
             Value::IntList(_) => "list",
+            Value::FloatList(_) => "list",
             Value::BoolList(_) => "list",
             Value::List(_) => "list",
             Value::String(_) => "list",
@@ -382,6 +384,7 @@ impl Value {
             Value::Bool(_) => "bool",
             Value::IntRange(_) => "int-list",
             Value::IntList(_) => "int-list",
+            Value::FloatList(_) => "float-list",
             Value::BoolList(_) => "bool-list",
             Value::List(_) => "list",
             Value::String(_) => "string",

@@ -201,6 +201,15 @@ impl Value {
                 }
                 Ok(Value::from_items(out))
             }
+            Value::FloatList(a) => {
+                let mut out = Vec::with_capacity(a.len());
+                for (i, &x) in a.iter().enumerate() {
+                    path.push(i);
+                    out.push(f(&Value::Float(x)).bc_at_path(path)?);
+                    path.pop();
+                }
+                Ok(Value::from_items(out))
+            }
             Value::Dict(m) => {
                 let mut out = IndexMap::with_capacity(m.len());
                 for (i, (k, v)) in m.iter().enumerate() {
@@ -267,6 +276,13 @@ impl Value {
                 for (i, &x) in a.iter().enumerate() {
                     path.push(i);
                     f(&Value::Bool(x)).map(|_| ()).bc_at_path(path)?;
+                    path.pop();
+                }
+            }
+            Value::FloatList(a) => {
+                for (i, &x) in a.iter().enumerate() {
+                    path.push(i);
+                    f(&Value::Float(x)).map(|_| ()).bc_at_path(path)?;
                     path.pop();
                 }
             }
@@ -342,6 +358,16 @@ where
             for (i, &y) in items.iter().enumerate() {
                 path.push(i);
                 let rhs = Value::Bool(y);
+                out.push(op(atom, &rhs).bc_at_path(path)?);
+                path.pop();
+            }
+            Ok(Value::from_items(out))
+        }
+        Value::FloatList(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for (i, &y) in items.iter().enumerate() {
+                path.push(i);
+                let rhs = Value::Float(y);
                 out.push(op(atom, &rhs).bc_at_path(path)?);
                 path.pop();
             }
@@ -424,6 +450,16 @@ where
             }
             Ok(Value::from_items(out))
         }
+        Value::FloatList(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for (i, &x) in items.iter().enumerate() {
+                path.push(i);
+                let lhs = Value::Float(x);
+                out.push(op(&lhs, atom).bc_at_path(path)?);
+                path.pop();
+            }
+            Ok(Value::from_items(out))
+        }
         Value::Dict(map) => {
             let mut out = IndexMap::with_capacity(map.len());
             for (i, (k, v)) in map.iter().enumerate() {
@@ -485,6 +521,18 @@ where
     if let Value::BoolList(items) = right {
         let right = Value::List(Arc::new(
             items.iter().copied().map(Value::Bool).collect(),
+        ));
+        return zip_containers(left, &right, stop, op, path);
+    }
+    if let Value::FloatList(items) = left {
+        let left = Value::List(Arc::new(
+            items.iter().copied().map(Value::Float).collect(),
+        ));
+        return zip_containers(&left, right, stop, op, path);
+    }
+    if let Value::FloatList(items) = right {
+        let right = Value::List(Arc::new(
+            items.iter().copied().map(Value::Float).collect(),
         ));
         return zip_containers(left, &right, stop, op, path);
     }
@@ -792,6 +840,22 @@ mod tests {
         assert_eq!(
             value.bool_and(&Value::Bool(false)).expect("bool broadcast"),
             Value::BoolList(Arc::new(vec![false, false]))
+        );
+    }
+
+    #[test]
+    fn float_list_broadcasts_as_float_atoms() {
+        let value = Value::FloatList(Arc::new(vec![
+            ordered_float::OrderedFloat(1.5),
+            ordered_float::OrderedFloat(2.5),
+        ]));
+
+        assert_eq!(
+            value.add(&Value::float(1.0)).expect("float broadcast"),
+            Value::FloatList(Arc::new(vec![
+                ordered_float::OrderedFloat(2.5),
+                ordered_float::OrderedFloat(3.5),
+            ]))
         );
     }
 }

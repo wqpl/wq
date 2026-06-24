@@ -28,6 +28,7 @@ impl Value {
 
             Value::IntList(v) => Arc::strong_count(v),
             Value::IntRange(v) => Arc::strong_count(v),
+            Value::FloatList(v) => Arc::strong_count(v),
             Value::BoolList(v) => Arc::strong_count(v),
             Value::List(v) => Arc::strong_count(v),
             Value::String(v) => Arc::strong_count(v),
@@ -58,6 +59,7 @@ impl Value {
         match self {
             Value::IntList(items) => Some(vec![items.len()]),
             Value::IntRange(items) => Some(vec![items.len()]),
+            Value::FloatList(items) => Some(vec![items.len()]),
             Value::BoolList(items) => Some(vec![items.len()]),
             Value::List(items) => {
                 if items.is_empty() {
@@ -123,7 +125,7 @@ impl Value {
 
     pub fn depth(&self) -> i64 {
         match self {
-            Value::IntList(_) | Value::IntRange(_) | Value::BoolList(_) => 1,
+            Value::IntList(_) | Value::IntRange(_) | Value::FloatList(_) | Value::BoolList(_) => 1,
             Value::List(items) => {
                 if items.is_empty() {
                     1

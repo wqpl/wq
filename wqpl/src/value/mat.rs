@@ -96,6 +96,7 @@ fn as_float_row(v: &Value) -> Option<Vec<f64>> {
             })
             .collect(),
         Value::IntList(items) => Some(items.iter().map(|&x| x as f64).collect()),
+        Value::FloatList(items) => Some(items.iter().map(|x| x.0).collect()),
         _ => None,
     }
 }
@@ -117,6 +118,7 @@ const TILE_K: usize = 64;
 enum ValueSeq<'a> {
     List(&'a [Value]),
     IntList(&'a [i64]),
+    FloatList(&'a [ordered_float::OrderedFloat<f64>]),
 }
 
 impl<'a> ValueSeq<'a> {
@@ -124,6 +126,7 @@ impl<'a> ValueSeq<'a> {
         match v {
             Value::List(items) => Some(ValueSeq::List(items.as_slice())),
             Value::IntList(items) => Some(ValueSeq::IntList(items.as_slice())),
+            Value::FloatList(items) => Some(ValueSeq::FloatList(items.as_slice())),
             _ => None,
         }
     }
@@ -133,6 +136,7 @@ impl<'a> ValueSeq<'a> {
         match self {
             ValueSeq::List(items) => items.get(idx).cloned(),
             ValueSeq::IntList(items) => items.get(idx).map(|&x| Value::Int(x)),
+            ValueSeq::FloatList(items) => items.get(idx).copied().map(Value::Float),
         }
     }
 }
@@ -173,6 +177,14 @@ pub(crate) fn index_path(v: &Value, idxs: &[usize]) -> Option<Value> {
             } else {
                 let i0 = *idxs.first()?;
                 items.get(i0).copied().map(Value::Int)
+            }
+        }
+        Value::FloatList(items) => {
+            if idxs.len() != 1 {
+                None
+            } else {
+                let i0 = *idxs.first()?;
+                items.get(i0).copied().map(Value::Float)
             }
         }
 

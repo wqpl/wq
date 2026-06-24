@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use num_traits::ToPrimitive;
+use ordered_float::OrderedFloat;
 
 use crate::value::seq::{ExactIntSeq, ListStorageSeq, ValueSeq};
 use crate::value::{IntoWqValue as _, Value, WqResult};
@@ -11,7 +12,11 @@ impl Value {
     pub(crate) fn bulk_index_key(&self) -> Option<()> {
         matches!(
             self,
-            Value::IntList(_) | Value::IntRange(_) | Value::BoolList(_) | Value::List(_)
+            Value::IntList(_)
+                | Value::IntRange(_)
+                | Value::FloatList(_)
+                | Value::BoolList(_)
+                | Value::List(_)
         )
         .then_some(())
     }
@@ -417,8 +422,22 @@ fn collect_bools(values: &[Value]) -> Option<Vec<bool>> {
         .collect()
 }
 
+fn collect_floats(values: &[Value]) -> Option<Vec<OrderedFloat<f64>>> {
+    values
+        .iter()
+        .map(|v| match v {
+            Value::Float(f) => Some(*f),
+            _ => None,
+        })
+        .collect()
+}
+
 fn promote_ints(items: &[i64]) -> Vec<Value> {
     items.iter().copied().map(Value::Int).collect()
+}
+
+fn promote_floats(items: &[OrderedFloat<f64>]) -> Vec<Value> {
+    items.iter().copied().map(Value::Float).collect()
 }
 
 fn promote_bools(items: &[bool]) -> Vec<Value> {
@@ -438,6 +457,7 @@ enum PackedAssignMode {
 
 enum PackedListMut<'a> {
     Int(&'a mut Arc<Vec<i64>>),
+    Float(&'a mut Arc<Vec<OrderedFloat<f64>>>),
     Bool(&'a mut Arc<Vec<bool>>),
 }
 
@@ -445,6 +465,7 @@ impl<'a> PackedListMut<'a> {
     fn from_value(value: &'a mut Value) -> Option<Self> {
         match value {
             Value::IntList(items) => Some(Self::Int(items)),
+            Value::FloatList(items) => Some(Self::Float(items)),
             Value::BoolList(items) => Some(Self::Bool(items)),
             _ => None,
         }
@@ -458,6 +479,7 @@ impl<'a> PackedListMut<'a> {
     ) -> Option<PackedListAssignment> {
         match self {
             Self::Int(items) => assign_int_list_indices(items, idxs, mode, value),
+            Self::Float(items) => assign_float_list_indices(items, idxs, mode, value),
             Self::Bool(items) => assign_bool_list_indices(items, idxs, mode, value),
         }
     }
@@ -466,6 +488,7 @@ impl<'a> PackedListMut<'a> {
 fn packed_list_len(value: &Value) -> Option<usize> {
     match value {
         Value::IntList(items) => Some(items.len()),
+        Value::FloatList(items) => Some(items.len()),
         Value::BoolList(items) => Some(items.len()),
         _ => None,
     }
@@ -622,6 +645,70 @@ fn assign_bool_list_indices(
     }
 }
 
+fn assign_float_list_indices(
+    items: &mut Arc<Vec<OrderedFloat<f64>>>,
+    idxs: Vec<usize>,
+    mode: PackedAssignMode,
+    value: Value,
+) -> Option<PackedListAssignment> {
+    if matches!(mode, PackedAssignMode::Scalar) {
+        let idx = idxs
+            .into_iter()
+            .next()
+            .expect("single packed-list assignment has one index");
+        return match value {
+            Value::Float(v) => {
+                Arc::make_mut(items)[idx] = v;
+                Some(PackedListAssignment::KeepPacked)
+            }
+            value => {
+                let mut list = promote_floats(items);
+                list[idx] = value;
+                Some(PackedListAssignment::Promote(list))
+            }
+        };
+    }
+
+    match value {
+        Value::Float(v) => {
+            let items = Arc::make_mut(items);
+            for idx in idxs {
+                items[idx] = v;
+            }
+            Some(PackedListAssignment::KeepPacked)
+        }
+        Value::FloatList(vals) => {
+            assign_float_slice_to_float_list(items, idxs, vals.as_slice())?;
+            Some(PackedListAssignment::KeepPacked)
+        }
+        Value::List(vals) => {
+            if idxs.len() != vals.len() {
+                return None;
+            }
+            if let Some(floats) = collect_floats(&vals) {
+                let items = Arc::make_mut(items);
+                for (idx, val) in idxs.into_iter().zip(floats) {
+                    items[idx] = val;
+                }
+                Some(PackedListAssignment::KeepPacked)
+            } else {
+                let mut list = promote_floats(items);
+                for (idx, val) in idxs.into_iter().zip(vals.iter().cloned()) {
+                    list[idx] = val;
+                }
+                Some(PackedListAssignment::Promote(list))
+            }
+        }
+        atom => {
+            let mut list = promote_floats(items);
+            for idx in idxs {
+                list[idx] = atom.clone();
+            }
+            Some(PackedListAssignment::Promote(list))
+        }
+    }
+}
+
 fn assign_list_bulk(items: &mut [Value], idxs: Vec<usize>, value: Value) -> Option<()> {
     if let Some(values) = ListStorageSeq::from_value(&value) {
         if idxs.len() != values.len() {
@@ -657,6 +744,21 @@ fn assign_bool_slice_to_bool_list(
     items: &mut Arc<Vec<bool>>,
     idxs: Vec<usize>,
     vals: &[bool],
+) -> Option<()> {
+    if idxs.len() != vals.len() {
+        return None;
+    }
+    let items = Arc::make_mut(items);
+    for (idx, val) in idxs.into_iter().zip(vals.iter().copied()) {
+        items[idx] = val;
+    }
+    Some(())
+}
+
+fn assign_float_slice_to_float_list(
+    items: &mut Arc<Vec<OrderedFloat<f64>>>,
+    idxs: Vec<usize>,
+    vals: &[OrderedFloat<f64>],
 ) -> Option<()> {
     if idxs.len() != vals.len() {
         return None;
@@ -850,6 +952,52 @@ pub(crate) fn insert_in_place(
             }
             Ok(data.clone())
         }
+        Value::FloatList(items) => {
+            let (positions, is_multi) = parse_insert_positions(dsts, items.len())?;
+            if positions.is_empty() {
+                return Ok(data.clone());
+            }
+
+            if is_multi {
+                if let Some(values) = float_insert_pairwise(xs, positions.len()) {
+                    let base = std::mem::take(Arc::make_mut(items));
+                    *items = Arc::new(insert_many_owned(
+                        base,
+                        positions.into_iter().zip(values).collect::<Vec<_>>(),
+                    ));
+                    return Ok(data.clone());
+                }
+
+                let values = list_insert_pairwise(xs, positions.len())?;
+                let base = std::mem::take(Arc::make_mut(items))
+                    .into_iter()
+                    .map(Value::Float)
+                    .collect::<Vec<_>>();
+                *data = Value::List(Arc::new(insert_many_owned(
+                    base,
+                    positions.into_iter().zip(values).collect(),
+                )));
+            } else {
+                let idx = positions[0];
+                if let Some(values) = float_insert_items(xs) {
+                    let mut tail = Arc::make_mut(items).split_off(idx);
+                    Arc::make_mut(items).extend(values);
+                    Arc::make_mut(items).append(&mut tail);
+                    return Ok(data.clone());
+                }
+
+                let values = list_insert_items(xs);
+                let mut base = std::mem::take(Arc::make_mut(items))
+                    .into_iter()
+                    .map(Value::Float)
+                    .collect::<Vec<_>>();
+                let mut tail = base.split_off(idx);
+                base.extend(values);
+                base.append(&mut tail);
+                *data = Value::List(Arc::new(base));
+            }
+            Ok(data.clone())
+        }
         Value::Dict(map) => {
             match dsts {
                 Some(dsts @ Value::Dict(_)) => {
@@ -965,6 +1113,19 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
                 Value::BoolList(Arc::new(removed))
             }
         }
+        Value::FloatList(items) => {
+            let split = items.len().saturating_sub(n);
+            let removed = Arc::make_mut(items).split_off(split);
+            if n == 1 {
+                removed
+                    .into_iter()
+                    .next()
+                    .map(Value::Float)
+                    .unwrap_or_else(Value::unit)
+            } else {
+                Value::FloatList(Arc::new(removed))
+            }
+        }
         Value::List(items) => {
             let split = items.len().saturating_sub(n);
             let removed = Arc::make_mut(items).split_off(split);
@@ -1055,6 +1216,21 @@ pub(crate) fn remove_in_place(data: &mut Value, idx: &Value) -> WqResult<Value> 
                 Ok(Value::BoolList(Arc::new(removed)))
             } else {
                 Ok(Value::Bool(Arc::make_mut(items).remove(positions[0])))
+            }
+        }
+        Value::FloatList(items) => {
+            let (positions, is_multi) = parse_remove_positions(idx, items.len())?;
+            if is_multi {
+                ensure_unique_positions(&positions, "remove indices")?;
+                let removed = positions.iter().map(|&i| items[i]).collect::<Vec<_>>();
+                let mut sorted = positions;
+                sorted.sort_unstable_by(|a, b| b.cmp(a));
+                for idx in sorted {
+                    Arc::make_mut(items).remove(idx);
+                }
+                Ok(Value::FloatList(Arc::new(removed)))
+            } else {
+                Ok(Value::Float(Arc::make_mut(items).remove(positions[0])))
             }
         }
         Value::List(items) => {
@@ -1158,6 +1334,24 @@ fn bool_insert_pairwise(xs: &Value, len: usize) -> Option<Vec<bool>> {
         Value::Bool(b) => Some(vec![*b; len]),
         Value::BoolList(items) if items.len() == len => Some(items.iter().copied().collect()),
         Value::List(items) if items.len() == len => collect_bools(items),
+        _ => None,
+    }
+}
+
+fn float_insert_items(xs: &Value) -> Option<Vec<OrderedFloat<f64>>> {
+    match xs {
+        Value::Float(f) => Some(vec![*f]),
+        Value::FloatList(items) => Some(items.iter().copied().collect()),
+        Value::List(items) => collect_floats(items),
+        _ => None,
+    }
+}
+
+fn float_insert_pairwise(xs: &Value, len: usize) -> Option<Vec<OrderedFloat<f64>>> {
+    match xs {
+        Value::Float(f) => Some(vec![*f; len]),
+        Value::FloatList(items) if items.len() == len => Some(items.iter().copied().collect()),
+        Value::List(items) if items.len() == len => collect_floats(items),
         _ => None,
     }
 }
@@ -1700,6 +1894,69 @@ mod tests {
                 Value::Int(7),
             ]))
         );
+    }
+
+    #[test]
+    fn floatlist_bulk_assign_preserves_or_widens_storage() {
+        let mut list = Value::FloatList(Arc::new(vec![
+            OrderedFloat(1.0),
+            OrderedFloat(2.0),
+            OrderedFloat(3.0),
+        ]));
+
+        assert_eq!(
+            list.assign_by_indices(
+                &[Value::Int(0), Value::Int(2)],
+                Value::FloatList(Arc::new(vec![OrderedFloat(10.0), OrderedFloat(30.0)])),
+            ),
+            Some(())
+        );
+        assert_eq!(
+            list,
+            Value::FloatList(Arc::new(vec![
+                OrderedFloat(10.0),
+                OrderedFloat(2.0),
+                OrderedFloat(30.0),
+            ]))
+        );
+
+        assert_eq!(list.assign_by_index(&Value::Int(1), Value::Int(99)), Some(()));
+        assert_eq!(
+            list,
+            Value::List(Arc::new(vec![
+                Value::float(10.0),
+                Value::Int(99),
+                Value::float(30.0),
+            ]))
+        );
+    }
+
+    #[test]
+    fn floatlist_insert_pop_and_remove_preserve_storage() {
+        let mut list = Value::FloatList(Arc::new(vec![OrderedFloat(1.0), OrderedFloat(4.0)]));
+
+        assert_eq!(
+            insert_in_place(
+                &mut list,
+                &Value::FloatList(Arc::new(vec![OrderedFloat(2.0), OrderedFloat(3.0)])),
+                Some(&Value::Int(1)),
+            ),
+            Ok(Value::FloatList(Arc::new(vec![
+                OrderedFloat(1.0),
+                OrderedFloat(2.0),
+                OrderedFloat(3.0),
+                OrderedFloat(4.0),
+            ])))
+        );
+        assert_eq!(pop_in_place(&mut list, 1), Ok(Value::float(4.0)));
+        assert_eq!(
+            remove_in_place(&mut list, &Value::IntList(Arc::new(vec![0, 2]))),
+            Ok(Value::FloatList(Arc::new(vec![
+                OrderedFloat(1.0),
+                OrderedFloat(3.0),
+            ])))
+        );
+        assert_eq!(list, Value::FloatList(Arc::new(vec![OrderedFloat(2.0)])));
     }
 
     #[test]

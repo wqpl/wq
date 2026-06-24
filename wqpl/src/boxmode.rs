@@ -52,6 +52,14 @@ fn expand_as_cells(row: &Value) -> Option<Vec<String>> {
     match row {
         Value::List(cells) => Some(cells.iter().map(ToString::to_string).collect()),
         Value::IntList(items) => Some(items.iter().map(|n| n.to_string()).collect()),
+        Value::FloatList(items) => Some(
+            items
+                .iter()
+                .copied()
+                .map(Value::Float)
+                .map(|v| v.to_string())
+                .collect(),
+        ),
         _ => None,
     }
 }
@@ -63,6 +71,14 @@ fn expand_axis_cells(row: &Value) -> Option<Vec<String>> {
     match row {
         Value::List(cells) => Some(cells.iter().map(ToString::to_string).collect()),
         Value::IntList(items) => Some(items.iter().map(|n| n.to_string()).collect()),
+        Value::FloatList(items) => Some(
+            items
+                .iter()
+                .copied()
+                .map(Value::Float)
+                .map(|v| v.to_string())
+                .collect(),
+        ),
         _ => Some(vec![row.to_string()]),
     }
 }
@@ -72,6 +88,14 @@ fn expand_simple_1d(v: &Value) -> Option<Vec<String>> {
         Value::IntList(items) if items.len() >= 2 => {
             Some(items.iter().map(|n| n.to_string()).collect())
         }
+        Value::FloatList(items) if items.len() >= 2 => Some(
+            items
+                .iter()
+                .copied()
+                .map(Value::Float)
+                .map(|v| v.to_string())
+                .collect(),
+        ),
         Value::List(items) if items.len() >= 2 && items.iter().all(Value::is_atom) => {
             Some(items.iter().map(ToString::to_string).collect())
         }
@@ -191,7 +215,7 @@ fn format_ragged_value(v: &Value) -> String {
         .map(|item| {
             if item.len() >= 2
                 && !item.is_string_like()
-                && matches!(item, Value::List(_) | Value::IntList(_))
+                && matches!(item, Value::List(_) | Value::IntList(_) | Value::FloatList(_))
             {
                 format!("({})", format_compact(item))
             } else {
@@ -358,7 +382,7 @@ fn format_ragged_rows(v: &Value, options: BoxFormatOptions) -> Option<String> {
         || rows.iter().any(Value::is_string_like)
         || !rows
             .iter()
-            .any(|row| matches!(row, Value::List(_) | Value::IntList(_)))
+            .any(|row| matches!(row, Value::List(_) | Value::IntList(_) | Value::FloatList(_)))
     {
         return None;
     }
@@ -395,6 +419,15 @@ pub fn format_compact(v: &Value) -> String {
         }
         Value::IntList(items) => {
             let table: Vec<Vec<String>> = items.iter().map(|e| vec![e.to_string()]).collect();
+            render_table(&table)
+        }
+        Value::FloatList(items) => {
+            let table: Vec<Vec<String>> = items
+                .iter()
+                .copied()
+                .map(Value::Float)
+                .map(|e| vec![e.to_string()])
+                .collect();
             render_table(&table)
         }
         _ => v.to_string(),
