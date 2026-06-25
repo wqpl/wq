@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use num_bigint::BigInt;
+use ordered_float::OrderedFloat;
 use rayon::prelude::*;
 
 use crate::astnode::BinaryOperator;
@@ -83,30 +84,59 @@ fn extract_int_rows(v: &Value) -> Option<Vec<&[i64]>> {
     Some(int_rows)
 }
 
-/// Convert a row (Value::List or Value::IntList) to Vec<f64>.
-/// Handles Float and Int elements; returns None for other types.
-fn as_float_row(v: &Value) -> Option<Vec<f64>> {
-    match v {
-        Value::List(items) => items
-            .iter()
-            .map(|v| match v {
-                Value::Float(f) => Some(f.0),
-                Value::Int(i) => Some(*i as f64),
-                _ => None,
-            })
-            .collect(),
-        Value::IntList(items) => Some(items.iter().map(|&x| x as f64).collect()),
-        Value::FloatList(items) => Some(items.iter().map(|x| x.0).collect()),
-        _ => None,
+/// Float matmul row view. Packed rows borrow their storage directly; only a
+/// general `List(Float|Int)` row needs an owned conversion buffer.
+enum FloatRow<'a> {
+    FloatList(&'a [OrderedFloat<f64>]),
+    IntList(&'a [i64]),
+    Owned(Vec<f64>),
+}
+
+impl<'a> FloatRow<'a> {
+    fn from_value(v: &'a Value) -> Option<Self> {
+        match v {
+            Value::List(items) => items
+                .iter()
+                .map(|v| match v {
+                    Value::Float(f) => Some(f.0),
+                    Value::Int(i) => Some(*i as f64),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>()
+                .map(Self::Owned),
+            Value::IntList(items) => Some(Self::IntList(items.as_slice())),
+            Value::FloatList(items) => Some(Self::FloatList(items.as_slice())),
+            _ => None,
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::FloatList(items) => items.len(),
+            Self::IntList(items) => items.len(),
+            Self::Owned(items) => items.len(),
+        }
+    }
+
+    #[inline]
+    fn at(&self, idx: usize) -> f64 {
+        match self {
+            Self::FloatList(items) => items[idx].0,
+            Self::IntList(items) => items[idx] as f64,
+            Self::Owned(items) => items[idx],
+        }
     }
 }
 
-fn extract_float_rows(v: &Value) -> Option<Vec<Vec<f64>>> {
-    let rows = match v {
-        Value::List(items) => items,
-        _ => return None,
-    };
-    rows.iter().map(as_float_row).collect()
+fn as_float_row(v: &Value) -> Option<FloatRow<'_>> {
+    FloatRow::from_value(v)
+}
+
+fn extract_float_rows(v: &Value) -> Option<Vec<FloatRow<'_>>> {
+    match v {
+        Value::List(items) => items.iter().map(FloatRow::from_value).collect(),
+        _ => None,
+    }
 }
 
 /// K tiling size: keeps B tile (TILE_K × N × 8 bytes) in L2 cache.
@@ -118,7 +148,7 @@ const TILE_K: usize = 64;
 enum ValueSeq<'a> {
     List(&'a [Value]),
     IntList(&'a [i64]),
-    FloatList(&'a [ordered_float::OrderedFloat<f64>]),
+    FloatList(&'a [OrderedFloat<f64>]),
 }
 
 impl<'a> ValueSeq<'a> {
@@ -508,9 +538,9 @@ fn mm_float_dot(a: &Value, b: &Value, k: usize) -> Option<WqResult<Value>> {
     }
     let mut acc: f64 = 0.0;
     for kk in 0..k {
-        acc += a_vals[kk] * b_vals[kk];
+        acc += a_vals.at(kk) * b_vals.at(kk);
     }
-    Some(Ok(Value::Float(ordered_float::OrderedFloat(acc))))
+    Some(Ok(Value::Float(OrderedFloat(acc))))
 }
 
 /// Fast path: matrix-vector (M×K × K → M) with native f64 arithmetic.
@@ -520,18 +550,18 @@ fn mm_float_mv(a: &Value, b: &Value, m: usize, k: usize) -> Option<WqResult<Valu
     if a_rows.len() != m || a_rows.iter().any(|r| r.len() != k) || b_vals.len() != k {
         return None;
     }
-    let result: Vec<Value> = (0..m)
+    let result: Vec<OrderedFloat<f64>> = (0..m)
         .into_par_iter()
         .map(|i| {
             let a_row = &a_rows[i];
             let mut acc: f64 = 0.0;
             for kk in 0..k {
-                acc += a_row[kk] * b_vals[kk];
+                acc += a_row.at(kk) * b_vals.at(kk);
             }
-            Value::Float(ordered_float::OrderedFloat(acc))
+            OrderedFloat(acc)
         })
         .collect();
-    Some(Ok(Value::List(Arc::new(result))))
+    Some(Ok(Value::FloatList(Arc::new(result))))
 }
 
 /// Fast path: vector-matrix (K × K×N → N) with native f64 arithmetic.
@@ -546,20 +576,16 @@ fn mm_float_vm(a: &Value, b: &Value, k: usize, n: usize) -> Option<WqResult<Valu
     let mut kk = 0;
     while kk < k {
         let tile_end = (kk + TILE_K).min(k);
-        for kk_in in kk..tile_end {
-            let av = a_vals[kk_in];
-            let b_row = &b_rows[kk_in];
-            for j in 0..n {
-                acc[j] += av * b_row[j];
+        for (kk_in, b_row) in b_rows.iter().enumerate().take(tile_end).skip(kk) {
+            let av = a_vals.at(kk_in);
+            for (j, acc_j) in acc.iter_mut().enumerate().take(n) {
+                *acc_j += av * b_row.at(j);
             }
         }
         kk = tile_end;
     }
-    let result: Vec<Value> = acc
-        .into_iter()
-        .map(|x| Value::Float(ordered_float::OrderedFloat(x)))
-        .collect();
-    Some(Ok(Value::List(Arc::new(result))))
+    let result = acc.into_iter().map(OrderedFloat).collect();
+    Some(Ok(Value::FloatList(Arc::new(result))))
 }
 
 /// Fast path for 2D Float matrix multiplication with native f64 arithmetic.
@@ -583,21 +609,17 @@ fn mm_float_mm(a: &Value, b: &Value, m: usize, k: usize, n: usize) -> Option<WqR
             let mut kk = 0;
             while kk < k {
                 let tile_end = (kk + TILE_K).min(k);
-                for kk_in in kk..tile_end {
-                    let av = a_row[kk_in];
-                    let b_row = &b_rows[kk_in];
-                    for j in 0..n {
-                        acc[j] += av * b_row[j];
+                for (kk_in, b_row) in b_rows.iter().enumerate().take(tile_end).skip(kk) {
+                    let av = a_row.at(kk_in);
+                    for (j, acc_j) in acc.iter_mut().enumerate().take(n) {
+                        *acc_j += av * b_row.at(j);
                     }
                 }
                 kk = tile_end;
             }
 
-            let row: Vec<Value> = acc
-                .into_iter()
-                .map(|x| Value::Float(ordered_float::OrderedFloat(x)))
-                .collect();
-            Ok(Value::List(Arc::new(row)))
+            let row = acc.into_iter().map(OrderedFloat).collect();
+            Ok(Value::FloatList(Arc::new(row)))
         })
         .collect();
 
@@ -724,6 +746,8 @@ impl Value {
 mod tests {
     use std::sync::Arc;
 
+    use ordered_float::OrderedFloat;
+
     use crate::value::Value;
 
     fn il(v: &[i64]) -> Value {
@@ -732,6 +756,15 @@ mod tests {
 
     fn mat(rows: &[&[i64]]) -> Value {
         let rs: Vec<Value> = rows.iter().map(|r| il(r)).collect();
+        Value::List(Arc::new(rs))
+    }
+
+    fn fl(v: &[f64]) -> Value {
+        Value::FloatList(Arc::new(v.iter().copied().map(OrderedFloat).collect()))
+    }
+
+    fn fmat(rows: &[&[f64]]) -> Value {
+        let rs: Vec<Value> = rows.iter().map(|r| fl(r)).collect();
         Value::List(Arc::new(rs))
     }
 
@@ -757,6 +790,23 @@ mod tests {
         let b = mat(&[&[5, 6], &[7, 8]]);
         let res = a.mm(&b).expect("AB");
         let expect = mat(&[&[19, 22], &[43, 50]]);
+        assert_eq!(res, expect);
+    }
+
+    #[test]
+    fn mm_float_mat_vec_returns_floatlist() {
+        let a = mat(&[&[1, 2], &[3, 4]]);
+        let x = fl(&[0.5, 1.5]);
+        let res = a.mm(&x).expect("Ax");
+        assert_eq!(res, fl(&[3.5, 7.5]));
+    }
+
+    #[test]
+    fn mm_float_mat_mat_returns_floatlist_rows() {
+        let a = fmat(&[&[1.0, 2.0], &[3.0, 4.0]]);
+        let b = fmat(&[&[5.0, 6.0], &[7.0, 8.0]]);
+        let res = a.mm(&b).expect("AB");
+        let expect = fmat(&[&[19.0, 22.0], &[43.0, 50.0]]);
         assert_eq!(res, expect);
     }
 
