@@ -100,7 +100,33 @@ impl Value {
     }
 
     pub fn is_list_like(&self) -> bool {
-        seq::ValueSeq::from_value(self).is_some()
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            Value::Int(_)
+            | Value::BigInt(_)
+            | Value::Float(_)
+            | Value::Complex(_)
+            | Value::Fraction(_)
+            | Value::Algebraic(_)
+            | Value::Char(_)
+            | Value::Tag(_)
+            | Value::Bool(_) => false,
+
+            Value::IntList(_)
+            | Value::IntRange(_)
+            | Value::FloatList(_)
+            | Value::BoolList(_)
+            | Value::List(_)
+            | Value::String(_) => true,
+
+            Value::Cas(_)
+            | Value::Dict(_)
+            | Value::CompiledFunction(_)
+            | Value::Closure(_)
+            | Value::BuiltinFunction { name: _, id: _ }
+            | Value::LiftedCallable(_)
+            | Value::Stream(_) => false,
+        }
     }
 
     pub fn is_unit(&self) -> bool {
@@ -120,7 +146,33 @@ impl Value {
     }
 
     pub fn is_atom(&self) -> bool {
-        seq::ValueSeq::from_value(self).is_none() && !matches!(self, Value::Dict(_))
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match self {
+            Value::Int(_)
+            | Value::BigInt(_)
+            | Value::Float(_)
+            | Value::Complex(_)
+            | Value::Fraction(_)
+            | Value::Algebraic(_)
+            | Value::Char(_)
+            | Value::Tag(_)
+            | Value::Bool(_) => true,
+
+            Value::IntList(_)
+            | Value::IntRange(_)
+            | Value::FloatList(_)
+            | Value::BoolList(_)
+            | Value::List(_)
+            | Value::String(_) => false,
+
+            Value::Cas(_) => true,
+            Value::Dict(_) => false,
+            Value::CompiledFunction(_)
+            | Value::Closure(_)
+            | Value::BuiltinFunction { name: _, id: _ }
+            | Value::LiftedCallable(_)
+            | Value::Stream(_) => true,
+        }
     }
 
     pub(crate) fn is_string_like(&self) -> bool {
@@ -441,6 +493,7 @@ mod tests {
     use std::hash::{Hash, Hasher};
 
     use super::*;
+    use indexmap::indexmap;
 
     fn test_builtin(name: &str, id: u16) -> Value {
         Value::builtin_function(name, id)
@@ -550,6 +603,25 @@ mod tests {
         let empty_bools = Value::BoolList(Arc::new(vec![]));
         assert!(empty_bools.is_unit());
         assert_eq!(empty_bools.try_flatten_to_string(), Some(String::new()));
+    }
+
+    #[test]
+    fn atom_checks_follow_storage_shape() {
+        assert!(Value::Int(1).is_atom());
+        assert!(Value::Float(OrderedFloat(1.5)).is_atom());
+        assert!(Value::Bool(true).is_atom());
+
+        assert!(!Value::IntList(Arc::new(vec![1])).is_atom());
+        assert!(!Value::IntRange(Arc::new(seq::IntRangeData::new(0, 1, 1))).is_atom());
+        assert!(!Value::FloatList(Arc::new(vec![OrderedFloat(1.5)])).is_atom());
+        assert!(!Value::BoolList(Arc::new(vec![true])).is_atom());
+        assert!(!Value::List(Arc::new(vec![Value::Int(1)])).is_atom());
+        assert!(!into_wq_string("x").is_atom());
+
+        let map = indexmap! {
+            Arc::from("x") => Value::Int(1),
+        };
+        assert!(!Value::Dict(Arc::new(map)).is_atom());
     }
 
     #[test]
