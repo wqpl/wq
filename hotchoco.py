@@ -9,6 +9,9 @@ Usage:
     python hotchoco.py status [--verbose]
     python hotchoco.py show [--no-pager] [--group G] [--test T]
     python hotchoco.py clean
+
+Testcase TOML may set expected_exit_code at the group or mode level. Use
+[expected_exit_codes] with "test" or "test/mode" keys for individual overrides.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ PROJECT_ROOT = SUITE_DIR.parent.parent  # hotchoco/suite -> project root
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_DIFF_CONTEXT_LINES = 3
 WQ_CLI_DEBUG_BUILD_CMD = ["cargo", "build", "-p", "wq-cli"]
+DEFAULT_EXPECTED_EXIT_CODE = 0
 
 
 def resolve_glob(pattern: str) -> list[str]:
@@ -55,6 +59,19 @@ def load_config() -> dict:
 def load_testcase(path: Path) -> dict:
     with open(path, "rb") as f:
         return tomllib.load(f)
+
+
+def expected_exit_code_for(testcase: dict, mode: dict, test_name: str) -> int:
+    overrides = testcase.get("expected_exit_codes", {})
+    mode_name = mode["name"]
+    for key in (f"{test_name}/{mode_name}", test_name):
+        if key in overrides:
+            return int(overrides[key])
+    if "expected_exit_code" in mode:
+        return int(mode["expected_exit_code"])
+    if "expected_exit_code" in testcase:
+        return int(testcase["expected_exit_code"])
+    return DEFAULT_EXPECTED_EXIT_CODE
 
 
 # ── Build ───────────────────────────────────────────────────────────────────
@@ -128,6 +145,11 @@ def discover_testcases(config: dict) -> list[dict]:
                         "flags": mode["flags"],
                         "capture": mode.get("capture", "stdout+stderr"),
                         "output_extension": output_extension,
+                        "expected_exit_code": expected_exit_code_for(
+                            tc,
+                            mode,
+                            test_name,
+                        ),
                     }
                 )
     return result
@@ -141,6 +163,9 @@ def run_one_test(test: dict, config: dict, output_dir: Path) -> dict:
     wq_bin_rel = config.get("wq_binary", "target/debug/wq")
     wq_bin = PROJECT_ROOT / wq_bin_rel
     timeout = config.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
+    expected_exit_code = int(
+        test.get("expected_exit_code", DEFAULT_EXPECTED_EXIT_CODE)
+    )
 
     subcommand = test.get("subcommand")
     if subcommand:
@@ -178,8 +203,8 @@ def run_one_test(test: dict, config: dict, output_dir: Path) -> dict:
 
     processed = apply_filters_to_output(raw, config)
 
-    # For fmt tests, run stabilisation check
     validation_errors = []
+    # For fmt tests, run stabilisation check
     if subcommand == "fmt" and return_code == 0:
         import os as _os
         import tempfile as _tempfile
@@ -220,6 +245,7 @@ def run_one_test(test: dict, config: dict, output_dir: Path) -> dict:
         "test": test["test"],
         "mode": test["mode"],
         "return_code": return_code,
+        "expected_exit_code": expected_exit_code,
         "output": processed,
         "output_path": str(out_path),
     }
@@ -246,17 +272,23 @@ def run_tests(tests: list[dict], config: dict) -> tuple[Path, dict[str, dict]]:
         if expected_path.exists():
             expected = expected_path.read_text()
             actual = result["output"]
-            passed = expected == actual
+            exit_ok = result["return_code"] == result["expected_exit_code"]
+            passed = expected == actual and exit_ok
             summary[key] = {
                 "status": "pass" if passed else "fail",
                 "output_path": result["output_path"],
                 "expected_path": str(expected_path),
+                "return_code": result["return_code"],
+                "expected_exit_code": result["expected_exit_code"],
             }
         else:
+            exit_ok = result["return_code"] == result["expected_exit_code"]
             summary[key] = {
-                "status": "new",
+                "status": "new" if exit_ok else "fail",
                 "output_path": result["output_path"],
                 "expected_path": str(expected_path),
+                "return_code": result["return_code"],
+                "expected_exit_code": result["expected_exit_code"],
             }
 
     sys.stderr.write("\n")
@@ -418,6 +450,14 @@ def selector_label(group: str | None, test_sel: str | None) -> str:
     return " and ".join(parts) if parts else "selection"
 
 
+def exit_code_note(result: dict) -> str | None:
+    return_code = result.get("return_code")
+    expected = result.get("expected_exit_code")
+    if return_code is None or expected is None or return_code == expected:
+        return None
+    return f"exit code {return_code}, expected {expected}"
+
+
 # ── CLI commands ────────────────────────────────────────────────────────────
 
 
@@ -451,6 +491,9 @@ def cmd_run(args: argparse.Namespace) -> None:
                 continue
             prefix = "FAIL" if val["status"] == "fail" else "NEW "
             print(f"=== {prefix}: {key} ===")
+            note = exit_code_note(val)
+            if note:
+                print(f"  {note}")
             expected_path = Path(val["expected_path"])
             actual_path = Path(val["output_path"])
             if expected_path.exists():
@@ -512,6 +555,9 @@ def cmd_diff(args: argparse.Namespace) -> None:
     for key, val in sorted(changed.items()):
         prefix = "FAIL" if val["status"] == "fail" else "NEW "
         print(f"=== {prefix}: {key} ===")
+        note = exit_code_note(val)
+        if note:
+            print(f"  {note}")
         expected_path = Path(val["expected_path"])
         actual_path = Path(val["output_path"])
         if expected_path.exists():
@@ -547,6 +593,9 @@ def cmd_show(args: argparse.Namespace) -> None:
 
         prefix = "FAIL" if val["status"] == "fail" else "NEW "
         lines.append(f"=== {prefix}: {key} ===")
+        note = exit_code_note(val)
+        if note:
+            lines.append(f"  {note}")
 
         if expected_path.exists():
             expected = expected_path.read_text()
@@ -634,7 +683,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         for key, val in sorted(summary.items()):
             icon = {"pass": "✓", "fail": "✗", "new": "+"}[val["status"]]
             color = {"pass": "32", "fail": "31", "new": "33"}[val["status"]]
-            print(f"  \033[{color}m{icon}\033[0m {key}")
+            note = exit_code_note(val)
+            suffix = f" ({note})" if note else ""
+            print(f"  \033[{color}m{icon}\033[0m {key}{suffix}")
 
 
 def cmd_clean(args: argparse.Namespace) -> None:
@@ -693,6 +744,9 @@ def cmd_review(args: argparse.Namespace) -> None:
         if val["status"] == "new":
             print("\033[33m(NEW)\033[0m ", end="")
         print("─" * max(0, 60 - len(key)))
+        note = exit_code_note(val)
+        if note:
+            print(f"  {note}")
 
         if expected_path.exists():
             expected = expected_path.read_text()

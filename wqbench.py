@@ -58,6 +58,8 @@ REGRESSION ANALYSIS
     stores the source script SHA-256, so a same-name benchmark with different
     contents starts a fresh comparison series. Older records without embedded
     hashes are checked against their recorded git commit when possible.
+    Scripts that exit nonzero are skipped and reported, rather than aborting the
+    whole benchmark run.
 
     The table shows current timing, previous matching timing, delta, historical
     mean, sample count, and z-score status. Exit code is 1 if any benchmark is
@@ -280,6 +282,34 @@ def benchmark_metadata(path: Path) -> dict[str, Any]:
     }
 
 
+def output_excerpt(stdout: str | None, stderr: str | None) -> str:
+    parts = []
+    for label, text in (("stdout", stdout), ("stderr", stderr)):
+        if text:
+            clean = " ".join(text.strip().splitlines())
+            if len(clean) > 500:
+                clean = f"{clean[:500]}..."
+            if clean:
+                parts.append(f"{label}: {clean}")
+    return "\n".join(parts)
+
+
+def benchmark_skip(
+    name: str,
+    metadata: dict[str, Any],
+    reason: str,
+    detail: str = "",
+) -> dict[str, Any]:
+    skipped = {
+        "benchmark": name,
+        "script_path": metadata.get("script_path"),
+        "reason": reason,
+    }
+    if detail:
+        skipped["detail"] = detail
+    return skipped
+
+
 def git_blob_sha256(commit: str, rel_path: str) -> str | None:
     key = (commit, rel_path)
     if key in GIT_BLOB_HASH_CACHE:
@@ -401,13 +431,14 @@ def run_hyperfine_individual(
     binary_path: Path,
     warmup: int = DEFAULT_WARMUP,
     min_runs: int = DEFAULT_MIN_RUNS,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Run hyperfine for each benchmark individually so that every bench gets
     its own --export-json and --export-markdown files.
-    Returns a list of result dicts.
+    Returns a tuple of successful result dicts and skipped benchmark dicts.
     """
     results: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
     total = len(files)
 
     for idx, path in enumerate(files, 1):
@@ -421,7 +452,28 @@ def run_hyperfine_individual(
             f"Running hyperfine for [green]{name}[/green]..."
         )
 
-        bench_cmd = shlex.join([str(binary_path), str(path), "--no-bt"])
+        wq_cmd = [str(binary_path), str(path), "--no-bt"]
+        try:
+            preflight = subprocess.run(
+                wq_cmd,
+                capture_output=True,
+                text=True,
+                cwd=PROJECT_ROOT,
+            )
+        except OSError as exc:
+            reason = f"could not run wq preflight: {exc}"
+            skipped.append(benchmark_skip(name, metadata, reason))
+            console.print(f"[yellow]Skipping {name}: {reason}[/yellow]")
+            continue
+
+        if preflight.returncode != 0:
+            reason = f"wq exited with code {preflight.returncode}"
+            detail = output_excerpt(preflight.stdout, preflight.stderr)
+            skipped.append(benchmark_skip(name, metadata, reason, detail))
+            console.print(f"[yellow]Skipping {name}: {reason}[/yellow]")
+            continue
+
+        bench_cmd = shlex.join(wq_cmd)
         cmd = [
             "hyperfine",
             f"--warmup={warmup}",
@@ -432,7 +484,14 @@ def run_hyperfine_individual(
             f"--command-name={name}",
             bench_cmd,
         ]
-        run(cmd)
+        try:
+            run(cmd)
+        except subprocess.CalledProcessError as exc:
+            reason = f"hyperfine failed with code {exc.returncode}"
+            detail = output_excerpt(exc.stdout, exc.stderr)
+            skipped.append(benchmark_skip(name, metadata, reason, detail))
+            console.print(f"[yellow]Skipping {name}: {reason}[/yellow]")
+            continue
 
         with open(json_out, encoding="utf-8") as fh:
             raw = json.load(fh)
@@ -453,7 +512,7 @@ def run_hyperfine_individual(
             }
         )
 
-    return results
+    return results, skipped
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +554,33 @@ def status_cell(status: Any) -> str:
             return "[magenta]changed[/magenta]"
         case _:
             return "[blue]new[/blue]"
+
+
+def print_skipped_benchmarks(skipped: list[dict[str, Any]]) -> None:
+    if not skipped:
+        return
+
+    table = Table(
+        title="Skipped Benchmarks",
+        show_header=True,
+        header_style="bold yellow",
+    )
+    table.add_column("Benchmark", style="cyan", no_wrap=True)
+    table.add_column("Reason", style="yellow")
+    table.add_column("Detail", style="dim")
+
+    for row in skipped:
+        table.add_row(
+            str(row["benchmark"]),
+            str(row["reason"]),
+            str(row.get("detail") or "-"),
+        )
+
+    console.print(table)
+    console.print(
+        "[yellow]Skipped benchmarks are not included in history or regression "
+        "analysis.[/yellow]"
+    )
 
 
 def print_results(
@@ -673,6 +759,15 @@ def persist_results(
     with open(HISTORY_JSONL, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(record) + "\n")
     console.print(f"[dim]History JSONL: {HISTORY_JSONL}[/dim]")
+
+
+def write_skipped_report(skipped: list[dict[str, Any]], out_dir: Path) -> None:
+    if not skipped:
+        return
+
+    skipped_path = out_dir / "skipped.json"
+    skipped_path.write_text(json.dumps(skipped, indent=2), encoding="utf-8")
+    console.print(f"[dim]Skipped report: {skipped_path}[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -1145,13 +1240,21 @@ def main() -> int:
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     history_before = load_history()
-    rows = run_hyperfine_individual(
+    rows, skipped = run_hyperfine_individual(
         files,
         benches_dir=benches_dir,
         binary_path=binary_path,
         warmup=args.warmup,
         min_runs=args.min_runs,
     )
+    write_skipped_report(skipped, run_dir)
+    print_skipped_benchmarks(skipped)
+
+    if not rows:
+        console.print("[red]No benchmarks completed successfully.[/red]")
+        console.print(f"\n[bold]Artifacts in {run_dir}:[/bold]")
+        print_tree(run_dir)
+        return 1
 
     reg_df = analyze_regression(rows, history_before, profile)
     regressions = print_results(rows, reg_df)
