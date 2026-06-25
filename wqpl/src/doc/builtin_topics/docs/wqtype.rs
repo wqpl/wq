@@ -92,7 +92,7 @@ pub(super) const ATOM_Q: BuiltinDoc = BuiltinDoc {
 pub(super) const UNIT_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::UnitQ,
     summary: "Return true when a value is unit.",
-    details: "`unit?[x]` is true for empty list-like values: the empty list/int-list value and the empty string. It is false for non-empty lists or strings and for scalar atoms. `U` is an alias.",
+    details: "`unit?[x]` is true for empty container values. It is false for non-empty containers or strings and for atoms. `U` is an alias.",
     examples: UNIT_Q_EXAMPLES,
     related: &["U", "atom?", "len"],
 };

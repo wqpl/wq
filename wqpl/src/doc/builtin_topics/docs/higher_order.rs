@@ -164,7 +164,7 @@ pub(super) const FINDW: BuiltinDoc = BuiltinDoc {
 pub(super) const RFINDW: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::RFindW,
     summary: "Find matching paths from the end of a value.",
-    details: "`rfindw` has the same return shape as `findw`, but searches list, int-list, and dict values in reverse order. Threshold and depth accept non-negative ints, with `inf` allowed for an unlimited search.",
+    details: "`rfindw` has the same return shape as `findw`, but searches list and dict values in reverse order. Threshold and depth accept non-negative ints, with `inf` allowed for an unlimited search.",
     examples: RFINDW_EXAMPLES,
     related: &["findw", "find", "filter"],
 };

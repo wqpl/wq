@@ -142,7 +142,7 @@ pub(super) const FIND: BuiltinDoc = BuiltinDoc {
 pub(super) const RFIND: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::RFind,
     summary: "Find paths to matching values from the back.",
-    details: "`rfind` has the same return shape and arguments as `find`, but searches list, int-list, and dict values from the end toward the front.",
+    details: "`rfind` has the same return shape and arguments as `find`, but searches list and dict values from the end toward the front.",
     examples: RFIND_EXAMPLES,
     related: &["find", "rfindw", "@depth"],
 };

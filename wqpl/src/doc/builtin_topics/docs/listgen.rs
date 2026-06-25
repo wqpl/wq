@@ -86,7 +86,7 @@ pub(super) const TRANSPOSE: BuiltinDoc = BuiltinDoc {
 pub(super) const REPEAT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Repeat,
     summary: "Repeat a value a non-negative number of times.",
-    details: "`repeat[xs;n]` repeats strings and char values as strings, repeats list and int-list contents into one longer sequence, and repeats atoms by returning a list of copies.",
+    details: "`repeat[xs;n]` repeats strings and char values as strings, repeats list contents into one longer sequence, and repeats atoms by returning a list of copies.",
     examples: REPEAT_EXAMPLES,
     related: &["alloc", "reshape", ","],
 };
