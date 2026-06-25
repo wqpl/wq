@@ -32,6 +32,20 @@ struct IndexPathTarget<'a> {
     indices: Vec<&'a AstNode>,
 }
 
+enum IndexArgPlan {
+    Temps(Vec<String>),
+    ConstKey(Value),
+}
+
+impl IndexArgPlan {
+    fn argc(&self) -> usize {
+        match self {
+            Self::Temps(names) => names.len(),
+            Self::ConstKey(_) => 1,
+        }
+    }
+}
+
 pub(crate) struct Compiler {
     pub(crate) instructions: Vec<Instruction>,
     builtins: Builtins,
@@ -173,6 +187,23 @@ impl Compiler {
         }
     }
 
+    fn compile_index_args_for_assign(&mut self, index: &AstNode) -> WqResult<usize> {
+        if let Some(key) = Self::literal_int_synthetic_index_key(index) {
+            self.emit_load_const(key);
+            Ok(1)
+        } else {
+            self.compile_index_args(index)
+        }
+    }
+
+    fn compile_index_arg_plan(&mut self, index: &AstNode) -> WqResult<IndexArgPlan> {
+        if let Some(key) = Self::literal_int_synthetic_index_key(index) {
+            Ok(IndexArgPlan::ConstKey(key))
+        } else {
+            self.compile_index_arg_temps(index).map(IndexArgPlan::Temps)
+        }
+    }
+
     fn compile_index_arg_temps(&mut self, index: &AstNode) -> WqResult<Vec<String>> {
         let items = Self::synthetic_index_items(index).unwrap_or(std::slice::from_ref(index));
         let mut names = Vec::with_capacity(items.len());
@@ -183,6 +214,13 @@ impl Compiler {
             names.push(name);
         }
         Ok(names)
+    }
+
+    fn emit_index_arg_plan_loads(&mut self, plan: &IndexArgPlan) {
+        match plan {
+            IndexArgPlan::Temps(names) => self.emit_index_arg_loads(names),
+            IndexArgPlan::ConstKey(key) => self.emit_load_const(key.clone()),
+        }
     }
 
     fn emit_index_arg_loads(&mut self, names: &[String]) {
@@ -196,6 +234,21 @@ impl Compiler {
             AstNode::List(items, None) => Some(items.as_slice()),
             _ => None,
         }
+    }
+
+    fn literal_int_synthetic_index_key(index: &AstNode) -> Option<Value> {
+        let items = Self::synthetic_index_items(index)?;
+        if items.len() < 2 {
+            return None;
+        }
+        let mut idxs = Vec::with_capacity(items.len());
+        for item in items {
+            match item {
+                AstNode::Literal(Value::Int(idx), _) => idxs.push(*idx),
+                _ => return None,
+            }
+        }
+        Some(Value::IntList(Arc::new(idxs)))
     }
 
     fn index_load_local_inst(slot: u16, argc: usize) -> Instruction {
@@ -373,23 +426,23 @@ impl Compiler {
         op: Option<BinaryOperator>,
         value: &AstNode,
     ) -> WqResult<()> {
-        let mut index_names = Vec::with_capacity(target.indices.len());
+        let mut index_args = Vec::with_capacity(target.indices.len());
         let final_index_pos = target.indices.len() - 1;
         for (pos, index) in target.indices.iter().enumerate() {
             if pos == final_index_pos {
-                index_names.push(self.compile_index_arg_temps(index)?);
+                index_args.push(self.compile_index_arg_plan(index)?);
             } else {
                 let name = self.next_temp_name("idx-path-index");
                 self.compile_expr(index)?;
                 self.instructions.push(Instruction::CheckScalarPathIndex);
                 self.emit_store(&name);
-                index_names.push(vec![name]);
+                index_args.push(IndexArgPlan::Temps(vec![name]));
             }
         }
 
         let value_name = self.next_temp_name("idx-path-value");
         if let Some(op) = op {
-            self.emit_index_path_load(target.root, &index_names)?;
+            self.emit_index_path_load(target.root, &index_args)?;
             self.compile_expr(value)?;
             self.instructions
                 .push(Instruction::binary_op(op, Operand::Stack, Operand::Stack));
@@ -400,19 +453,19 @@ impl Compiler {
         }
 
         let mut child_name = value_name.clone();
-        for level in (1..index_names.len()).rev() {
+        for level in (1..index_args.len()).rev() {
             let parent_name = self.next_temp_name("idx-path-parent");
-            self.emit_index_path_load(target.root, &index_names[..level])?;
+            self.emit_index_path_load(target.root, &index_args[..level])?;
             self.emit_store(&parent_name);
-            self.emit_index_arg_loads(&index_names[level]);
+            self.emit_index_arg_plan_loads(&index_args[level]);
             self.emit_load(&child_name, None);
-            self.push_index_assign_name_drop(&parent_name, index_names[level].len());
+            self.push_index_assign_name_drop(&parent_name, index_args[level].argc());
             child_name = parent_name;
         }
 
-        self.emit_index_arg_loads(&index_names[0]);
+        self.emit_index_arg_plan_loads(&index_args[0]);
         self.emit_load(&child_name, None);
-        self.push_index_assign_root_drop(target.root, index_names[0].len());
+        self.push_index_assign_root_drop(target.root, index_args[0].argc());
         self.emit_load(&value_name, None);
         Ok(())
     }
@@ -420,15 +473,15 @@ impl Compiler {
     fn emit_index_path_load(
         &mut self,
         root: IndexPathRoot<'_>,
-        index_names: &[Vec<String>],
+        index_args: &[IndexArgPlan],
     ) -> WqResult<()> {
         match root {
             IndexPathRoot::Variable(name) => self.emit_load(name, None),
             IndexPathRoot::OuterVariable(name, name_span) => self.emit_outer_load(name, name_span)?,
         }
-        for names in index_names {
-            self.emit_index_arg_loads(names);
-            self.instructions.push(Self::index_inst(names.len()));
+        for args in index_args {
+            self.emit_index_arg_plan_loads(args);
+            self.instructions.push(Self::index_inst(args.argc()));
         }
         Ok(())
     }
@@ -1532,10 +1585,10 @@ impl Compiler {
                 match &**object {
                     AstNode::Variable(name, _) => {
                         if let Some(op) = op {
-                            let index_names = self.compile_index_arg_temps(index)?;
-                            let argc = index_names.len();
-                            self.emit_index_arg_loads(&index_names); // for the assignment
-                            self.emit_index_arg_loads(&index_names); // for the load
+                            let index_args = self.compile_index_arg_plan(index)?;
+                            let argc = index_args.argc();
+                            self.emit_index_arg_plan_loads(&index_args); // for the assignment
+                            self.emit_index_arg_plan_loads(&index_args); // for the load
                             if self.fn_depth > 0 && self.is_local(name) {
                                 let slot = self.local_slot(name);
                                 self.instructions
@@ -1570,16 +1623,16 @@ impl Compiler {
                         } else {
                             if self.fn_depth > 0 && self.is_local(name) {
                                 let slot = self.local_slot(name);
-                                let argc = self.compile_index_args(index)?;
+                                let argc = self.compile_index_args_for_assign(index)?;
                                 self.compile_expr(value)?;
                                 self.instructions
                                     .push(Self::index_assign_local_inst(slot, argc));
                             } else if self.is_ref_default_name(name) {
-                                let argc = self.compile_index_args(index)?;
+                                let argc = self.compile_index_args_for_assign(index)?;
                                 self.compile_expr(value)?;
                                 self.push_ref_default_index_assign(name, argc);
                             } else {
-                                let argc = self.compile_index_args(index)?;
+                                let argc = self.compile_index_args_for_assign(index)?;
                                 self.compile_expr(value)?;
                                 self.instructions
                                     .push(Self::index_assign_var_inst(name.clone().into(), argc));
@@ -1588,15 +1641,15 @@ impl Compiler {
                     },
                     AstNode::OuterVariable(name, _) => {
                         if let Some(op) = op {
-                            let index_names = self.compile_index_arg_temps(index)?;
-                            let argc = index_names.len();
-                            self.emit_index_arg_loads(&index_names); // for assignment
+                            let index_args = self.compile_index_arg_plan(index)?;
+                            let argc = index_args.argc();
+                            self.emit_index_arg_plan_loads(&index_args); // for assignment
                             if let Some(idx) = self.ref_capture_map.get(name).copied() {
-                                self.emit_index_arg_loads(&index_names); // for load
+                                self.emit_index_arg_plan_loads(&index_args); // for load
                                 self.instructions
                                     .push(Self::index_load_capture_inst(idx, argc));
                             } else {
-                                self.emit_index_arg_loads(&index_names); // for load
+                                self.emit_index_arg_plan_loads(&index_args); // for load
                                 self.instructions
                                     .push(Self::index_load_var_inst(name.clone().into(), argc));
                             }
@@ -1619,7 +1672,7 @@ impl Compiler {
                                     .push(Self::index_assign_var_inst(name.clone().into(), argc));
                             }
                         } else {
-                            let argc = self.compile_index_args(index)?;
+                            let argc = self.compile_index_args_for_assign(index)?;
                             self.compile_expr(value)?;
                             if let Some(idx) = self.ref_capture_map.get(name) {
                                 self.instructions
@@ -4023,15 +4076,34 @@ mod tests {
     }
 
     #[test]
-    fn optimized_multi_index_assign_avoids_helper_list_materialization() {
+    fn literal_multi_index_assign_uses_packed_const_key() {
         let top = compile_source("xs:(10;20;30); xs[0;2]:99");
+
+        assert!(
+            top.windows(3).any(|insts| matches!(
+                insts,
+                [
+                    Instruction::LoadConst(key),
+                    Instruction::LoadConst(value),
+                    Instruction::IndexAssignVar(name),
+                ] if matches!(&**key, Value::IntList(items) if items.as_slice() == [0, 2])
+                    && **value == Value::Int(99)
+                    && name.as_ref() == "xs"
+            )),
+            "literal integer multi-index assignment should use a packed const key: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn dynamic_multi_index_assign_avoids_helper_list_materialization() {
+        let top = compile_source("i:0;xs:(10;20;30); xs[i;2]:99");
 
         assert!(
             top.iter().any(
                 |inst| matches!(inst, Instruction::IndexManyAssignVar(name, 2)
                     if name.as_ref() == "xs")
             ),
-            "expected IndexManyAssignVar: {top:#?}",
+            "expected IndexManyAssignVar for dynamic args: {top:#?}",
         );
         assert!(
             !top.iter().any(|inst| matches!(
@@ -4044,21 +4116,52 @@ mod tests {
     }
 
     #[test]
-    fn optimized_multi_index_augmented_assign_avoids_helper_list_materialization() {
+    fn literal_multi_index_augmented_assign_uses_packed_const_key() {
         let top = compile_source("xs:(10;20;30); xs[0;2]+:1");
+
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::IndexLoadVar(name)
+                    if name.as_ref() == "xs")),
+            "expected IndexLoadVar for literal-key augmented assignment read: {top:#?}",
+        );
+        assert!(
+            top.iter().any(
+                |inst| matches!(inst, Instruction::IndexAssignVar(name)
+                    if name.as_ref() == "xs")
+            ),
+            "expected IndexAssignVar for literal-key augmented assignment write: {top:#?}",
+        );
+        let key_loads = top
+            .iter()
+            .filter(|inst| matches!(
+                inst,
+                Instruction::LoadConst(value)
+                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [0, 2])
+            ))
+            .count();
+        assert!(
+            key_loads >= 2,
+            "literal augmented assignment should reload the packed key for read and write: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn dynamic_multi_index_augmented_assign_avoids_helper_list_materialization() {
+        let top = compile_source("i:0;xs:(10;20;30); xs[i;2]+:1");
 
         assert!(
             top.iter()
                 .any(|inst| matches!(inst, Instruction::IndexManyLoadVar(name, 2)
                     if name.as_ref() == "xs")),
-            "expected IndexManyLoadVar for augmented assignment read: {top:#?}",
+            "expected IndexManyLoadVar for dynamic augmented assignment read: {top:#?}",
         );
         assert!(
             top.iter().any(
                 |inst| matches!(inst, Instruction::IndexManyAssignVar(name, 2)
                     if name.as_ref() == "xs")
             ),
-            "expected IndexManyAssignVar for augmented assignment write: {top:#?}",
+            "expected IndexManyAssignVar for dynamic augmented assignment write: {top:#?}",
         );
         assert!(
             !top.iter().any(|inst| matches!(
@@ -4090,14 +4193,32 @@ mod tests {
     }
 
     #[test]
-    fn nested_path_final_multi_index_assign_avoids_helper_list_materialization() {
+    fn nested_path_final_literal_multi_index_assign_uses_packed_const_key() {
         let top = compile_source("xs:((10;20;30);(40;50;60)); xs[0][1;2]:99");
 
         assert!(
-            top.iter().any(
-                |inst| matches!(inst, Instruction::IndexManyAssignVarDrop(_, 2))
-            ),
-            "expected final path segment to use IndexManyAssignVarDrop: {top:#?}",
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::IndexAssignVarDrop(_))),
+            "expected final path segment to use single-key assignment: {top:#?}",
+        );
+        assert!(
+            top.iter().any(|inst| matches!(
+                inst,
+                Instruction::LoadConst(value)
+                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [1, 2])
+            )),
+            "literal final path index should compile to a packed const key: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn nested_path_final_dynamic_multi_index_assign_avoids_helper_list_materialization() {
+        let top = compile_source("j:1;xs:((10;20;30);(40;50;60)); xs[0][j;2]:99");
+
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::IndexManyAssignVarDrop(_, 2))),
+            "expected final dynamic path segment to use IndexManyAssignVarDrop: {top:#?}",
         );
         assert!(
             !top.iter().any(|inst| matches!(
@@ -4129,19 +4250,41 @@ mod tests {
     }
 
     #[test]
-    fn nested_path_final_multi_index_augmented_assign_avoids_helper_list_materialization() {
+    fn nested_path_final_literal_multi_index_augmented_assign_uses_packed_const_key() {
         let top = compile_source("xs:((10;20;30);(40;50;60)); xs[0][1;2]+:1");
+
+        assert!(
+            top.iter().any(|inst| matches!(inst, Instruction::Index)),
+            "expected final path augmented read to use single-key index: {top:#?}",
+        );
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::IndexAssignVarDrop(_))),
+            "expected final path augmented write to use single-key assignment: {top:#?}",
+        );
+        assert!(
+            top.iter().any(|inst| matches!(
+                inst,
+                Instruction::LoadConst(value)
+                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [1, 2])
+            )),
+            "literal final path augmented index should compile to a packed const key: {top:#?}",
+        );
+    }
+
+    #[test]
+    fn nested_path_final_dynamic_multi_index_augmented_assign_avoids_helper_list_materialization() {
+        let top = compile_source("j:1;xs:((10;20;30);(40;50;60)); xs[0][j;2]+:1");
 
         assert!(
             top.iter()
                 .any(|inst| matches!(inst, Instruction::IndexMany(2))),
-            "expected final path augmented read to use IndexMany: {top:#?}",
+            "expected final dynamic path augmented read to use IndexMany: {top:#?}",
         );
         assert!(
-            top.iter().any(
-                |inst| matches!(inst, Instruction::IndexManyAssignVarDrop(_, 2))
-            ),
-            "expected final path augmented write to use IndexManyAssignVarDrop: {top:#?}",
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::IndexManyAssignVarDrop(_, 2))),
+            "expected final dynamic path augmented write to use IndexManyAssignVarDrop: {top:#?}",
         );
         assert!(
             !top.iter().any(|inst| matches!(
