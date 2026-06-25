@@ -120,82 +120,50 @@ impl<T> SampledSeries<T> {
     }
 }
 
+#[derive(Clone, Default)]
+struct SeriesAttrs {
+    xlim: Option<(f64, f64)>,
+    symbol: Option<char>,
+    mode: Option<PlotMode>,
+    label: Option<String>,
+}
+
+impl SeriesAttrs {
+    fn from_map(map: &IndexMap<std::sync::Arc<str>, Value>) -> Self {
+        Self {
+            xlim: map.get("xlim").and_then(pair_as_f64),
+            symbol: map.get("symbol").and_then(parse_series_symbol),
+            mode: map.get("mode").and_then(parse_plot_mode),
+            label: map
+                .get("label")
+                .and_then(|v| v.to_rust_string_with_note().ok()),
+        }
+    }
+
+    fn has_config_option(&self) -> bool {
+        self.xlim.is_some()
+            || self.symbol.is_some()
+            || self.mode.is_some()
+            || self.label.is_some()
+    }
+
+    fn into_config(self, data: SeriesData) -> SeriesConfig {
+        SeriesConfig {
+            data,
+            xlim: self.xlim,
+            symbol: self.symbol,
+            mode: self.mode,
+            label: self.label,
+        }
+    }
+}
+
 fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfig>> {
+    if let Some(series) = parse_raw_series_data(arg) {
+        return Ok(vec![SeriesAttrs::default().into_config(SeriesData::Raw(series))]);
+    }
+
     match arg {
-        Value::IntList(arr) if !arr.is_empty() => Ok(vec![SeriesConfig {
-            data: SeriesData::Raw(SampledSeries::from_points(
-                arr.iter()
-                    .enumerate()
-                    .map(|(i, &y)| (i as f64, y as f64))
-                    .collect(),
-            )),
-            xlim: None,
-            symbol: None,
-            mode: None,
-            label: None,
-        }]),
-        Value::FloatList(arr) if !arr.is_empty() => Ok(vec![SeriesConfig {
-            data: SeriesData::Raw(SampledSeries::from_points(
-                arr.iter()
-                    .enumerate()
-                    .map(|(i, &y)| (i as f64, y.0))
-                    .collect(),
-            )),
-            xlim: None,
-            symbol: None,
-            mode: None,
-            label: None,
-        }]),
-        Value::List(items)
-            if items.iter().all(|it| {
-                if let Value::List(ref pair) = *it {
-                    pair.len() == 2 && pair[0].as_f64().is_some() && pair[1].as_f64().is_some()
-                } else {
-                    false
-                }
-            }) && !items.is_empty() =>
-        {
-            Ok(vec![SeriesConfig {
-                data: SeriesData::Raw(SampledSeries::from_points(
-                    items
-                        .iter()
-                        .map(|it| {
-                            let Value::List(ref pair) = *it else {
-                                unreachable!();
-                            };
-                            (
-                                pair[0].as_f64().expect("guard checked x is numeric"),
-                                pair[1].as_f64().expect("guard checked y is numeric"),
-                            )
-                        })
-                        .collect(),
-                )),
-                xlim: None,
-                symbol: None,
-                mode: None,
-                label: None,
-            }])
-        }
-        Value::List(items) if items.iter().all(|v| v.as_f64().is_some()) && !items.is_empty() => {
-            Ok(vec![SeriesConfig {
-                data: SeriesData::Raw(SampledSeries::from_points(
-                    items
-                        .iter()
-                        .enumerate()
-                        .map(|(i, y)| {
-                            (
-                                i as f64,
-                                y.as_f64().expect("guard checked list item is numeric"),
-                            )
-                        })
-                        .collect(),
-                )),
-                xlim: None,
-                symbol: None,
-                mode: None,
-                label: None,
-            }])
-        }
         Value::List(_) => {
             if let Some(table) = parse_table_arg(arg) {
                 table_series_configs(table, opts)
@@ -211,35 +179,8 @@ fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfi
             label: None,
         }]),
         Value::Dict(map) => {
-            if let Some(fn_val) = map.get("fn")
-                && (fn_val.is_callable() || fn_val.is_cas_expr())
-            {
-                let xlim = map.get("xlim").and_then(pair_as_f64);
-                let symbol = map.get("symbol").and_then(|v| match v {
-                    Value::Char(c) => Some(*c),
-                    _ => v
-                        .to_rust_string_with_note()
-                        .ok()
-                        .and_then(|s| s.chars().next()),
-                });
-                let mode = map.get("mode").and_then(parse_plot_mode);
-                let label = map
-                    .get("label")
-                    .and_then(|v| v.to_rust_string_with_note().ok());
-
-                let data = if fn_val.is_callable() {
-                    SeriesData::Callable(fn_val.clone())
-                } else {
-                    SeriesData::Cas(fn_val.clone())
-                };
-
-                Ok(vec![SeriesConfig {
-                    data,
-                    xlim,
-                    symbol,
-                    mode,
-                    label,
-                }])
+            if let Some(config) = parse_series_config_dict(map)? {
+                Ok(vec![config])
             } else if let Some(table) = parse_table_arg(arg) {
                 table_series_configs(table, opts)
             } else if map.contains_key("fn") {
@@ -266,6 +207,175 @@ fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfi
             label: None,
         }]),
         _ => Err(expected_series_arg_error()),
+    }
+}
+
+fn parse_series_config_dict(
+    map: &IndexMap<std::sync::Arc<str>, Value>,
+) -> WqResult<Option<SeriesConfig>> {
+    let attrs = SeriesAttrs::from_map(map);
+
+    if let Some(fn_val) = map
+        .get("fn")
+        .or_else(|| map.get("cas"))
+        .or_else(|| map.get("expr"))
+    {
+        if fn_val.is_callable() {
+            return Ok(Some(attrs.into_config(SeriesData::Callable(fn_val.clone()))));
+        }
+        if fn_val.is_cas_expr() {
+            return Ok(Some(attrs.into_config(SeriesData::Cas(fn_val.clone()))));
+        }
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Asciiplot)
+            .msg("series config `fn`, `cas`, or `expr` must be callable or CAS"));
+    }
+
+    let data_value = map
+        .get("points")
+        .or_else(|| map.get("values"))
+        .or_else(|| {
+            if attrs.has_config_option() || map.len() == 1 {
+                map.get("data")
+            } else {
+                None
+            }
+        });
+    if let Some(value) = data_value {
+        let Some(series) = parse_raw_series_data(value) else {
+            return Err(WqError::new(WqErrorType::Domain)
+                .src(BE::Asciiplot)
+                .msg(
+                    "series config data must be a numeric y-list or explicit ((x;y);...) points",
+                ));
+        };
+        return Ok(Some(attrs.into_config(SeriesData::Raw(series))));
+    }
+
+    if attrs.has_config_option()
+        && let (Some(x_values), Some(y_values)) = (map.get("x"), map.get("y"))
+    {
+        return Ok(Some(attrs.into_config(SeriesData::Raw(
+            parse_xy_series_data(x_values, y_values)?,
+        ))));
+    }
+
+    if attrs.has_config_option()
+        && let Some(y_values) = map.get("y")
+    {
+        let Some(series) = parse_raw_series_data(y_values) else {
+            return Err(WqError::new(WqErrorType::Domain)
+                .src(BE::Asciiplot)
+                .msg("series config `y` must be a numeric y-list"));
+        };
+        return Ok(Some(attrs.into_config(SeriesData::Raw(series))));
+    }
+
+    Ok(None)
+}
+
+fn parse_raw_series_data(value: &Value) -> Option<SampledSeries<f64>> {
+    match value {
+        Value::IntList(arr) if !arr.is_empty() => Some(SampledSeries::from_points(
+            arr.iter()
+                .enumerate()
+                .map(|(i, &y)| (i as f64, y as f64))
+                .collect(),
+        )),
+        Value::FloatList(arr) if !arr.is_empty() => Some(SampledSeries::from_points(
+            arr.iter().enumerate().map(|(i, &y)| (i as f64, y.0)).collect(),
+        )),
+        Value::List(items)
+            if items.iter().all(|it| {
+                if let Value::List(ref pair) = *it {
+                    pair.len() == 2 && pair[0].as_f64().is_some() && pair[1].as_f64().is_some()
+                } else {
+                    false
+                }
+            }) && !items.is_empty() =>
+        {
+            Some(SampledSeries::from_points(
+                items
+                    .iter()
+                    .map(|it| {
+                        let Value::List(ref pair) = *it else {
+                            unreachable!();
+                        };
+                        (
+                            pair[0].as_f64().expect("guard checked x is numeric"),
+                            pair[1].as_f64().expect("guard checked y is numeric"),
+                        )
+                    })
+                    .collect(),
+            ))
+        }
+        Value::List(items) if items.iter().all(|v| v.as_f64().is_some()) && !items.is_empty() => {
+            Some(SampledSeries::from_points(
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, y)| {
+                        (
+                            i as f64,
+                            y.as_f64().expect("guard checked list item is numeric"),
+                        )
+                    })
+                    .collect(),
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn parse_xy_series_data(x_value: &Value, y_value: &Value) -> WqResult<SampledSeries<f64>> {
+    let Some(xs) = numeric_sequence(x_value) else {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Asciiplot)
+            .msg("series config `x` must be a numeric list"));
+    };
+    let Some(ys) = numeric_sequence(y_value) else {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Asciiplot)
+            .msg("series config `y` must be a numeric list"));
+    };
+    if xs.is_empty() || xs.len() != ys.len() {
+        return Err(WqError::new(WqErrorType::Length)
+            .src(BE::Asciiplot)
+            .msg("series config `x` and `y` must have the same non-zero length"));
+    }
+
+    Ok(SampledSeries::from_points(xs.into_iter().zip(ys).collect()))
+}
+
+fn numeric_sequence(value: &Value) -> Option<Vec<f64>> {
+    match value {
+        Value::IntList(items) if !items.is_empty() => {
+            Some(items.iter().map(|&item| item as f64).collect())
+        }
+        Value::FloatList(items) if !items.is_empty() => {
+            Some(items.iter().map(|&item| item.0).collect())
+        }
+        Value::List(items)
+            if !items.is_empty() && items.iter().all(|item| item.as_f64().is_some()) =>
+        {
+            Some(
+                items
+                    .iter()
+                    .map(|item| item.as_f64().expect("guard checked item is numeric"))
+                    .collect(),
+            )
+        }
+        _ => None,
+    }
+}
+
+fn parse_series_symbol(value: &Value) -> Option<char> {
+    match value {
+        Value::Char(c) => Some(*c),
+        _ => value
+            .to_rust_string_with_note()
+            .ok()
+            .and_then(|s| s.chars().next()),
     }
 }
 
@@ -727,21 +837,22 @@ enum PlotMode {
 }
 
 fn parse_plot_mode(value: &Value) -> Option<PlotMode> {
-    let s: Option<&str> = match value {
-        Value::Tag(sym) => Some(sym),
-        _ => value
-            .to_rust_string_with_note()
-            .ok()
-            .map(|ss| Box::leak(ss.into_boxed_str()) as &str),
+    let owned;
+    let s = match value {
+        Value::Tag(sym) => sym.as_ref(),
+        _ => {
+            owned = value.to_rust_string_with_note().ok()?;
+            owned.as_str()
+        }
     };
-    s.and_then(|m| match m {
+    match s {
         "line" | "l" => Some(PlotMode::Line),
         "scatter" | "sc" => Some(PlotMode::Scatter),
         "step" | "st" => Some(PlotMode::Step),
         "bar" | "b" => Some(PlotMode::Bar),
         "area" | "a" => Some(PlotMode::Area),
         _ => None,
-    })
+    }
 }
 
 fn parse_column_name(value: &Value) -> Option<String> {
@@ -1371,14 +1482,15 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
                         let ystart = min(baseline_row, yl);
                         let yend = max(baseline_row, yl);
                         for yy in ystart..=yend {
-                            set_cell_layer(
+                            set_area_cell(
                                 &mut grid,
                                 x,
                                 yy,
                                 symbol,
-                                Layer::Data,
                                 color,
                                 opts.color.is_on(),
+                                si,
+                                opts.ascii,
                             );
                         }
                     }
@@ -1388,14 +1500,15 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
                     let ystart = min(baseline_row, y);
                     let yend = max(baseline_row, y);
                     for yy in ystart..=yend {
-                        set_cell_layer(
+                        set_area_cell(
                             &mut grid,
                             x,
                             yy,
                             symbol,
-                            Layer::Data,
                             color,
                             opts.color.is_on(),
+                            si,
+                            opts.ascii,
                         );
                     }
                 }
@@ -1655,6 +1768,8 @@ struct Cell {
     ch: char,
     layer: Layer,
     color: Option<AnsiColor>,
+    area_mask: u128,
+    area_count: u16,
 }
 impl Cell {
     fn new(ch: char) -> Self {
@@ -1662,6 +1777,8 @@ impl Cell {
             ch,
             layer: Layer::Grid,
             color: None,
+            area_mask: 0,
+            area_count: 0,
         }
     }
 }
@@ -1681,8 +1798,67 @@ fn set_cell_layer(
             cell.ch = ch;
             cell.layer = layer;
             cell.color = if color_on { color } else { None };
+            if layer == Layer::Data {
+                cell.area_mask = 0;
+                cell.area_count = 0;
+            }
         }
     }
+}
+
+fn set_area_cell(
+    grid: &mut [Vec<Cell>],
+    x: isize,
+    y: isize,
+    ch: char,
+    color: Option<AnsiColor>,
+    color_on: bool,
+    series_idx: usize,
+    ascii: bool,
+) {
+    if y < 0 || (y as usize) >= grid.len() || x < 0 || (x as usize) >= grid[0].len() {
+        return;
+    }
+
+    let cell = &mut grid[y as usize][x as usize];
+    let series_bit = area_series_bit(series_idx);
+    if let Some(bit) = series_bit
+        && cell.area_mask & bit != 0
+    {
+        return;
+    }
+
+    let overlaps_area = cell.layer == Layer::Data && cell.area_count > 0;
+    if overlaps_area {
+        cell.ch = area_overlap_char(ascii);
+        cell.layer = Layer::Data;
+        cell.color = if color_on {
+            mix_area_colors(cell.color, color)
+        } else {
+            None
+        };
+    } else if Layer::Data >= cell.layer || cell.ch == ' ' {
+        cell.ch = ch;
+        cell.layer = Layer::Data;
+        cell.color = if color_on { color } else { None };
+    }
+
+    if let Some(bit) = series_bit {
+        cell.area_mask |= bit;
+    }
+    cell.area_count = cell.area_count.saturating_add(1);
+}
+
+fn area_series_bit(series_idx: usize) -> Option<u128> {
+    if series_idx < u128::BITS as usize {
+        Some(1_u128 << series_idx)
+    } else {
+        None
+    }
+}
+
+fn area_overlap_char(ascii: bool) -> char {
+    if ascii { '%' } else { '▓' }
 }
 
 fn rasterize_line(mut x0: isize, mut y0: isize, x1: isize, y1: isize) -> Vec<(isize, isize)> {
@@ -1741,6 +1917,63 @@ fn series_color(idx: usize) -> AnsiColor {
         BrightCyan,
     ];
     palette[idx % palette.len()]
+}
+
+fn mix_area_colors(existing: Option<AnsiColor>, incoming: Option<AnsiColor>) -> Option<AnsiColor> {
+    match (existing, incoming) {
+        (Some(a), Some(b)) => Some(mix_ansi_colors(a, b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
+fn mix_ansi_colors(a: AnsiColor, b: AnsiColor) -> AnsiColor {
+    let (a_mask, a_bright) = color_rgb_mask(a);
+    let (b_mask, b_bright) = color_rgb_mask(b);
+    ansi_from_rgb_mask(a_mask | b_mask, a_bright || b_bright)
+}
+
+fn color_rgb_mask(color: AnsiColor) -> (u8, bool) {
+    match color {
+        AnsiColor::Black => (0, false),
+        AnsiColor::Red => (0b001, false),
+        AnsiColor::Green => (0b010, false),
+        AnsiColor::Yellow => (0b011, false),
+        AnsiColor::Blue => (0b100, false),
+        AnsiColor::Magenta | AnsiColor::Purple => (0b101, false),
+        AnsiColor::Cyan => (0b110, false),
+        AnsiColor::White => (0b111, false),
+        AnsiColor::BrightBlack => (0, true),
+        AnsiColor::BrightRed => (0b001, true),
+        AnsiColor::BrightGreen => (0b010, true),
+        AnsiColor::BrightYellow => (0b011, true),
+        AnsiColor::BrightBlue => (0b100, true),
+        AnsiColor::BrightMagenta => (0b101, true),
+        AnsiColor::BrightCyan => (0b110, true),
+        AnsiColor::BrightWhite => (0b111, true),
+    }
+}
+
+fn ansi_from_rgb_mask(mask: u8, bright: bool) -> AnsiColor {
+    match (mask, bright) {
+        (0, false) => AnsiColor::Black,
+        (0, true) => AnsiColor::BrightBlack,
+        (0b001, false) => AnsiColor::Red,
+        (0b001, true) => AnsiColor::BrightRed,
+        (0b010, false) => AnsiColor::Green,
+        (0b010, true) => AnsiColor::BrightGreen,
+        (0b011, false) => AnsiColor::Yellow,
+        (0b011, true) => AnsiColor::BrightYellow,
+        (0b100, false) => AnsiColor::Blue,
+        (0b100, true) => AnsiColor::BrightBlue,
+        (0b101, false) => AnsiColor::Magenta,
+        (0b101, true) => AnsiColor::BrightMagenta,
+        (0b110, false) => AnsiColor::Cyan,
+        (0b110, true) => AnsiColor::BrightCyan,
+        (_, false) => AnsiColor::White,
+        (_, true) => AnsiColor::BrightWhite,
+    }
 }
 
 fn paint_char(ch: char, color: Option<AnsiColor>) -> String {
@@ -1880,6 +2113,10 @@ mod tests {
         Value::String(Arc::new(s.to_owned()))
     }
 
+    fn mode_value(mode: &str) -> (Arc<str>, Value) {
+        (Arc::from("mode"), string_value(mode))
+    }
+
     #[test]
     fn maximal_theme_sets_full_axes_grid_and_color() {
         let mut opts = PlotOptions::default();
@@ -2010,6 +2247,60 @@ mod tests {
     }
 
     #[test]
+    fn series_config_accepts_raw_data_with_per_series_mode() {
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            (
+                "data".into(),
+                Value::IntList(Arc::new(vec![1, 3, 2])),
+            ),
+            ("mode".into(), string_value("bar")),
+            ("label".into(), string_value("counts")),
+        ])));
+
+        let configs = parse_series_arg(&value, &PlotOptions::default())
+            .expect("raw series config should parse");
+
+        assert_eq!(configs.len(), 1);
+        assert!(matches!(configs[0].mode, Some(PlotMode::Bar)));
+        assert_eq!(configs[0].label.as_deref(), Some("counts"));
+        assert_raw_points(&configs[0], &[(0.0, 1.0), (1.0, 3.0), (2.0, 2.0)]);
+    }
+
+    #[test]
+    fn series_config_accepts_xy_lists_with_per_series_mode() {
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            ("x".into(), Value::IntList(Arc::new(vec![10, 20, 30]))),
+            ("y".into(), Value::IntList(Arc::new(vec![2, 4, 3]))),
+            ("mode".into(), string_value("scatter")),
+        ])));
+
+        let configs = parse_series_arg(&value, &PlotOptions::default())
+            .expect("xy series config should parse");
+
+        assert_eq!(configs.len(), 1);
+        assert!(matches!(configs[0].mode, Some(PlotMode::Scatter)));
+        assert_raw_points(&configs[0], &[(10.0, 2.0), (20.0, 4.0), (30.0, 3.0)]);
+    }
+
+    #[test]
+    fn plain_xy_dict_still_parses_as_table_data() {
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            ("x".into(), Value::IntList(Arc::new(vec![0, 1, 2]))),
+            ("y".into(), Value::IntList(Arc::new(vec![2, 4, 3]))),
+        ])));
+        let opts = PlotOptions {
+            table_x: Some("x".to_string()),
+            ..PlotOptions::default()
+        };
+
+        let configs = parse_series_arg(&value, &opts).expect("xy table should still parse");
+
+        assert_eq!(configs.len(), 1);
+        assert_eq!(configs[0].label.as_deref(), Some("y"));
+        assert_raw_points(&configs[0], &[(0.0, 2.0), (1.0, 4.0), (2.0, 3.0)]);
+    }
+
+    #[test]
     fn asciiplot_accepts_single_cas_arg() {
         let expr = Value::from_cas_function(CasFunction::Sin, vec![Value::from_cas_var("x")]);
         let mut vm = Vm::new(vec![]);
@@ -2030,6 +2321,62 @@ mod tests {
         );
         set_wqstdout(None);
         assert_eq!(result.unwrap(), Value::unit());
+    }
+
+    #[test]
+    fn asciiplot_accepts_callable_and_cas_for_each_mode() {
+        let callable = Value::builtin_function("abs", Builtins::ABS);
+        let cas = Value::from_cas_op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]);
+
+        for mode in ["line", "scatter", "step", "bar", "area"] {
+            let mut vm = Vm::new(vec![]);
+            set_wqstdout(Some(Box::new(SinkStdout)));
+            let callable_result = asciiplot(
+                &mut vm,
+                BuiltinFnArgs::with_named(
+                    smallvec![callable.clone()],
+                    vec![
+                        mode_value(mode),
+                        (
+                            Arc::from("size"),
+                            Value::List(Arc::new(vec![Value::Int(12), Value::Int(5)])),
+                        ),
+                        (
+                            Arc::from("xlim"),
+                            Value::List(Arc::new(vec![Value::Int(-2), Value::Int(2)])),
+                        ),
+                        (Arc::from("samples"), Value::Int(5)),
+                        (Arc::from("color"), Value::Bool(false)),
+                    ],
+                ),
+            );
+            set_wqstdout(None);
+            assert_eq!(callable_result.unwrap(), Value::unit());
+
+            let mut vm = Vm::new(vec![]);
+            set_wqstdout(Some(Box::new(SinkStdout)));
+            let cas_result = asciiplot(
+                &mut vm,
+                BuiltinFnArgs::with_named(
+                    smallvec![cas.clone()],
+                    vec![
+                        mode_value(mode),
+                        (
+                            Arc::from("size"),
+                            Value::List(Arc::new(vec![Value::Int(12), Value::Int(5)])),
+                        ),
+                        (
+                            Arc::from("xlim"),
+                            Value::List(Arc::new(vec![Value::Int(-2), Value::Int(2)])),
+                        ),
+                        (Arc::from("samples"), Value::Int(5)),
+                        (Arc::from("color"), Value::Bool(false)),
+                    ],
+                ),
+            );
+            set_wqstdout(None);
+            assert_eq!(cas_result.unwrap(), Value::unit());
+        }
     }
 
     #[test]
@@ -2101,6 +2448,56 @@ mod tests {
         let plotted_points = rendered.chars().filter(|&ch| ch == '*').count();
 
         assert_eq!(plotted_points, 3);
+    }
+
+    #[test]
+    fn render_area_overlap_marks_shared_fill_when_color_is_off() {
+        let opts = PlotOptions {
+            width: 5,
+            height: 5,
+            xlim: Some((0.0, 1.0)),
+            ylim: Some((0.0, 1.0)),
+            mode: PlotMode::Area,
+            axes: AxesMode::Off,
+            color: ColorMode::Off,
+            ..PlotOptions::default()
+        };
+        let series = vec![
+            PlotSeries {
+                points: vec![(0.0, 1.0), (1.0, 1.0)],
+                breaks_after: Vec::new(),
+                symbol: Some('a'),
+                mode: None,
+                label: None,
+            },
+            PlotSeries {
+                points: vec![(0.0, 1.0), (1.0, 1.0)],
+                breaks_after: Vec::new(),
+                symbol: Some('b'),
+                mode: None,
+                label: None,
+            },
+        ];
+
+        let rendered = render_ascii_plot(&series, &opts);
+
+        assert!(rendered.contains(area_overlap_char(false)));
+    }
+
+    #[test]
+    fn area_overlap_mixes_primary_colors() {
+        assert_eq!(
+            mix_area_colors(Some(AnsiColor::Red), Some(AnsiColor::Blue)),
+            Some(AnsiColor::Magenta)
+        );
+        assert_eq!(
+            mix_area_colors(Some(AnsiColor::Magenta), Some(AnsiColor::Green)),
+            Some(AnsiColor::White)
+        );
+        assert_eq!(
+            mix_area_colors(Some(AnsiColor::BrightRed), Some(AnsiColor::Blue)),
+            Some(AnsiColor::BrightMagenta)
+        );
     }
 
     #[test]
