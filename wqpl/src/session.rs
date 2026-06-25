@@ -3,8 +3,8 @@ pub mod stdio;
 
 use crate::astnode::AstNode;
 use crate::builtins::BuiltinPreset;
-use crate::cst::{GreenChild, GreenNode, GreenNodeBuilder, GreenToken, SyntaxKind};
 use crate::compile::Compiler;
+use crate::cst::{GreenChild, GreenNode, GreenNodeBuilder, GreenToken, SyntaxKind};
 use crate::interpret::InterpreterKind;
 use crate::interpret::profiler::ProfilerInterpreter;
 use crate::interpret::sample::SampleInterpreter;
@@ -220,7 +220,7 @@ impl Session {
             }
         };
 
-        dump_ast("AST - original", &ast, DebugLogFlags::AST);
+        dump_ast("AST - original", &ast, DebugLogFlags::AST_VERBOSE);
 
         let env = self.environment();
         let mut resolver = Resolver::from_env(env.clone(), builtins.clone());
@@ -228,7 +228,7 @@ impl Session {
         dump_ast("AST @ resolve", &ast, DebugLogFlags::AST_VERBOSE);
 
         let ast = fold::fold(ast);
-        dump_ast("AST @ fold - final", &ast, DebugLogFlags::AST_VERBOSE);
+        dump_ast("AST @ fold - final", &ast, DebugLogFlags::AST);
 
         let mut compiler = Compiler::new_with_builtins(builtins);
         compiler.set_fn_spans(parser.fn_body_spans_all().clone());
@@ -850,7 +850,10 @@ mod tests {
 
     #[test]
     fn debug_header_renders_with_explicit_color_mode() {
-        assert_eq!(debug_header_with_color_mode("TOKEN", ColorMode::Never), "TOKEN");
+        assert_eq!(
+            debug_header_with_color_mode("TOKEN", ColorMode::Never),
+            "TOKEN"
+        );
         assert_eq!(
             debug_header_with_color_mode("TOKEN", ColorMode::Always),
             "\x1b[1;4mTOKEN\x1b[0m"
