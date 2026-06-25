@@ -7,7 +7,6 @@ repository.workspace = true
 description = "The wq Programming Language"
 
 [dependencies]
-colored.workspace = true
 rand.workspace = true
 indexmap = "2.14.0"
 ordered-float = "5.3.0"
