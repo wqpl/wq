@@ -1,6 +1,7 @@
 name = "bt"
 source_glob = "hotchoco/bt/*.wq"
 exclude_marker = "//exclude"
+expected_exit_code = 1
 
 [[modes]]
 name = "print"
