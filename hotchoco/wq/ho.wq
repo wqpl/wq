@@ -73,12 +73,12 @@ echo zip[(1;2;3);(4;5;6)]
 echo zip[(1;2;3);(4;5;6);1]
 echo zip[(1;(2;3));(4;(5;6));2]
 
-// FINDWITH / RFINDWITH
+// FINDW / RFINDW
 d:(1;2;3;2;4)
-echo findwith[d;{x=2}]
-echo findwith[d;{x=2};inf]
-echo rfindwith[d;{x=2}]
-echo rfindwith[d;{x=2};inf]
+echo findw[d;{x=2}]
+echo findw[d;{x=2};inf]
+echo rfindw[d;{x=2}]
+echo rfindw[d;{x=2};inf]
 
 // RFIND
 echo rfind[d;2]

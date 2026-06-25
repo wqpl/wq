@@ -104,13 +104,10 @@ F
 ((1;4);(2;5);(3;6))
 ((1;4);(2;5);(3;6))
 ((1;4);((2;5);(3;6)))
-▍ Error at <TEST_PATH>
-  not-bound: 'findwith' has not been bound to a value
-  - from vanilla
-● at <script>, <TEST_PATH>
-│   77    d:(1;2;3;2;4)
-│   78 -> echo findwith[d;{x=2}]
-│              ~~~~~~~~~~~~~~~~~
-│   79    echo findwith[d;{x=2};inf]
-
-▍ Import stack: <TEST_PATH>
+,1
+(,1;,3)
+,3
+(,3;,1)
+,3
+(,3;,1)
+()
