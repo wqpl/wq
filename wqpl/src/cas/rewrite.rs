@@ -1652,9 +1652,10 @@ pub(crate) fn contains_cas_var(expr: &Value, var: &str) -> bool {
         return contains_cas_var(value, var);
     }
     if let Some((inner, limit_var, point, _)) = expr.cas_limit_parts() {
-        return contains_cas_var(inner, var)
-            || contains_cas_var(limit_var, var)
-            || contains_cas_var(point, var);
+        let inner_contains = limit_var
+            .cas_var_name()
+            .is_none_or(|bound| bound != var && contains_cas_var(inner, var));
+        return inner_contains || contains_cas_var(point, var);
     }
     if let Some((lhs, rhs)) = expr.cas_eq_parts() {
         return contains_cas_var(lhs, var) || contains_cas_var(rhs, var);

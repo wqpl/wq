@@ -28,9 +28,21 @@ enum SimplifyFrame {
     Div,
     Neg,
     Sub,
-    Function { function: CasFunction, n: usize },
-    Apply { name: CasSymbol, n: usize },
-    NamedArg { name: CasSymbol },
+    Function {
+        function: CasFunction,
+        n: usize,
+    },
+    Apply {
+        name: CasSymbol,
+        n: usize,
+    },
+    NamedArg {
+        name: CasSymbol,
+    },
+    Limit {
+        var: Value,
+        direction: Option<crate::cas::limit::LimitDirection>,
+    },
     Eq,
 }
 
@@ -196,6 +208,96 @@ fn cas_div_uncached(lhs: Value, rhs: Value) -> WqResult<Value> {
     } else {
         cas_mul(vec![lhs, cas_pow(rhs, Value::Int(-1))?])
     }
+}
+
+fn bigint_mod_i64(value: &BigInt, modulus: i64) -> Option<i64> {
+    let modulus_big = BigInt::from(modulus);
+    let mut rem = value % &modulus_big;
+    if rem.is_negative() {
+        rem += &modulus_big;
+    }
+    rem.to_i64()
+}
+
+fn exact_pi_multiple(value: &Value) -> Option<Value> {
+    if value.cas_const() == Some(CasConst::Pi) {
+        return Some(Value::Int(1));
+    }
+
+    let (CasOp::Multiply, args) = value.cas_op_parts()? else {
+        return None;
+    };
+
+    let mut coeff = Value::Int(1);
+    let mut found_pi = false;
+    for arg in args {
+        if arg.cas_const() == Some(CasConst::Pi) {
+            if found_pi {
+                return None;
+            }
+            found_pi = true;
+        } else if !arg.is_cas_expr() && arg.rational_parts().is_some() {
+            coeff = numeric_mul(&coeff, arg).ok()?;
+        } else {
+            return None;
+        }
+    }
+
+    found_pi.then_some(coeff)
+}
+
+fn exact_trig_value(function: CasFunction, arg: &Value) -> Option<Value> {
+    if numeric_is_zero(arg) {
+        return match function {
+            CasFunction::Sin | CasFunction::Tan => Some(Value::Int(0)),
+            CasFunction::Cos => Some(Value::Int(1)),
+            _ => None,
+        };
+    }
+
+    let multiple = exact_pi_multiple(arg)?;
+    let (numer, denom) = multiple.rational_parts()?;
+    if denom.is_one() {
+        return match function {
+            CasFunction::Sin | CasFunction::Tan => Some(Value::Int(0)),
+            CasFunction::Cos => {
+                let parity = bigint_mod_i64(&numer, 2)?;
+                Some(Value::Int(if parity == 0 { 1 } else { -1 }))
+            }
+            _ => None,
+        };
+    }
+
+    if denom == BigInt::from(2) && bigint_mod_i64(&numer, 2)? == 1 {
+        return match function {
+            CasFunction::Sin => {
+                let quarter = bigint_mod_i64(&numer, 4)?;
+                Some(Value::Int(if quarter == 1 { 1 } else { -1 }))
+            }
+            CasFunction::Cos => Some(Value::Int(0)),
+            CasFunction::Tan => Some(Value::from_cas_const(CasConst::Undefined)),
+            _ => None,
+        };
+    }
+
+    None
+}
+
+fn exact_function_value(function: CasFunction, args: &[Value]) -> Option<Value> {
+    let [arg] = args else {
+        return None;
+    };
+    match function {
+        CasFunction::Sin | CasFunction::Cos | CasFunction::Tan => exact_trig_value(function, arg),
+        _ => None,
+    }
+}
+
+fn should_keep_exact_function_symbolic(function: CasFunction, args: &[Value]) -> bool {
+    matches!(
+        function,
+        CasFunction::Sin | CasFunction::Cos | CasFunction::Tan
+    ) && matches!(args, [arg] if exact_pi_multiple(arg).is_some())
 }
 
 /// Find the greatest common numeric divisor of all terms in a sum.
@@ -2085,6 +2187,16 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     continue;
                 }
 
+                if let Some((inner, var, point, direction)) = expr.cas_limit_parts() {
+                    stack.push(SimplifyFrame::Limit {
+                        var: var.clone(),
+                        direction,
+                    });
+                    stack.push(SimplifyFrame::Expr(point.clone()));
+                    stack.push(SimplifyFrame::Expr(inner.clone()));
+                    continue;
+                }
+
                 results.push(expr.clone());
             }
             SimplifyFrame::Add(n) => {
@@ -2137,6 +2249,8 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                         arg.clone(),
                         Value::from_fraction_parts(BigInt::one(), BigInt::from(2)),
                     )?);
+                } else if let Some(value) = exact_function_value(function, &args) {
+                    results.push(value);
                 } else if args.iter().all(|arg| !arg.is_cas_expr())
                     && let Some(value) = eval_numeric_call(function, &args)?
                 {
@@ -2176,6 +2290,8 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     } else {
                         results.push(Value::from_cas_function(CasFunction::Abs, args));
                     }
+                } else if should_keep_exact_function_symbolic(function, &args) {
+                    results.push(Value::from_cas_function(function, args));
                 } else if let Some(value) = try_eval_with_const_resolve(function, &args)? {
                     results.push(value);
                 } else {
@@ -2191,6 +2307,15 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     .pop()
                     .ok_or_else(|| cas_err("simplify: missing named argument value"))?;
                 results.push(Value::from_cas_named_arg(name.as_str(), value));
+            }
+            SimplifyFrame::Limit { var, direction } => {
+                let point = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing point for limit"))?;
+                let inner = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing expression for limit"))?;
+                results.push(Value::from_cas_limit(inner, var, point, direction));
             }
             SimplifyFrame::Eq => {
                 let rhs = results
@@ -2302,6 +2427,25 @@ pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<
         return Ok(Value::from_cas_named_arg(
             name.as_str(),
             substitute_expr(value, var, val)?,
+        ));
+    }
+    if let Some((inner, limit_var, point, direction)) = expr.cas_limit_parts() {
+        let substituted_point = substitute_expr(point, var, val)?;
+        let substituted_inner = match limit_var.cas_var_name() {
+            Some(bound) if bound == var => inner.clone(),
+            Some(bound) if contains_cas_var(val, bound) && contains_cas_var(inner, var) => {
+                return Err(cas_err(format!(
+                    "substitute would capture bound limit variable '{bound}'"
+                ))
+                .got1(expr));
+            }
+            _ => substitute_expr(inner, var, val)?,
+        };
+        return Ok(Value::from_cas_limit(
+            substituted_inner,
+            limit_var.clone(),
+            substituted_point,
+            direction,
         ));
     }
     Ok(expr.clone())

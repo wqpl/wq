@@ -12,10 +12,13 @@ use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
 
 fn complex_to_value(z: Complex64) -> Value {
-    if z.im.abs() <= 1e-12 {
-        Value::float(z.re)
+    let eps = z.norm().max(1.0) * 1e-12;
+    let re = if z.re.abs() <= eps { 0.0 } else { z.re };
+    let im = if z.im.abs() <= eps { 0.0 } else { z.im };
+    if im == 0.0 {
+        Value::float(re)
     } else {
-        Value::from_complex64(z)
+        Value::from_complex64(Complex64::new(re, im))
     }
 }
 
@@ -237,7 +240,12 @@ pub(crate) fn solve_cas(input: &Value, var: &Value) -> WqResult<Value> {
     let coeffs = poly_from_expr(&expr, &var)?;
     let degree = poly_degree(&coeffs);
     let roots = match degree {
-        0 => Vec::new(),
+        0 => {
+            if numeric_is_zero(&coeffs[0]) {
+                return Err(cas_err("solve identity has infinitely many solutions"));
+            }
+            Vec::new()
+        }
         1 => vec![eval_exact_numeric_div(
             &coeffs[0].neg().map_err(|e| e.src("cas"))?,
             &coeffs[1],

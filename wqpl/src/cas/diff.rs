@@ -2,7 +2,7 @@ use num_bigint::BigInt;
 
 use crate::cas::{
     cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_product, cas_sub, contains_cas_var,
-    numeric_is_one, numeric_sub, rewrite_cas, rewrite_loop, simplify_cas_value,
+    numeric_is_one, numeric_is_zero, numeric_sub, rewrite_cas, rewrite_loop, simplify_cas_value,
     var_name_from_value, with_cas_div_cache,
 };
 use crate::session::dbglog::DebugLogFlags;
@@ -20,6 +20,52 @@ fn ell_inner(phi: &Value, m: &Value) -> WqResult<Value> {
         Value::Int(2),
     )?;
     cas_sub(Value::Int(1), cas_mul(vec![m.clone(), sin_sq])?)
+}
+
+fn ellik_phi_derivative(phi: &Value, m: &Value) -> WqResult<Value> {
+    let inner = ell_inner(phi, m)?;
+    cas_div(
+        Value::Int(1),
+        Value::from_cas_function(CasFunction::Sqrt, vec![inner]),
+    )
+}
+
+fn ellie_phi_derivative(phi: &Value, m: &Value) -> WqResult<Value> {
+    let inner = ell_inner(phi, m)?;
+    Ok(Value::from_cas_function(CasFunction::Sqrt, vec![inner]))
+}
+
+fn ellie_m_derivative(phi: &Value, m: &Value) -> WqResult<Value> {
+    let e = Value::from_cas_function(CasFunction::EllIe, vec![phi.clone(), m.clone()]);
+    let f = Value::from_cas_function(CasFunction::EllIk, vec![phi.clone(), m.clone()]);
+    cas_div(cas_sub(e, f)?, cas_mul(vec![Value::Int(2), m.clone()])?)
+}
+
+fn ellik_m_derivative(phi: &Value, m: &Value) -> WqResult<Value> {
+    let f = Value::from_cas_function(CasFunction::EllIk, vec![phi.clone(), m.clone()]);
+    let e = Value::from_cas_function(CasFunction::EllIe, vec![phi.clone(), m.clone()]);
+    let one_minus_m = cas_sub(Value::Int(1), m.clone())?;
+
+    let term_e = cas_div(
+        e,
+        cas_mul(vec![Value::Int(2), m.clone(), one_minus_m.clone()])?,
+    )?;
+    let term_f = cas_div(f, cas_mul(vec![Value::Int(2), m.clone()])?)?;
+
+    let sin_2phi = Value::from_cas_function(
+        CasFunction::Sin,
+        vec![cas_mul(vec![Value::Int(2), phi.clone()])?],
+    );
+    let boundary = cas_div(
+        sin_2phi,
+        cas_mul(vec![
+            Value::Int(4),
+            one_minus_m,
+            Value::from_cas_function(CasFunction::Sqrt, vec![ell_inner(phi, m)?]),
+        ])?,
+    )?;
+
+    cas_sub(cas_sub(term_e, term_f)?, boundary)
 }
 
 pub(crate) fn diff_cas(expr: &Value, var: &Value) -> WqResult<Value> {
@@ -395,22 +441,28 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
             ])?,
             (CasFunction::Sgn, [_arg]) => Value::Int(0),
             (CasFunction::EllIk, [phi, m]) => {
-                // d/dx F(phi(x), m) = phi'(x) / sqrt(1 - m*sin^2(phi))
                 let dphi = diff_expr(phi, var)?;
-                let inner = ell_inner(phi, m)?;
-                cas_div(
-                    dphi,
-                    Value::from_cas_function(CasFunction::Sqrt, vec![inner]),
-                )?
+                let dm = diff_expr(m, var)?;
+                let mut terms = Vec::new();
+                if !numeric_is_zero(&dphi) {
+                    terms.push(cas_mul(vec![dphi, ellik_phi_derivative(phi, m)?])?);
+                }
+                if !numeric_is_zero(&dm) {
+                    terms.push(cas_mul(vec![dm, ellik_m_derivative(phi, m)?])?);
+                }
+                cas_add(terms)?
             }
             (CasFunction::EllIe, [phi, m]) => {
-                // d/dx E(phi(x), m) = phi'(x) * sqrt(1 - m*sin^2(phi))
                 let dphi = diff_expr(phi, var)?;
-                let inner = ell_inner(phi, m)?;
-                cas_mul(vec![
-                    dphi,
-                    Value::from_cas_function(CasFunction::Sqrt, vec![inner]),
-                ])?
+                let dm = diff_expr(m, var)?;
+                let mut terms = Vec::new();
+                if !numeric_is_zero(&dphi) {
+                    terms.push(cas_mul(vec![dphi, ellie_phi_derivative(phi, m)?])?);
+                }
+                if !numeric_is_zero(&dm) {
+                    terms.push(cas_mul(vec![dm, ellie_m_derivative(phi, m)?])?);
+                }
+                cas_add(terms)?
             }
             (CasFunction::EllPk, [m1]) => {
                 // d/dm1 K(m1) = (E(m1) - m1'*K(m1)) / (2*m1*m1')
@@ -716,6 +768,29 @@ mod tests {
         );
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "-en[1;x]");
+    }
+
+    #[test]
+    fn differentiate_incomplete_elliptic_parameter() {
+        let y = Value::from_cas_var("y");
+        let x = Value::from_cas_var("x");
+
+        let ellik = call(CasFunction::EllIk, vec![y.clone(), x.clone()]);
+        let ellik_dx = diff_cas(&ellik, &x).unwrap().to_string();
+        assert!(
+            ellik_dx.contains("ellie[y;x]")
+                && ellik_dx.contains("ellik[y;x]")
+                && ellik_dx.contains("sin[y]")
+                && ellik_dx.contains("cos[y]"),
+            "expected parameter derivative for ellik, got: {ellik_dx}"
+        );
+
+        let ellie = call(CasFunction::EllIe, vec![y, x.clone()]);
+        let ellie_dx = diff_cas(&ellie, &x).unwrap().to_string();
+        assert!(
+            ellie_dx.contains("ellie[y;x]") && ellie_dx.contains("ellik[y;x]"),
+            "expected parameter derivative for ellie, got: {ellie_dx}"
+        );
     }
 
     #[test]

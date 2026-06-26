@@ -428,6 +428,15 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
         );
         return Ok(result);
     }
+    if !contains_cas_var(expr, var) {
+        let result = cas_mul(vec![expr.clone(), Value::from_cas_var(var)])?;
+        cas_trace_depth!(
+            DebugLogFlags::CAS_VERBOSE,
+            depth,
+            "[cas-v] integrate_expr_with_depth exit depth={depth} -> constant_wrt_var"
+        );
+        return Ok(result);
+    }
     if let Some((op, args)) = expr.cas_op_parts() {
         let out = match (op, args) {
             (CasOp::Add, args) => {
@@ -2267,6 +2276,14 @@ mod tests {
         .unwrap();
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "e^x*(-cos[x] + sin[x])/2");
+    }
+
+    #[test]
+    fn integrate_variable_free_function_as_constant() {
+        let expr = call(CasFunction::Sin, vec![Value::from_cas_var("y")]);
+        let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
+        let derivative = crate::cas::diff::diff_cas(&result, &Value::from_cas_var("x")).unwrap();
+        assert_eq!(derivative.to_string(), "sin[y]");
     }
 
     #[test]

@@ -298,6 +298,36 @@ fn simplify_evaluates_extended_numeric_calls() {
 }
 
 #[test]
+fn simplify_trig_special_constants_exactly() {
+    assert_eq!(
+        simplify_cas_value(&call(
+            CasFunction::Sin,
+            vec![Value::from_cas_const(CasConst::Pi)]
+        ))
+        .unwrap(),
+        Value::Int(0)
+    );
+    assert_eq!(
+        simplify_cas_value(&call(
+            CasFunction::Tan,
+            vec![Value::from_cas_const(CasConst::Pi)]
+        ))
+        .unwrap(),
+        Value::Int(0)
+    );
+
+    let half_pi = cas_div(Value::from_cas_const(CasConst::Pi), Value::Int(2)).unwrap();
+    assert_eq!(
+        simplify_cas_value(&call(CasFunction::Cos, vec![half_pi.clone()])).unwrap(),
+        Value::Int(0)
+    );
+    assert_eq!(
+        simplify_cas_value(&call(CasFunction::Sin, vec![half_pi])).unwrap(),
+        Value::Int(1)
+    );
+}
+
+#[test]
 fn simplify_combines_inverse_square_roots() {
     let a = cas_add(vec![Value::from_cas_var("x"), Value::Int(1)]).unwrap();
     let b = cas_add(vec![Value::from_cas_var("x"), Value::Int(-1)]).unwrap();
@@ -340,6 +370,36 @@ fn substitute_recurses_into_symbolic_application_args() {
     let expr = Value::from_cas_apply("f", vec![Value::from_cas_var("x")]);
     let result = substitute_cas(&expr, &Value::from_cas_var("x"), &Value::Int(2)).unwrap();
     assert_eq!(result.to_string(), "f[2]");
+}
+
+#[test]
+fn substitute_recurses_into_limit_point_but_not_bound_body() {
+    let y = Value::from_cas_var("y");
+    let x = Value::from_cas_var("x");
+    let inner = cas_div(
+        Value::from_cas_function(CasFunction::Sin, vec![y.clone()]),
+        y.clone(),
+    )
+    .unwrap();
+    let limit = Value::from_cas_limit(inner, y, x.clone(), None);
+
+    let result = substitute_cas(&limit, &x, &Value::Int(0)).unwrap();
+    assert_eq!(result.to_string(), "limit[sin[y]/y;y;0]");
+}
+
+#[test]
+fn substitute_rejects_limit_capture() {
+    let x = Value::from_cas_var("x");
+    let y = Value::from_cas_var("y");
+    let limit = Value::from_cas_limit(y.clone(), x.clone(), Value::Int(0), None);
+
+    let err = substitute_cas(&limit, &y, &x).expect_err("substitution would capture x");
+    assert!(
+        err.msg
+            .as_deref()
+            .is_some_and(|msg| msg.contains("capture bound limit variable")),
+        "unexpected error: {err:?}"
+    );
 }
 
 #[test]
@@ -468,6 +528,19 @@ fn solve_quadratic_equation() {
     assert_eq!(roots.len(), 2);
     assert!(roots.contains(&Value::float(1.0)));
     assert!(roots.contains(&Value::float(-1.0)));
+}
+
+#[test]
+fn solve_identity_reports_infinite_solutions() {
+    let x = Value::from_cas_var("x");
+    let err = solve_cas(&Value::from_cas_eq(x.clone(), x.clone()), &x)
+        .expect_err("identity should not look like an empty root list");
+    assert!(
+        err.msg
+            .as_deref()
+            .is_some_and(|msg| msg.contains("infinitely many solutions")),
+        "unexpected error: {err:?}"
+    );
 }
 
 #[test]

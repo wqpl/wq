@@ -1408,7 +1408,7 @@ mod tests {
     fn limit_sin_at_zero() {
         let expr = call(CasFunction::Sin, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
-        assert_eq!(result, Value::float(0.0));
+        assert_eq!(result, Value::Int(0));
     }
 
     #[test]
@@ -1856,7 +1856,7 @@ mod tests {
         let inner = cas_div_expr(Value::Int(1), cas_var("x"));
         let expr = call(CasFunction::Sin, vec![inner]);
         let result = limit_cas(&expr, &cas_var("x"), &inf(), None).unwrap();
-        assert_eq!(result, Value::float(0.0));
+        assert_eq!(result, Value::Int(0));
     }
 
     #[test]
