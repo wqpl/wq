@@ -52,7 +52,7 @@ const DICT_EXAMPLES: &[DocExample] = &[DocExample {
 pub(super) const TYPE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Type,
     summary: "Return the runtime type name for a value.",
-    details: "`type[x]` returns a string naming the broad value category used by builtin dispatch. Big integers report as `\"int\"`, and strings and int lists report as `\"list\"`, because those values participate in list-like behavior. Use predicates such as `atom?` and `unit?` when the question is structural rather than nominal.",
+    details: "`type[x]` returns a string naming the broad value category used by builtin dispatch. Big integers report as `\"int\"`, and strings and lists of ints report as `\"list\"`, because those values participate in list-like behavior. Use predicates such as `atom?` and `unit?` when the question is structural rather than nominal.",
     examples: TYPE_EXAMPLES,
     related: &["atom?", "unit?", "shape"],
 };
@@ -76,7 +76,7 @@ pub(super) const BOOL: BuiltinDoc = BuiltinDoc {
 pub(super) const CHAR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Char,
     summary: "Convert a value to one character.",
-    details: "`char[x]` leaves chars unchanged. String-like input must contain exactly one Unicode scalar value. Other values are first displayed as text, and that text must also be exactly one character.",
+    details: "`char[x]` leaves chars unchanged. String-like input must contain exactly one Unicode code point. Other values are first displayed as text, and that text must also be exactly one character.",
     examples: CHAR_EXAMPLES,
     related: &["chr", "ord", "str"],
 };
@@ -84,7 +84,7 @@ pub(super) const CHAR: BuiltinDoc = BuiltinDoc {
 pub(super) const ATOM_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::AtomQ,
     summary: "Return true when a value is not a traversable container.",
-    details: "`atom?[x]` is false for lists, int lists, strings, and dicts. It is true for scalar values such as numbers, bools, chars, tags, fractions, complex values, CAS values, functions, and streams. Unit is empty list-like data, so it is not an atom.",
+    details: "`atom?[x]` is false for lists, strings, and dicts. It is true for atoms such as numbers, bools, chars, tags, fractions, complex values, CAS values, functions, and streams. Unit is empty list-like data, so it is not an atom.",
     examples: ATOM_Q_EXAMPLES,
     related: &["unit?", "type", "shape"],
 };
@@ -100,7 +100,7 @@ pub(super) const UNIT_Q: BuiltinDoc = BuiltinDoc {
 pub(super) const LIST: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::List,
     summary: "Convert a value to a list.",
-    details: "`list[x]` leaves lists and int lists unchanged. Dicts become a list of two-item `(key;value)` pairs with tag keys. Every other value, including strings, is wrapped as a one-item list.",
+    details: "`list[x]` leaves lists unchanged. Dicts become a list of two-item `(key;value)` pairs with tag keys. Every other value, including strings, is wrapped as a one-item list.",
     examples: LIST_EXAMPLES,
     related: &["dict", ",", "flatten"],
 };
@@ -108,7 +108,7 @@ pub(super) const LIST: BuiltinDoc = BuiltinDoc {
 pub(super) const DICT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Dict,
     summary: "Convert a list of pairs to a dict.",
-    details: "`dict[x]` expects a list whose items are two-item pairs. Pair keys may be tags, strings, or chars; an int-list pair such as `(1;2)` becomes key `\"1\"` with value `2`. Later duplicate keys replace earlier values.",
+    details: "`dict[x]` expects a list whose items are two-item pairs. Pair keys may be tags, strings, or chars; a two-int pair such as `(1;2)` becomes key `\"1\"` with value `2`. Later duplicate keys replace earlier values.",
     examples: DICT_EXAMPLES,
     related: &["list", "tag", "keys"],
 };

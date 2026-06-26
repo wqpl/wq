@@ -320,7 +320,7 @@ pub(super) const LOG10: BuiltinDoc = BuiltinDoc {
 pub(super) const FLOOR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Floor,
     summary: "Round values down.",
-    details: "`floor[xs]` broadcasts and returns integral floors. `floor[x;d]` floors a real scalar to `d` decimal places, where `d` is an int.",
+    details: "`floor[xs]` broadcasts and returns integral floors. `floor[x;d]` floors a real number to `d` decimal places, where `d` is an int.",
     examples: FLOOR_EXAMPLES,
     related: &["ceil", "round"],
 };
@@ -328,7 +328,7 @@ pub(super) const FLOOR: BuiltinDoc = BuiltinDoc {
 pub(super) const CEIL: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Ceil,
     summary: "Round values up.",
-    details: "`ceil[xs]` broadcasts and returns integral ceilings. `ceil[x;d]` ceils a real scalar to `d` decimal places, where `d` is an int.",
+    details: "`ceil[xs]` broadcasts and returns integral ceilings. `ceil[x;d]` ceils a real number to `d` decimal places, where `d` is an int.",
     examples: CEIL_EXAMPLES,
     related: &["floor", "round"],
 };
@@ -336,7 +336,7 @@ pub(super) const CEIL: BuiltinDoc = BuiltinDoc {
 pub(super) const ROUND: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Round,
     summary: "Round values to the nearest integer or decimal place.",
-    details: "`round[xs]` broadcasts and returns integral rounded values. `round[x;d]` rounds a real scalar to `d` decimal places, where `d` is an int.",
+    details: "`round[xs]` broadcasts and returns integral rounded values. `round[x;d]` rounds a real number to `d` decimal places, where `d` is an int.",
     examples: ROUND_EXAMPLES,
     related: &["floor", "ceil"],
 };
@@ -584,7 +584,7 @@ pub(super) const HEAVISIDE: BuiltinDoc = BuiltinDoc {
 pub(super) const DELTA: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Delta,
     summary: "Return Dirac delta values away from zero.",
-    details: "`delta[x]` accepts a real scalar, returns `0.0` for nonzero input, and reports a domain error at exactly zero because the ideal Dirac delta is singular there.",
+    details: "`delta[x]` accepts a real number, returns `0.0` for nonzero input, and reports a domain error at exactly zero because the ideal Dirac delta is singular there.",
     examples: DELTA_EXAMPLES,
     related: &["heaviside"],
 };

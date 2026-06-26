@@ -191,7 +191,7 @@ fn push_atom_key(value: &Value, out: &mut String) {
         Value::IntList(_) | Value::IntRange(_) => {
             let items = value
                 .packed_int_seq()
-                .expect("int-list and int-range are packed int sequences");
+                .expect("list<int> and int-range are packed int sequences");
             write!(out, "il:{}:", items.len()).expect("writing to String should not fail");
             for item in items.iter() {
                 write!(out, "{item};").expect("writing to String should not fail");

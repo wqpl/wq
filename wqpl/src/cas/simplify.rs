@@ -231,7 +231,7 @@ pub(super) fn split_add_term(term: &Value) -> (Value, Option<Value>) {
         }
         return (content, None);
     }
-    // Product (* a b ...): first non-CAS scalar factor becomes the coefficient.
+    // Product (* a b ...): first non-CAS constant factor becomes the coefficient.
     if let Some(args) = term.cas_op_args(CasOp::Multiply)
         && let Some((first, rest)) = args.split_first()
         && !first.is_cas_expr()
@@ -1145,7 +1145,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
         }
         normalize_poly_coeffs(&mut n_common)?;
 
-        // Cancel a common scalar factor: if N is constant c ≠ 0,1 and every
+        // Cancel a common constant factor: if N is constant c != 0,1 and every
         // coefficient of D is divisible by c, cancel c from both sides.
         // This handles cases like (∜2²/2) / (∜2²·(x⁴/2 − 1)) → 1/(x⁴−2).
         if poly_degree(&n_common) == 0 && poly_degree(&d_common) >= 1 {

@@ -461,31 +461,31 @@ mod tests {
 
         assert_eq!(
             unique(BuiltinFnArgs::from(smallvec![a_int.clone()]))
-                .expect("int-list unique should succeed"),
+                .expect("list<int> unique should succeed"),
             unique(BuiltinFnArgs::from(smallvec![a_list.clone()]))
                 .expect("list unique should succeed")
         );
         assert_eq!(
             union(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
-                .expect("int-list union should succeed"),
+                .expect("list<int> union should succeed"),
             union(BuiltinFnArgs::from(smallvec![a_list.clone(), b_list.clone()]))
                 .expect("list union should succeed")
         );
         assert_eq!(
             intersect(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
-                .expect("int-list intersect should succeed"),
+                .expect("list<int> intersect should succeed"),
             intersect(BuiltinFnArgs::from(smallvec![a_list.clone(), b_list.clone()]))
                 .expect("list intersect should succeed")
         );
         assert_eq!(
             without(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
-                .expect("int-list without should succeed"),
+                .expect("list<int> without should succeed"),
             without(BuiltinFnArgs::from(smallvec![a_list.clone(), b_list.clone()]))
                 .expect("list without should succeed")
         );
         assert_eq!(
             symdiff(BuiltinFnArgs::from(smallvec![a_int, b_int]))
-                .expect("int-list symdiff should succeed"),
+                .expect("list<int> symdiff should succeed"),
             symdiff(BuiltinFnArgs::from(smallvec![a_list, b_list]))
                 .expect("list symdiff should succeed")
         );
@@ -614,19 +614,19 @@ mod tests {
         );
         assert_eq!(
             member(BuiltinFnArgs::from(smallvec![Value::Int(2), haystack]))
-                .expect("scalar member should succeed"),
+                .expect("atom member should succeed"),
             Value::Bool(false)
         );
     }
 
     #[test]
-    fn member_non_int_atom_with_intlist_rhs_returns_scalar_bool() {
+    fn member_non_int_atom_with_intlist_rhs_returns_atom_bool() {
         assert_eq!(
             member(BuiltinFnArgs::from(smallvec![
                 Value::Tag(Arc::from("x")),
                 Value::IntList(Arc::new(vec![1, 2, 3])),
             ]))
-            .expect("scalar member should succeed"),
+            .expect("atom member should succeed"),
             Value::Bool(false)
         );
     }

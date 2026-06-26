@@ -28,7 +28,7 @@ use poly::{collect_single_poly_var, try_exact_polynomial_division};
 pub(crate) use poly::{
     extract_linear_coefficients, poly_add, poly_degree, poly_derivative, poly_divide,
     poly_evaluate, poly_from_expr, poly_gcd, poly_interpolate, poly_is_zero, poly_mul, poly_neg,
-    poly_resultant, poly_scalar_mul, poly_sub, poly_to_expr, poly_trim, square_free_factor,
+    poly_const_mul, poly_resultant, poly_sub, poly_to_expr, poly_trim, square_free_factor,
 };
 #[cfg(test)]
 use rewrite::rewrite_expr;

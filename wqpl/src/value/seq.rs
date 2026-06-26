@@ -50,7 +50,7 @@ pub(crate) enum ValueSeq<'a> {
 }
 
 pub(crate) enum ExactIntSeq<'a> {
-    Scalar(i64),
+    Atom(i64),
     PackedSlice(&'a [i64]),
     PackedRange(&'a IntRangeData),
     General(Vec<i64>),
@@ -60,7 +60,7 @@ pub(crate) enum ExactIntSeq<'a> {
 ///
 /// Unlike [`ValueSeq`], this intentionally excludes strings: strings are
 /// sequence-like for indexing and broadcasting, but list insertion and generic
-/// list mutation treat them as scalar values unless a string-specific path says
+/// list mutation treat them as atom values unless a string-specific path says
 /// otherwise.
 pub(crate) enum ListStorageSeq<'a> {
     List(&'a [Value]),
@@ -72,8 +72,8 @@ pub(crate) enum ListStorageSeq<'a> {
 impl<'a> ExactIntSeq<'a> {
     pub(crate) fn from_value(value: &'a Value) -> Option<Self> {
         match value {
-            Value::Int(i) => Some(Self::Scalar(*i)),
-            Value::BigInt(b) => b.to_i64().map(Self::Scalar),
+            Value::Int(i) => Some(Self::Atom(*i)),
+            Value::BigInt(b) => b.to_i64().map(Self::Atom),
             Value::IntList(_) | Value::IntRange(_) => Self::from_packed_value(value),
             Value::List(items) => items
                 .iter()
@@ -86,7 +86,7 @@ impl<'a> ExactIntSeq<'a> {
 
     pub(crate) fn from_native_value(value: &'a Value) -> Option<Self> {
         match value {
-            Value::Int(i) => Some(Self::Scalar(*i)),
+            Value::Int(i) => Some(Self::Atom(*i)),
             Value::IntList(_) | Value::IntRange(_) => Self::from_packed_value(value),
             _ => None,
         }
@@ -102,15 +102,15 @@ impl<'a> ExactIntSeq<'a> {
 
     pub(crate) fn len(&self) -> usize {
         match self {
-            Self::Scalar(_) => 1,
+            Self::Atom(_) => 1,
             Self::PackedSlice(items) => items.len(),
             Self::PackedRange(range) => range.len(),
             Self::General(items) => items.len(),
         }
     }
 
-    pub(crate) fn is_scalar(&self) -> bool {
-        matches!(self, Self::Scalar(_))
+    pub(crate) fn is_atom(&self) -> bool {
+        matches!(self, Self::Atom(_))
     }
 
     pub(crate) fn is_packed(&self) -> bool {
@@ -119,7 +119,7 @@ impl<'a> ExactIntSeq<'a> {
 
     pub(crate) fn iter(&self) -> Box<dyn Iterator<Item = i64> + '_> {
         match self {
-            Self::Scalar(i) => Box::new(std::iter::once(*i)),
+            Self::Atom(i) => Box::new(std::iter::once(*i)),
             Self::PackedSlice(items) => Box::new(items.iter().copied()),
             Self::PackedRange(range) => Box::new(range.iter()),
             Self::General(items) => Box::new(items.iter().copied()),
@@ -429,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn builder_promotes_homogeneous_scalars() {
+    fn builder_promotes_homogeneous_atoms() {
         assert_eq!(
             ValueSeqBuilder::from_items(vec![Value::Int(1), Value::Int(2)]),
             Value::IntList(Arc::new(vec![1, 2]))
@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn bool_list_reads_without_widening() {
         let value = Value::BoolList(Arc::new(vec![true, false, true]));
-        let seq = ValueSeq::from_value(&value).expect("bool-list is sequence-like");
+        let seq = ValueSeq::from_value(&value).expect("list<bool> is sequence-like");
 
         assert_eq!(seq.get(1), Some(Value::Bool(false)));
         assert_eq!(
@@ -490,7 +490,7 @@ mod tests {
     #[test]
     fn list_storage_seq_expands_list_storage_but_excludes_strings() {
         let bools = Value::BoolList(Arc::new(vec![true, false]));
-        let seq = ListStorageSeq::from_value(&bools).expect("bool-list is list storage");
+        let seq = ListStorageSeq::from_value(&bools).expect("list<bool> is list storage");
         assert_eq!(seq.to_values_vec(), vec![Value::Bool(true), Value::Bool(false)]);
 
         let ints = Value::IntRange(Arc::new(IntRangeData::new(2, 3, 3)));
@@ -506,9 +506,9 @@ mod tests {
 
     #[test]
     fn exact_int_seq_preserves_source_shape() {
-        let scalar = Value::Int(7);
-        let seq = scalar.exact_int_seq().expect("int is an exact int sequence");
-        assert!(seq.is_scalar());
+        let atom = Value::Int(7);
+        let seq = atom.exact_int_seq().expect("int is an exact int sequence");
+        assert!(seq.is_atom());
         assert!(!seq.is_packed());
         assert_eq!(seq.to_vec(), vec![7]);
 
@@ -516,7 +516,7 @@ mod tests {
         let seq = packed
             .exact_int_seq()
             .expect("range is an exact int sequence");
-        assert!(!seq.is_scalar());
+        assert!(!seq.is_atom());
         assert!(seq.is_packed());
         assert_eq!(seq.to_vec(), vec![1, 3, 5]);
 
@@ -527,7 +527,7 @@ mod tests {
         let seq = general
             .exact_int_seq()
             .expect("list<int> is an exact int sequence");
-        assert!(!seq.is_scalar());
+        assert!(!seq.is_atom());
         assert!(!seq.is_packed());
         assert_eq!(seq.to_vec(), vec![1, 2]);
     }

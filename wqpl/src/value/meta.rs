@@ -105,7 +105,7 @@ impl Value {
         }
     }
 
-    /// Returns the shape as a Value (IntList for uniform arrays, scalar for
+    /// Returns the shape as a Value (IntList for uniform arrays, atom for
     /// ragged). This is the user-facing API for the shape() builtin
     /// function.
     pub fn shape(&self) -> Value {

@@ -114,7 +114,7 @@ pub(super) const FSIZE: BuiltinDoc = BuiltinDoc {
 pub(super) const FWRITE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Fwrite,
     summary: "Write bytes to a writable stream.",
-    details: "`fwrite[stream;bytes]` requires a stream opened with `w` or `a`. `bytes` may be one int or bigint in `0..=255`, an int list, or a list of ints/bigints in that range. The bytes are written, the stream is flushed, and the result is unit.",
+    details: "`fwrite[stream;bytes]` requires a stream opened with `w` or `a`. `bytes` may be one int or bigint in `0..=255`, a list of ints, or a list of ints/bigints in that range. The bytes are written, the stream is flushed, and the result is unit.",
     examples: FWRITE_EXAMPLES,
     related: &["open", "fread", "fwritet", "fclose"],
 };
@@ -130,7 +130,7 @@ pub(super) const FWRITET: BuiltinDoc = BuiltinDoc {
 pub(super) const FREAD: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Fread,
     summary: "Read raw bytes from a readable stream.",
-    details: "`fread[stream]` reads all remaining bytes and returns them as an int list. `fread[stream;len]` reads up to `len` bytes, where `len` is a non-negative int. In length mode, EOF returns unit; without a length, EOF can return an empty byte list.",
+    details: "`fread[stream]` reads all remaining bytes and returns them as a list of ints. `fread[stream;len]` reads up to `len` bytes, where `len` is a non-negative int. In length mode, EOF returns unit; without a length, EOF can return an empty byte list.",
     examples: FREAD_EXAMPLES,
     related: &["open", "fwrite", "freadt", "fseek"],
 };

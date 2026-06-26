@@ -69,7 +69,7 @@ pub(super) const STR: BuiltinDoc = BuiltinDoc {
 pub(super) const GRAPHEMES: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Graphemes,
     summary: "Count user-perceived characters in text.",
-    details: "`graphemes` converts its argument to text and counts Unicode grapheme clusters rather than bytes or scalar values.",
+    details: "`graphemes` converts its argument to text and counts Unicode grapheme clusters rather than bytes or code points.",
     examples: GRAPHEMES_EXAMPLES,
     related: &["words", "len"],
 };

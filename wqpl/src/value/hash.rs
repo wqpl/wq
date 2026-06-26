@@ -82,7 +82,7 @@ impl std::hash::Hash for Value {
             | Value::BoolList(_)
             | Value::List(_)
             | Value::String(_) => {
-                unreachable!("sequence values are handled before scalar hash dispatch")
+                unreachable!("sequence values are handled before atom hash dispatch")
             }
             Value::Dict(m) => {
                 7u8.hash(state);

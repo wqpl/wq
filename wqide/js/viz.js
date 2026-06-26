@@ -620,7 +620,7 @@ const CHEMISTRY_COLUMNS = [
 const MATH_ROWS = [
   ["identity", "matrix", "2x2", "det", "1"],
   ["rotation", "matrix", "2x2", "trace", "1.414"],
-  ["prime", "number", "scalar", "mod", "7"],
+  ["prime", "number", "atom", "mod", "7"],
   ["fibonacci", "sequence", "n", "term", "55"],
   ["gaussian", "function", "R", "area", "1"],
   ["fourier", "basis", "N", "mode", "3"],

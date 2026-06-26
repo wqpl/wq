@@ -104,7 +104,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn formats_dict_of_scalars_as_single_row_table() {
+    fn formats_dict_of_atoms_as_single_row_table() {
         let value = Value::Dict(Arc::new(IndexMap::from([
             ("name".into(), Value::Tag("ada".into())),
             ("age".into(), Value::Int(37)),
@@ -117,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    fn formats_char_lists_as_scalar_cells() {
+    fn formats_char_lists_as_text_cells() {
         let value = Value::Dict(Arc::new(IndexMap::from([
             (
                 "name".into(),

@@ -512,7 +512,7 @@ fn colorize_heat(text: &str, value: usize, max: usize, color_mode: ColorMode) ->
 
 fn sequence_kind(value: &Value) -> Option<&'static str> {
     match value {
-        Value::IntList(_) => Some("int-list"),
+        Value::IntList(_) => Some("list<int>"),
         Value::List(_) => Some("list"),
         Value::String(_) => Some("string"),
         Value::Dict(_) => Some("dict"),
@@ -575,7 +575,7 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::MakeRange { .. } => "MakeRange",
         I::Index => "Index",
         I::IndexMany(_) => "IndexMany",
-        I::CheckScalarPathIndex => "CheckScalarPathIndex",
+        I::CheckAtomPathIndex => "CheckAtomPathIndex",
         I::IndexLoadLocal(_) => "IndexLoadLocal",
         I::IndexLoadCapture(_) => "IndexLoadCapture",
         I::IndexLoadVar(_) => "IndexLoadVar",
@@ -705,7 +705,7 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         } => format!("MakeRange(inclusive={inclusive}, step={has_step})"),
         I::Index => "Index".to_string(),
         I::IndexMany(argc) => format!("IndexMany({argc})"),
-        I::CheckScalarPathIndex => "CheckScalarPathIndex".to_string(),
+        I::CheckAtomPathIndex => "CheckAtomPathIndex".to_string(),
         I::IndexLoadLocal(slot) => format!("IndexLoadLocal({slot})"),
         I::IndexLoadCapture(slot) => format!("IndexLoadCapture({slot})"),
         I::IndexLoadVar(name) => format!("IndexLoadVar({name})"),

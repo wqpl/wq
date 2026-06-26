@@ -271,7 +271,7 @@ pub(crate) enum NumericSign {
 ///    root.
 /// 2. `coeffs.len() <= field.degree()` and represents c0 + c1·α + ... +
 ///    c{d-1}·α^{d-1}.
-/// 3. Coefficients are exact scalars in the field base.
+/// 3. Coefficients are exact values in the field base.
 #[derive(Debug, Clone)]
 pub struct AlgebraicData {
     pub(crate) field: Arc<AlgebraicField>,
@@ -400,7 +400,7 @@ impl AlgebraicData {
             if !self.coeffs.is_empty() && !crate::cas::numeric_is_zero(&self.coeffs[0]) {
                 let all_higher_zero = self.coeffs[1..].iter().all(crate::cas::numeric_is_zero);
                 if all_higher_zero {
-                    return numeric_sign_of_scalar(&self.coeffs[0]);
+                    return numeric_sign_of_atom(&self.coeffs[0]);
                 }
             }
 
@@ -415,7 +415,7 @@ impl AlgebraicData {
                 .collect();
 
             if non_zero_indices.len() == 1 {
-                return numeric_sign_of_scalar(&self.coeffs[non_zero_indices[0]]);
+                return numeric_sign_of_atom(&self.coeffs[non_zero_indices[0]]);
             }
         }
 
@@ -430,7 +430,7 @@ impl AlgebraicData {
 
             if non_zero_indices.len() == 1 {
                 let idx = non_zero_indices[0];
-                let coeff_sign = numeric_sign_of_scalar(&self.coeffs[idx]);
+                let coeff_sign = numeric_sign_of_atom(&self.coeffs[idx]);
                 return if idx.is_multiple_of(2) {
                     coeff_sign
                 } else {
@@ -453,7 +453,7 @@ impl Value {
         matches!(self, Value::Algebraic(_))
     }
 
-    /// Unwrap a constant Algebraic value to its scalar coefficient.
+    /// Unwrap a constant Algebraic value to its base coefficient.
     /// e.g. `Algebraic([-2])` in Q(∛2) → `Int(-2)`.
     pub(crate) fn unwrap_algebraic_constant(&self) -> Value {
         if let Value::Algebraic(a) = self
@@ -590,12 +590,12 @@ fn validate_coeff_in_base(field: &AlgebraicField, coeff: &Value) -> WqResult<()>
             "algebraic coefficient belongs to a different base field",
         )),
         _ => Err(algebraic_err(
-            "algebraic coefficient must be an exact scalar in the base field",
+            "algebraic coefficient must be an exact value in the base field",
         )),
     }
 }
 
-fn numeric_sign_of_scalar(value: &Value) -> NumericSign {
+fn numeric_sign_of_atom(value: &Value) -> NumericSign {
     match value {
         Value::Int(n) => match n.cmp(&0) {
             std::cmp::Ordering::Less => NumericSign::Negative,
@@ -947,12 +947,12 @@ pub(crate) fn promote_to_algebraic(value: &Value, field: &AlgebraicData) -> WqRe
             "cannot mix algebraic numbers from different fields",
         ));
     }
-    // Scalar → constant in K(α)
+    // Plain atom -> constant in K(α)
     AlgebraicData::constant(field.field.clone(), value.clone())
 }
 
 /// Coerce two values into a common algebraic field when either side is
-/// algebraic.  Currently supports same-field algebraics and exact scalar
+/// algebraic.  Currently supports same-field algebraics and exact atom
 /// promotion into an existing algebraic field.  Future tower/compositum
 /// coercion should grow from this boundary.
 pub(crate) fn coerce_to_common_field(lhs: &Value, rhs: &Value) -> WqResult<Option<(Value, Value)>> {
@@ -1027,9 +1027,9 @@ pub(crate) fn poly_egcd(
         let lc = r0.last().cloned().unwrap_or(Value::Int(1));
         if !crate::cas::numeric_is_one(&lc) {
             let inv_lc = crate::cas::eval_exact_numeric_div(&Value::Int(1), &lc)?;
-            r0 = crate::cas::poly_scalar_mul(&r0, &inv_lc)?;
-            s0 = crate::cas::poly_scalar_mul(&s0, &inv_lc)?;
-            t0 = crate::cas::poly_scalar_mul(&t0, &inv_lc)?;
+            r0 = crate::cas::poly_const_mul(&r0, &inv_lc)?;
+            s0 = crate::cas::poly_const_mul(&s0, &inv_lc)?;
+            t0 = crate::cas::poly_const_mul(&t0, &inv_lc)?;
         }
     }
 
@@ -1661,7 +1661,7 @@ mod tests {
     }
 
     #[test]
-    fn common_field_coercion_promotes_exact_scalar() {
+    fn common_field_coercion_promotes_exact_atom() {
         let sqrt2 = Value::Algebraic(Arc::new(make_sqrt2()));
         let Some((lhs, rhs)) = coerce_to_common_field(&Value::Int(3), &sqrt2).unwrap() else {
             panic!("expected algebraic coercion");
@@ -1676,7 +1676,7 @@ mod tests {
     }
 
     #[test]
-    fn common_field_coercion_ignores_plain_scalars() {
+    fn common_field_coercion_ignores_plain_atoms() {
         assert!(coerce_to_common_field(&Value::Int(1), &Value::Int(2))
             .unwrap()
             .is_none());

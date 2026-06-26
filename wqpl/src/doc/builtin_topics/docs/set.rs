@@ -100,7 +100,7 @@ const MULTIPLICITY_EXAMPLES: &[DocExample] = &[DocExample {
 pub(super) const UNIQUE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Unique,
     summary: "Return unique items in first-seen order.",
-    details: "`unique` views lists and int lists as their items, strings as characters, dicts as keys, and atoms as singleton values. It returns the first occurrence of each distinct item.",
+    details: "`unique` views lists as their items, strings as characters, dicts as keys, and atoms as singleton values. It returns the first occurrence of each distinct item.",
     examples: UNIQUE_EXAMPLES,
     related: &["union", "multiplicity"],
 };
@@ -108,7 +108,7 @@ pub(super) const UNIQUE: BuiltinDoc = BuiltinDoc {
 pub(super) const COUNTS: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Counts,
     summary: "Count distinct items in first-seen order.",
-    details: "`counts[xs]` returns a list of `(item;count)` pairs. Lists and int lists contribute items, strings contribute characters, dicts contribute keys, and atoms behave as singletons.",
+    details: "`counts[xs]` returns a list of `(item;count)` pairs. Lists contribute items, strings contribute characters, dicts contribute keys, and atoms behave as singletons.",
     examples: COUNTS_EXAMPLES,
     related: &["unique", "multiplicity", "member?"],
 };
@@ -116,7 +116,7 @@ pub(super) const COUNTS: BuiltinDoc = BuiltinDoc {
 pub(super) const UNION: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Union,
     summary: "Return the ordered set union of two values.",
-    details: "`union[xs;ys]` emits unique items seen in `xs` followed by new items from `ys`. Lists and int lists contribute items, strings contribute characters, dicts contribute keys, and atoms behave as singletons.",
+    details: "`union[xs;ys]` emits unique items seen in `xs` followed by new items from `ys`. Lists contribute items, strings contribute characters, dicts contribute keys, and atoms behave as singletons.",
     examples: UNION_EXAMPLES,
     related: &["intersect", "symdiff", "unique"],
 };
@@ -220,7 +220,7 @@ pub(super) const DISJOINT_Q: BuiltinDoc = BuiltinDoc {
 pub(super) const MULTIPLICITY: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Multiplicity,
     summary: "Count how many times a value occurs in a container.",
-    details: "`multiplicity[x;xs]` counts occurrences of `x` in lists, int lists, and strings. Dicts count matching keys as `1` or `0`, and atoms are treated as singleton values.",
+    details: "`multiplicity[x;xs]` counts occurrences of `x` in lists and strings. Dicts count matching keys as `1` or `0`, and atoms are treated as singleton values.",
     examples: MULTIPLICITY_EXAMPLES,
     related: &["unique", "has?", "member?"],
 };

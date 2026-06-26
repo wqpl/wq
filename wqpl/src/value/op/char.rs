@@ -10,7 +10,7 @@ use crate::wqerror::{WqError, WqErrorType};
 
 fn invalid_unicode(v: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
-        .msg("invalid Unicode scalar value")
+        .msg("invalid Unicode code point")
         .attach_note("valid Unicode code points are 0x0000..=0xD7FF, 0xE000..=0x10FFFF")
         .got1(v)
 }

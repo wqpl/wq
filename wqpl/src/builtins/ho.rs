@@ -12,7 +12,7 @@ use crate::vm::inst::{Instruction, Operand};
 use crate::wqerror::{WqError, WqErrorType};
 
 /// Tiny evaluator for callback bodies made only of args, constants, captured
-/// reads, scalar ops, and indexing. Anything that can observe VM state falls
+/// reads, atom ops, and indexing. Anything that can observe VM state falls
 /// back to the normal call path.
 #[derive(Clone)]
 struct PureCallback {

@@ -110,7 +110,7 @@ pub(super) const FLATTEN: BuiltinDoc = BuiltinDoc {
 pub(super) const REVERSE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Reverse,
     summary: "Reverse the top-level order of a value.",
-    details: "`reverse` reverses lists, int lists, and dict insertion order. Other values are returned unchanged. `V` is an alias of `reverse`.",
+    details: "`reverse` reverses lists and dict insertion order. Other values are returned unchanged. `V` is an alias of `reverse`.",
     examples: REVERSE_EXAMPLES,
     related: &["sort"],
 };
@@ -118,7 +118,7 @@ pub(super) const REVERSE: BuiltinDoc = BuiltinDoc {
 pub(super) const SORT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Sort,
     summary: "Sort a list-like value.",
-    details: "`sort` sorts int lists numerically. General lists and dicts sort by string-like value when available, otherwise by atom comparison where possible; non-list values are returned unchanged.",
+    details: "`sort` sorts lists of ints numerically. General lists and dicts sort by string-like value when available, otherwise by atom comparison where possible; non-list values are returned unchanged.",
     examples: SORT_EXAMPLES,
     related: &["min", "max", "reverse"],
 };
@@ -126,7 +126,7 @@ pub(super) const SORT: BuiltinDoc = BuiltinDoc {
 pub(super) const SPLIT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Split,
     summary: "Split a value into groups.",
-    details: "`split[xs]` splits strings or char lists on whitespace. `split[xs;delim]` splits strings, int lists, and lists on a delimiter. The named `m` option limits the number of splits; `inf` means unlimited.",
+    details: "`split[xs]` splits strings or char lists on whitespace. `split[xs;delim]` splits strings and lists on a delimiter. The named `m` option limits the number of splits; `inf` means unlimited.",
     examples: SPLIT_EXAMPLES,
     related: &["splitw", "words"],
 };

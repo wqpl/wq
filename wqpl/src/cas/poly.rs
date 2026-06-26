@@ -120,10 +120,10 @@ pub(crate) fn poly_neg(coeffs: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-pub(crate) fn poly_scalar_mul(coeffs: &[Value], scalar: &Value) -> WqResult<Vec<Value>> {
+pub(crate) fn poly_const_mul(coeffs: &[Value], factor: &Value) -> WqResult<Vec<Value>> {
     coeffs
         .iter()
-        .map(|c| eval_numeric_binary("*", c, scalar))
+        .map(|c| eval_numeric_binary("*", c, factor))
         .collect()
 }
 
@@ -168,7 +168,7 @@ fn poly_make_monic(mut poly: Vec<Value>) -> WqResult<Vec<Value>> {
     let lc = poly.last().expect("non-zero poly").clone();
     if !numeric_is_one(&lc) {
         let scale = eval_exact_numeric_div(&Value::Int(1), &lc)?;
-        poly = poly_scalar_mul(&poly, &scale)?;
+        poly = poly_const_mul(&poly, &scale)?;
         poly_trim(&mut poly);
     }
     Ok(poly)
@@ -197,7 +197,7 @@ pub(crate) fn poly_gcd(a: &[Value], b: &[Value]) -> WqResult<Vec<Value>> {
 /// Compute the resultant of two polynomials using the subresultant PRS
 /// algorithm.
 ///
-/// The resultant is a scalar that vanishes iff the two polynomials share a
+/// The resultant is a single value that vanishes iff the two polynomials share a
 /// common root.  Coefficients must be numeric; symbolic coefficients are not
 /// supported.
 pub(crate) fn poly_resultant(a: &[Value], b: &[Value]) -> WqResult<Value> {
@@ -295,7 +295,7 @@ pub(crate) fn poly_interpolate(points: &[(Value, Value)]) -> WqResult<Vec<Value>
         }
         // Scale numerator by y_i / denom
         let scale = eval_exact_numeric_div(yi, &denom)?;
-        let term = poly_scalar_mul(&numer, &scale)?;
+        let term = poly_const_mul(&numer, &scale)?;
         result = poly_add(&result, &term)?;
     }
     poly_trim(&mut result);

@@ -434,7 +434,7 @@ impl Compiler {
             } else {
                 let name = self.next_temp_name("idx-path-index");
                 self.compile_expr(index)?;
-                self.instructions.push(Instruction::CheckScalarPathIndex);
+                self.instructions.push(Instruction::CheckAtomPathIndex);
                 self.emit_store(&name);
                 index_args.push(IndexArgPlan::Temps(vec![name]));
             }
@@ -4044,7 +4044,7 @@ mod tests {
                     && **second == Value::Int(2)
                     && name.as_ref() == "xs"
             )),
-            "expected scalar index args followed by IndexManyLoadVar: {top:#?}",
+            "expected atom index args followed by IndexManyLoadVar: {top:#?}",
         );
         assert!(
             !top.iter().any(|inst| matches!(

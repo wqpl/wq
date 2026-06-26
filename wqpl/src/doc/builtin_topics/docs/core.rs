@@ -125,7 +125,7 @@ pub(super) const BFN: BuiltinDoc = BuiltinDoc {
 pub(super) const CHR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Chr,
     summary: "Convert integer code points to characters.",
-    details: "`chr` accepts an int, bigint, or lists of them. Lists of integer code points are packed into strings, and invalid Unicode scalar values raise a domain error.",
+    details: "`chr` accepts an int, bigint, or lists of them. Lists of integer code points are packed into strings, and invalid Unicode code points raise a domain error.",
     examples: CHR_EXAMPLES,
     related: &["ord", "str"],
 };
@@ -133,7 +133,7 @@ pub(super) const CHR: BuiltinDoc = BuiltinDoc {
 pub(super) const ORD: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Ord,
     summary: "Convert characters or strings to Unicode code points.",
-    details: "`ord` is the inverse of `chr` for valid Unicode scalar values. A char returns one int; a string returns an int list of code points.",
+    details: "`ord` is the inverse of `chr` for valid Unicode code points. A char returns one int; a string returns a list of code points.",
     examples: ORD_EXAMPLES,
     related: &["chr", "graphemes"],
 };

@@ -608,7 +608,7 @@ impl Interpreter for VanillaInterpreter {
                         let obj = pop1_stack(&mut vm.stack, || "object for indexing".into())?;
                         index_with_args(&mut vm.stack, &obj, args)?;
                     }
-                    Instruction::CheckScalarPathIndex => {
+                    Instruction::CheckAtomPathIndex => {
                         let Some(idx_val) = vm.stack.last() else {
                             return Err(vm_err("path index"));
                         };

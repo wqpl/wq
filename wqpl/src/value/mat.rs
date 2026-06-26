@@ -255,7 +255,7 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
 
     match (ctx.a_rank >= 2, ctx.b_rank >= 2) {
         (false, false) => {
-            // dot product -> scalar
+            // dot product -> atom
             let mut acc: Option<Value> = None;
             for kk in 0..ctx.k {
                 let av = a_seq

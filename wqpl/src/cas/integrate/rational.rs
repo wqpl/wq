@@ -7,7 +7,7 @@ use crate::cas::{
     cas_add, cas_div, cas_err, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div,
     numeric_add, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
     poly_add, poly_degree, poly_derivative, poly_divide, poly_evaluate, poly_from_expr, poly_gcd,
-    poly_interpolate, poly_is_zero, poly_mul, poly_neg, poly_resultant, poly_scalar_mul, poly_sub,
+    poly_const_mul, poly_interpolate, poly_is_zero, poly_mul, poly_neg, poly_resultant, poly_sub,
     poly_to_expr, poly_trim, simplify_cas_value,
 };
 use crate::value::algebraic::{AlgebraicData, AlgebraicField};
@@ -256,7 +256,7 @@ pub(super) fn integrate_by_rational(expr: &Value, var: &str) -> WqResult<Option<
     // Case: denominator is constant → integrate polynomial
     if poly_degree(&denom) == 0 && denom[0] != Value::Int(0) {
         let recip = eval_exact_numeric_div(&Value::Int(1), &denom[0])?;
-        let scaled = poly_scalar_mul(&numer, &recip)?;
+        let scaled = poly_const_mul(&numer, &recip)?;
         return integrate_polynomial(&scaled, var).map(Some);
     }
 
@@ -693,7 +693,7 @@ fn compute_remaining_numer(
         let v_deriv = poly_derivative(v);
         let (d_without_v, _) = poly_divide(denom, v)?;
         let term = poly_mul(&v_deriv, &d_without_v)?;
-        let term = poly_scalar_mul(&term, alpha)?;
+        let term = poly_const_mul(&term, alpha)?;
         extracted = poly_add(&extracted, &term)?;
     }
     let rem_numer = poly_sub(numer, &extracted)?;
@@ -1884,7 +1884,7 @@ fn integrate_quadratic_log_arctan_term(
 
 /// Integrate C / (x^2 + bx + c) — complete the square.
 /// If `value` is a constant Algebraic (all coeffs[1..] zero), unwrap it
-/// to the underlying scalar value. Otherwise return the original value.
+/// to the underlying constant value. Otherwise return the original value.
 fn unwrap_constant_algebraic(value: Value) -> Value {
     if let Value::Algebraic(a) = &value
         && !a.coeffs.is_empty()
@@ -1907,7 +1907,7 @@ fn integrate_one_over_quadratic(c_val: &Value, b: &Value, c: &Value, var: &str) 
     let k_sq = numeric_sub(c, &b_sq_div_4)?; // c - b^2/4
 
     // If k_sq is a constant Algebraic (just a rational embedded in an extension),
-    // unwrap to the plain scalar so sqrt_of_value can handle it.
+    // unwrap to the plain value so sqrt_of_value can handle it.
     let k_sq = unwrap_constant_algebraic(k_sq);
 
     // x + b/2
@@ -2197,7 +2197,7 @@ fn hermite_reduce_one_step(
         let p_deriv = poly_derivative(&p_coeffs);
         let term1 = poly_mul(&p_deriv, factor)?;
         let term2_inner = poly_mul(&p_coeffs, &f_deriv)?;
-        let term2 = poly_scalar_mul(&term2_inner, &m_minus_1)?;
+        let term2 = poly_const_mul(&term2_inner, &m_minus_1)?;
         let deriv_numer = poly_sub(&term1, &term2)?;
         let with_rest = poly_mul(&rest, &deriv_numer)?;
         poly_remainder(&with_rest, factor)
@@ -2243,7 +2243,7 @@ fn hermite_reduce_one_step(
     let term1 = poly_mul(&p_deriv, factor)?; // num' * F
 
     let term2_inner = poly_mul(&p_coeffs, &f_deriv)?; // num * F'
-    let term2 = poly_scalar_mul(&term2_inner, &m_minus_1)?; // (m-1) * num * F'
+    let term2 = poly_const_mul(&term2_inner, &m_minus_1)?; // (m-1) * num * F'
 
     let deriv_numer = poly_sub(&term1, &term2)?; // num' * F - (m-1) * num * F'
 

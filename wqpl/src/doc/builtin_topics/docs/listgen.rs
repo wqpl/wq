@@ -54,7 +54,7 @@ pub(super) const ALLOC: BuiltinDoc = BuiltinDoc {
 pub(super) const TIL: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Til,
     summary: "Generate row-major integer positions for a shape.",
-    details: "`til[n]` returns the int list `0..n-1`. With a multi-axis shape, `til[shape]` fills that nested shape with consecutive integers in row-major order.",
+    details: "`til[n]` returns the list of ints `0..n-1`. With a multi-axis shape, `til[shape]` fills that nested shape with consecutive integers in row-major order.",
     examples: TIL_EXAMPLES,
     related: &["iota", "alloc", "where"],
 };

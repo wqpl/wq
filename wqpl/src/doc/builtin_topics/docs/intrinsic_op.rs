@@ -324,7 +324,7 @@ pub(super) const OP_GTE: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_CAT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpCat,
     summary: "Concatenate values with the `,` operator.",
-    details: "`,[xs;ys+]` concatenates strings, lists, int lists, and atoms into one value. Leading comma in source is separate enlist syntax; this builtin is the binary cat form.",
+    details: "`,[xs;ys+]` concatenates strings, lists, and atoms into one value. Leading comma in source is separate enlist syntax; this builtin is the binary cat form.",
     examples: OP_CAT_EXAMPLES,
     related: &["list", "flatten", "repeat"],
 };

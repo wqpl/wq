@@ -52,7 +52,7 @@ false \| false |echo
 (shl[1;2;3]=<<[1;2;3]) |echo
 (shr[32;2;1]=>>[32;2;1]) |echo
 
-// scalar short-circuit (value-level)
+// atom short-circuit (value-level)
 false &| true |echo
 true \| false |echo
 

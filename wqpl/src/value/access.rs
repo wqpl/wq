@@ -53,7 +53,7 @@ impl Value {
                 Some(Value::from_items(result))
             }
 
-            // Fallback to scalar index path (e.g. atom multiply) =====================
+            // Fallback to atom index path (e.g. atom multiply) =======================
             other => {
                 if keys.len() == 1 {
                     other.index(&keys[0])
@@ -239,7 +239,7 @@ impl Value {
         materialize_int_range(self);
         if let Some(len) = packed_list_len(self) {
             if let Some(idx) = resolve_single_idx(key, len) {
-                return assign_packed_list_indices(self, vec![idx], PackedAssignMode::Scalar, value);
+                return assign_packed_list_indices(self, vec![idx], PackedAssignMode::Single, value);
             }
             let idxs = resolve_many_idx(key, len)?;
             return assign_packed_list_indices(self, idxs, PackedAssignMode::Bulk, value);
@@ -451,7 +451,7 @@ enum PackedListAssignment {
 
 #[derive(Clone, Copy)]
 enum PackedAssignMode {
-    Scalar,
+    Single,
     Bulk,
 }
 
@@ -522,7 +522,7 @@ fn assign_int_list_indices(
     mode: PackedAssignMode,
     value: Value,
 ) -> Option<PackedListAssignment> {
-    if matches!(mode, PackedAssignMode::Scalar) {
+    if matches!(mode, PackedAssignMode::Single) {
         let idx = idxs
             .into_iter()
             .next()
@@ -587,7 +587,7 @@ fn assign_bool_list_indices(
     mode: PackedAssignMode,
     value: Value,
 ) -> Option<PackedListAssignment> {
-    if matches!(mode, PackedAssignMode::Scalar) {
+    if matches!(mode, PackedAssignMode::Single) {
         let idx = idxs
             .into_iter()
             .next()
@@ -651,7 +651,7 @@ fn assign_float_list_indices(
     mode: PackedAssignMode,
     value: Value,
 ) -> Option<PackedListAssignment> {
-    if matches!(mode, PackedAssignMode::Scalar) {
+    if matches!(mode, PackedAssignMode::Single) {
         let idx = idxs
             .into_iter()
             .next()
@@ -1313,8 +1313,8 @@ fn exact_int_insert_items(xs: &Value) -> Option<Vec<i64>> {
 
 fn exact_int_insert_pairwise(xs: &Value, len: usize) -> Option<Vec<i64>> {
     let items = xs.exact_int_seq()?;
-    if items.is_scalar() {
-        let value = items.iter().next().expect("scalar exact int sequence has one item");
+    if items.is_atom() {
+        let value = items.iter().next().expect("atom exact int sequence has one item");
         return Some(vec![value; len]);
     }
     (items.len() == len).then(|| items.to_vec())
@@ -1621,7 +1621,7 @@ fn parse_exact_int_positions(
             normalize(idx, len).ok_or_else(|| WqError::new(WqErrorType::Domain).msg(invalid_msg))?,
         );
     }
-    Ok((out, !items.is_scalar()))
+    Ok((out, !items.is_atom()))
 }
 
 fn insert_many_owned<T>(base: Vec<T>, mut ops: Vec<(usize, T)>) -> Vec<T> {

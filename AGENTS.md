@@ -27,6 +27,12 @@
   - `\|` (backslash pipe) is short-circuit bool or.
   - `or[...]` is eager bool or.
   - `(1)` is not a list. It is simply atom `1`
+  - canonical value naming:
+    - user-facing containers are `list` and `dict`
+    - user-facing non-containers are atoms; do not call wq values scalars
+    - use `list<int>`, `list<bool>`, and `list<float>` in display, debug/profiler output, tests, and code comments
+    - in user-facing docs, prefer prose such as "list of ints" over compact type notation
+    - reserve internal Rust storage names such as `Value::IntList`, `Value::BoolList`, `Value::FloatList`, and `Value::String` for implementation details
   - `@r expr` is return
   - `@s <expr>` creates a symbolic CAS structure.
     - After using `@s` to create one, apply operations directly instead of stacking `@s`.

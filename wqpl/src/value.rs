@@ -347,7 +347,7 @@ impl Value {
         match self {
             Value::IntList(_) | Value::IntRange(_) => self
                 .packed_int_seq()
-                .expect("int-list and int-range are packed int sequences")
+                .expect("list<int> and int-range are packed int sequences")
                 .iter()
                 .enumerate()
                 .map(|(i, n)| {
@@ -434,10 +434,10 @@ impl Value {
             Value::Char(_) => "char",
             Value::Tag(_) => "tag",
             Value::Bool(_) => "bool",
-            Value::IntRange(_) => "int-list",
-            Value::IntList(_) => "int-list",
-            Value::FloatList(_) => "float-list",
-            Value::BoolList(_) => "bool-list",
+            Value::IntRange(_) => "list<int>",
+            Value::IntList(_) => "list<int>",
+            Value::FloatList(_) => "list<float>",
+            Value::BoolList(_) => "list<bool>",
             Value::List(_) => "list",
             Value::String(_) => "string",
             Value::Cas(_) => "cas",
@@ -659,10 +659,10 @@ mod tests {
             ])))
         );
 
-        let scalar = Value::Int(1);
+        let atom = Value::Int(1);
         let vec = Value::List(Arc::new(vec![Value::Int(1), Value::Int(1)]));
         assert_eq!(
-            scalar.eq_bc(&vec),
+            atom.eq_bc(&vec),
             Ok(Value::List(Arc::new(vec![
                 Value::Bool(true),
                 Value::Bool(true)

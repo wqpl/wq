@@ -468,7 +468,7 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(result);
             fallthrough(pc, state)
         }
-        I::CheckScalarPathIndex => fallthrough(pc, state),
+        I::CheckAtomPathIndex => fallthrough(pc, state),
         I::IndexLoadLocal(slot) => {
             let index = state.pop();
             let result = state
