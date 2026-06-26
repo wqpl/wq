@@ -90,7 +90,7 @@ pub(super) const OPEN: BuiltinDoc = BuiltinDoc {
 pub(super) const FEXISTS_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::FexistsQ,
     summary: "Return true when a path exists.",
-    details: "`fexists?[path]` converts `path` from string-like data and checks whether the local filesystem has any entry there. It returns `T` for files, directories, and other existing filesystem nodes.",
+    details: "`fexists?[path]` converts `path` from text and checks whether the local filesystem has any entry there. It returns `T` for files, directories, and other existing filesystem nodes.",
     examples: FEXISTS_Q_EXAMPLES,
     related: &["mkdir", "fsize", "open"],
 };
@@ -122,7 +122,7 @@ pub(super) const FWRITE: BuiltinDoc = BuiltinDoc {
 pub(super) const FWRITET: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Fwritet,
     summary: "Write text to a writable stream.",
-    details: "`fwritet[stream;text]` requires a stream opened with `w` or `a`. `text` is converted from string-like data, written as UTF-8 bytes, flushed, and the result is unit.",
+    details: "`fwritet[stream;text]` requires a stream opened with `w` or `a`. `text` is converted to text, written as UTF-8 bytes, flushed, and the result is unit.",
     examples: FWRITET_EXAMPLES,
     related: &["open", "freadt", "fwrite", "fclose"],
 };

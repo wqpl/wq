@@ -332,7 +332,7 @@ pub(super) const OP_CAT: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_SHARP: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpSharp,
     summary: "Count values with the `#` operator.",
-    details: "`#[x]` returns the same length/count result as unary `#x` and `len[x]`, counting the outer length of list-like values.",
+    details: "`#[x]` returns the same length/count result as unary `#x` and `len[x]`, counting the outer length of containers.",
     examples: OP_SHARP_EXAMPLES,
     related: &["len", "shape"],
 };

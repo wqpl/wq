@@ -141,7 +141,7 @@ pub(super) const ORD: BuiltinDoc = BuiltinDoc {
 pub(super) const INT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Int,
     summary: "Convert a value to an integer.",
-    details: "`int` leaves integer values unchanged and parses string-like input. When a base is supplied, it must be in `2..=36`; matching `0b`, `0o`, and `0x` prefixes are accepted, and underscores in digits are ignored.",
+    details: "`int` leaves integer values unchanged and parses text input. When a base is supplied, it must be in `2..=36`; matching `0b`, `0o`, and `0x` prefixes are accepted, and underscores in digits are ignored.",
     examples: INT_EXAMPLES,
     related: &["float", "bin", "oct", "hex"],
 };
@@ -149,7 +149,7 @@ pub(super) const INT: BuiltinDoc = BuiltinDoc {
 pub(super) const FLOAT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Float,
     summary: "Convert a value to a float.",
-    details: "`float` converts numeric values directly and parses string-like input with Rust-style floating-point syntax. Empty text converts to unit.",
+    details: "`float` converts numeric values directly and parses text input with Rust-style floating-point syntax. Empty text converts to unit.",
     examples: FLOAT_EXAMPLES,
     related: &["int", "fraction"],
 };
@@ -197,7 +197,7 @@ pub(super) const RAISE: BuiltinDoc = BuiltinDoc {
 pub(super) const ECHO: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Echo,
     summary: "Print values to stdout and return unit.",
-    details: "Use `echo` for line-oriented output. String-like values are printed as text, other values use their display form, and the optional `sep` named argument joins multiple values on one line.",
+    details: "Use `echo` for line-oriented output. Strings are printed as text, other values use their display form, and the optional `sep` named argument joins multiple values on one line.",
     examples: ECHO_EXAMPLES,
     related: &["print", "str", "pipes"],
 };
@@ -205,7 +205,7 @@ pub(super) const ECHO: BuiltinDoc = BuiltinDoc {
 pub(super) const PRINT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Print,
     summary: "Print values to stdout without adding newlines.",
-    details: "`print` is the no-newline companion to `echo`. It flattens string-like values to text and otherwise prints each value's display form.",
+    details: "`print` is the no-newline companion to `echo`. It prints strings as text and otherwise prints each value's display form.",
     examples: PRINT_EXAMPLES,
     related: &["echo", "str"],
 };
@@ -243,7 +243,7 @@ pub(super) const EXEC: BuiltinDoc = BuiltinDoc {
 pub(super) const LEN: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Len,
     summary: "Return the length of a value.",
-    details: "For lists and strings, `len` returns the number of top-level items. Atoms have length 1 and unit has length 0.",
+    details: "For containers, `len` returns the number of top-level items; for strings, this is the number of characters. Atoms have length 1 and unit has length 0.",
     examples: LEN_EXAMPLES,
     related: &["shape", "#"],
 };

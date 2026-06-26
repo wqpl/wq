@@ -61,7 +61,7 @@ const FMT_EXAMPLES: &[DocExample] = &[
 pub(super) const STR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Str,
     summary: "Convert a value to a string.",
-    details: "`str` leaves string-like values unchanged. Other values are converted through their display representation, making it useful when rendered text is needed as data rather than terminal output.",
+    details: "`str` leaves strings unchanged. Other values are converted through their display representation, making it useful when rendered text is needed as data rather than terminal output.",
     examples: STR_EXAMPLES,
     related: &["fmt", "@f", "echo"],
 };

@@ -30,7 +30,7 @@ pub(super) const DECODE: BuiltinDoc = BuiltinDoc {
 pub(super) const ENCODE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Encode,
     summary: "Encode text into bytes with a named character encoding.",
-    details: "`encode[text;codec]` converts string-like data to a list of byte values. `text` may be a string, char, unit, or a list of chars. `codec` is an encoding label understood by `encoding_rs`. The default mode is `\"s\"` for strict, which errors when text cannot be represented in the target encoding; mode `\"r\"` uses replacement behavior.",
+    details: "`encode[text;codec]` converts text to a list of byte values. `text` may be a string, char, or unit. `codec` is an encoding label understood by `encoding_rs`. The default mode is `\"s\"` for strict, which errors when text cannot be represented in the target encoding; mode `\"r\"` uses replacement behavior.",
     examples: ENCODE_EXAMPLES,
     related: &["decode", "bytes?", "ord"],
 };

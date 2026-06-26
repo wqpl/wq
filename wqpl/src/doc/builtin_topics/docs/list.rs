@@ -102,7 +102,7 @@ pub(super) const MAX: BuiltinDoc = BuiltinDoc {
 pub(super) const FLATTEN: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Flatten,
     summary: "Return all leaves of a value as one list.",
-    details: "`flatten` walks nested list-like structure and returns the leaf values in traversal order. It is often useful before string-building or simple reductions over nested data.",
+    details: "`flatten` walks nested lists, returning the leaf values in traversal order. It is often useful before string-building or simple reductions over nested data.",
     examples: FLATTEN_EXAMPLES,
     related: &["sum", "map", "depth"],
 };
@@ -117,8 +117,8 @@ pub(super) const REVERSE: BuiltinDoc = BuiltinDoc {
 
 pub(super) const SORT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Sort,
-    summary: "Sort a list-like value.",
-    details: "`sort` sorts lists of ints numerically. General lists and dicts sort by string-like value when available, otherwise by atom comparison where possible; non-list values are returned unchanged.",
+    summary: "Sort a list or dict.",
+    details: "`sort` sorts lists of ints numerically. General lists and dicts sort by string form when available, otherwise by atom comparison where possible; non-list values are returned unchanged.",
     examples: SORT_EXAMPLES,
     related: &["min", "max", "reverse"],
 };
@@ -126,7 +126,7 @@ pub(super) const SORT: BuiltinDoc = BuiltinDoc {
 pub(super) const SPLIT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Split,
     summary: "Split a value into groups.",
-    details: "`split[xs]` splits strings or char lists on whitespace. `split[xs;delim]` splits strings and lists on a delimiter. The named `m` option limits the number of splits; `inf` means unlimited.",
+    details: "`split[xs]` splits strings on whitespace. `split[xs;delim]` splits strings and lists on a delimiter. The named `m` option limits the number of splits; `inf` means unlimited.",
     examples: SPLIT_EXAMPLES,
     related: &["splitw", "words"],
 };
