@@ -37,13 +37,17 @@ echo limit[@s (exp[x]-1-x)/x^2; @s x; 0]
 // Known limits
 echo limit[@s ln[1+x]/x; @s x; 0]
 
+// Inferred variables and named directions
+echo limit[@s sin[x]/x; 0]
+echo limit[@s 1/x; 0; `d:@s+]
+
 // Pole limits
-echo limit[@s 1/x; @s x; 0; "+"]
-echo limit[@s 1/x; @s x; 0; "-"]
+echo limit[@s 1/x; @s x; 0; `d:@s+]
+echo limit[@s 1/x; @s x; 0; `d:@s-]
 echo limit[@s 1/x; @s x; 0]
-echo limit[@s 1/x^2; @s x; 0; "+"]
+echo limit[@s 1/x^2; @s x; 0; `d:@s+]
 echo limit[@s 1/x^2; @s x; 0]
-echo limit[@s -1/x; @s x; 0; "+"]
+echo limit[@s -1/x; @s x; 0; `d:@s+]
 
 // Definite integrals
 echo integrate[@s x; @s x; 0; 1]

@@ -1136,7 +1136,7 @@ declare_builtins! {
     (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;1], factor[expr;1;var]", sig!(arity!(1, 2, 3)), plain(cas::factor_poly), BuiltinGroup::Cas),
     (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", sig!(arity!(1, 2, 4)), plain(cas::integrate), BuiltinGroup::Cas),
     (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", sig!(arity!(1, 2, 4), alias Integrate), plain(cas::integrate), BuiltinGroup::Cas), // alias of integrate
-    (LIMIT, Limit, "limit", "limit[expr;var;point], limit[expr;var;point;dir], limit[expr;vars;points]", sig!(arity!(3..)), plain(cas::limit), BuiltinGroup::Cas),
+    (LIMIT, Limit, "limit", "limit[expr;point;`d], limit[expr;var;point;`d]", sig!(arity!(2..), named LIMIT_NAMED_ARGS), plain(cas::limit), BuiltinGroup::Cas),
     (SOLVE, Solve, "solve", "solve[expr], solve[expr;var], solve[eq;var]", sig!(arity!(1, 2)), plain(cas::solve), BuiltinGroup::Cas),
     (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs;vars]", sig!(arity!(2)), plain(cas::solve_system), BuiltinGroup::Cas),
     (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", sig!(arity!(3, 4, 5)), plain(cas::brent), BuiltinGroup::Cas),
@@ -1208,6 +1208,7 @@ declare_builtins! {
 
 const ECHO_NAMED_ARGS: &[&str] = &["sep"];
 const MAXSPLIT_NAMED_ARGS: &[&str] = &["m"];
+const LIMIT_NAMED_ARGS: &[&str] = &["d"];
 const SHOWTABLE_NAMED_ARGS: &[&str] = &["cols", "limit", "width", "style", "missing"];
 const ASCIIPLOT_NAMED_ARGS: &[&str] = &[
     "size",
@@ -1669,7 +1670,7 @@ mod tests {
             (BuiltinEnum::Factor, "1 2 3"),
             (BuiltinEnum::Integrate, "1 2 4"),
             (BuiltinEnum::I, "1 2 4"),
-            (BuiltinEnum::Limit, "3.."),
+            (BuiltinEnum::Limit, "2.."),
             (BuiltinEnum::Solve, "1 2"),
             (BuiltinEnum::SolveSystem, "2"),
             (BuiltinEnum::Brent, "3 4 5"),

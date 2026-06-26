@@ -127,28 +127,64 @@ pub(super) fn integrate(args: BuiltinFnArgs) -> WqResult<Value> {
     integrate_cas(&expr, &var)
 }
 
+fn inferred_limit_var(expr: &Value) -> WqResult<Value> {
+    let inferred = infer_single_cas_var(expr).map_err(|e| e.src(BuiltinEnum::Limit))?;
+    Ok(Value::from_cas_var(inferred))
+}
+
+fn required_limit_var(value: Value) -> WqResult<Value> {
+    if value.cas_var_name().is_some() && parse_limit_direction(&value).is_none() {
+        Ok(value)
+    } else {
+        Err(WqError::new(WqErrorType::Domain)
+            .src(BuiltinEnum::Limit)
+            .msg("limit target must be a symbolic variable")
+            .got1(&value))
+    }
+}
+
+fn required_limit_direction(value: &Value) -> WqResult<crate::cas::limit::LimitDirection> {
+    parse_limit_direction(value).ok_or_else(|| {
+        WqError::new(WqErrorType::Domain)
+            .src(BuiltinEnum::Limit)
+            .msg("limit direction must be @s+ or @s-")
+            .got1(value)
+    })
+}
+
 pub(super) fn limit(args: BuiltinFnArgs) -> WqResult<Value> {
-    // Minimum 3 args: expr, var1, point1.
-    // Additional args come in (var, point) pairs, with optional trailing dir.
-    if args.len() < 3 {
+    // Inferred form: expr, point.
+    // Explicit forms: expr, var1, point1.
+    // Additional args come in (var, point) pairs. Named `d is the final direction.
+    let direction = args.named("d").map(required_limit_direction).transpose()?;
+    let argc = args.len();
+    if argc < 2 {
         return Err(WqError::new(WqErrorType::Arity)
             .src(BuiltinEnum::Limit)
-            .msg("limit expects at least 3 args: expr, var, point"));
+            .msg("limit expects at least 2 args: expr, point"));
     }
-    let n = args.len() - 1;
-    let n_pairs = n / 2;
-    let has_dir = n % 2 == 1;
-
     let mut iter = args.into_iter();
     let mut result = iter.next().unwrap();
-    for i in 0..n_pairs {
-        let var = iter.next().unwrap();
+
+    if argc == 2 {
         let point = iter.next().unwrap();
-        let dir = if has_dir && i == n_pairs - 1 {
-            parse_limit_direction(&iter.next().unwrap())
-        } else {
-            None
-        };
+        let var = inferred_limit_var(&result)?;
+        return limit_cas(&result, &var, &point, direction);
+    }
+
+    let n = argc - 1;
+    if !n.is_multiple_of(2) {
+        return Err(WqError::new(WqErrorType::Arity)
+            .src(BuiltinEnum::Limit)
+            .msg("limit expects expr;point or expr followed by var;point pairs"));
+    }
+
+    let n_pairs = n / 2;
+
+    for i in 0..n_pairs {
+        let var = required_limit_var(iter.next().unwrap())?;
+        let point = iter.next().unwrap();
+        let dir = if i == n_pairs - 1 { direction } else { None };
         result = limit_cas(&result, &var, &point, dir)?;
     }
     Ok(result)

@@ -1138,9 +1138,7 @@ fn probe_denominator_sign(
 }
 
 pub(crate) fn parse_limit_direction(value: &Value) -> Option<LimitDirection> {
-    // Direction is a parser-level tag/string, not a symbolic constant.
-    let tag = value.to_rust_string_with_note().ok();
-    match tag.as_deref() {
+    match value.cas_var_name() {
         Some("+") => Some(LimitDirection::Right),
         Some("-") => Some(LimitDirection::Left),
         _ => None,
@@ -1743,7 +1741,7 @@ mod tests {
     #[test]
     fn parse_limit_direction_right() {
         assert_eq!(
-            parse_limit_direction(&crate::value::into_wq_string("+")),
+            parse_limit_direction(&Value::from_cas_var("+")),
             Some(LimitDirection::Right)
         );
     }
@@ -1751,19 +1749,7 @@ mod tests {
     #[test]
     fn parse_limit_direction_left() {
         assert_eq!(
-            parse_limit_direction(&crate::value::into_wq_string("-")),
-            Some(LimitDirection::Left)
-        );
-    }
-
-    #[test]
-    fn parse_limit_direction_from_string() {
-        assert_eq!(
-            parse_limit_direction(&crate::value::into_wq_string("+")),
-            Some(LimitDirection::Right)
-        );
-        assert_eq!(
-            parse_limit_direction(&crate::value::into_wq_string("-")),
+            parse_limit_direction(&Value::from_cas_var("-")),
             Some(LimitDirection::Left)
         );
     }
@@ -1773,6 +1759,10 @@ mod tests {
         assert_eq!(parse_limit_direction(&Value::from_cas_var("x")), None);
         assert_eq!(parse_limit_direction(&Value::Int(0)), None);
         assert_eq!(parse_limit_direction(&konst(CasConst::Infinity)), None);
+        assert_eq!(
+            parse_limit_direction(&crate::value::into_wq_string("+")),
+            None
+        );
         assert_eq!(
             parse_limit_direction(&crate::value::into_wq_string("")),
             None

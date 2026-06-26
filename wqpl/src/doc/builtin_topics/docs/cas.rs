@@ -77,7 +77,7 @@ const INTEGRATE_EXAMPLES: &[DocExample] = &[DocExample {
 
 const LIMIT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Use a classic trigonometric limit",
-    code: "limit[@s sin[x]/x;@s x;0]",
+    code: "limit[@s sin[x]/x;0]",
     expectation: ExampleExpectation::ResultContains("1.0"),
 }];
 
@@ -188,7 +188,7 @@ pub(super) const INTEGRATE: BuiltinDoc = BuiltinDoc {
 pub(super) const LIMIT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Limit,
     summary: "Compute a symbolic limit.",
-    details: "`limit[expr;var;point]` evaluates a limit at a finite point or symbolic infinity such as `@s inf` and `@s -inf` (`@s oo` remains an alias for positive infinity). Additional `var;point` pairs are applied in sequence, and a final `\"+\"` or `\"-\"` direction requests a one-sided limit for the last pair.",
+    details: "`limit[expr;point]` infers the only symbolic variable. `limit[expr;var;point]` uses an explicit variable. Points may be finite values or symbolic infinity such as `@s inf` and `@s -inf` (`@s oo` remains an alias for positive infinity). Additional `var;point` pairs are applied in sequence. Use named argument `d` with `@s+` or `@s-` to request a one-sided limit for the last pair.",
     examples: LIMIT_EXAMPLES,
     related: &["diff", "integrate", "numeric"],
 };

@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::astnode::{AstNode, AstSpan, BinaryOperator, FStringPart, Parameter, UnaryOperator};
-use crate::cas::{cas_binary_expr, cas_call_expr, cas_unary_expr, ensure_expr_arg};
+use crate::cas::{
+    cas_binary_expr, cas_call_expr, cas_unary_expr, ensure_expr_arg, infer_single_cas_var,
+};
 use crate::cst::{
     Checkpoint, GreenNode, GreenNodeBuilder, SyntaxKind, SyntaxNode, syntax_kind_of_token,
 };
@@ -3567,29 +3569,51 @@ impl Parser {
         let node_span = node.span();
         let quote_call = |name: &str, args: Vec<Value>, span: Option<(usize, usize)>| {
             if name == "limit" {
-                if !(args.len() == 3 || args.len() == 4) {
+                if !(args.len() == 2 || args.len() == 3 || args.len() == 4) {
                     return Err(mk_err(
                         span,
-                        "@s: limit expects 3 or 4 symbolic arguments".to_string(),
+                        "@s: limit expects 2, 3, or 4 symbolic arguments".to_string(),
                     ));
                 }
-                let direction = if args.len() == 4 {
-                    let Some(direction) = crate::cas::limit::parse_limit_direction(&args[3]) else {
+                let direction = |arg: &Value| {
+                    let Some(direction) = crate::cas::limit::parse_limit_direction(arg) else {
                         return Err(mk_err(
                             span,
-                            "@s: limit direction must be + or -".to_string(),
+                            "@s: limit direction must be symbolic + or -".to_string(),
                         ));
                     };
-                    Some(direction)
-                } else {
-                    None
+                    Ok(direction)
                 };
-                return Ok(Value::from_cas_limit(
-                    args[0].clone(),
-                    args[1].clone(),
-                    args[2].clone(),
-                    direction,
-                ));
+                let infer_var = || {
+                    let Ok(var_name) = infer_single_cas_var(&args[0]) else {
+                        return Err(mk_err(
+                            span,
+                            "@s: limit could not infer one target symbol".to_string(),
+                        ));
+                    };
+                    Ok(Value::from_cas_var(var_name))
+                };
+                return match args.as_slice() {
+                    [expr, point] => Ok(Value::from_cas_limit(
+                        expr.clone(),
+                        infer_var()?,
+                        point.clone(),
+                        None,
+                    )),
+                    [expr, var, point] => Ok(Value::from_cas_limit(
+                        expr.clone(),
+                        var.clone(),
+                        point.clone(),
+                        None,
+                    )),
+                    [expr, var, point, dir] => Ok(Value::from_cas_limit(
+                        expr.clone(),
+                        var.clone(),
+                        point.clone(),
+                        Some(direction(dir)?),
+                    )),
+                    _ => unreachable!("limit argument count checked"),
+                };
             }
             if let Some(function) = CasFunction::from_name(name) {
                 cas_call_expr(function, &args)
