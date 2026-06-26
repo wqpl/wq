@@ -1,0 +1,21 @@
+abs[x + 1]
+abs[x + 1]
+x^2 + 1
+x^(1/2)*abs[x + 1]
+x^(-1/2)/abs[x + 1]
+0^x
+-inf
+inf
+limit[y/x;x;0;`d:+]
+limit[-y/x;x;0;`d:+]
+-inf
+2*x*(x + 1)
+2*heaviside[x]*(x^3/3 + x^2/2) - 2*heaviside[x + 1]*(x^3/3 + x^2/2 - 1/6) + x^3/3 + x^2/2
+2*heaviside[x]*(x^2 + x) - 2*heaviside[x + 1]*(x^2 + x) + x^2 + x
+2*heaviside[x]*(x^3/3 + x^2/2) - 2*heaviside[x + 1]*(x^3/3 + x^2/2 - 1/6) + x^3/3 + x^2/2
+2*heaviside[x]*(x^2 + x) - 2*heaviside[x + 1]*(x^2 + x) + x^2 + x
+undef
+undef
+inf
+ln[2]
+()

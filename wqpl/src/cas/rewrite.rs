@@ -568,7 +568,7 @@ fn rewrite_sgn_abs_product(args: &[Value]) -> WqResult<Option<Value>> {
 
 /// Check whether `expr` is provably positive for all real values of the
 /// variable it contains.  Used to drop unnecessary `abs` wrappers.
-fn is_provably_positive(expr: &Value) -> bool {
+pub(super) fn is_provably_positive(expr: &Value) -> bool {
     // Positive numeric constant
     if !expr.is_cas_expr() {
         return expr.as_f64().is_some_and(|f| f > 0.0);

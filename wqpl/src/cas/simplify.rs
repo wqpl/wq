@@ -5,15 +5,15 @@ use ahash::AHashMap;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use super::rewrite::push_flattened;
+use super::rewrite::{is_provably_positive, push_flattened};
 use super::{
     cas_err, cas_product, collect_single_poly_var, contains_cas_var, ensure_expr_arg,
-    eval_exact_numeric_div, eval_numeric_binary_gcd, eval_numeric_call, expand_expr,
-    extract_algebraic_content, factor_expr, numeric_add, numeric_is_negative, numeric_is_one,
-    numeric_is_zero, numeric_mul, numeric_pow, poly_add, poly_degree, poly_divide, poly_from_expr,
-    poly_gcd, poly_is_zero, poly_mul, poly_to_expr, poly_trim, sort_canonical, split_off_results,
-    square_free_factor, try_cancel_affine_over_factor, try_eval_with_const_resolve,
-    try_exact_polynomial_division,
+    eval_exact_numeric_div, eval_numeric_binary_gcd, eval_numeric_call, eval_numeric_cas,
+    expand_expr, extract_algebraic_content, extract_linear_coefficients, factor_expr, numeric_add,
+    numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_pow, poly_add,
+    poly_degree, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul, poly_to_expr,
+    poly_trim, sort_canonical, split_off_results, square_free_factor,
+    try_cancel_affine_over_factor, try_eval_with_const_resolve, try_exact_polynomial_division,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp, CasSymbol};
@@ -1452,10 +1452,63 @@ pub(crate) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
     }
 }
 
+fn delta_root_product_is_zero(factors: &[Value]) -> WqResult<bool> {
+    for (delta_idx, factor) in factors.iter().enumerate() {
+        let Some((var, root)) = linear_delta_root(factor)? else {
+            continue;
+        };
+        let var_expr = Value::from_cas_var(&var);
+        for (idx, other) in factors.iter().enumerate() {
+            if idx == delta_idx {
+                continue;
+            }
+            let substituted = substitute_cas(other, &var_expr, &root)?;
+            if is_zero_at_delta_root(&simplify_cas_value(&substituted)?) {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn is_zero_at_delta_root(value: &Value) -> bool {
+    if numeric_is_zero(value) {
+        return true;
+    }
+    let Ok(numeric) = eval_numeric_cas(value) else {
+        return false;
+    };
+    numeric_is_zero(&numeric) || numeric.as_f64().is_some_and(|f| f.abs() <= 1e-10)
+}
+
+fn linear_delta_root(value: &Value) -> WqResult<Option<(String, Value)>> {
+    let Some((CasFunction::Delta, [arg])) = value.cas_function_parts() else {
+        return Ok(None);
+    };
+    let mut found = None;
+    if !collect_single_poly_var(arg, &mut found) {
+        return Ok(None);
+    }
+    let Some(var) = found else {
+        return Ok(None);
+    };
+    let Some((a, b)) = extract_linear_coefficients(arg, &var) else {
+        return Ok(None);
+    };
+    if numeric_is_zero(&a) {
+        return Ok(None);
+    }
+    let root = eval_exact_numeric_div(&cas_neg(b)?, &a)?;
+    Ok(Some((var, root)))
+}
+
 pub(crate) fn cas_mul(args: Vec<Value>) -> WqResult<Value> {
     let mut flat = Vec::with_capacity(args.len());
     for arg in args {
         push_flattened(&mut flat, CasOp::Multiply, simplify_cas_value(&arg)?);
+    }
+    if delta_root_product_is_zero(&flat)? {
+        return Ok(Value::Int(0));
     }
 
     let mut numeric: Option<Value> = None;
@@ -1715,7 +1768,8 @@ fn detect_poly_var(expr: &Value) -> Option<String> {
 }
 
 /// Try to simplify sqrt(polynomial) by extracting square factors.
-/// If poly = outside^2 * inside, returns outside * sqrt(inside) (or inverse).
+/// If poly = outside^2 * inside, returns abs(outside) * sqrt(inside)
+/// unless outside is provably positive.
 fn try_simplify_sqrt_poly(coeffs: &[Value], var: &str, is_sqrt: bool) -> WqResult<Option<Value>> {
     let factors = square_free_factor(coeffs)?;
     // Check if any factor has multiplicity >= 2
@@ -1753,29 +1807,38 @@ fn try_simplify_sqrt_poly(coeffs: &[Value], var: &str, is_sqrt: bool) -> WqResul
 
     let out_expr = poly_to_expr(&outside, var)?;
     let in_deg = poly_degree(&inside);
+    let outside_term = if is_provably_positive(&out_expr) {
+        out_expr
+    } else {
+        Value::from_cas_function(CasFunction::Abs, vec![out_expr])
+    };
+    let outside_term = simplify_cas_value(&outside_term)?;
 
     if in_deg == 0 {
-        // Perfect square: sqrt(outside^2) = outside (positive branch)
-        // Monomial squares like x^2 are already filtered above and left
-        // for rewrite_cas. Non-monomial squares like (x^2+1)^2 are always
-        // non-negative, so the abs is dropped.
-        return Ok(Some(out_expr));
+        return if is_sqrt {
+            Ok(Some(outside_term))
+        } else {
+            Ok(Some(cas_pow(outside_term, Value::Int(-1))?))
+        };
     }
 
-    // Build out * sqrt(in) or out / sqrt(in)
+    // Build abs(out) * in^(1/2) or abs(out)^(-1) * in^(-1/2).
     let in_expr = poly_to_expr(&inside, var)?;
-    let sqrt_in = Value::from_cas_op(
+    let in_pow = Value::from_cas_op(
         CasOp::Power,
         vec![
             in_expr,
-            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+            if is_sqrt {
+                Value::from_fraction_parts(BigInt::from(1), BigInt::from(2))
+            } else {
+                Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2))
+            },
         ],
     );
     let result = if is_sqrt {
-        cas_mul(vec![out_expr, sqrt_in])?
+        cas_mul(vec![outside_term, in_pow])?
     } else {
-        let inv_sqrt = Value::from_cas_op(CasOp::Power, vec![sqrt_in, Value::Int(-1)]);
-        cas_mul(vec![out_expr, inv_sqrt])?
+        cas_mul(vec![cas_pow(outside_term, Value::Int(-1))?, in_pow])?
     };
     Ok(Some(simplify_cas_value(&result)?))
 }
@@ -1834,6 +1897,9 @@ pub(crate) fn cas_pow(base: Value, exp: Value) -> WqResult<Value> {
         return Ok(base);
     }
     if numeric_is_zero(&base) {
+        if exp.is_cas_expr() {
+            return Ok(Value::from_cas_op(CasOp::Power, vec![base, exp]));
+        }
         return Ok(Value::Int(0));
     }
     if numeric_is_one(&base) {

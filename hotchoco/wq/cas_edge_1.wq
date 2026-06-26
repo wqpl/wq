@@ -1,0 +1,26 @@
+// CAS edge cases pinned from the audit fixes.
+
+echo simplify[@s sqrt[(x+1)^2]]
+echo rewrite[@s sqrt[(x+1)^2]]
+echo simplify[@s sqrt[(x^2+1)^2]]
+echo simplify[@s sqrt[(x^3+2*x^2+x)]]
+echo simplify[@s sqrt[(x^3+2*x^2+x)]^(-1)]
+echo simplify[@s 0^x]
+
+echo limit[@s (-x^2)/(x+1); @s x; @s inf]
+echo limit[@s (-x^2)/(x+1); @s x; @s -inf]
+echo limit[@s y/x; @s x; 0; `d:@s +]
+echo limit[@s (-y)/x; @s x; 0; `d:@s +]
+echo limit[@s ln[abs[x]]; @s x; 0; `d:@s +]
+
+echo factor @s 2*x^2+2*x
+
+echo integrate @s abs[x^2+x]
+echo diff integrate @s abs[x^2+x]
+echo integrate @s sqrt[x^4+2*x^3+x^2]
+echo diff integrate @s sqrt[x^4+2*x^3+x^2]
+
+echo integrate[@s 1/x; @s x; (-1); 1]
+echo integrate[@s 1/(x-1); @s x; 0; 2]
+echo integrate[@s 1/x^2; @s x; (-1); 1]
+echo integrate[@s 1/x; @s x; 1; 2]

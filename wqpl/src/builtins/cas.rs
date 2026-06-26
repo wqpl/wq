@@ -502,8 +502,12 @@ pub(super) fn factor_poly(args: BuiltinFnArgs) -> WqResult<Value> {
         }
     };
 
-    let coeffs =
+    let mut coeffs =
         crate::cas::poly_from_expr(&args[0], &var).map_err(|e| e.src(BuiltinEnum::Factor))?;
+    crate::cas::poly_trim(&mut coeffs);
+    if crate::cas::poly_degree(&coeffs) == 0 {
+        return Ok(coeffs.first().cloned().unwrap_or(Value::Int(0)));
+    }
 
     // Square-free factorization
     let sf_factors =
@@ -511,6 +515,7 @@ pub(super) fn factor_poly(args: BuiltinFnArgs) -> WqResult<Value> {
 
     // Factor each square-free factor
     let mut factored_parts: Vec<(Value, usize)> = Vec::new();
+    let mut product_poly = vec![Value::Int(1)];
     for (factor, mult) in sf_factors {
         let sub_factors = if complex {
             factor_polynomial_complex(&factor).map_err(|e| e.src(BuiltinEnum::Factor))?
@@ -518,6 +523,10 @@ pub(super) fn factor_poly(args: BuiltinFnArgs) -> WqResult<Value> {
             factor_polynomial_full(&factor).map_err(|e| e.src(BuiltinEnum::Factor))?
         };
         for sub in sub_factors {
+            for _ in 0..mult {
+                product_poly = crate::cas::poly_mul(&product_poly, &sub)
+                    .map_err(|e| e.src(BuiltinEnum::Factor))?;
+            }
             let expr = if complex {
                 // Complex factors may have complex coefficients
                 poly_to_expr_complex(&sub, &var)
@@ -530,6 +539,17 @@ pub(super) fn factor_poly(args: BuiltinFnArgs) -> WqResult<Value> {
 
     // Build product: ∏ factor^mult
     let mut factors: Vec<Value> = Vec::new();
+    let original_lead = coeffs.last().expect("non-constant poly has lead");
+    let product_lead = product_poly
+        .last()
+        .expect("factor product should have a leading coefficient");
+    if !crate::cas::numeric_is_zero(product_lead) {
+        let scale = crate::cas::eval_exact_numeric_div(original_lead, product_lead)
+            .map_err(|e| e.src(BuiltinEnum::Factor))?;
+        if !crate::cas::numeric_is_one(&scale) {
+            factors.push(scale);
+        }
+    }
     for (expr, mult) in factored_parts {
         if mult == 1 {
             factors.push(expr);
@@ -543,7 +563,7 @@ pub(super) fn factor_poly(args: BuiltinFnArgs) -> WqResult<Value> {
 
     match factors.len() {
         0 => Ok(Value::Int(1)),
-        1 => Ok(factors.into_iter().next().unwrap()),
+        1 => Ok(factors.into_iter().next().expect("one factor")),
         _ => Ok(Value::from_cas_op(CasOp::Multiply, factors)),
     }
 }

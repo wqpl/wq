@@ -1,6 +1,7 @@
 use crate::cas::diff::diff_expr;
 use crate::cas::{
-    cas_product, contains_cas_var, numeric_is_zero, simplify_cas_value, substitute_cas,
+    cas_product, contains_cas_var, numeric_is_negative, numeric_is_zero, simplify_cas_value,
+    substitute_cas,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -105,6 +106,12 @@ fn limit_cas_inner(
     // Strategy 1: direct substitution
     try_strategy!("direct_subst", try_direct_substitution(expr, var, point));
 
+    // Strategy 1.25: finite composition such as ln(abs(x)) as x -> 0.
+    try_strategy!(
+        "finite_function",
+        try_finite_function_limit(expr, var, point, direction, lhopital_depth)
+    );
+
     // Strategy 1.5: series expansion at point 0 (faster than L'Hopital)
     if matches!(point, Value::Int(0)) {
         try_strategy!("series", try_series_expansion(expr, var));
@@ -157,12 +164,112 @@ fn try_direct_substitution(expr: &Value, var: &Value, point: &Value) -> WqResult
             // CAS result that no longer contains the variable is determinate
             // (e.g. ln(2) after substituting x=2 into ln(x)).
             let var_name = var.cas_var_name().unwrap_or("x");
-            if !contains_cas_var(&result, var_name) {
+            if !contains_cas_var(&result, var_name) && !is_singular_substitution_value(&result) {
                 return Ok(Some(result));
             }
             Ok(None)
         }
         Err(_) => Ok(None),
+    }
+}
+
+pub(crate) fn is_singular_substitution_value(value: &Value) -> bool {
+    if value.cas_const() == Some(CasConst::Undefined) {
+        return true;
+    }
+    if let Some((op, args)) = value.cas_op_parts() {
+        match (op, args) {
+            (CasOp::Divide, [_, den]) if numeric_is_zero(den) => return true,
+            (CasOp::Power, [base, exp]) if numeric_is_zero(base) && numeric_is_negative(exp) => {
+                return true;
+            }
+            _ => {
+                return args.iter().any(is_singular_substitution_value);
+            }
+        }
+    }
+    if let Some((function, args)) = value.cas_function_parts() {
+        match (function, args) {
+            (CasFunction::Ln, [arg]) if numeric_is_zero(arg) => return true,
+            (CasFunction::Log, [_, arg]) if numeric_is_zero(arg) => return true,
+            _ => {
+                return args.iter().any(is_singular_substitution_value);
+            }
+        }
+    }
+    if let Some((_, args)) = value.cas_apply_parts() {
+        return args.iter().any(is_singular_substitution_value);
+    }
+    if let Some((_, named_value)) = value.cas_named_arg_parts() {
+        return is_singular_substitution_value(named_value);
+    }
+    if let Some((lhs, rhs)) = value.cas_eq_parts() {
+        return is_singular_substitution_value(lhs) || is_singular_substitution_value(rhs);
+    }
+    false
+}
+
+fn try_finite_function_limit(
+    expr: &Value,
+    var: &Value,
+    point: &Value,
+    direction: Option<LimitDirection>,
+    lhopital_depth: usize,
+) -> WqResult<Option<Value>> {
+    if matches!(
+        point.cas_const(),
+        Some(CasConst::Infinity | CasConst::NegInfinity)
+    ) {
+        return Ok(None);
+    }
+
+    let Some((function, args)) = expr.cas_function_parts() else {
+        return Ok(None);
+    };
+    let [arg] = args else {
+        return Ok(None);
+    };
+
+    let inner_limit = limit_cas_inner(arg, var, point, direction, lhopital_depth)?;
+    match function {
+        CasFunction::Abs => {
+            if matches!(
+                inner_limit.cas_const(),
+                Some(CasConst::Infinity | CasConst::NegInfinity)
+            ) {
+                return Ok(Some(Value::from_cas_const(CasConst::Infinity)));
+            }
+            if inner_limit.cas_const() == Some(CasConst::Undefined) {
+                return Ok(Some(inner_limit));
+            }
+            if !inner_limit.is_cas_expr() {
+                return Ok(Some(inner_limit.abs().map_err(|e| e.src("cas"))?));
+            }
+            Ok(None)
+        }
+        CasFunction::Ln => {
+            if inner_limit.cas_const() == Some(CasConst::Infinity) {
+                return Ok(Some(Value::from_cas_const(CasConst::Infinity)));
+            }
+            if inner_limit.cas_const() == Some(CasConst::NegInfinity) {
+                return Ok(Some(Value::from_cas_const(CasConst::Undefined)));
+            }
+            if numeric_is_zero(&inner_limit) {
+                return match probe_expression_sign(arg, var, point, direction)? {
+                    Some(sign) if sign > 0 => {
+                        Ok(Some(Value::from_cas_const(CasConst::NegInfinity)))
+                    }
+                    Some(_) => Ok(Some(Value::from_cas_const(CasConst::Undefined))),
+                    None => Ok(None),
+                };
+            }
+            if !inner_limit.is_cas_expr() && !numeric_is_negative(&inner_limit) {
+                let call = Value::from_cas_function(CasFunction::Ln, vec![inner_limit]);
+                return Ok(Some(simplify_cas_value(&call)?));
+            }
+            Ok(None)
+        }
+        _ => Ok(None),
     }
 }
 
@@ -556,6 +663,21 @@ fn inf_with_sign(sign: i32) -> Value {
     }
 }
 
+fn numeric_sign(value: &Value) -> Option<i32> {
+    if numeric_is_zero(value) {
+        Some(0)
+    } else if numeric_is_negative(value) {
+        Some(-1)
+    } else if value.as_f64().is_some_and(|f| f > 0.0)
+        || value.rational_parts().is_some()
+        || value.is_algebraic_number()
+    {
+        Some(1)
+    } else {
+        None
+    }
+}
+
 enum ProductResult {
     Determinate(Value),
     InfTimesZero,
@@ -749,17 +871,22 @@ fn rational_limit_at_infinity(
     // num_deg > den_deg -> +/-inf
     let lead_num = &num_poly[num_deg];
     let lead_den = &den_poly[den_deg];
-    let ratio_sign = if numeric_is_zero(lead_den) || numeric_is_zero(lead_num) {
-        0.0
-    } else {
-        lead_num.as_f64().unwrap_or(0.0).signum() * lead_den.as_f64().unwrap_or(1.0).signum()
+    let Some(lead_num_sign) = numeric_sign(lead_num) else {
+        return Ok(None);
     };
+    let Some(lead_den_sign) = numeric_sign(lead_den) else {
+        return Ok(None);
+    };
+    if lead_num_sign == 0 || lead_den_sign == 0 {
+        return Ok(None);
+    }
+    let ratio_sign = lead_num_sign * lead_den_sign;
     // Odd/even degree difference determines sign behavior
     let deg_diff = (num_deg - den_deg) as i32;
     let result_sign = if deg_diff % 2 == 0 {
-        (ratio_sign as i32).max(1)
+        ratio_sign
     } else {
-        (ratio_sign as i32).max(1) * sign
+        ratio_sign * sign
     };
     Ok(Some(inf_with_sign(result_sign)))
 }
@@ -1065,13 +1192,15 @@ fn try_pole_limit(
 
     // Numerator must approach a non-zero value at the point.
     let num_at_point = match substitute_cas(&num, var, point) {
-        Ok(v) if v.as_f64().map(|f| f != 0.0).unwrap_or(true) => v,
+        Ok(v) => v,
         _ => return Ok(None),
     };
-    let num_sign = num_at_point
-        .as_f64()
-        .map(|f| f.signum() as i32)
-        .unwrap_or(1);
+    let Some(num_sign) = numeric_sign(&num_at_point) else {
+        return Ok(None);
+    };
+    if num_sign == 0 {
+        return Ok(None);
+    }
 
     // Denominator must approach 0 at the point.
     let den_at_point = match substitute_cas(&den, var, point) {
@@ -1099,6 +1228,40 @@ fn try_pole_limit(
     } else {
         Value::from_cas_const(CasConst::NegInfinity)
     }))
+}
+
+fn probe_expression_sign(
+    expr: &Value,
+    var: &Value,
+    point: &Value,
+    direction: Option<LimitDirection>,
+) -> WqResult<Option<i32>> {
+    let Some(base) = point.as_f64() else {
+        return Ok(None);
+    };
+    let eps = 1e-10_f64.max(base.abs() * 1e-10);
+
+    let sign_at = |offset: f64| -> Option<i32> {
+        let probe = Value::float(base + offset);
+        let value = substitute_cas(expr, var, &probe).ok()?;
+        let value = simplify_cas_value(&value).ok()?;
+        numeric_sign(&value)
+    };
+
+    let result = match direction {
+        None => {
+            let right = sign_at(eps);
+            let left = sign_at(-eps);
+            match (right, left) {
+                (Some(r), Some(l)) if r != l => Some(0),
+                (Some(r), Some(_)) => Some(r),
+                _ => None,
+            }
+        }
+        Some(LimitDirection::Right) => sign_at(eps),
+        Some(LimitDirection::Left) => sign_at(-eps),
+    };
+    Ok(result)
 }
 
 /// Probe the sign of `den(var)` as `var` approaches `point` from the given

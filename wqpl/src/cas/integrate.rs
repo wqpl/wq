@@ -1,7 +1,11 @@
-use crate::cas::limit::limit_cas;
+use num_bigint::BigInt;
+
+use crate::cas::limit::{LimitDirection, is_singular_substitution_value, limit_cas};
 use crate::cas::{
-    cas_add, cas_div, cas_err, cas_mul, cas_pow, cas_sub, contains_cas_var, numeric_mul,
-    rewrite_cas, simplify_cas_value, substitute_cas, var_name_from_value, with_cas_div_cache,
+    cas_add, cas_div, cas_err, cas_mul, cas_pow, cas_sub, contains_cas_var, eval_exact_numeric_div,
+    eval_numeric_binary, extract_linear_coefficients, numeric_is_negative, numeric_is_zero,
+    numeric_mul, poly_degree, poly_evaluate, poly_from_expr, rewrite_cas, simplify_cas_value,
+    solve_cas, substitute_cas, var_name_from_value, with_cas_div_cache,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -52,7 +56,8 @@ pub(crate) fn definite_integrate_cas(
     lower: &Value,
     upper: &Value,
 ) -> WqResult<Value> {
-    let antideriv = integrate_cas(expr, var)?;
+    let expr = simplify_cas_value(expr)?;
+    let antideriv = integrate_cas(&expr, var)?;
 
     // If the antiderivative is itself an unevaluated integral, bail.
     if let Some((name, _)) = antideriv.cas_function_parts()
@@ -61,15 +66,114 @@ pub(crate) fn definite_integrate_cas(
         return Ok(antideriv);
     }
 
-    let f_upper = evaluate_at_bound(&antideriv, var, upper)?;
-    let f_lower = evaluate_at_bound(&antideriv, var, lower)?;
+    evaluate_definite_segments(&expr, &antideriv, var, lower, upper)
+}
 
+fn evaluate_definite_segments(
+    expr: &Value,
+    antideriv: &Value,
+    var: &Value,
+    lower: &Value,
+    upper: &Value,
+) -> WqResult<Value> {
+    let Some(lower_key) = bound_order_key(lower) else {
+        return evaluate_segment(antideriv, var, lower, upper);
+    };
+    let Some(upper_key) = bound_order_key(upper) else {
+        return evaluate_segment(antideriv, var, lower, upper);
+    };
+    if lower_key == upper_key {
+        return Ok(Value::Int(0));
+    }
+
+    let forward = lower_key < upper_key;
+    let (start, end) = if forward {
+        (lower.clone(), upper.clone())
+    } else {
+        (upper.clone(), lower.clone())
+    };
+
+    let mut bounds = Vec::new();
+    bounds.push(start);
+    bounds.extend(singularity_split_points(
+        expr,
+        var,
+        lower_key.min(upper_key),
+        lower_key.max(upper_key),
+    )?);
+    bounds.push(end);
+
+    let mut segments = Vec::with_capacity(bounds.len().saturating_sub(1));
+    for pair in bounds.windows(2) {
+        segments.push(evaluate_segment(antideriv, var, &pair[0], &pair[1])?);
+    }
+
+    let total = combine_segment_values(segments)?;
+    if forward {
+        Ok(total)
+    } else {
+        negate_definite_value(total)
+    }
+}
+
+fn evaluate_segment(
+    antideriv: &Value,
+    var: &Value,
+    lower: &Value,
+    upper: &Value,
+) -> WqResult<Value> {
+    let f_upper = evaluate_at_bound(antideriv, var, upper, endpoint_direction(false, upper))?;
+    let f_lower = evaluate_at_bound(antideriv, var, lower, endpoint_direction(true, lower))?;
+    if let Some(value) = subtract_endpoint_limits(&f_upper, &f_lower) {
+        return Ok(value);
+    }
     cas_sub(f_upper, f_lower)
+}
+
+fn subtract_endpoint_limits(upper: &Value, lower: &Value) -> Option<Value> {
+    match (limit_value_sign(upper), limit_value_sign(lower)) {
+        (Some(None), _) | (_, Some(None)) => Some(Value::from_cas_const(CasConst::Undefined)),
+        (Some(Some(upper_sign)), Some(Some(lower_sign))) if upper_sign == lower_sign => {
+            Some(Value::from_cas_const(CasConst::Undefined))
+        }
+        (Some(Some(upper_sign)), Some(Some(lower_sign))) => {
+            Some(infinite_value(upper_sign - lower_sign))
+        }
+        (Some(Some(upper_sign)), None) => Some(infinite_value(upper_sign)),
+        (None, Some(Some(lower_sign))) => Some(infinite_value(-lower_sign)),
+        (None, None) => None,
+    }
+}
+
+fn limit_value_sign(value: &Value) -> Option<Option<i32>> {
+    match value.cas_const() {
+        Some(CasConst::Infinity) => Some(Some(1)),
+        Some(CasConst::NegInfinity) => Some(Some(-1)),
+        Some(CasConst::Undefined) => Some(None),
+        _ => None,
+    }
+}
+
+fn endpoint_direction(is_lower: bool, bound: &Value) -> Option<LimitDirection> {
+    if bound_order_key(bound).is_some_and(f64::is_finite) {
+        Some(if is_lower {
+            LimitDirection::Right
+        } else {
+            LimitDirection::Left
+        })
+    } else {
+        None
+    }
 }
 
 /// Evaluate F(bound), falling back to a one-sided limit when substitution fails
 /// (e.g. singularity or infinity bound).
-fn evaluate_at_bound(antideriv: &Value, var: &Value, bound: &Value) -> WqResult<Value> {
+fn evaluate_at_bound(
+    antideriv: &Value,
+    var: &Value,
+    bound: &Value,
+    direction: Option<LimitDirection>,
+) -> WqResult<Value> {
     // For infinity bounds, skip substitution.
     // Substituting inf produces expressions like inf^(-1) that aren't meaningful.
     let is_inf = matches!(
@@ -81,14 +185,176 @@ fn evaluate_at_bound(antideriv: &Value, var: &Value, bound: &Value) -> WqResult<
             Ok(v) if !v.is_cas_expr() => return Ok(v),
             Ok(v) => {
                 let var_name = var.cas_var_name().unwrap_or("");
-                if !contains_cas_var(&v, var_name) {
+                if !contains_cas_var(&v, var_name) && !is_singular_substitution_value(&v) {
                     return Ok(v);
                 }
             }
             Err(_) => {}
         }
     }
-    limit_cas(antideriv, var, bound, None)
+    limit_cas(antideriv, var, bound, direction)
+}
+
+fn bound_order_key(bound: &Value) -> Option<f64> {
+    match bound.cas_const() {
+        Some(CasConst::Infinity) => Some(f64::INFINITY),
+        Some(CasConst::NegInfinity) => Some(f64::NEG_INFINITY),
+        _ => bound.as_f64().filter(|value| !value.is_nan()),
+    }
+}
+
+fn singularity_split_points(
+    expr: &Value,
+    var: &Value,
+    lower_key: f64,
+    upper_key: f64,
+) -> WqResult<Vec<Value>> {
+    let var_name = var_name_from_value(var)?;
+    let mut candidates = Vec::new();
+    collect_denominator_candidates(expr, &var_name, &mut candidates);
+
+    let mut roots = Vec::new();
+    for candidate in candidates {
+        let Ok(solved) = solve_cas(&candidate, var) else {
+            continue;
+        };
+        let Value::List(items) = solved else {
+            continue;
+        };
+        for root in items.iter() {
+            let Some(key) = root.as_f64() else {
+                continue;
+            };
+            if key.is_finite() && lower_key < key && key < upper_key {
+                roots.push((key, root.clone()));
+            }
+        }
+    }
+
+    roots.sort_by(|left, right| left.0.total_cmp(&right.0));
+    roots.dedup_by(|left, right| root_keys_equal(left.0, right.0));
+    Ok(roots.into_iter().map(|(_, root)| root).collect())
+}
+
+fn root_keys_equal(left: f64, right: f64) -> bool {
+    let scale = left.abs().max(right.abs()).max(1.0);
+    (left - right).abs() <= scale * 1e-10
+}
+
+fn collect_denominator_candidates(expr: &Value, var_name: &str, out: &mut Vec<Value>) {
+    if !contains_cas_var(expr, var_name) {
+        return;
+    }
+
+    if let Some((op, args)) = expr.cas_op_parts() {
+        match (op, args) {
+            (CasOp::Divide, [num, den]) => {
+                collect_denominator_zero_candidates(den, var_name, out);
+                collect_denominator_candidates(num, var_name, out);
+                collect_denominator_candidates(den, var_name, out);
+            }
+            (CasOp::Power, [base, exp]) if numeric_is_negative(exp) => {
+                collect_denominator_zero_candidates(base, var_name, out);
+                collect_denominator_candidates(base, var_name, out);
+            }
+            _ => {
+                for arg in args {
+                    collect_denominator_candidates(arg, var_name, out);
+                }
+            }
+        }
+    } else if let Some((_, args)) = expr.cas_function_parts() {
+        for arg in args {
+            collect_denominator_candidates(arg, var_name, out);
+        }
+    } else if let Some((_, args)) = expr.cas_apply_parts() {
+        for arg in args {
+            collect_denominator_candidates(arg, var_name, out);
+        }
+    } else if let Some((_, value)) = expr.cas_named_arg_parts() {
+        collect_denominator_candidates(value, var_name, out);
+    } else if let Some((lhs, rhs)) = expr.cas_eq_parts() {
+        collect_denominator_candidates(lhs, var_name, out);
+        collect_denominator_candidates(rhs, var_name, out);
+    }
+}
+
+fn collect_denominator_zero_candidates(expr: &Value, var_name: &str, out: &mut Vec<Value>) {
+    if !contains_cas_var(expr, var_name) {
+        return;
+    }
+
+    if let Some((CasOp::Multiply, args)) = expr.cas_op_parts() {
+        for arg in args {
+            collect_denominator_zero_candidates(arg, var_name, out);
+        }
+    } else if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
+        && !numeric_is_negative(exp)
+        && !numeric_is_zero(exp)
+    {
+        collect_denominator_zero_candidates(base, var_name, out);
+    } else {
+        out.push(expr.clone());
+    }
+}
+
+fn combine_segment_values(segments: Vec<Value>) -> WqResult<Value> {
+    let mut finite_terms = Vec::new();
+    let mut infinite_sign = None;
+
+    for segment in segments {
+        match segment.cas_const() {
+            Some(CasConst::Undefined) => return Ok(Value::from_cas_const(CasConst::Undefined)),
+            Some(CasConst::Infinity) => {
+                if !merge_infinite_sign(&mut infinite_sign, 1) {
+                    return Ok(Value::from_cas_const(CasConst::Undefined));
+                }
+            }
+            Some(CasConst::NegInfinity) => {
+                if !merge_infinite_sign(&mut infinite_sign, -1) {
+                    return Ok(Value::from_cas_const(CasConst::Undefined));
+                }
+            }
+            _ => finite_terms.push(segment),
+        }
+    }
+
+    if let Some(sign) = infinite_sign {
+        return Ok(infinite_value(sign));
+    }
+
+    match finite_terms.len() {
+        0 => Ok(Value::Int(0)),
+        1 => Ok(finite_terms.into_iter().next().expect("one finite term")),
+        _ => cas_add(finite_terms),
+    }
+}
+
+fn merge_infinite_sign(current: &mut Option<i32>, sign: i32) -> bool {
+    match current {
+        Some(existing) if *existing != sign => false,
+        Some(_) => true,
+        None => {
+            *current = Some(sign);
+            true
+        }
+    }
+}
+
+fn infinite_value(sign: i32) -> Value {
+    if sign >= 0 {
+        Value::from_cas_const(CasConst::Infinity)
+    } else {
+        Value::from_cas_const(CasConst::NegInfinity)
+    }
+}
+
+fn negate_definite_value(value: Value) -> WqResult<Value> {
+    match value.cas_const() {
+        Some(CasConst::Infinity) => Ok(Value::from_cas_const(CasConst::NegInfinity)),
+        Some(CasConst::NegInfinity) => Ok(Value::from_cas_const(CasConst::Infinity)),
+        _ => cas_sub(Value::Int(0), value),
+    }
 }
 
 type IntegrateStrategy = fn(&Value, &str) -> WqResult<Option<Value>>;
@@ -107,6 +373,8 @@ type IntegrateStrategy = fn(&Value, &str) -> WqResult<Option<Value>>;
 // calling `integrate_expr_with_depth`.
 const STRATEGIES: &[(&str, IntegrateStrategy)] = &[
     ("table", base::integrate_by_table),
+    ("abs_poly", integrate_abs_polynomial),
+    ("abs_affine_factor", integrate_abs_affine_factor),
     ("substitution", substitution::integrate_by_substitution),
     ("trig", trig::integrate_by_trig),
     ("irrational", irrational::integrate_irrational),
@@ -252,6 +520,346 @@ fn try_strategies(expr: &Value, var: &str, depth: usize) -> WqResult<Value> {
     Err(cas_err(format!(
         "unsupported symbolic integral: {formatted}"
     )))
+}
+
+fn integrate_abs_polynomial(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+    let Some((CasFunction::Abs, [arg])) = expr.cas_function_parts() else {
+        return Ok(None);
+    };
+    let coeffs = match poly_from_expr(arg, var) {
+        Ok(coeffs) if poly_degree(&coeffs) >= 1 => coeffs,
+        _ => return Ok(None),
+    };
+
+    if poly_degree(&coeffs) == 1 {
+        return Ok(None);
+    }
+
+    let antideriv = polynomial_antiderivative_expr(&coeffs, var)?;
+    let roots = real_roots_of_polynomial(&coeffs, arg, var)?;
+    let signs = polynomial_interval_signs(&coeffs, &roots)?;
+    if signs.is_empty() {
+        return Ok(None);
+    }
+
+    let mut terms = vec![signed_expr(antideriv.clone(), signs[0])?];
+    let var_value = Value::from_cas_var(var);
+    for (idx, (_, root)) in roots.iter().enumerate() {
+        let left_sign = signs[idx];
+        let right_sign = signs[idx + 1];
+        if left_sign == right_sign {
+            continue;
+        }
+        let root_antideriv = simplify_cas_value(&substitute_cas(&antideriv, &var_value, root)?)?;
+        let shifted_antideriv = cas_sub(antideriv.clone(), root_antideriv)?;
+        let step_arg = cas_sub(var_value.clone(), root.clone())?;
+        let step = Value::from_cas_function(CasFunction::Heaviside, vec![step_arg]);
+        terms.push(cas_mul(vec![
+            Value::Int(i64::from(right_sign - left_sign)),
+            step,
+            shifted_antideriv,
+        ])?);
+    }
+
+    Ok(Some(simplify_cas_value(&cas_add(terms)?)?))
+}
+
+fn integrate_abs_affine_factor(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+    let Some(factors) = expr.cas_op_args(CasOp::Multiply) else {
+        return Ok(None);
+    };
+
+    let mut abs_match = None;
+    for (idx, factor) in factors.iter().enumerate() {
+        let Some((CasFunction::Abs, [arg])) = factor.cas_function_parts() else {
+            continue;
+        };
+        if abs_match.is_some() {
+            return Ok(None);
+        }
+        let Some((root, root_key, coeff_sign)) = linear_root_and_sign(arg, var)? else {
+            return Ok(None);
+        };
+        abs_match = Some((idx, arg.clone(), root, root_key, coeff_sign));
+    }
+
+    let Some((abs_idx, abs_arg, root, root_key, coeff_sign)) = abs_match else {
+        return Ok(None);
+    };
+
+    let mut signed_factors = Vec::with_capacity(factors.len());
+    for (idx, factor) in factors.iter().enumerate() {
+        if idx == abs_idx {
+            signed_factors.push(abs_arg.clone());
+        } else {
+            signed_factors.push(factor.clone());
+        }
+    }
+    let signed_integrand = cas_mul(signed_factors)?;
+    let Ok(antideriv) = integrate_expr_with_depth(&signed_integrand, var, 0) else {
+        return Ok(None);
+    };
+
+    if let Some((lower, upper)) = principal_sqrt_linear_domain(factors, var)?
+        && !root_inside_domain(root_key, lower, upper)
+    {
+        let Some(sample) = sample_in_domain(lower, upper) else {
+            return Ok(None);
+        };
+        let Some(sign) = linear_sign_from_root(coeff_sign, root_key, sample) else {
+            return Ok(None);
+        };
+        return Ok(Some(simplify_cas_value(&signed_expr(antideriv, sign)?)?));
+    }
+
+    let left_sign = -coeff_sign;
+    let right_sign = coeff_sign;
+    let var_value = Value::from_cas_var(var);
+    let root_antideriv = simplify_cas_value(&substitute_cas(&antideriv, &var_value, &root)?)?;
+    let shifted_antideriv = cas_sub(antideriv.clone(), root_antideriv)?;
+    let step_arg = cas_sub(var_value, root)?;
+    let step = Value::from_cas_function(CasFunction::Heaviside, vec![step_arg]);
+    let result = cas_add(vec![
+        signed_expr(antideriv, left_sign)?,
+        cas_mul(vec![
+            Value::Int(i64::from(right_sign - left_sign)),
+            step,
+            shifted_antideriv,
+        ])?,
+    ])?;
+    Ok(Some(simplify_cas_value(&result)?))
+}
+
+fn linear_root_and_sign(expr: &Value, var: &str) -> WqResult<Option<(Value, f64, i32)>> {
+    let Some((a, b)) = extract_linear_coefficients(expr, var) else {
+        return Ok(None);
+    };
+    let Some(coeff_sign) = numeric_sign_i32(&a) else {
+        return Ok(None);
+    };
+    if coeff_sign == 0 {
+        return Ok(None);
+    }
+    let neg_b = eval_numeric_binary("*", &b, &Value::Int(-1))?;
+    let root = eval_exact_numeric_div(&neg_b, &a)?;
+    let Some(root_key) = root.as_f64() else {
+        return Ok(None);
+    };
+    if !root_key.is_finite() {
+        return Ok(None);
+    }
+    Ok(Some((root, root_key, coeff_sign)))
+}
+
+fn principal_sqrt_linear_domain(
+    factors: &[Value],
+    var: &str,
+) -> WqResult<Option<(Option<f64>, Option<f64>)>> {
+    let mut lower: Option<f64> = None;
+    let mut upper: Option<f64> = None;
+    let mut found = false;
+
+    for factor in factors {
+        let base = if let Some((CasOp::Power, [base, exp])) = factor.cas_op_parts() {
+            if !exp.exact_half() {
+                continue;
+            }
+            base
+        } else if let Some((CasFunction::Sqrt, [base])) = factor.cas_function_parts() {
+            base
+        } else {
+            continue;
+        };
+        let Some((_, root_key, coeff_sign)) = linear_root_and_sign(base, var)? else {
+            continue;
+        };
+        found = true;
+        if coeff_sign > 0 {
+            lower = Some(lower.map_or(root_key, |current| current.max(root_key)));
+        } else {
+            upper = Some(upper.map_or(root_key, |current| current.min(root_key)));
+        }
+    }
+
+    if found {
+        Ok(Some((lower, upper)))
+    } else {
+        Ok(None)
+    }
+}
+
+fn root_inside_domain(root: f64, lower: Option<f64>, upper: Option<f64>) -> bool {
+    lower.is_none_or(|value| root > value) && upper.is_none_or(|value| root < value)
+}
+
+fn sample_in_domain(lower: Option<f64>, upper: Option<f64>) -> Option<f64> {
+    match (lower, upper) {
+        (Some(l), Some(u)) if l < u => Some((l + u) / 2.0),
+        (Some(l), None) => Some(l + l.abs().max(1.0)),
+        (None, Some(u)) => Some(u - u.abs().max(1.0)),
+        (None, None) => Some(0.0),
+        _ => None,
+    }
+}
+
+fn linear_sign_from_root(coeff_sign: i32, root: f64, sample: f64) -> Option<i32> {
+    if sample > root {
+        Some(coeff_sign)
+    } else if sample < root {
+        Some(-coeff_sign)
+    } else {
+        None
+    }
+}
+
+fn polynomial_antiderivative_expr(coeffs: &[Value], var: &str) -> WqResult<Value> {
+    let mut terms = Vec::new();
+    for (degree, coeff) in coeffs.iter().enumerate() {
+        if numeric_is_zero(coeff) {
+            continue;
+        }
+        let new_degree = degree + 1;
+        let divided = eval_exact_numeric_div(coeff, &Value::from_bigint(BigInt::from(new_degree)))?;
+        let monomial = if new_degree == 1 {
+            Value::from_cas_var(var)
+        } else {
+            let exp = i64::try_from(new_degree).expect("polynomial degree should fit in i64");
+            cas_pow(Value::from_cas_var(var), Value::Int(exp))?
+        };
+        terms.push(cas_mul(vec![divided, monomial])?);
+    }
+    cas_add(terms)
+}
+
+fn real_roots_of_polynomial(
+    coeffs: &[Value],
+    expr: &Value,
+    var: &str,
+) -> WqResult<Vec<(f64, Value)>> {
+    if let Some(roots) = exact_rational_roots(coeffs)? {
+        return Ok(sort_real_roots(roots));
+    }
+
+    let solved = solve_cas(expr, &Value::from_cas_var(var))?;
+    let Value::List(items) = solved else {
+        return Ok(Vec::new());
+    };
+    Ok(sort_real_roots(items.iter().cloned().collect()))
+}
+
+fn sort_real_roots(values: Vec<Value>) -> Vec<(f64, Value)> {
+    let mut roots = Vec::new();
+    for root in values {
+        let Some(key) = root.as_f64() else {
+            continue;
+        };
+        if key.is_finite() {
+            roots.push((key, root));
+        }
+    }
+    roots.sort_by(|left, right| left.0.total_cmp(&right.0));
+    roots.dedup_by(|left, right| root_keys_equal(left.0, right.0));
+    roots
+}
+
+fn exact_rational_roots(coeffs: &[Value]) -> WqResult<Option<Vec<Value>>> {
+    match poly_degree(coeffs) {
+        0 => Ok(Some(Vec::new())),
+        1 => {
+            let root = eval_exact_numeric_div(
+                &eval_numeric_binary("*", &coeffs[0], &Value::Int(-1))?,
+                &coeffs[1],
+            )?;
+            Ok(Some(vec![root]))
+        }
+        2 => exact_quadratic_rational_roots(coeffs),
+        _ => Ok(None),
+    }
+}
+
+fn exact_quadratic_rational_roots(coeffs: &[Value]) -> WqResult<Option<Vec<Value>>> {
+    let a = coeffs.get(2).cloned().unwrap_or(Value::Int(0));
+    let b = coeffs.get(1).cloned().unwrap_or(Value::Int(0));
+    let c = coeffs.first().cloned().unwrap_or(Value::Int(0));
+
+    let b_sq = eval_numeric_binary("*", &b, &b)?;
+    let four_ac = eval_numeric_binary("*", &Value::Int(4), &eval_numeric_binary("*", &a, &c)?)?;
+    let disc = eval_numeric_binary("-", &b_sq, &four_ac)?;
+    let Some((disc_num, disc_den)) = disc.rational_parts() else {
+        return Ok(None);
+    };
+    if disc_num < BigInt::from(0) {
+        return Ok(Some(Vec::new()));
+    }
+
+    let sqrt_num = disc_num.sqrt();
+    let sqrt_den = disc_den.sqrt();
+    if &sqrt_num * &sqrt_num != disc_num || &sqrt_den * &sqrt_den != disc_den {
+        return Ok(None);
+    }
+
+    let sqrt_disc = Value::from_fraction_parts(sqrt_num, sqrt_den);
+    let neg_b = eval_numeric_binary("*", &b, &Value::Int(-1))?;
+    let two_a = eval_numeric_binary("*", &Value::Int(2), &a)?;
+    let root1 = eval_exact_numeric_div(&eval_numeric_binary("+", &neg_b, &sqrt_disc)?, &two_a)?;
+    let root2 = eval_exact_numeric_div(&eval_numeric_binary("-", &neg_b, &sqrt_disc)?, &two_a)?;
+    Ok(Some(vec![root1, root2]))
+}
+
+fn polynomial_interval_signs(coeffs: &[Value], roots: &[(f64, Value)]) -> WqResult<Vec<i32>> {
+    if roots.is_empty() {
+        return polynomial_sign_at(coeffs, 0.0).map(|sign| sign.into_iter().collect());
+    }
+
+    let mut signs = Vec::with_capacity(roots.len() + 1);
+    for idx in 0..=roots.len() {
+        let sample = if idx == 0 {
+            roots[0].0 - roots[0].0.abs().max(1.0)
+        } else if idx == roots.len() {
+            let last = roots[roots.len() - 1].0;
+            last + last.abs().max(1.0)
+        } else {
+            (roots[idx - 1].0 + roots[idx].0) / 2.0
+        };
+        let Some(sign) = polynomial_sign_at(coeffs, sample)? else {
+            return Ok(Vec::new());
+        };
+        signs.push(sign);
+    }
+    Ok(signs)
+}
+
+fn polynomial_sign_at(coeffs: &[Value], sample: f64) -> WqResult<Option<i32>> {
+    let value = poly_evaluate(coeffs, &Value::float(sample))?;
+    if numeric_is_zero(&value) {
+        Ok(None)
+    } else if numeric_is_negative(&value) {
+        Ok(Some(-1))
+    } else if value.as_f64().is_some_and(|f| f > 0.0) || value.rational_parts().is_some() {
+        Ok(Some(1))
+    } else {
+        Ok(None)
+    }
+}
+
+fn numeric_sign_i32(value: &Value) -> Option<i32> {
+    if numeric_is_zero(value) {
+        Some(0)
+    } else if numeric_is_negative(value) {
+        Some(-1)
+    } else if value.as_f64().is_some_and(|f| f > 0.0) || value.rational_parts().is_some() {
+        Some(1)
+    } else {
+        None
+    }
+}
+
+fn signed_expr(expr: Value, sign: i32) -> WqResult<Value> {
+    if sign >= 0 {
+        Ok(expr)
+    } else {
+        cas_mul(vec![Value::Int(-1), expr])
+    }
 }
 
 pub(super) fn split_off_numeric(args: &[Value]) -> (Value, Vec<Value>) {
