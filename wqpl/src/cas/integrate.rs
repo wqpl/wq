@@ -2191,10 +2191,8 @@ mod tests {
     #[test]
     fn integrate_one_over_x_sqrt_x2_plus_1() {
         // int 1/(x*sqrt(x^2+1)) dx -- Euler #2 (c=1 > 0)
-        // Substitution reduces to int dt/t = ln|t|.  The formulas are correct
-        // but the CAS simplifier currently can't fully flatten the nested
-        // rational expression.  GCD cancellation is in place and works when
-        // the expression tree is shallow enough.
+        // Substitution reduces to a rational integral in t, then back-substitutes
+        // the logarithmic antiderivative.
         let sqrt_part = call(
             CasFunction::Sqrt,
             vec![op(
@@ -2212,11 +2210,14 @@ mod tests {
                 op(CasOp::Power, vec![sqrt_part, Value::Int(-1)]),
             ],
         );
-        let result = integrate_cas(&expr, &Value::from_cas_var("x"));
-        // GCD cancellation is present but expression nesting is too deep.
-        // Known limitation -- needs CAS simplification improvements.
+        let result =
+            integrate_cas(&expr, &Value::from_cas_var("x")).expect("Euler integral should succeed");
+        let s = result.to_string();
+        assert!(!s.contains("unsupported"), "got unsupported: {s}");
+        assert!(s.contains("ln[abs["), "expected logarithmic result: {s}");
         assert!(
-            result.is_err() || { !result.as_ref().unwrap().to_string().contains("unsupported") }
+            s.contains("(x^2 + 1)^(1/2)"),
+            "expected sqrt(x^2+1) back-substitution: {s}"
         );
     }
 
