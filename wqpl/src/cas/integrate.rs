@@ -70,8 +70,8 @@ pub(crate) fn definite_integrate_cas(
 /// Evaluate F(bound), falling back to a one-sided limit when substitution fails
 /// (e.g. singularity or infinity bound).
 fn evaluate_at_bound(antideriv: &Value, var: &Value, bound: &Value) -> WqResult<Value> {
-    // For infinity bounds, skip substitution -- substituting inf produces
-    // expressions like inf^(-1) that aren't meaningful.
+    // For infinity bounds, skip substitution.
+    // Substituting inf produces expressions like inf^(-1) that aren't meaningful.
     let is_inf = matches!(
         bound.cas_const(),
         Some(CasConst::Infinity | CasConst::NegInfinity)
@@ -93,15 +93,15 @@ fn evaluate_at_bound(antideriv: &Value, var: &Value, bound: &Value) -> WqResult<
 
 type IntegrateStrategy = fn(&Value, &str) -> WqResult<Option<Value>>;
 
-// IMPORTANT -- strategy ordering and recursion safety:
+// # Strategy ordering and recursion safety
 //
 // Each strategy is tried in order for every symbolic sub-expression. Strategies
 // that call `integrate_expr_with_depth` internally (substitution, byparts)
-// **must** be placed AFTER strategies that can fully handle the same form,
+// must be placed after strategies that can fully handle the same form,
 // otherwise the recursive call will re-enter the strategy chain and cause a
 // stack overflow through unbounded re-processing.
 //
-// Rule: if a strategy transforms the integrand and delegates back to the
+// If a strategy transforms the integrand and delegates back to the
 // pipeline, its output must not re-match itself.  Both `trig` and `rational`
 // avoid this entirely by using direct coefficient-vector arithmetic instead of
 // calling `integrate_expr_with_depth`.

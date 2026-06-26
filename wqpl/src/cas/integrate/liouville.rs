@@ -23,7 +23,8 @@ use crate::value::{Value, WqResult};
 pub(super) fn integrate_liouville(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let simplified = simplify_cas_value(expr)?;
 
-    // Case: pure exp(g(x)) / e^(g(x)) -- delegate to table
+    // Case: pure exp(g(x)) / e^(g(x))
+    // Delegate to table
     if try_extract_exp_arg(&simplified).is_some() {
         return Ok(None);
     }

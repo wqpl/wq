@@ -10,7 +10,8 @@ use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Value>> {
-    // Case 1: f(ax+b) -- Call node like exp[2*x], sin[3*x+1]
+    // Case 1: f(ax+b)
+    // Call node like exp[2*x], sin[3*x+1]
     if let Some((name, args)) = expr.cas_function_parts()
         && let [arg] = args
         && let Some((a, _b)) = extract_linear_coefficients(arg, var)
@@ -26,13 +27,15 @@ pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Val
         }
     }
 
-    // Case 2: e^(ax+b) -- Pow node with Const("e") base
+    // Case 2: e^(ax+b)
+    // Pow node with Const("e") base
     if let Some((CasOp::Power, args)) = expr.cas_op_parts()
         && args.len() == 2
         && args[0].cas_const_name() == Some("e")
         && let Some((a, _b)) = extract_linear_coefficients(&args[1], var)
     {
-        // int e^(kx+b) dx = e^(kx+b) / k -- same as exp[kx+b], returned directly
+        // int e^(kx+b) dx = e^(kx+b) / k
+        // same as exp[kx+b], returned directly
         let substituted = expr.clone();
         return if numeric_is_one(&a) {
             Ok(Some(substituted))
@@ -41,7 +44,8 @@ pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Val
         };
     }
 
-    // Case 3: Gaussian -- exp(-a*x^2) -> sqrt(pi/a)/2 * erf(sqrt(a)*x)
+    // Case 3: Gaussian
+    // exp(-a*x^2) -> sqrt(pi/a)/2 * erf(sqrt(a)*x)
     if let Some((name, args)) = expr.cas_function_parts()
         && name == CasFunction::Exp
         && args.len() == 1

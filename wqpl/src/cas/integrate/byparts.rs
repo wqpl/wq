@@ -21,8 +21,8 @@ const MAX_BYPARTS_CHAIN: usize = 12;
 
 thread_local! {
     static BYPARTS_ACTIVE: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-    /// Global nesting counter -- prevents infinite chains where each step
-    /// changes the expression (e.g. 1/(x-a)^n -> 1/(x-a)^(n+1)) but the
+    /// Global nesting counter
+    /// Prevents infinite chains where each step changes the expression (e.g. 1/(x-a)^n -> 1/(x-a)^(n+1)) but the
     /// per-key cycle guard never triggers because the key changes.
     static BYPARTS_NESTING: Cell<usize> = const { Cell::new(0) };
 }

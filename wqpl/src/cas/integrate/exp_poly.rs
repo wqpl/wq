@@ -23,7 +23,8 @@ use crate::value::{Value, WqResult};
 pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let simplified = simplify_cas_value(expr)?;
 
-    // Case 1: pure exp(k*x) -- delegate to table strategy (already handled)
+    // Case 1: pure exp(k*x)
+    // Delegate to table strategy (already handled)
     if let Some((name, _)) = simplified.cas_function_parts()
         && name == CasFunction::Exp
     {
@@ -78,7 +79,8 @@ pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Val
         Err(_) => return Ok(None),
     };
 
-    // Degenerate case: constant polynomial -- delegate to table
+    // Degenerate case: constant polynomial
+    // Delegate to table
     let deg = poly_degree(&poly_coeffs);
     if deg == 0 && poly_coeffs[0] == Value::Int(0) {
         return Ok(None);

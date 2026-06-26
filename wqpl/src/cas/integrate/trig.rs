@@ -3,13 +3,8 @@
 //!
 //! # Stack-overflow prevention
 //!
-//! Early versions of this module called `integrate_expr_with_depth` on the
-//! algebraically reduced integrand (e.g. after substituting u = cos x).  That
-//! produced unbounded recursion because the pipeline would re-enter the trig
-//! strategy on cos / sin terms in the reduced form.
-//!
-//! **Rule:** this module must **never** call `integrate_expr_with_depth`.
-//! Instead every reduction is carried to completion with coefficient-vector
+//! This module must not call `integrate_expr_with_depth`.
+//! Instead, every reduction is carried to completion with coefficient-vector
 //! arithmetic (`expand_binomial_poly` + `integrate_poly_coeffs` for odd-power
 //! substitutions, recurrence relations for even-power and product reductions).
 //!
