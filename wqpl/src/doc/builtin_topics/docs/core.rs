@@ -222,20 +222,26 @@ pub(super) const INPUT: BuiltinDoc = BuiltinDoc {
 pub(super) const EXEC: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Exec,
     summary: "Run a host process and capture its output.",
-    details: concat!(
-        "`exec` converts its positional arguments to command parts and runs them without a shell.\n\n",
-        "Return shape:\n\n",
-        "- Without named options, it returns stdout as a list of lines.\n",
-        "- With any named option, it returns a dict containing `stdout`, `stderr`, `code`, and `success`; ",
-        "`stdout` and `stderr` are lists of lines, `code` is the process exit code, and `success` is true when the process exited successfully.\n\n",
-        "Named options:\n\n",
-        "- `stdin`: string written to the child process's standard input.\n",
-        "- `cwd`: string path used as the child process's working directory; it must exist and be a directory.\n",
-        "- `env`: dict of environment variables to add or override, with tag keys and string values.\n",
-        "- `timeout`: non-negative integer number of seconds; when it expires, `exec` kills the child and raises an exec error.\n",
-        "- `check`: bool that defaults to true; with `check:true`, a non-zero exit raises an exec error, while `check:false` returns the structured result so code can inspect `code`, `success`, and captured output.\n\n",
-        "When checking is enabled, failures include the exit code plus stderr and stdout excerpts when available."
-    ),
+    details:
+"`exec` converts its positional arguments to command parts and runs them without a shell.
+
+Return shape:
+
+- Without named options, it returns stdout as a list of lines.
+- With any named option, it returns a dict containing `stdout`, `stderr`, `code`, and `success`.
+  - `stdout` and `stderr` are lists of lines.
+  - `code` is the process exit code.
+  - `success` is true when the process exited successfully.
+
+Named options:
+
+- `stdin`: string written to the child process's standard input.
+- `cwd`: string path used as the child process's working directory; it must exist and be a directory.
+- `env`: dict of environment variables to add or override, with tag keys and string values.
+- `timeout`: non-negative integer number of seconds; when it expires, `exec` kills the child and raises an exec error.
+- `check`: bool that defaults to true; with `check:true`, a non-zero exit raises an exec error, while `check:false` returns the structured result so code can inspect `code`, `success`, and captured output.
+
+When checking is enabled, failures include the exit code plus stderr and stdout excerpts when available.",
     examples: EXEC_EXAMPLES,
     related: &["input", "open", "freadt"],
 };
