@@ -5,7 +5,7 @@ use num_bigint::BigInt;
 use super::*;
 use crate::value::Value;
 use crate::value::algebraic::{AlgebraicData, AlgebraicField};
-use crate::value::cas::{CasFunction, CasOp};
+use crate::value::cas::{CasConst, CasFunction, CasOp};
 
 fn op(op: CasOp, args: Vec<Value>) -> Value {
     Value::from_cas_op(op, args)
@@ -88,6 +88,18 @@ fn canonical_form_eliminates_subtraction_and_division() {
     .unwrap();
     assert!(!contains_op(&expr, CasOp::Subtract));
     assert!(!contains_op(&expr, CasOp::Divide));
+}
+
+#[test]
+fn cas_neg_flips_infinity_constants() {
+    assert_eq!(
+        cas_neg(Value::from_cas_const(CasConst::Infinity)).unwrap(),
+        Value::from_cas_const(CasConst::NegInfinity)
+    );
+    assert_eq!(
+        cas_neg(Value::from_cas_const(CasConst::NegInfinity)).unwrap(),
+        Value::from_cas_const(CasConst::Infinity)
+    );
 }
 
 #[test]

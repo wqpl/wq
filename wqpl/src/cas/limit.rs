@@ -1402,6 +1402,14 @@ mod tests {
     }
 
     #[test]
+    fn limit_e_to_x_at_negated_oo() {
+        let expr = op(CasOp::Power, vec![konst(CasConst::E), cas_var("x")]);
+        let negated_oo = crate::cas::cas_neg(konst(CasConst::Infinity)).unwrap();
+        let result = limit_cas(&expr, &cas_var("x"), &negated_oo, None).unwrap();
+        assert_eq!(result, Value::Int(0));
+    }
+
+    #[test]
     fn limit_exp_x_at_infinity() {
         // limit(exp(x), x->inf) = inf
         let expr = call(CasFunction::Exp, vec![cas_var("x")]);

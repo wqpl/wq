@@ -93,6 +93,12 @@ fn cas_div_cache_insert(lhs: Value, rhs: Value, result: Value) {
 }
 
 pub(crate) fn cas_neg(arg: Value) -> WqResult<Value> {
+    let arg = simplify_cas_value(&arg)?;
+    match arg.cas_const() {
+        Some(CasConst::Infinity) => return Ok(Value::from_cas_const(CasConst::NegInfinity)),
+        Some(CasConst::NegInfinity) => return Ok(Value::from_cas_const(CasConst::Infinity)),
+        _ => {}
+    }
     cas_mul(vec![Value::Int(-1), arg])
 }
 
