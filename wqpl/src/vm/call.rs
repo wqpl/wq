@@ -184,7 +184,7 @@ impl Vm {
             callee_named.as_deref(),
         )?;
 
-        // Stack and metadata sanity checks — must happen before state swap
+        // Stack and metadata checks must happen before state swap
         ensure_stack_len(&self.stack, argc, || "call args".into())?;
 
         let saved_instructions = std::mem::replace(&mut self.instructions, instructions);
@@ -590,13 +590,12 @@ impl Vm {
         if self.builtins.validate_runtime_call_args(id, &args)? {
             args.mark_runtime_validated();
         }
-        let result = if let Some(discard_fn) =
-            BuiltinEnum::from_id(id).and_then(BuiltinEnum::discard_fn)
-        {
-            discard_fn(self, args)?
-        } else {
-            func.invoke(self, args).map(|_| Value::unit())?
-        };
+        let result =
+            if let Some(discard_fn) = BuiltinEnum::from_id(id).and_then(BuiltinEnum::discard_fn) {
+                discard_fn(self, args)?
+            } else {
+                func.invoke(self, args).map(|_| Value::unit())?
+            };
         self.record_builtin_result(id, argc, &result);
         Ok(result)
     }

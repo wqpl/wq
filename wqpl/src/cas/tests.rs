@@ -370,7 +370,7 @@ fn expand_deep_nested_addition() {
 
 #[test]
 fn expand_high_power_no_stack_overflow() {
-    // (x + 1)^20 — the original recursive power loop recursed 20 times
+    // (x + 1)^20 -- the original recursive power loop recursed 20 times
     // on growing intermediate expressions.
     let base = op(CasOp::Add, vec![Value::from_cas_var("x"), Value::Int(1)]);
     let expr = op(CasOp::Power, vec![base, Value::Int(20)]);
@@ -697,7 +697,7 @@ fn simplify_leaves_large_distinct_rational_sum_uncombined() {
 
 #[test]
 fn rewrite_distributes_negation_over_sum() {
-    // (* -1 (+ x y)) → (+ (* -1 x) (* -1 y))
+    // (* -1 (+ x y)) -> (+ (* -1 x) (* -1 y))
     let sum = cas_add(vec![Value::from_cas_var("x"), Value::from_cas_var("y")]).unwrap();
     let product = cas_mul(vec![Value::Int(-1), sum]).unwrap();
     let rewritten = rewrite_expr(&product).unwrap();
@@ -712,7 +712,7 @@ fn rewrite_distributes_negation_over_sum() {
 
 #[test]
 fn rewrite_sgn_abs_product_cancels() {
-    // sgn(u) * abs(u)^(-1) → u^(-1)
+    // sgn(u) * abs(u)^(-1) -> u^(-1)
     let u = Value::from_cas_var("x");
     let sgn = call(CasFunction::Sgn, vec![u.clone()]);
     let abs_inv = op(

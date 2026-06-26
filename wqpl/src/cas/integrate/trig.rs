@@ -13,7 +13,7 @@
 //! arithmetic (`expand_binomial_poly` + `integrate_poly_coeffs` for odd-power
 //! substitutions, recurrence relations for even-power and product reductions).
 //!
-//! When adding new patterns, follow the same discipline — expand the integrand
+//! When adding new patterns, follow the same discipline -- expand the integrand
 //! into monomials, integrate each term by hand, and substitute back.
 
 use std::sync::Arc;
@@ -156,7 +156,7 @@ fn contains_trig(expr: &Value) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Result of matching fn(arg)^n: (power_n, coeff_a, offset_b)
-/// where arg = a*var + b.  For fn(var) → (n, 1, 0).
+/// where arg = a*var + b.  For fn(var) -> (n, 1, 0).
 type TrigMatch = (usize, Value, Value);
 
 /// Try to match `fn_name(arg)^n` or `fn_name(arg)`.  Returns `(n, a, b)` such
@@ -325,8 +325,8 @@ pub(super) fn binomial_coeff(n: usize, k: usize) -> i64 {
     result
 }
 
-/// Expand (1 - u²)^k with an overall sign factor.
-/// Returns coefficient vector: Σ sign * (-1)^j * C(k,j) * u^(2j)
+/// Expand (1 - u^2)^k with an overall sign factor.
+/// Returns coefficient vector: sum sign * (-1)^j * C(k,j) * u^(2j)
 fn expand_binomial_poly(k: usize, sign: i64) -> Vec<Value> {
     let mut result = vec![Value::Int(0); 2 * k + 1];
     for j in 0..=k {
@@ -344,7 +344,7 @@ fn expand_binomial_poly(k: usize, sign: i64) -> Vec<Value> {
 }
 
 /// Integrate a coefficient vector (in dummy variable `_u`) and substitute
-/// `_u → fn_name(a*var + b)`.  The whole result is divided by `div_a`.
+/// `_u -> fn_name(a*var + b)`.  The whole result is divided by `div_a`.
 fn integrate_poly_coeffs_with_sub(
     coeffs: &[Value],
     replace_with: CasFunction,
@@ -361,7 +361,7 @@ fn integrate_poly_coeffs_with_sub(
         let new_deg = deg + 1;
         let denom = Value::from_bigint(BigInt::from(new_deg));
         let mut c = eval_exact_numeric_div(coeff, &denom)?;
-        // Divide by a if this came from a du = a·... substitution
+        // Divide by a if this came from a du = a*... substitution
         if div_a {
             c = eval_exact_numeric_div(&c, a)?;
         }
@@ -392,20 +392,20 @@ fn integrate_poly_coeffs_with_sub(
 }
 
 // ---------------------------------------------------------------------------
-// sin^n(a·x + b)
+// sin^n(a*x + b)
 // ---------------------------------------------------------------------------
 
-/// ∫ sin^n(ax+b) dx where n is odd.  Substitute u = cos(ax+b), du =
-/// -a·sin(ax+b)dx.
+/// int sin^n(ax+b) dx where n is odd.  Substitute u = cos(ax+b), du =
+/// -a*sin(ax+b)dx.
 fn integrate_sin_odd(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Value> {
     let k = (n - 1) / 2;
-    // ∫ sin^n dx = -(1/a)·∫ (1-u²)^k du   with u = cos(ax+b)
+    // int sin^n dx = -(1/a)*int (1-u^2)^k du   with u = cos(ax+b)
     let coeffs = expand_binomial_poly(k, -1);
     integrate_poly_coeffs_with_sub(&coeffs, CasFunction::Cos, a, b, var, true)
 }
 
-/// ∫ sin^n(ax+b) dx using reduction (works for both even and odd n):
-///   ∫ sin^n = -cos·sin^(n-1)/(a·n) + (n-1)/n·∫ sin^(n-2)
+/// int sin^n(ax+b) dx using reduction (works for both even and odd n):
+///   int sin^n = -cos*sin^(n-1)/(a*n) + (n-1)/n*int sin^(n-2)
 fn integrate_sin_reduction(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Value> {
     if n == 0 {
         return Ok(Value::from_cas_var(var));
@@ -438,20 +438,20 @@ fn integrate_sin_reduction(n: usize, a: &Value, b: &Value, var: &str) -> WqResul
 }
 
 // ---------------------------------------------------------------------------
-// cos^n(a·x + b)
+// cos^n(a*x + b)
 // ---------------------------------------------------------------------------
 
-/// ∫ cos^n(ax+b) dx where n is odd.  Substitute u = sin(ax+b), du =
-/// a·cos(ax+b)dx.
+/// int cos^n(ax+b) dx where n is odd.  Substitute u = sin(ax+b), du =
+/// a*cos(ax+b)dx.
 fn integrate_cos_odd(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Value> {
     let k = (n - 1) / 2;
-    // ∫ cos^n dx = (1/a)·∫ (1-u²)^k du   with u = sin(ax+b)
+    // int cos^n dx = (1/a)*int (1-u^2)^k du   with u = sin(ax+b)
     let coeffs = expand_binomial_poly(k, 1);
     integrate_poly_coeffs_with_sub(&coeffs, CasFunction::Sin, a, b, var, true)
 }
 
-/// ∫ cos^n(ax+b) dx using reduction:
-///   ∫ cos^n = sin·cos^(n-1)/(a·n) + (n-1)/n·∫ cos^(n-2)
+/// int cos^n(ax+b) dx using reduction:
+///   int cos^n = sin*cos^(n-1)/(a*n) + (n-1)/n*int cos^(n-2)
 fn integrate_cos_reduction(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Value> {
     if n == 0 {
         return Ok(Value::from_cas_var(var));
@@ -484,10 +484,10 @@ fn integrate_cos_reduction(n: usize, a: &Value, b: &Value, var: &str) -> WqResul
 }
 
 // ---------------------------------------------------------------------------
-// tan^n(a·x + b)
+// tan^n(a*x + b)
 // ---------------------------------------------------------------------------
 
-/// ∫ tan^n(ax+b) dx using reduction: tan^(n-1)/(a·(n-1)) - ∫ tan^(n-2)
+/// int tan^n(ax+b) dx using reduction: tan^(n-1)/(a*(n-1)) - int tan^(n-2)
 fn integrate_tan_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Value> {
     if n == 0 {
         return Ok(Value::from_cas_var(var));
@@ -516,10 +516,10 @@ fn integrate_tan_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
 }
 
 // ---------------------------------------------------------------------------
-// sec^n(a·x + b)
+// sec^n(a*x + b)
 // ---------------------------------------------------------------------------
 
-/// ∫ sec^n(ax+b) dx
+/// int sec^n(ax+b) dx
 fn integrate_sec_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Value> {
     if n == 0 {
         return Ok(Value::from_cas_var(var));
@@ -560,10 +560,10 @@ fn integrate_sec_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
 }
 
 // ---------------------------------------------------------------------------
-// csc^n(a·x + b)
+// csc^n(a*x + b)
 // ---------------------------------------------------------------------------
 
-/// ∫ csc^n(ax+b) dx — mirror of sec^n with sign adjustments.
+/// int csc^n(ax+b) dx -- mirror of sec^n with sign adjustments.
 fn integrate_csc_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Value> {
     if n == 0 {
         return Ok(Value::from_cas_var(var));
@@ -604,10 +604,10 @@ fn integrate_csc_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
 }
 
 // ---------------------------------------------------------------------------
-// cot^n(a·x + b)
+// cot^n(a*x + b)
 // ---------------------------------------------------------------------------
 
-/// ∫ cot^n(ax+b) dx using reduction: -cot^(n-1)/(a·(n-1)) - ∫ cot^(n-2)
+/// int cot^n(ax+b) dx using reduction: -cot^(n-1)/(a*(n-1)) - int cot^(n-2)
 fn integrate_cot_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Value> {
     if n == 0 {
         return Ok(Value::from_cas_var(var));
@@ -636,7 +636,7 @@ fn integrate_cot_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
 }
 
 // ---------------------------------------------------------------------------
-// sin^m(ax+b) · cos^n(ax+b)
+// sin^m(ax+b) * cos^n(ax+b)
 // ---------------------------------------------------------------------------
 
 fn try_sin_cos_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
@@ -700,10 +700,10 @@ fn integrate_sin_cos(m: usize, n: usize, a: &Value, b: &Value, var: &str) -> WqR
     integrate_sin_cos_both_even(m, n, a, b, var)
 }
 
-/// ∫ sin^m cos^n dx where m is odd. u = cos(ax+b), du = -a·sin(ax+b)dx.
+/// int sin^m cos^n dx where m is odd. u = cos(ax+b), du = -a*sin(ax+b)dx.
 fn integrate_sin_odd_cos(m: usize, n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Value> {
     let k = (m - 1) / 2;
-    let binom = expand_binomial_poly(k, -1); // - sign for sin→cos substitution
+    let binom = expand_binomial_poly(k, -1); // - sign for sin->cos substitution
     // Multiply by u^n
     let mut coeffs = vec![Value::Int(0); binom.len() + n];
     for (i, c) in binom.iter().enumerate() {
@@ -713,7 +713,7 @@ fn integrate_sin_odd_cos(m: usize, n: usize, a: &Value, b: &Value, var: &str) ->
     integrate_poly_coeffs_with_sub(&coeffs, CasFunction::Cos, a, b, var, true)
 }
 
-/// ∫ sin^m cos^n dx where n is odd. u = sin(ax+b), du = a·cos(ax+b)dx.
+/// int sin^m cos^n dx where n is odd. u = sin(ax+b), du = a*cos(ax+b)dx.
 fn integrate_sin_cos_odd(m: usize, n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Value> {
     let k = (n - 1) / 2;
     let binom = expand_binomial_poly(k, 1);
@@ -725,7 +725,7 @@ fn integrate_sin_cos_odd(m: usize, n: usize, a: &Value, b: &Value, var: &str) ->
     integrate_poly_coeffs_with_sub(&coeffs, CasFunction::Sin, a, b, var, true)
 }
 
-/// ∫ sin^m cos^n dx where both even. Reduction decreases m by 2 each step.
+/// int sin^m cos^n dx where both even. Reduction decreases m by 2 each step.
 fn integrate_sin_cos_both_even(
     m: usize,
     n: usize,
@@ -993,7 +993,7 @@ mod tests {
 
     #[test]
     fn test_match_fn_power_rejects_nonlinear() {
-        // sin(x^2) — not a*x+b
+        // sin(x^2) -- not a*x+b
         let arg = op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]);
         let expr = call(CasFunction::Sin, vec![arg]);
         assert!(match_fn_power(&expr, CasFunction::Sin, "x").is_none());
@@ -1030,7 +1030,7 @@ mod tests {
 
     #[test]
     fn test_integrate_sec_squared() {
-        // ∫ sec²(x) dx = tan(x)
+        // int sec^2(x) dx = tan(x)
         let result = integrate_sec_power(2, &Value::Int(1), &Value::Int(0), "x").unwrap();
         let s = result.to_string();
         assert!(s.contains("tan[x]"), "expected tan[x]: {s}");
@@ -1038,7 +1038,7 @@ mod tests {
 
     #[test]
     fn test_integrate_csc_squared() {
-        // ∫ csc²(x) dx = -cot(x)
+        // int csc^2(x) dx = -cot(x)
         let result = integrate_csc_power(2, &Value::Int(1), &Value::Int(0), "x").unwrap();
         let s = result.to_string();
         assert!(s.contains("cot[x]"), "expected cot[x]: {s}");
@@ -1046,7 +1046,7 @@ mod tests {
 
     #[test]
     fn test_integrate_cot() {
-        // ∫ cot(x) dx = ln|sin(x)|
+        // int cot(x) dx = ln|sin(x)|
         let result = integrate_cot_power(1, &Value::Int(1), &Value::Int(0), "x").unwrap();
         let s = result.to_string();
         assert!(s.contains("ln"), "expected ln: {s}");
@@ -1055,7 +1055,7 @@ mod tests {
 
     #[test]
     fn test_integrate_sec_cubed() {
-        // ∫ sec³(x) dx via reduction
+        // int sec^3(x) dx via reduction
         let result = integrate_sec_power(3, &Value::Int(1), &Value::Int(0), "x").unwrap();
         let s = result.to_string();
         assert!(

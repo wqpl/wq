@@ -1,8 +1,8 @@
-//! Integration of polynomial × exponential: ∫ P(x)·e^(k·x) dx via
+//! Integration of polynomial * exponential: int P(x)*e^(k*x) dx via
 //! undetermined coefficients.
 //!
-//! The ansatz ∫ P(x)·e^(k·x) dx = e^(k·x) · R(x)  with deg(R) = deg(P)
-//! leads to the differential equation  R'(x) + k·R(x) = P(x).
+//! The ansatz int P(x)*e^(k*x) dx = e^(k*x) * R(x)  with deg(R) = deg(P)
+//! leads to the differential equation  R'(x) + k*R(x) = P(x).
 //!
 //! Expanding both sides as coefficient vectors and matching from the
 //! highest degree down gives a simple back-substitution.
@@ -16,21 +16,21 @@ use crate::cas::{
 use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
-/// Strategy entry point: integrate P(x)·e^(k·x).
+/// Strategy entry point: integrate P(x)*e^(k*x).
 ///
 /// Returns `Some(result)` on success, `None` if the expression is not a
-/// polynomial × exponential form.
+/// polynomial * exponential form.
 pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let simplified = simplify_cas_value(expr)?;
 
-    // Case 1: pure exp(k·x) — delegate to table strategy (already handled)
+    // Case 1: pure exp(k*x) -- delegate to table strategy (already handled)
     if let Some((name, _)) = simplified.cas_function_parts()
         && name == CasFunction::Exp
     {
         return Ok(None);
     }
 
-    // Case 2: P(x) * exp(k·x)
+    // Case 2: P(x) * exp(k*x)
     let Some((CasOp::Multiply, args)) = simplified.cas_op_parts() else {
         return Ok(None);
     };
@@ -78,26 +78,26 @@ pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Val
         Err(_) => return Ok(None),
     };
 
-    // Degenerate case: constant polynomial — delegate to table
+    // Degenerate case: constant polynomial -- delegate to table
     let deg = poly_degree(&poly_coeffs);
     if deg == 0 && poly_coeffs[0] == Value::Int(0) {
         return Ok(None);
     }
     if deg == 0 {
-        // Constant × exp(kx) → handled by table; just integrate exp(kx)
+        // Constant * exp(kx) -> handled by table; just integrate exp(kx)
         return Ok(None);
     }
 
-    // Extract the exponential coefficient k from exp_arg = k·x
+    // Extract the exponential coefficient k from exp_arg = k*x
     // exp_arg should be a*x (linear, no constant term)
     let Some(k) = extract_linear_coeff(&exp_arg, var) else {
         return Ok(None);
     };
 
-    // Solve R'(x) + k·R(x) = P(x) by back-substitution
+    // Solve R'(x) + k*R(x) = P(x) by back-substitution
     let r = solve_undetermined_coeffs(&poly_coeffs, &k)?;
 
-    // Build result: coeff * e^(k·x) * R(x)
+    // Build result: coeff * e^(k*x) * R(x)
     let exp_factor = Value::from_cas_function(CasFunction::Exp, vec![exp_arg]);
     let r_expr = poly_to_expr(&r, var)?;
 
@@ -110,17 +110,17 @@ pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Val
     simplify_cas_value(&result).map(Some)
 }
 
-/// Solve for R such that R' + k·R = P using back-substitution from highest
+/// Solve for R such that R' + k*R = P using back-substitution from highest
 /// degree.
 ///
-/// For deg(P) = n, let R = r₀ + r₁x + ... + rₙxⁿ.
-/// R' + k·R = (kr₀ + r₁) + (kr₁ + 2r₂)x + ... + (kr_{n-1} + nrₙ)xⁿ⁻¹ + (krₙ)xⁿ
+/// For deg(P) = n, let R = r0 + r1*x + ... + rn*x^n.
+/// R' + k*R = (k*r0 + r1) + (k*r1 + 2*r2)*x + ... + (k*r_{n-1} + n*rn)*x^(n-1) + (k*rn)*x^n
 ///
-/// Match with P from xⁿ down:
-///   rₙ = pₙ/k
-///   r_{n-1} = (p_{n-1} - n·rₙ)/k
+/// Match with P from x^n down:
+///   rn = pn/k
+///   r_{n-1} = (p_{n-1} - n*rn)/k
 ///   ...
-///   rⱼ = (pⱼ - (j+1)·r_{j+1})/k
+///   r_j = (p_j - (j+1)*r_{j+1})/k
 fn solve_undetermined_coeffs(p: &[Value], k: &Value) -> WqResult<Vec<Value>> {
     let n = poly_degree(p);
     let mut r = vec![Value::Int(0); n + 1];
@@ -134,7 +134,7 @@ fn solve_undetermined_coeffs(p: &[Value], k: &Value) -> WqResult<Vec<Value>> {
             Value::Int(0)
         };
 
-        // rⱼ = (pⱼ - (j+1)·r_{j+1}) / k
+        // r_j = (p_j - (j+1)*r_{j+1}) / k
         let numer = numeric_sub(&p_j, &correction)?;
         r[j] = eval_exact_numeric_div(&numer, k)?;
     }
@@ -143,10 +143,10 @@ fn solve_undetermined_coeffs(p: &[Value], k: &Value) -> WqResult<Vec<Value>> {
     Ok(r)
 }
 
-/// Check if expr is a simple linear expression k·x (no constant term).
+/// Check if expr is a simple linear expression k*x (no constant term).
 /// Returns Some(k) if so.
 fn extract_linear_coeff(expr: &Value, var: &str) -> Option<Value> {
-    // Case: just x → k = 1
+    // Case: just x -> k = 1
     if expr.cas_var_name() == Some(var) {
         return Some(Value::Int(1));
     }
@@ -212,12 +212,12 @@ mod tests {
 
     #[test]
     fn test_solve_linear() {
-        // P(x) = x, k = 1 → R(x) = x - 1
+        // P(x) = x, k = 1 -> R(x) = x - 1
         let p = vec![Value::Int(0), Value::Int(1)];
         let r = solve_undetermined_coeffs(&p, &Value::Int(1)).unwrap();
         assert_eq!(r, vec![Value::Int(-1), Value::Int(1)]);
 
-        // P(x) = 1, k = 2 → R(x) = 1/2
+        // P(x) = 1, k = 2 -> R(x) = 1/2
         let p = vec![Value::Int(1)];
         let r = solve_undetermined_coeffs(&p, &Value::Int(2)).unwrap();
         assert_eq!(
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_solve_quadratic() {
-        // P(x) = x², k = 1 → R(x) = x² - 2x + 2
+        // P(x) = x^2, k = 1 -> R(x) = x^2 - 2x + 2
         let p = vec![Value::Int(0), Value::Int(0), Value::Int(1)];
         let r = solve_undetermined_coeffs(&p, &Value::Int(1)).unwrap();
         assert_eq!(r, vec![Value::Int(2), Value::Int(-2), Value::Int(1)]);

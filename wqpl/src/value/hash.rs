@@ -4,10 +4,10 @@ use std::sync::Arc;
 use num_traits::ToPrimitive;
 use ordered_float::OrderedFloat;
 
-use crate::value::seq::ValueSeq;
 use crate::value::Value;
 use crate::value::cas::CasKind;
 use crate::value::func::CallableExpr;
+use crate::value::seq::ValueSeq;
 
 fn hash_callable_expr<H: std::hash::Hasher>(expr: &CallableExpr, state: &mut H) {
     match expr {
@@ -241,8 +241,7 @@ impl PartialEq for Value {
             }
 
             (Complex(a), Complex(b)) => {
-                OrderedFloat(a.re) == OrderedFloat(b.re)
-                    && OrderedFloat(a.im) == OrderedFloat(b.im)
+                OrderedFloat(a.re) == OrderedFloat(b.re) && OrderedFloat(a.im) == OrderedFloat(b.im)
             }
             (Fraction(a), Fraction(b)) => a == b,
 
@@ -331,10 +330,7 @@ mod hash_tests {
 
     #[test]
     fn equal_values_hash_equal_across_representations() {
-        assert_equal_values_hash_equal(
-            Value::Int(42),
-            Value::BigInt(Arc::new(BigInt::from(42))),
-        );
+        assert_equal_values_hash_equal(Value::Int(42), Value::BigInt(Arc::new(BigInt::from(42))));
         assert_equal_values_hash_equal(
             Value::IntList(Arc::new(vec![1, 2, 3])),
             Value::List(Arc::new(vec![Value::Int(1), Value::Int(2), Value::Int(3)])),
@@ -345,7 +341,11 @@ mod hash_tests {
         );
         assert_equal_values_hash_equal(
             Value::String(Arc::new("abc".to_string())),
-            Value::List(Arc::new(vec![Value::Char('a'), Value::Char('b'), Value::Char('c')])),
+            Value::List(Arc::new(vec![
+                Value::Char('a'),
+                Value::Char('b'),
+                Value::Char('c'),
+            ])),
         );
         assert_equal_values_hash_equal(Value::float(0.0), Value::float(-0.0));
     }
@@ -428,7 +428,6 @@ mod hash_tests {
 
     #[test]
     fn deep_nesting_works() {
-        // Build a deeply nested list — should not crash.
         let mut list = Value::List(Arc::new(vec![Value::Int(0)]));
         for _ in 0..100 {
             list = Value::List(Arc::new(vec![list.clone(), Value::Int(1)]));

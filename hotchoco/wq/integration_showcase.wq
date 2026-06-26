@@ -265,7 +265,7 @@ echo diff integrate @s (2*x^2-2*x-2)/(x-1)^3*exp[x^2]
 echo integrate @s (2*x^4+3*x^2-1)/x^2*exp[x^2]
 echo diff integrate @s (2*x^4+3*x^2-1)/x^2*exp[x^2]
 
-// Liouville — Ei Special Pattern
+// Liouville -- Ei Special Pattern
 echo integrate @s exp[x^2]/x
 echo diff integrate @s exp[x^2]/x
 
@@ -285,7 +285,7 @@ echo diff integrate @s exp[-2*x^2]
 echo integrate @s 3*exp[-x^2]
 echo diff integrate @s 3*exp[-x^2]
 
-// Irrational — sqrt(Cubic) and sqrt(Quartic) Reduction
+// Irrational -- sqrt(Cubic) and sqrt(Quartic) Reduction
 echo integrate @s sqrt[x^3+2*x^2+x]
 echo diff integrate @s sqrt[x^3+2*x^2+x]
 
@@ -295,7 +295,7 @@ echo diff integrate @s sqrt[x^4+2*x^3+x^2]
 echo integrate @s sqrt[(x^2+1)^2]
 echo diff integrate @s sqrt[(x^2+1)^2]
 
-// Irrational — Polynomial × sqrt(linear)
+// Irrational -- Polynomial × sqrt(linear)
 echo integrate @s (x-1)*sqrt[x+2]
 echo diff integrate @s (x-1)*sqrt[x+2]
 
@@ -305,7 +305,7 @@ echo diff integrate @s x/sqrt[3*x+1]
 echo integrate @s sqrt[x^3-3*x+2]
 echo diff integrate @s sqrt[x^3-3*x+2]
 
-// Irrational — Binomial Integrals
+// Irrational -- Binomial Integrals
 echo integrate @s x^2*sqrt[x^3+1]
 echo diff integrate @s x^2*sqrt[x^3+1]
 

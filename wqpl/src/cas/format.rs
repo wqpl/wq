@@ -9,7 +9,7 @@ use super::numeric::{
     numeric_abs, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul,
 };
 use crate::value::Value;
-use crate::value::cas::{CasConst, CasOp};
+use crate::value::cas::CasOp;
 
 fn precedence(value: &Value) -> u8 {
     match value.cas_known_op_parts() {
@@ -372,7 +372,7 @@ fn display_factor_cmp(lhs: &Value, rhs: &Value) -> Ordering {
 
 fn format_product_parts(leading: Option<&Value>, rest: &[Value], parent_prec: u8) -> String {
     /// True when a CAS expression is a manifest constant (no variable
-    /// dependency). Used only for display grouping — does not affect
+    /// dependency). Used only for display grouping -- does not affect
     /// canonical sort order.
     fn is_constant_cas(value: &Value) -> bool {
         if let Some([base, _]) = value.cas_op_args(CasOp::Power) {
@@ -506,11 +506,7 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
         return name.to_string();
     }
     if let Some(konst) = value.cas_const() {
-        return match konst {
-            CasConst::Infinity => "∞".to_string(),
-            CasConst::NegInfinity => "-∞".to_string(),
-            _ => konst.name().to_string(),
-        };
+        return konst.name().to_string();
     }
     if let Some((op, args)) = value.cas_known_op_parts() {
         return match (op, args) {

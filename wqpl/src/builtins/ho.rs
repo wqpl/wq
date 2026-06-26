@@ -333,7 +333,8 @@ fn filter_predicate(
     }
 }
 
-/// apply[fs;x] — apply each function in fs to x, returning a list of results.
+/// apply[fs;x]
+/// apply each function in fs to x, returning a list of results.
 /// If fs is a single function (not a list), returns f[x] unwrapped.
 pub(super) fn apply(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Apply, [2, 2], &args)?;
@@ -350,10 +351,7 @@ pub(super) fn apply(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
     }
 }
 
-pub(super) fn apply_discard(
-    vm: &mut dyn BuiltinContext,
-    args: BuiltinFnArgs,
-) -> WqResult<Value> {
+pub(super) fn apply_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Apply, [2, 2], &args)?;
     let (fs, x) = (&args[0], &args[1]);
     match fs {
@@ -923,10 +921,7 @@ pub(super) fn filter(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
     }
 }
 
-pub(super) fn filter_discard(
-    vm: &mut dyn BuiltinContext,
-    args: BuiltinFnArgs,
-) -> WqResult<Value> {
+pub(super) fn filter_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Filter, [2], &args)?;
     let mut iter = args.into_iter();
     let xs = iter.next().unwrap();
@@ -1016,7 +1011,7 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
     let limit = maxsplit.unwrap_or(usize::MAX);
     let mut splits_done = 0;
 
-    // Direct String handling — avoid List<Char> allocation.
+    // Direct String handling to avoid List<Char> allocation.
     if let Value::String(s) = &val {
         let mut chunks = Vec::new();
         let mut current = String::new();

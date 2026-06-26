@@ -163,9 +163,7 @@ def run_one_test(test: dict, config: dict, output_dir: Path) -> dict:
     wq_bin_rel = config.get("wq_binary", "target/debug/wq")
     wq_bin = PROJECT_ROOT / wq_bin_rel
     timeout = config.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
-    expected_exit_code = int(
-        test.get("expected_exit_code", DEFAULT_EXPECTED_EXIT_CODE)
-    )
+    expected_exit_code = int(test.get("expected_exit_code", DEFAULT_EXPECTED_EXIT_CODE))
 
     subcommand = test.get("subcommand")
     if subcommand:
@@ -502,7 +500,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                 print(compute_diff(expected, actual, key))
                 print()
             else:
-                print("  New test — no expected file yet.")
+                print("  New test -- no expected file yet.")
                 print(f"  Actual output ({len(actual_path.read_text())} bytes)")
                 print()
 
@@ -565,7 +563,7 @@ def cmd_diff(args: argparse.Namespace) -> None:
             actual = actual_path.read_text()
             print(compute_diff(expected, actual, key))
         else:
-            print("  New test — no expected file yet.")
+            print("  New test -- no expected file yet.")
             actual = actual_path.read_text()
             if len(actual) <= 2000:
                 print(actual)
@@ -602,7 +600,7 @@ def cmd_show(args: argparse.Namespace) -> None:
             actual = actual_path.read_text()
             lines.append(compute_diff(expected, actual, key))
         else:
-            lines.append("  New test — no expected file yet.")
+            lines.append("  New test -- no expected file yet.")
             actual = actual_path.read_text()
             for line in actual.splitlines():
                 lines.append(f"  > {line}")
@@ -753,7 +751,7 @@ def cmd_review(args: argparse.Namespace) -> None:
             actual = actual_path.read_text()
             print(compute_diff(expected, actual, key))
         else:
-            print("\033[33m  (new test — no expected file)\033[0m")
+            print("\033[33m  (new test -- no expected file)\033[0m")
             actual = actual_path.read_text()
             if len(actual) <= 500:
                 for line in actual.splitlines():
@@ -816,21 +814,21 @@ def cmd_review(args: argparse.Namespace) -> None:
                 return
             elif resp in ("?", "h", "help"):
                 print()
-                print("  A — accept change (copy actual → expected)")
-                print("  S — skip to next")
-                print("  V — view full expected and actual files")
-                print("  Q — quit review")
-                print("  ? — this help")
+                print("  A - accept change (copy actual → expected)")
+                print("  S - skip to next")
+                print("  V - view full expected and actual files")
+                print("  Q - quit review")
+                print("  ? - this help")
                 print()
                 continue
             else:
                 print("  Unknown command. Type ? for help.")
                 continue
 
-    print(f"\nReview complete — all {total} changes reviewed.")
+    print(f"\nReview complete -- all {total} changes reviewed.")
 
 
-# ── CLI ─────────────────────────────────────────────────────────────────────
+# CLI ===================================================================
 
 
 def main() -> None:

@@ -2,10 +2,10 @@
 //!
 //! The actual layout work lives in three siblings:
 //!
-//! * [`mod@doc`] — the pretty-printing IR.
-//! * [`mod@lower`] — CST → [`Doc`] lowering, one branch per
+//! * [`mod@doc`] -- the pretty-printing IR.
+//! * [`mod@lower`] -- CST → [`Doc`] lowering, one branch per
 //!   [`crate::cst::SyntaxKind`].
-//! * [`mod@render`] — best-fit renderer.
+//! * [`mod@render`] -- best-fit renderer.
 //!
 //! This file owns the public surface: [`Formatter`], [`FormatConfig`], and
 //! the script-aware [`Formatter::format_script`] driver.
@@ -107,8 +107,8 @@ impl Formatter {
     /// Format a script that may contain meta commands like `load <path>`.
     ///
     /// Meta lines (starting with `!`, or a shebang `#!` on line 1) are
-    /// passed through verbatim. Everything else — including comments and
-    /// blank lines — is forwarded to [`Self::format_source`], which
+    /// passed through verbatim. Everything else -- including comments and
+    /// blank lines -- is forwarded to [`Self::format_source`], which
     /// preserves them via CST trivia attachment.
     pub fn format_script(&self, content: &str) -> WqResult<String> {
         let mut result = String::new();
@@ -117,7 +117,7 @@ impl Formatter {
         for (i, line) in content.lines().enumerate() {
             let trimmed = line.trim();
             // Meta-command lines (shell-style `!cmd`, or a shebang on line 1)
-            // bypass the formatter — they aren't wq syntax.
+            // bypass the formatter -- they aren't wq syntax.
             if trimmed.starts_with("!") || (i == 0 && trimmed.starts_with("#!")) {
                 if buffer_has_payload {
                     result.push_str(&self.format_source(&buffer)?);
@@ -183,7 +183,9 @@ mod tests {
             max_width: 8,
             ..FormatConfig::default()
         });
-        let out = fmt.format_script("f[(1; 2; 3; 4; 5)]").expect("format succeeds");
+        let out = fmt
+            .format_script("f[(1; 2; 3; 4; 5)]")
+            .expect("format succeeds");
 
         assert_eq!(out, "f[(1; 2;\n    3;\n    4;\n    5)]");
     }

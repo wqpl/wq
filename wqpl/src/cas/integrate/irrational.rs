@@ -1,11 +1,11 @@
 //! Integration of irrational expressions involving sqrt(quadratic).
 //!
 //! Handles the standard forms:
-//!   ∫ sqrt(x² ± a²) dx
-//!   ∫ 1/sqrt(x² ± a²) dx
-//!   ∫ sqrt(a² - x²) dx
-//!   ∫ 1/sqrt(a² - x²) dx
-//! and their linear-argument variants sqrt((kx+m)² ± a²).
+//!   int sqrt(x^2 +/- a^2) dx
+//!   int 1/sqrt(x^2 +/- a^2) dx
+//!   int sqrt(a^2 - x^2) dx
+//!   int 1/sqrt(a^2 - x^2) dx
+//! and their linear-argument variants sqrt((kx+m)^2 +/- a^2).
 
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
@@ -55,7 +55,7 @@ fn try_irrational(expr: &Value, var: &str) -> WqResult<Option<Value>> {
         {
             return Ok(Some(result));
         }
-        // Direct (linear)^(±1/2): use power rule via substitution
+        // Direct (linear)^(+/-1/2): use power rule via substitution
         if (half_pow || neg_half_pow)
             && let Some((a, b)) = classify_linear(base, var)
         {
@@ -91,7 +91,7 @@ fn try_irrational(expr: &Value, var: &str) -> WqResult<Option<Value>> {
                     }
                     // Fall through to Euler if simple path fails
                 }
-                // Check for linear base: (a·x+b)^(±1/2)
+                // Check for linear base: (a*x+b)^(+/-1/2)
                 if (half_pow || neg_half_pow)
                     && let Some((a, b)) = classify_linear(base, var)
                 {
@@ -183,10 +183,10 @@ fn reciprocal_quartic_transform(poly: &[Value], root: &Value) -> WqResult<Vec<Va
     Ok(out)
 }
 
-/// Extract factors with multiplicity ≥ 2 from a polynomial under sqrt.
+/// Extract factors with multiplicity >= 2 from a polynomial under sqrt.
 /// Returns `(outside_poly, inside_poly)` where:
 /// - `outside` = product of factor^(mult // 2)
-/// - `inside` = product of factor^(mult % 2) The original sqrt = |outside| ·
+/// - `inside` = product of factor^(mult % 2) The original sqrt = |outside| *
 ///   sqrt(inside).
 fn extract_square_factors(poly: &[Value], _var: &str) -> WqResult<(Vec<Value>, Vec<Value>)> {
     let sf_factors = crate::cas::square_free_factor(poly)?;
@@ -264,7 +264,7 @@ fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let half = Value::from_fraction_parts(1u64.into(), 2u64.into());
     let neg_half = Value::from_fraction_parts((-1i64).into(), 2u64.into());
 
-    // Build the replacement expression: out * (in)^(±1/2)
+    // Build the replacement expression: out * (in)^(+/-1/2)
     let simplified = {
         let in_pow = Value::from_cas_op(
             CasOp::Power,
@@ -290,7 +290,7 @@ fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
 }
 
 // ---------------------------------------------------------------------------
-// Euler substitution #1 (a > 0): sqrt(ax²+bx+c) = √a·x + t
+// Euler substitution #1 (a > 0): sqrt(ax^2+bx+c) = sqrt(a)*x + t
 // ---------------------------------------------------------------------------
 
 fn try_euler_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
@@ -327,7 +327,7 @@ fn try_euler_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
         return euler2_integrate(expr, &q, &a, &b, &c, &s, var).map(Some);
     }
 
-    // Euler #3: real roots (discriminant b²-4ac > 0)
+    // Euler #3: real roots (discriminant b^2-4ac > 0)
     let disc = numeric_sub(
         &numeric_mul(&b, &b).unwrap_or(Value::Int(0)),
         &numeric_mul(
@@ -379,7 +379,7 @@ fn find_sqrt_factor(expr: &Value, _var: &str) -> Option<(Value, bool)> {
         if exp.exact_neg_half() {
             return Some((base.clone(), false));
         }
-        // Recurse into exponent -1: (product * sqrt)^(-1) → product * sqrt
+        // Recurse into exponent -1: (product * sqrt)^(-1) -> product * sqrt
         if exp.exact_int().is_some_and(|k| k == BigInt::from(-1)) {
             return find_sqrt_factor(base, _var);
         }
@@ -400,7 +400,7 @@ fn find_sqrt_factor(expr: &Value, _var: &str) -> Option<(Value, bool)> {
     None
 }
 
-/// Euler #1 (a > 0): √(ax²+bx+c) = √a·x + t
+/// Euler #1 (a > 0): sqrt(ax^2+bx+c) = sqrt(a)*x + t
 fn euler1_integrate(
     expr: &Value,
     _q: &QuadInfo,
@@ -410,10 +410,10 @@ fn euler1_integrate(
     s: &Value,
     var: &str,
 ) -> WqResult<Value> {
-    // s = √a
-    // x = (t² - c) / (b - 2s·t)
-    // √ = s·x + t
-    // dx/dt = 2√ / (b - 2s·t)
+    // s = sqrt(a)
+    // x = (t^2 - c) / (b - 2s*t)
+    // sqrt = s*x + t
+    // dx/dt = 2*sqrt / (b - 2s*t)
     let t = Value::from_cas_var("--cas-euler-t");
     let two = Value::Int(2);
     let two_s = numeric_mul(&two, s)?;
@@ -441,7 +441,7 @@ fn euler1_integrate(
     euler_integrate_core(expr, &orig_sqrt, &x_t, &sqrt_t, &dx_dt, &t_back, var)
 }
 
-/// Euler #2 (c > 0): √(ax²+bx+c) = x·t + √c
+/// Euler #2 (c > 0): sqrt(ax^2+bx+c) = x*t + sqrt(c)
 fn euler2_integrate(
     expr: &Value,
     _q: &QuadInfo,
@@ -451,10 +451,10 @@ fn euler2_integrate(
     s: &Value,
     var: &str,
 ) -> WqResult<Value> {
-    // s = √c
-    // x = (2s·t - b) / (a - t²)
-    // √ = x·t + s
-    // dx/dt = 2√ / (a - t²)
+    // s = sqrt(c)
+    // x = (2s*t - b) / (a - t^2)
+    // sqrt = x*t + s
+    // dx/dt = 2*sqrt / (a - t^2)
     let t = Value::from_cas_var("--cas-euler-t");
     let two = Value::Int(2);
     let t_sq = cas_pow(t.clone(), Value::Int(2))?;
@@ -474,7 +474,7 @@ fn euler2_integrate(
     let dx_dt = simplify_cas_value(&cas_div(cas_mul(vec![two, sqrt_t.clone()])?, denom)?)?;
 
     let orig_sqrt = build_sqrt_expr(a, b, c, var)?;
-    // t = (√(quad) - √c) / x
+    // t = (sqrt(quad) - sqrt(c)) / x
     let t_back = simplify_cas_value(&cas_div(
         cas_sub(orig_sqrt.clone(), s.clone())?,
         Value::from_cas_var(var),
@@ -483,7 +483,7 @@ fn euler2_integrate(
     euler_integrate_core(expr, &orig_sqrt, &x_t, &sqrt_t, &dx_dt, &t_back, var)
 }
 
-/// Euler #3 (real roots α < β): √(a(x-α)(x-β)) = t·(x-α)
+/// Euler #3 (real roots alpha < beta): sqrt(a(x-alpha)(x-beta)) = t*(x-alpha)
 fn euler3_integrate(
     expr: &Value,
     _q: &QuadInfo,
@@ -493,16 +493,16 @@ fn euler3_integrate(
     sqrt_disc: &Value,
     var: &str,
 ) -> WqResult<Value> {
-    // Discriminant Δ = b²-4ac > 0.  Roots: α = (-b-√Δ)/(2a), β = (-b+√Δ)/(2a)
+    // Discriminant delta = b^2-4ac > 0.  Roots: alpha = (-b-sqrt(delta))/(2a), beta = (-b+sqrt(delta))/(2a)
     let two = Value::Int(2);
     let neg_b = numeric_mul(b, &Value::Int(-1))?;
     let two_a = numeric_mul(&two, a)?;
     let alpha = numeric_div(&numeric_sub(&neg_b, sqrt_disc)?, &two_a)?;
     let beta = numeric_div(&numeric_add(&neg_b, sqrt_disc)?, &two_a)?;
 
-    // √(a(x-α)(x-β)) = t·(x-α)
-    // x = (a·β - t²·α) / (a - t²)
-    // dx/dt = 2a·t·(β-α) / (a - t²)²
+    // sqrt(a(x-alpha)(x-beta)) = t*(x-alpha)
+    // x = (a*beta - t^2*alpha) / (a - t^2)
+    // dx/dt = 2a*t*(beta-alpha) / (a - t^2)^2
     let t = Value::from_cas_var("--cas-euler-t");
     let t_sq = cas_pow(t.clone(), Value::Int(2))?;
     let denom = cas_sub(a.clone(), t_sq.clone())?;
@@ -531,7 +531,7 @@ fn euler3_integrate(
     )?)?;
 
     let orig_sqrt = build_sqrt_expr(a, b, c, var)?;
-    // t = √(quad) / (x - α)
+    // t = sqrt(quad) / (x - alpha)
     let t_back = simplify_cas_value(&cas_div(
         orig_sqrt.clone(),
         cas_sub(Value::from_cas_var(var), alpha)?,
@@ -540,7 +540,7 @@ fn euler3_integrate(
     euler_integrate_core(expr, &orig_sqrt, &x_t, &sqrt_t, &dx_dt, &t_back, var)
 }
 
-/// Build sqrt(ax²+bx+c) as a CAS expression.
+/// Build sqrt(ax^2+bx+c) as a CAS expression.
 fn build_sqrt_expr(a: &Value, b: &Value, c: &Value, var: &str) -> WqResult<Value> {
     let x = Value::from_cas_var(var);
     let x_sq = cas_pow(x.clone(), Value::Int(2))?;
@@ -571,7 +571,7 @@ fn euler_integrate_core(
     cas_trace!(DebugLogFlags::CAS, "[euler] sqrt_t={}", sqrt_t);
     cas_trace!(DebugLogFlags::CAS, "[euler] dx_dt={}", dx_dt);
 
-    // Replace sqrt BEFORE variable substitution: after x→x_t the sqrt
+    // Replace sqrt BEFORE variable substitution: after x->x_t the sqrt
     // argument changes and no longer matches orig_sqrt exactly.
     let integrand_t = replace_sqrt_in_expr(expr, orig_sqrt, sqrt_t);
     cas_trace!(
@@ -584,8 +584,8 @@ fn euler_integrate_core(
 
     // Substitute sqrt_t with a plain variable _s so that powers cancel
     // naturally in cas_mul.  Also expand to distribute negative integer
-    // powers across products: (a·b)^(-k) → a^(-k)·b^(-k).  Together
-    // these let (x·√)^(-1)·√ cancel to x^(-1), producing a rational
+    // powers across products: (a*b)^(-k) -> a^(-k)*b^(-k).  Together
+    // these let (x*sqrt)^(-1)*sqrt cancel to x^(-1), producing a rational
     // function in _t that the rational module can integrate.
     let s_var = Value::from_cas_var("--cas-sqrt-s");
     let integrand_s = replace_sqrt_in_expr(&integrand_t, sqrt_t, &s_var);
@@ -709,8 +709,8 @@ fn replace_sqrt_in_expr(expr: &Value, sqrt_expr: &Value, replacement: &Value) ->
             .unwrap_or_else(|_| expr.clone());
     }
     // Match expr = base^p where sqrt_expr = base^(1/2):
-    // base^p = sqrt_expr^(2p) → replacement^(2p)
-    // Handles cases like 1/sqrt: base^(-1/2) → replacement^(-1)
+    // base^p = sqrt_expr^(2p) -> replacement^(2p)
+    // Handles cases like 1/sqrt: base^(-1/2) -> replacement^(-1)
     if let Some((CasOp::Power, [expr_base, expr_exp])) = expr.cas_op_parts()
         && let Some((CasOp::Power, [sqrt_base, sqrt_exp])) = sqrt_expr.cas_op_parts()
         && sqrt_exp.exact_half()
@@ -746,22 +746,22 @@ fn replace_sqrt_in_expr(expr: &Value, sqrt_expr: &Value, replacement: &Value) ->
     expr.clone()
 }
 
-/// Classification of a quadratic expression ax²+bx+c.
+/// Classification of a quadratic expression ax^2+bx+c.
 struct QuadInfo {
-    /// Coefficient of x²
+    /// Coefficient of x^2
     a: Value,
-    /// Completed-square shift s such that expr = a·(x - s)² + k
+    /// Completed-square shift s such that expr = a*(x - s)^2 + k
     shift: Value,
     /// Remaining constant k
     k: Value,
 }
 
-/// Try to classify expr as a quadratic in var: a·var² + b·var + c.
+/// Try to classify expr as a quadratic in var: a*var^2 + b*var + c.
 fn classify_quadratic(expr: &Value, var: &str) -> Option<QuadInfo> {
     // Must be a polynomial of degree 2
     let coeffs = poly_from_expr(expr, var).ok()?;
     if poly_degree(&coeffs) != 2 {
-        // Check deg 0 or 1 — not a quadratic sqrt
+        // Check deg 0 or 1 -- not a quadratic sqrt
         return None;
     }
 
@@ -773,7 +773,7 @@ fn classify_quadratic(expr: &Value, var: &str) -> Option<QuadInfo> {
         return None;
     }
 
-    // Complete the square: a·x² + b·x + c = a·(x + b/(2a))² + (c - b²/(4a))
+    // Complete the square: a*x^2 + b*x + c = a*(x + b/(2a))^2 + (c - b^2/(4a))
     let two = Value::Int(2);
     let four = Value::Int(4);
     let two_a = numeric_mul(&two, &a).ok()?;
@@ -789,7 +789,7 @@ fn classify_quadratic(expr: &Value, var: &str) -> Option<QuadInfo> {
     Some(QuadInfo { a, shift, k })
 }
 
-/// Integrate sqrt(ax²+bx+c)^(±1/2).
+/// Integrate sqrt(ax^2+bx+c)^(+/-1/2).
 fn integrate_quadratic_root(q: &QuadInfo, is_sqrt: bool, var: &str) -> WqResult<Value> {
     if is_sqrt {
         integrate_sqrt_quadratic(q, var)
@@ -798,19 +798,19 @@ fn integrate_quadratic_root(q: &QuadInfo, is_sqrt: bool, var: &str) -> WqResult<
     }
 }
 
-/// ∫ sqrt(a·x² + b·x + c) dx
+/// int sqrt(a*x^2 + b*x + c) dx
 fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
     let a = &q.a;
     let k = &q.k;
 
     if numeric_is_zero(&q.shift) && numeric_is_one(a) {
-        // Simple form: sqrt(x² + k)
+        // Simple form: sqrt(x^2 + k)
         if numeric_is_negative(k) {
-            // sqrt(x² - d²) where d² = -k
+            // sqrt(x^2 - d^2) where d^2 = -k
             let d_sq = numeric_mul(k, &Value::Int(-1))?;
             sqrt_value(&d_sq)
                 .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
-            // x/2·sqrt(x²-d²) - d²/2·ln|x + sqrt(x²-d²)|
+            // x/2*sqrt(x^2-d^2) - d^2/2*ln|x + sqrt(x^2-d^2)|
             let x = Value::from_cas_var(var);
             let sqrt_expr = Value::from_cas_function(
                 CasFunction::Sqrt,
@@ -830,10 +830,10 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
             let second = cas_mul(vec![half_d_sq, ln])?;
             return simplify_cas_value(&cas_sub(first, second)?);
         } else {
-            // sqrt(x² + d²) where d² = k
+            // sqrt(x^2 + d^2) where d^2 = k
             let d = sqrt_value(k)
                 .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
-            // x/2·sqrt(x²+d²) + d²/2·arcsinh(x/d)
+            // x/2*sqrt(x^2+d^2) + d^2/2*arcsinh(x/d)
             let x = Value::from_cas_var(var);
             let sqrt_expr = Value::from_cas_function(
                 CasFunction::Sqrt,
@@ -855,8 +855,8 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
         }
     }
 
-    // General case: sqrt(a·(x-s)² + k)
-    // Substitute u = x - s, then solve sqrt(a·u² + k)
+    // General case: sqrt(a*(x-s)^2 + k)
+    // Substitute u = x - s, then solve sqrt(a*u^2 + k)
     if !numeric_is_zero(&q.shift) {
         let u_var = "--cas-shift-u";
         let simple_q = QuadInfo {
@@ -871,8 +871,8 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
             &cas_sub(Value::from_cas_var(var), q.shift.clone())?,
         )?)
     } else if !numeric_is_one(a) {
-        // sqrt(a·x² + k): factor out sqrt(a)
-        // sqrt(a·x² + k) = sqrt(a)·sqrt(x² + k/a)
+        // sqrt(a*x^2 + k): factor out sqrt(a)
+        // sqrt(a*x^2 + k) = sqrt(a)*sqrt(x^2 + k/a)
         let sqrt_a = Value::from_cas_function(CasFunction::Sqrt, vec![a.clone()]);
         let simple_q = QuadInfo {
             a: Value::Int(1),
@@ -882,26 +882,26 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
         let inner = integrate_sqrt_quadratic(&simple_q, var)?;
         simplify_cas_value(&cas_mul(vec![sqrt_a, inner])?)
     } else {
-        // k = 0: sqrt(x²) = |x| — already handled by simpler rules
+        // k = 0: sqrt(x^2) = |x| -- already handled by simpler rules
         Err(crate::cas::cas_err("degenerate quadratic under sqrt"))
     }
 }
 
-/// ∫ 1/sqrt(a·x² + b·x + c) dx
+/// int 1/sqrt(a*x^2 + b*x + c) dx
 fn integrate_one_over_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
     let a = &q.a;
     let k = &q.k;
 
     if numeric_is_zero(&q.shift) && numeric_is_one(a) {
         if numeric_is_negative(k) {
-            // 1/sqrt(x² - d²) → arccosh(x/d)
+            // 1/sqrt(x^2 - d^2) -> arccosh(x/d)
             let d_sq = numeric_mul(k, &Value::Int(-1))?;
             let d = sqrt_value(&d_sq)
                 .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
             let arg = cas_div(Value::from_cas_var(var), d)?;
             return Ok(Value::from_cas_function(CasFunction::ArcCosh, vec![arg]));
         } else {
-            // 1/sqrt(x² + d²) → arcsinh(x/d)
+            // 1/sqrt(x^2 + d^2) -> arcsinh(x/d)
             let d = sqrt_value(k)
                 .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
             let arg = cas_div(Value::from_cas_var(var), d)?;
@@ -909,12 +909,12 @@ fn integrate_one_over_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value>
         }
     }
 
-    // sqrt(a² - x²) case: a is negative of x²
-    // a·x² + k with a < 0, k > 0 → sqrt(k - |a|·x²)
+    // sqrt(a^2 - x^2) case: a is negative of x^2
+    // a*x^2 + k with a < 0, k > 0 -> sqrt(k - |a|*x^2)
     if numeric_is_negative(a) && numeric_is_zero(&q.shift) {
         let neg_a = numeric_mul(a, &Value::Int(-1))?;
         if numeric_is_one(&neg_a) && !numeric_is_negative(k) {
-            // 1/sqrt(k - x²) → arcsin(x/√k)  if k > 0
+            // 1/sqrt(k - x^2) -> arcsin(x/sqrt(k))  if k > 0
             let d = sqrt_value(k)
                 .ok_or_else(|| crate::cas::cas_err("expected perfect square under sqrt"))?;
             let arg = cas_div(Value::from_cas_var(var), d)?;
@@ -941,7 +941,7 @@ fn integrate_one_over_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value>
     Err(crate::cas::cas_err("unsupported irrational form"))
 }
 
-/// Integrate P(x) * sqrt(quadratic)^(±1/2), where P is a polynomial.
+/// Integrate P(x) * sqrt(quadratic)^(+/-1/2), where P is a polynomial.
 fn integrate_poly_times_root(
     poly_expr: &Value,
     q: &QuadInfo,
@@ -963,10 +963,10 @@ fn integrate_poly_times_root(
     }
 
     if deg == 1 && numeric_is_zero(&q.shift) && numeric_is_one(&q.a) {
-        // ∫ x·sqrt(x²+k)^(±1/2) dx — power rule
+        // int x*sqrt(x^2+k)^(+/-1/2) dx -- power rule
         let k = &q.k;
         if is_sqrt {
-            // ∫ x·(x²+k)^(1/2) dx = (x²+k)^(3/2)/3
+            // int x*(x^2+k)^(1/2) dx = (x^2+k)^(3/2)/3
             let inner = cas_add(vec![
                 cas_pow(Value::from_cas_var(var), Value::Int(2))?,
                 k.clone(),
@@ -977,7 +977,7 @@ fn integrate_poly_times_root(
             )?;
             return simplify_cas_value(&cas_div(pow, Value::Int(3))?);
         } else {
-            // ∫ x·(x²+k)^(-1/2) dx = (x²+k)^(1/2)
+            // int x*(x^2+k)^(-1/2) dx = (x^2+k)^(1/2)
             let inner = cas_add(vec![
                 cas_pow(Value::from_cas_var(var), Value::Int(2))?,
                 k.clone(),
@@ -987,7 +987,7 @@ fn integrate_poly_times_root(
     }
 
     // For higher degree: use reduction formula (pure x^n only)
-    // ∫ x^n·(x²+k)^(±1/2) dx
+    // int x^n*(x^2+k)^(+/-1/2) dx
     if deg >= 2 && numeric_is_zero(&q.shift) && numeric_is_one(&q.a) && is_monomial(&coeffs) {
         let c = &coeffs[deg];
         let result = integrate_xn_sqrt_reduction(deg, &q.k, is_sqrt, var)?;
@@ -1004,12 +1004,12 @@ fn integrate_poly_times_root(
     )))
 }
 
-/// ∫ P(x)·(a·x+b)^(±1/2) dx via substitution u = a·x+b, direct power rule.
+/// int P(x)*(a*x+b)^(+/-1/2) dx via substitution u = a*x+b, direct power rule.
 ///
 /// Does NOT call integrate_expr_with_depth (avoids re-entering the strategy
 /// chain and causing infinite recursion).  Instead, converts P(x) to a
 /// polynomial Q(u) via x = (u-b)/a, then integrates each term of
-/// Q(u)·u^(±1/2)/a using the power rule.
+/// Q(u)*u^(+/-1/2)/a using the power rule.
 fn integrate_poly_sqrt_linear(
     poly_expr: &Value,
     a: &Value,
@@ -1022,12 +1022,12 @@ fn integrate_poly_sqrt_linear(
     let deg = poly_degree(&coeffs);
     let u_var_val = Value::from_cas_var("--cas-lin-u");
 
-    // Convert P(x) to Q(u) where u = a·x+b, x = (u-b)/a.
-    // Q(u) = Σ p_i · ((u - b)/a)^i
+    // Convert P(x) to Q(u) where u = a*x+b, x = (u-b)/a.
+    // Q(u) = sum p_i * ((u - b)/a)^i
     // We compute coefficients of Q(u) as a Vec<Value> [q0, q1, ..., q_deg].
     let mut q = vec![Value::Int(0); deg + 1];
     // Precompute (u-b)^0 through (u-b)^deg as coefficient vectors
-    // (u-b)^i = Σ_{j=0}^{i} C(i,j) * (-b)^(i-j) * u^j
+    // (u-b)^i = sum_{j=0}^{i} C(i,j) * (-b)^(i-j) * u^j
     let inv_a = eval_exact_numeric_div(&Value::Int(1), a)?;
     let mut a_pows = vec![Value::Int(1); deg + 1]; // a_pows[i] = 1/a^i
     for i in 1..=deg {
@@ -1052,8 +1052,8 @@ fn integrate_poly_sqrt_linear(
         }
     }
 
-    // Now integrate: ∫ Q(u) * u^(±1/2) / a du
-    // Each term: q_j/a * ∫ u^(j ± 1/2) du = q_j/a * u^(j ± 1/2 + 1) / (j ± 1/2 + 1)
+    // Now integrate: int Q(u) * u^(+/-1/2) / a du
+    // Each term: q_j/a * int u^(j +/- 1/2) du = q_j/a * u^(j +/- 1/2 + 1) / (j +/- 1/2 + 1)
     let mut result_terms: Vec<Value> = Vec::new();
     let half = Value::from_fraction_parts(1u64.into(), 2u64.into());
     let one = Value::Int(1);
@@ -1126,7 +1126,7 @@ fn is_monomial(coeffs: &[Value]) -> bool {
     coeffs.iter().take(deg).all(numeric_is_zero) && !numeric_is_zero(&coeffs[deg])
 }
 
-/// Recursive reduction for ∫ x^n·(x²+k)^(±1/2) dx.
+/// Recursive reduction for int x^n*(x^2+k)^(+/-1/2) dx.
 fn integrate_xn_sqrt_reduction(n: usize, k: &Value, is_sqrt: bool, var: &str) -> WqResult<Value> {
     let x = Value::from_cas_var(var);
     let x_sq = cas_pow(x.clone(), Value::Int(2))?;
@@ -1306,7 +1306,7 @@ mod tests {
 
     #[test]
     fn test_classify_general_quadratic() {
-        // x² + 2x + 5 = (x+1)² + 4
+        // x^2 + 2x + 5 = (x+1)^2 + 4
         let x = Value::from_cas_var("x");
         let expr = cas_add(vec![
             cas_pow(x.clone(), Value::Int(2)).unwrap(),
@@ -1320,7 +1320,7 @@ mod tests {
             "shift should be -1, got {:?}",
             q.shift
         );
-        // (x+1)² + 4: shift = -1, k = 4
+        // (x+1)^2 + 4: shift = -1, k = 4
         assert!(
             numeric_is_zero(&numeric_sub(&q.k, &Value::Int(4)).unwrap_or(Value::Int(1))),
             "k should be 4, got {:?}",
@@ -1434,11 +1434,11 @@ mod tests {
         );
     }
 
-    // ── Square factor extraction tests ──
+    // -- Square factor extraction tests --
 
     #[test]
     fn test_extract_square_factors_cubic_double_root() {
-        // x³+2x²+x = x(x+1)² → out=(x+1), in=x
+        // x^3+2x^2+x = x(x+1)^2 -> out=(x+1), in=x
         let poly = vec![Value::Int(0), Value::Int(1), Value::Int(2), Value::Int(1)];
         let (out, inn) = super::extract_square_factors(&poly, "x").unwrap();
         // out = x+1 = [1, 1]
@@ -1449,7 +1449,7 @@ mod tests {
 
     #[test]
     fn test_extract_square_factors_quartic_double_square() {
-        // x⁴+2x³+x² = x²(x+1)² → out=x(x+1)=x²+x=[0,1,1], in=1
+        // x^4+2x^3+x^2 = x^2(x+1)^2 -> out=x(x+1)=x^2+x=[0,1,1], in=1
         let poly = vec![
             Value::Int(0),
             Value::Int(0),
@@ -1464,7 +1464,7 @@ mod tests {
 
     #[test]
     fn test_extract_square_factors_perfect_square_quartic() {
-        // x⁴+2x²+1 = (x²+1)² → out=x²+1=[1,0,1], in=1
+        // x^4+2x^2+1 = (x^2+1)^2 -> out=x^2+1=[1,0,1], in=1
         let poly = vec![
             Value::Int(1),
             Value::Int(0),
@@ -1479,7 +1479,7 @@ mod tests {
 
     #[test]
     fn test_extract_square_factors_cubic_no_square() {
-        // x³+1 — no repeated factors → out=1, in=x³+1
+        // x^3+1 -- no repeated factors -> out=1, in=x^3+1
         let poly = vec![Value::Int(1), Value::Int(0), Value::Int(0), Value::Int(1)];
         let (out, inn) = super::extract_square_factors(&poly, "x").unwrap();
         assert_eq!(out, vec![Value::Int(1)]);
@@ -1488,10 +1488,10 @@ mod tests {
 
     #[test]
     fn test_extract_square_factors_cubic_triple_root() {
-        // x³+3x²+3x+1 = (x+1)³ → out=(x+1), in=(x+1)
+        // x^3+3x^2+3x+1 = (x+1)^3 -> out=(x+1), in=(x+1)
         let poly = vec![Value::Int(1), Value::Int(3), Value::Int(3), Value::Int(1)];
         let (out, inn) = super::extract_square_factors(&poly, "x").unwrap();
-        // square_free_factor: (x+1) with mult 3 → out_pow=1, in_pow=1
+        // square_free_factor: (x+1) with mult 3 -> out_pow=1, in_pow=1
         assert_eq!(out, vec![Value::Int(1), Value::Int(1)]); // x+1
         assert_eq!(inn, vec![Value::Int(1), Value::Int(1)]); // x+1
     }

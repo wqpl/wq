@@ -21,7 +21,7 @@ use crate::value::{Value, WqResult};
 /// (e.g., contains transcendental functions, non-polynomial subexpressions,
 /// etc.).
 fn extract_rational(expr: &Value, var: &str) -> WqResult<Option<(Vec<Value>, Vec<Value>)>> {
-    // Case: pure polynomial — no negative powers present
+    // Case: pure polynomial -- no negative powers present
     if !contains_var_negative_power(expr, var) {
         match poly_from_expr(expr, var) {
             Ok(num) => return Ok(Some((num, vec![Value::Int(1)]))),
@@ -169,7 +169,7 @@ fn extract_rational_product(
             continue;
         }
 
-        // Can't recognize — not a rational function
+        // Can't recognize -- not a rational function
         return Ok(None);
     }
 
@@ -196,7 +196,7 @@ fn is_polynomial_in_var(expr: &Value, var: &str) -> bool {
     if !expr.is_cas_expr() {
         return true;
     }
-    // Try to convert — if successful, it's a polynomial
+    // Try to convert -- if successful, it's a polynomial
     poly_from_expr(expr, var).is_ok()
 }
 
@@ -227,7 +227,7 @@ pub(crate) fn poly_pow(poly: &[Value], k: usize) -> WqResult<Vec<Value>> {
 /// algorithm.
 ///
 /// Returns a list of `(factor_poly, multiplicity)` where each `factor_poly` is
-/// square-free and pairwise coprime, and the original polynomial is ∏
+/// square-free and pairwise coprime, and the original polynomial is product
 /// factor_i^i.
 pub(super) fn square_free_factor(poly: &[Value], _var: &str) -> WqResult<Vec<(Vec<Value>, usize)>> {
     crate::cas::square_free_factor(poly)
@@ -253,7 +253,7 @@ pub(super) fn integrate_by_rational(expr: &Value, var: &str) -> WqResult<Option<
         denom = poly_neg(&denom);
     }
 
-    // Case: denominator is constant → integrate polynomial
+    // Case: denominator is constant -> integrate polynomial
     if poly_degree(&denom) == 0 && denom[0] != Value::Int(0) {
         let recip = eval_exact_numeric_div(&Value::Int(1), &denom[0])?;
         let scaled = poly_const_mul(&numer, &recip)?;
@@ -272,7 +272,7 @@ pub(super) fn integrate_by_rational(expr: &Value, var: &str) -> WqResult<Option<
         return Ok(Some(poly_result));
     }
 
-    // Try binomial formula x^n ± a before general proper rational integration
+    // Try binomial formula x^n +/- a before general proper rational integration
     if poly_is_zero(&quotient)
         && let Some(result) = try_integrate_binomial(&remainder, &denom, var)?
     {
@@ -374,7 +374,7 @@ fn try_integrate_binomial(numer: &[Value], denom: &[Value], var: &str) -> WqResu
     // For x^n + a: n * a * root^(n-1) ... wait, let me recompute.
     // Actually: 1/(x^n - a) has residue 1/(n*a^(1-1/n)) at real root a^(1/n)
     // For x^n + a with odd n: 1/(x^n + a) has residue 1/(n*a^(1-1/n)) at root
-    // -a^(1/n) Wait no: d/dx (x^n ± a) at x = root = n * root^(n-1)
+    // -a^(1/n) Wait no: d/dx (x^n +/- a) at x = root = n * root^(n-1)
     // For x^n - a at x=a^(1/n): derivative = n * a^(1-1/n)
     // For x^n + a at x=-a^(1/n): derivative = n * (-a^(1/n))^(n-1) = n * a^(1-1/n)
     // (since n-1 is even for odd n) So both have residue 1/(n * a^(1-1/n)) at
@@ -447,18 +447,18 @@ fn try_integrate_binomial(numer: &[Value], denom: &[Value], var: &str) -> WqResu
     Ok(Some(result))
 }
 
-/// Get cos(2πk/n) and sin(2πk/n) as CAS Value expressions for n=3,5.
+/// Get cos(2*pi*k/n) and sin(2*pi*k/n) as CAS Value expressions for n=3,5.
 fn get_trig_values(k: u32, n: u32) -> Option<(Value, Value)> {
     let result: WqResult<Option<(Value, Value)>> = (|| {
         match (n, k) {
-            // n=3: cos(120°) = -1/2, sin(120°) = √3/2
+            // n=3: cos(120 deg) = -1/2, sin(120 deg) = sqrt(3)/2
             (3, 1) => {
                 let neg_half = Value::from_fraction_parts((-1i64).into(), 2u64.into());
                 let sqrt3 = Value::from_cas_function(CasFunction::Sqrt, vec![Value::Int(3)]);
                 let sin_val = simplify_cas_value(&cas_div(sqrt3, Value::Int(2))?)?;
                 Ok(Some((neg_half, sin_val)))
             }
-            // n=5: cos(72°) = (√5-1)/4, sin(72°) = √(10+2√5)/4
+            // n=5: cos(72 deg) = (sqrt(5)-1)/4, sin(72 deg) = sqrt(10+2*sqrt(5))/4
             (5, 1) => {
                 let sqrt5 = Value::from_cas_function(CasFunction::Sqrt, vec![Value::Int(5)]);
                 let cos_val = simplify_cas_value(&cas_div(
@@ -472,11 +472,11 @@ fn get_trig_values(k: u32, n: u32) -> Option<(Value, Value)> {
                 )?)?;
                 Ok(Some((cos_val, sin_val)))
             }
-            // n=5: cos(144°) = -(√5+1)/4, sin(144°) = √(10-2√5)/4
+            // n=5: cos(144 deg) = -(sqrt(5)+1)/4, sin(144 deg) = sqrt(10-2*sqrt(5))/4
             (5, 2) => {
                 let sqrt5 = Value::from_cas_function(CasFunction::Sqrt, vec![Value::Int(5)]);
                 let numer = numeric_add(&numeric_mul(&sqrt5, &Value::Int(-1))?, &Value::Int(-1))?;
-                // numer = -√5 - 1
+                // numer = -sqrt(5) - 1
                 let cos_val = simplify_cas_value(&cas_div(numer, Value::Int(4))?)?;
                 let inner = cas_sub(Value::Int(10), cas_mul(vec![Value::Int(2), sqrt5])?)?;
                 let sin_val = simplify_cas_value(&cas_div(
@@ -567,8 +567,8 @@ fn integrate_proper_rational(
 /// Integrate a proper rational function N/D where D is square-free using the
 /// Rothstein-Trager method.
 ///
-/// Computes R(z) = resultant_x(D(x), N(x) - z·D'(x)), finds its rational
-/// and real algebraic roots α, and returns Σ α·ln(gcd(D, N - α·D')).
+/// Computes R(z) = resultant_x(D(x), N(x) - z*D'(x)), finds its rational
+/// and real algebraic roots alpha, and returns sum alpha*ln(gcd(D, N - alpha*D')).
 fn integrate_rothstein_trager(numer: &[Value], denom: &[Value], var: &str) -> WqResult<Value> {
     let deg_d = poly_degree(denom);
     if deg_d == 0 {
@@ -577,17 +577,17 @@ fn integrate_rothstein_trager(numer: &[Value], denom: &[Value], var: &str) -> Wq
 
     let d_deriv = poly_derivative(denom);
 
-    // Determine degree of N - z·D': max(deg(N), deg(D'))
+    // Determine degree of N - z*D': max(deg(N), deg(D'))
     let n_minus_z_d_deg = poly_degree(numer).max(poly_degree(&d_deriv));
 
-    // Evaluate resultant R(z) = resultant_x(D, N - z·D') at deg(D) + 1 points
+    // Evaluate resultant R(z) = resultant_x(D, N - z*D') at deg(D) + 1 points
     let num_points = deg_d + 1;
     let mut points: Vec<(Value, Value)> = Vec::with_capacity(num_points);
 
     for i in 0..num_points {
         let zi = Value::from_bigint(BigInt::from(i));
 
-        // Build N - zi·D' coefficient vector
+        // Build N - zi*D' coefficient vector
         let mut nz = vec![Value::Int(0); n_minus_z_d_deg + 1];
         for (j, c) in numer.iter().enumerate() {
             nz[j] = c.clone();
@@ -608,7 +608,7 @@ fn integrate_rothstein_trager(numer: &[Value], denom: &[Value], var: &str) -> Wq
     // Find all real roots of R(z): both rational and algebraic
     let (rational_roots, algebraic_roots) = find_real_roots_poly(&r_coeffs);
 
-    // For each root α, compute V_α = gcd(D, N - α·D')
+    // For each root alpha, compute V_alpha = gcd(D, N - alpha*D')
     let mut terms = Vec::new();
     let mut accumulated_gcd = vec![Value::Int(1)];
     let mut v_alpha_pairs: Vec<(Value, Vec<Value>)> = Vec::new();
@@ -617,7 +617,7 @@ fn integrate_rothstein_trager(numer: &[Value], denom: &[Value], var: &str) -> Wq
     all_roots.extend(algebraic_roots);
 
     for alpha in &all_roots {
-        // Build N - α·D'
+        // Build N - alpha*D'
         let mut n_alpha = vec![Value::Int(0); n_minus_z_d_deg + 1];
         for (j, c) in numer.iter().enumerate() {
             n_alpha[j] = c.clone();
@@ -634,7 +634,7 @@ fn integrate_rothstein_trager(numer: &[Value], denom: &[Value], var: &str) -> Wq
             // Multiply accumulated gcd by v_alpha
             accumulated_gcd = poly_mul(&accumulated_gcd, &v_alpha)?;
 
-            // Build logarithmic term: α · ln(V_α(x))
+            // Build logarithmic term: alpha * ln(V_alpha(x))
             let v_expr = poly_to_expr(&v_alpha, var)?;
             let ln_term = Value::from_cas_function(
                 CasFunction::Ln,
@@ -676,10 +676,10 @@ fn integrate_rothstein_trager(numer: &[Value], denom: &[Value], var: &str) -> Wq
 }
 
 /// Integrate a remaining monic quadratic factor with possibly algebraic
-/// coefficients: ∫ 1/(x² + px + q) dx = (2/r)·arctan((2x+p)/r) where
-/// r = √(4q-p²) when 4q-p² > 0 (complex conjugate roots → arctan).
+/// coefficients: int 1/(x^2 + px + q) dx = (2/r)*arctan((2x+p)/r) where
+/// r = sqrt(4q-p^2) when 4q-p^2 > 0 (complex conjugate roots -> arctan).
 /// Compute the numerator for the remaining denominator factor after extracting
-/// Rothstein-Trager log terms. Subtracts the derivative of Σ α·ln(V_α) from the
+/// Rothstein-Trager log terms. Subtracts the derivative of sum alpha*ln(V_alpha) from the
 /// original rational function N/D, then divides by accumulated_gcd.
 fn compute_remaining_numer(
     numer: &[Value],
@@ -687,7 +687,7 @@ fn compute_remaining_numer(
     accumulated_gcd: &[Value],
     v_alpha_pairs: &[(Value, Vec<Value>)],
 ) -> WqResult<Vec<Value>> {
-    // extracted_numer = Σ α · V_α' · (D / V_α)
+    // extracted_numer = sum alpha * V_alpha' * (D / V_alpha)
     let mut extracted = vec![Value::Int(0)];
     for (alpha, v) in v_alpha_pairs {
         let v_deriv = poly_derivative(v);
@@ -714,11 +714,11 @@ fn integrate_remaining_factor(
     if poly_degree(factor) != 2 {
         return Ok(None);
     }
-    // Monic quadratic: x² + p·x + q
+    // Monic quadratic: x^2 + p*x + q
     let p = factor.get(1).cloned().unwrap_or(Value::Int(0));
     let q = factor.first().cloned().unwrap_or(Value::Int(0));
 
-    // Numerator: A·x + B
+    // Numerator: A*x + B
     let a = numer.get(1).cloned().unwrap_or(Value::Int(0));
     let b = numer.first().cloned().unwrap_or(Value::Int(0));
 
@@ -726,7 +726,7 @@ fn integrate_remaining_factor(
 
     let mut result_terms: Vec<Value> = Vec::new();
 
-    // Log term: (A/2)·ln(x²+px+q)
+    // Log term: (A/2)*ln(x^2+px+q)
     let a_half = numeric_mul(&a, &half)?;
     if !numeric_is_zero(&a_half) {
         let quad_expr = poly_to_expr(factor, var)?;
@@ -737,11 +737,11 @@ fn integrate_remaining_factor(
         result_terms.push(cas_mul(vec![a_half, log_term])?);
     }
 
-    // Arctan term: (B - A·p/2)·∫ dx/(x²+px+q)
+    // Arctan term: (B - A*p/2)*int dx/(x^2+px+q)
     let ap_half = numeric_mul(&numeric_mul(&a, &p)?, &half)?;
     let c_prime = numeric_sub(&b, &ap_half)?;
     if !numeric_is_zero(&c_prime) {
-        // Discriminant: 4q - p²
+        // Discriminant: 4q - p^2
         let four_q = numeric_mul(&Value::Int(4), &q)?;
         let p_sq = numeric_mul(&p, &p)?;
         let disc = numeric_sub(&four_q, &p_sq)?;
@@ -799,7 +799,7 @@ fn bigint_gcd(a: &BigInt, b: &BigInt) -> BigInt {
     a
 }
 
-/// For an irreducible polynomial over Q of degree ≥ 2, find a real root as an
+/// For an irreducible polynomial over Q of degree >= 2, find a real root as an
 /// Algebraic number. Returns None if no real root can be isolated.
 fn find_real_algebraic_root(poly: &[Value]) -> Option<Value> {
     let deg = poly_degree(poly);
@@ -834,10 +834,10 @@ fn find_real_algebraic_root(poly: &[Value]) -> Option<Value> {
 
     let interval = isolate_root_interval(&poly_arc)?;
 
-    // Build generator α with proper basis: [0, 1, 0, ..., 0] with length = deg
+    // Build generator alpha with proper basis: [0, 1, 0, ..., 0] with length = deg
     let deg = poly_arc.len().saturating_sub(1);
     if deg == 1 {
-        // Degree 1 polynomial — the "algebraic" number is just a rational
+        // Degree 1 polynomial -- the "algebraic" number is just a rational
         // (-c0/c1). Return None since it's not truly algebraic.
         return None;
     }
@@ -846,7 +846,7 @@ fn find_real_algebraic_root(poly: &[Value]) -> Option<Value> {
         return None;
     };
     let alg = (*alg).clone();
-    // Normalize pure-power fields (e.g. Q(∛(1/108)) → Q(∛2))
+    // Normalize pure-power fields (e.g. Q(cbrt(1/108)) -> Q(cbrt(2)))
     if let Some(normalized) = crate::value::algebraic::normalize_algebraic_field(&alg) {
         return Some(Value::Algebraic(Arc::new(normalized)));
     }
@@ -926,8 +926,8 @@ fn isolate_root_interval(poly: &[BigInt]) -> Option<(f64, f64)> {
     None
 }
 
-/// Cauchy's bound: all real roots of a₀ + ... + aₙxⁿ lie in (-M, M)
-/// where M = 1 + max_{0≤k<n} |aₖ/aₙ|.
+/// Cauchy's bound: all real roots of a0 + ... + an*x^n lie in (-M, M)
+/// where M = 1 + max_{0<=k<n} |a_k/a_n|.
 fn cauchy_bound(poly: &[BigInt]) -> f64 {
     let n = poly.len().saturating_sub(1);
     if n == 0 {
@@ -964,7 +964,7 @@ fn bisect_and_refine(
         let mid = (lo + hi) * 0.5;
         let fmid = eval(mid)?;
         if fmid.abs() < 1e-15 {
-            // Exact hit — tiny epsilon interval
+            // Exact hit -- tiny epsilon interval
             let eps = mid.abs().max(1.0) * 1e-12 + 1e-10;
             return Some((mid - eps, mid + eps));
         }
@@ -1098,8 +1098,8 @@ fn find_real_roots_poly(poly: &[Value]) -> (Vec<Value>, Vec<Value>) {
         }
 
         // For any remaining irreducible factor, try to find a real algebraic root.
-        // After finding one, also check its negation — even polynomials (biquadratics
-        // with only even-degree terms) have roots at ±α, and the Rothstein-Trager
+        // After finding one, also check its negation -- even polynomials (biquadratics
+        // with only even-degree terms) have roots at +/-alpha, and the Rothstein-Trager
         // method needs all real roots of the resultant.
         if let Some(alg_root) = find_real_algebraic_root(&current) {
             if !algebraic.contains(&alg_root) {
@@ -1305,7 +1305,7 @@ fn solve_quartic_exact(coeffs: &[Value]) -> WqResult<Option<Vec<Vec<Value>>>> {
     let d_n = div(&d, &a)?;
     let e_n = div(&e, &a)?;
 
-    // 2. Depress: x = t - b_n/4  →  t⁴ + p·t² + q·t + r = 0
+    // 2. Depress: x = t - b_n/4  ->  t^4 + p*t^2 + q*t + r = 0
     let four = Value::Int(4);
     let b_over_4 = div(&b_n, &four)?;
     let shift = b_over_4; // t = x + shift
@@ -1314,17 +1314,17 @@ fn solve_quartic_exact(coeffs: &[Value]) -> WqResult<Option<Vec<Vec<Value>>>> {
     let eight = Value::Int(8);
     let two = Value::Int(2);
 
-    // b_n_sq = b_n²
+    // b_n_sq = b_n^2
     let b_n_sq = mul(&b_n, &b_n)?;
-    // p = c_n - 3·b_n²/8
+    // p = c_n - 3*b_n^2/8
     let p = sub(&c_n, &div(&mul(&three, &b_n_sq)?, &eight)?)?;
-    // q = d_n - b_n·c_n/2 + b_n³/8
+    // q = d_n - b_n*c_n/2 + b_n^3/8
     let b_n_cu = mul(&b_n_sq, &b_n)?;
     let q = add(
         &sub(&d_n, &div(&mul(&b_n, &c_n)?, &two)?)?,
         &div(&b_n_cu, &eight)?,
     )?;
-    // r = e_n - b_n·d_n/4 + b_n²·c_n/16 - 3·b_n⁴/256
+    // r = e_n - b_n*d_n/4 + b_n^2*c_n/16 - 3*b_n^4/256
     let b_n_qu = mul(&b_n_cu, &b_n)?;
     let sixteen = Value::Int(16);
     let r = {
@@ -1333,13 +1333,13 @@ fn solve_quartic_exact(coeffs: &[Value]) -> WqResult<Option<Vec<Vec<Value>>>> {
         sub(&t2, &div(&mul(&three, &b_n_qu)?, &Value::Int(256))?)?
     };
 
-    // 3. Build resolvent cubic: m³ - (p/2)·m² - r·m + (pr/2 - q²/8) = 0
+    // 3. Build resolvent cubic: m^3 - (p/2)*m^2 - r*m + (pr/2 - q^2/8) = 0
     let half = Value::from_fraction_parts(BigInt::one(), BigInt::from(2));
     let p_half = mul(&p, &half)?;
     let q_sq = mul(&q, &q)?;
     let q_sq_over_8 = div(&q_sq, &eight)?;
     let pr_half = mul(&mul(&p, &r)?, &half)?;
-    let cubic_const = sub(&pr_half, &q_sq_over_8)?; // pr/2 - q²/8
+    let cubic_const = sub(&pr_half, &q_sq_over_8)?; // pr/2 - q^2/8
     let cubic_neg_r = mul(&r, &Value::Int(-1))?;
     let cubic_neg_p_half = mul(&p_half, &Value::Int(-1))?;
 
@@ -1364,7 +1364,7 @@ fn solve_quartic_exact(coeffs: &[Value]) -> WqResult<Option<Vec<Vec<Value>>>> {
     }
     if numeric_is_zero(&s_sq) {
         // s_sq = 0 means 2m = p. This degenerate case requires q = 0 and
-        // m² >= r. Since find_good_resolvent_root now prefers s_sq > 0, this
+        // m^2 >= r. Since find_good_resolvent_root now prefers s_sq > 0, this
         // case should rarely be reached. Fall back to RT for simplicity.
         return Ok(None);
     }
@@ -1374,7 +1374,7 @@ fn solve_quartic_exact(coeffs: &[Value]) -> WqResult<Option<Vec<Vec<Value>>>> {
         None => return Ok(None),
     };
 
-    // 6. Build two quadratics in t: t² ± s·t + (m ∓ q/(2s))
+    // 6. Build two quadratics in t: t^2 +/- s*t + (m -/+ q/(2s))
     let two_s = mul(&two, &s)?;
     let q_over_2s = div(&q, &two_s)?;
 
@@ -1383,23 +1383,23 @@ fn solve_quartic_exact(coeffs: &[Value]) -> WqResult<Option<Vec<Vec<Value>>>> {
 
     let neg_s = mul(&s, &Value::Int(-1))?;
 
-    // quad1: t² + s·t + k1, coefficients: [k1, s, 1]
-    // quad2: t² - s·t + k2, coefficients: [k2, -s, 1]
+    // quad1: t^2 + s*t + k1, coefficients: [k1, s, 1]
+    // quad2: t^2 - s*t + k2, coefficients: [k2, -s, 1]
     let mut quad1_t = vec![k1, s.clone(), Value::Int(1)];
     let mut quad2_t = vec![k2, neg_s, Value::Int(1)];
     poly_trim(&mut quad1_t);
     poly_trim(&mut quad2_t);
 
     // 7. Undepress: substitute t = x + shift
-    // For t² + A·t + B → x² + (2·shift + A)·x + (shift² + A·shift + B)
+    // For t^2 + A*t + B -> x^2 + (2*shift + A)*x + (shift^2 + A*shift + B)
     let undepress = |quad: &[Value]| -> WqResult<Vec<Value>> {
         let a_t = quad.get(1).cloned().unwrap_or(Value::Int(0));
         let b_t = quad.first().cloned().unwrap_or(Value::Int(0));
         let two_shift = mul(&two, &shift)?;
-        let new_a = add(&two_shift, &a_t)?; // 2·shift + A
+        let new_a = add(&two_shift, &a_t)?; // 2*shift + A
         let shift_sq = mul(&shift, &shift)?;
         let a_shift = mul(&a_t, &shift)?;
-        let new_b = add(&add(&shift_sq, &a_shift)?, &b_t)?; // shift² + A·shift + B
+        let new_b = add(&add(&shift_sq, &a_shift)?, &b_t)?; // shift^2 + A*shift + B
         let mut result = vec![new_b, new_a, Value::Int(1)];
         poly_trim(&mut result);
         Ok(result)
@@ -1600,7 +1600,7 @@ fn integrate_linear_factor_all(
     mult: usize,
     var: &str,
 ) -> WqResult<Value> {
-    // factor = [c, 1]  →  x + c = 0  ⇒  r = -c
+    // factor = [c, 1]  ->  x + c = 0  =>  r = -c
     let r = numeric_mul(&factor[0], &Value::Int(-1))?;
 
     // Compute D_without = D / (x - r)^m as a polynomial
@@ -1686,7 +1686,7 @@ fn eval_rational_derivative(
 
     let (deriv_num, _) = rational_deriv_numer_denom(numer, denom, k);
 
-    // The k-th derivative has denominator D(x)^(2^k) — actually D(x)^(k+1) for
+    // The k-th derivative has denominator D(x)^(2^k) -- actually D(x)^(k+1) for
     // rational functions. More precisely: g^{(k)}(x) = P_k(x) / D(x)^{k+1}
     // where P_k is some polynomial.
     let denom_pow = poly_pow(denom, k + 1)?;
@@ -1730,7 +1730,7 @@ fn integrate_quadratic_factor_all(
     mult: usize,
     var: &str,
 ) -> WqResult<Value> {
-    // factor = [c, b, 1]  →  x^2 + bx + c
+    // factor = [c, b, 1]  ->  x^2 + bx + c
     let (b, c) = match factor.len() {
         3 => (factor[1].clone(), factor[0].clone()),
         _ => return Err(cas_err("expected quadratic factor [c, b, 1]")),
@@ -1744,7 +1744,7 @@ fn integrate_quadratic_factor_all(
     integrate_repeated_quadratic(numer, denom, factor, &b, &c, mult, var)
 }
 
-/// Integrate (A*x + B) / (x^2 + bx + c) — simple quadratic denominator.
+/// Integrate (A*x + B) / (x^2 + bx + c) -- simple quadratic denominator.
 fn integrate_simple_quadratic(
     numer: &[Value],
     denom: &[Value],
@@ -1753,14 +1753,14 @@ fn integrate_simple_quadratic(
     c: &Value,
     var: &str,
 ) -> WqResult<Value> {
-    // Find A, B such that N(x)/D_without ≡ (A*x + B) (mod x^2+bx+c)
+    // Find A, B such that N(x)/D_without == (A*x + B) (mod x^2+bx+c)
     let factor_pow = poly_pow(factor, 1)?;
     let (d_without, _) = poly_divide(denom, &factor_pow)?;
 
-    // We need numerator ≡ (A*x + B) * D_without (mod factor)
+    // We need numerator == (A*x + B) * D_without (mod factor)
     // A*x + B are the unknown coefficients of the partial fraction for this factor.
     //
-    // Solve N ≡ (A*x + B) * D_without (mod factor) where deg(N) < deg(D)
+    // Solve N == (A*x + B) * D_without (mod factor) where deg(N) < deg(D)
     // Since deg(factor) = 2, we can solve by polynomial remainder.
 
     // Compute N mod factor and D_without mod factor
@@ -1769,14 +1769,14 @@ fn integrate_simple_quadratic(
 
     // n_mod = a_n*x + b_n  (coefficient vector [b_n, a_n])
     // d_mod = a_d*x + b_d  (coefficient vector [b_d, a_d])
-    // Solve: (A*x + B) * (a_d*x + b_d) ≡ a_n*x + b_n  (mod x^2+bx+c)
+    // Solve: (A*x + B) * (a_d*x + b_d) == a_n*x + b_n  (mod x^2+bx+c)
 
     let (a, b_val) = solve_linear_coeffs_mod_quadratic(&n_mod, &d_mod, factor, b, c)?;
 
     integrate_quadratic_log_arctan_term(&a, &b_val, b, c, var)
 }
 
-/// Solve for (A, B) such that (A*x + B) * D_mod ≡ N_mod (mod x^2+bx+c).
+/// Solve for (A, B) such that (A*x + B) * D_mod == N_mod (mod x^2+bx+c).
 fn solve_linear_coeffs_mod_quadratic(
     n_mod: &[Value],
     d_mod: &[Value],
@@ -1791,10 +1791,10 @@ fn solve_linear_coeffs_mod_quadratic(
     let b_d = d_mod.first().cloned().unwrap_or(Value::Int(0));
 
     // (A*x + B) * (a_d*x + b_d) = A*a_d*x^2 + (A*b_d + B*a_d)*x + B*b_d
-    // Reduce mod x^2+bx+c: x^2 ≡ -b*x - c
+    // Reduce mod x^2+bx+c: x^2 == -b*x - c
     // = A*a_d*(-b*x - c) + (A*b_d + B*a_d)*x + B*b_d
     // = (-A*a_d*b + A*b_d + B*a_d)*x + (-A*a_d*c + B*b_d)
-    // ≡ a_n*x + b_n
+    // == a_n*x + b_n
 
     // So:
     // x coeff: A*(-a_d*b + b_d) + B*a_d = a_n
@@ -1853,7 +1853,7 @@ fn integrate_quadratic_log_arctan_term(
     let half = Value::from_fraction_parts(BigInt::one(), BigInt::from(2));
     let a_half = numeric_mul(a, &half)?;
 
-    // Part 1: (A/2) * ∫ (2x+b)/(x^2+bx+c) dx = (A/2) * ln|x^2+bx+c|
+    // Part 1: (A/2) * int (2x+b)/(x^2+bx+c) dx = (A/2) * ln|x^2+bx+c|
     let quad_str = poly_to_expr(&[c.clone(), bb.clone(), Value::Int(1)], var)?;
     let log_part = if !numeric_is_zero(&a_half) {
         let log_inside = simplify_cas_value(&quad_str)?;
@@ -1866,7 +1866,7 @@ fn integrate_quadratic_log_arctan_term(
         Value::Int(0)
     };
 
-    // Part 2: (B - A*b/2) * ∫ 1/(x^2+bx+c) dx
+    // Part 2: (B - A*b/2) * int 1/(x^2+bx+c) dx
     let b_prime = numeric_sub(b_val, &numeric_mul(a, &numeric_mul(bb, &half)?)?)?;
 
     if numeric_is_zero(&b_prime) {
@@ -1882,7 +1882,7 @@ fn integrate_quadratic_log_arctan_term(
     }
 }
 
-/// Integrate C / (x^2 + bx + c) — complete the square.
+/// Integrate C / (x^2 + bx + c) -- complete the square.
 /// If `value` is a constant Algebraic (all coeffs[1..] zero), unwrap it
 /// to the underlying constant value. Otherwise return the original value.
 fn unwrap_constant_algebraic(value: Value) -> Value {
@@ -2013,8 +2013,8 @@ fn sqrt_of_quadratic_constant(value: &Value) -> Option<Value> {
 /// Create a Value representing the positive square root of a positive rational.
 ///
 /// If the rational is a perfect square, returns an exact Int or Fraction.
-/// Otherwise, returns `Value::Algebraic` with minimal polynomial `x² - (n·d)`
-/// representing `√(n/d)` in the field `Q(√(n·d))`.
+/// Otherwise, returns `Value::Algebraic` with minimal polynomial `x^2 - (n*d)`
+/// representing `sqrt(n/d)` in the field `Q(sqrt(n*d))`.
 fn algebraic_sqrt_of_rational(value: &Value) -> Option<Value> {
     let (n, d) = rational_parts_value(value)?;
     if n.is_zero() || n < BigInt::zero() {
@@ -2035,7 +2035,7 @@ fn algebraic_sqrt_of_rational(value: &Value) -> Option<Value> {
         None
     };
     if let Some(s) = c_sqrt {
-        // √(n/d) = √c / d = s / d
+        // sqrt(n/d) = sqrt(c) / d = s / d
         if s.is_zero() {
             return Some(Value::Int(0));
         }
@@ -2048,7 +2048,7 @@ fn algebraic_sqrt_of_rational(value: &Value) -> Option<Value> {
         }
         return Some(Value::from_fraction_parts(s, d));
     }
-    // Not a perfect square — create Algebraic number for √(n/d) = √c / d
+    // Not a perfect square -- create Algebraic number for sqrt(n/d) = sqrt(c) / d
     let poly = vec![-c.clone(), BigInt::zero(), BigInt::one()];
     let poly_arc: Arc<[BigInt]> = Arc::from(poly.clone());
     let interval = isolate_root_interval(&poly_arc)?;
@@ -2134,7 +2134,7 @@ fn integrate_repeated_quadratic(
     var: &str,
 ) -> WqResult<Value> {
     // Hermite reduction: find P(x) with deg(P) < deg(factor) = 2 such that
-    //   ∫ N/F^m = P/F^(m-1) + ∫ Q/F^(m-1)
+    //   int N/F^m = P/F^(m-1) + int Q/F^(m-1)
     // where Q is a new numerator of degree < deg(F) * (m-1).
 
     let (rational_part_val, new_numer, reduced_pow) =
@@ -2164,7 +2164,7 @@ fn integrate_repeated_quadratic(
     }
 }
 
-/// Hermite reduction step: reduces ∫ N / (F^m * rest) to P / F^(m-1) + ∫ Q /
+/// Hermite reduction step: reduces int N / (F^m * rest) to P / F^(m-1) + int Q /
 /// (F^(m-1) * rest)
 ///
 /// Returns (rational_part_P_F^{m-1}, new_numer_Q, new_mult)
@@ -2296,13 +2296,13 @@ mod tests {
 
     #[test]
     fn test_poly_resultant_quadratic() {
-        // resultant(x²-3x+2, x-1) = 0 (common root x=1)
-        let a = vec![Value::Int(2), Value::Int(-3), Value::Int(1)]; // x²-3x+2
+        // resultant(x^2-3x+2, x-1) = 0 (common root x=1)
+        let a = vec![Value::Int(2), Value::Int(-3), Value::Int(1)]; // x^2-3x+2
         let b = vec![Value::Int(-1), Value::Int(1)]; // x-1
         let r = poly_resultant(&a, &b).unwrap();
         assert_eq!(r, Value::Int(0));
 
-        // resultant(x²-3x+2, x-3) = (3-1)(3-2) = 2
+        // resultant(x^2-3x+2, x-3) = (3-1)(3-2) = 2
         let b = vec![Value::Int(-3), Value::Int(1)]; // x-3
         let r = poly_resultant(&a, &b).unwrap();
         assert_eq!(r, Value::Int(2));
@@ -2310,7 +2310,7 @@ mod tests {
 
     #[test]
     fn test_poly_interpolate_linear() {
-        // P(0)=1, P(1)=3 → P(z)=2z+1 = [1, 2]
+        // P(0)=1, P(1)=3 -> P(z)=2z+1 = [1, 2]
         let points = vec![
             (Value::Int(0), Value::Int(1)),
             (Value::Int(1), Value::Int(3)),
@@ -2327,7 +2327,7 @@ mod tests {
 
     #[test]
     fn test_poly_interpolate_quadratic() {
-        // P(0)=1, P(1)=2, P(2)=5 → P(z)=z²+1
+        // P(0)=1, P(1)=2, P(2)=5 -> P(z)=z^2+1
         let points = vec![
             (Value::Int(0), Value::Int(1)),
             (Value::Int(1), Value::Int(2)),
@@ -2348,9 +2348,9 @@ mod tests {
 
     #[test]
     fn test_poly_resultant_cubic() {
-        // resultant(x²+1, x²-1) = (1²+1)((-1)²+1) = 2·2 = 4
-        let a = vec![Value::Int(1), Value::Int(0), Value::Int(1)]; // x²+1
-        let b = vec![Value::Int(-1), Value::Int(0), Value::Int(1)]; // x²-1
+        // resultant(x^2+1, x^2-1) = (1^2+1)((-1)^2+1) = 2*2 = 4
+        let a = vec![Value::Int(1), Value::Int(0), Value::Int(1)]; // x^2+1
+        let b = vec![Value::Int(-1), Value::Int(0), Value::Int(1)]; // x^2-1
         let r = poly_resultant(&a, &b).unwrap();
         assert_eq!(r, Value::Int(4));
     }
@@ -2366,7 +2366,7 @@ mod tests {
         );
         let (num, denom) = extract_rational(&expr, "x").unwrap().unwrap();
         assert_eq!(denom, vec![Value::Int(1)]);
-        // num should be [1, 0, 1] — 1 + x^2
+        // num should be [1, 0, 1] -- 1 + x^2
         assert_eq!(num.len(), 3);
         assert_eq!(num[0], Value::Int(1));
         assert_eq!(num[2], Value::Int(1));
@@ -2383,7 +2383,7 @@ mod tests {
         );
         let (num, denom) = extract_rational(&expr, "x").unwrap().unwrap();
         assert_eq!(num, vec![Value::Int(1)]);
-        // denom should be [1, 1] — 1 + x
+        // denom should be [1, 1] -- 1 + x
         assert_eq!(denom.len(), 2);
         assert_eq!(denom[0], Value::Int(1));
         assert_eq!(denom[1], Value::Int(1));
@@ -2426,7 +2426,7 @@ mod tests {
 
     #[test]
     fn test_square_free_square_free_input() {
-        // x^2 + x + 1 = [1, 1, 1] — irreducible over reals, square-free
+        // x^2 + x + 1 = [1, 1, 1] -- irreducible over reals, square-free
         let poly = vec![Value::Int(1), Value::Int(1), Value::Int(1)];
         let factors = square_free_factor(&poly, "x").unwrap();
         // Should be a single factor with multiplicity 1
@@ -2437,7 +2437,7 @@ mod tests {
 
     #[test]
     fn test_square_free_x2_plus_4() {
-        // x^2 + 4 = [4, 0, 1] — square-free
+        // x^2 + 4 = [4, 0, 1] -- square-free
         let poly = vec![Value::Int(4), Value::Int(0), Value::Int(1)];
         let factors = square_free_factor(&poly, "x").unwrap();
         assert_eq!(factors.len(), 1, "x^2+4 should be square-free");
@@ -2450,7 +2450,7 @@ mod tests {
 
     #[test]
     fn test_integrate_one_over_x2_plus_4() {
-        // ∫ 1/(x²+4) dx = arctan[x/2]/2
+        // int 1/(x^2+4) dx = arctan[x/2]/2
         let result = integrate_one_over_quadratic(
             &Value::Int(1), // c_val = b_prime
             &Value::Int(0), // b
@@ -2463,7 +2463,7 @@ mod tests {
 
     #[test]
     fn test_integrate_one_over_x2_minus_4() {
-        // ∫ 1/(x²-4) dx = ln[abs[(x-2)/(x+2)]]/4
+        // int 1/(x^2-4) dx = ln[abs[(x-2)/(x+2)]]/4
         let result = integrate_one_over_quadratic(
             &Value::Int(1),  // c_val = b_prime
             &Value::Int(0),  // b
@@ -2491,7 +2491,7 @@ mod tests {
 
     #[test]
     fn test_extract_and_integrate_x2_plus_4() {
-        // Full pipeline: extract_rational → integrate_by_rational for 1/(x²+4)
+        // Full pipeline: extract_rational -> integrate_by_rational for 1/(x^2+4)
         let expr = op(
             CasOp::Power,
             vec![
@@ -2511,8 +2511,8 @@ mod tests {
 
     #[test]
     fn test_hermite_reduces_repeated_quadratic_with_rest() {
-        // 1 / ((x²+1)² * (x+1)) should reduce to:
-        //   (x+1)/(4*(x²+1)) + ∫ (x+3)/(4*(x²+1)*(x+1)) dx
+        // 1 / ((x^2+1)^2 * (x+1)) should reduce to:
+        //   (x+1)/(4*(x^2+1)) + int (x+3)/(4*(x^2+1)*(x+1)) dx
         let factor = vec![Value::Int(1), Value::Int(0), Value::Int(1)];
         let rest = vec![Value::Int(1), Value::Int(1)];
         let denom = poly_mul(&poly_pow(&factor, 2).unwrap(), &rest).unwrap();
@@ -2579,11 +2579,11 @@ mod tests {
 
     #[test]
     fn test_find_real_algebraic_root_quadratic() {
-        // x² - 2 = 0 → root √2 ≈ 1.414
+        // x^2 - 2 = 0 -> root sqrt(2) approx 1.414
         let poly = vec![Value::Int(-2), Value::Int(0), Value::Int(1)];
         let root = find_real_algebraic_root(&poly).unwrap();
         if let Value::Algebraic(a) = &root {
-            // Interval should contain √2
+            // Interval should contain sqrt(2)
             let interval = a.interval();
             let ok = interval.0 < 1.42 && interval.1 > 1.41;
             assert!(
@@ -2591,7 +2591,7 @@ mod tests {
                 "interval ({}, {}) does not contain sqrt(2)",
                 interval.0, interval.1
             );
-            // Generator α: coeffs [0, 1]
+            // Generator alpha: coeffs [0, 1]
             assert_eq!(a.coeffs[0], Value::Int(0));
             assert_eq!(a.coeffs[1], Value::Int(1));
         } else {
@@ -2601,7 +2601,7 @@ mod tests {
 
     #[test]
     fn test_find_real_algebraic_root_cubic() {
-        // x³ - 2 = 0 → root ∛2 ≈ 1.26
+        // x^3 - 2 = 0 -> root cbrt(2) approx 1.26
         let poly = vec![Value::Int(-2), Value::Int(0), Value::Int(0), Value::Int(1)];
         let root = find_real_algebraic_root(&poly);
         assert!(root.is_some());
@@ -2612,7 +2612,7 @@ mod tests {
 
     #[test]
     fn test_find_real_roots_rational_only() {
-        // (z-1)(z-2)(z-3) = z³ - 6z² + 11z - 6
+        // (z-1)(z-2)(z-3) = z^3 - 6z^2 + 11z - 6
         let poly = vec![
             Value::Int(-6),
             Value::Int(11),
@@ -2626,15 +2626,15 @@ mod tests {
 
     #[test]
     fn test_find_real_roots_mixed() {
-        // (z-1)(z²-2) = z³ - z² - 2z + 2 = 0
-        // Roots: 1, √2, -√2
+        // (z-1)(z^2-2) = z^3 - z^2 - 2z + 2 = 0
+        // Roots: 1, sqrt(2), -sqrt(2)
         let poly = vec![Value::Int(2), Value::Int(-2), Value::Int(-1), Value::Int(1)];
         let (rational, algebraic) = find_real_roots_poly(&poly);
         assert_eq!(rational, vec![Value::Int(1)]);
         assert_eq!(
             algebraic.len(),
             2,
-            "expected ±sqrt(2), got rational={:?} algebraic={:?}",
+            "expected +/-sqrt(2), got rational={:?} algebraic={:?}",
             rational,
             algebraic
         );
@@ -2648,7 +2648,7 @@ mod tests {
 
     #[test]
     fn test_rt_algebraic_cubic_denom() {
-        // ∫ 1/(x³-2) dx via RT with algebraic roots
+        // int 1/(x^3-2) dx via RT with algebraic roots
         let numer = vec![Value::Int(1)];
         let denom = vec![Value::Int(-2), Value::Int(0), Value::Int(0), Value::Int(1)];
         let result = integrate_rothstein_trager(&numer, &denom, "x");
@@ -2693,7 +2693,7 @@ mod tests {
         match &result {
             Value::Algebraic(a) => {
                 assert_eq!(a.coeffs[0], Value::Int(0));
-                // √(1/2) = √2/2, so coeffs = [0, 1/2]
+                // sqrt(1/2) = sqrt(2)/2, so coeffs = [0, 1/2]
                 match &a.coeffs[1] {
                     Value::Fraction(f) => {
                         assert_eq!(*f.numer(), BigInt::one());
@@ -2738,7 +2738,7 @@ mod tests {
 
     #[test]
     fn test_solve_cubic_by_rational_root_fully_reducible() {
-        // (z-1)(z-2)(z-3) = z³ - 6z² + 11z - 6
+        // (z-1)(z-2)(z-3) = z^3 - 6z^2 + 11z - 6
         let poly = vec![
             Value::Int(-6),
             Value::Int(11),
@@ -2757,7 +2757,7 @@ mod tests {
 
     #[test]
     fn test_solve_cubic_by_rational_root_irreducible() {
-        // x³ - 2 (irreducible over Q)
+        // x^3 - 2 (irreducible over Q)
         let poly = vec![Value::Int(-2), Value::Int(0), Value::Int(0), Value::Int(1)];
         assert!(solve_cubic_by_rational_root(&poly).unwrap().is_none());
     }

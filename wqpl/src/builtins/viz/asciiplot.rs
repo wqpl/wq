@@ -141,10 +141,7 @@ impl SeriesAttrs {
     }
 
     fn has_config_option(&self) -> bool {
-        self.xlim.is_some()
-            || self.symbol.is_some()
-            || self.mode.is_some()
-            || self.label.is_some()
+        self.xlim.is_some() || self.symbol.is_some() || self.mode.is_some() || self.label.is_some()
     }
 
     fn into_config(self, data: SeriesData) -> SeriesConfig {
@@ -160,7 +157,9 @@ impl SeriesAttrs {
 
 fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfig>> {
     if let Some(series) = parse_raw_series_data(arg) {
-        return Ok(vec![SeriesAttrs::default().into_config(SeriesData::Raw(series))]);
+        return Ok(vec![
+            SeriesAttrs::default().into_config(SeriesData::Raw(series)),
+        ]);
     }
 
     match arg {
@@ -227,18 +226,24 @@ fn parse_series_config_dict(
         )?));
     }
 
-    let data_value = map
-        .get("points")
-        .or_else(|| map.get("values"));
+    let data_value = map.get("points").or_else(|| map.get("values"));
     if let Some(value) = data_value {
-        return Ok(Some(vec![attrs.into_config(parse_raw_series_config_data(value)?)]));
+        return Ok(Some(vec![
+            attrs.into_config(parse_raw_series_config_data(value)?),
+        ]));
     }
 
-    if let Some(value) = map.get("fn").or_else(|| map.get("cas")).or_else(|| map.get("expr")) {
-        return Ok(Some(vec![attrs.into_config(parse_callable_or_cas_series_config_data(
-            value,
-            "series config `fn`, `cas`, or `expr` must be callable or CAS",
-        )?)]));
+    if let Some(value) = map
+        .get("fn")
+        .or_else(|| map.get("cas"))
+        .or_else(|| map.get("expr"))
+    {
+        return Ok(Some(vec![attrs.into_config(
+            parse_callable_or_cas_series_config_data(
+                value,
+                "series config `fn`, `cas`, or `expr` must be callable or CAS",
+            )?,
+        )]));
     }
 
     if attrs.has_config_option()
@@ -277,9 +282,9 @@ fn parse_series_config_data(
         apply_series_attrs(&mut configs, attrs);
         return Ok(configs);
     }
-    Ok(vec![attrs
-        .clone()
-        .into_config(parse_callable_or_cas_series_config_data(value, error_msg)?)])
+    Ok(vec![attrs.clone().into_config(
+        parse_callable_or_cas_series_config_data(value, error_msg)?,
+    )])
 }
 
 fn apply_series_attrs(configs: &mut [SeriesConfig], attrs: &SeriesAttrs) {
@@ -304,7 +309,10 @@ fn apply_series_attrs(configs: &mut [SeriesConfig], attrs: &SeriesAttrs) {
     }
 }
 
-fn parse_callable_or_cas_series_config_data(value: &Value, error_msg: &str) -> WqResult<SeriesData> {
+fn parse_callable_or_cas_series_config_data(
+    value: &Value,
+    error_msg: &str,
+) -> WqResult<SeriesData> {
     if value.is_callable() {
         return Ok(SeriesData::Callable(value.clone()));
     }
@@ -318,9 +326,9 @@ fn parse_callable_or_cas_series_config_data(value: &Value, error_msg: &str) -> W
 
 fn parse_raw_series_config_data(value: &Value) -> WqResult<SeriesData> {
     let Some(series) = parse_raw_series_data(value) else {
-        return Err(WqError::new(WqErrorType::Domain)
-            .src(BE::Asciiplot)
-            .msg("series config point data must be a numeric y-list or explicit ((x;y);...) points"));
+        return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg(
+            "series config point data must be a numeric y-list or explicit ((x;y);...) points",
+        ));
     };
     Ok(SeriesData::Raw(series))
 }
@@ -334,7 +342,10 @@ fn parse_raw_series_data(value: &Value) -> Option<SampledSeries<f64>> {
                 .collect(),
         )),
         Value::FloatList(arr) if !arr.is_empty() => Some(SampledSeries::from_points(
-            arr.iter().enumerate().map(|(i, &y)| (i as f64, y.0)).collect(),
+            arr.iter()
+                .enumerate()
+                .map(|(i, &y)| (i as f64, y.0))
+                .collect(),
         )),
         Value::List(items)
             if items.iter().all(|it| {
@@ -1657,11 +1668,11 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
         out.push_str(xlabel);
         out.push('\n');
     }
-    // Legend (optional) — shown when global or per-series labels are provided
-    let legend_len = opts
-        .labels
-        .as_ref()
-        .map_or(series_list.len(), |labels| labels.len().max(series_list.len()));
+    // Legend (optional)
+    // shown when global or per-series labels are provided
+    let legend_len = opts.labels.as_ref().map_or(series_list.len(), |labels| {
+        labels.len().max(series_list.len())
+    });
     let mut leg_parts = Vec::new();
     for i in 0..legend_len {
         let label = series_list
@@ -2300,10 +2311,7 @@ mod tests {
     #[test]
     fn series_config_accepts_raw_data_with_per_series_mode() {
         let value = Value::Dict(Arc::new(IndexMap::from([
-            (
-                "data".into(),
-                Value::IntList(Arc::new(vec![1, 3, 2])),
-            ),
+            ("data".into(), Value::IntList(Arc::new(vec![1, 3, 2]))),
             ("mode".into(), string_value("bar")),
             ("label".into(), string_value("counts")),
         ])));
@@ -2407,7 +2415,11 @@ mod tests {
         let configs = parse_series_arg(&value, &opts).expect("table data config should parse");
 
         assert_eq!(configs.len(), 2);
-        assert!(configs.iter().all(|config| matches!(config.mode, Some(PlotMode::Scatter))));
+        assert!(
+            configs
+                .iter()
+                .all(|config| matches!(config.mode, Some(PlotMode::Scatter)))
+        );
         assert!(configs.iter().all(|config| config.symbol == Some('x')));
         assert_eq!(configs[0].label.as_deref(), Some("sin"));
         assert_eq!(configs[1].label.as_deref(), Some("cos"));
@@ -2717,7 +2729,13 @@ mod tests {
 
         assert_eq!(
             series.points,
-            vec![(-1.0, 0.0), (-0.5, 0.0), (0.0, 10.0), (0.5, 10.0), (1.0, 10.0)]
+            vec![
+                (-1.0, 0.0),
+                (-0.5, 0.0),
+                (0.0, 10.0),
+                (0.5, 10.0),
+                (1.0, 10.0)
+            ]
         );
         assert_eq!(series.breaks_after, vec![1]);
     }
@@ -2777,10 +2795,6 @@ mod tests {
         assert!(x_labels.contains('1'));
         assert!(x_labels.contains('2'));
         assert!(x_labels.contains('3'));
-        assert!(
-            lines
-                .iter()
-                .any(|line| line.trim_start().starts_with("2 "))
-        );
+        assert!(lines.iter().any(|line| line.trim_start().starts_with("2 ")));
     }
 }

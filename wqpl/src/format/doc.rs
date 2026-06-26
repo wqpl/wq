@@ -2,7 +2,7 @@
 //!
 //! The formatter lowers a CST into a tree of [`Doc`] values, then a renderer
 //! turns that tree into a string subject to a target line width. The IR is
-//! deliberately small — every constructor maps onto a tiny piece of layout
+//! deliberately small -- every constructor maps onto a tiny piece of layout
 //! semantics so the lowering passes stay declarative.
 //!
 //! ## Semantics in one paragraph
@@ -197,7 +197,7 @@ impl Doc {
     /// flatten. A group that contains a forced break can never be rendered
     /// on a single line; entering flat mode would produce a layout where
     /// surrounding [`Doc::Line`] / [`Doc::LineSoft`] separators collapse
-    /// but the embedded `LineHard` still emits a newline — the worst of
+    /// but the embedded `LineHard` still emits a newline -- the worst of
     /// both worlds.
     ///
     /// O(N) in the size of the subtree; called once per `Group` decision.

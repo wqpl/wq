@@ -1311,11 +1311,7 @@ impl Parser {
                         name_span: var_span,
                     };
                 }
-                AstNode::Index {
-                    object,
-                    index,
-                    ..
-                } => {
+                AstNode::Index { object, index, .. } => {
                     let colon_tok = token.clone();
                     self.advance();
                     self.ensure_rhs(&colon_tok, "assignment operator")?;
@@ -1394,14 +1390,14 @@ impl Parser {
 
     fn parse_pipe(&mut self) -> WqResult<AstNode> {
         use crate::astnode::PipeKind;
-        // The Pipe AST span now covers the whole expression `LHS | RHS` —
+        // The Pipe AST span now covers the whole expression `LHS | RHS` --
         // matching the CST `PipeExpr`. Previously it covered only the
         // operator and RHS; the change makes spans usable for highlighting
         // and diagnostics without a second computation step, and makes the
         // CST/AST consistent.
         //
         // Lookahead trick: with CST building on, every `advance()` is a
-        // permanent flush — we can't rewind. So we peek through trivia
+        // permanent flush -- we can't rewind. So we peek through trivia
         // *without* advancing to decide whether a pipe follows; only when
         // the answer is yes do we actually consume the trivia and the
         // operator.
@@ -1502,7 +1498,7 @@ impl Parser {
                 return self.parse_bool_or();
             }
 
-            // Leading comma list: ,a,b,c — produces a `List` AST. The CST
+            // Leading comma list: ,a,b,c -- produces a `List` AST. The CST
             // wraps it in a `ListExpr` covering everything since `cp`
             // (which captures the leading `,`).
             while let Some(t) = self.current_token() {
@@ -2208,11 +2204,7 @@ impl Parser {
                     name_span: var_span,
                 })
             }
-            AstNode::Index {
-                object,
-                index,
-                ..
-            } => {
+            AstNode::Index { object, index, .. } => {
                 self.advance();
                 let span = self.cst_close_with_span(pending, SyntaxKind::IndexAssignExpr);
                 Ok(AstNode::IndexAssign {
@@ -2440,7 +2432,7 @@ impl Parser {
             AstNode::Ellipsis(_) => SyntaxKind::EllipsisExpr,
             AstNode::Error(..) => SyntaxKind::ErrorNode,
             // The following variants never come out of `parse_primary_inner`
-            // — they are produced by higher-precedence parse layers that
+            // -- they are produced by higher-precedence parse layers that
             // wrap themselves. If one of them shows up here it means a parse
             // function was refactored to bypass the precedence ladder; the
             // green tree stays correct (just unwrapped at this level), and
@@ -2928,7 +2920,9 @@ impl Parser {
                     span.1 += offset;
                 }
             }
-            AstNode::Literal(_, span) | AstNode::Variable(_, span) | AstNode::OuterVariable(_, span) => {
+            AstNode::Literal(_, span)
+            | AstNode::Variable(_, span)
+            | AstNode::OuterVariable(_, span) => {
                 if let Some(span) = span {
                     span.0 += offset;
                     span.1 += offset;
@@ -3117,7 +3111,9 @@ impl Parser {
                 }
             }
 
-            AstNode::BinaryOp { left, right, span, .. } => {
+            AstNode::BinaryOp {
+                left, right, span, ..
+            } => {
                 if let Some(span) = span {
                     span.0 += offset;
                     span.1 += offset;
@@ -3245,7 +3241,9 @@ impl Parser {
                 }
                 Self::offset_spans(expr, offset);
             }
-            AstNode::Cat(items, span) | AstNode::List(items, span) | AstNode::Block(items, span) => {
+            AstNode::Cat(items, span)
+            | AstNode::List(items, span)
+            | AstNode::Block(items, span) => {
                 if let Some(span) = span {
                     span.0 += offset;
                     span.1 += offset;
@@ -3604,6 +3602,12 @@ impl Parser {
         };
 
         match node {
+            Literal(Value::Float(f), _) if f.is_infinite() && f.is_sign_positive() => {
+                Ok(Value::from_cas_const(CasConst::Infinity))
+            }
+            Literal(Value::Float(f), _) if f.is_infinite() && f.is_sign_negative() => {
+                Ok(Value::from_cas_const(CasConst::NegInfinity))
+            }
             Literal(value, _) => Ok(value),
             Variable(name, _) => {
                 if let Some(konst) = CasConst::from_name(&name) {
@@ -3957,7 +3961,7 @@ impl Parser {
             self.eat_trivia(true, true);
             let condition = self.parse_expression()?;
             if self.is_token(&TokenType::RightBracket) {
-                // Single-branch $[cond] — same as $.[cond]
+                // Single-branch $[cond] -- same as $.[cond]
                 self.consume(TokenType::RightBracket)?;
                 let header_end_byte = self.last_consumed_byte_end();
                 self.record_stmt_span_idx(header_start_idx, self.current.saturating_sub(1));
@@ -3975,7 +3979,7 @@ impl Parser {
                 TokenType::RightBracket,
             ])?;
             if self.is_token(&TokenType::RightBracket) {
-                // Single-branch $[cond;true] — same as $.[cond;true]
+                // Single-branch $[cond;true] -- same as $.[cond;true]
                 self.consume(TokenType::RightBracket)?;
                 let header_end_byte = self.last_consumed_byte_end();
                 self.record_stmt_span_idx(header_start_idx, self.current.saturating_sub(1));
@@ -5366,7 +5370,7 @@ mod cst_integration_tests {
 
     /// Helper for [`ast_spans_correspond_to_cst_ranges`]. Returns
     /// references to every direct child AST node of `node` that itself can
-    /// carry a span. Kept minimal — we don't recurse here, the caller does.
+    /// carry a span. Kept minimal -- we don't recurse here, the caller does.
     fn collect_children(node: &AstNode) -> Vec<&AstNode> {
         let mut out = Vec::new();
         match node {

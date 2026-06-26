@@ -15,14 +15,14 @@ use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 /// Maximum number of nested by-parts calls in a single chain before
-/// we bail out to avoid infinite ping-pong (e.g. `∫ e^x·sin x dx` without
+/// we bail out to avoid infinite ping-pong (e.g. `int e^x*sin x dx` without
 /// the dedicated formula).
 const MAX_BYPARTS_CHAIN: usize = 12;
 
 thread_local! {
     static BYPARTS_ACTIVE: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-    /// Global nesting counter — prevents infinite chains where each step
-    /// changes the expression (e.g. 1/(x-a)^n → 1/(x-a)^(n+1)) but the
+    /// Global nesting counter -- prevents infinite chains where each step
+    /// changes the expression (e.g. 1/(x-a)^n -> 1/(x-a)^(n+1)) but the
     /// per-key cycle guard never triggers because the key changes.
     static BYPARTS_NESTING: Cell<usize> = const { Cell::new(0) };
 }
@@ -119,7 +119,7 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
         expr.format_cas().unwrap_or_else(|| expr.to_string())
     );
 
-    // 1. Try direct formula for exp·sin / exp·cos  ──────────────────────────
+    // 1. Try direct formula for exp*sin / exp*cos
     if let Some(result) = try_exp_trig_product(expr, var)? {
         cas_trace!(
             DebugLogFlags::CAS,
@@ -129,7 +129,7 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
         return Ok(Some(result));
     }
 
-    // 2. Try tabular integration (polynomial × cyclic function) ─────────────
+    // 2. Try tabular integration (polynomial * cyclic function)
     if let Some(result) = try_tabular(expr, var)? {
         cas_trace!(
             DebugLogFlags::CAS,
@@ -156,7 +156,7 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
         return Ok(None);
     }
 
-    // 3. Cycle guard for ordinary by-parts ──────────────────────────────────
+    // 3. Cycle guard for ordinary by-parts
     let key = format!("{}|{}", canonical_key(expr), var);
     let _guard = match enter_byparts(key) {
         Some(g) => g,
@@ -245,9 +245,9 @@ pub(super) fn try_extract_exp_arg(factor: &Value) -> Option<Value> {
     None
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Direct formula: ∫ e^{ax+b} · sin(cx+d) dx  and  ∫ e^{ax+b} · cos(cx+d) dx
-// ───────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Direct formula: int e^{ax+b} * sin(cx+d) dx  and  int e^{ax+b} * cos(cx+d) dx
+// ---------------------------------------------------------------------------
 fn try_exp_trig_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
         return Ok(None);
@@ -299,7 +299,7 @@ fn try_exp_trig_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let trig_expr = Value::from_cas_function(trig_name, vec![trig_arg_val.clone()]);
 
     let numerator = if trig_name == CasFunction::Sin {
-        // a·sin(cx+d) − c·cos(cx+d)
+        // a*sin(cx+d) - c*cos(cx+d)
         let a_sin = cas_mul(vec![exp_a.clone(), trig_expr])?;
         let c_cos = cas_mul(vec![
             trig_a.clone(),
@@ -307,7 +307,7 @@ fn try_exp_trig_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
         ])?;
         cas_sub(a_sin, c_cos)?
     } else {
-        // a·cos(cx+d) + c·sin(cx+d)
+        // a*cos(cx+d) + c*sin(cx+d)
         let a_cos = cas_mul(vec![exp_a.clone(), trig_expr])?;
         let c_sin = cas_mul(vec![
             trig_a.clone(),
@@ -323,9 +323,9 @@ fn try_exp_trig_product(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     simplify_cas_value(&result).map(Some)
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Tabular integration: polynomial × cyclic function
-// ───────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Tabular integration: polynomial * cyclic function
+// ---------------------------------------------------------------------------
 fn try_tabular(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
         return Ok(None);
@@ -372,7 +372,7 @@ fn try_tabular(expr: &Value, var: &str) -> WqResult<Option<Value>> {
         derivatives.push(d);
     }
 
-    // Sum with alternating signs: Σ (-1)^i · P^(i) · ∫^(i+1) g
+    // Sum with alternating signs: sum (-1)^i * P^(i) * int^(i+1) g
     let mut terms = Vec::with_capacity(derivatives.len());
     for (i, deriv_coeffs) in derivatives.iter().enumerate() {
         let sign = if i % 2 == 0 {
@@ -405,7 +405,7 @@ fn is_tabular_cyclic(name: CasFunction) -> bool {
 }
 
 /// Compute the j-th repeated integral of a cyclic function whose argument
-/// is `k·var + b`.
+/// is `k*var + b`.
 ///
 /// For `exp`:  always `exp(arg) / k^j`.
 /// For `sin`/`cos`: cycle with period 4.
@@ -416,17 +416,17 @@ fn compute_cyclic_integral(name: CasFunction, arg: &Value, j: usize, k: &Value) 
     let (fn_name, sign) = match name {
         CasFunction::Exp => (CasFunction::Exp, Value::Int(1)),
         CasFunction::Sin => match j % 4 {
-            1 => (CasFunction::Cos, Value::Int(-1)), //  ∫sin   = -cos
-            2 => (CasFunction::Sin, Value::Int(-1)), //  ∫∫sin  = -sin
-            3 => (CasFunction::Cos, Value::Int(1)),  //  ∫∫∫sin =  cos
-            0 => (CasFunction::Sin, Value::Int(1)),  //  ∫^4 sin = sin
+            1 => (CasFunction::Cos, Value::Int(-1)), //  int sin = -cos
+            2 => (CasFunction::Sin, Value::Int(-1)), //  int^2 sin = -sin
+            3 => (CasFunction::Cos, Value::Int(1)),  //  int^3 sin = cos
+            0 => (CasFunction::Sin, Value::Int(1)),  //  int^4 sin = sin
             _ => unreachable!(),
         },
         CasFunction::Cos => match j % 4 {
-            1 => (CasFunction::Sin, Value::Int(1)),  //  ∫cos   =  sin
-            2 => (CasFunction::Cos, Value::Int(-1)), //  ∫∫cos  = -cos
-            3 => (CasFunction::Sin, Value::Int(-1)), //  ∫∫∫cos = -sin
-            0 => (CasFunction::Cos, Value::Int(1)),  //  ∫^4 cos = cos
+            1 => (CasFunction::Sin, Value::Int(1)),  //  int cos = sin
+            2 => (CasFunction::Cos, Value::Int(-1)), //  int^2 cos = -cos
+            3 => (CasFunction::Sin, Value::Int(-1)), //  int^3 cos = -sin
+            0 => (CasFunction::Cos, Value::Int(1)),  //  int^4 cos = cos
             _ => unreachable!(),
         },
         CasFunction::Sinh => match j % 2 {
@@ -447,9 +447,9 @@ fn compute_cyclic_integral(name: CasFunction, arg: &Value, j: usize, k: &Value) 
     cas_mul(vec![sign, div])
 }
 
-// ───────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 // Ordinary LIATE by-parts
-// ───────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 fn liate_rank(expr: &Value) -> i32 {
     if let Some((name, _)) = expr.cas_function_parts() {
         match name {

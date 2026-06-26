@@ -3,8 +3,8 @@
 //! The CST is the foundation for three things this codebase needs and the
 //! existing AST cannot give us:
 //!
-//! 1. **Span cleanness.** Every byte of source — including every space, every
-//!    comment, and every separator token — has exactly one home in the tree.
+//! 1. **Span cleanness.** Every byte of source -- including every space, every
+//!    comment, and every separator token -- has exactly one home in the tree.
 //!    Spans are no longer parser bookkeeping that can drift out of sync; they
 //!    are the byte length of a green node, computed once, propagated by
 //!    construction.

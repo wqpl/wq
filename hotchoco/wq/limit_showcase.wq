@@ -16,17 +16,17 @@ echo limit[@s (1-cos[x])/x; @s x; 0]
 echo limit[@s (exp[x]-1)/x; @s x; 0]
 
 // Limits at infinity
-echo limit[@s 1/x; @s x; @s oo]
-echo limit[@s (x+1)/(x-1); @s x; @s oo]
-echo limit[@s (x+1)/(x^2-1); @s x; @s oo]
-echo limit[@s exp[x]; @s x; @s oo]
-echo limit[@s exp[-x]; @s x; @s oo]
-echo limit[@s exp[x]; @s x; @s _oo]
-echo limit[@s (1+1/x)^x; @s x; @s oo]
-echo limit[@s x*exp[-x]; @s x; @s oo]
+echo limit[@s 1/x; @s x; @s inf]
+echo limit[@s (x+1)/(x-1); @s x; @s inf]
+echo limit[@s (x+1)/(x^2-1); @s x; @s inf]
+echo limit[@s exp[x]; @s x; @s inf]
+echo limit[@s exp[-x]; @s x; @s inf]
+echo limit[@s exp[x]; @s x; @s -inf]
+echo limit[@s (1+1/x)^x; @s x; @s inf]
+echo limit[@s x*exp[-x]; @s x; @s inf]
 
-// L'Hôpital's rule (∞/∞)
-echo limit[@s x/exp[x]; @s x; @s oo]
+// L'Hopital's rule (inf/inf)
+echo limit[@s x/exp[x]; @s x; @s inf]
 
 // Series expansion
 echo limit[@s (tan[x]-x)/x^3; @s x; 0]
@@ -54,7 +54,7 @@ echo integrate[@s exp[x]; @s x; 0; 1]
 echo integrate[@s 1/sqrt[x]; @s x; 0; 1]
 
 // Improper integrals
-echo integrate[@s exp[-x]; @s x; 0; @s oo]
-echo integrate[@s 1/x^2; @s x; 1; @s oo]
-echo integrate[@s 1/x; @s x; 1; @s oo]
+echo integrate[@s exp[-x]; @s x; 0; @s inf]
+echo integrate[@s 1/x^2; @s x; 1; @s inf]
+echo integrate[@s 1/x; @s x; 1; @s inf]
 echo integrate[@s 1/x; @s x; 0; 1]

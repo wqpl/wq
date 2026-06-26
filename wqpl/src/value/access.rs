@@ -239,7 +239,12 @@ impl Value {
         materialize_int_range(self);
         if let Some(len) = packed_list_len(self) {
             if let Some(idx) = resolve_single_idx(key, len) {
-                return assign_packed_list_indices(self, vec![idx], PackedAssignMode::Single, value);
+                return assign_packed_list_indices(
+                    self,
+                    vec![idx],
+                    PackedAssignMode::Single,
+                    value,
+                );
             }
             let idxs = resolve_many_idx(key, len)?;
             return assign_packed_list_indices(self, idxs, PackedAssignMode::Bulk, value);
@@ -393,7 +398,10 @@ fn normalize_many(idxs: impl IntoIterator<Item = i64>, len: usize) -> Option<Vec
 }
 
 fn normalize_list_indices(idxs: &[Value], len: usize) -> Option<Vec<usize>> {
-    let raw = idxs.iter().map(int_arg_to_i64).collect::<Option<Vec<_>>>()?;
+    let raw = idxs
+        .iter()
+        .map(int_arg_to_i64)
+        .collect::<Option<Vec<_>>>()?;
     normalize_many(raw, len)
 }
 
@@ -1069,7 +1077,6 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
         return Ok(Value::unit());
     }
 
-    // Direct String handling — avoid List<Char> round-trip allocation.
     if let Value::String(s) = data {
         let chars: Vec<char> = s.chars().collect();
         if n >= chars.len() {
@@ -1163,7 +1170,6 @@ pub(crate) fn pop_in_place(data: &mut Value, n: usize) -> WqResult<Value> {
 
 pub(crate) fn remove_in_place(data: &mut Value, idx: &Value) -> WqResult<Value> {
     materialize_int_range(data);
-    // Direct String handling — avoid List<Char> round-trip allocation.
     if let Value::String(s) = data {
         let chars: Vec<char> = s.chars().collect();
         let (positions, is_multi) = parse_remove_positions(idx, chars.len())?;
@@ -1314,7 +1320,10 @@ fn exact_int_insert_items(xs: &Value) -> Option<Vec<i64>> {
 fn exact_int_insert_pairwise(xs: &Value, len: usize) -> Option<Vec<i64>> {
     let items = xs.exact_int_seq()?;
     if items.is_atom() {
-        let value = items.iter().next().expect("atom exact int sequence has one item");
+        let value = items
+            .iter()
+            .next()
+            .expect("atom exact int sequence has one item");
         return Some(vec![value; len]);
     }
     (items.len() == len).then(|| items.to_vec())
@@ -1618,7 +1627,8 @@ fn parse_exact_int_positions(
     let mut out = Vec::with_capacity(items.len());
     for idx in items.iter() {
         out.push(
-            normalize(idx, len).ok_or_else(|| WqError::new(WqErrorType::Domain).msg(invalid_msg))?,
+            normalize(idx, len)
+                .ok_or_else(|| WqError::new(WqErrorType::Domain).msg(invalid_msg))?,
         );
     }
     Ok((out, !items.is_atom()))
@@ -1830,7 +1840,10 @@ mod tests {
     fn int_range_assign_materializes_before_mutating() {
         let mut list = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(10, 2, 3)));
 
-        assert_eq!(list.assign_by_index(&Value::Int(1), Value::Int(99)), Some(()));
+        assert_eq!(
+            list.assign_by_index(&Value::Int(1), Value::Int(99)),
+            Some(())
+        );
         assert_eq!(list, Value::IntList(Arc::new(vec![10, 99, 14])));
     }
 
@@ -1838,10 +1851,16 @@ mod tests {
     fn boollist_assignment_preserves_or_widens_storage() {
         let mut list = Value::BoolList(Arc::new(vec![true, false, true]));
 
-        assert_eq!(list.assign_by_index(&Value::Int(1), Value::Bool(true)), Some(()));
+        assert_eq!(
+            list.assign_by_index(&Value::Int(1), Value::Bool(true)),
+            Some(())
+        );
         assert_eq!(list, Value::BoolList(Arc::new(vec![true, true, true])));
 
-        assert_eq!(list.assign_by_index(&Value::Int(0), Value::Int(1)), Some(()));
+        assert_eq!(
+            list.assign_by_index(&Value::Int(0), Value::Int(1)),
+            Some(())
+        );
         assert_eq!(
             list,
             Value::List(Arc::new(vec![
@@ -1920,7 +1939,10 @@ mod tests {
             ]))
         );
 
-        assert_eq!(list.assign_by_index(&Value::Int(1), Value::Int(99)), Some(()));
+        assert_eq!(
+            list.assign_by_index(&Value::Int(1), Value::Int(99)),
+            Some(())
+        );
         assert_eq!(
             list,
             Value::List(Arc::new(vec![
@@ -2037,7 +2059,6 @@ mod tests {
     #[test]
     fn string_assign_same_width_utf8() {
         let mut s = crate::value::into_wq_string("hell");
-        // 'a' (1 byte) → 'ñ' (2 bytes) — different widths
         assert_eq!(
             s.assign_by_index(&Value::Int(1), Value::Char('ñ')),
             Some(())
@@ -2074,7 +2095,10 @@ mod tests {
     fn string_assign_multi_accepts_raw_index_keys() {
         let mut s = crate::value::into_wq_string("hello");
         let vals = Value::List(Arc::new(vec![Value::Char('a'), Value::Char('b')]));
-        assert_eq!(s.assign_by_indices(&[Value::Int(1), Value::Int(3)], vals), Some(()));
+        assert_eq!(
+            s.assign_by_indices(&[Value::Int(1), Value::Int(3)], vals),
+            Some(())
+        );
         assert_eq!(s.to_string(), "\"halbo\"");
     }
 

@@ -35,8 +35,8 @@ enum ExpandFrame {
     /// Combine the top `n` results into a `*` expansion.
     Mul(usize),
     /// Combine the top `n` results into a `*` without expanding `+` nodes.
-    /// Used by negative-power distribution so that (a·b)^(-1) stays
-    /// a^(-1)·b^(-1) rather than being fully expanded into a sum.
+    /// Used by negative-power distribution so that (a*b)^(-1) stays
+    /// a^(-1)*b^(-1) rather than being fully expanded into a sum.
     MulNoExpand(usize),
     /// Combine the top result (expanded base) with the saved exponent.
     Pow { exp: Value, power: Option<usize> },
@@ -112,7 +112,7 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
                                 None => {
                                     // Negative-power distribution must happen BEFORE
                                     // base is expanded, otherwise a product like
-                                    // (_s·(_t^2-1)·(-2*_t)^-1)^-1 gets expanded into
+                                    // (_s*(_t^2-1)*(-2*_t)^-1)^-1 gets expanded into
                                     // a sum first and the * check below fails.
                                     if let Some(k) = exp.exact_int()
                                         && k < BigInt::zero()
@@ -201,7 +201,7 @@ pub(super) fn expand_expr(expr: &Value) -> WqResult<Value> {
                     }
                     None => {
                         // Distribute negative integer power across product:
-                        // (a*b)^(-k) → a^(-k) * b^(-k).
+                        // (a*b)^(-k) -> a^(-k) * b^(-k).
                         // Re-queue each factor as an Expr so nested products
                         // like ((c*d)^(-1)*e)^(-1) also get expanded.
                         if let Some(k) = exp.exact_int()

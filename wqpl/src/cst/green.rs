@@ -3,7 +3,7 @@
 //! Green nodes/tokens are the storage layer of the CST. They:
 //!
 //! * Cover every byte of source (including whitespace and comments).
-//! * Carry no absolute offsets — only their own length. Absolute positions are
+//! * Carry no absolute offsets -- only their own length. Absolute positions are
 //!   computed by the [`super::red`] layer on demand.
 //! * Implement structural [`Hash`] and [`Eq`] so identical subtrees compare
 //!   equal regardless of their `Arc` identity. This is the foundation for the
@@ -170,7 +170,7 @@ impl GreenNode {
         &self.0.children
     }
 
-    /// `Arc` identity check. Cheap, but rarely what you want — see the
+    /// `Arc` identity check. Cheap, but rarely what you want -- see the
     /// [`PartialEq`] derive for content equality.
     pub fn ptr_eq(&self, other: &GreenNode) -> bool {
         Arc::ptr_eq(&self.0, &other.0)

@@ -24,8 +24,7 @@ pub(super) fn complex(args: BuiltinFnArgs) -> WqResult<Value> {
 
 pub(super) fn real(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Re, [1], &args)?;
-    // Stop broadcast descent at Complex — we want the real part of the
-    // whole complex, not to descend into re/im components.
+    // Stop broadcast descent at Complex
     args[0]
         .bc1_until(Bc1Stop::Atom, |v| {
             if v.is_complex() {

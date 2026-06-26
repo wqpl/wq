@@ -83,6 +83,7 @@
 - If you added/changed syntax feature or builtin, also update:
   - `wqpl/doc`
   - optionally `d/articles/wqpl` if it is core to the language
+- No em dashes in comments/docs/code. Adjust wording to avoid em dashes.
 - Use these newer Rust features when they improve code style:
 
 | Feature         | Stabilized in | Release date | Notes                                                                                                 |

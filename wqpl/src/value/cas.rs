@@ -66,8 +66,8 @@ impl CasConst {
         match name {
             "pi" => Some(Self::Pi),
             "e" => Some(Self::E),
-            "oo" | "∞" => Some(Self::Infinity),
-            "-oo" | "_oo" | "-∞" => Some(Self::NegInfinity),
+            "inf" | "oo" => Some(Self::Infinity),
+            "-inf" | "-oo" | "_oo" => Some(Self::NegInfinity),
             "undef" => Some(Self::Undefined),
             _ => None,
         }
@@ -77,8 +77,8 @@ impl CasConst {
         match self {
             Self::Pi => "pi",
             Self::E => "e",
-            Self::Infinity => "oo",
-            Self::NegInfinity => "_oo",
+            Self::Infinity => "inf",
+            Self::NegInfinity => "-inf",
             Self::Undefined => "undef",
         }
     }
@@ -411,14 +411,18 @@ mod cas_tests {
         for (name, konst) in [
             ("pi", CasConst::Pi),
             ("e", CasConst::E),
-            ("oo", CasConst::Infinity),
-            ("_oo", CasConst::NegInfinity),
+            ("inf", CasConst::Infinity),
+            ("-inf", CasConst::NegInfinity),
             ("undef", CasConst::Undefined),
         ] {
             assert_eq!(CasConst::from_name(name), Some(konst));
             assert_eq!(CasConst::from_name(konst.name()), Some(konst));
         }
+        assert_eq!(CasConst::from_name("oo"), Some(CasConst::Infinity));
         assert_eq!(CasConst::from_name("-oo"), Some(CasConst::NegInfinity));
+        assert_eq!(CasConst::from_name("_oo"), Some(CasConst::NegInfinity));
+        assert_eq!(CasConst::from_name("\u{221e}"), None);
+        assert_eq!(CasConst::from_name("-\u{221e}"), None);
         assert_eq!(CasConst::from_name("x"), None);
     }
 }

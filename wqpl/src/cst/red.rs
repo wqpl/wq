@@ -3,7 +3,7 @@
 //! The red tree is what LSP requests, formatter passes, and lowering all walk.
 //! Each red node carries:
 //!
-//! * a clone of its green node (cheap — it's an `Arc`),
+//! * a clone of its green node (cheap -- it's an `Arc`),
 //! * a back-pointer to its red parent (also cheap; same `Arc` mechanism),
 //! * its absolute byte offset within the source document, and
 //! * its index in the parent's child list (needed for sibling navigation).
@@ -536,7 +536,7 @@ mod tests {
 
     #[test]
     fn nested_offsets_propagate() {
-        // "x [1 ; 2]" — Postfix call shape
+        // "x [1 ; 2]" Postfix call shape
         let bracket = node(
             SyntaxKind::ArgList,
             vec![

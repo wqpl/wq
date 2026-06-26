@@ -128,7 +128,7 @@ enum NumericCallMode {
     Evaluate,
 }
 
-/// Try to resolve CAS constants (pi, e, oo, _oo) to numeric values and
+/// Try to resolve CAS constants (pi, e, inf, -inf) to numeric values and
 /// evaluate the call.  Returns `None` if any arg is a non-constant CAS node
 /// or an unresolved variable.
 pub(super) fn try_eval_with_const_resolve(
@@ -143,11 +143,11 @@ pub(super) fn try_eval_with_const_resolve(
             numeric_args.push(match konst {
                 CasConst::Pi => Value::float(std::f64::consts::PI),
                 CasConst::E => Value::float(std::f64::consts::E),
-                // oo/_oo: functions like sin(∞) are undefined, skip
+                // inf/-inf: functions like sin(inf) are undefined, skip
                 _ => return Ok(None),
             });
         } else {
-            // Variable, operator, or other CAS node — can't resolve
+            // Variable, operator, or other CAS node -- can't resolve
             return Ok(None);
         }
     }
@@ -283,7 +283,7 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
         return Ok(Value::float(f));
     }
 
-    // Algebraic numbers → evaluate using coefficients and generator's approx.
+    // Algebraic numbers -> evaluate using coefficients and generator's approx.
     if let Value::Algebraic(a) = expr {
         let interval = a.interval();
         let alpha = (interval.0 + interval.1) * 0.5;

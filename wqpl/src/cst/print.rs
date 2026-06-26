@@ -16,7 +16,7 @@ use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 fn kind_color(kind: SyntaxKind) -> AnsiColor {
     use SyntaxKind::*;
     match kind {
-        // Trivia — dim so it doesn't compete with real tokens.
+        // Trivia
         Whitespace | Newline | Comment => AnsiColor::BrightBlack,
         ScriptLine => AnsiColor::BrightYellow,
 
@@ -47,7 +47,7 @@ fn kind_color(kind: SyntaxKind) -> AnsiColor {
         // Error token
         ErrorTok => AnsiColor::BrightMagenta,
 
-        // Internal nodes — expressions are magenta, containers white, errors bright magenta
+        // Internal nodes -- expressions are magenta, containers white, errors bright magenta
         Root => AnsiColor::White,
         Block => AnsiColor::White,
         Shebang | ScriptDirective => AnsiColor::BrightYellow,

@@ -311,8 +311,8 @@ impl Value {
 // bc2 helpers – eliminate the left/right atom duplication in the original
 // ---------------------------------------------------------------------------
 
-/// Left operand is an atom, right is a container — broadcast the atom across
-/// every element of the container.
+/// Left operand is an atom, right is a container
+/// broadcast the atom across every element of the container.
 fn broadcast_left<F>(
     atom: &Value,
     container: &Value,
@@ -398,8 +398,8 @@ where
     }
 }
 
-/// Right operand is an atom, left is a container — broadcast the atom across
-/// every element of the container.
+/// Right operand is an atom, left is a container
+/// broadcast the atom across every element of the container.
 fn broadcast_right<F>(
     container: &Value,
     atom: &Value,
@@ -485,10 +485,9 @@ where
     }
 }
 
-/// Both operands are containers — zip element-wise, with String decomposed
-/// into chars and Dict key-ordering preserved.
-///          Atom        List     IntList    String      Dict
-///          ────        ────     ───────    ──────      ────
+/// Both operands are containers
+/// zip element-wise, with String decomposed into chars and Dict key-ordering preserved.
+///           Atom     List       IntList    String     Dict
 /// Atom      op        bc → L     bc → L     bc → L     bc → D
 /// List      bc → L   zip → L    zip → L    zip → L    zip → D
 /// IntList   bc → L   zip → L    zip → L    zip → L    zip → D
@@ -513,27 +512,19 @@ where
         return zip_containers(left, &right, stop, op, path);
     }
     if let Value::BoolList(items) = left {
-        let left = Value::List(Arc::new(
-            items.iter().copied().map(Value::Bool).collect(),
-        ));
+        let left = Value::List(Arc::new(items.iter().copied().map(Value::Bool).collect()));
         return zip_containers(&left, right, stop, op, path);
     }
     if let Value::BoolList(items) = right {
-        let right = Value::List(Arc::new(
-            items.iter().copied().map(Value::Bool).collect(),
-        ));
+        let right = Value::List(Arc::new(items.iter().copied().map(Value::Bool).collect()));
         return zip_containers(left, &right, stop, op, path);
     }
     if let Value::FloatList(items) = left {
-        let left = Value::List(Arc::new(
-            items.iter().copied().map(Value::Float).collect(),
-        ));
+        let left = Value::List(Arc::new(items.iter().copied().map(Value::Float).collect()));
         return zip_containers(&left, right, stop, op, path);
     }
     if let Value::FloatList(items) = right {
-        let right = Value::List(Arc::new(
-            items.iter().copied().map(Value::Float).collect(),
-        ));
+        let right = Value::List(Arc::new(items.iter().copied().map(Value::Float).collect()));
         return zip_containers(left, &right, stop, op, path);
     }
 

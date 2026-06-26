@@ -13,7 +13,7 @@ fn fmt_cas(v: &Value) -> String {
     v.format_cas().unwrap_or_else(|| v.to_string())
 }
 
-/// Compute 1 - m·sin²(φ), used by both ellik and ellie derivatives.
+/// Compute 1 - m*sin^2(phi), used by both ellik and ellie derivatives.
 fn ell_inner(phi: &Value, m: &Value) -> WqResult<Value> {
     let sin_sq = cas_pow(
         Value::from_cas_function(CasFunction::Sin, vec![phi.clone()]),
@@ -92,7 +92,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
             }
             (CasOp::Multiply, args) => {
                 // Generalized quotient rule: for N / D where both are products
-                // of arbitrary factors, produce (N'·D − N·D') / D² directly
+                // of arbitrary factors, produce (N'*D - N*D') / D^2 directly
                 // instead of a sum of fractions with different denominators.
                 //
                 // Separate factors into numerator (positive/unknown exponent)
@@ -142,7 +142,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                     return simplify_cas_value(&cas_mul(vec![num, denom_factor])?);
                 }
 
-                // No denominator factors — use the general product rule.
+                // No denominator factors -- use the general product rule.
                 let mut terms = Vec::with_capacity(args.len());
                 for idx in 0..args.len() {
                     let mut factors = Vec::with_capacity(args.len());
@@ -395,7 +395,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
             ])?,
             (CasFunction::Sgn, [_arg]) => Value::Int(0),
             (CasFunction::EllIk, [phi, m]) => {
-                // d/dx F(φ(x), m) = φ'(x) / √(1 - m·sin²(φ))
+                // d/dx F(phi(x), m) = phi'(x) / sqrt(1 - m*sin^2(phi))
                 let dphi = diff_expr(phi, var)?;
                 let inner = ell_inner(phi, m)?;
                 cas_div(
@@ -404,7 +404,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 )?
             }
             (CasFunction::EllIe, [phi, m]) => {
-                // d/dx E(φ(x), m) = φ'(x) · √(1 - m·sin²(φ))
+                // d/dx E(phi(x), m) = phi'(x) * sqrt(1 - m*sin^2(phi))
                 let dphi = diff_expr(phi, var)?;
                 let inner = ell_inner(phi, m)?;
                 cas_mul(vec![
@@ -413,8 +413,8 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 ])?
             }
             (CasFunction::EllPk, [m1]) => {
-                // d/dm1 K(m1) = (E(m1) - m1'·K(m1)) / (2·m1·m1')
-                // where m1' = 1 - m1, and K(m1) = F(π/2, 1-m1)
+                // d/dm1 K(m1) = (E(m1) - m1'*K(m1)) / (2*m1*m1')
+                // where m1' = 1 - m1, and K(m1) = F(pi/2, 1-m1)
                 let dm1 = diff_expr(m1, var)?;
                 let one = Value::Int(1);
                 let two = Value::Int(2);
@@ -430,7 +430,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 cas_mul(vec![dm1, cas_div(num, denom)?])?
             }
             (CasFunction::EllPe, [m1]) => {
-                // d/dm1 E(m1) = (E(m1) - K(m1)) / (2·m1)
+                // d/dm1 E(m1) = (E(m1) - K(m1)) / (2*m1)
                 let dm1 = diff_expr(m1, var)?;
                 let two = Value::Int(2);
                 let num = cas_sub(
@@ -720,7 +720,7 @@ mod tests {
 
     #[test]
     fn diff_algebraic_in_cas() {
-        // ∛2: poly x^3 - 2 = 0, interval (1,2), coeffs [0,1] -> α
+        // cbrt(2): poly x^3 - 2 = 0, interval (1,2), coeffs [0,1] -> alpha
         let cube_root_2 = algebraic_value(
             vec![
                 BigInt::from(-2),
@@ -732,7 +732,7 @@ mod tests {
             vec![Value::Int(0), Value::Int(1)],
         );
 
-        // Expression: arctan[∛2 * x]
+        // Expression: arctan[cbrt(2) * x]
         let expr = call(
             CasFunction::ArcTan,
             vec![op(
@@ -747,7 +747,7 @@ mod tests {
             result
         );
 
-        // Expression: ∛2 * arctan[x]
+        // Expression: cbrt(2) * arctan[x]
         let expr2 = Value::from_cas_op(
             CasOp::Multiply,
             vec![
@@ -785,7 +785,7 @@ mod tests {
 
     #[test]
     fn diff_algebraic_complex() {
-        // a = ∛(1/108)
+        // a = cbrt(1/108)
         let a = algebraic_value(
             vec![
                 BigInt::from(-1),
@@ -832,7 +832,7 @@ mod tests {
         ])
         .unwrap();
         let derivative = diff_cas(&full_term, &Value::from_cas_var("x")).unwrap();
-        // After field normalization, the expression uses ∛2 instead of ∛(1/108)
+        // After field normalization, the expression uses cbrt(2) instead of cbrt(1/108)
         assert!(
             derivative.to_string().contains("2^(1/3)"),
             "expected simplified expression with 2^(1/3), got: {}",

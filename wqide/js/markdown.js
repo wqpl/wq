@@ -14,9 +14,8 @@ function inlineParse(raw) {
   const codeSpans = [];
   let text = raw.replace(/(`+)([\s\S]*?)(?<!`)\1(?!`)/g, (m, fence, code) => {
     if (!code.trim()) return m;
-    const normalized = code.startsWith(" ") && code.endsWith(" ")
-      ? code.slice(1, -1)
-      : code;
+    const normalized =
+      code.startsWith(" ") && code.endsWith(" ") ? code.slice(1, -1) : code;
     const idx = codeSpans.push(normalized) - 1;
     return `\uE000CODE${idx}\uE000`;
   });
@@ -36,13 +35,15 @@ function inlineParse(raw) {
     (m, b) => `<strong>${escapeHtml(b)}</strong>`,
   );
 
-  // Italic (*text*) — avoid matching inside ** ** by using a tempered pattern
+  // Italic (*text*)
+  // avoid matching inside ** ** by using a tempered pattern
   text = text.replace(
     /(^|[^*])\*([^*]+)\*(?!\*)/g,
     (m, pre, i) => `${pre}<em>${escapeHtml(i)}</em>`,
   );
 
-  // Italic (_text_) — avoid matching inside __ __ by using a tempered pattern
+  // Italic (_text_)
+  // avoid matching inside __ __ by using a tempered pattern
   text = text.replace(
     /(^|[^_])_([^_]+)_(?!_)/g,
     (m, pre, i) => `${pre}<em>${escapeHtml(i)}</em>`,
@@ -184,7 +185,10 @@ export function parseMarkdown(md) {
     return match ? match[1].replace(/\t/g, "    ").length : 0;
   }
   function addListItem(type, indent, text) {
-    while (listStack.length && indent < listStack[listStack.length - 1].indent) {
+    while (
+      listStack.length &&
+      indent < listStack[listStack.length - 1].indent
+    ) {
       listStack.pop();
     }
 

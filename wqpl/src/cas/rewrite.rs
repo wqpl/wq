@@ -24,7 +24,7 @@ pub(super) fn push_flattened(out: &mut Vec<Value>, op: CasOp, value: Value) {
 }
 
 /// Build a product `Value` from a list of factors.
-/// `[]` → 1, `[x]` → x, `[x, y, …]` → (* x y …).
+/// `[]` -> 1, `[x]` -> x, `[x, y, ...]` -> (* x y ...).
 pub(crate) fn cas_product(factors: Vec<Value>) -> Value {
     match factors.len() {
         0 => Value::Int(1),
@@ -206,7 +206,7 @@ fn try_combine_var_free_denominator_sum(args: &[Value]) -> WqResult<Option<Value
     Ok(None)
 }
 
-/// Rewrite `N/K ± 1` (or `±1 + N/K`) into `(N ± K)/K`.
+/// Rewrite `N/K +/- 1` (or `+/-1 + N/K`) into `(N +/- K)/K`.
 ///
 /// This is a focused form of fraction addition that avoids relying on
 /// polynomial coefficient extraction and helps simplify nested square-root
@@ -573,7 +573,7 @@ fn is_provably_positive(expr: &Value) -> bool {
     if !expr.is_cas_expr() {
         return expr.as_f64().is_some_and(|f| f > 0.0);
     }
-    // Quadratic a·x² + b·x + c with a > 0 and disc < 0 → always > 0
+    // Quadratic a*x^2 + b*x + c with a > 0 and disc < 0 -> always > 0
     let Some((CasOp::Add, _)) = expr.cas_op_parts() else {
         return false;
     };
@@ -599,7 +599,7 @@ fn is_provably_positive(expr: &Value) -> bool {
     if numeric_is_negative(a) || !a.as_f64().is_some_and(|f| f > 0.0) {
         return false;
     }
-    // disc = b² - 4ac must be negative
+    // disc = b^2 - 4ac must be negative
     let Ok(b_sq) = eval_numeric_binary("*", b, b) else {
         return false;
     };
@@ -613,7 +613,7 @@ fn is_provably_positive(expr: &Value) -> bool {
         return false;
     };
     // For Algebraic values, use is_negative (checks coeffs with generator sign).
-    // The Algebraic value c0 + c1·α + ... has sign = sign(ck) when α > 0 and
+    // The Algebraic value c0 + c1*alpha + ... has sign = sign(ck) when alpha > 0 and
     // only one non-zero coeff.  For the general case, trust as_f64.
     if let Value::Algebraic(da) = &disc {
         da.is_negative()
@@ -989,7 +989,7 @@ fn try_normalize_standalone_cubic_root_product(
     }
 }
 
-/// (+ (* A B) (* (* -1 A) C)) → (* A (+ B (* -1 C))).
+/// (+ (* A B) (* (* -1 A) C)) -> (* A (+ B (* -1 C))).
 /// Also handles non-unit negative coefficients for function/app common factors,
 /// such as exponential terms produced by differentiation.
 fn try_factor_binary_product(args: &[Value]) -> WqResult<Option<Value>> {
@@ -1078,9 +1078,9 @@ fn allows_non_unit_negative_factor(common: &Value) -> bool {
         )
 }
 
-/// (* ... (^ D1 -1) ... (^ D2 -1) ...) → replace both with (^ (D1*D2) -1)
+/// (* ... (^ D1 -1) ... (^ D2 -1) ...) -> replace both with (^ (D1*D2) -1)
 /// when D1*D2 expands to something simpler.
-/// Only applies when both D1, D2 are simple sums (≤ 3 terms) to avoid large
+/// Only applies when both D1, D2 are simple sums (<= 3 terms) to avoid large
 /// expansions.
 fn try_combine_inv_denoms(args: &[Value]) -> WqResult<Option<Value>> {
     let mut inv_info = Vec::new();
@@ -1350,7 +1350,7 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
         if let Some(result) = try_factor_common_sum_pair(args)? {
             return Ok(Some(result));
         }
-        // Factor common product from sum: (+ (* A B) (* (* -1 A) C)) → (* A (+ B (* -1
+        // Factor common product from sum: (+ (* A B) (* (* -1 A) C)) -> (* A (+ B (* -1
         // C)))
         if let Some(result) = try_factor_binary_product(args)? {
             return Ok(Some(result));
@@ -1358,7 +1358,7 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
         return combine_logs_in_sum(args);
     }
 
-    // Distribute -1 over sum: (* -1 (+ a b …)) → (+ (* -1 a) (* -1 b) …)
+    // Distribute -1 over sum: (* -1 (+ a b ...)) -> (+ (* -1 a) (* -1 b) ...)
     if let Some((CasOp::Multiply, [a, b])) = value.cas_op_parts() {
         if let (Some((CasOp::Add, sum_args)), true) = (b.cas_op_parts(), a.exact_int_is(-1)) {
             let new_args: Vec<Value> = sum_args
@@ -1400,7 +1400,7 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
         return Ok(Some(result));
     }
 
-    // Combine (^ D1 -1) * (^ D2 -1) → (^ (D1*D2) -1) when D1*D2 expands usefully
+    // Combine (^ D1 -1) * (^ D2 -1) -> (^ (D1*D2) -1) when D1*D2 expands usefully
     if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
         && let Some(result) = try_combine_inv_denoms(args)?
     {

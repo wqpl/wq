@@ -242,7 +242,7 @@ pub(crate) fn poly_resultant(a: &[Value], b: &[Value]) -> WqResult<Value> {
     let (_, rem) = poly_divide(&a, &b)?;
     let deg_rem = poly_degree(&rem);
 
-    // resultant(a, b) = (-1)^(deg_a·deg_b) · lc_b^(deg_a - deg_rem) · resultant(b,
+    // resultant(a, b) = (-1)^(deg_a*deg_b) * lc_b^(deg_a - deg_rem) * resultant(b,
     // rem)
     let sign = if (deg_a * deg_b) % 2 == 1 {
         -1i64
@@ -261,18 +261,18 @@ pub(crate) fn poly_resultant(a: &[Value], b: &[Value]) -> WqResult<Value> {
 }
 
 /// Lagrange interpolation: given points (x_i, y_i), return the polynomial
-/// P(z) of degree ≤ n-1 such that P(x_i) = y_i for all i.
+/// P(z) of degree <= n-1 such that P(x_i) = y_i for all i.
 ///
 /// Points are (x, y) pairs.  Returns coefficients [c0, c1, ..., cn] where
-/// c0 + c1·z + ... + cn·z^n is the interpolating polynomial.
+/// c0 + c1*z + ... + cn*z^n is the interpolating polynomial.
 pub(crate) fn poly_interpolate(points: &[(Value, Value)]) -> WqResult<Vec<Value>> {
     if points.is_empty() {
         return Ok(vec![Value::Int(0)]);
     }
-    // Build Lagrange basis: P(z) = Σ y_i · Π_{j≠i} (z - x_j) / (x_i - x_j)
+    // Build Lagrange basis: P(z) = sum y_i * product_{j!=i} (z - x_j) / (x_i - x_j)
     let mut result = vec![Value::Int(0)];
     for (i, (xi, yi)) in points.iter().enumerate() {
-        // Build numerator: Π_{j≠i} (z - x_j)
+        // Build numerator: product_{j!=i} (z - x_j)
         let mut numer = vec![Value::Int(1)]; // degree-0 polynomial = 1
         for (j, (xj, _)) in points.iter().enumerate() {
             if i == j {
@@ -285,7 +285,7 @@ pub(crate) fn poly_interpolate(points: &[(Value, Value)]) -> WqResult<Vec<Value>
             ];
             numer = poly_mul(&numer, &factor)?;
         }
-        // Compute denominator: Π_{j≠i} (x_i - x_j)
+        // Compute denominator: product_{j!=i} (x_i - x_j)
         let mut denom = Value::Int(1);
         for (j, (xj, _)) in points.iter().enumerate() {
             if i == j {
@@ -321,7 +321,7 @@ pub(crate) fn poly_is_zero(coeffs: &[Value]) -> bool {
 
 /// Yun's square-free factorization.
 /// Returns `(factor, multiplicity)` pairs where each factor is square-free
-/// and pairwise coprime, and the original polynomial = ∏ factor_i^i.
+/// and pairwise coprime, and the original polynomial = product factor_i^i.
 pub(crate) fn square_free_factor(poly: &[Value]) -> WqResult<Vec<(Vec<Value>, usize)>> {
     if poly_is_zero(poly) {
         return Ok(Vec::new());
@@ -562,7 +562,7 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
                     Ok(coeffs)
                 } else if !contains_cas_var(base, var) {
                     let Some(n) = exp.exact_int() else {
-                        // Fractional power of constant base — not a polynomial.
+                        // Fractional power of constant base -- not a polynomial.
                         return Err(cas_err(
                             "solve currently supports polynomial expressions with exact numeric coefficients",
                         ));
@@ -582,7 +582,7 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
                             return Ok(vec![val]);
                         }
                     }
-                    // Base or pow couldn't be reduced — keep as CAS expr.
+                    // Base or pow couldn't be reduced -- keep as CAS expr.
                     Ok(vec![expr.clone()])
                 } else {
                     Err(cas_err(

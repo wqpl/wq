@@ -188,7 +188,7 @@ pub(super) const INTEGRATE: BuiltinDoc = BuiltinDoc {
 pub(super) const LIMIT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Limit,
     summary: "Compute a symbolic limit.",
-    details: "`limit[expr;var;point]` evaluates a limit at a finite point or symbolic infinity such as `@s oo` and `@s _oo`. Additional `var;point` pairs are applied in sequence, and a final `\"+\"` or `\"-\"` direction requests a one-sided limit for the last pair.",
+    details: "`limit[expr;var;point]` evaluates a limit at a finite point or symbolic infinity such as `@s inf` and `@s -inf` (`@s oo` remains an alias for positive infinity). Additional `var;point` pairs are applied in sequence, and a final `\"+\"` or `\"-\"` direction requests a one-sided limit for the last pair.",
     examples: LIMIT_EXAMPLES,
     related: &["diff", "integrate", "numeric"],
 };

@@ -185,9 +185,8 @@ impl BuiltinPreset {
 
 /// Owned positional and named arguments passed to a builtin.
 ///
-/// Positional args: `SmallVec<[Value; 4]>` — zero heap for ≤4 args.
-/// Named args: `Option<Vec<(Arc<str>, Value)>>` — heap-allocated, None when
-/// empty.
+/// Positional args: `SmallVec<[Value; 4]>` -- zero heap for ≤4 args.
+/// Named args: `Option<Vec<(Arc<str>, Value)>>` -- heap-allocated, None when empty.
 pub struct BuiltinFnArgs {
     pos: Sv4,
     named: Option<Vec<(Arc<str>, Value)>>,
@@ -1210,9 +1209,28 @@ const ECHO_NAMED_ARGS: &[&str] = &["sep"];
 const MAXSPLIT_NAMED_ARGS: &[&str] = &["m"];
 const SHOWTABLE_NAMED_ARGS: &[&str] = &["cols", "limit", "width", "style", "missing"];
 const ASCIIPLOT_NAMED_ARGS: &[&str] = &[
-    "size", "width", "height", "xlim", "ylim", "x", "y", "symbols", "labels", "mode", "axes",
-    "color", "grid", "samples", "theme", "complex", "ascii", "title", "xlabel", "ylabel",
-    "caption", "ticklabels",
+    "size",
+    "width",
+    "height",
+    "xlim",
+    "ylim",
+    "x",
+    "y",
+    "symbols",
+    "labels",
+    "mode",
+    "axes",
+    "color",
+    "grid",
+    "samples",
+    "theme",
+    "complex",
+    "ascii",
+    "title",
+    "xlabel",
+    "ylabel",
+    "caption",
+    "ticklabels",
 ];
 #[cfg(not(target_arch = "wasm32"))]
 const EXEC_NAMED_ARGS: &[&str] = &["stdin", "cwd", "env", "timeout", "check"];

@@ -141,7 +141,7 @@ pub enum SyntaxKind {
     ErrorTok,
 
     /// Sentinel for the boundary between token and node kinds. Not a real
-    /// kind — never emitted; never matched on by user code.
+    /// kind -- never emitted; never matched on by user code.
     #[doc(hidden)]
     __LastToken,
 
@@ -228,7 +228,7 @@ impl SyntaxKind {
     }
 
     /// Short, stable, human-readable name. Used in debug output and snapshot
-    /// tests; do **not** rely on it for any semantic decision — match on the
+    /// tests; do not rely on it for any semantic decision -- match on the
     /// variant instead.
     pub fn name(self) -> &'static str {
         use SyntaxKind::*;

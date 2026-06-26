@@ -263,7 +263,9 @@ function renderSymbolPanel(instance, data, code) {
   }
 
   if (!defs.length) {
-    const message = errors.length ? formatSymbolError(errors[0]) : "No symbols yet.";
+    const message = errors.length
+      ? formatSymbolError(errors[0])
+      : "No symbols yet.";
     renderEmptySymbols(instance, message, errors.length > 0);
     return;
   }
@@ -276,7 +278,9 @@ function renderSymbolPanel(instance, data, code) {
 
   const defsByIndex = new Map(defs.map((def) => [def.index, def]));
   const childrenByParent = new Map();
-  for (const def of [...defs].sort((a, b) => symbolSortKey(a) - symbolSortKey(b))) {
+  for (const def of [...defs].sort(
+    (a, b) => symbolSortKey(a) - symbolSortKey(b),
+  )) {
     const parent = defsByIndex.has(def.parent) ? def.parent : null;
     if (!childrenByParent.has(parent)) {
       childrenByParent.set(parent, []);
@@ -384,7 +388,7 @@ async function doEval(instance) {
   instance.runBtn.disabled = true;
   instance.output.innerHTML = "";
 
-  // stdout/stderr — no bar
+  // stdout/stderr
   const streamRenderer = createOutputRenderer(instance.output);
 
   try {
@@ -530,7 +534,9 @@ async function runForPoster(instance) {
           bar.textContent = "\u258d ";
           resultDiv.appendChild(bar);
           const resultRenderer = createOutputRenderer(resultDiv, bar);
-          resultRenderer.appendOutput(alignTurnBody(String(result.value)) + "\n");
+          resultRenderer.appendOutput(
+            alignTurnBody(String(result.value)) + "\n",
+          );
         }
         if (readBoxFlags(instance).includes("xray") && result.xray) {
           const bar = document.createElement("span");
@@ -538,7 +544,9 @@ async function runForPoster(instance) {
           bar.textContent = "\u258d ";
           resultDiv.appendChild(bar);
           const resultRenderer = createOutputRenderer(resultDiv, bar);
-          resultRenderer.appendOutput(alignTurnBody(String(result.xray)) + "\n");
+          resultRenderer.appendOutput(
+            alignTurnBody(String(result.xray)) + "\n",
+          );
         }
       }
     } finally {

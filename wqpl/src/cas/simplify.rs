@@ -215,7 +215,7 @@ pub(super) fn common_numeric_gcd(terms: &[Value]) -> Option<Value> {
 }
 
 pub(super) fn split_add_term(term: &Value) -> (Value, Option<Value>) {
-    // Pure numeric term (Int, BigInt, Fraction) → no symbolic core
+    // Pure numeric term (Int, BigInt, Fraction) -> no symbolic core
     if !term.is_cas_expr() && !term.is_algebraic_number() {
         return (term.clone(), None);
     }
@@ -1002,7 +1002,7 @@ fn push_original_rational_terms(
 /// Combine rational terms sharing the same polynomial variable.
 /// Input: `grouped` after rational core normalization.
 /// Terms with core `(^ D -1)` (i.e. `1/D`) where D is polynomial in some var
-/// are combined into `(∑ Nᵢ·∏_{j≠i} Dⱼ) / (∏ Dᵢ)`.
+/// are combined into `(sum N_i*product_{j!=i} D_j) / (product D_i)`.
 fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
     use std::collections::HashMap;
     // Separate rational terms (core = (^ D -1)) by variable
@@ -1032,7 +1032,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
             keep.push((core, coeff));
             continue;
         }
-        // Multi-factor core: (* (^ D1 -1) (^ D2 -1) …)
+        // Multi-factor core: (* (^ D1 -1) (^ D2 -1) ...)
         if let Some(args) = core.cas_op_args(CasOp::Multiply)
             && args.iter().all(|a| {
                 a.cas_op_args(CasOp::Power)
@@ -1054,7 +1054,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
                 && let Some(ref v) = var
                 && coeff_ok_in_var(&coeff, v)
             {
-                // Merge denominators into one: D = (* D1 D2 …)
+                // Merge denominators into one: D = (* D1 D2 ...)
                 let mut d_parts = Vec::with_capacity(args.len());
                 for arg in args.iter() {
                     if let Some([d, _]) = arg.cas_op_args(CasOp::Power) {
@@ -1086,7 +1086,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
 
         // Convert to polynomials.  Reconstruct each rational term N/D,
         // simplify it to give cas_mul a chance to merge matching powers
-        // (e.g. two half-powers → integer power), then re-extract the
+        // (e.g. two half-powers -> integer power), then re-extract the
         // numerator and denominator.
         let mut d_polys: Vec<Vec<Value>> = Vec::with_capacity(terms.len());
         let mut n_polys: Vec<Vec<Value>> = Vec::with_capacity(terms.len());
@@ -1116,7 +1116,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
             continue;
         }
 
-        // Common denominator: ∏ Dᵢ
+        // Common denominator: product D_i
         let mut prefix_products = Vec::with_capacity(d_polys.len() + 1);
         prefix_products.push(vec![Value::Int(1)]);
         for d_poly in &d_polys {
@@ -1136,7 +1136,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
             .clone();
         normalize_poly_coeffs(&mut d_common)?;
 
-        // Combined numerator: ∑ (Nᵢ · ∏_{j≠i} Dⱼ)
+        // Combined numerator: sum (N_i * product_{j!=i} D_j)
         let mut n_common = vec![Value::Int(0)];
         for (i, n_poly) in n_polys.iter().enumerate() {
             let other_d = poly_mul(&prefix_products[i], &suffix_products[i + 1])?;
@@ -1147,7 +1147,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
 
         // Cancel a common constant factor: if N is constant c != 0,1 and every
         // coefficient of D is divisible by c, cancel c from both sides.
-        // This handles cases like (∜2²/2) / (∜2²·(x⁴/2 − 1)) → 1/(x⁴−2).
+        // This handles cases like (fourth_root(2)^2/2) / (fourth_root(2)^2*(x^4/2 - 1)) -> 1/(x^4-2).
         if poly_degree(&n_common) == 0 && poly_degree(&d_common) >= 1 {
             let n_const = &n_common[0];
             if !numeric_is_one(n_const) && !numeric_is_zero(n_const) {
@@ -1171,7 +1171,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
         }
 
         // Cancel a common polynomial factor via poly_gcd.  This handles cases
-        // like (4x²+4∛2x+4∛2²) / (4x⁵+…−8∛2²) → 1/(x³−2) where numerator
+        // like (4x^2+4*cbrt(2)*x+4*cbrt(2)^2) / (4x^5+...-8*cbrt(2)^2) -> 1/(x^3-2) where numerator
         // and denominator share a non-trivial polynomial factor.
         if poly_degree(&n_common) >= 1 && poly_degree(&d_common) >= 1 {
             let g = poly_gcd(&n_common, &d_common)?;
@@ -1211,7 +1211,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
         match core_opt {
             Some(core) => keep.push((core, coeff)),
             None => {
-                // Pure constant — wrap so rebuild_scaled_term(c, Some(1)) = c*1 = c
+                // Pure constant -- wrap so rebuild_scaled_term(c, Some(1)) = c*1 = c
                 keep.push((Value::Int(1), coeff));
             }
         }
@@ -1221,8 +1221,8 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
     Ok(())
 }
 
-/// Combine log terms with matching prefactors: c·ln|A| + (-c)·ln|B| →
-/// c·ln|A/B|.
+/// Combine log terms with matching prefactors: c*ln|A| + (-c)*ln|B| ->
+/// c*ln|A/B|.
 fn combine_log_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
     let mut i: isize = 0;
     while i < grouped.len() as isize {
@@ -1288,7 +1288,7 @@ fn extract_ln_abs_pref(core: &Value) -> Option<(Value, Value)> {
             (&args[0], &args[1])
         };
         if !rest.is_cas_expr() {
-            // pref is the ln term, rest is the coefficient — swap
+            // pref is the ln term, rest is the coefficient -- swap
             if let Some((CasFunction::Ln, [ln_arg])) = pref.cas_function_parts()
                 && let Some((CasFunction::Abs, [abs_arg])) = ln_arg.cas_function_parts()
             {
@@ -1339,9 +1339,9 @@ pub(crate) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
         }
     }
 
-    // Normalize rational cores: (* N (^ D1 -1) (^ D2 -1) …) →
+    // Normalize rational cores: (* N (^ D1 -1) (^ D2 -1) ...) ->
     // extract N into coefficient, keep the (^ Di -1) factors as core structure.
-    // For multiple Di, the combined denominator (* D1 D2 …) is handled by
+    // For multiple Di, the combined denominator (* D1 D2 ...) is handled by
     // combine_rational_terms below.
     for (core, coeff) in &mut grouped {
         if let Some(args) = core.cas_op_args(CasOp::Multiply)
@@ -1387,11 +1387,11 @@ pub(crate) fn cas_add(args: Vec<Value>) -> WqResult<Value> {
     }
     grouped = merged_grouped;
 
-    // Combine rational terms with different denominators: N1/D1 + N2/D2 →
-    // (N1·D2+N2·D1)/(D1·D2)
+    // Combine rational terms with different denominators: N1/D1 + N2/D2 ->
+    // (N1*D2+N2*D1)/(D1*D2)
     combine_rational_terms(&mut grouped)?;
 
-    // Combine log terms: c·ln|A| - c·ln|B| → c·ln|A/B|
+    // Combine log terms: c*ln|A| - c*ln|B| -> c*ln|A/B|
     combine_log_terms(&mut grouped)?;
 
     let mut out = Vec::with_capacity(grouped.len() + 1);
@@ -1510,7 +1510,7 @@ pub(crate) fn cas_mul(args: Vec<Value>) -> WqResult<Value> {
     }
 
     // Fold algebraic factors that share the same field into the numeric
-    // coefficient so that e.g. (-36·α²) * (108·α²)^(-1) simplifies to -1/3.
+    // coefficient so that e.g. (-36*alpha^2) * (108*alpha^2)^(-1) simplifies to -1/3.
     if let Some(num) = numeric.clone()
         && let Value::Algebraic(num_a) = &num
     {
@@ -1539,7 +1539,7 @@ pub(crate) fn cas_mul(args: Vec<Value>) -> WqResult<Value> {
         }
     } else if numeric.is_some() && !numeric.as_ref().is_some_and(|n| n.is_algebraic_number()) {
         // Fold Algebraic bases with integer exponents into a plain numeric
-        // coefficient, e.g. 31 * α² → Algebraic([0, 0, 31]).  This allows
+        // coefficient, e.g. 31 * alpha^2 -> Algebraic([0, 0, 31]).  This allows
         // down-stream poly_from_expr to see a single Algebraic value instead
         // of a CAS product.
         let mut num = numeric.take().unwrap();
@@ -1699,7 +1699,7 @@ fn detect_poly_var(expr: &Value) -> Option<String> {
 }
 
 /// Try to simplify sqrt(polynomial) by extracting square factors.
-/// If poly = outside² · inside, returns outside * sqrt(inside) (or inverse).
+/// If poly = outside^2 * inside, returns outside * sqrt(inside) (or inverse).
 fn try_simplify_sqrt_poly(coeffs: &[Value], var: &str, is_sqrt: bool) -> WqResult<Option<Value>> {
     let factors = square_free_factor(coeffs)?;
     // Check if any factor has multiplicity >= 2
@@ -1707,8 +1707,8 @@ fn try_simplify_sqrt_poly(coeffs: &[Value], var: &str, is_sqrt: bool) -> WqResul
     if !has_reduction {
         return Ok(None);
     }
-    // Skip pure monomial squares like x^2, x^4 — rewrite_cas handles those
-    // with proper abs() semantics via the sqrt(square) → abs rewrite rule.
+    // Skip pure monomial squares like x^2, x^4 -- rewrite_cas handles those
+    // with proper abs() semantics via the sqrt(square) -> abs rewrite rule.
     if factors.len() == 1 && factors[0].1 == 2 && is_monomial_poly(&factors[0].0) {
         return Ok(None);
     }
@@ -1739,7 +1739,7 @@ fn try_simplify_sqrt_poly(coeffs: &[Value], var: &str, is_sqrt: bool) -> WqResul
     let in_deg = poly_degree(&inside);
 
     if in_deg == 0 {
-        // Perfect square: sqrt(outside²) = outside (positive branch)
+        // Perfect square: sqrt(outside^2) = outside (positive branch)
         // Monomial squares like x^2 are already filtered above and left
         // for rewrite_cas. Non-monomial squares like (x^2+1)^2 are always
         // non-negative, so the abs is dropped.
@@ -1767,7 +1767,7 @@ fn try_simplify_sqrt_poly(coeffs: &[Value], var: &str, is_sqrt: bool) -> WqResul
 pub(crate) fn cas_pow(base: Value, exp: Value) -> WqResult<Value> {
     let base = simplify_cas_value(&base)?;
     let exp = simplify_cas_value(&exp)?;
-    // Algebraic values can't be numerically evaluated — keep symbolic
+    // Algebraic values can't be numerically evaluated -- keep symbolic
     if !base.is_cas_expr() && !exp.is_cas_expr() && !base.is_algebraic_number() {
         // For fractional powers of rationals, keep symbolic unless it's a
         // perfect power (e.g. (4)^(1/2) = 2 stays numeric, but (3/4)^(1/2)
@@ -1892,7 +1892,7 @@ fn try_normalize_algebraic(value: &Value) -> Option<Value> {
 }
 
 pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
-    // Normalize algebraic field before processing (e.g. Q(∛(1/108)) → Q(∛2))
+    // Normalize algebraic field before processing (e.g. Q(cbrt(1/108)) -> Q(cbrt(2)))
     if let Some(normalized) = try_normalize_algebraic(value) {
         return Ok(normalized);
     }
@@ -1907,7 +1907,7 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
         match frame {
             SimplifyFrame::Expr(expr) => {
                 if !expr.is_cas_expr() || expr.cas_var_name().is_some() {
-                    // Normalize algebraic values (e.g. Q(∛(1/108)) → Q(∛2))
+                    // Normalize algebraic values (e.g. Q(cbrt(1/108)) -> Q(cbrt(2)))
                     if let Some(normalized) = try_normalize_algebraic(&expr) {
                         results.push(normalized);
                         continue;
@@ -2078,7 +2078,7 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                 } else if function == CasFunction::Abs
                     && let [arg] = args.as_slice()
                 {
-                    // abs(∞) = ∞, abs(-∞) = ∞
+                    // abs(inf) = inf, abs(-inf) = inf
                     if matches!(
                         arg.cas_const(),
                         Some(CasConst::Infinity | CasConst::NegInfinity)

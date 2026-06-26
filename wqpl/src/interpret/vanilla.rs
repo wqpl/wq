@@ -88,7 +88,7 @@ impl Interpreter for VanillaInterpreter {
                 let op = &instructions[idx];
                 // Mark for trace probe BEFORE dispatch.  Some call arms
                 // `continue 'exec` after a synchronous push, skipping any
-                // post-match check — the next iteration's top-of-loop flush
+                // post-match check -- the next iteration's top-of-loop flush
                 // handles those uniformly.
                 if op.is_trace_interesting() {
                     last_probe_pc = Some(idx);
@@ -1999,17 +1999,16 @@ fn eval_cmp_branch_condition(
         return Ok(result);
     }
 
-    let result = if let Some(result) =
-        try_eval_int_binary_operands(vm, data.op, &data.left, &data.right)
-    {
-        result
-    } else {
-        let right = resolve_operand(vm, idx, &data.right, 1, hooks)
-            .map_err(|e| e.src(format!("compare branch {:?} right operand", data.op)))?;
-        let left = resolve_operand(vm, idx, &data.left, 0, hooks)
-            .map_err(|e| e.src(format!("compare branch {:?} left operand", data.op)))?;
-        eval_binary(&data.op, &left, &right)?
-    };
+    let result =
+        if let Some(result) = try_eval_int_binary_operands(vm, data.op, &data.left, &data.right) {
+            result
+        } else {
+            let right = resolve_operand(vm, idx, &data.right, 1, hooks)
+                .map_err(|e| e.src(format!("compare branch {:?} right operand", data.op)))?;
+            let left = resolve_operand(vm, idx, &data.left, 0, hooks)
+                .map_err(|e| e.src(format!("compare branch {:?} left operand", data.op)))?;
+            eval_binary(&data.op, &left, &right)?
+        };
 
     result.try_to_rust_bool().ok_or_else(|| {
         attach_pc_source_ctx(
@@ -2194,8 +2193,8 @@ mod tests {
     use crate::builtins::BuiltinFnArgs;
     use crate::interpret::Interpreter;
     use crate::interpret::vanilla::VanillaInterpreter;
-    use crate::value::{Value, WqResult, eval_binary};
     use crate::value::func::FunctionData;
+    use crate::value::{Value, WqResult, eval_binary};
     use crate::vm::inst::{BinaryOpData, ClosurePayload, Instruction, Operand};
     use crate::vm::{Slot, Vm};
     use crate::wqdb::data::ChunkId;
@@ -2243,10 +2242,7 @@ mod tests {
         interpreter.interpret(&mut vm, len)
     }
 
-    fn run_vm_result_with_locals(
-        insts: Vec<Instruction>,
-        locals: Vec<Value>,
-    ) -> WqResult<Value> {
+    fn run_vm_result_with_locals(insts: Vec<Instruction>, locals: Vec<Value>) -> WqResult<Value> {
         let len = insts.len();
         let mut vm = Vm::new(insts);
         vm.locals
@@ -2773,7 +2769,7 @@ mod tests {
 
     #[test]
     fn trace_records_binary_op() {
-        // No Debug to drain — check buf after Return
+        // No Debug to drain -- check buf after Return
         let insts = vec![
             Instruction::TraceBegin,
             Instruction::load_const(Value::Int(1)),

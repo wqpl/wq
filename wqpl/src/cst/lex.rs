@@ -16,7 +16,7 @@
 //! ## Phase 2A scope
 //!
 //! The flat builders here produce a `Root` whose children are the raw token
-//! stream — no structural nesting. They exist so the trivia synthesis logic
+//! stream -- no structural nesting. They exist so the trivia synthesis logic
 //! can be tested in isolation, before the parser starts driving a
 //! [`GreenNodeBuilder`] in Phase 2B.
 //!
@@ -170,7 +170,7 @@ fn is_eof(tt: &TokenType) -> bool {
 ///
 /// Round-trip invariant: `result.text() == source`.
 ///
-/// `tokens` must be the full lexer output — comments, newlines, and a
+/// `tokens` must be the full lexer output -- comments, newlines, and a
 /// trailing `Eof` included. The Eof itself is dropped; everything before it
 /// is preserved verbatim.
 pub fn build_flat_cst_from_tokens(source: &str, tokens: &[Token]) -> GreenNode {

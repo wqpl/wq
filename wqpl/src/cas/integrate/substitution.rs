@@ -27,13 +27,13 @@ pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Opt
 
     for (gi, f_of_g) in symbolic.iter().enumerate() {
         let (fname_opt, inner_opt, is_half_pow): (Option<CasFunction>, Option<&Value>, bool) =
-            // f(g(x)) — Call node like sin[x²], exp[x³], sqrt[x+1]
+            // f(g(x)) -- Call node like sin[x^2], exp[x^3], sqrt[x+1]
             if let Some((name, fargs)) = f_of_g.cas_function_parts()
                 && fargs.len() == 1
             {
                 (Some(name), Some(&fargs[0]), false)
             }
-            // (g(x))^(1/2) or (g(x))^(-1/2) — half-power Op node
+            // (g(x))^(1/2) or (g(x))^(-1/2) -- half-power Op node
             else if let Some((CasOp::Power, [base, exp])) = f_of_g.cas_op_parts()
                 && (exp.exact_half() || exp.exact_neg_half())
             {
@@ -73,7 +73,7 @@ pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Opt
         let scale = match_du_scale(&effective_du, &du)?;
         if let Some(scale) = scale {
             let integrated = if is_half_pow {
-                // ∫ u^(1/2) du = 2/3 · u^(3/2)  (direct power rule)
+                // int u^(1/2) du = 2/3 * u^(3/2)  (direct power rule)
                 let u_var = Value::from_cas_var("--cas-sub-u");
                 let two_thirds = Value::from_fraction_parts(2u64.into(), 3u64.into());
                 cas_mul(vec![
@@ -88,7 +88,7 @@ pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Opt
                     Value::from_cas_function(fname, vec![Value::from_cas_var("--cas-sub-u")]);
                 integrate_expr_with_depth(&f_of_u, "--cas-sub-u", 0)?
             };
-            // Substitute u back: F(u) → F(g(x))
+            // Substitute u back: F(u) -> F(g(x))
             let result = substitute_into_call(&integrated, "--cas-sub-u", u_expr)?;
             let result = if numeric_is_one(&scale) {
                 result

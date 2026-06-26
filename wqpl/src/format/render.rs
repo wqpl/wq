@@ -33,7 +33,7 @@ struct Frame<'a> {
 
 /// Render `doc` to a string targeting `width` columns.
 ///
-/// `width` is advisory — the renderer never breaks a single [`Doc::Text`]
+/// `width` is advisory -- the renderer never breaks a single [`Doc::Text`]
 /// even if it exceeds the budget. Idempotence on already-formatted output is
 /// a property of the lowering pass, not the renderer: render produces a
 /// deterministic byte-exact output for a given input.
@@ -44,7 +44,7 @@ struct Frame<'a> {
 /// of a new line. This is what keeps blank lines from carrying trailing
 /// whitespace: a `LineHard` followed by another `LineHard` (because of a
 /// `Blank` marker, or because of stacked forced breaks) writes only `\n\n`,
-/// not `\n  \n` — the indent is set as pending and overwritten by the next
+/// not `\n  \n` -- the indent is set as pending and overwritten by the next
 /// newline before it ever lands in the output.
 pub fn render(doc: &Doc, width: usize) -> String {
     let mut s = RenderState::new();
@@ -83,7 +83,7 @@ pub fn render(doc: &Doc, width: usize) -> String {
             }
             Doc::Group(inner) => {
                 // If any descendant is a forced break (LineHard / Blank),
-                // the group must break — flat is impossible. Otherwise try
+                // the group must break -- flat is impossible. Otherwise try
                 // flat first, fall back to break if it doesn't fit.
                 if inner.has_forced_break() {
                     stack.push(Frame {
@@ -149,7 +149,7 @@ struct RenderState {
     /// about-to-be-written text).
     pending_blank: bool,
     /// Indent (column count) to emit lazily before the next non-newline
-    /// content. `None` means "no indent pending" — typically we are
+    /// content. `None` means "no indent pending" -- typically we are
     /// mid-line and have already emitted any necessary indent. Lazy
     /// emission avoids trailing whitespace on lines that turn out to be
     /// blank.
@@ -171,7 +171,7 @@ impl RenderState {
         self.col += visual_width(s);
     }
 
-    /// If a blank line is pending, emit it now — but as a *single* extra
+    /// If a blank line is pending, emit it now -- but as a *single* extra
     /// newline before whatever follows (the caller will then emit its own
     /// content). No indent is added: the caller's
     /// [`Self::flush_pending_indent`] handles indent for the next line.
@@ -188,7 +188,7 @@ impl RenderState {
             self.out.push('\n');
         }
         self.out.push('\n');
-        // Reset col but keep pending_indent intact — the caller's next
+        // Reset col but keep pending_indent intact -- the caller's next
         // emission will spawn the indent.
         self.col = 0;
         // We just emitted a newline, so we owe an indent for the
@@ -210,7 +210,7 @@ impl RenderState {
     }
 
     fn emit_newline(&mut self, indent: i32) {
-        // Discard any indent we owed to the previous line — it would have
+        // Discard any indent we owed to the previous line -- it would have
         // become trailing whitespace on a line that has no other content.
         // The new line's indent is set below as `pending_indent`.
         self.pending_indent = None;
@@ -282,7 +282,7 @@ fn fits(mut remaining: usize, stack_below: &[Frame<'_>], start: Frame<'_>) -> bo
                 });
             }
             Doc::Group(inner) => {
-                // When measuring fit, treat nested groups as flat — Wadler's
+                // When measuring fit, treat nested groups as flat -- Wadler's
                 // standard simplification. This may approve a layout that
                 // the actual renderer breaks (because the renderer reasons
                 // group by group), but that is the conservative side: any
@@ -309,7 +309,7 @@ fn fits(mut remaining: usize, stack_below: &[Frame<'_>], start: Frame<'_>) -> bo
             },
             // A forced newline ends the current line. By the time we hit
             // it, the budget so far has been respected, so return "fits".
-            // Groups that contain a forced break never get this far —
+            // Groups that contain a forced break never get this far --
             // they are detected by `Doc::has_forced_break` *before* the
             // flat/break choice is made, and forced into break mode.
             Doc::LineHard | Doc::Blank => return true,
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn line_flat_is_space_break_is_newline() {
-        // Group with a Line — fits flat: becomes "a b".
+        // Group with a Line -- fits flat: becomes "a b".
         let flat = Doc::group(Doc::text("a") + Doc::line() + Doc::text("b"));
         assert_eq!(r(flat.clone(), 10), "a b");
         // Doesn't fit flat: becomes "a\nb".
@@ -456,7 +456,7 @@ mod tests {
     fn blank_lines_carry_no_trailing_whitespace() {
         // Two stmts with a blank line between them, inside an indented
         // block: the blank line must be exactly `\n\n` plus the next
-        // line's indent — no spaces dangling on the otherwise empty
+        // line's indent -- no spaces dangling on the otherwise empty
         // middle line.
         let d = Doc::nest(
             2,

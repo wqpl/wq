@@ -293,7 +293,8 @@ impl PosixRawReader {
             // \EO sequences. (SS3)
             self.escape_o()
         } else if seq1 == '\x1b' {
-            // \E\E — used by rxvt, iTerm (under default config), etc.
+            // \E\E
+            // used by rxvt, iTerm (under default config), etc.
             // ```
             // \E\E[A => Alt-Up
             // \E\E[B => Alt-Down

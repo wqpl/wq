@@ -1,9 +1,9 @@
-//! Integration of elliptic integrals — sqrt(cubic) and sqrt(quartic)
+//! Integration of elliptic integrals -- sqrt(cubic) and sqrt(quartic)
 //! that cannot be reduced to elementary form by square factor extraction.
 //!
 //! Handles:
-//!   ∫ sqrt(x³ + a) dx  →  algebraic part + first-kind elliptic integral
-//!   ∫ 1/sqrt(x³ + a) dx  →  first-kind elliptic integral
+//!   int sqrt(x^3 + a) dx  ->  algebraic part + first-kind elliptic integral
+//!   int 1/sqrt(x^3 + a) dx  ->  first-kind elliptic integral
 
 use crate::cas::{
     cas_add, cas_div, cas_mul, cas_pow, expand_expr, numeric_div, numeric_is_one, numeric_is_zero,
@@ -61,7 +61,7 @@ fn try_elliptic(expr: &Value, var: &str) -> WqResult<Option<Value>> {
 /// Check if `expr` is a cubic polynomial in `var`, and if so, reduce the
 /// elliptic integral to standard forms.
 ///
-/// `is_sqrt`: true for ∫ sqrt(cubic) dx, false for ∫ 1/sqrt(cubic) dx.
+/// `is_sqrt`: true for int sqrt(cubic) dx, false for int 1/sqrt(cubic) dx.
 fn try_cubic_reduction(base: &Value, var: &str, is_sqrt: bool) -> WqResult<Option<Value>> {
     let expanded = expand_expr(base).unwrap_or_else(|_| base.clone());
     let poly = match poly_from_expr(&expanded, var) {
@@ -75,7 +75,7 @@ fn try_cubic_reduction(base: &Value, var: &str, is_sqrt: bool) -> WqResult<Optio
         return Ok(None);
     }
 
-    // Extract coefficients of c3·x³ + c2·x² + c1·x + c0.
+    // Extract coefficients of c3*x^3 + c2*x^2 + c1*x + c0.
     let (c3, c2, c1, c0) = cubic_coeffs(&poly);
 
     let Some(normalized) = shifted_binomial_cubic(var, &c3, &c2, &c1, &c0) else {
@@ -160,10 +160,10 @@ fn shifted_binomial_cubic(
     })
 }
 
-/// ∫ √(u³ + a) du
+/// int sqrt(u^3 + a) du
 ///
-/// Reduction: ∫ y du = (2/5)·u·y + (3a/5)·∫ du/y
-/// where y = √(u³ + a).
+/// Reduction: int y du = (2/5)*u*y + (3a/5)*int du/y
+/// where y = sqrt(u^3 + a).
 fn integrate_sqrt_u3_plus_a(u: &Value, a: &Value) -> WqResult<Value> {
     let two = Value::Int(2);
     let three = Value::Int(3);
@@ -179,7 +179,7 @@ fn integrate_sqrt_u3_plus_a(u: &Value, a: &Value) -> WqResult<Value> {
         ]);
     }
 
-    // y = (u³ + a)^(1/2)
+    // y = (u^3 + a)^(1/2)
     let u3 = cas_pow(u.clone(), Value::Int(3))?;
     let cubic = cas_add(vec![u3, a.clone()])?;
     let y = cas_pow(
@@ -187,30 +187,30 @@ fn integrate_sqrt_u3_plus_a(u: &Value, a: &Value) -> WqResult<Value> {
         Value::from_fraction_parts(1u64.into(), 2u64.into()),
     )?;
 
-    // Algebraic part: (2/5)·u·y
+    // Algebraic part: (2/5)*u*y
     let alg_part = cas_mul(vec![
         cas_div(two.clone(), five.clone())?,
         u.clone(),
         y.clone(),
     ])?;
 
-    // Elliptic part: (3a/5)·∫ du/y
+    // Elliptic part: (3a/5)*int du/y
     let first_kind = integrate_one_over_sqrt_u3_plus_a(u, a)?;
     let coeff = cas_mul(vec![cas_div(three, five)?, a.clone(), first_kind])?;
     simplify_cas_value(&cas_add(vec![alg_part, coeff])?)
 }
 
-/// ∫ du/√(u³ + a)
+/// int du/sqrt(u^3 + a)
 ///
 /// For a = 1, using the Legendre reduction for a cubic with one real root:
 ///
-///   ∫ dx/√(x³+1) = 3^(-1/4) · F(arccos((√3-1-x)/(√3+1+x)), (2+√3)/4)
+///   int dx/sqrt(x^3+1) = 3^(-1/4) * F(arccos((sqrt(3)-1-x)/(sqrt(3)+1+x)), (2+sqrt(3))/4)
 ///
-/// For general a, substitute u = a^(1/3)·z:
-///   ∫ du/√(u³+a) = a^(-1/6) · ∫ dz/√(z³+1)
+/// For general a, substitute u = a^(1/3)*z:
+///   int du/sqrt(u^3+a) = a^(-1/6) * int dz/sqrt(z^3+1)
 ///
-/// So: ∫ du/√(u³+a) = 3^(-1/4)·a^(-1/6) · F(arccos((√3-1-z)/(√3+1+z)), k²)
-/// where z = u/a^(1/3), k² = (2+√3)/4.
+/// So: int du/sqrt(u^3+a) = 3^(-1/4)*a^(-1/6) * F(arccos((sqrt(3)-1-z)/(sqrt(3)+1+z)), k^2)
+/// where z = u/a^(1/3), k^2 = (2+sqrt(3))/4.
 fn integrate_one_over_sqrt_u3_plus_a(u: &Value, a: &Value) -> WqResult<Value> {
     let one = Value::Int(1);
     let two = Value::Int(2);
@@ -237,26 +237,26 @@ fn integrate_one_over_sqrt_u3_plus_a(u: &Value, a: &Value) -> WqResult<Value> {
         cas_div(u.clone(), scale)?
     };
 
-    // Build √3 = 3^(1/2)
+    // Build sqrt(3) = 3^(1/2)
     let sqrt3 = cas_pow(
         three.clone(),
         Value::from_fraction_parts(1u64.into(), 2u64.into()),
     )?;
 
-    // Build k² = (2 + √3) / 4
+    // Build k^2 = (2 + sqrt(3)) / 4
     let k2 = cas_div(cas_add(vec![two.clone(), sqrt3.clone()])?, four.clone())?;
 
-    // cos φ = (√3 - 1 - z) / (√3 + 1 + z)
+    // cos phi = (sqrt(3) - 1 - z) / (sqrt(3) + 1 + z)
     let neg_x = cas_mul(vec![Value::Int(-1), normalized_u.clone()])?;
     let cos_phi = cas_div(
         cas_add(vec![sqrt3.clone(), Value::Int(-1), neg_x])?,
         cas_add(vec![sqrt3.clone(), one, normalized_u])?,
     )?;
 
-    // φ = arccos(cos_phi)
+    // phi = arccos(cos_phi)
     let phi = Value::from_cas_function(CasFunction::ArcCos, vec![cos_phi]);
 
-    // First-kind elliptic integral: ellik[φ; k²]
+    // First-kind elliptic integral: ellik[phi; k^2]
     let ellik_part = Value::from_cas_function(CasFunction::EllIk, vec![phi, k2]);
 
     // Scale factor: 3^(-1/4)

@@ -4,7 +4,7 @@ use crate::cas::{
     rewrite_cas, simplify_cas_value, substitute_cas, var_name_from_value, with_cas_div_cache,
 };
 use crate::session::dbglog::DebugLogFlags;
-use crate::value::cas::{CasFunction, CasOp};
+use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 mod base;
@@ -40,10 +40,10 @@ pub(crate) fn integrate_cas(expr: &Value, var: &Value) -> WqResult<Value> {
     })
 }
 
-/// Evaluate a definite integral ∫_lower^upper expr d(var) via the Fundamental
+/// Evaluate a definite integral from lower to upper of expr d(var) via the Fundamental
 /// Theorem of Calculus: F(upper) - F(lower), where F is the antiderivative.
 ///
-/// When one of the bounds is `oo` or `_oo`, or a bound lies at a singularity
+/// When one of the bounds is `inf` or `-inf`, or a bound lies at a singularity
 /// of F, a one-sided limit is used to evaluate F at that bound.
 pub(crate) fn definite_integrate_cas(
     expr: &Value,
@@ -69,11 +69,12 @@ pub(crate) fn definite_integrate_cas(
 /// Evaluate F(bound), falling back to a one-sided limit when substitution fails
 /// (e.g. singularity or infinity bound).
 fn evaluate_at_bound(antideriv: &Value, var: &Value, bound: &Value) -> WqResult<Value> {
-    // For infinity bounds, skip substitution — substituting oo produces
-    // expressions like oo^(-1) that aren't meaningful.
-    let is_inf = bound
-        .cas_const_name()
-        .is_some_and(|n| n == "oo" || n == "_oo");
+    // For infinity bounds, skip substitution -- substituting inf produces
+    // expressions like inf^(-1) that aren't meaningful.
+    let is_inf = matches!(
+        bound.cas_const(),
+        Some(CasConst::Infinity | CasConst::NegInfinity)
+    );
     if !is_inf {
         match substitute_cas(antideriv, var, bound) {
             Ok(v) if !v.is_cas_expr() => return Ok(v),
@@ -91,7 +92,7 @@ fn evaluate_at_bound(antideriv: &Value, var: &Value, bound: &Value) -> WqResult<
 
 type IntegrateStrategy = fn(&Value, &str) -> WqResult<Option<Value>>;
 
-// IMPORTANT — strategy ordering and recursion safety:
+// IMPORTANT -- strategy ordering and recursion safety:
 //
 // Each strategy is tried in order for every symbolic sub-expression. Strategies
 // that call `integrate_expr_with_depth` internally (substitution, byparts)
@@ -730,7 +731,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_x_plus_1() {
-        // ∫ 1/(x+1) dx = ln|x+1|
+        // int 1/(x+1) dx = ln|x+1|
         let expr = op(
             CasOp::Power,
             vec![
@@ -749,7 +750,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_x_plus_1_squared() {
-        // ∫ 1/(x+1)^2 dx = -1/(x+1)
+        // int 1/(x+1)^2 dx = -1/(x+1)
         let expr = op(
             CasOp::Power,
             vec![
@@ -764,7 +765,7 @@ mod tests {
 
     #[test]
     fn integrate_x_over_x2_plus_1() {
-        // ∫ x/(x^2+1) dx = ln|x^2+1|/2
+        // int x/(x^2+1) dx = ln|x^2+1|/2
         let denom = op(
             CasOp::Add,
             vec![
@@ -787,7 +788,7 @@ mod tests {
 
     #[test]
     fn integrate_polynomial_over_linear() {
-        // ∫ (x^2+1)/(x+1) dx = x^2/2 - x + 2*ln|x+1|
+        // int (x^2+1)/(x+1) dx = x^2/2 - x + 2*ln|x+1|
         let numer = op(
             CasOp::Add,
             vec![
@@ -808,7 +809,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_x2_plus_x_plus_1() {
-        // ∫ 1/(x^2+x+1) dx → arctan form
+        // int 1/(x^2+x+1) dx -> arctan form
         let denom = op(
             CasOp::Add,
             vec![
@@ -826,7 +827,7 @@ mod tests {
 
     #[test]
     fn integrate_rational_repeated_linear_factor() {
-        // ∫ (x+1)/(x-1)^3 dx
+        // int (x+1)/(x-1)^3 dx
         let numer = op(CasOp::Add, vec![Value::from_cas_var("x"), Value::Int(1)]);
         let denom = op(
             CasOp::Power,
@@ -846,7 +847,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_x3_plus_x() {
-        // ∫ 1/(x^3+x) dx = ∫ 1/(x(x^2+1)) dx
+        // int 1/(x^3+x) dx = int 1/(x(x^2+1)) dx
         // = ln|x| - ln|x^2+1|/2
         let denom = op(
             CasOp::Add,
@@ -864,7 +865,7 @@ mod tests {
 
     #[test]
     fn integrate_pure_polynomial() {
-        // ∫ (x^3 + 2x) dx = x^4/4 + x^2
+        // int (x^3 + 2x) dx = x^4/4 + x^2
         let expr = op(
             CasOp::Add,
             vec![
@@ -883,7 +884,7 @@ mod tests {
 
     #[test]
     fn integrate_rational_with_coeff() {
-        // ∫ (3x^2 + 2x)/(x+1) dx
+        // int (3x^2 + 2x)/(x+1) dx
         let numer = op(
             CasOp::Add,
             vec![
@@ -913,7 +914,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_x2_minus_4() {
-        // ∫ 1/(x^2-4) dx = 1/4 * ln|(x-2)/(x+2)|
+        // int 1/(x^2-4) dx = 1/4 * ln|(x-2)/(x+2)|
         let denom = op(
             CasOp::Add,
             vec![
@@ -932,7 +933,7 @@ mod tests {
 
     #[test]
     fn integrate_sin_cubed() {
-        // ∫ sin³(x) dx = -cos(x) + cos³(x)/3
+        // int sin^3(x) dx = -cos(x) + cos^3(x)/3
         let expr = op(
             CasOp::Power,
             vec![
@@ -948,7 +949,7 @@ mod tests {
 
     #[test]
     fn integrate_sin_squared() {
-        // ∫ sin²(x) dx = x/2 - sin(2x)/4
+        // int sin^2(x) dx = x/2 - sin(2x)/4
         let expr = op(
             CasOp::Power,
             vec![
@@ -967,7 +968,7 @@ mod tests {
 
     #[test]
     fn integrate_cos_cubed() {
-        // ∫ cos³(x) dx = sin(x) - sin³(x)/3
+        // int cos^3(x) dx = sin(x) - sin^3(x)/3
         let expr = op(
             CasOp::Power,
             vec![
@@ -983,7 +984,7 @@ mod tests {
 
     #[test]
     fn integrate_cos_squared() {
-        // ∫ cos²(x) dx = x/2 + sin(2x)/4
+        // int cos^2(x) dx = x/2 + sin(2x)/4
         let expr = op(
             CasOp::Power,
             vec![
@@ -998,8 +999,8 @@ mod tests {
 
     #[test]
     fn integrate_sin_cos_product_odd_sin() {
-        // ∫ sin³(x)·(x) dx... actually test sin²(x)·cos³(x)
-        // Wait, sin^3*cos^2: m=3 odd, n=2 → use u=cos(x) substitution
+        // int sin^3(x)*(x) dx... actually test sin^2(x)*cos^3(x)
+        // Wait, sin^3*cos^2: m=3 odd, n=2 -> use u=cos(x) substitution
         let sin3 = op(
             CasOp::Power,
             vec![
@@ -1022,7 +1023,7 @@ mod tests {
 
     #[test]
     fn integrate_tan_cubed() {
-        // ∫ tan³(x) dx = tan²(x)/2 + ln|cos(x)|
+        // int tan^3(x) dx = tan^2(x)/2 + ln|cos(x)|
         let expr = op(
             CasOp::Power,
             vec![
@@ -1041,7 +1042,7 @@ mod tests {
 
     #[test]
     fn integrate_tan_squared() {
-        // ∫ tan²(x) dx = tan(x) - x
+        // int tan^2(x) dx = tan(x) - x
         let expr = op(
             CasOp::Power,
             vec![
@@ -1056,7 +1057,7 @@ mod tests {
 
     #[test]
     fn integrate_sin2x_cos3x() {
-        // ∫ sin(2x)·cos(3x) dx = 1/2 ∫ (sin(5x) + sin(-x)) dx
+        // int sin(2x)*cos(3x) dx = 1/2 int (sin(5x) + sin(-x)) dx
         // = -cos(5x)/10 + cos(x)/2
         let sin_2x = call(
             CasFunction::Sin,
@@ -1078,11 +1079,11 @@ mod tests {
         assert!(!s.contains("unsupported"), "got unsupported: {s}");
     }
 
-    // -- exponential × polynomial integration tests --
+    // -- exponential * polynomial integration tests --
 
     #[test]
     fn integrate_exp_poly_x_times_exp_x() {
-        // Verify exp_poly handles the classic x·eˣ case
+        // Verify exp_poly handles the classic x*e^x case
         let expr = op(
             CasOp::Multiply,
             vec![
@@ -1098,7 +1099,7 @@ mod tests {
 
     #[test]
     fn integrate_x_squared_exp_x() {
-        // ∫ x²·eˣ dx = eˣ·(x² - 2x + 2)
+        // int x^2*e^x dx = e^x*(x^2 - 2x + 2)
         let expr = op(
             CasOp::Multiply,
             vec![
@@ -1114,7 +1115,7 @@ mod tests {
 
     #[test]
     fn integrate_poly_times_exp_2x() {
-        // ∫ (x²+1)·e^(2x) dx
+        // int (x^2+1)*e^(2x) dx
         let poly = op(
             CasOp::Add,
             vec![
@@ -1138,7 +1139,7 @@ mod tests {
 
     #[test]
     fn integrate_x_times_exp_3x() {
-        // ∫ x·e^(3x) dx = e^(3x)·(x/3 - 1/9)
+        // int x*e^(3x) dx = e^(3x)*(x/3 - 1/9)
         let expr = op(
             CasOp::Multiply,
             vec![
@@ -1160,7 +1161,7 @@ mod tests {
 
     #[test]
     fn integrate_x_cubed_exp_x() {
-        // ∫ x³·eˣ dx = eˣ·(x³ - 3x² + 6x - 6)
+        // int x^3*e^x dx = e^x*(x^3 - 3x^2 + 6x - 6)
         let expr = op(
             CasOp::Multiply,
             vec![
@@ -1177,7 +1178,7 @@ mod tests {
 
     #[test]
     fn integrate_sin_2x() {
-        // ∫ sin(2x) dx = -cos(2x)/2  (already handled by table, but verify)
+        // int sin(2x) dx = -cos(2x)/2  (already handled by table, but verify)
         let expr = call(
             CasFunction::Sin,
             vec![op(
@@ -1193,7 +1194,7 @@ mod tests {
 
     #[test]
     fn integrate_sin_cubed_2x() {
-        // ∫ sin³(2x) dx
+        // int sin^3(2x) dx
         let inner = op(
             CasOp::Multiply,
             vec![Value::Int(2), Value::from_cas_var("x")],
@@ -1210,7 +1211,7 @@ mod tests {
 
     #[test]
     fn integrate_cos_squared_3x() {
-        // ∫ cos²(3x) dx
+        // int cos^2(3x) dx
         let inner = op(
             CasOp::Multiply,
             vec![Value::Int(3), Value::from_cas_var("x")],
@@ -1226,7 +1227,7 @@ mod tests {
 
     #[test]
     fn integrate_sin_2x_plus_1() {
-        // ∫ sin(2x+1) dx = -cos(2x+1)/2
+        // int sin(2x+1) dx = -cos(2x+1)/2
         let inner = op(
             CasOp::Add,
             vec![
@@ -1248,7 +1249,7 @@ mod tests {
 
     #[test]
     fn integrate_sec_squared() {
-        // ∫ sec²(x) dx = tan(x)
+        // int sec^2(x) dx = tan(x)
         let expr = op(
             CasOp::Power,
             vec![
@@ -1264,7 +1265,7 @@ mod tests {
 
     #[test]
     fn integrate_csc_squared() {
-        // ∫ csc²(x) dx = -cot(x)
+        // int csc^2(x) dx = -cot(x)
         let expr = op(
             CasOp::Power,
             vec![
@@ -1280,7 +1281,7 @@ mod tests {
 
     #[test]
     fn integrate_cot_squared() {
-        // ∫ cot²(x) dx = -cot(x) - x
+        // int cot^2(x) dx = -cot(x) - x
         let expr = op(
             CasOp::Power,
             vec![
@@ -1295,7 +1296,7 @@ mod tests {
 
     #[test]
     fn integrate_sec_cubed() {
-        // ∫ sec³(x) dx
+        // int sec^3(x) dx
         let expr = op(
             CasOp::Power,
             vec![
@@ -1310,7 +1311,7 @@ mod tests {
 
     #[test]
     fn integrate_cot_reduction() {
-        // ∫ cot(x) dx = ln|sin(x)| — verify reduction path
+        // int cot(x) dx = ln|sin(x)| -- verify reduction path
         let expr = call(CasFunction::Cot, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         let s = result.to_string();
@@ -1322,7 +1323,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_x3_plus_x_plus_1() {
-        // ∫ 1/(x³+x+1) dx — irreducible cubic, now handled via Cardano's formula.
+        // int 1/(x^3+x+1) dx -- irreducible cubic, now handled via Cardano's formula.
         let denom = op(
             CasOp::Add,
             vec![
@@ -1342,11 +1343,11 @@ mod tests {
 
     #[test]
     fn integrate_one_over_x3_minus_2() {
-        // ∫ 1/(x³-2) dx — denominator has one real and two complex roots.
-        // Partial fractions: A/(x-∛2) + (Bx+C)/(x²+∛2·x+∛4)
+        // int 1/(x^3-2) dx -- denominator has one real and two complex roots.
+        // Partial fractions: A/(x-cbrt(2)) + (Bx+C)/(x^2+cbrt(2)*x+cbrt(4))
         // Result should have:
-        //   - a ln term from the linear factor (x-∛2)
-        //   - a ln term from the quadratic factor (x²+∛2·x+∛4) because B ≠ 0
+        //   - a ln term from the linear factor (x-cbrt(2))
+        //   - a ln term from the quadratic factor (x^2+cbrt(2)*x+cbrt(4)) because B != 0
         //   - an arctan term from the quadratic factor
         let denom = op(
             CasOp::Add,
@@ -1370,7 +1371,7 @@ mod tests {
 
     #[test]
     fn integrate_poly_over_irreducible_cubic() {
-        // ∫ (3x²+1)/(x³+x+1) dx — N = D', the derivative case, ∫ D'/D = ln|D|
+        // int (3x^2+1)/(x^3+x+1) dx -- N = D', the derivative case, int D'/D = ln|D|
         // This should be handled before reaching RT (table / substitution)
         let numer = op(
             CasOp::Add,
@@ -1407,7 +1408,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_sqrt_x2_plus_1() {
-        // ∫ 1/sqrt(x²+1) dx = arcsinh(x)
+        // int 1/sqrt(x^2+1) dx = arcsinh(x)
         let inner = op(
             CasOp::Add,
             vec![
@@ -1427,7 +1428,7 @@ mod tests {
 
     #[test]
     fn integrate_sqrt_x2_plus_1() {
-        // ∫ sqrt(x²+1) dx = x/2·sqrt(x²+1) + 1/2·arcsinh(x)
+        // int sqrt(x^2+1) dx = x/2*sqrt(x^2+1) + 1/2*arcsinh(x)
         let inner = op(
             CasOp::Add,
             vec![
@@ -1447,7 +1448,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_sqrt_x2_minus_1() {
-        // ∫ 1/sqrt(x²-1) dx = arccosh(x)
+        // int 1/sqrt(x^2-1) dx = arccosh(x)
         let inner = op(
             CasOp::Add,
             vec![
@@ -1467,7 +1468,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_sqrt_1_minus_x2() {
-        // ∫ 1/sqrt(1-x²) dx = arcsin(x)
+        // int 1/sqrt(1-x^2) dx = arcsin(x)
         let inner = op(
             CasOp::Add,
             vec![
@@ -1493,7 +1494,7 @@ mod tests {
 
     #[test]
     fn integrate_x_sqrt_x2_plus_1() {
-        // ∫ x·sqrt(x²+1) dx = (x²+1)^(3/2)/3
+        // int x*sqrt(x^2+1) dx = (x^2+1)^(3/2)/3
         let sqrt_inner = op(
             CasOp::Add,
             vec![
@@ -1515,7 +1516,7 @@ mod tests {
 
     #[test]
     fn integrate_sqrt_2x2_plus_1() {
-        // ∫ √(2x²+1) dx
+        // int sqrt(2x^2+1) dx
         let inner = op(
             CasOp::Add,
             vec![
@@ -1537,7 +1538,7 @@ mod tests {
 
     #[test]
     fn integrate_sqrt_x2_plus_2x_plus_5() {
-        // ∫ √(x²+2x+5) dx — shifted quadratic
+        // int sqrt(x^2+2x+5) dx -- shifted quadratic
         let inner = op(
             CasOp::Add,
             vec![
@@ -1557,7 +1558,7 @@ mod tests {
 
     #[test]
     fn integrate_x2_sqrt_x2_plus_1() {
-        // ∫ x²·√(x²+1) dx — degree-2 polynomial times sqrt, triggers Euler
+        // int x^2*sqrt(x^2+1) dx -- degree-2 polynomial times sqrt, triggers Euler
         let sqrt_inner = op(
             CasOp::Add,
             vec![
@@ -1579,8 +1580,8 @@ mod tests {
 
     #[test]
     fn integrate_one_over_x_sqrt_x2_plus_1() {
-        // ∫ 1/(x·√(x²+1)) dx — Euler #2 (c=1 > 0)
-        // Substitution reduces to ∫ dt/t = ln|t|.  The formulas are correct
+        // int 1/(x*sqrt(x^2+1)) dx -- Euler #2 (c=1 > 0)
+        // Substitution reduces to int dt/t = ln|t|.  The formulas are correct
         // but the CAS simplifier currently can't fully flatten the nested
         // rational expression.  GCD cancellation is in place and works when
         // the expression tree is shallow enough.
@@ -1603,7 +1604,7 @@ mod tests {
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x"));
         // GCD cancellation is present but expression nesting is too deep.
-        // Known limitation — needs CAS simplification improvements.
+        // Known limitation -- needs CAS simplification improvements.
         assert!(
             result.is_err() || { !result.as_ref().unwrap().to_string().contains("unsupported") }
         );
@@ -1613,7 +1614,7 @@ mod tests {
 
     #[test]
     fn integrate_poly_times_exp_quadratic() {
-        // ∫ (2x+1)·e^(x²+x) dx = e^(x²+x)
+        // int (2x+1)*e^(x^2+x) dx = e^(x^2+x)
         let exp_arg = op(
             CasOp::Add,
             vec![
@@ -1643,11 +1644,11 @@ mod tests {
         assert!(s.contains("e^(x^2 + x)"), "expected exp: {s}");
     }
 
-    // -- Tabular integration & exp·trig direct formula tests --
+    // -- Tabular integration & exp*trig direct formula tests --
 
     #[test]
     fn integrate_exp_sin_direct() {
-        // ∫ e^x·sin x dx = e^x·(sin x - cos x)/2
+        // int e^x*sin x dx = e^x*(sin x - cos x)/2
         let expr = cas_mul(vec![
             call(CasFunction::Exp, vec![Value::from_cas_var("x")]),
             call(CasFunction::Sin, vec![Value::from_cas_var("x")]),
@@ -1659,7 +1660,7 @@ mod tests {
 
     #[test]
     fn integrate_exp_cos_direct() {
-        // ∫ e^x·cos x dx = e^x·(sin x + cos x)/2
+        // int e^x*cos x dx = e^x*(sin x + cos x)/2
         let expr = cas_mul(vec![
             call(CasFunction::Exp, vec![Value::from_cas_var("x")]),
             call(CasFunction::Cos, vec![Value::from_cas_var("x")]),
@@ -1671,7 +1672,7 @@ mod tests {
 
     #[test]
     fn integrate_x_exp_tabular() {
-        // ∫ x·e^x dx = e^x·(x - 1)
+        // int x*e^x dx = e^x*(x - 1)
         let expr = cas_mul(vec![
             Value::from_cas_var("x"),
             call(CasFunction::Exp, vec![Value::from_cas_var("x")]),
@@ -1683,7 +1684,7 @@ mod tests {
 
     #[test]
     fn integrate_x2_sin_tabular() {
-        // ∫ x^2·sin x dx = -x^2·cos x + 2x·sin x + 2·cos x
+        // int x^2*sin x dx = -x^2*cos x + 2x*sin x + 2*cos x
         let expr = cas_mul(vec![
             cas_pow(Value::from_cas_var("x"), Value::Int(2)).unwrap(),
             call(CasFunction::Sin, vec![Value::from_cas_var("x")]),
@@ -1695,7 +1696,7 @@ mod tests {
 
     #[test]
     fn integrate_x_cos_tabular() {
-        // ∫ x·cos x dx = x·sin x + cos x
+        // int x*cos x dx = x*sin x + cos x
         let expr = cas_mul(vec![
             Value::from_cas_var("x"),
             call(CasFunction::Cos, vec![Value::from_cas_var("x")]),
@@ -1707,7 +1708,7 @@ mod tests {
 
     #[test]
     fn integrate_exp_sin_linear_coeffs() {
-        // ∫ e^(2x)·sin(3x) dx = e^(2x)·(2·sin(3x) - 3·cos(3x))/13
+        // int e^(2x)*sin(3x) dx = e^(2x)*(2*sin(3x) - 3*cos(3x))/13
         let expr = cas_mul(vec![
             call(
                 CasFunction::Exp,
@@ -1745,11 +1746,11 @@ mod tests {
         assert!(s.contains("ei[x]") && s.contains("e^x"), "unexpected: {s}");
     }
 
-    // ── definite integrals ──
+    // -- definite integrals --
 
     #[test]
     fn definite_polynomial() {
-        // ∫_0^1 x dx = 1/2
+        // int_0^1 x dx = 1/2
         let result = definite_integrate_cas(
             &Value::from_cas_var("x"),
             &Value::from_cas_var("x"),
@@ -1765,7 +1766,7 @@ mod tests {
 
     #[test]
     fn definite_x_squared() {
-        // ∫_0^2 x² dx = 8/3
+        // int_0^2 x^2 dx = 8/3
         let expr = op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]);
         let result = definite_integrate_cas(
             &expr,
@@ -1782,13 +1783,13 @@ mod tests {
 
     #[test]
     fn definite_sin() {
-        // ∫_0^π sin(x) dx = 2
+        // int_0^pi sin(x) dx = 2
         let expr = call(CasFunction::Sin, vec![Value::from_cas_var("x")]);
         // Use float pi approximation for the bound
         let pi = Value::float(std::f64::consts::PI);
         let result =
             definite_integrate_cas(&expr, &Value::from_cas_var("x"), &Value::Int(0), &pi).unwrap();
-        // cos(π) = -1, cos(0) = 1, so -(cos(π) - cos(0)) = -(-1 - 1) = 2
+        // cos(pi) = -1, cos(0) = 1, so -(cos(pi) - cos(0)) = -(-1 - 1) = 2
         // But the result is Float due to float bound
         let f = result.as_f64().unwrap();
         assert!((f - 2.0).abs() < 1e-10, "expected ~2, got {f}");
@@ -1796,7 +1797,7 @@ mod tests {
 
     #[test]
     fn definite_one_over_x() {
-        // ∫_1^2 1/x dx = ln(2)
+        // int_1^2 1/x dx = ln(2)
         let expr = op(CasOp::Divide, vec![Value::Int(1), Value::from_cas_var("x")]);
         let result = definite_integrate_cas(
             &expr,
@@ -1805,13 +1806,13 @@ mod tests {
             &Value::Int(2),
         )
         .unwrap();
-        // ln stays symbolic now — result is ln[2]
+        // ln stays symbolic now -- result is ln[2]
         assert_eq!(result.to_string(), "ln[2]");
     }
 
     #[test]
     fn definite_exp() {
-        // ∫_0^1 e^x dx = e - 1
+        // int_0^1 e^x dx = e - 1
         let expr = call(CasFunction::Exp, vec![Value::from_cas_var("x")]);
         let result = definite_integrate_cas(
             &expr,
@@ -1829,7 +1830,7 @@ mod tests {
 
     #[test]
     fn integrate_sqrt_x3_plus_1() {
-        // ∫ √(x³+1) dx → algebraic part + ellik
+        // int sqrt(x^3+1) dx -> algebraic part + ellik
         let expr = call(
             CasFunction::Sqrt,
             vec![op(
@@ -1854,7 +1855,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_sqrt_x3_plus_1() {
-        // ∫ 1/√(x³+1) dx → ellik
+        // int 1/sqrt(x^3+1) dx -> ellik
         let inner = op(
             CasOp::Add,
             vec![
@@ -1875,7 +1876,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_sqrt_shifted_scaled_cubic() {
-        // ∫ dx/√((2x+1)³+1) reduces through u = x + 1/2.
+        // int dx/sqrt((2x+1)^3+1) reduces through u = x + 1/2.
         let x = Value::from_cas_var("x");
         let two_x = cas_mul(vec![Value::Int(2), x]).expect("2*x");
         let affine = cas_add(vec![two_x, Value::Int(1)]).expect("affine expression");
@@ -1897,7 +1898,7 @@ mod tests {
 
     #[test]
     fn integrate_sqrt_shifted_scaled_cubic() {
-        // ∫ √((2x+1)³+1) dx keeps the algebraic part and elliptic correction.
+        // int sqrt((2x+1)^3+1) dx keeps the algebraic part and elliptic correction.
         let x = Value::from_cas_var("x");
         let two_x = cas_mul(vec![Value::Int(2), x]).expect("2*x");
         let affine = cas_add(vec![two_x, Value::Int(1)]).expect("affine expression");
