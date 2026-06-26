@@ -47,7 +47,7 @@
     - An exception is dead code that won't be used anymore, where you are allowed to use `#[allow(...)]` instead of removing it
   - If you can't pass clippy by fixing code for any reason, ask the user whether it's fine to use `#[allow(...)]`
   - If passing clippy requires a large-scope edit, pause and ask the user.
-- Do not run formatting commands.
+- format command: `cargo +nightly fmt`
 - If you changed wq lexer/grammar, also update `wq-ts/grammar.js` and verify it with `tree-sitter generate` and a new corpse test
 - Delevopment should be test-driven. Choose between unit tests and snapshot tests depending on situation.
   - Integration/snapshot tests use `hotchoco.py`.
