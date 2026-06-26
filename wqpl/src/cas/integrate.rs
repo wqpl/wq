@@ -40,8 +40,9 @@ pub(crate) fn integrate_cas(expr: &Value, var: &Value) -> WqResult<Value> {
     })
 }
 
-/// Evaluate a definite integral from lower to upper of expr d(var) via the Fundamental
-/// Theorem of Calculus: F(upper) - F(lower), where F is the antiderivative.
+/// Evaluate a definite integral from lower to upper of expr d(var) via the
+/// Fundamental Theorem of Calculus: F(upper) - F(lower), where F is the
+/// antiderivative.
 ///
 /// When one of the bounds is `inf` or `-inf`, or a bound lies at a singularity
 /// of F, a one-sided limit is used to evaluate F at that bound.
@@ -1347,7 +1348,8 @@ mod tests {
         // Partial fractions: A/(x-cbrt(2)) + (Bx+C)/(x^2+cbrt(2)*x+cbrt(4))
         // Result should have:
         //   - a ln term from the linear factor (x-cbrt(2))
-        //   - a ln term from the quadratic factor (x^2+cbrt(2)*x+cbrt(4)) because B != 0
+        //   - a ln term from the quadratic factor (x^2+cbrt(2)*x+cbrt(4)) because B !=
+        //     0
         //   - an arctan term from the quadratic factor
         let denom = op(
             CasOp::Add,

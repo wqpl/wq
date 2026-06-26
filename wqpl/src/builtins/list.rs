@@ -1125,8 +1125,8 @@ mod tests {
             Value::BoolList(Arc::new(vec![false, true, false])),
             Value::BoolList(Arc::new(vec![false, false, true])),
         ]));
-        let res = wq_where(BuiltinFnArgs::from(mat))
-            .expect("where should accept nested list<bool> rows");
+        let res =
+            wq_where(BuiltinFnArgs::from(mat)).expect("where should accept nested list<bool> rows");
         assert_eq!(
             res,
             Value::List(Arc::new(vec![

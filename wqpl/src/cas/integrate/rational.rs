@@ -6,9 +6,9 @@ use num_traits::{One, ToPrimitive, Zero};
 use crate::cas::{
     cas_add, cas_div, cas_err, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div,
     numeric_add, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
-    poly_add, poly_degree, poly_derivative, poly_divide, poly_evaluate, poly_from_expr, poly_gcd,
-    poly_const_mul, poly_interpolate, poly_is_zero, poly_mul, poly_neg, poly_resultant, poly_sub,
-    poly_to_expr, poly_trim, simplify_cas_value,
+    poly_add, poly_const_mul, poly_degree, poly_derivative, poly_divide, poly_evaluate,
+    poly_from_expr, poly_gcd, poly_interpolate, poly_is_zero, poly_mul, poly_neg, poly_resultant,
+    poly_sub, poly_to_expr, poly_trim, simplify_cas_value,
 };
 use crate::value::algebraic::{AlgebraicData, AlgebraicField};
 use crate::value::cas::{CasFunction, CasOp};
@@ -568,7 +568,8 @@ fn integrate_proper_rational(
 /// Rothstein-Trager method.
 ///
 /// Computes R(z) = resultant_x(D(x), N(x) - z*D'(x)), finds its rational
-/// and real algebraic roots alpha, and returns sum alpha*ln(gcd(D, N - alpha*D')).
+/// and real algebraic roots alpha, and returns sum alpha*ln(gcd(D, N -
+/// alpha*D')).
 fn integrate_rothstein_trager(numer: &[Value], denom: &[Value], var: &str) -> WqResult<Value> {
     let deg_d = poly_degree(denom);
     if deg_d == 0 {
@@ -679,8 +680,9 @@ fn integrate_rothstein_trager(numer: &[Value], denom: &[Value], var: &str) -> Wq
 /// coefficients: int 1/(x^2 + px + q) dx = (2/r)*arctan((2x+p)/r) where
 /// r = sqrt(4q-p^2) when 4q-p^2 > 0 (complex conjugate roots -> arctan).
 /// Compute the numerator for the remaining denominator factor after extracting
-/// Rothstein-Trager log terms. Subtracts the derivative of sum alpha*ln(V_alpha) from the
-/// original rational function N/D, then divides by accumulated_gcd.
+/// Rothstein-Trager log terms. Subtracts the derivative of sum
+/// alpha*ln(V_alpha) from the original rational function N/D, then divides by
+/// accumulated_gcd.
 fn compute_remaining_numer(
     numer: &[Value],
     denom: &[Value],
@@ -1967,9 +1969,7 @@ fn negated_value(value: &Value) -> Option<Value> {
         let mut positive = Vec::with_capacity(args.len());
         let mut stripped_sign = false;
         for arg in args {
-            if !stripped_sign
-                && let Some(positive_arg) = negated_value(arg)
-            {
+            if !stripped_sign && let Some(positive_arg) = negated_value(arg) {
                 positive.push(positive_arg);
                 stripped_sign = true;
             } else {
@@ -2164,8 +2164,8 @@ fn integrate_repeated_quadratic(
     }
 }
 
-/// Hermite reduction step: reduces int N / (F^m * rest) to P / F^(m-1) + int Q /
-/// (F^(m-1) * rest)
+/// Hermite reduction step: reduces int N / (F^m * rest) to P / F^(m-1) + int Q
+/// / (F^(m-1) * rest)
 ///
 /// Returns (rational_part_P_F^{m-1}, new_numer_Q, new_mult)
 fn hermite_reduce_one_step(
@@ -2548,10 +2548,7 @@ mod tests {
         let x_plus_1 = op(CasOp::Add, vec![x.clone(), Value::Int(1)]);
         let denom = op(
             CasOp::Multiply,
-            vec![
-                op(CasOp::Power, vec![x2_plus_1, Value::Int(2)]),
-                x_plus_1,
-            ],
+            vec![op(CasOp::Power, vec![x2_plus_1, Value::Int(2)]), x_plus_1],
         );
         let expr = op(CasOp::Power, vec![denom, Value::Int(-1)]);
 
@@ -2564,12 +2561,8 @@ mod tests {
 
         let derivative = diff_cas(&result, &Value::from_cas_var("x")).unwrap();
         let difference = cas_sub(derivative, expr).unwrap();
-        let at_two = substitute_cas(
-            &difference,
-            &Value::from_cas_var("x"),
-            &Value::Int(2),
-        )
-        .unwrap();
+        let at_two =
+            substitute_cas(&difference, &Value::from_cas_var("x"), &Value::Int(2)).unwrap();
         let numeric = eval_numeric_cas(&at_two).unwrap();
         let f = numeric
             .as_f64()

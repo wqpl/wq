@@ -7,8 +7,8 @@ use super::{MAX_DEPTH, integrate_expr_with_depth, split_off_numeric};
 use crate::cas::diff::diff_expr;
 use crate::cas::{
     cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, contains_cas_var,
-    extract_linear_coefficients, numeric_is_one, numeric_is_zero, poly_derivative,
-    poly_from_expr, poly_is_zero, poly_to_expr, simplify_cas_value,
+    extract_linear_coefficients, numeric_is_one, numeric_is_zero, poly_derivative, poly_from_expr,
+    poly_is_zero, poly_to_expr, simplify_cas_value,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};

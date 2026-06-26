@@ -205,10 +205,7 @@ fn render_span_snippet(
             before,
             paint(
                 span_text,
-                TextStyle::new()
-                    .fg(AnsiColor::Green)
-                    .bold()
-                    .underline(),
+                TextStyle::new().fg(AnsiColor::Green).bold().underline(),
                 color_mode,
             ),
             after,
@@ -267,7 +264,8 @@ impl WqError {
                 let cont = " ".repeat(prefix.chars().count());
                 let mut lines = note.lines();
                 if let Some(first) = lines.next() {
-                    writeln!(output, "{}{}", prefix, first).expect("writing to string must not fail");
+                    writeln!(output, "{}{}", prefix, first)
+                        .expect("writing to string must not fail");
                 }
                 for line in lines {
                     writeln!(output, "{}{}", cont, line).expect("writing to string must not fail");

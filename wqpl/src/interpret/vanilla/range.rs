@@ -129,8 +129,8 @@ mod tests {
 
     #[test]
     fn integer_range_stays_virtual_but_displays_as_list() {
-        let value = make_range(&Value::Int(1), &Value::Int(5), None, false)
-            .expect("valid integer range");
+        let value =
+            make_range(&Value::Int(1), &Value::Int(5), None, false).expect("valid integer range");
 
         assert!(matches!(value, Value::IntRange(_)));
         assert_eq!(value.to_string(), "(1;2;3;4)");

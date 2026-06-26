@@ -1107,12 +1107,10 @@ fn peek_context(host: &mut Vm, n: usize) {
         let hi_ln = if l + n <= total { l + n } else { total };
         for ln in lo_ln..=hi_ln {
             if ln == l {
-                wqstderr_println(
-                    wqdb_paint(
-                        &format!("{:>4} -> {}", ln, sf.line_snippet(ln).trim()),
-                        TextStyle::new().fg(AnsiColor::Green).bold(),
-                    ),
-                );
+                wqstderr_println(wqdb_paint(
+                    &format!("{:>4} -> {}", ln, sf.line_snippet(ln).trim()),
+                    TextStyle::new().fg(AnsiColor::Green).bold(),
+                ));
             } else {
                 wqstderr_println(format!("{:>4}    {}", ln, sf.line_snippet(ln).trim()));
             }

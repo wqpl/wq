@@ -160,7 +160,8 @@ fn try_liouville_poly_poly(f_expr: &Value, g_expr: &Value, var: &str) -> WqResul
 /// Let R(x) = r0 + r1*x + ... + rn*x^n where n = deg_r.
 /// Let G(x) = g0 + g1*x + ... + gm*x^m (m >= 0).
 ///
-/// R' + G*R = (r1 + 2r2*x + ... + n*rn*x^(n-1)) + (g0+g1*x+...)(r0+r1*x+...+rn*x^n)
+/// R' + G*R = (r1 + 2r2*x + ... + n*rn*x^(n-1)) +
+/// (g0+g1*x+...)(r0+r1*x+...+rn*x^n)
 ///
 /// This is an upper-triangular linear system when processing equations from
 /// highest degree down.  At t = m+j, the variable r_j first appears with
@@ -304,7 +305,8 @@ fn extract_rational_num_den(expr: &Value, var: &str) -> Option<(Vec<Value>, Vec<
     }
 }
 
-/// Handle int f(x)*e^(g(x)) dx where f is rational and g is linear (g' = k != 0).
+/// Handle int f(x)*e^(g(x)) dx where f is rational and g is linear (g' = k !=
+/// 0).
 fn try_liouville_rational(f_expr: &Value, g_expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let g_coeffs = match poly_from_expr(g_expr, var) {
         Ok(c) => c,
@@ -506,8 +508,8 @@ fn solve_poly_ode_general(
     Ok(p)
 }
 
-/// Handle int f(x)*e^(g(x)) dx where f = N/D is rational and g is polynomial (deg
-/// >= 2).
+/// Handle int f(x)*e^(g(x)) dx where f = N/D is rational and g is polynomial
+/// (deg >= 2).
 fn try_liouville_rational_general(
     f_expr: &Value,
     g_coeffs: &[Value],
@@ -1191,10 +1193,7 @@ mod tests {
             .unwrap();
         let s = simplify_cas_value(&result).unwrap().to_string();
         assert!(s.contains("ei"), "expected ei in result: {s}");
-        assert!(
-            s.contains("x^3"),
-            "expected x^3 in ei arg: {s}"
-        );
+        assert!(s.contains("x^3"), "expected x^3 in ei arg: {s}");
     }
 
     #[test]

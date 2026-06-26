@@ -288,7 +288,6 @@ impl<'a> ValueSeq<'a> {
     pub(crate) fn eq_values(&self, other: &Self) -> bool {
         self.len() == other.len() && self.values().zip(other.values()).all(|(x, y)| x == y)
     }
-
 }
 
 pub(crate) struct ValueSeqBuilder {
@@ -312,10 +311,7 @@ impl ValueSeqBuilder {
     }
 
     pub(crate) fn push(&mut self, value: Value) {
-        let state = std::mem::replace(
-            &mut self.state,
-            ValueSeqBuilderState::Empty { capacity: 0 },
-        );
+        let state = std::mem::replace(&mut self.state, ValueSeqBuilderState::Empty { capacity: 0 });
         self.state = match (state, value) {
             (ValueSeqBuilderState::Empty { capacity }, Value::Int(i)) => {
                 let mut items = Vec::with_capacity(capacity);
@@ -491,7 +487,10 @@ mod tests {
     fn list_storage_seq_expands_list_storage_but_excludes_strings() {
         let bools = Value::BoolList(Arc::new(vec![true, false]));
         let seq = ListStorageSeq::from_value(&bools).expect("list<bool> is list storage");
-        assert_eq!(seq.to_values_vec(), vec![Value::Bool(true), Value::Bool(false)]);
+        assert_eq!(
+            seq.to_values_vec(),
+            vec![Value::Bool(true), Value::Bool(false)]
+        );
 
         let ints = Value::IntRange(Arc::new(IntRangeData::new(2, 3, 3)));
         let seq = ListStorageSeq::from_value(&ints).expect("int-range is list storage");

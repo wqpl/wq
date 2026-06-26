@@ -197,8 +197,8 @@ pub(crate) fn poly_gcd(a: &[Value], b: &[Value]) -> WqResult<Vec<Value>> {
 /// Compute the resultant of two polynomials using the subresultant PRS
 /// algorithm.
 ///
-/// The resultant is a single value that vanishes iff the two polynomials share a
-/// common root.  Coefficients must be numeric; symbolic coefficients are not
+/// The resultant is a single value that vanishes iff the two polynomials share
+/// a common root.  Coefficients must be numeric; symbolic coefficients are not
 /// supported.
 pub(crate) fn poly_resultant(a: &[Value], b: &[Value]) -> WqResult<Value> {
     let mut a = a.to_vec();
@@ -610,7 +610,13 @@ mod tests {
 
         let gcd = poly_gcd(&[Value::Int(0)], &[Value::Int(-2), Value::Int(-2)]).unwrap();
         assert_eq!(gcd.len(), 2);
-        assert!(numeric_is_one(&gcd[0]), "expected monic constant term, got {gcd:?}");
-        assert!(numeric_is_one(&gcd[1]), "expected monic leading term, got {gcd:?}");
+        assert!(
+            numeric_is_one(&gcd[0]),
+            "expected monic constant term, got {gcd:?}"
+        );
+        assert!(
+            numeric_is_one(&gcd[1]),
+            "expected monic leading term, got {gcd:?}"
+        );
     }
 }

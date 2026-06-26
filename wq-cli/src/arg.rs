@@ -69,7 +69,10 @@ pub enum ExecSource {
 pub enum CliCommand {
     Repl,
     Script(PathBuf),
-    Markdown { path: PathBuf, no_pager: bool },
+    Markdown {
+        path: PathBuf,
+        no_pager: bool,
+    },
     Exec(ExecSource),
     Fmt {
         script: PathBuf,
@@ -209,7 +212,8 @@ enum Commands {
     /// Format a wq script.
     ///
     /// Reads a wq source file and emits a formatted version.
-    /// Supports newline-after-closing-delimiter, one-line-wizard, and wrap-only modes.
+    /// Supports newline-after-closing-delimiter, one-line-wizard, and wrap-only
+    /// modes.
     Fmt {
         /// Insert a newline after closing delimiters
         #[arg(long)]
@@ -460,12 +464,7 @@ where
         CliCommand::Repl
     };
 
-    if no_pager
-        && !matches!(
-            &cmd,
-            CliCommand::Markdown { .. } | CliCommand::Help { .. }
-        )
-    {
+    if no_pager && !matches!(&cmd, CliCommand::Markdown { .. } | CliCommand::Help { .. }) {
         let err = CliArgs::command().error(
             clap::error::ErrorKind::InvalidValue,
             "--no-pager only applies to Markdown files and `wq help`",
@@ -580,9 +579,17 @@ fn write_top_examples(out: &mut String) {
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", help_header("Examples"));
     let _ = writeln!(out, "  1. Run a script:");
-    let _ = writeln!(out, "     {wq} {}", help_color("script.wq", WqAnsiColor::Blue));
+    let _ = writeln!(
+        out,
+        "     {wq} {}",
+        help_color("script.wq", WqAnsiColor::Blue)
+    );
     let _ = writeln!(out, "  2. Evaluate inline code and print the result:");
-    let _ = writeln!(out, "     {wq} {}", help_color("exec '1+1' -p", WqAnsiColor::Blue));
+    let _ = writeln!(
+        out,
+        "     {wq} {}",
+        help_color("exec '1+1' -p", WqAnsiColor::Blue)
+    );
     let _ = writeln!(out, "  3. Inspect AST and instructions for inline code:");
     let _ = writeln!(
         out,
@@ -590,7 +597,11 @@ fn write_top_examples(out: &mut String) {
         help_color("exec '1+1' -d ast,inst -p", WqAnsiColor::Blue)
     );
     let _ = writeln!(out, "  4. Format a script:");
-    let _ = writeln!(out, "     {wq} {}", help_color("fmt script.wq", WqAnsiColor::Blue));
+    let _ = writeln!(
+        out,
+        "     {wq} {}",
+        help_color("fmt script.wq", WqAnsiColor::Blue)
+    );
     let _ = writeln!(out, "  5. Debug a script with wqdb:");
     let _ = writeln!(
         out,
@@ -598,7 +609,11 @@ fn write_top_examples(out: &mut String) {
         help_color("-w -o bt -o c script.wq", WqAnsiColor::Blue)
     );
     let _ = writeln!(out, "  6. Render a Markdown note:");
-    let _ = writeln!(out, "     {wq} {}", help_color("notes.wq.md", WqAnsiColor::Blue));
+    let _ = writeln!(
+        out,
+        "     {wq} {}",
+        help_color("notes.wq.md", WqAnsiColor::Blue)
+    );
     let _ = writeln!(out, "  7. Render a Markdown note without a pager:");
     let _ = writeln!(
         out,
@@ -611,7 +626,11 @@ fn write_exec_examples(out: &mut String) {
     let _ = writeln!(out);
     let _ = writeln!(out, "{}", help_header("Examples"));
     let _ = writeln!(out, "  1. Evaluate inline code:");
-    let _ = writeln!(out, "     {}", help_color("wq exec '1+1' -p", WqAnsiColor::Cyan));
+    let _ = writeln!(
+        out,
+        "     {}",
+        help_color("wq exec '1+1' -p", WqAnsiColor::Cyan)
+    );
     let _ = writeln!(out, "  2. Read code from stdin:");
     let _ = writeln!(
         out,

@@ -881,10 +881,11 @@ mod tests {
         let events = h.highlight(src);
 
         assert_eq!(reconstruct(&events, src), src);
-        assert!(events.iter().any(|event| matches!(
-            event,
-            HighlightEvent::HighlightStart(HighlightName::Meta)
-        )));
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, HighlightEvent::HighlightStart(HighlightName::Meta)))
+        );
     }
 
     #[test]

@@ -864,8 +864,7 @@ fn pow_dot_atoms(a: &Value, b: &Value) -> WqResult<Value> {
                 if base_n.is_zero() && exp_n.is_negative() {
                     return Err(zero_to_negative_power_err());
                 }
-                if let Some(exact) =
-                    exact_rational_fractional_pow(&base_n, &base_d, &exp_n, &exp_d)
+                if let Some(exact) = exact_rational_fractional_pow(&base_n, &base_d, &exp_n, &exp_d)
                 {
                     return Ok(exact);
                 }

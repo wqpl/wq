@@ -2,8 +2,8 @@
 //!
 //! This pass preserves source spelling and spacing except when inserting a
 //! newline after a semicolon separator. It is intentionally narrower than the
-//! full CST formatter: parse first, then only add line breaks at token positions
-//! that are valid separators in wq source.
+//! full CST formatter: parse first, then only add line breaks at token
+//! positions that are valid separators in wq source.
 
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
@@ -112,9 +112,14 @@ fn wrap_line(
         if pending_indent + src[current_start..line_end].width() <= width {
             break;
         }
-        let Some(breakpoint) =
-            choose_breakpoint(src, current_start, line_end, pending_indent, width, &line_breakpoints)
-        else {
+        let Some(breakpoint) = choose_breakpoint(
+            src,
+            current_start,
+            line_end,
+            pending_indent,
+            width,
+            &line_breakpoints,
+        ) else {
             break;
         };
         out.push_str(&src[current_start..breakpoint.pos]);

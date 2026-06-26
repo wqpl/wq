@@ -250,10 +250,7 @@ mod tests {
         let markdown = "- alpha beta gamma delta epsilon\n- short";
         let folded = fold_markdown(markdown, 16);
 
-        assert_eq!(
-            folded,
-            "- alpha beta\n  gamma delta\n  epsilon\n- short"
-        );
+        assert_eq!(folded, "- alpha beta\n  gamma delta\n  epsilon\n- short");
     }
 
     #[test]

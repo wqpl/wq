@@ -1,16 +1,22 @@
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity_named};
 use crate::session::stdio::wqstdout_println;
-use crate::value::display::{
-    TableFormatOptions, TableStyle, format_table_value_with_options,
-};
+use crate::value::display::{TableFormatOptions, TableStyle, format_table_value_with_options};
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(crate) fn show_table(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(BE::Showtable, [1], &args, super::super::SHOWTABLE_NAMED_ARGS)?;
+    check_arity_named(
+        BE::Showtable,
+        [1],
+        &args,
+        super::super::SHOWTABLE_NAMED_ARGS,
+    )?;
     let opts = parse_table_options(&args)?;
-    let formatted = format_table_value_with_options(&args[0], &opts)
-        .map_err(|msg| WqError::new(WqErrorType::Domain).src(BE::Showtable).msg(msg))?;
+    let formatted = format_table_value_with_options(&args[0], &opts).map_err(|msg| {
+        WqError::new(WqErrorType::Domain)
+            .src(BE::Showtable)
+            .msg(msg)
+    })?;
     if let Some(table) = formatted {
         wqstdout_println(table);
         return Ok(Value::unit());
@@ -99,9 +105,8 @@ mod tests {
 
     use indexmap::IndexMap;
 
-    use crate::value::display::format_table_value;
-
     use super::*;
+    use crate::value::display::format_table_value;
 
     #[test]
     fn formats_dict_of_atoms_as_single_row_table() {

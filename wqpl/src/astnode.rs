@@ -665,11 +665,7 @@ impl AstNode {
             ComparisonChain { first, rest, .. } => {
                 let mut children = vec![first.pretty_with_depth(depth + 1, src)];
                 for (op, node) in rest {
-                    children.push(pretty_leaf(
-                        binary_op_display(op),
-                        "",
-                        AnsiColor::White,
-                    ));
+                    children.push(pretty_leaf(binary_op_display(op), "", AnsiColor::White));
                     children.push(node.pretty_with_depth(depth + 1, src));
                 }
                 let head = format!("CMP-CHAIN{note}");
@@ -896,24 +892,19 @@ impl AstNode {
                                     name,
                                     default: None,
                                     ..
-                                } => {
-                                    pretty_leaf(
-                                        &format!("`{}", atom_ident(name)),
-                                        "",
-                                        AnsiColor::White,
-                                    )
-                                }
+                                } => pretty_leaf(
+                                    &format!("`{}", atom_ident(name)),
+                                    "",
+                                    AnsiColor::White,
+                                ),
                             })
                             .collect();
                         pretty_group(depth + 1, first.flat, rest, AnsiColor::White)
                     }
                     Some(_) => pretty_group(depth + 1, String::new(), vec![], AnsiColor::White),
-                    None => pretty_group(
-                        depth + 1,
-                        "implicit".to_string(),
-                        vec![],
-                        AnsiColor::White,
-                    ),
+                    None => {
+                        pretty_group(depth + 1, "implicit".to_string(), vec![], AnsiColor::White)
+                    }
                 };
                 let head = if *ref_capture {
                     format!("FN'{note}")

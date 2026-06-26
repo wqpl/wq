@@ -215,7 +215,10 @@ fn format_ragged_value(v: &Value) -> String {
         .map(|item| {
             if item.len() >= 2
                 && !item.is_string_like()
-                && matches!(item, Value::List(_) | Value::IntList(_) | Value::FloatList(_))
+                && matches!(
+                    item,
+                    Value::List(_) | Value::IntList(_) | Value::FloatList(_)
+                )
             {
                 format!("({})", format_compact(item))
             } else {
@@ -380,9 +383,12 @@ fn format_ragged_rows(v: &Value, options: BoxFormatOptions) -> Option<String> {
     };
     if rows.len() < 2
         || rows.iter().any(Value::is_string_like)
-        || !rows
-            .iter()
-            .any(|row| matches!(row, Value::List(_) | Value::IntList(_) | Value::FloatList(_)))
+        || !rows.iter().any(|row| {
+            matches!(
+                row,
+                Value::List(_) | Value::IntList(_) | Value::FloatList(_)
+            )
+        })
     {
         return None;
     }

@@ -290,10 +290,7 @@ pub fn format_span_snippet_with_color_mode(
         line_display.push_str(before_span);
         line_display.push_str(&paint(
             span_text,
-            TextStyle::new()
-                .fg(AnsiColor::Green)
-                .bold()
-                .underline(),
+            TextStyle::new().fg(AnsiColor::Green).bold().underline(),
             color_mode,
         ));
         line_display.push_str(after_span);
@@ -440,16 +437,11 @@ pub fn format_frame_with_color_mode(
                 let rel_start = span_start - line_start;
                 let rel_end = span_end - line_start;
                 out.push_str(&line_text[..rel_start]);
-                out.push_str(
-                    &paint(
-                        &line_text[rel_start..rel_end],
-                        TextStyle::new()
-                            .fg(AnsiColor::Green)
-                            .bold()
-                            .underline(),
-                        color_mode,
-                    ),
-                );
+                out.push_str(&paint(
+                    &line_text[rel_start..rel_end],
+                    TextStyle::new().fg(AnsiColor::Green).bold().underline(),
+                    color_mode,
+                ));
                 out.push_str(&line_text[rel_end..]);
             } else {
                 out.push_str(line_text);
@@ -460,13 +452,11 @@ pub fn format_frame_with_color_mode(
                 let pointer_width = sf.text[span_start..span_end].chars().count().max(1);
                 out.push_str(&gutter);
                 out.push_str("        ");
-                out.push_str(
-                    &paint(
-                        &format!("{}{}", " ".repeat(pointer_start), "~".repeat(pointer_width)),
-                        TextStyle::new().fg(AnsiColor::Green).bold(),
-                        color_mode,
-                    ),
-                );
+                out.push_str(&paint(
+                    &format!("{}{}", " ".repeat(pointer_start), "~".repeat(pointer_width)),
+                    TextStyle::new().fg(AnsiColor::Green).bold(),
+                    color_mode,
+                ));
                 out.push('\n');
             }
         }
@@ -511,8 +501,13 @@ mod tests {
             );
         }
 
-        let rendered =
-            format_frame_with_color_mode(&di, CodeLoc { chunk, pc: 1 }, "a", true, ColorMode::Always);
+        let rendered = format_frame_with_color_mode(
+            &di,
+            CodeLoc { chunk, pc: 1 },
+            "a",
+            true,
+            ColorMode::Always,
+        );
 
         assert!(rendered.contains("2 -> "), "frame was: {rendered}");
         assert!(rendered.contains("1/0"), "frame was: {rendered}");

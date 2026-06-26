@@ -1147,7 +1147,8 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
 
         // Cancel a common constant factor: if N is constant c != 0,1 and every
         // coefficient of D is divisible by c, cancel c from both sides.
-        // This handles cases like (fourth_root(2)^2/2) / (fourth_root(2)^2*(x^4/2 - 1)) -> 1/(x^4-2).
+        // This handles cases like (fourth_root(2)^2/2) / (fourth_root(2)^2*(x^4/2 - 1))
+        // -> 1/(x^4-2).
         if poly_degree(&n_common) == 0 && poly_degree(&d_common) >= 1 {
             let n_const = &n_common[0];
             if !numeric_is_one(n_const) && !numeric_is_zero(n_const) {
@@ -1171,8 +1172,9 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
         }
 
         // Cancel a common polynomial factor via poly_gcd.  This handles cases
-        // like (4x^2+4*cbrt(2)*x+4*cbrt(2)^2) / (4x^5+...-8*cbrt(2)^2) -> 1/(x^3-2) where numerator
-        // and denominator share a non-trivial polynomial factor.
+        // like (4x^2+4*cbrt(2)*x+4*cbrt(2)^2) / (4x^5+...-8*cbrt(2)^2) -> 1/(x^3-2)
+        // where numerator and denominator share a non-trivial polynomial
+        // factor.
         if poly_degree(&n_common) >= 1 && poly_degree(&d_common) >= 1 {
             let g = poly_gcd(&n_common, &d_common)?;
             if poly_degree(&g) >= 1 {
@@ -1510,7 +1512,8 @@ pub(crate) fn cas_mul(args: Vec<Value>) -> WqResult<Value> {
     }
 
     // Fold algebraic factors that share the same field into the numeric
-    // coefficient so that e.g. (-36*alpha^2) * (108*alpha^2)^(-1) simplifies to -1/3.
+    // coefficient so that e.g. (-36*alpha^2) * (108*alpha^2)^(-1) simplifies to
+    // -1/3.
     if let Some(num) = numeric.clone()
         && let Value::Algebraic(num_a) = &num
     {
@@ -1892,7 +1895,8 @@ fn try_normalize_algebraic(value: &Value) -> Option<Value> {
 }
 
 pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
-    // Normalize algebraic field before processing (e.g. Q(cbrt(1/108)) -> Q(cbrt(2)))
+    // Normalize algebraic field before processing (e.g. Q(cbrt(1/108)) ->
+    // Q(cbrt(2)))
     if let Some(normalized) = try_normalize_algebraic(value) {
         return Ok(normalized);
     }

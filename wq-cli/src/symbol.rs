@@ -60,7 +60,10 @@ fn print_symbol_result(src: &str, result: &wqpl::symbol::SymbolQueryResult) {
     let ref_capture_note = if ref_capture_count == 0 {
         String::new()
     } else {
-        format!("  {}", symbol_emphasis(&format!("ref captures: {ref_capture_count}")))
+        format!(
+            "  {}",
+            symbol_emphasis(&format!("ref captures: {ref_capture_count}"))
+        )
     };
     match result.def_span {
         Some((start, _)) => {

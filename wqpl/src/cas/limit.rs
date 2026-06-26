@@ -155,8 +155,8 @@ fn try_direct_substitution(expr: &Value, var: &Value, point: &Value) -> WqResult
 
 /// Strategy 2: L'Hopital's rule.
 ///
-/// When the expression is a quotient f/g where both f and g -> 0 (or both -> inf)
-/// at the limit point, differentiate numerator and denominator and retry.
+/// When the expression is a quotient f/g where both f and g -> 0 (or both ->
+/// inf) at the limit point, differentiate numerator and denominator and retry.
 fn try_lhopital(
     expr: &Value,
     var: &Value,
@@ -636,7 +636,8 @@ fn has_exp_decay(args: &[Value], var_name: &str) -> bool {
 /// Handle limit of exp(arg) as var -> +/-inf.
 fn limit_exp_at_infinity(arg: &Value, var_name: &str, sign: i32) -> WqResult<Option<Value>> {
     // exp(-x) -> 0 as x->inf, exp(x) -> inf as x->inf
-    // Look for linear arg: a*x + b. exp(a*x + b): a>0 -> inf as x->inf; a<0 -> 0 as x->inf
+    // Look for linear arg: a*x + b. exp(a*x + b): a>0 -> inf as x->inf; a<0 -> 0 as
+    // x->inf
     let (coeff, _) = extract_linear_coeff(arg, var_name);
     let a = coeff.as_f64().unwrap_or(0.0);
     if a == 0.0 {
@@ -1519,7 +1520,8 @@ mod tests {
 
     #[test]
     fn limit_x_over_exp_x_at_infinity() {
-        // limit(x/exp(x), x->inf) = 0 -- inf/inf L'Hopital via split_inf_times_zero_product.
+        // limit(x/exp(x), x->inf) = 0 -- inf/inf L'Hopital via
+        // split_inf_times_zero_product.
         let expr = cas_div_expr(cas_var("x"), call(CasFunction::Exp, vec![cas_var("x")]));
         let result = limit_cas(&expr, &cas_var("x"), &inf(), None).unwrap();
         assert_eq!(result, Value::Int(0));

@@ -204,13 +204,15 @@ fn integrate_sqrt_u3_plus_a(u: &Value, a: &Value) -> WqResult<Value> {
 ///
 /// For a = 1, using the Legendre reduction for a cubic with one real root:
 ///
-///   int dx/sqrt(x^3+1) = 3^(-1/4) * F(arccos((sqrt(3)-1-x)/(sqrt(3)+1+x)), (2+sqrt(3))/4)
+///   int dx/sqrt(x^3+1) = 3^(-1/4) * F(arccos((sqrt(3)-1-x)/(sqrt(3)+1+x)),
+/// (2+sqrt(3))/4)
 ///
 /// For general a, substitute u = a^(1/3)*z:
 ///   int du/sqrt(u^3+a) = a^(-1/6) * int dz/sqrt(z^3+1)
 ///
-/// So: int du/sqrt(u^3+a) = 3^(-1/4)*a^(-1/6) * F(arccos((sqrt(3)-1-z)/(sqrt(3)+1+z)), k^2)
-/// where z = u/a^(1/3), k^2 = (2+sqrt(3))/4.
+/// So: int du/sqrt(u^3+a) = 3^(-1/4)*a^(-1/6) *
+/// F(arccos((sqrt(3)-1-z)/(sqrt(3)+1+z)), k^2) where z = u/a^(1/3), k^2 =
+/// (2+sqrt(3))/4.
 fn integrate_one_over_sqrt_u3_plus_a(u: &Value, a: &Value) -> WqResult<Value> {
     let one = Value::Int(1);
     let two = Value::Int(2);

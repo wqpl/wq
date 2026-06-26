@@ -378,12 +378,10 @@ fn exec_options_from_named(args: &BuiltinFnArgs) -> WqResult<ExecOptions> {
         let mut pairs = Vec::with_capacity(env_map.len());
         for (ek, ev) in env_map.iter() {
             let key = ek.to_string();
-            let val = ev
-                .to_rust_string_with_note()
-                .map_err(|e| {
-                    exec_named_arg_error(e, "env", "a dict of string values")
-                        .attach_note(format!("at env key '{key}'"))
-                })?;
+            let val = ev.to_rust_string_with_note().map_err(|e| {
+                exec_named_arg_error(e, "env", "a dict of string values")
+                    .attach_note(format!("at env key '{key}'"))
+            })?;
             pairs.push((key, val));
         }
         opts.env = Some(pairs);

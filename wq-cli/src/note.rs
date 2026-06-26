@@ -332,8 +332,11 @@ pub(crate) fn render_terminal(md: &str) -> String {
                 } else {
                     "• ".to_string()
                 };
-                item_continuation_indent
-                    .push(format!("{}{}", indent, " ".repeat(marker.chars().count())));
+                item_continuation_indent.push(format!(
+                    "{}{}",
+                    indent,
+                    " ".repeat(marker.chars().count())
+                ));
                 out.push_str(&format!("{}{}", indent, note_dim(&marker)));
             }
             Event::End(TagEnd::Item) => {
@@ -586,12 +589,7 @@ mod tests {
 
     #[test]
     fn test_format_code_fence_wraps_long_wq_at_formatter_breaks() {
-        let out = format_code_fence_with_width(
-            "wq",
-            "f[(1;2;3;4;5;6;7;8;9;10)]",
-            None,
-            Some(12),
-        );
+        let out = format_code_fence_with_width("wq", "f[(1;2;3;4;5;6;7;8;9;10)]", None, Some(12));
 
         assert!(out.contains("| f[(1;2;3;4;\x1b[0m\n"), "got: {out:?}");
         assert!(out.contains("|     5;6;7;8;\x1b[0m\n"), "got: {out:?}");

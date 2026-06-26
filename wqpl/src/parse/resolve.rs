@@ -295,12 +295,14 @@ impl Resolver {
                 expr: Box::new(self.resolve_node(*expr)),
                 span,
             },
-            AstNode::Cat(items, span) => {
-                AstNode::Cat(items.into_iter().map(|n| self.resolve_node(n)).collect(), span)
-            }
-            AstNode::List(items, span) => {
-                AstNode::List(items.into_iter().map(|n| self.resolve_node(n)).collect(), span)
-            }
+            AstNode::Cat(items, span) => AstNode::Cat(
+                items.into_iter().map(|n| self.resolve_node(n)).collect(),
+                span,
+            ),
+            AstNode::List(items, span) => AstNode::List(
+                items.into_iter().map(|n| self.resolve_node(n)).collect(),
+                span,
+            ),
             AstNode::Dict(pairs, span) => AstNode::Dict(
                 pairs
                     .into_iter()
@@ -502,9 +504,10 @@ impl Resolver {
             }
             // AstNode::Assert(e) => AstNode::Assert(Box::new(self.resolve_node(*e))),
             AstNode::Try(e, span) => AstNode::Try(Box::new(self.resolve_node(*e)), span),
-            AstNode::Block(stmts, span) => {
-                AstNode::Block(stmts.into_iter().map(|s| self.resolve_node(s)).collect(), span)
-            }
+            AstNode::Block(stmts, span) => AstNode::Block(
+                stmts.into_iter().map(|s| self.resolve_node(s)).collect(),
+                span,
+            ),
             AstNode::BlockExpr(stmts, span) => AstNode::BlockExpr(
                 stmts.into_iter().map(|s| self.resolve_node(s)).collect(),
                 span,
@@ -746,11 +749,7 @@ impl Resolver {
                     name_span: *item_span,
                 });
             }
-            AstNode::Index {
-                object,
-                index,
-                ..
-            } => {
+            AstNode::Index { object, index, .. } => {
                 stmts.push(AstNode::IndexAssign {
                     object: object.clone(),
                     index: index.clone(),
@@ -910,11 +909,7 @@ impl Resolver {
                 span: *item_span,
                 name_span: *item_span,
             }],
-            AstNode::Index {
-                object,
-                index,
-                ..
-            } => vec![AstNode::IndexAssign {
+            AstNode::Index { object, index, .. } => vec![AstNode::IndexAssign {
                 object: object.clone(),
                 index: index.clone(),
                 op: aug_op,
@@ -1480,7 +1475,9 @@ impl Resolver {
 
     fn pipe_effect_rhs(effect: AstNode, input: AstNode, span: AstSpan) -> AstNode {
         match effect {
-            AstNode::Return(None, return_span) => AstNode::Return(Some(Box::new(input)), return_span),
+            AstNode::Return(None, return_span) => {
+                AstNode::Return(Some(Box::new(input)), return_span)
+            }
             effect => AstNode::PipeTap {
                 input: Box::new(input),
                 effect: Box::new(effect),

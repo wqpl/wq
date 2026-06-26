@@ -498,11 +498,7 @@ fn colorize_heat(text: &str, value: usize, max: usize, color_mode: ColorMode) ->
     }
     let share = pct(value, max);
     if share >= 66.0 {
-        paint(
-            text,
-            TextStyle::new().fg(AnsiColor::Red).bold(),
-            color_mode,
-        )
+        paint(text, TextStyle::new().fg(AnsiColor::Red).bold(), color_mode)
     } else if share >= 33.0 {
         paint(text, TextStyle::new().fg(AnsiColor::Yellow), color_mode)
     } else {

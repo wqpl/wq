@@ -493,7 +493,8 @@ fn euler3_integrate(
     sqrt_disc: &Value,
     var: &str,
 ) -> WqResult<Value> {
-    // Discriminant delta = b^2-4ac > 0.  Roots: alpha = (-b-sqrt(delta))/(2a), beta = (-b+sqrt(delta))/(2a)
+    // Discriminant delta = b^2-4ac > 0.  Roots: alpha = (-b-sqrt(delta))/(2a), beta
+    // = (-b+sqrt(delta))/(2a)
     let two = Value::Int(2);
     let neg_b = numeric_mul(b, &Value::Int(-1))?;
     let two_a = numeric_mul(&two, a)?;
@@ -1053,7 +1054,8 @@ fn integrate_poly_sqrt_linear(
     }
 
     // Now integrate: int Q(u) * u^(+/-1/2) / a du
-    // Each term: q_j/a * int u^(j +/- 1/2) du = q_j/a * u^(j +/- 1/2 + 1) / (j +/- 1/2 + 1)
+    // Each term: q_j/a * int u^(j +/- 1/2) du = q_j/a * u^(j +/- 1/2 + 1) / (j +/-
+    // 1/2 + 1)
     let mut result_terms: Vec<Value> = Vec::new();
     let half = Value::from_fraction_parts(1u64.into(), 2u64.into());
     let one = Value::Int(1);

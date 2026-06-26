@@ -4,12 +4,11 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 use unicode_segmentation::UnicodeSegmentation as _;
-use unicode_width::UnicodeWidthChar as _;
-use unicode_width::UnicodeWidthStr as _;
+use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
 use crate::astnode::binary_op_display;
-use crate::value::seq::ExactIntSeq;
 use crate::value::Value;
+use crate::value::seq::ExactIntSeq;
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -611,7 +610,12 @@ fn format_markdown_table(table: &PreparedTable) -> String {
     }
 
     let mut lines = Vec::with_capacity(rows.len() + 3);
-    lines.push(markdown_row(&headers, &widths, &table.numeric_columns, false));
+    lines.push(markdown_row(
+        &headers,
+        &widths,
+        &table.numeric_columns,
+        false,
+    ));
     let separator: Vec<String> = (0..ncols)
         .map(|idx| {
             let width = widths[idx].max(3);

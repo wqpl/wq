@@ -169,7 +169,9 @@ pub(super) fn member(args: BuiltinFnArgs) -> WqResult<Value> {
         return match &args[0] {
             Value::Int(n) => Ok(Value::Bool(rhs.contains(n))),
             Value::IntList(lhs) => Ok(Value::List(Arc::new(
-                lhs.iter().map(|item| Value::Bool(rhs.contains(item))).collect(),
+                lhs.iter()
+                    .map(|item| Value::Bool(rhs.contains(item)))
+                    .collect(),
             ))),
             lhs => Ok(member_result(
                 lhs,
@@ -332,14 +334,20 @@ pub(super) fn counts(args: BuiltinFnArgs) -> WqResult<Value> {
     if let Value::IntList(items) = &args[0] {
         let mut counts = IndexMap::<i64, i64>::new();
         for item in items.iter().copied() {
-            counts.entry(item).and_modify(|count| *count += 1).or_insert(1);
+            counts
+                .entry(item)
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
         }
         return Ok(count_int_pairs(counts));
     }
 
     let mut counts = IndexMap::<Value, i64>::new();
     for item in seq_items(&args[0]) {
-        counts.entry(item).and_modify(|count| *count += 1).or_insert(1);
+        counts
+            .entry(item)
+            .and_modify(|count| *count += 1)
+            .or_insert(1);
     }
     Ok(Value::List(Arc::new(
         counts
@@ -453,11 +461,7 @@ mod tests {
             Value::Int(2),
             Value::Int(3),
         ]));
-        let b_list = Value::List(Arc::new(vec![
-            Value::Int(3),
-            Value::Int(4),
-            Value::Int(1),
-        ]));
+        let b_list = Value::List(Arc::new(vec![Value::Int(3), Value::Int(4), Value::Int(1)]));
 
         assert_eq!(
             unique(BuiltinFnArgs::from(smallvec![a_int.clone()]))
@@ -468,20 +472,29 @@ mod tests {
         assert_eq!(
             union(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
                 .expect("list<int> union should succeed"),
-            union(BuiltinFnArgs::from(smallvec![a_list.clone(), b_list.clone()]))
-                .expect("list union should succeed")
+            union(BuiltinFnArgs::from(smallvec![
+                a_list.clone(),
+                b_list.clone()
+            ]))
+            .expect("list union should succeed")
         );
         assert_eq!(
             intersect(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
                 .expect("list<int> intersect should succeed"),
-            intersect(BuiltinFnArgs::from(smallvec![a_list.clone(), b_list.clone()]))
-                .expect("list intersect should succeed")
+            intersect(BuiltinFnArgs::from(smallvec![
+                a_list.clone(),
+                b_list.clone()
+            ]))
+            .expect("list intersect should succeed")
         );
         assert_eq!(
             without(BuiltinFnArgs::from(smallvec![a_int.clone(), b_int.clone()]))
                 .expect("list<int> without should succeed"),
-            without(BuiltinFnArgs::from(smallvec![a_list.clone(), b_list.clone()]))
-                .expect("list without should succeed")
+            without(BuiltinFnArgs::from(smallvec![
+                a_list.clone(),
+                b_list.clone()
+            ]))
+            .expect("list without should succeed")
         );
         assert_eq!(
             symdiff(BuiltinFnArgs::from(smallvec![a_int, b_int]))
@@ -536,9 +549,9 @@ mod tests {
     #[test]
     fn counts_intlist_uses_first_seen_order() {
         assert_eq!(
-            counts(BuiltinFnArgs::from(smallvec![Value::IntList(Arc::new(vec![
-                2, 1, 2, 3, 1, 2
-            ]))]))
+            counts(BuiltinFnArgs::from(smallvec![Value::IntList(Arc::new(
+                vec![2, 1, 2, 3, 1, 2]
+            ))]))
             .expect("counts should succeed"),
             Value::List(Arc::new(vec![
                 Value::List(Arc::new(vec![Value::Int(2), Value::Int(3)])),

@@ -27,8 +27,7 @@ use crate::wqdb::build::{
 };
 use crate::wqdb::data::DebugInfo;
 use crate::wqdb::{self};
-use crate::wqerror::WqError;
-use crate::wqerror::WqErrorType;
+use crate::wqerror::{WqError, WqErrorType};
 
 fn debug_header(text: &str) -> String {
     debug_header_with_color_mode(text, ColorMode::Auto)

@@ -1,8 +1,6 @@
 use std::env;
-use std::sync::{
-    LazyLock,
-    atomic::{AtomicU8, Ordering},
-};
+use std::sync::LazyLock;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 const COLOR_OVERRIDE_INHERIT: u8 = 0;
 const COLOR_OVERRIDE_OFF: u8 = 1;
@@ -230,8 +228,14 @@ mod tests {
     #[test]
     fn color_override_encoding_round_trips_without_global_mutation() {
         assert_eq!(decode_color_override(encode_color_override(None)), None);
-        assert_eq!(decode_color_override(encode_color_override(Some(false))), Some(false));
-        assert_eq!(decode_color_override(encode_color_override(Some(true))), Some(true));
+        assert_eq!(
+            decode_color_override(encode_color_override(Some(false))),
+            Some(false)
+        );
+        assert_eq!(
+            decode_color_override(encode_color_override(Some(true))),
+            Some(true)
+        );
         assert_eq!(decode_color_override(42), None);
     }
 
@@ -245,7 +249,10 @@ mod tests {
             resolve_color_env_override(Some(true), Some(false)),
             Some(false)
         );
-        assert_eq!(resolve_color_env_override(Some(true), Some(true)), Some(true));
+        assert_eq!(
+            resolve_color_env_override(Some(true), Some(true)),
+            Some(true)
+        );
     }
 
     #[test]

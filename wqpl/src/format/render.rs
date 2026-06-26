@@ -13,8 +13,9 @@
 //! The implementation is iterative (no recursion on the doc structure) so
 //! deeply nested documents do not blow the stack.
 
-use super::doc::Doc;
 use unicode_width::UnicodeWidthStr as _;
+
+use super::doc::Doc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {

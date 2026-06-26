@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::value::seq::ListStorageSeq;
 use crate::value::Value;
+use crate::value::seq::ListStorageSeq;
 
 impl Value {
     pub(crate) fn cat(self, other: Value) -> Value {
@@ -223,7 +223,10 @@ impl Value {
         }
 
         // All generic or packed list storage: pre-allocate a single List.
-        if values.iter().all(|v| ListStorageSeq::from_value(v).is_some()) {
+        if values
+            .iter()
+            .all(|v| ListStorageSeq::from_value(v).is_some())
+        {
             let total_len: usize = values.iter().map(|v| v.len()).sum();
             let mut res: Vec<Value> = Vec::with_capacity(total_len);
             for v in values {
@@ -256,9 +259,7 @@ impl Value {
                     out.extend(s.chars().map(Value::Char));
                 }
                 items if items.packed_int_seq().is_some() => {
-                    let items = items
-                        .packed_int_seq()
-                        .expect("checked packed int sequence");
+                    let items = items.packed_int_seq().expect("checked packed int sequence");
                     out.extend(items.iter().map(Value::Int));
                 }
                 Value::BoolList(items) => {

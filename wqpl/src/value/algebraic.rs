@@ -930,7 +930,8 @@ pub(crate) fn algebraic_mul(a: &AlgebraicData, b: &AlgebraicData) -> WqResult<Va
     AlgebraicData::value(a.field.clone(), rem)
 }
 
-/// Promote an Int, BigInt, or Fraction value into Q(alpha) as a constant element.
+/// Promote an Int, BigInt, or Fraction value into Q(alpha) as a constant
+/// element.
 pub(crate) fn promote_to_algebraic(value: &Value, field: &AlgebraicData) -> WqResult<Value> {
     if let Value::Algebraic(a) = value {
         if a.same_field(field) {
@@ -1102,8 +1103,8 @@ pub(crate) fn algebraic_pow(a: &AlgebraicData, n: i64) -> WqResult<Value> {
 /// Compute `a^(numer/denom)` for an algebraic number.
 ///
 /// Handles the common case where `a` is a single-term element `c*alpha^k` in a
-/// pure-power field Q(alpha) with alpha^deg = const. The general case falls back to
-/// a symbolic representation.
+/// pure-power field Q(alpha) with alpha^deg = const. The general case falls
+/// back to a symbolic representation.
 pub(crate) fn algebraic_rational_pow(
     a: &AlgebraicData,
     numer: &BigInt,
@@ -1360,10 +1361,10 @@ fn nth_root_bigint(n: &BigInt, q: u32) -> Option<BigInt> {
 /// Normalize a pure-power algebraic field to a canonical radical form.
 ///
 /// When the minimal polynomial is `c0 + c_deg*x^deg = 0` (only c0 and c_deg
-/// non-zero), the generator alpha satisfies alpha^deg = -c0/c_deg. This function
-/// extracts perfect deg-th powers from -c0/c_deg and re-expresses alpha as
-/// `scale * beta` where beta has minimal polynomial `x^deg - r = 0` with r being
-/// deg-th-power-free.
+/// non-zero), the generator alpha satisfies alpha^deg = -c0/c_deg. This
+/// function extracts perfect deg-th powers from -c0/c_deg and re-expresses
+/// alpha as `scale * beta` where beta has minimal polynomial `x^deg - r = 0`
+/// with r being deg-th-power-free.
 ///
 /// Example: alpha = cbrt(1/108) with poly `[1, 0, 0, -108]` normalizes to
 /// alpha = (1/6)*cbrt(2) with poly `[-2, 0, 0, 1]`.
@@ -2142,7 +2143,8 @@ mod tests {
 
     // -- P4: tower extension Q(sqrt(2), sqrt(3)) --
 
-    /// Build the tower Q(sqrt(2))(sqrt(3)): inner beta^2=2, outer alpha^2=3 with coeffs in Q(beta).
+    /// Build the tower Q(sqrt(2))(sqrt(3)): inner beta^2=2, outer alpha^2=3
+    /// with coeffs in Q(beta).
     fn make_tower_sqrt3_over_sqrt2() -> (AlgebraicData, AlgebraicData) {
         // Inner field: Q(sqrt(2)), beta^2 - 2 = 0, beta in (1, 2)
         let inner_sqrt2 = make_sqrt2();

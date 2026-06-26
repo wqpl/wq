@@ -486,8 +486,8 @@ where
 }
 
 /// Both operands are containers
-/// zip element-wise, with String decomposed into chars and Dict key-ordering preserved.
-///           Atom     List       IntList    String     Dict
+/// zip element-wise, with String decomposed into chars and Dict key-ordering
+/// preserved.           Atom     List       IntList    String     Dict
 /// Atom      op        bc → L     bc → L     bc → L     bc → D
 /// List      bc → L   zip → L    zip → L    zip → L    zip → D
 /// IntList   bc → L   zip → L    zip → L    zip → L    zip → D

@@ -60,11 +60,9 @@ fn main() {
                 exec::exec_cmd(&input, rtflags)
             })
         }
-        CliCommand::Script(path) => {
-            spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
-                exec::exec_script(&path, rtflags)
-            })
-        }
+        CliCommand::Script(path) => spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
+            exec::exec_script(&path, rtflags)
+        }),
         CliCommand::Markdown { path, no_pager } => {
             note::run_markdown(&path, no_pager);
             0

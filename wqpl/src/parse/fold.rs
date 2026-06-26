@@ -554,18 +554,24 @@ mod tests {
 
     #[test]
     fn folds_list_addition_to_int_list() {
-        let l1 = AstNode::List(vec![
-            AstNode::Literal(Value::Int(1), None),
-            AstNode::Literal(Value::Int(2), None),
-            AstNode::Literal(Value::Int(3), None),
-            AstNode::Literal(Value::Int(4), None),
-        ], None);
-        let l2 = AstNode::List(vec![
-            AstNode::Literal(Value::Int(3), None),
-            AstNode::Literal(Value::Int(4), None),
-            AstNode::Literal(Value::Int(5), None),
-            AstNode::Literal(Value::Int(6), None),
-        ], None);
+        let l1 = AstNode::List(
+            vec![
+                AstNode::Literal(Value::Int(1), None),
+                AstNode::Literal(Value::Int(2), None),
+                AstNode::Literal(Value::Int(3), None),
+                AstNode::Literal(Value::Int(4), None),
+            ],
+            None,
+        );
+        let l2 = AstNode::List(
+            vec![
+                AstNode::Literal(Value::Int(3), None),
+                AstNode::Literal(Value::Int(4), None),
+                AstNode::Literal(Value::Int(5), None),
+                AstNode::Literal(Value::Int(6), None),
+            ],
+            None,
+        );
         let ast = AstNode::BinaryOp {
             left: Box::new(l1),
             operator: BinaryOperator::Add,

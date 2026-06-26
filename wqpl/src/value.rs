@@ -492,8 +492,9 @@ mod tests {
 
     use std::hash::{Hash, Hasher};
 
-    use super::*;
     use indexmap::indexmap;
+
+    use super::*;
 
     fn test_builtin(name: &str, id: u16) -> Value {
         Value::builtin_function(name, id)

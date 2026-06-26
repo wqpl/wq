@@ -20,7 +20,10 @@ fn legacy_load_directive_loads_between_code_chunks() -> Result<()> {
     let stdout = String::from_utf8(output.stdout).context("stdout is utf8")?;
     let stderr = String::from_utf8(output.stderr).context("stderr is utf8")?;
     assert!(output.status.success(), "{stdout}{stderr}");
-    assert!(stdout.contains("42"), "unexpected output:\n{stdout}{stderr}");
+    assert!(
+        stdout.contains("42"),
+        "unexpected output:\n{stdout}{stderr}"
+    );
     Ok(())
 }
 

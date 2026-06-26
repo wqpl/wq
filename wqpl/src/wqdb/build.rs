@@ -437,7 +437,13 @@ pub(crate) fn register_function_chunks(
                 }
                 LoadClosure(payload) => {
                     if payload.dbg_chunk.is_none() {
-                        register_closure_payload_chunk(di, file_id, payload, next_name, base_offset);
+                        register_closure_payload_chunk(
+                            di,
+                            file_id,
+                            payload,
+                            next_name,
+                            base_offset,
+                        );
                     }
                     let nested = std::sync::Arc::make_mut(&mut payload.instructions);
                     register_function_chunks(di, file_id, nested, base_offset);

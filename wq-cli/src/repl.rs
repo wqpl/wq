@@ -11,8 +11,6 @@ use std::{env, thread};
 use rand::RngExt as _;
 use terminal_size::{Width, terminal_size};
 use wqpl::builtins::{BuiltinPreset, Builtins};
-use wqpl::completion as wq_completion;
-use wqpl::doc;
 use wqpl::format::{FormatConfig, Formatter};
 use wqpl::interpret::InterpreterKind;
 use wqpl::session::Session;
@@ -24,6 +22,7 @@ use wqpl::session::stdio::{
 };
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::{Excerpt, Value};
+use wqpl::{completion as wq_completion, doc};
 
 use crate::arg::{BoxPrintConfig, FmtOpts, RuntimeFlags, apply_box_spec};
 use crate::display::{format_non_cas_result, format_xray_info};
@@ -336,10 +335,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::Hint => {
                         let on = !wqstdin_hints_enabled();
                         wqstdin_set_hints_enabled(on);
-                        system_msg_out(
-                            format!("hint -> {}", repl_status(on)),
-                            MsgType::Info,
-                        );
+                        system_msg_out(format!("hint -> {}", repl_status(on)), MsgType::Info);
                         continue;
                     }
                     ReplCommand::Info => {
@@ -349,10 +345,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     ReplCommand::Dry => {
                         dry_mode = !dry_mode;
                         session.set_dry_mode(dry_mode);
-                        system_msg_out(
-                            format!("dry -> {}", repl_status(dry_mode)),
-                            MsgType::Info,
-                        );
+                        system_msg_out(format!("dry -> {}", repl_status(dry_mode)), MsgType::Info);
                         continue;
                     }
                     ReplCommand::Fmt(None) => {
@@ -597,7 +590,10 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         };
                         set_debug_log_flags(next);
                         system_msg_out(
-                            format!("debug flags -> {}", repl_underline(&format_debug_flags(next))),
+                            format!(
+                                "debug flags -> {}",
+                                repl_underline(&format_debug_flags(next))
+                            ),
                             MsgType::Info,
                         );
                         continue;
@@ -647,10 +643,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     //     continue;
                     // }
                     ReplCommand::DryQuery => {
-                        system_msg_out(
-                            format!("dry: {}", repl_status(dry_mode)),
-                            MsgType::Info,
-                        );
+                        system_msg_out(format!("dry: {}", repl_status(dry_mode)), MsgType::Info);
                         continue;
                     }
                     ReplCommand::BoxQuery => {
@@ -677,18 +670,12 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     }
                     ReplCommand::HighlightQuery => {
                         let on = wqstdin_highlight_enabled();
-                        system_msg_out(
-                            format!("highlight: {}", repl_status(on)),
-                            MsgType::Info,
-                        );
+                        system_msg_out(format!("highlight: {}", repl_status(on)), MsgType::Info);
                         continue;
                     }
                     ReplCommand::HintQuery => {
                         let on = wqstdin_hints_enabled();
-                        system_msg_out(
-                            format!("hint: {}", repl_status(on)),
-                            MsgType::Info,
-                        );
+                        system_msg_out(format!("hint: {}", repl_status(on)), MsgType::Info);
                         continue;
                     }
                     ReplCommand::TimeQuery => {
@@ -726,10 +713,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::TypeQuery => {
-                        system_msg_out(
-                            format!("type: {}", repl_status(show_type)),
-                            MsgType::Info,
-                        );
+                        system_msg_out(format!("type: {}", repl_status(show_type)), MsgType::Info);
                         continue;
                     }
                     ReplCommand::Empty => {
@@ -1103,11 +1087,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
     let sky_chars = ["·", ".", "*", "+", "•"];
     let sky_stars: Vec<String> = sky_chars
         .iter()
-        .flat_map(|&ch| {
-            palette
-                .iter()
-                .map(|(r, g, b)| repl_rgb(ch, *r, *g, *b))
-        })
+        .flat_map(|&ch| palette.iter().map(|(r, g, b)| repl_rgb(ch, *r, *g, *b)))
         .collect();
 
     let cat_rows: Vec<Vec<char>> = include_str!("../../d/wqcat")
@@ -1126,11 +1106,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
     let cat_chars = ["*", "•", "+"];
     let cat_stars: Vec<String> = cat_chars
         .iter()
-        .flat_map(|&ch| {
-            palette
-                .iter()
-                .map(|(r, g, b)| repl_rgb(ch, *r, *g, *b))
-        })
+        .flat_map(|&ch| palette.iter().map(|(r, g, b)| repl_rgb(ch, *r, *g, *b)))
         .collect();
 
     for (i, line) in lines.iter().enumerate() {

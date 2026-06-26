@@ -613,8 +613,8 @@ fn is_provably_positive(expr: &Value) -> bool {
         return false;
     };
     // For Algebraic values, use is_negative (checks coeffs with generator sign).
-    // The Algebraic value c0 + c1*alpha + ... has sign = sign(ck) when alpha > 0 and
-    // only one non-zero coeff.  For the general case, trust as_f64.
+    // The Algebraic value c0 + c1*alpha + ... has sign = sign(ck) when alpha > 0
+    // and only one non-zero coeff.  For the general case, trust as_f64.
     if let Value::Algebraic(da) = &disc {
         da.is_negative()
     } else {
@@ -718,11 +718,7 @@ fn shifted_binomial_cubic_root_base(base: &Value) -> WqResult<Option<ShiftedCubi
     }))
 }
 
-fn push_power_factor(
-    powers: &mut Vec<(Value, Value)>,
-    base: Value,
-    exp: Value,
-) -> WqResult<()> {
+fn push_power_factor(powers: &mut Vec<(Value, Value)>, base: Value, exp: Value) -> WqResult<()> {
     for (existing_base, existing_exp) in powers.iter_mut() {
         if *existing_base == base {
             *existing_exp = numeric_add(existing_exp, &exp)?;
@@ -952,7 +948,10 @@ fn try_collapse_cubic_root_sum(args: &[Value]) -> WqResult<Option<Value>> {
 
     let half_numer = cas_add(half_terms)?;
     let inv_half_numer = cas_add(inv_half_terms)?;
-    let combined_numer = cas_add(vec![cas_mul(vec![half_numer, base.clone()])?, inv_half_numer])?;
+    let combined_numer = cas_add(vec![
+        cas_mul(vec![half_numer, base.clone()])?,
+        inv_half_numer,
+    ])?;
     let Some(quotient) = constant_poly_quotient(&combined_numer, &base)? else {
         return Ok(None);
     };

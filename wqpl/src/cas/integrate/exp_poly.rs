@@ -114,7 +114,8 @@ pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Val
 /// degree.
 ///
 /// For deg(P) = n, let R = r0 + r1*x + ... + rn*x^n.
-/// R' + k*R = (k*r0 + r1) + (k*r1 + 2*r2)*x + ... + (k*r_{n-1} + n*rn)*x^(n-1) + (k*rn)*x^n
+/// R' + k*R = (k*r0 + r1) + (k*r1 + 2*r2)*x + ... + (k*r_{n-1} + n*rn)*x^(n-1)
+/// + (k*rn)*x^n
 ///
 /// Match with P from x^n down:
 ///   rn = pn/k

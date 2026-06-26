@@ -357,11 +357,7 @@ impl Compiler {
         let mut current = object;
         loop {
             match current {
-                AstNode::Index {
-                    object,
-                    index,
-                    ..
-                } => {
+                AstNode::Index { object, index, .. } => {
                     if Self::is_bulk_path_prefix_index(index) {
                         return Err(self.syntax_err_at(
                             span,
@@ -415,8 +411,7 @@ impl Compiler {
     fn is_bulk_path_prefix_index(index: &AstNode) -> bool {
         matches!(
             index,
-            AstNode::List(..)
-                | AstNode::Literal(Value::List(_) | Value::IntList(_), _)
+            AstNode::List(..) | AstNode::Literal(Value::List(_) | Value::IntList(_), _)
         )
     }
 
@@ -477,7 +472,9 @@ impl Compiler {
     ) -> WqResult<()> {
         match root {
             IndexPathRoot::Variable(name) => self.emit_load(name, None),
-            IndexPathRoot::OuterVariable(name, name_span) => self.emit_outer_load(name, name_span)?,
+            IndexPathRoot::OuterVariable(name, name_span) => {
+                self.emit_outer_load(name, name_span)?
+            }
         }
         for args in index_args {
             self.emit_index_arg_plan_loads(args);
@@ -1638,7 +1635,7 @@ impl Compiler {
                                     .push(Self::index_assign_var_inst(name.clone().into(), argc));
                             }
                         }
-                    },
+                    }
                     AstNode::OuterVariable(name, _) => {
                         if let Some(op) = op {
                             let index_args = self.compile_index_arg_plan(index)?;
@@ -1682,7 +1679,7 @@ impl Compiler {
                                     .push(Self::index_assign_var_inst(name.clone().into(), argc));
                             }
                         }
-                    },
+                    }
                     _ => return Err(self.syntax_err_here("Invalid index assignment target")),
                 }
             }
@@ -3270,7 +3267,9 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
                 .map(|expr| Box::new(replace_pipe_input(expr, temp_name))),
             span: *span,
         },
-        AstNode::Try(expr, span) => AstNode::Try(Box::new(replace_pipe_input(expr, temp_name)), *span),
+        AstNode::Try(expr, span) => {
+            AstNode::Try(Box::new(replace_pipe_input(expr, temp_name)), *span)
+        }
         AstNode::Block(stmts, span) => AstNode::Block(
             stmts
                 .iter()
@@ -3952,9 +3951,10 @@ mod tests {
         let map_alias_id = builtin_id("M");
 
         assert!(
-            top.iter()
-                .any(|inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, argc)
-                    if *id == map_alias_id && *argc == 2)),
+            top.iter().any(
+                |inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, argc)
+                    if *id == map_alias_id && *argc == 2)
+            ),
             "expected discarded M call: {top:#?}",
         );
     }
@@ -3965,9 +3965,10 @@ mod tests {
         let apply_alias_id = builtin_id("A");
 
         assert!(
-            top.iter()
-                .any(|inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, argc)
-                    if *id == apply_alias_id && *argc == 2)),
+            top.iter().any(
+                |inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, argc)
+                    if *id == apply_alias_id && *argc == 2)
+            ),
             "expected discarded A call: {top:#?}",
         );
     }
@@ -3978,9 +3979,10 @@ mod tests {
         let filter_id = builtin_id("filter");
 
         assert!(
-            top.iter()
-                .any(|inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, argc)
-                    if *id == filter_id && *argc == 2)),
+            top.iter().any(
+                |inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, argc)
+                    if *id == filter_id && *argc == 2)
+            ),
             "expected discarded filter call: {top:#?}",
         );
     }
@@ -3997,9 +3999,10 @@ mod tests {
             "expected value-producing M call: {top:#?}",
         );
         assert!(
-            !top.iter()
-                .any(|inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, _)
-                    if *id == map_alias_id)),
+            !top.iter().any(
+                |inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, _)
+                    if *id == map_alias_id)
+            ),
             "final M call should keep its value: {top:#?}",
         );
     }
@@ -4069,8 +4072,9 @@ mod tests {
             "explicit list index should stay a list key: {top:#?}",
         );
         assert!(
-            top.iter()
-                .any(|inst| matches!(inst, Instruction::IndexLoadVar(name) if name.as_ref() == "xs")),
+            top.iter().any(
+                |inst| matches!(inst, Instruction::IndexLoadVar(name) if name.as_ref() == "xs")
+            ),
             "explicit list index should use single-index load: {top:#?}",
         );
     }
@@ -4126,19 +4130,20 @@ mod tests {
             "expected IndexLoadVar for literal-key augmented assignment read: {top:#?}",
         );
         assert!(
-            top.iter().any(
-                |inst| matches!(inst, Instruction::IndexAssignVar(name)
-                    if name.as_ref() == "xs")
-            ),
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::IndexAssignVar(name)
+                    if name.as_ref() == "xs")),
             "expected IndexAssignVar for literal-key augmented assignment write: {top:#?}",
         );
         let key_loads = top
             .iter()
-            .filter(|inst| matches!(
-                inst,
-                Instruction::LoadConst(value)
-                    if matches!(&**value, Value::IntList(items) if items.as_slice() == [0, 2])
-            ))
+            .filter(|inst| {
+                matches!(
+                    inst,
+                    Instruction::LoadConst(value)
+                        if matches!(&**value, Value::IntList(items) if items.as_slice() == [0, 2])
+                )
+            })
             .count();
         assert!(
             key_loads >= 2,
@@ -4186,8 +4191,9 @@ mod tests {
             "explicit list assignment index should stay a list key: {top:#?}",
         );
         assert!(
-            top.iter()
-                .any(|inst| matches!(inst, Instruction::IndexAssignVar(name) if name.as_ref() == "xs")),
+            top.iter().any(
+                |inst| matches!(inst, Instruction::IndexAssignVar(name) if name.as_ref() == "xs")
+            ),
             "explicit list assignment index should use single-index assign: {top:#?}",
         );
     }
@@ -4444,9 +4450,9 @@ mod tests {
             func.captures,
         );
         assert!(
-            func.instructions
-                .iter()
-                .any(|inst| matches!(inst, Instruction::LoadConst(value) if **value == Value::Int(3))),
+            func.instructions.iter().any(
+                |inst| matches!(inst, Instruction::LoadConst(value) if **value == Value::Int(3))
+            ),
             "streamed closure should fold captured global a: {:#?}",
             func.instructions,
         );
