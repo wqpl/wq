@@ -5,6 +5,7 @@ mod expand_factor;
 mod format;
 mod numeric;
 mod poly;
+mod quote;
 mod rewrite;
 mod simplify;
 mod solve;
@@ -30,6 +31,7 @@ pub(crate) use poly::{
     poly_divide, poly_evaluate, poly_from_expr, poly_gcd, poly_interpolate, poly_is_zero, poly_mul,
     poly_neg, poly_resultant, poly_sub, poly_to_expr, poly_trim, square_free_factor,
 };
+pub(crate) use quote::cas_symbolic_call_expr;
 #[cfg(test)]
 use rewrite::rewrite_expr;
 use rewrite::try_cancel_affine_over_factor;
