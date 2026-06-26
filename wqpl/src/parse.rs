@@ -3577,8 +3577,19 @@ impl Parser {
         };
 
         let node_span = node.span();
-        let quote_call = |name: &str, args: Vec<Value>, span: Option<(usize, usize)>| {
-            cas_symbolic_call_expr(name, &args).map_err(|err| with_parser_ctx(span, err))
+        let quote_call = |name: &str, args: Vec<AstNode>, span: Option<(usize, usize)>| {
+            let mut positional = Vec::new();
+            let mut named = Vec::new();
+            for arg in args {
+                match arg {
+                    NamedArg { name, value, .. } => {
+                        named.push((name, self.quote_symbolic_value(*value, start)?));
+                    }
+                    arg => positional.push(self.quote_symbolic_value(arg, start)?),
+                }
+            }
+            cas_symbolic_call_expr(name, &positional, &named)
+                .map_err(|err| with_parser_ctx(span, err))
         };
 
         match node {
@@ -3663,23 +3674,11 @@ impl Parser {
                 node_span,
                 "@s: comparison chains are not supported in symbolic expressions".to_string(),
             )),
-            CallName { name, args, .. } => {
-                let args = args
-                    .into_iter()
-                    .map(|arg| self.quote_symbolic_value(arg, start))
-                    .collect::<WqResult<Vec<_>>>()?;
-                quote_call(&name, args, node_span)
-            }
+            CallName { name, args, .. } => quote_call(&name, args, node_span),
             Postfix { object, items, .. } => {
                 let object_span = object.span();
                 match *object {
-                    Variable(name, _) => {
-                        let args = items
-                            .into_iter()
-                            .map(|arg| self.quote_symbolic_value(arg, start))
-                            .collect::<WqResult<Vec<_>>>()?;
-                        quote_call(&name, args, object_span)
-                    }
+                    Variable(name, _) => quote_call(&name, items, object_span),
                     Literal(value, ..)
                         if matches!(value, Value::Int(_) | Value::BigInt(_) | Value::Float(_)) =>
                     {
@@ -4535,6 +4534,72 @@ mod symbolic_quote_tests {
         assert!(value.cas_function_parts().is_some());
         assert!(value.cas_apply_parts().is_none());
         assert_eq!(value.to_string(), "sin[x]");
+    }
+
+    #[test]
+    fn symbolic_quote_limit_accepts_named_direction() {
+        let ast =
+            parse_input("@s limit[1/x;0;`d:@s+]").expect("named limit direction should parse");
+        let AstNode::Literal(value, _) = ast else {
+            panic!("expected CAS literal, got {ast:?}");
+        };
+        let (_expr, var, point, direction) = value
+            .cas_limit_parts()
+            .expect("expected symbolic limit node");
+        assert_eq!(var, &Value::from_cas_var("x"));
+        assert_eq!(point, &Value::Int(0));
+        assert_eq!(direction, Some(crate::cas::limit::LimitDirection::Right));
+        assert_eq!(value.to_string(), "limit[x^-1;x;0;`d:+]");
+    }
+
+    #[test]
+    fn symbolic_quote_limit_rejects_unknown_named_arg() {
+        let ast =
+            parse_input("@s limit[1/x;0;`dir:@s+]").expect("parser should recover with error node");
+        let AstNode::Error(err, _) = ast else {
+            panic!("expected parser error node, got {ast:?}");
+        };
+        assert!(
+            err.msg
+                .as_deref()
+                .is_some_and(|msg| msg.contains("unknown named argument 'dir'")),
+            "unexpected error: {err:?}",
+        );
+    }
+
+    #[test]
+    fn symbolic_quote_preserves_named_args_in_unknown_application() {
+        let ast = parse_input("@s f[x;`a:y]").expect("named symbolic arg should parse");
+        let AstNode::Literal(value, _) = ast else {
+            panic!("expected CAS literal, got {ast:?}");
+        };
+        let (head, args) = value
+            .cas_apply_parts()
+            .expect("expected symbolic application");
+        assert_eq!(head.as_str(), "f");
+        assert_eq!(args.len(), 2);
+        let (name, named_value) = args[1]
+            .cas_named_arg_parts()
+            .expect("expected named symbolic argument");
+        assert_eq!(name.as_str(), "a");
+        assert_eq!(named_value, &Value::from_cas_var("y"));
+        assert_eq!(value.to_string(), "f[x;`a:y]");
+    }
+
+    #[test]
+    fn symbolic_quote_limit_rejects_positional_direction() {
+        let ast =
+            parse_input("@s limit[1/x;x;0;@s+]").expect("parser should recover with error node");
+        let AstNode::Error(err, _) = ast else {
+            panic!("expected parser error node, got {ast:?}");
+        };
+        assert!(
+            err.msg
+                .as_deref()
+                .is_some_and(|msg| msg
+                    .contains("limit expects expr;point or expr followed by var;point pairs")),
+            "unexpected error: {err:?}",
+        );
     }
 
     #[test]

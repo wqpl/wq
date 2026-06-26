@@ -1565,6 +1565,8 @@ pub(super) fn rewrite_expr(value: &Value) -> WqResult<Value> {
             rewritten_args.push(rewrite_expr(arg)?);
         }
         simplify_cas_value(&Value::from_cas_apply(name.as_str(), rewritten_args))?
+    } else if let Some((name, named_value)) = value.cas_named_arg_parts() {
+        Value::from_cas_named_arg(name.as_str(), rewrite_expr(named_value)?)
     } else {
         value.clone()
     };
@@ -1645,6 +1647,9 @@ pub(crate) fn contains_cas_var(expr: &Value, var: &str) -> bool {
     }
     if let Some((_, args)) = expr.cas_apply_parts() {
         return args.iter().any(|a| contains_cas_var(a, var));
+    }
+    if let Some((_name, value)) = expr.cas_named_arg_parts() {
+        return contains_cas_var(value, var);
     }
     if let Some((inner, limit_var, point, _)) = expr.cas_limit_parts() {
         return contains_cas_var(inner, var)

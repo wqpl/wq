@@ -253,6 +253,8 @@ pub(crate) enum CasKind {
     Function(CasFunction, Arc<[Value]>),
     /// Uninterpreted symbolic application (e.g. `f[x]`).
     Apply(CasSymbol, Arc<[Value]>),
+    /// Named symbolic call argument (e.g. `` `d:x``).
+    NamedArg(CasSymbol, Value),
     /// Unevaluated limit special form.
     Limit {
         expr: Value,

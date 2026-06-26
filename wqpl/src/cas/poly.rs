@@ -443,6 +443,11 @@ pub(super) fn collect_single_poly_var(expr: &Value, found: &mut Option<String>) 
             }
         }
     }
+    if let Some((_name, value)) = expr.cas_named_arg_parts()
+        && !collect_single_poly_var(value, found)
+    {
+        return false;
+    }
     if let Some((lhs, rhs)) = expr.cas_eq_parts() {
         if !collect_single_poly_var(lhs, found) {
             return false;

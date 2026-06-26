@@ -23,6 +23,9 @@ substitute[@s x^2+1;@sx;5] | echo
 f:@s x^2+y
 f[`x:2] | echo
 
+//test symbolic application preserves named arguments
+@s f[x;`a:y] | echo
+
 //test expand a binomial square
 expand[@s (x+1)^2] | echo
 

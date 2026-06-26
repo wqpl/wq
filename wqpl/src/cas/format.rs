@@ -56,6 +56,9 @@ fn canonical_degree(value: &Value) -> u32 {
             .unwrap_or(0)
             .saturating_add(1);
     }
+    if let Some((_name, value)) = value.cas_named_arg_parts() {
+        return canonical_degree(value);
+    }
     0
 }
 
@@ -101,6 +104,13 @@ fn push_canonical_key(value: &Value, out: &mut String) {
             out.push(',');
         }
         out.push(')');
+        return;
+    }
+    if let Some((name, value)) = value.cas_named_arg_parts() {
+        out.push_str("n:");
+        out.push_str(name.as_str());
+        out.push(':');
+        push_canonical_key(value, out);
         return;
     }
     if let Some((expr, var, point, direction)) = value.cas_limit_parts() {
@@ -508,6 +518,9 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
     if let Some(konst) = value.cas_const() {
         return konst.name().to_string();
     }
+    if let Some((name, value)) = value.cas_named_arg_parts() {
+        return format!("`{}:{}", name.as_str(), format_expr(value, 0));
+    }
     if let Some((op, args)) = value.cas_known_op_parts() {
         return match (op, args) {
             (CasOp::Add, args) => format_sum(args, parent_prec),
@@ -548,7 +561,7 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
                 LimitDirection::Right => "+",
                 LimitDirection::Left => "-",
             };
-            rendered.push_str(&format!(";{tag}"));
+            rendered.push_str(&format!(";`d:{tag}"));
         }
         rendered.push(']');
         return rendered;

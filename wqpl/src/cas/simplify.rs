@@ -30,6 +30,7 @@ enum SimplifyFrame {
     Sub,
     Function { function: CasFunction, n: usize },
     Apply { name: CasSymbol, n: usize },
+    NamedArg { name: CasSymbol },
     Eq,
 }
 
@@ -728,6 +729,9 @@ fn contains_any_symbolic_var(expr: &Value) -> bool {
     if let Some((_, args)) = expr.cas_apply_parts() {
         return args.iter().any(contains_any_symbolic_var);
     }
+    if let Some((_name, value)) = expr.cas_named_arg_parts() {
+        return contains_any_symbolic_var(value);
+    }
     if let Some((lhs, rhs)) = expr.cas_eq_parts() {
         return contains_any_symbolic_var(lhs) || contains_any_symbolic_var(rhs);
     }
@@ -748,6 +752,9 @@ fn contains_negative_power_expr(expr: &Value) -> bool {
     }
     if let Some((_, args)) = expr.cas_apply_parts() {
         return args.iter().any(contains_negative_power_expr);
+    }
+    if let Some((_name, value)) = expr.cas_named_arg_parts() {
+        return contains_negative_power_expr(value);
     }
     if let Some((lhs, rhs)) = expr.cas_eq_parts() {
         return contains_negative_power_expr(lhs) || contains_negative_power_expr(rhs);
@@ -2006,6 +2013,12 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     continue;
                 }
 
+                if let Some((name, value)) = expr.cas_named_arg_parts() {
+                    stack.push(SimplifyFrame::NamedArg { name: name.clone() });
+                    stack.push(SimplifyFrame::Expr(value.clone()));
+                    continue;
+                }
+
                 results.push(expr.clone());
             }
             SimplifyFrame::Add(n) => {
@@ -2106,6 +2119,12 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
             SimplifyFrame::Apply { name, n } => {
                 let args = split_off_results(&mut results, n)?;
                 results.push(Value::from_cas_apply(name.as_str(), args));
+            }
+            SimplifyFrame::NamedArg { name } => {
+                let value = results
+                    .pop()
+                    .ok_or_else(|| cas_err("simplify: missing named argument value"))?;
+                results.push(Value::from_cas_named_arg(name.as_str(), value));
             }
             SimplifyFrame::Eq => {
                 let rhs = results
@@ -2212,6 +2231,12 @@ pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<
             out.push(substitute_expr(arg, var, val)?);
         }
         return simplify_cas_value(&Value::from_cas_apply(name.as_str(), out));
+    }
+    if let Some((name, value)) = expr.cas_named_arg_parts() {
+        return Ok(Value::from_cas_named_arg(
+            name.as_str(),
+            substitute_expr(value, var, val)?,
+        ));
     }
     Ok(expr.clone())
 }

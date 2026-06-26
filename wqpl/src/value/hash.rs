@@ -157,6 +157,11 @@ impl std::hash::Hash for Value {
                             arg.hash(state);
                         }
                     }
+                    CasKind::NamedArg(name, value) => {
+                        7u8.hash(state);
+                        name.hash(state);
+                        value.hash(state);
+                    }
                     CasKind::Limit {
                         expr,
                         var,
@@ -263,6 +268,7 @@ impl PartialEq for Value {
                         && arga.len() == argb.len()
                         && arga.iter().zip(argb.iter()).all(|(x, y)| x == y)
                 }
+                (CasKind::NamedArg(na, va), CasKind::NamedArg(nb, vb)) => na == nb && va == vb,
                 (
                     CasKind::Limit {
                         expr: ea,

@@ -64,6 +64,12 @@ impl Value {
         }))
     }
 
+    pub(crate) fn from_cas_named_arg(name: impl Into<String>, value: Value) -> Value {
+        Value::Cas(Arc::new(CasData {
+            kind: CasKind::NamedArg(CasSymbol::new(name), value),
+        }))
+    }
+
     pub(crate) fn from_cas_eq(lhs: Value, rhs: Value) -> Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Eq(lhs, rhs),
@@ -143,6 +149,16 @@ impl Value {
         match self {
             Value::Cas(cd) => match &cd.kind {
                 CasKind::Apply(name, args) => Some((name, args)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    pub(crate) fn cas_named_arg_parts(&self) -> Option<(&CasSymbol, &Value)> {
+        match self {
+            Value::Cas(cd) => match &cd.kind {
+                CasKind::NamedArg(name, value) => Some((name, value)),
                 _ => None,
             },
             _ => None,
