@@ -88,10 +88,24 @@ def build_wq_cli() -> None:
 # ── ANSI strip ──────────────────────────────────────────────────────────────
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+DIFF_TOKEN_RE = re.compile(r"\w+|\s+|[^\w\s]+")
+
+ANSI_RESET = "\033[0m"
+ANSI_BOLD = "\033[1m"
+ANSI_CYAN = "\033[36m"
+ANSI_GREEN = "\033[32m"
+ANSI_RED = "\033[31m"
+ANSI_YELLOW = "\033[33m"
+ANSI_DIFF_OLD_SPAN = "\033[1;4;31m"
+ANSI_DIFF_NEW_SPAN = "\033[1;4;32m"
 
 
 def strip_ansi(text: str) -> str:
     return ANSI_RE.sub("", text)
+
+
+def ansi(text: str, style: str) -> str:
+    return f"{style}{text}{ANSI_RESET}"
 
 
 # ── Filters ─────────────────────────────────────────────────────────────────
@@ -307,25 +321,49 @@ def compute_diff(expected: str, actual: str, label: str) -> str:
     if not groups:
         return ""
 
-    result = [f"\033[1mgolden: {label}\033[0m", f"\033[1mactual: {label}\033[0m"]
+    result = [ansi(f"golden: {label}", ANSI_BOLD), ansi(f"actual: {label}", ANSI_BOLD)]
     for group in groups:
         old_start = group[0][1] + 1
         old_end = group[-1][2]
         new_start = group[0][3] + 1
         new_end = group[-1][4]
         result.append(
-            f"\033[36m@@ golden {old_start}-{old_end} / "
-            f"actual {new_start}-{new_end} @@\033[0m"
+            ansi(
+                f"@@ golden {old_start}-{old_end} / actual {new_start}-{new_end} @@",
+                ANSI_CYAN,
+            )
         )
 
         for tag, i1, i2, j1, j2 in group:
             if tag == "equal":
                 for line_no, line in enumerate(lines_expected[i1:i2], start=i1 + 1):
                     result.append(format_diff_line("=", line_no, line))
-            if tag in ("replace", "delete"):
+            elif tag == "replace":
+                expected_lines = lines_expected[i1:i2]
+                actual_lines = lines_actual[j1:j2]
+                expected_result = []
+                actual_result = []
+                paired = min(len(expected_lines), len(actual_lines))
+                for offset in range(paired):
+                    old_line, new_line = highlight_word_diff(
+                        expected_lines[offset],
+                        actual_lines[offset],
+                    )
+                    expected_result.append((i1 + offset + 1, old_line))
+                    actual_result.append((j1 + offset + 1, new_line))
+                for offset in range(paired, len(expected_lines)):
+                    expected_result.append((i1 + offset + 1, expected_lines[offset]))
+                for offset in range(paired, len(actual_lines)):
+                    actual_result.append((j1 + offset + 1, actual_lines[offset]))
+
+                for line_no, line in expected_result:
+                    result.append(format_diff_line("-", line_no, line))
+                for line_no, line in actual_result:
+                    result.append(format_diff_line("+", line_no, line))
+            elif tag == "delete":
                 for line_no, line in enumerate(lines_expected[i1:i2], start=i1 + 1):
                     result.append(format_diff_line("-", line_no, line))
-            if tag in ("replace", "insert"):
+            elif tag == "insert":
                 for line_no, line in enumerate(lines_actual[j1:j2], start=j1 + 1):
                     result.append(format_diff_line("+", line_no, line))
     return "\n".join(result)
@@ -340,11 +378,51 @@ def diff_lines(text: str) -> list[str]:
 
 def format_diff_line(kind: str, line_no: int, line: str) -> str:
     rendered = f"{kind:>4} {line_no:>5} | {line}"
-    if kind == "old":
-        return f"\033[31m{rendered}\033[0m"
-    if kind == "new":
-        return f"\033[32m{rendered}\033[0m"
+    if kind == "-":
+        return ansi(rendered, ANSI_RED)
+    if kind == "+":
+        return ansi(rendered, ANSI_GREEN)
     return rendered
+
+
+def highlight_word_diff(old_line: str, new_line: str) -> tuple[str, str]:
+    old_tokens = DIFF_TOKEN_RE.findall(old_line)
+    new_tokens = DIFF_TOKEN_RE.findall(new_line)
+    matcher = difflib.SequenceMatcher(None, old_tokens, new_tokens)
+    old_result = []
+    new_result = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        old_changed = tag in ("replace", "delete")
+        new_changed = tag in ("replace", "insert")
+        old_result.append(
+            highlight_tokens(
+                old_tokens[i1:i2],
+                ANSI_DIFF_OLD_SPAN,
+                ANSI_RED,
+                old_changed,
+            )
+        )
+        new_result.append(
+            highlight_tokens(
+                new_tokens[j1:j2],
+                ANSI_DIFF_NEW_SPAN,
+                ANSI_GREEN,
+                new_changed,
+            )
+        )
+    return "".join(old_result), "".join(new_result)
+
+
+def highlight_tokens(
+    tokens: list[str],
+    highlight_style: str,
+    base_style: str,
+    changed: bool,
+) -> str:
+    text = "".join(tokens)
+    if not changed or not text:
+        return text
+    return f"{highlight_style}{text}{ANSI_RESET}{base_style}"
 
 
 # ── Find latest run ─────────────────────────────────────────────────────────
@@ -680,10 +758,14 @@ def cmd_status(args: argparse.Namespace) -> None:
         print()
         for key, val in sorted(summary.items()):
             icon = {"pass": "✓", "fail": "✗", "new": "+"}[val["status"]]
-            color = {"pass": "32", "fail": "31", "new": "33"}[val["status"]]
+            style = {
+                "pass": ANSI_GREEN,
+                "fail": ANSI_RED,
+                "new": ANSI_YELLOW,
+            }[val["status"]]
             note = exit_code_note(val)
             suffix = f" ({note})" if note else ""
-            print(f"  \033[{color}m{icon}\033[0m {key}{suffix}")
+            print(f"  {ansi(icon, style)} {key}{suffix}")
 
 
 def cmd_clean(args: argparse.Namespace) -> None:
@@ -719,6 +801,15 @@ def cmd_clean(args: argparse.Namespace) -> None:
         print(f"Nothing to clean. Latest: {latest.name}")
 
 
+def review_prompt() -> str:
+    return (
+        f"  {ansi('[A]ccept', ANSI_GREEN)}  "
+        f"{ansi('[S]kip', ANSI_YELLOW)}  "
+        f"{ansi('[V]iew', ANSI_CYAN)}  "
+        f"{ansi('[Q]uit', ANSI_RED)}  [?]help: "
+    )
+
+
 def cmd_review(args: argparse.Namespace) -> None:
     output_dir, full_summary = load_summary(None)
     summary = filter_summary(full_summary, args.group, args.test)
@@ -740,18 +831,18 @@ def cmd_review(args: argparse.Namespace) -> None:
 
         print(f"\n─── [{idx + 1}/{total}] {key} ", end="")
         if val["status"] == "new":
-            print("\033[33m(NEW)\033[0m ", end="")
+            print(f"{ansi('(NEW)', ANSI_YELLOW)} ", end="")
         print("─" * max(0, 60 - len(key)))
         note = exit_code_note(val)
         if note:
-            print(f"  {note}")
+            print(f"  {ansi(note, ANSI_RED)}")
 
         if expected_path.exists():
             expected = expected_path.read_text()
             actual = actual_path.read_text()
             print(compute_diff(expected, actual, key))
         else:
-            print("\033[33m  (new test -- no expected file)\033[0m")
+            print(ansi("  (new test -- no expected file)", ANSI_YELLOW))
             actual = actual_path.read_text()
             if len(actual) <= 500:
                 for line in actual.splitlines():
@@ -767,18 +858,14 @@ def cmd_review(args: argparse.Namespace) -> None:
         print()
         while True:
             try:
-                resp = (
-                    input("  [A]ccept  [S]kip  [V]iew  [Q]uit  [?]help: ")
-                    .strip()
-                    .lower()
-                )
+                resp = input(review_prompt()).strip().lower()
             except (EOFError, KeyboardInterrupt):
                 resp = "q"
 
             if resp in ("a", "accept"):
                 expected_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(actual_path, expected_path)
-                print("  ✓ Accepted")
+                print(f"  {ansi('✓ Accepted', ANSI_GREEN)}")
                 full_summary[key]["status"] = "pass"
                 (output_dir / "summary.json").write_text(
                     json.dumps(full_summary, indent=2)
@@ -786,7 +873,7 @@ def cmd_review(args: argparse.Namespace) -> None:
                 idx += 1
                 break
             elif resp in ("s", "skip"):
-                print("  → Skipped")
+                print(f"  {ansi('→ Skipped', ANSI_YELLOW)}")
                 idx += 1
                 break
             elif resp in ("v", "view"):
@@ -810,7 +897,10 @@ def cmd_review(args: argparse.Namespace) -> None:
                 # accepted = total - len(changed) + sum(
                 #     1 for i in range(idx) if i < len(changed)
                 # )
-                print(f"\n  Quit. {idx} reviewed, {remaining} remaining.")
+                print(
+                    f"\n  {ansi('Quit.', ANSI_YELLOW)} "
+                    f"{idx} reviewed, {remaining} remaining."
+                )
                 return
             elif resp in ("?", "h", "help"):
                 print()
@@ -822,7 +912,7 @@ def cmd_review(args: argparse.Namespace) -> None:
                 print()
                 continue
             else:
-                print("  Unknown command. Type ? for help.")
+                print(f"  {ansi('Unknown command.', ANSI_RED)} Type ? for help.")
                 continue
 
     print(f"\nReview complete -- all {total} changes reviewed.")
