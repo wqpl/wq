@@ -11,14 +11,8 @@ import { alignTurnBody, ensureWasm, escapeHtml, queueEval } from "./wq-shared.js
 
 const instances = new WeakMap();
 
-const SOURCE_KIND_LABELS = {
-  plot: "mixed series",
-  table: "table",
-};
-
 const DEFAULT_STATE = {
   title: "Function plot",
-  subtitle: "asciiplot / function source",
   sourceKind: "plot",
   sourceExpr: "",
   layout: "below",
@@ -63,7 +57,6 @@ const DEFAULT_STATE = {
 const PRESETS = {
   trig: {
     title: "Function plot",
-    subtitle: "asciiplot / function source",
     sourceKind: "plot",
     mode: "line",
     complex: "re",
@@ -88,7 +81,6 @@ const PRESETS = {
   },
   data: {
     title: "Data series",
-    subtitle: "asciiplot / raw values",
     sourceKind: "plot",
     mode: "bar",
     complex: "re",
@@ -114,7 +106,6 @@ const PRESETS = {
   },
   tablePlot: {
     title: "Table plot",
-    subtitle: "asciiplot / table columns",
     sourceKind: "plot",
     mode: "line",
     complex: "re",
@@ -146,7 +137,6 @@ const PRESETS = {
   },
   cas: {
     title: "CAS curve",
-    subtitle: "asciiplot / symbolic source",
     sourceKind: "plot",
     mode: "line",
     complex: "re",
@@ -171,7 +161,6 @@ const PRESETS = {
   },
   modes: {
     title: "Mode mixer",
-    subtitle: "asciiplot / per-series options",
     sourceKind: "plot",
     mode: "line",
     complex: "re",
@@ -196,7 +185,6 @@ const PRESETS = {
   },
   bars: {
     title: "Bars",
-    subtitle: "asciiplot / value list",
     sourceKind: "plot",
     mode: "bar",
     complex: "re",
@@ -219,7 +207,6 @@ const PRESETS = {
   },
   complex: {
     title: "Complex plane",
-    subtitle: "asciiplot / complex projection",
     sourceKind: "plot",
     mode: "scatter",
     complex: "plane",
@@ -242,7 +229,6 @@ const PRESETS = {
   },
   table: {
     title: "Show table",
-    subtitle: "showtable / table source",
     sourceKind: "table",
     sourceExpr: "",
     tableShape: "text",
@@ -255,7 +241,6 @@ const PRESETS = {
   },
   tableMap: {
     title: "Math map",
-    subtitle: "showtable / dict of dicts",
     sourceKind: "table",
     sourceExpr: "",
     tableShape: "matrix",
@@ -914,6 +899,39 @@ function closeAllSelects(root, except) {
   });
 }
 
+function closePresetMenu(instance) {
+  if (instance.presetMenuPanel?.contains(document.activeElement)) {
+    instance.presetMenuButton?.focus();
+  }
+  instance.presetMenuButton?.setAttribute("aria-expanded", "false");
+  instance.presetMenuPanel?.classList.remove("open");
+}
+
+function openPresetMenu(instance) {
+  closeAllSelects(instance.root);
+  instance.presetMenuButton?.setAttribute("aria-expanded", "true");
+  instance.presetMenuPanel?.classList.add("open");
+  if (instance.presetMenuPanel) {
+    instance.presetMenuPanel.scrollTop = 0;
+  }
+}
+
+function togglePresetMenu(instance) {
+  if (instance.presetMenuPanel?.classList.contains("open")) {
+    closePresetMenu(instance);
+  } else {
+    openPresetMenu(instance);
+  }
+}
+
+function setActivePreset(instance, key) {
+  instance.presetButtons.forEach((button) => {
+    const active = button.dataset.vizPreset === key;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-checked", active ? "true" : "false");
+  });
+}
+
 function setSelectValue(instance, key, value) {
   instance.state[key] = value;
   const field = instance.selects[key];
@@ -1274,9 +1292,8 @@ function renderSeriesEditor(instance) {
 function applyPreset(instance, key, options = {}) {
   instance.state = stateForPreset(key);
 
-  instance.presetButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.vizPreset === key);
-  });
+  setActivePreset(instance, key);
+  closePresetMenu(instance);
   for (const selectKey of Object.keys(instance.selects)) {
     if (instance.state[selectKey] !== undefined) {
       setSelectValue(instance, selectKey, String(instance.state[selectKey]));
@@ -1371,7 +1388,6 @@ function updateView(instance, options = {}) {
   const sourceKind = instance.state.sourceKind || "plot";
   const builtin = sourceKind === "table" ? "showtable" : "asciiplot";
   instance.title.textContent = instance.state.title || preset.title;
-  instance.subtitle.textContent = `${builtin} / ${SOURCE_KIND_LABELS[sourceKind] || sourceKind} source`;
   instance.builtin.textContent = builtin;
   instance.root.dataset.vizBuiltin = builtin;
   instance.root.dataset.vizSourceKind = sourceKind;
@@ -1501,7 +1517,6 @@ export async function mountViz(root) {
     isRunning: false,
     pendingRun: false,
     title: root.querySelector("[data-viz-title]"),
-    subtitle: root.querySelector("[data-viz-subtitle]"),
     builtin: root.querySelector("[data-viz-builtin]"),
     status: root.querySelector("[data-viz-status]"),
     output: root.querySelector("[data-viz-output]"),
@@ -1512,6 +1527,9 @@ export async function mountViz(root) {
     openBtn: root.querySelector("[data-viz-open]"),
     addSeriesBtn: root.querySelector("[data-viz-add-series]"),
     seriesList: root.querySelector("[data-viz-series-list]"),
+    presetMenu: root.querySelector("[data-viz-preset-menu]"),
+    presetMenuButton: root.querySelector("[data-viz-preset-toggle]"),
+    presetMenuPanel: root.querySelector("[data-viz-preset-panel]"),
     presetButtons: Array.from(root.querySelectorAll("[data-viz-preset]")),
     layoutButtons: Array.from(root.querySelectorAll("[data-viz-layout-option]")),
     stepButtons: Array.from(root.querySelectorAll("[data-viz-step]")),
@@ -1604,6 +1622,9 @@ export async function mountViz(root) {
     renderSeriesEditor(instance);
     updateView(instance);
   });
+  instance.presetMenuButton?.addEventListener("click", () => {
+    togglePresetMenu(instance);
+  });
   instance.presetButtons.forEach((button) => {
     button.addEventListener("click", () => {
       applyPreset(instance, button.dataset.vizPreset || "trig");
@@ -1619,10 +1640,22 @@ export async function mountViz(root) {
     window.navigate(`playground.html?code=${encodeURIComponent(instance.code)}`);
   });
   document.addEventListener("click", (event) => {
-    if (!root.contains(event.target)) return;
+    if (!root.contains(event.target)) {
+      closeAllSelects(root);
+      closePresetMenu(instance);
+      return;
+    }
     if (!event.target.closest("[data-viz-select]")) {
       closeAllSelects(root);
     }
+    if (!event.target.closest("[data-viz-preset-menu]")) {
+      closePresetMenu(instance);
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    closeAllSelects(root);
+    closePresetMenu(instance);
   });
 
   if (typeof ResizeObserver !== "undefined" && instance.output) {

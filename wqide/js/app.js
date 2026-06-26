@@ -352,8 +352,118 @@ const VIZ_HTML = html`
     <div class="viz-shell">
       <section class="viz-topbar" aria-label="Viz summary">
         <div class="viz-stage-title">
-          <h1 data-viz-title>Function plot</h1>
-          <span data-viz-subtitle>asciiplot</span>
+          <div class="viz-stage-title-row">
+            <h1 data-viz-title>Function plot</h1>
+            <div class="viz-preset-menu" data-viz-preset-menu>
+              <button
+                class="viz-preset-trigger"
+                type="button"
+                data-viz-preset-toggle
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-controls="vizPresetMenu">
+                <span>Presets</span>
+              </button>
+              <div
+                class="viz-preset-popover"
+                id="vizPresetMenu"
+                data-viz-preset-panel
+                role="menu"
+                aria-label="Viz presets">
+                <section class="viz-preset-group" role="group" aria-labelledby="vizPresetAsciiplot">
+                  <h2 id="vizPresetAsciiplot">asciiplot</h2>
+                  <div class="viz-preset-list">
+                    <button
+                      class="viz-preset active"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked="true"
+                      data-viz-preset="trig">
+                      <span class="viz-preset-title">Function plot</span>
+                      <span class="viz-preset-meta">sin / cos</span>
+                    </button>
+                    <button
+                      class="viz-preset"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked="false"
+                      data-viz-preset="data">
+                      <span class="viz-preset-title">Data series</span>
+                      <span class="viz-preset-meta">raw values</span>
+                    </button>
+                    <button
+                      class="viz-preset"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked="false"
+                      data-viz-preset="tablePlot">
+                      <span class="viz-preset-title">Table plot</span>
+                      <span class="viz-preset-meta">x + y columns</span>
+                    </button>
+                    <button
+                      class="viz-preset"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked="false"
+                      data-viz-preset="cas">
+                      <span class="viz-preset-title">CAS curve</span>
+                      <span class="viz-preset-meta">symbolic x</span>
+                    </button>
+                    <button
+                      class="viz-preset"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked="false"
+                      data-viz-preset="modes">
+                      <span class="viz-preset-title">Mode mixer</span>
+                      <span class="viz-preset-meta">line + scatter</span>
+                    </button>
+                    <button
+                      class="viz-preset"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked="false"
+                      data-viz-preset="bars">
+                      <span class="viz-preset-title">Bars</span>
+                      <span class="viz-preset-meta">series values</span>
+                    </button>
+                    <button
+                      class="viz-preset"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked="false"
+                      data-viz-preset="complex">
+                      <span class="viz-preset-title">Complex plane</span>
+                      <span class="viz-preset-meta">sqrt[x]</span>
+                    </button>
+                  </div>
+                </section>
+                <section class="viz-preset-group" role="group" aria-labelledby="vizPresetShowtable">
+                  <h2 id="vizPresetShowtable">showtable</h2>
+                  <div class="viz-preset-list">
+                    <button
+                      class="viz-preset"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked="false"
+                      data-viz-preset="table">
+                      <span class="viz-preset-title">Show table</span>
+                      <span class="viz-preset-meta">string cells</span>
+                    </button>
+                    <button
+                      class="viz-preset"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked="false"
+                      data-viz-preset="tableMap">
+                      <span class="viz-preset-title">Math map</span>
+                      <span class="viz-preset-meta">dict of dicts</span>
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="viz-stage-actions">
           <label class="viz-live-switch">
@@ -368,50 +478,6 @@ const VIZ_HTML = html`
           <span class="viz-status" data-viz-status>ready</span>
           <button class="btn primary" type="button" data-viz-run>Refresh</button>
           <button class="btn" type="button" data-viz-open>Open in Playground</button>
-        </div>
-      </section>
-
-      <section class="viz-presets" aria-labelledby="vizPresetHeading">
-        <div class="viz-panel-head">
-          <h2 id="vizPresetHeading">Presets</h2>
-        </div>
-        <div class="viz-preset-list" role="list">
-          <button class="viz-preset active" type="button" data-viz-preset="trig">
-            <span class="viz-preset-title">Function plot</span>
-            <span class="viz-preset-meta">sin / cos</span>
-          </button>
-          <button class="viz-preset" type="button" data-viz-preset="data">
-            <span class="viz-preset-title">Data series</span>
-            <span class="viz-preset-meta">raw values</span>
-          </button>
-          <button class="viz-preset" type="button" data-viz-preset="tablePlot">
-            <span class="viz-preset-title">Table plot</span>
-            <span class="viz-preset-meta">x + y columns</span>
-          </button>
-          <button class="viz-preset" type="button" data-viz-preset="cas">
-            <span class="viz-preset-title">CAS curve</span>
-            <span class="viz-preset-meta">symbolic x</span>
-          </button>
-          <button class="viz-preset" type="button" data-viz-preset="modes">
-            <span class="viz-preset-title">Mode mixer</span>
-            <span class="viz-preset-meta">line + scatter</span>
-          </button>
-          <button class="viz-preset" type="button" data-viz-preset="bars">
-            <span class="viz-preset-title">Bars</span>
-            <span class="viz-preset-meta">series values</span>
-          </button>
-          <button class="viz-preset" type="button" data-viz-preset="complex">
-            <span class="viz-preset-title">Complex plane</span>
-            <span class="viz-preset-meta">sqrt[x]</span>
-          </button>
-          <button class="viz-preset" type="button" data-viz-preset="table">
-            <span class="viz-preset-title">Show table</span>
-            <span class="viz-preset-meta">string cells</span>
-          </button>
-          <button class="viz-preset" type="button" data-viz-preset="tableMap">
-            <span class="viz-preset-title">Math map</span>
-            <span class="viz-preset-meta">dict of dicts</span>
-          </button>
         </div>
       </section>
 
