@@ -27,6 +27,7 @@ pub(crate) fn limit_cas(
     direction: Option<LimitDirection>,
 ) -> WqResult<Value> {
     let expr = simplify_cas_value(expr)?;
+    let point = canonical_limit_point(point);
     let dir_fmt = match direction {
         Some(LimitDirection::Right) => "+",
         Some(LimitDirection::Left) => "-",
@@ -39,13 +40,25 @@ pub(crate) fn limit_cas(
         var.format_cas().unwrap_or_else(|| var.to_string()),
         point.format_cas().unwrap_or_else(|| point.to_string())
     );
-    let result = limit_cas_inner(&expr, var, point, direction, 0)?;
+    let result = limit_cas_inner(&expr, var, &point, direction, 0)?;
     cas_trace!(
         DebugLogFlags::CAS,
         "[cas] limit exit: {}",
         result.format_cas().unwrap_or_else(|| result.to_string())
     );
     Ok(result)
+}
+
+fn canonical_limit_point(point: &Value) -> Value {
+    match point {
+        Value::Float(f) if (**f).is_infinite() && (**f).is_sign_positive() => {
+            Value::from_cas_const(CasConst::Infinity)
+        }
+        Value::Float(f) if (**f).is_infinite() && (**f).is_sign_negative() => {
+            Value::from_cas_const(CasConst::NegInfinity)
+        }
+        _ => point.clone(),
+    }
 }
 
 fn limit_cas_inner(
@@ -1698,6 +1711,13 @@ mod tests {
             op(CasOp::Power, vec![Value::Int(2), cas_var("n")]),
         );
         let result = limit_cas(&expr, &cas_var("n"), &inf(), None).unwrap();
+        assert_eq!(result, Value::Int(0));
+    }
+
+    #[test]
+    fn limit_runtime_float_infinity_matches_symbolic_infinity() {
+        let expr = cas_div_expr(Value::Int(1), cas_var("x"));
+        let result = limit_cas(&expr, &cas_var("x"), &Value::float(f64::INFINITY), None).unwrap();
         assert_eq!(result, Value::Int(0));
     }
 

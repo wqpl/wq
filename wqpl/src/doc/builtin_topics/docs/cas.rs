@@ -132,7 +132,7 @@ pub(super) const REWRITE: BuiltinDoc = BuiltinDoc {
 pub(super) const NUMERIC: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Numeric,
     summary: "Evaluate a symbolic expression numerically.",
-    details: "`numeric[expr]` evaluates CAS constants and functions once all symbolic variables have been removed or substituted. Named arguments bind symbols before evaluation, so ``expr|numeric[`x:1]`` substitutes `x` and then evaluates. It errors when the expression still depends on a variable.",
+    details: "`numeric[expr]` evaluates CAS constants, functions, and resolved limit forms once all symbolic variables have been removed or substituted. Named arguments bind symbols before evaluation, so ``expr|numeric[`x:1]`` substitutes `x` and then evaluates. It errors when the expression still depends on a variable.",
     examples: NUMERIC_EXAMPLES,
     related: &["substitute", "simplify", "float"],
 };
@@ -188,7 +188,7 @@ pub(super) const INTEGRATE: BuiltinDoc = BuiltinDoc {
 pub(super) const LIMIT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Limit,
     summary: "Compute a symbolic limit.",
-    details: "`limit[expr;point]` infers the only symbolic variable. `limit[expr;var;point]` uses an explicit variable. Points may be finite values or symbolic infinity such as `@s inf` and `@s -inf` (`@s oo` remains an alias for positive infinity). Additional `var;point` pairs are applied in sequence. Use named argument `d` with `@s+` or `@s-` to request a one-sided limit for the last pair.",
+    details: "`limit[expr;point]` infers the only symbolic variable. `limit[expr;var;point]` uses an explicit variable. Points may be finite values, runtime infinities such as `inf` and `-inf`, or symbolic infinity such as `@s inf` and `@s -inf` (`@s oo` remains an alias for positive infinity). Additional `var;point` pairs are applied in sequence. Use named argument `d` with `@s+` or `@s-` to request a one-sided limit for the last pair.",
     examples: LIMIT_EXAMPLES,
     related: &["diff", "integrate", "numeric"],
 };

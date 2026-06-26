@@ -24,6 +24,10 @@ echo limit[@s exp[-x]; @s x; @s inf]
 echo limit[@s exp[x]; @s x; @s -inf]
 echo limit[@s (1+1/x)^x; @s x; @s inf]
 echo limit[@s x*exp[-x]; @s x; @s inf]
+echo limit[@s 1/x; inf]
+echo limit[@s 1/x; @s inf]
+echo numeric @s limit[1/x; inf]
+echo numeric @s limit[1/x; @s inf]
 
 // L'Hopital's rule (inf/inf)
 echo limit[@s x/exp[x]; @s x; @s inf]
