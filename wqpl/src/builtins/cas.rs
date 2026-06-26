@@ -4,8 +4,8 @@ use crate::cas::integrate::{definite_integrate_cas, integrate_cas};
 use crate::cas::limit::{limit_cas, parse_limit_direction};
 use crate::cas::{
     eval_numeric_cas, expand_cas, factor_cas, infer_single_cas_var, normalize_root_objective_cas,
-    rewrite_cas, simplify_cas_value, solve_cas, solve_system_cas, substitute_cas,
-    substitute_cas_bindings,
+    rewrite_cas, simplify_cas_value, solve_cas, solve_system_cas, solve_system_infer_cas,
+    substitute_cas, substitute_cas_bindings,
 };
 use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
@@ -205,8 +205,12 @@ pub(super) fn solve(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn solve_system(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BuiltinEnum::SolveSystem, [2], &args)?;
-    solve_system_cas(&args[0], &args[1])
+    check_arity(BuiltinEnum::SolveSystem, [1, 2], &args)?;
+    if args.len() == 1 {
+        solve_system_infer_cas(&args[0])
+    } else {
+        solve_system_cas(&args[0], &args[1])
+    }
 }
 
 fn parse_root_objective(arg: &Value, src: BuiltinEnum) -> WqResult<(Value, Value)> {

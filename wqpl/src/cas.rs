@@ -48,7 +48,7 @@ use simplify::{
     common_numeric_gcd, rebuild_scaled_term, split_add_term, split_mul_factor, substitute_expr,
     var_name_from_value,
 };
-pub(crate) use solve::{solve_cas, solve_system_cas};
+pub(crate) use solve::{solve_cas, solve_system_cas, solve_system_infer_cas};
 
 pub(crate) mod diff;
 pub(crate) mod integrate;

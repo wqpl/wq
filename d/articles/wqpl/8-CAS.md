@@ -27,9 +27,10 @@ expr[`x:2]|echo
 ```wq
 factor[@s x^2-1]|echo
 solve[@s x^2=1]|echo
+solve_system[@s(2*x+y=5;x-y=1)]|echo
 ```
 
-The bracket calls keep the symbolic expression neatly inside the argument list.
+The bracket calls keep the symbolic expression neatly inside the argument list. For linear systems, `solve_system` can infer variables and returns values in variable-name order unless you pass variables explicitly.
 
 ## Numeric And Symbolic Can Meet
 

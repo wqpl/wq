@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use num_complex::Complex64;
@@ -131,6 +132,101 @@ fn gaussian_elimination_solve(mut rows: Vec<Vec<Value>>) -> WqResult<Vec<Value>>
     Ok(solution)
 }
 
+fn normalize_system_equation(equation: &Value) -> WqResult<Value> {
+    if let Some((lhs, rhs)) = equation.cas_eq_parts() {
+        cas_sub(lhs.clone(), rhs.clone())
+    } else {
+        simplify_cas_value(equation)
+    }
+}
+
+fn normalize_system_equations(equations: &Value) -> WqResult<Vec<Value>> {
+    let equations = match equations {
+        Value::List(items) => items,
+        _ => {
+            return Err(
+                cas_err("solve_system expects a list of equations or expressions").got1(equations),
+            );
+        }
+    };
+
+    equations.iter().map(normalize_system_equation).collect()
+}
+
+fn collect_cas_vars(expr: &Value, vars: &mut BTreeSet<String>) {
+    if let Some(name) = expr.cas_var_name() {
+        vars.insert(name.to_string());
+        return;
+    }
+    if let Some((_, args)) = expr.cas_op_parts() {
+        for arg in args {
+            collect_cas_vars(arg, vars);
+        }
+    }
+    if let Some((_, args)) = expr.cas_function_parts() {
+        for arg in args {
+            collect_cas_vars(arg, vars);
+        }
+    }
+    if let Some((_, args)) = expr.cas_apply_parts() {
+        for arg in args {
+            collect_cas_vars(arg, vars);
+        }
+    }
+    if let Some((_name, value)) = expr.cas_named_arg_parts() {
+        collect_cas_vars(value, vars);
+    }
+    if let Some((inner, limit_var, point, _direction)) = expr.cas_limit_parts() {
+        collect_cas_vars(inner, vars);
+        collect_cas_vars(limit_var, vars);
+        collect_cas_vars(point, vars);
+    }
+    if let Some((lhs, rhs)) = expr.cas_eq_parts() {
+        collect_cas_vars(lhs, vars);
+        collect_cas_vars(rhs, vars);
+    }
+    if let Value::List(items) = expr {
+        for item in items.iter() {
+            collect_cas_vars(item, vars);
+        }
+    }
+}
+
+fn infer_system_var_names(equations: &[Value]) -> WqResult<Vec<String>> {
+    let mut vars = BTreeSet::new();
+    for equation in equations {
+        collect_cas_vars(equation, &mut vars);
+    }
+    if vars.is_empty() {
+        return Err(cas_err("solve_system could not infer symbolic variables"));
+    }
+    Ok(vars.into_iter().collect())
+}
+
+fn parse_system_var_names(vars: &Value) -> WqResult<Vec<String>> {
+    let vars = match vars {
+        Value::List(items) => items,
+        _ => return Err(cas_err("solve_system expects a list of symbolic variables").got1(vars)),
+    };
+    let mut var_names = Vec::with_capacity(vars.len());
+    for var in vars.iter() {
+        var_names.push(var_name_from_value(var)?);
+    }
+    Ok(var_names)
+}
+
+fn solve_normalized_system(equations: &[Value], var_names: &[String]) -> WqResult<Value> {
+    let mut rows = Vec::with_capacity(equations.len());
+    for expr in equations {
+        let (coeffs, constant) = linear_coefficients_from_expr(expr, var_names)?;
+        let mut row = coeffs;
+        row.push(eval_numeric_binary("-", &Value::Int(0), &constant)?);
+        rows.push(row);
+    }
+
+    Ok(Value::from_items(gaussian_elimination_solve(rows)?))
+}
+
 pub(crate) fn solve_cas(input: &Value, var: &Value) -> WqResult<Value> {
     let var = var_name_from_value(var)?;
     let expr = if let Some((lhs, rhs)) = input.cas_eq_parts() {
@@ -171,41 +267,27 @@ pub(crate) fn solve_cas(input: &Value, var: &Value) -> WqResult<Value> {
 }
 
 pub(crate) fn solve_system_cas(equations: &Value, vars: &Value) -> WqResult<Value> {
-    let equations = match equations {
-        Value::List(items) => items,
-        _ => {
-            return Err(
-                cas_err("solve_system expects a list of equations or expressions").got1(equations),
-            );
-        }
-    };
-    let vars = match vars {
-        Value::List(items) => items,
-        _ => return Err(cas_err("solve_system expects a list of symbolic variables").got1(vars)),
-    };
-    if equations.len() != vars.len() {
+    let equations = normalize_system_equations(equations)?;
+    let var_names = parse_system_var_names(vars)?;
+    if equations.len() != var_names.len() {
         return Err(cas_err(
             "solve_system expects the same number of equations and variables",
         ));
     }
 
-    let mut var_names = Vec::with_capacity(vars.len());
-    for var in vars.iter() {
-        var_names.push(var_name_from_value(var)?);
+    solve_normalized_system(&equations, &var_names)
+}
+
+pub(crate) fn solve_system_infer_cas(equations: &Value) -> WqResult<Value> {
+    let equations = normalize_system_equations(equations)?;
+    let var_names = infer_system_var_names(&equations)?;
+    if equations.len() != var_names.len() {
+        return Err(cas_err(format!(
+            "solve_system inferred {} variables for {} equations; pass an explicit variable list",
+            var_names.len(),
+            equations.len()
+        )));
     }
 
-    let mut rows = Vec::with_capacity(equations.len());
-    for equation in equations.iter() {
-        let expr = if let Some((lhs, rhs)) = equation.cas_eq_parts() {
-            cas_sub(lhs.clone(), rhs.clone())?
-        } else {
-            simplify_cas_value(equation)?
-        };
-        let (coeffs, constant) = linear_coefficients_from_expr(&expr, &var_names)?;
-        let mut row = coeffs;
-        row.push(eval_numeric_binary("-", &Value::Int(0), &constant)?);
-        rows.push(row);
-    }
-
-    Ok(Value::from_items(gaussian_elimination_solve(rows)?))
+    solve_normalized_system(&equations, &var_names)
 }

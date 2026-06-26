@@ -1138,7 +1138,7 @@ declare_builtins! {
     (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", sig!(arity!(1, 2, 4), alias Integrate), plain(cas::integrate), BuiltinGroup::Cas), // alias of integrate
     (LIMIT, Limit, "limit", "limit[expr;point;`d], limit[expr;var;point;`d]", sig!(arity!(2..), named LIMIT_NAMED_ARGS), plain(cas::limit), BuiltinGroup::Cas),
     (SOLVE, Solve, "solve", "solve[expr], solve[expr;var], solve[eq;var]", sig!(arity!(1, 2)), plain(cas::solve), BuiltinGroup::Cas),
-    (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs;vars]", sig!(arity!(2)), plain(cas::solve_system), BuiltinGroup::Cas),
+    (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs], solve_system[eqs;vars]", sig!(arity!(1, 2)), plain(cas::solve_system), BuiltinGroup::Cas),
     (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", sig!(arity!(3, 4, 5)), plain(cas::brent), BuiltinGroup::Cas),
     (NEWTON, Newton, "newton", "newton[expr;x0], newton[expr;x0;tol], newton[expr;x0;tol;max_iter], newton[eq;x0]", sig!(arity!(2, 3, 4)), plain(cas::newton), BuiltinGroup::Cas),
 
@@ -1672,7 +1672,7 @@ mod tests {
             (BuiltinEnum::I, "1 2 4"),
             (BuiltinEnum::Limit, "2.."),
             (BuiltinEnum::Solve, "1 2"),
-            (BuiltinEnum::SolveSystem, "2"),
+            (BuiltinEnum::SolveSystem, "1 2"),
             (BuiltinEnum::Brent, "3 4 5"),
             (BuiltinEnum::Newton, "2 3 4"),
             (BuiltinEnum::Str, "1"),

@@ -89,7 +89,7 @@ const SOLVE_EXAMPLES: &[DocExample] = &[DocExample {
 
 const SOLVE_SYSTEM_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Solve a linear system",
-    code: "solve_system[(eq[@s x;2];eq[@s y;3]);(@s x;@s y)]",
+    code: "solve_system[(eq[@s x;2];eq[@s y;3])]",
     expectation: ExampleExpectation::ResultContains("(2;3)"),
 }];
 
@@ -204,7 +204,7 @@ pub(super) const SOLVE: BuiltinDoc = BuiltinDoc {
 pub(super) const SOLVE_SYSTEM: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::SolveSystem,
     summary: "Solve a linear symbolic system.",
-    details: "`solve_system[eqs;vars]` expects a list of equations or expressions and a same-length list of symbolic variables. It solves linear systems with a unique solution and returns values in variable order.",
+    details: "`solve_system[eqs]` infers symbolic variables and returns values in variable-name order. `solve_system[eqs;vars]` uses an explicit same-length variable list, which also controls result order. It solves linear systems with a unique solution.",
     examples: SOLVE_SYSTEM_EXAMPLES,
     related: &["solve", "eq", "substitute"],
 };

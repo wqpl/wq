@@ -529,6 +529,31 @@ fn solve_linear_system_returns_values_in_variable_order() {
 }
 
 #[test]
+fn solve_linear_system_infers_variables_in_name_order() {
+    let equations = Value::List(Arc::new(vec![
+        Value::from_cas_eq(
+            op(
+                CasOp::Add,
+                vec![Value::from_cas_var("b"), Value::from_cas_var("a")],
+            ),
+            Value::Int(3),
+        ),
+        Value::from_cas_eq(
+            op(
+                CasOp::Subtract,
+                vec![Value::from_cas_var("b"), Value::from_cas_var("a")],
+            ),
+            Value::Int(1),
+        ),
+    ]));
+
+    assert_eq!(
+        solve_system_infer_cas(&equations).unwrap(),
+        Value::IntList(Arc::new(vec![1, 2]))
+    );
+}
+
+#[test]
 fn linear_coeff_var() {
     assert_eq!(
         extract_linear_coefficients(&Value::from_cas_var("x"), "x"),
