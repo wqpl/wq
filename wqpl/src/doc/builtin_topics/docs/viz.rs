@@ -27,7 +27,7 @@ const ASCIIPLOT_EXAMPLES: &[DocExample] = &[
     },
     DocExample {
         title: "Mix per-series plot modes",
-        code: "asciiplot[(`data:(1;3;2);`mode:\"bar\";`label:\"count\");(`fn:sin;`mode:\"line\";`xlim:(0;3);`label:\"sin\");`size:(40;10);`color:T]",
+        code: "asciiplot[(`data:(1;3;2);`mode:\"bar\";`label:\"count\");(`data:sin;`mode:\"line\";`xlim:(0;3);`label:\"sin\");`size:(40;10);`color:T]",
         expectation: ExampleExpectation::NoRun("writes a terminal plot to stdout"),
     },
 ];
@@ -67,7 +67,7 @@ Data args:
 - Point lists: non-empty `((x;y);...)` values plot explicit coordinates.
 - Callables and CAS expressions: sampled over `xlim` (default -10..10) using `samples` points, or the plot width when `samples` is unset; skipped points and sharp discontinuities split line segments.
 - Table-shaped data: dict-of-lists or list-of-dicts; `x` selects the x column, otherwise row index is used; `y` selects y columns, otherwise all numeric columns except x are plotted.
-- Series config dicts: values like ``(`fn:sin;`xlim:(0;6.283);`label:\"sin\")`` or ``(`data:(1;3;2);`mode:\"bar\")``. Use `fn` for callables or CAS, `cas`/`expr` for CAS-only spelling, `data`/`values` for y-value lists, `points` for explicit `((x;y);...)` points, or paired numeric `x` and `y` lists when the dict also has a config option such as `mode` or `label`. Config dicts accept per-series `xlim`, `symbol`, `mode`, and `label`.
+- Series config dicts: values like ``(`data:sin;`xlim:(0;6.283);`label:\"sin\")`` or ``(`data:(1;3;2);`mode:\"bar\")``. Use `data` as the unified source key for callables, CAS, y-value lists, explicit `((x;y);...)` points, or table-shaped values. Paired numeric `x` and `y` lists are also accepted when the dict has a config option such as `mode` or `label`. `fn`, `cas`, `expr`, `values`, and `points` remain aliases for older or more explicit snippets. Config dicts accept per-series `xlim`, `symbol`, `mode`, and `label`.
 
 Global options:
 

@@ -179,8 +179,8 @@ fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfi
             label: None,
         }]),
         Value::Dict(map) => {
-            if let Some(config) = parse_series_config_dict(map)? {
-                Ok(vec![config])
+            if let Some(configs) = parse_series_config_dict(map, opts)? {
+                Ok(configs)
             } else if let Some(table) = parse_table_arg(arg) {
                 table_series_configs(table, opts)
             } else if map.contains_key("fn") {
@@ -212,52 +212,41 @@ fn parse_series_arg(arg: &Value, opts: &PlotOptions) -> WqResult<Vec<SeriesConfi
 
 fn parse_series_config_dict(
     map: &IndexMap<std::sync::Arc<str>, Value>,
-) -> WqResult<Option<SeriesConfig>> {
+    opts: &PlotOptions,
+) -> WqResult<Option<Vec<SeriesConfig>>> {
     let attrs = SeriesAttrs::from_map(map);
 
-    if let Some(fn_val) = map
-        .get("fn")
-        .or_else(|| map.get("cas"))
-        .or_else(|| map.get("expr"))
+    if (attrs.has_config_option() || map.len() == 1)
+        && let Some(value) = map.get("data")
     {
-        if fn_val.is_callable() {
-            return Ok(Some(attrs.into_config(SeriesData::Callable(fn_val.clone()))));
-        }
-        if fn_val.is_cas_expr() {
-            return Ok(Some(attrs.into_config(SeriesData::Cas(fn_val.clone()))));
-        }
-        return Err(WqError::new(WqErrorType::Domain)
-            .src(BE::Asciiplot)
-            .msg("series config `fn`, `cas`, or `expr` must be callable or CAS"));
+        return Ok(Some(parse_series_config_data(
+            value,
+            "series config `data` must be a numeric y-list, explicit ((x;y);...) points, callable, CAS, or table-shaped data",
+            &attrs,
+            opts,
+        )?));
     }
 
     let data_value = map
         .get("points")
-        .or_else(|| map.get("values"))
-        .or_else(|| {
-            if attrs.has_config_option() || map.len() == 1 {
-                map.get("data")
-            } else {
-                None
-            }
-        });
+        .or_else(|| map.get("values"));
     if let Some(value) = data_value {
-        let Some(series) = parse_raw_series_data(value) else {
-            return Err(WqError::new(WqErrorType::Domain)
-                .src(BE::Asciiplot)
-                .msg(
-                    "series config data must be a numeric y-list or explicit ((x;y);...) points",
-                ));
-        };
-        return Ok(Some(attrs.into_config(SeriesData::Raw(series))));
+        return Ok(Some(vec![attrs.into_config(parse_raw_series_config_data(value)?)]));
+    }
+
+    if let Some(value) = map.get("fn").or_else(|| map.get("cas")).or_else(|| map.get("expr")) {
+        return Ok(Some(vec![attrs.into_config(parse_callable_or_cas_series_config_data(
+            value,
+            "series config `fn`, `cas`, or `expr` must be callable or CAS",
+        )?)]));
     }
 
     if attrs.has_config_option()
         && let (Some(x_values), Some(y_values)) = (map.get("x"), map.get("y"))
     {
-        return Ok(Some(attrs.into_config(SeriesData::Raw(
+        return Ok(Some(vec![attrs.into_config(SeriesData::Raw(
             parse_xy_series_data(x_values, y_values)?,
-        ))));
+        ))]));
     }
 
     if attrs.has_config_option()
@@ -268,10 +257,72 @@ fn parse_series_config_dict(
                 .src(BE::Asciiplot)
                 .msg("series config `y` must be a numeric y-list"));
         };
-        return Ok(Some(attrs.into_config(SeriesData::Raw(series))));
+        return Ok(Some(vec![attrs.into_config(SeriesData::Raw(series))]));
     }
 
     Ok(None)
+}
+
+fn parse_series_config_data(
+    value: &Value,
+    error_msg: &str,
+    attrs: &SeriesAttrs,
+    opts: &PlotOptions,
+) -> WqResult<Vec<SeriesConfig>> {
+    if let Some(series) = parse_raw_series_data(value) {
+        return Ok(vec![attrs.clone().into_config(SeriesData::Raw(series))]);
+    }
+    if let Some(table) = parse_table_arg(value) {
+        let mut configs = table_series_configs(table, opts)?;
+        apply_series_attrs(&mut configs, attrs);
+        return Ok(configs);
+    }
+    Ok(vec![attrs
+        .clone()
+        .into_config(parse_callable_or_cas_series_config_data(value, error_msg)?)])
+}
+
+fn apply_series_attrs(configs: &mut [SeriesConfig], attrs: &SeriesAttrs) {
+    let label = if configs.len() == 1 {
+        attrs.label.clone()
+    } else {
+        None
+    };
+    for config in configs {
+        if attrs.xlim.is_some() {
+            config.xlim = attrs.xlim;
+        }
+        if attrs.symbol.is_some() {
+            config.symbol = attrs.symbol;
+        }
+        if attrs.mode.is_some() {
+            config.mode = attrs.mode;
+        }
+        if let Some(label) = &label {
+            config.label = Some(label.clone());
+        }
+    }
+}
+
+fn parse_callable_or_cas_series_config_data(value: &Value, error_msg: &str) -> WqResult<SeriesData> {
+    if value.is_callable() {
+        return Ok(SeriesData::Callable(value.clone()));
+    }
+    if value.is_cas_expr() {
+        return Ok(SeriesData::Cas(value.clone()));
+    }
+    Err(WqError::new(WqErrorType::Domain)
+        .src(BE::Asciiplot)
+        .msg(error_msg))
+}
+
+fn parse_raw_series_config_data(value: &Value) -> WqResult<SeriesData> {
+    let Some(series) = parse_raw_series_data(value) else {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Asciiplot)
+            .msg("series config point data must be a numeric y-list or explicit ((x;y);...) points"));
+    };
+    Ok(SeriesData::Raw(series))
 }
 
 fn parse_raw_series_data(value: &Value) -> Option<SampledSeries<f64>> {
@@ -2280,6 +2331,88 @@ mod tests {
         assert_eq!(configs.len(), 1);
         assert!(matches!(configs[0].mode, Some(PlotMode::Scatter)));
         assert_raw_points(&configs[0], &[(10.0, 2.0), (20.0, 4.0), (30.0, 3.0)]);
+    }
+
+    #[test]
+    fn series_config_accepts_callable_data_with_per_series_mode() {
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            ("data".into(), Value::builtin_function("abs", Builtins::ABS)),
+            ("mode".into(), string_value("line")),
+            ("label".into(), string_value("abs")),
+        ])));
+
+        let configs = parse_series_arg(&value, &PlotOptions::default())
+            .expect("callable data series config should parse");
+
+        assert_eq!(configs.len(), 1);
+        assert!(matches!(configs[0].data, SeriesData::Callable(_)));
+        assert!(matches!(configs[0].mode, Some(PlotMode::Line)));
+        assert_eq!(configs[0].label.as_deref(), Some("abs"));
+    }
+
+    #[test]
+    fn series_config_accepts_cas_data_with_per_series_mode() {
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            (
+                "data".into(),
+                Value::from_cas_op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
+            ),
+            ("mode".into(), string_value("area")),
+        ])));
+
+        let configs = parse_series_arg(&value, &PlotOptions::default())
+            .expect("CAS data series config should parse");
+
+        assert_eq!(configs.len(), 1);
+        assert!(matches!(configs[0].data, SeriesData::Cas(_)));
+        assert!(matches!(configs[0].mode, Some(PlotMode::Area)));
+    }
+
+    #[test]
+    fn table_column_named_data_still_parses_as_table_data_without_config() {
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            ("x".into(), Value::IntList(Arc::new(vec![0, 1, 2]))),
+            ("data".into(), Value::IntList(Arc::new(vec![2, 4, 3]))),
+        ])));
+        let opts = PlotOptions {
+            table_x: Some("x".to_string()),
+            ..PlotOptions::default()
+        };
+
+        let configs = parse_series_arg(&value, &opts).expect("data column table should parse");
+
+        assert_eq!(configs.len(), 1);
+        assert_eq!(configs[0].label.as_deref(), Some("data"));
+        assert_raw_points(&configs[0], &[(0.0, 2.0), (1.0, 4.0), (2.0, 3.0)]);
+    }
+
+    #[test]
+    fn series_config_accepts_table_data_with_per_series_mode() {
+        let table = Value::Dict(Arc::new(IndexMap::from([
+            ("x".into(), Value::IntList(Arc::new(vec![0, 1, 2]))),
+            ("sin".into(), Value::IntList(Arc::new(vec![0, 1, 0]))),
+            ("cos".into(), Value::IntList(Arc::new(vec![1, 0, -1]))),
+        ])));
+        let value = Value::Dict(Arc::new(IndexMap::from([
+            ("data".into(), table),
+            ("mode".into(), string_value("scatter")),
+            ("symbol".into(), string_value("x")),
+        ])));
+        let opts = PlotOptions {
+            table_x: Some("x".to_string()),
+            table_y: Some(vec!["sin".to_string(), "cos".to_string()]),
+            ..PlotOptions::default()
+        };
+
+        let configs = parse_series_arg(&value, &opts).expect("table data config should parse");
+
+        assert_eq!(configs.len(), 2);
+        assert!(configs.iter().all(|config| matches!(config.mode, Some(PlotMode::Scatter))));
+        assert!(configs.iter().all(|config| config.symbol == Some('x')));
+        assert_eq!(configs[0].label.as_deref(), Some("sin"));
+        assert_eq!(configs[1].label.as_deref(), Some("cos"));
+        assert_raw_points(&configs[0], &[(0.0, 0.0), (1.0, 1.0), (2.0, 0.0)]);
+        assert_raw_points(&configs[1], &[(0.0, 1.0), (1.0, 0.0), (2.0, -1.0)]);
     }
 
     #[test]

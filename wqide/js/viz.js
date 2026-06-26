@@ -6,6 +6,7 @@ import {
 } from "wq-wasm";
 import { createOutputRenderer } from "./ansi.js";
 import { createWqEditor } from "./editor.js";
+import { named, plotSeriesArg, wqString } from "./viz-codegen.js";
 import { alignTurnBody, ensureWasm, escapeHtml, queueEval } from "./wq-shared.js";
 
 const instances = new WeakMap();
@@ -353,16 +354,8 @@ function boolLit(value) {
   return value ? "T" : "F";
 }
 
-function wqString(value) {
-  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
 function wqTag(value) {
   return `\`${value}`;
-}
-
-function named(name, value) {
-  return `  \`${name}:${value}`;
 }
 
 function cloneSeries(series) {
@@ -543,19 +536,6 @@ function plotOptions(state) {
     if (option) args.push(option);
   }
   return args;
-}
-
-function plotSeriesArg(series, state) {
-  const expr = series.expr.trim();
-  if (!state.seriesOptions) return `  ${expr}`;
-  const parts = [`\`fn:${expr}`];
-  const symbol = series.symbol.trim();
-  const mode = series.mode.trim() || state.mode;
-  const label = series.label.trim() || expr.replace(/^@s\s+/, "");
-  if (symbol) parts.push(`\`symbol:${wqString(symbol)}`);
-  if (mode) parts.push(`\`mode:${wqString(mode)}`);
-  if (state.labels && label) parts.push(`\`label:${wqString(label)}`);
-  return `  (${parts.join(";")})`;
 }
 
 function plotCall(args) {
