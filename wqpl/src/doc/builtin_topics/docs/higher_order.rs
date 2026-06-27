@@ -84,7 +84,7 @@ pub(super) const APPLY: BuiltinDoc = BuiltinDoc {
 pub(super) const MAP: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Map,
     summary: "Apply a function to each item of a value.",
-    details: "`map[xs;f;d?]` applies `f` across `xs`. The default depth is `1`; non-negative depths count from the root, negative depths count back from the value depth, `inf` maps leaves, and `-inf` applies at the root.",
+    details: "`map[xs;f;d?]` applies `f` across `xs`. The default depth is `1`; non-negative depths count from the container root, negative depths count back from the leaves, `inf` maps leaves, and `-inf` applies at the root.",
     examples: MAP_EXAMPLES,
     related: &["M", "filter", "zipw", "@depth"],
 };
@@ -116,7 +116,7 @@ pub(super) const RSCAN: BuiltinDoc = BuiltinDoc {
 pub(super) const ANY: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Any,
     summary: "Return true when any item satisfies a predicate.",
-    details: "`any[xs;f;d?]` calls `f` until one result is true or the search is exhausted. The predicate must return a bool, and the optional depth follows the same depth model as `map`.",
+    details: "`any[xs;f;d?]` calls `f` until one result is true or the search is exhausted. The predicate must return a bool, and the optional depth follows the same root and leaves model as `map`.",
     examples: ANY_EXAMPLES,
     related: &["all", "filter", "findw"],
 };
@@ -124,7 +124,7 @@ pub(super) const ANY: BuiltinDoc = BuiltinDoc {
 pub(super) const ALL: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::All,
     summary: "Return true when every item satisfies a predicate.",
-    details: "`all[xs;f;d?]` calls `f` until one result is false or the search is exhausted. The predicate must return a bool, and the optional depth follows the same depth model as `map`.",
+    details: "`all[xs;f;d?]` calls `f` until one result is false or the search is exhausted. The predicate must return a bool, and the optional depth follows the same root and leaves model as `map`.",
     examples: ALL_EXAMPLES,
     related: &["any", "filter"],
 };
@@ -140,7 +140,7 @@ pub(super) const FILTER: BuiltinDoc = BuiltinDoc {
 pub(super) const ZIPW: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::ZipW,
     summary: "Zip two values with a binary callback.",
-    details: "`zipw[xs;ys;f;d?]` pairs corresponding items from `xs` and `ys`, calling `f` with each pair. The optional depth follows the same root, negative, `inf`, and `-inf` model as `map`.",
+    details: "`zipw[xs;ys;f;d?]` pairs corresponding items from `xs` and `ys`, calling `f` with each pair. The optional depth follows the same root and leaves model as `map`; with two inputs, depth is normalized against the deeper input.",
     examples: ZIPW_EXAMPLES,
     related: &["zip", "map"],
 };

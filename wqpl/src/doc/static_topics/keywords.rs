@@ -90,11 +90,23 @@ const AT_RAW_STRING_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("2"),
 }];
 
-const AT_DEPTH_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Search one level deep",
-    code: "(1;2;3)|has?@1[2]",
-    expectation: ExampleExpectation::ResultContains("T"),
-}];
+const AT_DEPTH_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Search one level deep",
+        code: "(1;2;3)|has?@1[2]",
+        expectation: ExampleExpectation::ResultContains("T"),
+    },
+    DocExample {
+        title: "Map items at depth one",
+        code: "((1;2);(3;4))|map@1[{sum x}]",
+        expectation: ExampleExpectation::ResultContains("(3;7)"),
+    },
+    DocExample {
+        title: "Map leaves with negative depth",
+        code: "((1;2);(3;4))|map@-1[{x+10}]",
+        expectation: ExampleExpectation::ResultContains("((11;12);(13;14))"),
+    },
+];
 
 pub(super) const AT_ASSERT: StaticDoc = StaticDoc {
     id: "at-assert",
@@ -221,9 +233,9 @@ pub(super) const AT_DEPTH: StaticDoc = StaticDoc {
     title: "@depth Modifier",
     kind: DocKind::Keyword,
     group: "Keywords",
-    aliases: &["@depth", "@1", "@2", "depth modifier"],
+    aliases: &["@depth", "@1", "@2", "@-1", "depth modifier"],
     summary: "Append a depth argument to depth-aware builtin calls.",
-    details: "`@1`, `@2`, and other non-negative depth modifiers are postfix call modifiers. They are valid only on builtins whose metadata declares depth sugar.",
+    details: "`@1`, `@2`, `@-1`, and other signed integer depth modifiers are postfix call modifiers. They are valid only on builtins whose metadata declares depth sugar, and they append the depth as an ordinary final argument. A non-negative depth is relative to the container root: `0` means the container itself, `1` means the immediate items of the container, and `2` means one layer deeper. A negative depth is relative to the leaves: `-1` means the deepest items, `-2` means their parent layer, and values beyond the measured depth clamp at the root. Builtins that accept the full depth model also accept explicit `inf` for leaves and `-inf` for the root; check each builtin's argument docs for any narrower depth domain. Most depth-aware traversal defaults to depth `1`; broadcast comparison operators such as `=.` and `~.` are the depth-1, element-wise counterparts to whole-value `=` and `~`.",
     examples: AT_DEPTH_EXAMPLES,
-    related: &["map", "has?", "find"],
+    related: &["depth", "map", "has?", "find", "=."],
 };

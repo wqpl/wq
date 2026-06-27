@@ -196,7 +196,7 @@ pub(super) const CART: BuiltinDoc = BuiltinDoc {
 pub(super) const IN_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::InQ,
     summary: "Test whether a value is in a container.",
-    details: "`in?[x;xs;d?]` searches for `x` in `xs`. Without depth it checks only top-level items or dict keys; with depth it can search into nested lists and dict values.",
+    details: "`in?[x;xs;d?]` searches for `x` in `xs`. Without depth it checks only top-level items or dict keys; with depth it can search into nested lists and dict values. Non-negative depths count from the root, negative depths count back from the leaves, `inf` searches all leaves, and `-inf` checks the root.",
     examples: IN_Q_EXAMPLES,
     related: &["has?", "member?", "@depth"],
 };
@@ -204,7 +204,7 @@ pub(super) const IN_Q: BuiltinDoc = BuiltinDoc {
 pub(super) const HAS_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::HasQ,
     summary: "Test whether a container has a value.",
-    details: "`has?[xs;x;d?]` is the container-first form of `in?`. It checks top-level items by default, and the optional depth can search nested lists and dict values.",
+    details: "`has?[xs;x;d?]` is the container-first form of `in?`. It checks top-level items by default, and the optional depth follows the same root and leaves model as `in?`.",
     examples: HAS_EXAMPLES,
     related: &["in?", "member?", "@depth"],
 };

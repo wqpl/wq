@@ -128,22 +128,6 @@ impl<'a> Lexer<'a> {
             .map_or(end, |ch| byte_start + ch.len_utf8())
     }
 
-    fn negative_depth_modifier_end(&self) -> usize {
-        let mut end = self.byte_pos;
-        if self.current_char != Some('-') {
-            return end;
-        }
-        end += '-'.len_utf8();
-        for ch in self.source[end..].chars() {
-            if ch.is_ascii_digit() || ch == '_' {
-                end += ch.len_utf8();
-            } else {
-                break;
-            }
-        }
-        end
-    }
-
     fn syntax_error_span(
         &self,
         line: usize,
@@ -1155,14 +1139,29 @@ impl<'a> Lexer<'a> {
                             })?;
                             TokenType::AtDepth(depth)
                         }
-                        Some('-') => {
-                            return Err(self.syntax_error_span(
-                                token_line,
-                                token_column,
-                                token_byte_start,
-                                self.negative_depth_modifier_end(),
-                                "negative depth modifiers are not supported; use an explicit depth argument",
-                            ));
+                        Some('-') if self.peek().is_some_and(|ch| ch.is_ascii_digit()) => {
+                            let mut raw_lit = String::from("-");
+                            self.advance();
+                            while let Some(ch) = self.current_char {
+                                if ch.is_ascii_digit() {
+                                    raw_lit.push(ch);
+                                    self.advance();
+                                } else if ch == '_' {
+                                    self.advance();
+                                } else {
+                                    break;
+                                }
+                            }
+                            let depth = raw_lit.parse::<i64>().map_err(|_| {
+                                self.syntax_error_span(
+                                    token_line,
+                                    token_column,
+                                    token_byte_start,
+                                    self.byte_pos,
+                                    "depth modifier is too large",
+                                )
+                            })?;
+                            TokenType::AtDepth(depth)
                         }
                         Some('t') => {
                             self.advance();
@@ -1716,15 +1715,11 @@ mod tests {
     }
 
     #[test]
-    fn at_negative_depth_errors() {
+    fn at_negative_depth_token() {
         let mut lexer = Lexer::new("@-1 has?[x; y]");
-        let err = lexer.tokenize().unwrap_err();
-        assert!(
-            err.msg
-                .as_deref()
-                .is_some_and(|msg| msg.contains("negative depth modifiers")),
-            "unexpected error: {err:?}",
-        );
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].token_type, TokenType::AtDepth(-1));
+        assert_eq!((tokens[0].byte_start, tokens[0].byte_end), (0, 3));
     }
 
     #[test]
@@ -1741,24 +1736,6 @@ mod tests {
         let colored = err.render_with_color_mode(ColorMode::Always);
         assert!(
             colored.contains("\x1b[1;4;32m?\x1b[0m"),
-            "expected colored underline in {colored:?}",
-        );
-    }
-
-    #[test]
-    fn negative_depth_error_underlines_whole_modifier() {
-        let err = lexer_err("@-1 has?[x; y]");
-        assert_eq!(err.span, Some((0, 3)));
-
-        let plain = err.render_with_color_mode(ColorMode::Never);
-        assert!(
-            plain.lines().any(|line| line.trim() == "~~~"),
-            "expected plain underline in {plain:?}",
-        );
-
-        let colored = err.render_with_color_mode(ColorMode::Always);
-        assert!(
-            colored.contains("\x1b[1;4;32m@-1\x1b[0m"),
             "expected colored underline in {colored:?}",
         );
     }

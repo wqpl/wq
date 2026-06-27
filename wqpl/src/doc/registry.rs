@@ -57,7 +57,8 @@ fn resolve_static(query: &str) -> Option<DocTopic> {
 }
 
 fn is_depth_query(query: &str) -> bool {
-    query
-        .strip_prefix('@')
-        .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_digit()))
+    query.strip_prefix('@').is_some_and(|rest| {
+        let digits = rest.strip_prefix('-').unwrap_or(rest);
+        !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit())
+    })
 }

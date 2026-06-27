@@ -13,11 +13,18 @@ const SHAPE_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("(2;2)"),
 }];
 
-const DEPTH_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Count container layers",
-    code: "(depth 7;depth (7;8);depth ((1;2);(3;4)))",
-    expectation: ExampleExpectation::ResultContains("(0;1;2)"),
-}];
+const DEPTH_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Count container layers",
+        code: "(depth 7;depth (7;8);depth ((1;2);(3;4)))",
+        expectation: ExampleExpectation::ResultContains("(0;1;2)"),
+    },
+    DocExample {
+        title: "Count dict value layers",
+        code: "(depth (`a:1;`b:2);depth (`a:(1;2);`b:(3;4)))",
+        expectation: ExampleExpectation::ResultContains("(1;2)"),
+    },
+];
 
 const UNIFORM_Q_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Detect whether nested sizes match",
@@ -44,7 +51,7 @@ pub(super) const SHAPE: BuiltinDoc = BuiltinDoc {
 pub(super) const DEPTH: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Depth,
     summary: "Count how many container layers a value has.",
-    details: "`depth[xs]` answers: how many list, string, or dict layers must you pass through to reach the deepest plain item? Atoms have depth `0`, flat lists and strings have depth `1`, and a list of lists has depth `2`. For uneven data, depth follows the deepest branch, so it can still be useful when `shape` is ragged.",
+    details: "`depth[xs]` answers: how many list, string, or dict layers must you pass through to reach the deepest plain item? Atoms have depth `0`, flat lists, strings, and dicts have depth `1`, and a list or dict whose values are lists has depth `2`. For uneven data, depth follows the deepest branch, so it can still be useful when `shape` is ragged. Depth-aware builtins use this value to normalize depth arguments: non-negative depths count from the container root, negative depths count back from the leaves, `inf` means the leaves, and `-inf` means the root.",
     examples: DEPTH_EXAMPLES,
     related: &["shape", "uniform?", "@depth"],
 };

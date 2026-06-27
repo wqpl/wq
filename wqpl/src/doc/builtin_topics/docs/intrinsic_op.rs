@@ -268,7 +268,7 @@ pub(super) const OP_EQUAL: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_EQUAL_DOT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpEqualDot,
     summary: "Compare leaves with the `=.` operator.",
-    details: "`=.[xs;ys+]` checks equality with broadcasting over compatible nested values. This is the leaf-wise counterpart to whole-value `=`.",
+    details: "`=.[xs;ys+]` checks equality with depth-1 broadcasting over compatible nested values. This is the element-wise counterpart to whole-value `=`, so `(1;2)=.(1;3)` returns `(T;F)` while `(1;2)=(1;3)` returns `F`.",
     examples: OP_EQUAL_DOT_EXAMPLES,
     related: &["=", "~.", "in?"],
 };
@@ -284,7 +284,7 @@ pub(super) const OP_TILDE: BuiltinDoc = BuiltinDoc {
 pub(super) const OP_TILDE_DOT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpTildeDot,
     summary: "Compare leaves with the `~.` operator.",
-    details: "`~.[xs;ys+]` checks inequality with broadcasting over compatible nested values. This is the leaf-wise counterpart to whole-value `~`.",
+    details: "`~.[xs;ys+]` checks inequality with depth-1 broadcasting over compatible nested values. This is the element-wise counterpart to whole-value `~`, mirroring the relationship between `=.` and `=`.",
     examples: OP_TILDE_DOT_EXAMPLES,
     related: &["~", "=.", "member?"],
 };

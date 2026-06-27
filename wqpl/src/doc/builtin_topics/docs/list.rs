@@ -150,7 +150,7 @@ pub(super) const RFIND: BuiltinDoc = BuiltinDoc {
 pub(super) const ZIP: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Zip,
     summary: "Pair corresponding values from two structures.",
-    details: "`zip[xs;ys;d?]` walks two values together and returns two-item pairs at the requested depth. The optional depth follows the same root, negative, `inf`, and `-inf` model as depth-aware higher-order builtins.",
+    details: "`zip[xs;ys;d?]` walks two values together and returns two-item pairs at the requested depth. The optional depth follows the same root and leaves model as `map`; with two inputs, depth is normalized against the deeper input.",
     examples: ZIP_EXAMPLES,
     related: &["zipw", "cart", "@depth"],
 };
