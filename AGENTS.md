@@ -55,6 +55,7 @@
     - `python3 hotchoco.py run`, when you touched:
       - lexer/parser/compiler/vm/interpreter
       - anything that affects semantics
+      - a `e/*.wq` script
     - If a new major module is added, you may create a new test config for it.
   - Key commands: `python3 hotchoco.py run`, `python3 hotchoco.py show --no-pager`, `python3 hotchoco.py accept`.
   - See `python3 hotchoco.py --help` for details.
