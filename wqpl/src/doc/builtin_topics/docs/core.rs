@@ -19,11 +19,18 @@ const ORD_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("(65;66;67)"),
 }];
 
-const INT_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Parse text in a base",
-    code: "int[\"ff\";16]",
-    expectation: ExampleExpectation::ResultContains("255"),
-}];
+const INT_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Parse text in a base",
+        code: "int[\"ff\";16]",
+        expectation: ExampleExpectation::ResultContains("255"),
+    },
+    DocExample {
+        title: "Convert bools to 0 and 1",
+        code: "(int F;int T)",
+        expectation: ExampleExpectation::ResultContains("(0;1)"),
+    },
+];
 
 const FLOAT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Parse a decimal string",
@@ -141,9 +148,9 @@ pub(super) const ORD: BuiltinDoc = BuiltinDoc {
 pub(super) const INT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Int,
     summary: "Convert a value to an integer.",
-    details: "`int` leaves integer values unchanged and parses text input. When a base is supplied, it must be in `2..=36`; matching `0b`, `0o`, and `0x` prefixes are accepted, and underscores in digits are ignored.",
+    details: "`int` leaves integer values unchanged, converts `F` to `0` and `T` to `1`, and parses text input. When a base is supplied, it must be in `2..=36`; matching `0b`, `0o`, and `0x` prefixes are accepted, and underscores in digits are ignored.",
     examples: INT_EXAMPLES,
-    related: &["float", "bin", "oct", "hex"],
+    related: &["bool", "float", "bin", "oct", "hex"],
 };
 
 pub(super) const FLOAT: BuiltinDoc = BuiltinDoc {

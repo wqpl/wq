@@ -117,7 +117,7 @@ pub(super) fn int(args: BuiltinFnArgs) -> WqResult<Value> {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Int)
             .msg("unexpected base")
-            .attach_note("base should not be provided when converting int")
+            .attach_note("base should only be provided when parsing text")
             .at_arg(0)
     }
 
@@ -150,6 +150,13 @@ pub(super) fn int(args: BuiltinFnArgs) -> WqResult<Value> {
                 Err(unexpected_base())
             } else {
                 Ok(Value::BigInt(n.clone()))
+            }
+        }
+        Value::Bool(b) => {
+            if base_opt.is_some() {
+                Err(unexpected_base())
+            } else {
+                Ok(Value::Int(i64::from(*b)))
             }
         }
         v => {
@@ -698,6 +705,18 @@ mod tests {
             Value::BigInt(n) => assert_eq!(*n, big),
             other => panic!("expected bigint result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn int_builtin_converts_bool() {
+        assert_eq!(
+            int(BuiltinFnArgs::from(Value::Bool(false))).unwrap(),
+            Value::Int(0)
+        );
+        assert_eq!(
+            int(BuiltinFnArgs::from(Value::Bool(true))).unwrap(),
+            Value::Int(1)
+        );
     }
 
     #[test]
