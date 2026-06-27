@@ -330,7 +330,7 @@ const W_LOOP_EXAMPLES: &[DocExample] = &[DocExample {
 
 const BLOCK_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Evaluate a statement block",
-    code: "B[1;2]",
+    code: "[1;2]",
     expectation: ExampleExpectation::ResultContains("2"),
 }];
 
@@ -573,12 +573,12 @@ pub(super) const W_LOOP: StaticDoc = StaticDoc {
 
 pub(super) const BLOCK: StaticDoc = StaticDoc {
     id: "block",
-    title: "B Block",
+    title: "Block",
     kind: DocKind::Syntax,
     group: "Syntax",
     aliases: &["B", "B block", "block"],
     summary: "Evaluate statements as a single expression.",
-    details: "`B[...]` groups multiple statements in expression positions such as condition branches.",
+    details: "`[...]` groups multiple statements in expression positions such as condition branches. `B[...]` is accepted as a legacy spelling, but the formatter prefers the bare bracket form.",
     examples: BLOCK_EXAMPLES,
     related: &["conditionals"],
 };

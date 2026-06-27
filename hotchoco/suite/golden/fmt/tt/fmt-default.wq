@@ -57,27 +57,27 @@ parse:{[toks]
       t `op=OP_LPAR
       ops,:OP_LPAR
       t `op=OP_RPAR
-      B[W[#ops>0
+      [W[#ops>0
           top:ops[!]
           $$[top=OP_LPAR
             @b
             top=OP_NOT
             nodes,:mknode[top;nodes[!];();""]
             top~OP_LPAR
-            B[right:nodes[!]
+            [right:nodes[!]
               left:nodes[!]
               nodes,:mknode[top;left;right;""]]]]]
       t `op=OP_END
       0
       or[t `op=OP_AND;t `op=OP_OR;t `op=OP_XOR;t `op=OP_IMPLY;t `op=OP_EQUAL]
-      B[p:prec t `op
+      [p:prec t `op
         more:T
         W[and[more;#ops>0]
           top:ops[-1]
           $$[top=OP_LPAR
             more:F
             top~OP_LPAR
-            B[pt:prec top
+            [pt:prec top
               $[pt<p
                 more:F
                 ops[!]

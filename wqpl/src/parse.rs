@@ -2552,6 +2552,12 @@ impl Parser {
                 TokenType::Dollar => self.parse_conditional(),
                 TokenType::DollarDot => self.parse_conditional_dot(),
                 TokenType::DollarDollar => self.parse_conditional_chain(),
+                TokenType::LeftBracket => {
+                    let header_start_byte = token.byte_start;
+                    let header_start_idx = self.current;
+                    self.advance();
+                    self.parse_block_expr(header_start_byte, header_start_idx)
+                }
 
                 TokenType::AtBreak => {
                     self.advance();
@@ -4087,10 +4093,9 @@ impl Parser {
         })
     }
 
-    /// `header_start_byte` is the byte position of the leading `B`. The
-    /// caller in `parse_primary_inner` consumed `B` and `[`; passing the
-    /// byte position explicitly avoids reaching back into `self.tokens` by
-    /// index to recover it.
+    /// `header_start_byte` is the byte position of the opening `[` or
+    /// legacy leading `B`. The caller in `parse_primary_inner` consumed the
+    /// opening bracket already.
     fn parse_block_expr(
         &mut self,
         header_start_byte: usize,
@@ -5021,7 +5026,24 @@ mod cst_integration_tests {
         round_trip("$$[c1;t1;c2;t2;d]");
         round_trip("W[c;b]");
         round_trip("N[10;@b]");
+        round_trip("[1;2;3]");
         round_trip("B[1;2;3]");
+        round_trip("B.[1;2;3]");
+    }
+
+    #[test]
+    fn bare_bracket_block_parses_as_block_expr() {
+        let ast = parse_without_cst("[x:1;x+1]");
+        let AstNode::BlockExpr(stmts, _) = ast else {
+            panic!("expected BlockExpr, got {ast:?}");
+        };
+
+        assert_eq!(stmts.len(), 2);
+        assert!(matches!(stmts[0], AstNode::Assignment { .. }));
+        assert!(matches!(stmts[1], AstNode::BinaryOp { .. }));
+
+        let ast = parse_without_cst("B.[x:1;x+1]");
+        assert!(matches!(ast, AstNode::BlockExpr(_, _)));
     }
 
     #[test]
@@ -5113,7 +5135,7 @@ mod cst_integration_tests {
     fn structural_wraps_match_construct_kinds() {
         // Build a snippet exercising every wrap kind we've added in Phase 2B
         // and assert each kind shows up at least once in the green tree.
-        let src = r#"a:1+2; xs|sum; (1;2); (`k:1); {[x;y]x+y}; W[c;b]; N[3;@b]; B[1]; $[c;t;f]; $.[c;t]; $$[c;t;d]; foo[1;2]; foo!arg; bar:2"#;
+        let src = r#"a:1+2; xs|sum; (1;2); (`k:1); {[x;y]x+y}; W[c;b]; N[3;@b]; [1]; B[1]; $[c;t;f]; $.[c;t]; $$[c;t;d]; foo[1;2]; foo!arg; bar:2"#;
         let (_, cst) = parse_with_cst(src);
         let root = SyntaxNode::new_root(cst);
         let mut seen = std::collections::HashSet::new();
@@ -5314,6 +5336,7 @@ mod cst_integration_tests {
             "W[c;b]",
             "N[3;@b]",
             "B[1;2]",
+            "[1;2]",
             "S(1;2;3)",
             "(1;2;3)",
             "(`k:1)",

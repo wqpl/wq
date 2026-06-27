@@ -13,23 +13,23 @@ parse_csv:{[csv]
     esc:and[in_quote;c="\"";next="\""]
     handled:false
     $.[and[in_quote;esc;~handled]
-      B[field,:("\"")
+      [field,:("\"")
         i+:1
         handled:true]]
     $.[and[in_quote;~esc;c="\"";~handled]
-      B[in_quote:false
+      [in_quote:false
         handled:true]]
     $.[and[in_quote;~esc;~handled]
       field,:c]
     $.[and[~in_quote;c="\"";~handled]
-      B[in_quote:true
+      [in_quote:true
         handled:true]]
     $.[and[~in_quote;c=",";~handled]
-      B[cols,:(,field)
+      [cols,:(,field)
         field:()
         handled:true]]
     $.[and[~in_quote;c="\n";~handled]
-      B[cols,:(,field)
+      [cols,:(,field)
         rows,:(,cols)
         cols:()
         field:()

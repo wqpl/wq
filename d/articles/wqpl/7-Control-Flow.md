@@ -38,6 +38,14 @@ $.[x=0;x:10;x+:5]
 x|echo
 ```
 
+Use a bracket block when a branch needs to be visually grouped as one expression.
+
+```wq
+x:0
+$.[x=0;[x:10;x+:5]]
+x|echo
+```
+
 ## Choose From Several
 
 `$$[...]` checks condition/action pairs in order. A final unpaired expression is the default.

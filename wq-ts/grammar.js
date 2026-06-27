@@ -337,15 +337,18 @@ export default grammar({
 
     depth_modifier: (_) => token(seq("@", /[0-9](?:_?[0-9])*/)),
 
-    arg_list: ($) => seq("[", optional($.argument_items), "]"),
+    arg_list: ($) => prec(2, seq("[", optional($.argument_items), "]")),
 
     argument_items: ($) =>
-      choice(
-        $._item_separator,
-        seq(
-          $.expression,
-          repeat(seq($._item_separator, $.expression)),
-          optional($._item_separator),
+      prec(
+        2,
+        choice(
+          $._item_separator,
+          seq(
+            $.expression,
+            repeat(seq($._item_separator, $.expression)),
+            optional($._item_separator),
+          ),
         ),
       ),
 
@@ -435,11 +438,14 @@ export default grammar({
       seq(optional("'"), "{", optional($.param_list), optional($.block), "}"),
 
     param_list: ($) =>
-      seq(
-        "[",
-        optional(separated1($.param, $._param_separator)),
-        optional($._param_separator),
-        "]",
+      prec(
+        2,
+        seq(
+          "[",
+          optional(separated1($.param, $._param_separator)),
+          optional($._param_separator),
+          "]",
+        ),
       ),
 
     _param_separator: ($) =>
@@ -451,7 +457,7 @@ export default grammar({
       ),
 
     param: ($) =>
-      choice($.identifier, seq($.tag, optional(seq(":", $.pipe_expr)))),
+      prec(2, choice($.identifier, seq($.tag, optional(seq(":", $.pipe_expr))))),
 
     paren_expr: ($) => choice($.dict_literal, $.paren_list),
 
@@ -493,7 +499,17 @@ export default grammar({
     conditional_chain: ($) => seq("$$", $.arg_list),
     w_loop: ($) => prec.dynamic(1, seq("W", $.arg_list)),
     n_loop: ($) => prec.dynamic(1, seq("N", $.arg_list)),
-    block_form: ($) => prec.dynamic(1, seq("B", $.arg_list)),
+    block_form: ($) =>
+      prec.dynamic(1, choice(seq("B", $.block_arg_list), $.block_arg_list)),
+
+    block_arg_list: ($) => seq("[", optional($.block_items), "]"),
+
+    block_items: ($) =>
+      seq(
+        $.expression,
+        repeat(seq($._item_separator, $.expression)),
+        optional($._item_separator),
+      ),
 
     return_form: ($) =>
       choice(prec.right(PREC.ASSIGN, seq("@r", $.expression)), "@r"),

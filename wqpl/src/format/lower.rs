@@ -960,6 +960,12 @@ impl<'a> LowerCtx<'a> {
                 SyntaxElement::Node(_) => {}
             }
         }
+        if node.kind() == SyntaxKind::BlockExpr {
+            sigil.clear();
+            if Self::block_needs_legacy_head_in_function_body(node) {
+                sigil.push('B');
+            }
+        }
         let open = Doc::text(format!("{sigil}["));
         let stmt_count = body_elems
             .iter()
@@ -990,6 +996,28 @@ impl<'a> LowerCtx<'a> {
         // body in Nest only indents those continuation lines (Nest applies
         // to embedded newlines, not the first character).
         Doc::group(open + Doc::nest(self.indent(), body) + close)
+    }
+
+    fn block_needs_legacy_head_in_function_body(node: &SyntaxNode) -> bool {
+        let Some(parent) = node.parent() else {
+            return false;
+        };
+        if parent.kind() != SyntaxKind::FunctionExpr {
+            return false;
+        }
+        let mut saw_param_list = false;
+        let mut first_child_node: Option<SyntaxNode> = None;
+        for child in parent.children() {
+            if child.kind() == SyntaxKind::ParamList {
+                saw_param_list = true;
+            }
+            if first_child_node.is_none() {
+                first_child_node = Some(child);
+            }
+        }
+        !saw_param_list
+            && first_child_node
+                .is_some_and(|first| first.index_in_parent() == node.index_in_parent())
     }
 
     // ===== @-keywords =====
@@ -1126,6 +1154,25 @@ mod tests {
     #[test]
     fn arglist_normalizes_separators() {
         assert_eq!(fmt("f[1; 2; 3]", 80), "f[1;2;3]");
+    }
+
+    #[test]
+    fn bare_block_is_canonical() {
+        assert_eq!(fmt("[1]", 80), "[1]");
+        assert_eq!(fmt("B[1]", 80), "[1]");
+        assert_eq!(fmt("B.[1]", 80), "[1]");
+        assert_eq!(fmt("[1; 2; 3]", 80), "[1\n  2\n  3]");
+        assert_eq!(fmt("B[1; 2; 3]", 80), "[1\n  2\n  3]");
+    }
+
+    #[test]
+    fn implicit_function_body_block_keeps_legacy_head() {
+        assert_eq!(fmt("{B[x]}", 80), "{B[x]}");
+        assert_eq!(fmt("{B.[x]}", 80), "{B[x]}");
+        assert_eq!(fmt("{B[x; y]}", 80), "{\n  B[x\n    y]}");
+        assert_eq!(fmt("{B.[x; y]}", 80), "{\n  B[x\n    y]}");
+        assert_eq!(fmt("{[a]B[x]}", 80), "{[a][x]}");
+        assert_eq!(fmt("{x;B[y]}", 80), "{\n  x\n  [y]}");
     }
 
     #[test]

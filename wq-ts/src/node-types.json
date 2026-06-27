@@ -243,6 +243,21 @@
     }
   },
   {
+    "type": "block_arg_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "block_items",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "block_form",
     "named": true,
     "fields": {},
@@ -251,7 +266,26 @@
       "required": true,
       "types": [
         {
-          "type": "arg_list",
+          "type": "block_arg_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "block_items",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        },
+        {
+          "type": "newline",
           "named": true
         }
       ]

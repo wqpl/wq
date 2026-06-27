@@ -219,7 +219,7 @@ pub enum AstNode {
     Try(Box<AstNode>, AstSpan),
     /// Sequence of statements
     Block(Vec<AstNode>, AstSpan),
-    /// Block expression from B[...]
+    /// Block expression from `[...]` or legacy `B[...]`.
     BlockExpr(Vec<AstNode>, AstSpan),
     /// F-string literal (@f"...{expr}...")
     FString {

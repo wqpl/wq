@@ -13,16 +13,16 @@ lex:{[s]
   W[i<n
     c:s i
     $$[is_op c
-      B[tokens,:,(`op;c)
+      [tokens,:,(`op;c)
         i+:1]
       is_alpha c
-      B[j:i
+      [j:i
         W[(j<n)&|(is_id_char s j)
           j+:1]
         tokens,:,(`id;s i..j)
         i:j]
       is_digit c
-      B[j:i
+      [j:i
         W[(j<n)&|(is_digit s j)
           j+:1]
         tokens,:,(`int;s i..j)

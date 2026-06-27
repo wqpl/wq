@@ -2,12 +2,12 @@
 parse_csv:{[csv]rows:();cols:();field:();in_quote:false;i:0
   W[i<#csv;c:csv i;next:"";$.[i+1<#csv;next:csv[i+1]]
     esc:and[in_quote;c="\"";next="\""];handled:false
-    $.[and[in_quote;esc;~handled];B[field,:("\"");i+:1;handled:true]]
-    $.[and[in_quote;~esc;c="\"";~handled];B[in_quote:false;handled:true]]
+    $.[and[in_quote;esc;~handled];[field,:("\"");i+:1;handled:true]]
+    $.[and[in_quote;~esc;c="\"";~handled];[in_quote:false;handled:true]]
     $.[and[in_quote;~esc;~handled];field,:c]
-    $.[and[~in_quote;c="\"";~handled];B[in_quote:true;handled:true]]
-    $.[and[~in_quote;c=",";~handled];B[cols,:(,field);field:();handled:true]]
-    $.[and[~in_quote;c="\n";~handled];B[cols,:(,field);rows,:(,cols);cols:();field:();handled:true]]
+    $.[and[~in_quote;c="\"";~handled];[in_quote:true;handled:true]]
+    $.[and[~in_quote;c=",";~handled];[cols,:(,field);field:();handled:true]]
+    $.[and[~in_quote;c="\n";~handled];[cols,:(,field);rows,:(,cols);cols:();field:();handled:true]]
     $.[and[~in_quote;~handled];field,:c]
     i+:1]
     cols,:(,field);rows,:(,cols);rows}
