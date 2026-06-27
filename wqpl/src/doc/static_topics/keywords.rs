@@ -48,11 +48,41 @@ const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("\"cas\""),
 }];
 
-const AT_FSTRING_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Interpolate an expression",
-    code: "@f\"{1+2}\"",
-    expectation: ExampleExpectation::ResultContains("3"),
-}];
+const AT_FSTRING_DETAILS: &str = concat!(
+    "`@f\"...{expr}...\"` is inline formatting. Braces contain wq expressions, ",
+    "and `{expr!spec}` formats the expression with the same spec accepted by ",
+    "`fmt` placeholders. Dynamic width and precision use expressions inside ",
+    "the spec, such as `{value!>{width}.2}`. Use doubled braces for literal ",
+    "braces.\n\n",
+    "Spec shape: `{expr![fill][align][sign][#][0][width][.precision][type]}`. ",
+    "Align is `<`, `>`, `^`, or `=`. Sign is `+`, `-`, or a space. ",
+    "`#` adds integer base prefixes and selects pretty debug with `?`; `0` ",
+    "is sign-aware zero padding. Type is `b`, `B`, `o`, `O`, `x`, `X`, ",
+    "`e`, `E`, `,`, `%`, or `?`. See `fmt` for the same spec in template form."
+);
+
+const AT_FSTRING_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Interpolate an expression",
+        code: "@f\"{1+2}\"",
+        expectation: ExampleExpectation::ResultContains("3"),
+    },
+    DocExample {
+        title: "Use the shared format spec",
+        code: "@f\"hex={255!#06x}\"",
+        expectation: ExampleExpectation::ResultContains("hex=0x00ff"),
+    },
+    DocExample {
+        title: "Use an expression for dynamic width",
+        code: "width:6;pi:3.14159;@f\"pi={pi!>{width}.2}\"",
+        expectation: ExampleExpectation::ResultContains("pi=  3.14"),
+    },
+    DocExample {
+        title: "Escape literal braces",
+        code: "@f\"{{{1+2}}}\"",
+        expectation: ExampleExpectation::ResultContains("{3}"),
+    },
+];
 
 const AT_RAW_STRING_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Keep backslashes raw",
@@ -169,7 +199,7 @@ pub(super) const AT_FSTRING: StaticDoc = StaticDoc {
     group: "Keywords",
     aliases: &["@f", "format string", "fstring"],
     summary: "Create a string by interpolating expressions.",
-    details: "`@f\"...{expr}...\"` evaluates braces as wq expressions. Use doubled braces for literal braces.",
+    details: AT_FSTRING_DETAILS,
     examples: AT_FSTRING_EXAMPLES,
     related: &["fmt", "str"],
 };

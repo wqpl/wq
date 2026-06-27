@@ -46,11 +46,84 @@ const DICT_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("1"),
 }];
 
-const CALL_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Bracket call/index syntax",
-    code: "(10;20;30)[1]",
-    expectation: ExampleExpectation::ResultContains("20"),
-}];
+const COMMENT_DETAILS: &str = "`// text` starts a line comment that runs to the next newline. `/* text */` starts a block comment that can appear between tokens, span multiple lines, or be empty as `/**/`. Block comments nest, so every `/*` inside a block needs its own matching `*/`. Comments are ignored as trivia during evaluation and are used for notes, expected output, and temporarily disabling source.";
+
+const COMMENT_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Use a trailing line comment",
+        code: "1+2 // ignored",
+        expectation: ExampleExpectation::ResultContains("3"),
+    },
+    DocExample {
+        title: "Put a block comment between tokens",
+        code: "1 /* ignored */ + 2",
+        expectation: ExampleExpectation::ResultContains("3"),
+    },
+    DocExample {
+        title: "Nest block comments",
+        code: "1 /* outer /* inner */ outer */ + 2",
+        expectation: ExampleExpectation::ResultContains("3"),
+    },
+    DocExample {
+        title: "Use an empty block comment",
+        code: "1/**/+2",
+        expectation: ExampleExpectation::ResultContains("3"),
+    },
+];
+
+const CALL_DETAILS: &str = "`target[expr1;expr2]` applies a target to semicolon-separated arguments.
+If the target is callable, that form is a call.
+If the target is a list or dict, it is an index.
+This shared shape is deliberate: a list or dict can be read as a discrete function from indexes or keys to values, so functions, builtins, lists, and dicts all use `target[...]` and the one-argument postfix form `target arg`.
+Multiple bracket entries on an indexable target are a bulk index: `xs[0;2]` returns positions 0 and 2, and ``d[`a;`b]`` returns both dict keys.
+An explicit list key such as `xs[(0;2)]` is one argument that ordinary lists also treat as multiple positions.
+Index paths are deep: `xs[1][0]` and `xs[1] 0` first read `xs[1]`, then index that result.
+For assignment, only the final path segment may be bulk; see `index-mutation`.
+A trailing semicolon is legacy call-path syntax: `target[a;b;]` is forced to call, even when `target[a;b]` would index.
+Postfix has one argument slot, so use brackets for zero arguments, named arguments, or more than one argument.";
+
+const CALL_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Call a function with multiple arguments",
+        code: "add:{[x;y]x+y};add[2;3]",
+        expectation: ExampleExpectation::ResultContains("5"),
+    },
+    DocExample {
+        title: "Index a list",
+        code: "xs:(10;20;30);xs[1]",
+        expectation: ExampleExpectation::ResultContains("20"),
+    },
+    DocExample {
+        title: "Index a dict by key",
+        code: "d:(`name:\"wq\";`fun:T);d`name",
+        expectation: ExampleExpectation::ResultContains("\"wq\""),
+    },
+    DocExample {
+        title: "Bulk index several list positions",
+        code: "xs:(10;20;30;40);xs[0;2]",
+        expectation: ExampleExpectation::ResultContains("(10;30)"),
+    },
+    DocExample {
+        title: "Bulk index several dict keys",
+        code: "d:(`a:1;`b:2);d[`a;`b]",
+        expectation: ExampleExpectation::ResultContains("(1;2)"),
+    },
+    DocExample {
+        title: "Descend through a deep index path",
+        code: "xs:((1;2);(3;4));xs[1][0]",
+        expectation: ExampleExpectation::ResultContains("3"),
+    },
+    DocExample {
+        title: "Bulk index at a deep path",
+        code: "xs:((1;2);(3;4));xs[1][0;1]",
+        expectation: ExampleExpectation::ResultContains("(3;4)"),
+    },
+    DocExample {
+        title: "A trailing semicolon forces the call path",
+        code: "xs:(10;20;30);xs[0;1;]",
+        expectation: ExampleExpectation::ErrorContains("cannot call 'xs'"),
+    },
+];
 
 const RANGE_EXAMPLES: &[DocExample] = &[
     DocExample {
@@ -118,11 +191,35 @@ const INDEX_MUTATION_EXAMPLES: &[DocExample] = &[
     },
 ];
 
-const POSTFIX_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Single-argument postfix call",
-    code: "{x*x} 9",
-    expectation: ExampleExpectation::ResultContains("81"),
-}];
+const POSTFIX_DETAILS: &str = "`target arg` is the one-expression form of `target[arg]` when writing it with a space does not change the parse.
+It can call a function or index a container; the resolver lowers it from context when it can, and unresolved cases are decided at runtime.
+Chaining is nested postfix, so `floor sqrt x` behaves like `floor[sqrt[x]]`.
+Postfix binds before ordinary binary operators: `fn 1+2` means `(fn 1)+2`, not `fn[1+2]`.
+Use grouping, brackets, or a pipe when the whole expression is the argument.
+`fn arg1 arg2` is a chain, not a two-argument call; write `fn[arg1;arg2]` for that.";
+
+const POSTFIX_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Call one argument with postfix",
+        code: "{x*x} 9",
+        expectation: ExampleExpectation::ResultContains("81"),
+    },
+    DocExample {
+        title: "Index one argument with postfix",
+        code: "xs:(10;20;30);xs 1",
+        expectation: ExampleExpectation::ResultContains("20"),
+    },
+    DocExample {
+        title: "Chain nested postfix calls",
+        code: "floor sqrt 81",
+        expectation: ExampleExpectation::ResultContains("9"),
+    },
+    DocExample {
+        title: "Group a wider argument",
+        code: "({x*x} 1+2;{x*x}(1+2))",
+        expectation: ExampleExpectation::ResultContains("(3;9)"),
+    },
+];
 
 const FUNCTION_EXAMPLES: &[DocExample] = &[
     DocExample {
@@ -293,14 +390,34 @@ pub(super) const DICTS: StaticDoc = StaticDoc {
     related: &["keys", "named-arguments"],
 };
 
-pub(super) const CALLS: StaticDoc = StaticDoc {
-    id: "calls",
-    title: "Calls and Indexing",
+pub(super) const COMMENTS: StaticDoc = StaticDoc {
+    id: "comments",
+    title: "Comments",
     kind: DocKind::Syntax,
     group: "Syntax",
-    aliases: &["call", "calls", "index", "indexing", "[]"],
-    summary: "Call or index with brackets and semicolons.",
-    details: "`target[expr1;expr2]` passes multiple arguments or indexes multiple positions depending on the target value.",
+    aliases: &["comment", "comments", "//", "/*", "*/", "/* */", "/**/"],
+    summary: "Ignore source text with line or block comments.",
+    details: COMMENT_DETAILS,
+    examples: COMMENT_EXAMPLES,
+    related: &[],
+};
+
+pub(super) const CALLS: StaticDoc = StaticDoc {
+    id: "calls",
+    title: "Calls, Indexing, and Postfix",
+    kind: DocKind::Syntax,
+    group: "Syntax",
+    aliases: &[
+        "call",
+        "calls",
+        "index",
+        "indexing",
+        "bulk index",
+        "deep index",
+        "[]",
+    ],
+    summary: "Call functions or index containers with shared bracket and postfix syntax.",
+    details: CALL_DETAILS,
     examples: CALL_EXAMPLES,
     related: &[
         "postfix",
@@ -337,12 +454,12 @@ pub(super) const INDEX_MUTATION: StaticDoc = StaticDoc {
 
 pub(super) const POSTFIX: StaticDoc = StaticDoc {
     id: "postfix",
-    title: "Postfix Calls",
+    title: "Postfix Syntax",
     kind: DocKind::Syntax,
     group: "Syntax",
-    aliases: &["postfix", "postfix call"],
-    summary: "A function followed by one expression calls it.",
-    details: "`fn arg` is a one-argument call. `fn1 fn2 arg` chains calls. `fn arg1 arg2` is not a two-argument call.",
+    aliases: &["postfix", "postfix call", "postfix calls", "space call"],
+    summary: "Apply or index a target with one following expression.",
+    details: POSTFIX_DETAILS,
     examples: POSTFIX_EXAMPLES,
     related: &["calls"],
 };

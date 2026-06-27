@@ -23,6 +23,7 @@ pub(super) const STATIC_DOCS: &[StaticDoc] = &[
     syntax::EQUALITY,
     syntax::LISTS,
     syntax::DICTS,
+    syntax::COMMENTS,
     syntax::CALLS,
     syntax::RANGES,
     syntax::INDEX_MUTATION,

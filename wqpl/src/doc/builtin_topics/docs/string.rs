@@ -43,6 +43,28 @@ const R_TRIM_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("\"  hi\""),
 }];
 
+const FMT_DETAILS: &str = concat!(
+    "`fmt[template;values...]` and `@f\"...\"` share one formatting system. ",
+    "In a `fmt` template, `{}` consumes the next value and writes its normal ",
+    "display form. `{!...}` consumes the next value and applies a spec. ",
+    "The spec shape is `{![fill][align][sign][#][0][width][.precision][type]}`.\n\n",
+    "- `fill` is one character used with `align`; `align` is `<`, `>`, `^`, ",
+    "or `=`. `=` pads after a sign or integer base prefix.\n",
+    "- `sign` is `+`, `-`, or a space. `#` adds `0x`, `0X`, `0b`, `0B`, ",
+    "`0o`, or `0O` for integer bases, and selects pretty debug with `?`.\n",
+    "- `0` is shorthand for sign-aware zero padding when no explicit alignment ",
+    "was set.\n",
+    "- `width` and `.precision` are digits. In `fmt`, dynamic `{}` width or ",
+    "precision consumes an extra value before the formatted value; in `@f`, ",
+    "dynamic `{expr}` width or precision evaluates that expression.\n",
+    "- `type` is `b`, `B`, `o`, `O`, `x`, `X`, `e`, `E`, `,`, `%`, or `?`. ",
+    "Use `,` for thousands separators, `%` for percentages, and `?` for debug ",
+    "output.\n\n",
+    "Use `{{` and `}}` for literal braces. `fmt` is best when the template and ",
+    "values are already separate; `@f` is best when the values are written inline ",
+    "as expressions."
+);
+
 const FMT_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Format values with a specifier",
@@ -55,6 +77,16 @@ const FMT_EXAMPLES: &[DocExample] = &[
         expectation: ExampleExpectation::ResultContains(
             "\"hex=0x00007b pct=12.5% dbg=Bool(true)\"",
         ),
+    },
+    DocExample {
+        title: "Use dynamic width and precision",
+        code: "fmt[\"w={!{}} p={!.{}}\";4;12;2;3.14159]",
+        expectation: ExampleExpectation::ResultContains("\"w=  12 p=3.14\""),
+    },
+    DocExample {
+        title: "Escape literal braces",
+        code: "fmt[\"{{{}}}\";1+2]",
+        expectation: ExampleExpectation::ResultContains("\"{3}\""),
     },
 ];
 
@@ -117,7 +149,7 @@ pub(super) const R_TRIM: BuiltinDoc = BuiltinDoc {
 pub(super) const FMT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Fmt,
     summary: "Build a string from a template and values.",
-    details: "`fmt` replaces `{}` with the next value and `{!...}` with the next value formatted by a specifier. Supported spec shape is `{![fill][align][sign][#][0][width][.precision][type]}`: align is `<`, `>`, `^`, or `=`; sign is `+`, `-`, or space; width and precision are digits or dynamic `{}` values; type is `b`, `B`, `o`, `O`, `x`, `X`, `e`, `E`, `,`, `%`, or `?`. `#` adds integer prefixes or pretty debug output, `0` enables sign-aware zero padding, and doubled braces emit literal braces.",
+    details: FMT_DETAILS,
     examples: FMT_EXAMPLES,
     related: &["@f", "str"],
 };
