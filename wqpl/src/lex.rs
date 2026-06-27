@@ -101,7 +101,7 @@ impl<'a> Lexer<'a> {
     ) -> WqError {
         let src = self.source;
         let bs = byte_start.min(src.len());
-        let be = byte_end.min(src.len());
+        let be = Self::non_empty_span_end(src, bs, byte_end);
         let (text, abs_start, abs_end) = if let Some(gs) = self.global_source {
             let start = bs + self.base_offset;
             let end = be + self.base_offset;
@@ -115,6 +115,33 @@ impl<'a> Lexer<'a> {
             .msg(msg)
             .span(Some((abs_start, abs_end)))
             .source_ctx(text, path)
+    }
+
+    fn non_empty_span_end(src: &str, byte_start: usize, byte_end: usize) -> usize {
+        let end = byte_end.min(src.len());
+        if end > byte_start {
+            return end;
+        }
+        src[byte_start..]
+            .chars()
+            .next()
+            .map_or(end, |ch| byte_start + ch.len_utf8())
+    }
+
+    fn negative_depth_modifier_end(&self) -> usize {
+        let mut end = self.byte_pos;
+        if self.current_char != Some('-') {
+            return end;
+        }
+        end += '-'.len_utf8();
+        for ch in self.source[end..].chars() {
+            if ch.is_ascii_digit() || ch == '_' {
+                end += ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+        end
     }
 
     fn syntax_error_span(
@@ -1133,7 +1160,7 @@ impl<'a> Lexer<'a> {
                                 token_line,
                                 token_column,
                                 token_byte_start,
-                                self.byte_pos,
+                                self.negative_depth_modifier_end(),
                                 "negative depth modifiers are not supported; use an explicit depth argument",
                             ));
                         }
@@ -1491,6 +1518,13 @@ mod tests {
     use num_bigint::BigInt;
 
     use super::*;
+    use crate::style::ColorMode;
+
+    fn lexer_err(src: &str) -> WqError {
+        Lexer::new(src)
+            .tokenize()
+            .expect_err("expected lexer error")
+    }
 
     #[test]
     fn test_tokenize_numbers() {
@@ -1690,6 +1724,42 @@ mod tests {
                 .as_deref()
                 .is_some_and(|msg| msg.contains("negative depth modifiers")),
             "unexpected error: {err:?}",
+        );
+    }
+
+    #[test]
+    fn unrecognized_character_error_has_colored_and_plain_underlines() {
+        let err = lexer_err("?");
+        assert_eq!(err.span, Some((0, 1)));
+
+        let plain = err.render_with_color_mode(ColorMode::Never);
+        assert!(
+            plain.lines().any(|line| line.trim() == "~"),
+            "expected plain underline in {plain:?}",
+        );
+
+        let colored = err.render_with_color_mode(ColorMode::Always);
+        assert!(
+            colored.contains("\x1b[1;4;32m?\x1b[0m"),
+            "expected colored underline in {colored:?}",
+        );
+    }
+
+    #[test]
+    fn negative_depth_error_underlines_whole_modifier() {
+        let err = lexer_err("@-1 has?[x; y]");
+        assert_eq!(err.span, Some((0, 3)));
+
+        let plain = err.render_with_color_mode(ColorMode::Never);
+        assert!(
+            plain.lines().any(|line| line.trim() == "~~~"),
+            "expected plain underline in {plain:?}",
+        );
+
+        let colored = err.render_with_color_mode(ColorMode::Always);
+        assert!(
+            colored.contains("\x1b[1;4;32m@-1\x1b[0m"),
+            "expected colored underline in {colored:?}",
         );
     }
 
