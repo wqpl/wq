@@ -1248,7 +1248,9 @@ impl Resolver {
     fn fact_from_ast(&self, node: &AstNode) -> BindingFact {
         match node {
             AstNode::Function { .. } => BindingFact::Callable,
-            AstNode::Cat(..) | AstNode::List(..) | AstNode::Dict(..) => BindingFact::Indexable,
+            AstNode::Cat(..) | AstNode::List(..) | AstNode::Dict(..) | AstNode::Range { .. } => {
+                BindingFact::Indexable
+            }
             AstNode::Literal(value, _) => Self::fact_from_value(value),
             AstNode::Group { expr, .. } => self.fact_from_ast(expr),
             AstNode::Variable(name, span) => self.lookup_fact(name, *span, false),
@@ -1263,7 +1265,7 @@ impl Resolver {
             Value::CompiledFunction(_) | Value::Closure(_) | Value::BuiltinFunction { .. } => {
                 BindingFact::Callable
             }
-            Value::List(_) | Value::Dict(_) => BindingFact::Indexable,
+            _ if value.is_list_like() || matches!(value, Value::Dict(_)) => BindingFact::Indexable,
             _ => BindingFact::Unknown,
         }
     }
@@ -1800,6 +1802,102 @@ mod tests {
             }
             other => panic!("expected index lowering, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn range_assignment_lowers_postfix_to_index() {
+        let ast = resolve_src("xs:1..10; xs 0");
+
+        match stmt(&ast, 1) {
+            AstNode::Index { object, index, .. } => {
+                assert!(matches!(object.as_ref(), AstNode::Variable(name, _) if name == "xs"));
+                assert!(matches!(index.as_ref(), AstNode::Literal(Value::Int(0), _)));
+            }
+            other => panic!("expected index lowering, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn string_assignment_lowers_postfix_to_index() {
+        let ast = resolve_src("s:\"abc\"; s 0");
+
+        match stmt(&ast, 1) {
+            AstNode::Index { object, index, .. } => {
+                assert!(matches!(object.as_ref(), AstNode::Variable(name, _) if name == "s"));
+                assert!(matches!(index.as_ref(), AstNode::Literal(Value::Int(0), _)));
+            }
+            other => panic!("expected index lowering, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn packed_list_literal_assignment_lowers_postfix_to_index() {
+        let ast = AstNode::Block(
+            vec![
+                AstNode::Assignment {
+                    name: "xs".to_string(),
+                    op: None,
+                    value: Box::new(AstNode::Literal(
+                        Value::IntList(Arc::new(vec![1, 2, 3])),
+                        None,
+                    )),
+                    span: None,
+                    name_span: None,
+                },
+                AstNode::Postfix {
+                    object: Box::new(AstNode::Variable("xs".to_string(), None)),
+                    items: vec![AstNode::Literal(Value::Int(0), None)],
+                    explicit_call: false,
+                    depth: None,
+                    span: None,
+                },
+            ],
+            None,
+        );
+        let mut resolver = Resolver::new();
+        let ast = resolver.resolve(ast);
+
+        match stmt(&ast, 1) {
+            AstNode::Index { object, index, .. } => {
+                assert!(matches!(object.as_ref(), AstNode::Variable(name, _) if name == "xs"));
+                assert!(matches!(index.as_ref(), AstNode::Literal(Value::Int(0), _)));
+            }
+            other => panic!("expected index lowering, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lifted_callable_literal_assignment_keeps_postfix_dynamic() {
+        let ast = AstNode::Block(
+            vec![
+                AstNode::Assignment {
+                    name: "f".to_string(),
+                    op: None,
+                    value: Box::new(AstNode::Literal(
+                        Value::function_composition(
+                            BinaryOperator::Add,
+                            Value::Int(1),
+                            Value::Int(2),
+                        ),
+                        None,
+                    )),
+                    span: None,
+                    name_span: None,
+                },
+                AstNode::Postfix {
+                    object: Box::new(AstNode::Variable("f".to_string(), None)),
+                    items: vec![AstNode::Literal(Value::Int(0), None)],
+                    explicit_call: false,
+                    depth: None,
+                    span: None,
+                },
+            ],
+            None,
+        );
+        let mut resolver = Resolver::new();
+        let ast = resolver.resolve(ast);
+
+        assert!(matches!(stmt(&ast, 1), AstNode::Postfix { .. }));
     }
 
     #[test]
