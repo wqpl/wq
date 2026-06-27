@@ -32,6 +32,18 @@ fn resolves_keywords_and_depth_modifiers() {
         "wqdb".to_string()
     );
     assert_eq!(
+        resolve("!bfn").expect("!bfn doc").id,
+        "builtins".to_string()
+    );
+    assert_eq!(
+        resolve("interpreter").expect("interpreter doc").id,
+        "interpreters".to_string()
+    );
+    assert_eq!(
+        resolve("!i").expect("!i doc").id,
+        "interpreters".to_string()
+    );
+    assert_eq!(
         resolve("words").expect("words doc").builtin,
         Some(BuiltinEnum::Words)
     );

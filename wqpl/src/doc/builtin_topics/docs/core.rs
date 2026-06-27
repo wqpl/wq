@@ -1,11 +1,18 @@
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
 use crate::builtins::BuiltinEnum;
 
-const BFN_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Check whether a builtin is available",
-    code: "bfn[]|has?[\"echo\"]",
-    expectation: ExampleExpectation::ResultContains("T"),
-}];
+const BFN_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Check whether a builtin is available",
+        code: "bfn[]|has?[\"echo\"]",
+        expectation: ExampleExpectation::ResultContains("T"),
+    },
+    DocExample {
+        title: "Count enabled builtins",
+        code: "len bfn[]>0",
+        expectation: ExampleExpectation::ResultContains("T"),
+    },
+];
 
 const CHR_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Convert code points to text",
@@ -124,9 +131,9 @@ const LEN_EXAMPLES: &[DocExample] = &[DocExample {
 pub(super) const BFN: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Bfn,
     summary: "Return the names of enabled builtins.",
-    details: "`bfn[]` returns a sorted list of builtin names available in the current builtin preset. It is useful when code needs to inspect the runtime surface it is running with.",
+    details: "`bfn[]` returns a sorted list of builtin names available in the current builtin preset. It returns strings, so code can search the list with `has?`, `in?`, `find`, or ordinary indexing. The result reflects the active preset selected by the host, such as the CLI `--builtins` flag or the REPL `!bfn <preset>` command. Use the `builtins` guide for preset and REPL command details.",
     examples: BFN_EXAMPLES,
-    related: &["help", "symbols"],
+    related: &["builtins", "!bfn", "help", "symbols"],
 };
 
 pub(super) const CHR: BuiltinDoc = BuiltinDoc {
