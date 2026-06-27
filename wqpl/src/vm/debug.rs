@@ -1,6 +1,8 @@
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
-use crate::value::func::{CallableExpr, ClosureData, FunctionData, LiftedCallableData};
+use crate::value::func::{
+    CallableExpr, ClosureData, FunctionData, LiftedCallableData, UserFunctionShape,
+};
 use crate::value::{Excerpt, Value};
 use crate::vm::Vm;
 use crate::wqdb::build::{
@@ -78,6 +80,25 @@ impl Vm {
         }
     }
 
+    fn stamped_debug_chunk_is_reusable(
+        &self,
+        chunk: ChunkId,
+        name: &str,
+        shape: &UserFunctionShape<'_>,
+    ) -> bool {
+        let needs_local_names = shape
+            .dbg_local_names
+            .as_ref()
+            .is_some_and(|names| !names.is_empty())
+            || shape
+                .params
+                .as_ref()
+                .is_some_and(|params| !params.is_empty());
+        self.debug_info.chunk_opt(chunk).is_some_and(|meta| {
+            meta.name.as_ref() == name && (!needs_local_names || meta.local_names.is_some())
+        })
+    }
+
     pub(crate) fn stamp_user_function_debug_chunk(
         &mut self,
         value: &mut Value,
@@ -88,6 +109,12 @@ impl Vm {
             let Some(shape) = value.as_user_function() else {
                 return dbg_chunk;
             };
+            if let Some(chunk) = dbg_chunk
+                && shape.dbg_chunk == Some(chunk)
+                && self.stamped_debug_chunk_is_reusable(chunk, name, &shape)
+            {
+                return Some(chunk);
+            }
             let mut spec = shape.debug_spec();
             if dbg_chunk.is_some() {
                 spec.dbg_chunk = dbg_chunk;
@@ -364,6 +391,9 @@ impl Vm {
     }
 
     pub(crate) fn attach_provenance_to_returned_callable(&self, value: Value) -> Value {
+        if !self.callable_provenance_enabled() {
+            return value;
+        }
         if !matches!(
             value,
             Value::CompiledFunction(_) | Value::Closure(_) | Value::LiftedCallable(_)

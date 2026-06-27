@@ -529,12 +529,14 @@ impl Vm {
         let base = self.stack.len() - argc;
         let had_named_meta = named_meta.is_some();
         let args = if let Some(meta) = named_meta {
-            let all_args: Vec<Value> = self.stack.drain(base..).collect();
-            let mut pos_args: Sv4 = SmallVec::new();
-            let mut named_args: Vec<(Arc<str>, Value)> = Vec::new();
+            let all_args: Sv4 = self.stack.drain(base..).collect();
+            let mut pos_args: Sv4 = SmallVec::with_capacity(meta.pos_count as usize);
+            let mut named_args: Vec<(Arc<str>, Value)> = Vec::with_capacity(meta.named.len());
+            let mut named_iter = meta.named.iter().peekable();
             for (i, v) in all_args.into_iter().enumerate() {
-                if let Some((_, name)) = meta.named.iter().find(|(p, _)| *p as usize == i) {
-                    named_args.push((name.clone(), v));
+                if named_iter.peek().is_some_and(|(p, _)| *p as usize == i) {
+                    let (_, name) = named_iter.next().expect("peeked named argument");
+                    named_args.push((Arc::clone(name), v));
                 } else {
                     pos_args.push(v);
                 }

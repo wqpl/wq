@@ -211,12 +211,22 @@ impl Vm {
 }
 
 impl Vm {
+    #[inline]
+    pub(crate) fn debug_mapping_enabled(&self) -> bool {
+        self.runtime_debug_info || self.wqdb.enabled || self.bt_mode
+    }
+
+    #[inline]
+    pub(crate) fn callable_provenance_enabled(&self) -> bool {
+        self.debug_mapping_enabled()
+    }
+
     /// Normally returns `true` because `Session` enables backtrace mode by
     /// default. This is unrelated to `debug_log_flags`, which only controls
     /// logging and does not affect backtraces or debug artifacts.
     #[inline]
     pub(crate) fn debug_artifacts_enabled(&self) -> bool {
-        self.runtime_debug_info || self.wqdb.enabled || self.bt_mode
+        self.debug_mapping_enabled()
     }
 
     pub fn set_runtime_debug_info(&mut self, flag: bool) {
@@ -467,6 +477,20 @@ mod tests {
             !vm.debug_artifacts_enabled(),
             "an installed pause callback is only a hook, not an active debug-artifact request"
         );
+    }
+
+    #[test]
+    fn callable_provenance_stays_enabled_for_bt_mapping() {
+        let mut vm = Vm::new(Vec::new());
+        vm.set_bt_mode(false);
+        vm.wqdb.enabled = false;
+        vm.runtime_debug_info = false;
+        assert!(!vm.debug_mapping_enabled());
+        assert!(!vm.callable_provenance_enabled());
+
+        vm.set_bt_mode(true);
+        assert!(vm.debug_mapping_enabled());
+        assert!(vm.callable_provenance_enabled());
     }
 
     #[test]
