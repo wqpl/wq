@@ -488,7 +488,7 @@ mod tests {
         let chunk = di.new_chunk("a", file_id, 3);
         {
             let table = &mut di.chunk_mut(chunk).line_table;
-            apply_stmt_debug_exact_offs(
+            let spans = apply_stmt_debug_exact_offs(
                 table,
                 file_id,
                 &[None, Some((6, 9)), None],
@@ -499,6 +499,7 @@ mod tests {
                 }],
                 0,
             );
+            di.chunk_mut(chunk).note_debug_spans(spans.0, spans.1);
         }
 
         let rendered = format_frame_with_color_mode(

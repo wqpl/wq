@@ -1773,27 +1773,37 @@ fn load_closure_debug_chunk(
             source_base_offset,
         );
     }
-    {
-        let table = &mut vm.debug_info.chunk_mut(id).line_table;
-        if !payload.dbg_pc_spans.is_empty() && !payload.dbg_stmt_marks.is_empty() {
+    if !payload.dbg_pc_spans.is_empty() && !payload.dbg_stmt_marks.is_empty() {
+        let (has_exact, has_real) = {
+            let table = &mut vm.debug_info.chunk_mut(id).line_table;
             apply_stmt_debug_exact_offs(
                 table,
                 file_id,
                 payload.dbg_pc_spans.as_ref(),
                 payload.dbg_stmt_marks.as_ref(),
                 source_base_offset,
-            );
-        } else if !payload.dbg_stmt_spans.is_empty() {
+            )
+        };
+        vm.debug_info
+            .chunk_mut(id)
+            .note_debug_spans(has_exact, has_real);
+    } else if !payload.dbg_stmt_spans.is_empty() {
+        let has_real = {
+            let table = &mut vm.debug_info.chunk_mut(id).line_table;
             apply_stmt_spans_exact_offs(
                 table,
                 instructions.as_ref(),
                 file_id,
                 payload.dbg_stmt_spans.as_ref(),
                 source_base_offset,
-            );
-        } else {
-            mark_stmt_heuristic(table, instructions.as_ref());
-        }
+            )
+        };
+        vm.debug_info
+            .chunk_mut(id)
+            .note_debug_spans(false, has_real);
+    } else {
+        let table = &mut vm.debug_info.chunk_mut(id).line_table;
+        mark_stmt_heuristic(table, instructions.as_ref());
     }
     if !payload.dbg_local_names.is_empty() {
         vm.debug_info.chunk_mut(id).local_names =

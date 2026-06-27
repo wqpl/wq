@@ -196,7 +196,16 @@ pub struct ChunkMeta {
     pub file_id: u32,
     pub len: usize,
     pub line_table: LineTable,
+    pub(crate) has_exact_spans: bool,
+    pub(crate) has_real_spans: bool,
     pub local_names: Option<Vec<String>>, // slot-indexed local names
+}
+
+impl ChunkMeta {
+    pub(crate) fn note_debug_spans(&mut self, has_exact: bool, has_real: bool) {
+        self.has_exact_spans |= has_exact;
+        self.has_real_spans |= has_real;
+    }
 }
 
 #[derive(Default)]
@@ -233,6 +242,8 @@ impl DebugInfo {
                 file_id,
                 len,
                 line_table: LineTable::default(),
+                has_exact_spans: false,
+                has_real_spans: false,
                 local_names: None,
             },
         );

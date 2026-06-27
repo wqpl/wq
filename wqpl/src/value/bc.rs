@@ -503,6 +503,80 @@ fn zip_containers<F>(
 where
     F: FnMut(&Value, &Value) -> WqResult<Value>,
 {
+    match (left, right) {
+        (Value::IntRange(a), Value::IntRange(b)) => {
+            if a.len() != b.len() {
+                return Err(bc_len_mismatch(a.len(), b.len(), path));
+            }
+            let mut out = Vec::with_capacity(a.len());
+            for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+                path.push(i);
+                let lhs = Value::Int(x);
+                let rhs = Value::Int(y);
+                out.push(op(&lhs, &rhs).bc_at_path(path)?);
+                path.pop();
+            }
+            return Ok(Value::from_items(out));
+        }
+        (Value::IntRange(a), Value::IntList(b)) => {
+            if a.len() != b.len() {
+                return Err(bc_len_mismatch(a.len(), b.len(), path));
+            }
+            let mut out = Vec::with_capacity(a.len());
+            for (i, (x, &y)) in a.iter().zip(b.iter()).enumerate() {
+                path.push(i);
+                let lhs = Value::Int(x);
+                let rhs = Value::Int(y);
+                out.push(op(&lhs, &rhs).bc_at_path(path)?);
+                path.pop();
+            }
+            return Ok(Value::from_items(out));
+        }
+        (Value::IntList(a), Value::IntRange(b)) => {
+            if a.len() != b.len() {
+                return Err(bc_len_mismatch(a.len(), b.len(), path));
+            }
+            let mut out = Vec::with_capacity(a.len());
+            for (i, (&x, y)) in a.iter().zip(b.iter()).enumerate() {
+                path.push(i);
+                let lhs = Value::Int(x);
+                let rhs = Value::Int(y);
+                out.push(op(&lhs, &rhs).bc_at_path(path)?);
+                path.pop();
+            }
+            return Ok(Value::from_items(out));
+        }
+        (Value::BoolList(a), Value::BoolList(b)) => {
+            if a.len() != b.len() {
+                return Err(bc_len_mismatch(a.len(), b.len(), path));
+            }
+            let mut out = Vec::with_capacity(a.len());
+            for (i, (&x, &y)) in a.iter().zip(b.iter()).enumerate() {
+                path.push(i);
+                let lhs = Value::Bool(x);
+                let rhs = Value::Bool(y);
+                out.push(op(&lhs, &rhs).bc_at_path(path)?);
+                path.pop();
+            }
+            return Ok(Value::from_items(out));
+        }
+        (Value::FloatList(a), Value::FloatList(b)) => {
+            if a.len() != b.len() {
+                return Err(bc_len_mismatch(a.len(), b.len(), path));
+            }
+            let mut out = Vec::with_capacity(a.len());
+            for (i, (&x, &y)) in a.iter().zip(b.iter()).enumerate() {
+                path.push(i);
+                let lhs = Value::Float(x);
+                let rhs = Value::Float(y);
+                out.push(op(&lhs, &rhs).bc_at_path(path)?);
+                path.pop();
+            }
+            return Ok(Value::from_items(out));
+        }
+        _ => {}
+    }
+
     if let Value::IntRange(range) = left {
         let left = Value::IntList(Arc::new(range.to_vec()));
         return zip_containers(&left, right, stop, op, path);
@@ -847,6 +921,31 @@ mod tests {
                 ordered_float::OrderedFloat(2.5),
                 ordered_float::OrderedFloat(3.5),
             ]))
+        );
+    }
+
+    #[test]
+    fn packed_containers_zip_as_atoms() {
+        let range = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(0, 1, 3)));
+        assert_eq!(
+            range.eq_bc(&range).expect("range zip"),
+            Value::BoolList(Arc::new(vec![true, true, true]))
+        );
+
+        let bools = Value::BoolList(Arc::new(vec![true, false]));
+        let other_bools = Value::BoolList(Arc::new(vec![true, true]));
+        assert_eq!(
+            bools.eq_bc(&other_bools).expect("bool zip"),
+            Value::BoolList(Arc::new(vec![true, false]))
+        );
+
+        let floats = Value::FloatList(Arc::new(vec![
+            ordered_float::OrderedFloat(1.0),
+            ordered_float::OrderedFloat(2.0),
+        ]));
+        assert_eq!(
+            floats.eq_bc(&floats).expect("float zip"),
+            Value::BoolList(Arc::new(vec![true, true]))
         );
     }
 }

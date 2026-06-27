@@ -314,23 +314,31 @@ impl Session {
                     if !compiler.dbg_pc_spans.is_empty() && !compiler.dbg_stmt_marks.is_empty() {
                         let mut pc_spans = compiler.dbg_pc_spans.clone();
                         pc_spans.resize(code.len(), None);
-                        apply_stmt_debug_exact_offs(
+                        let spans = apply_stmt_debug_exact_offs(
                             line_table,
                             file_id,
                             &pc_spans,
                             &compiler.dbg_stmt_marks,
                             self.dbg_source_offs,
                         );
+                        self.vm
+                            .debug_info
+                            .chunk_mut(chunk)
+                            .note_debug_spans(spans.0, spans.1);
                     } else {
                         mark_stmt_heuristic(line_table, code);
                         // Overlay exact mapping for top-level spans across candidates
-                        apply_stmt_spans_exact_offs(
+                        let has_real = apply_stmt_spans_exact_offs(
                             line_table,
                             code,
                             file_id,
                             parser.stmt_spans_top(),
                             self.dbg_source_offs,
                         );
+                        self.vm
+                            .debug_info
+                            .chunk_mut(chunk)
+                            .note_debug_spans(false, has_real);
                     }
                 }
                 // Recursively register chunks for nested non-capturing functions

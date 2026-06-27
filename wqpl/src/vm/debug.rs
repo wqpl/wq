@@ -94,8 +94,24 @@ impl Vm {
                 .params
                 .as_ref()
                 .is_some_and(|params| !params.is_empty());
+        let needs_exact_spans = shape
+            .dbg_pc_spans
+            .as_ref()
+            .is_some_and(|spans| !spans.is_empty())
+            && shape.dbg_stmt_marks.is_some();
+        let needs_real_spans = shape
+            .dbg_stmt_spans
+            .as_ref()
+            .is_some_and(|spans| !spans.is_empty())
+            || shape
+                .dbg_stmt_marks
+                .as_ref()
+                .is_some_and(|marks| !marks.is_empty());
         self.debug_info.chunk_opt(chunk).is_some_and(|meta| {
-            meta.name.as_ref() == name && (!needs_local_names || meta.local_names.is_some())
+            meta.name.as_ref() == name
+                && (!needs_exact_spans || meta.has_exact_spans)
+                && (!needs_real_spans || meta.has_real_spans)
+                && (!needs_local_names || meta.local_names.is_some())
         })
     }
 
@@ -458,14 +474,8 @@ impl Vm {
                 (
                     meta.file_id,
                     meta.name.as_ref() != name,
-                    meta.line_table
-                        .exact_pc_span
-                        .iter()
-                        .any(|sp| sp.file_id != u32::MAX),
-                    meta.line_table
-                        .pc_to_stmt_span
-                        .iter()
-                        .any(|sp| sp.file_id != u32::MAX),
+                    meta.has_exact_spans,
+                    meta.has_real_spans,
                     meta.local_names.is_some(),
                 )
             };
@@ -479,26 +489,36 @@ impl Vm {
                 && !has_exact_spans
             {
                 let base_offs = source_base_offset;
-                let table = &mut self.debug_info.chunk_mut(id).line_table;
-                apply_stmt_debug_exact_offs(
-                    table,
-                    file_id,
-                    pc_spans.as_ref(),
-                    stmt_marks.as_ref(),
-                    base_offs,
-                );
+                let (has_exact, has_real) = {
+                    let table = &mut self.debug_info.chunk_mut(id).line_table;
+                    apply_stmt_debug_exact_offs(
+                        table,
+                        file_id,
+                        pc_spans.as_ref(),
+                        stmt_marks.as_ref(),
+                        base_offs,
+                    )
+                };
+                self.debug_info
+                    .chunk_mut(id)
+                    .note_debug_spans(has_exact, has_real);
             } else if let Some(spans) = dbg_stmt_spans.as_ref()
                 && !has_real_spans
             {
                 let base_offs = source_base_offset;
-                let table = &mut self.debug_info.chunk_mut(id).line_table;
-                apply_stmt_spans_exact_offs(
-                    table,
-                    instructions,
-                    file_id,
-                    spans.as_ref(),
-                    base_offs,
-                );
+                let has_real = {
+                    let table = &mut self.debug_info.chunk_mut(id).line_table;
+                    apply_stmt_spans_exact_offs(
+                        table,
+                        instructions,
+                        file_id,
+                        spans.as_ref(),
+                        base_offs,
+                    )
+                };
+                self.debug_info
+                    .chunk_mut(id)
+                    .note_debug_spans(false, has_real);
             }
 
             if !has_local_names {
@@ -523,19 +543,31 @@ impl Vm {
         }
 
         let base_offs = source_base_offset;
-        let table = &mut self.debug_info.chunk_mut(id).line_table;
         if let (Some(pc_spans), Some(stmt_marks)) = (dbg_pc_spans.as_ref(), dbg_stmt_marks.as_ref())
         {
-            apply_stmt_debug_exact_offs(
-                table,
-                file_id,
-                pc_spans.as_ref(),
-                stmt_marks.as_ref(),
-                base_offs,
-            );
+            let (has_exact, has_real) = {
+                let table = &mut self.debug_info.chunk_mut(id).line_table;
+                apply_stmt_debug_exact_offs(
+                    table,
+                    file_id,
+                    pc_spans.as_ref(),
+                    stmt_marks.as_ref(),
+                    base_offs,
+                )
+            };
+            self.debug_info
+                .chunk_mut(id)
+                .note_debug_spans(has_exact, has_real);
         } else if let Some(spans) = dbg_stmt_spans.as_ref() {
-            apply_stmt_spans_exact_offs(table, instructions, file_id, spans.as_ref(), base_offs);
+            let has_real = {
+                let table = &mut self.debug_info.chunk_mut(id).line_table;
+                apply_stmt_spans_exact_offs(table, instructions, file_id, spans.as_ref(), base_offs)
+            };
+            self.debug_info
+                .chunk_mut(id)
+                .note_debug_spans(false, has_real);
         } else {
+            let table = &mut self.debug_info.chunk_mut(id).line_table;
             mark_stmt_heuristic(table, instructions);
         }
 

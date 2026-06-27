@@ -88,7 +88,7 @@ fn apply_stmt_spans_exact(
     code: &[crate::vm::inst::Instruction],
     file_id: u32,
     spans: &[(usize, usize)],
-) {
+) -> bool {
     // Normalize spans: sort by start ascending and deduplicate
     let mut spans_sorted: Vec<(usize, usize)> = spans.to_vec();
     spans_sorted.sort_by_key(|(s, _)| *s);
@@ -128,8 +128,9 @@ fn apply_stmt_spans_exact(
                     end: end as u32,
                 };
             }
+            return true;
         }
-        return;
+        return false;
     }
     if get_debug_log_flags().contains(DebugLogFlags::WQDB_VERBOSE) {
         eprintln!("[wqdb]: proceeding with exact span mapping (overlay mode)");
@@ -244,7 +245,9 @@ fn apply_stmt_spans_exact(
                 };
             }
         }
+        return true;
     }
+    false
 }
 
 /// Same as apply_stmt_spans_exact, but shifts all spans by a base byte offset
@@ -254,7 +257,7 @@ pub(crate) fn apply_stmt_spans_exact_offs(
     file_id: u32,
     spans: &[(usize, usize)],
     base_offset: usize,
-) {
+) -> bool {
     if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
         eprintln!(
             "[wqdb]: apply_stmt_spans_exact_offs spans={} file_id={} base_offset={} instructions={}",
@@ -268,7 +271,7 @@ pub(crate) fn apply_stmt_spans_exact_offs(
         .iter()
         .map(|(s, e)| (s.saturating_add(base_offset), e.saturating_add(base_offset)))
         .collect();
-    apply_stmt_spans_exact(table, code, file_id, &shifted);
+    apply_stmt_spans_exact(table, code, file_id, &shifted)
 }
 
 pub fn apply_stmt_debug_exact_offs(
@@ -277,7 +280,7 @@ pub fn apply_stmt_debug_exact_offs(
     pc_spans: &[Option<(usize, usize)>],
     stmt_marks: &[DebugStmtMark],
     base_offset: usize,
-) {
+) -> (bool, bool) {
     if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
         eprintln!(
             "[wqdb]: apply_stmt_debug_exact_offs pcs={} marks={} file_id={} base_offset={}",
@@ -287,6 +290,7 @@ pub fn apply_stmt_debug_exact_offs(
             base_offset,
         );
     }
+    let mut has_exact = false;
     table.ensure(pc_spans.len());
     for (pc, span) in pc_spans.iter().enumerate() {
         if let Some((start, end)) = span {
@@ -296,8 +300,10 @@ pub fn apply_stmt_debug_exact_offs(
                 end: end.saturating_add(base_offset) as u32,
             };
             table.set_exact_span(pc, span);
+            has_exact = true;
         }
     }
+    let mut has_real = false;
     for mark in stmt_marks {
         let span = Span {
             file_id,
@@ -305,7 +311,9 @@ pub fn apply_stmt_debug_exact_offs(
             end: mark.end.saturating_add(base_offset) as u32,
         };
         table.set_stmt_mark(mark.pc, span);
+        has_real = true;
     }
+    (has_exact, has_real)
 }
 
 fn register_closure_payload_chunk(
@@ -325,27 +333,33 @@ fn register_closure_payload_chunk(
             base_offset,
         );
     }
-    {
-        let table = &mut di.chunk_mut(chunk).line_table;
-        if !payload.dbg_pc_spans.is_empty() && !payload.dbg_stmt_marks.is_empty() {
+    if !payload.dbg_pc_spans.is_empty() && !payload.dbg_stmt_marks.is_empty() {
+        let (has_exact, has_real) = {
+            let table = &mut di.chunk_mut(chunk).line_table;
             apply_stmt_debug_exact_offs(
                 table,
                 file_id,
                 payload.dbg_pc_spans.as_ref(),
                 payload.dbg_stmt_marks.as_ref(),
                 base_offset,
-            );
-        } else if !payload.dbg_stmt_spans.is_empty() {
+            )
+        };
+        di.chunk_mut(chunk).note_debug_spans(has_exact, has_real);
+    } else if !payload.dbg_stmt_spans.is_empty() {
+        let has_real = {
+            let table = &mut di.chunk_mut(chunk).line_table;
             apply_stmt_spans_exact_offs(
                 table,
                 payload.instructions.as_ref(),
                 file_id,
                 payload.dbg_stmt_spans.as_ref(),
                 base_offset,
-            );
-        } else {
-            mark_stmt_heuristic(table, payload.instructions.as_ref());
-        }
+            )
+        };
+        di.chunk_mut(chunk).note_debug_spans(false, has_real);
+    } else {
+        let table = &mut di.chunk_mut(chunk).line_table;
+        mark_stmt_heuristic(table, payload.instructions.as_ref());
     }
     if !payload.dbg_local_names.is_empty() {
         di.chunk_mut(chunk).local_names = Some(payload.dbg_local_names.iter().cloned().collect());
@@ -400,26 +414,34 @@ pub(crate) fn register_function_chunks(
                                 base_offset,
                             );
                         }
-                        let table = &mut di.chunk_mut(chunk).line_table;
                         if let (Some(pc_spans), Some(stmt_marks)) =
                             (&f_mut.dbg_pc_spans, &f_mut.dbg_stmt_marks)
                         {
-                            apply_stmt_debug_exact_offs(
-                                table,
-                                file_id,
-                                pc_spans.as_ref(),
-                                stmt_marks.as_ref(),
-                                base_offset,
-                            );
+                            let (has_exact, has_real) = {
+                                let table = &mut di.chunk_mut(chunk).line_table;
+                                apply_stmt_debug_exact_offs(
+                                    table,
+                                    file_id,
+                                    pc_spans.as_ref(),
+                                    stmt_marks.as_ref(),
+                                    base_offset,
+                                )
+                            };
+                            di.chunk_mut(chunk).note_debug_spans(has_exact, has_real);
                         } else if let Some(spans) = &f_mut.dbg_stmt_spans {
-                            apply_stmt_spans_exact_offs(
-                                table,
-                                &f_mut.instructions,
-                                file_id,
-                                spans.as_ref(),
-                                base_offset,
-                            );
+                            let has_real = {
+                                let table = &mut di.chunk_mut(chunk).line_table;
+                                apply_stmt_spans_exact_offs(
+                                    table,
+                                    &f_mut.instructions,
+                                    file_id,
+                                    spans.as_ref(),
+                                    base_offset,
+                                )
+                            };
+                            di.chunk_mut(chunk).note_debug_spans(false, has_real);
                         } else {
+                            let table = &mut di.chunk_mut(chunk).line_table;
                             mark_stmt_heuristic(table, &f_mut.instructions);
                         }
                         if let Some(names) = &f_mut.dbg_local_names {
