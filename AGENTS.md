@@ -27,6 +27,7 @@
   - `\|` (backslash pipe) is short-circuit bool or.
   - `or[...]` is eager bool or.
   - `(1)` is not a list. It is simply atom `1`
+  - comments: `//` `/* */`
   - canonical value naming:
     - user-facing containers are `list` and `dict`
     - user-facing non-containers are atoms; do not call wq values scalars
