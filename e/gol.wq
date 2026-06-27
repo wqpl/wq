@@ -2,16 +2,19 @@ north:{x[1..#x],(,0*x 0)}
 south:{(,0*x 0),x[0..(#x-1)]}
 east:{x|M{0,x[0..(#x-1)]}}
 west:{x|M{x[1..#x],0}}
-neighbors:{north x+south x+east x+west x+(x|east|north)+(x|west|north)+(x|east|south)+(x|west|south)}
-step:{n:neighbors x;or[n=.3;and[x=.1;n=.2]]|M@2{$[x;1;0]}}
-show:{x|M{echo (x|M{$[x=1;"#";"."]}|flatten)};echo""}
+neighbors:{north x+south x+east x+west x+(east x|north)+(west x|north)+(east x|south)+(west x|south)}
+step:{n:neighbors x;(1-sgn abs[n-3])+x*(1-sgn abs[n-2])}
+show:{x|M{".#" x|flatten|echo};echo""}
+after:{[g;n]N[n;g:step g];g}
+show_after:{[g;n]g:after[g;n];echo@f"t={n}";show g;g}
 
+// blinker, a period-2 oscillator
 g:((0;0;0;0;0)
    (0;0;1;0;0)
    (0;0;1;0;0)
    (0;0;1;0;0)
    (0;0;0;0;0))
-echo"t=0";show g
+show_after[g;0]
 echo"neighbor counts";echo neighbors g
-g:step g;echo"t=1";show g
-g:step g;echo"t=2";show g
+show_after[g;1]
+show_after[g;2]
