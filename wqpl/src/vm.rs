@@ -483,4 +483,17 @@ mod tests {
         vm.wqdb.enabled = false;
         assert!(!vm.symbol_trackers_enabled());
     }
+
+    #[test]
+    fn capture_backtrace_is_inert_when_debug_artifacts_are_disabled() {
+        let mut vm = Vm::new(Vec::new());
+        vm.set_bt_mode(false);
+        vm.wqdb.enabled = false;
+        vm.runtime_debug_info = false;
+
+        vm.capture_bt_if_empty();
+
+        assert!(vm.last_backtrace.is_none());
+        assert!(vm.last_locals_snapshot.is_none());
+    }
 }

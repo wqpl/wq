@@ -29,11 +29,13 @@ pub(super) fn tail_invoke_user(
     target: &Value,
     argc: usize,
 ) -> WqResult<bool> {
-    vm.push_tail_call_frame(Frame {
-        chunk: vm.current_chunk,
-        pc: idx + 1,
-        func_name: Arc::from(vm.func_name_for_chunk(vm.current_chunk)),
-    });
+    if vm.debug_artifacts_enabled() {
+        vm.push_tail_call_frame(Frame {
+            chunk: vm.current_chunk,
+            pc: idx + 1,
+            func_name: vm.func_name_arc_for_chunk(vm.current_chunk),
+        });
+    }
     vm.tail_invoke_user(target, argc)?;
     Ok(true)
 }
@@ -45,11 +47,13 @@ pub(super) fn invoke_spec_push(vm: &mut Vm, _idx: usize, spec: CallSpec) -> WqRe
 }
 
 pub(super) fn prepare_tail(vm: &mut Vm, idx: usize, spec: CallSpec) -> WqResult<bool> {
-    vm.push_tail_call_frame(Frame {
-        chunk: vm.current_chunk,
-        pc: idx + 1,
-        func_name: Arc::from(vm.func_name_for_chunk(vm.current_chunk)),
-    });
+    if vm.debug_artifacts_enabled() {
+        vm.push_tail_call_frame(Frame {
+            chunk: vm.current_chunk,
+            pc: idx + 1,
+            func_name: vm.func_name_arc_for_chunk(vm.current_chunk),
+        });
+    }
     vm.prepare_tail(spec)?;
     Ok(true)
 }

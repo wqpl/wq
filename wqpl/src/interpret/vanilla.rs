@@ -90,7 +90,7 @@ impl Interpreter for VanillaInterpreter {
                 // `continue 'exec` after a synchronous push, skipping any
                 // post-match check -- the next iteration's top-of-loop flush
                 // handles those uniformly.
-                if op.is_trace_interesting() {
+                if vm.trace_depth > 0 && op.is_trace_interesting() {
                     last_probe_pc = Some(idx);
                 }
                 hooks.before_instruction(vm, idx, op);
@@ -571,11 +571,13 @@ impl Interpreter for VanillaInterpreter {
                                 dbg_chunk,
                                 name_hint,
                             } => {
-                                vm.push_tail_call_frame(Frame {
-                                    chunk: vm.current_chunk,
-                                    pc: idx + 1,
-                                    func_name: Arc::from(vm.func_name_for_chunk(vm.current_chunk)),
-                                });
+                                if vm.debug_artifacts_enabled() {
+                                    vm.push_tail_call_frame(Frame {
+                                        chunk: vm.current_chunk,
+                                        pc: idx + 1,
+                                        func_name: vm.func_name_arc_for_chunk(vm.current_chunk),
+                                    });
+                                }
                                 vm.prepare_tail(CallSpec {
                                     instructions,
                                     params_len,
@@ -2824,6 +2826,28 @@ mod tests {
         assert_eq!(result, Value::Int(20));
         assert_eq!(vm.trace_buf.len(), 1);
         assert_eq!(vm.trace_buf[0].value_excerpt, "20");
+    }
+
+    #[test]
+    fn trace_begin_does_not_flush_pretrace_probe() {
+        let insts = vec![
+            Instruction::load_const(Value::Int(1)),
+            Instruction::load_const(Value::Int(2)),
+            Instruction::binary_op(BinaryOperator::Add, Operand::Stack, Operand::Stack),
+            Instruction::TraceBegin,
+            Instruction::load_const(Value::Int(4)),
+            Instruction::Return,
+        ];
+        let len = insts.len();
+        let mut vm = setup_trace_vm(insts);
+        let mut interpreter = VanillaInterpreter;
+        let result = interpreter.interpret(&mut vm, len).expect("execute");
+        assert_eq!(result, Value::Int(4));
+        assert_eq!(
+            vm.trace_buf.len(),
+            0,
+            "trace should not record interesting instructions that ran before TraceBegin"
+        );
     }
 }
 

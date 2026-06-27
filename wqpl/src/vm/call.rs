@@ -205,7 +205,7 @@ impl Vm {
             self.call_stack.push(Frame {
                 chunk: caller_chunk,
                 pc: saved_pc,
-                func_name: std::sync::Arc::from(self.func_name_for_chunk(caller_chunk)),
+                func_name: self.func_name_arc_for_chunk(caller_chunk),
             });
             self.current_chunk = callee_chunk;
             pushed_dbg = true;

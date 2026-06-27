@@ -26,17 +26,26 @@ impl Vm {
     }
 
     pub(crate) fn attach_debug_base_to_callable(&self, value: Value) -> Value {
-        let base_offset = self.resolved_debug_base_offset();
         match value {
-            Value::CompiledFunction(f) if f.dbg_source_base_offset != base_offset => {
-                let mut new_f = FunctionData::clone(&f);
-                new_f.dbg_source_base_offset = base_offset;
-                Value::CompiledFunction(std::sync::Arc::new(new_f))
+            Value::CompiledFunction(f) => {
+                let base_offset = self.resolved_debug_base_offset();
+                if f.dbg_source_base_offset == base_offset {
+                    Value::CompiledFunction(f)
+                } else {
+                    let mut new_f = FunctionData::clone(&f);
+                    new_f.dbg_source_base_offset = base_offset;
+                    Value::CompiledFunction(std::sync::Arc::new(new_f))
+                }
             }
-            Value::Closure(c) if c.dbg_source_base_offset != base_offset => {
-                let mut new_c = ClosureData::clone(&c);
-                new_c.dbg_source_base_offset = base_offset;
-                Value::Closure(std::sync::Arc::new(new_c))
+            Value::Closure(c) => {
+                let base_offset = self.resolved_debug_base_offset();
+                if c.dbg_source_base_offset == base_offset {
+                    Value::Closure(c)
+                } else {
+                    let mut new_c = ClosureData::clone(&c);
+                    new_c.dbg_source_base_offset = base_offset;
+                    Value::Closure(std::sync::Arc::new(new_c))
+                }
             }
             Value::LiftedCallable(data) => {
                 let mut new_data = LiftedCallableData::clone(&data);
@@ -132,6 +141,9 @@ impl Vm {
 
     #[inline]
     pub fn capture_bt_if_empty(&mut self) {
+        if !self.debug_artifacts_enabled() {
+            return;
+        }
         if self.last_backtrace.is_none() {
             self.last_backtrace = Some(self.bt_frames());
         }
@@ -167,7 +179,7 @@ impl Vm {
                     chunk: self.current_chunk,
                     pc: self.pc.saturating_sub(1),
                 },
-                name: std::sync::Arc::from(self.func_name_for_chunk(self.current_chunk)),
+                name: self.func_name_arc_for_chunk(self.current_chunk),
                 locals: Self::read_frame_locals(current),
             });
         }
@@ -269,11 +281,15 @@ impl Vm {
         }
     }
 
-    pub fn func_name_for_chunk(&self, id: ChunkId) -> String {
+    pub(crate) fn func_name_arc_for_chunk(&self, id: ChunkId) -> std::sync::Arc<str> {
         self.debug_info
             .chunk_opt(id)
-            .map(|m| m.name.to_string())
-            .unwrap_or_else(|| "<?>".to_string())
+            .map(|m| std::sync::Arc::clone(&m.name))
+            .unwrap_or_else(|| std::sync::Arc::from("<?>"))
+    }
+
+    pub fn func_name_for_chunk(&self, id: ChunkId) -> String {
+        self.func_name_arc_for_chunk(id).to_string()
     }
 
     fn callable_provenance(value: &Value) -> Option<DebugProvenance> {
@@ -363,7 +379,7 @@ impl Vm {
                     chunk: self.current_chunk,
                     pc: self.pc.saturating_sub(1),
                 },
-                std::sync::Arc::from(self.func_name_for_chunk(self.current_chunk)),
+                self.func_name_arc_for_chunk(self.current_chunk),
             ),
         );
         if let Some(active) = self.current_closure_stack.last()
@@ -976,7 +992,7 @@ impl Vm {
                 chunk: self.current_chunk,
                 pc: self.pc.saturating_sub(1),
             },
-            std::sync::Arc::from(self.func_name_for_chunk(self.current_chunk)),
+            self.func_name_arc_for_chunk(self.current_chunk),
         ));
         // Tail-call journal frames (most recent first)
         for fr in self.tail_call_journal.iter().rev() {
