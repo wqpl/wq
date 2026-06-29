@@ -1,0 +1,29 @@
+ok id
+ok const
+ok compose
+ok flip
+ok delta2
+ok join
+ok enumerate
+ok mapidx
+ok keepidx
+ok partition
+ok take front
+ok take back
+ok drop front
+ok drop back
+ok chunks
+ok windows
+ok groupby
+ok groupdict
+ok indexby
+ok values
+ok haskey?
+ok get
+ok memo
+ok memo list
+ok once
+ok assert
+ok assertmsg
+ok assert_eq
+()

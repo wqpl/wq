@@ -1,8 +1,67 @@
 // Copyright 2026 tttiw
 
+// Return its argument.
+id:{x}
+// Return a function that always yields v.
+const:{[v]{[x]v}}
+// Compose f after g.
+compose:{[f;g]{[x]f[g[x]]}}
+// Swap a binary function's arguments.
 flip:{[f]{[x;y]f[y;x]}}
+// Wrap one value in a list.
 enlist:{[x],x}
-prod:{[xs]xs|fold{x*y}}
+// Return adjacent differences.
 delta2:{[x]$.[#x<=1;@r x];t:alloc(#x-1);N[#t;t _n:x(_n+1)-x _n];t}
-join:{[d;xs]fold[{x,d,y};xs]}
+// Join items with a delimiter.
+join:{[d;xs]fold[xs;{x,d,y}]}
+
+// Map values with their index.
+mapidx:{[xs;f]r:alloc #xs;N[#xs;r _n:f[xs _n;_n]];r}
+// Pair each value with its index.
+enumerate:{[xs]mapidx[xs;{[v;i](i;v)}]}
+// Keep values by value and index.
+keepidx:{[xs;f]r:();N[#xs;v:xs _n;$.[f[v;_n];r,:,v]];r}
+// Split values by predicate result.
+partition:{[xs;f]yes:();no:();N[#xs;v:xs _n;$[f v;yes,:,v;no,:,v]];(yes;no)}
+
+// Take n items, or from the end when n is negative.
+take:{[xs;n]l:#xs;$[n<0;xs[max[0;l+n]..l];xs[0..min[l;n]]]}
+// Drop n items, or from the end when n is negative.
+drop:{[xs;n]l:#xs;$[n<0;xs[0..max[0;l+n]];xs[min[l;n]..l]]}
+// Split into non-overlapping chunks.
+chunks:{[xs;n]$.[n<=0;raise"chunks: size must be positive"];r:();i:0;l:#xs
+  W[i<l;j:min[l;i+n];r,:,xs[i..j];i:j];r}
+// Return sliding windows of size n.
+windows:{[xs;n]$.[n<=0;raise"windows: size must be positive"];r:();l:#xs
+  $.[n>l;@r r];i:0;W[i+n<=l;r,:,xs[i..(i+n)];i+:1];r}
+
+// Return dict values in key order.
+values:{[d]d[keys d]}
+// Test whether a dict has a key.
+haskey?:{[d;k]~U kti[d;k]}
+// Return a dict value or default.
+get:{[d;k;default]$[haskey?[d;k];d[k];default]}
+// Build a dict keyed by f, with later values winning.
+indexby:{[xs;f]d:(`);N[#xs;v:xs _n;d[tag str f v]:v];d}
+// Group values by arbitrary keys.
+groupby:{[xs;f]groups:();N[#xs;v:xs _n;k:f v;hit:-1;i:0
+    W[i<#groups;$.[groups[i][0]=k;hit:i;@b];i+:1]
+    $[hit<0;groups,:,(k;,v);[pair:groups hit;bucket:pair 1;bucket,:,v;pair 1:bucket;groups hit:pair]]];groups}
+// Group values into a dict with tag-converted keys.
+groupdict:{[xs;f]d:(`);N[#xs;v:xs _n;k:tag str f v
+    $[haskey?[d;k];[bucket:d[k];bucket,:,v;d[k]:bucket];d[k]:,v]];d}
+
+// Memoize a one-argument function.
+memo:{[f]keys_:();vals_:();'{[arg]i:0;W[i<#keys_;$.[keys_ i=arg;@r vals_ i];i+:1]
+    val:f arg;keys_,:,arg;vals_,:,val;val}}
+// Return a thunk that runs f once.
+once:{[f]done:F;val:();'{[]$[done;val;[val:f[];done:T;val]]}}
+
+// Raise unless cond is true.
+assert:{[cond]$[cond;T;raise"assertion failed"]}
+// Raise msg unless cond is true.
+assertmsg:{[cond;msg]$[cond;T;raise msg]}
+// Raise unless got equals want.
+assert_eq:{[got;want]$[got=want;T;raise@f"assert_eq: got {got}, want {want}"]}
+// Print enabled builtin names as quoted CSV.
 dumpbfn:{bfn[]|map{"\"",x,"\""}|join","|echo}
