@@ -558,6 +558,20 @@ mod tests {
     }
 
     #[test]
+    fn lifted_callable_display_shows_expression_tree() {
+        let f = test_builtin("f", 1);
+        let add_one = Value::function_composition(BinaryOperator::Add, f.clone(), Value::Int(1));
+        let times_two =
+            Value::function_composition(BinaryOperator::Multiply, add_one.clone(), Value::Int(2));
+        let minus_three =
+            Value::function_composition(BinaryOperator::Subtract, times_two, Value::Int(3));
+        let negated = Value::unary_function_composition(UnaryOperator::Negate, add_one);
+
+        assert_eq!(minus_three.to_string(), "<fn ((f + 1) * 2) - 3>");
+        assert_eq!(negated.to_string(), "<fn -(f + 1)>");
+    }
+
+    #[test]
     fn test_arithmetic() {
         let a = Value::Int(5);
         let b = Value::Int(3);

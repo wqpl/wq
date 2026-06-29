@@ -84,13 +84,6 @@ impl CallableExpr {
             other => Self::Const(other),
         }
     }
-
-    pub(crate) fn display_op(&self) -> Option<BinaryOperator> {
-        match self {
-            Self::Binary { op, .. } => Some(*op),
-            Self::Unary { .. } | Self::Const(_) | Self::Call(_) => None,
-        }
-    }
 }
 
 pub(crate) struct UserFunctionShape<'a> {

@@ -6,8 +6,9 @@ use num_bigint::BigInt;
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
-use crate::astnode::binary_op_display;
+use crate::astnode::{binary_op_display, unary_op_display};
 use crate::value::Value;
+use crate::value::func::CallableExpr;
 use crate::value::seq::ExactIntSeq;
 
 impl fmt::Display for Value {
@@ -156,16 +157,45 @@ impl fmt::Display for Value {
             }
             Value::BuiltinFunction { name, .. } => write!(f, "<bfn '{name}'>"),
             Value::LiftedCallable(data) => {
-                let op = data
-                    .expr
-                    .display_op()
-                    .map(|op| binary_op_display(&op))
-                    .unwrap_or("expr");
-                write!(f, "<fn {op} fn>")
+                write!(f, "<fn {}>", fmt_callable_expr(&data.expr, false))
             }
             Value::Stream(_) => write!(f, "<stream>"),
             Value::Algebraic(a) => crate::value::algebraic::fmt_algebraic_human(a, f),
         }
+    }
+}
+
+fn fmt_callable_expr(expr: &CallableExpr, nested: bool) -> String {
+    match expr {
+        CallableExpr::Const(value) => value.to_string(),
+        CallableExpr::Call(value) => fmt_callable_leaf(value),
+        CallableExpr::Unary { op, operand } => {
+            let operand = fmt_callable_expr(
+                operand,
+                matches!(operand.as_ref(), CallableExpr::Binary { .. }),
+            );
+            format!("{}{operand}", unary_op_display(op))
+        }
+        CallableExpr::Binary { op, left, right } => {
+            let rendered = format!(
+                "{} {} {}",
+                fmt_callable_expr(left, matches!(left.as_ref(), CallableExpr::Binary { .. })),
+                binary_op_display(op),
+                fmt_callable_expr(right, matches!(right.as_ref(), CallableExpr::Binary { .. })),
+            );
+            if nested {
+                format!("({rendered})")
+            } else {
+                rendered
+            }
+        }
+    }
+}
+
+fn fmt_callable_leaf(value: &Value) -> String {
+    match value {
+        Value::BuiltinFunction { name, .. } => name.to_string(),
+        _ => value.to_string(),
     }
 }
 

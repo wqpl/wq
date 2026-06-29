@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use ordered_float::OrderedFloat;
 
@@ -53,7 +54,10 @@ impl Value {
                 Some(Value::from_items(result))
             }
 
-            // Fallback to atom index path (e.g. atom multiply) =======================
+            Value::Complex(z) => index_structured_keys(keys, |key| index_complex_key(z, key)),
+            Value::Fraction(fd) => index_structured_keys(keys, |key| index_fraction_key(fd, key)),
+
+            // Fallback to single-index path =========================================
             other => {
                 if keys.len() == 1 {
                     other.index(&keys[0])
@@ -113,16 +117,11 @@ impl Value {
 
             // complex[x] =============================================================
             (Value::Complex(z), key) => match key {
-                Value::Tag(s) if s.as_ref() == "re" => Some(Value::float(z.re)),
-                Value::Tag(s) if s.as_ref() == "im" => Some(Value::float(z.im)),
+                Value::Tag(_) => index_complex_key(z, key),
                 Value::List(keys) => {
                     let mut result = Vec::with_capacity(keys.len());
                     for k in keys.iter() {
-                        match k {
-                            Value::Tag(s) if s.as_ref() == "re" => result.push(Value::float(z.re)),
-                            Value::Tag(s) if s.as_ref() == "im" => result.push(Value::float(z.im)),
-                            _ => return None,
-                        }
+                        result.push(index_complex_key(z, k)?);
                     }
                     Some(Value::from_items(result))
                 }
@@ -131,32 +130,17 @@ impl Value {
 
             // fraction[x] ============================================================
             (Value::Fraction(fd), key) => match key {
-                Value::Tag(s) if matches!(s.as_ref(), "n" | "numer") => {
-                    Some(Value::from_bigint(fd.numer().clone()))
-                }
-                Value::Tag(s) if matches!(s.as_ref(), "d" | "denom") => {
-                    Some(Value::from_bigint(fd.denom().clone()))
-                }
+                Value::Tag(_) => index_fraction_key(fd, key),
                 Value::List(keys) => {
                     let mut result = Vec::with_capacity(keys.len());
                     for k in keys.iter() {
-                        match k {
-                            Value::Tag(s) if matches!(s.as_ref(), "n" | "numer") => {
-                                result.push(Value::from_bigint(fd.numer().clone()));
-                            }
-                            Value::Tag(s) if matches!(s.as_ref(), "d" | "denom") => {
-                                result.push(Value::from_bigint(fd.denom().clone()));
-                            }
-                            _ => return None,
-                        }
+                        result.push(index_fraction_key(fd, k)?);
                     }
                     Some(Value::from_items(result))
                 }
                 _ => None,
             },
 
-            // atom: multiplication
-            (a, _b) if a.is_atom() => Some(a.clone()),
             _ => None,
         }
     }
@@ -403,6 +387,43 @@ fn normalize_list_indices(idxs: &[Value], len: usize) -> Option<Vec<usize>> {
         .map(int_arg_to_i64)
         .collect::<Option<Vec<_>>>()?;
     normalize_many(raw, len)
+}
+
+fn index_structured_keys(
+    keys: &[Value],
+    mut index_key: impl FnMut(&Value) -> Option<Value>,
+) -> Option<Value> {
+    match keys {
+        [] => None,
+        [key] => index_key(key),
+        keys => {
+            let mut result = Vec::with_capacity(keys.len());
+            for key in keys {
+                result.push(index_key(key)?);
+            }
+            Some(Value::from_items(result))
+        }
+    }
+}
+
+fn index_complex_key(z: &num_complex::Complex64, key: &Value) -> Option<Value> {
+    match key {
+        Value::Tag(s) if s.as_ref() == "re" => Some(Value::float(z.re)),
+        Value::Tag(s) if s.as_ref() == "im" => Some(Value::float(z.im)),
+        _ => None,
+    }
+}
+
+fn index_fraction_key(fd: &num_rational::Ratio<BigInt>, key: &Value) -> Option<Value> {
+    match key {
+        Value::Tag(s) if matches!(s.as_ref(), "n" | "numer") => {
+            Some(Value::from_bigint(fd.numer().clone()))
+        }
+        Value::Tag(s) if matches!(s.as_ref(), "d" | "denom") => {
+            Some(Value::from_bigint(fd.denom().clone()))
+        }
+        _ => None,
+    }
 }
 
 /// Resolve bulk indices from an exact-int sequence.
@@ -2170,6 +2191,15 @@ mod tests {
     }
 
     #[test]
+    fn plain_atom_indexing_is_invalid() {
+        let atom = Value::Int(7);
+
+        assert_eq!(atom.index(&Value::Int(0)), None);
+        assert_eq!(atom.index(&Value::Tag("re".into())), None);
+        assert_eq!(atom.index_many(&[Value::Int(0), Value::Int(1)]), None);
+    }
+
+    #[test]
     fn complex_index_by_tag() {
         let z = Value::from_complex64(num_complex::Complex64::new(3.0, 4.0));
         assert_eq!(z.index(&Value::Tag("re".into())), Some(Value::float(3.0)));
@@ -2177,9 +2207,34 @@ mod tests {
     }
 
     #[test]
+    fn complex_index_many_by_tags() {
+        let z = Value::from_complex64(num_complex::Complex64::new(3.0, 4.0));
+        let keys = [Value::Tag("re".into()), Value::Tag("im".into())];
+
+        assert_eq!(
+            z.index_many(&keys),
+            Some(Value::FloatList(Arc::new(vec![
+                OrderedFloat(3.0),
+                OrderedFloat(4.0)
+            ])))
+        );
+    }
+
+    #[test]
     fn fraction_index_by_tag() {
         let f = Value::from_fraction_parts(BigInt::from(3), BigInt::from(4));
         assert_eq!(f.index(&Value::Tag("n".into())), Some(Value::Int(3)));
         assert_eq!(f.index(&Value::Tag("d".into())), Some(Value::Int(4)));
+    }
+
+    #[test]
+    fn fraction_index_many_by_tags() {
+        let f = Value::from_fraction_parts(BigInt::from(3), BigInt::from(4));
+        let keys = [Value::Tag("n".into()), Value::Tag("d".into())];
+
+        assert_eq!(
+            f.index_many(&keys),
+            Some(Value::IntList(Arc::new(vec![3, 4])))
+        );
     }
 }

@@ -1055,7 +1055,7 @@ mod tests {
     fn whitespace_postfix_stays_single_final_path_segment() {
         let mut session = Session::new();
         let result = session
-            .eval_string("lst:(((0;0);(0;0));((0;0);(0;0)));lst[0][1]0 0:9;lst")
+            .eval_string("lst:(((0;0);(0;0));((0;0);(0;0)));lst[0][1](,0) 0:9;lst")
             .expect("whitespace postfix expression should be the final path segment");
 
         assert_eq!(
