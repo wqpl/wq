@@ -7,6 +7,7 @@ use crate::builtins::{
 use crate::value::bc::{Bc1Stop, Bc2Stop};
 use crate::value::cell::ValueCell;
 use crate::value::func::CallableExpr;
+use crate::value::seq::ListStorageSeq;
 use crate::value::{Value, WqResult, eval_binary, eval_unary};
 use crate::vm::inst::{Instruction, Operand};
 use crate::wqerror::{WqError, WqErrorType};
@@ -333,6 +334,27 @@ fn filter_predicate(
     }
 }
 
+fn call_fold_func(
+    vm: &mut dyn BuiltinContext,
+    func: &Value,
+    acc: Value,
+    item: Value,
+) -> WqResult<Value> {
+    let mut ca = BuiltinFnArgs::new();
+    ca.push(acc);
+    ca.push(item);
+    vm.call(func, ca)
+}
+
+fn predicate_result(src: BE, pred: Value) -> WqResult<bool> {
+    match pred {
+        Value::Bool(b) => Ok(b),
+        _ => Err(WqError::new(WqErrorType::Domain)
+            .src(src)
+            .msg("predicate must return bool")),
+    }
+}
+
 /// apply[fs;x]
 /// apply each function in fs to x, returning a list of results.
 /// If fs is a single function (not a list), returns f[x] unwrapped.
@@ -458,47 +480,28 @@ fn any_all_at_depth(
         };
     }
 
+    if let Some(seq) = ListStorageSeq::from_value(xs) {
+        for item in seq.values() {
+            let result = any_all_at_depth(
+                vm,
+                func,
+                &item,
+                depth_from_root + 1,
+                max_depth,
+                mode_any,
+                src,
+            )?;
+            if mode_any && result {
+                return Ok(true);
+            }
+            if !mode_any && !result {
+                return Ok(false);
+            }
+        }
+        return Ok(!mode_any);
+    }
+
     match xs {
-        Value::List(items) => {
-            for item in items.iter() {
-                let result = any_all_at_depth(
-                    vm,
-                    func,
-                    item,
-                    depth_from_root + 1,
-                    max_depth,
-                    mode_any,
-                    src,
-                )?;
-                if mode_any && result {
-                    return Ok(true);
-                }
-                if !mode_any && !result {
-                    return Ok(false);
-                }
-            }
-            Ok(!mode_any)
-        }
-        Value::IntList(items) => {
-            for &item in items.iter() {
-                let pred = vm.call(func, BuiltinFnArgs::from(Value::Int(item)))?;
-                let result = match pred {
-                    Value::Bool(b) => b,
-                    _ => {
-                        return Err(WqError::new(WqErrorType::Domain)
-                            .src(src)
-                            .msg("predicate must return bool"));
-                    }
-                };
-                if mode_any && result {
-                    return Ok(true);
-                }
-                if !mode_any && !result {
-                    return Ok(false);
-                }
-            }
-            Ok(!mode_any)
-        }
         Value::Dict(map) => {
             for item in map.values() {
                 let result = any_all_at_depth(
@@ -521,12 +524,7 @@ fn any_all_at_depth(
         }
         other => {
             let pred = vm.call(func, BuiltinFnArgs::from(other.clone()))?;
-            match pred {
-                Value::Bool(b) => Ok(b),
-                _ => Err(WqError::new(WqErrorType::Domain)
-                    .src(src)
-                    .msg("predicate must return bool")),
-            }
+            predicate_result(src, pred)
         }
     }
 }
@@ -586,77 +584,47 @@ pub(super) fn fold(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
     let f = iter.next().unwrap();
 
     match n {
-        2 => match xs {
-            Value::IntList(items) => {
-                if items.is_empty() {
+        2 => {
+            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+                if seq.len() == 0 {
                     return Ok(Value::unit());
                 }
-                let mut acc = Value::Int(items[0]);
-                for &x in &items[1..] {
-                    let mut ca = BuiltinFnArgs::new();
-                    ca.push(acc);
-                    ca.push(Value::Int(x));
-                    acc = vm.call(&f, ca)?;
+                let mut values = seq.values();
+                let mut acc = values.next().expect("sequence is non-empty");
+                for item in values {
+                    acc = call_fold_func(vm, &f, acc, item)?;
                 }
-                Ok(acc)
+                return Ok(acc);
             }
-            Value::List(items) => {
-                if items.is_empty() {
-                    return Ok(Value::unit());
+
+            match xs {
+                Value::Dict(map) => {
+                    if map.is_empty() {
+                        return Ok(Value::unit());
+                    }
+                    let mut val_iter = map.values();
+                    let mut acc = val_iter.next().unwrap().clone();
+                    for it in val_iter {
+                        acc = call_fold_func(vm, &f, acc, it.clone())?;
+                    }
+                    Ok(acc)
                 }
-                let mut list_iter = items.iter();
-                let mut acc = list_iter.next().unwrap().clone();
-                for it in list_iter {
-                    let mut ca = BuiltinFnArgs::new();
-                    ca.push(acc);
-                    ca.push(it.clone());
-                    acc = vm.call(&f, ca)?;
-                }
-                Ok(acc)
+                other => Ok(other),
             }
-            Value::Dict(map) => {
-                if map.is_empty() {
-                    return Ok(Value::unit());
-                }
-                let mut val_iter = map.values();
-                let mut acc = val_iter.next().unwrap().clone();
-                for it in val_iter {
-                    let mut ca = BuiltinFnArgs::new();
-                    ca.push(acc);
-                    ca.push(it.clone());
-                    acc = vm.call(&f, ca)?;
-                }
-                Ok(acc)
-            }
-            other => Ok(other),
-        },
+        }
         3 => {
             let mut acc = iter.next().unwrap();
+            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+                for item in seq.values() {
+                    acc = call_fold_func(vm, &f, acc, item)?;
+                }
+                return Ok(acc);
+            }
+
             match xs {
-                Value::IntList(items) => {
-                    for &x in items.iter() {
-                        let mut ca = BuiltinFnArgs::new();
-                        ca.push(acc);
-                        ca.push(Value::Int(x));
-                        acc = vm.call(&f, ca)?;
-                    }
-                    Ok(acc)
-                }
-                Value::List(items) => {
-                    for it in items.iter() {
-                        let mut ca = BuiltinFnArgs::new();
-                        ca.push(acc);
-                        ca.push(it.clone());
-                        acc = vm.call(&f, ca)?;
-                    }
-                    Ok(acc)
-                }
                 Value::Dict(map) => {
                     for it in map.values() {
-                        let mut ca = BuiltinFnArgs::new();
-                        ca.push(acc);
-                        ca.push(it.clone());
-                        acc = vm.call(&f, ca)?;
+                        acc = call_fold_func(vm, &f, acc, it.clone())?;
                     }
                     Ok(acc)
                 }
@@ -676,117 +644,56 @@ pub(super) fn scan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
     let f = iter.next().unwrap();
 
     match n {
-        2 => match xs {
-            Value::IntList(xs) => {
-                if xs.is_empty() {
+        2 => {
+            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+                if seq.len() == 0 {
                     return Ok(Value::unit());
                 }
-                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                let mut acc = Value::Int(xs[0]);
+                let mut results: Vec<Value> = Vec::with_capacity(seq.len());
+                let mut values = seq.values();
+                let mut acc = values.next().expect("sequence is non-empty");
                 results.push(acc.clone());
-                for &x in &xs[1..] {
-                    let mut ca = BuiltinFnArgs::new();
-                    ca.push(acc);
-                    ca.push(Value::Int(x));
-                    acc = vm.call(&f, ca)?;
+                for item in values {
+                    acc = call_fold_func(vm, &f, acc, item)?;
                     results.push(acc.clone());
                 }
-                Ok(Value::from_items(results))
+                return Ok(Value::from_items(results));
             }
-            Value::IntRange(xs) => {
-                if xs.len() == 0 {
-                    return Ok(Value::unit());
-                }
-                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                let mut acc = Value::Int(xs.get(0).expect("range has first item"));
-                results.push(acc.clone());
-                for x in xs.iter().skip(1) {
-                    let mut ca = BuiltinFnArgs::new();
-                    ca.push(acc);
-                    ca.push(Value::Int(x));
-                    acc = vm.call(&f, ca)?;
+
+            match xs {
+                Value::Dict(map) => {
+                    if map.is_empty() {
+                        return Ok(Value::unit());
+                    }
+                    let mut results: Vec<Value> = Vec::with_capacity(map.len());
+                    let mut val_iter = map.values();
+                    let mut acc = val_iter.next().unwrap().clone();
                     results.push(acc.clone());
+                    for v in val_iter {
+                        acc = call_fold_func(vm, &f, acc, v.clone())?;
+                        results.push(acc.clone());
+                    }
+                    Ok(Value::from_items(results))
                 }
-                Ok(Value::from_items(results))
+                other => Ok(other),
             }
-            Value::List(xs) => {
-                if xs.is_empty() {
-                    return Ok(Value::unit());
-                }
-                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                let mut acc = xs[0].clone();
-                results.push(acc.clone());
-                for x in &xs[1..] {
-                    let mut ca = BuiltinFnArgs::new();
-                    ca.push(acc);
-                    ca.push(x.clone());
-                    acc = vm.call(&f, ca)?;
-                    results.push(acc.clone());
-                }
-                Ok(Value::from_items(results))
-            }
-            Value::Dict(map) => {
-                if map.is_empty() {
-                    return Ok(Value::unit());
-                }
-                let mut results: Vec<Value> = Vec::with_capacity(map.len());
-                let mut val_iter = map.values();
-                let mut acc = val_iter.next().unwrap().clone();
-                results.push(acc.clone());
-                for v in val_iter {
-                    let mut ca = BuiltinFnArgs::new();
-                    ca.push(acc);
-                    ca.push(v.clone());
-                    acc = vm.call(&f, ca)?;
-                    results.push(acc.clone());
-                }
-                Ok(Value::from_items(results))
-            }
-            other => Ok(other),
-        },
+        }
         3 => {
             let mut acc = iter.next().unwrap();
+            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+                let mut results: Vec<Value> = Vec::with_capacity(seq.len());
+                for item in seq.values() {
+                    acc = call_fold_func(vm, &f, acc, item)?;
+                    results.push(acc.clone());
+                }
+                return Ok(Value::from_items(results));
+            }
+
             match xs {
-                Value::IntList(xs) => {
-                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                    for &x in xs.iter() {
-                        let mut ca = BuiltinFnArgs::new();
-                        ca.push(acc);
-                        ca.push(Value::Int(x));
-                        acc = vm.call(&f, ca)?;
-                        results.push(acc.clone());
-                    }
-                    Ok(Value::from_items(results))
-                }
-                Value::IntRange(xs) => {
-                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                    for x in xs.iter() {
-                        let mut ca = BuiltinFnArgs::new();
-                        ca.push(acc);
-                        ca.push(Value::Int(x));
-                        acc = vm.call(&f, ca)?;
-                        results.push(acc.clone());
-                    }
-                    Ok(Value::from_items(results))
-                }
-                Value::List(xs) => {
-                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                    for x in xs.iter() {
-                        let mut ca = BuiltinFnArgs::new();
-                        ca.push(acc);
-                        ca.push(x.clone());
-                        acc = vm.call(&f, ca)?;
-                        results.push(acc.clone());
-                    }
-                    Ok(Value::List(Arc::new(results)))
-                }
                 Value::Dict(map) => {
                     let mut results: Vec<Value> = Vec::with_capacity(map.len());
                     for v in map.values() {
-                        let mut ca = BuiltinFnArgs::new();
-                        ca.push(acc);
-                        ca.push(v.clone());
-                        acc = vm.call(&f, ca)?;
+                        acc = call_fold_func(vm, &f, acc, v.clone())?;
                         results.push(acc.clone());
                     }
                     Ok(Value::from_items(results))
@@ -807,126 +714,61 @@ pub(super) fn rscan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
     let f = iter.next().unwrap();
 
     match n {
-        2 => match xs {
-            Value::IntList(xs) => {
-                if xs.is_empty() {
+        2 => {
+            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+                if seq.len() == 0 {
                     return Ok(Value::unit());
                 }
-                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                let mut acc = Value::Int(*xs.last().unwrap());
+                let values = seq.to_values_vec();
+                let mut results: Vec<Value> = Vec::with_capacity(values.len());
+                let mut iter = values.iter().rev();
+                let mut acc = iter.next().expect("sequence is non-empty").clone();
                 results.push(acc.clone());
-                for &x in xs.iter().rev().skip(1) {
-                    let mut ca = BuiltinFnArgs::new();
-                    ca.push(acc);
-                    ca.push(Value::Int(x));
-                    acc = vm.call(&f, ca)?;
+                for item in iter {
+                    acc = call_fold_func(vm, &f, acc, item.clone())?;
                     results.push(acc.clone());
                 }
                 results.reverse();
-                Ok(Value::from_items(results))
+                return Ok(Value::from_items(results));
             }
-            Value::IntRange(xs) => {
-                if xs.len() == 0 {
-                    return Ok(Value::unit());
-                }
-                let xs = xs.to_vec();
-                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                let mut acc = Value::Int(*xs.last().expect("range has last item"));
-                results.push(acc.clone());
-                for &x in xs.iter().rev().skip(1) {
-                    let mut ca = BuiltinFnArgs::new();
-                    ca.push(acc);
-                    ca.push(Value::Int(x));
-                    acc = vm.call(&f, ca)?;
+
+            match xs {
+                Value::Dict(map) => {
+                    if map.is_empty() {
+                        return Ok(Value::unit());
+                    }
+                    let mut results: Vec<Value> = Vec::with_capacity(map.len());
+                    let mut val_iter = map.values().rev();
+                    let mut acc = val_iter.next().unwrap().clone();
                     results.push(acc.clone());
+                    for v in val_iter {
+                        acc = call_fold_func(vm, &f, acc, v.clone())?;
+                        results.push(acc.clone());
+                    }
+                    results.reverse();
+                    Ok(Value::from_items(results))
                 }
-                results.reverse();
-                Ok(Value::from_items(results))
+                other => Ok(other),
             }
-            Value::List(xs) => {
-                if xs.is_empty() {
-                    return Ok(Value::unit());
-                }
-                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                let mut acc = xs.last().unwrap().clone();
-                results.push(acc.clone());
-                for x in xs.iter().rev().skip(1) {
-                    let mut ca = BuiltinFnArgs::new();
-                    ca.push(acc);
-                    ca.push(x.clone());
-                    acc = vm.call(&f, ca)?;
-                    results.push(acc.clone());
-                }
-                results.reverse();
-                Ok(Value::from_items(results))
-            }
-            Value::Dict(map) => {
-                if map.is_empty() {
-                    return Ok(Value::unit());
-                }
-                let mut results: Vec<Value> = Vec::with_capacity(map.len());
-                let mut val_iter = map.values().rev();
-                let mut acc = val_iter.next().unwrap().clone();
-                results.push(acc.clone());
-                for v in val_iter {
-                    let mut ca = BuiltinFnArgs::new();
-                    ca.push(acc);
-                    ca.push(v.clone());
-                    acc = vm.call(&f, ca)?;
-                    results.push(acc.clone());
-                }
-                results.reverse();
-                Ok(Value::from_items(results))
-            }
-            other => Ok(other),
-        },
+        }
         3 => {
             let mut acc = iter.next().unwrap();
+            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+                let values = seq.to_values_vec();
+                let mut results: Vec<Value> = Vec::with_capacity(values.len());
+                for item in values.iter().rev() {
+                    acc = call_fold_func(vm, &f, acc, item.clone())?;
+                    results.push(acc.clone());
+                }
+                results.reverse();
+                return Ok(Value::from_items(results));
+            }
+
             match xs {
-                Value::IntList(xs) => {
-                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                    for &x in xs.iter().rev() {
-                        let mut ca = BuiltinFnArgs::new();
-                        ca.push(acc);
-                        ca.push(Value::Int(x));
-                        acc = vm.call(&f, ca)?;
-                        results.push(acc.clone());
-                    }
-                    results.reverse();
-                    Ok(Value::from_items(results))
-                }
-                Value::IntRange(xs) => {
-                    let xs = xs.to_vec();
-                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                    for &x in xs.iter().rev() {
-                        let mut ca = BuiltinFnArgs::new();
-                        ca.push(acc);
-                        ca.push(Value::Int(x));
-                        acc = vm.call(&f, ca)?;
-                        results.push(acc.clone());
-                    }
-                    results.reverse();
-                    Ok(Value::from_items(results))
-                }
-                Value::List(xs) => {
-                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
-                    for x in xs.iter().rev() {
-                        let mut ca = BuiltinFnArgs::new();
-                        ca.push(acc);
-                        ca.push(x.clone());
-                        acc = vm.call(&f, ca)?;
-                        results.push(acc.clone());
-                    }
-                    results.reverse();
-                    Ok(Value::List(Arc::new(results)))
-                }
                 Value::Dict(map) => {
                     let mut results: Vec<Value> = Vec::with_capacity(map.len());
                     for v in map.values().rev() {
-                        let mut ca = BuiltinFnArgs::new();
-                        ca.push(acc);
-                        ca.push(v.clone());
-                        acc = vm.call(&f, ca)?;
+                        acc = call_fold_func(vm, &f, acc, v.clone())?;
                         results.push(acc.clone());
                     }
                     results.reverse();
@@ -946,31 +788,22 @@ pub(super) fn filter(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
     let xs = iter.next().unwrap();
     let func = iter.next().unwrap();
     let pure = PureCallback::from_func(&func, 1);
+    if let Some(seq) = ListStorageSeq::from_value(&xs) {
+        let mut result = Vec::new();
+        for item in seq.values() {
+            if filter_predicate(vm, &func, pure.as_ref(), &item)? {
+                result.push(item);
+            }
+        }
+        return Ok(Value::from_items(result));
+    }
+
     match xs {
-        Value::IntList(items) => {
-            let mut result = Vec::new();
-            for &item in items.iter() {
-                let val = Value::Int(item);
-                if filter_predicate(vm, &func, pure.as_ref(), &val)? {
-                    result.push(val);
-                }
-            }
-            Ok(Value::from_items(result))
-        }
-        Value::List(items) => {
-            let mut result = Vec::new();
-            for item in items.iter() {
-                if filter_predicate(vm, &func, pure.as_ref(), item)? {
-                    result.push(item.clone());
-                }
-            }
-            Ok(Value::from_items(result))
-        }
         Value::Dict(map) => {
             let mut result = Vec::new();
-            for value in map.values() {
-                if filter_predicate(vm, &func, pure.as_ref(), value)? {
-                    result.push(value.clone());
+            for item in map.values() {
+                if filter_predicate(vm, &func, pure.as_ref(), item)? {
+                    result.push(item.clone());
                 }
             }
             Ok(Value::from_items(result))
@@ -985,24 +818,17 @@ pub(super) fn filter_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -
     let xs = iter.next().unwrap();
     let func = iter.next().unwrap();
     let pure = PureCallback::from_func(&func, 1);
-    match xs {
-        Value::IntList(items) => {
-            for &item in items.iter() {
-                let val = Value::Int(item);
-                filter_predicate(vm, &func, pure.as_ref(), &val)?;
-            }
+    if let Some(seq) = ListStorageSeq::from_value(&xs) {
+        for item in seq.values() {
+            filter_predicate(vm, &func, pure.as_ref(), &item)?;
         }
-        Value::List(items) => {
-            for item in items.iter() {
-                filter_predicate(vm, &func, pure.as_ref(), item)?;
-            }
+        return Ok(Value::unit());
+    }
+
+    if let Value::Dict(map) = xs {
+        for item in map.values() {
+            filter_predicate(vm, &func, pure.as_ref(), item)?;
         }
-        Value::Dict(map) => {
-            for value in map.values() {
-                filter_predicate(vm, &func, pure.as_ref(), value)?;
-            }
-        }
-        _ => {}
     }
     Ok(Value::unit())
 }
@@ -1130,15 +956,16 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
             chunks.push(current);
             Ok(Value::value_from_str_chunks(chunks))
         }
-        Value::IntList(items) => {
+        Value::IntList(_) | Value::IntRange(_) | Value::FloatList(_) | Value::BoolList(_) => {
+            let seq =
+                ListStorageSeq::from_value(&val).expect("guard checked value has list storage");
             let mut chunks = Vec::new();
             let mut current = Vec::new();
-            for &item in items.iter() {
-                let value = Value::Int(item);
-                let pred = vm.call(&func, BuiltinFnArgs::from(value))?;
+            for item in seq.values() {
+                let pred = vm.call(&func, BuiltinFnArgs::from(item.clone()))?;
                 match pred.try_to_rust_bool() {
                     Some(true) if splits_done < limit => {
-                        chunks.push(Value::IntList(Arc::new(std::mem::take(&mut current))));
+                        chunks.push(Value::from_items(std::mem::take(&mut current)));
                         splits_done += 1;
                     }
                     Some(true) => current.push(item),
@@ -1150,7 +977,7 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
                     }
                 }
             }
-            chunks.push(Value::IntList(Arc::new(current)));
+            chunks.push(Value::from_items(current));
             Ok(Value::List(Arc::new(chunks)))
         }
         Value::List(items) => {
@@ -1213,53 +1040,35 @@ fn findwith_search(
         }
     };
 
+    if let Some(seq) = ListStorageSeq::from_value(xs) {
+        let values = seq.to_values_vec();
+        let indices: Vec<usize> = if ctx.reverse {
+            (0..values.len()).rev().collect()
+        } else {
+            (0..values.len()).collect()
+        };
+        for idx in indices {
+            if results.len() >= ctx.threshold as usize {
+                return Ok(());
+            }
+            let item = &values[idx];
+            if is_match(vm, item)? {
+                path.push(idx as i64);
+                results.push(Value::IntList(Arc::new(path.clone())));
+                path.pop();
+                if results.len() >= ctx.threshold as usize {
+                    return Ok(());
+                }
+            } else if current_depth < ctx.max_depth {
+                path.push(idx as i64);
+                findwith_search(vm, item, current_depth + 1, results, path, ctx)?;
+                path.pop();
+            }
+        }
+        return Ok(());
+    }
+
     match xs {
-        Value::List(items) => {
-            let indices: Vec<usize> = if ctx.reverse {
-                (0..items.len()).rev().collect()
-            } else {
-                (0..items.len()).collect()
-            };
-            for idx in indices {
-                if results.len() >= ctx.threshold as usize {
-                    return Ok(());
-                }
-                let item = &items[idx];
-                if is_match(vm, item)? {
-                    path.push(idx as i64);
-                    results.push(Value::IntList(Arc::new(path.clone())));
-                    path.pop();
-                    if results.len() >= ctx.threshold as usize {
-                        return Ok(());
-                    }
-                } else if current_depth < ctx.max_depth {
-                    path.push(idx as i64);
-                    findwith_search(vm, item, current_depth + 1, results, path, ctx)?;
-                    path.pop();
-                }
-            }
-        }
-        Value::IntList(items) => {
-            let indices: Vec<usize> = if ctx.reverse {
-                (0..items.len()).rev().collect()
-            } else {
-                (0..items.len()).collect()
-            };
-            for idx in indices {
-                if results.len() >= ctx.threshold as usize {
-                    return Ok(());
-                }
-                let item_val = Value::Int(items[idx]);
-                if is_match(vm, &item_val)? {
-                    path.push(idx as i64);
-                    results.push(Value::IntList(Arc::new(path.clone())));
-                    path.pop();
-                    if results.len() >= ctx.threshold as usize {
-                        return Ok(());
-                    }
-                }
-            }
-        }
         Value::Dict(map) => {
             let values: Vec<_> = map.values().collect();
             let indices: Vec<usize> = if ctx.reverse {
@@ -1715,6 +1524,97 @@ mod tests {
         let result =
             filter(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("filter succeeds");
         assert_eq!(result, Value::IntList(Arc::new(vec![3, 4])));
+    }
+
+    #[test]
+    fn higher_order_builtins_treat_int_range_as_int_list() {
+        let mut vm = Vm::new(vec![]);
+        let range = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, 1, 4)));
+        let add = make_fn(
+            Some(&["x", "y"]),
+            2,
+            vec![
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Add,
+                    Operand::Local(0),
+                    Operand::Local(1),
+                ),
+                Instruction::Return,
+            ],
+        );
+        let gt_two = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Gt,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Int(2))),
+                ),
+                Instruction::Return,
+            ],
+        );
+        let eq_three = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::binary_op(
+                    crate::astnode::BinaryOperator::Equal,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Int(3))),
+                ),
+                Instruction::Return,
+            ],
+        );
+
+        assert_eq!(
+            fold(
+                &mut vm,
+                BuiltinFnArgs::from(smallvec![range.clone(), add.clone()])
+            )
+            .unwrap(),
+            Value::Int(10)
+        );
+        assert_eq!(
+            scan(
+                &mut vm,
+                BuiltinFnArgs::from(smallvec![range.clone(), add.clone()])
+            )
+            .unwrap(),
+            Value::IntList(Arc::new(vec![1, 3, 6, 10]))
+        );
+        assert_eq!(
+            rscan(&mut vm, BuiltinFnArgs::from(smallvec![range.clone(), add])).unwrap(),
+            Value::IntList(Arc::new(vec![10, 9, 7, 4]))
+        );
+        assert_eq!(
+            filter(
+                &mut vm,
+                BuiltinFnArgs::from(smallvec![range.clone(), gt_two.clone()])
+            )
+            .unwrap(),
+            Value::IntList(Arc::new(vec![3, 4]))
+        );
+        assert_eq!(
+            all(
+                &mut vm,
+                BuiltinFnArgs::from(smallvec![range.clone(), gt_two])
+            )
+            .unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            any(
+                &mut vm,
+                BuiltinFnArgs::from(smallvec![range.clone(), eq_three.clone()])
+            )
+            .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            findw(&mut vm, BuiltinFnArgs::from(smallvec![range, eq_three])).unwrap(),
+            Value::IntList(Arc::new(vec![2]))
+        );
     }
 
     #[test]

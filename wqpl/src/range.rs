@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use ordered_float::OrderedFloat;
+
 use crate::value::seq::IntRangeData;
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
@@ -285,7 +287,7 @@ fn make_range_float_with_step(start: f64, end: f64, step: f64, inclusive: bool) 
             if if inclusive { cur > end } else { cur >= end } {
                 break;
             }
-            items.push(Value::float(cur));
+            items.push(OrderedFloat(cur));
         }
     } else {
         for i in 0..MAX_ITER {
@@ -293,10 +295,10 @@ fn make_range_float_with_step(start: f64, end: f64, step: f64, inclusive: bool) 
             if if inclusive { cur < end } else { cur <= end } {
                 break;
             }
-            items.push(Value::float(cur));
+            items.push(OrderedFloat(cur));
         }
     }
-    Ok(Value::List(Arc::new(items)))
+    Ok(Value::FloatList(Arc::new(items)))
 }
 
 #[inline]
@@ -304,6 +306,8 @@ pub(crate) fn range_alloc_len(value: &Value) -> usize {
     match value {
         Value::IntRange(items) => items.len(),
         Value::IntList(items) => items.len(),
+        Value::FloatList(items) => items.len(),
+        Value::BoolList(items) => items.len(),
         Value::List(items) => items.len(),
         Value::String(s) => s.chars().count(),
         _ => 0,
@@ -323,6 +327,29 @@ mod tests {
         assert_eq!(value.to_string(), "(1;2;3;4)");
         assert_eq!(value, Value::IntList(Arc::new(vec![1, 2, 3, 4])));
         assert_eq!(value.index(&Value::Int(2)), Some(Value::Int(3)));
+    }
+
+    #[test]
+    fn float_range_uses_packed_float_list() {
+        let value = make_range(&Value::float(2.5), &Value::float(5.5), None, false)
+            .expect("valid float range");
+
+        assert!(matches!(value, Value::FloatList(_)));
+        assert_eq!(
+            value,
+            Value::FloatList(Arc::new(vec![
+                OrderedFloat(2.5),
+                OrderedFloat(3.5),
+                OrderedFloat(4.5),
+            ]))
+        );
+
+        let singleton = make_range(&Value::float(2.5), &Value::float(2.5), None, true)
+            .expect("valid inclusive float range");
+        assert_eq!(
+            singleton,
+            Value::FloatList(Arc::new(vec![OrderedFloat(2.5)]))
+        );
     }
 
     #[test]

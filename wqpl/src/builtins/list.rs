@@ -10,7 +10,7 @@ use crate::builtins::{
 };
 use crate::value::bc::Bc2Stop;
 use crate::value::cmp::cmp_atom;
-use crate::value::seq::ExactIntSeq;
+use crate::value::seq::{ExactIntSeq, ListStorageSeq};
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -427,22 +427,13 @@ pub(super) fn flatten(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn reverse(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Reverse, [1], &args)?;
     let v = args.into_iter().next().unwrap();
+    if let Some(seq) = ListStorageSeq::from_value(&v) {
+        let mut reversed = seq.to_values_vec();
+        reversed.reverse();
+        return Ok(Value::from_items(reversed));
+    }
+
     match &v {
-        Value::List(items) => {
-            let mut reversed: Vec<Value> = items.iter().cloned().collect();
-            reversed.reverse();
-            Ok(Value::from_items(reversed))
-        }
-        Value::IntList(items) => {
-            let mut reversed = Arc::clone(items);
-            Arc::make_mut(&mut reversed).reverse();
-            Ok(Value::IntList(reversed))
-        }
-        Value::FloatList(items) => {
-            let mut reversed = Arc::clone(items);
-            Arc::make_mut(&mut reversed).reverse();
-            Ok(Value::FloatList(reversed))
-        }
         Value::Dict(items) => {
             let mut reversed = items.clone();
             Arc::make_mut(&mut reversed).reverse();
@@ -457,15 +448,17 @@ pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Sort, [1], &args)?;
     let v = args.into_iter().next().unwrap();
     let res = match &v {
-        Value::IntList(items) => {
-            let mut sorted = Arc::clone(items);
-            let slice = Arc::make_mut(&mut sorted);
-            if slice.len() > 2000 {
-                slice.par_sort();
+        Value::IntList(_) | Value::IntRange(_) => {
+            let mut sorted = v
+                .packed_int_seq()
+                .expect("guard checked value is packed int sequence")
+                .to_vec();
+            if sorted.len() > 2000 {
+                sorted.par_sort();
             } else {
-                slice.sort();
+                sorted.sort();
             }
-            Value::IntList(sorted)
+            Value::IntList(Arc::new(sorted))
         }
         Value::FloatList(items) => {
             let mut sorted = Arc::clone(items);
@@ -583,13 +576,17 @@ pub(super) fn split(args: BuiltinFnArgs) -> WqResult<Value> {
                 Ok(split_string_by_whitespace(&s, maxsplit))
             }
         }
-        // IntList split
-        Value::IntList(items) => {
+        // list<int> split
+        Value::IntList(_) | Value::IntRange(_) => {
             let mut chunks = Vec::new();
             let mut current = Vec::new();
             let limit = maxsplit.unwrap_or(usize::MAX);
             let mut splits_done = 0;
-            for &item in items.iter() {
+            for item in data
+                .packed_int_seq()
+                .expect("guard checked value is packed int sequence")
+                .iter()
+            {
                 if delim.is_some_and(|d| Value::Int(item) == *d) && splits_done < limit {
                     chunks.push(Value::IntList(Arc::new(std::mem::take(&mut current))));
                     splits_done += 1;
@@ -757,55 +754,38 @@ fn find_search(
     if results.len() >= ctx.threshold as usize {
         return;
     }
+
+    if let Some(seq) = ListStorageSeq::from_value(xs) {
+        let values = seq.to_values_vec();
+        let indices: Vec<usize> = if ctx.reverse {
+            (0..values.len()).rev().collect()
+        } else {
+            (0..values.len()).collect()
+        };
+        for idx in indices {
+            if results.len() >= ctx.threshold as usize {
+                return;
+            }
+            let item = &values[idx];
+            let is_match = ctx.elem == item;
+            if is_match {
+                path.push(idx as i64);
+                results.push(Value::IntList(Arc::new(path.clone())));
+                path.pop();
+                if results.len() >= ctx.threshold as usize {
+                    return;
+                }
+            }
+            if !is_match && current_depth < ctx.max_depth {
+                path.push(idx as i64);
+                find_search(item, current_depth + 1, results, path, ctx);
+                path.pop();
+            }
+        }
+        return;
+    }
+
     match xs {
-        Value::List(items) => {
-            let indices: Vec<usize> = if ctx.reverse {
-                (0..items.len()).rev().collect()
-            } else {
-                (0..items.len()).collect()
-            };
-            for idx in indices {
-                if results.len() >= ctx.threshold as usize {
-                    return;
-                }
-                let item = &items[idx];
-                let is_match = ctx.elem == item;
-                if is_match {
-                    path.push(idx as i64);
-                    results.push(Value::IntList(Arc::new(path.clone())));
-                    path.pop();
-                    if results.len() >= ctx.threshold as usize {
-                        return;
-                    }
-                }
-                if !is_match && current_depth < ctx.max_depth {
-                    path.push(idx as i64);
-                    find_search(item, current_depth + 1, results, path, ctx);
-                    path.pop();
-                }
-            }
-        }
-        Value::IntList(items) => {
-            let indices: Vec<usize> = if ctx.reverse {
-                (0..items.len()).rev().collect()
-            } else {
-                (0..items.len()).collect()
-            };
-            for idx in indices {
-                if results.len() >= ctx.threshold as usize {
-                    return;
-                }
-                let item_val = Value::Int(items[idx]);
-                if ctx.elem == &item_val {
-                    path.push(idx as i64);
-                    results.push(Value::IntList(Arc::new(path.clone())));
-                    path.pop();
-                    if results.len() >= ctx.threshold as usize {
-                        return;
-                    }
-                }
-            }
-        }
         Value::Dict(map) => {
             let values: Vec<_> = map.values().collect();
             let indices: Vec<usize> = if ctx.reverse {
@@ -1402,5 +1382,35 @@ mod tests {
             Value::Int(1)
         );
         assert_eq!(max(BuiltinFnArgs::from(descending)).unwrap(), Value::Int(7));
+    }
+
+    #[test]
+    fn list_builtins_treat_int_range_as_int_list() {
+        let descending = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(3, -1, 3)));
+        assert_eq!(
+            reverse(BuiltinFnArgs::from(descending.clone())).unwrap(),
+            Value::IntList(Arc::new(vec![1, 2, 3]))
+        );
+        assert_eq!(
+            sort(BuiltinFnArgs::from(descending)).unwrap(),
+            Value::IntList(Arc::new(vec![1, 2, 3]))
+        );
+
+        let range = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, 1, 5)));
+        assert_eq!(
+            split(BuiltinFnArgs::from(smallvec![range.clone(), Value::Int(3)])).unwrap(),
+            Value::List(Arc::new(vec![
+                Value::IntList(Arc::new(vec![1, 2])),
+                Value::IntList(Arc::new(vec![4, 5])),
+            ]))
+        );
+        assert_eq!(
+            find(BuiltinFnArgs::from(smallvec![range.clone(), Value::Int(3)])).unwrap(),
+            Value::IntList(Arc::new(vec![2]))
+        );
+        assert_eq!(
+            rfind(BuiltinFnArgs::from(smallvec![range, Value::Int(3)])).unwrap(),
+            Value::IntList(Arc::new(vec![2]))
+        );
     }
 }
