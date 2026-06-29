@@ -49,7 +49,10 @@
   - If you can't pass clippy by fixing code for any reason, ask the user whether it's fine to use `#[allow(...)]`
   - If passing clippy requires a large-scope edit, pause and ask the user.
 - format command: `cargo +nightly fmt`
-- If you changed wq lexer/grammar, also update `wq-ts/grammar.js` and verify it with `tree-sitter generate` and a new corpse test
+- If you changed wq lexer/grammar:
+  - Also update `wq-ts/grammar.js`, and
+  - verify it with `tree-sitter generate`, and
+  - add a new corpse test using `tree-sitter test -u`
 - Delevopment should be test-driven. Choose between unit tests and snapshot tests depending on situation.
   - Integration/snapshot tests use `hotchoco.py`.
     - This tests semantics, formatter, backtraces, etc.
@@ -58,8 +61,12 @@
       - anything that affects semantics
       - a `e/*.wq` script
     - If a new major module is added, you may create a new test config for it.
-  - Key commands: `python3 hotchoco.py run`, `python3 hotchoco.py show --no-pager`, `python3 hotchoco.py accept`.
-  - See `python3 hotchoco.py --help` for details.
+    - Key commands: `python3 hotchoco.py run`, `python3 hotchoco.py show --no-pager`, `python3 hotchoco.py accept --test TEST`.
+    - See `python3 hotchoco.py --help` for details.
+  - Test policy: prefer broader tests rather than only focused ones, e.g.
+    - Full `tree-sitter test` if you changed `grammar.js`
+    - Full `cargo test -p wqpl` if you changed `wqpl`
+    - But usually avoid full workspace `cargo test` unless necessary
 - At handoff, recommend a good commit message based on the appendix guidelines.
   - Do not commit unless the user explicitly asked for it.
 - Unless the user explicitly requested/approved, don't build/run with `release` profile.
@@ -79,14 +86,13 @@
   - Prefer `pub(super)` over `pub(crate)`.
   - Prefer `pub(crate)` over `pub`.
   - Avoid `pub` if it is not intended to be public API.
-- If you touched Python code, run ruff.
-- If you are using Playwright but chrome isn't available, use webkit.
+- If you touched Python code, run ruff lint and format.
 - If you changed `wqpl/viz`, also update `wqide/viz`.
 - If you added/changed syntax feature or builtin, also update:
   - `wqpl/doc`
   - optionally `d/articles/wqpl` if it is core to the language
 - No em dashes in comments/docs/code. Adjust wording to avoid em dashes.
-- Use these newer Rust features when they improve code style:
+- Use these newer Rust features when they can make code cleaner:
 
 | Feature         | Stabilized in | Release date | Notes                                                                                                 |
 | --------------- | ------------- | ------------ | ----------------------------------------------------------------------------------------------------- |
