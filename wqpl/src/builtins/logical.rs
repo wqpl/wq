@@ -1,3 +1,5 @@
+use crate::astnode::BinaryOperator;
+use crate::builtins::fold::fold_binary_op;
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::value::{Value, WqResult};
 
@@ -7,23 +9,23 @@ pub(super) fn not(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn and(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::bool_and(BE::And, args)
+    fold_binary_op(BE::And, args, &BinaryOperator::BoolAnd)
 }
 
 pub(super) fn or(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::bool_or(BE::Or, args)
-}
-
-pub(super) fn xor(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::bit_xor(BE::Xor, args)
+    fold_binary_op(BE::Or, args, &BinaryOperator::BoolOr)
 }
 
 pub(super) fn band(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::bit_and(BE::Band, args)
+    fold_binary_op(BE::Band, args, &BinaryOperator::BitAnd)
 }
 
 pub(super) fn bor(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::bit_or(BE::Bor, args)
+    fold_binary_op(BE::Bor, args, &BinaryOperator::BitOr)
+}
+
+pub(super) fn xor(args: BuiltinFnArgs) -> WqResult<Value> {
+    fold_binary_op(BE::Xor, args, &BinaryOperator::BitXor)
 }
 
 pub(super) fn shl(args: BuiltinFnArgs) -> WqResult<Value> {

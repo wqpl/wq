@@ -1,23 +1,11 @@
 use std::sync::Arc;
 
 use crate::astnode::{BinaryOperator, UnaryOperator};
+use crate::builtins::fold::fold_binary_op;
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
 use crate::value::cmp::eval_cmp_chain;
-use crate::value::{Value, WqResult, eval_binary, eval_unary};
+use crate::value::{Value, WqResult, eval_unary};
 use crate::wqerror::{WqError, WqErrorType};
-
-fn fold_binary_op(src: BuiltinEnum, args: BuiltinFnArgs, op: &BinaryOperator) -> WqResult<Value> {
-    if args.len() < 2 {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(src)
-            .msg(format!("expected 2 or more args, got {}", args.len())));
-    }
-    let mut iter = args.into_iter();
-    let init = iter.next().unwrap();
-    iter.try_fold(init, |acc, v| {
-        eval_binary(op, &acc, &v).map_err(|e| e.src(src))
-    })
-}
 
 fn fold_cmp_op(src: BuiltinEnum, args: &[Value], op: BinaryOperator) -> WqResult<Value> {
     if args.len() < 2 {
@@ -164,32 +152,12 @@ pub(super) fn op_cat(args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::cat_many(args.to_vec()))
 }
 
-pub(super) fn bool_and(src: BuiltinEnum, args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(src, args, &BinaryOperator::BoolAnd)
-}
-
-pub(super) fn bool_or(src: BuiltinEnum, args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(src, args, &BinaryOperator::BoolOr)
-}
-
-pub(super) fn bit_and(src: BuiltinEnum, args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(src, args, &BinaryOperator::BitAnd)
-}
-
-pub(super) fn bit_or(src: BuiltinEnum, args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(src, args, &BinaryOperator::BitOr)
-}
-
 pub(super) fn op_shl(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_binary_op(BuiltinEnum::OpShl, args, &BinaryOperator::Shl)
 }
 
 pub(super) fn op_shr(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_binary_op(BuiltinEnum::OpShr, args, &BinaryOperator::Shr)
-}
-
-pub(super) fn bit_xor(src: BuiltinEnum, args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(src, args, &BinaryOperator::BitXor)
 }
 
 pub(super) fn op_floordiv(args: BuiltinFnArgs) -> WqResult<Value> {

@@ -3,6 +3,7 @@ mod complex;
 mod core;
 mod dict;
 mod encoding;
+mod fold;
 mod fraction;
 mod ho;
 mod io;
