@@ -206,9 +206,18 @@ export default grammar({
           PREC.RANGE,
           seq(
             $.unary_expr,
+            field("operator", ".."),
+            $.unary_expr,
+            field("final_operator", choice("..=", "..")),
+            $.unary_expr,
+          ),
+        ),
+        prec.right(
+          PREC.RANGE,
+          seq(
+            $.unary_expr,
             field("operator", choice("..=", "..")),
             $.unary_expr,
-            optional(seq(field("step_operator", ".."), $.unary_expr)),
           ),
         ),
         $.unary_expr,
@@ -256,9 +265,18 @@ export default grammar({
           PREC.RANGE,
           seq(
             $._juxtaposition_unary_expr,
+            field("operator", ".."),
+            $.unary_expr,
+            field("final_operator", choice("..=", "..")),
+            $.unary_expr,
+          ),
+        ),
+        prec.right(
+          PREC.RANGE,
+          seq(
+            $._juxtaposition_unary_expr,
             field("operator", choice("..=", "..")),
             $.unary_expr,
-            optional(seq(field("step_operator", ".."), $.unary_expr)),
           ),
         ),
         $._juxtaposition_unary_expr,

@@ -831,6 +831,18 @@
                 "type": "FIELD",
                 "name": "operator",
                 "content": {
+                  "type": "STRING",
+                  "value": ".."
+                }
+              },
+              {
+                "type": "SYMBOL",
+                "name": "unary_expr"
+              },
+              {
+                "type": "FIELD",
+                "name": "final_operator",
+                "content": {
                   "type": "CHOICE",
                   "members": [
                     {
@@ -847,31 +859,40 @@
               {
                 "type": "SYMBOL",
                 "name": "unary_expr"
+              }
+            ]
+          }
+        },
+        {
+          "type": "PREC_RIGHT",
+          "value": 8,
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "unary_expr"
               },
               {
-                "type": "CHOICE",
-                "members": [
-                  {
-                    "type": "SEQ",
-                    "members": [
-                      {
-                        "type": "FIELD",
-                        "name": "step_operator",
-                        "content": {
-                          "type": "STRING",
-                          "value": ".."
-                        }
-                      },
-                      {
-                        "type": "SYMBOL",
-                        "name": "unary_expr"
-                      }
-                    ]
-                  },
-                  {
-                    "type": "BLANK"
-                  }
-                ]
+                "type": "FIELD",
+                "name": "operator",
+                "content": {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "STRING",
+                      "value": "..="
+                    },
+                    {
+                      "type": "STRING",
+                      "value": ".."
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "SYMBOL",
+                "name": "unary_expr"
               }
             ]
           }
@@ -1134,6 +1155,18 @@
                 "type": "FIELD",
                 "name": "operator",
                 "content": {
+                  "type": "STRING",
+                  "value": ".."
+                }
+              },
+              {
+                "type": "SYMBOL",
+                "name": "unary_expr"
+              },
+              {
+                "type": "FIELD",
+                "name": "final_operator",
+                "content": {
                   "type": "CHOICE",
                   "members": [
                     {
@@ -1150,31 +1183,40 @@
               {
                 "type": "SYMBOL",
                 "name": "unary_expr"
+              }
+            ]
+          }
+        },
+        {
+          "type": "PREC_RIGHT",
+          "value": 8,
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "_juxtaposition_unary_expr"
               },
               {
-                "type": "CHOICE",
-                "members": [
-                  {
-                    "type": "SEQ",
-                    "members": [
-                      {
-                        "type": "FIELD",
-                        "name": "step_operator",
-                        "content": {
-                          "type": "STRING",
-                          "value": ".."
-                        }
-                      },
-                      {
-                        "type": "SYMBOL",
-                        "name": "unary_expr"
-                      }
-                    ]
-                  },
-                  {
-                    "type": "BLANK"
-                  }
-                ]
+                "type": "FIELD",
+                "name": "operator",
+                "content": {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "STRING",
+                      "value": "..="
+                    },
+                    {
+                      "type": "STRING",
+                      "value": ".."
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "SYMBOL",
+                "name": "unary_expr"
               }
             ]
           }

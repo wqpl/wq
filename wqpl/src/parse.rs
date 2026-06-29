@@ -35,6 +35,13 @@ struct DirtyByteRange {
     new_end: usize,
 }
 
+pub(crate) struct FStringExprSplit<'a> {
+    pub(crate) expr: &'a str,
+    pub(crate) spec: Option<&'a str>,
+    pub(crate) expr_offset: usize,
+    pub(crate) spec_offset: Option<usize>,
+}
+
 struct ReusePlan {
     dirty: DirtyByteRange,
     previous_statements: HashMap<usize, GreenNode>,
@@ -1513,25 +1520,31 @@ impl Parser {
         let pending = self.cst_open();
         let start = self.parse_unary()?;
         if let Some(token) = self.current_token().cloned() {
-            let inclusive = match token.token_type {
+            let first_inclusive = match token.token_type {
                 TokenType::Range => false,
                 TokenType::RangeInclusive => true,
                 _ => return Ok(start),
             };
             self.advance();
             self.eat_rhs_trivia(&token, "range operator")?;
-            let end = self.parse_unary()?;
-            let mut step_node = None;
+            let first_rhs = self.parse_unary()?;
+            let mut end = first_rhs;
+            let mut next_node = None;
+            let mut inclusive = first_inclusive;
             if let Some(next_tok) = self.current_token().cloned() {
                 match next_tok.token_type {
-                    TokenType::Range => {
+                    TokenType::Range | TokenType::RangeInclusive => {
+                        if first_inclusive {
+                            return Err(self.syntax_err(
+                                &next_tok,
+                                "only the final range operator can be '..='",
+                            ));
+                        }
                         self.advance();
-                        self.eat_rhs_trivia(&next_tok, "range step operator")?;
-                        let step_expr = self.parse_unary()?;
-                        step_node = Some(Box::new(step_expr));
-                    }
-                    TokenType::RangeInclusive => {
-                        return Err(self.syntax_err(&next_tok, "unexpected '..=' for range step"));
+                        self.eat_rhs_trivia(&next_tok, "range operator")?;
+                        inclusive = matches!(next_tok.token_type, TokenType::RangeInclusive);
+                        next_node = Some(Box::new(end));
+                        end = self.parse_unary()?;
                     }
                     _ => {}
                 }
@@ -1542,7 +1555,7 @@ impl Parser {
             return Ok(AstNode::Range {
                 start: Box::new(start),
                 end: Box::new(end),
-                step: step_node,
+                step: next_node,
                 inclusive,
                 span,
             });
@@ -3247,47 +3260,66 @@ impl Parser {
         }
     }
 
-    /// Split a format-string brace contents like `value!{width}` or `num!>10`
-    /// into `(expression, optional_format_spec)`.
-    ///
-    /// `!` is treated as a separator when it is at brace-depth 0.
-    /// wq does not use `!` as an operator (`~=` is not-equal), so there is no
-    /// ambiguity to resolve.
-    pub(crate) fn split_expr_and_format_spec(inner: &str) -> (&str, Option<&str>) {
-        let mut depth = 0i32;
-        let mut in_str = false;
-        let mut prev_escape = false;
+    /// Split format-string brace contents like `[>{width}.2]value` into an
+    /// optional leading format spec and the expression body.
+    pub(crate) fn split_expr_and_format_spec(inner: &str) -> WqResult<FStringExprSplit<'_>> {
+        if !inner.starts_with('[') {
+            return Ok(FStringExprSplit {
+                expr: inner,
+                spec: None,
+                expr_offset: 0,
+                spec_offset: None,
+            });
+        }
 
-        for (i, c) in inner.char_indices() {
-            if in_str {
-                if c == '\\' && !prev_escape {
-                    prev_escape = true;
-                } else if c == '"' && !prev_escape {
-                    in_str = false;
-                    prev_escape = false;
+        let close = Self::matching_fstring_spec_bracket(inner, 0)
+            .ok_or_else(|| WqError::new(WqErrorType::Syntax).msg("unmatched '[' in format spec"))?;
+        let spec_start = '['.len_utf8();
+        let expr_start = close + ']'.len_utf8();
+        let spec = &inner[spec_start..close];
+        Ok(FStringExprSplit {
+            expr: &inner[expr_start..],
+            spec: if spec.is_empty() { None } else { Some(spec) },
+            expr_offset: expr_start,
+            spec_offset: Some(spec_start),
+        })
+    }
+
+    pub(crate) fn matching_fstring_spec_bracket(source: &str, open: usize) -> Option<usize> {
+        if !source.is_char_boundary(open) || !source[open..].starts_with('[') {
+            return None;
+        }
+
+        let mut brace_depth = 0usize;
+        let mut i = open + '['.len_utf8();
+        let mut in_string = false;
+        let mut escaped = false;
+
+        while i < source.len() {
+            let c = source[i..].chars().next().expect("i is inside source");
+            if in_string {
+                if c == '\\' && !escaped {
+                    escaped = true;
+                } else if c == '"' && !escaped {
+                    in_string = false;
+                    escaped = false;
                 } else {
-                    prev_escape = false;
+                    escaped = false;
                 }
+                i += c.len_utf8();
                 continue;
             }
 
             match c {
-                '"' => in_str = true,
-                '{' => depth += 1,
-                '}' => depth -= 1,
-                '!' if depth == 0 => {
-                    let expr = &inner[..i];
-                    let spec = &inner[i + c.len_utf8()..].trim_start();
-                    if expr.trim().is_empty() {
-                        return (inner, None);
-                    }
-                    return (expr, if spec.is_empty() { None } else { Some(spec) });
-                }
+                '"' => in_string = true,
+                '{' => brace_depth += 1,
+                '}' if brace_depth > 0 => brace_depth -= 1,
+                ']' if brace_depth == 0 => return Some(i),
                 _ => {}
             }
+            i += c.len_utf8();
         }
-
-        (inner, None)
+        None
     }
 
     pub(crate) fn matching_fstring_brace(source: &str, open: usize) -> Option<usize> {
@@ -3393,22 +3425,19 @@ impl Parser {
                 }
                 FmtPart::Expr { source, start, .. } => {
                     let inner = &source[1..source.len().saturating_sub(1)];
-                    let (expr_str, spec_opt) = Self::split_expr_and_format_spec(inner);
+                    let split = Self::split_expr_and_format_spec(inner)?;
+                    let expr_str = split.expr;
 
                     let mut lex = Lexer::new(expr_str);
                     let tokens = lex.tokenize()?;
                     let mut p2 = Parser::new(tokens, expr_str.to_string());
                     let mut node = p2.parse()?;
-                    let offset = start + 1;
+                    let offset = start + 1 + split.expr_offset;
                     Self::offset_spans(&mut node, offset);
 
-                    let (spec, encoded_spec, spec_exprs) = if let Some(spec_str) = spec_opt {
-                        let spec_offset = start + 1 + expr_str.len() + 1;
-                        let (enc, mut spec_exprs) =
-                            self.encode_format_spec(spec_str, spec_offset)?;
-                        for spec_expr in &mut spec_exprs {
-                            Self::offset_spans(spec_expr, spec_offset);
-                        }
+                    let (spec, encoded_spec, spec_exprs) = if let Some(spec_str) = split.spec {
+                        let spec_offset = start + 1 + split.spec_offset.expect("spec offset");
+                        let (enc, spec_exprs) = self.encode_format_spec(spec_str, spec_offset)?;
                         (Some(spec_str.to_string()), Some(enc), spec_exprs)
                     } else {
                         (None, None, Vec::new())
@@ -4159,7 +4188,7 @@ mod fstring_span_tests {
 
     #[test]
     fn fstring_format_spec_produces_encoded_template() {
-        let src = "@f\"{value!>10}\"";
+        let src = "@f\"{[>10]value}\"";
         let mut lex = Lexer::new(src);
         let tokens = lex.tokenize().unwrap();
         let mut p = Parser::new(tokens, src.to_string());
@@ -4196,7 +4225,7 @@ mod fstring_span_tests {
 
     #[test]
     fn fstring_dynamic_width_puts_spec_expr_before_value() {
-        let src = "@f\"{value!{width}}\"";
+        let src = "@f\"{[{width}]value}\"";
         let mut lex = Lexer::new(src);
         let tokens = lex.tokenize().unwrap();
         let mut p = Parser::new(tokens, src.to_string());
@@ -4239,7 +4268,7 @@ mod fstring_span_tests {
 
     #[test]
     fn fstring_dynamic_spec_expr_allows_quoted_brace() {
-        let src = r##"@f"{value!>{"}"}}""##;
+        let src = r##"@f"{[>{"}"}]value}""##;
         let mut lex = Lexer::new(src);
         let tokens = lex.tokenize().unwrap();
         let mut p = Parser::new(tokens, src.to_string());
@@ -4985,7 +5014,7 @@ mod cst_integration_tests {
     #[test]
     fn fstring_round_trips() {
         round_trip(r#"@f"x={1+2}""#);
-        round_trip(r#"echo@f"v={value!>10}""#);
+        round_trip(r#"echo@f"v={[>10]value}""#);
     }
 
     #[test]

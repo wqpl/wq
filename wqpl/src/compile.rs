@@ -1238,17 +1238,18 @@ impl Compiler {
                 ..
             } => {
                 self.compile_expr(start)?;
-                self.compile_expr(end)?;
-                if let Some(step_expr) = step {
-                    self.compile_expr(step_expr)?;
+                if let Some(next_expr) = step {
+                    self.compile_expr(next_expr)?;
+                    self.compile_expr(end)?;
                     self.instructions.push(Instruction::MakeRange {
                         inclusive: *inclusive,
-                        has_step: true,
+                        has_next: true,
                     });
                 } else {
+                    self.compile_expr(end)?;
                     self.instructions.push(Instruction::MakeRange {
                         inclusive: *inclusive,
-                        has_step: false,
+                        has_next: false,
                     });
                 }
             }

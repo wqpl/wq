@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
+use crate::range::make_range;
 use crate::value::{Excerpt as _, Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -172,6 +173,17 @@ pub(super) fn iota(args: BuiltinFnArgs) -> WqResult<Value> {
             let mut prefix = Vec::<i64>::with_capacity(dims.len());
             Ok(build_coords(&dims, &mut prefix)?)
         }
+    }
+}
+
+pub(super) fn range(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BE::Range, [2, 3], &args)?;
+    match &*args {
+        [start, end] => make_range(start, end, None, false).map_err(|e| e.src(BE::Range)),
+        [start, end, step] => {
+            make_range(start, end, Some(step), false).map_err(|e| e.src(BE::Range))
+        }
+        _ => unreachable!(),
     }
 }
 

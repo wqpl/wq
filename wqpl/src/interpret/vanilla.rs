@@ -5,6 +5,7 @@ use smallvec::SmallVec;
 
 use crate::astnode::BinaryOperator;
 use crate::interpret::{Interpreter, InterpreterHook, NO_OP_HOOK};
+use crate::range::{make_range, make_range_from_next, range_alloc_len};
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
 use crate::value::cmp::eval_cmp_chain;
@@ -26,14 +27,12 @@ mod call;
 mod debug;
 mod mutate;
 mod operand;
-mod range;
 mod target;
 
 use call::*;
 use debug::*;
 use mutate::*;
 use operand::*;
-use range::*;
 use target::*;
 
 pub(crate) struct VanillaInterpreter;
@@ -1602,19 +1601,23 @@ impl Interpreter for VanillaInterpreter {
 
                     Instruction::MakeRange {
                         inclusive,
-                        has_step,
+                        has_next,
                     } => {
                         let inclusive = *inclusive;
-                        let has_step = *has_step;
-                        let step_val = if has_step {
-                            Some(pop1_stack(&mut vm.stack, || "range step".into())?)
+                        let has_next = *has_next;
+                        let end_val = pop1_stack(&mut vm.stack, || "range end".into())?;
+                        let next_val = if has_next {
+                            Some(pop1_stack(&mut vm.stack, || "range next".into())?)
                         } else {
                             None
                         };
-                        let end_val = pop1_stack(&mut vm.stack, || "range end".into())?;
                         let start_val = pop1_stack(&mut vm.stack, || "range start".into())?;
-                        let res = make_range(&start_val, &end_val, step_val.as_ref(), inclusive)
-                            .map_err(|e| e.src(NAME))?;
+                        let res = if let Some(next_val) = next_val.as_ref() {
+                            make_range_from_next(&start_val, next_val, &end_val, inclusive)
+                        } else {
+                            make_range(&start_val, &end_val, None, inclusive)
+                        }
+                        .map_err(|e| e.src(NAME))?;
                         hooks.on_range_alloc(&|| range_alloc_len(&res));
                         vm.stack.push(res);
                     }

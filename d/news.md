@@ -41,7 +41,7 @@
 - `asciiplot` rework
 - Pipe operator
 - Unpack assign
-- Ranges (`1..10..2`)
+- Ranges (`1..3..10`)
 - Matmul operator `**`
 - `@f`
 - `@l`

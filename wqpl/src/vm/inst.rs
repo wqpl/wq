@@ -198,7 +198,7 @@ pub(crate) enum Instruction {
 
     MakeRange {
         inclusive: bool,
-        has_step: bool,
+        has_next: bool,
     },
     Index,
     IndexMany(usize),

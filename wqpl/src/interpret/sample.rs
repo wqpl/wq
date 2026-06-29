@@ -563,8 +563,8 @@ fn instruction_amount(op: &Instruction) -> usize {
         I::JumpIfLEZLocal(slot, target) => usize::from(*slot) ^ *target,
         I::MakeRange {
             inclusive,
-            has_step,
-        } => usize::from(*inclusive) + (usize::from(*has_step) << 1),
+            has_next,
+        } => usize::from(*inclusive) + (usize::from(*has_next) << 1),
         _ => 0,
     }
 }

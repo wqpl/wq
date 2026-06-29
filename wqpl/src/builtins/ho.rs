@@ -693,6 +693,22 @@ pub(super) fn scan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
                 }
                 Ok(Value::from_items(results))
             }
+            Value::IntRange(xs) => {
+                if xs.len() == 0 {
+                    return Ok(Value::unit());
+                }
+                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                let mut acc = Value::Int(xs.get(0).expect("range has first item"));
+                results.push(acc.clone());
+                for x in xs.iter().skip(1) {
+                    let mut ca = BuiltinFnArgs::new();
+                    ca.push(acc);
+                    ca.push(Value::Int(x));
+                    acc = vm.call(&f, ca)?;
+                    results.push(acc.clone());
+                }
+                Ok(Value::from_items(results))
+            }
             Value::List(xs) => {
                 if xs.is_empty() {
                     return Ok(Value::unit());
@@ -734,6 +750,17 @@ pub(super) fn scan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
                 Value::IntList(xs) => {
                     let mut results: Vec<Value> = Vec::with_capacity(xs.len());
                     for &x in xs.iter() {
+                        let mut ca = BuiltinFnArgs::new();
+                        ca.push(acc);
+                        ca.push(Value::Int(x));
+                        acc = vm.call(&f, ca)?;
+                        results.push(acc.clone());
+                    }
+                    Ok(Value::from_items(results))
+                }
+                Value::IntRange(xs) => {
+                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                    for x in xs.iter() {
                         let mut ca = BuiltinFnArgs::new();
                         ca.push(acc);
                         ca.push(Value::Int(x));
@@ -798,6 +825,24 @@ pub(super) fn rscan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
                 results.reverse();
                 Ok(Value::from_items(results))
             }
+            Value::IntRange(xs) => {
+                if xs.len() == 0 {
+                    return Ok(Value::unit());
+                }
+                let xs = xs.to_vec();
+                let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                let mut acc = Value::Int(*xs.last().expect("range has last item"));
+                results.push(acc.clone());
+                for &x in xs.iter().rev().skip(1) {
+                    let mut ca = BuiltinFnArgs::new();
+                    ca.push(acc);
+                    ca.push(Value::Int(x));
+                    acc = vm.call(&f, ca)?;
+                    results.push(acc.clone());
+                }
+                results.reverse();
+                Ok(Value::from_items(results))
+            }
             Value::List(xs) => {
                 if xs.is_empty() {
                     return Ok(Value::unit());
@@ -839,6 +884,19 @@ pub(super) fn rscan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
             let mut acc = iter.next().unwrap();
             match xs {
                 Value::IntList(xs) => {
+                    let mut results: Vec<Value> = Vec::with_capacity(xs.len());
+                    for &x in xs.iter().rev() {
+                        let mut ca = BuiltinFnArgs::new();
+                        ca.push(acc);
+                        ca.push(Value::Int(x));
+                        acc = vm.call(&f, ca)?;
+                        results.push(acc.clone());
+                    }
+                    results.reverse();
+                    Ok(Value::from_items(results))
+                }
+                Value::IntRange(xs) => {
+                    let xs = xs.to_vec();
                     let mut results: Vec<Value> = Vec::with_capacity(xs.len());
                     for &x in xs.iter().rev() {
                         let mut ca = BuiltinFnArgs::new();

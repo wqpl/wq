@@ -322,13 +322,13 @@ impl<'a> LowerCtx<'a> {
 
     fn format_fstring_expr(&self, source: &str) -> Option<String> {
         let inner = source.strip_prefix('{')?.strip_suffix('}')?;
-        let (expr, spec) = Parser::split_expr_and_format_spec(inner);
-        let formatted_expr = self.format_inline_expr(expr)?;
-        let Some(spec) = spec else {
+        let split = Parser::split_expr_and_format_spec(inner).ok()?;
+        let formatted_expr = self.format_inline_expr(split.expr)?;
+        let Some(spec) = split.spec else {
             return Some(format!("{{{formatted_expr}}}"));
         };
         Some(format!(
-            "{{{formatted_expr}!{}}}",
+            "{{[{}]{formatted_expr}}}",
             self.format_fstring_spec(spec)
         ))
     }
@@ -1082,8 +1082,8 @@ mod tests {
     #[test]
     fn fstring_formats_dynamic_spec_expr() {
         assert_eq!(
-            fmt(r#"@f"{ value !>{ width + 1 }}""#, 80),
-            r#"@f"{value!>{width+1}}""#
+            fmt(r#"@f"{[>{ width + 1 }] value }""#, 80),
+            r#"@f"{[>{width+1}]value}""#
         );
     }
 
@@ -1103,8 +1103,8 @@ mod tests {
     #[test]
     fn fstring_formats_dynamic_spec_expr_with_quoted_brace() {
         assert_eq!(
-            fmt(r##"@f"{value!>{"}"}}""##, 80),
-            r##"@f"{value!>{"}"}}""##
+            fmt(r##"@f"{[>{"}"}] value}""##, 80),
+            r##"@f"{[>{"}"}]value}""##
         );
     }
 

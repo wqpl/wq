@@ -28,9 +28,9 @@ add_base:{[`x:0]base+x}
 add_base[]  // 100
 add_base[`x:7]  // 107
 
-t:split["a,b,c";","];echo@f"{t!?}"
+t:split["a,b,c";","];echo@f"{[?]t}"
 
-t:split["a b c d";`m:2];echo@f"{t!?}"
+t:split["a b c d";`m:2];echo@f"{[?]t}"
 
 echo splitw[(1;2;3;4;5);{x>3};`m:1]
 

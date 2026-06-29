@@ -127,6 +127,7 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     listgen::ALLOC,
     listgen::TIL,
     listgen::IOTA,
+    listgen::RANGE,
     listgen::RESHAPE,
     listgen::TRANSPOSE,
     listgen::REPEAT,

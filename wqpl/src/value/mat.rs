@@ -143,11 +143,12 @@ fn extract_float_rows(v: &Value) -> Option<Vec<FloatRow<'_>>> {
 const TILE_K: usize = 64;
 
 /// Lightweight sequence accessor that avoids recursive `index_path` traversal.
-/// Borrows from a `Value::List` or `Value::IntList` and provides O(1) element
-/// access.
+/// Borrows from packed or general sequence values and provides O(1) element
+/// access where the backing storage can support it.
 enum ValueSeq<'a> {
     List(&'a [Value]),
     IntList(&'a [i64]),
+    IntRange(&'a crate::value::seq::IntRangeData),
     FloatList(&'a [OrderedFloat<f64>]),
 }
 
@@ -156,6 +157,7 @@ impl<'a> ValueSeq<'a> {
         match v {
             Value::List(items) => Some(ValueSeq::List(items.as_slice())),
             Value::IntList(items) => Some(ValueSeq::IntList(items.as_slice())),
+            Value::IntRange(range) => Some(ValueSeq::IntRange(range)),
             Value::FloatList(items) => Some(ValueSeq::FloatList(items.as_slice())),
             _ => None,
         }
@@ -166,6 +168,7 @@ impl<'a> ValueSeq<'a> {
         match self {
             ValueSeq::List(items) => items.get(idx).cloned(),
             ValueSeq::IntList(items) => items.get(idx).map(|&x| Value::Int(x)),
+            ValueSeq::IntRange(range) => range.get(idx).map(Value::Int),
             ValueSeq::FloatList(items) => items.get(idx).copied().map(Value::Float),
         }
     }
@@ -207,6 +210,14 @@ pub(crate) fn index_path(v: &Value, idxs: &[usize]) -> Option<Value> {
             } else {
                 let i0 = *idxs.first()?;
                 items.get(i0).copied().map(Value::Int)
+            }
+        }
+        Value::IntRange(range) => {
+            if idxs.len() != 1 {
+                None
+            } else {
+                let i0 = *idxs.first()?;
+                range.get(i0).map(Value::Int)
             }
         }
         Value::FloatList(items) => {
@@ -749,9 +760,14 @@ mod tests {
     use ordered_float::OrderedFloat;
 
     use crate::value::Value;
+    use crate::value::seq::IntRangeData;
 
     fn il(v: &[i64]) -> Value {
         Value::IntList(v.to_vec().into())
+    }
+
+    fn ir(start: i64, step: i64, len: usize) -> Value {
+        Value::IntRange(Arc::new(IntRangeData::new(start, step, len)))
     }
 
     fn mat(rows: &[&[i64]]) -> Value {
@@ -774,6 +790,14 @@ mod tests {
         let y = il(&[4, 5, 6]);
         let res = x.mm(&y).expect("dot product");
         assert_eq!(res, Value::Int(32));
+    }
+
+    #[test]
+    fn mm_dot_product_accepts_int_range() {
+        let x = il(&[1, 6, 3]);
+        let y = ir(1, 1, 3);
+        let res = x.mm(&y).expect("dot product");
+        assert_eq!(res, Value::Int(22));
     }
 
     #[test]

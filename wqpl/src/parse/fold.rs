@@ -4,6 +4,7 @@ use indexmap::IndexMap;
 
 use crate::astnode::AstNode;
 use crate::builtins::BuiltinFnArgs;
+use crate::range::{make_range, make_range_from_next};
 use crate::value::{Value, eval_binary, eval_unary};
 
 pub(crate) fn fold(node: AstNode) -> AstNode {
@@ -76,105 +77,15 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
                 _ => None,
             };
 
-            // Try integer constant folding.
-            if let (Some(Value::Int(start_int)), Some(Value::Int(end_int))) = (start_val, end_val) {
-                let step_int = match step_val {
-                    Some(Value::Int(s)) => Some(*s),
-                    Some(Value::Float(_)) => None, // fall through to float path
-                    Some(_) => None,
-                    None => Some(1),
-                };
-                if let Some(step_val) = step_int
-                    && step_val != 0
-                {
-                    let mut cur = *start_int;
-                    let mut items: Vec<i64> = Vec::new();
-                    let advance = |c: i64, step: i64| c.checked_add(step);
-                    if step_val > 0 {
-                        while if inclusive {
-                            cur <= *end_int
-                        } else {
-                            cur < *end_int
-                        } {
-                            items.push(cur);
-                            cur = match advance(cur, step_val) {
-                                Some(next) => next,
-                                None => {
-                                    return AstNode::Range {
-                                        start,
-                                        end,
-                                        step,
-                                        inclusive,
-                                        span,
-                                    };
-                                }
-                            };
-                        }
-                    } else {
-                        while if inclusive {
-                            cur >= *end_int
-                        } else {
-                            cur > *end_int
-                        } {
-                            items.push(cur);
-                            cur = match advance(cur, step_val) {
-                                Some(next) => next,
-                                None => {
-                                    return AstNode::Range {
-                                        start,
-                                        end,
-                                        step,
-                                        inclusive,
-                                        span,
-                                    };
-                                }
-                            };
-                        }
-                    }
-                    return AstNode::Literal(Value::IntList(Arc::new(items)), span);
-                }
-            }
-
-            // Try float constant folding.
-            let start_f = start_val.and_then(|v| match v {
-                Value::Int(n) => Some(*n as f64),
-                Value::Float(f) => Some(**f),
-                _ => None,
-            });
-            let end_f = end_val.and_then(|v| match v {
-                Value::Int(n) => Some(*n as f64),
-                Value::Float(f) => Some(**f),
-                _ => None,
-            });
-            let step_f = match step_val {
-                Some(Value::Int(n)) => Some(*n as f64),
-                Some(Value::Float(f)) => Some(**f),
-                Some(_) => None,
-                None => Some(1.0),
-            };
-            if let (Some(start_f), Some(end_f), Some(step_f)) = (start_f, end_f, step_f)
-                && step_f != 0.0
-            {
-                let mut items = Vec::new();
-                const MAX_ITER: usize = 10_000_000;
-                if step_f > 0.0 {
-                    for i in 0..MAX_ITER {
-                        let cur = start_f + i as f64 * step_f;
-                        if if inclusive { cur > end_f } else { cur >= end_f } {
-                            break;
-                        }
-                        items.push(Value::float(cur));
-                    }
+            if let (Some(start_val), Some(end_val)) = (start_val, end_val) {
+                let folded = if let Some(step_val) = step_val {
+                    make_range_from_next(start_val, step_val, end_val, inclusive)
                 } else {
-                    for i in 0..MAX_ITER {
-                        let cur = start_f + i as f64 * step_f;
-                        if if inclusive { cur < end_f } else { cur <= end_f } {
-                            break;
-                        }
-                        items.push(Value::float(cur));
-                    }
+                    make_range(start_val, end_val, None, inclusive)
+                };
+                if let Ok(value) = folded {
+                    return AstNode::Literal(value, span);
                 }
-                return AstNode::Literal(Value::List(Arc::new(items)), span);
             }
 
             AstNode::Range {
@@ -602,11 +513,11 @@ mod tests {
     }
 
     #[test]
-    fn folds_range_literal_inclusive_with_step() {
+    fn folds_range_literal_inclusive_with_next_point() {
         let ast = AstNode::Range {
             start: Box::new(AstNode::Literal(Value::Int(1), None)),
             end: Box::new(AstNode::Literal(Value::Int(5), None)),
-            step: Some(Box::new(AstNode::Literal(Value::Int(2), None))),
+            step: Some(Box::new(AstNode::Literal(Value::Int(3), None))),
             inclusive: true,
             span: None,
         };

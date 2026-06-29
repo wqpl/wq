@@ -463,6 +463,20 @@
     "type": "juxtaposition_arg",
     "named": true,
     "fields": {
+      "final_operator": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "..",
+            "named": false
+          },
+          {
+            "type": "..=",
+            "named": false
+          }
+        ]
+      },
       "operator": {
         "multiple": true,
         "required": false,
@@ -481,16 +495,6 @@
           },
           {
             "type": "^.",
-            "named": false
-          }
-        ]
-      },
-      "step_operator": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "..",
             "named": false
           }
         ]
@@ -1184,7 +1188,7 @@
     "type": "range_expr",
     "named": true,
     "fields": {
-      "operator": {
+      "final_operator": {
         "multiple": false,
         "required": false,
         "types": [
@@ -1198,12 +1202,16 @@
           }
         ]
       },
-      "step_operator": {
+      "operator": {
         "multiple": false,
         "required": false,
         "types": [
           {
             "type": "..",
+            "named": false
+          },
+          {
+            "type": "..=",
             "named": false
           }
         ]

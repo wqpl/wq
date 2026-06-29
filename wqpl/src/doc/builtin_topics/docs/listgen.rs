@@ -19,6 +19,12 @@ const IOTA_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("(((0;0);(0;1));((1;0);(1;1)))"),
 }];
 
+const RANGE_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Generate a stepped integer range",
+    code: "range[1;10;2]",
+    expectation: ExampleExpectation::ResultContains("(1;3;5;7;9)"),
+}];
+
 const RESHAPE_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Cycle flattened values into a new shape",
     code: "reshape[(1;2;3);5]",
@@ -64,7 +70,15 @@ pub(super) const IOTA: BuiltinDoc = BuiltinDoc {
     summary: "Generate indices or coordinate vectors for a shape.",
     details: "`iota[n]` is the one-dimensional index list `0..n-1`. With a multi-axis shape, `iota[shape]` returns a nested array of coordinate vectors, one coordinate for each leaf position.",
     examples: IOTA_EXAMPLES,
-    related: &["til", "shape", "where"],
+    related: &["til", "range", "shape", "where"],
+};
+
+pub(super) const RANGE: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Range,
+    summary: "Generate a numeric half-open range.",
+    details: "`range[start;end]` returns the same half-open range as `start..end`, inferring a positive or negative step from the bounds. `range[start;end;step]` uses an explicit step and errors when the step is zero or points away from the end. Integer ranges stay compact internally as `list<int>` values.",
+    examples: RANGE_EXAMPLES,
+    related: &["ranges", "til", "iota"],
 };
 
 pub(super) const RESHAPE: BuiltinDoc = BuiltinDoc {

@@ -45,12 +45,12 @@ xs 1|echo
 
 ## Ranges And Slices
 
-`a..b` stops before `b`. `a..=b` includes `b`. A second `..step` adds a step.
+`a..b` stops before `b`. `a..=b` includes `b`. A middle point sets the stride.
 
 ```wq
 1..5|echo
 1..=5|echo
-0..=10..2|echo
+0..2..=10|echo
 ```
 
 Ranges also slice lists.

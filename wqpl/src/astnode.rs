@@ -1054,7 +1054,7 @@ impl AstNode {
                         } => {
                             let mut label = expr.pretty_with_depth(depth + 1, src);
                             if let Some(sp) = spec {
-                                label.multi.push_str(&format!(" !{sp:?}"));
+                                label.multi.push_str(&format!(" spec={sp:?}"));
                             }
                             if let Some(enc) = encoded_spec {
                                 label.multi.push_str(&format!(" enc={enc:?}"));

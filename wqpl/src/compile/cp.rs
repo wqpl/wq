@@ -438,8 +438,8 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             fallthrough(pc, state)
         }
 
-        I::MakeRange { has_step, .. } => {
-            if *has_step {
+        I::MakeRange { has_next, .. } => {
+            if *has_next {
                 state.pop();
             }
             state.pop();

@@ -492,6 +492,51 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
         out.extend(s.chars().map(Value::Char));
     }
 
+    fn char_at(fmt_chars: &[Value], idx: usize) -> Option<char> {
+        match fmt_chars.get(idx) {
+            Some(Value::Char(c)) => Some(*c),
+            _ => None,
+        }
+    }
+
+    fn collect_chars(fmt_chars: &[Value], start: usize, end: usize) -> String {
+        fmt_chars[start..end]
+            .iter()
+            .map(|v| match v {
+                Value::Char(c) => *c,
+                _ => unreachable!(),
+            })
+            .collect()
+    }
+
+    fn read_format_spec(fmt_chars: &[Value], open: usize) -> WqResult<(String, usize)> {
+        let mut brace_depth = 0usize;
+        let mut j = open + 2;
+        while j < fmt_chars.len() {
+            match fmt_chars[j] {
+                Value::Char('{') => brace_depth += 1,
+                Value::Char('}') if brace_depth > 0 => brace_depth -= 1,
+                Value::Char(']') if brace_depth == 0 => {
+                    if char_at(fmt_chars, j + 1) != Some('}') {
+                        return Err(WqError::new(WqErrorType::Domain)
+                            .src(BE::Fmt)
+                            .msg("expected '}' after format specifier")
+                            .attach_note(format!("at template pos {open}"))
+                            .at_arg(0));
+                    }
+                    return Ok((collect_chars(fmt_chars, open + 2, j), j + 2));
+                }
+                _ => {}
+            }
+            j += 1;
+        }
+        Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Fmt)
+            .msg("unterminated format specifier")
+            .attach_note(format!("at template pos {open}"))
+            .at_arg(0))
+    }
+
     fn count_placeholders(fmt_chars: &[Value]) -> WqResult<usize> {
         let mut i = 0usize;
         let mut count = 0usize;
@@ -505,33 +550,8 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
             if ch == '{' {
                 match fmt_chars.get(i + 1) {
                     Some(Value::Char('{')) => i += 2,
-                    Some(Value::Char('!')) => {
-                        let mut depth = 1;
-                        let mut j = i + 2;
-                        while j < fmt_chars.len() && depth > 0 {
-                            match fmt_chars[j] {
-                                Value::Char('{') => depth += 1,
-                                Value::Char('}') => depth -= 1,
-                                _ => {}
-                            }
-                            if depth > 0 {
-                                j += 1;
-                            }
-                        }
-                        if depth != 0 {
-                            return Err(WqError::new(WqErrorType::Domain)
-                                .src(BE::Fmt)
-                                .msg("unterminated format specifier")
-                                .attach_note(format!("at template pos {i}"))
-                                .at_arg(0));
-                        }
-                        let spec_str = fmt_chars[i + 2..j]
-                            .iter()
-                            .map(|v| match v {
-                                Value::Char(c) => *c,
-                                _ => unreachable!(),
-                            })
-                            .collect::<String>();
+                    Some(Value::Char('[')) => {
+                        let (spec_str, next_i) = read_format_spec(fmt_chars, i)?;
                         let spec = parse_format_spec(&spec_str);
                         if spec
                             .width
@@ -546,7 +566,7 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                             count += 1;
                         }
                         count += 1; // main value
-                        i = j + 1;
+                        i = next_i;
                     }
                     Some(Value::Char('}')) => {
                         count += 1;
@@ -555,7 +575,9 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                     _ => {
                         return Err(WqError::new(WqErrorType::Domain)
                             .src(BE::Fmt)
-                            .msg("unescaped '{'; use '{{' for a literal or '{}' for a placeholder")
+                            .msg(
+                                "unescaped '{'; use '{{' for a literal, '{}' for a placeholder, or '{[spec]}' for a formatted placeholder",
+                            )
                             .attach_note(format!("at template pos {i}"))
                             .at_arg(0));
                     }
@@ -613,26 +635,8 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                     out.push(Value::Char('{'));
                     i += 2;
                 }
-                Some(Value::Char('!')) => {
-                    let mut depth = 1;
-                    let mut j = i + 2;
-                    while j < fmt_chars.len() && depth > 0 {
-                        match fmt_chars[j] {
-                            Value::Char('{') => depth += 1,
-                            Value::Char('}') => depth -= 1,
-                            _ => {}
-                        }
-                        if depth > 0 {
-                            j += 1;
-                        }
-                    }
-                    let spec_str = fmt_chars[i + 2..j]
-                        .iter()
-                        .map(|v| match v {
-                            Value::Char(c) => *c,
-                            _ => unreachable!(),
-                        })
-                        .collect::<String>();
+                Some(Value::Char('[')) => {
+                    let (spec_str, next_i) = read_format_spec(&fmt_chars, i)?;
                     let spec = parse_format_spec(&spec_str);
 
                     let width = match spec.width {
@@ -671,7 +675,7 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                     let formatted = format_value(value, &spec, width, precision)?;
                     push_str_as_chars(&mut out, &formatted);
 
-                    i = j + 1;
+                    i = next_i;
                 }
                 Some(Value::Char('}')) => {
                     push_value_as_chars(&mut out, &args[arg_idx + 1]);
@@ -681,7 +685,9 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                 _ => {
                     return Err(WqError::new(WqErrorType::Domain)
                         .src(BE::Fmt)
-                        .msg("unescaped '{'; use '{{' for a literal or '{}' for a placeholder")
+                        .msg(
+                            "unescaped '{'; use '{{' for a literal, '{}' for a placeholder, or '{[spec]}' for a formatted placeholder",
+                        )
                         .attach_note(format!("at template pos {i}"))
                         .at_arg(0));
                 }
@@ -821,118 +827,118 @@ mod tests {
 
     #[test]
     fn fmt_right_align() {
-        assert_eq!(run_fmt("{!>10}", &[Value::Int(42)]), "        42");
+        assert_eq!(run_fmt("{[>10]}", &[Value::Int(42)]), "        42");
     }
 
     #[test]
     fn fmt_left_align() {
-        assert_eq!(run_fmt("{!<10}", &[Value::Int(42)]), "42        ");
+        assert_eq!(run_fmt("{[<10]}", &[Value::Int(42)]), "42        ");
     }
 
     #[test]
     fn fmt_center_align() {
-        assert_eq!(run_fmt("{!^10}", &[Value::Int(42)]), "    42    ");
+        assert_eq!(run_fmt("{[^10]}", &[Value::Int(42)]), "    42    ");
     }
 
     #[test]
     fn fmt_fill_and_center() {
-        assert_eq!(run_fmt("{!*^10}", &[Value::Int(42)]), "****42****");
+        assert_eq!(run_fmt("{[*^10]}", &[Value::Int(42)]), "****42****");
     }
 
     #[test]
     fn fmt_zero_pad() {
-        assert_eq!(run_fmt("{!08}", &[Value::Int(42)]), "00000042");
+        assert_eq!(run_fmt("{[08]}", &[Value::Int(42)]), "00000042");
     }
 
     #[test]
     fn fmt_float_precision() {
-        assert_eq!(run_fmt("{!.2}", &[Value::float(4.14159)]), "4.14");
+        assert_eq!(run_fmt("{[.2]}", &[Value::float(4.14159)]), "4.14");
     }
 
     #[test]
     fn fmt_string_truncate() {
-        assert_eq!(run_fmt("{!.5}", &["hello world".into_wq_value()]), "hello");
+        assert_eq!(run_fmt("{[.5]}", &["hello world".into_wq_value()]), "hello");
     }
 
     #[test]
     fn fmt_hex_lower() {
-        assert_eq!(run_fmt("{!x}", &[Value::Int(255)]), "ff");
+        assert_eq!(run_fmt("{[x]}", &[Value::Int(255)]), "ff");
     }
 
     #[test]
     fn fmt_hex_upper() {
-        assert_eq!(run_fmt("{!X}", &[Value::Int(255)]), "FF");
+        assert_eq!(run_fmt("{[X]}", &[Value::Int(255)]), "FF");
     }
 
     #[test]
     fn fmt_hex_with_prefix() {
-        assert_eq!(run_fmt("{!#x}", &[Value::Int(255)]), "0xff");
-        assert_eq!(run_fmt("{!#X}", &[Value::Int(255)]), "0XFF");
+        assert_eq!(run_fmt("{[#x]}", &[Value::Int(255)]), "0xff");
+        assert_eq!(run_fmt("{[#X]}", &[Value::Int(255)]), "0XFF");
     }
 
     #[test]
     fn fmt_hex_zero_pad_with_prefix() {
-        assert_eq!(run_fmt("{!#08x}", &[Value::Int(123)]), "0x00007b");
-        assert_eq!(run_fmt("{!#08X}", &[Value::Int(123)]), "0X00007B");
-        assert_eq!(run_fmt("{!#08x}", &[Value::Int(-123)]), "-0x0007b");
+        assert_eq!(run_fmt("{[#08x]}", &[Value::Int(123)]), "0x00007b");
+        assert_eq!(run_fmt("{[#08X]}", &[Value::Int(123)]), "0X00007B");
+        assert_eq!(run_fmt("{[#08x]}", &[Value::Int(-123)]), "-0x0007b");
     }
 
     #[test]
     fn fmt_binary_zero_pad_with_prefix() {
-        assert_eq!(run_fmt("{!#08b}", &[Value::Int(5)]), "0b000101");
+        assert_eq!(run_fmt("{[#08b]}", &[Value::Int(5)]), "0b000101");
     }
 
     #[test]
     fn fmt_octal_zero_pad_with_prefix() {
-        assert_eq!(run_fmt("{!#08o}", &[Value::Int(83)]), "0o000123");
+        assert_eq!(run_fmt("{[#08o]}", &[Value::Int(83)]), "0o000123");
     }
 
     #[test]
     fn fmt_hex_precision_with_prefix() {
-        assert_eq!(run_fmt("{!#.6x}", &[Value::Int(123)]), "0x00007b");
-        assert_eq!(run_fmt("{!#.6x}", &[Value::Int(-123)]), "-0x00007b");
+        assert_eq!(run_fmt("{[#.6x]}", &[Value::Int(123)]), "0x00007b");
+        assert_eq!(run_fmt("{[#.6x]}", &[Value::Int(-123)]), "-0x00007b");
     }
 
     #[test]
     fn fmt_binary() {
-        assert_eq!(run_fmt("{!b}", &[Value::Int(5)]), "101");
-        assert_eq!(run_fmt("{!B}", &[Value::Int(5)]), "101");
-        assert_eq!(run_fmt("{!#b}", &[Value::Int(5)]), "0b101");
+        assert_eq!(run_fmt("{[b]}", &[Value::Int(5)]), "101");
+        assert_eq!(run_fmt("{[B]}", &[Value::Int(5)]), "101");
+        assert_eq!(run_fmt("{[#b]}", &[Value::Int(5)]), "0b101");
     }
 
     #[test]
     fn fmt_thousands_separator() {
-        assert_eq!(run_fmt("{!,}", &[Value::Int(1234567)]), "1,234,567");
+        assert_eq!(run_fmt("{[,]}", &[Value::Int(1234567)]), "1,234,567");
     }
 
     #[test]
     fn fmt_force_plus() {
-        assert_eq!(run_fmt("{!+}", &[Value::Int(42)]), "+42");
-        assert_eq!(run_fmt("{!+}", &[Value::Int(-42)]), "-42");
+        assert_eq!(run_fmt("{[+]}", &[Value::Int(42)]), "+42");
+        assert_eq!(run_fmt("{[+]}", &[Value::Int(-42)]), "-42");
     }
 
     #[test]
     fn fmt_space_sign() {
-        assert_eq!(run_fmt("{! }", &[Value::Int(42)]), " 42");
-        assert_eq!(run_fmt("{! }", &[Value::Int(-42)]), "-42");
+        assert_eq!(run_fmt("{[ ]}", &[Value::Int(42)]), " 42");
+        assert_eq!(run_fmt("{[ ]}", &[Value::Int(-42)]), "-42");
     }
 
     #[test]
     fn fmt_sign_aware_zero_fill() {
-        assert_eq!(run_fmt("{!0=+10}", &[Value::Int(123)]), "+000000123");
-        assert_eq!(run_fmt("{!0=+10}", &[Value::Int(-123)]), "-000000123");
+        assert_eq!(run_fmt("{[0=+10]}", &[Value::Int(123)]), "+000000123");
+        assert_eq!(run_fmt("{[0=+10]}", &[Value::Int(-123)]), "-000000123");
     }
 
     #[test]
     fn fmt_zero_pad_implicit_equal() {
-        assert_eq!(run_fmt("{!+010}", &[Value::Int(123)]), "+000000123");
-        assert_eq!(run_fmt("{!010}", &[Value::Int(-123)]), "-000000123");
+        assert_eq!(run_fmt("{[+010]}", &[Value::Int(123)]), "+000000123");
+        assert_eq!(run_fmt("{[010]}", &[Value::Int(-123)]), "-000000123");
     }
 
     #[test]
     fn fmt_dynamic_width() {
         assert_eq!(
-            run_fmt("{!{}}", &[Value::Int(10), Value::Int(42)]),
+            run_fmt("{[{}]}", &[Value::Int(10), Value::Int(42)]),
             "        42"
         );
     }
@@ -940,14 +946,14 @@ mod tests {
     #[test]
     fn fmt_dynamic_precision() {
         assert_eq!(
-            run_fmt("{!.{}}", &[Value::Int(2), Value::float(4.14159)]),
+            run_fmt("{[.{}]}", &[Value::Int(2), Value::float(4.14159)]),
             "4.14"
         );
     }
 
     #[test]
     fn fmt_scientific() {
-        let res = run_fmt("{!e}", &[Value::float(1234.5)]);
+        let res = run_fmt("{[e]}", &[Value::float(1234.5)]);
         assert!(res.starts_with("1.234500"), "got {res}");
         assert!(res.ends_with("e3"), "got {res}");
     }
@@ -955,35 +961,35 @@ mod tests {
     #[test]
     fn fmt_mixed_simple_and_formatted() {
         assert_eq!(
-            run_fmt("{} {!>5}", &[Value::Int(1), Value::Int(2)]),
+            run_fmt("{} {[>5]}", &[Value::Int(1), Value::Int(2)]),
             "1     2"
         );
     }
 
     #[test]
     fn fmt_percentage_int() {
-        assert_eq!(run_fmt("{!%}", &[Value::Int(5)]), "500%");
+        assert_eq!(run_fmt("{[%]}", &[Value::Int(5)]), "500%");
     }
 
     #[test]
     fn fmt_percentage_float() {
-        assert_eq!(run_fmt("{!%}", &[Value::float(0.5)]), "50%");
-        assert_eq!(run_fmt("{!.2%}", &[Value::float(0.1234)]), "12.34%");
+        assert_eq!(run_fmt("{[%]}", &[Value::float(0.5)]), "50%");
+        assert_eq!(run_fmt("{[.2%]}", &[Value::float(0.1234)]), "12.34%");
     }
 
     #[test]
     fn fmt_percentage_with_sign_and_width() {
-        assert_eq!(run_fmt("{!+%}", &[Value::float(0.5)]), "+50%");
-        assert_eq!(run_fmt("{! >8%}", &[Value::float(0.5)]), "     50%");
+        assert_eq!(run_fmt("{[+%]}", &[Value::float(0.5)]), "+50%");
+        assert_eq!(run_fmt("{[ >8%]}", &[Value::float(0.5)]), "     50%");
     }
 
     #[test]
     fn fmt_debug() {
-        assert_eq!(run_fmt("{!?}", &[Value::Int(42)]), "Int(42)");
-        assert_eq!(run_fmt("{!?}", &[Value::float(4.14)]), "Float(4.14)");
+        assert_eq!(run_fmt("{[?]}", &[Value::Int(42)]), "Int(42)");
+        assert_eq!(run_fmt("{[?]}", &[Value::float(4.14)]), "Float(4.14)");
         assert_eq!(
             run_fmt(
-                "{!?}",
+                "{[?]}",
                 &[Value::List(Arc::new(vec![Value::Int(1), Value::Int(2)]))]
             ),
             "List([Int(1), Int(2)])"
@@ -992,12 +998,12 @@ mod tests {
 
     #[test]
     fn fmt_debug_pretty() {
-        assert_eq!(run_fmt("{!#?}", &[Value::Int(42)]), "Int(\n    42,\n)");
+        assert_eq!(run_fmt("{[#?]}", &[Value::Int(42)]), "Int(\n    42,\n)");
     }
 
     #[test]
     fn fmt_debug_with_width() {
-        assert_eq!(run_fmt("{!>10?}", &[Value::Int(42)]), "   Int(42)");
-        assert_eq!(run_fmt("{!<10?}", &[Value::Int(42)]), "Int(42)   ");
+        assert_eq!(run_fmt("{[>10?]}", &[Value::Int(42)]), "   Int(42)");
+        assert_eq!(run_fmt("{[<10?]}", &[Value::Int(42)]), "Int(42)   ");
     }
 }

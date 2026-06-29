@@ -697,8 +697,8 @@ fn instruction_profile_key(inst: &Instruction) -> String {
 
         I::MakeRange {
             inclusive,
-            has_step,
-        } => format!("MakeRange(inclusive={inclusive}, step={has_step})"),
+            has_next,
+        } => format!("MakeRange(inclusive={inclusive}, next={has_next})"),
         I::Index => "Index".to_string(),
         I::IndexMany(argc) => format!("IndexMany({argc})"),
         I::CheckAtomPathIndex => "CheckAtomPathIndex".to_string(),

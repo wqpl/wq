@@ -536,9 +536,9 @@ impl Resolver {
                                 args.push(self.resolve_node(spec_expr));
                             }
                             if let Some(enc) = encoded_spec {
-                                template.push_str("{!");
+                                template.push_str("{[");
                                 template.push_str(&enc);
-                                template.push('}');
+                                template.push_str("]}");
                             } else {
                                 template.push_str("{}");
                             }

@@ -50,11 +50,11 @@ const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[DocExample {
 
 const AT_FSTRING_DETAILS: &str = concat!(
     "`@f\"...{expr}...\"` is inline formatting. Braces contain wq expressions, ",
-    "and `{expr!spec}` formats the expression with the same spec accepted by ",
+    "and `{[spec]expr}` formats the expression with the same spec accepted by ",
     "`fmt` placeholders. Dynamic width and precision use expressions inside ",
-    "the spec, such as `{value!>{width}.2}`. Use doubled braces for literal ",
+    "the spec, such as `{[>{width}.2]value}`. Use doubled braces for literal ",
     "braces.\n\n",
-    "Spec shape: `{expr![fill][align][sign][#][0][width][.precision][type]}`. ",
+    "Spec contents are `[fill][align][sign][#][0][width][.precision][type]`. ",
     "Align is `<`, `>`, `^`, or `=`. Sign is `+`, `-`, or a space. ",
     "`#` adds integer base prefixes and selects pretty debug with `?`; `0` ",
     "is sign-aware zero padding. Type is `b`, `B`, `o`, `O`, `x`, `X`, ",
@@ -69,12 +69,12 @@ const AT_FSTRING_EXAMPLES: &[DocExample] = &[
     },
     DocExample {
         title: "Use the shared format spec",
-        code: "@f\"hex={255!#06x}\"",
+        code: "@f\"hex={[#06x]255}\"",
         expectation: ExampleExpectation::ResultContains("hex=0x00ff"),
     },
     DocExample {
         title: "Use an expression for dynamic width",
-        code: "width:6;pi:3.14159;@f\"pi={pi!>{width}.2}\"",
+        code: "width:6;pi:3.14159;@f\"pi={[>{width}.2]pi}\"",
         expectation: ExampleExpectation::ResultContains("pi=  3.14"),
     },
     DocExample {

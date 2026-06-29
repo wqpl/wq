@@ -138,7 +138,7 @@ const RANGE_EXAMPLES: &[DocExample] = &[
     },
     DocExample {
         title: "Stepped range",
-        code: "0..=10..2",
+        code: "0..2..=10",
         expectation: ExampleExpectation::ResultContains("(0;2;4;6;8;10)"),
     },
     DocExample {
@@ -435,7 +435,7 @@ pub(super) const RANGES: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["range", "ranges", "slice", "slices", "..", "..="],
     summary: "Build integer ranges for lists, loops, and slices.",
-    details: "`a..b` builds a half-open range that stops before `b`; `a..=b` includes the end. Add a second range marker for the step, as in `0..10..2` or `0..=10..2`. Ranges are ordinary values, but they are most often used as indexes and slices, such as `xs[1..3]`.",
+    details: "`a..b` builds a half-open range that stops before `b`; `a..=b` includes the end. Use `a..next..b` or `a..next..=b` when you want a stride, as in `0..2..10` or `0..2..=10`. Ranges are ordinary values, but they are most often used as indexes and slices, such as `xs[1..3]`.",
     examples: RANGE_EXAMPLES,
     related: &["lists", "calls", "index-mutation", "precedence"],
 };

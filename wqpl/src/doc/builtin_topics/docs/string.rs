@@ -46,8 +46,8 @@ const R_TRIM_EXAMPLES: &[DocExample] = &[DocExample {
 const FMT_DETAILS: &str = concat!(
     "`fmt[template;values...]` and `@f\"...\"` share one formatting system. ",
     "In a `fmt` template, `{}` consumes the next value and writes its normal ",
-    "display form. `{!...}` consumes the next value and applies a spec. ",
-    "The spec shape is `{![fill][align][sign][#][0][width][.precision][type]}`.\n\n",
+    "display form. `{[spec]}` consumes the next value and applies a spec. ",
+    "Spec contents are `[fill][align][sign][#][0][width][.precision][type]`.\n\n",
     "- `fill` is one character used with `align`; `align` is `<`, `>`, `^`, ",
     "or `=`. `=` pads after a sign or integer base prefix.\n",
     "- `sign` is `+`, `-`, or a space. `#` adds `0x`, `0X`, `0b`, `0B`, ",
@@ -68,19 +68,19 @@ const FMT_DETAILS: &str = concat!(
 const FMT_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Format values with a specifier",
-        code: "fmt[\"{}={!#x}\";\"n\";255]",
+        code: "fmt[\"{}={[#x]}\";\"n\";255]",
         expectation: ExampleExpectation::ResultContains("\"n=0xff\""),
     },
     DocExample {
         title: "Combine supported spec pieces",
-        code: "fmt[\"hex={!#08x} pct={!.1%} dbg={!?}\";123;0.125;T]",
+        code: "fmt[\"hex={[#08x]} pct={[.1%]} dbg={[?]}\";123;0.125;T]",
         expectation: ExampleExpectation::ResultContains(
             "\"hex=0x00007b pct=12.5% dbg=Bool(true)\"",
         ),
     },
     DocExample {
         title: "Use dynamic width and precision",
-        code: "fmt[\"w={!{}} p={!.{}}\";4;12;2;3.14159]",
+        code: "fmt[\"w={[{}]} p={[.{}]}\";4;12;2;3.14159]",
         expectation: ExampleExpectation::ResultContains("\"w=  12 p=3.14\""),
     },
     DocExample {

@@ -7,6 +7,7 @@ pub mod completion;
 mod escape;
 mod lex;
 mod parse;
+mod range;
 
 pub mod astnode;
 pub mod boxmode;

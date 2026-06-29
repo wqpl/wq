@@ -1001,6 +1001,7 @@ declare_builtins! {
     (ALLOC, Alloc, "alloc", "alloc[shape], alloc[shape;x]", sig!(arity!(1, 2)), plain(listgen::alloc), BuiltinGroup::ListGen),
     (TIL, Til, "til", "til[shape]", sig!(arity!(1)), plain(listgen::til), BuiltinGroup::ListGen),
     (IOTA, Iota, "iota", "iota[shape]", sig!(arity!(1)), plain(listgen::iota), BuiltinGroup::ListGen),
+    (RANGE, Range, "range", "range[start;end], range[start;end;step]", sig!(arity!(2, 3)), plain(listgen::range), BuiltinGroup::ListGen),
 
     (RESHAPE, Reshape, "reshape", "reshape[xs;shape]", sig!(arity!(2)), plain(listgen::reshape), BuiltinGroup::ListGen),
     (R, R, "R", "R[xs;shape]", sig!(arity!(2), alias Reshape), plain(listgen::reshape), BuiltinGroup::ListGen), // alias of reshape
@@ -1555,6 +1556,7 @@ mod tests {
             (BuiltinEnum::Alloc, "1 2"),
             (BuiltinEnum::Til, "1"),
             (BuiltinEnum::Iota, "1"),
+            (BuiltinEnum::Range, "2 3"),
             (BuiltinEnum::Reshape, "2"),
             (BuiltinEnum::R, "2"),
             (BuiltinEnum::Transpose, "1 2"),
