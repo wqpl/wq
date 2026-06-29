@@ -322,6 +322,16 @@ export function createOutputRenderer(root, prefixNode = null) {
     appendPlainText(root, chunk, options);
   };
 
+  const appendStreamOutput = (chunk, options = null) => {
+    const text = String(chunk);
+    if (!text) return;
+    if (pending || hasTextStyle(state) || containsAnsiEscape(text)) {
+      appendLegacyAnsi(text);
+    } else {
+      appendText(text, options);
+    }
+  };
+
   const appendOutput = (chunk, options = null) => {
     if (containsAnsiEscape(chunk)) {
       appendLegacyAnsi(chunk);
@@ -334,6 +344,7 @@ export function createOutputRenderer(root, prefixNode = null) {
     append: appendLegacyAnsi,
     appendLegacyAnsi,
     appendOutput,
+    appendStreamOutput,
     appendText,
     appendStyledText: appendText,
     clear() {

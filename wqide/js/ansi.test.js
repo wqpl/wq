@@ -115,6 +115,29 @@ test("complete backend output only uses ansi fallback when escapes are present",
   assert.equal(ansiRoot.childNodes[0].style.color, "#b03030");
 });
 
+test("streamed backend output styles plain errors", () => {
+  const root = createRoot();
+  const renderer = createOutputRenderer(root);
+
+  renderer.appendStreamOutput("boom", "error");
+
+  assert.equal(root.textContent, "boom");
+  assert.equal(root.childNodes[0].className, "output-text-error");
+});
+
+test("streamed backend output handles split ansi escapes", () => {
+  const root = createRoot();
+  const renderer = createOutputRenderer(root);
+
+  renderer.appendStreamOutput("\u001b[1;4");
+  renderer.appendStreamOutput("mAST\u001b[0m");
+
+  assert.equal(root.textContent, "AST");
+  assert.equal(root.childNodes.length, 1);
+  assert.equal(root.childNodes[0].style.fontWeight, "700");
+  assert.equal(root.childNodes[0].style.textDecoration, "underline");
+});
+
 test("deprecated ansi renderer remains as a compatibility alias", () => {
   const root = createRoot();
   const renderer = createAnsiRenderer(root);

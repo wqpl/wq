@@ -1419,11 +1419,11 @@ async function runViz(instance) {
     await ensureWasm();
     const result = await queueEval(() => {
       set_stdout_callback((chunk) => {
-        renderer.appendLegacyAnsi(chunk);
+        renderer.appendStreamOutput(chunk);
         instance.output.scrollTop = instance.output.scrollHeight;
       });
       set_stderr_callback((chunk) => {
-        renderer.appendStyledText(chunk, "error");
+        renderer.appendStreamOutput(chunk, "error");
         instance.output.scrollTop = instance.output.scrollHeight;
       });
       const session = new WasmWqSession();

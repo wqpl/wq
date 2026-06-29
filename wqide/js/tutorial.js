@@ -244,10 +244,10 @@ window.initTutorialUI = function initTutorialUI() {
           await ensureWasm();
           const result = await queueEval(() => {
             set_stdout_callback((chunk) => {
-              outputRenderer.appendLegacyAnsi(chunk);
+              outputRenderer.appendStreamOutput(chunk);
             });
             set_stderr_callback((chunk) => {
-              outputRenderer.appendStyledText(chunk, "error");
+              outputRenderer.appendStreamOutput(chunk, "error");
             });
             const queue = [...stdinArr];
             set_stdin_callback((_prompt) =>

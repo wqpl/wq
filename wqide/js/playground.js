@@ -401,11 +401,11 @@ async function doEval(instance) {
     const start = performance.now();
     const result = await queueEval(() => {
       set_stdout_callback((chunk) => {
-        streamRenderer.appendLegacyAnsi(chunk);
+        streamRenderer.appendStreamOutput(chunk);
         instance.output.scrollTop = instance.output.scrollHeight;
       });
       set_stderr_callback((chunk) => {
-        streamRenderer.appendStyledText(chunk, "error");
+        streamRenderer.appendStreamOutput(chunk, "error");
         instance.output.scrollTop = instance.output.scrollHeight;
       });
       const queue = [...stdinArr];
@@ -501,9 +501,9 @@ async function runForPoster(instance) {
       ? instance.stdinInput.value.replace(/\\n/g, "\n").split(/\r?\n/)
       : [];
     await ensureWasm();
-    set_stdout_callback((chunk) => stdoutRenderer.appendLegacyAnsi(chunk));
+    set_stdout_callback((chunk) => stdoutRenderer.appendStreamOutput(chunk));
     set_stderr_callback((chunk) =>
-      stdoutRenderer.appendStyledText(chunk, "error"),
+      stdoutRenderer.appendStreamOutput(chunk, "error"),
     );
     const queue = [...stdinArr];
     set_stdin_callback((_prompt) =>

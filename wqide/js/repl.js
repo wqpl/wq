@@ -383,7 +383,7 @@ function showTurnMenu(x, y, contentEl) {
   setTimeout(() => document.addEventListener("pointerdown", close), 10);
 }
 
-function append(chunk, msgType = "info") {
+function append(chunk, msgType = "info", options = {}) {
   console.log(chunk);
   const turn = document.createElement("article");
   turn.className = "repl-turn repl-turn-system";
@@ -393,7 +393,10 @@ function append(chunk, msgType = "info") {
   content.className = "repl-line-body repl-line-body-system";
   content.__outputRenderer = createOutputRenderer(content);
   const aligned = alignTurnBody(chunk);
-  if (msgType === "error") {
+  if (options.backend) {
+    const style = msgType === "error" ? "error" : null;
+    content.__outputRenderer.appendStreamOutput(aligned, style);
+  } else if (msgType === "error") {
     content.__outputRenderer.appendStyledText(aligned, "error");
   } else {
     content.__outputRenderer.appendOutput(aligned);
@@ -405,8 +408,8 @@ function append(chunk, msgType = "info") {
 }
 
 function bindRuntimeCallbacks() {
-  set_stdout_callback((chunk) => append(chunk, "info"));
-  set_stderr_callback((chunk) => append(chunk, "error"));
+  set_stdout_callback((chunk) => append(chunk, "info", { backend: true }));
+  set_stderr_callback((chunk) => append(chunk, "error", { backend: true }));
   set_stdin_callback((p) => {
     if (stdinQueue.length > 0) return String(stdinQueue.shift());
     const msg = typeof p === "string" ? p : "stdin:";
