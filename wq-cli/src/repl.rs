@@ -1,3 +1,4 @@
+mod command;
 pub mod editor;
 pub mod input;
 
@@ -129,146 +130,54 @@ enum ReplCommand {
 
 impl ReplCommand {
     fn parse(input: &str) -> Self {
-        let trimmed = input.trim();
-        match trimmed {
-            "" => Self::Empty,
-            r"\exit" | r"\e" | r"\\" => Self::Exit,
-            r"\bye" => Self::Bye,
-            r"\goodbye" => Self::Goodbye,
-            r"\highlight" | r"\hl" => Self::Highlight,
-            r"\hint" => Self::Hint,
-            r"\info" => Self::Info,
-            r"\dry" => Self::Dry,
-            r"\fmt" => Self::Fmt(None),
-            r"\gb" | r"\g" => Self::Gb,
-            r"\reset" | r"\r" => Self::Reset,
-            r"\box" | r"\b" => Self::Box,
-            r"\backtrace" | r"\bt" => Self::Backtrace,
-            r"\xray" | r"\x" => Self::Xray,
-            r"\interpreter" | r"\i" => Self::Interpreter(None),
-            r"\time" | r"\t" => Self::Time,
-            r"\t." | r"\time." => Self::TimeOneshot,
-            r"\wqdb" | r"\w" => Self::Wqdb,
-            r"\wqdb." | r"\w." => Self::WqdbOneshot,
-            r"\debug" => Self::DebugShow,
-            r"\d" => Self::DebugToggle,
-            // r"\exp" => Self::Exp,
-            r"\dry?" => Self::DryQuery,
-            r"\box?" | r"\b?" => Self::BoxQuery,
-            r"\backtrace?" | r"\bt?" => Self::BacktraceQuery,
-            r"\xray?" | r"\x?" => Self::XrayQuery,
-            r"\highlight?" | r"\hl?" => Self::HighlightQuery,
-            r"\hint?" => Self::HintQuery,
-            r"\time?" | r"\t?" => Self::TimeQuery,
-            r"\wqdb?" | r"\w?" => Self::WqdbQuery,
-            r"\fmt?" => Self::FmtQuery,
-            r"\help" | r"\h" => Self::Help(None),
-            r"\type" => Self::TypeShow,
-            r"\type?" => Self::TypeQuery,
-            _ => {
-                if let Some(rest) = trimmed.strip_prefix(r"\fmt ") {
-                    Self::Fmt(Some(rest.to_string()))
-                } else if let Some(rest) = trimmed.strip_prefix(r"\box ") {
-                    Self::BoxSet(rest.to_string())
-                } else if let Some(rest) = trimmed.strip_prefix(r"\b ") {
-                    Self::BoxSet(rest.to_string())
-                } else if trimmed == r"\bfn" || trimmed == "\\" {
-                    Self::Bfn(None)
-                } else if let Some(rest) = trimmed.strip_prefix(r"\bfn ") {
-                    Self::Bfn(Some(rest.to_string()))
-                } else if let Some(rest) = trimmed.strip_prefix(r"\interpreter ") {
-                    Self::Interpreter(Some(rest.to_string()))
-                } else if let Some(rest) = trimmed.strip_prefix(r"\i ") {
-                    Self::Interpreter(Some(rest.to_string()))
-                } else if let Some(rest) = trimmed.strip_prefix(r"\help ") {
-                    Self::Help(Some(rest.to_string()))
-                } else if let Some(rest) = trimmed.strip_prefix(r"\h ") {
-                    Self::Help(Some(rest.to_string()))
-                } else if let Some(rest) = trimmed.strip_prefix(r"\d.") {
-                    Self::DebugOneshot(rest.to_string())
-                } else if let Some(rest) = trimmed.strip_prefix(r"\debug.") {
-                    Self::DebugOneshot(rest.to_string())
-                } else if let Some(rest) = trimmed.strip_prefix(r"\d ") {
-                    Self::DebugSet(rest.to_string())
-                } else if let Some(rest) = trimmed.strip_prefix(r"\debug ") {
-                    Self::DebugSet(rest.to_string())
-                }
-                // else if let Some(rest) = trimmed.strip_prefix(r"\exp ") {
-                //     Self::ExpSet(rest.to_string())
-                // }
-                else if let Some(rest) = trimmed.strip_prefix(r"\d") {
-                    Self::DebugSet(rest.to_string())
-                } else {
-                    Self::Unknown
-                }
+        match command::parse(input) {
+            command::ParsedReplCommand::Empty => Self::Empty,
+            command::ParsedReplCommand::Unknown | command::ParsedReplCommand::Directive => {
+                Self::Unknown
             }
+            command::ParsedReplCommand::Handled { kind, arg } => Self::from_kind(kind, arg),
         }
     }
 
-    fn all_names_and_descs() -> Vec<(&'static str, &'static str)> {
-        vec![
-            (r"\exit", "exit the repl"),
-            (r"\e", "exit the repl"),
-            (r"\\", "exit the repl"),
-            (r"\bye", "exit the repl"),
-            (r"\goodbye", "exit with style"),
-            (r"\highlight", "toggle syntax highlighting"),
-            (r"\hl", "toggle syntax highlighting"),
-            (r"\highlight?", "show highlight status"),
-            (r"\hl?", "show highlight status"),
-            (r"\hint", "toggle hints"),
-            (r"\hint?", "show hint status"),
-            (r"\info", "show repl info"),
-            (r"\dry", "toggle dry mode"),
-            (r"\dry?", "show dry mode status"),
-            (r"\fmt", "toggle formatter"),
-            (r"\fmt?", "show formatter status"),
-            (r"\bfn", "show or set builtins preset"),
-            ("\\", "show builtins preset"),
-            (r"\p", "load prelude"),
-            (r"\load", "load embedded script or file"),
-            (r"\l", "load embedded script or file"),
-            (r"\gb", "show global bindings"),
-            (r"\g", "show global bindings"),
-            (r"\reset", "reset session"),
-            (r"\r", "reset session"),
-            (r"\box", "toggle all display config"),
-            (r"\b", "toggle all display config"),
-            (r"\box <spec>", "set display config; on/off or +/- modifies"),
-            (r"\b <spec>", "set display config; on/off or +/- modifies"),
-            (r"\box?", "show display config"),
-            (r"\b?", "show display config"),
-            (r"\backtrace", "toggle backtrace"),
-            (r"\bt", "toggle backtrace"),
-            (r"\backtrace?", "show backtrace status"),
-            (r"\bt?", "show backtrace status"),
-            (r"\xray", "toggle xray"),
-            (r"\x", "toggle xray"),
-            (r"\xray?", "show xray status"),
-            (r"\x?", "show xray status"),
-            (r"\interpreter", "show or set interpreter"),
-            (r"\i", "show or set interpreter"),
-            (r"\time", "toggle time mode"),
-            (r"\t", "toggle time mode"),
-            (r"\time?", "show time mode status"),
-            (r"\t?", "show time mode status"),
-            (r"\t.", "time mode for next eval"),
-            (r"\time.", "time mode for next eval"),
-            (r"\wqdb", "toggle wqdb"),
-            (r"\w", "toggle wqdb"),
-            (r"\wqdb?", "show wqdb status"),
-            (r"\w?", "show wqdb status"),
-            (r"\wqdb.", "wqdb for next eval"),
-            (r"\w.", "wqdb for next eval"),
-            (r"\help", "show help"),
-            (r"\h", "show help"),
-            (r"\type", "toggle type mode"),
-            (r"\type?", "show type mode status"),
-            (r"\debug", "show debug flags help"),
-            (r"\d", "toggle debug flags"),
-            (r"\d <spec>", "set debug flags; +/- modifies"),
-            (r"\exp", "show or toggle experimental features"),
-        ]
+    fn from_kind(kind: command::ReplCommandKind, arg: Option<String>) -> Self {
+        match kind {
+            command::ReplCommandKind::Exit => Self::Exit,
+            command::ReplCommandKind::Bye => Self::Bye,
+            command::ReplCommandKind::Goodbye => Self::Goodbye,
+            command::ReplCommandKind::Highlight => Self::Highlight,
+            command::ReplCommandKind::Hint => Self::Hint,
+            command::ReplCommandKind::Info => Self::Info,
+            command::ReplCommandKind::Dry => Self::Dry,
+            command::ReplCommandKind::Fmt => Self::Fmt(arg),
+            command::ReplCommandKind::Bfn => Self::Bfn(arg),
+            command::ReplCommandKind::Gb => Self::Gb,
+            command::ReplCommandKind::Reset => Self::Reset,
+            command::ReplCommandKind::Box => Self::Box,
+            command::ReplCommandKind::BoxSet => Self::BoxSet(arg.unwrap_or_default()),
+            command::ReplCommandKind::Backtrace => Self::Backtrace,
+            command::ReplCommandKind::Xray => Self::Xray,
+            command::ReplCommandKind::Interpreter => Self::Interpreter(arg),
+            command::ReplCommandKind::Time => Self::Time,
+            command::ReplCommandKind::TimeOneshot => Self::TimeOneshot,
+            command::ReplCommandKind::Wqdb => Self::Wqdb,
+            command::ReplCommandKind::WqdbOneshot => Self::WqdbOneshot,
+            command::ReplCommandKind::Help => Self::Help(arg),
+            command::ReplCommandKind::DebugShow => Self::DebugShow,
+            command::ReplCommandKind::DebugToggle => Self::DebugToggle,
+            command::ReplCommandKind::DebugOneshot => Self::DebugOneshot(arg.unwrap_or_default()),
+            command::ReplCommandKind::DebugSet => Self::DebugSet(arg.unwrap_or_default()),
+            command::ReplCommandKind::DryQuery => Self::DryQuery,
+            command::ReplCommandKind::BoxQuery => Self::BoxQuery,
+            command::ReplCommandKind::BacktraceQuery => Self::BacktraceQuery,
+            command::ReplCommandKind::XrayQuery => Self::XrayQuery,
+            command::ReplCommandKind::HighlightQuery => Self::HighlightQuery,
+            command::ReplCommandKind::HintQuery => Self::HintQuery,
+            command::ReplCommandKind::TimeQuery => Self::TimeQuery,
+            command::ReplCommandKind::WqdbQuery => Self::WqdbQuery,
+            command::ReplCommandKind::FmtQuery => Self::FmtQuery,
+            command::ReplCommandKind::TypeShow => Self::TypeShow,
+            command::ReplCommandKind::TypeQuery => Self::TypeQuery,
+        }
     }
 }
 
@@ -886,12 +795,7 @@ fn sync_global_hints(session: &Session) {
 }
 
 fn sync_repl_hints() {
-    let mut names = Vec::new();
-    let mut descs = Vec::new();
-    for (name, desc) in ReplCommand::all_names_and_descs() {
-        names.push(name.to_string());
-        descs.push(desc.to_string());
-    }
+    let (names, descs) = command::repl_hint_vectors();
     wqstdin_set_repl_hints(names, descs);
 }
 
@@ -1595,6 +1499,10 @@ mod tests {
         assert!(matches!(
             ReplCommand::parse(r"\d.-inst"),
             ReplCommand::DebugOneshot(spec) if spec == "-inst"
+        ));
+        assert!(matches!(
+            ReplCommand::parse(r"\d."),
+            ReplCommand::DebugOneshot(spec) if spec.is_empty()
         ));
     }
 

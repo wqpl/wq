@@ -14,6 +14,7 @@ use wqpl::interpret::InterpreterKind;
 use wqpl::session::Session;
 use wqpl::session::dbglog::DEBUG_LOG_FLAG_NAMES;
 
+use super::command::{self, ReplArgKind};
 use crate::load::embed::embedded_aliases;
 
 const RESET: &str = "\x1b[0m";
@@ -84,6 +85,7 @@ impl Default for WqReplHighlighter {
 
 impl WqReplHighlighter {
     pub fn new() -> Self {
+        let (repl_names, repl_descs) = command::repl_hint_vectors();
         Self {
             highlighter: Highlighter::new(),
             path_completer: FilenameCompleter::new(),
@@ -94,8 +96,8 @@ impl WqReplHighlighter {
             global_names: Vec::new(),
             global_types: Vec::new(),
             global_excerpts: Vec::new(),
-            repl_names: Vec::new(),
-            repl_descs: Vec::new(),
+            repl_names,
+            repl_descs,
             hints_enabled: true,
         }
     }
@@ -217,6 +219,112 @@ impl WqReplHighlighter {
             .filter(|name| name.starts_with(prefix))
             .map(|name| Pair::new(name.clone(), name).with_kind("embedded"))
             .collect()
+    }
+
+    fn command_arg_kind(cmd_word: &str) -> Option<ReplArgKind> {
+        command::find_by_alias(cmd_word).and_then(|spec| spec.arg_kind())
+    }
+
+    fn repl_arg_candidate_names(&self, kind: ReplArgKind, prefix: &str) -> Vec<String> {
+        match kind {
+            ReplArgKind::BuiltinPreset => BuiltinPreset::names()
+                .iter()
+                .filter(|name| name.starts_with(prefix))
+                .map(|name| (*name).to_string())
+                .collect(),
+            ReplArgKind::Interpreter => InterpreterKind::names()
+                .iter()
+                .filter(|name| name.starts_with(prefix))
+                .map(|name| (*name).to_string())
+                .collect(),
+            ReplArgKind::HelpTopic => self
+                .help_topics
+                .iter()
+                .filter(|(name, _)| name.starts_with(prefix))
+                .map(|(name, _)| name.clone())
+                .collect(),
+            ReplArgKind::DebugFlags => {
+                let aliases = ["0", "1", "2", "3", "4"];
+                aliases
+                    .iter()
+                    .copied()
+                    .chain(
+                        DEBUG_LOG_FLAG_NAMES
+                            .iter()
+                            .flat_map(|(names, _)| names.iter())
+                            .copied(),
+                    )
+                    .filter(|name| name.starts_with(prefix))
+                    .map(str::to_string)
+                    .collect()
+            }
+            ReplArgKind::FmtMode => ["on", "off", "nlcd", "olw"]
+                .iter()
+                .filter(|name| name.starts_with(prefix))
+                .map(|name| (*name).to_string())
+                .collect(),
+            ReplArgKind::LoadTarget if prefix.starts_with('<') => embedded_aliases()
+                .map(|alias| format!("<{alias}>"))
+                .filter(|name| name.starts_with(prefix))
+                .collect(),
+            ReplArgKind::LoadTarget | ReplArgKind::BoxSpec => Vec::new(),
+        }
+    }
+
+    fn push_repl_arg_candidates(
+        &self,
+        candidates: &mut Vec<Pair>,
+        kind: ReplArgKind,
+        prefix: &str,
+    ) {
+        match kind {
+            ReplArgKind::HelpTopic => {
+                Self::push_described_candidates(
+                    candidates,
+                    self.help_topic_entries(),
+                    prefix,
+                    "help",
+                );
+            }
+            ReplArgKind::LoadTarget if prefix.starts_with('<') => {
+                candidates.extend(Self::embedded_load_entries(prefix));
+            }
+            ReplArgKind::BoxSpec => {}
+            _ => {
+                let label = match kind {
+                    ReplArgKind::BuiltinPreset => "preset",
+                    ReplArgKind::Interpreter => "interpreter",
+                    ReplArgKind::DebugFlags => "debug",
+                    ReplArgKind::FmtMode => "mode",
+                    ReplArgKind::LoadTarget => "path",
+                    ReplArgKind::HelpTopic | ReplArgKind::BoxSpec => unreachable!(),
+                };
+                Self::push_name_candidates(
+                    candidates,
+                    self.repl_arg_candidate_names(kind, prefix),
+                    prefix,
+                    label,
+                );
+            }
+        }
+    }
+
+    fn repl_arg_hint(&self, kind: ReplArgKind, prefix: &str) -> Option<WqHint> {
+        if kind == ReplArgKind::HelpTopic
+            && let Some(summary) = self.help_topic_summary(prefix)
+        {
+            return Some(WqHint::info(format!("  {summary}")));
+        }
+
+        let mut candidates = self.repl_arg_candidate_names(kind, prefix);
+        candidates.sort();
+        candidates.dedup();
+        let name = candidates.first()?;
+        if name == prefix {
+            return None;
+        }
+        let suffix = &name[prefix.len()..];
+        Some(WqHint::completion(suffix))
     }
 
     /// Find the start index of the "word" that ends at `pos`.
@@ -352,67 +460,16 @@ impl Completer for WqReplHighlighter {
                 let cmd_end = line.len() - trimmed.len() + first_space;
                 if let Some((arg_start, arg_prefix)) = Self::first_arg_prefix(line, pos, cmd_end) {
                     let cmd_word = &trimmed[..first_space];
-                    match cmd_word {
-                        r"\bfn" => {
-                            Self::push_name_candidates(
-                                &mut candidates,
-                                BuiltinPreset::names().iter(),
-                                arg_prefix,
-                                "preset",
-                            );
-                        }
-                        r"\i" | r"\interpreter" => {
-                            Self::push_name_candidates(
-                                &mut candidates,
-                                InterpreterKind::names().iter(),
-                                arg_prefix,
-                                "interpreter",
-                            );
-                        }
-                        r"\help" | r"\h" => {
-                            Self::push_described_candidates(
-                                &mut candidates,
-                                self.help_topic_entries(),
-                                arg_prefix,
-                                "help",
-                            );
-                        }
-                        r"\d" | r"\debug" => {
-                            let aliases = ["0", "1", "2", "3", "4"];
-                            Self::push_name_candidates(
-                                &mut candidates,
-                                aliases.iter().copied().chain(
-                                    DEBUG_LOG_FLAG_NAMES
-                                        .iter()
-                                        .flat_map(|(names, _)| names.iter())
-                                        .copied(),
-                                ),
-                                arg_prefix,
-                                "debug",
-                            );
-                        }
-                        r"\fmt" => {
-                            let modes = ["on", "off", "nlcd", "olw"];
-                            Self::push_name_candidates(
-                                &mut candidates,
-                                modes.iter(),
-                                arg_prefix,
-                                "mode",
-                            );
-                        }
-                        r"\load" | r"\l" => {
-                            if arg_prefix.starts_with('<') {
-                                candidates.extend(Self::embedded_load_entries(arg_prefix));
-                            } else {
-                                let (start, mut paths) =
-                                    self.path_completer.complete_path(line, pos)?;
-                                for path in &mut paths {
-                                    path.kind = Some("path".to_string());
-                                }
-                                return Ok((start, paths));
+                    if let Some(arg_kind) = Self::command_arg_kind(cmd_word) {
+                        if arg_kind == ReplArgKind::LoadTarget && !arg_prefix.starts_with('<') {
+                            let (start, mut paths) =
+                                self.path_completer.complete_path(line, pos)?;
+                            for path in &mut paths {
+                                path.kind = Some("path".to_string());
                             }
+                            return Ok((start, paths));
                         }
-                        _ => {}
+                        self.push_repl_arg_candidates(&mut candidates, arg_kind, arg_prefix);
                     }
                     candidates.sort_by(|a, b| a.display.cmp(&b.display));
                     candidates.dedup_by(|a, b| a.display == b.display);
@@ -499,77 +556,11 @@ impl Hinter for WqReplHighlighter {
                 let cmd_end = line.len() - trimmed.len() + first_space;
                 if let Some((_, arg_prefix)) = Self::first_arg_prefix(line, pos, cmd_end) {
                     let cmd_word = &trimmed[..first_space];
-                    let mut candidates: Vec<String> = Vec::new();
-                    match cmd_word {
-                        r"\bfn" => {
-                            candidates.extend(
-                                BuiltinPreset::names()
-                                    .iter()
-                                    .filter(|n| n.starts_with(arg_prefix))
-                                    .map(|n| n.to_string()),
-                            );
-                        }
-                        r"\i" | r"\interpreter" => {
-                            candidates.extend(
-                                InterpreterKind::names()
-                                    .iter()
-                                    .filter(|n| n.starts_with(arg_prefix))
-                                    .map(|n| n.to_string()),
-                            );
-                        }
-                        r"\help" | r"\h" => {
-                            if let Some(summary) = self.help_topic_summary(arg_prefix) {
-                                return Some(WqHint::info(format!("  {summary}")));
-                            }
-                            candidates.extend(
-                                self.help_topics
-                                    .iter()
-                                    .filter(|(name, _)| name.starts_with(arg_prefix))
-                                    .map(|(name, _)| name.clone()),
-                            );
-                        }
-                        r"\d" | r"\debug" => {
-                            let aliases = ["0", "1", "2", "3", "4"];
-                            candidates.extend(
-                                aliases
-                                    .iter()
-                                    .copied()
-                                    .chain(
-                                        DEBUG_LOG_FLAG_NAMES
-                                            .iter()
-                                            .flat_map(|(names, _)| names.iter())
-                                            .copied(),
-                                    )
-                                    .filter(|n| n.starts_with(arg_prefix))
-                                    .map(|n| n.to_string()),
-                            );
-                        }
-                        r"\fmt" => {
-                            let modes = ["on", "off", "nlcd", "olw"];
-                            candidates.extend(
-                                modes
-                                    .iter()
-                                    .filter(|n| n.starts_with(arg_prefix))
-                                    .map(|n| n.to_string()),
-                            );
-                        }
-                        r"\load" | r"\l" if arg_prefix.starts_with('<') => {
-                            candidates.extend(
-                                embedded_aliases()
-                                    .map(|alias| format!("<{alias}>"))
-                                    .filter(|name| name.starts_with(arg_prefix)),
-                            );
-                        }
-                        _ => {}
+                    if let Some(arg_kind) = Self::command_arg_kind(cmd_word)
+                        && let Some(hint) = self.repl_arg_hint(arg_kind, arg_prefix)
+                    {
+                        return Some(hint);
                     }
-                    candidates.sort();
-                    candidates.dedup();
-                    let name = candidates.first()?;
-                    if name == arg_prefix {
-                        return None;
-                    }
-                    let suffix = &name[arg_prefix.len()..];
-                    return Some(WqHint::completion(suffix));
                 }
             }
             // REPL command name hinting
