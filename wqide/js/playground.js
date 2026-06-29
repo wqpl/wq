@@ -6,7 +6,7 @@ import {
   highlight_wq,
   get_symbol_index_json,
 } from "wq-wasm";
-import { createOutputRenderer } from "./ansi.js";
+import { createOutputRenderer, renderAnsiToText } from "./ansi.js";
 import { getPlaygroundExample } from "./playground-examples.js";
 import {
   ensureWasm,
@@ -130,6 +130,11 @@ function requestPanelHeightSync(instance) {
 }
 
 const SYMBOL_REFRESH_DELAY_MS = 120;
+const STRUCTURE_REFRESH_DELAY_MS = 180;
+const STRUCTURE_MODE_LABELS = {
+  ast: "AST",
+  cst: "CST",
+};
 const SYMBOL_KIND_LABELS = {
   assignment: "var",
   function: "fn",
@@ -369,6 +374,126 @@ function scheduleSymbolRefresh(instance) {
     instance.symbolRefreshTimer = null;
     refreshSymbols(instance);
   }, SYMBOL_REFRESH_DELAY_MS);
+}
+
+function renderStructureStatus(instance, message, isError = false) {
+  if (!instance.structureStatus) return;
+  instance.structureStatus.textContent = message || "";
+  instance.structureStatus.hidden = !message;
+  instance.structureStatus.classList.toggle("error", !!isError);
+}
+
+function renderEmptyStructure(instance, message, isError = false) {
+  if (instance.structureOutput) {
+    instance.structureOutput.innerHTML = "";
+  }
+  renderStructureStatus(instance, message, isError);
+}
+
+function stripDryModeLine(text) {
+  return String(text)
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .filter(
+      (line) =>
+        !/^\s*▍\s*dry: skipped execution\s*$/.test(renderAnsiToText(line)),
+    )
+    .join("\n")
+    .trimEnd();
+}
+
+function renderStructureOutput(instance, text) {
+  if (!instance.structureOutput) return;
+  instance.structureOutput.innerHTML = "";
+  const renderer = createOutputRenderer(instance.structureOutput);
+  renderer.appendOutput(text);
+}
+
+async function refreshStructure(instance) {
+  const seq = (instance.structureRefreshSeq || 0) + 1;
+  instance.structureRefreshSeq = seq;
+  const code = instance.ta.value;
+  const mode = instance.structureMode === "cst" ? "cst" : "ast";
+  const modeLabel = STRUCTURE_MODE_LABELS[mode];
+
+  if (!code.trim()) {
+    renderEmptyStructure(instance, "No code yet.");
+    return;
+  }
+
+  renderStructureStatus(instance, "Parsing...");
+
+  try {
+    await ensureWasm();
+    if (instance.structureRefreshSeq !== seq) return;
+
+    const chunks = [];
+    const previousFlags = instance.debugFlagsInput?.value || "0";
+
+    await queueEval(() => {
+      const session = new WasmWqSession();
+      try {
+        set_stdout_callback((chunk) => {
+          chunks.push(String(chunk));
+        });
+        set_stderr_callback((chunk) => {
+          chunks.push(String(chunk));
+        });
+        set_stdin_callback(() => null);
+        session.set_dry_mode(true);
+        session.set_debug_flags(mode);
+        session.eval_wq_result(code);
+      } finally {
+        try {
+          session.set_debug_flags(previousFlags || "0");
+        } finally {
+          session.free();
+          set_stdout_callback(null);
+          set_stderr_callback(null);
+          set_stdin_callback(null);
+        }
+      }
+    });
+
+    if (instance.structureRefreshSeq !== seq) return;
+
+    const text = stripDryModeLine(chunks.join(""));
+    if (!text) {
+      renderEmptyStructure(instance, `No ${modeLabel} output.`);
+      return;
+    }
+
+    renderStructureOutput(instance, text);
+    renderStructureStatus(instance, "");
+  } catch (err) {
+    if (instance.structureRefreshSeq !== seq) return;
+    renderEmptyStructure(instance, err?.message ?? String(err), true);
+  }
+}
+
+function scheduleStructureRefresh(
+  instance,
+  delay = STRUCTURE_REFRESH_DELAY_MS,
+) {
+  if (instance.structureRefreshTimer) {
+    clearTimeout(instance.structureRefreshTimer);
+  }
+  instance.structureRefreshTimer = window.setTimeout(() => {
+    instance.structureRefreshTimer = null;
+    refreshStructure(instance);
+  }, delay);
+}
+
+function setStructureMode(instance, mode) {
+  if (!Object.hasOwn(STRUCTURE_MODE_LABELS, mode)) return;
+  if (instance.structureMode === mode) return;
+  instance.structureMode = mode;
+  for (const button of instance.structureButtons || []) {
+    const active = button.dataset.structureMode === mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  }
+  scheduleStructureRefresh(instance, 0);
 }
 
 function jumpToSymbol(instance, span) {
@@ -754,6 +879,11 @@ export async function mountPlayground(root) {
   const symbolList = root.querySelector("[data-symbol-list]");
   const symbolCount = root.querySelector("[data-symbol-count]");
   const symbolStatus = root.querySelector("[data-symbol-status]");
+  const structureOutput = root.querySelector("[data-structure-output]");
+  const structureStatus = root.querySelector("[data-structure-status]");
+  const structureButtons = Array.from(
+    root.querySelectorAll("[data-structure-mode]"),
+  );
   const instance = {
     root,
     ta,
@@ -794,6 +924,12 @@ export async function mountPlayground(root) {
     symbolSource: "",
     symbolRefreshSeq: 0,
     symbolRefreshTimer: null,
+    structureOutput,
+    structureStatus,
+    structureButtons,
+    structureMode: "ast",
+    structureRefreshSeq: 0,
+    structureRefreshTimer: null,
     panelHeightFrame: null,
     panelResizeObserver: null,
   };
@@ -804,6 +940,7 @@ export async function mountPlayground(root) {
   ta.addEventListener("input", () => {
     refreshLines(instance);
     scheduleSymbolRefresh(instance);
+    scheduleStructureRefresh(instance);
     requestPanelHeightSync(instance);
   });
   ta.element?.addEventListener("scroll", () => {
@@ -838,6 +975,11 @@ export async function mountPlayground(root) {
       Number(button.dataset.symbolEnd),
     ]);
   });
+  for (const button of structureButtons) {
+    button.addEventListener("click", () => {
+      setStructureMode(instance, button.dataset.structureMode);
+    });
+  }
   boxBtn?.addEventListener("click", async () => {
     await ensureWasm();
     toggleRuntimePanel(boxBtn, boxPanel);
@@ -900,6 +1042,7 @@ export async function mountPlayground(root) {
       stdinInput.value = example.stdin;
       refreshLines(instance);
       scheduleSymbolRefresh(instance);
+      scheduleStructureRefresh(instance);
       requestPanelHeightSync(instance);
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
@@ -916,6 +1059,7 @@ export async function mountPlayground(root) {
     ensureStateSavingSession(instance).set_box_flags("box,axis,color");
     syncBoxControls(instance);
     scheduleSymbolRefresh(instance);
+    scheduleStructureRefresh(instance);
     requestPanelHeightSync(instance);
     ta.focus();
   });
@@ -931,6 +1075,7 @@ export async function mountPlayground(root) {
   setActive(timeBtn, instance.timeMode);
   writeDebugFlags(instance, []);
   await refreshSymbols(instance);
+  await refreshStructure(instance);
   requestPanelHeightSync(instance);
 }
 
@@ -940,6 +1085,7 @@ export async function activatePlayground(root) {
   await ensureWasm();
   syncBoxControls(instance);
   setActive(instance.timeBtn, instance.timeMode);
+  scheduleStructureRefresh(instance, 0);
   requestPanelHeightSync(instance);
 }
 
@@ -954,6 +1100,7 @@ export function applyPlaygroundRoute(root, params) {
     instance.ta.dispatchEvent(new Event("input", { bubbles: true }));
     refreshLines(instance);
     scheduleSymbolRefresh(instance);
+    scheduleStructureRefresh(instance);
     requestPanelHeightSync(instance);
     if (sin) {
       instance.stdinInput.value = sin;

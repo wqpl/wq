@@ -336,31 +336,74 @@ const PLAYGROUND_HTML = html`
           </div>
         </div>
 
-        <div
-          class="run-output-panel"
-          role="region"
-          aria-labelledby="runOutputHeading"
-          aria-live="polite">
-          <div class="run-output-header">
-            <span id="runOutputHeading" class="run-output-title">Output</span>
-            <button id="clearOutBtn" class="run-output-clear" type="button">
-              Clear
-            </button>
-          </div>
-          <pre class="run-output-body"></pre>
-        </div>
       </div>
 
-      <aside class="symbol-panel" aria-labelledby="symbolPanelHeading">
-        <div class="symbol-panel-head">
-          <h2 id="symbolPanelHeading">Symbols</h2>
-          <span class="symbol-panel-count" data-symbol-count>0</span>
-        </div>
-        <div class="symbol-panel-status" data-symbol-status>
-          No symbols yet.
-        </div>
-        <div class="symbol-panel-list" data-symbol-list></div>
+      <aside class="playground-inspector" aria-label="Playground inspector">
+        <section class="symbol-panel" aria-labelledby="symbolPanelHeading">
+          <div class="symbol-panel-head">
+            <h2 id="symbolPanelHeading">Symbols</h2>
+            <span class="symbol-panel-count" data-symbol-count>0</span>
+          </div>
+          <div class="symbol-panel-status" data-symbol-status>
+            No symbols yet.
+          </div>
+          <div class="symbol-panel-list" data-symbol-list></div>
+        </section>
+
+        <section
+          class="structure-panel"
+          aria-labelledby="structurePanelHeading">
+          <div class="structure-panel-head">
+            <h2 id="structurePanelHeading">Structure</h2>
+            <div
+              class="structure-tabs"
+              role="tablist"
+              aria-label="Structure view">
+              <button
+                class="structure-tab active"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="structurePanelBody"
+                data-structure-mode="ast">
+                AST
+              </button>
+              <button
+                class="structure-tab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="structurePanelBody"
+                data-structure-mode="cst">
+                CST
+              </button>
+            </div>
+          </div>
+          <div class="structure-panel-status" data-structure-status>
+            No code yet.
+          </div>
+          <pre
+            id="structurePanelBody"
+            class="structure-panel-body"
+            data-structure-output
+            role="tabpanel"
+            aria-live="polite"></pre>
+        </section>
       </aside>
+
+      <div
+        class="run-output-panel"
+        role="region"
+        aria-labelledby="runOutputHeading"
+        aria-live="polite">
+        <div class="run-output-header">
+          <span id="runOutputHeading" class="run-output-title">Output</span>
+          <button id="clearOutBtn" class="run-output-clear" type="button">
+            Clear
+          </button>
+        </div>
+        <pre class="run-output-body"></pre>
+      </div>
     </div>
   </main>
 `;
