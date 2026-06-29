@@ -46,7 +46,7 @@ impl Cell {
 
 fn expand_as_cells(row: &Value) -> Option<Vec<String>> {
     // Only expand non-string lists with >= 2 elements
-    if row.len() < 2 || row.is_string_like() {
+    if row.len() < 2 || row.is_string() {
         return None;
     }
     match row {
@@ -65,7 +65,7 @@ fn expand_as_cells(row: &Value) -> Option<Vec<String>> {
 }
 
 fn expand_axis_cells(row: &Value) -> Option<Vec<String>> {
-    if row.is_string_like() {
+    if row.is_string() {
         return None;
     }
     match row {
@@ -214,7 +214,7 @@ fn format_ragged_value(v: &Value) -> String {
         .iter()
         .map(|item| {
             if item.len() >= 2
-                && !item.is_string_like()
+                && !item.is_string()
                 && matches!(
                     item,
                     Value::List(_) | Value::IntList(_) | Value::FloatList(_)
@@ -369,7 +369,7 @@ fn collect_slices(
 }
 
 fn format_uniform_axes(v: &Value, dims: &[usize], options: BoxFormatOptions) -> Option<String> {
-    if dims.len() < 2 || v.is_string_like() {
+    if dims.len() < 2 || v.is_string() {
         return None;
     }
     let mut sections = Vec::new();
@@ -382,7 +382,7 @@ fn format_ragged_rows(v: &Value, options: BoxFormatOptions) -> Option<String> {
         return None;
     };
     if rows.len() < 2
-        || rows.iter().any(Value::is_string_like)
+        || rows.iter().any(Value::is_string)
         || !rows.iter().any(|row| {
             matches!(
                 row,
@@ -409,7 +409,7 @@ fn format_ragged_rows(v: &Value, options: BoxFormatOptions) -> Option<String> {
 }
 
 pub fn format_compact(v: &Value) -> String {
-    if v.len() < 2 || v.is_string_like() {
+    if v.len() < 2 || v.is_string() {
         return v.to_string();
     }
     if let Some(cells) = expand_simple_1d(v) {

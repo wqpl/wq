@@ -1097,7 +1097,7 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
 
     // Normalize String to List<Char> for uniform handling
     match &val {
-        l @ Value::List(items) if l.is_string_like() => {
+        l @ Value::List(items) if l.is_string() => {
             let mut chunks = Vec::new();
             let mut current = String::new();
             for item in items.iter() {

@@ -9,7 +9,7 @@ impl Value {
         // produce a unified String result. This also handles mixed String/List<Char>
         // concatenation which would otherwise fall through to generic List arms.
 
-        if self.is_string_like() && other.is_string_like() {
+        if self.is_string() && other.is_string() {
             if self.is_unit() && other.is_unit() {
                 return Value::unit();
             }
@@ -162,7 +162,7 @@ impl Value {
         }
 
         // All string-like: pre-allocate a single String buffer.
-        if values.iter().all(|v| v.is_string_like()) {
+        if values.iter().all(|v| v.is_string()) {
             let strings: Vec<String> = values
                 .into_iter()
                 .filter_map(|v| v.to_rust_string_with_note().ok())

@@ -11,7 +11,7 @@ use crate::vm::GlobalMap;
 enum BindingFact {
     Unknown,
     Callable,
-    Indexable,
+    Container,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -979,10 +979,10 @@ impl Resolver {
         match object {
             AstNode::List(..) | AstNode::Dict(..) => true,
             AstNode::Variable(name, span) => {
-                self.lookup_fact(name, *span, false) == BindingFact::Indexable
+                self.lookup_fact(name, *span, false) == BindingFact::Container
             }
             AstNode::OuterVariable(name, span) => {
-                self.lookup_fact(name, *span, true) == BindingFact::Indexable
+                self.lookup_fact(name, *span, true) == BindingFact::Container
             }
             AstNode::CallName { .. } => false,
             _ => false,
@@ -1249,7 +1249,7 @@ impl Resolver {
         match node {
             AstNode::Function { .. } => BindingFact::Callable,
             AstNode::Cat(..) | AstNode::List(..) | AstNode::Dict(..) | AstNode::Range { .. } => {
-                BindingFact::Indexable
+                BindingFact::Container
             }
             AstNode::Literal(value, _) => Self::fact_from_value(value),
             AstNode::Group { expr, .. } => self.fact_from_ast(expr),
@@ -1265,7 +1265,7 @@ impl Resolver {
             Value::CompiledFunction(_) | Value::Closure(_) | Value::BuiltinFunction { .. } => {
                 BindingFact::Callable
             }
-            _ if value.is_list_like() || matches!(value, Value::Dict(_)) => BindingFact::Indexable,
+            _ if value.is_container() => BindingFact::Container,
             _ => BindingFact::Unknown,
         }
     }

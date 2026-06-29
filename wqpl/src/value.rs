@@ -99,40 +99,6 @@ impl Value {
         }
     }
 
-    pub fn is_list_like(&self) -> bool {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            Value::Int(_)
-            | Value::BigInt(_)
-            | Value::Float(_)
-            | Value::Complex(_)
-            | Value::Fraction(_)
-            | Value::Algebraic(_)
-            | Value::Char(_)
-            | Value::Tag(_)
-            | Value::Bool(_) => false,
-
-            Value::IntList(_)
-            | Value::IntRange(_)
-            | Value::FloatList(_)
-            | Value::BoolList(_)
-            | Value::List(_)
-            | Value::String(_) => true,
-
-            Value::Cas(_)
-            | Value::Dict(_)
-            | Value::CompiledFunction(_)
-            | Value::Closure(_)
-            | Value::BuiltinFunction { name: _, id: _ }
-            | Value::LiftedCallable(_)
-            | Value::Stream(_) => false,
-        }
-    }
-
-    pub fn is_unit(&self) -> bool {
-        self.is_list_like() && self.is_empty()
-    }
-
     /// Convenience constructor for `Value::Float`.
     #[inline]
     pub(crate) fn float(f: impl Into<f64>) -> Self {
@@ -146,39 +112,54 @@ impl Value {
     }
 
     pub fn is_atom(&self) -> bool {
-        #[deny(clippy::wildcard_enum_match_arm)]
-        match self {
+        matches!(
+            self,
             Value::Int(_)
-            | Value::BigInt(_)
-            | Value::Float(_)
-            | Value::Complex(_)
-            | Value::Fraction(_)
-            | Value::Algebraic(_)
-            | Value::Char(_)
-            | Value::Tag(_)
-            | Value::Bool(_) => true,
-
-            Value::IntList(_)
-            | Value::IntRange(_)
-            | Value::FloatList(_)
-            | Value::BoolList(_)
-            | Value::List(_)
-            | Value::String(_) => false,
-
-            Value::Cas(_) => true,
-            Value::Dict(_) => false,
-            Value::CompiledFunction(_)
-            | Value::Closure(_)
-            | Value::BuiltinFunction { name: _, id: _ }
-            | Value::LiftedCallable(_)
-            | Value::Stream(_) => true,
-        }
+                | Value::BigInt(_)
+                | Value::Float(_)
+                | Value::Complex(_)
+                | Value::Fraction(_)
+                | Value::Algebraic(_)
+                | Value::Char(_)
+                | Value::Tag(_)
+                | Value::Bool(_)
+                | Value::Cas(_)
+                | Value::CompiledFunction(_)
+                | Value::Closure(_)
+                | Value::BuiltinFunction { .. }
+                | Value::LiftedCallable(_)
+                | Value::Stream(_)
+        )
     }
 
-    pub(crate) fn is_string_like(&self) -> bool {
+    pub fn is_list(&self) -> bool {
+        matches!(
+            self,
+            Value::IntList(_)
+                | Value::IntRange(_)
+                | Value::FloatList(_)
+                | Value::BoolList(_)
+                | Value::List(_)
+                | Value::String(_)
+        )
+    }
+
+    pub fn is_unit(&self) -> bool {
+        self.is_list() && self.is_empty()
+    }
+
+    pub(crate) fn is_string(&self) -> bool {
         matches!(self, Value::String(_) | Value::Char(_))
             || self.is_unit()
             || matches!(self, Value::List(items) if items.iter().all(|v| matches!(v, Value::Char(_))))
+    }
+
+    pub fn is_dict(&self) -> bool {
+        matches!(self, Value::Dict(_))
+    }
+
+    pub(crate) fn is_container(&self) -> bool {
+        self.is_list() || self.is_dict()
     }
 
     pub(crate) fn is_callable(&self) -> bool {
@@ -327,7 +308,7 @@ impl Value {
                 if items.is_empty() {
                     return Some(String::new());
                 }
-                if !items.iter().all(|v| v.is_string_like()) {
+                if !items.iter().all(|v| v.is_string()) {
                     return None;
                 }
                 let mut out = String::new();
@@ -935,8 +916,8 @@ mod tests {
 
     #[test]
     fn string_is_string_like() {
-        assert!(into_wq_string("hello").is_string_like());
-        assert!(into_wq_string("").is_string_like());
+        assert!(into_wq_string("hello").is_string());
+        assert!(into_wq_string("").is_string());
     }
 
     #[test]
@@ -1010,7 +991,7 @@ mod tests {
     fn string_backward_compat_list_char_still_works() {
         // Old-style List<Char> still works as a string via fallback paths
         let old_style = Value::List(Arc::new("hi".chars().map(Value::Char).collect()));
-        assert!(old_style.is_string_like());
+        assert!(old_style.is_string());
         assert_eq!(
             old_style.to_rust_string_with_note().unwrap(),
             "hi".to_string()

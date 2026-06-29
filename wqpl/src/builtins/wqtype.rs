@@ -54,7 +54,7 @@ pub(super) fn to_char(args: BuiltinFnArgs) -> WqResult<Value> {
     let input = args.into_iter().next().unwrap();
     let s = match input {
         Value::Char(c) => return Ok(Value::Char(c)),
-        ref val if val.is_string_like() => val
+        ref val if val.is_string() => val
             .to_rust_string_with_note()
             .map_err(|e| e.src(BE::Char).at_arg(0))?,
         ref val => val.to_string(),

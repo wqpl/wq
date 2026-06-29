@@ -841,7 +841,7 @@ pub(crate) fn insert_in_place(
     dsts: Option<&Value>,
 ) -> WqResult<Value> {
     materialize_int_range(data);
-    if data.is_string_like() {
+    if data.is_string() {
         insert_string_in_place(data, dsts, xs)?;
         return Ok(data.clone());
     }

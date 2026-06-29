@@ -11,7 +11,7 @@ use crate::wqerror::{WqError, WqErrorType};
 pub(super) fn to_str(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Str, [1], &args)?;
     let arg = args.into_iter().next().unwrap();
-    if arg.is_string_like() {
+    if arg.is_string() {
         return Ok(arg);
     }
     Ok(arg.to_string().into_wq_value())

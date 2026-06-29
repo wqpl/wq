@@ -116,7 +116,7 @@ pub(super) fn op_cat(args: BuiltinFnArgs) -> WqResult<Value> {
     }
 
     // Fast path: all string-like (String/Char mix, but not all unit)
-    if args.iter().all(|v| v.is_string_like()) {
+    if args.iter().all(|v| v.is_string()) {
         let mut s = String::new();
         for arg in args {
             s.push_str(&arg.to_rust_string_with_note().expect("valid string"));
