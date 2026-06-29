@@ -146,9 +146,9 @@ pub(crate) enum Instruction {
     /// Concatenate N items from the stack into a single value
     Cat(usize),
     UnaryOp(Box<UnaryOpData>),
-    /// Short-circuit boolean and lazy check (&|)
+    /// Short-circuit boolean and lazy check (A[...])
     BoolAndLazy(usize),
-    /// Short-circuit boolean or lazy check (\|)
+    /// Short-circuit boolean or lazy check (O[...])
     BoolOrLazy(usize),
     // CallBuiltin(String, usize),
     /// Builtin call resolved to an ID at compile time for faster dispatch

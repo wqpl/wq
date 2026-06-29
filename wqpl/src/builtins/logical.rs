@@ -7,23 +7,23 @@ pub(super) fn not(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn and(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::op_bool_and(args)
+    super::op::bool_and(BE::And, args)
 }
 
 pub(super) fn or(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::op_bool_or(args)
+    super::op::bool_or(BE::Or, args)
 }
 
 pub(super) fn xor(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::op_xor(args)
+    super::op::bit_xor(BE::Xor, args)
 }
 
 pub(super) fn band(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::op_bit_and(args)
+    super::op::bit_and(BE::Band, args)
 }
 
 pub(super) fn bor(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::op_bit_or(args)
+    super::op::bit_or(BE::Bor, args)
 }
 
 pub(super) fn shl(args: BuiltinFnArgs) -> WqResult<Value> {

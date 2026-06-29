@@ -78,7 +78,7 @@ pub(super) const APPLY: BuiltinDoc = BuiltinDoc {
     summary: "Apply one function or several functions to a value.",
     details: "`apply[fs;x]` calls each function in `fs` with `x`. When `fs` is a list, the result is a list of callback results; when `fs` is a single callable, the callback result is returned directly.",
     examples: APPLY_EXAMPLES,
-    related: &["A", "map", "fold"],
+    related: &["map", "fold"],
 };
 
 pub(super) const MAP: BuiltinDoc = BuiltinDoc {

@@ -34,7 +34,7 @@ evaluate:{[node;vals;vars]$.[U node;@r F]
      node`op=OP_IMPLY;or[not left;right];node`op=OP_EQUAL;left=right;F]}
 print_table:{[str_;expr;vars]n:#vars;echo@f"R = {str_}"
   N[n;print@f"| {vars _n} "];echo"| R |";N[shl[1;n];i:_n;vals:alloc n
-    N[n;vals _n:shr[i;n-1-_n]&1|bool;print@f"| {$[vals _n;1;0]} "]
+    N[n;vals _n:band[shr[i;n-1-_n];1]|bool;print@f"| {$[vals _n;1;0]} "]
   res:evaluate[expr;vals;vars];echo@f"| {$[res;1;0]} |"]}
 print_ast:{[node;d;isleft]$.[U node;@r 0];print_ast[node`right;d+1;F]
   prefix:"";N[d-1;prefix:@f"{prefix}│   "];$.[d>0;prefix:@f"{prefix}{$[isleft;"└";"├"]}---"]

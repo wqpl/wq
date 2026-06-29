@@ -494,8 +494,8 @@ mod tests {
         assert_eq!(debug_operand_text("@d b").as_deref(), Some("b"));
         assert_eq!(debug_operand_text("@d (b*3)").as_deref(), Some("b*3"));
         assert_eq!(
-            debug_operand_text("@d ((a<0)&|(10/b))").as_deref(),
-            Some("(a<0)&|(10/b)")
+            debug_operand_text("@d (A[a<0;10/b])").as_deref(),
+            Some("A[a<0;10/b]")
         );
     }
 }

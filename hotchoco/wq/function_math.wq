@@ -11,7 +11,7 @@ local_combo:{f:a+b;f[6]}
  ((a+b)*2)[3];
  (2+a)[3];
  (a^2)[3];
- (d&e)[5];
+ (band[d;e])[5];
  ((a+b)+(a*b))[2];
  global_combo[4];
  local_combo[];

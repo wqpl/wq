@@ -75,14 +75,9 @@ pub enum SyntaxKind {
     Matmul,
     FloorDiv,
 
-    // ===== bitwise / boolean =====
-    BoolAnd,
-    BoolOr,
-    BitAnd,
-    BitOr,
+    // ===== binary operators =====
     Shl,
     Shr,
-    BitXor,
 
     // ===== augmented assignments =====
     PlusColon,
@@ -94,13 +89,8 @@ pub enum SyntaxKind {
     PowerColon,
     PowerDotColon,
     CommaColon,
-    BoolAndColon,
-    BoolOrColon,
-    BitAndColon,
-    BitOrColon,
     ShlColon,
     ShrColon,
-    BitXorColon,
     FloorDivColon,
 
     Colon,
@@ -275,13 +265,8 @@ impl SyntaxKind {
             Matmul => "MATMUL",
             FloorDiv => "FLOOR_DIV",
 
-            BoolAnd => "BOOL_AND",
-            BoolOr => "BOOL_OR",
-            BitAnd => "BIT_AND",
-            BitOr => "BIT_OR",
             Shl => "SHL",
             Shr => "SHR",
-            BitXor => "BIT_XOR",
             PlusColon => "PLUS_COLON",
             MinusColon => "MINUS_COLON",
             StarColon => "STAR_COLON",
@@ -291,13 +276,8 @@ impl SyntaxKind {
             PowerColon => "POWER_COLON",
             PowerDotColon => "POWER_DOT_COLON",
             CommaColon => "COMMA_COLON",
-            BoolAndColon => "BOOL_AND_COLON",
-            BoolOrColon => "BOOL_OR_COLON",
-            BitAndColon => "BIT_AND_COLON",
-            BitOrColon => "BIT_OR_COLON",
             ShlColon => "SHL_COLON",
             ShrColon => "SHR_COLON",
-            BitXorColon => "BIT_XOR_COLON",
             FloorDivColon => "FLOOR_DIV_COLON",
 
             Colon => "COLON",

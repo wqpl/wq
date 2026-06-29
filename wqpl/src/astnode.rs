@@ -267,8 +267,8 @@ pub enum BinaryOperator {
     Lte,
     Gt,
     Gte,
-    BoolAnd, // &|
-    BoolOr,  // \|
+    BoolAnd, // A[...]
+    BoolOr,  // O[...]
     Cat,     // , (augmented-assignment marker only; compiled to Instruction::Cat)
     BitAnd,
     BitOr,
@@ -312,13 +312,13 @@ pub(crate) fn binary_op_display(op: &BinaryOperator) -> &'static str {
         NotEqual => "~",
         NotEqualDot => "~.",
 
-        BoolAnd => "&|",
-        BoolOr => r"\|",
-        BitAnd => "&",
-        BitOr => r"\",
+        BoolAnd => "A",
+        BoolOr => "O",
+        BitAnd => "band",
+        BitOr => "bor",
         Shl => "<<",
         Shr => ">>",
-        BitXor => r"^\",
+        BitXor => "xor",
         FloorDiv => "/%",
         Lt => "<",
         Lte => "<=",

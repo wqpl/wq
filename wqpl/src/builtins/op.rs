@@ -164,20 +164,20 @@ pub(super) fn op_cat(args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::cat_many(args.to_vec()))
 }
 
-pub(super) fn op_bool_and(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(BuiltinEnum::OpBoolAnd, args, &BinaryOperator::BoolAnd)
+pub(super) fn bool_and(src: BuiltinEnum, args: BuiltinFnArgs) -> WqResult<Value> {
+    fold_binary_op(src, args, &BinaryOperator::BoolAnd)
 }
 
-pub(super) fn op_bool_or(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(BuiltinEnum::OpBoolOr, args, &BinaryOperator::BoolOr)
+pub(super) fn bool_or(src: BuiltinEnum, args: BuiltinFnArgs) -> WqResult<Value> {
+    fold_binary_op(src, args, &BinaryOperator::BoolOr)
 }
 
-pub(super) fn op_bit_and(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(BuiltinEnum::OpBitAnd, args, &BinaryOperator::BitAnd)
+pub(super) fn bit_and(src: BuiltinEnum, args: BuiltinFnArgs) -> WqResult<Value> {
+    fold_binary_op(src, args, &BinaryOperator::BitAnd)
 }
 
-pub(super) fn op_bit_or(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(BuiltinEnum::OpBitOr, args, &BinaryOperator::BitOr)
+pub(super) fn bit_or(src: BuiltinEnum, args: BuiltinFnArgs) -> WqResult<Value> {
+    fold_binary_op(src, args, &BinaryOperator::BitOr)
 }
 
 pub(super) fn op_shl(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -188,8 +188,8 @@ pub(super) fn op_shr(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_binary_op(BuiltinEnum::OpShr, args, &BinaryOperator::Shr)
 }
 
-pub(super) fn op_xor(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(BuiltinEnum::OpXor, args, &BinaryOperator::BitXor)
+pub(super) fn bit_xor(src: BuiltinEnum, args: BuiltinFnArgs) -> WqResult<Value> {
+    fold_binary_op(src, args, &BinaryOperator::BitXor)
 }
 
 pub(super) fn op_floordiv(args: BuiltinFnArgs) -> WqResult<Value> {

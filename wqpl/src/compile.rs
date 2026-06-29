@@ -3960,16 +3960,16 @@ mod tests {
     }
 
     #[test]
-    fn discarded_apply_alias_uses_discard_builtin_call() {
-        let top = compile_source("A[({x};{x+1});3];42");
-        let apply_alias_id = builtin_id("A");
+    fn discarded_apply_uses_discard_builtin_call() {
+        let top = compile_source("apply[({x};{x+1});3];42");
+        let apply_id = builtin_id("apply");
 
         assert!(
             top.iter().any(
                 |inst| matches!(inst, Instruction::CallBuiltinDiscardId(id, argc)
-                    if *id == apply_alias_id && *argc == 2)
+                    if *id == apply_id && *argc == 2)
             ),
-            "expected discarded A call: {top:#?}",
+            "expected discarded apply call: {top:#?}",
         );
     }
 

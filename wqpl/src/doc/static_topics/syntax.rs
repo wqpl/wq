@@ -530,7 +530,7 @@ pub(super) const PRECEDENCE: StaticDoc = StaticDoc {
         "order of operations",
     ],
     summary: "Understand which syntax groups first.",
-    details: "From tight to loose: grouping/literals, postfix calls and indexing, power, unary operators, ranges, multiply/divide/modulo/matmul, add/subtract, shifts, bitwise operators, comparisons, bool `&|` then `\\|`, comma, pipes, and assignment. Postfix binds before binary operators, so `fn 1+2` means `(fn 1)+2`; use `fn(1+2)`, `fn[1+2]`, or `1+2|fn` when the whole expression is the argument.",
+    details: "From tight to loose: grouping/literals, postfix calls and indexing, power, unary operators, ranges, multiply/divide/modulo/matmul, add/subtract, shifts, comparisons, comma, pipes, and assignment. Use named calls such as `band[x;y]`, `bor[x;y]`, and `xor[x;y]` for bitwise operations. Lazy boolean forms are special bracket syntax: `A[x;y]` short-circuits and, while `O[x;y]` short-circuits or. Postfix binds before binary operators, so `fn 1+2` means `(fn 1)+2`; use `fn(1+2)`, `fn[1+2]`, or `1+2|fn` when the whole expression is the argument.",
     examples: PRECEDENCE_EXAMPLES,
     related: &["operators", "postfix", "pipes", "calls", "ranges"],
 };

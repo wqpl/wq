@@ -1012,7 +1012,6 @@ declare_builtins! {
 
     // Higher-order =========================================================
     (APPLY, Apply, "apply", "apply[fs;x]", sig!(arity!(2)), with_context(ho::apply), BuiltinGroup::HigherOrder),
-    (A, A, "A", "A[fs;x]", sig!(arity!(2), alias Apply), with_context(ho::apply), BuiltinGroup::HigherOrder), // alias of apply
     (MAP, Map, "map", "map[xs;f;d?]", sig!(arity!(2, 3)), with_context(ho::map), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
     (M, M, "M", "M[xs;f;d?]", sig!(arity!(2, 3), alias Map), with_context(ho::map), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }), // alias of map
     (FOLD, Fold, "fold", "fold[xs;f;i?]", sig!(arity!(2, 3)), with_context(ho::fold), BuiltinGroup::HigherOrder),
@@ -1196,11 +1195,6 @@ declare_builtins! {
     (OP_CAT, OpCat, ",", ",[xs;ys+]", sig!(arity!(2..)), plain(op::op_cat), BuiltinGroup::Intrinsic),
     (OP_SHARP, OpSharp, "#", "#[x]", sig!(arity!(1)), plain(op::op_sharp), BuiltinGroup::Intrinsic),
 
-    (OP_BOOL_AND, OpBoolAnd, "&|", "&|[xs;ys+]", sig!(arity!(2..)), plain(op::op_bool_and), BuiltinGroup::Intrinsic),
-    (OP_BOOL_OR, OpBoolOr, r"\|", r"\|[xs;ys+]", sig!(arity!(2..)), plain(op::op_bool_or), BuiltinGroup::Intrinsic),
-    (OP_BIT_AND, OpBitAnd, "&", "&[xs;ys+]", sig!(arity!(2..)), plain(op::op_bit_and), BuiltinGroup::Intrinsic),
-    (OP_BIT_OR, OpBitOr, r"\", r"\[xs;ys+]", sig!(arity!(2..)), plain(op::op_bit_or), BuiltinGroup::Intrinsic),
-    (OP_XOR, OpXor, r"^\", r"^\[xs;ys+]", sig!(arity!(2..)), plain(op::op_xor), BuiltinGroup::Intrinsic),
     (OP_SHL, OpShl, "<<", "<<[xs;ys+]", sig!(arity!(2..)), plain(op::op_shl), BuiltinGroup::Intrinsic),
     (OP_SHR, OpShr, ">>", ">>[xs;ys+]", sig!(arity!(2..)), plain(op::op_shr), BuiltinGroup::Intrinsic),
 
@@ -1568,7 +1562,6 @@ mod tests {
             (BuiltinEnum::Where, "1"),
             (BuiltinEnum::Z, "1"),
             (BuiltinEnum::Apply, "2"),
-            (BuiltinEnum::A, "2"),
             (BuiltinEnum::Map, "2 3"),
             (BuiltinEnum::M, "2 3"),
             (BuiltinEnum::Fold, "2 3"),
@@ -1714,11 +1707,6 @@ mod tests {
             (BuiltinEnum::OpGte, "2.."),
             (BuiltinEnum::OpCat, "2.."),
             (BuiltinEnum::OpSharp, "1"),
-            (BuiltinEnum::OpBoolAnd, "2.."),
-            (BuiltinEnum::OpBoolOr, "2.."),
-            (BuiltinEnum::OpBitAnd, "2.."),
-            (BuiltinEnum::OpBitOr, "2.."),
-            (BuiltinEnum::OpXor, "2.."),
             (BuiltinEnum::OpShl, "2.."),
             (BuiltinEnum::OpShr, "2.."),
         ];
@@ -1796,8 +1784,8 @@ mod tests {
             ),
             (
                 Builtins::LIMIT,
-                BuiltinFnArgs::from(vec![Value::Int(1), Value::Int(2)]),
-                "expected 3 or more args, got 2",
+                BuiltinFnArgs::from(Value::Int(1)),
+                "expected 2 or more args, got 1",
             ),
             (
                 Builtins::FMT,
@@ -1821,9 +1809,13 @@ mod tests {
             ),
         ];
         for (id, args, expected_msg) in cases {
-            let err = builtins
-                .validate_runtime_call_args(id, &args)
-                .expect_err("promoted AtLeast builtin should reject too few args");
+            let err = match builtins.validate_runtime_call_args(id, &args) {
+                Ok(validated) => panic!(
+                    "{} should reject too few args, got Ok({validated})",
+                    Builtins::name_from_id(id).unwrap_or("<unknown builtin>")
+                ),
+                Err(err) => err,
+            };
             assert_eq!(err.msg.as_deref(), Some(expected_msg));
         }
 
@@ -1884,9 +1876,9 @@ mod tests {
         assert_eq!(err.src.as_deref(), Some("bfn 'reverse'"));
 
         let err = builtins
-            .validate_runtime_call_args(Builtins::A, &BuiltinFnArgs::new())
-            .expect_err("A with zero args should fail runtime validation");
-        assert_eq!(err.src.as_deref(), Some("bfn 'apply'"));
+            .validate_runtime_call_args(Builtins::M, &BuiltinFnArgs::new())
+            .expect_err("M with zero args should fail runtime validation");
+        assert_eq!(err.src.as_deref(), Some("bfn 'map'"));
     }
 
     #[test]

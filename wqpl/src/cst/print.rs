@@ -33,11 +33,9 @@ fn kind_color(kind: SyntaxKind) -> AnsiColor {
 
         // Operators
         Plus | Minus | Star | Slash | SlashDot | Percent | Power | PowerDot | Matmul | FloorDiv
-        | BoolAnd | BoolOr | BitAnd | BitOr | Shl | Shr | BitXor | PlusColon | MinusColon
-        | StarColon | SlashColon | SlashDotColon | PercentColon | PowerColon | PowerDotColon
-        | CommaColon | BoolAndColon | BoolOrColon | BitAndColon | BitOrColon | ShlColon
-        | ShrColon | BitXorColon | FloorDivColon | EqEq | EqDot | NotEq | NotEqDot | Lt | Le
-        | Gt | Ge => AnsiColor::Yellow,
+        | Shl | Shr | PlusColon | MinusColon | StarColon | SlashColon | SlashDotColon
+        | PercentColon | PowerColon | PowerDotColon | CommaColon | ShlColon | ShrColon
+        | FloorDivColon | EqEq | EqDot | NotEq | NotEqDot | Lt | Le | Gt | Ge => AnsiColor::Yellow,
 
         // Punctuation / brackets
         Colon | Hash | Pipe | PipeDot | PipePipe | PipePipeDot | RangeOp | RangeIncOp | LParen

@@ -10,6 +10,7 @@ mod higher_order;
 mod intrinsic_op;
 mod list;
 mod listgen;
+mod logical;
 mod math;
 mod meta;
 mod rand;
@@ -90,13 +91,13 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     intrinsic_op::OP_GTE,
     intrinsic_op::OP_CAT,
     intrinsic_op::OP_SHARP,
-    intrinsic_op::OP_BOOL_AND,
-    intrinsic_op::OP_BOOL_OR,
-    intrinsic_op::OP_BIT_AND,
-    intrinsic_op::OP_BIT_OR,
-    intrinsic_op::OP_XOR,
     intrinsic_op::OP_SHL,
     intrinsic_op::OP_SHR,
+    logical::AND,
+    logical::OR,
+    logical::XOR,
+    logical::BAND,
+    logical::BOR,
     higher_order::APPLY,
     higher_order::MAP,
     higher_order::FOLD,

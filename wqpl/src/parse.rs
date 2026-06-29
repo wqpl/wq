@@ -914,13 +914,8 @@ impl Parser {
             TokenType::PowerColon => Some(Some(BinaryOperator::Power)),
             TokenType::PowerDotColon => Some(Some(BinaryOperator::PowerDot)),
             TokenType::CommaColon => Some(Some(BinaryOperator::Cat)),
-            TokenType::BoolAndColon => Some(Some(BinaryOperator::BoolAnd)),
-            TokenType::BoolOrColon => Some(Some(BinaryOperator::BoolOr)),
-            TokenType::BitAndColon => Some(Some(BinaryOperator::BitAnd)),
-            TokenType::BitOrColon => Some(Some(BinaryOperator::BitOr)),
             TokenType::ShlColon => Some(Some(BinaryOperator::Shl)),
             TokenType::ShrColon => Some(Some(BinaryOperator::Shr)),
-            TokenType::BitXorColon => Some(Some(BinaryOperator::BitXor)),
             TokenType::FloorDivColon => Some(Some(BinaryOperator::FloorDiv)),
             _ => None,
         }
@@ -1436,54 +1431,6 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_bool_or(&mut self) -> WqResult<AstNode> {
-        let cp = self.cst_checkpoint();
-        let mut left = self.parse_bool_and()?;
-        while let Some(token) = self.current_token().cloned() {
-            let (op, op_tok) = match token.token_type {
-                TokenType::BoolOr => (BinaryOperator::BoolOr, token),
-                _ => break,
-            };
-            self.advance();
-            self.eat_rhs_trivia(&op_tok, "binary operator")?;
-            let right = self.parse_bool_and()?;
-            let span = Self::merge_spans(left.span(), right.span());
-            left = AstNode::BinaryOp {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right),
-                span,
-            };
-            self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
-            self.cst_finish_node();
-        }
-        Ok(left)
-    }
-
-    fn parse_bool_and(&mut self) -> WqResult<AstNode> {
-        let cp = self.cst_checkpoint();
-        let mut left = self.parse_comparison()?;
-        while let Some(token) = self.current_token().cloned() {
-            let (op, op_tok) = match token.token_type {
-                TokenType::BoolAnd => (BinaryOperator::BoolAnd, token),
-                _ => break,
-            };
-            self.advance();
-            self.eat_rhs_trivia(&op_tok, "binary operator")?;
-            let right = self.parse_comparison()?;
-            let span = Self::merge_spans(left.span(), right.span());
-            left = AstNode::BinaryOp {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right),
-                span,
-            };
-            self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
-            self.cst_finish_node();
-        }
-        Ok(left)
-    }
-
     fn parse_comma(&mut self) -> WqResult<AstNode> {
         let pending = self.cst_open();
         let mut items = Vec::new();
@@ -1492,10 +1439,10 @@ impl Parser {
         {
             if let Some(next) = self.peek_next_real_token() {
                 if Self::is_terminator(&next.token_type) {
-                    return self.parse_bool_or();
+                    return self.parse_comparison();
                 }
             } else {
-                return self.parse_bool_or();
+                return self.parse_comparison();
             }
 
             // Leading comma list: ,a,b,c -- produces a `List` AST. The CST
@@ -1514,7 +1461,7 @@ impl Parser {
                 }
                 self.advance();
                 self.eat_trivia(true, true);
-                let expr = self.parse_bool_or()?;
+                let expr = self.parse_comparison()?;
                 items.push(expr);
             }
             let span = self.span_from_byte_start(pending.byte_start);
@@ -1522,7 +1469,7 @@ impl Parser {
             self.cst_finish_node();
             return Ok(AstNode::List(items, span));
         }
-        let first = self.parse_bool_or()?;
+        let first = self.parse_comparison()?;
         let mut items = vec![first];
         while let Some(t) = self.current_token() {
             if t.token_type != TokenType::Comma {
@@ -1537,7 +1484,7 @@ impl Parser {
             }
             self.advance(); // eat ','
             self.eat_trivia(true, true);
-            let right = self.parse_bool_or()?;
+            let right = self.parse_comparison()?;
             items.push(right);
         }
         if items.len() == 1 {
@@ -1605,7 +1552,7 @@ impl Parser {
 
     fn parse_comparison(&mut self) -> WqResult<AstNode> {
         let pending = self.cst_open();
-        let first = self.parse_bitor()?;
+        let first = self.parse_shift()?;
         let mut rest: Vec<(BinaryOperator, AstNode)> = Vec::new();
         while let Some(token) = self.current_token().cloned() {
             let (op, op_tok) = match token.token_type {
@@ -1621,7 +1568,7 @@ impl Parser {
             };
             self.advance();
             self.eat_rhs_trivia(&op_tok, "comparison operator")?;
-            let right = self.parse_bitor()?;
+            let right = self.parse_shift()?;
             rest.push((op, right));
         }
         match rest.len() {
@@ -1649,78 +1596,6 @@ impl Parser {
                 })
             }
         }
-    }
-
-    fn parse_bitor(&mut self) -> WqResult<AstNode> {
-        let cp = self.cst_checkpoint();
-        let mut left = self.parse_bitxor()?;
-        while let Some(token) = self.current_token().cloned() {
-            let (op, op_tok) = match token.token_type {
-                TokenType::BitOr => (BinaryOperator::BitOr, token),
-                _ => break,
-            };
-            self.advance();
-            self.eat_rhs_trivia(&op_tok, "binary operator")?;
-            let right = self.parse_bitxor()?;
-            let span = Self::merge_spans(left.span(), right.span());
-            left = AstNode::BinaryOp {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right),
-                span,
-            };
-            self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
-            self.cst_finish_node();
-        }
-        Ok(left)
-    }
-
-    fn parse_bitxor(&mut self) -> WqResult<AstNode> {
-        let cp = self.cst_checkpoint();
-        let mut left = self.parse_bitand()?;
-        while let Some(token) = self.current_token().cloned() {
-            let (op, op_tok) = match token.token_type {
-                TokenType::BitXor => (BinaryOperator::BitXor, token),
-                _ => break,
-            };
-            self.advance();
-            self.eat_rhs_trivia(&op_tok, "binary operator")?;
-            let right = self.parse_bitand()?;
-            let span = Self::merge_spans(left.span(), right.span());
-            left = AstNode::BinaryOp {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right),
-                span,
-            };
-            self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
-            self.cst_finish_node();
-        }
-        Ok(left)
-    }
-
-    fn parse_bitand(&mut self) -> WqResult<AstNode> {
-        let cp = self.cst_checkpoint();
-        let mut left = self.parse_shift()?;
-        while let Some(token) = self.current_token().cloned() {
-            let (op, op_tok) = match token.token_type {
-                TokenType::BitAnd => (BinaryOperator::BitAnd, token),
-                _ => break,
-            };
-            self.advance();
-            self.eat_rhs_trivia(&op_tok, "binary operator")?;
-            let right = self.parse_shift()?;
-            let span = Self::merge_spans(left.span(), right.span());
-            left = AstNode::BinaryOp {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right),
-                span,
-            };
-            self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
-            self.cst_finish_node();
-        }
-        Ok(left)
     }
 
     fn parse_shift(&mut self) -> WqResult<AstNode> {
@@ -1972,6 +1847,49 @@ impl Parser {
         Ok((items, trailing))
     }
 
+    fn parse_lazy_bool_form(
+        &mut self,
+        keyword: &str,
+        operator: BinaryOperator,
+        header_start_byte: usize,
+        cp_outer: Option<Checkpoint>,
+    ) -> WqResult<AstNode> {
+        let cp_args = self.cst_checkpoint();
+        self.advance();
+        let (items, _) = self.parse_bracket_items()?;
+        self.cst_start_node_at(cp_args, SyntaxKind::ArgList);
+        self.cst_finish_node();
+        let end_token = self.tokens[self.current.saturating_sub(1)].clone();
+        let end_byte = end_token.byte_end;
+        if items.len() < 2 {
+            return Err(self.syntax_err(
+                &end_token,
+                format!("{keyword}[...] requires at least two expressions"),
+            ));
+        }
+
+        let item_count = items.len();
+        let mut iter = items.into_iter();
+        let mut acc = iter.next().expect("len checked above");
+        for (idx, right) in iter.enumerate() {
+            let span = if idx + 2 == item_count {
+                Some((header_start_byte, end_byte))
+            } else {
+                Self::merge_spans(acc.span(), right.span())
+            };
+            acc = AstNode::BinaryOp {
+                left: Box::new(acc),
+                operator,
+                right: Box::new(right),
+                span,
+            };
+        }
+
+        self.cst_start_node_at(cp_outer, SyntaxKind::PostfixExpr);
+        self.cst_finish_node();
+        Ok(acc)
+    }
+
     fn is_operator_node(expr: &AstNode) -> bool {
         let name_str = match expr {
             AstNode::Variable(name, _) => Some(name.as_str()),
@@ -1989,8 +1907,7 @@ impl Parser {
             name_str,
             Some("+" | "-" | "*" | "/" | "/." | "/%" | "%" |
                 "^" | "^." | "**" | "=" | "~" | "<" | "<=" |
-                ">" | ">=" | "<<" | ">>" | "," | "#" | "&|" |
-                r"\|" | "&" | r"\"
+                ">" | ">=" | "<<" | ">>" | "," | "#"
             )
         );
         res
@@ -2642,6 +2559,7 @@ impl Parser {
                 TokenType::Identifier(name) => {
                     let val = name.clone();
                     let span = (token.byte_start, token.byte_end);
+                    let postfix_cp = self.cst_checkpoint();
                     // Capture the byte position of the identifier itself so
                     // the W/N/B/S branches below have a byte-based span
                     // start without reaching back into `self.tokens` by
@@ -2671,6 +2589,20 @@ impl Parser {
                         } else if val == "B" {
                             self.advance();
                             return self.parse_block_expr(header_start_byte, header_start_idx);
+                        } else if val == "A" {
+                            return self.parse_lazy_bool_form(
+                                "A",
+                                BinaryOperator::BoolAnd,
+                                header_start_byte,
+                                postfix_cp,
+                            );
+                        } else if val == "O" {
+                            return self.parse_lazy_bool_form(
+                                "O",
+                                BinaryOperator::BoolOr,
+                                header_start_byte,
+                                postfix_cp,
+                            );
                         }
                     }
                     // Allow comments between S and '('; newline not allowed
@@ -2859,26 +2791,6 @@ impl Parser {
                     self.advance();
                     Ok(AstNode::Variable(",".into(), Some(span)))
                 }
-                TokenType::BoolAnd => {
-                    let span = (token.byte_start, token.byte_end);
-                    self.advance();
-                    Ok(AstNode::Variable("&|".into(), Some(span)))
-                }
-                TokenType::BoolOr => {
-                    let span = (token.byte_start, token.byte_end);
-                    self.advance();
-                    Ok(AstNode::Variable(r"\|".into(), Some(span)))
-                }
-                TokenType::BitAnd => {
-                    let span = (token.byte_start, token.byte_end);
-                    self.advance();
-                    Ok(AstNode::Variable("&".into(), Some(span)))
-                }
-                TokenType::BitOr => {
-                    let span = (token.byte_start, token.byte_end);
-                    self.advance();
-                    Ok(AstNode::Variable(r"\".into(), Some(span)))
-                }
                 TokenType::Shl => {
                     let span = (token.byte_start, token.byte_end);
                     self.advance();
@@ -2888,11 +2800,6 @@ impl Parser {
                     let span = (token.byte_start, token.byte_end);
                     self.advance();
                     Ok(AstNode::Variable(">>".into(), Some(span)))
-                }
-                TokenType::BitXor => {
-                    let span = (token.byte_start, token.byte_end);
-                    self.advance();
-                    Ok(AstNode::Variable(r"^\".into(), Some(span)))
                 }
                 TokenType::FloorDiv => {
                     let span = (token.byte_start, token.byte_end);
@@ -4667,7 +4574,7 @@ mod err_span_tests {
 
     #[test]
     fn syntax_error_span_is_exact_token() {
-        let ast = parse_input("[ b ]").unwrap();
+        let ast = parse_input("1+").unwrap();
         let stmts = match ast {
             AstNode::Block(s, _) => s,
             other => vec![other],
@@ -4678,11 +4585,11 @@ mod err_span_tests {
         };
         assert_eq!(
             *span,
-            Some((0, 1)),
-            "LeftBracket span should be exactly [0,1), got {:?}",
+            Some((1, 2)),
+            "Plus span should be exactly [1,2), got {:?}",
             span
         );
-        assert_eq!(err.span, Some((0, 1)));
+        assert_eq!(err.span, Some((1, 2)));
     }
 
     #[test]
@@ -4708,7 +4615,7 @@ mod err_span_tests {
 
     #[test]
     fn multi_line_error_span_is_exact() {
-        let ast = parse_input("{ a }\n[ b ]").unwrap();
+        let ast = parse_input("{ a }\n1+").unwrap();
         let stmts = match ast {
             AstNode::Block(s, _) => s,
             other => vec![other],
@@ -4717,14 +4624,14 @@ mod err_span_tests {
         let AstNode::Error(err, span) = &stmts[1] else {
             panic!("expected second stmt to be Error");
         };
-        // '[ b ]' starts at byte 6 (after "{ a }\n"); '[' is 6..7
+        // '+' starts at byte 7 after "{ a }\n1".
         assert_eq!(
             *span,
-            Some((6, 7)),
-            "span should be exactly the '[' on line 2, got {:?}",
+            Some((7, 8)),
+            "span should be exactly the '+' on line 2, got {:?}",
             span
         );
-        assert_eq!(err.span, Some((6, 7)));
+        assert_eq!(err.span, Some((7, 8)));
     }
 
     // #[test]

@@ -148,7 +148,7 @@ print_table:{[str_;expr;vars]
     i:_n
     vals:alloc n
     N[n
-      vals _n:shr[i;n-1-_n]&1|bool
+      vals _n:band[shr[i;n-1-_n];1]|bool
       print @f"| {$[vals _n;1;0]} "]
     res:evaluate[expr;vals;vars]
     echo @f"| {$[res;1;0]} |"]}

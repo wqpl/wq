@@ -135,36 +135,6 @@ const OP_SHARP_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("3"),
 }];
 
-const OP_BOOL_AND_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Fold boolean and",
-    code: "&|[T;F;T]",
-    expectation: ExampleExpectation::ResultContains("F"),
-}];
-
-const OP_BOOL_OR_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Fold boolean or",
-    code: r"\|[F;F;T]",
-    expectation: ExampleExpectation::ResultContains("T"),
-}];
-
-const OP_BIT_AND_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Apply bitwise and",
-    code: "&[6;3]",
-    expectation: ExampleExpectation::ResultContains("2"),
-}];
-
-const OP_BIT_OR_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Apply bitwise or",
-    code: r"\[4;1]",
-    expectation: ExampleExpectation::ResultContains("5"),
-}];
-
-const OP_XOR_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Apply bitwise xor",
-    code: r"^\[5;3]",
-    expectation: ExampleExpectation::ResultContains("6"),
-}];
-
 const OP_SHL_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Shift bits left",
     code: "<<[3;2]",
@@ -335,46 +305,6 @@ pub(super) const OP_SHARP: BuiltinDoc = BuiltinDoc {
     details: "`#[x]` returns the same length/count result as unary `#x` and `len[x]`, counting the outer length of containers.",
     examples: OP_SHARP_EXAMPLES,
     related: &["len", "shape"],
-};
-
-pub(super) const OP_BOOL_AND: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::OpBoolAnd,
-    summary: "Combine bools with the `&|` operator.",
-    details: "`&|[xs;ys+]` folds boolean and over bool values. Infix `&|` short-circuits expression evaluation; the callable builtin form receives already evaluated arguments.",
-    examples: OP_BOOL_AND_EXAMPLES,
-    related: &[r"\|", "and", "all"],
-};
-
-pub(super) const OP_BOOL_OR: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::OpBoolOr,
-    summary: r"Combine bools with the `\|` operator.",
-    details: r"`\|[xs;ys+]` folds boolean or over bool values. Infix `\|` short-circuits expression evaluation; the callable builtin form receives already evaluated arguments.",
-    examples: OP_BOOL_OR_EXAMPLES,
-    related: &["&|", "or", "any"],
-};
-
-pub(super) const OP_BIT_AND: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::OpBitAnd,
-    summary: "Apply bitwise and with the `&` operator.",
-    details: "`&[xs;ys+]` folds bitwise and over integers and integer lists. It is distinct from boolean `&|`.",
-    examples: OP_BIT_AND_EXAMPLES,
-    related: &[r"\", r"^\", "band"],
-};
-
-pub(super) const OP_BIT_OR: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::OpBitOr,
-    summary: r"Apply bitwise or with the `\` operator.",
-    details: r"`\[xs;ys+]` folds bitwise or over integers and integer lists. It is distinct from boolean `\|`.",
-    examples: OP_BIT_OR_EXAMPLES,
-    related: &["&", r"^\", "bor"],
-};
-
-pub(super) const OP_XOR: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::OpXor,
-    summary: r"Apply bitwise xor with the `^\` operator.",
-    details: r"`^\[xs;ys+]` folds bitwise xor over integers, integer lists, and bool pairs.",
-    examples: OP_XOR_EXAMPLES,
-    related: &["&", r"\", "xor"],
 };
 
 pub(super) const OP_SHL: BuiltinDoc = BuiltinDoc {

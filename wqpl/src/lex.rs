@@ -1238,18 +1238,6 @@ impl<'a> Lexer<'a> {
                             self.advance();
                             return emit(TokenType::PowerDot, self.byte_pos);
                         }
-                    } else if nxt == Some('\\') {
-                        let n2 = self.peek2();
-                        if n2 == Some(':') {
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::BitXorColon, self.byte_pos);
-                        } else {
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::BitXor, self.byte_pos);
-                        }
                     } else if nxt == Some(':') {
                         self.advance();
                         self.advance();
@@ -1281,50 +1269,6 @@ impl<'a> Lexer<'a> {
                     } else {
                         self.advance();
                         return emit(TokenType::NotEqual, self.byte_pos);
-                    }
-                }
-                Some('&') => {
-                    if nxt == Some('|') {
-                        let n2 = self.peek2();
-                        if n2 == Some(':') {
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::BoolAndColon, self.byte_pos);
-                        } else {
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::BoolAnd, self.byte_pos);
-                        }
-                    } else if nxt == Some(':') {
-                        self.advance();
-                        self.advance();
-                        return emit(TokenType::BitAndColon, self.byte_pos);
-                    } else {
-                        self.advance();
-                        return emit(TokenType::BitAnd, self.byte_pos);
-                    }
-                }
-                Some('\\') => {
-                    if nxt == Some('|') {
-                        let n2 = self.peek2();
-                        if n2 == Some(':') {
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::BoolOrColon, self.byte_pos);
-                        } else {
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::BoolOr, self.byte_pos);
-                        }
-                    } else if nxt == Some(':') {
-                        self.advance();
-                        self.advance();
-                        return emit(TokenType::BitOrColon, self.byte_pos);
-                    } else {
-                        self.advance();
-                        return emit(TokenType::BitOr, self.byte_pos);
                     }
                 }
                 Some('#') => {
@@ -1582,11 +1526,10 @@ mod tests {
     }
 
     #[test]
-    fn test_tokenize_power_and_bitxor() {
-        let mut lexer = Lexer::new("^. ^\\");
+    fn test_tokenize_power_dot() {
+        let mut lexer = Lexer::new("^.");
         let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens[0].token_type, TokenType::PowerDot);
-        assert_eq!(tokens[1].token_type, TokenType::BitXor);
     }
 
     #[test]

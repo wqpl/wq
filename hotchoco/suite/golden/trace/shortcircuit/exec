@@ -1,10 +1,10 @@
 F
 [<TEST_PATH>
-@d ((a<0)&|(10/b)) = F (bool)
+@d A[a<0;10/b] = F (bool)
 └─ a<0 = F (bool)
    └─ a = 1 (int)
 [<TEST_PATH>
-@d ((a>0)&|(b<0)) = F (bool)
+@d A[a>0;b<0] = F (bool)
 ├─ a>0 = T (bool)
 │  └─ a = 5 (int)
 └─ b<0 = F (bool)

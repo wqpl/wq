@@ -17,13 +17,13 @@ lex:{[s]
         i+:1]
       is_alpha c
       [j:i
-        W[(j<n)&|(is_id_char s j)
+        W[[j<n;is_id_char s j]
           j+:1]
         tokens,:,(`id;s i..j)
         i:j]
       is_digit c
       [j:i
-        W[(j<n)&|(is_digit s j)
+        W[[j<n;is_digit s j]
           j+:1]
         tokens,:,(`int;s i..j)
         i:j]
@@ -44,3 +44,7 @@ echo lex "helloWorld"
 
 echo "--- Test 5: deny 1k ---"
 echo lex "1k"
+
+
+=== VALIDATION ERRORS ===
+STABILISATION FAILED: re-formatting produced different output

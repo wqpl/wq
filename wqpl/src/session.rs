@@ -922,7 +922,7 @@ mod tests {
     fn discarded_apply_preserves_callback_side_effects() {
         let mut session = Session::new();
         let result = session
-            .eval_string("f:{n:0;A[({[x]'n+:x};{[x]'n+:x*2});3];n};f[]")
+            .eval_string("f:{n:0;apply[({[x]'n+:x};{[x]'n+:x*2});3];n};f[]")
             .expect("discarded apply should eval");
 
         assert_eq!(result, Value::Int(9));
@@ -1299,8 +1299,8 @@ mod tests {
         let terms = std::iter::once("true")
             .chain(std::iter::repeat_n("missing", 512))
             .collect::<Vec<_>>()
-            .join(r"\|");
-        let code = format!("c:{terms}");
+            .join(";");
+        let code = format!("c:O[{terms}]");
         let mut session = Session::new();
 
         let result = session

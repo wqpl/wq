@@ -717,13 +717,8 @@ impl Highlighter {
             | TokenType::PowerColon
             | TokenType::PowerDotColon
             | TokenType::CommaColon
-            | TokenType::BoolAndColon
-            | TokenType::BoolOrColon
-            | TokenType::BitAndColon
-            | TokenType::BitOrColon
             | TokenType::ShlColon
             | TokenType::ShrColon
-            | TokenType::BitXorColon
             | TokenType::FloorDivColon
             | TokenType::Plus
             | TokenType::Minus
@@ -734,13 +729,8 @@ impl Highlighter {
             | TokenType::DivideDot
             | TokenType::Modulo
             | TokenType::Matmul
-            | TokenType::BoolAnd
-            | TokenType::BoolOr
-            | TokenType::BitAnd
-            | TokenType::BitOr
             | TokenType::Shl
             | TokenType::Shr
-            | TokenType::BitXor
             | TokenType::FloorDiv
             | TokenType::Equal
             | TokenType::EqualDot

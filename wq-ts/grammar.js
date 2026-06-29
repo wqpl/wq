@@ -2,19 +2,14 @@ const PREC = {
   ASSIGN: 1,
   PIPE: 2,
   COMMA: 3,
-  BOOL_OR: 4,
-  BOOL_AND: 5,
-  COMPARE: 6,
-  BIT_OR: 7,
-  BIT_XOR: 8,
-  BIT_AND: 9,
-  SHIFT: 10,
-  ADD: 11,
-  MULTIPLY: 12,
-  RANGE: 13,
-  UNARY: 14,
-  POWER: 15,
-  POSTFIX: 16,
+  COMPARE: 4,
+  SHIFT: 5,
+  ADD: 6,
+  MULTIPLY: 7,
+  RANGE: 8,
+  UNARY: 9,
+  POWER: 10,
+  POSTFIX: 11,
 };
 
 const IDENT_START = /[\p{ID_Start}_]/u;
@@ -108,13 +103,8 @@ export default grammar({
         "^:",
         "^.:",
         ",:",
-        "&|:",
-        "\\|:",
-        "&:",
-        "\\:",
         "<<:",
         ">>:",
-        "^\\:",
         "/%:",
       ),
 
@@ -165,46 +155,36 @@ export default grammar({
         prec.left(
           PREC.COMMA,
           seq(
-            $.bool_or_expr,
-            repeat1(seq(",", continuation($, $.bool_or_expr))),
+            $.comparison_expr,
+            repeat1(seq(",", continuation($, $.comparison_expr))),
           ),
         ),
         prec(
           PREC.COMMA,
-          repeat1(seq(",", continuation($, $.bool_or_expr))),
+          repeat1(seq(",", continuation($, $.comparison_expr))),
         ),
-        $.bool_or_expr,
+        $.comparison_expr,
       ),
-
-    bool_or_expr: ($) => binary($, $.bool_and_expr, PREC.BOOL_OR, "\\|"),
-
-    bool_and_expr: ($) => binary($, $.comparison_expr, PREC.BOOL_AND, "&|"),
 
     comparison_expr: ($) =>
       choice(
         prec.left(
           PREC.COMPARE,
           seq(
-            $.bit_or_expr,
+            $.shift_expr,
             repeat1(
               seq(
                 field("operator", $.comparison_operator),
-                continuation($, $.bit_or_expr),
+                continuation($, $.shift_expr),
               ),
             ),
           ),
         ),
-        $.bit_or_expr,
+        $.shift_expr,
       ),
 
     comparison_operator: (_) =>
       choice("=.", "=", "~.", "~", "<=", "<", ">=", ">"),
-
-    bit_or_expr: ($) => binary($, $.bit_xor_expr, PREC.BIT_OR, "\\"),
-
-    bit_xor_expr: ($) => binary($, $.bit_and_expr, PREC.BIT_XOR, "^\\"),
-
-    bit_and_expr: ($) => binary($, $.shift_expr, PREC.BIT_AND, "&"),
 
     shift_expr: ($) =>
       binary($, $.additive_expr, PREC.SHIFT, choice("<<", ">>")),
@@ -322,6 +302,7 @@ export default grammar({
         $.conditional,
         $.conditional_dot,
         $.conditional_chain,
+        $.lazy_bool_form,
         $.w_loop,
         $.n_loop,
         $.block_form,
@@ -372,6 +353,7 @@ export default grammar({
         $.conditional,
         $.conditional_dot,
         $.conditional_chain,
+        $.lazy_bool_form,
         $.w_loop,
         $.n_loop,
         $.block_form,
@@ -427,12 +409,9 @@ export default grammar({
         ">>",
         ",",
         "#",
-        "&|",
-        "\\|",
-        "&",
-        "\\",
-        "^\\",
       ),
+
+    lazy_bool_form: ($) => prec.dynamic(1, seq(choice("A", "O"), $.arg_list)),
 
     function_literal: ($) =>
       seq(optional("'"), "{", optional($.param_list), optional($.block), "}"),

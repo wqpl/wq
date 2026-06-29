@@ -21,7 +21,7 @@
 (outer_variable (identifier) @variable.outer)
 
 ;; control flow
-["$" "$." "$$" "W" "N" "B"] @keyword
+["$" "$." "$$" "W" "N" "B" "A" "O"] @keyword
 
 (return_form) @keyword.return
 (break_form) @keyword
@@ -43,13 +43,8 @@
  "^:"
  "^.:"
  ",:"
- "&|:"
- "\\|:"
- "&:"
- "\\:"
  "<<:"
  ">>:"
- "^\\:"
  "/%:"
  "+"
  "-"
@@ -72,11 +67,6 @@
  "<<"
  ">>"
  "#"
- "&|"
- "\\|"
- "&"
- "\\"
- "^\\"
  ".."
  "..="] @operator
 
