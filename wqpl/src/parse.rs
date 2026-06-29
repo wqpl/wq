@@ -3349,11 +3349,7 @@ impl Parser {
 
                 let inner_start = i + c.len_utf8();
                 let inner = &spec_str[inner_start..j];
-                let mut lex = Lexer::new(inner);
-                let tokens = lex.tokenize()?;
-                let mut p2 = Parser::new(tokens, inner.to_string());
-                let mut node = p2.parse()?;
-                Self::offset_spans(&mut node, base_offset + inner_start);
+                let node = self.parse_fstring_nested_expr(inner, base_offset + inner_start)?;
                 exprs.push(node);
 
                 result.push_str("{}");
@@ -3365,6 +3361,241 @@ impl Parser {
         }
 
         Ok((result, exprs))
+    }
+
+    fn lex_fstring_nested_expr(&self, source: &str, offset: usize) -> WqResult<Vec<Token>> {
+        let mut lexer = Lexer::new(source).with_ctx(
+            self.fstring_source_ctx(),
+            self.fstring_source_offset(offset),
+        );
+        if let Some(path) = &self.source_path {
+            lexer.set_source_path(path.clone());
+        }
+        lexer.tokenize()
+    }
+
+    fn parse_fstring_nested_expr(&self, source: &str, offset: usize) -> WqResult<AstNode> {
+        let tokens = self.lex_fstring_nested_expr(source, offset)?;
+        let mut parser =
+            Parser::new_with_builtins(tokens, source.to_string(), self.builtins.clone());
+        if let Some(path) = &self.source_path {
+            parser.set_source_path(path.clone());
+        }
+        let mut node = parser
+            .parse()
+            .map_err(|err| self.recontextualize_fstring_error(err, offset))?;
+        Self::offset_spans(&mut node, offset);
+        self.recontextualize_fstring_error_nodes(&mut node);
+        Ok(node)
+    }
+
+    fn recontextualize_fstring_error(&self, mut err: WqError, offset: usize) -> WqError {
+        let offset = self.fstring_source_offset(offset);
+        if let Some((start, end)) = &mut err.span {
+            *start += offset;
+            *end += offset;
+        }
+        self.attach_fstring_source_ctx(&mut err);
+        err
+    }
+
+    fn fstring_source_ctx(&self) -> &str {
+        self.global_source.as_deref().unwrap_or(&self.source)
+    }
+
+    fn fstring_source_offset(&self, offset: usize) -> usize {
+        if self.global_source.is_some() {
+            self.base_offset + offset
+        } else {
+            offset
+        }
+    }
+
+    fn attach_fstring_source_ctx(&self, err: &mut WqError) {
+        let path = self.source_path.as_deref().unwrap_or("?").to_string();
+        err.source_ctx = Some(Box::new(crate::wqerror::SourceCtx {
+            text: self.fstring_source_ctx().to_string(),
+            path,
+        }));
+    }
+
+    fn recontextualize_fstring_error_node(&self, err: &mut WqError, span: &mut AstSpan) {
+        if self.global_source.is_some() {
+            if let Some((start, end)) = span {
+                *start += self.base_offset;
+                *end += self.base_offset;
+            }
+            if let Some((start, end)) = &mut err.span {
+                *start += self.base_offset;
+                *end += self.base_offset;
+            }
+        }
+        self.attach_fstring_source_ctx(err);
+    }
+
+    fn recontextualize_fstring_error_nodes(&self, node: &mut AstNode) {
+        match node {
+            AstNode::Error(err, span) => self.recontextualize_fstring_error_node(err, span),
+            AstNode::Literal(_, _)
+            | AstNode::Variable(_, _)
+            | AstNode::OuterVariable(_, _)
+            | AstNode::PipeInput
+            | AstNode::Ellipsis(_)
+            | AstNode::Break(_)
+            | AstNode::Continue(_) => {}
+            AstNode::NamedArg { value, .. }
+            | AstNode::Assignment { value, .. }
+            | AstNode::OuterAssignment { value, .. }
+            | AstNode::Assert { expr: value, .. }
+            | AstNode::Debug { expr: value, .. }
+            | AstNode::Try(value, _) => {
+                self.recontextualize_fstring_error_nodes(value);
+            }
+            AstNode::Pause { expr, .. } | AstNode::Return(expr, _) => {
+                if let Some(expr) = expr {
+                    self.recontextualize_fstring_error_nodes(expr);
+                }
+            }
+            AstNode::UnpackAssignment { lhs, rhs, .. } => {
+                for node in lhs {
+                    self.recontextualize_fstring_error_nodes(node);
+                }
+                self.recontextualize_fstring_error_nodes(rhs);
+            }
+            AstNode::Postfix { object, items, .. } => {
+                self.recontextualize_fstring_error_nodes(object);
+                for item in items {
+                    self.recontextualize_fstring_error_nodes(item);
+                }
+            }
+            AstNode::Pipe { input, effect, .. } | AstNode::PipeTap { input, effect, .. } => {
+                self.recontextualize_fstring_error_nodes(input);
+                self.recontextualize_fstring_error_nodes(effect);
+            }
+            AstNode::CallName { args, .. } => {
+                for arg in args {
+                    self.recontextualize_fstring_error_nodes(arg);
+                }
+            }
+            AstNode::CallAnonymous { object, args, .. } => {
+                self.recontextualize_fstring_error_nodes(object);
+                for arg in args {
+                    self.recontextualize_fstring_error_nodes(arg);
+                }
+            }
+            AstNode::Index { object, index, .. } | AstNode::MutatingIndex { object, index, .. } => {
+                self.recontextualize_fstring_error_nodes(object);
+                self.recontextualize_fstring_error_nodes(index);
+            }
+            AstNode::IndexAssign {
+                object,
+                index,
+                value,
+                ..
+            }
+            | AstNode::MutatingIndexAssign {
+                object,
+                index,
+                value,
+                ..
+            } => {
+                self.recontextualize_fstring_error_nodes(object);
+                self.recontextualize_fstring_error_nodes(index);
+                self.recontextualize_fstring_error_nodes(value);
+            }
+            AstNode::Function { body, .. } => {
+                self.recontextualize_fstring_error_nodes(body);
+            }
+            AstNode::BinaryOp { left, right, .. } => {
+                self.recontextualize_fstring_error_nodes(left);
+                self.recontextualize_fstring_error_nodes(right);
+            }
+            AstNode::UnaryOp { operand, .. } | AstNode::Group { expr: operand, .. } => {
+                self.recontextualize_fstring_error_nodes(operand);
+            }
+            AstNode::ComparisonChain { first, rest, .. } => {
+                self.recontextualize_fstring_error_nodes(first);
+                for (_, node) in rest {
+                    self.recontextualize_fstring_error_nodes(node);
+                }
+            }
+            AstNode::Range {
+                start, end, step, ..
+            } => {
+                self.recontextualize_fstring_error_nodes(start);
+                self.recontextualize_fstring_error_nodes(end);
+                if let Some(step) = step {
+                    self.recontextualize_fstring_error_nodes(step);
+                }
+            }
+            AstNode::Conditional {
+                condition,
+                true_branch,
+                false_branch,
+                ..
+            } => {
+                self.recontextualize_fstring_error_nodes(condition);
+                self.recontextualize_fstring_error_nodes(true_branch);
+                if let Some(false_branch) = false_branch {
+                    self.recontextualize_fstring_error_nodes(false_branch);
+                }
+            }
+            AstNode::ConditionalDot {
+                condition,
+                true_branch,
+                ..
+            } => {
+                self.recontextualize_fstring_error_nodes(condition);
+                self.recontextualize_fstring_error_nodes(true_branch);
+            }
+            AstNode::ConditionalChain {
+                pairs,
+                default_branch,
+                ..
+            } => {
+                for (condition, branch) in pairs {
+                    self.recontextualize_fstring_error_nodes(condition);
+                    self.recontextualize_fstring_error_nodes(branch);
+                }
+                self.recontextualize_fstring_error_nodes(default_branch);
+            }
+            AstNode::WLoop {
+                condition, body, ..
+            } => {
+                self.recontextualize_fstring_error_nodes(condition);
+                self.recontextualize_fstring_error_nodes(body);
+            }
+            AstNode::NLoop { count, body, .. } => {
+                self.recontextualize_fstring_error_nodes(count);
+                self.recontextualize_fstring_error_nodes(body);
+            }
+            AstNode::Cat(items, _)
+            | AstNode::List(items, _)
+            | AstNode::Block(items, _)
+            | AstNode::BlockExpr(items, _) => {
+                for item in items {
+                    self.recontextualize_fstring_error_nodes(item);
+                }
+            }
+            AstNode::Dict(pairs, _) => {
+                for (_, value) in pairs {
+                    self.recontextualize_fstring_error_nodes(value);
+                }
+            }
+            AstNode::FString { parts, .. } => {
+                for part in parts {
+                    if let crate::astnode::FStringPart::Expr {
+                        expr, spec_exprs, ..
+                    } = part
+                    {
+                        self.recontextualize_fstring_error_nodes(expr);
+                        for spec_expr in spec_exprs {
+                            self.recontextualize_fstring_error_nodes(spec_expr);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn build_fstring_ast_from_parts(
@@ -3391,12 +3622,8 @@ impl Parser {
                     let split = Self::split_expr_and_format_spec(inner)?;
                     let expr_str = split.expr;
 
-                    let mut lex = Lexer::new(expr_str);
-                    let tokens = lex.tokenize()?;
-                    let mut p2 = Parser::new(tokens, expr_str.to_string());
-                    let mut node = p2.parse()?;
                     let offset = start + 1 + split.expr_offset;
-                    Self::offset_spans(&mut node, offset);
+                    let node = self.parse_fstring_nested_expr(expr_str, offset)?;
 
                     let (spec, encoded_spec, spec_exprs) = if let Some(spec_str) = split.spec {
                         let spec_offset = start + 1 + split.spec_offset.expect("spec offset");
@@ -4147,6 +4374,62 @@ mod fstring_span_tests {
             Some((11, 12)),
             "span should point to 'x' in original source"
         );
+    }
+
+    #[test]
+    fn fstring_expr_parse_error_renders_against_original_source() {
+        let src = "@f\"{123!x}\"";
+        let mut lex = Lexer::new(src);
+        let tokens = lex.tokenize().unwrap();
+        let mut p = Parser::new(tokens, src.to_string());
+        let ast = p.parse().unwrap();
+
+        let AstNode::FString { parts, .. } = ast else {
+            panic!("expected FString, got {ast:?}");
+        };
+        let expr = match &parts[0] {
+            crate::astnode::FStringPart::Expr { expr, .. } => expr,
+            other => panic!("expected Expr part, got {other:?}"),
+        };
+        let AstNode::Block(items, _) = expr else {
+            panic!("expected Block with nested parse error, got {expr:?}");
+        };
+        let AstNode::Error(err, span) = &items[1] else {
+            panic!("expected nested Error, got {:?}", items[1]);
+        };
+
+        assert_eq!(*span, Some((7, 8)));
+        assert_eq!(err.span, Some((7, 8)));
+        assert_eq!(
+            err.source_ctx.as_ref().map(|ctx| ctx.text.as_str()),
+            Some(src)
+        );
+        let rendered = err.render_with_color_mode(crate::style::ColorMode::Never);
+        assert!(rendered.contains("unexpected token: Bang"));
+        assert!(rendered.contains("1 -> @f\"{123!x}\""));
+    }
+
+    #[test]
+    fn fstring_expr_lexer_error_renders_against_original_source() {
+        let src = "@f\"{?}\"";
+        let mut lex = Lexer::new(src);
+        let tokens = lex.tokenize().unwrap();
+        let mut p = Parser::new(tokens, src.to_string());
+        let ast = p.parse().unwrap();
+
+        let AstNode::Error(err, span) = ast else {
+            panic!("expected Error, got {ast:?}");
+        };
+
+        assert_eq!(span, Some((4, 5)));
+        assert_eq!(err.span, Some((4, 5)));
+        assert_eq!(
+            err.source_ctx.as_ref().map(|ctx| ctx.text.as_str()),
+            Some(src)
+        );
+        let rendered = err.render_with_color_mode(crate::style::ColorMode::Never);
+        assert!(rendered.contains("unrecognized character"));
+        assert!(rendered.contains("1 -> @f\"{?}\""));
     }
 
     #[test]
