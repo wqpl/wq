@@ -142,6 +142,11 @@ const RANGE_EXAMPLES: &[DocExample] = &[
         expectation: ExampleExpectation::ResultContains("(0;2;4;6;8;10)"),
     },
     DocExample {
+        title: "Char range",
+        code: "\"a\"..=\"d\"",
+        expectation: ExampleExpectation::ResultContains("\"abcd\""),
+    },
+    DocExample {
         title: "Slice with a range",
         code: "xs:(10;20;30;40);xs[1..3]",
         expectation: ExampleExpectation::ResultContains("(20;30)"),
@@ -434,8 +439,8 @@ pub(super) const RANGES: StaticDoc = StaticDoc {
     kind: DocKind::Syntax,
     group: "Syntax",
     aliases: &["range", "ranges", "slice", "slices", "..", "..="],
-    summary: "Build integer ranges for lists, loops, and slices.",
-    details: "`a..b` builds a half-open range that stops before `b`; `a..=b` includes the end. Use `a..next..b` or `a..next..=b` when you want a stride, as in `0..2..10` or `0..2..=10`. Ranges are ordinary values, but they are most often used as indexes and slices, such as `xs[1..3]`.",
+    summary: "Build ranges for lists, loops, strings, and slices.",
+    details: "`a..b` builds a half-open range that stops before `b`; `a..=b` includes the end. Use `a..next..b` or `a..next..=b` when you want a stride, as in `0..2..10` or `0..2..=10`. Numeric ranges produce lists of numbers. Char ranges return strings in Unicode scalar order, so `\"a\"..=\"d\"` is `\"abcd\"`. Ranges are ordinary values, but they are most often used as indexes and slices, such as `xs[1..3]`.",
     examples: RANGE_EXAMPLES,
     related: &["lists", "calls", "index-mutation", "precedence"],
 };

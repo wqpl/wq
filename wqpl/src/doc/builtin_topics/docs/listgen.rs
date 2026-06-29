@@ -19,11 +19,18 @@ const IOTA_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("(((0;0);(0;1));((1;0);(1;1)))"),
 }];
 
-const RANGE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Generate a stepped integer range",
-    code: "range[1;10;2]",
-    expectation: ExampleExpectation::ResultContains("(1;3;5;7;9)"),
-}];
+const RANGE_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Generate a stepped integer range",
+        code: "range[1;10;2]",
+        expectation: ExampleExpectation::ResultContains("(1;3;5;7;9)"),
+    },
+    DocExample {
+        title: "Generate a stepped char range",
+        code: "range[\"a\";\"h\";2]",
+        expectation: ExampleExpectation::ResultContains("\"aceg\""),
+    },
+];
 
 const RESHAPE_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Cycle flattened values into a new shape",
@@ -75,8 +82,8 @@ pub(super) const IOTA: BuiltinDoc = BuiltinDoc {
 
 pub(super) const RANGE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Range,
-    summary: "Generate a numeric half-open range.",
-    details: "`range[start;end]` returns the same half-open range as `start..end`, inferring a positive or negative step from the bounds. `range[start;end;step]` uses an explicit step and errors when the step is zero or points away from the end. Integer ranges stay compact internally as `list<int>` values.",
+    summary: "Generate a half-open range.",
+    details: "`range[start;end]` returns the same half-open range as `start..end`, inferring a positive or negative step from the bounds. `range[start;end;step]` uses an explicit step and errors when the step is zero or points away from the end. Integer ranges stay compact internally as `list<int>` values. Char ranges return strings and use Unicode scalar order.",
     examples: RANGE_EXAMPLES,
     related: &["ranges", "til", "iota"],
 };

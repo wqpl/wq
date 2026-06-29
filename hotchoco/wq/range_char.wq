@@ -1,0 +1,6 @@
+echo "a".."d"
+echo "a"..="d"
+echo "d".."a"
+echo "a".."c".."h"
+echo range["a";"h";2]
+echo "\u{3041}"..="\u{3043}"
