@@ -47,18 +47,33 @@ function playgroundExampleCardHtml(example, index) {
       <span class="playground-template-desc"
         >${escapeHtml(example.description)}</span
       >
-      <code class="playground-template-code">${escapeHtml(example.sourcePath)}</code>
+      <code class="playground-template-code"
+        >${escapeHtml(example.sourcePath)}</code
+      >
     </button>
   `;
 }
 
 const ROUTE_ORDER = ["featured", "playground", "viz", "repl", "more"];
+const THEME_STORAGE_KEY = "wqide:theme";
+const THEME_MIDNIGHT = "midnight";
+const THEME_LIGHT = "light";
 const SHELL_HTML = html`
   <header class="topbar">
     <div class="topbar-row">
       <div class="brand">wqide</div>
       <div class="pillbar" aria-label="Quick toggles">
-        <div class="pills" role="list"></div>
+        <div class="pills" role="list">
+          <button
+            class="pill inactive theme-toggle"
+            data-theme-toggle
+            type="button"
+            aria-label="Toggle midnight mode"
+            aria-pressed="false"
+            title="Switch to midnight mode">
+            theme
+          </button>
+        </div>
       </div>
     </div>
     <nav class="tabs" role="tablist" aria-label="Sections">
@@ -122,7 +137,10 @@ const FEATURED_HTML = html`
       </div>
     </section>
 
-    <div class="featured-search-results grid" data-featured-search-results hidden></div>
+    <div
+      class="featured-search-results grid"
+      data-featured-search-results
+      hidden></div>
     <div class="featured-default" data-featured-default>
       ${FEATURED_SECTION_CARDS.map(featuredDefaultCardHtml).join("")}
     </div>
@@ -142,180 +160,180 @@ const PLAYGROUND_HTML = html`
       <div class="playground-main">
         <div class="editor" role="region" aria-label="Playground code editor">
           <div class="toolbar">
-          <div class="toolbar-main">
-            <div class="toolbar-left">
-              <button id="runBtn" class="btn primary" type="button">
-                Exec
-              </button>
-              <span class="mini">Shift-Enter: exec</span>
-            </div>
-            <div class="toolbar-center">
-              <div
-                class="pills"
-                role="list"
-                aria-label="Playground runtime controls">
-                <div class="runtime-control" data-runtime-menu>
-                  <button
-                    id="playgroundBoxBtn"
-                    class="pill inactive"
-                    type="button"
-                    aria-expanded="false"
-                    aria-controls="playgroundBoxPanel">
-                    box
-                  </button>
-                  <div id="playgroundBoxPanel" class="runtime-panel">
-                    <div class="runtime-panel-head">
-                      <span class="mini">box</span>
-                    </div>
-                    <div class="pills" role="list">
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-box-flag="box">
-                        box
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-box-flag="axis">
-                        axis
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-box-flag="color">
-                        color
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-box-flag="xray">
-                        xray
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <button
-                  id="playgroundTimeBtn"
-                  class="pill inactive"
-                  type="button">
-                  time
+            <div class="toolbar-main">
+              <div class="toolbar-left">
+                <button id="runBtn" class="btn primary" type="button">
+                  Exec
                 </button>
-                <div class="runtime-control debug-controls" data-runtime-menu>
-                  <button
-                    id="playgroundDebugToggle"
-                    class="pill inactive"
-                    type="button"
-                    aria-expanded="false"
-                    aria-controls="playgroundDebugPanel">
-                    debug
-                  </button>
-                  <div
-                    id="playgroundDebugPanel"
-                    class="runtime-panel debug-panel">
-                    <div class="runtime-panel-head">
-                      <span class="mini">debug</span>
-                    </div>
-                    <div class="pills" role="list">
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="token">
-                        token
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="cst">
-                        cst
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="ast">
-                        ast
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="ast-v">
-                        ast-v
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="inst">
-                        inst
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="inst-v">
-                        inst-v
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="wqdb">
-                        wqdb
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="wqdb-v">
-                        wqdb-v
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="value">
-                        value
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="cas">
-                        cas
-                      </button>
-                      <button
-                        class="pill inactive"
-                        type="button"
-                        data-debug-flag="cas-v">
-                        cas-v
-                      </button>
+                <span class="mini">Shift-Enter: exec</span>
+              </div>
+              <div class="toolbar-center">
+                <div
+                  class="pills"
+                  role="list"
+                  aria-label="Playground runtime controls">
+                  <div class="runtime-control" data-runtime-menu>
+                    <button
+                      id="playgroundBoxBtn"
+                      class="pill inactive"
+                      type="button"
+                      aria-expanded="false"
+                      aria-controls="playgroundBoxPanel">
+                      box
+                    </button>
+                    <div id="playgroundBoxPanel" class="runtime-panel">
+                      <div class="runtime-panel-head">
+                        <span class="mini">box</span>
+                      </div>
+                      <div class="pills" role="list">
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-box-flag="box">
+                          box
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-box-flag="axis">
+                          axis
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-box-flag="color">
+                          color
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-box-flag="xray">
+                          xray
+                        </button>
+                      </div>
                     </div>
                   </div>
+                  <button
+                    id="playgroundTimeBtn"
+                    class="pill inactive"
+                    type="button">
+                    time
+                  </button>
+                  <div class="runtime-control debug-controls" data-runtime-menu>
+                    <button
+                      id="playgroundDebugToggle"
+                      class="pill inactive"
+                      type="button"
+                      aria-expanded="false"
+                      aria-controls="playgroundDebugPanel">
+                      debug
+                    </button>
+                    <div
+                      id="playgroundDebugPanel"
+                      class="runtime-panel debug-panel">
+                      <div class="runtime-panel-head">
+                        <span class="mini">debug</span>
+                      </div>
+                      <div class="pills" role="list">
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-debug-flag="token">
+                          token
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-debug-flag="cst">
+                          cst
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-debug-flag="ast">
+                          ast
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-debug-flag="ast-v">
+                          ast-v
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-debug-flag="inst">
+                          inst
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-debug-flag="inst-v">
+                          inst-v
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-debug-flag="wqdb">
+                          wqdb
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-debug-flag="wqdb-v">
+                          wqdb-v
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-debug-flag="value">
+                          value
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-debug-flag="cas">
+                          cas
+                        </button>
+                        <button
+                          class="pill inactive"
+                          type="button"
+                          data-debug-flag="cas-v">
+                          cas-v
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <input id="playgroundDebugFlags" type="hidden" value="" />
                 </div>
-                <input id="playgroundDebugFlags" type="hidden" value="" />
+              </div>
+              <div class="toolbar-right">
+                <button id="makePosterBtn" class="btn" type="button">
+                  Make Poster
+                </button>
+                <button id="resetBtn" class="btn" type="button">Reset</button>
+                <button id="openInReplBtn" class="btn" type="button">
+                  Open in REPL
+                </button>
               </div>
             </div>
-            <div class="toolbar-right">
-              <button id="makePosterBtn" class="btn" type="button">
-                Make Poster
-              </button>
-              <button id="resetBtn" class="btn" type="button">Reset</button>
-              <button id="openInReplBtn" class="btn" type="button">
-                Open in REPL
-              </button>
+            <div class="stdin-row">
+              <span class="mini">stdin:</span>
+              <textarea
+                id="stdin"
+                rows="2"
+                placeholder="Provide stdin for your program..."></textarea>
             </div>
           </div>
-          <div class="stdin-row">
-            <span class="mini">stdin:</span>
-            <textarea
-              id="stdin"
-              rows="2"
-              placeholder="Provide stdin for your program..."></textarea>
-          </div>
-        </div>
           <div class="editor-area">
-          <div class="gutter" aria-hidden="true"></div>
-          <div class="codepane">
-            <textarea
-              class="editor-text"
-              aria-label="Playground code"
-              spellcheck="false"></textarea>
+            <div class="gutter" aria-hidden="true"></div>
+            <div class="codepane">
+              <textarea
+                class="editor-text"
+                aria-label="Playground code"
+                spellcheck="false"></textarea>
+            </div>
           </div>
-        </div>
         </div>
 
         <div
@@ -370,7 +388,10 @@ const VIZ_HTML = html`
                 data-viz-preset-panel
                 role="menu"
                 aria-label="Viz presets">
-                <section class="viz-preset-group" role="group" aria-labelledby="vizPresetAsciiplot">
+                <section
+                  class="viz-preset-group"
+                  role="group"
+                  aria-labelledby="vizPresetAsciiplot">
                   <h2 id="vizPresetAsciiplot">asciiplot</h2>
                   <div class="viz-preset-list">
                     <button
@@ -438,7 +459,10 @@ const VIZ_HTML = html`
                     </button>
                   </div>
                 </section>
-                <section class="viz-preset-group" role="group" aria-labelledby="vizPresetShowtable">
+                <section
+                  class="viz-preset-group"
+                  role="group"
+                  aria-labelledby="vizPresetShowtable">
                   <h2 id="vizPresetShowtable">showtable</h2>
                   <div class="viz-preset-list">
                     <button
@@ -470,14 +494,23 @@ const VIZ_HTML = html`
             <input type="checkbox" data-viz-toggle="autoRun" checked />
             <span>Live</span>
           </label>
-          <div class="viz-layout-toggle" role="group" aria-label="Control layout">
-            <button class="active" type="button" data-viz-layout-option="below">Below</button>
+          <div
+            class="viz-layout-toggle"
+            role="group"
+            aria-label="Control layout">
+            <button class="active" type="button" data-viz-layout-option="below">
+              Below
+            </button>
             <button type="button" data-viz-layout-option="side">Side</button>
           </div>
           <span class="viz-builtin-chip" data-viz-builtin>asciiplot</span>
           <span class="viz-status" data-viz-status>ready</span>
-          <button class="btn primary" type="button" data-viz-run>Refresh</button>
-          <button class="btn" type="button" data-viz-open>Open in Playground</button>
+          <button class="btn primary" type="button" data-viz-run>
+            Refresh
+          </button>
+          <button class="btn" type="button" data-viz-open>
+            Open in Playground
+          </button>
         </div>
       </section>
 
@@ -490,7 +523,9 @@ const VIZ_HTML = html`
             <pre class="viz-output" data-viz-output aria-live="polite"></pre>
           </div>
 
-          <section class="viz-control-group viz-data-panel" data-viz-control-group="source">
+          <section
+            class="viz-control-group viz-data-panel"
+            data-viz-control-group="source">
             <div class="viz-control-head">
               <h2>Data</h2>
             </div>
@@ -504,23 +539,35 @@ const VIZ_HTML = html`
                 <span data-viz-select-value>plot</span>
               </button>
               <div class="viz-select-menu" role="listbox">
-                <button type="button" role="option" data-viz-option="plot">plot</button>
-                <button type="button" role="option" data-viz-option="table">table</button>
+                <button type="button" role="option" data-viz-option="plot">
+                  plot
+                </button>
+                <button type="button" role="option" data-viz-option="table">
+                  table
+                </button>
               </div>
             </div>
             <div class="viz-series-editor" data-viz-series-editor>
               <div class="viz-series-list" data-viz-series-list></div>
-              <button class="viz-small-btn" type="button" data-viz-add-series>Add series</button>
+              <button class="viz-small-btn" type="button" data-viz-add-series>
+                Add series
+              </button>
             </div>
             <div class="viz-table-plot-config" data-viz-table-plot-config>
               <div class="viz-inline-fields">
                 <label class="viz-text-field">
                   <span>X column</span>
-                  <input type="text" spellcheck="false" data-viz-input="tableXText" />
+                  <input
+                    type="text"
+                    spellcheck="false"
+                    data-viz-input="tableXText" />
                 </label>
                 <label class="viz-text-field">
                   <span>Y columns</span>
-                  <input type="text" spellcheck="false" data-viz-input="tableYText" />
+                  <input
+                    type="text"
+                    spellcheck="false"
+                    data-viz-input="tableYText" />
                 </label>
               </div>
             </div>
@@ -536,27 +583,50 @@ const VIZ_HTML = html`
                     <span data-viz-select-value>list of dicts</span>
                   </button>
                   <div class="viz-select-menu" role="listbox">
-                    <button type="button" role="option" data-viz-option="text">biology cells</button>
-                    <button type="button" role="option" data-viz-option="list">physics rows</button>
-                    <button type="button" role="option" data-viz-option="dict">chem columns</button>
-                    <button type="button" role="option" data-viz-option="matrix">math map</button>
+                    <button type="button" role="option" data-viz-option="text">
+                      biology cells
+                    </button>
+                    <button type="button" role="option" data-viz-option="list">
+                      physics rows
+                    </button>
+                    <button type="button" role="option" data-viz-option="dict">
+                      chem columns
+                    </button>
+                    <button
+                      type="button"
+                      role="option"
+                      data-viz-option="matrix">
+                      math map
+                    </button>
                   </div>
                 </div>
-                <div class="viz-stepper" role="group" aria-label="Generated rows">
+                <div
+                  class="viz-stepper"
+                  role="group"
+                  aria-label="Generated rows">
                   <span>Rows</span>
                   <button
                     class="viz-stepper-btn"
                     type="button"
                     aria-label="Fewer rows"
                     data-viz-step="rows"
-                    data-viz-step-delta="-1">-</button>
-                  <input type="number" min="1" max="8" value="5" data-viz-range="rows" />
+                    data-viz-step-delta="-1">
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min="1"
+                    max="8"
+                    value="5"
+                    data-viz-range="rows" />
                   <button
                     class="viz-stepper-btn"
                     type="button"
                     aria-label="More rows"
                     data-viz-step="rows"
-                    data-viz-step-delta="1">+</button>
+                    data-viz-step-delta="1">
+                    +
+                  </button>
                 </div>
               </div>
             </div>
@@ -577,11 +647,15 @@ const VIZ_HTML = html`
               <summary>Code</summary>
               <pre><code data-viz-code></code></pre>
             </details>
-            <button class="viz-code-copy" type="button" data-viz-copy-code>Copy</button>
+            <button class="viz-code-copy" type="button" data-viz-copy-code>
+              Copy
+            </button>
           </div>
         </section>
 
-        <aside class="viz-controls viz-style-panel" aria-label="Viz style controls">
+        <aside
+          class="viz-controls viz-style-panel"
+          aria-label="Viz style controls">
           <section class="viz-control-group" data-viz-control-group="plot">
             <div class="viz-control-head">
               <h2>Plot</h2>
@@ -597,11 +671,21 @@ const VIZ_HTML = html`
                   <span data-viz-select-value>line</span>
                 </button>
                 <div class="viz-select-menu" role="listbox">
-                  <button type="button" role="option" data-viz-option="line">line</button>
-                  <button type="button" role="option" data-viz-option="scatter">scatter</button>
-                  <button type="button" role="option" data-viz-option="step">step</button>
-                  <button type="button" role="option" data-viz-option="bar">bar</button>
-                  <button type="button" role="option" data-viz-option="area">area</button>
+                  <button type="button" role="option" data-viz-option="line">
+                    line
+                  </button>
+                  <button type="button" role="option" data-viz-option="scatter">
+                    scatter
+                  </button>
+                  <button type="button" role="option" data-viz-option="step">
+                    step
+                  </button>
+                  <button type="button" role="option" data-viz-option="bar">
+                    bar
+                  </button>
+                  <button type="button" role="option" data-viz-option="area">
+                    area
+                  </button>
                 </div>
               </div>
               <div class="viz-field" data-viz-select="complex">
@@ -614,11 +698,21 @@ const VIZ_HTML = html`
                   <span data-viz-select-value>re</span>
                 </button>
                 <div class="viz-select-menu" role="listbox">
-                  <button type="button" role="option" data-viz-option="re">re</button>
-                  <button type="button" role="option" data-viz-option="im">im</button>
-                  <button type="button" role="option" data-viz-option="abs">abs</button>
-                  <button type="button" role="option" data-viz-option="arg">arg</button>
-                  <button type="button" role="option" data-viz-option="plane">plane</button>
+                  <button type="button" role="option" data-viz-option="re">
+                    re
+                  </button>
+                  <button type="button" role="option" data-viz-option="im">
+                    im
+                  </button>
+                  <button type="button" role="option" data-viz-option="abs">
+                    abs
+                  </button>
+                  <button type="button" role="option" data-viz-option="arg">
+                    arg
+                  </button>
+                  <button type="button" role="option" data-viz-option="plane">
+                    plane
+                  </button>
                 </div>
               </div>
               <div class="viz-field" data-viz-select="theme">
@@ -631,9 +725,15 @@ const VIZ_HTML = html`
                   <span data-viz-select-value>none</span>
                 </button>
                 <div class="viz-select-menu" role="listbox">
-                  <button type="button" role="option" data-viz-option="none">none</button>
-                  <button type="button" role="option" data-viz-option="minimal">minimal</button>
-                  <button type="button" role="option" data-viz-option="maximal">maximal</button>
+                  <button type="button" role="option" data-viz-option="none">
+                    none
+                  </button>
+                  <button type="button" role="option" data-viz-option="minimal">
+                    minimal
+                  </button>
+                  <button type="button" role="option" data-viz-option="maximal">
+                    maximal
+                  </button>
                 </div>
               </div>
               <div class="viz-field" data-viz-select="axes">
@@ -646,9 +746,15 @@ const VIZ_HTML = html`
                   <span data-viz-select-value>full</span>
                 </button>
                 <div class="viz-select-menu" role="listbox">
-                  <button type="button" role="option" data-viz-option="full">full</button>
-                  <button type="button" role="option" data-viz-option="minimal">minimal</button>
-                  <button type="button" role="option" data-viz-option="off">off</button>
+                  <button type="button" role="option" data-viz-option="full">
+                    full
+                  </button>
+                  <button type="button" role="option" data-viz-option="minimal">
+                    minimal
+                  </button>
+                  <button type="button" role="option" data-viz-option="off">
+                    off
+                  </button>
                 </div>
               </div>
               <div class="viz-field" data-viz-select="grid">
@@ -661,9 +767,15 @@ const VIZ_HTML = html`
                   <span data-viz-select-value>4</span>
                 </button>
                 <div class="viz-select-menu" role="listbox">
-                  <button type="button" role="option" data-viz-option="off">off</button>
-                  <button type="button" role="option" data-viz-option="4">4</button>
-                  <button type="button" role="option" data-viz-option="8">8</button>
+                  <button type="button" role="option" data-viz-option="off">
+                    off
+                  </button>
+                  <button type="button" role="option" data-viz-option="4">
+                    4
+                  </button>
+                  <button type="button" role="option" data-viz-option="8">
+                    8
+                  </button>
                 </div>
               </div>
               <div class="viz-field" data-viz-select="palette">
@@ -676,10 +788,18 @@ const VIZ_HTML = html`
                   <span data-viz-select-value>classic</span>
                 </button>
                 <div class="viz-select-menu" role="listbox">
-                  <button type="button" role="option" data-viz-option="classic">classic</button>
-                  <button type="button" role="option" data-viz-option="bright">bright</button>
-                  <button type="button" role="option" data-viz-option="ink">ink</button>
-                  <button type="button" role="option" data-viz-option="off">off</button>
+                  <button type="button" role="option" data-viz-option="classic">
+                    classic
+                  </button>
+                  <button type="button" role="option" data-viz-option="bright">
+                    bright
+                  </button>
+                  <button type="button" role="option" data-viz-option="ink">
+                    ink
+                  </button>
+                  <button type="button" role="option" data-viz-option="off">
+                    off
+                  </button>
                 </div>
               </div>
             </div>
@@ -706,16 +826,30 @@ const VIZ_HTML = html`
             </div>
             <label class="viz-range">
               <span>Height</span>
-              <input type="range" min="10" max="32" value="24" data-viz-range="height" />
+              <input
+                type="range"
+                min="10"
+                max="32"
+                value="24"
+                data-viz-range="height" />
               <strong data-viz-range-value="height">24</strong>
             </label>
             <label class="viz-range">
               <span>Samples</span>
-              <input type="range" min="20" max="260" step="10" value="140" data-viz-range="samples" />
+              <input
+                type="range"
+                min="20"
+                max="260"
+                step="10"
+                value="140"
+                data-viz-range="samples" />
               <strong data-viz-range-value="samples">140</strong>
             </label>
             <div class="viz-limit-grid">
-              <div class="viz-limit-pair" role="group" aria-labelledby="viz-xlim-label">
+              <div
+                class="viz-limit-pair"
+                role="group"
+                aria-labelledby="viz-xlim-label">
                 <div class="viz-limit-pair-head">
                   <span id="viz-xlim-label">X lim</span>
                   <label class="viz-lock-toggle">
@@ -726,15 +860,24 @@ const VIZ_HTML = html`
                 <div class="viz-limit-inputs">
                   <label class="viz-text-field">
                     <span>Min</span>
-                    <input type="text" spellcheck="false" data-viz-input="xlimMinText" />
+                    <input
+                      type="text"
+                      spellcheck="false"
+                      data-viz-input="xlimMinText" />
                   </label>
                   <label class="viz-text-field">
                     <span>Max</span>
-                    <input type="text" spellcheck="false" data-viz-input="xlimMaxText" />
+                    <input
+                      type="text"
+                      spellcheck="false"
+                      data-viz-input="xlimMaxText" />
                   </label>
                 </div>
               </div>
-              <div class="viz-limit-pair" role="group" aria-labelledby="viz-ylim-label">
+              <div
+                class="viz-limit-pair"
+                role="group"
+                aria-labelledby="viz-ylim-label">
                 <div class="viz-limit-pair-head">
                   <span id="viz-ylim-label">Y lim</span>
                   <label class="viz-lock-toggle">
@@ -745,11 +888,17 @@ const VIZ_HTML = html`
                 <div class="viz-limit-inputs">
                   <label class="viz-text-field">
                     <span>Min</span>
-                    <input type="text" spellcheck="false" data-viz-input="ylimMinText" />
+                    <input
+                      type="text"
+                      spellcheck="false"
+                      data-viz-input="ylimMinText" />
                   </label>
                   <label class="viz-text-field">
                     <span>Max</span>
-                    <input type="text" spellcheck="false" data-viz-input="ylimMaxText" />
+                    <input
+                      type="text"
+                      spellcheck="false"
+                      data-viz-input="ylimMaxText" />
                   </label>
                 </div>
               </div>
@@ -757,15 +906,24 @@ const VIZ_HTML = html`
             <div class="viz-inline-fields">
               <label class="viz-text-field">
                 <span>Title</span>
-                <input type="text" spellcheck="false" data-viz-input="titleText" />
+                <input
+                  type="text"
+                  spellcheck="false"
+                  data-viz-input="titleText" />
               </label>
               <label class="viz-text-field">
                 <span>X label</span>
-                <input type="text" spellcheck="false" data-viz-input="xlabelText" />
+                <input
+                  type="text"
+                  spellcheck="false"
+                  data-viz-input="xlabelText" />
               </label>
               <label class="viz-text-field">
                 <span>Y label</span>
-                <input type="text" spellcheck="false" data-viz-input="ylabelText" />
+                <input
+                  type="text"
+                  spellcheck="false"
+                  data-viz-input="ylabelText" />
               </label>
             </div>
           </section>
@@ -780,7 +938,10 @@ const VIZ_HTML = html`
                 <span>Labels</span>
               </label>
               <label class="viz-switch">
-                <input type="checkbox" data-viz-toggle="seriesOptions" checked />
+                <input
+                  type="checkbox"
+                  data-viz-toggle="seriesOptions"
+                  checked />
                 <span>Per-series</span>
               </label>
               <label class="viz-switch">
@@ -805,17 +966,31 @@ const VIZ_HTML = html`
                   <span data-viz-select-value>plain</span>
                 </button>
                 <div class="viz-select-menu" role="listbox">
-                  <button type="button" role="option" data-viz-option="plain">plain</button>
-                  <button type="button" role="option" data-viz-option="markdown">markdown</button>
+                  <button type="button" role="option" data-viz-option="plain">
+                    plain
+                  </button>
+                  <button
+                    type="button"
+                    role="option"
+                    data-viz-option="markdown">
+                    markdown
+                  </button>
                 </div>
               </div>
               <label class="viz-text-field">
                 <span>Columns</span>
-                <input type="text" spellcheck="false" data-viz-input="tableColsText" />
+                <input
+                  type="text"
+                  spellcheck="false"
+                  data-viz-input="tableColsText" />
               </label>
               <label class="viz-text-field">
                 <span>Limit</span>
-                <input type="text" inputmode="numeric" spellcheck="false" data-viz-input="tableLimitText" />
+                <input
+                  type="text"
+                  inputmode="numeric"
+                  spellcheck="false"
+                  data-viz-input="tableLimitText" />
               </label>
               <label class="viz-text-field">
                 <span>Cell width</span>
@@ -828,7 +1003,10 @@ const VIZ_HTML = html`
               </label>
               <label class="viz-text-field">
                 <span>Missing</span>
-                <input type="text" spellcheck="false" data-viz-input="tableMissingText" />
+                <input
+                  type="text"
+                  spellcheck="false"
+                  data-viz-input="tableMissingText" />
               </label>
             </div>
           </section>
@@ -848,11 +1026,16 @@ const REPL_HTML = html`
               <button id="copyFlowBtn" class="btn repl-copy-btn" type="button">
                 Copy Flow
               </button>
-              <button id="copyOutputBtn" class="btn repl-copy-btn" type="button">
+              <button
+                id="copyOutputBtn"
+                class="btn repl-copy-btn"
+                type="button">
                 Copy Output
               </button>
             </div>
-            <div class="repl-runtime-actions" aria-label="REPL runtime controls">
+            <div
+              class="repl-runtime-actions"
+              aria-label="REPL runtime controls">
               <div class="pills" role="list">
                 <div class="runtime-control" data-runtime-menu>
                   <button
@@ -987,7 +1170,9 @@ const REPL_HTML = html`
               <button id="resetBtn" class="btn" type="button">
                 Reset Session
               </button>
-              <button id="clearBtn" class="btn" type="button">Clear Flow</button>
+              <button id="clearBtn" class="btn" type="button">
+                Clear Flow
+              </button>
               <button id="openInPlaygroundBtn" class="btn" type="button">
                 Open in Playground
               </button>
@@ -1035,7 +1220,9 @@ const REPL_HTML = html`
                   id="stdinLine"
                   type="text"
                   placeholder="Queue stdin for the next run..." />
-                <button id="pushStdinBtn" class="btn" type="button">Queue</button>
+                <button id="pushStdinBtn" class="btn" type="button">
+                  Queue
+                </button>
               </div>
               <button
                 id="newlineBtn"
@@ -1072,7 +1259,10 @@ const REPL_HTML = html`
             </button>
           </div>
         </div>
-        <pre id="globalsBody" class="globals-panel-body" aria-live="polite"></pre>
+        <pre
+          id="globalsBody"
+          class="globals-panel-body"
+          aria-live="polite"></pre>
       </aside>
     </div>
   </main>
@@ -1224,7 +1414,59 @@ const ARTICLE_HTML = html`
   </main>
 `;
 
+function readStoredTheme() {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === THEME_MIDNIGHT || stored === THEME_LIGHT) return stored;
+  } catch (err) {
+    console.debug("theme read failed", err);
+  }
+  return document.documentElement.dataset.theme === THEME_MIDNIGHT
+    ? THEME_MIDNIGHT
+    : THEME_LIGHT;
+}
+
+function syncThemeToggle() {
+  const button = document.querySelector("[data-theme-toggle]");
+  if (!button) return;
+  const isMidnight = document.documentElement.dataset.theme === THEME_MIDNIGHT;
+  button.classList.toggle("active", isMidnight);
+  button.classList.toggle("inactive", !isMidnight);
+  button.setAttribute("aria-pressed", String(isMidnight));
+  button.title = isMidnight
+    ? "Switch to light mode"
+    : "Switch to midnight mode";
+}
+
+function applyTheme(theme, options = {}) {
+  const next = theme === THEME_MIDNIGHT ? THEME_MIDNIGHT : THEME_LIGHT;
+  document.documentElement.dataset.theme = next;
+  if (options.persist !== false) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch (err) {
+      console.debug("theme persist failed", err);
+    }
+  }
+  syncThemeToggle();
+  return next;
+}
+
+function wireThemeToggle() {
+  const button = document.querySelector("[data-theme-toggle]");
+  if (!button || button.dataset.wired === "true") return;
+  button.dataset.wired = "true";
+  syncThemeToggle();
+  button.addEventListener("click", () => {
+    const isMidnight =
+      document.documentElement.dataset.theme === THEME_MIDNIGHT;
+    applyTheme(isMidnight ? THEME_LIGHT : THEME_MIDNIGHT);
+  });
+}
+
+applyTheme(readStoredTheme(), { persist: false });
 document.body.innerHTML = SHELL_HTML;
+wireThemeToggle();
 
 const main = document.getElementById("appMain");
 const state = {
@@ -1470,7 +1712,10 @@ async function getFeaturedSearchIndex() {
           : [];
       const docs = docsResult.status === "fulfilled" ? docsResult.value : [];
       if (manifestResult.status === "rejected") {
-        console.warn("featured search manifest load failed", manifestResult.reason);
+        console.warn(
+          "featured search manifest load failed",
+          manifestResult.reason,
+        );
         warnings.push("Tutorials unavailable.");
       }
       if (docsResult.status === "rejected") {
@@ -1527,7 +1772,9 @@ function renderFeaturedSearchResults(root, matches, warnings) {
   if (!results) return;
   results.innerHTML = "";
   if (matches.length) {
-    matches.forEach((item) => appendSectionCard(results, item, { showMeta: true }));
+    matches.forEach((item) =>
+      appendSectionCard(results, item, { showMeta: true }),
+    );
   } else {
     const empty = document.createElement("p");
     empty.className = "featured-search-empty";
@@ -1733,14 +1980,15 @@ async function mountSubfolder(route) {
   const referenceGroup = isReferenceSection(sectionName)
     ? (route.params.get("group") || "").trim()
     : "";
-  const builtinGroup = referenceGroup === BUILTINS_GROUP
-    ? (route.params.get("builtinGroup") || "").trim()
-    : "";
+  const builtinGroup =
+    referenceGroup === BUILTINS_GROUP
+      ? (route.params.get("builtinGroup") || "").trim()
+      : "";
   const key = builtinGroup
     ? `subfolder:${sectionName}:${referenceGroup}:${builtinGroup}`
     : referenceGroup
-    ? `subfolder:${sectionName}:${referenceGroup}`
-    : `subfolder:${sectionName}`;
+      ? `subfolder:${sectionName}:${referenceGroup}`
+      : `subfolder:${sectionName}`;
   const root = getView(key, SUBFOLDER_HTML);
   const crumb = root.querySelector('[data-role="section-crumb"]');
   const title = root.querySelector('[data-role="section-title"]');

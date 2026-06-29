@@ -4,6 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>wqide - Featured</title>
+    <script>
+      try {
+        if (localStorage.getItem("wqide:theme") === "midnight") {
+          document.documentElement.dataset.theme = "midnight";
+        }
+      } catch (err) {}
+    </script>
     <link rel="stylesheet" href="styles.css" />
     <link rel="icon" href="favicon.png" type="image/png" />
     <script type="module" src="js/app.js"></script>
