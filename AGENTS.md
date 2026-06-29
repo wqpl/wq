@@ -112,12 +112,18 @@ Do not recommend a commit message when:
 
 When continuing an existing uncommitted change, update the previous recommendation only at the final handoff instead of emitting a new commit message after every follow-up.
 
+When continuing a session but the previous turn's changes have already been committed, emit a new commit message instead of updating the previous one.
+
 Use:
 
 - Clear, uncapitalized, imperative title: `fix everything`
 - Avoid "conventional commit prefixes" (no `fix:`)
 - Avoid trailing punctuation
 - Optionally prefix the title with a crate name and colon when one crate is the clear scope: `wq-cli: did something`
+  - Common prefixes:
+    - `wqpl` for syntax/builtin changes
+    - `wqpl/cas` for specific cas changes
+    - `wq-cli` for specific cli changes
 - Clear, consise message body
 - Include a `Release Notes:` section as the final section
 - Use one bullet under `Release Notes:`:
@@ -125,5 +131,5 @@ Use:
   - `- Fixed ...` for a user-facing bug fix;
   - `- Improved ...` for a user-facing refinement to existing behavior;
   - `- N/A` for refactors, tests, tooling, formatting, docs-only changes, internal cleanup, dependency changes, CI/build changes, or any change with no direct user-visible effect.
-  - Do not write release notes such as “Improved internals,” “Improved maintainability,” or “Improved tests.” If the user cannot directly observe the change in product behavior, output `- N/A`.
+  - Do not write release notes such as "Improved internals," "Improved maintainability," or "Improved tests." If the user cannot directly observe the change in product behavior, output `- N/A`.
 - Format release notes exactly with a blank line after the heading, for example:
