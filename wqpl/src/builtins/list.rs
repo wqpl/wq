@@ -10,8 +10,181 @@ use crate::builtins::{
 };
 use crate::value::bc::Bc2Stop;
 use crate::value::cmp::cmp_atom;
+use crate::value::seq::ExactIntSeq;
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
+
+fn sum_exact_int_seq(items: ExactIntSeq<'_>) -> Value {
+    const THRESHOLD: usize = 2000;
+    if let ExactIntSeq::PackedSlice(items) = items
+        && items.len() > THRESHOLD
+    {
+        let (acc_i, acc_big) = items
+            .par_iter()
+            .copied()
+            .fold(
+                || (0i64, None::<BigInt>),
+                |(acc_i, acc_big), n| {
+                    if let Some(mut b) = acc_big {
+                        b += BigInt::from(n);
+                        (acc_i, Some(b))
+                    } else if let Some(s) = acc_i.checked_add(n) {
+                        (s, None)
+                    } else {
+                        (0, Some(BigInt::from(acc_i) + BigInt::from(n)))
+                    }
+                },
+            )
+            .reduce(
+                || (0i64, None::<BigInt>),
+                |(a_i, a_b), (b_i, b_b)| match (a_b, b_b) {
+                    (Some(mut a), Some(b)) => {
+                        a += b;
+                        (0, Some(a))
+                    }
+                    (Some(mut a), None) => {
+                        a += BigInt::from(b_i);
+                        (0, Some(a))
+                    }
+                    (None, Some(mut b)) => {
+                        b += BigInt::from(a_i);
+                        (0, Some(b))
+                    }
+                    (None, None) => {
+                        if let Some(s) = a_i.checked_add(b_i) {
+                            (s, None)
+                        } else {
+                            (0, Some(BigInt::from(a_i) + BigInt::from(b_i)))
+                        }
+                    }
+                },
+            );
+        return match acc_big {
+            Some(b) => Value::from_bigint(b),
+            None => Value::Int(acc_i),
+        };
+    }
+
+    let mut acc_i: i64 = 0;
+    let mut acc_big: Option<BigInt> = None;
+    for n in items.iter() {
+        if let Some(ref mut b) = acc_big {
+            *b += BigInt::from(n);
+        } else if let Some(s) = acc_i.checked_add(n) {
+            acc_i = s;
+        } else {
+            acc_big = Some(BigInt::from(acc_i) + BigInt::from(n));
+        }
+    }
+    match acc_big {
+        Some(b) => Value::from_bigint(b),
+        None => Value::Int(acc_i),
+    }
+}
+
+fn product_exact_int_seq(items: ExactIntSeq<'_>) -> Value {
+    if items.len() == 0 {
+        return Value::Int(1);
+    }
+
+    const THRESHOLD: usize = 2000;
+    if let ExactIntSeq::PackedSlice(items) = items
+        && items.len() > THRESHOLD
+    {
+        let (acc_i, acc_big) = items
+            .par_iter()
+            .copied()
+            .fold(
+                || (1i64, None::<BigInt>),
+                |(acc_i, acc_big), n| {
+                    if let Some(mut b) = acc_big {
+                        b *= BigInt::from(n);
+                        (acc_i, Some(b))
+                    } else if let Some(p) = acc_i.checked_mul(n) {
+                        (p, None)
+                    } else {
+                        (1, Some(BigInt::from(acc_i) * BigInt::from(n)))
+                    }
+                },
+            )
+            .reduce(
+                || (1i64, None::<BigInt>),
+                |(a_i, a_b), (b_i, b_b)| match (a_b, b_b) {
+                    (Some(mut a), Some(b)) => {
+                        a *= b;
+                        (1, Some(a))
+                    }
+                    (Some(mut a), None) => {
+                        a *= BigInt::from(b_i);
+                        (1, Some(a))
+                    }
+                    (None, Some(mut b)) => {
+                        b *= BigInt::from(a_i);
+                        (1, Some(b))
+                    }
+                    (None, None) => {
+                        if let Some(p) = a_i.checked_mul(b_i) {
+                            (p, None)
+                        } else {
+                            (1, Some(BigInt::from(a_i) * BigInt::from(b_i)))
+                        }
+                    }
+                },
+            );
+        return match acc_big {
+            Some(b) => Value::from_bigint(b),
+            None => Value::Int(acc_i),
+        };
+    }
+
+    let mut acc_i: i64 = 1;
+    let mut acc_big: Option<BigInt> = None;
+    for n in items.iter() {
+        if let Some(ref mut b) = acc_big {
+            *b *= BigInt::from(n);
+        } else if let Some(p) = acc_i.checked_mul(n) {
+            acc_i = p;
+        } else {
+            acc_big = Some(BigInt::from(acc_i) * BigInt::from(n));
+        }
+    }
+    match acc_big {
+        Some(b) => Value::from_bigint(b),
+        None => Value::Int(acc_i),
+    }
+}
+
+fn min_exact_int_seq(items: ExactIntSeq<'_>) -> Value {
+    match items {
+        ExactIntSeq::PackedSlice(items) if items.len() > 2000 => items
+            .par_iter()
+            .copied()
+            .reduce_with(i64::min)
+            .map(Value::Int)
+            .unwrap_or_else(Value::unit),
+        items => items
+            .iter()
+            .min()
+            .map(Value::Int)
+            .unwrap_or_else(Value::unit),
+    }
+}
+
+fn max_exact_int_seq(items: ExactIntSeq<'_>) -> Value {
+    match items {
+        ExactIntSeq::PackedSlice(items) if items.len() > 2000 => items
+            .par_iter()
+            .copied()
+            .reduce_with(i64::max)
+            .map(Value::Int)
+            .unwrap_or_else(Value::unit),
+        items => items
+            .iter()
+            .max()
+            .map(Value::Int)
+            .unwrap_or_else(Value::unit),
+    }
+}
 
 pub(super) fn sum(args: BuiltinFnArgs) -> WqResult<Value> {
     let n = args.len();
@@ -25,71 +198,10 @@ pub(super) fn sum(args: BuiltinFnArgs) -> WqResult<Value> {
         }
         let x = args.into_iter().next().unwrap();
         return match &x {
-            Value::IntList(items) => {
-                const THRESHOLD: usize = 2000;
-                if items.len() > THRESHOLD {
-                    let (acc_i, acc_big) = items
-                        .par_iter()
-                        .copied()
-                        .fold(
-                            || (0i64, None::<BigInt>),
-                            |(acc_i, acc_big), n| {
-                                if let Some(mut b) = acc_big {
-                                    b += BigInt::from(n);
-                                    (acc_i, Some(b))
-                                } else if let Some(s) = acc_i.checked_add(n) {
-                                    (s, None)
-                                } else {
-                                    (0, Some(BigInt::from(acc_i) + BigInt::from(n)))
-                                }
-                            },
-                        )
-                        .reduce(
-                            || (0i64, None::<BigInt>),
-                            |(a_i, a_b), (b_i, b_b)| match (a_b, b_b) {
-                                (Some(mut a), Some(b)) => {
-                                    a += b;
-                                    (0, Some(a))
-                                }
-                                (Some(mut a), None) => {
-                                    a += BigInt::from(b_i);
-                                    (0, Some(a))
-                                }
-                                (None, Some(mut b)) => {
-                                    b += BigInt::from(a_i);
-                                    (0, Some(b))
-                                }
-                                (None, None) => {
-                                    if let Some(s) = a_i.checked_add(b_i) {
-                                        (s, None)
-                                    } else {
-                                        (0, Some(BigInt::from(a_i) + BigInt::from(b_i)))
-                                    }
-                                }
-                            },
-                        );
-                    Ok(match acc_big {
-                        Some(b) => Value::from_bigint(b),
-                        None => Value::Int(acc_i),
-                    })
-                } else {
-                    let mut acc_i: i64 = 0;
-                    let mut acc_big: Option<BigInt> = None;
-                    for &n in items.iter() {
-                        if let Some(ref mut b) = acc_big {
-                            *b += BigInt::from(n);
-                        } else if let Some(s) = acc_i.checked_add(n) {
-                            acc_i = s;
-                        } else {
-                            acc_big = Some(BigInt::from(acc_i) + BigInt::from(n));
-                        }
-                    }
-                    Ok(match acc_big {
-                        Some(b) => Value::from_bigint(b),
-                        None => Value::Int(acc_i),
-                    })
-                }
-            }
+            Value::IntList(_) | Value::IntRange(_) => Ok(sum_exact_int_seq(
+                x.packed_int_seq()
+                    .expect("guard checked value is packed int sequence"),
+            )),
             Value::FloatList(items) => {
                 let mut acc = 0.0;
                 for item in items.iter() {
@@ -135,74 +247,10 @@ pub(super) fn product(args: BuiltinFnArgs) -> WqResult<Value> {
         }
         let x = args.into_iter().next().unwrap();
         return match &x {
-            Value::IntList(items) => {
-                if items.is_empty() {
-                    return Ok(Value::Int(1));
-                }
-                const THRESHOLD: usize = 2000;
-                if items.len() > THRESHOLD {
-                    let (acc_i, acc_big) = items
-                        .par_iter()
-                        .copied()
-                        .fold(
-                            || (1i64, None::<BigInt>),
-                            |(acc_i, acc_big), n| {
-                                if let Some(mut b) = acc_big {
-                                    b *= BigInt::from(n);
-                                    (acc_i, Some(b))
-                                } else if let Some(p) = acc_i.checked_mul(n) {
-                                    (p, None)
-                                } else {
-                                    (1, Some(BigInt::from(acc_i) * BigInt::from(n)))
-                                }
-                            },
-                        )
-                        .reduce(
-                            || (1i64, None::<BigInt>),
-                            |(a_i, a_b), (b_i, b_b)| match (a_b, b_b) {
-                                (Some(mut a), Some(b)) => {
-                                    a *= b;
-                                    (1, Some(a))
-                                }
-                                (Some(mut a), None) => {
-                                    a *= BigInt::from(b_i);
-                                    (1, Some(a))
-                                }
-                                (None, Some(mut b)) => {
-                                    b *= BigInt::from(a_i);
-                                    (1, Some(b))
-                                }
-                                (None, None) => {
-                                    if let Some(p) = a_i.checked_mul(b_i) {
-                                        (p, None)
-                                    } else {
-                                        (1, Some(BigInt::from(a_i) * BigInt::from(b_i)))
-                                    }
-                                }
-                            },
-                        );
-                    Ok(match acc_big {
-                        Some(b) => Value::from_bigint(b),
-                        None => Value::Int(acc_i),
-                    })
-                } else {
-                    let mut acc_i: i64 = 1;
-                    let mut acc_big: Option<BigInt> = None;
-                    for &n in items.iter() {
-                        if let Some(ref mut b) = acc_big {
-                            *b *= BigInt::from(n);
-                        } else if let Some(p) = acc_i.checked_mul(n) {
-                            acc_i = p;
-                        } else {
-                            acc_big = Some(BigInt::from(acc_i) * BigInt::from(n));
-                        }
-                    }
-                    Ok(match acc_big {
-                        Some(b) => Value::from_bigint(b),
-                        None => Value::Int(acc_i),
-                    })
-                }
-            }
+            Value::IntList(_) | Value::IntRange(_) => Ok(product_exact_int_seq(
+                x.packed_int_seq()
+                    .expect("guard checked value is packed int sequence"),
+            )),
             Value::FloatList(items) => {
                 if items.is_empty() {
                     return Ok(Value::Int(1));
@@ -252,20 +300,12 @@ pub(super) fn min(args: BuiltinFnArgs) -> WqResult<Value> {
         // Single argument: extract immediate elements only
         match &args[0] {
             Value::List(items) => items.iter().collect(),
-            Value::IntList(items) => {
-                const THRESHOLD: usize = 2000;
-                if items.len() > THRESHOLD {
-                    let min_int = items.par_iter().copied().reduce_with(|a, b| a.min(b));
-                    return Ok(min_int.map(Value::Int).unwrap_or_else(Value::unit));
-                }
-                let mut min_int: Option<i64> = None;
-                for &item in items.iter() {
-                    min_int = Some(match min_int {
-                        None => item,
-                        Some(current) => current.min(item),
-                    });
-                }
-                return Ok(min_int.map(Value::Int).unwrap_or_else(Value::unit));
+            Value::IntList(_) | Value::IntRange(_) => {
+                return Ok(min_exact_int_seq(
+                    args[0]
+                        .packed_int_seq()
+                        .expect("guard checked value is packed int sequence"),
+                ));
             }
             Value::FloatList(items) => {
                 let min_float = items.iter().copied().min();
@@ -324,20 +364,12 @@ pub(super) fn max(args: BuiltinFnArgs) -> WqResult<Value> {
         // Single argument: extract immediate elements only
         match &args[0] {
             Value::List(items) => items.iter().collect(),
-            Value::IntList(items) => {
-                const THRESHOLD: usize = 2000;
-                if items.len() > THRESHOLD {
-                    let max_int = items.par_iter().copied().reduce_with(|a, b| a.max(b));
-                    return Ok(max_int.map(Value::Int).unwrap_or_else(Value::unit));
-                }
-                let mut max_int: Option<i64> = None;
-                for &item in items.iter() {
-                    max_int = Some(match max_int {
-                        None => item,
-                        Some(current) => current.max(item),
-                    });
-                }
-                return Ok(max_int.map(Value::Int).unwrap_or_else(Value::unit));
+            Value::IntList(_) | Value::IntRange(_) => {
+                return Ok(max_exact_int_seq(
+                    args[0]
+                        .packed_int_seq()
+                        .expect("guard checked value is packed int sequence"),
+                ));
             }
             Value::FloatList(items) => {
                 let max_float = items.iter().copied().max();
@@ -1345,5 +1377,30 @@ mod tests {
             Value::Int(1)
         );
         assert_eq!(max(BuiltinFnArgs::from(list)).unwrap(), Value::Int(9));
+    }
+
+    #[test]
+    fn aggregates_treat_int_range_as_int_list() {
+        let range = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(2, 3, 4)));
+        assert_eq!(
+            sum(BuiltinFnArgs::from(range.clone())).unwrap(),
+            Value::Int(26)
+        );
+        assert_eq!(
+            product(BuiltinFnArgs::from(range.clone())).unwrap(),
+            Value::Int(880)
+        );
+        assert_eq!(
+            min(BuiltinFnArgs::from(range.clone())).unwrap(),
+            Value::Int(2)
+        );
+        assert_eq!(max(BuiltinFnArgs::from(range)).unwrap(), Value::Int(11));
+
+        let descending = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(7, -2, 4)));
+        assert_eq!(
+            min(BuiltinFnArgs::from(descending.clone())).unwrap(),
+            Value::Int(1)
+        );
+        assert_eq!(max(BuiltinFnArgs::from(descending)).unwrap(), Value::Int(7));
     }
 }
