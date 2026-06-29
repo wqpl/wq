@@ -1,8 +1,13 @@
-+   -   *   /   %   ^    --wq--    0.9.0
-:   ,   |   |.  ||  ||.  $[]  $.[]  $$[]
-=   ~   <   >   <=  >=   W[]   N[]    []
-=.  ~.  /.  ^.  <<  >>    ()   (`)  {[]}
-/%  **  ""  A[] O[]      M R TP U V Z
-..  ..= ... '   band bor xor I D 1/.2 1+2i
-@a  @b  @c  @d  @f"{[x]n}" T F A[] O[] ~
-@l  @p  @r  @s  @t  @2   (c)tttiw (l)MIT
+--wq-- 0.9.0 (c)tttiw (l)MIT
+lang   :  ,  |  |.  ||  ||.  []
+flow   $[c;t;f1;f2..] $.[c;t1;t2..] $$[c1;t1;c2;t2..]
+       A[o1;o2..]      O[o1;o2..]
+       W[c;t1;t2..]    N[n;_n..]
+math   +  -  *  /  %  ^  /%  =  ~  <  >
+ var            /.    ^.     =. ~. <= >=
+ lit   1/.2 1+2i @sx^2+2*x+1
+list   (1;2)0 a..n..b ..=b
+ str   "s" @l"\" @f"{[x]n}"
+dict   (`a:1)`a
+func   {expr} {[x]expr}
+ bfn   M R TP U V Z I D

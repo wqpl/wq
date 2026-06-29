@@ -1,25 +1,24 @@
 # 0.9.0
 
-- wq-cas
+- cas
   - integrate
   - diff
   - limit
 - complex
 - fraction
-- set
 - wqls
 - wq-dap
 - backtrace/wqdb improvements
-- more pipes: `|.` `||` `||.`
-- `@d` `@p`
-- added `@a` back
-- `[!]`
-- `@s{..!..}`
+- More pipes: `|.` `||` `||.`
+- wqdb: `@d` `@p` `@a`
+- Mutating-index: `[!]`
+- F-string: `@f{[..]...}`
+- Lazy bool: `A[]` `O[]`
+- Range -> (`1..3..10`)
 - TCE
-- box mode: made default
-- aug-assign `+:`
-- asciiplot rework
-- removed f-loop
+- Default box mode
+- Aug-assign `+:`
+- Asciiplot rework
 
 # 0.8.0
 
@@ -41,7 +40,7 @@
 - `asciiplot` rework
 - Pipe operator
 - Unpack assign
-- Ranges (`1..3..10`)
+- Ranges (`1..10..2`)
 - Matmul operator `**`
 - `@f`
 - `@l`
