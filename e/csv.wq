@@ -22,8 +22,7 @@ parse_csv:{[csv]rows:();cols:();field:""
       c="\""
       $[at_field_start;[in_quote:T;at_field_start:F]
         raise@f"csv: unexpected quote in unquoted field at position {i}"]
-      [field,:c
-        at_field_start:F]]
+      [field,:c;at_field_start:F]]
     i+:1]
   $.[in_quote;raise"csv: unterminated quoted field"]
   $[or[#cols>0;#field>0;quote_closed;~at_field_start]
