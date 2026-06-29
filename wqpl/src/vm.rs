@@ -1,6 +1,7 @@
 pub mod call;
 pub(crate) mod debug;
 pub mod inst;
+mod owned_const;
 mod slot;
 pub(crate) use slot::Slot;
 pub(crate) mod trace;
@@ -16,6 +17,7 @@ use crate::value::cell::ValueCell;
 use crate::value::{Value, WqResult};
 use crate::vm::call::ResolvedCallable;
 use crate::vm::inst::Instruction;
+use crate::vm::owned_const::extract_owned_consts;
 use crate::vm::trace::TraceRecord;
 use crate::wqdb::Wqdb;
 use crate::wqdb::data::{Backtrace, ChunkId, DebugInfo, DebugLocalsFrame};
@@ -26,6 +28,7 @@ pub type GlobalSlotMap = AHashMap<String, usize>;
 
 pub struct Vm {
     pub(crate) instructions: Arc<[Instruction]>,
+    pub(crate) owned_consts: Vec<Option<Value>>,
     pub(crate) pc: usize,
     pub(crate) stack: Vec<Value>,
     /// Global slots (stable indices) for fast access
@@ -107,11 +110,47 @@ pub(crate) struct InlineCache {
     pub(crate) local_frame_depth: Option<u16>,
 }
 
+pub(crate) struct PreparedInstructions {
+    instructions: Vec<Instruction>,
+    owned_consts: Vec<Option<Value>>,
+}
+
+impl PreparedInstructions {
+    pub(crate) fn new(instructions: Vec<Instruction>) -> Self {
+        Self {
+            instructions,
+            owned_consts: Vec::new(),
+        }
+    }
+
+    pub(crate) fn with_owned_const_extraction(mut instructions: Vec<Instruction>) -> Self {
+        let owned_consts = extract_owned_consts(&mut instructions);
+        Self {
+            instructions,
+            owned_consts,
+        }
+    }
+
+    pub(crate) fn instructions(&self) -> &[Instruction] {
+        &self.instructions
+    }
+
+    fn into_parts(self) -> (Vec<Instruction>, Vec<Option<Value>>) {
+        (self.instructions, self.owned_consts)
+    }
+}
+
 impl Vm {
     pub(crate) fn new(instructions: Vec<Instruction>) -> Self {
+        Self::from_prepared_instructions(PreparedInstructions::new(instructions))
+    }
+
+    pub(crate) fn from_prepared_instructions(prepared: PreparedInstructions) -> Self {
+        let (instructions, owned_consts) = prepared.into_parts();
         let len = instructions.len();
         Vm {
             instructions: Arc::<[Instruction]>::from(instructions),
+            owned_consts,
             pc: 0,
             stack: Vec::with_capacity(256),
             global_slots: Vec::new(),
@@ -152,7 +191,9 @@ impl Vm {
     }
 
     /// Replace instructions and reset execution state.
-    pub(crate) fn reset_inst_and_state(&mut self, instructions: Vec<Instruction>) {
+    pub(crate) fn reset_with_prepared_instructions(&mut self, prepared: PreparedInstructions) {
+        let (instructions, owned_consts) = prepared.into_parts();
+        self.owned_consts = owned_consts;
         self.instructions = Arc::<[Instruction]>::from(instructions);
         self.pc = 0;
         self.stack.clear();
@@ -461,7 +502,31 @@ fn arity_err_vm(msg: impl Into<String>) -> WqError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
+
+    #[test]
+    fn new_keeps_constants_inline_by_default() {
+        let vm = Vm::new(vec![Instruction::load_const(Value::IntList(Arc::new(
+            vec![1, 2, 3],
+        )))]);
+
+        assert!(vm.owned_consts.is_empty());
+        assert!(matches!(vm.instructions[0], Instruction::LoadConst(_)));
+    }
+
+    #[test]
+    fn opt_in_preparation_extracts_owned_consts() {
+        let vm = Vm::from_prepared_instructions(PreparedInstructions::with_owned_const_extraction(
+            vec![Instruction::load_const(Value::IntList(Arc::new(vec![
+                1, 2, 3,
+            ])))],
+        ));
+
+        assert_eq!(vm.owned_consts.len(), 1);
+        assert!(matches!(vm.instructions[0], Instruction::LoadOwnedConst(0)));
+    }
 
     #[test]
     fn idle_pause_callback_does_not_enable_debug_artifacts() {

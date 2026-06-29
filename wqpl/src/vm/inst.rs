@@ -114,6 +114,8 @@ pub(crate) enum StoreTarget {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Instruction {
     LoadConst(Box<Value>),
+    /// Load a constant moved into the VM-owned one-shot constant pool.
+    LoadOwnedConst(usize),
     /// Load a closure capturing current local slots
     LoadClosure(Box<ClosurePayload>),
     /// Load a global variable or builtin by name
@@ -363,6 +365,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
     match inst {
         // Loads
         I::LoadConst(_)
+        | I::LoadOwnedConst(_)
         | I::LoadLocal(_)
         | I::LoadCapture(_)
         | I::LoadClosure(_)

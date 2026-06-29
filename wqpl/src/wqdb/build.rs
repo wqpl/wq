@@ -68,6 +68,7 @@ pub(crate) fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::inst
                 | LoadVar(_)
                 | LoadVarExists(_)
                 | LoadConst(_)
+                | LoadOwnedConst(_)
                 | LoadClosure { .. }
         );
         if is_stmt {

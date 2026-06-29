@@ -20,7 +20,7 @@ use crate::symbol::SymbolIndex;
 use crate::token::{FmtPart, Token, TokenType, fmt_tokens_table};
 use crate::value::{Value, WqResult};
 use crate::vm::inst::{InstPrettyDumper, Instruction};
-use crate::vm::{GlobalMap, Vm};
+use crate::vm::{GlobalMap, PreparedInstructions, Vm};
 use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
     register_function_chunks,
@@ -239,7 +239,7 @@ impl Session {
         compiler.compile(&ast)?;
         compiler.instructions.push(Instruction::Return);
 
-        let dump_inst = |s: &str, inst: &Vec<Instruction>, flag: u16| {
+        let dump_inst = |s: &str, inst: &[Instruction], flag: u16| {
             if get_debug_log_flags().contains(flag) {
                 wqstderr_println(debug_header(s));
                 let lines = InstPrettyDumper::new(true, true).with_pc().render(inst);
@@ -272,8 +272,16 @@ impl Session {
 
         compiler.fuse();
         dump_inst(
-            "Inst @ fuse - final",
+            "Inst @ fuse",
             &compiler.instructions,
+            DebugLogFlags::INST_VERBOSE,
+        );
+        let prepared_instructions = PreparedInstructions::with_owned_const_extraction(
+            std::mem::take(&mut compiler.instructions),
+        );
+        dump_inst(
+            "Inst @ owned consts - final",
+            prepared_instructions.instructions(),
             DebugLogFlags::INST,
         );
 
@@ -283,7 +291,8 @@ impl Session {
 
         self.vm.clear_last_bt();
         self.vm.set_runtime_debug_info(compiler.has_runtime_debug);
-        self.vm.reset_inst_and_state(compiler.instructions);
+        self.vm
+            .reset_with_prepared_instructions(prepared_instructions);
         // Prepare debug artifacts when wqdb or backtrace mode is on
         let temp_wqdb_on = if self.wqdb_arm_next {
             self.wqdb_arm_next = false;

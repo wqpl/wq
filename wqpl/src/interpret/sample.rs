@@ -391,6 +391,7 @@ fn is_load(op: &Instruction) -> bool {
     matches!(
         op,
         I::LoadConst(_)
+            | I::LoadOwnedConst(_)
             | I::LoadClosure(_)
             | I::LoadVar(_)
             | I::LoadVarExists(_)

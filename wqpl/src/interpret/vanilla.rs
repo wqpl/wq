@@ -102,6 +102,18 @@ impl Interpreter for VanillaInterpreter {
                             val
                         });
                     }
+                    Instruction::LoadOwnedConst(slot) => {
+                        let val = vm
+                            .owned_consts
+                            .get_mut(*slot)
+                            .and_then(Option::take)
+                            .ok_or_else(|| vm_err("owned constant has already been loaded"))?;
+                        vm.stack.push(if vm.debug_artifacts_enabled() {
+                            vm.attach_debug_base_to_callable(val)
+                        } else {
+                            val
+                        });
+                    }
                     Instruction::LoadVar(name) => {
                         let cache = &vm.inline_cache[idx];
                         if let Some(slot) = cache.slot
@@ -2211,7 +2223,7 @@ mod tests {
     use crate::value::func::FunctionData;
     use crate::value::{Value, WqResult, eval_binary};
     use crate::vm::inst::{BinaryOpData, ClosurePayload, Instruction, Operand};
-    use crate::vm::{Slot, Vm};
+    use crate::vm::{PreparedInstructions, Slot, Vm};
     use crate::wqdb::data::ChunkId;
 
     #[test]
@@ -2244,6 +2256,32 @@ mod tests {
         let out = interpreter.interpret(&mut vm, 1).expect("execute");
 
         assert_eq!(out, Value::Int(20));
+    }
+
+    #[test]
+    fn first_global_literal_mutation_keeps_backing_storage() {
+        let backing = Arc::new(vec![1, 2, 3]);
+        let backing_ptr = Arc::as_ptr(&backing);
+        let mut vm = Vm::from_prepared_instructions(
+            PreparedInstructions::with_owned_const_extraction(vec![
+                Instruction::load_const(Value::IntList(backing)),
+                Instruction::StoreVar("a".into()),
+                Instruction::load_const(Value::Int(0)),
+                Instruction::load_const(Value::Int(9)),
+                Instruction::IndexAssignVarDrop("a".into()),
+                Instruction::LoadVar("a".into()),
+                Instruction::Return,
+            ]),
+        );
+        let mut interpreter = VanillaInterpreter;
+
+        let out = interpreter.interpret(&mut vm, 7).expect("execute");
+
+        assert_eq!(out, Value::IntList(Arc::new(vec![9, 2, 3])));
+        let Some(Value::IntList(items)) = vm.lookup_global_ref("a") else {
+            panic!("expected global a to be a list<int>");
+        };
+        assert_eq!(Arc::as_ptr(items), backing_ptr);
     }
 
     fn run_vm(insts: Vec<Instruction>) -> Value {

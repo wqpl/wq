@@ -345,6 +345,10 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(Some((**value).clone()));
             fallthrough(pc, state)
         }
+        I::LoadOwnedConst(_) => {
+            state.push_unknown();
+            fallthrough(pc, state)
+        }
         I::LoadLocal(slot) => {
             state.push(state.local(*slot));
             fallthrough(pc, state)

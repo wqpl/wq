@@ -520,6 +520,7 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
     use Instruction as I;
     match inst {
         I::LoadConst(_) => "LoadConst",
+        I::LoadOwnedConst(_) => "LoadOwnedConst",
         I::LoadClosure(_) => "LoadClosure",
         I::LoadVar(_) => "LoadVar",
         I::LoadVarExists(_) => "LoadVarExists",
@@ -612,6 +613,7 @@ fn instruction_profile_key(inst: &Instruction) -> String {
     use Instruction as I;
     match inst {
         I::LoadConst(value) => format!("LoadConst({})", value.type_name_verbose()),
+        I::LoadOwnedConst(slot) => format!("LoadOwnedConst({slot})"),
         I::LoadClosure(payload) => format!(
             "LoadClosure(locals={}, captures={}, inst={})",
             payload.locals,
