@@ -152,14 +152,6 @@ pub(super) fn op_cat(args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::cat_many(args.to_vec()))
 }
 
-pub(super) fn op_shl(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(BuiltinEnum::OpShl, args, &BinaryOperator::Shl)
-}
-
-pub(super) fn op_shr(args: BuiltinFnArgs) -> WqResult<Value> {
-    fold_binary_op(BuiltinEnum::OpShr, args, &BinaryOperator::Shr)
-}
-
 pub(super) fn op_floordiv(args: BuiltinFnArgs) -> WqResult<Value> {
     fold_binary_op(BuiltinEnum::OpFloorDiv, args, &BinaryOperator::FloorDiv)
 }

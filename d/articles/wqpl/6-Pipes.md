@@ -37,10 +37,10 @@ For symmetric calls, first or last may not matter much. For asymmetrical calls l
 `|.` and `||.` run the right-hand stage but keep the original value flowing.
 
 ```wq
-1..=3|.echo|sum|echo
+1..=3|.echo|map{x}|sum|echo
 ```
 
-The `echo` stage sees the range, but the range keeps flowing into `sum`.
+The `echo` stage sees the range, but the range keeps flowing into the next stage.
 
 `|.` inserts the value as the first argument to the tap stage. `||.` inserts it as the last argument. Use `||.` for the same reason as `||`: the tap call expects the flowing value at the end.
 

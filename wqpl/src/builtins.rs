@@ -1197,9 +1197,6 @@ declare_builtins! {
     (OP_CAT, OpCat, ",", ",[xs;ys+]", sig!(arity!(2..)), plain(op::op_cat), BuiltinGroup::Intrinsic),
     (OP_SHARP, OpSharp, "#", "#[x]", sig!(arity!(1)), plain(op::op_sharp), BuiltinGroup::Intrinsic),
 
-    (OP_SHL, OpShl, "<<", "<<[xs;ys+]", sig!(arity!(2..)), plain(op::op_shl), BuiltinGroup::Intrinsic),
-    (OP_SHR, OpShr, ">>", ">>[xs;ys+]", sig!(arity!(2..)), plain(op::op_shr), BuiltinGroup::Intrinsic),
-
 }
 
 const ECHO_NAMED_ARGS: &[&str] = &["sep"];
@@ -1710,8 +1707,6 @@ mod tests {
             (BuiltinEnum::OpGte, "2.."),
             (BuiltinEnum::OpCat, "2.."),
             (BuiltinEnum::OpSharp, "1"),
-            (BuiltinEnum::OpShl, "2.."),
-            (BuiltinEnum::OpShr, "2.."),
         ];
 
         assert_eq!(expected.len(), Builtins::ENUMS.len());

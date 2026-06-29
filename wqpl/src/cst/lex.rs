@@ -85,10 +85,6 @@ pub fn syntax_kind_of_token(tt: &TokenType) -> SyntaxKind {
         T::Matmul => K::Matmul,
         T::FloorDiv => K::FloorDiv,
 
-        // Binary operators.
-        T::Shl => K::Shl,
-        T::Shr => K::Shr,
-
         // Augmented assignments.
         T::PlusColon => K::PlusColon,
         T::MinusColon => K::MinusColon,
@@ -99,8 +95,6 @@ pub fn syntax_kind_of_token(tt: &TokenType) -> SyntaxKind {
         T::PowerColon => K::PowerColon,
         T::PowerDotColon => K::PowerDotColon,
         T::CommaColon => K::CommaColon,
-        T::ShlColon => K::ShlColon,
-        T::ShrColon => K::ShrColon,
         T::FloorDivColon => K::FloorDivColon,
 
         T::Colon => K::Colon,

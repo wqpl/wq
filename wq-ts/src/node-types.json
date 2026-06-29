@@ -279,11 +279,11 @@
       "required": true,
       "types": [
         {
-          "type": "newline",
+          "type": "additive_expr",
           "named": true
         },
         {
-          "type": "shift_expr",
+          "type": "newline",
           "named": true
         }
       ]
@@ -1264,40 +1264,6 @@
     }
   },
   {
-    "type": "shift_expr",
-    "named": true,
-    "fields": {
-      "operator": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "<<",
-            "named": false
-          },
-          {
-            "type": ">>",
-            "named": false
-          }
-        ]
-      }
-    },
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "additive_expr",
-          "named": true
-        },
-        {
-          "type": "newline",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "source_file",
     "named": true,
     "root": true,
@@ -1569,14 +1535,6 @@
     "named": false
   },
   {
-    "type": "<<",
-    "named": false
-  },
-  {
-    "type": "<<:",
-    "named": false
-  },
-  {
     "type": "<=",
     "named": false
   },
@@ -1594,14 +1552,6 @@
   },
   {
     "type": ">=",
-    "named": false
-  },
-  {
-    "type": ">>",
-    "named": false
-  },
-  {
-    "type": ">>:",
     "named": false
   },
   {

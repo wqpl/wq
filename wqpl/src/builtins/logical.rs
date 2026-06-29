@@ -29,9 +29,9 @@ pub(super) fn xor(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn shl(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::op_shl(args)
+    fold_binary_op(BE::Shl, args, &BinaryOperator::Shl)
 }
 
 pub(super) fn shr(args: BuiltinFnArgs) -> WqResult<Value> {
-    super::op::op_shr(args)
+    fold_binary_op(BE::Shr, args, &BinaryOperator::Shr)
 }

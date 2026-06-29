@@ -65,14 +65,14 @@ sha256:{[msg]
     2756734187;
     3204031479;
     3329325298)
-  rotr:{[x;n]band[bor[x>>n;x<<(32-n)];4294967295]}
+  rotr:{[x;n]band[bor[shr[x;n];shl[x;32-n]];4294967295]}
   // Padding
   msg:encode[msg;"utf-8"]
   bits:(#msg)*8
   msg,:128
   W[(#msg*8)%512~448
     msg,:0]
-  msg,:(56;48;40;32;24;16;8;0)|map {band[(bits>>x);255]}
+  msg,:(56;48;40;32;24;16;8;0)|map {band[shr[bits;x];255]}
   // Process chunks
   N[(#msg)/64
     chunk:msg (_n*64)..((_n+1)*64)
@@ -80,8 +80,8 @@ sha256:{[msg]
     w,:alloc 48
     N[64
       $.[_n>15
-        s0:xor[rotr[w[_n-15];7];rotr[w[_n-15];18];w[_n-15]>>3]
-        s1:xor[rotr[w[_n-2];17];rotr[w[_n-2];19];w[_n-2]>>10]
+        s0:xor[rotr[w[_n-15];7];rotr[w[_n-15];18];shr[w[_n-15];3]]
+        s1:xor[rotr[w[_n-2];17];rotr[w[_n-2];19];shr[w[_n-2];10]]
         w _n:band[w[_n-16]+s0+w[_n-7]+s1;4294967295]]]
     (a;b;c;d;e;f;g;h_var):h
     N[64

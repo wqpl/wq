@@ -63,8 +63,8 @@ pub(crate) fn eval_binary(op: &BinaryOperator, left: &Value, right: &Value) -> W
         BitAnd => left.band(right).map_err(|e| e.src(bp!("band"))),
         BitOr => left.bor(right).map_err(|e| e.src(bp!("bor"))),
         BitXor => left.xor(right).map_err(|e| e.src(bp!("xor"))),
-        Shl => left.shl(right).map_err(|e| e.src(bp!("<<"))),
-        Shr => left.shr(right).map_err(|e| e.src(bp!(">>"))),
+        Shl => left.shl(right).map_err(|e| e.src(bp!("shl"))),
+        Shr => left.shr(right).map_err(|e| e.src(bp!("shr"))),
         FloorDiv => left.floor_div(right).map_err(|e| e.src(bp!("/%"))),
     }
 }

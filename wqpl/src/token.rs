@@ -25,8 +25,6 @@ pub enum TokenType {
     DivideDot,
     Modulo,
     Matmul,
-    Shl,
-    Shr,
     FloorDiv,
 
     PlusColon,
@@ -38,8 +36,6 @@ pub enum TokenType {
     PowerColon,
     PowerDotColon,
     CommaColon,
-    ShlColon,
-    ShrColon,
     FloorDivColon,
 
     Colon,

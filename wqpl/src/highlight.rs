@@ -717,8 +717,6 @@ impl Highlighter {
             | TokenType::PowerColon
             | TokenType::PowerDotColon
             | TokenType::CommaColon
-            | TokenType::ShlColon
-            | TokenType::ShrColon
             | TokenType::FloorDivColon
             | TokenType::Plus
             | TokenType::Minus
@@ -729,8 +727,6 @@ impl Highlighter {
             | TokenType::DivideDot
             | TokenType::Modulo
             | TokenType::Matmul
-            | TokenType::Shl
-            | TokenType::Shr
             | TokenType::FloorDiv
             | TokenType::Equal
             | TokenType::EqualDot

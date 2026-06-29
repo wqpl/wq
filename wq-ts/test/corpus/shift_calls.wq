@@ -1,7 +1,7 @@
 ============================
-Lazy Boolean Forms
+Named Shift Calls
 ============================
-A[T;O[F;T]]
+shl[1;shr[8;1]]
 
 ---
 
@@ -18,8 +18,12 @@ A[T;O[F;T]]
                     (unary_expr
                       (power_expr
                         (postfix_expr
-                          (primary
-                            (lazy_bool_form
+                          (postfix_expr
+                            (primary
+                              (variable_ref
+                                (identifier))))
+                          (suffix
+                            (call_suffix
                               (arg_list
                                 (argument_items
                                   (expression
@@ -35,7 +39,7 @@ A[T;O[F;T]]
                                                       (postfix_expr
                                                         (primary
                                                           (literal
-                                                            (true))))))))))))))
+                                                            (integer))))))))))))))
                                   (expression
                                     (assignment_expr
                                       (pipe_expr
@@ -47,8 +51,12 @@ A[T;O[F;T]]
                                                   (unary_expr
                                                     (power_expr
                                                       (postfix_expr
-                                                        (primary
-                                                          (lazy_bool_form
+                                                        (postfix_expr
+                                                          (primary
+                                                            (variable_ref
+                                                              (identifier))))
+                                                        (suffix
+                                                          (call_suffix
                                                             (arg_list
                                                               (argument_items
                                                                 (expression
@@ -64,7 +72,7 @@ A[T;O[F;T]]
                                                                                     (postfix_expr
                                                                                       (primary
                                                                                         (literal
-                                                                                          (false))))))))))))))
+                                                                                          (integer))))))))))))))
                                                                 (expression
                                                                   (assignment_expr
                                                                     (pipe_expr
@@ -78,6 +86,6 @@ A[T;O[F;T]]
                                                                                     (postfix_expr
                                                                                       (primary
                                                                                         (literal
-                                                                                          (true)))))))))))))))))))))))))))))))))))))))))))))
+                                                                                          (integer)))))))))))))))))))))))))))))))))))))))))))))
   (separator
     (newline)))

@@ -3,13 +3,12 @@ const PREC = {
   PIPE: 2,
   COMMA: 3,
   COMPARE: 4,
-  SHIFT: 5,
-  ADD: 6,
-  MULTIPLY: 7,
-  RANGE: 8,
-  UNARY: 9,
-  POWER: 10,
-  POSTFIX: 11,
+  ADD: 5,
+  MULTIPLY: 6,
+  RANGE: 7,
+  UNARY: 8,
+  POWER: 9,
+  POSTFIX: 10,
 };
 
 const IDENT_START = /[\p{ID_Start}_]/u;
@@ -103,8 +102,6 @@ export default grammar({
         "^:",
         "^.:",
         ",:",
-        "<<:",
-        ">>:",
         "/%:",
       ),
 
@@ -171,23 +168,20 @@ export default grammar({
         prec.left(
           PREC.COMPARE,
           seq(
-            $.shift_expr,
+            $.additive_expr,
             repeat1(
               seq(
                 field("operator", $.comparison_operator),
-                continuation($, $.shift_expr),
+                continuation($, $.additive_expr),
               ),
             ),
           ),
         ),
-        $.shift_expr,
+        $.additive_expr,
       ),
 
     comparison_operator: (_) =>
       choice("=.", "=", "~.", "~", "<=", "<", ">=", ">"),
-
-    shift_expr: ($) =>
-      binary($, $.additive_expr, PREC.SHIFT, choice("<<", ">>")),
 
     additive_expr: ($) =>
       binary($, $.multiplicative_expr, PREC.ADD, choice("+", "-")),
@@ -423,8 +417,6 @@ export default grammar({
         "<=",
         ">",
         ">=",
-        "<<",
-        ">>",
         ",",
         "#",
       ),

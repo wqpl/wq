@@ -135,18 +135,6 @@ const OP_SHARP_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("3"),
 }];
 
-const OP_SHL_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Shift bits left",
-    code: "<<[3;2]",
-    expectation: ExampleExpectation::ResultContains("12"),
-}];
-
-const OP_SHR_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Shift bits right",
-    code: ">>[16;2]",
-    expectation: ExampleExpectation::ResultContains("4"),
-}];
-
 pub(super) const OP_ADD: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::OpAdd,
     summary: "Add values with the `+` operator.",
@@ -305,20 +293,4 @@ pub(super) const OP_SHARP: BuiltinDoc = BuiltinDoc {
     details: "`#[x]` returns the same length/count result as unary `#x` and `len[x]`, counting the outer length of containers.",
     examples: OP_SHARP_EXAMPLES,
     related: &["len", "shape"],
-};
-
-pub(super) const OP_SHL: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::OpShl,
-    summary: "Shift integer bits left with the `<<` operator.",
-    details: "`<<[xs;ys+]` folds left shifts over integer values. Shift counts must be non-negative and fit the runtime shift range.",
-    examples: OP_SHL_EXAMPLES,
-    related: &[">>", "shl", "&"],
-};
-
-pub(super) const OP_SHR: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::OpShr,
-    summary: "Shift integer bits right with the `>>` operator.",
-    details: "`>>[xs;ys+]` folds right shifts over integer values. Shift counts must be non-negative and fit the runtime shift range.",
-    examples: OP_SHR_EXAMPLES,
-    related: &["<<", "shr", "&"],
 };

@@ -75,10 +75,6 @@ pub enum SyntaxKind {
     Matmul,
     FloorDiv,
 
-    // ===== binary operators =====
-    Shl,
-    Shr,
-
     // ===== augmented assignments =====
     PlusColon,
     MinusColon,
@@ -89,8 +85,6 @@ pub enum SyntaxKind {
     PowerColon,
     PowerDotColon,
     CommaColon,
-    ShlColon,
-    ShrColon,
     FloorDivColon,
 
     Colon,
@@ -265,8 +259,6 @@ impl SyntaxKind {
             Matmul => "MATMUL",
             FloorDiv => "FLOOR_DIV",
 
-            Shl => "SHL",
-            Shr => "SHR",
             PlusColon => "PLUS_COLON",
             MinusColon => "MINUS_COLON",
             StarColon => "STAR_COLON",
@@ -276,8 +268,6 @@ impl SyntaxKind {
             PowerColon => "POWER_COLON",
             PowerDotColon => "POWER_DOT_COLON",
             CommaColon => "COMMA_COLON",
-            ShlColon => "SHL_COLON",
-            ShrColon => "SHR_COLON",
             FloorDivColon => "FLOOR_DIV_COLON",
 
             Colon => "COLON",

@@ -12,6 +12,4 @@ pub(super) const BUILTIN_ALIASES: &[(BuiltinEnum, BuiltinEnum)] = &[
     (BuiltinEnum::I, BuiltinEnum::Integrate),
     (BuiltinEnum::U, BuiltinEnum::UnitQ),
     (BuiltinEnum::Not, BuiltinEnum::OpTilde),
-    (BuiltinEnum::Shl, BuiltinEnum::OpShl),
-    (BuiltinEnum::Shr, BuiltinEnum::OpShr),
 ];

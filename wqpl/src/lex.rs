@@ -1014,19 +1014,7 @@ impl<'a> Lexer<'a> {
                 }
 
                 Some('<') => {
-                    if nxt == Some('<') {
-                        let n2 = self.peek2();
-                        if n2 == Some(':') {
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::ShlColon, self.byte_pos);
-                        } else {
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::Shl, self.byte_pos);
-                        }
-                    } else if nxt == Some('=') {
+                    if nxt == Some('=') {
                         self.advance();
                         self.advance();
                         return emit(TokenType::LessThanOrEqual, self.byte_pos);
@@ -1037,19 +1025,7 @@ impl<'a> Lexer<'a> {
                 }
 
                 Some('>') => {
-                    if nxt == Some('>') {
-                        let n2 = self.peek2();
-                        if n2 == Some(':') {
-                            self.advance();
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::ShrColon, self.byte_pos);
-                        } else {
-                            self.advance();
-                            self.advance();
-                            return emit(TokenType::Shr, self.byte_pos);
-                        }
-                    } else if nxt == Some('=') {
+                    if nxt == Some('=') {
                         self.advance();
                         self.advance();
                         return emit(TokenType::GreaterThanOrEqual, self.byte_pos);

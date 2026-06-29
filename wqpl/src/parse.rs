@@ -921,8 +921,6 @@ impl Parser {
             TokenType::PowerColon => Some(Some(BinaryOperator::Power)),
             TokenType::PowerDotColon => Some(Some(BinaryOperator::PowerDot)),
             TokenType::CommaColon => Some(Some(BinaryOperator::Cat)),
-            TokenType::ShlColon => Some(Some(BinaryOperator::Shl)),
-            TokenType::ShrColon => Some(Some(BinaryOperator::Shr)),
             TokenType::FloorDivColon => Some(Some(BinaryOperator::FloorDiv)),
             _ => None,
         }
@@ -1565,7 +1563,7 @@ impl Parser {
 
     fn parse_comparison(&mut self) -> WqResult<AstNode> {
         let pending = self.cst_open();
-        let first = self.parse_shift()?;
+        let first = self.parse_additive()?;
         let mut rest: Vec<(BinaryOperator, AstNode)> = Vec::new();
         while let Some(token) = self.current_token().cloned() {
             let (op, op_tok) = match token.token_type {
@@ -1581,7 +1579,7 @@ impl Parser {
             };
             self.advance();
             self.eat_rhs_trivia(&op_tok, "comparison operator")?;
-            let right = self.parse_shift()?;
+            let right = self.parse_additive()?;
             rest.push((op, right));
         }
         match rest.len() {
@@ -1609,31 +1607,6 @@ impl Parser {
                 })
             }
         }
-    }
-
-    fn parse_shift(&mut self) -> WqResult<AstNode> {
-        let cp = self.cst_checkpoint();
-        let mut left = self.parse_additive()?;
-        while let Some(token) = self.current_token().cloned() {
-            let (op, op_tok) = match token.token_type {
-                TokenType::Shl => (BinaryOperator::Shl, token),
-                TokenType::Shr => (BinaryOperator::Shr, token),
-                _ => break,
-            };
-            self.advance();
-            self.eat_rhs_trivia(&op_tok, "binary operator")?;
-            let right = self.parse_additive()?;
-            let span = Self::merge_spans(left.span(), right.span());
-            left = AstNode::BinaryOp {
-                left: Box::new(left),
-                operator: op,
-                right: Box::new(right),
-                span,
-            };
-            self.cst_start_node_at(cp, SyntaxKind::BinaryExpr);
-            self.cst_finish_node();
-        }
-        Ok(left)
     }
 
     fn parse_additive(&mut self) -> WqResult<AstNode> {
@@ -1920,7 +1893,7 @@ impl Parser {
             name_str,
             Some("+" | "-" | "*" | "/" | "/." | "/%" | "%" |
                 "^" | "^." | "**" | "=" | "~" | "<" | "<=" |
-                ">" | ">=" | "<<" | ">>" | "," | "#"
+                ">" | ">=" | "," | "#"
             )
         );
         res
@@ -2803,16 +2776,6 @@ impl Parser {
                     let span = (token.byte_start, token.byte_end);
                     self.advance();
                     Ok(AstNode::Variable(",".into(), Some(span)))
-                }
-                TokenType::Shl => {
-                    let span = (token.byte_start, token.byte_end);
-                    self.advance();
-                    Ok(AstNode::Variable("<<".into(), Some(span)))
-                }
-                TokenType::Shr => {
-                    let span = (token.byte_start, token.byte_end);
-                    self.advance();
-                    Ok(AstNode::Variable(">>".into(), Some(span)))
                 }
                 TokenType::FloorDiv => {
                     let span = (token.byte_start, token.byte_end);

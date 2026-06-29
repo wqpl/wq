@@ -31,6 +31,18 @@ const BOR_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("5"),
 }];
 
+const SHL_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Shift bits left",
+    code: "shl[3;2]",
+    expectation: ExampleExpectation::ResultContains("12"),
+}];
+
+const SHR_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Shift bits right",
+    code: "shr[16;2]",
+    expectation: ExampleExpectation::ResultContains("4"),
+}];
+
 pub(super) const AND: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::And,
     summary: "Combine bools eagerly with boolean and.",
@@ -69,4 +81,20 @@ pub(super) const BOR: BuiltinDoc = BuiltinDoc {
     details: "`bor[xs;ys+]` folds bitwise or over integers and integer lists.",
     examples: BOR_EXAMPLES,
     related: &["band", "xor"],
+};
+
+pub(super) const SHL: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Shl,
+    summary: "Shift integer bits left.",
+    details: "`shl[xs;shift+]` folds left shifts over integer values. Shift counts must be non-negative and fit the runtime shift range.",
+    examples: SHL_EXAMPLES,
+    related: &["shr", "band", "bor"],
+};
+
+pub(super) const SHR: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Shr,
+    summary: "Shift integer bits right.",
+    details: "`shr[xs;shift+]` folds right shifts over integer values. Shift counts must be non-negative and fit the runtime shift range.",
+    examples: SHR_EXAMPLES,
+    related: &["shl", "band", "bor"],
 };

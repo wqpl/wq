@@ -1,7 +1,7 @@
 a:{[x]x+1}
 b:{[x]2*x}
 c:a+b
-d:{[x]x<<1}
+d:{[x]shl[x;1]}
 e:{[x]x+3}
 global_combo:a+b
 local_combo:{f:a+b;f[6]}

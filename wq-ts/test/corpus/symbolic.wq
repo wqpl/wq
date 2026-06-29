@@ -12,33 +12,31 @@ Symbolic Quote Before Pipe
         (pipe_expr
           (comma_expr
             (comparison_expr
-              (shift_expr
-                (additive_expr
-                  (multiplicative_expr
-                    (range_expr
-                      (unary_expr
-                        (power_expr
-                          (postfix_expr
-                            (primary
-                              (symbolic_form
-                                (comma_expr
-                                  (comparison_expr
-                                    (shift_expr
-                                      (additive_expr
-                                        (multiplicative_expr
-                                          (range_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (symbolic_form
+                              (comma_expr
+                                (comparison_expr
+                                  (additive_expr
+                                    (multiplicative_expr
+                                      (range_expr
+                                        (unary_expr
+                                          (power_expr
+                                            (postfix_expr
+                                              (primary
+                                                (variable_ref
+                                                  (identifier))))
                                             (unary_expr
                                               (power_expr
                                                 (postfix_expr
                                                   (primary
-                                                    (variable_ref
-                                                      (identifier))))
-                                                (unary_expr
-                                                  (power_expr
-                                                    (postfix_expr
-                                                      (primary
-                                                        (literal
-                                                          (integer)))))))))))))))))))))))))
+                                                    (literal
+                                                      (integer)))))))))))))))))))))))
           (pipe_operator)
           (pipe_rhs_expr
             (pipe_postfix_expr
@@ -67,34 +65,33 @@ Binary Continuation Lines
         (pipe_expr
           (comma_expr
             (comparison_expr
-              (shift_expr
-                (additive_expr
-                  (multiplicative_expr
-                    (range_expr
-                      (unary_expr
-                        (power_expr
-                          (postfix_expr
-                            (primary
-                              (literal
-                                (integer))))))))
-                  (newline)
-                  (multiplicative_expr
-                    (range_expr
-                      (unary_expr
-                        (power_expr
-                          (postfix_expr
-                            (primary
-                              (literal
-                                (integer))))))))
-                  (newline)
-                  (multiplicative_expr
-                    (range_expr
-                      (unary_expr
-                        (power_expr
-                          (postfix_expr
-                            (primary
-                              (literal
-                                (integer))))))))))))))))
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (integer))))))))
+                (newline)
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (integer))))))))
+                (newline)
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (integer)))))))))))))))
   (separator
     (newline))
   (statement
@@ -103,39 +100,36 @@ Binary Continuation Lines
         (pipe_expr
           (comma_expr
             (comparison_expr
-              (shift_expr
-                (additive_expr
-                  (multiplicative_expr
-                    (range_expr
-                      (unary_expr
-                        (power_expr
-                          (postfix_expr
-                            (primary
-                              (literal
-                                (integer))))))))))
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (integer)))))))))
               operator: (comparison_operator)
               (newline)
-              (shift_expr
-                (additive_expr
-                  (multiplicative_expr
-                    (range_expr
-                      (unary_expr
-                        (power_expr
-                          (postfix_expr
-                            (primary
-                              (literal
-                                (integer))))))))))
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (integer)))))))))
               operator: (comparison_operator)
               (newline)
-              (shift_expr
-                (additive_expr
-                  (multiplicative_expr
-                    (range_expr
-                      (unary_expr
-                        (power_expr
-                          (postfix_expr
-                            (primary
-                              (literal
-                                (integer))))))))))))))))
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (integer)))))))))))))))
   (separator
     (newline)))

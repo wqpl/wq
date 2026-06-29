@@ -15,10 +15,10 @@ band[5;3] |echo
 bor[5;3] |echo
 
 // left shift
-1 << 3 |echo
+shl[1;3] |echo
 
 // right shift
-8 >> 2 |echo
+shr[8;2] |echo
 
 // bitwise xor
 xor[5;3] |echo
@@ -37,8 +37,8 @@ and[true;true;false] |echo
 or[false;true;false] |echo
 band[5;3;1] |echo
 bor[5;3;1] |echo
-<<[1;2;3] |echo
->>[32;2;1] |echo
+shl[1;2;3] |echo
+shr[32;2;1] |echo
 xor[5;3;1] |echo
 /%[7;3] |echo
 
@@ -49,8 +49,8 @@ xor[5;3;1] |echo
 (xor[5;3;1]=7) |echo
 (band[5;3;1]=1) |echo
 (bor[5;3;1]=7) |echo
-(shl[1;2;3]=<<[1;2;3]) |echo
-(shr[32;2;1]=>>[32;2;1]) |echo
+(shl[1;2;3]=32) |echo
+(shr[32;2;1]=4) |echo
 
 // atom short-circuit
 A[false;true] |echo
@@ -62,8 +62,8 @@ l2:(false;true;true)
 A[l1;l2] |echo
 O[l1;l2] |echo
 
-// precedence: shift before add
-1 + 2 << 3 |echo
+// named shift call
+shl[1+2;3] |echo
 
 // explicit lazy nesting
 O[true;A[false;false]] |echo
