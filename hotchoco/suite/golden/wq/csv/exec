@@ -1,13 +1,15 @@
---- Test 1: basic ---
-(("name";"age");("Alice";"30");("Bob";"25"))
---- Test 2: quoted field with comma ---
-,(("hello, world";"123"))
---- Test 3: mixed quoted / unquoted ---
-,(("a";"b,c";"d"))
---- Test 4: escaped quotes inside field ---
-,(("hello \"world\"";"123"))
---- Test 5: empty fields ---
-,((();();()))
---- Test 6: newline inside quoted field ---
-,(("line1\nline2";"tail"))
+ok basic
+ok quoted field with comma
+ok mixed quoted and unquoted
+ok escaped quotes inside field
+ok empty fields
+ok newline inside quoted field
+ok trailing newline
+ok crlf rows
+ok cr rows
+ok empty input
+ok trailing comma
+ok unterminated quote errors
+ok quote in unquoted field errors
+ok text after closing quote errors
 ()
