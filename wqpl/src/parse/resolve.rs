@@ -1262,9 +1262,7 @@ impl Resolver {
 
     fn fact_from_value(value: &Value) -> BindingFact {
         match value {
-            Value::CompiledFunction(_) | Value::Closure(_) | Value::BuiltinFunction { .. } => {
-                BindingFact::Callable
-            }
+            _ if value.is_callable() => BindingFact::Callable,
             _ if value.is_container() => BindingFact::Container,
             _ => BindingFact::Unknown,
         }
@@ -1867,7 +1865,7 @@ mod tests {
     }
 
     #[test]
-    fn lifted_callable_literal_assignment_keeps_postfix_dynamic() {
+    fn lifted_callable_literal_assignment_lowers_postfix_to_call() {
         let ast = AstNode::Block(
             vec![
                 AstNode::Assignment {
@@ -1897,7 +1895,32 @@ mod tests {
         let mut resolver = Resolver::new();
         let ast = resolver.resolve(ast);
 
-        assert!(matches!(stmt(&ast, 1), AstNode::Postfix { .. }));
+        match stmt(&ast, 1) {
+            AstNode::CallName { name, args, .. } => {
+                assert_eq!(name, "f");
+                assert_eq!(args.len(), 1);
+                assert!(matches!(args[0], AstNode::Literal(Value::Int(0), _)));
+            }
+            other => panic!("expected call lowering, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn runtime_lifted_callable_fact_lowers_postfix_to_call() {
+        let mut env = GlobalMap::new();
+        env.insert(
+            "f".to_string(),
+            Value::function_composition(BinaryOperator::Add, Value::Int(1), Value::Int(2)),
+        );
+
+        match resolve_src_with_env("f[0]", env) {
+            AstNode::CallName { name, args, .. } => {
+                assert_eq!(name, "f");
+                assert_eq!(args.len(), 1);
+                assert!(matches!(args[0], AstNode::Literal(Value::Int(0), _)));
+            }
+            other => panic!("expected call lowering, got {other:?}"),
+        }
     }
 
     #[test]

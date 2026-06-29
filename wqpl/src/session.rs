@@ -939,6 +939,29 @@ mod tests {
     }
 
     #[test]
+    fn named_forced_call_accepts_lifted_callable() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("f:{x+1};g:f+1;g[2;]")
+            .expect("forced call should eval a lifted callable");
+
+        assert_eq!(result, Value::Int(4));
+    }
+
+    #[test]
+    fn runtime_seeded_lifted_callable_lowers_to_call() {
+        let mut session = Session::new();
+        session
+            .eval_string("f:{x+1};g:f+1")
+            .expect("lifted callable binding should eval");
+        let result = session
+            .eval_string("g[2]")
+            .expect("runtime-seeded lifted callable should eval");
+
+        assert_eq!(result, Value::Int(4));
+    }
+
+    #[test]
     fn index_path_assignment_updates_nested_value() {
         let mut session = Session::new();
         let result = session

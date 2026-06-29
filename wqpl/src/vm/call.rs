@@ -335,7 +335,7 @@ impl Vm {
                 CallSpec::from_user_callable(func, argc, None).expect("matched user function"),
             ),
             other => Err(not_bound_err(format!(
-                "expected fn, got {}",
+                "expected func, got {}",
                 other.type_name()
             ))),
         }
@@ -686,8 +686,9 @@ impl Vm {
         } else {
             match func_val {
                 b @ Value::BuiltinFunction { .. } => Ok(b),
+                c @ Value::LiftedCallable(_) => Ok(c),
                 other => Err(not_bound_err(format!(
-                    "cannot call '{name}': expected fn, got {}",
+                    "cannot call '{name}': expected callable, got {}",
                     other.type_name()
                 ))),
             }
@@ -839,7 +840,7 @@ pub(crate) fn peek_local_callable(slot: u16, v: &Slot) -> WqResult<PeekLocalCall
         match value {
             Value::BuiltinFunction { id, .. } => Ok(PeekLocalCallable::Builtin(*id)),
             other => Err(call_err(format!(
-                "cannot call local {slot}: expected fn, found {} ({})",
+                "cannot call local {slot}: expected func, found {} ({})",
                 other.excerpt(),
                 other.type_name(),
             ))),
