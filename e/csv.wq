@@ -30,9 +30,7 @@ parse_csv:{[csv]rows:();cols:();field:""
     rows]}
 
 expect:{[label;got;want]
-  $[got=want
-    echo @f"ok {label}"
-    raise @f"FAIL {label}: got {got}, want {want}"]}
+  $[got=want;echo@f"ok {label}";raise@f"FAIL {label}: got {got}, want {want}"]}
 
 // -- demos --
 expect["basic";parse_csv "name,age\nAlice,30\nBob,25";(("name";"age");("Alice";"30");("Bob";"25"))]
