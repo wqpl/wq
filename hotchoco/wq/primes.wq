@@ -1,2 +1,2 @@
-!l ../../e/primes.wq
+\l ../../e/primes.wq
 echo primes 100

@@ -268,7 +268,7 @@ where
     loader.load_script(filename, loading)
 }
 
-// Evaluate an inline snippet containing directives (e.g., !p, !load ...),
+// Evaluate an inline snippet containing directives (e.g., \p, \load ...),
 // using the same streaming logic and reporting as file loads.
 pub fn eval_inline_with_load(
     session: &mut Session,

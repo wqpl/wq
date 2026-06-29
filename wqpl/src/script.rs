@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use crate::escape::unescape_string_inner;
 use crate::lex::Lexer;
 use crate::parse::Parser;
 use crate::wqerror::WqErrorType;
@@ -119,6 +120,10 @@ pub fn parse_script_items(source: &str) -> Vec<ScriptItem> {
     items
 }
 
+pub fn might_have_script_meta(source: &str) -> bool {
+    source.contains('\\') || source.starts_with("#!")
+}
+
 fn process_line(
     source: &str,
     line_index: usize,
@@ -141,7 +146,7 @@ fn process_line(
     }
 
     let trimmed_leading = raw_line.trim_start();
-    if !pending.has_payload && trimmed_leading.starts_with('!') {
+    if !pending.has_payload && trimmed_leading.starts_with('\\') {
         pending.clear();
         items.push(ScriptItem::Directive(parse_legacy_directive(
             raw_line, span,
@@ -175,14 +180,19 @@ fn finish_pending(source: &str, pending: &mut PendingCode, items: &mut Vec<Scrip
 
 pub fn parse_legacy_directive(line: &str, span: ScriptSpan) -> ScriptDirective {
     let trimmed = line.trim();
-    if trimmed == "!p" {
+    if trimmed == r"\p" {
         return ScriptDirective::PreludeAlias { span };
     }
-    if let Some(rest) = ["!load", "!l"]
+    if let Some(rest) = [r"\load", r"\l"]
         .iter()
         .find_map(|prefix| trimmed.strip_prefix(prefix))
     {
-        let arg = rest.trim();
+        let Some(arg) = parse_load_arg(rest) else {
+            return ScriptDirective::Unknown {
+                text: line.trim_start().to_string(),
+                span,
+            };
+        };
         if arg.starts_with('<') && arg.ends_with('>') && arg.len() >= 2 {
             return ScriptDirective::LoadEmbeddedOrFile {
                 name: arg[1..arg.len() - 1].to_string(),
@@ -200,6 +210,39 @@ pub fn parse_legacy_directive(line: &str, span: ScriptSpan) -> ScriptDirective {
         text: line.trim_start().to_string(),
         span,
     }
+}
+
+fn parse_load_arg(rest: &str) -> Option<String> {
+    let arg = rest.trim();
+    if arg.is_empty() {
+        return None;
+    }
+    let mut chars = arg.chars();
+    let Some(quote @ ('"' | '\'')) = chars.next() else {
+        return Some(arg.to_string());
+    };
+
+    let body_start = quote.len_utf8();
+    let mut escaped = false;
+    for (idx, ch) in arg[body_start..].char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == quote {
+            let body_end = body_start + idx;
+            let rest = &arg[body_end + quote.len_utf8()..];
+            if !rest.trim().is_empty() {
+                return None;
+            }
+            return unescape_string_inner(&arg[body_start..body_end]).ok();
+        }
+    }
+    None
 }
 
 fn is_complete_code(input: &str) -> bool {
@@ -224,8 +267,8 @@ mod tests {
     }
 
     #[test]
-    fn splits_code_and_legacy_load_directives() {
-        let source = "a:1\n!l lib.wq\nb\n";
+    fn splits_code_and_load_directives() {
+        let source = "a:1\n\\l lib.wq\nb\n";
         let items = parse_script_items(source);
 
         assert_eq!(items.len(), 3);
@@ -239,7 +282,7 @@ mod tests {
 
     #[test]
     fn parses_prelude_alias_and_embedded_load() {
-        let source = "!p\n!load <prelude>\n";
+        let source = "\\p\n\\load <prelude>\n";
         let items = parse_script_items(source);
 
         assert!(matches!(
@@ -254,17 +297,34 @@ mod tests {
     }
 
     #[test]
-    fn bang_inside_incomplete_code_stays_code() {
-        let source = "$[true;\n!l nope.wq\n;1]\n";
+    fn parses_quoted_load_args() {
+        let source = "\\load \"dir/lib file.wq\"\n\\load '<prelude>'\n";
+        let items = parse_script_items(source);
+
+        assert!(matches!(
+            items.first(),
+            Some(ScriptItem::Directive(ScriptDirective::LoadPath { path, .. }))
+                if path == "dir/lib file.wq"
+        ));
+        assert!(matches!(
+            items.get(1),
+            Some(ScriptItem::Directive(ScriptDirective::LoadEmbeddedOrFile { name, .. }))
+                if name == "prelude"
+        ));
+    }
+
+    #[test]
+    fn directive_inside_incomplete_code_stays_code() {
+        let source = "$[true;\n\\l nope.wq\n;1]\n";
         let items = parse_script_items(source);
 
         assert!(
             items
                 .iter()
                 .all(|item| matches!(item, ScriptItem::Code { .. })),
-            "inner bang line should not become a directive: {items:#?}",
+            "inner directive line should not become a directive: {items:#?}",
         );
-        assert!(item_text(source, &items[0]).contains("!l nope.wq"));
+        assert!(item_text(source, &items[0]).contains("\\l nope.wq"));
     }
 
     #[test]

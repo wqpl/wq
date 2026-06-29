@@ -14,14 +14,14 @@ const BUILTIN_EXAMPLES: &[DocExample] = &[
     },
     DocExample {
         title: "Show enabled builtins in the REPL",
-        code: "!bfn",
+        code: r"\bfn",
         expectation: ExampleExpectation::NoRun(
             "REPL command: shows the current preset and enabled builtin table",
         ),
     },
     DocExample {
         title: "Switch builtin preset in the REPL",
-        code: "!bfn pure",
+        code: r"\bfn pure",
         expectation: ExampleExpectation::NoRun("REPL command: switches to the pure builtin preset"),
     },
 ];
@@ -36,14 +36,14 @@ const INTERPRETER_EXAMPLES: &[DocExample] = &[
     },
     DocExample {
         title: "Show the current REPL interpreter",
-        code: "!interpreter",
+        code: r"\interpreter",
         expectation: ExampleExpectation::NoRun(
             "REPL command: shows the current interpreter and available names",
         ),
     },
     DocExample {
         title: "Switch interpreter in the REPL",
-        code: "!i sample",
+        code: r"\i sample",
         expectation: ExampleExpectation::NoRun("REPL command: switches to the sample interpreter"),
     },
 ];
@@ -59,7 +59,7 @@ pub(super) const BUILTINS: StaticDoc = StaticDoc {
     title: "Builtins",
     kind: DocKind::Guide,
     group: "Reference",
-    aliases: &["bfn", "builtin", "builtins", "builtin presets", "!bfn", "!"],
+    aliases: &["bfn", "builtin", "builtins", "builtin presets", r"\bfn", "\\"],
     summary: "Built-in functions are values provided by wq.",
     details: "Builtins can be called with bracket syntax, postfix syntax for one argument, or through pipes.
 Individual builtin pages always render their signature and arity from `builtins.rs` metadata.
@@ -67,7 +67,7 @@ The `bfn[]` builtin returns a sorted list of builtin names enabled in the curren
 The standard CLI and REPL expose four preset names: `all`, `pure`, `minimal`, and `constrained`; short names `a`, `p`, `m`, and `c` are accepted where a preset is parsed.
 `all` enables every builtin, `minimal` keeps only intrinsic operators, `pure` keeps pure builtin groups, and `constrained` keeps groups allowed by constrained hosts.
 At the command line, `--builtins <preset>` selects the initial preset.
-In the interactive REPL, `!bfn` or `!` shows the current preset and enabled builtin table, while `!bfn pure`, `!bfn minimal`, and similar commands switch the live session preset.",
+In the interactive REPL, `\\bfn` or `\\` shows the current preset and enabled builtin table, while `\\bfn pure`, `\\bfn minimal`, and similar commands switch the live session preset.",
     examples: BUILTIN_EXAMPLES,
     related: &["bfn", "operators", "calls"],
 };
@@ -94,8 +94,8 @@ pub(super) const INTERPRETERS: StaticDoc = StaticDoc {
         "interpreters",
         "-i",
         "--interpreter",
-        "!interpreter",
-        "!i",
+        r"\interpreter",
+        r"\i",
         "vanilla",
         "sample",
         "profiler",
@@ -105,8 +105,8 @@ pub(super) const INTERPRETERS: StaticDoc = StaticDoc {
 `vanilla` (`v`) is the default interpreter and is the normal choice for scripts, `exec`, the REPL, wqdb, and tests.
 `profiler` (`p`) runs with the same user-visible evaluation result as `vanilla`, but installs profiling hooks and prints a profile summary to stderr when the run finishes; it reports instruction counts, stack and call depth, cache activity, and allocation summaries.
 `sample` (`s`) also delegates to vanilla execution, but samples instructions into terminal art on stderr; `WQ_SAMPLE_ART=off`, `static` or `final`, and `on` or `animate` control whether it is quiet, final-only, or animated.
-Select an interpreter with `-i <name>` or `--interpreter <name>` on the CLI, or with `!interpreter <name>` / `!i <name>` in the REPL.
-`!interpreter` with no name shows the current interpreter and the available names.",
+Select an interpreter with `-i <name>` or `--interpreter <name>` on the CLI, or with `\\interpreter <name>` / `\\i <name>` in the REPL.
+`\\interpreter` with no name shows the current interpreter and the available names.",
     examples: INTERPRETER_EXAMPLES,
     related: &["wqdb", "builtins", "debug"],
 };

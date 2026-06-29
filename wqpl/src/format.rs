@@ -104,9 +104,9 @@ impl Formatter {
         Ok(render::render(&doc, width))
     }
 
-    /// Format a script that may contain meta commands like `load <path>`.
+    /// Format a script that may contain meta commands like `\load <path>`.
     ///
-    /// Meta lines (starting with `!`, or a shebang `#!` on line 1) are
+    /// Meta lines (starting with `\`, or a shebang `#!` on line 1) are
     /// passed through verbatim. Everything else -- including comments and
     /// blank lines -- is forwarded to [`Self::format_source`], which
     /// preserves them via CST trivia attachment.
@@ -116,9 +116,9 @@ impl Formatter {
         let mut buffer_has_payload = false;
         for (i, line) in content.lines().enumerate() {
             let trimmed = line.trim();
-            // Meta-command lines (shell-style `!cmd`, or a shebang on line 1)
+            // Meta-command lines (shell-style `\cmd`, or a shebang on line 1)
             // bypass the formatter -- they aren't wq syntax.
-            if trimmed.starts_with("!") || (i == 0 && trimmed.starts_with("#!")) {
+            if trimmed.starts_with("\\") || (i == 0 && trimmed.starts_with("#!")) {
                 if buffer_has_payload {
                     result.push_str(&self.format_source(&buffer)?);
                     result.push('\n');

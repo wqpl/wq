@@ -12,7 +12,7 @@ use crate::interpret::vanilla::VanillaInterpreter;
 use crate::lex::Lexer;
 use crate::parse::resolve::Resolver;
 use crate::parse::{Parser, fold};
-use crate::script::{ScriptItem, ScriptSpan, parse_script_items};
+use crate::script::{ScriptItem, ScriptSpan, might_have_script_meta, parse_script_items};
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
 use crate::style::{ColorMode, TextStyle, paint};
@@ -384,7 +384,7 @@ impl Session {
     /// Parse and analyze symbols in `input` without executing.
     /// Returns a `SymbolIndex` that can be queried for definitions and uses.
     pub fn analyze_symbols(&self, input: &str) -> WqResult<SymbolIndex> {
-        if input.contains('!') {
+        if might_have_script_meta(input) {
             let items = parse_script_items(input);
             if has_script_meta(&items) {
                 let (ast, eof_errors) = self.parse_script_ast(input, &items)?;
@@ -419,7 +419,7 @@ impl Session {
     /// tokens. Useful for diagnostics and completions on syntactically
     /// broken code.
     pub fn tokenize_recovery(&self, input: &str) -> Vec<crate::token::Token> {
-        if input.contains('!') {
+        if might_have_script_meta(input) {
             let items = parse_script_items(input);
             if has_script_meta(&items) {
                 let mut tokens = Vec::new();
@@ -461,7 +461,7 @@ impl Session {
         &self,
         input: &str,
     ) -> WqResult<(crate::astnode::AstNode, crate::cst::GreenNode)> {
-        if input.contains('!') {
+        if might_have_script_meta(input) {
             let items = parse_script_items(input);
             if has_script_meta(&items) {
                 return self.parse_script_with_cst(input, &items);
@@ -484,7 +484,7 @@ impl Session {
         input: &str,
         previous: &crate::cst::GreenNode,
     ) -> WqResult<(crate::astnode::AstNode, crate::cst::GreenNode)> {
-        if input.contains('!') {
+        if might_have_script_meta(input) {
             let items = parse_script_items(input);
             if has_script_meta(&items) {
                 return self.parse_script_with_cst(input, &items);
@@ -1269,7 +1269,7 @@ mod tests {
     #[test]
     fn script_directive_cst_round_trips_with_meta_node() {
         let session = Session::new();
-        let src = "a:1\n!l ./lib.wq\nb:a\n";
+        let src = "a:1\n\\l ./lib.wq\nb:a\n";
         let (_, green) = session.parse_with_cst(src).expect("script parse");
 
         assert_eq!(green.text(), src);
@@ -1284,7 +1284,7 @@ mod tests {
     #[test]
     fn tokenize_recovery_omits_script_directive_errors() {
         let session = Session::new();
-        let tokens = session.tokenize_recovery("a:1\n!l ./lib.wq\nb:2\n");
+        let tokens = session.tokenize_recovery("a:1\n\\l ./lib.wq\nb:2\n");
 
         assert!(
             !tokens
@@ -1297,7 +1297,7 @@ mod tests {
     #[test]
     fn script_symbols_keep_offsets_after_directive() {
         let session = Session::new();
-        let src = "a:1\n!l ./lib.wq\nb:a\n";
+        let src = "a:1\n\\l ./lib.wq\nb:a\n";
         let index = session
             .analyze_symbols(src)
             .expect("script symbols should analyze");

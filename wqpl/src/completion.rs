@@ -157,7 +157,7 @@ fn is_in_no_completion_zone(session: &Session, content: &str, byte_offset: usize
     if line_start == 0 && line.starts_with("#!") {
         return true;
     }
-    if line.trim_start().starts_with('!') {
+    if line.trim_start().starts_with('\\') {
         return true;
     }
 

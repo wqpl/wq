@@ -1,3 +1,3 @@
 //exclude
-!p
+\p
 bfn[]|map echo;"== END =="

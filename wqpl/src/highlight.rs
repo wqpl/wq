@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::builtins::Builtins;
 use crate::lex::Lexer;
-use crate::script::{ScriptItem, ScriptSpan, parse_script_items};
+use crate::script::{ScriptItem, ScriptSpan, might_have_script_meta, parse_script_items};
 use crate::token::{Token, TokenType};
 
 pub const ANSI_RESET: &str = "\x1b[0m";
@@ -770,7 +770,7 @@ impl Highlighter {
 }
 
 fn script_items_with_meta(src: &str) -> Option<Vec<ScriptItem>> {
-    if !src.contains('!') {
+    if !might_have_script_meta(src) {
         return None;
     }
     let items = parse_script_items(src);
@@ -862,7 +862,7 @@ mod tests {
 
     #[test]
     fn test_script_directive_covers_whole_source_as_meta() {
-        let src = "a:1\n!l ./lib.wq\nb:2\n";
+        let src = "a:1\n\\l ./lib.wq\nb:2\n";
         let h = Highlighter::new();
         let events = h.highlight(src);
 
@@ -876,7 +876,7 @@ mod tests {
 
     #[test]
     fn test_cursor_context_in_script_directive_is_meta() {
-        let src = "a:1\n!l ./lib.wq\nb:2\n";
+        let src = "a:1\n\\l ./lib.wq\nb:2\n";
         let pos = src.find("lib").expect("directive has lib path");
 
         assert_eq!(cursor_context_at(src, pos), CursorContext::Meta);

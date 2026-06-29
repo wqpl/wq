@@ -1,4 +1,4 @@
-!l ../../e/bf.wq
+\l ../../e/bf.wq
 
 //[sierpinski.b -- display Sierpinski triangle
 //(c) 2016 Daniel B. Cristofani brainfuck.org]

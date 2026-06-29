@@ -7,13 +7,13 @@ pub enum Directive {
 
 pub fn parse_meta_directive(line: &str) -> Option<Directive> {
     let s = line.trim();
-    if !s.starts_with('!') {
+    if !s.starts_with('\\') {
         return None;
     }
-    if s == "!p" {
+    if s == r"\p" {
         return Some(Directive::PreludeAlias);
     }
-    if let Some(rest) = ["!load", "!l"].iter().find_map(|p| s.strip_prefix(p)) {
+    if let Some(rest) = [r"\load", r"\l"].iter().find_map(|p| s.strip_prefix(p)) {
         let arg = rest.trim();
         if arg.starts_with('<') && arg.ends_with('>') && arg.len() >= 2 {
             let inner = &arg[1..arg.len() - 1];

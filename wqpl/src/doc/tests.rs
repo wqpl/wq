@@ -32,7 +32,7 @@ fn resolves_keywords_and_depth_modifiers() {
         "wqdb".to_string()
     );
     assert_eq!(
-        resolve("!bfn").expect("!bfn doc").id,
+        resolve(r"\bfn").expect(r"\bfn doc").id,
         "builtins".to_string()
     );
     assert_eq!(
@@ -40,7 +40,7 @@ fn resolves_keywords_and_depth_modifiers() {
         "interpreters".to_string()
     );
     assert_eq!(
-        resolve("!i").expect("!i doc").id,
+        resolve(r"\i").expect(r"\i doc").id,
         "interpreters".to_string()
     );
     assert_eq!(

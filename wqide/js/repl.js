@@ -553,21 +553,21 @@ function commandLine(name, value) {
 
 function replHelpText() {
   const commands = [
-    "!exit, !e, !!",
-    "!info",
-    "!dry, !dry?",
-    "!bfn [preset], !",
-    "!gb, !g",
-    "!reset, !r",
-    "!box, !b, !box <spec>, !box?",
-    "!xray, !x, !xray?",
-    "!backtrace, !bt, !backtrace?",
-    "!interpreter [name], !i [name]",
-    "!time, !t, !time., !time?",
-    "!wqdb, !w, !wqdb., !wqdb?",
-    "!debug, !d, !d <spec>, !d.<spec>",
-    "!type, !type?",
-    "!help [topic], !h [topic]",
+    "\\exit, \\e, \\\\",
+    "\\info",
+    "\\dry, \\dry?",
+    "\\bfn [preset], \\",
+    "\\gb, \\g",
+    "\\reset, \\r",
+    "\\box, \\b, \\box <spec>, \\box?",
+    "\\xray, \\x, \\xray?",
+    "\\backtrace, \\bt, \\backtrace?",
+    "\\interpreter [name], \\i [name]",
+    "\\time, \\t, \\time., \\time?",
+    "\\wqdb, \\w, \\wqdb., \\wqdb?",
+    "\\debug, \\d, \\d <spec>, \\d.<spec>",
+    "\\type, \\type?",
+    "\\help [topic], \\h [topic]",
   ];
   return commands.join("\n");
 }
@@ -604,117 +604,117 @@ function parseReplCommand(input) {
   switch (trimmed) {
     case "":
       return { kind: "empty" };
-    case "!exit":
-    case "!e":
-    case "!!":
-    case "!bye":
+    case "\\exit":
+    case "\\e":
+    case "\\\\":
+    case "\\bye":
       return { kind: "exit" };
-    case "!goodbye":
+    case "\\goodbye":
       return { kind: "goodbye" };
-    case "!highlight":
-    case "!hl":
+    case "\\highlight":
+    case "\\hl":
       return { kind: "highlight" };
-    case "!highlight?":
-    case "!hl?":
+    case "\\highlight?":
+    case "\\hl?":
       return { kind: "highlight-query" };
-    case "!hint":
-    case "!hint?":
+    case "\\hint":
+    case "\\hint?":
       return { kind: "hint" };
-    case "!info":
+    case "\\info":
       return { kind: "info" };
-    case "!dry":
+    case "\\dry":
       return { kind: "dry" };
-    case "!dry?":
+    case "\\dry?":
       return { kind: "dry-query" };
-    case "!fmt":
-    case "!fmt?":
+    case "\\fmt":
+    case "\\fmt?":
       return { kind: "fmt" };
-    case "!bfn":
-    case "!":
+    case "\\bfn":
+    case "\\":
       return { kind: "bfn" };
-    case "!gb":
-    case "!g":
+    case "\\gb":
+    case "\\g":
       return { kind: "gb" };
-    case "!reset":
-    case "!r":
+    case "\\reset":
+    case "\\r":
       return { kind: "reset" };
-    case "!box":
-    case "!b":
+    case "\\box":
+    case "\\b":
       return { kind: "box" };
-    case "!box?":
-    case "!b?":
+    case "\\box?":
+    case "\\b?":
       return { kind: "box-query" };
-    case "!backtrace":
-    case "!bt":
+    case "\\backtrace":
+    case "\\bt":
       return { kind: "backtrace" };
-    case "!backtrace?":
-    case "!bt?":
+    case "\\backtrace?":
+    case "\\bt?":
       return { kind: "backtrace-query" };
-    case "!xray":
-    case "!x":
+    case "\\xray":
+    case "\\x":
       return { kind: "xray" };
-    case "!xray?":
-    case "!x?":
+    case "\\xray?":
+    case "\\x?":
       return { kind: "xray-query" };
-    case "!interpreter":
-    case "!i":
+    case "\\interpreter":
+    case "\\i":
       return { kind: "interpreter" };
-    case "!time":
-    case "!t":
+    case "\\time":
+    case "\\t":
       return { kind: "time" };
-    case "!time.":
-    case "!t.":
+    case "\\time.":
+    case "\\t.":
       return { kind: "time-oneshot" };
-    case "!time?":
-    case "!t?":
+    case "\\time?":
+    case "\\t?":
       return { kind: "time-query" };
-    case "!wqdb":
-    case "!w":
+    case "\\wqdb":
+    case "\\w":
       return { kind: "wqdb" };
-    case "!wqdb.":
-    case "!w.":
+    case "\\wqdb.":
+    case "\\w.":
       return { kind: "wqdb-oneshot" };
-    case "!wqdb?":
-    case "!w?":
+    case "\\wqdb?":
+    case "\\w?":
       return { kind: "wqdb-query" };
-    case "!debug":
+    case "\\debug":
       return { kind: "debug-show" };
-    case "!d":
+    case "\\d":
       return { kind: "debug-toggle" };
-    case "!type":
+    case "\\type":
       return { kind: "type" };
-    case "!type?":
+    case "\\type?":
       return { kind: "type-query" };
-    case "!help":
-    case "!h":
+    case "\\help":
+    case "\\h":
       return { kind: "help" };
     default:
       break;
   }
 
   const prefixed = [
-    ["!fmt ", "fmt"],
-    ["!bfn ", "bfn-set"],
-    ["!box ", "box-set"],
-    ["!b ", "box-set"],
-    ["!interpreter ", "interpreter-set"],
-    ["!i ", "interpreter-set"],
-    ["!help ", "help-topic"],
-    ["!h ", "help-topic"],
-    ["!debug.", "debug-oneshot"],
-    ["!d.", "debug-oneshot"],
-    ["!debug ", "debug-set"],
-    ["!d ", "debug-set"],
+    ["\\fmt ", "fmt"],
+    ["\\bfn ", "bfn-set"],
+    ["\\box ", "box-set"],
+    ["\\b ", "box-set"],
+    ["\\interpreter ", "interpreter-set"],
+    ["\\i ", "interpreter-set"],
+    ["\\help ", "help-topic"],
+    ["\\h ", "help-topic"],
+    ["\\debug.", "debug-oneshot"],
+    ["\\d.", "debug-oneshot"],
+    ["\\debug ", "debug-set"],
+    ["\\d ", "debug-set"],
   ];
   for (const [prefix, kind] of prefixed) {
     if (trimmed.startsWith(prefix)) {
       return { kind, arg: trimmed.slice(prefix.length).trim() };
     }
   }
-  if (trimmed.startsWith("!d")) {
+  if (trimmed.startsWith("\\d")) {
     return { kind: "debug-set", arg: trimmed.slice(2).trim() };
   }
-  if (trimmed.startsWith("!")) {
+  if (trimmed.startsWith("\\")) {
     return { kind: "unknown", arg: trimmed };
   }
   return null;
