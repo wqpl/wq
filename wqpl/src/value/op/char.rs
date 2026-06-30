@@ -137,12 +137,11 @@ impl Value {
 
 fn to_radix_string(n: i64, base: u32, with_prefix: bool, prefix: &str) -> String {
     let neg = n < 0;
-    // Use i128 to avoid overflow on i64::MIN when taking the absolute value.
-    let mag_i128: i128 = if neg { -(n as i128) } else { n as i128 };
+    let mag = n.unsigned_abs();
     let digits = match base {
-        16 => format!("{mag_i128:x}",),
-        8 => format!("{mag_i128:o}",),
-        2 => format!("{mag_i128:b}",),
+        16 => format!("{mag:x}",),
+        8 => format!("{mag:o}",),
+        2 => format!("{mag:b}",),
         _ => unreachable!("to_radix_string only used for base 2, 8 and 16"),
     };
     match (neg, with_prefix) {
@@ -166,6 +165,8 @@ fn to_bigint_radix_string(n: &BigInt, base: u32, with_prefix: bool, prefix: &str
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     #[test]
@@ -178,5 +179,17 @@ mod tests {
     fn chr_invalid() {
         assert!(Value::Int(-1).chr().is_err());
         assert!(Value::Int(0x110000).chr().is_err()); // > Unicode max
+    }
+
+    #[test]
+    fn radix_repr_handles_i64_min() {
+        assert_eq!(
+            Value::Int(i64::MIN).to_hex_repr(false).unwrap(),
+            Value::String(Arc::new("-8000000000000000".to_owned()))
+        );
+        assert_eq!(
+            Value::Int(i64::MIN).to_hex_repr(true).unwrap(),
+            Value::String(Arc::new("-0x8000000000000000".to_owned()))
+        );
     }
 }

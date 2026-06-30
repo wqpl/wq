@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use num_bigint::BigInt;
 use num_traits::Signed;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -205,11 +206,7 @@ fn format_int(value: &Value, spec: &FormatSpec, precision: Option<usize>) -> WqR
     let mut result = match spec.type_spec {
         Some('x') | Some('X') => match value {
             Value::Int(n) => {
-                let abs = if *n < 0 {
-                    (-(*n as i128)) as u64
-                } else {
-                    *n as u64
-                };
+                let abs = n.unsigned_abs();
                 let mut h = format!("{:x}", abs);
                 if spec.type_spec == Some('X') {
                     h = h.to_uppercase();
@@ -227,11 +224,7 @@ fn format_int(value: &Value, spec: &FormatSpec, precision: Option<usize>) -> WqR
         },
         Some('b') | Some('B') => match value {
             Value::Int(n) => {
-                let abs = if *n < 0 {
-                    (-(*n as i128)) as u64
-                } else {
-                    *n as u64
-                };
+                let abs = n.unsigned_abs();
                 let mut b = format!("{:b}", abs);
                 if spec.type_spec == Some('B') {
                     b = b.to_uppercase();
@@ -249,11 +242,7 @@ fn format_int(value: &Value, spec: &FormatSpec, precision: Option<usize>) -> WqR
         },
         Some('o') | Some('O') => match value {
             Value::Int(n) => {
-                let abs = if *n < 0 {
-                    (-(*n as i128)) as u64
-                } else {
-                    *n as u64
-                };
+                let abs = n.unsigned_abs();
                 let mut o = format!("{:o}", abs);
                 if spec.type_spec == Some('O') {
                     o = o.to_uppercase();
@@ -273,7 +262,7 @@ fn format_int(value: &Value, spec: &FormatSpec, precision: Option<usize>) -> WqR
             let abs_str = match value {
                 Value::Int(n) => {
                     if *n < 0 {
-                        (-(*n as i128)).to_string()
+                        n.unsigned_abs().to_string()
                     } else {
                         n.to_string()
                     }
@@ -286,7 +275,7 @@ fn format_int(value: &Value, spec: &FormatSpec, precision: Option<usize>) -> WqR
         _ => match value {
             Value::Int(n) => {
                 if *n < 0 {
-                    (-(*n as i128)).to_string()
+                    n.unsigned_abs().to_string()
                 } else {
                     n.to_string()
                 }
@@ -400,10 +389,10 @@ fn format_string(s: &str, _spec: &FormatSpec, precision: Option<usize>) -> WqRes
 
 fn format_percentage(value: &Value, precision: Option<usize>) -> String {
     let mut result = match value {
-        Value::Int(n) => {
-            let pct = (*n as i128) * 100;
-            pct.to_string()
-        }
+        Value::Int(n) => n.checked_mul(100).map_or_else(
+            || (BigInt::from(*n) * 100i32).to_string(),
+            |pct| pct.to_string(),
+        ),
         Value::BigInt(b) => (b.as_ref() * 100i32).to_string(),
         Value::Float(f) => {
             let prec = precision.unwrap_or(0);
@@ -866,6 +855,22 @@ mod tests {
     }
 
     #[test]
+    fn fmt_i64_min_magnitude() {
+        assert_eq!(
+            run_fmt("{[x]}", &[Value::Int(i64::MIN)]),
+            "-8000000000000000"
+        );
+        assert_eq!(
+            run_fmt("{[,]}", &[Value::Int(i64::MIN)]),
+            "-9,223,372,036,854,775,808"
+        );
+        assert_eq!(
+            run_fmt("{}", &[Value::Int(i64::MIN)]),
+            "-9223372036854775808"
+        );
+    }
+
+    #[test]
     fn fmt_hex_upper() {
         assert_eq!(run_fmt("{[X]}", &[Value::Int(255)]), "FF");
     }
@@ -969,6 +974,14 @@ mod tests {
     #[test]
     fn fmt_percentage_int() {
         assert_eq!(run_fmt("{[%]}", &[Value::Int(5)]), "500%");
+        assert_eq!(
+            run_fmt("{[%]}", &[Value::Int(i64::MAX)]),
+            "922337203685477580700%"
+        );
+        assert_eq!(
+            run_fmt("{[%]}", &[Value::Int(i64::MIN)]),
+            "-922337203685477580800%"
+        );
     }
 
     #[test]
