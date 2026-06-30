@@ -9,6 +9,7 @@ use crate::astnode::{BinaryOperator, UnaryOperator};
 use crate::cas::{cas_binary_expr, cas_unary_expr};
 use crate::value::cas::CasOp;
 use crate::value::op::PAR_BC_THRESHOLD;
+use crate::value::seq::IntRangeData;
 use crate::value::{Value, WqResult, expected_numeric1, expected_numeric2};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -280,6 +281,27 @@ where
     }
 }
 
+fn affine_int_range(range: &IntRangeData, scale: i64, offset: i64) -> Option<Value> {
+    let len = range.len();
+    if len == 0 {
+        return Some(Value::IntRange(Arc::new(IntRangeData::new(0, 1, 0))));
+    }
+
+    let step = range.step().checked_mul(scale)?;
+    if step == 0 {
+        return None;
+    }
+    let start = range.start().checked_mul(scale)?.checked_add(offset)?;
+    let _last = range
+        .last_value()?
+        .checked_mul(scale)?
+        .checked_add(offset)?;
+
+    Some(Value::IntRange(Arc::new(IntRangeData::new(
+        start, step, len,
+    ))))
+}
+
 fn add_intlist(left: &Value, right: &Value) -> Option<Value> {
     match (left, right) {
         (Value::IntList(a), Value::IntList(b)) => {
@@ -290,6 +312,9 @@ fn add_intlist(left: &Value, right: &Value) -> Option<Value> {
         }
         (Value::Int(a), Value::IntList(b)) => {
             intlist_map(b, |y| a.checked_add(y)).map(|v| Value::IntList(Arc::new(v)))
+        }
+        (Value::IntRange(a), Value::Int(b)) | (Value::Int(b), Value::IntRange(a)) => {
+            affine_int_range(a, 1, *b)
         }
         _ => None,
     }
@@ -366,6 +391,8 @@ fn sub_intlist(left: &Value, right: &Value) -> Option<Value> {
         (Value::Int(a), Value::IntList(b)) => {
             intlist_map(b, |y| a.checked_sub(y)).map(|v| Value::IntList(Arc::new(v)))
         }
+        (Value::IntRange(a), Value::Int(b)) => affine_int_range(a, 1, b.checked_neg()?),
+        (Value::Int(a), Value::IntRange(b)) => affine_int_range(b, -1, *a),
         _ => None,
     }
 }
@@ -429,6 +456,9 @@ fn mul_intlist(left: &Value, right: &Value) -> Option<Value> {
         }
         (Value::Int(a), Value::IntList(b)) => {
             intlist_map(b, |y| a.checked_mul(y)).map(|v| Value::IntList(Arc::new(v)))
+        }
+        (Value::IntRange(a), Value::Int(b)) | (Value::Int(b), Value::IntRange(a)) => {
+            affine_int_range(a, *b, 0)
         }
         _ => None,
     }
@@ -708,6 +738,7 @@ fn neg_intlist(v: &Value) -> Option<Value> {
         Value::IntList(a) => {
             intlist_map(a, |x| x.checked_neg()).map(|v| Value::IntList(Arc::new(v)))
         }
+        Value::IntRange(a) => affine_int_range(a, -1, 0),
         _ => None,
     }
 }
@@ -1174,6 +1205,44 @@ mod tests {
             }
             other => panic!("expected bigint result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn affine_int_range_arithmetic_preserves_virtual_storage() {
+        let range = Value::IntRange(Arc::new(IntRangeData::new(0, 1, 4)));
+        let doubled = Value::Int(2).multiply(&range).expect("multiply succeeds");
+        assert!(matches!(
+            &doubled,
+            Value::IntRange(range) if range.start() == 0 && range.step() == 2 && range.len() == 4
+        ));
+        assert_eq!(doubled, Value::IntList(Arc::new(vec![0, 2, 4, 6])));
+
+        let shifted = Value::Int(1).add(&doubled).expect("add succeeds");
+        assert!(matches!(
+            &shifted,
+            Value::IntRange(range) if range.start() == 1 && range.step() == 2 && range.len() == 4
+        ));
+        assert_eq!(shifted, Value::IntList(Arc::new(vec![1, 3, 5, 7])));
+
+        let negated = shifted.neg().expect("negate succeeds");
+        assert!(matches!(
+            &negated,
+            Value::IntRange(range) if range.start() == -1 && range.step() == -2 && range.len() == 4
+        ));
+        assert_eq!(negated, Value::IntList(Arc::new(vec![-1, -3, -5, -7])));
+    }
+
+    #[test]
+    fn affine_int_range_overflow_falls_back_to_value_broadcast() {
+        let range = Value::IntRange(Arc::new(IntRangeData::new(i64::MAX - 1, 1, 2)));
+        let shifted = range.add(&Value::Int(1)).expect("add succeeds");
+        assert_eq!(
+            shifted,
+            Value::List(Arc::new(vec![
+                Value::Int(i64::MAX),
+                Value::from_bigint(BigInt::from(i64::MAX) + BigInt::from(1))
+            ]))
+        );
     }
 
     #[test]

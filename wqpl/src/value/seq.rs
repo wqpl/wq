@@ -18,8 +18,20 @@ impl IntRangeData {
         Self { start, step, len }
     }
 
+    pub(crate) fn start(&self) -> i64 {
+        self.start
+    }
+
+    pub(crate) fn step(&self) -> i64 {
+        self.step
+    }
+
     pub(crate) fn len(&self) -> usize {
         self.len
+    }
+
+    pub(crate) fn last_value(&self) -> Option<i64> {
+        self.len.checked_sub(1).and_then(|idx| self.get(idx))
     }
 
     pub(crate) fn get(&self, idx: usize) -> Option<i64> {
@@ -31,12 +43,50 @@ impl IntRangeData {
         i64::try_from(value).ok()
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = i64> + '_ {
-        (0..self.len).filter_map(|idx| self.get(idx))
+    pub(crate) fn iter(&self) -> IntRangeIter {
+        IntRangeIter {
+            next: self.start,
+            step: self.step,
+            remaining: self.len,
+        }
     }
 
     pub(crate) fn to_vec(&self) -> Vec<i64> {
         self.iter().collect()
+    }
+}
+
+pub(crate) struct IntRangeIter {
+    next: i64,
+    step: i64,
+    remaining: usize,
+}
+
+impl Iterator for IntRangeIter {
+    type Item = i64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+
+        let value = self.next;
+        self.remaining -= 1;
+        if self.remaining > 0 {
+            debug_assert!(self.next.checked_add(self.step).is_some());
+            self.next = self.next.wrapping_add(self.step);
+        }
+        Some(value)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl ExactSizeIterator for IntRangeIter {
+    fn len(&self) -> usize {
+        self.remaining
     }
 }
 
@@ -455,9 +505,12 @@ mod tests {
     #[test]
     fn int_range_reads_without_materializing() {
         let range = IntRangeData::new(2, 3, 4);
+        assert_eq!(range.start(), 2);
+        assert_eq!(range.step(), 3);
         assert_eq!(range.get(0), Some(2));
         assert_eq!(range.get(3), Some(11));
         assert_eq!(range.get(4), None);
+        assert_eq!(range.last_value(), Some(11));
         assert_eq!(range.to_vec(), vec![2, 5, 8, 11]);
     }
 

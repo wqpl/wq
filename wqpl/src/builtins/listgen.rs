@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::range::make_range;
+use crate::value::seq::IntRangeData;
 use crate::value::{Excerpt as _, Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -66,9 +67,11 @@ pub(super) fn alloc(args: BuiltinFnArgs) -> WqResult<Value> {
         if let Some(v) = cache_get(&key) {
             return Ok(v);
         }
-        let mut generator = || fill.clone();
-        let val = build_from_parsed_shape(&dims, &mut generator);
+        let val = build_filled_shape(&dims, &fill).expect("int fill should have packed builder");
         return Ok(cache_insert(key, val));
+    }
+    if let Some(val) = build_filled_shape(&dims, &fill) {
+        return Ok(val);
     }
     let mut generator = || fill.clone();
     Ok(build_from_parsed_shape(&dims, &mut generator))
@@ -77,18 +80,13 @@ pub(super) fn alloc(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn til(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Til, [1], &args)?;
     if let Value::Int(n) = args[0] {
-        if n < 0 {
+        let Ok(len) = usize::try_from(n) else {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Til)
                 .msg("invalid shape")
                 .attach_note("shape is positive int or list<positive int>"));
-        }
-        let key = ListGenKey::Till(vec![n]);
-        if let Some(v) = cache_get(&key) {
-            return Ok(v);
-        }
-        let val = Value::IntList(Arc::new((0..n).collect()));
-        return Ok(cache_insert(key, val));
+        };
+        return Ok(Value::IntRange(Arc::new(IntRangeData::new(0, 1, len))));
     }
     let dims = parse_shape(&args[0]).map_err(|e| e.src(BE::Til).at_arg(0))?;
     if dims.is_empty() {
@@ -140,19 +138,13 @@ pub(super) fn iota(args: BuiltinFnArgs) -> WqResult<Value> {
     match &args[0] {
         // 1D case: simple range 0..n-1
         Value::Int(n) => {
-            if *n < 0 {
-                Err(WqError::new(WqErrorType::Domain)
+            let Ok(len) = usize::try_from(*n) else {
+                return Err(WqError::new(WqErrorType::Domain)
                     .src(BE::Iota)
                     .msg("invalid shape")
-                    .attach_note("shape is positive int or list<positive int>"))
-            } else {
-                let key = ListGenKey::Iota(vec![*n]);
-                if let Some(v) = cache_get(&key) {
-                    return Ok(v);
-                }
-                let val = Value::IntList(Arc::new((0..*n).collect()));
-                Ok(cache_insert(key, val))
-            }
+                    .attach_note("shape is positive int or list<positive int>"));
+            };
+            Ok(Value::IntRange(Arc::new(IntRangeData::new(0, 1, len))))
         }
         // Multidimensional: nested grid of coordinate vectors, shaped by dims
         _ => {
@@ -515,23 +507,134 @@ where
     }
 }
 
+fn build_filled_shape(shape: &[usize], fill: &Value) -> Option<Value> {
+    match fill {
+        Value::Int(n) => Some(build_filled_int_shape(shape, *n)),
+        Value::Bool(b) => Some(build_filled_bool_shape(shape, *b)),
+        Value::Float(f) => Some(build_filled_float_shape(shape, *f)),
+        _ => None,
+    }
+}
+
+fn build_filled_int_shape(shape: &[usize], fill: i64) -> Value {
+    match shape {
+        [] => Value::Int(fill),
+        [n] => Value::IntList(Arc::new(vec![fill; *n])),
+        [n, rest @ ..] => {
+            let mut out = Vec::with_capacity(*n);
+            for _ in 0..*n {
+                out.push(build_filled_int_shape(rest, fill));
+            }
+            Value::List(Arc::new(out))
+        }
+    }
+}
+
+fn build_filled_bool_shape(shape: &[usize], fill: bool) -> Value {
+    match shape {
+        [] => Value::Bool(fill),
+        [n] => Value::BoolList(Arc::new(vec![fill; *n])),
+        [n, rest @ ..] => {
+            let mut out = Vec::with_capacity(*n);
+            for _ in 0..*n {
+                out.push(build_filled_bool_shape(rest, fill));
+            }
+            Value::List(Arc::new(out))
+        }
+    }
+}
+
+fn build_filled_float_shape(shape: &[usize], fill: ordered_float::OrderedFloat<f64>) -> Value {
+    match shape {
+        [] => Value::Float(fill),
+        [n] => Value::FloatList(Arc::new(vec![fill; *n])),
+        [n, rest @ ..] => {
+            let mut out = Vec::with_capacity(*n);
+            for _ in 0..*n {
+                out.push(build_filled_float_shape(rest, fill));
+            }
+            Value::List(Arc::new(out))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use ordered_float::OrderedFloat;
+    use smallvec::smallvec;
+
     use super::*;
 
     #[test]
     fn ints_empty_shape() {
         assert_eq!(
-            til(BuiltinFnArgs::from(Value::List(Arc::new(vec![])))).unwrap(),
+            til(BuiltinFnArgs::from(Value::List(Arc::new(vec![])))).expect("til succeeds"),
             Value::Int(0)
         );
     }
 
     #[test]
     fn iota_zero() {
+        let result = iota(BuiltinFnArgs::from(Value::Int(0))).expect("iota succeeds");
+        assert!(matches!(&result, Value::IntRange(range) if range.len() == 0));
+        assert_eq!(result, Value::IntList(Arc::new(vec![])));
+    }
+
+    #[test]
+    fn scalar_til_and_iota_return_virtual_ranges() {
+        let tilled = til(BuiltinFnArgs::from(Value::Int(4))).expect("til succeeds");
+        assert!(matches!(
+            &tilled,
+            Value::IntRange(range) if range.start() == 0 && range.step() == 1 && range.len() == 4
+        ));
+        assert_eq!(tilled, Value::IntList(Arc::new(vec![0, 1, 2, 3])));
+
+        let iotaed = iota(BuiltinFnArgs::from(Value::Int(4))).expect("iota succeeds");
+        assert!(matches!(
+            &iotaed,
+            Value::IntRange(range) if range.start() == 0 && range.step() == 1 && range.len() == 4
+        ));
+        assert_eq!(iotaed, Value::IntList(Arc::new(vec![0, 1, 2, 3])));
+    }
+
+    #[test]
+    fn alloc_uses_packed_fill_storage_for_atoms() {
         assert_eq!(
-            iota(BuiltinFnArgs::from(Value::Int(0))).unwrap(),
-            Value::IntList(Arc::new(vec![]))
+            alloc(BuiltinFnArgs::from(Value::Int(3))).expect("alloc succeeds"),
+            Value::IntList(Arc::new(vec![0, 0, 0]))
+        );
+        assert_eq!(
+            alloc(BuiltinFnArgs::from(smallvec![Value::Int(3), Value::Int(7)]))
+                .expect("alloc succeeds"),
+            Value::IntList(Arc::new(vec![7, 7, 7]))
+        );
+        assert_eq!(
+            alloc(BuiltinFnArgs::from(smallvec![
+                Value::Int(2),
+                Value::Bool(true)
+            ]))
+            .expect("alloc succeeds"),
+            Value::BoolList(Arc::new(vec![true, true]))
+        );
+        assert_eq!(
+            alloc(BuiltinFnArgs::from(smallvec![
+                Value::Int(2),
+                Value::Float(OrderedFloat(1.5))
+            ]))
+            .expect("alloc succeeds"),
+            Value::FloatList(Arc::new(vec![OrderedFloat(1.5), OrderedFloat(1.5)]))
+        );
+    }
+
+    #[test]
+    fn shaped_alloc_uses_packed_leaf_storage() {
+        let shape = Value::IntList(Arc::new(vec![2, 3]));
+        assert_eq!(
+            alloc(BuiltinFnArgs::from(smallvec![shape, Value::Int(4)])).expect("alloc succeeds"),
+            Value::List(Arc::new(vec![
+                Value::IntList(Arc::new(vec![4, 4, 4])),
+                Value::IntList(Arc::new(vec![4, 4, 4]))
+            ]))
         );
     }
 }
