@@ -51,7 +51,7 @@ const REPEAT_EXAMPLES: &[DocExample] = &[DocExample {
 }];
 
 const WHERE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Find truthy positions",
+    title: "Find non-zero ints and T bools",
     code: "where (0;2;F;T;3)",
     expectation: ExampleExpectation::ResultContains("(1;3;4)"),
 }];
@@ -114,8 +114,8 @@ pub(super) const REPEAT: BuiltinDoc = BuiltinDoc {
 
 pub(super) const WHERE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Where,
-    summary: "Return positions of truthy leaves.",
-    details: "`where[xs]` accepts lists whose leaves are ints or bools. In a flat vector it returns the indices of non-zero or true items; in nested input it returns coordinate vectors for truthy leaves. `Z` is an alias.",
+    summary: "Return positions of non-zero int leaves and T bool leaves.",
+    details: "`where[xs]` accepts lists whose leaves are ints or bools. In a flat vector it returns indices where an int leaf is non-zero or a bool leaf is `T`; in nested input it returns coordinate vectors for those leaves. `Z` is an alias.",
     examples: WHERE_EXAMPLES,
     related: &["til", "iota", "find"],
 };
