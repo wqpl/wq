@@ -53,11 +53,20 @@ solve[@s x^2=1] | echo
 //test solve monomial equation of degree three
 solve[@s x^3=8] | echo
 
+//test solve a parameterized linear equation with explicit target variable
+solve[@s a*x+b;@s x] | echo
+
+//test solve a parameterized quadratic equation with explicit target variable
+solve[@s x^2+a*x+b;@s x] | echo
+
 //test solve a system of linear equations
 solve_system[@s(2*x+y=5;x-y=1);@s(x;y)] | echo
 
 //test solve a system with implicit target variables
 solve_system[@s(b+a=3;b-a=1)] | echo
+
+//test solve a linear system with explicit symbolic parameters
+solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)] | echo
 
 //test brent root finding on a quadratic
 brent[@s x^2-2;1;2] | echo

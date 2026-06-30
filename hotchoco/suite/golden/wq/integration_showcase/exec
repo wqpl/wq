@@ -18,8 +18,12 @@ arctan[x]*x - ln[x^2 + 1]/2
 arctan[x]
 -cos[2*x + 1]/2
 sin[2*x + 1]
+-cos[a*x]/a
+sin[a*x]
 e^(3*x)/3
 e^(3*x)
+e^(a*x)/a
+e^(a*x)
 -cos[x]*sin[x]/2 + x/2
 sin[x]^2/2 - cos[x]^2/2 + 1/2
 -sin[x]^3/3 + sin[x]
@@ -48,8 +52,14 @@ sin[e^x]
 cos[e^x]*e^x
 ln[abs[x - 1]]
 (x - 1)^-1
+ln[abs[a*x + b]]/a
+(a*x + b)^-1
 -1/(x - 1)
 (x - 1)^-2
+2/3*(a*x + b)^(3/2)/a
+(a*x + b)^(1/2)
+x^3*a^2/3 + x^2*a*b + b^2*x
+a^2*x^2 + 2*a*b*x + b^2
 -1/2/(x - 1)^2
 (x - 1)/(x^2 - 2*x + 1)^2
 ln[abs[(x - 1)/(x + 1)]]/2
