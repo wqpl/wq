@@ -4,32 +4,61 @@ expect:{[label;got;want]
   $[got=want;echo@f"ok {label}";raise@f"FAIL {label}: got {got}, want {want}"]}
 
 expect["flip";flip[-][3;10];7]
+expect["enlist atom";enlist 3;,3]
+expect["enlist list";enlist (1;2);,((1;2))]
 expect["delta2";delta2(3;6;10);(3;4)]
+expect["delta2 empty";delta2[()];()]
+expect["delta2 single";delta2[,9];,9]
 expect["join";join["/";("usr";"local";"bin")];"usr/local/bin"]
+expect["join single";join["/";,"tmp"];"tmp"]
 
 expect["enumerate";enumerate "ab";((0;"a");(1;"b"))]
+expect["enumerate empty";enumerate ();()]
 expect["mapidx";mapidx[(10;20;30);{[v;i]v+i}];(10;21;32)]
+expect["mapidx empty";mapidx[();{[v;i]v+i}];()]
 expect["keepidx";keepidx[(10;20;30;40);{[v;i]i%2=0}];(10;30)]
+expect["keepidx none";keepidx[(1;3;5);{F}];()]
 expect["partition";partition[(1;2;3;4);{x%2=0}];((2;4);(1;3))]
+expect["partition none";partition[(1;3);{x%2=0}];(();(1;3))]
 
 expect["take front";take[(1;2;3;4);2];(1;2)]
 expect["take back";take[(1;2;3;4);-2];(3;4)]
+expect["take too many";take[(1;2);5];(1;2)]
+expect["take zero";take[(1;2);0];()]
+expect["take negative too many";take[(1;2);-5];(1;2)]
+expect["take string";take["abcd";2];"ab"]
 expect["drop front";drop[(1;2;3;4);2];(3;4)]
 expect["drop back";drop[(1;2;3;4);-2];(1;2)]
+expect["drop too many";drop[(1;2);5];()]
+expect["drop zero";drop[(1;2);0];(1;2)]
+expect["drop negative too many";drop[(1;2);-5];()]
+expect["drop string back";drop["abcd";-2];"ab"]
 expect["chunks";chunks[1..=5;2];((1;2);(3;4);,5)]
+expect["chunks empty";chunks[();2];()]
+expect["chunks exact";chunks[1..=4;2];((1;2);(3;4))]
+expect["chunks rejects zero";@t chunks[(1;2);0];F]
 expect["windows";windows[1..=4;3];((1;2;3);(2;3;4))]
+expect["windows too large";windows[(1;2);3];()]
+expect["windows rejects zero";@t windows[(1;2);0];F]
 
 animals:("ant";"ape";"bee")
 expect["groupby";groupby[animals;{x 0}];(("a";("ant";"ape"));("b";,"bee"))]
+expect["groupby empty";groupby[();{x}];()]
 expect["groupdict";groupdict[animals;{x 0}];(`a:("ant";"ape");`b:,"bee")]
+expect["groupdict empty";groupdict[();{x}];(`)]
 expect["indexby";indexby[animals;{x 0}];(`a:"ape";`b:"bee")]
+expect["indexby empty";indexby[();{x}];(`)]
 expect["values";values (`a:1;`b:2);(1;2)]
+expect["values empty";values (`);()]
 expect["haskey?";(haskey?[(`a:1);`a];haskey?[(`a:1);`b]);(T;F)]
+expect["haskey empty";haskey?[(`);`a];F]
 expect["get";(get[(`a:1);`a;99];get[(`a:1);`b;99]);(1;99)]
+expect["get empty";get[(`);`a;99];99]
 
 calls:0
 sq:memo '{[n]calls+:1;n*n}
 expect["memo";(sq 5;sq 5;calls);(25;25;1)]
+expect["memo distinct args";(sq 6;sq 5;calls);(36;25;2)]
 list_calls:0
 twice:memo '{[xs]list_calls+:1;xs,xs}
 expect["memo list";(twice[(1;2)];twice[(1;2)];list_calls);((1;2;1;2);(1;2;1;2);1)]
@@ -37,6 +66,9 @@ expect["memo list";(twice[(1;2)];twice[(1;2)];list_calls);((1;2;1;2);(1;2;1;2);1
 once_calls:0
 thunk:once '{[]once_calls+:1;"ready"}
 expect["once";(thunk[];thunk[];once_calls);("ready";"ready";1)]
+false_calls:0
+false_thunk:once '{[]false_calls+:1;F}
+expect["once false";(false_thunk[];false_thunk[];false_calls);(F;F;1)]
 
 expect["assert";(assert[T;"ok"];@t assert[F;"bad"]);(T;F)]
 expect["assert_eq";(assert_eq[3;3];@t assert_eq[3;4]);(T;F)]

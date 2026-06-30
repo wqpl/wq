@@ -1,25 +1,55 @@
 ok flip
+ok enlist atom
+ok enlist list
 ok delta2
+ok delta2 empty
+ok delta2 single
 ok join
+ok join single
 ok enumerate
+ok enumerate empty
 ok mapidx
+ok mapidx empty
 ok keepidx
+ok keepidx none
 ok partition
+ok partition none
 ok take front
 ok take back
+ok take too many
+ok take zero
+ok take negative too many
+ok take string
 ok drop front
 ok drop back
+ok drop too many
+ok drop zero
+ok drop negative too many
+ok drop string back
 ok chunks
+ok chunks empty
+ok chunks exact
+ok chunks rejects zero
 ok windows
+ok windows too large
+ok windows rejects zero
 ok groupby
+ok groupby empty
 ok groupdict
+ok groupdict empty
 ok indexby
+ok indexby empty
 ok values
+ok values empty
 ok haskey?
+ok haskey empty
 ok get
+ok get empty
 ok memo
+ok memo distinct args
 ok memo list
 ok once
+ok once false
 ok assert
 ok assert_eq
 ()
