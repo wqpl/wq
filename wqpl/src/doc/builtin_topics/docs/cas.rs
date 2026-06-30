@@ -80,6 +80,11 @@ const INTEGRATE_EXAMPLES: &[DocExample] = &[
         code: "integrate[@s sin[a*x];@s x]",
         expectation: ExampleExpectation::ResultContains("-cos[a*x]/a"),
     },
+    DocExample {
+        title: "Integrate an affine denominator",
+        code: "integrate[@s 1/(x+a);@s x]",
+        expectation: ExampleExpectation::ResultContains("ln[abs[x + a]]"),
+    },
 ];
 
 const LIMIT_EXAMPLES: &[DocExample] = &[DocExample {

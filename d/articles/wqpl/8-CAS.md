@@ -17,6 +17,7 @@ Once you have a symbolic value, apply CAS functions to that value.
 expr:@s x^2+2*x+1
 expr|diff|echo
 expr|I|echo
+integrate[@s 1/(x+a);@s x]|echo
 expr|substitute[`x:2]|echo
 expr[`x:2]|echo
 ```

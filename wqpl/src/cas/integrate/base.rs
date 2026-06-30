@@ -3,8 +3,8 @@ use num_traits::One as _;
 
 use crate::cas::{
     cas_add, cas_div, cas_mul, cas_neg, cas_pow, cas_sub, extract_linear_coefficients_with_params,
-    numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, poly_degree, poly_from_expr,
-    simplify_cas_value, substitute_expr,
+    numeric_add, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, poly_degree,
+    poly_from_expr, simplify_cas_value, substitute_expr,
 };
 use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
@@ -44,7 +44,15 @@ pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Val
         };
     }
 
-    // Case 3: Gaussian
+    // Case 3: (a*x+b)^n
+    // This includes 1/(a*x+b), whose antiderivative is ln(abs(a*x+b))/a.
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
+        && let Some(result) = try_affine_power_table(base, exp, var)?
+    {
+        return Ok(Some(result));
+    }
+
+    // Case 4: Gaussian
     // exp(-a*x^2) -> sqrt(pi/a)/2 * erf(sqrt(a)*x)
     if let Some((name, args)) = expr.cas_function_parts()
         && name == CasFunction::Exp
@@ -62,6 +70,30 @@ pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Val
     }
 
     Ok(None)
+}
+
+fn try_affine_power_table(base: &Value, exp: &Value, var: &str) -> WqResult<Option<Value>> {
+    let Some((a, _b)) = extract_linear_coefficients_with_params(base, var) else {
+        return Ok(None);
+    };
+    let Some((numer, denom)) = exp.rational_parts() else {
+        return Ok(None);
+    };
+    if numer == -denom {
+        let log = Value::from_cas_function(
+            CasFunction::Ln,
+            vec![Value::from_cas_function(
+                CasFunction::Abs,
+                vec![base.clone()],
+            )],
+        );
+        return simplify_cas_value(&cas_div(log, a)?).map(Some);
+    }
+
+    let next = numeric_add(exp, &Value::Int(1))?;
+    let numerator = cas_pow(base.clone(), next.clone())?;
+    let denom = cas_mul(vec![a, next])?;
+    simplify_cas_value(&cas_div(numerator, denom)?).map(Some)
 }
 
 /// If `arg` is -a*x^2 + b (pure quadratic, no linear term, a > 0),

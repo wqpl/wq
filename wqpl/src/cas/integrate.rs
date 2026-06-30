@@ -447,7 +447,7 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
                 cas_add(terms)?
             }
             (CasOp::Multiply, args) => {
-                let (coeff, symbolic) = split_off_numeric(args);
+                let (coeff, symbolic) = split_off_constant_factors(args, var)?;
                 match symbolic.len() {
                     0 => cas_mul(vec![coeff, Value::from_cas_var(var)]),
                     1 => cas_mul(vec![
@@ -869,6 +869,30 @@ fn signed_expr(expr: Value, sign: i32) -> WqResult<Value> {
     } else {
         cas_mul(vec![Value::Int(-1), expr])
     }
+}
+
+pub(super) fn split_off_constant_factors(
+    args: &[Value],
+    var: &str,
+) -> WqResult<(Value, Vec<Value>)> {
+    let mut coeff_factors = Vec::new();
+    let mut symbolic = Vec::new();
+    for arg in args {
+        if !arg.is_cas_expr() || !contains_cas_var(arg, var) {
+            coeff_factors.push(arg.clone());
+        } else {
+            symbolic.push(arg.clone());
+        }
+    }
+    let coeff = match coeff_factors.len() {
+        0 => Value::Int(1),
+        1 => coeff_factors
+            .into_iter()
+            .next()
+            .expect("single constant factor"),
+        _ => cas_mul(coeff_factors)?,
+    };
+    Ok((coeff, symbolic))
 }
 
 pub(super) fn split_off_numeric(args: &[Value]) -> (Value, Vec<Value>) {
@@ -2306,6 +2330,79 @@ mod tests {
         let a_x = cas_mul(vec![Value::from_cas_var("a"), x.clone()]).expect("a*x");
         let expr = call(CasFunction::Exp, vec![a_x]);
         let result = integrate_cas(&expr, &x).expect("parameterized exp integral");
+        let derivative =
+            crate::cas::diff::diff_cas(&result, &x).expect("differentiate integral result");
+        assert_eq!(
+            simplify_cas_value(&derivative).expect("simplified derivative"),
+            simplify_cas_value(&expr).expect("simplified integrand")
+        );
+    }
+
+    #[test]
+    fn integrate_inverse_shifted_by_symbolic_parameter() {
+        let x = Value::from_cas_var("x");
+        let base = cas_add(vec![x.clone(), Value::from_cas_var("a")]).expect("x+a affine base");
+        let expr = cas_pow(base, Value::Int(-1)).expect("inverse affine base");
+        let result = integrate_cas(&expr, &x).expect("parameterized inverse affine integral");
+        assert_eq!(result.to_string(), "ln[abs[x + a]]");
+        let derivative =
+            crate::cas::diff::diff_cas(&result, &x).expect("differentiate integral result");
+        assert_eq!(
+            simplify_cas_value(&derivative).expect("simplified derivative"),
+            simplify_cas_value(&expr).expect("simplified integrand")
+        );
+    }
+
+    #[test]
+    fn integrate_inverse_affine_with_symbolic_coefficients() {
+        let x = Value::from_cas_var("x");
+        let base = cas_add(vec![
+            cas_mul(vec![Value::from_cas_var("a"), x.clone()]).expect("a*x"),
+            Value::from_cas_var("b"),
+        ])
+        .expect("a*x+b affine base");
+        let expr = cas_pow(base, Value::Int(-1)).expect("inverse affine base");
+        let result = integrate_cas(&expr, &x).expect("parameterized inverse affine integral");
+        let derivative =
+            crate::cas::diff::diff_cas(&result, &x).expect("differentiate integral result");
+        assert_eq!(
+            simplify_cas_value(&derivative).expect("simplified derivative"),
+            simplify_cas_value(&expr).expect("simplified integrand")
+        );
+    }
+
+    #[test]
+    fn integrate_fractional_affine_power_with_symbolic_coefficients() {
+        let x = Value::from_cas_var("x");
+        let base = cas_add(vec![
+            cas_mul(vec![Value::from_cas_var("a"), x.clone()]).expect("a*x"),
+            Value::from_cas_var("b"),
+        ])
+        .expect("a*x+b affine base");
+        let expr = cas_pow(
+            base,
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        )
+        .expect("affine square root");
+        let result = integrate_cas(&expr, &x).expect("parameterized affine power integral");
+        let derivative =
+            crate::cas::diff::diff_cas(&result, &x).expect("differentiate integral result");
+        assert_eq!(
+            simplify_cas_value(&derivative).expect("simplified derivative"),
+            simplify_cas_value(&expr).expect("simplified integrand")
+        );
+    }
+
+    #[test]
+    fn integrate_expanded_affine_square_with_symbolic_coefficients() {
+        let x = Value::from_cas_var("x");
+        let base = cas_add(vec![
+            cas_mul(vec![Value::from_cas_var("a"), x.clone()]).expect("a*x"),
+            Value::from_cas_var("b"),
+        ])
+        .expect("a*x+b affine base");
+        let expr = cas_pow(base, Value::Int(2)).expect("affine square");
+        let result = integrate_cas(&expr, &x).expect("parameterized affine square integral");
         let derivative =
             crate::cas::diff::diff_cas(&result, &x).expect("differentiate integral result");
         assert_eq!(
