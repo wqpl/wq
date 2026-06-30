@@ -102,7 +102,8 @@ pub fn builtin_completion_candidates(
     for name in names {
         let mut candidate = CompletionCandidate::new(name.clone(), CompletionKind::Builtin);
         if let Some(id) = builtins.get_id(&name)
-            && let Some(usage) = Builtins::usage_from_id(id as u16)
+            && let Ok(id) = u16::try_from(id)
+            && let Some(usage) = Builtins::usage_from_id(id)
         {
             candidate = candidate.with_detail(usage);
         }

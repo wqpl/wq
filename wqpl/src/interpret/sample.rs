@@ -147,12 +147,12 @@ impl InstructionArt {
         self.fade();
 
         let seed = mix(signal.salt
-            ^ (pc as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
-            ^ (self.ops as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9)
-            ^ ((vm.stack.len() as u64) << 32)
-            ^ ((vm.locals.len() as u64) << 48));
-        let x = (seed as usize) % WIDTH;
-        let y = ((seed >> 16) as usize) % HEIGHT;
+            ^ usize_to_u64_hash(pc).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            ^ usize_to_u64_hash(self.ops).wrapping_mul(0xbf58_476d_1ce4_e5b9)
+            ^ (usize_to_u64_hash(vm.stack.len()) << 32)
+            ^ (usize_to_u64_hash(vm.locals.len()) << 48));
+        let x = hash_coord(seed, WIDTH);
+        let y = hash_coord(seed >> 16, HEIGHT);
         self.paint(x, y, signal);
 
         if self.mode == RenderMode::Animated
@@ -196,13 +196,15 @@ impl InstructionArt {
                     continue;
                 }
 
-                let falloff = (distance as u8).saturating_mul(42);
+                let falloff = u8::try_from(distance).unwrap_or(u8::MAX).saturating_mul(42);
                 let heat = signal.strength.saturating_sub(falloff);
                 if heat == 0 {
                     continue;
                 }
 
-                let pixel = &mut self.pixels[ny as usize][nx as usize];
+                let nx = usize::try_from(nx).expect("x coordinate checked non-negative");
+                let ny = usize::try_from(ny).expect("y coordinate checked non-negative");
+                let pixel = &mut self.pixels[ny][nx];
                 pixel.heat = pixel.heat.saturating_add(heat);
                 pixel.color = signal.color;
             }
@@ -325,7 +327,7 @@ fn signal_for(op: &Instruction) -> Signal {
             color: DotColor::Magenta,
             strength: 210,
             radius: 2,
-            salt: 0x5a17_5a17 ^ instruction_amount(op) as u64,
+            salt: 0x5a17_5a17 ^ usize_to_u64_hash(instruction_amount(op)),
         }
     } else if is_jump(op) {
         Signal {
@@ -333,7 +335,7 @@ fn signal_for(op: &Instruction) -> Signal {
             color: DotColor::White,
             strength: 185,
             radius: 1,
-            salt: 0x70ad_70ad ^ instruction_amount(op) as u64,
+            salt: 0x70ad_70ad ^ usize_to_u64_hash(instruction_amount(op)),
         }
     } else if is_build(op) {
         Signal {
@@ -341,7 +343,7 @@ fn signal_for(op: &Instruction) -> Signal {
             color: DotColor::Red,
             strength: 230,
             radius: 2,
-            salt: 0xb11d_b11d ^ instruction_amount(op) as u64,
+            salt: 0xb11d_b11d ^ usize_to_u64_hash(instruction_amount(op)),
         }
     } else if is_op(op) {
         Signal {
@@ -349,7 +351,7 @@ fn signal_for(op: &Instruction) -> Signal {
             color: DotColor::Yellow,
             strength: 205,
             radius: 1,
-            salt: 0x0f0f_0f0f ^ instruction_amount(op) as u64,
+            salt: 0x0f0f_0f0f ^ usize_to_u64_hash(instruction_amount(op)),
         }
     } else if is_store(op) {
         Signal {
@@ -357,7 +359,7 @@ fn signal_for(op: &Instruction) -> Signal {
             color: DotColor::Green,
             strength: 190,
             radius: 1,
-            salt: 0x570e_570e ^ instruction_amount(op) as u64,
+            salt: 0x570e_570e ^ usize_to_u64_hash(instruction_amount(op)),
         }
     } else if is_index(op) {
         Signal {
@@ -365,7 +367,7 @@ fn signal_for(op: &Instruction) -> Signal {
             color: DotColor::Cyan,
             strength: 175,
             radius: 1,
-            salt: 0x1d3c_1d3c ^ instruction_amount(op) as u64,
+            salt: 0x1d3c_1d3c ^ usize_to_u64_hash(instruction_amount(op)),
         }
     } else if is_load(op) {
         Signal {
@@ -373,7 +375,7 @@ fn signal_for(op: &Instruction) -> Signal {
             color: DotColor::Cyan,
             strength: 160,
             radius: 0,
-            salt: 0x10ad_10ad ^ instruction_amount(op) as u64,
+            salt: 0x10ad_10ad ^ usize_to_u64_hash(instruction_amount(op)),
         }
     } else {
         Signal {
@@ -381,7 +383,7 @@ fn signal_for(op: &Instruction) -> Signal {
             color: DotColor::White,
             strength: 140,
             radius: 0,
-            salt: 0x57ac_57ac ^ instruction_amount(op) as u64,
+            salt: 0x57ac_57ac ^ usize_to_u64_hash(instruction_amount(op)),
         }
     }
 }
@@ -576,6 +578,16 @@ fn mix(mut x: u64) -> u64 {
     x ^= x >> 27;
     x = x.wrapping_mul(0x94d0_49bb_1331_11eb);
     x ^ (x >> 31)
+}
+
+fn usize_to_u64_hash(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+fn hash_coord(seed: u64, len: usize) -> usize {
+    let len = u64::try_from(len).expect("sampler dimension fits in u64");
+    let coord = seed % len;
+    usize::try_from(coord).expect("sampler coordinate fits in usize")
 }
 
 #[cfg(not(target_arch = "wasm32"))]

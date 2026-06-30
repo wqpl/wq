@@ -395,8 +395,8 @@ pub fn format_frame_with_color_mode(
         }
     }
     if let Some(sf) = di.file(span.file_id) {
-        let start_byte = span.start as usize;
-        let end_byte = (span.end as usize).max(start_byte.saturating_add(1));
+        let start_byte = span.start;
+        let end_byte = span.end.max(start_byte.saturating_add(1));
         let (l, c) = sf.line_col(start_byte);
         let end_lookup = end_byte
             .saturating_sub(1)

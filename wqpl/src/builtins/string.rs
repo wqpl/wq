@@ -42,7 +42,7 @@ struct FormatSpec {
     type_spec: Option<char>,
 }
 
-fn parse_format_spec(spec: &str) -> FormatSpec {
+fn parse_format_spec(spec: &str) -> WqResult<FormatSpec> {
     let mut chars = spec.chars().peekable();
     let mut result = FormatSpec::default();
 
@@ -95,14 +95,7 @@ fn parse_format_spec(spec: &str) -> FormatSpec {
                 result.width = Some(FormatWidth::Dynamic);
             }
         } else if c.is_ascii_digit() {
-            let mut num = 0usize;
-            while let Some(&c) = chars.peek()
-                && c.is_ascii_digit()
-            {
-                num = num * 10 + c.to_digit(10).unwrap() as usize;
-                chars.next();
-            }
-            result.width = Some(FormatWidth::Fixed(num));
+            result.width = Some(FormatWidth::Fixed(parse_format_usize(&mut chars, "width")?));
         }
     }
 
@@ -118,14 +111,10 @@ fn parse_format_spec(spec: &str) -> FormatSpec {
                     result.precision = Some(FormatPrecision::Dynamic);
                 }
             } else if c.is_ascii_digit() {
-                let mut num = 0usize;
-                while let Some(&c) = chars.peek()
-                    && c.is_ascii_digit()
-                {
-                    num = num * 10 + c.to_digit(10).unwrap() as usize;
-                    chars.next();
-                }
-                result.precision = Some(FormatPrecision::Fixed(num));
+                result.precision = Some(FormatPrecision::Fixed(parse_format_usize(
+                    &mut chars,
+                    "precision",
+                )?));
             }
         }
     }
@@ -138,7 +127,46 @@ fn parse_format_spec(spec: &str) -> FormatSpec {
         chars.next();
     }
 
-    result
+    Ok(result)
+}
+
+fn parse_format_usize(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    label: &str,
+) -> WqResult<usize> {
+    let mut num = 0usize;
+    while let Some(&c) = chars.peek()
+        && c.is_ascii_digit()
+    {
+        let digit = usize::try_from(c.to_digit(10).expect("ascii digit"))
+            .expect("decimal digit fits in usize");
+        num = num
+            .checked_mul(10)
+            .and_then(|n| n.checked_add(digit))
+            .ok_or_else(|| {
+                WqError::new(WqErrorType::Domain)
+                    .src(BE::Fmt)
+                    .msg(format!("{label} is too large"))
+            })?;
+        chars.next();
+    }
+    Ok(num)
+}
+
+fn dynamic_format_usize(value: &Value, arg_idx: usize, label: &str) -> WqResult<usize> {
+    let n = value.as_i64().ok_or_else(|| {
+        WqError::new(WqErrorType::Domain)
+            .src(BE::Fmt)
+            .msg(format!("{label} must be an integer"))
+            .at_arg(arg_idx)
+    })?;
+    usize::try_from(n).map_err(|_| {
+        WqError::new(WqErrorType::Domain)
+            .src(BE::Fmt)
+            .msg(format!("{label} must be a non-negative integer"))
+            .at_arg(arg_idx)
+            .got1(value)
+    })
 }
 
 fn add_commas_to_int(s: &str) -> String {
@@ -541,7 +569,7 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                     Some(Value::Char('{')) => i += 2,
                     Some(Value::Char('[')) => {
                         let (spec_str, next_i) = read_format_spec(fmt_chars, i)?;
-                        let spec = parse_format_spec(&spec_str);
+                        let spec = parse_format_spec(&spec_str)?;
                         if spec
                             .width
                             .is_some_and(|w| matches!(w, FormatWidth::Dynamic))
@@ -626,18 +654,13 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                 }
                 Some(Value::Char('[')) => {
                     let (spec_str, next_i) = read_format_spec(&fmt_chars, i)?;
-                    let spec = parse_format_spec(&spec_str);
+                    let spec = parse_format_spec(&spec_str)?;
 
                     let width = match spec.width {
                         Some(FormatWidth::Dynamic) => {
                             let w = &args[arg_idx + 1];
                             arg_idx += 1;
-                            Some(w.as_i64().ok_or_else(|| {
-                                WqError::new(WqErrorType::Domain)
-                                    .src(BE::Fmt)
-                                    .msg("width must be an integer")
-                                    .at_arg(arg_idx)
-                            })? as usize)
+                            Some(dynamic_format_usize(w, arg_idx, "width")?)
                         }
                         Some(FormatWidth::Fixed(n)) => Some(n),
                         None => None,
@@ -647,12 +670,7 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
                         Some(FormatPrecision::Dynamic) => {
                             let p = &args[arg_idx + 1];
                             arg_idx += 1;
-                            Some(p.as_i64().ok_or_else(|| {
-                                WqError::new(WqErrorType::Domain)
-                                    .src(BE::Fmt)
-                                    .msg("precision must be an integer")
-                                    .at_arg(arg_idx)
-                            })? as usize)
+                            Some(dynamic_format_usize(p, arg_idx, "precision")?)
                         }
                         Some(FormatPrecision::Fixed(n)) => Some(n),
                         None => None,
@@ -812,6 +830,37 @@ mod tests {
         all_args.extend_from_slice(args);
         let res = fmt(BuiltinFnArgs::from(all_args)).unwrap();
         res.to_rust_string_with_note().unwrap_or_default()
+    }
+
+    #[test]
+    fn fmt_rejects_negative_dynamic_width() {
+        let err = fmt(BuiltinFnArgs::from(vec![
+            "{[{}]}".into_wq_value(),
+            Value::Int(-1),
+            Value::Int(42),
+        ]))
+        .expect_err("negative dynamic width should fail");
+
+        assert!(
+            err.to_string()
+                .contains("width must be a non-negative integer"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn fmt_rejects_static_width_that_overflows_usize() {
+        let template = format!("{{[{}]}}", "9".repeat(100));
+        let err = fmt(BuiltinFnArgs::from(vec![
+            template.into_wq_value(),
+            Value::Int(42),
+        ]))
+        .expect_err("oversized static width should fail");
+
+        assert!(
+            err.to_string().contains("width is too large"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

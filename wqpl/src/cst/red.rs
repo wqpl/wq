@@ -373,7 +373,7 @@ impl Iterator for ChildrenWithTokens {
 
     fn next(&mut self) -> Option<SyntaxElement> {
         let children = self.parent.inner.green.children();
-        let idx = self.index as usize;
+        let idx = usize::try_from(self.index).ok()?;
         let child = children.get(idx)?;
         let item = match child {
             GreenChild::Node(g) => SyntaxElement::Node(SyntaxNode {

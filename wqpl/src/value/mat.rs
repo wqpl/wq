@@ -180,8 +180,16 @@ fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
     let mut ia = a.len() as isize - 1;
     let mut ib = b.len() as isize - 1;
     while ia >= 0 || ib >= 0 {
-        let da = if ia >= 0 { a[ia as usize] } else { 1 };
-        let db = if ib >= 0 { b[ib as usize] } else { 1 };
+        let da = if let Ok(idx) = usize::try_from(ia) {
+            a[idx]
+        } else {
+            1
+        };
+        let db = if let Ok(idx) = usize::try_from(ib) {
+            b[idx]
+        } else {
+            1
+        };
         if da == db || da == 1 || db == 1 {
             out_rev.push(da.max(db));
         } else {

@@ -23,7 +23,7 @@ pub(crate) fn set_breakpoints(vm: &mut Vm, source_path: &str, lines: &[usize]) -
                     let meta = vm.debug_info().chunk(loc.chunk);
                     let span = meta.line_table.span_at(loc.pc);
                     if span.file_id != u32::MAX {
-                        let (l, c) = sf.line_col(span.start as usize);
+                        let (l, c) = sf.line_col(span.start);
                         (Some(l as i64), Some(c as i64))
                     } else {
                         (Some(line as i64), None)
@@ -96,7 +96,7 @@ fn loc_to_stack_frame(di: &DebugInfo, loc: CodeLoc, name: &str, id: usize) -> St
                     return None;
                 }
                 di.file(ctx.file_id).map(|sf| {
-                    let (l, c) = sf.line_col(ctx.start as usize);
+                    let (l, c) = sf.line_col(ctx.start);
                     (
                         Some(Source {
                             path: Some(sf.path.to_string()),
@@ -108,7 +108,7 @@ fn loc_to_stack_frame(di: &DebugInfo, loc: CodeLoc, name: &str, id: usize) -> St
                 })
             } else {
                 di.file(span.file_id).map(|sf| {
-                    let (l, c) = sf.line_col(span.start as usize);
+                    let (l, c) = sf.line_col(span.start);
                     (
                         Some(Source {
                             path: Some(sf.path.to_string()),

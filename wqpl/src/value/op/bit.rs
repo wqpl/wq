@@ -14,6 +14,10 @@ fn invalid_shift(v: &Value) -> WqError {
         .got1(v)
 }
 
+fn shift_count_i64(n: i64, original: &Value) -> WqResult<u32> {
+    u32::try_from(n).map_err(|_| invalid_shift(original))
+}
+
 fn band_intlist(left: &Value, right: &Value) -> Option<Value> {
     match (left, right) {
         (Value::IntList(a), Value::IntList(b)) => {
@@ -69,10 +73,8 @@ fn not_intlist(v: &Value) -> Option<Value> {
 fn shl_intlist(left: &Value, right: &Value) -> Option<Value> {
     match (left, right) {
         (Value::IntList(a), Value::Int(b)) => {
-            if *b < 0 {
-                return None;
-            }
-            intlist_map(a, |x| Some(x.wrapping_shl(*b as u32))).map(|v| Value::IntList(Arc::new(v)))
+            let shift = u32::try_from(*b).ok()?;
+            intlist_map(a, |x| Some(x.wrapping_shl(shift))).map(|v| Value::IntList(Arc::new(v)))
         }
         _ => None,
     }
@@ -81,10 +83,8 @@ fn shl_intlist(left: &Value, right: &Value) -> Option<Value> {
 fn shr_intlist(left: &Value, right: &Value) -> Option<Value> {
     match (left, right) {
         (Value::IntList(a), Value::Int(b)) => {
-            if *b < 0 {
-                return None;
-            }
-            intlist_map(a, |x| Some(x.wrapping_shr(*b as u32))).map(|v| Value::IntList(Arc::new(v)))
+            let shift = u32::try_from(*b).ok()?;
+            intlist_map(a, |x| Some(x.wrapping_shr(shift))).map(|v| Value::IntList(Arc::new(v)))
         }
         _ => None,
     }
@@ -157,13 +157,13 @@ fn shl_atoms(a: &Value, b: &Value) -> WqResult<Value> {
     }
     match (a, b) {
         (Value::Int(x), Value::Int(s)) => {
-            if *s < 0 {
-                Err(invalid_shift(b))
-            } else {
-                Ok(Value::Int(x.wrapping_shl(*s as u32)))
-            }
+            let shift = shift_count_i64(*s, b)?;
+            Ok(Value::Int(x.wrapping_shl(shift)))
         }
-        (Value::BigInt(x), Value::Int(s)) if *s >= 0 => Ok(Value::from_bigint(&**x << (*s as u32))),
+        (Value::BigInt(x), Value::Int(s)) => {
+            let shift = shift_count_i64(*s, b)?;
+            Ok(Value::from_bigint(&**x << shift))
+        }
         (Value::Int(x), Value::BigInt(s)) => {
             let shift = s.to_u32().ok_or_else(|| invalid_shift(b))?;
             Ok(Value::Int(x.wrapping_shl(shift)))
@@ -182,13 +182,13 @@ fn shr_atoms(a: &Value, b: &Value) -> WqResult<Value> {
     }
     match (a, b) {
         (Value::Int(x), Value::Int(s)) => {
-            if *s < 0 {
-                Err(invalid_shift(b))
-            } else {
-                Ok(Value::Int(x.wrapping_shr(*s as u32)))
-            }
+            let shift = shift_count_i64(*s, b)?;
+            Ok(Value::Int(x.wrapping_shr(shift)))
         }
-        (Value::BigInt(x), Value::Int(s)) if *s >= 0 => Ok(Value::from_bigint(&**x >> (*s as u32))),
+        (Value::BigInt(x), Value::Int(s)) => {
+            let shift = shift_count_i64(*s, b)?;
+            Ok(Value::from_bigint(&**x >> shift))
+        }
         (Value::Int(x), Value::BigInt(s)) => {
             let shift = s.to_u32().ok_or_else(|| invalid_shift(b))?;
             Ok(Value::Int(x.wrapping_shr(shift)))
@@ -262,5 +262,29 @@ impl Value {
             return shr_atoms(self, other);
         }
         self.bc2(other, shr_atoms).map_err(|e| e.into_wqerror())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    #[test]
+    fn shifts_reject_counts_that_do_not_fit_u32() {
+        let count = Value::Int(i64::from(u32::MAX) + 1);
+
+        assert!(Value::Int(1).shl(&count).is_err());
+        assert!(Value::Int(8).shr(&count).is_err());
+    }
+
+    #[test]
+    fn int_list_shifts_reject_counts_that_do_not_fit_u32() {
+        let values = Value::IntList(Arc::new(vec![1, 2]));
+        let count = Value::Int(i64::from(u32::MAX) + 1);
+
+        assert!(values.shl(&count).is_err());
+        assert!(values.shr(&count).is_err());
     }
 }

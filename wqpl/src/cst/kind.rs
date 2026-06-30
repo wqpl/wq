@@ -380,7 +380,7 @@ mod tests {
         ];
         for k in all {
             let is_sentinel = matches!(k, SyntaxKind::__LastToken);
-            let count = (k.is_token() as u8) + (k.is_node() as u8) + (is_sentinel as u8);
+            let count = u8::from(k.is_token()) + u8::from(k.is_node()) + u8::from(is_sentinel);
             assert_eq!(
                 count,
                 1,

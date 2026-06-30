@@ -575,8 +575,10 @@ impl Parser {
                 {
                     continue;
                 }
-                out.entry(child.abs_offset() as usize)
-                    .or_insert_with(|| child.green().clone());
+                let offset = usize::try_from(child.abs_offset()).ok();
+                if let Some(offset) = offset {
+                    out.entry(offset).or_insert_with(|| child.green().clone());
+                }
             }
         }
 
@@ -691,7 +693,8 @@ impl Parser {
             .as_ref()?
             .candidate_for_new_offset(start)?
             .clone();
-        let end = start.checked_add(candidate.text_len() as usize)?;
+        let len = usize::try_from(candidate.text_len()).ok()?;
+        let end = start.checked_add(len)?;
         let candidate_text = candidate.text();
         if self.source.get(start..end)? != candidate_text {
             return None;
@@ -5538,10 +5541,16 @@ mod cst_integration_tests {
                 std::collections::HashSet::new();
             for elem in root.descendants_with_tokens() {
                 let r = elem.text_range();
-                cst_ranges.insert((r.start() as usize, r.end() as usize));
+                cst_ranges.insert((
+                    usize::try_from(r.start()).expect("range start fits in usize"),
+                    usize::try_from(r.end()).expect("range end fits in usize"),
+                ));
             }
             let r = root.text_range();
-            cst_ranges.insert((r.start() as usize, r.end() as usize));
+            cst_ranges.insert((
+                usize::try_from(r.start()).expect("range start fits in usize"),
+                usize::try_from(r.end()).expect("range end fits in usize"),
+            ));
 
             // Walk every AST node, ensure parser-stored spans align with
             // a CST range.

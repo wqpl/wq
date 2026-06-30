@@ -92,11 +92,7 @@ impl GreenToken {
             "GreenToken constructed with non-token kind {kind:?}"
         );
         let text = text.into();
-        debug_assert!(
-            u32::try_from(text.len()).is_ok(),
-            "token text exceeds 4 GiB: {} bytes",
-            text.len()
-        );
+        u32::try_from(text.len()).expect("token text exceeds 4 GiB");
         GreenToken(Arc::new(GreenTokenData { kind, text }))
     }
 
@@ -111,10 +107,10 @@ impl GreenToken {
     }
 
     /// Byte length of [`Self::text`]. Always fits in `u32`; see the constructor
-    /// debug check.
+    /// check.
     #[inline]
     pub fn text_len(&self) -> u32 {
-        self.0.text.len() as u32
+        u32::try_from(self.0.text.len()).expect("token text length checked at construction")
     }
 
     /// Whether two tokens point to the *same* `Arc` allocation. Use sparingly;
@@ -143,14 +139,11 @@ impl GreenNode {
             kind.is_node(),
             "GreenNode constructed with non-node kind {kind:?}"
         );
-        let text_len: u64 = children.iter().map(|c| c.text_len() as u64).sum();
-        debug_assert!(
-            text_len <= u32::MAX as u64,
-            "green node text length exceeds 4 GiB"
-        );
+        let text_len: u64 = children.iter().map(|c| u64::from(c.text_len())).sum();
+        let text_len = u32::try_from(text_len).expect("green node text length exceeds 4 GiB");
         GreenNode(Arc::new(GreenNodeData {
             kind,
-            text_len: text_len as u32,
+            text_len,
             children,
         }))
     }
@@ -182,7 +175,8 @@ impl GreenNode {
     /// in source order. Round-trip with the original source is guaranteed by
     /// invariant (every byte appears in some token).
     pub fn text(&self) -> String {
-        let mut out = String::with_capacity(self.text_len() as usize);
+        let capacity = usize::try_from(self.text_len()).expect("u32 text length fits in usize");
+        let mut out = String::with_capacity(capacity);
         self.write_text(&mut out);
         out
     }

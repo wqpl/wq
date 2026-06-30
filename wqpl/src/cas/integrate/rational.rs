@@ -405,8 +405,13 @@ fn try_integrate_binomial(numer: &[Value], denom: &[Value], var: &str) -> WqResu
 
     // Complex conjugate pairs for k = 1..(n-1)/2
     let p_sq = simplify_cas_value(&cas_pow(root.clone(), Value::Int(2))?)?;
+    let n_u32 = match u32::try_from(n) {
+        Ok(n) => n,
+        Err(_) => return Ok(None),
+    };
     for k in 1..=(n - 1) / 2 {
-        let (cos_val, sin_val) = match get_trig_values(k as u32, n as u32) {
+        let k_u32 = u32::try_from(k).expect("k is bounded by n_u32");
+        let (cos_val, sin_val) = match get_trig_values(k_u32, n_u32) {
             Some(v) => v,
             None => return Ok(None),
         };
@@ -1559,7 +1564,7 @@ fn integer_divisors(value: &Value) -> Vec<BigInt> {
     let mut divs = Vec::new();
     let n_u64 = n.to_u64();
     if let Some(limit) = n_u64 {
-        let limit = (limit as f64).sqrt() as u64;
+        let limit = integer_sqrt_u64(limit);
         for i in 1..=limit {
             let i_big = BigInt::from(i);
             if &n % &i_big == BigInt::zero() {
@@ -1588,6 +1593,20 @@ fn integer_divisors(value: &Value) -> Vec<BigInt> {
         divs.push(BigInt::one());
     }
     divs
+}
+
+fn integer_sqrt_u64(n: u64) -> u64 {
+    let mut lo = 0u64;
+    let mut hi = 1u64 << 32;
+    while lo < hi {
+        let mid = lo + (hi - lo).div_ceil(2);
+        if mid <= n / mid {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    lo
 }
 
 // ---------------------------------------------------------------------------

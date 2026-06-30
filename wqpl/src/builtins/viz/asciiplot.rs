@@ -1,6 +1,7 @@
 use std::cmp::{max, min};
 
 use indexmap::IndexMap;
+use num_traits::ToPrimitive;
 
 use crate::builtins::{BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_named_args};
 use crate::cas::{infer_single_cas_var, substitute_cas};
@@ -24,8 +25,8 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
     // Terminal auto-size: only when width/height/size not explicitly set
     #[cfg(not(target_arch = "wasm32"))]
     if !explicit_size && let Some((term_w, term_h)) = terminal_size::terminal_size() {
-        let tw = term_w.0 as usize;
-        let th = term_h.0 as usize;
+        let tw = usize::from(term_w.0);
+        let th = usize::from(term_h.0);
         opts.width = tw.saturating_sub(8).clamp(40, 200);
         opts.height = th.saturating_sub(6).clamp(10, 60);
     }
@@ -935,6 +936,67 @@ fn parse_column_names(value: &Value) -> Option<Vec<String>> {
     if names.is_empty() { None } else { Some(names) }
 }
 
+fn plot_size_from_i64(n: i64, min_value: usize, option: &str, value: &Value) -> WqResult<usize> {
+    let n = usize::try_from(n).map_err(|_| {
+        WqError::new(WqErrorType::Domain)
+            .src(BE::Asciiplot)
+            .msg(format!("{option} must be a non-negative integer"))
+            .got1(value)
+    })?;
+    ensure_plot_size_fits(n, option, value)?;
+    Ok(n.max(min_value))
+}
+
+fn plot_size_from_f64(n: f64, min_value: usize, option: &str, value: &Value) -> WqResult<usize> {
+    if !n.is_finite() || n < 0.0 {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Asciiplot)
+            .msg(format!("{option} must be a non-negative finite number"))
+            .got1(value));
+    }
+    let n = n
+        .max(min_value as f64)
+        .to_usize()
+        .ok_or_else(|| plot_size_too_large(option, value))?;
+    ensure_plot_size_fits(n, option, value)?;
+    Ok(n.max(min_value))
+}
+
+fn ensure_plot_size_fits(n: usize, option: &str, value: &Value) -> WqResult<()> {
+    let max = usize::try_from(isize::MAX).expect("isize::MAX fits in usize");
+    if n > max {
+        return Err(plot_size_too_large(option, value));
+    }
+    Ok(())
+}
+
+fn plot_size_too_large(option: &str, value: &Value) -> WqError {
+    WqError::new(WqErrorType::Domain)
+        .src(BE::Asciiplot)
+        .msg(format!("{option} is too large"))
+        .got1(value)
+}
+
+fn plot_size_to_isize(n: usize) -> isize {
+    isize::try_from(n).expect("plot size checked to fit in isize")
+}
+
+fn clamped_plot_coord(value: isize, len: usize) -> usize {
+    let hi = plot_size_to_isize(len.saturating_sub(1));
+    let value = min(hi, max(0, value));
+    usize::try_from(value).expect("clamped plot coordinate is non-negative")
+}
+
+fn grid_index(grid: &[Vec<Cell>], x: isize, y: isize) -> Option<(usize, usize)> {
+    if x < 0 || y < 0 {
+        return None;
+    }
+    let x = usize::try_from(x).ok()?;
+    let y = usize::try_from(y).ok()?;
+    let width = grid.first().map_or(0, Vec::len);
+    (y < grid.len() && x < width).then_some((x, y))
+}
+
 #[derive(Clone)]
 struct PlotOptions {
     width: usize,
@@ -1020,17 +1082,23 @@ impl PlotOptions {
         {
             self.apply_theme(&theme);
         }
-        if let Some((a, b)) = args.named("size").and_then(pair_as_f64) {
-            self.width = max(10, a as usize);
-            self.height = max(5, b as usize);
+        if let Some(size) = args.named("size")
+            && let Some((a, b)) = pair_as_f64(size)
+        {
+            self.width = plot_size_from_f64(a, 10, "size width", size)?;
+            self.height = plot_size_from_f64(b, 5, "size height", size)?;
             explicit_size = true;
         }
-        if let Some(n) = args.named("width").and_then(|v| v.as_i64()) {
-            self.width = max(10, n as usize);
+        if let Some(width) = args.named("width")
+            && let Some(n) = width.as_i64()
+        {
+            self.width = plot_size_from_i64(n, 10, "width", width)?;
             explicit_size = true;
         }
-        if let Some(n) = args.named("height").and_then(|v| v.as_i64()) {
-            self.height = max(5, n as usize);
+        if let Some(height) = args.named("height")
+            && let Some(n) = height.as_i64()
+        {
+            self.height = plot_size_from_i64(n, 5, "height", height)?;
             explicit_size = true;
         }
         if let Some((a, b)) = args.named("xlim").and_then(pair_as_f64) {
@@ -1098,10 +1166,13 @@ impl PlotOptions {
             } else if let Value::Bool(true) = v {
                 self.grid = GridMode::On;
             } else if let Some(n) = v.as_i64() {
-                let n = n.max(1) as usize;
+                let n = plot_size_from_i64(n, 1, "grid", v)?;
                 self.grid = GridMode::Density(n, n);
             } else if let Some((a, b)) = pair_as_f64(v) {
-                self.grid = GridMode::Density(a.max(1.0) as usize, b.max(1.0) as usize);
+                self.grid = GridMode::Density(
+                    plot_size_from_f64(a, 1, "grid width", v)?,
+                    plot_size_from_f64(b, 1, "grid height", v)?,
+                );
             }
         }
         if let Some(Value::List(items)) = args.named("labels") {
@@ -1125,8 +1196,10 @@ impl PlotOptions {
         {
             self.table_y = Some(names);
         }
-        if let Some(v) = args.named("samples").and_then(|v| v.as_i64()) {
-            self.samples = Some(max(1, v as usize));
+        if let Some(samples) = args.named("samples")
+            && let Some(v) = samples.as_i64()
+        {
+            self.samples = Some(plot_size_from_i64(v, 1, "samples", samples)?);
         }
         if let Some(v) = args.named("complex")
             && let Ok(s) = v.to_rust_string_with_note()
@@ -1252,14 +1325,14 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
     let y0_row = if y0_in {
         let t = (0.0 - ymin) / yspan; // 0..1 from bottom
         let row = (height as f64 - 1.0 - t * (height as f64 - 1.0)).round() as isize;
-        min(height as isize - 1, max(0, row)) as usize
+        clamped_plot_coord(row, height)
     } else {
         height - 1
     };
     let x0_col = if x0_in {
         let t = (0.0 - xmin) / xspan;
         let col = (t * (width as f64 - 1.0)).round() as isize;
-        min(width as isize - 1, max(0, col)) as usize
+        clamped_plot_coord(col, width)
     } else {
         0usize
     };
@@ -1278,7 +1351,7 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
         for yv in yticks {
             let t = (yv - ymin) / yspan;
             let row = (height as f64 - 1.0 - t * (height as f64 - 1.0)).round() as isize;
-            let r = std::cmp::min(height as isize - 1, std::cmp::max(0, row)) as usize;
+            let r = clamped_plot_coord(row, height);
             for x in 0..width {
                 if x % 2 == 0 {
                     set_cell_layer(
@@ -1296,7 +1369,7 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
         for xv in xticks {
             let t = (xv - xmin) / xspan;
             let col = (t * (width as f64 - 1.0)).round() as isize;
-            let c = std::cmp::min(width as isize - 1, std::cmp::max(0, col)) as usize;
+            let c = clamped_plot_coord(col, width);
             for y in 0..height {
                 if y % 2 == 0 {
                     set_cell_layer(
@@ -1402,7 +1475,8 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
                 let t = (*xv - xmin) / xspan;
                 let col = (t * (width as f64 - 1.0)).round() as isize;
                 let c = min(width as isize - 1, max(0, col));
-                if c as usize != x0_col {
+                let c_col = usize::try_from(c).expect("clamped x tick is non-negative");
+                if c_col != x0_col {
                     set_cell_layer(
                         &mut grid,
                         c,
@@ -1418,7 +1492,8 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
                 let t = (*yv - ymin) / yspan;
                 let row = ((height as f64 - 1.0) - t * (height as f64 - 1.0)).round() as isize;
                 let r = min(height as isize - 1, max(0, row));
-                if r as usize != y0_row {
+                let r_row = usize::try_from(r).expect("clamped y tick is non-negative");
+                if r_row != y0_row {
                     set_cell_layer(
                         &mut grid,
                         x0_col as isize,
@@ -1752,7 +1827,7 @@ fn x_tick_label_line(width: usize, xmin: f64, xmax: f64, xspan: f64, target: usi
         .map(|value| {
             let t = (value - xmin) / xspan;
             let col = (t * (width as f64 - 1.0)).round() as isize;
-            let col = min(width as isize - 1, max(0, col)) as usize;
+            let col = clamped_plot_coord(col, width);
             (col, format_number(value))
         })
         .collect();
@@ -1770,7 +1845,7 @@ fn y_tick_label_rows(
     for value in tick_label_values(ymin, ymax, target) {
         let t = (value - ymin) / yspan;
         let row = ((height as f64 - 1.0) - t * (height as f64 - 1.0)).round() as isize;
-        let row = min(height as isize - 1, max(0, row)) as usize;
+        let row = clamped_plot_coord(row, height);
         let label = format_number(value);
         if rows[row]
             .as_ref()
@@ -1854,8 +1929,8 @@ fn set_cell_layer(
     color: Option<AnsiColor>,
     color_on: bool,
 ) {
-    if y >= 0 && (y as usize) < grid.len() && x >= 0 && (x as usize) < grid[0].len() {
-        let cell = &mut grid[y as usize][x as usize];
+    if let Some((x, y)) = grid_index(grid, x, y) {
+        let cell = &mut grid[y][x];
         if layer >= cell.layer || cell.ch == ' ' {
             cell.ch = ch;
             cell.layer = layer;
@@ -1878,11 +1953,11 @@ fn set_area_cell(
     series_idx: usize,
     ascii: bool,
 ) {
-    if y < 0 || (y as usize) >= grid.len() || x < 0 || (x as usize) >= grid[0].len() {
+    let Some((x, y)) = grid_index(grid, x, y) else {
         return;
-    }
+    };
 
-    let cell = &mut grid[y as usize][x as usize];
+    let cell = &mut grid[y][x];
     let series_bit = area_series_bit(series_idx);
     if let Some(bit) = series_bit
         && cell.area_mask & bit != 0
@@ -1912,7 +1987,7 @@ fn set_area_cell(
 }
 
 fn area_series_bit(series_idx: usize) -> Option<u128> {
-    if series_idx < u128::BITS as usize {
+    if u32::try_from(series_idx).is_ok_and(|idx| idx < u128::BITS) {
         Some(1_u128 << series_idx)
     } else {
         None
@@ -2177,6 +2252,76 @@ mod tests {
 
     fn mode_value(mode: &str) -> (Arc<str>, Value) {
         (Arc::from("mode"), string_value(mode))
+    }
+
+    #[test]
+    fn plot_options_reject_negative_width() {
+        let mut opts = PlotOptions::default();
+        let err = opts
+            .apply_from_named(&BuiltinFnArgs::with_named(
+                smallvec![],
+                vec![(Arc::from("width"), Value::Int(-1))],
+            ))
+            .expect_err("negative width should fail");
+
+        assert!(
+            err.to_string()
+                .contains("width must be a non-negative integer"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn plot_options_reject_negative_samples() {
+        let mut opts = PlotOptions::default();
+        let err = opts
+            .apply_from_named(&BuiltinFnArgs::with_named(
+                smallvec![],
+                vec![(Arc::from("samples"), Value::Int(-1))],
+            ))
+            .expect_err("negative samples should fail");
+
+        assert!(
+            err.to_string()
+                .contains("samples must be a non-negative integer"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn plot_options_reject_negative_float_pair_size() {
+        let mut opts = PlotOptions::default();
+        let size = Value::List(Arc::new(vec![Value::float(-1.0), Value::float(5.0)]));
+        let err = opts
+            .apply_from_named(&BuiltinFnArgs::with_named(
+                smallvec![],
+                vec![(Arc::from("size"), size)],
+            ))
+            .expect_err("negative size width should fail");
+
+        assert!(
+            err.to_string()
+                .contains("size width must be a non-negative finite number"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn plot_options_reject_negative_float_pair_grid() {
+        let mut opts = PlotOptions::default();
+        let grid = Value::List(Arc::new(vec![Value::float(-1.0), Value::float(2.0)]));
+        let err = opts
+            .apply_from_named(&BuiltinFnArgs::with_named(
+                smallvec![],
+                vec![(Arc::from("grid"), grid)],
+            ))
+            .expect_err("negative grid width should fail");
+
+        assert!(
+            err.to_string()
+                .contains("grid width must be a non-negative finite number"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

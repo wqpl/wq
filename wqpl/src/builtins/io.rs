@@ -198,7 +198,9 @@ fn fread_impl(src: BE, stream: &Value, length: Option<&Value>) -> WqResult<Optio
     // length-mode
     if let Some(length) = length {
         let n = match length {
-            Value::Int(n) if *n >= 0 => *n as usize,
+            Value::Int(n) if *n >= 0 => {
+                usize::try_from(*n).map_err(|_| type_mismatch(src, 1, "positive int", length))?
+            }
             other => return Err(type_mismatch(src, 1, "positive int", other)),
         };
         let mut tmp = vec![0u8; n];
@@ -337,7 +339,9 @@ pub(super) fn fseek(args: BuiltinFnArgs) -> WqResult<Value> {
     if let Value::Stream(rc) = &args[0] {
         let mut handle = rc.lock().unwrap();
         let seek_from = match whence {
-            0 => SeekFrom::Start(offset as u64),
+            0 => SeekFrom::Start(
+                u64::try_from(offset).expect("offset checked non-negative for SeekFrom::Start"),
+            ),
             1 => SeekFrom::Current(offset),
             2 => SeekFrom::End(offset),
             _ => unreachable!(),

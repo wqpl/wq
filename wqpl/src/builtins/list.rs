@@ -562,7 +562,12 @@ pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(crate) fn parse_maxsplit(val: Option<&Value>, src: BE) -> WqResult<Option<usize>> {
     match val {
         None => Ok(None),
-        Some(Value::Int(n)) if *n >= 0 => Ok(Some(*n as usize)),
+        Some(v @ Value::Int(n)) if *n >= 0 => usize::try_from(*n).map(Some).map_err(|_| {
+            WqError::new(WqErrorType::Domain)
+                .src(src)
+                .msg("expected int>=0 or inf for `m")
+                .got1(v)
+        }),
         Some(Value::Float(f)) if f.is_infinite() && f.is_sign_positive() => Ok(None),
         Some(other) => Err(WqError::new(WqErrorType::Domain)
             .src(src)
@@ -798,6 +803,10 @@ struct FindCtx<'a> {
     reverse: bool,
 }
 
+fn find_threshold_reached(results_len: usize, threshold: i64) -> bool {
+    usize::try_from(threshold).is_ok_and(|threshold| results_len >= threshold)
+}
+
 fn find_search(
     xs: &Value,
     current_depth: i64,
@@ -805,7 +814,7 @@ fn find_search(
     path: &mut Vec<i64>,
     ctx: &FindCtx<'_>,
 ) {
-    if results.len() >= ctx.threshold as usize {
+    if find_threshold_reached(results.len(), ctx.threshold) {
         return;
     }
 
@@ -817,7 +826,7 @@ fn find_search(
             (0..values.len()).collect()
         };
         for idx in indices {
-            if results.len() >= ctx.threshold as usize {
+            if find_threshold_reached(results.len(), ctx.threshold) {
                 return;
             }
             let item = &values[idx];
@@ -826,7 +835,7 @@ fn find_search(
                 path.push(idx as i64);
                 results.push(Value::IntList(Arc::new(path.clone())));
                 path.pop();
-                if results.len() >= ctx.threshold as usize {
+                if find_threshold_reached(results.len(), ctx.threshold) {
                     return;
                 }
             }
@@ -848,7 +857,7 @@ fn find_search(
                 (0..values.len()).collect()
             };
             for idx in indices {
-                if results.len() >= ctx.threshold as usize {
+                if find_threshold_reached(results.len(), ctx.threshold) {
                     return;
                 }
                 let item = values[idx];
@@ -857,7 +866,7 @@ fn find_search(
                     path.push(idx as i64);
                     results.push(Value::IntList(Arc::new(path.clone())));
                     path.pop();
-                    if results.len() >= ctx.threshold as usize {
+                    if find_threshold_reached(results.len(), ctx.threshold) {
                         return;
                     }
                 }

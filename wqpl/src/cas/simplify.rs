@@ -1341,9 +1341,9 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
 /// Combine log terms with matching prefactors: c*ln|A| + (-c)*ln|B| ->
 /// c*ln|A/B|.
 fn combine_log_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
-    let mut i: isize = 0;
-    while i < grouped.len() as isize {
-        let (core_i, coeff_i) = (&grouped[i as usize].0, grouped[i as usize].1.clone());
+    let mut i = 0usize;
+    while i < grouped.len() {
+        let (core_i, coeff_i) = (&grouped[i].0, grouped[i].1.clone());
         let (pref_i, arg_i) = match extract_ln_abs_pref(core_i) {
             Some(p) => p,
             None => {
@@ -1355,8 +1355,8 @@ fn combine_log_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
         let neg_coeff_i = numeric_mul(&coeff_i, &Value::Int(-1))?;
         let mut found = false;
         let mut j = i + 1;
-        while j < grouped.len() as isize {
-            let (core_j, coeff_j) = (&grouped[j as usize].0, grouped[j as usize].1.clone());
+        while j < grouped.len() {
+            let (core_j, coeff_j) = (&grouped[j].0, grouped[j].1.clone());
             if coeff_j == neg_coeff_i
                 && let Some((pref_j, arg_j)) = extract_ln_abs_pref(core_j)
                 && pref_i == pref_j
@@ -1372,8 +1372,8 @@ fn combine_log_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
                 } else {
                     Value::from_cas_op(CasOp::Multiply, vec![pref_i.clone(), ln_combined])
                 };
-                grouped[i as usize] = (new_core, coeff_i);
-                grouped.remove(j as usize);
+                grouped[i] = (new_core, coeff_i);
+                grouped.remove(j);
                 found = true;
                 break;
             }

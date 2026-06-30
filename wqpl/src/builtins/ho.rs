@@ -1018,6 +1018,10 @@ struct FindWithCtx<'a> {
     src: BE,
 }
 
+fn findwith_threshold_reached(results_len: usize, threshold: i64) -> bool {
+    usize::try_from(threshold).is_ok_and(|threshold| results_len >= threshold)
+}
+
 fn findwith_search(
     vm: &mut dyn BuiltinContext,
     xs: &Value,
@@ -1026,7 +1030,7 @@ fn findwith_search(
     path: &mut Vec<i64>,
     ctx: &FindWithCtx<'_>,
 ) -> WqResult<()> {
-    if results.len() >= ctx.threshold as usize {
+    if findwith_threshold_reached(results.len(), ctx.threshold) {
         return Ok(());
     }
 
@@ -1048,7 +1052,7 @@ fn findwith_search(
             (0..values.len()).collect()
         };
         for idx in indices {
-            if results.len() >= ctx.threshold as usize {
+            if findwith_threshold_reached(results.len(), ctx.threshold) {
                 return Ok(());
             }
             let item = &values[idx];
@@ -1056,7 +1060,7 @@ fn findwith_search(
                 path.push(idx as i64);
                 results.push(Value::IntList(Arc::new(path.clone())));
                 path.pop();
-                if results.len() >= ctx.threshold as usize {
+                if findwith_threshold_reached(results.len(), ctx.threshold) {
                     return Ok(());
                 }
             } else if current_depth < ctx.max_depth {
@@ -1077,7 +1081,7 @@ fn findwith_search(
                 (0..values.len()).collect()
             };
             for idx in indices {
-                if results.len() >= ctx.threshold as usize {
+                if findwith_threshold_reached(results.len(), ctx.threshold) {
                     return Ok(());
                 }
                 let item = values[idx];
@@ -1085,7 +1089,7 @@ fn findwith_search(
                     path.push(idx as i64);
                     results.push(Value::IntList(Arc::new(path.clone())));
                     path.pop();
-                    if results.len() >= ctx.threshold as usize {
+                    if findwith_threshold_reached(results.len(), ctx.threshold) {
                         return Ok(());
                     }
                 } else if current_depth < ctx.max_depth {

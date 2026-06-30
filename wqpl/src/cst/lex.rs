@@ -224,17 +224,15 @@ mod tests {
         let g = build_flat_cst(src).unwrap_or_else(|e| panic!("lex error on `{src}`: {e:?}"));
         assert_eq!(g.text(), src, "round-trip mismatch on `{src}`",);
         // Every byte must be covered: text_len equals source bytes.
-        assert_eq!(
-            g.text_len() as usize,
-            src.len(),
-            "text_len mismatch on `{src}`"
-        );
+        let text_len = usize::try_from(g.text_len()).expect("text length fits in usize");
+        assert_eq!(text_len, src.len(), "text_len mismatch on `{src}`");
     }
 
     fn round_trip_recovery(src: &str) {
         let g = build_flat_cst_recovery(src);
         assert_eq!(g.text(), src, "recovery round-trip mismatch on `{src}`");
-        assert_eq!(g.text_len() as usize, src.len());
+        let text_len = usize::try_from(g.text_len()).expect("text length fits in usize");
+        assert_eq!(text_len, src.len());
     }
 
     #[test]

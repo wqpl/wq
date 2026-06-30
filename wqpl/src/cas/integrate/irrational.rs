@@ -21,6 +21,7 @@ use crate::cas::{
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
+use crate::wqerror::{WqError, WqErrorType};
 
 // Guard against infinite recursion in sqrt reduction.
 // Each call to try_sqrt_reduction increments; if the counter exceeds
@@ -174,7 +175,8 @@ fn reciprocal_quartic_transform(poly: &[Value], root: &Value) -> WqResult<Vec<Va
         for k in 1..=i {
             let power = 4 - k;
             let binom = Value::from_bigint(BigInt::from(binomial_coeff(i, k)));
-            let root_power = pow_value(root, (i - k) as u32)?;
+            let exp = u32::try_from(i - k).expect("quartic transform power fits in u32");
+            let root_power = pow_value(root, exp)?;
             let term = numeric_mul(&numeric_mul(coeff, &binom)?, &root_power)?;
             out[power] = numeric_add(&out[power], &term)?;
         }
@@ -1046,7 +1048,10 @@ fn integrate_poly_sqrt_linear(
         let m1_b = numeric_mul(b, &Value::Int(-1))?; // -b
         for (j, q_j) in q.iter_mut().enumerate().take(i + 1) {
             let binom = Value::from_bigint(BigInt::from(binomial_coeff(i, j)));
-            let neg_b_pow = pow_value(&m1_b, (i - j) as u32)?;
+            let exp = u32::try_from(i - j).map_err(|_| {
+                WqError::new(WqErrorType::Domain).msg("polynomial degree is too large")
+            })?;
+            let neg_b_pow = pow_value(&m1_b, exp)?;
             let term_coeff = numeric_mul(&numeric_mul(&binom, &neg_b_pow)?, p_i)?;
             let term_coeff = numeric_mul(&term_coeff, &a_pows[i])?;
             *q_j = numeric_add(q_j, &term_coeff)?;

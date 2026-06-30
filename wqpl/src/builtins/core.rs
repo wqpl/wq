@@ -395,7 +395,8 @@ fn exec_options_from_named(args: &BuiltinFnArgs) -> WqResult<ExecOptions> {
     }
     if let Some(v) = args.named("timeout") {
         opts.timeout = Some(match v {
-            Value::Int(n) if *n >= 0 => *n as u64,
+            Value::Int(n) if *n >= 0 => u64::try_from(*n)
+                .map_err(|_| exec_named_type_error("timeout", "non-negative int", v))?,
             _ => {
                 return Err(exec_named_type_error("timeout", "non-negative int", v));
             }

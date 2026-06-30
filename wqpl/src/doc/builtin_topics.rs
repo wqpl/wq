@@ -63,5 +63,5 @@ fn canonical_builtin(builtin: BuiltinEnum) -> BuiltinEnum {
 }
 
 fn builtin_group(builtin: BuiltinEnum) -> Option<BuiltinGroup> {
-    BUILTIN_GROUPS.get(builtin.id() as usize).copied()
+    BUILTIN_GROUPS.get(usize::from(builtin.id())).copied()
 }

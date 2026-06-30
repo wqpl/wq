@@ -142,19 +142,17 @@ impl Compiler {
     /// Compile call arguments to the stack.  If any are `NamedArg` nodes,
     /// collect the metadata and emit `SetupNamedCall` for the VM.
     fn compile_call_args(&mut self, args: &[AstNode]) -> WqResult<()> {
-        let named_args: Vec<(u16, Arc<str>)> = args
-            .iter()
-            .enumerate()
-            .filter_map(|(i, a)| {
-                if let AstNode::NamedArg { name, .. } = a {
-                    Some((i as u16, Arc::from(name.as_str())))
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let mut named_args: Vec<(u16, Arc<str>)> = Vec::new();
+        for (i, arg) in args.iter().enumerate() {
+            if let AstNode::NamedArg { name, .. } = arg {
+                let pos = u16::try_from(i)
+                    .map_err(|_| self.syntax_err_here("call has too many arguments"))?;
+                named_args.push((pos, Arc::from(name.as_str())));
+            }
+        }
 
-        let pos_count = (args.len() - named_args.len()) as u16;
+        let pos_count = u16::try_from(args.len() - named_args.len())
+            .map_err(|_| self.syntax_err_here("call has too many positional arguments"))?;
 
         // Evaluate all arguments left-to-right, preserving source order
         for arg in args {
@@ -210,23 +208,27 @@ impl Compiler {
         for item in items {
             let name = self.next_temp_name("idx-arg");
             self.compile_expr(item)?;
-            self.emit_store(&name);
+            self.emit_store(&name)?;
             names.push(name);
         }
         Ok(names)
     }
 
-    fn emit_index_arg_plan_loads(&mut self, plan: &IndexArgPlan) {
+    fn emit_index_arg_plan_loads(&mut self, plan: &IndexArgPlan) -> WqResult<()> {
         match plan {
             IndexArgPlan::Temps(names) => self.emit_index_arg_loads(names),
-            IndexArgPlan::ConstKey(key) => self.emit_load_const(key.clone()),
+            IndexArgPlan::ConstKey(key) => {
+                self.emit_load_const(key.clone());
+                Ok(())
+            }
         }
     }
 
-    fn emit_index_arg_loads(&mut self, names: &[String]) {
+    fn emit_index_arg_loads(&mut self, names: &[String]) -> WqResult<()> {
         for name in names {
-            self.emit_load(name, None);
+            self.emit_load(name, None)?;
         }
+        Ok(())
     }
 
     fn synthetic_index_items(index: &AstNode) -> Option<&[AstNode]> {
@@ -430,7 +432,7 @@ impl Compiler {
                 let name = self.next_temp_name("idx-path-index");
                 self.compile_expr(index)?;
                 self.instructions.push(Instruction::CheckAtomPathIndex);
-                self.emit_store(&name);
+                self.emit_store(&name)?;
                 index_args.push(IndexArgPlan::Temps(vec![name]));
             }
         }
@@ -441,27 +443,27 @@ impl Compiler {
             self.compile_expr(value)?;
             self.instructions
                 .push(Instruction::binary_op(op, Operand::Stack, Operand::Stack));
-            self.emit_store(&value_name);
+            self.emit_store(&value_name)?;
         } else {
             self.compile_expr(value)?;
-            self.emit_store(&value_name);
+            self.emit_store(&value_name)?;
         }
 
         let mut child_name = value_name.clone();
         for level in (1..index_args.len()).rev() {
             let parent_name = self.next_temp_name("idx-path-parent");
             self.emit_index_path_load(target.root, &index_args[..level])?;
-            self.emit_store(&parent_name);
-            self.emit_index_arg_plan_loads(&index_args[level]);
-            self.emit_load(&child_name, None);
+            self.emit_store(&parent_name)?;
+            self.emit_index_arg_plan_loads(&index_args[level])?;
+            self.emit_load(&child_name, None)?;
             self.push_index_assign_name_drop(&parent_name, index_args[level].argc());
             child_name = parent_name;
         }
 
-        self.emit_index_arg_plan_loads(&index_args[0]);
-        self.emit_load(&child_name, None);
+        self.emit_index_arg_plan_loads(&index_args[0])?;
+        self.emit_load(&child_name, None)?;
         self.push_index_assign_root_drop(target.root, index_args[0].argc());
-        self.emit_load(&value_name, None);
+        self.emit_load(&value_name, None)?;
         Ok(())
     }
 
@@ -471,13 +473,13 @@ impl Compiler {
         index_args: &[IndexArgPlan],
     ) -> WqResult<()> {
         match root {
-            IndexPathRoot::Variable(name) => self.emit_load(name, None),
+            IndexPathRoot::Variable(name) => self.emit_load(name, None)?,
             IndexPathRoot::OuterVariable(name, name_span) => {
                 self.emit_outer_load(name, name_span)?
             }
         }
         for args in index_args {
-            self.emit_index_arg_plan_loads(args);
+            self.emit_index_arg_plan_loads(args)?;
             self.instructions.push(Self::index_inst(args.argc()));
         }
         Ok(())
@@ -485,7 +487,7 @@ impl Compiler {
 
     fn push_index_assign_name_drop(&mut self, name: &str, argc: usize) {
         if self.fn_depth > 0 && self.is_local(name) {
-            let slot = self.local_slot(name);
+            let slot = self.locals[name];
             self.instructions
                 .push(Self::index_assign_local_drop_inst(slot, argc));
         } else {
@@ -498,7 +500,7 @@ impl Compiler {
         match root {
             IndexPathRoot::Variable(name) => {
                 if self.fn_depth > 0 && self.is_local(name) {
-                    let slot = self.local_slot(name);
+                    let slot = self.locals[name];
                     self.instructions
                         .push(Self::index_assign_local_drop_inst(slot, argc));
                 } else if self.is_ref_default_name(name) {
@@ -709,17 +711,30 @@ impl Compiler {
         let mut named_prologue: Vec<(u16, u8, Box<AstNode>)> = Vec::new();
         let mut param_list_span: Option<(usize, usize)> = None;
         if let Some(ps) = params {
-            let mut named_idx = 0u8;
+            let max_named_params = usize::try_from(i64::BITS).expect("i64::BITS fits in usize");
+            let mut named_idx = 0usize;
             for p in ps {
-                let slot = self.local_slot(p.name());
+                let slot = self.local_slot(p.name())?;
                 if let Parameter::Named {
                     default: Some(default_expr),
                     ..
                 } = p
                 {
-                    named_prologue.push((slot, named_idx, default_expr.clone()));
+                    if named_idx >= max_named_params {
+                        return Err(
+                            self.syntax_err_at(p.span(), "function has too many named parameters")
+                        );
+                    }
+                    let bit_idx = u8::try_from(named_idx)
+                        .expect("named parameter index is limited to i64::BITS");
+                    named_prologue.push((slot, bit_idx, default_expr.clone()));
                 }
                 if matches!(p, Parameter::Named { .. }) {
+                    if named_idx >= max_named_params {
+                        return Err(
+                            self.syntax_err_at(p.span(), "function has too many named parameters")
+                        );
+                    }
                     named_idx += 1;
                 }
                 // Union all parameter spans into a param-list span.
@@ -731,16 +746,16 @@ impl Compiler {
                 }
             }
         } else {
-            self.local_slot("x");
-            self.local_slot("y");
-            self.local_slot("z");
+            self.local_slot("x")?;
+            self.local_slot("y")?;
+            self.local_slot("z")?;
         }
 
         let mask_slot = if params
             .as_ref()
             .is_some_and(|ps| ps.iter().any(|p| matches!(p, Parameter::Named { .. })))
         {
-            Some(self.local_slot("--named-mask"))
+            Some(self.local_slot("--named-mask")?)
         } else {
             None
         };
@@ -1007,7 +1022,7 @@ impl Compiler {
                 return Err(err.clone());
             }
             AstNode::Literal(v, ..) => self.emit_load_const(v.clone()),
-            AstNode::Variable(name, span) => self.emit_load(name, *span),
+            AstNode::Variable(name, span) => self.emit_load(name, *span)?,
             AstNode::OuterVariable(name, span) => self.emit_outer_load(name, *span)?,
             AstNode::PipeInput => {
                 return Err(self.syntax_err_here("pipe input placeholder escaped its pipe context"));
@@ -1032,12 +1047,12 @@ impl Compiler {
                         self.compile_expr(value)?;
                         self.instructions.push(Instruction::Cat(2));
                     } else {
-                        let left = self.operand_for_name(name);
+                        let left = self.operand_for_name(name)?;
                         let right = self.compile_expr_as_operand(value)?;
                         self.instructions
                             .push(Instruction::binary_op(*op, left, right));
                     }
-                    self.emit_store_keep(name);
+                    self.emit_store_keep(name)?;
                 } else if let AstNode::Function {
                     params,
                     ref_capture,
@@ -1047,7 +1062,7 @@ impl Compiler {
                 {
                     // Reserve slot for recursion when in a local scope
                     if self.fn_depth > 0 {
-                        self.local_slot(name);
+                        self.local_slot(name)?;
                     }
                     let mut capture_needs =
                         function_capture_needs(body, params.as_deref(), *ref_capture, Some(name));
@@ -1069,7 +1084,7 @@ impl Compiler {
                     }
                     // prepare captures from current locals if inside a function
                     if self.fn_depth > 0 {
-                        self.seed_child_captures(&mut c, &capture_needs, Some(name));
+                        self.seed_child_captures(&mut c, &capture_needs, Some(name))?;
                     }
                     c.emit_params_and_prologue(params)?;
                     // Prepare spans stream for nested functions: child starts at next entry
@@ -1162,14 +1177,14 @@ impl Compiler {
                         })));
                     }
                     // Store and keep the value on the stack for expression result
-                    self.emit_store_keep(name);
+                    self.emit_store_keep(name)?;
                     if self.fn_depth > 0 {
                         self.fn_locals.insert(name.clone());
                     }
                 } else {
                     self.compile_expr(value)?;
                     // Store and keep the value on the stack for expression result
-                    self.emit_store_keep(name);
+                    self.emit_store_keep(name)?;
                 }
             }
             AstNode::OuterAssignment {
@@ -1292,7 +1307,7 @@ impl Compiler {
                         self.instructions
                             .push(Instruction::CallLocal(slot, args.len()));
                     } else {
-                        self.emit_load(name, None);
+                        self.emit_load(name, None)?;
                         self.compile_call_args(args)?;
                         self.instructions.push(Instruction::Postfix(args.len()));
                     }
@@ -1439,11 +1454,11 @@ impl Compiler {
                 };
                 let temp_name = format!("--vm-pipe-tap-{id}");
                 self.compile_expr(input)?;
-                self.emit_store(&temp_name);
+                self.emit_store(&temp_name)?;
                 let effect = replace_pipe_input(effect, &temp_name);
                 self.compile_in_context(&effect, true)?;
                 self.instructions.push(Instruction::Pop);
-                self.emit_load(&temp_name, None);
+                self.emit_load(&temp_name, None)?;
                 let end = self.instructions.len();
                 self.fill_span_range(start, end, *span);
             }
@@ -1585,10 +1600,10 @@ impl Compiler {
                         if let Some(op) = op {
                             let index_args = self.compile_index_arg_plan(index)?;
                             let argc = index_args.argc();
-                            self.emit_index_arg_plan_loads(&index_args); // for the assignment
-                            self.emit_index_arg_plan_loads(&index_args); // for the load
+                            self.emit_index_arg_plan_loads(&index_args)?; // for the assignment
+                            self.emit_index_arg_plan_loads(&index_args)?; // for the load
                             if self.fn_depth > 0 && self.is_local(name) {
-                                let slot = self.local_slot(name);
+                                let slot = self.locals[name];
                                 self.instructions
                                     .push(Self::index_load_local_inst(slot, argc));
                             } else if self.is_ref_default_name(name) {
@@ -1609,7 +1624,7 @@ impl Compiler {
                                 ));
                             }
                             if self.fn_depth > 0 && self.is_local(name) {
-                                let slot = self.local_slot(name);
+                                let slot = self.locals[name];
                                 self.instructions
                                     .push(Self::index_assign_local_inst(slot, argc));
                             } else if self.is_ref_default_name(name) {
@@ -1620,7 +1635,7 @@ impl Compiler {
                             }
                         } else {
                             if self.fn_depth > 0 && self.is_local(name) {
-                                let slot = self.local_slot(name);
+                                let slot = self.locals[name];
                                 let argc = self.compile_index_args_for_assign(index)?;
                                 self.compile_expr(value)?;
                                 self.instructions
@@ -1641,13 +1656,13 @@ impl Compiler {
                         if let Some(op) = op {
                             let index_args = self.compile_index_arg_plan(index)?;
                             let argc = index_args.argc();
-                            self.emit_index_arg_plan_loads(&index_args); // for assignment
+                            self.emit_index_arg_plan_loads(&index_args)?; // for assignment
                             if let Some(idx) = self.ref_capture_map.get(name).copied() {
-                                self.emit_index_arg_plan_loads(&index_args); // for load
+                                self.emit_index_arg_plan_loads(&index_args)?; // for load
                                 self.instructions
                                     .push(Self::index_load_capture_inst(idx, argc));
                             } else {
-                                self.emit_index_arg_plan_loads(&index_args); // for load
+                                self.emit_index_arg_plan_loads(&index_args)?; // for load
                                 self.instructions
                                     .push(Self::index_load_var_inst(name.clone().into(), argc));
                             }
@@ -1708,7 +1723,11 @@ impl Compiler {
                     c.ref_default_names = capture_needs.by_ref.clone();
                 }
                 if self.fn_depth > 0 {
-                    self.seed_child_captures(&mut c, &capture_needs, self.defining_name.as_deref());
+                    self.seed_child_captures(
+                        &mut c,
+                        &capture_needs,
+                        self.defining_name.as_deref(),
+                    )?;
                 }
                 c.emit_params_and_prologue(params)?;
                 // Prepare spans stream for nested functions: child starts at next entry
@@ -1865,7 +1884,7 @@ impl Compiler {
                     };
                     let result_var = format!("--w-loop-res-{id}");
                     self.emit_load_const(Value::unit());
-                    self.emit_store(&result_var);
+                    self.emit_store(&result_var)?;
                     Some(result_var)
                 } else {
                     None
@@ -1885,7 +1904,7 @@ impl Compiler {
                 self.loop_stack.push(LoopInfo::default());
                 self.compile_stmt_sequence_with_spans(body, self.value_needed, &body_spans)?;
                 if let Some(result_var) = &result_var {
-                    self.emit_store(result_var);
+                    self.emit_store(result_var)?;
                 } else {
                     self.instructions.push(Instruction::Pop);
                 }
@@ -1902,7 +1921,7 @@ impl Compiler {
                     }
                 }
                 if let Some(result_var) = &result_var {
-                    self.emit_load(result_var, None);
+                    self.emit_load(result_var, None)?;
                 } else {
                     self.emit_load_const(Value::unit());
                 }
@@ -1935,11 +1954,11 @@ impl Compiler {
                         if *n == 0 {
                             self.emit_load_const(Value::unit());
                         } else {
-                            let restore = self.begin_loop_var_restore("_n");
+                            let restore = self.begin_loop_var_restore("_n")?;
                             for i in 0..*n {
                                 let iter_start = self.instructions.len();
                                 self.emit_load_const(Value::Int(i));
-                                self.emit_store("_n");
+                                self.emit_store("_n")?;
                                 self.mark_current_stmt_pc(iter_start);
                                 self.compile_stmt_sequence_with_spans(
                                     body,
@@ -1950,11 +1969,11 @@ impl Compiler {
                                     self.instructions.push(Instruction::Pop);
                                 }
                             }
-                            self.finish_loop_var_restore("_n", &restore);
+                            self.finish_loop_var_restore("_n", &restore)?;
                         }
                         return Ok(());
                     } else if *n <= 64 {
-                        let restore = self.begin_loop_var_restore("_n");
+                        let restore = self.begin_loop_var_restore("_n")?;
                         let full_chunks = *n / 8;
                         let remainder = *n % 8;
                         for c in 0..full_chunks {
@@ -1962,7 +1981,7 @@ impl Compiler {
                                 let idx = c * 8 + i;
                                 let iter_start = self.instructions.len();
                                 self.emit_load_const(Value::Int(idx));
-                                self.emit_store("_n");
+                                self.emit_store("_n")?;
                                 self.mark_current_stmt_pc(iter_start);
                                 self.compile_stmt_sequence_with_spans(
                                     body,
@@ -1976,7 +1995,7 @@ impl Compiler {
                             let idx = full_chunks * 8 + i;
                             let iter_start = self.instructions.len();
                             self.emit_load_const(Value::Int(idx));
-                            self.emit_store("_n");
+                            self.emit_store("_n")?;
                             self.mark_current_stmt_pc(iter_start);
                             self.compile_stmt_sequence_with_spans(
                                 body,
@@ -1989,7 +2008,7 @@ impl Compiler {
                         }
                         if *n > 0 {
                             self.instructions.pop();
-                            self.finish_loop_var_restore("_n", &restore);
+                            self.finish_loop_var_restore("_n", &restore)?;
                         } else {
                             self.emit_load_const(Value::unit());
                         }
@@ -2007,18 +2026,18 @@ impl Compiler {
                 let count_start = self.instructions.len();
                 self.compile_expr(count)?; // -> count on stack
                 self.fill_span_range(count_start, self.instructions.len(), count_span);
-                self.emit_store(&count_var);
-                let restore = self.begin_loop_var_restore("_n");
+                self.emit_store(&count_var)?;
+                let restore = self.begin_loop_var_restore("_n")?;
                 self.emit_load_const(Value::Int(0));
-                self.emit_store("_n");
+                self.emit_store("_n")?;
                 if let Some(result_var) = &result_var {
                     self.emit_load_const(Value::unit());
-                    self.emit_store(result_var);
+                    self.emit_store(result_var)?;
                 }
                 let cmp_start = self.instructions.len();
                 self.backward_jump_targets.insert(cmp_start);
-                let left = self.operand_for_name("_n");
-                let right = self.operand_for_name(&count_var);
+                let left = self.operand_for_name("_n")?;
+                let right = self.operand_for_name(&count_var)?;
                 self.instructions
                     .push(Instruction::binary_op(BinaryOperator::Lt, left, right));
                 self.dbg_pc_spans.resize(self.instructions.len(), None);
@@ -2032,23 +2051,23 @@ impl Compiler {
                 if let Some(span) = count_span {
                     self.dbg_pc_spans[jump_pos] = Some(span);
                 }
-                self.emit_load("_n", None);
-                self.emit_store(&old_var);
+                self.emit_load("_n", None)?;
+                self.emit_store(&old_var)?;
                 self.loop_stack.push(LoopInfo::default());
                 self.compile_stmt_sequence_with_spans(body, self.value_needed, &body_spans)?;
                 if let Some(result_var) = &result_var {
-                    self.emit_store(result_var);
+                    self.emit_store(result_var)?;
                 } else {
                     self.instructions.push(Instruction::Pop);
                 }
                 let continue_target = self.instructions.len();
-                let left = self.operand_for_name(&old_var);
+                let left = self.operand_for_name(&old_var)?;
                 self.instructions.push(Instruction::binary_op(
                     BinaryOperator::Add,
                     left,
                     Operand::const_val(Value::Int(1)),
                 ));
-                self.emit_store("_n");
+                self.emit_store("_n")?;
                 self.instructions.push(Instruction::Jump(cmp_start));
                 let end = self.instructions.len();
                 self.instructions[jump_pos] = Instruction::JumpIfFalse(end);
@@ -2060,9 +2079,9 @@ impl Compiler {
                         self.instructions[pos] = Instruction::Jump(continue_target);
                     }
                 }
-                self.finish_loop_var_restore("_n", &restore);
+                self.finish_loop_var_restore("_n", &restore)?;
                 if let Some(result_var) = &result_var {
-                    self.emit_load(result_var, None);
+                    self.emit_load(result_var, None)?;
                 } else {
                     self.emit_load_const(Value::unit());
                 }
@@ -2210,14 +2229,20 @@ impl Compiler {
         self.syntax_err_at(None, msg)
     }
 
-    fn local_slot(&mut self, name: &str) -> u16 {
+    fn local_slot(&mut self, name: &str) -> WqResult<u16> {
         if let Some(&i) = self.locals.get(name) {
-            i
+            Ok(i)
         } else {
-            let idx = self.locals.len() as u16;
+            let idx = u16::try_from(self.locals.len())
+                .map_err(|_| self.syntax_err_here("function has too many local slots"))?;
             self.locals.insert(name.to_string(), idx);
-            idx
+            Ok(idx)
         }
+    }
+
+    fn next_capture_slot(&self) -> WqResult<u16> {
+        u16::try_from(self.captures.len())
+            .map_err(|_| self.syntax_err_here("function captures too many bindings"))
     }
 
     fn is_local(&self, name: &str) -> bool {
@@ -2273,14 +2298,15 @@ impl Compiler {
     }
 
     pub(crate) fn local_count(&self) -> u16 {
-        self.locals.len() as u16
+        u16::try_from(self.locals.len()).expect("local slot count checked during allocation")
     }
 
     fn local_names_vec(&self) -> Vec<String> {
-        let mut names = vec![String::new(); self.local_count() as usize];
+        let mut names = vec![String::new(); usize::from(self.local_count())];
         for (name, &idx) in self.locals.iter() {
-            if (idx as usize) < names.len() {
-                names[idx as usize] = name.clone();
+            let idx = usize::from(idx);
+            if idx < names.len() {
+                names[idx] = name.clone();
             }
         }
         names
@@ -2299,7 +2325,7 @@ impl Compiler {
         child: &mut Compiler,
         needs: &CaptureNeeds,
         skip_value_local: Option<&str>,
-    ) {
+    ) -> WqResult<()> {
         let mut pairs: Vec<(String, u16)> =
             self.locals.iter().map(|(k, &v)| (k.clone(), v)).collect();
         pairs.sort_by_key(|(_, idx)| *idx);
@@ -2311,7 +2337,7 @@ impl Compiler {
             if skip_value_local.is_some_and(|name| name == k) {
                 continue;
             }
-            let idx = child.captures.len() as u16;
+            let idx = child.next_capture_slot()?;
             child.capture_map.insert(k.clone(), idx);
             child.captures.push(Capture::Local(*v));
         }
@@ -2320,7 +2346,7 @@ impl Compiler {
             if !needs.by_ref.contains(k) {
                 continue;
             }
-            let idx = child.captures.len() as u16;
+            let idx = child.next_capture_slot()?;
             child.ref_capture_map.insert(k.clone(), idx);
             child.captures.push(Capture::LocalShared(*v));
         }
@@ -2338,7 +2364,7 @@ impl Compiler {
             if child.capture_map.contains_key(&k) {
                 continue;
             }
-            let idx = child.captures.len() as u16;
+            let idx = child.next_capture_slot()?;
             child.capture_map.insert(k.clone(), idx);
             child.captures.push(Capture::Outer(i_parent));
         }
@@ -2356,10 +2382,11 @@ impl Compiler {
             if child.ref_capture_map.contains_key(&k) {
                 continue;
             }
-            let idx = child.captures.len() as u16;
+            let idx = child.next_capture_slot()?;
             child.ref_capture_map.insert(k.clone(), idx);
             child.captures.push(Capture::Outer(i_parent));
         }
+        Ok(())
     }
 
     #[inline]
@@ -2367,70 +2394,71 @@ impl Compiler {
         self.push_inst(Instruction::load_const(value));
     }
 
-    fn emit_load(&mut self, name: &str, span: Option<(usize, usize)>) {
+    fn emit_load(&mut self, name: &str, span: Option<(usize, usize)>) -> WqResult<()> {
         if self.fn_depth > 0 {
             if self.is_local(name) {
                 let idx = self.locals[name];
                 self.instructions.push(Instruction::LoadLocal(idx));
-                return;
+                return Ok(());
             }
             if self.defining_name.as_ref().is_some_and(|n| n == name) {
                 self.instructions.push(Instruction::LoadSelf);
-                return;
+                return Ok(());
             }
             if self.push_ref_default_load(name) {
-                return;
+                return Ok(());
             }
             if let Some(idx) = self.capture_map.get(name) {
                 self.instructions.push(Instruction::LoadCapture(*idx));
-                return;
+                return Ok(());
             }
             // If the name refers to a builtin function, do not capture it.
             // Emit a global load so it resolves via builtin lookup at runtime.
             if self.builtins.has_function(name) {
                 self.instructions
                     .push(Instruction::LoadVar(name.to_string().into()));
-                return;
+                return Ok(());
             }
             // capture globals by value
-            let idx = self.captures.len() as u16;
+            let idx = self.next_capture_slot()?;
             self.capture_map.insert(name.to_string(), idx);
             self.captures.push(Capture::Global(name.to_string(), span));
             self.instructions.push(Instruction::LoadCapture(idx));
-            return;
+            return Ok(());
         }
         // fn_depth == 0: top-level global
         self.instructions
             .push(Instruction::LoadVar(name.to_string().into()));
+        Ok(())
     }
 
-    fn operand_for_name(&mut self, name: &str) -> Operand {
+    fn operand_for_name(&mut self, name: &str) -> WqResult<Operand> {
         if self.fn_depth > 0 {
             if self.is_local(name) {
-                return Operand::Local(self.locals[name]);
+                return Ok(Operand::Local(self.locals[name]));
             }
             if self.defining_name.as_ref().is_some_and(|n| n == name) {
-                return Operand::Self_;
+                return Ok(Operand::Self_);
             }
             if let Some(operand) = self.ref_default_operand(name) {
-                return operand;
+                return Ok(operand);
             }
             if let Some(idx) = self.capture_map.get(name) {
-                return Operand::Capture(*idx);
+                return Ok(Operand::Capture(*idx));
             }
             if self.builtins.has_function(name) {
-                return Operand::Var(name.to_string().into());
+                return Ok(Operand::Var(name.to_string().into()));
             }
-            let idx = self.captures.len() as u16;
+            let idx = self.next_capture_slot()?;
             self.capture_map.insert(name.to_string(), idx);
             self.captures.push(Capture::Global(name.to_string(), None));
-            return Operand::Capture(idx);
+            return Ok(Operand::Capture(idx));
         }
         // fn_depth == 0: top-level global
         if self.builtins.has_function(name) {
-            return Operand::Var(name.to_string().into());
+            return Ok(Operand::Var(name.to_string().into()));
         }
-        Operand::Var(name.to_string().into())
+        Ok(Operand::Var(name.to_string().into()))
     }
 
     fn compile_expr_as_operand(&mut self, node: &AstNode) -> WqResult<Operand> {
@@ -2440,7 +2468,7 @@ impl Compiler {
                 self.compile_expr(node)?;
                 Ok(Operand::Stack)
             }
-            AstNode::Variable(name, _) => Ok(self.operand_for_name(name)),
+            AstNode::Variable(name, _) => self.operand_for_name(name),
             AstNode::OuterVariable(name, _) => {
                 if let Some(idx) = self.ref_capture_map.get(name) {
                     Ok(Operand::Capture(*idx))
@@ -2538,7 +2566,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn begin_loop_var_restore(&mut self, name: &str) -> LoopVarRestore {
+    fn begin_loop_var_restore(&mut self, name: &str) -> WqResult<LoopVarRestore> {
         let id = {
             let v = self.gensym;
             self.gensym = self.gensym.wrapping_add(1);
@@ -2550,20 +2578,20 @@ impl Compiler {
             let was_bound_var = format!("--vm-loop-was-bound-{name}-{id}");
             self.instructions
                 .push(Instruction::LoadVarExists(name.to_string().into()));
-            self.emit_store_keep(&was_bound_var);
+            self.emit_store_keep(&was_bound_var)?;
 
             let skip_save = self.instructions.len();
             self.instructions.push(Instruction::JumpIfFalse(0));
             self.instructions
                 .push(Instruction::LoadVar(name.to_string().into()));
-            self.emit_store(&old_var);
+            self.emit_store(&old_var)?;
             let after_save = self.instructions.len();
             self.instructions[skip_save] = Instruction::JumpIfFalse(after_save);
 
-            return LoopVarRestore::TopLevel {
+            return Ok(LoopVarRestore::TopLevel {
                 old_var,
                 was_bound_var,
-            };
+            });
         }
 
         if self.is_local(name)
@@ -2573,21 +2601,21 @@ impl Compiler {
             || self.is_ref_default_name(name)
         {
             self.emit_load_const(Value::unit());
-            self.emit_store(&old_var);
-            self.emit_load(name, None);
-            self.emit_store(&old_var);
-            LoopVarRestore::Function {
+            self.emit_store(&old_var)?;
+            self.emit_load(name, None)?;
+            self.emit_store(&old_var)?;
+            Ok(LoopVarRestore::Function {
                 old_var,
                 was_bound_var: None,
-            }
+            })
         } else {
             let was_bound_var = format!("--vm-loop-was-bound-{name}-{id}");
             self.instructions
                 .push(Instruction::LoadVarExists(name.to_string().into()));
-            self.emit_store_keep(&was_bound_var);
+            self.emit_store_keep(&was_bound_var)?;
 
             self.emit_load_const(Value::unit());
-            self.emit_store(&old_var);
+            self.emit_store(&old_var)?;
 
             self.instructions
                 .push(Instruction::LoadVarExists(name.to_string().into()));
@@ -2595,27 +2623,27 @@ impl Compiler {
             self.instructions.push(Instruction::JumpIfFalse(0));
             self.instructions
                 .push(Instruction::LoadVar(name.to_string().into()));
-            self.emit_store(&old_var);
+            self.emit_store(&old_var)?;
             let after_save = self.instructions.len();
             self.instructions[skip_save] = Instruction::JumpIfFalse(after_save);
 
-            LoopVarRestore::Function {
+            Ok(LoopVarRestore::Function {
                 old_var,
                 was_bound_var: Some(was_bound_var),
-            }
+            })
         }
     }
 
-    fn finish_loop_var_restore(&mut self, name: &str, restore: &LoopVarRestore) {
+    fn finish_loop_var_restore(&mut self, name: &str, restore: &LoopVarRestore) -> WqResult<()> {
         match restore {
             LoopVarRestore::TopLevel {
                 old_var,
                 was_bound_var,
             } => {
-                self.emit_load(was_bound_var, None);
+                self.emit_load(was_bound_var, None)?;
                 let skip_restore = self.instructions.len();
                 self.instructions.push(Instruction::JumpIfFalse(0));
-                self.emit_load(old_var, None);
+                self.emit_load(old_var, None)?;
                 self.instructions
                     .push(Instruction::StoreVar(name.to_string().into()));
                 let end = self.instructions.len();
@@ -2626,19 +2654,20 @@ impl Compiler {
                 was_bound_var,
             } => {
                 if let Some(was_bound_var) = was_bound_var {
-                    self.emit_load(was_bound_var, None);
+                    self.emit_load(was_bound_var, None)?;
                     let skip_restore = self.instructions.len();
                     self.instructions.push(Instruction::JumpIfFalse(0));
-                    self.emit_load(old_var, None);
-                    self.emit_store(name);
+                    self.emit_load(old_var, None)?;
+                    self.emit_store(name)?;
                     let end = self.instructions.len();
                     self.instructions[skip_restore] = Instruction::JumpIfFalse(end);
                 } else {
-                    self.emit_load(old_var, None);
-                    self.emit_store(name);
+                    self.emit_load(old_var, None)?;
+                    self.emit_store(name)?;
                 }
             }
         }
+        Ok(())
     }
 
     fn emit_outer_load(&mut self, name: &str, span: Option<(usize, usize)>) -> WqResult<()> {
@@ -2654,7 +2683,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn emit_store(&mut self, name: &str) {
+    fn emit_store(&mut self, name: &str) -> WqResult<()> {
         if self.fn_depth > 0 {
             if self.is_ref_default_name(name) {
                 if let Some(idx) = self.ref_capture_map.get(name) {
@@ -2664,17 +2693,18 @@ impl Compiler {
                     self.instructions
                         .push(Instruction::StoreVar(name.to_string().into()));
                 }
-                return;
+                return Ok(());
             }
-            let idx = self.local_slot(name);
+            let idx = self.local_slot(name)?;
             self.instructions.push(Instruction::StoreLocal(idx));
         } else {
             self.instructions
                 .push(Instruction::StoreVar(name.to_string().into()));
         }
+        Ok(())
     }
 
-    fn emit_store_keep(&mut self, name: &str) {
+    fn emit_store_keep(&mut self, name: &str) -> WqResult<()> {
         if self.fn_depth > 0 {
             if self.is_ref_default_name(name) {
                 if let Some(idx) = self.ref_capture_map.get(name) {
@@ -2683,14 +2713,15 @@ impl Compiler {
                     self.instructions
                         .push(Instruction::StoreVarKeep(name.to_string().into()));
                 }
-                return;
+                return Ok(());
             }
-            let idx = self.local_slot(name);
+            let idx = self.local_slot(name)?;
             self.instructions.push(Instruction::StoreLocalKeep(idx));
         } else {
             self.instructions
                 .push(Instruction::StoreVarKeep(name.to_string().into()));
         }
+        Ok(())
     }
 
     fn emit_outer_store_keep(&mut self, name: &str, span: Option<(usize, usize)>) -> WqResult<()> {
@@ -3658,9 +3689,10 @@ mod tests {
     }
 
     fn builtin_id(name: &str) -> u16 {
-        crate::builtins::Builtins::new()
+        let id = crate::builtins::Builtins::new()
             .get_id(name)
-            .unwrap_or_else(|| panic!("missing builtin {name}")) as u16
+            .unwrap_or_else(|| panic!("missing builtin {name}"));
+        u16::try_from(id).expect("builtin id fits in u16")
     }
 
     fn compiled_function_in(insts: &[Instruction]) -> Arc<FunctionData> {
@@ -3695,10 +3727,11 @@ mod tests {
     }
 
     fn slot_named(names: &[String], name: &str) -> u16 {
-        names
+        let slot = names
             .iter()
             .position(|local| local == name)
-            .expect("expected local slot") as u16
+            .expect("expected local slot");
+        u16::try_from(slot).expect("local slot fits in u16")
     }
 
     #[test]
@@ -4465,6 +4498,63 @@ mod tests {
         let display = err.to_string();
         assert!(err.span.is_some(), "expected span");
         assert!(display.contains("at ?:1:8"), "display was: {display}");
+    }
+
+    #[test]
+    fn named_parameter_mask_rejects_more_than_sixty_four_names() {
+        let params = (0..65)
+            .map(|idx| format!("`p{idx}:0"))
+            .collect::<Vec<_>>()
+            .join(";");
+        let src = format!("f:{{[{params}]0}}");
+
+        let err = compile_source_err(&src);
+
+        assert!(
+            err.to_string()
+                .contains("function has too many named parameters"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn local_slot_allocation_rejects_more_than_u16_max_slots() {
+        let mut compiler = Compiler::new();
+        for idx in 0..=u16::MAX {
+            compiler
+                .local_slot(&format!("slot{idx}"))
+                .expect("slot should fit");
+        }
+
+        let err = compiler
+            .local_slot("overflow")
+            .expect_err("extra slot should fail");
+
+        assert!(
+            err.to_string()
+                .contains("function has too many local slots"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn capture_slot_allocation_rejects_more_than_u16_max_slots() {
+        let mut compiler = Compiler::new();
+        for idx in 0..=u16::MAX {
+            compiler
+                .captures
+                .push(Capture::Global(format!("g{idx}"), None));
+        }
+
+        let err = compiler
+            .next_capture_slot()
+            .expect_err("extra capture should fail");
+
+        assert!(
+            err.to_string()
+                .contains("function captures too many bindings"),
+            "unexpected error: {err}"
+        );
     }
 
     // #[test]

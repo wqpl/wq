@@ -809,7 +809,7 @@ impl Vm {
         if span.file_id != u32::MAX
             && let Some(sf) = self.debug_info.file(span.file_id)
         {
-            let (line, col) = sf.line_col(span.start as usize);
+            let (line, col) = sf.line_col(span.start);
             return format!("{}:{line}:{col} in {}", sf.path, meta.name);
         }
         format!("pc {} in {}", loc.pc, meta.name)

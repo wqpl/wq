@@ -1930,7 +1930,8 @@ impl VanillaInterpreter {
 
             // Update cache
             if let Some(fi) = found_fi {
-                vm.inline_cache[idx].local_frame_depth = Some((vm.locals.len() - 1 - fi) as u16);
+                vm.inline_cache[idx].local_frame_depth =
+                    u16::try_from(vm.locals.len() - 1 - fi).ok();
             }
 
             found
@@ -2107,8 +2108,12 @@ fn eval_int_binary(op: BinaryOperator, left: i64, right: i64) -> Option<Value> {
         BitAnd => Some(Value::Int(left & right)),
         BitOr => Some(Value::Int(left | right)),
         BitXor => Some(Value::Int(left ^ right)),
-        Shl => (right >= 0).then(|| Value::Int(left.wrapping_shl(right as u32))),
-        Shr => (right >= 0).then(|| Value::Int(left.wrapping_shr(right as u32))),
+        Shl => u32::try_from(right)
+            .ok()
+            .map(|shift| Value::Int(left.wrapping_shl(shift))),
+        Shr => u32::try_from(right)
+            .ok()
+            .map(|shift| Value::Int(left.wrapping_shr(shift))),
         Power | PowerDot | DivideDot | Matmul | Cat | BoolAnd | BoolOr => None,
     }?;
 

@@ -95,7 +95,11 @@ fn parse_nonnegative_usize(value: &Value, option: &str) -> WqResult<usize> {
             .src(BE::Showtable)
             .msg(format!("{option} must be a nonnegative integer")))
     } else {
-        Ok(number as usize)
+        usize::try_from(number).map_err(|_| {
+            WqError::new(WqErrorType::Domain)
+                .src(BE::Showtable)
+                .msg(format!("{option} is too large"))
+        })
     }
 }
 

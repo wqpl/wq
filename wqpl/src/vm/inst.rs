@@ -625,7 +625,7 @@ impl InstPrettyDumper {
             && let Instruction::CallBuiltinId(id, _) | Instruction::CallBuiltinDiscardId(id, _) =
                 inst
         {
-            let idx = *id as usize;
+            let idx = usize::from(*id);
             if let Some(name) = Builtins::NAMES.get(idx) {
                 parts.push((*name).to_string());
             }
@@ -683,7 +683,7 @@ impl InstPrettyDumper {
     }
 
     fn local_name(slot: u16, names: Option<&[String]>) -> Option<&str> {
-        let idx = slot as usize;
+        let idx = usize::from(slot);
         let ns = names?;
         if idx < ns.len() && !ns[idx].is_empty() {
             Some(ns[idx].as_str())
@@ -694,7 +694,7 @@ impl InstPrettyDumper {
 
     fn capture_desc(i: u16, caps: Option<&[Capture]>) -> Option<String> {
         let caps = caps?;
-        let j = i as usize;
+        let j = usize::from(i);
         if j >= caps.len() {
             return None;
         }

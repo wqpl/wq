@@ -106,7 +106,7 @@ fn make_range_int(start: i64, end: i64, step: i64, inclusive: bool) -> WqResult<
         usize::from(inclusive)
     } else if step > 0 {
         let diff = end.abs_diff(start);
-        let step = step as u64;
+        let step = u64::try_from(step).expect("positive i64 step fits in u64");
         let steps = diff / step;
         let len = if inclusive || !diff.is_multiple_of(step) {
             steps.checked_add(1)
@@ -145,7 +145,7 @@ fn default_char_step(start: char, end: char) -> i64 {
 }
 
 fn char_scalar_index(c: char) -> i64 {
-    let code = c as u32;
+    let code = u32::from(c);
     let index = if code > SURROGATE_END {
         code - SURROGATE_LEN
     } else {

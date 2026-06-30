@@ -125,8 +125,8 @@ fn apply_stmt_spans_exact(
                 let (start, end) = spans_sorted[span_idx];
                 table.pc_to_stmt_span[pc] = Span {
                     file_id,
-                    start: start as u32,
-                    end: end as u32,
+                    start,
+                    end,
                 };
             }
             return true;
@@ -205,8 +205,8 @@ fn apply_stmt_spans_exact(
                     let (start, end) = body_spans[j % body_spans.len()];
                     table.pc_to_stmt_span[pc] = Span {
                         file_id,
-                        start: start as u32,
-                        end: end as u32,
+                        start,
+                        end,
                     };
                 }
             } else {
@@ -216,8 +216,8 @@ fn apply_stmt_spans_exact(
                     let (start, end) = spans_for_map[0];
                     table.pc_to_stmt_span[pc] = Span {
                         file_id,
-                        start: start as u32,
-                        end: end as u32,
+                        start,
+                        end,
                     };
                 }
             }
@@ -227,8 +227,8 @@ fn apply_stmt_spans_exact(
                     let pc = cand[i];
                     table.pc_to_stmt_span[pc] = Span {
                         file_id,
-                        start: start as u32,
-                        end: end as u32,
+                        start,
+                        end,
                     };
                 }
             }
@@ -241,8 +241,8 @@ fn apply_stmt_spans_exact(
                 let (start, end) = spans_for_map[si];
                 table.pc_to_stmt_span[pc] = Span {
                     file_id,
-                    start: start as u32,
-                    end: end as u32,
+                    start,
+                    end,
                 };
             }
         }
@@ -297,8 +297,8 @@ pub fn apply_stmt_debug_exact_offs(
         if let Some((start, end)) = span {
             let span = Span {
                 file_id,
-                start: start.saturating_add(base_offset) as u32,
-                end: end.saturating_add(base_offset) as u32,
+                start: start.saturating_add(base_offset),
+                end: end.saturating_add(base_offset),
             };
             table.set_exact_span(pc, span);
             has_exact = true;
@@ -308,8 +308,8 @@ pub fn apply_stmt_debug_exact_offs(
     for mark in stmt_marks {
         let span = Span {
             file_id,
-            start: mark.start.saturating_add(base_offset) as u32,
-            end: mark.end.saturating_add(base_offset) as u32,
+            start: mark.start.saturating_add(base_offset),
+            end: mark.end.saturating_add(base_offset),
         };
         table.set_stmt_mark(mark.pc, span);
         has_real = true;

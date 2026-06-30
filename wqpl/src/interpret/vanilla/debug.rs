@@ -64,8 +64,8 @@ fn render_debug_line_with_highlighter(
     let file = vm.debug_info.file(span.file_id);
 
     if let Some(file) = file {
-        let start = span.start as usize;
-        let end = span.end as usize;
+        let start = span.start;
+        let end = span.end;
         let (line, col) = file.line_col(start);
         let expr = format_debug_expr(file.text.as_ref(), start, end);
         let expr = highlighter.highlight_ansi(&expr);
@@ -101,7 +101,7 @@ pub(super) fn record_trace_probe(vm: &mut Vm, pc: usize) {
     if span.file_id == u32::MAX {
         return;
     }
-    let call_depth = vm.call_depth() as u32;
+    let call_depth = u32::try_from(vm.call_depth()).unwrap_or(u32::MAX);
     let type_name = value.type_name();
     let value_excerpt = value.excerpt();
     vm.trace_buf.push(TraceRecord {
@@ -248,15 +248,11 @@ fn root_matches_debug_operand(vm: &Vm, debug_pc: usize, rec: &TraceRecord) -> bo
         return false;
     }
 
-    let debug_expr = format_debug_expr(file.text.as_ref(), span.start as usize, span.end as usize);
+    let debug_expr = format_debug_expr(file.text.as_ref(), span.start, span.end);
     let Some(operand) = debug_operand_text(&debug_expr) else {
         return false;
     };
-    let root = format_debug_expr(
-        file.text.as_ref(),
-        rec.span.start as usize,
-        rec.span.end as usize,
-    );
+    let root = format_debug_expr(file.text.as_ref(), rec.span.start, rec.span.end);
     root == operand
 }
 
@@ -316,11 +312,7 @@ fn format_trace_node(vm: &Vm, rec: &TraceRecord, highlighter: &Highlighter) -> S
     let file = vm.debug_info().file(rec.span.file_id);
     let expr = match file {
         Some(f) => {
-            let expr = format_debug_expr(
-                f.text.as_ref(),
-                rec.span.start as usize,
-                rec.span.end as usize,
-            );
+            let expr = format_debug_expr(f.text.as_ref(), rec.span.start, rec.span.end);
             highlighter.highlight_ansi(&expr)
         }
         None => "<expr>".to_string(),
@@ -338,7 +330,7 @@ pub(super) fn attach_pc_source_ctx(vm: &Vm, pc: usize, err: WqError) -> WqError 
         && let Some(sf) = vm.debug_info.file(span.file_id)
     {
         return err
-            .span(Some((span.start as usize, span.end as usize)))
+            .span(Some((span.start, span.end)))
             .source_ctx(sf.text.to_string(), sf.path.to_string());
     }
     err

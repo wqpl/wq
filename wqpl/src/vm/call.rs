@@ -392,7 +392,7 @@ impl Vm {
                 .ok_or_else(|| vm_err("tail call without local frame"))?,
         );
         frame.clear();
-        frame.resize(local_count as usize, Slot::default());
+        frame.resize(usize::from(local_count), Slot::default());
 
         fill_call_frame_from_stack(
             &mut self.stack,
@@ -530,11 +530,11 @@ impl Vm {
         let had_named_meta = named_meta.is_some();
         let args = if let Some(meta) = named_meta {
             let all_args: Sv4 = self.stack.drain(base..).collect();
-            let mut pos_args: Sv4 = SmallVec::with_capacity(meta.pos_count as usize);
+            let mut pos_args: Sv4 = SmallVec::with_capacity(usize::from(meta.pos_count));
             let mut named_args: Vec<(Arc<str>, Value)> = Vec::with_capacity(meta.named.len());
             let mut named_iter = meta.named.iter().peekable();
             for (i, v) in all_args.into_iter().enumerate() {
-                if named_iter.peek().is_some_and(|(p, _)| *p as usize == i) {
+                if named_iter.peek().is_some_and(|(p, _)| usize::from(*p) == i) {
                     let (_, name) = named_iter.next().expect("peeked named argument");
                     named_args.push((Arc::clone(name), v));
                 } else {
@@ -614,10 +614,10 @@ impl Vm {
     #[inline]
     pub(crate) fn local_slot_mut(&mut self, slot: u16) -> WqResult<&mut Slot> {
         let note = self
-            .local_slot_name(slot as usize)
+            .local_slot_name(usize::from(slot))
             .map(|name| format!("local slot {slot}: {name}"));
         self.last_frame_mut()?
-            .get_mut(slot as usize)
+            .get_mut(usize::from(slot))
             .ok_or_else(|| match &note {
                 Some(note) => vm_err(format!("invalid local slot {slot}")).attach_note(note),
                 None => vm_err(format!("invalid local slot {slot}")),
@@ -917,11 +917,11 @@ fn fill_call_frame_from_stack(
             .collect::<Result<Vec<_>, _>>()?;
         all_args.reverse();
 
-        let mut pos_slot: u32 = 0;
+        let mut pos_slot: usize = 0;
         for (i, v) in all_args.iter().enumerate() {
-            let is_named = meta.named.iter().any(|(pos, _)| *pos as usize == i);
+            let is_named = meta.named.iter().any(|(pos, _)| usize::from(*pos) == i);
             if !is_named {
-                if let Some(slot) = frame.get_mut(pos_slot as usize) {
+                if let Some(slot) = frame.get_mut(pos_slot) {
                     *slot = Slot::Value(v.clone());
                 }
                 pos_slot += 1;
@@ -935,7 +935,7 @@ fn fill_call_frame_from_stack(
                 let mut named_value = None;
                 for (pos, arg_name) in &meta.named {
                     if arg_name.as_ref() == param_name.as_ref() {
-                        named_value = all_args.get(*pos as usize);
+                        named_value = all_args.get(usize::from(*pos));
                     }
                 }
                 if let Some(val) = named_value {
@@ -990,14 +990,16 @@ fn take_locals_from_pool(pool: &mut AHashMap<u16, Vec<Vec<Slot>>>, local_count: 
     if let Some(bucket) = pool.get_mut(&local_count)
         && let Some(mut frame) = bucket.pop()
     {
-        frame.resize(local_count as usize, Slot::default());
+        frame.resize(usize::from(local_count), Slot::default());
         return frame;
     }
-    vec![Slot::default(); local_count as usize]
+    vec![Slot::default(); usize::from(local_count)]
 }
 
 fn return_locals_to_pool(pool: &mut AHashMap<u16, Vec<Vec<Slot>>>, mut frame: Vec<Slot>) {
-    let local_count = frame.len() as u16;
+    let Ok(local_count) = u16::try_from(frame.len()) else {
+        return;
+    };
     frame.clear();
     const MAX_POOL: usize = 4;
     let bucket = pool.entry(local_count).or_default();
@@ -1044,7 +1046,7 @@ mod tests {
                     .collect::<Vec<_>>(),
             )),
             named_params: None,
-            locals: params.len() as u16,
+            locals: u16::try_from(params.len()).expect("test function params fit in u16"),
             instructions: instructions.into(),
             dbg_chunk: None,
             dbg_stmt_spans: None,

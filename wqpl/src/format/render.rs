@@ -206,7 +206,8 @@ impl RenderState {
             for _ in 0..n {
                 self.out.push(' ');
             }
-            self.col += n as usize;
+            let n = usize::try_from(n).expect("u32 indent fits in usize");
+            self.col += n;
         }
     }
 
@@ -220,7 +221,7 @@ impl RenderState {
             self.out.push('\n');
         }
         self.out.push('\n');
-        let n = indent.max(0) as u32;
+        let n = u32::try_from(indent.max(0)).expect("non-negative i32 indent fits in u32");
         self.pending_indent = Some(n);
         self.col = 0;
     }

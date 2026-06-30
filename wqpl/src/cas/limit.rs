@@ -1018,7 +1018,7 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
         && let Some(n) = exp.as_i64()
         && n >= 0
     {
-        let n = n as usize;
+        let n = usize::try_from(n).ok()?;
         if n <= order {
             let mut c = vec![0.0; order + 1];
             c[n] = 1.0;
@@ -1085,7 +1085,8 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
         let b = expand_series(base, var_name, order)?;
         let mut result = vec![1.0]; // identity
         result.resize(order + 1, 0.0);
-        for _ in 0..(n as usize) {
+        let n = usize::try_from(n).expect("small non-negative exponent fits in usize");
+        for _ in 0..n {
             let mut next = vec![0.0; order + 1];
             for i in 0..=order {
                 for j in 0..=order - i {

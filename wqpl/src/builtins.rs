@@ -387,7 +387,9 @@ pub enum BuiltinCallArity {
 impl BuiltinCallArity {
     fn contains(self, n: usize) -> bool {
         match self {
-            Self::Exact { mask } if n < u128::BITS as usize => mask & (1u128 << n) != 0,
+            Self::Exact { mask } if u32::try_from(n).is_ok_and(|n| n < u128::BITS) => {
+                mask & (1u128 << n) != 0
+            }
             Self::Exact { .. } => false,
             Self::AtLeast(min) => n >= min,
         }
@@ -510,7 +512,7 @@ impl Builtins {
     }
 
     pub fn is_enabled_id(&self, id: u16) -> bool {
-        self.enabled.get(id as usize).copied().unwrap_or(false)
+        self.enabled.get(usize::from(id)).copied().unwrap_or(false)
     }
 
     pub fn is_enabled_name(&self, name: &str) -> bool {
@@ -580,7 +582,7 @@ impl Builtins {
         use std::collections::BTreeMap;
         let mut grouped: BTreeMap<BuiltinGroup, Vec<String>> = BTreeMap::new();
         for (name, &id) in self.name_to_id.iter() {
-            if self.is_enabled_id(id as u16) {
+            if self.enabled.get(id).copied().unwrap_or(false) {
                 let group = BUILTIN_GROUPS[id];
                 grouped.entry(group).or_default().push(name.clone());
             }
@@ -879,23 +881,24 @@ macro_rules! __declare_builtins_impl {
 
             #[inline]
             pub fn name_from_id(id: u16) -> Option<&'static str> {
-                Self::NAMES.get(id as usize).copied()
+                Self::NAMES.get(usize::from(id)).copied()
             }
 
             #[inline]
             pub fn usage_from_id(id: u16) -> Option<&'static str> {
-                Self::USAGES.get(id as usize).copied()
+                Self::USAGES.get(usize::from(id)).copied()
             }
 
             #[inline]
             pub fn arity_from_id(id: u16) -> Option<BuiltinCallArity> {
-                Self::SIGNATURES.get(id as usize).map(|signature| signature.arity)
+                Self::SIGNATURES.get(usize::from(id)).map(|signature| signature.arity)
             }
 
             pub fn doc_for_name(&self, name: &str) -> Option<crate::doc::DocTopic> {
                 self.name_to_id
                     .get(name)
-                    .and_then(|id| Self::doc_for_id(*id as u16))
+                    .and_then(|id| u16::try_from(*id).ok())
+                    .and_then(Self::doc_for_id)
             }
 
             pub fn doc_for_id(id: u16) -> Option<crate::doc::DocTopic> {

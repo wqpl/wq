@@ -180,7 +180,7 @@ pub(super) fn dispatch_method_postfix(
     hooks: &dyn InterpreterHook,
 ) -> WqResult<bool> {
     if let Value::Dict(map) = receiver {
-        let dict_identity = Arc::as_ptr(map) as usize;
+        let dict_identity = Arc::as_ptr(map).addr();
         if vm.inline_cache[idx].slot_b == Some(dict_identity)
             && let Some(ref target) = vm.inline_cache[idx].call_target
         {
@@ -231,7 +231,7 @@ pub(super) fn dispatch_method_call(
     hooks: &dyn InterpreterHook,
 ) -> WqResult<bool> {
     if let Value::Dict(map) = receiver {
-        let dict_identity = Arc::as_ptr(map) as usize;
+        let dict_identity = Arc::as_ptr(map).addr();
         if vm.inline_cache[idx].slot_b == Some(dict_identity)
             && let Some(ref target) = vm.inline_cache[idx].call_target
         {
@@ -368,10 +368,14 @@ fn dispatch_user_value_cached(
 
 fn user_callable_identity(func: &Value) -> Option<u64> {
     match func {
-        Value::CompiledFunction(data) => Some(Arc::as_ptr(data) as usize as u64),
-        Value::Closure(data) => Some(Arc::as_ptr(data) as usize as u64),
+        Value::CompiledFunction(data) => Some(pointer_addr_to_u64(Arc::as_ptr(data).addr())),
+        Value::Closure(data) => Some(pointer_addr_to_u64(Arc::as_ptr(data).addr())),
         _ => None,
     }
+}
+
+fn pointer_addr_to_u64(addr: usize) -> u64 {
+    u64::try_from(addr).unwrap_or(u64::MAX)
 }
 
 fn user_dbg_chunk(func: &Value) -> Option<crate::wqdb::data::ChunkId> {

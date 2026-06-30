@@ -1087,7 +1087,8 @@ pub(crate) fn insert_in_place(
 
 pub(crate) fn parse_pop_count(arg: &Value) -> WqResult<usize> {
     match arg {
-        Value::Int(n) if *n >= 0 => Ok(*n as usize),
+        Value::Int(n) if *n >= 0 => usize::try_from(*n)
+            .map_err(|_| WqError::new(WqErrorType::Domain).msg("count is too large")),
         _ => Err(WqError::new(WqErrorType::Domain).msg("count must be non-negative int")),
     }
 }

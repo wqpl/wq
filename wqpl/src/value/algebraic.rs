@@ -1071,10 +1071,13 @@ pub(crate) fn algebraic_pow(a: &AlgebraicData, n: i64) -> WqResult<Value> {
         } else {
             unreachable!()
         };
-        return algebraic_pow(inv_a, -n);
+        let positive_n = n.checked_neg().ok_or_else(|| {
+            WqError::new(WqErrorType::Domain).msg("algebraic exponent is too small")
+        })?;
+        return algebraic_pow(inv_a, positive_n);
     }
 
-    let mut n = n as u64;
+    let mut n = u64::try_from(n).expect("non-negative i64 exponent fits in u64");
     let mut base = a.clone();
     let mut result = AlgebraicData::new(a.field.clone(), vec![Value::Int(1)])
         .expect("one should be valid in algebraic field");
@@ -1397,7 +1400,7 @@ pub(crate) fn normalize_algebraic_field(a: &AlgebraicData) -> Option<AlgebraicDa
         return None;
     }
 
-    let q = deg as u32;
+    let q = u32::try_from(deg).ok()?;
     // N = rad_num * rad_den^(q-1)
     let n = &rad_num * &rad_den.pow(q - 1);
     let (p, r) = crate::cas::extract_perfect_power_factor(&n, q);

@@ -917,7 +917,7 @@ fn format_breakpoint_loc(di: &DebugInfo, loc: CodeLoc) -> String {
     if span.file_id != u32::MAX
         && let Some(sf) = di.file(span.file_id)
     {
-        let (line, col) = sf.line_col(span.start as usize);
+        let (line, col) = sf.line_col(span.start);
         return format!("pc {} ({}:{}:{})", loc.pc, sf.path, line, col);
     }
     format!("pc {}", loc.pc)
@@ -1043,7 +1043,7 @@ fn format_loc_hint(di: &DebugInfo, loc: CodeLoc, name_hint: Option<&str>) -> Str
     if span.file_id != u32::MAX
         && let Some(sf) = di.file(span.file_id)
     {
-        let (line, col) = sf.line_col(span.start as usize);
+        let (line, col) = sf.line_col(span.start);
         let name = name_hint.unwrap_or(meta.name.as_ref());
         return format!("{}:{}:{} in {}", sf.path, line, col, name);
     }
@@ -1100,7 +1100,7 @@ fn peek_context(host: &mut Vm, n: usize) {
         }
     }
     if let Some(sf) = di.file(span.file_id) {
-        let (l, _) = sf.line_col(span.start as usize);
+        let (l, _) = sf.line_col(span.start);
         // Clamp 1-based line numbers within [1, total]
         let total = sf.line_starts.len();
         let lo_ln = if l > n { l - n } else { 1 };

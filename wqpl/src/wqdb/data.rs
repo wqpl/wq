@@ -67,8 +67,8 @@ impl SourceFile {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Span {
     pub file_id: u32,
-    pub start: u32,
-    pub end: u32,
+    pub start: usize,
+    pub end: usize,
 }
 
 impl Span {
@@ -312,7 +312,7 @@ impl DebugInfo {
                     let sp = meta.line_table.span_at(pc);
                     if sp.file_id == file_id {
                         if let Some(sf) = self.files.get(&file_id) {
-                            let (ln, _) = sf.line_col(sp.start as usize);
+                            let (ln, _) = sf.line_col(sp.start);
                             if ln == line_1based {
                                 out.push(CodeLoc { chunk: meta.id, pc });
                                 // Evaluates an expression string in the current

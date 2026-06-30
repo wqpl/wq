@@ -179,7 +179,7 @@ fn push_atom_key(value: &Value, out: &mut String) {
             out.push(')');
         }
         Value::Char(c) => {
-            write!(out, "ch:{:x};", *c as u32).expect("writing to String should not fail");
+            write!(out, "ch:{:x};", u32::from(*c)).expect("writing to String should not fail");
         }
         Value::Tag(s) => push_text_key("tag:", s.as_ref(), out),
         Value::Bool(b) => {

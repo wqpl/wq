@@ -385,7 +385,8 @@ fn fuse_once(
         for old_idx in 0..=n {
             let nk = next_kept[old_idx.min(n)];
             if nk < n {
-                old_to_new[old_idx] = kept_to_new[nk] as usize;
+                old_to_new[old_idx] = usize::try_from(kept_to_new[nk])
+                    .expect("kept instruction index is non-negative");
             } else {
                 old_to_new[old_idx] = out.len();
             }

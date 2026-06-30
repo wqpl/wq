@@ -122,7 +122,7 @@ pub(crate) fn unescape_string_inner(s: &str) -> Result<String, UnescapeError> {
                                     break;
                                 }
                                 Some(c) if c.is_ascii_hexdigit() => {
-                                    val = (val << 4) | (hex_val(c) as u32);
+                                    val = (val << 4) | u32::from(hex_val(c));
                                     digits += 1;
                                     let _ = chars.next();
                                     i += c.len_utf8();
@@ -177,12 +177,9 @@ pub(crate) fn unescape_string_inner(s: &str) -> Result<String, UnescapeError> {
 }
 
 fn hex_val(c: char) -> u8 {
-    match c {
-        '0'..='9' => (c as u8) - b'0',
-        'a'..='f' => (c as u8) - b'a' + 10,
-        'A'..='F' => (c as u8) - b'A' + 10,
-        _ => 0,
-    }
+    c.to_digit(16)
+        .and_then(|digit| u8::try_from(digit).ok())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

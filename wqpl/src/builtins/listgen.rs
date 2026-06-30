@@ -210,7 +210,12 @@ pub(super) fn repeat(args: BuiltinFnArgs) -> WqResult<Value> {
                     .msg("count must be non-negative")
                     .at_arg(1));
             }
-            *n as usize
+            usize::try_from(*n).map_err(|_| {
+                WqError::new(WqErrorType::Domain)
+                    .src(BE::Repeat)
+                    .msg("count is too large")
+                    .at_arg(1)
+            })?
         }
         other => {
             return Err(WqError::new(WqErrorType::Domain)
@@ -446,7 +451,9 @@ fn parse_shape(v: &Value) -> WqResult<Vec<usize>> {
             if *n < 0 {
                 Err(WqError::new(WqErrorType::Domain).msg(EXP))
             } else {
-                Ok(vec![*n as usize])
+                let n =
+                    usize::try_from(*n).map_err(|_| WqError::new(WqErrorType::Domain).msg(EXP))?;
+                Ok(vec![n])
             }
         }
         Value::IntList(dims) => dims
@@ -459,7 +466,12 @@ fn parse_shape(v: &Value) -> WqResult<Vec<usize>> {
                         .attach_note(format!("at index {i}"))
                         .attach_note(format!("value excerpt is {}", d.excerpt())))
                 } else {
-                    Ok(d as usize)
+                    usize::try_from(d).map_err(|_| {
+                        WqError::new(WqErrorType::Domain)
+                            .msg(EXP)
+                            .attach_note(format!("at index {i}"))
+                            .attach_note(format!("value excerpt is {}", d.excerpt()))
+                    })
                 }
             })
             .collect(),
@@ -467,7 +479,12 @@ fn parse_shape(v: &Value) -> WqResult<Vec<usize>> {
             .iter()
             .enumerate()
             .map(|(i, v)| match &v {
-                Value::Int(n) if *n > 0 => Ok(*n as usize),
+                Value::Int(n) if *n > 0 => usize::try_from(*n).map_err(|_| {
+                    WqError::new(WqErrorType::Domain)
+                        .msg(EXP)
+                        .attach_note(format!("at index {i}"))
+                        .attach_note(format!("value excerpt is {}", v.excerpt()))
+                }),
                 _ => Err(WqError::new(WqErrorType::Domain)
                     .msg(EXP)
                     .attach_note(format!("at index {i}"))
