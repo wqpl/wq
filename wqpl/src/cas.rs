@@ -18,7 +18,7 @@ use expand_factor::{
     eval_numeric_binary_gcd, expand_expr, extract_algebraic_content, factor_expr, split_off_results,
 };
 pub(crate) use expand_factor::{expand_cas, factor_cas};
-use format::{format_expr, sort_canonical};
+use format::{format_cas_equation, format_cas_value, sort_canonical};
 pub(crate) use numeric::{
     cas_err, ensure_expr_arg, eval_exact_numeric_div, eval_numeric_binary, eval_numeric_cas,
     numeric_add, numeric_div, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul,

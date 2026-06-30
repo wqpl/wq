@@ -753,18 +753,50 @@ fn has_top_level_additive_operator(text: &str) -> bool {
 /// generator name is a recognized radical (e.g. `2^(1/2)`) when possible,
 /// otherwise a descriptive `root(...)` string.
 pub(crate) fn fmt_algebraic_human(a: &AlgebraicData, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    let interval = a.interval();
-    let name = recognize_radical_name(a.poly(), interval).unwrap_or_else(|| {
-        let poly_str = poly_to_short_string(a.poly());
-        let alpha_approx = (interval.0 + interval.1) * 0.5;
+    let name = algebraic_generator_name(a.field.as_ref());
+    write_algebraic_with_generator_name(a, &name, f)
+}
+
+pub(crate) fn format_algebraic_generator_binding(field: &AlgebraicField) -> String {
+    recognize_radical_name(field.poly(), field.interval()).unwrap_or_else(|| {
+        let poly_str = poly_to_short_string(field.poly());
+        let alpha_approx = {
+            let interval = field.interval();
+            (interval.0 + interval.1) * 0.5
+        };
+        let approx_str = format_approx_f64(alpha_approx);
+        format!("root[{poly_str};{approx_str}]")
+    })
+}
+
+pub(crate) fn format_algebraic_with_generator_name(a: &AlgebraicData, name: &str) -> String {
+    let mut out = String::new();
+    write_algebraic_with_generator_name(a, name, &mut out)
+        .expect("writing to String should not fail");
+    out
+}
+
+fn algebraic_generator_name(field: &AlgebraicField) -> String {
+    recognize_radical_name(field.poly(), field.interval()).unwrap_or_else(|| {
+        let poly_str = poly_to_short_string(field.poly());
+        let alpha_approx = {
+            let interval = field.interval();
+            (interval.0 + interval.1) * 0.5
+        };
         let approx_str = format_approx_f64(alpha_approx);
         format!("root({}, {approx_str})", poly_str)
-    });
+    })
+}
 
+fn write_algebraic_with_generator_name<W: fmt::Write>(
+    a: &AlgebraicData,
+    name: &str,
+    f: &mut W,
+) -> fmt::Result {
     let name_needs_parens = name
         .chars()
         .any(|c| matches!(c, '+' | '-' | '*' | '/' | '^' | '(' | ')' | ' '));
-    let name_has_top_level_add = has_top_level_additive_operator(&name);
+    let name_has_top_level_add = has_top_level_additive_operator(name);
     let non_zero_count = a
         .coeffs
         .iter()

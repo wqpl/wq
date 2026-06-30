@@ -9,6 +9,9 @@ use super::numeric::{
     numeric_abs, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul,
 };
 use crate::value::Value;
+use crate::value::algebraic::{
+    AlgebraicData, format_algebraic_generator_binding, format_algebraic_with_generator_name,
+};
 use crate::value::cas::CasOp;
 
 fn precedence(value: &Value) -> u8 {
@@ -276,8 +279,147 @@ pub(super) fn sort_canonical(values: &mut [Value]) {
     values.sort_by(canonical_cmp);
 }
 
-fn format_arg(value: &Value, parent_prec: u8) -> String {
-    let rendered = format_expr(value, 0);
+#[derive(Default)]
+struct AlgebraicAliasEnv {
+    aliases: Vec<AlgebraicAlias>,
+}
+
+struct AlgebraicAlias {
+    key: String,
+    name: String,
+    binding: String,
+}
+
+struct AlgebraicAliasCandidate {
+    key: String,
+    binding: String,
+    count: usize,
+}
+
+impl AlgebraicAliasEnv {
+    fn from_values(values: &[&Value]) -> Self {
+        let mut candidates = Vec::new();
+        for value in values {
+            collect_algebraic_candidates(value, &mut candidates);
+        }
+
+        let mut aliases = Vec::new();
+        for candidate in candidates {
+            if candidate.count < 2 || !candidate.binding.starts_with("root[") {
+                continue;
+            }
+            aliases.push(AlgebraicAlias {
+                key: candidate.key,
+                name: format!("ad{}", aliases.len() + 1),
+                binding: candidate.binding,
+            });
+        }
+
+        Self { aliases }
+    }
+
+    fn name_for(&self, value: &AlgebraicData) -> Option<&str> {
+        let key = algebraic_field_key(value);
+        self.aliases
+            .iter()
+            .find(|alias| alias.key == key)
+            .map(|alias| alias.name.as_str())
+    }
+
+    fn apply_bindings(&self, rendered: String) -> String {
+        if self.aliases.is_empty() {
+            return rendered;
+        }
+
+        let bindings = self
+            .aliases
+            .iter()
+            .map(|alias| format!("`{}:{}", alias.name, alias.binding))
+            .collect::<Vec<_>>()
+            .join(";");
+        format!("({rendered})[{bindings}]")
+    }
+}
+
+fn collect_algebraic_candidates(value: &Value, candidates: &mut Vec<AlgebraicAliasCandidate>) {
+    if let Value::Algebraic(a) = value {
+        if algebraic_has_generator_term(a) {
+            record_algebraic_candidate(a, candidates);
+        }
+        for coeff in a.coeffs.iter() {
+            collect_algebraic_candidates(coeff, candidates);
+        }
+        return;
+    }
+
+    if let Some((_op, args)) = value.cas_op_parts() {
+        for arg in args {
+            collect_algebraic_candidates(arg, candidates);
+        }
+        return;
+    }
+    if let Some((_name, args)) = value.cas_function_parts() {
+        for arg in args {
+            collect_algebraic_candidates(arg, candidates);
+        }
+        return;
+    }
+    if let Some((_name, args)) = value.cas_apply_parts() {
+        for arg in args {
+            collect_algebraic_candidates(arg, candidates);
+        }
+        return;
+    }
+    if let Some((_name, value)) = value.cas_named_arg_parts() {
+        collect_algebraic_candidates(value, candidates);
+        return;
+    }
+    if let Some((expr, var, point, _direction)) = value.cas_limit_parts() {
+        collect_algebraic_candidates(expr, candidates);
+        collect_algebraic_candidates(var, candidates);
+        collect_algebraic_candidates(point, candidates);
+        return;
+    }
+    if let Some((lhs, rhs)) = value.cas_eq_parts() {
+        collect_algebraic_candidates(lhs, candidates);
+        collect_algebraic_candidates(rhs, candidates);
+    }
+}
+
+fn record_algebraic_candidate(
+    value: &AlgebraicData,
+    candidates: &mut Vec<AlgebraicAliasCandidate>,
+) {
+    let key = algebraic_field_key(value);
+    if let Some(candidate) = candidates.iter_mut().find(|candidate| candidate.key == key) {
+        candidate.count += 1;
+        return;
+    }
+
+    candidates.push(AlgebraicAliasCandidate {
+        key,
+        binding: format_algebraic_generator_binding(value.field().as_ref()),
+        count: 1,
+    });
+}
+
+fn algebraic_field_key(value: &AlgebraicData) -> String {
+    let mut key = String::new();
+    value.field().push_canonical_key(&mut key);
+    key
+}
+
+fn algebraic_has_generator_term(value: &AlgebraicData) -> bool {
+    value
+        .coeffs
+        .iter()
+        .enumerate()
+        .skip(1)
+        .any(|(_, coeff)| !numeric_is_zero(coeff))
+}
+
+fn format_arg(value: &Value, parent_prec: u8, aliases: &AlgebraicAliasEnv) -> String {
+    let rendered = format_expr_with_aliases(value, 0, aliases);
     let needs_parens = if value.is_cas_expr() {
         precedence(value) < parent_prec
     } else {
@@ -290,7 +432,13 @@ fn format_arg(value: &Value, parent_prec: u8) -> String {
     }
 }
 
-fn format_atom(value: &Value) -> String {
+fn format_atom(value: &Value, aliases: &AlgebraicAliasEnv) -> String {
+    if let Value::Algebraic(a) = value
+        && let Some(name) = aliases.name_for(a)
+    {
+        return format_algebraic_with_generator_name(a, name);
+    }
+
     if let Some((numer, denom)) = value.rational_parts()
         && !denom.is_one()
     {
@@ -318,10 +466,10 @@ fn reciprocal_denominator(value: &Value) -> Option<Value> {
     Some(Value::Int(inverse.round() as i64))
 }
 
-fn format_power(base: &Value, exp: &Value, parent_prec: u8) -> String {
+fn format_power(base: &Value, exp: &Value, parent_prec: u8, aliases: &AlgebraicAliasEnv) -> String {
     let prec: u8 = 3;
     let base_rendered = if base.cas_op_args(CasOp::Power).is_some() {
-        format!("({})", format_expr(base, 0))
+        format!("({})", format_expr_with_aliases(base, 0, aliases))
     } else if let Value::Algebraic(a) = base {
         let non_zero: Vec<usize> = a
             .coeffs
@@ -332,20 +480,20 @@ fn format_power(base: &Value, exp: &Value, parent_prec: u8) -> String {
             .collect();
         let needs_paren = non_zero.len() > 1 || non_zero.iter().any(|&i| i >= 2);
         if needs_paren {
-            format!("({})", format_expr(base, 0))
+            format!("({})", format_expr_with_aliases(base, 0, aliases))
         } else {
-            format_arg(base, prec)
+            format_arg(base, prec, aliases)
         }
     } else {
-        format_arg(base, prec)
+        format_arg(base, prec, aliases)
     };
     let exp_rendered = if exp
         .rational_parts()
         .is_some_and(|(_, denom)| !denom.is_one())
     {
-        format!("({})", format_expr(exp, 0))
+        format!("({})", format_expr_with_aliases(exp, 0, aliases))
     } else {
-        format_arg(exp, prec.saturating_add(1))
+        format_arg(exp, prec.saturating_add(1), aliases)
     };
     let rendered = format!("{}^{}", base_rendered, exp_rendered);
     if prec < parent_prec {
@@ -380,7 +528,12 @@ fn display_factor_cmp(lhs: &Value, rhs: &Value) -> Ordering {
         .then_with(|| canonical_cmp(lhs, rhs))
 }
 
-fn format_product_parts(leading: Option<&Value>, rest: &[Value], parent_prec: u8) -> String {
+fn format_product_parts(
+    leading: Option<&Value>,
+    rest: &[Value],
+    parent_prec: u8,
+    aliases: &AlgebraicAliasEnv,
+) -> String {
     /// True when a CAS expression is a manifest constant (no variable
     /// dependency). Used only for display grouping -- does not affect
     /// canonical sort order.
@@ -441,13 +594,13 @@ fn format_product_parts(leading: Option<&Value>, rest: &[Value], parent_prec: u8
     } else {
         numerators
             .iter()
-            .map(|factor| format_arg(factor, prec))
+            .map(|factor| format_arg(factor, prec, aliases))
             .collect::<Vec<_>>()
             .join("*")
     };
     for denominator in denominators {
         rendered.push('/');
-        rendered.push_str(&format_arg(&denominator, prec + 1));
+        rendered.push_str(&format_arg(&denominator, prec + 1, aliases));
     }
     if prec < parent_prec {
         format!("({rendered})")
@@ -456,9 +609,13 @@ fn format_product_parts(leading: Option<&Value>, rest: &[Value], parent_prec: u8
     }
 }
 
-fn format_term_with_sign(term: &Value, parent_prec: u8) -> (bool, String) {
+fn format_term_with_sign(
+    term: &Value,
+    parent_prec: u8,
+    aliases: &AlgebraicAliasEnv,
+) -> (bool, String) {
     if !term.is_cas_expr() && numeric_is_negative(term) {
-        return (true, format_arg(&numeric_abs(term), parent_prec));
+        return (true, format_arg(&numeric_abs(term), parent_prec, aliases));
     }
 
     if let Some(args) = term.cas_op_args(CasOp::Multiply)
@@ -468,21 +625,21 @@ fn format_term_with_sign(term: &Value, parent_prec: u8) -> (bool, String) {
     {
         let abs = numeric_abs(first);
         let rendered = if numeric_is_one(&abs) {
-            format_product_parts(None, rest, parent_prec)
+            format_product_parts(None, rest, parent_prec, aliases)
         } else {
-            format_product_parts(Some(&abs), rest, parent_prec)
+            format_product_parts(Some(&abs), rest, parent_prec, aliases)
         };
         return (true, rendered);
     }
 
-    (false, format_arg(term, parent_prec))
+    (false, format_arg(term, parent_prec, aliases))
 }
 
-fn format_sum(args: &[Value], parent_prec: u8) -> String {
+fn format_sum(args: &[Value], parent_prec: u8, aliases: &AlgebraicAliasEnv) -> String {
     let prec = 1;
     let mut rendered = String::new();
     for (idx, term) in args.iter().rev().enumerate() {
-        let (is_negative, term_str) = format_term_with_sign(term, prec);
+        let (is_negative, term_str) = format_term_with_sign(term, prec, aliases);
         if idx == 0 {
             if is_negative {
                 rendered.push('-');
@@ -500,18 +657,34 @@ fn format_sum(args: &[Value], parent_prec: u8) -> String {
     }
 }
 
-fn format_raw_op(value: &Value) -> String {
+fn format_raw_op(value: &Value, aliases: &AlgebraicAliasEnv) -> String {
     let Some((op, args)) = value.cas_op_parts() else {
-        return format_atom(value);
+        return format_atom(value, aliases);
     };
     let rendered_args = args
         .iter()
-        .map(|arg| format_expr(arg, 0))
+        .map(|arg| format_expr_with_aliases(arg, 0, aliases))
         .collect::<Vec<_>>();
     format!("{}[{}]", op.symbol(), rendered_args.join(";"))
 }
 
-pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
+pub(super) fn format_cas_value(value: &Value) -> String {
+    let aliases = AlgebraicAliasEnv::from_values(&[value]);
+    let rendered = format_expr_with_aliases(value, 0, &aliases);
+    aliases.apply_bindings(rendered)
+}
+
+pub(super) fn format_cas_equation(lhs: &Value, rhs: &Value) -> String {
+    let aliases = AlgebraicAliasEnv::from_values(&[lhs, rhs]);
+    let rendered = format!(
+        "{} = {}",
+        format_expr_with_aliases(lhs, 0, &aliases),
+        format_expr_with_aliases(rhs, 0, &aliases)
+    );
+    aliases.apply_bindings(rendered)
+}
+
+fn format_expr_with_aliases(value: &Value, parent_prec: u8, aliases: &AlgebraicAliasEnv) -> String {
     if let Some(name) = value.cas_var_name() {
         return name.to_string();
     }
@@ -519,11 +692,15 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
         return konst.name().to_string();
     }
     if let Some((name, value)) = value.cas_named_arg_parts() {
-        return format!("`{}:{}", name.as_str(), format_expr(value, 0));
+        return format!(
+            "`{}:{}",
+            name.as_str(),
+            format_expr_with_aliases(value, 0, aliases)
+        );
     }
     if let Some((op, args)) = value.cas_known_op_parts() {
         return match (op, args) {
-            (CasOp::Add, args) => format_sum(args, parent_prec),
+            (CasOp::Add, args) => format_sum(args, parent_prec, aliases),
             (CasOp::Multiply, args) => {
                 let prec = 2;
                 if let Some((first, rest)) = args.split_first()
@@ -532,9 +709,9 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
                 {
                     let abs = numeric_abs(first);
                     let rendered = if numeric_is_one(&abs) {
-                        format!("-{}", format_product_parts(None, rest, prec))
+                        format!("-{}", format_product_parts(None, rest, prec, aliases))
                     } else {
-                        format!("-{}", format_product_parts(Some(&abs), rest, prec))
+                        format!("-{}", format_product_parts(Some(&abs), rest, prec, aliases))
                     };
                     if prec < parent_prec {
                         format!("({rendered})")
@@ -542,19 +719,19 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
                         rendered
                     }
                 } else {
-                    format_product_parts(None, args, parent_prec)
+                    format_product_parts(None, args, parent_prec, aliases)
                 }
             }
-            (CasOp::Power, [base, exp]) => format_power(base, exp, parent_prec),
-            _ => format_raw_op(value),
+            (CasOp::Power, [base, exp]) => format_power(base, exp, parent_prec, aliases),
+            _ => format_raw_op(value, aliases),
         };
     }
     if let Some((expr, var, point, direction)) = value.cas_limit_parts() {
         let mut rendered = format!(
             "limit[{};{};{}",
-            format_expr(expr, 0),
-            format_expr(var, 0),
-            format_expr(point, 0),
+            format_expr_with_aliases(expr, 0, aliases),
+            format_expr_with_aliases(var, 0, aliases),
+            format_expr_with_aliases(point, 0, aliases),
         );
         if let Some(dir) = direction {
             let tag = match dir {
@@ -569,18 +746,18 @@ pub(super) fn format_expr(value: &Value, parent_prec: u8) -> String {
     if let Some((name, args)) = value.cas_function_parts() {
         let mut rendered_args = Vec::with_capacity(args.len());
         for arg in args {
-            rendered_args.push(format_expr(arg, 0));
+            rendered_args.push(format_expr_with_aliases(arg, 0, aliases));
         }
         return format!("{}[{}]", name.name(), rendered_args.join(";"));
     }
     if let Some((name, args)) = value.cas_apply_parts() {
         let mut rendered_args = Vec::with_capacity(args.len());
         for arg in args {
-            rendered_args.push(format_expr(arg, 0));
+            rendered_args.push(format_expr_with_aliases(arg, 0, aliases));
         }
         return format!("{}[{}]", name.as_str(), rendered_args.join(";"));
     }
-    format_atom(value)
+    format_atom(value, aliases)
 }
 
 #[cfg(test)]
@@ -611,5 +788,51 @@ mod tests {
             !key.contains("phi"),
             "canonical key should not depend on algebraic display text: {key}",
         );
+    }
+
+    #[test]
+    fn repeated_long_algebraic_generator_uses_display_binding() {
+        let field = AlgebraicField::new_real_root(
+            vec![
+                BigInt::from(-1),
+                BigInt::from(-1),
+                BigInt::from(0),
+                BigInt::from(1),
+            ],
+            (1.0, 2.0),
+        )
+        .expect("valid cubic field");
+        let alpha = AlgebraicData::value(field.clone(), vec![Value::Int(0), Value::Int(1)])
+            .expect("valid cubic generator");
+        let alpha_sq =
+            AlgebraicData::value(field, vec![Value::Int(0), Value::Int(0), Value::Int(1)])
+                .expect("valid squared cubic generator");
+        let expr = Value::from_cas_op(
+            CasOp::Add,
+            vec![
+                alpha_sq,
+                Value::from_cas_op(CasOp::Multiply, vec![alpha, Value::from_cas_var("x")]),
+            ],
+        );
+
+        assert_eq!(expr.to_string(), "(ad1*x + ad1^2)[`ad1:root[_^3-_-1;1.5]]");
+    }
+
+    #[test]
+    fn single_long_algebraic_generator_stays_inline() {
+        let field = AlgebraicField::new_real_root(
+            vec![
+                BigInt::from(-1),
+                BigInt::from(-1),
+                BigInt::from(0),
+                BigInt::from(1),
+            ],
+            (1.0, 2.0),
+        )
+        .expect("valid cubic field");
+        let value = AlgebraicData::value(field, vec![Value::Int(0), Value::Int(1)])
+            .expect("valid cubic generator");
+
+        assert_eq!(format_cas_value(&value), "root(_^3-_-1, 1.5)");
     }
 }

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 use num_traits::{One, ToPrimitive};
 
-use super::format_expr;
 use super::limit::LimitDirection;
+use super::{format_cas_equation, format_cas_value};
 use crate::value::Value;
 use crate::value::cas::{CasConst, CasData, CasFunction, CasKind, CasOp, CasSymbol};
 
@@ -194,9 +194,9 @@ impl Value {
 
     pub(crate) fn format_cas(&self) -> Option<String> {
         if self.is_cas_expr() {
-            Some(format_expr(self, 0))
+            Some(format_cas_value(self))
         } else if let Some((lhs, rhs)) = self.cas_eq_parts() {
-            Some(format!("{} = {}", format_expr(lhs, 0), format_expr(rhs, 0)))
+            Some(format_cas_equation(lhs, rhs))
         } else {
             None
         }
