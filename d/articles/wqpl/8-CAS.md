@@ -16,6 +16,7 @@ Once you have a symbolic value, apply CAS functions to that value.
 ```wq
 expr:@s x^2+2*x+1
 expr|diff|echo
+expr|I|echo
 expr|substitute[`x:2]|echo
 expr[`x:2]|echo
 ```
@@ -27,10 +28,12 @@ expr[`x:2]|echo
 ```wq
 factor[@s x^2-1]|echo
 solve[@s x^2=1]|echo
+solve[@s a*x+b;@s x]|echo
 solve_system[@s(2*x+y=5;x-y=1)]|echo
+solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)]|echo
 ```
 
-The bracket calls keep the symbolic expression neatly inside the argument list. For linear systems, `solve_system` can infer variables and returns values in variable-name order unless you pass variables explicitly.
+The bracket calls keep the symbolic expression neatly inside the argument list. For linear systems, `solve_system` can infer variables and returns values in variable-name order unless you pass variables explicitly. When you pass the solve variables explicitly, other symbols can remain as parameters in supported linear and quadratic solves.
 
 ## Numeric And Symbolic Can Meet
 

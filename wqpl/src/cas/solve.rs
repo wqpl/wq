@@ -1,15 +1,18 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use num_bigint::BigInt;
 use num_complex::Complex64;
 use rayon::prelude::*;
 
 use super::{
-    cas_err, cas_sub, eval_exact_numeric_div, eval_numeric_binary, numeric_is_zero, poly_degree,
-    poly_from_expr, simplify_cas_value, split_add_term, var_name_from_value,
+    cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub, contains_cas_var,
+    eval_exact_numeric_div, eval_numeric_binary, numeric_is_zero, poly_degree, poly_from_expr,
+    poly_from_expr_with_params, simplify_cas_value, var_name_from_value,
 };
 use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
+use crate::wqerror::WqError;
 
 fn complex_to_value(z: Complex64) -> Value {
     let eps = z.norm().max(1.0) * 1e-12;
@@ -68,21 +71,10 @@ fn linear_coefficients_from_expr(expr: &Value, vars: &[String]) -> WqResult<(Vec
     let mut constant = Value::Int(0);
 
     for term in terms {
-        let (coeff, core) = split_add_term(&term);
-        match core {
-            None => constant = eval_numeric_binary("+", &constant, &coeff)?,
-            Some(core) => {
-                let Some(name) = core.cas_var_name() else {
-                    return Err(cas_err(
-                        "solve_system currently supports linear equations in the requested variables only",
-                    ));
-                };
-                let idx = vars.iter().position(|var| var == name).ok_or_else(|| {
-                    cas_err(format!(
-                        "solve_system encountered unknown variable '{name}'"
-                    ))
-                })?;
-                coeffs[idx] = eval_numeric_binary("+", &coeffs[idx], &coeff)?;
+        match split_linear_term(&term, vars)? {
+            LinearTerm::Constant(value) => constant = cas_add(vec![constant, value])?,
+            LinearTerm::Variable { idx, coeff } => {
+                coeffs[idx] = cas_add(vec![coeffs[idx].clone(), coeff])?;
             }
         }
     }
@@ -90,10 +82,80 @@ fn linear_coefficients_from_expr(expr: &Value, vars: &[String]) -> WqResult<(Vec
     Ok((coeffs, constant))
 }
 
+enum LinearTerm {
+    Constant(Value),
+    Variable { idx: usize, coeff: Value },
+}
+
+fn split_linear_term(term: &Value, vars: &[String]) -> WqResult<LinearTerm> {
+    if !contains_requested_var(term, vars) {
+        return Ok(LinearTerm::Constant(term.clone()));
+    }
+
+    if let Some(idx) = requested_var_index(term, vars) {
+        return Ok(LinearTerm::Variable {
+            idx,
+            coeff: Value::Int(1),
+        });
+    }
+
+    if let Some((CasOp::Multiply, args)) = term.cas_op_parts() {
+        let mut var_idx = None;
+        let mut coeff_factors = Vec::new();
+        for arg in args {
+            if !contains_requested_var(arg, vars) {
+                coeff_factors.push(arg.clone());
+                continue;
+            }
+
+            let Some(idx) = requested_var_index(arg, vars) else {
+                return Err(linear_system_shape_err());
+            };
+            if var_idx.replace(idx).is_some() {
+                return Err(linear_system_shape_err());
+            }
+        }
+
+        let Some(idx) = var_idx else {
+            return Ok(LinearTerm::Constant(term.clone()));
+        };
+        let coeff = match coeff_factors.len() {
+            0 => Value::Int(1),
+            1 => coeff_factors
+                .into_iter()
+                .next()
+                .expect("single coefficient factor"),
+            _ => cas_mul(coeff_factors)?,
+        };
+        return Ok(LinearTerm::Variable { idx, coeff });
+    }
+
+    Err(linear_system_shape_err())
+}
+
+fn contains_requested_var(expr: &Value, vars: &[String]) -> bool {
+    vars.iter().any(|var| contains_cas_var(expr, var))
+}
+
+fn requested_var_index(expr: &Value, vars: &[String]) -> Option<usize> {
+    let name = expr.cas_var_name()?;
+    vars.iter().position(|var| var == name)
+}
+
+fn linear_system_shape_err() -> WqError {
+    cas_err("solve_system currently supports linear equations in the requested variables only")
+}
+
+fn pivot_row_for_col(rows: &[Vec<Value>], col: usize, n: usize) -> Option<usize> {
+    (col..n)
+        .find(|&row| rows[row][col].exact_int_is(1) || rows[row][col].exact_int_is(-1))
+        .or_else(|| (col..n).find(|&row| !numeric_is_zero(&rows[row][col])))
+}
+
 fn gaussian_elimination_solve(mut rows: Vec<Vec<Value>>) -> WqResult<Vec<Value>> {
     let n = rows.len();
     for col in 0..n {
-        let Some(pivot_row) = (col..n).find(|&row| !numeric_is_zero(&rows[row][col])) else {
+        let Some(pivot_row) = pivot_row_for_col(&rows, col, n) else {
             return Err(cas_err(
                 "solve_system requires a system with a unique solution",
             ));
@@ -104,33 +166,31 @@ fn gaussian_elimination_solve(mut rows: Vec<Vec<Value>>) -> WqResult<Vec<Value>>
 
         let pivot = rows[col][col].clone();
         let pivot_slice = rows[col][col..=n].to_vec();
-        let tail = &mut rows[(col + 1)..n];
-        tail.par_iter_mut().try_for_each(|row| {
+        for row in &mut rows[(col + 1)..n] {
             if numeric_is_zero(&row[col]) {
-                return Ok(());
+                continue;
             }
-            let factor = eval_exact_numeric_div(&row[col], &pivot)?;
+            let factor = cas_div(row[col].clone(), pivot.clone())?;
             for (offset, cell) in row[col..=n].iter_mut().enumerate() {
-                let scaled = eval_numeric_binary("*", &factor, &pivot_slice[offset])?;
-                *cell = eval_numeric_binary("-", cell, &scaled)?;
+                let scaled = cas_mul(vec![factor.clone(), pivot_slice[offset].clone()])?;
+                *cell = cas_sub(cell.clone(), scaled)?;
             }
-            Ok(())
-        })?;
+        }
     }
 
     let mut solution = vec![Value::Int(0); n];
     for row in (0..n).rev() {
         let mut rhs = rows[row][n].clone();
         for (col, value) in solution.iter().enumerate().skip(row + 1) {
-            let term = eval_numeric_binary("*", &rows[row][col], value)?;
-            rhs = eval_numeric_binary("-", &rhs, &term)?;
+            let term = cas_mul(vec![rows[row][col].clone(), value.clone()])?;
+            rhs = cas_sub(rhs, term)?;
         }
         if numeric_is_zero(&rows[row][row]) {
             return Err(cas_err(
                 "solve_system requires a system with a unique solution",
             ));
         }
-        solution[row] = eval_exact_numeric_div(&rhs, &rows[row][row])?;
+        solution[row] = cas_div(rhs, rows[row][row].clone())?;
     }
     Ok(solution)
 }
@@ -223,33 +283,26 @@ fn solve_normalized_system(equations: &[Value], var_names: &[String]) -> WqResul
     for expr in equations {
         let (coeffs, constant) = linear_coefficients_from_expr(expr, var_names)?;
         let mut row = coeffs;
-        row.push(eval_numeric_binary("-", &Value::Int(0), &constant)?);
+        row.push(cas_neg(constant)?);
         rows.push(row);
     }
 
     Ok(Value::from_items(gaussian_elimination_solve(rows)?))
 }
 
-pub(crate) fn solve_cas(input: &Value, var: &Value) -> WqResult<Value> {
-    let var = var_name_from_value(var)?;
-    let expr = if let Some((lhs, rhs)) = input.cas_eq_parts() {
-        cas_sub(lhs.clone(), rhs.clone())?
-    } else {
-        simplify_cas_value(input)?
-    };
-    let coeffs = poly_from_expr(&expr, &var)?;
-    let degree = poly_degree(&coeffs);
-    let roots = match degree {
+fn solve_numeric_polynomial(coeffs: &[Value]) -> WqResult<Vec<Value>> {
+    let degree = poly_degree(coeffs);
+    match degree {
         0 => {
             if numeric_is_zero(&coeffs[0]) {
                 return Err(cas_err("solve identity has infinitely many solutions"));
             }
-            Vec::new()
+            Ok(Vec::new())
         }
-        1 => vec![eval_exact_numeric_div(
+        1 => Ok(vec![eval_exact_numeric_div(
             &coeffs[0].neg().map_err(|e| e.src("cas"))?,
             &coeffs[1],
-        )?],
+        )?]),
         2 => {
             let four_ac = eval_numeric_binary(
                 "*",
@@ -264,12 +317,69 @@ pub(crate) fn solve_cas(input: &Value, var: &Value) -> WqResult<Value> {
             let sqrt_disc = disc.sqrt().map_err(|e| e.src("cas"))?;
             let neg_b = coeffs[1].neg().map_err(|e| e.src("cas"))?;
             let denom = eval_numeric_binary("*", &Value::Int(2), &coeffs[degree])?;
-            vec![
+            Ok(vec![
                 eval_numeric_binary("/", &eval_numeric_binary("+", &neg_b, &sqrt_disc)?, &denom)?,
                 eval_numeric_binary("/", &eval_numeric_binary("-", &neg_b, &sqrt_disc)?, &denom)?,
-            ]
+            ])
         }
-        _ => solve_monomial_polynomial(&coeffs, degree)?,
+        _ => solve_monomial_polynomial(coeffs, degree),
+    }
+}
+
+fn solve_parameterized_polynomial(coeffs: &[Value]) -> WqResult<Vec<Value>> {
+    let coeff_at = |idx: usize| coeffs.get(idx).cloned().unwrap_or(Value::Int(0));
+    let degree = poly_degree(coeffs);
+    match degree {
+        0 => {
+            if numeric_is_zero(&coeffs[0]) {
+                return Err(cas_err("solve identity has infinitely many solutions"));
+            }
+            Ok(Vec::new())
+        }
+        1 => {
+            let root = cas_div(cas_neg(coeff_at(0))?, coeff_at(1))?;
+            Ok(vec![simplify_cas_value(&root)?])
+        }
+        2 => {
+            let a = coeff_at(2);
+            let b = coeff_at(1);
+            let c = coeff_at(0);
+            let b_squared = cas_pow(b.clone(), Value::Int(2))?;
+            let four_ac = cas_mul(vec![Value::Int(4), a.clone(), c])?;
+            let disc = cas_sub(b_squared, four_ac)?;
+            let sqrt_disc = cas_pow(
+                disc,
+                Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+            )?;
+            let neg_b = cas_neg(b)?;
+            let denom = cas_mul(vec![Value::Int(2), a])?;
+            Ok(vec![
+                simplify_cas_value(&cas_div(
+                    cas_add(vec![neg_b.clone(), sqrt_disc.clone()])?,
+                    denom.clone(),
+                )?)?,
+                simplify_cas_value(&cas_div(cas_sub(neg_b, sqrt_disc)?, denom)?)?,
+            ])
+        }
+        _ => Err(cas_err(
+            "parameterized solve currently supports polynomial degree <= 2",
+        )),
+    }
+}
+
+pub(crate) fn solve_cas(input: &Value, var: &Value) -> WqResult<Value> {
+    let var = var_name_from_value(var)?;
+    let expr = if let Some((lhs, rhs)) = input.cas_eq_parts() {
+        cas_sub(lhs.clone(), rhs.clone())?
+    } else {
+        simplify_cas_value(input)?
+    };
+    let roots = match poly_from_expr(&expr, &var) {
+        Ok(coeffs) => solve_numeric_polynomial(&coeffs)?,
+        Err(_) => {
+            let coeffs = poly_from_expr_with_params(&expr, &var)?;
+            solve_parameterized_polynomial(&coeffs)?
+        }
     };
     Ok(Value::List(Arc::new(roots)))
 }

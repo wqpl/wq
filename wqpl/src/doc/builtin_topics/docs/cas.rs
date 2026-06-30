@@ -69,11 +69,18 @@ const FACTOR_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("(x - 1)*(x + 1)"),
 }];
 
-const INTEGRATE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Compute a definite integral",
-    code: "integrate[@s x;@s x;0;1]",
-    expectation: ExampleExpectation::ResultContains("1/2"),
-}];
+const INTEGRATE_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Compute a definite integral",
+        code: "integrate[@s x;@s x;0;1]",
+        expectation: ExampleExpectation::ResultContains("1/2"),
+    },
+    DocExample {
+        title: "Treat other symbols as parameters",
+        code: "integrate[@s sin[a*x];@s x]",
+        expectation: ExampleExpectation::ResultContains("-cos[a*x]/a"),
+    },
+];
 
 const LIMIT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Use a classic trigonometric limit",
@@ -81,17 +88,31 @@ const LIMIT_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("1.0"),
 }];
 
-const SOLVE_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Solve a single-variable equation",
-    code: "solve @s x-2",
-    expectation: ExampleExpectation::ResultContains("2"),
-}];
+const SOLVE_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Solve a single-variable equation",
+        code: "solve @s x-2",
+        expectation: ExampleExpectation::ResultContains("2"),
+    },
+    DocExample {
+        title: "Solve with symbolic parameters",
+        code: "solve[@s a*x+b;@s x]",
+        expectation: ExampleExpectation::ResultContains("-b/a"),
+    },
+];
 
-const SOLVE_SYSTEM_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Solve a linear system",
-    code: "solve_system[(eq[@s x;2];eq[@s y;3])]",
-    expectation: ExampleExpectation::ResultContains("(2;3)"),
-}];
+const SOLVE_SYSTEM_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Solve a linear system",
+        code: "solve_system[(eq[@s x;2];eq[@s y;3])]",
+        expectation: ExampleExpectation::ResultContains("(2;3)"),
+    },
+    DocExample {
+        title: "Solve a system with parameters",
+        code: "solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)]",
+        expectation: ExampleExpectation::ResultContains("(c + b)/3"),
+    },
+];
 
 const BRENT_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Find a bracketed real root",
@@ -180,7 +201,7 @@ pub(super) const FACTOR: BuiltinDoc = BuiltinDoc {
 pub(super) const INTEGRATE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Integrate,
     summary: "Integrate a symbolic expression.",
-    details: "`integrate[expr]` infers one symbolic variable, `integrate[expr;var]` uses an explicit variable, and `integrate[expr;var;lower;upper]` computes a definite integral. `I` is an alias.",
+    details: "`integrate[expr]` infers one symbolic variable, `integrate[expr;var]` uses an explicit variable, and `integrate[expr;var;lower;upper]` computes a definite integral. Supported affine table rules treat other symbols as parameters when an explicit variable is passed. `I` is an alias.",
     examples: INTEGRATE_EXAMPLES,
     related: &["diff", "limit"],
 };
@@ -196,7 +217,7 @@ pub(super) const LIMIT: BuiltinDoc = BuiltinDoc {
 pub(super) const SOLVE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Solve,
     summary: "Solve a single-variable symbolic equation.",
-    details: "`solve[expr]` treats `expr` as equal to zero and infers the only symbolic variable. `solve[expr;var]` uses an explicit variable, and equation inputs solve `lhs = rhs`.",
+    details: "`solve[expr]` treats `expr` as equal to zero and infers the only symbolic variable. `solve[expr;var]` uses an explicit variable, and equation inputs solve `lhs = rhs`. With an explicit variable, linear and quadratic polynomial coefficients may contain other symbolic parameters.",
     examples: SOLVE_EXAMPLES,
     related: &["eq", "solve_system", "brent", "newton"],
 };
@@ -204,7 +225,7 @@ pub(super) const SOLVE: BuiltinDoc = BuiltinDoc {
 pub(super) const SOLVE_SYSTEM: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::SolveSystem,
     summary: "Solve a linear symbolic system.",
-    details: "`solve_system[eqs]` infers symbolic variables and returns values in variable-name order. `solve_system[eqs;vars]` uses an explicit same-length variable list, which also controls result order. It solves linear systems with a unique solution.",
+    details: "`solve_system[eqs]` infers symbolic variables and returns values in variable-name order. `solve_system[eqs;vars]` uses an explicit same-length variable list, which also controls result order. Symbols outside that explicit list are treated as parameters. It solves linear systems with a unique solution.",
     examples: SOLVE_SYSTEM_EXAMPLES,
     related: &["solve", "eq", "substitute"],
 };

@@ -2,8 +2,9 @@ use num_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 
 use super::{
-    cas_add, cas_err, cas_pow, contains_cas_var, eval_exact_numeric_div, eval_numeric_binary,
-    numeric_is_negative, numeric_is_one, numeric_is_zero, rebuild_scaled_term, simplify_cas_value,
+    cas_add, cas_err, cas_mul, cas_pow, contains_cas_var, eval_exact_numeric_div,
+    eval_numeric_binary, numeric_is_negative, numeric_is_one, numeric_is_zero, rebuild_scaled_term,
+    simplify_cas_value,
 };
 use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
@@ -84,6 +85,57 @@ pub(crate) fn extract_linear_coefficients(expr: &Value, var: &str) -> Option<(Va
     }
 
     None
+}
+
+pub(crate) fn extract_linear_coefficients_with_params(
+    expr: &Value,
+    var: &str,
+) -> Option<(Value, Value)> {
+    let coeffs = poly_from_expr_with_params(expr, var).ok()?;
+    if poly_degree(&coeffs) != 1 {
+        return None;
+    }
+    let a = coeffs.get(1).cloned().unwrap_or(Value::Int(0));
+    let b = coeffs.first().cloned().unwrap_or(Value::Int(0));
+    Some((a, b))
+}
+
+fn poly_add_with_params(lhs: &[Value], rhs: &[Value]) -> WqResult<Vec<Value>> {
+    let size = lhs.len().max(rhs.len());
+    let mut out = vec![Value::Int(0); size];
+    for (idx, slot) in out.iter_mut().enumerate() {
+        let left = lhs.get(idx).cloned().unwrap_or(Value::Int(0));
+        let right = rhs.get(idx).cloned().unwrap_or(Value::Int(0));
+        *slot = cas_add(vec![left, right])?;
+    }
+    poly_trim(&mut out);
+    Ok(out)
+}
+
+fn poly_mul_with_params(lhs: &[Value], rhs: &[Value]) -> WqResult<Vec<Value>> {
+    let mut out = vec![Value::Int(0); lhs.len() + rhs.len().saturating_sub(1)];
+    for (i, left) in lhs.iter().enumerate() {
+        if numeric_is_zero(left) {
+            continue;
+        }
+        for (j, right) in rhs.iter().enumerate() {
+            if numeric_is_zero(right) {
+                continue;
+            }
+            let term = cas_mul(vec![left.clone(), right.clone()])?;
+            out[i + j] = cas_add(vec![out[i + j].clone(), term])?;
+        }
+    }
+    poly_trim(&mut out);
+    Ok(out)
+}
+
+fn poly_pow_with_params(base: &[Value], exp: usize) -> WqResult<Vec<Value>> {
+    let mut acc = vec![Value::Int(1)];
+    for _ in 0..exp {
+        acc = poly_mul_with_params(&acc, base)?;
+    }
+    Ok(acc)
 }
 
 pub(crate) fn poly_add(lhs: &[Value], rhs: &[Value]) -> WqResult<Vec<Value>> {
@@ -601,6 +653,64 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
         };
     }
     Err(cas_err("solve expected a symbolic polynomial expression").got1(expr))
+}
+
+pub(crate) fn poly_from_expr_with_params(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
+    let expr = simplify_cas_value(expr)?;
+    poly_from_expr_with_params_simplified(&expr, var)
+}
+
+fn poly_from_expr_with_params_simplified(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
+    if let Some(name) = expr.cas_var_name() {
+        if name == var {
+            return Ok(vec![Value::Int(0), Value::Int(1)]);
+        }
+        return Ok(vec![expr.clone()]);
+    }
+    if !expr.is_cas_expr() {
+        return Ok(vec![expr.clone()]);
+    }
+    if !contains_cas_var(expr, var) {
+        return Ok(vec![simplify_cas_value(expr)?]);
+    }
+    if let Some((op, args)) = expr.cas_op_parts() {
+        return match (op, args) {
+            (CasOp::Add, args) => {
+                let mut acc = vec![Value::Int(0)];
+                for arg in args {
+                    acc = poly_add_with_params(
+                        &acc,
+                        &poly_from_expr_with_params_simplified(arg, var)?,
+                    )?;
+                }
+                Ok(acc)
+            }
+            (CasOp::Multiply, args) => {
+                let mut acc = vec![Value::Int(1)];
+                for arg in args {
+                    acc = poly_mul_with_params(
+                        &acc,
+                        &poly_from_expr_with_params_simplified(arg, var)?,
+                    )?;
+                }
+                Ok(acc)
+            }
+            (CasOp::Power, [base, exp]) => {
+                let n = exp.exact_int().and_then(|n| n.to_usize()).ok_or_else(|| {
+                    cas_err("solve currently supports non-negative integer powers only")
+                })?;
+                let base_poly = poly_from_expr_with_params_simplified(base, var)?;
+                poly_pow_with_params(&base_poly, n)
+            }
+            _ => Err(cas_err(
+                "solve currently supports polynomial expressions in the requested variable",
+            )),
+        };
+    }
+    Err(
+        cas_err("solve currently supports polynomial expressions in the requested variable")
+            .got1(expr),
+    )
 }
 
 #[cfg(test)]

@@ -2287,6 +2287,34 @@ mod tests {
     }
 
     #[test]
+    fn integrate_sin_with_symbolic_linear_coeff() {
+        let x = Value::from_cas_var("x");
+        let a_x = cas_mul(vec![Value::from_cas_var("a"), x.clone()]).expect("a*x");
+        let expr = call(CasFunction::Sin, vec![a_x]);
+        let result = integrate_cas(&expr, &x).expect("parameterized sine integral");
+        let derivative =
+            crate::cas::diff::diff_cas(&result, &x).expect("differentiate integral result");
+        assert_eq!(
+            simplify_cas_value(&derivative).expect("simplified derivative"),
+            simplify_cas_value(&expr).expect("simplified integrand")
+        );
+    }
+
+    #[test]
+    fn integrate_exp_with_symbolic_linear_coeff() {
+        let x = Value::from_cas_var("x");
+        let a_x = cas_mul(vec![Value::from_cas_var("a"), x.clone()]).expect("a*x");
+        let expr = call(CasFunction::Exp, vec![a_x]);
+        let result = integrate_cas(&expr, &x).expect("parameterized exp integral");
+        let derivative =
+            crate::cas::diff::diff_cas(&result, &x).expect("differentiate integral result");
+        assert_eq!(
+            simplify_cas_value(&derivative).expect("simplified derivative"),
+            simplify_cas_value(&expr).expect("simplified integrand")
+        );
+    }
+
+    #[test]
     fn integrate_exp_cos_direct() {
         // int e^x*cos x dx = e^x*(sin x + cos x)/2
         let expr = cas_mul(vec![

@@ -2,7 +2,7 @@ use num_bigint::BigInt;
 use num_traits::One as _;
 
 use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_neg, cas_pow, cas_sub, extract_linear_coefficients,
+    cas_add, cas_div, cas_mul, cas_neg, cas_pow, cas_sub, extract_linear_coefficients_with_params,
     numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, poly_degree, poly_from_expr,
     simplify_cas_value, substitute_expr,
 };
@@ -14,7 +14,7 @@ pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Val
     // Call node like exp[2*x], sin[3*x+1]
     if let Some((name, args)) = expr.cas_function_parts()
         && let [arg] = args
-        && let Some((a, _b)) = extract_linear_coefficients(arg, var)
+        && let Some((a, _b)) = extract_linear_coefficients_with_params(arg, var)
     {
         let base = base_integral_of_call(name, var)?;
         if let Some(base) = base {
@@ -32,7 +32,7 @@ pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Val
     if let Some((CasOp::Power, args)) = expr.cas_op_parts()
         && args.len() == 2
         && args[0].cas_const_name() == Some("e")
-        && let Some((a, _b)) = extract_linear_coefficients(&args[1], var)
+        && let Some((a, _b)) = extract_linear_coefficients_with_params(&args[1], var)
     {
         // int e^(kx+b) dx = e^(kx+b) / k
         // same as exp[kx+b], returned directly

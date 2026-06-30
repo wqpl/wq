@@ -544,6 +544,73 @@ fn solve_identity_reports_infinite_solutions() {
 }
 
 #[test]
+fn solve_parameterized_linear_equation() {
+    let a = Value::from_cas_var("a");
+    let b = Value::from_cas_var("b");
+    let x = Value::from_cas_var("x");
+    let expr = cas_add(vec![
+        cas_mul(vec![a.clone(), x.clone()]).expect("a*x"),
+        b.clone(),
+    ])
+    .expect("linear expression");
+    let result = solve_cas(&expr, &x).expect("parameterized linear solve");
+    let Value::List(roots) = result else {
+        panic!("expected list of roots");
+    };
+    let expected = cas_div(cas_neg(b).expect("-b"), a).expect("-b/a");
+    assert_eq!(roots.as_ref(), &vec![expected]);
+}
+
+#[test]
+fn solve_parameterized_quadratic_equation() {
+    let a = Value::from_cas_var("a");
+    let b = Value::from_cas_var("b");
+    let x = Value::from_cas_var("x");
+    let expr = cas_add(vec![
+        cas_pow(x.clone(), Value::Int(2)).expect("x^2"),
+        cas_mul(vec![a.clone(), x.clone()]).expect("a*x"),
+        b.clone(),
+    ])
+    .expect("quadratic expression");
+    let result = solve_cas(&expr, &x).expect("parameterized quadratic solve");
+    let Value::List(roots) = result else {
+        panic!("expected list of roots");
+    };
+
+    let disc = cas_sub(
+        cas_pow(a.clone(), Value::Int(2)).expect("a^2"),
+        cas_mul(vec![Value::Int(4), b]).expect("4*b"),
+    )
+    .expect("discriminant");
+    let sqrt_disc = cas_pow(
+        disc,
+        Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+    )
+    .expect("sqrt discriminant");
+    let neg_a = cas_neg(a).expect("-a");
+    let expected_plus = simplify_cas_value(
+        &cas_div(
+            cas_add(vec![neg_a.clone(), sqrt_disc.clone()]).expect("plus numerator"),
+            Value::Int(2),
+        )
+        .expect("plus root"),
+    )
+    .expect("simplified plus root");
+    let expected_minus = simplify_cas_value(
+        &cas_div(
+            cas_sub(neg_a, sqrt_disc).expect("minus numerator"),
+            Value::Int(2),
+        )
+        .expect("minus root"),
+    )
+    .expect("simplified minus root");
+
+    assert_eq!(roots.len(), 2);
+    assert!(roots.contains(&expected_plus), "roots: {roots:?}");
+    assert!(roots.contains(&expected_minus), "roots: {roots:?}");
+}
+
+#[test]
 fn solve_monomial_cubic_equation() {
     let expr = op(
         CasOp::Subtract,
@@ -599,6 +666,43 @@ fn solve_linear_system_returns_values_in_variable_order() {
         solve_system_cas(&equations, &vars).unwrap(),
         Value::IntList(Arc::new(vec![2, 1]))
     );
+}
+
+#[test]
+fn solve_linear_system_allows_explicit_parameters() {
+    let b = Value::from_cas_var("b");
+    let c = Value::from_cas_var("c");
+    let x = Value::from_cas_var("x");
+    let y = Value::from_cas_var("y");
+    let equations = Value::List(Arc::new(vec![
+        Value::from_cas_eq(
+            cas_add(vec![
+                cas_mul(vec![Value::Int(2), x.clone()]).expect("2*x"),
+                y.clone(),
+            ])
+            .expect("first lhs"),
+            b.clone(),
+        ),
+        Value::from_cas_eq(cas_sub(x.clone(), y.clone()).expect("x-y"), c.clone()),
+    ]));
+    let vars = Value::List(Arc::new(vec![x, y]));
+    let result = solve_system_cas(&equations, &vars).expect("parameterized system solve");
+    let Value::List(values) = result else {
+        panic!("expected list of system values");
+    };
+
+    let expected_x = cas_div(
+        cas_add(vec![b.clone(), c.clone()]).expect("b+c"),
+        Value::Int(3),
+    )
+    .expect("x solution");
+    let expected_y = cas_div(
+        cas_sub(b, cas_mul(vec![Value::Int(2), c]).expect("2*c")).expect("b-2*c"),
+        Value::Int(3),
+    )
+    .expect("y solution");
+
+    assert_eq!(values.as_ref(), &vec![expected_x, expected_y]);
 }
 
 #[test]
@@ -661,6 +765,19 @@ fn linear_coeff_sum() {
     assert_eq!(
         extract_linear_coefficients(&simplify_cas_value(&expr).unwrap(), "x"),
         Some((Value::Int(2), Value::Int(3)))
+    );
+}
+
+#[test]
+fn linear_coeff_symbolic_params() {
+    let expr = cas_add(vec![
+        cas_mul(vec![Value::from_cas_var("a"), Value::from_cas_var("x")]).expect("a*x"),
+        Value::from_cas_var("b"),
+    ])
+    .expect("a*x+b");
+    assert_eq!(
+        extract_linear_coefficients_with_params(&expr, "x"),
+        Some((Value::from_cas_var("a"), Value::from_cas_var("b")))
     );
 }
 

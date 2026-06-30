@@ -27,9 +27,10 @@ pub(crate) use numeric::{
 use numeric::{eval_numeric_call, try_eval_with_const_resolve};
 use poly::{collect_single_poly_var, try_exact_polynomial_division};
 pub(crate) use poly::{
-    extract_linear_coefficients, poly_add, poly_const_mul, poly_degree, poly_derivative,
-    poly_divide, poly_evaluate, poly_from_expr, poly_gcd, poly_interpolate, poly_is_zero, poly_mul,
-    poly_neg, poly_resultant, poly_sub, poly_to_expr, poly_trim, square_free_factor,
+    extract_linear_coefficients, extract_linear_coefficients_with_params, poly_add, poly_const_mul,
+    poly_degree, poly_derivative, poly_divide, poly_evaluate, poly_from_expr,
+    poly_from_expr_with_params, poly_gcd, poly_interpolate, poly_is_zero, poly_mul, poly_neg,
+    poly_resultant, poly_sub, poly_to_expr, poly_trim, square_free_factor,
 };
 pub(crate) use quote::cas_symbolic_call_expr;
 #[cfg(test)]
