@@ -86,7 +86,7 @@ pub(super) const BOR: BuiltinDoc = BuiltinDoc {
 pub(super) const SHL: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Shl,
     summary: "Shift integer bits left.",
-    details: "`shl[xs;shift+]` folds left shifts over integer values. Shift counts must be non-negative and fit the runtime shift range.",
+    details: "`shl[xs;shift+]` folds exact left shifts over integer values, promoting to bigint when an int result no longer fits. Shift counts must be non-negative and fit the runtime shift range.",
     examples: SHL_EXAMPLES,
     related: &["shr", "band", "bor"],
 };
@@ -94,7 +94,7 @@ pub(super) const SHL: BuiltinDoc = BuiltinDoc {
 pub(super) const SHR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Shr,
     summary: "Shift integer bits right.",
-    details: "`shr[xs;shift+]` folds right shifts over integer values. Shift counts must be non-negative and fit the runtime shift range.",
+    details: "`shr[xs;shift+]` folds exact arithmetic right shifts over integer values. Shift counts must be non-negative and fit the runtime shift range.",
     examples: SHR_EXAMPLES,
     related: &["shl", "band", "bor"],
 };

@@ -10,12 +10,33 @@ use crate::wqerror::{WqError, WqErrorType};
 
 fn invalid_shift(v: &Value) -> WqError {
     WqError::new(WqErrorType::Domain)
-        .msg("shift must be in 0..4_294_967_295")
+        .msg("shift must be a non-negative integer that fits u32")
         .got1(v)
 }
 
 fn shift_count_i64(n: i64, original: &Value) -> WqResult<u32> {
     u32::try_from(n).map_err(|_| invalid_shift(original))
+}
+
+fn shl_i64_exact(x: i64, shift: u32) -> Value {
+    if x == 0 {
+        return Value::Int(0);
+    }
+    if let Some(factor) = 1_i64.checked_shl(shift)
+        && factor > 0
+        && let Some(result) = x.checked_mul(factor)
+    {
+        return Value::Int(result);
+    }
+    Value::from_bigint(BigInt::from(x) << shift)
+}
+
+fn shr_i64_exact(x: i64, shift: u32) -> Value {
+    if shift >= i64::BITS {
+        Value::Int(if x < 0 { -1 } else { 0 })
+    } else {
+        Value::Int(x >> shift)
+    }
 }
 
 fn band_intlist(left: &Value, right: &Value) -> Option<Value> {
@@ -74,7 +95,9 @@ fn shl_intlist(left: &Value, right: &Value) -> Option<Value> {
     match (left, right) {
         (Value::IntList(a), Value::Int(b)) => {
             let shift = u32::try_from(*b).ok()?;
-            intlist_map(a, |x| Some(x.wrapping_shl(shift))).map(|v| Value::IntList(Arc::new(v)))
+            Some(Value::from_items(
+                a.iter().map(|&x| shl_i64_exact(x, shift)).collect(),
+            ))
         }
         _ => None,
     }
@@ -84,7 +107,9 @@ fn shr_intlist(left: &Value, right: &Value) -> Option<Value> {
     match (left, right) {
         (Value::IntList(a), Value::Int(b)) => {
             let shift = u32::try_from(*b).ok()?;
-            intlist_map(a, |x| Some(x.wrapping_shr(shift))).map(|v| Value::IntList(Arc::new(v)))
+            Some(Value::from_items(
+                a.iter().map(|&x| shr_i64_exact(x, shift)).collect(),
+            ))
         }
         _ => None,
     }
@@ -158,7 +183,7 @@ fn shl_atoms(a: &Value, b: &Value) -> WqResult<Value> {
     match (a, b) {
         (Value::Int(x), Value::Int(s)) => {
             let shift = shift_count_i64(*s, b)?;
-            Ok(Value::Int(x.wrapping_shl(shift)))
+            Ok(shl_i64_exact(*x, shift))
         }
         (Value::BigInt(x), Value::Int(s)) => {
             let shift = shift_count_i64(*s, b)?;
@@ -166,7 +191,7 @@ fn shl_atoms(a: &Value, b: &Value) -> WqResult<Value> {
         }
         (Value::Int(x), Value::BigInt(s)) => {
             let shift = s.to_u32().ok_or_else(|| invalid_shift(b))?;
-            Ok(Value::Int(x.wrapping_shl(shift)))
+            Ok(shl_i64_exact(*x, shift))
         }
         (Value::BigInt(x), Value::BigInt(s)) => {
             let shift = s.to_u32().ok_or_else(|| invalid_shift(b))?;
@@ -183,7 +208,7 @@ fn shr_atoms(a: &Value, b: &Value) -> WqResult<Value> {
     match (a, b) {
         (Value::Int(x), Value::Int(s)) => {
             let shift = shift_count_i64(*s, b)?;
-            Ok(Value::Int(x.wrapping_shr(shift)))
+            Ok(shr_i64_exact(*x, shift))
         }
         (Value::BigInt(x), Value::Int(s)) => {
             let shift = shift_count_i64(*s, b)?;
@@ -191,7 +216,7 @@ fn shr_atoms(a: &Value, b: &Value) -> WqResult<Value> {
         }
         (Value::Int(x), Value::BigInt(s)) => {
             let shift = s.to_u32().ok_or_else(|| invalid_shift(b))?;
-            Ok(Value::Int(x.wrapping_shr(shift)))
+            Ok(shr_i64_exact(*x, shift))
         }
         (Value::BigInt(x), Value::BigInt(s)) => {
             let shift = s.to_u32().ok_or_else(|| invalid_shift(b))?;
@@ -242,8 +267,6 @@ impl Value {
         self.bc1(not_atom).map_err(|e| e.into_wqerror())
     }
 
-    // Shifts (reject negative shift counts)
-
     pub(crate) fn shl(&self, other: &Value) -> WqResult<Value> {
         if let Some(res) = shl_intlist(self, other) {
             return Ok(res);
@@ -286,5 +309,74 @@ mod tests {
 
         assert!(values.shl(&count).is_err());
         assert!(values.shr(&count).is_err());
+    }
+
+    #[test]
+    fn int_left_shifts_are_exact_and_promote() {
+        assert_eq!(
+            Value::Int(1)
+                .shl(&Value::Int(63))
+                .expect("shift should succeed"),
+            Value::from_bigint(BigInt::from(1) << 63_u32)
+        );
+        assert_eq!(
+            Value::Int(i64::MIN)
+                .shl(&Value::Int(1))
+                .expect("shift should succeed"),
+            Value::from_bigint(BigInt::from(i64::MIN) << 1_u32)
+        );
+    }
+
+    #[test]
+    fn int_right_shifts_are_exact_arithmetic_shifts() {
+        assert_eq!(
+            Value::Int(8)
+                .shr(&Value::Int(64))
+                .expect("shift should succeed"),
+            Value::Int(0)
+        );
+        assert_eq!(
+            Value::Int(-3)
+                .shr(&Value::Int(1))
+                .expect("shift should succeed"),
+            Value::Int(-2)
+        );
+        assert_eq!(
+            Value::Int(-1)
+                .shr(&Value::Int(128))
+                .expect("shift should succeed"),
+            Value::Int(-1)
+        );
+    }
+
+    #[test]
+    fn int_list_left_shift_widens_when_needed() {
+        let values = Value::IntList(Arc::new(vec![1, 2]));
+
+        assert_eq!(
+            values.shl(&Value::Int(2)).expect("shift should succeed"),
+            Value::IntList(Arc::new(vec![4, 8]))
+        );
+        assert_eq!(
+            values.shl(&Value::Int(63)).expect("shift should succeed"),
+            Value::from_items(vec![
+                Value::from_bigint(BigInt::from(1) << 63_u32),
+                Value::from_bigint(BigInt::from(2) << 63_u32),
+            ])
+        );
+    }
+
+    #[test]
+    fn int_list_right_shift_stays_packed() {
+        let values = Value::IntList(Arc::new(vec![8, -3, -1]));
+
+        assert_eq!(
+            values.shr(&Value::Int(1)).expect("shift should succeed"),
+            Value::IntList(Arc::new(vec![4, -2, -1]))
+        );
+        assert_eq!(
+            values.shr(&Value::Int(64)).expect("shift should succeed"),
+            Value::IntList(Arc::new(vec![0, -1, -1]))
+        );
     }
 }

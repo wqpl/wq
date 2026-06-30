@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
+use num_bigint::BigInt;
 use smallvec::SmallVec;
 
 use crate::astnode::BinaryOperator;
@@ -2110,10 +2111,10 @@ fn eval_int_binary(op: BinaryOperator, left: i64, right: i64) -> Option<Value> {
         BitXor => Some(Value::Int(left ^ right)),
         Shl => u32::try_from(right)
             .ok()
-            .map(|shift| Value::Int(left.wrapping_shl(shift))),
+            .map(|shift| Value::from_bigint(BigInt::from(left) << shift)),
         Shr => u32::try_from(right)
             .ok()
-            .map(|shift| Value::Int(left.wrapping_shr(shift))),
+            .map(|shift| Value::from_bigint(BigInt::from(left) >> shift)),
         Power | PowerDot | DivideDot | Matmul | Cat | BoolAnd | BoolOr => None,
     }?;
 

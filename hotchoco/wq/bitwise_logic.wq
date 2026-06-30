@@ -20,6 +20,11 @@ shl[1;3] |echo
 // right shift
 shr[8;2] |echo
 
+// exact shifts
+shl[1;63] |echo
+shr[8;64] |echo
+shr[-3;1] |echo
+
 // bitwise xor
 xor[5;3] |echo
 
