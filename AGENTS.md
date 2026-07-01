@@ -125,7 +125,7 @@ Use:
     - `wqpl` for syntax/builtin changes
     - `wqpl/cas` for specific cas changes
     - `wq-cli` for specific cli changes
-- Clear, consise message body. Do not manually insert hard-wrap newlines.
+- Clear, consise message body. Do not manually hard-wrap with newlines when suggesting. If you are committing because user approved so, you may manually wrap.
 - Include a `Release Notes:` section as the final section
 - Use one bullet under `Release Notes:`:
   - `- Added ...` for a new user-facing capability;
