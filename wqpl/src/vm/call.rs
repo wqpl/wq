@@ -1033,7 +1033,7 @@ mod tests {
     use smallvec::smallvec;
 
     use super::*;
-    use crate::astnode::{BinaryOperator, UnaryOperator};
+    use crate::ast::{BinaryOperator, UnaryOperator};
     use crate::value::func::FunctionData;
     use crate::vm::inst::{Instruction, Operand};
 

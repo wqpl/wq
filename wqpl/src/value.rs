@@ -29,7 +29,7 @@ use num_traits::ToPrimitive;
 pub(crate) use op::{eval_binary, eval_unary};
 use ordered_float::OrderedFloat;
 
-use crate::astnode::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::value::cas::CasData;
 use crate::value::func::{CallableExpr, ClosureData, FunctionData, LiftedCallableData};
 use crate::value::stream::StreamHandle;
@@ -737,7 +737,7 @@ mod tests {
         assert!(eval_binary(&BinaryOperator::BitXor, &c, &d).is_err());
 
         assert_eq!(
-            eval_unary(&crate::astnode::UnaryOperator::Not, &d),
+            eval_unary(&crate::ast::UnaryOperator::Not, &d),
             Ok(Value::List(Arc::new(vec![
                 Value::Bool(true),
                 Value::Bool(false)

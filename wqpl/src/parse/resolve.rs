@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::astnode::{AstNode, AstSpan, BinaryOperator, Parameter, PipeKind};
+use crate::ast::{AstNode, AstSpan, BinaryOperator, Parameter, PipeKind};
 use crate::builtins::Builtins;
 use crate::compile::function_ref_capture_names;
 use crate::symbol::{DefKind, SymbolIndex};
@@ -522,10 +522,10 @@ impl Resolver {
                 let mut args: Vec<AstNode> = Vec::new();
                 for part in parts {
                     match part {
-                        crate::astnode::FStringPart::Text(t) => {
+                        crate::ast::FStringPart::Text(t) => {
                             template.push_str(&t);
                         }
-                        crate::astnode::FStringPart::Expr {
+                        crate::ast::FStringPart::Expr {
                             expr,
                             encoded_spec,
                             spec_exprs,
@@ -605,7 +605,7 @@ impl Resolver {
     fn expand_unpack_assignment(
         &mut self,
         lhs: Vec<AstNode>,
-        op: Option<crate::astnode::BinaryOperator>,
+        op: Option<crate::ast::BinaryOperator>,
         rhs: AstNode,
         span: AstSpan,
     ) -> AstNode {
@@ -891,7 +891,7 @@ impl Resolver {
         tmp_name: &str,
         pos: i64,
         span: AstSpan,
-        aug_op: Option<crate::astnode::BinaryOperator>,
+        aug_op: Option<crate::ast::BinaryOperator>,
     ) -> Vec<AstNode> {
         let rhs_value = AstNode::Postfix {
             object: Box::new(AstNode::Variable(tmp_name.into(), None)),
@@ -1611,8 +1611,8 @@ fn expr_uses_vars(node: &AstNode, vars: &HashSet<&str>) -> bool {
             items.iter().any(|item| expr_uses_vars(item, vars))
         }
         AstNode::FString { parts, .. } => parts.iter().any(|p| match p {
-            crate::astnode::FStringPart::Text(_) => false,
-            crate::astnode::FStringPart::Expr {
+            crate::ast::FStringPart::Text(_) => false,
+            crate::ast::FStringPart::Expr {
                 expr, spec_exprs, ..
             } => expr_uses_vars(expr, vars) || spec_exprs.iter().any(|e| expr_uses_vars(e, vars)),
         }),
@@ -1758,8 +1758,8 @@ mod tests {
                 .as_ref()
                 .is_some_and(|expr| contains_call_name(expr, target)),
             AstNode::FString { parts, .. } => parts.iter().any(|part| match part {
-                crate::astnode::FStringPart::Text(_) => false,
-                crate::astnode::FStringPart::Expr {
+                crate::ast::FStringPart::Text(_) => false,
+                crate::ast::FStringPart::Expr {
                     expr, spec_exprs, ..
                 } => {
                     contains_call_name(expr, target)

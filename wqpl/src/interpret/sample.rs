@@ -605,7 +605,7 @@ fn stderr_is_terminal() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::astnode::BinaryOperator;
+    use crate::ast::BinaryOperator;
     use crate::vm::inst::Operand;
 
     impl SampleInterpreter {

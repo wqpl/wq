@@ -3,7 +3,7 @@ pub mod bit;
 pub mod char;
 pub mod container;
 
-use crate::astnode::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::value::convert::IntoWqValue;
 use crate::value::{Value, WqResult, expected_bool1, expected_bool2};
 

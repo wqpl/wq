@@ -10,7 +10,7 @@ mod parse;
 mod range;
 mod tree_pretty;
 
-pub mod astnode;
+pub mod ast;
 pub mod boxmode;
 pub mod builtins;
 pub mod cst;

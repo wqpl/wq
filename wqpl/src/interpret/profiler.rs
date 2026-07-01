@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
-use crate::astnode::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::builtins::Builtins;
 use crate::interpret::vanilla::VanillaInterpreter;
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};

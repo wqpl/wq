@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::astnode::{AstNode, AstSpan, BinaryOperator, Parameter};
+use crate::ast::{AstNode, AstSpan, BinaryOperator, Parameter};
 use crate::builtins::{BuiltinDepthSugar, Builtins};
 use crate::value::func::FunctionData;
 use crate::value::{Value, WqResult};

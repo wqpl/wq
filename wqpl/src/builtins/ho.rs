@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::astnode::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::builtins::{
     BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
 };
@@ -1319,7 +1319,7 @@ mod tests {
                 Instruction::LoadLocal(0),
                 Instruction::load_const(Value::Int(1)),
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Add,
+                    crate::ast::BinaryOperator::Add,
                     Operand::Stack,
                     Operand::Stack,
                 ),
@@ -1340,7 +1340,7 @@ mod tests {
             3,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Add,
+                    crate::ast::BinaryOperator::Add,
                     Operand::Local(0),
                     Operand::Const(Box::new(Value::Int(1))),
                 ),
@@ -1362,7 +1362,7 @@ mod tests {
             vec![Value::Int(10)],
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Add,
+                    crate::ast::BinaryOperator::Add,
                     Operand::Local(0),
                     Operand::Capture(0),
                 ),
@@ -1389,23 +1389,23 @@ mod tests {
             vec![grid, Value::Int(0), Value::Int(0)],
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::FloorDiv,
+                    crate::ast::BinaryOperator::FloorDiv,
                     Operand::Local(0),
                     Operand::Const(Box::new(Value::Int(3))),
                 ),
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Add,
+                    crate::ast::BinaryOperator::Add,
                     Operand::Stack,
                     Operand::Capture(1),
                 ),
                 Instruction::PostfixCapture(0, 1),
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Modulo,
+                    crate::ast::BinaryOperator::Modulo,
                     Operand::Local(0),
                     Operand::Const(Box::new(Value::Int(3))),
                 ),
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Add,
+                    crate::ast::BinaryOperator::Add,
                     Operand::Stack,
                     Operand::Capture(2),
                 ),
@@ -1485,7 +1485,7 @@ mod tests {
             1,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Add,
+                    crate::ast::BinaryOperator::Add,
                     Operand::Local(0),
                     Operand::Const(Box::new(Value::Int(1))),
                 ),
@@ -1518,7 +1518,7 @@ mod tests {
             1,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Gt,
+                    crate::ast::BinaryOperator::Gt,
                     Operand::Local(0),
                     Operand::Const(Box::new(Value::Int(2))),
                 ),
@@ -1539,7 +1539,7 @@ mod tests {
             2,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Add,
+                    crate::ast::BinaryOperator::Add,
                     Operand::Local(0),
                     Operand::Local(1),
                 ),
@@ -1551,7 +1551,7 @@ mod tests {
             1,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Gt,
+                    crate::ast::BinaryOperator::Gt,
                     Operand::Local(0),
                     Operand::Const(Box::new(Value::Int(2))),
                 ),
@@ -1563,7 +1563,7 @@ mod tests {
             1,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Equal,
+                    crate::ast::BinaryOperator::Equal,
                     Operand::Local(0),
                     Operand::Const(Box::new(Value::Int(3))),
                 ),
@@ -1633,7 +1633,7 @@ mod tests {
             2,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Add,
+                    crate::ast::BinaryOperator::Add,
                     Operand::Local(0),
                     Operand::Local(1),
                 ),
@@ -1655,7 +1655,7 @@ mod tests {
             1,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Add,
+                    crate::ast::BinaryOperator::Add,
                     Operand::Local(0),
                     Operand::Const(Box::new(Value::Int(1))),
                 ),
@@ -1667,14 +1667,14 @@ mod tests {
             1,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Multiply,
+                    crate::ast::BinaryOperator::Multiply,
                     Operand::Local(0),
                     Operand::Const(Box::new(Value::Int(2))),
                 ),
                 Instruction::Return,
             ],
         );
-        let f = Value::function_composition(crate::astnode::BinaryOperator::Add, inc, double);
+        let f = Value::function_composition(crate::ast::BinaryOperator::Add, inc, double);
 
         let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
         assert_eq!(result, Value::IntList(Arc::new(vec![4, 7, 10])));
@@ -1690,14 +1690,14 @@ mod tests {
             1,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Add,
+                    crate::ast::BinaryOperator::Add,
                     Operand::Local(0),
                     Operand::Const(Box::new(Value::Int(1))),
                 ),
                 Instruction::Return,
             ],
         );
-        let f = Value::unary_function_composition(crate::astnode::UnaryOperator::Negate, inc);
+        let f = Value::unary_function_composition(crate::ast::UnaryOperator::Negate, inc);
 
         let result = map(&mut vm, BuiltinFnArgs::from(smallvec![xs, f])).expect("map succeeds");
         assert_eq!(result, Value::IntList(Arc::new(vec![-2, -3, -4])));
@@ -1714,7 +1714,7 @@ mod tests {
             2,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Add,
+                    crate::ast::BinaryOperator::Add,
                     Operand::Local(0),
                     Operand::Local(1),
                 ),
@@ -1726,14 +1726,14 @@ mod tests {
             2,
             vec![
                 Instruction::binary_op(
-                    crate::astnode::BinaryOperator::Multiply,
+                    crate::ast::BinaryOperator::Multiply,
                     Operand::Local(0),
                     Operand::Local(1),
                 ),
                 Instruction::Return,
             ],
         );
-        let f = Value::function_composition(crate::astnode::BinaryOperator::Add, add, multiply);
+        let f = Value::function_composition(crate::ast::BinaryOperator::Add, add, multiply);
 
         let result =
             zipw(&mut vm, BuiltinFnArgs::from(smallvec![xs, ys, f])).expect("zipw succeeds");

@@ -1,7 +1,7 @@
 pub mod dbglog;
 pub mod stdio;
 
-use crate::astnode::AstNode;
+use crate::ast::AstNode;
 use crate::builtins::BuiltinPreset;
 use crate::compile::Compiler;
 use crate::cst::{GreenChild, GreenNode, GreenNodeBuilder, GreenToken, SyntaxKind};
@@ -469,7 +469,7 @@ impl Session {
     pub fn parse_with_cst(
         &self,
         input: &str,
-    ) -> WqResult<(crate::astnode::AstNode, crate::cst::GreenNode)> {
+    ) -> WqResult<(crate::ast::AstNode, crate::cst::GreenNode)> {
         if might_have_script_meta(input) {
             let items = parse_script_items(input);
             if has_script_meta(&items) {
@@ -492,7 +492,7 @@ impl Session {
         &self,
         input: &str,
         previous: &crate::cst::GreenNode,
-    ) -> WqResult<(crate::astnode::AstNode, crate::cst::GreenNode)> {
+    ) -> WqResult<(crate::ast::AstNode, crate::cst::GreenNode)> {
         if might_have_script_meta(input) {
             let items = parse_script_items(input);
             if has_script_meta(&items) {

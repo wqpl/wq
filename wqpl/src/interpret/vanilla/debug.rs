@@ -1,4 +1,4 @@
-use crate::astnode::BinaryOperator;
+use crate::ast::BinaryOperator;
 use crate::highlight::Highlighter;
 use crate::value::{Excerpt, Value};
 use crate::vm::Vm;

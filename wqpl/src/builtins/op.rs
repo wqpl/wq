@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::astnode::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::builtins::fold::fold_binary_op;
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
 use crate::value::cmp::eval_cmp_chain;

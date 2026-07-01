@@ -4,7 +4,7 @@ use num_bigint::BigInt;
 use ordered_float::OrderedFloat;
 use rayon::prelude::*;
 
-use crate::astnode::BinaryOperator;
+use crate::ast::BinaryOperator;
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 

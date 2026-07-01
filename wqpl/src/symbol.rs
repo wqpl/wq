@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::astnode::AstNode;
+use crate::ast::AstNode;
 use crate::value::Value;
 use crate::wqerror::WqError;
 
@@ -786,7 +786,7 @@ impl SymbolAnalyzer {
             }
             AstNode::FString { parts, .. } => {
                 for part in parts {
-                    if let crate::astnode::FStringPart::Expr {
+                    if let crate::ast::FStringPart::Expr {
                         expr, spec_exprs, ..
                     } = part
                     {
@@ -850,7 +850,7 @@ impl SymbolAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::astnode::AstNode;
+    use crate::ast::AstNode;
     use crate::lex::Lexer;
     use crate::parse::Parser;
     use crate::parse::resolve::Resolver;

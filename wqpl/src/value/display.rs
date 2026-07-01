@@ -6,7 +6,7 @@ use num_bigint::BigInt;
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
-use crate::astnode::{binary_op_display, unary_op_display};
+use crate::ast::{binary_op_display, unary_op_display};
 use crate::value::Value;
 use crate::value::func::CallableExpr;
 use crate::value::seq::ExactIntSeq;

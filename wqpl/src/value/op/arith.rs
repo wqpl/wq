@@ -5,7 +5,7 @@ use num_complex::Complex64;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use rayon::prelude::*;
 
-use crate::astnode::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::cas::{cas_binary_expr, cas_unary_expr};
 use crate::value::cas::CasOp;
 use crate::value::op::PAR_BC_THRESHOLD;

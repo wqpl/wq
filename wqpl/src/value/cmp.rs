@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
-use crate::astnode::BinaryOperator;
+use crate::ast::BinaryOperator;
 use crate::value::{Excerpt, Value, WqResult, eval_binary};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -295,7 +295,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::astnode::BinaryOperator;
+    use crate::ast::BinaryOperator;
 
     #[test]
     fn chain_all_true_scalar() {

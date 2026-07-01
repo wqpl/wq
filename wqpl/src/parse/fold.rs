@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use crate::astnode::AstNode;
+use crate::ast::AstNode;
 use crate::builtins::BuiltinFnArgs;
 use crate::range::{make_range, make_range_from_next};
 use crate::value::{Value, eval_binary, eval_unary};
@@ -404,9 +404,9 @@ fn fold_index_child(node: AstNode) -> AstNode {
 
 fn fold_binary_chain(
     left: AstNode,
-    operator: crate::astnode::BinaryOperator,
+    operator: crate::ast::BinaryOperator,
     right: AstNode,
-    span: crate::astnode::AstSpan,
+    span: crate::ast::AstSpan,
 ) -> AstNode {
     use AstNode::*;
 
@@ -449,7 +449,7 @@ fn fold_binary_chain(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::astnode::BinaryOperator;
+    use crate::ast::BinaryOperator;
 
     #[test]
     fn folds_simple_addition() {

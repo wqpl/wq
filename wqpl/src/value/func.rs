@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::astnode::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::value::Value;
 use crate::value::cell::{self, ValueCell};
 use crate::vm::inst::{DebugStmtMark, Instruction};

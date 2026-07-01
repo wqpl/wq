@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 use smallvec::SmallVec;
 
-use crate::astnode::BinaryOperator;
+use crate::ast::BinaryOperator;
 use crate::interpret::{Interpreter, InterpreterHook, NO_OP_HOOK};
 use crate::range::{make_range, make_range_from_next, range_alloc_len};
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
@@ -2222,7 +2222,7 @@ mod tests {
 
     use num_bigint::BigInt;
 
-    use crate::astnode::BinaryOperator;
+    use crate::ast::BinaryOperator;
     use crate::builtins::BuiltinFnArgs;
     use crate::interpret::Interpreter;
     use crate::interpret::vanilla::VanillaInterpreter;

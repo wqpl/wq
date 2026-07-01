@@ -4,7 +4,7 @@ pub(crate) mod resolve;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::astnode::{AstNode, AstSpan, BinaryOperator, FStringPart, Parameter, UnaryOperator};
+use crate::ast::{AstNode, AstSpan, BinaryOperator, FStringPart, Parameter, UnaryOperator};
 use crate::cas::{cas_binary_expr, cas_symbolic_call_expr, cas_unary_expr};
 use crate::cst::{
     Checkpoint, GreenNode, GreenNodeBuilder, SyntaxKind, SyntaxNode, syntax_kind_of_token,
@@ -1414,7 +1414,7 @@ impl Parser {
     }
 
     fn parse_pipe(&mut self) -> WqResult<AstNode> {
-        use crate::astnode::PipeKind;
+        use crate::ast::PipeKind;
         // The Pipe AST span now covers the whole expression `LHS | RHS` --
         // matching the CST `PipeExpr`. Previously it covered only the
         // operator and RHS; the change makes spans usable for highlighting
@@ -3003,7 +3003,7 @@ impl Parser {
                     span.1 += offset;
                 }
                 for part in parts {
-                    if let crate::astnode::FStringPart::Expr {
+                    if let crate::ast::FStringPart::Expr {
                         expr, spec_exprs, ..
                     } = part
                     {
@@ -3599,7 +3599,7 @@ impl Parser {
             }
             AstNode::FString { parts, .. } => {
                 for part in parts {
-                    if let crate::astnode::FStringPart::Expr {
+                    if let crate::ast::FStringPart::Expr {
                         expr, spec_exprs, ..
                     } = part
                     {
@@ -3621,7 +3621,7 @@ impl Parser {
         use crate::escape::unescape_string_inner;
         use crate::token::FmtPart;
 
-        let mut fstring_parts: Vec<crate::astnode::FStringPart> = Vec::new();
+        let mut fstring_parts: Vec<crate::ast::FStringPart> = Vec::new();
 
         for part in parts {
             match part {
@@ -4376,7 +4376,7 @@ mod fstring_span_tests {
         };
         assert_eq!(parts.len(), 2);
         let expr = match &parts[1] {
-            crate::astnode::FStringPart::Expr { expr, .. } => expr,
+            crate::ast::FStringPart::Expr { expr, .. } => expr,
             other => panic!("expected Expr part, got {other:?}"),
         };
         let AstNode::Variable(name, span) = expr else {
@@ -4403,7 +4403,7 @@ mod fstring_span_tests {
             panic!("expected FString, got {ast:?}");
         };
         let expr = match &parts[0] {
-            crate::astnode::FStringPart::Expr { expr, .. } => expr,
+            crate::ast::FStringPart::Expr { expr, .. } => expr,
             other => panic!("expected Expr part, got {other:?}"),
         };
         let AstNode::Block(items, _) = expr else {
@@ -4460,7 +4460,7 @@ mod fstring_span_tests {
         };
         assert_eq!(parts.len(), 1);
         let (expr, spec, encoded_spec) = match &parts[0] {
-            crate::astnode::FStringPart::Expr {
+            crate::ast::FStringPart::Expr {
                 expr,
                 spec,
                 encoded_spec,
@@ -4497,7 +4497,7 @@ mod fstring_span_tests {
         };
         assert_eq!(parts.len(), 1);
         let (expr, spec, encoded_spec, spec_exprs) = match &parts[0] {
-            crate::astnode::FStringPart::Expr {
+            crate::ast::FStringPart::Expr {
                 expr,
                 spec,
                 encoded_spec,
@@ -4540,7 +4540,7 @@ mod fstring_span_tests {
         };
         assert_eq!(parts.len(), 1);
         let (spec, encoded_spec, spec_exprs) = match &parts[0] {
-            crate::astnode::FStringPart::Expr {
+            crate::ast::FStringPart::Expr {
                 spec,
                 encoded_spec,
                 spec_exprs,
@@ -5774,7 +5774,7 @@ mod cst_integration_tests {
             }
             AstNode::FString { parts, .. } => {
                 for part in parts {
-                    if let crate::astnode::FStringPart::Expr {
+                    if let crate::ast::FStringPart::Expr {
                         expr, spec_exprs, ..
                     } = part
                     {

@@ -1,4 +1,4 @@
-use crate::astnode::BinaryOperator;
+use crate::ast::BinaryOperator;
 use crate::compile::Compiler;
 use crate::value::Value;
 use crate::value::func::FunctionData;

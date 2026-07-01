@@ -1,4 +1,4 @@
-use crate::astnode::BinaryOperator;
+use crate::ast::BinaryOperator;
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs};
 use crate::value::{Value, WqResult, eval_binary};
 use crate::wqerror::{WqError, WqErrorType};

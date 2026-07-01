@@ -2,7 +2,7 @@ pub mod profiler;
 pub mod sample;
 pub mod vanilla;
 
-use crate::astnode::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::interpret::profiler::ProfilerInterpreter;
 use crate::interpret::sample::SampleInterpreter;
 use crate::interpret::vanilla::VanillaInterpreter;
