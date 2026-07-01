@@ -73,3 +73,6 @@ brent[@s x^2-2;1;2] | echo
 
 //test newton root finding on a quadratic
 newton[@s x^2-2;1] | echo
+
+//test reparsing an opaque algebraic root constructor
+@s root[_^3-_-1;1;2] | echo

@@ -12,7 +12,7 @@ use super::{
     expand_expr, extract_algebraic_content, extract_linear_coefficients, factor_expr, numeric_add,
     numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_pow, poly_add,
     poly_degree, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul, poly_to_expr,
-    poly_trim, sort_canonical, split_off_results, square_free_factor,
+    poly_trim, resolve_cas_root, sort_canonical, split_off_results, square_free_factor,
     try_cancel_affine_over_factor, try_eval_with_const_resolve, try_exact_polynomial_division,
 };
 use crate::session::dbglog::DebugLogFlags;
@@ -2197,6 +2197,11 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
                     continue;
                 }
 
+                if let Some(root) = resolve_cas_root(&expr)? {
+                    results.push(root);
+                    continue;
+                }
+
                 results.push(expr.clone());
             }
             SimplifyFrame::Add(n) => {
@@ -2381,6 +2386,9 @@ pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<
         });
     }
     if expr.cas_const_name().is_some() {
+        return Ok(expr.clone());
+    }
+    if expr.cas_root_parts().is_some() {
         return Ok(expr.clone());
     }
     if !expr.is_cas_expr() {

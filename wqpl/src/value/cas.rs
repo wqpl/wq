@@ -262,6 +262,8 @@ pub(crate) enum CasKind {
         point: Value,
         direction: Option<crate::cas::limit::LimitDirection>,
     },
+    /// Opaque real root of an exact polynomial on a finite isolating interval.
+    Root { poly: Value, lo: f64, hi: f64 },
     /// Equation (lhs = rhs).
     Eq(Value, Value),
 }

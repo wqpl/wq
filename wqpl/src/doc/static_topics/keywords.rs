@@ -42,11 +42,18 @@ const AT_TRY_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("F"),
 }];
 
-const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Create a CAS expression",
-    code: "type @s x+1",
-    expectation: ExampleExpectation::ResultContains("\"cas\""),
-}];
+const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Create a CAS expression",
+        code: "type @s x+1",
+        expectation: ExampleExpectation::ResultContains("\"cas\""),
+    },
+    DocExample {
+        title: "Quote an opaque algebraic root",
+        code: "@s root[_^3-_-1;1;2]",
+        expectation: ExampleExpectation::ResultContains("root[_^3 - _ - 1;1;2]"),
+    },
+];
 
 const AT_FSTRING_DETAILS: &str = concat!(
     "`@f\"...{expr}...\"` is inline formatting. Braces contain wq expressions, ",
@@ -199,9 +206,9 @@ pub(super) const AT_SYMBOLIC: StaticDoc = StaticDoc {
     group: "Keywords",
     aliases: &["@s", "symbolic", "cas"],
     summary: "Quote an expression into a symbolic CAS value.",
-    details: "Use `@s` once at the start of a CAS expression, then apply CAS builtins directly. Bare arithmetic without `@s` is normal evaluation.",
+    details: "Use `@s` once at the start of a CAS expression, then apply CAS builtins directly. Bare arithmetic without `@s` is normal evaluation. CAS-only special forms such as `root[...]` are recognized inside `@s` quoting and are not ordinary builtins.",
     examples: AT_SYMBOLIC_EXAMPLES,
-    related: &["diff", "integrate", "simplify"],
+    related: &["diff", "integrate", "simplify", "numeric"],
 };
 
 pub(super) const AT_FSTRING: StaticDoc = StaticDoc {

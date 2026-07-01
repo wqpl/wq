@@ -751,22 +751,15 @@ fn has_top_level_additive_operator(text: &str) -> bool {
 ///
 /// Formats as a linear combination `c0 + c1*name + c2*name^2 + ...` where the
 /// generator name is a recognized radical (e.g. `2^(1/2)`) when possible,
-/// otherwise a descriptive `root(...)` string.
+/// otherwise a reparsable `@s root[...]` CAS node.
 pub(crate) fn fmt_algebraic_human(a: &AlgebraicData, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let name = algebraic_generator_name(a.field.as_ref());
     write_algebraic_with_generator_name(a, &name, f)
 }
 
 pub(crate) fn format_algebraic_generator_binding(field: &AlgebraicField) -> String {
-    recognize_radical_name(field.poly(), field.interval()).unwrap_or_else(|| {
-        let poly_str = poly_to_short_string(field.poly());
-        let alpha_approx = {
-            let interval = field.interval();
-            (interval.0 + interval.1) * 0.5
-        };
-        let approx_str = format_approx_f64(alpha_approx);
-        format!("root[{poly_str};{approx_str}]")
-    })
+    recognize_radical_name(field.poly(), field.interval())
+        .unwrap_or_else(|| format_algebraic_root_constructor(field))
 }
 
 pub(crate) fn format_algebraic_with_generator_name(a: &AlgebraicData, name: &str) -> String {
@@ -777,15 +770,16 @@ pub(crate) fn format_algebraic_with_generator_name(a: &AlgebraicData, name: &str
 }
 
 fn algebraic_generator_name(field: &AlgebraicField) -> String {
-    recognize_radical_name(field.poly(), field.interval()).unwrap_or_else(|| {
-        let poly_str = poly_to_short_string(field.poly());
-        let alpha_approx = {
-            let interval = field.interval();
-            (interval.0 + interval.1) * 0.5
-        };
-        let approx_str = format_approx_f64(alpha_approx);
-        format!("root({}, {approx_str})", poly_str)
-    })
+    recognize_radical_name(field.poly(), field.interval())
+        .unwrap_or_else(|| format_algebraic_root_constructor(field))
+}
+
+fn format_algebraic_root_constructor(field: &AlgebraicField) -> String {
+    let poly_str = poly_to_short_string(field.poly());
+    let (lo, hi) = field.interval();
+    let lo_str = format_approx_f64(lo);
+    let hi_str = format_approx_f64(hi);
+    format!("@s root[{poly_str};{lo_str};{hi_str}]")
 }
 
 fn write_algebraic_with_generator_name<W: fmt::Write>(
@@ -1870,7 +1864,7 @@ mod tests {
             vec![Value::Int(0), Value::Int(1), Value::Int(0)],
         );
         let v = Value::Algebraic(Arc::new(a));
-        assert_eq!(v.to_string(), "root(_^3-_-1, 1.5)");
+        assert_eq!(v.to_string(), "@s root[_^3-_-1;1;2]");
     }
 
     #[test]

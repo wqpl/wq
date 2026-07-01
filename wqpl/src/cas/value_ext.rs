@@ -92,6 +92,12 @@ impl Value {
         }))
     }
 
+    pub(crate) fn from_cas_root(poly: Value, lo: f64, hi: f64) -> Value {
+        Value::Cas(Arc::new(CasData {
+            kind: CasKind::Root { poly, lo, hi },
+        }))
+    }
+
     pub(crate) fn cas_var_name(&self) -> Option<&str> {
         match self {
             Value::Cas(cd) => match &cd.kind {
@@ -186,6 +192,16 @@ impl Value {
                     point,
                     direction,
                 } => Some((expr, var, point, *direction)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    pub(crate) fn cas_root_parts(&self) -> Option<(&Value, f64, f64)> {
+        match self {
+            Value::Cas(cd) => match &cd.kind {
+                CasKind::Root { poly, lo, hi } => Some((poly, *lo, *hi)),
                 _ => None,
             },
             _ => None,

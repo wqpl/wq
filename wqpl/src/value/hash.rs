@@ -174,6 +174,12 @@ impl std::hash::Hash for Value {
                         point.hash(state);
                         direction.hash(state);
                     }
+                    CasKind::Root { poly, lo, hi } => {
+                        8u8.hash(state);
+                        poly.hash(state);
+                        lo.to_bits().hash(state);
+                        hi.to_bits().hash(state);
+                    }
                     CasKind::Eq(lhs, rhs) => {
                         3u8.hash(state);
                         lhs.hash(state);
@@ -283,6 +289,22 @@ impl PartialEq for Value {
                         direction: db,
                     },
                 ) => ea == eb && va == vb && pa == pb && da == db,
+                (
+                    CasKind::Root {
+                        poly: polya,
+                        lo: loa,
+                        hi: hia,
+                    },
+                    CasKind::Root {
+                        poly: polyb,
+                        lo: lob,
+                        hi: hib,
+                    },
+                ) => {
+                    polya == polyb
+                        && loa.to_bits() == lob.to_bits()
+                        && hia.to_bits() == hib.to_bits()
+                }
                 (CasKind::Eq(lhsa, rhsa), CasKind::Eq(lhsb, rhsb)) => lhsa == lhsb && rhsa == rhsb,
                 _ => false,
             },

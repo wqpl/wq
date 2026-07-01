@@ -7,6 +7,7 @@ mod numeric;
 mod poly;
 mod quote;
 mod rewrite;
+mod root;
 mod simplify;
 mod solve;
 #[cfg(test)]
@@ -40,6 +41,7 @@ pub(crate) use rewrite::{
     cas_product, contains_cas_var, infer_single_cas_var, normalize_root_objective_cas, rewrite_cas,
     rewrite_loop,
 };
+pub(crate) use root::resolve_cas_root;
 pub(crate) use simplify::{
     cas_add, cas_binary_expr, cas_call_expr, cas_div, cas_mul, cas_neg, cas_pow, cas_sub,
     cas_unary_expr, extract_perfect_power_factor, simplify_cas_value, substitute_cas,

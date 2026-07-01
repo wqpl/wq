@@ -1,6 +1,7 @@
 use num_traits::{One, Signed, Zero};
 
 use super::limit::limit_cas;
+use super::root::resolve_cas_root;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
@@ -383,6 +384,8 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
             return Err(cas_err("limit could not be evaluated numerically").got1(expr));
         }
         eval_numeric_cas(&evaluated)
+    } else if let Some(value) = resolve_cas_root(expr)? {
+        eval_numeric_cas(&value)
     } else if let Some((name, _)) = expr.cas_apply_parts() {
         Err(cas_err(format!(
             "unsupported symbolic application '{}' in numeric evaluation",

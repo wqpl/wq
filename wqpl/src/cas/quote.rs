@@ -89,6 +89,9 @@ pub(crate) fn cas_symbolic_call_expr(
     if name == "limit" {
         return cas_limit_expr(args, named);
     }
+    if name == "root" {
+        return super::root::cas_root_expr(args, named);
+    }
     let args = with_named_args(args, named);
     if let Some(function) = CasFunction::from_name(name) {
         return cas_call_expr(function, &args);

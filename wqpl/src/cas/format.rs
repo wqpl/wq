@@ -62,6 +62,9 @@ fn canonical_degree(value: &Value) -> u32 {
     if let Some((_name, value)) = value.cas_named_arg_parts() {
         return canonical_degree(value);
     }
+    if value.cas_root_parts().is_some() {
+        return 0;
+    }
     0
 }
 
@@ -125,6 +128,14 @@ fn push_canonical_key(value: &Value, out: &mut String) {
         push_canonical_key(point, out);
         out.push(';');
         push_limit_direction_key(direction, out);
+        return;
+    }
+    if let Some((poly, lo, hi)) = value.cas_root_parts() {
+        out.push_str("r:");
+        push_canonical_key(poly, out);
+        out.push(';');
+        write!(out, "{:016x};{:016x};", lo.to_bits(), hi.to_bits())
+            .expect("writing to String should not fail");
         return;
     }
     if let Some((lhs, rhs)) = value.cas_eq_parts() {
@@ -305,7 +316,7 @@ impl AlgebraicAliasEnv {
 
         let mut aliases = Vec::new();
         for candidate in candidates {
-            if candidate.count < 2 || !candidate.binding.starts_with("root[") {
+            if candidate.count < 2 || !candidate.binding.starts_with("@s root[") {
                 continue;
             }
             aliases.push(AlgebraicAlias {
@@ -378,6 +389,9 @@ fn collect_algebraic_candidates(value: &Value, candidates: &mut Vec<AlgebraicAli
         collect_algebraic_candidates(expr, candidates);
         collect_algebraic_candidates(var, candidates);
         collect_algebraic_candidates(point, candidates);
+        return;
+    }
+    if value.cas_root_parts().is_some() {
         return;
     }
     if let Some((lhs, rhs)) = value.cas_eq_parts() {
@@ -743,6 +757,14 @@ fn format_expr_with_aliases(value: &Value, parent_prec: u8, aliases: &AlgebraicA
         rendered.push(']');
         return rendered;
     }
+    if let Some((poly, lo, hi)) = value.cas_root_parts() {
+        return format!(
+            "root[{};{};{}]",
+            format_expr_with_aliases(poly, 0, aliases),
+            lo,
+            hi
+        );
+    }
     if let Some((name, args)) = value.cas_function_parts() {
         let mut rendered_args = Vec::with_capacity(args.len());
         for arg in args {
@@ -815,7 +837,10 @@ mod tests {
             ],
         );
 
-        assert_eq!(expr.to_string(), "(ad1*x + ad1^2)[`ad1:root[_^3-_-1;1.5]]");
+        assert_eq!(
+            expr.to_string(),
+            "(ad1*x + ad1^2)[`ad1:@s root[_^3-_-1;1;2]]"
+        );
     }
 
     #[test]
@@ -833,6 +858,6 @@ mod tests {
         let value = AlgebraicData::value(field, vec![Value::Int(0), Value::Int(1)])
             .expect("valid cubic generator");
 
-        assert_eq!(format_cas_value(&value), "root(_^3-_-1, 1.5)");
+        assert_eq!(format_cas_value(&value), "@s root[_^3-_-1;1;2]");
     }
 }
