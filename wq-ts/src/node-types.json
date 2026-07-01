@@ -23,6 +23,10 @@
       "required": true,
       "types": [
         {
+          "type": "comma_expr",
+          "named": true
+        },
+        {
           "type": "multiplicative_expr",
           "named": true
         },
@@ -226,7 +230,7 @@
     "fields": {},
     "children": {
       "multiple": true,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "comparison_expr",
@@ -263,10 +267,72 @@
     "type": "comparison_expr",
     "named": true,
     "fields": {
+      "final_operator": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "..",
+            "named": false
+          },
+          {
+            "type": "..=",
+            "named": false
+          }
+        ]
+      },
       "operator": {
         "multiple": true,
         "required": false,
         "types": [
+          {
+            "type": "%",
+            "named": false
+          },
+          {
+            "type": "*",
+            "named": false
+          },
+          {
+            "type": "**",
+            "named": false
+          },
+          {
+            "type": "+",
+            "named": false
+          },
+          {
+            "type": "-",
+            "named": false
+          },
+          {
+            "type": "..",
+            "named": false
+          },
+          {
+            "type": "..=",
+            "named": false
+          },
+          {
+            "type": "/",
+            "named": false
+          },
+          {
+            "type": "/%",
+            "named": false
+          },
+          {
+            "type": "/.",
+            "named": false
+          },
+          {
+            "type": "^",
+            "named": false
+          },
+          {
+            "type": "^.",
+            "named": false
+          },
           {
             "type": "comparison_operator",
             "named": true
@@ -276,14 +342,122 @@
     },
     "children": {
       "multiple": true,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "additive_expr",
           "named": true
         },
         {
+          "type": "assert_form",
+          "named": true
+        },
+        {
+          "type": "break_form",
+          "named": true
+        },
+        {
+          "type": "comma_expr",
+          "named": true
+        },
+        {
+          "type": "conditional",
+          "named": true
+        },
+        {
+          "type": "conditional_chain",
+          "named": true
+        },
+        {
+          "type": "conditional_dot",
+          "named": true
+        },
+        {
+          "type": "continue_form",
+          "named": true
+        },
+        {
+          "type": "debug_form",
+          "named": true
+        },
+        {
+          "type": "ellipsis",
+          "named": true
+        },
+        {
+          "type": "function_literal",
+          "named": true
+        },
+        {
+          "type": "lazy_bool_form",
+          "named": true
+        },
+        {
+          "type": "literal",
+          "named": true
+        },
+        {
+          "type": "multiplicative_expr",
+          "named": true
+        },
+        {
+          "type": "n_loop",
+          "named": true
+        },
+        {
           "type": "newline",
+          "named": true
+        },
+        {
+          "type": "operator_identifier",
+          "named": true
+        },
+        {
+          "type": "outer_variable",
+          "named": true
+        },
+        {
+          "type": "paren_expr",
+          "named": true
+        },
+        {
+          "type": "pause_form",
+          "named": true
+        },
+        {
+          "type": "power_expr",
+          "named": true
+        },
+        {
+          "type": "range_expr",
+          "named": true
+        },
+        {
+          "type": "return_form",
+          "named": true
+        },
+        {
+          "type": "suffix",
+          "named": true
+        },
+        {
+          "type": "symbolic_form",
+          "named": true
+        },
+        {
+          "type": "try_form",
+          "named": true
+        },
+        {
+          "type": "unary_expr",
+          "named": true
+        },
+        {
+          "type": "variable_ref",
+          "named": true
+        },
+        {
+          "type": "w_loop",
           "named": true
         }
       ]
@@ -724,6 +898,10 @@
       "required": true,
       "types": [
         {
+          "type": "comma_expr",
+          "named": true
+        },
+        {
           "type": "newline",
           "named": true
         },
@@ -1071,6 +1249,10 @@
       "required": true,
       "types": [
         {
+          "type": "comma_expr",
+          "named": true
+        },
+        {
           "type": "newline",
           "named": true
         },
@@ -1221,6 +1403,10 @@
       "multiple": true,
       "required": true,
       "types": [
+        {
+          "type": "comma_expr",
+          "named": true
+        },
         {
           "type": "unary_expr",
           "named": true
@@ -1377,6 +1563,10 @@
       "multiple": false,
       "required": true,
       "types": [
+        {
+          "type": "comma_expr",
+          "named": true
+        },
         {
           "type": "power_expr",
           "named": true

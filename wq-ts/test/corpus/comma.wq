@@ -1,0 +1,102 @@
+============================
+Leading Comma After Operator
+============================
+a=,1
+1+,2
+,[1;2]
+
+---
+
+(source_file
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (variable_ref
+                              (identifier)))))))))
+              (comparison_operator)
+              (comma_expr
+                (comparison_expr
+                  (literal
+                    (integer))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (primary
+                            (literal
+                              (integer))))))))
+                (comma_expr
+                  (comparison_expr
+                    (literal
+                      (integer)))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (primary
+                              (operator_identifier)))
+                          (suffix
+                            (call_suffix
+                              (arg_list
+                                (argument_items
+                                  (expression
+                                    (assignment_expr
+                                      (pipe_expr
+                                        (comma_expr
+                                          (comparison_expr
+                                            (additive_expr
+                                              (multiplicative_expr
+                                                (range_expr
+                                                  (unary_expr
+                                                    (power_expr
+                                                      (postfix_expr
+                                                        (primary
+                                                          (literal
+                                                            (integer))))))))))))))
+                                  (expression
+                                    (assignment_expr
+                                      (pipe_expr
+                                        (comma_expr
+                                          (comparison_expr
+                                            (additive_expr
+                                              (multiplicative_expr
+                                                (range_expr
+                                                  (unary_expr
+                                                    (power_expr
+                                                      (postfix_expr
+                                                        (primary
+                                                          (literal
+                                                            (integer))))))))))))))))))))))))))))))
+  (separator
+    (newline)))

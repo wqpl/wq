@@ -50,7 +50,8 @@ export default grammar({
   conflicts: ($) => [
     [$.literal, $.dict_pair],
     [$.operator_identifier, $.unary_expr],
-    [$.comma_expr, $.operator_identifier],
+    [$._non_comma_operator_identifier, $._non_terminator_unary_expr],
+    [$._leading_comma_expr, $.operator_identifier],
     [$.pause_form],
   ],
 
@@ -147,6 +148,147 @@ export default grammar({
     pipe_juxtaposition_suffix: ($) =>
       prec(PREC.POSTFIX, seq(optional($.depth_modifier), $.comparison_expr)),
 
+    _leading_comma_expr: ($) =>
+      prec(
+        PREC.COMMA,
+        repeat1(
+          seq(
+            ",",
+            continuation($, alias($._leading_comma_item, $.comparison_expr)),
+          ),
+        ),
+      ),
+
+    _leading_comma_operand: ($) => alias($._leading_comma_expr, $.comma_expr),
+
+    _comma_or_additive_expr: ($) =>
+      choice($._leading_comma_operand, $.additive_expr),
+
+    _comma_or_multiplicative_expr: ($) =>
+      choice($._leading_comma_operand, $.multiplicative_expr),
+
+    _comma_or_range_expr: ($) => choice($._leading_comma_operand, $.range_expr),
+
+    _comma_or_unary_expr: ($) => choice($._leading_comma_operand, $.unary_expr),
+
+    _comma_or_power_expr: ($) => choice($._leading_comma_operand, $.power_expr),
+
+    _leading_comma_item: ($) => $._non_terminator_comparison_expr,
+
+    _non_terminator_comparison_expr: ($) =>
+      choice(
+        prec.left(
+          PREC.COMPARE,
+          seq(
+            $._non_terminator_additive_expr,
+            repeat1(
+              seq(
+                field("operator", $.comparison_operator),
+                continuation($, $._comma_or_additive_expr),
+              ),
+            ),
+          ),
+        ),
+        $._non_terminator_additive_expr,
+      ),
+
+    _non_terminator_additive_expr: ($) =>
+      binary(
+        $,
+        $._non_terminator_multiplicative_expr,
+        $._comma_or_multiplicative_expr,
+        PREC.ADD,
+        choice("+", "-"),
+      ),
+
+    _non_terminator_multiplicative_expr: ($) =>
+      binary(
+        $,
+        $._non_terminator_range_expr,
+        $._comma_or_range_expr,
+        PREC.MULTIPLY,
+        choice("**", "/%", "/.", "*", "/", "%"),
+      ),
+
+    _non_terminator_range_expr: ($) =>
+      choice(
+        prec.right(
+          PREC.RANGE,
+          seq(
+            $._non_terminator_unary_expr,
+            field("operator", ".."),
+            $._comma_or_unary_expr,
+            field("final_operator", choice("..=", "..")),
+            $._comma_or_unary_expr,
+          ),
+        ),
+        prec.right(
+          PREC.RANGE,
+          seq(
+            $._non_terminator_unary_expr,
+            field("operator", choice("..=", "..")),
+            $._comma_or_unary_expr,
+          ),
+        ),
+        $._non_terminator_unary_expr,
+      ),
+
+    _non_terminator_unary_expr: ($) =>
+      choice(
+        prec(
+          PREC.UNARY,
+          seq(repeat1(choice("-", "#", "~")), $._comma_or_power_expr),
+        ),
+        $._non_terminator_power_expr,
+      ),
+
+    _non_terminator_power_expr: ($) =>
+      choice(
+        prec.right(
+          PREC.POWER,
+          seq(
+            $._non_terminator_postfix_expr,
+            field("operator", choice("^.", "^")),
+            continuation($, $._comma_or_unary_expr),
+          ),
+        ),
+        $._non_terminator_postfix_expr,
+      ),
+
+    _non_terminator_postfix_expr: ($) =>
+      choice(
+        $._non_terminator_primary,
+        prec.left(
+          PREC.POSTFIX,
+          seq($._non_terminator_postfix_expr, $.suffix),
+        ),
+      ),
+
+    _non_terminator_primary: ($) =>
+      choice(
+        $.literal,
+        $.ellipsis,
+        $.outer_variable,
+        $.variable_ref,
+        alias($._non_comma_operator_identifier, $.operator_identifier),
+        $.function_literal,
+        $.paren_expr,
+        $.conditional,
+        $.conditional_dot,
+        $.conditional_chain,
+        $.lazy_bool_form,
+        $.w_loop,
+        $.n_loop,
+        $.return_form,
+        $.break_form,
+        $.continue_form,
+        $.try_form,
+        $.assert_form,
+        $.debug_form,
+        $.pause_form,
+        $.symbolic_form,
+      ),
+
     comma_expr: ($) =>
       choice(
         prec.left(
@@ -156,10 +298,7 @@ export default grammar({
             repeat1(seq(",", continuation($, $.comparison_expr))),
           ),
         ),
-        prec(
-          PREC.COMMA,
-          repeat1(seq(",", continuation($, $.comparison_expr))),
-        ),
+        $._leading_comma_expr,
         $.comparison_expr,
       ),
 
@@ -172,7 +311,7 @@ export default grammar({
             repeat1(
               seq(
                 field("operator", $.comparison_operator),
-                continuation($, $.additive_expr),
+                continuation($, $._comma_or_additive_expr),
               ),
             ),
           ),
@@ -184,12 +323,19 @@ export default grammar({
       choice("=.", "=", "~.", "~", "<=", "<", ">=", ">"),
 
     additive_expr: ($) =>
-      binary($, $.multiplicative_expr, PREC.ADD, choice("+", "-")),
+      binary(
+        $,
+        $.multiplicative_expr,
+        $._comma_or_multiplicative_expr,
+        PREC.ADD,
+        choice("+", "-"),
+      ),
 
     multiplicative_expr: ($) =>
       binary(
         $,
         $.range_expr,
+        $._comma_or_range_expr,
         PREC.MULTIPLY,
         choice("**", "/%", "/.", "*", "/", "%"),
       ),
@@ -201,9 +347,9 @@ export default grammar({
           seq(
             $.unary_expr,
             field("operator", ".."),
-            $.unary_expr,
+            $._comma_or_unary_expr,
             field("final_operator", choice("..=", "..")),
-            $.unary_expr,
+            $._comma_or_unary_expr,
           ),
         ),
         prec.right(
@@ -211,7 +357,7 @@ export default grammar({
           seq(
             $.unary_expr,
             field("operator", choice("..=", "..")),
-            $.unary_expr,
+            $._comma_or_unary_expr,
           ),
         ),
         $.unary_expr,
@@ -219,7 +365,10 @@ export default grammar({
 
     unary_expr: ($) =>
       choice(
-        prec(PREC.UNARY, seq(repeat1(choice("-", "#", "~")), $.power_expr)),
+        prec(
+          PREC.UNARY,
+          seq(repeat1(choice("-", "#", "~")), $._comma_or_power_expr),
+        ),
         $.power_expr,
       ),
 
@@ -230,7 +379,7 @@ export default grammar({
           seq(
             $.postfix_expr,
             field("operator", choice("^.", "^")),
-            continuation($, $.unary_expr),
+            continuation($, $._comma_or_unary_expr),
           ),
         ),
         $.postfix_expr,
@@ -421,6 +570,29 @@ export default grammar({
         "#",
       ),
 
+    _non_comma_operator_identifier: (_) =>
+      choice(
+        "+",
+        "-",
+        "*",
+        "**",
+        "/",
+        "/.",
+        "/%",
+        "%",
+        "^",
+        "^.",
+        "=",
+        "=.",
+        "~",
+        "~.",
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "#",
+      ),
+
     lazy_bool_form: ($) => prec.dynamic(1, seq(choice("A", "O"), $.arg_list)),
 
     function_literal: ($) =>
@@ -537,16 +709,16 @@ export default grammar({
   },
 });
 
-function binary($, operand, precedence, operator) {
+function binary($, leftOperand, rightOperand, precedence, operator) {
   return choice(
     prec.left(
       precedence,
       seq(
-        operand,
-        repeat1(seq(field("operator", operator), continuation($, operand))),
+        leftOperand,
+        repeat1(seq(field("operator", operator), continuation($, rightOperand))),
       ),
     ),
-    operand,
+    leftOperand,
   );
 }
 
