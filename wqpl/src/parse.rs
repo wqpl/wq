@@ -274,6 +274,28 @@ impl Parser {
         )
     }
 
+    fn current_starts_leading_comma_list(&self) -> bool {
+        let Some(token) = self.current_token() else {
+            return false;
+        };
+        if token.token_type != TokenType::Comma {
+            return false;
+        }
+        self.peek_next_real_token()
+            .is_some_and(|next| !Self::is_terminator(&next.token_type))
+    }
+
+    fn parse_leading_comma_or<F>(&mut self, fallback: F) -> WqResult<AstNode>
+    where
+        F: FnOnce(&mut Self) -> WqResult<AstNode>,
+    {
+        if self.current_starts_leading_comma_list() {
+            self.parse_comma()
+        } else {
+            fallback(self)
+        }
+    }
+
     fn ends_optional_probe_operand(tt: &TokenType) -> bool {
         matches!(
             tt,
@@ -1442,20 +1464,10 @@ impl Parser {
     fn parse_comma(&mut self) -> WqResult<AstNode> {
         let pending = self.cst_open();
         let mut items = Vec::new();
-        if let Some(token) = self.current_token()
-            && token.token_type == TokenType::Comma
-        {
-            if let Some(next) = self.peek_next_real_token() {
-                if Self::is_terminator(&next.token_type) {
-                    return self.parse_comparison();
-                }
-            } else {
-                return self.parse_comparison();
-            }
-
-            // Leading comma list: ,a,b,c -- produces a `List` AST. The CST
-            // wraps it in a `ListExpr` covering everything since `cp`
-            // (which captures the leading `,`).
+        if self.current_starts_leading_comma_list() {
+            // Leading comma list: ,a,b,c
+            // Produces a `List` AST. The CST wraps it in a `ListExpr` covering everything
+            // since `cp` (which captures the leading `,`).
             while let Some(t) = self.current_token() {
                 if t.token_type != TokenType::Comma {
                     break;
@@ -1528,7 +1540,7 @@ impl Parser {
             };
             self.advance();
             self.eat_rhs_trivia(&token, "range operator")?;
-            let first_rhs = self.parse_unary()?;
+            let first_rhs = self.parse_leading_comma_or(Self::parse_unary)?;
             let mut end = first_rhs;
             let mut next_node = None;
             let mut inclusive = first_inclusive;
@@ -1545,7 +1557,7 @@ impl Parser {
                         self.eat_rhs_trivia(&next_tok, "range operator")?;
                         inclusive = matches!(next_tok.token_type, TokenType::RangeInclusive);
                         next_node = Some(Box::new(end));
-                        end = self.parse_unary()?;
+                        end = self.parse_leading_comma_or(Self::parse_unary)?;
                     }
                     _ => {}
                 }
@@ -1582,7 +1594,7 @@ impl Parser {
             };
             self.advance();
             self.eat_rhs_trivia(&op_tok, "comparison operator")?;
-            let right = self.parse_additive()?;
+            let right = self.parse_leading_comma_or(Self::parse_additive)?;
             rest.push((op, right));
         }
         match rest.len() {
@@ -1623,7 +1635,7 @@ impl Parser {
             };
             self.advance();
             self.eat_rhs_trivia(&op_tok, "binary operator")?;
-            let right = self.parse_multiplicative()?;
+            let right = self.parse_leading_comma_or(Self::parse_multiplicative)?;
             let span = Self::merge_spans(left.span(), right.span());
             left = AstNode::BinaryOp {
                 left: Box::new(left),
@@ -1655,7 +1667,7 @@ impl Parser {
             };
             self.advance();
             self.eat_rhs_trivia(&op_tok, "binary operator")?;
-            let right = self.parse_range()?;
+            let right = self.parse_leading_comma_or(Self::parse_range)?;
             let span = Self::merge_spans(left.span(), right.span());
             left = AstNode::BinaryOp {
                 left: Box::new(left),
@@ -1713,7 +1725,7 @@ impl Parser {
                 _ => break,
             }
         }
-        let mut node = self.parse_power()?;
+        let mut node = self.parse_leading_comma_or(Self::parse_power)?;
         // The unary's AST span covers from the first prefix operator through
         // the end of the operand. Previously this required the operand to
         // carry its own span (so `.span().1` was readable); now we derive
@@ -1762,7 +1774,7 @@ impl Parser {
             self.advance();
             self.eat_rhs_trivia(&tok, "binary operator")?;
             operators.push(op);
-            operands.push(self.parse_unary()?);
+            operands.push(self.parse_leading_comma_or(Self::parse_unary)?);
         }
         let chain_applied = !operators.is_empty();
         // fold right: a ^ b ^ c => a ^ (b ^ c)
@@ -5236,6 +5248,23 @@ mod cst_integration_tests {
         round_trip("x:1");
         round_trip("x+:1");
         round_trip("(a;b):1,2");
+    }
+
+    #[test]
+    fn leading_comma_after_comparison_operator_is_enlist() {
+        let ast = parse_without_cst("a=,1");
+        let AstNode::BinaryOp {
+            operator, right, ..
+        } = ast
+        else {
+            panic!("expected BinaryOp, got {ast:?}");
+        };
+        assert_eq!(operator, BinaryOperator::Equal);
+        let AstNode::List(items, _) = right.as_ref() else {
+            panic!("expected enlisted RHS, got {right:?}");
+        };
+        assert_eq!(items.len(), 1);
+        assert!(matches!(items[0], AstNode::Literal(Value::Int(1), _)));
     }
 
     #[test]
