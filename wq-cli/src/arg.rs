@@ -54,7 +54,7 @@ impl RuntimeFlags {
 #[derive(Debug, Clone, Default)]
 pub struct FmtOpts {
     pub nlcd: bool,
-    pub olw: bool,
+    pub oneline: bool,
     pub max_width: Option<usize>,
     pub wrap_only: bool,
 }
@@ -212,20 +212,19 @@ enum Commands {
     /// Format a wq script.
     ///
     /// Reads a wq source file and emits a formatted version.
-    /// Supports newline-after-closing-delimiter, one-line-wizard, and wrap-only
-    /// modes.
+    /// Supports newline-after-closing-delimiter, oneline, and wrap-only modes.
     Fmt {
         /// Insert a newline after closing delimiters
         #[arg(long)]
         nlcd: bool,
-        /// Enable one-line-wizard mode
-        #[arg(long)]
-        olw: bool,
+        /// Enable oneline formatter mode
+        #[arg(long = "oneline", alias = "olw")]
+        oneline: bool,
         /// Target line width for formatter decisions
         #[arg(long, value_name = "COLS", value_parser = parse_fold_width)]
         width: Option<usize>,
         /// Only insert parser-safe wrapping newlines
-        #[arg(long, conflicts_with_all = ["nlcd", "olw"])]
+        #[arg(long, conflicts_with_all = ["nlcd", "oneline"])]
         wrap_only: bool,
         /// Path to the wq script to format
         script: PathBuf,
@@ -400,7 +399,7 @@ where
         match sub {
             Commands::Fmt {
                 nlcd,
-                olw,
+                oneline,
                 width,
                 wrap_only,
                 script,
@@ -419,7 +418,7 @@ where
                     script,
                     opts: FmtOpts {
                         nlcd,
-                        olw,
+                        oneline,
                         max_width: width,
                         wrap_only,
                     },
@@ -817,7 +816,7 @@ mod tests {
             CliCommand::Fmt { script, opts } => {
                 assert_eq!(script, PathBuf::from("f.wq"));
                 assert!(opts.nlcd);
-                assert!(!opts.olw);
+                assert!(!opts.oneline);
                 assert_eq!(opts.max_width, None);
                 assert!(!opts.wrap_only);
             }
@@ -835,7 +834,15 @@ mod tests {
                 assert_eq!(opts.max_width, Some(40));
                 assert!(opts.wrap_only);
                 assert!(!opts.nlcd);
-                assert!(!opts.olw);
+                assert!(!opts.oneline);
+            }
+            _ => panic!("expected Fmt"),
+        }
+        let (_, cmd) = ok(parse_args(v(&["fmt", "--oneline", "f.wq"])));
+        match cmd {
+            CliCommand::Fmt { opts, .. } => {
+                assert!(opts.oneline);
+                assert!(!opts.wrap_only);
             }
             _ => panic!("expected Fmt"),
         }
@@ -851,7 +858,7 @@ mod tests {
         assert_eq!(is_err(parse_args(v(&["fmt", "f.wq", "extra"]))), 2);
         assert_eq!(is_err(parse_args(v(&["fmt", "-d3", "f.wq"]))), 2);
         assert_eq!(
-            is_err(parse_args(v(&["fmt", "--wrap-only", "--olw", "f.wq"]))),
+            is_err(parse_args(v(&["fmt", "--wrap-only", "--oneline", "f.wq"]))),
             2
         );
     }

@@ -1,71 +1,39 @@
 // quoted fields, escaped quotes (""), CRLF/CR/LF rows, empty fields
 parse_csv:{[csv]
-  rows:()
-  cols:()
-  field:""
-  in_quote:F
-  quote_closed:F
-  at_field_start:T
-  i:0
+  rows:();cols:();field:""
+  in_quote:F;quote_closed:F;at_field_start:T;i:0
   push_field:'{[]
-    cols,:(,field)
-    field:""
-    quote_closed:F
-    at_field_start:T}
+    cols,:(,field);field:"";quote_closed:F;at_field_start:T}
   push_row:'{[]
-    push_field[]
-    rows,:(,cols)
-    cols:()}
-  W[i<#csv
-    c:csv i
-    next:$[i+1<#csv
-      csv[i+1]
-      ""]
+    push_field[];rows,:(,cols);cols:()}
+  W[i<#csv;c:csv i
+    next:$[i+1<#csv;csv[i+1];""]
     $$[in_quote
       [$[c="\""
           $[next="\""
-            [field,:c
-              i+:1]
-            [in_quote:F
-              quote_closed:T]]
+            [field,:c;i+:1]
+            [in_quote:F;quote_closed:T]]
           field,:c]]
       quote_closed
-      $$[c=","
-        push_field[]
-        c="\n"
-        push_row[]
-        c="\r"
-        [push_row[]
-          $.[next="\n"
-            i+:1]]
-        raise @f"csv: expected comma or newline after closing quote at position {i}"]
-      c=","
-      push_field[]
-      c="\n"
-      push_row[]
-      c="\r"
-      [push_row[]
-        $.[next="\n"
-          i+:1]]
+      $$[c=",";push_field[]
+        c="\n";push_row[]
+        c="\r";[push_row[];$.[next="\n";i+:1]]
+        raise@f"csv: expected comma or newline after closing quote at position {i}"]
+      c=",";push_field[]
+      c="\n";push_row[]
+      c="\r";[push_row[];$.[next="\n";i+:1]]
       c="\""
-      $[at_field_start
-        [in_quote:T
-          at_field_start:F]
-        raise @f"csv: unexpected quote in unquoted field at position {i}"]
-      [field,:c
-        at_field_start:F]]
+      $[at_field_start;[in_quote:T;at_field_start:F]
+        raise@f"csv: unexpected quote in unquoted field at position {i}"]
+      [field,:c;at_field_start:F]]
     i+:1]
-  $.[in_quote
-    raise "csv: unterminated quoted field"]
+  $.[in_quote;raise "csv: unterminated quoted field"]
   $[or[#cols>0;#field>0;quote_closed;~at_field_start]
-    [push_field[]
-      rows,:(,cols)]
+    [push_field[];rows,:(,cols)]
     rows]}
 
 expect:{[label;got;want]
-  $[got=want
-    echo @f"ok {label}"
-    raise @f"FAIL {label}: got {got}, want {want}"]}
+  $[got=want;echo@f"ok {label}";raise@f"FAIL {label}: got {got}, want {want}"]}
 
 // -- demos --
 expect["basic";parse_csv "name,age\nAlice,30\nBob,25";(("name";"age");("Alice";"30");("Bob";"25"))]

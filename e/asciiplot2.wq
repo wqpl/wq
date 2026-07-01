@@ -14,40 +14,37 @@ asciiplot[delta;`xlim:(-2;2);`size:(40;5);`samples:81]
 
 // Maximal theme with title and labels
 asciiplot[sin;cos;
-    `theme:"maximal";
-    `size:(50;12);
-    `title:"Trigonometric Functions";
-    `xlabel:"x (radians)";
-    `ylabel:"amplitude";
-    `labels:("sin";"cos")
-]
+  `theme:"maximal";
+  `size:(50;12);
+  `title:"Trigonometric Functions";
+  `xlabel:"x (radians)";
+  `ylabel:"amplitude";
+  `labels:("sin";"cos")]
 
 // Minimal theme (no axes, just data)
 asciiplot[iota 50|map{sin x};
-    `theme:"minimal";
-    `size:(50;8)
-]
+  `theme:"minimal";
+  `size:(50;8)]
 
 // Step mode with custom symbols
 asciiplot[iota 20|map{round[x/5]};
-    `mode:"step";
-    `size:(40;8);
-    `symbols:"#"
-]
+  `mode:"step";
+  `size:(40;8);
+  `symbols:"#"]
 
 // Scatter mode with two series
 asciiplot[iota 30|map{rand[]};iota 30|map{rand[]};
-    `mode:"scatter";
-    `size:(40;10);
-    `symbols:("+";"x")]
+  `mode:"scatter";
+  `size:(40;10);
+  `symbols:("+";"x")]
 
 // Bar mode
 asciiplot[(1;2;3;4;5);`mode:"bar";`size:(30;8)]
 
 // Area mode
 asciiplot[iota 50|map{sin[x/5]};
-    `mode:"area";
-    `size:(50;8)]
+  `mode:"area";
+  `size:(50;8)]
 
 // Grid density control
 asciiplot[iota 50|map{sin x};`grid:5;`size:(50;8)]
@@ -57,12 +54,12 @@ asciiplot[iota 50|map{sin x};`axes:"minimal";`size:(50;8)]
 
 // Custom color palette
 asciiplot[sin;cos;
-    `color:("red";"blue");
-    `size:(40;10);
-    `labels:("sin";"cos")]
+  `color:("red";"blue");
+  `size:(40;10);
+  `labels:("sin";"cos")]
 
 // Caption shortcut
 asciiplot[sin;cos;
-    `size:(50;10);
-    `caption:("Trig";"x";"y");
-    `labels:("sin";"cos")]
+  `size:(50;10);
+  `caption:("Trig";"x";"y");
+  `labels:("sin";"cos")]

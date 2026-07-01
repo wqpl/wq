@@ -54,13 +54,36 @@ struct LowerCtx<'a> {
     mode: LowerMode,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingStmtSep {
+    Semicolon,
+    SemicolonLine,
+    SemicolonBlank,
+    Line,
+    Blank,
+}
+
+#[derive(Debug, Default)]
+struct DelimitedLayout {
+    rows: Vec<DelimitedRow>,
+    saw_newline: bool,
+    leading_newline: bool,
+    close_on_own_line: bool,
+}
+
+#[derive(Debug, Default)]
+struct DelimitedRow {
+    items: Vec<Doc>,
+    trailing_semicolon: bool,
+}
+
 impl<'a> LowerCtx<'a> {
     fn indent(&self) -> i32 {
         self.config.indent_size as i32
     }
 
     fn is_inline_like(&self) -> bool {
-        self.config.one_line_wizard || self.mode == LowerMode::Inline
+        self.config.oneline || self.mode == LowerMode::Inline
     }
 
     /// Lower a sequence of statement-level children, attaching trivia
@@ -78,6 +101,8 @@ impl<'a> LowerCtx<'a> {
     ///   a single space.
     /// * Otherwise it is a *standalone* comment: emitted on its own line, with
     ///   a hard newline separator before and after.
+    /// * A source `Semicolon` with no intervening `Newline` keeps adjacent
+    ///   short statements on the same line.
     /// * Two or more `Newline` tokens between consecutive elements constitute a
     ///   *blank line*: the next element is preceded by an extra newline via
     ///   [`Doc::blank`].
@@ -103,35 +128,43 @@ impl<'a> LowerCtx<'a> {
                 .collect();
             return Doc::join(Doc::text(";"), stmts);
         }
-        let mut out = Doc::nil();
+        let mut rows: Vec<(PendingStmtSep, Doc)> = Vec::new();
+        let mut row_items: Vec<Doc> = Vec::new();
+        let mut sep_before_row = PendingStmtSep::Line;
         let mut newlines_since_payload = 0u32;
-        let mut first = true;
+        let mut semicolon_since_payload = false;
         for elem in iter {
             match elem {
                 SyntaxElement::Token(t) => match t.kind() {
                     SyntaxKind::Whitespace => {}
+                    SyntaxKind::Semicolon => {
+                        semicolon_since_payload = true;
+                    }
                     SyntaxKind::Newline => {
                         newlines_since_payload = newlines_since_payload.saturating_add(1);
                     }
                     SyntaxKind::Comment => {
                         let text = t.text().to_string();
-                        if newlines_since_payload == 0 && !first {
+                        if newlines_since_payload == 0 && !row_items.is_empty() {
                             // Trailing on the previous statement's line.
-                            out = out + Doc::text(format!(" {text}"));
+                            let last = row_items.pop().expect("row is not empty");
+                            row_items.push(last + Doc::text(format!(" {text}")));
                         } else {
                             // Standalone comment line.
-                            if !first {
-                                out = out
-                                    + if newlines_since_payload >= 2 {
-                                        Doc::line_hard() + Doc::blank()
-                                    } else {
-                                        Doc::line_hard()
-                                    };
+                            let sep = Self::pending_stmt_sep(
+                                newlines_since_payload,
+                                semicolon_since_payload,
+                            );
+                            if !row_items.is_empty() {
+                                self.finish_stmt_row(&mut rows, &mut row_items, sep_before_row);
+                                sep_before_row = sep;
+                            } else if !rows.is_empty() {
+                                sep_before_row = sep;
                             }
-                            out = out + Doc::text(text);
-                            first = false;
+                            row_items.push(Doc::text(text));
                         }
                         newlines_since_payload = 0;
+                        semicolon_since_payload = false;
                     }
                     // Other tokens at statement-sequence level are
                     // unexpected (they would be inside the statement
@@ -141,21 +174,81 @@ impl<'a> LowerCtx<'a> {
                 },
                 SyntaxElement::Node(n) => {
                     let stmt = self.node(&n);
-                    if !first {
-                        out = out
-                            + if newlines_since_payload >= 2 {
-                                Doc::line_hard() + Doc::blank()
-                            } else {
-                                Doc::line_hard()
-                            };
+                    let sep =
+                        Self::pending_stmt_sep(newlines_since_payload, semicolon_since_payload);
+                    if !row_items.is_empty() && sep != PendingStmtSep::Semicolon {
+                        self.finish_stmt_row(&mut rows, &mut row_items, sep_before_row);
+                        sep_before_row = sep;
+                    } else if row_items.is_empty() && !rows.is_empty() {
+                        sep_before_row = sep;
                     }
-                    out = out + stmt;
-                    first = false;
+                    row_items.push(stmt);
                     newlines_since_payload = 0;
+                    semicolon_since_payload = false;
                 }
             }
         }
+        self.finish_stmt_row(&mut rows, &mut row_items, sep_before_row);
+
+        let mut out = Doc::nil();
+        let mut first = true;
+        for (sep, row) in rows {
+            if !first {
+                out = out + Self::pending_stmt_sep_kind_doc(sep);
+            }
+            out = out + row;
+            first = false;
+        }
         out
+    }
+
+    fn finish_stmt_row(
+        &self,
+        rows: &mut Vec<(PendingStmtSep, Doc)>,
+        row_items: &mut Vec<Doc>,
+        sep_before_row: PendingStmtSep,
+    ) {
+        if row_items.is_empty() {
+            return;
+        }
+        let items = std::mem::take(row_items);
+        rows.push((sep_before_row, self.stmt_row_doc(items)));
+    }
+
+    fn stmt_row_doc(&self, items: Vec<Doc>) -> Doc {
+        if items.len() == 1 {
+            return items.into_iter().next().expect("len == 1");
+        }
+        Doc::group(Doc::join(Doc::text(";") + Doc::line_soft(), items))
+    }
+
+    fn pending_stmt_sep_kind_doc(sep: PendingStmtSep) -> Doc {
+        match sep {
+            PendingStmtSep::Semicolon => Doc::text(";"),
+            PendingStmtSep::SemicolonLine => Doc::text(";") + Doc::line_hard(),
+            PendingStmtSep::SemicolonBlank => Doc::text(";") + Doc::line_hard() + Doc::blank(),
+            PendingStmtSep::Line => Doc::line_hard(),
+            PendingStmtSep::Blank => Doc::line_hard() + Doc::blank(),
+        }
+    }
+
+    fn pending_stmt_sep(newlines: u32, semicolon: bool) -> PendingStmtSep {
+        if semicolon && newlines >= 2 {
+            PendingStmtSep::SemicolonBlank
+        } else if semicolon && newlines == 1 {
+            PendingStmtSep::SemicolonLine
+        } else if newlines >= 2 {
+            PendingStmtSep::Blank
+        } else if newlines == 1 {
+            PendingStmtSep::Line
+        } else if semicolon {
+            PendingStmtSep::Semicolon
+        } else {
+            // Adjacent payload nodes without an explicit source separator
+            // should not normally occur. Keep the previous defensive behavior
+            // by separating them onto distinct statement lines.
+            PendingStmtSep::Line
+        }
     }
 
     fn node(&self, node: &SyntaxNode) -> Doc {
@@ -489,7 +582,96 @@ impl<'a> LowerCtx<'a> {
         Doc::join(Doc::text(";") + Doc::line_soft(), items)
     }
 
+    fn tight_semicolon_joined(items: Vec<Doc>) -> Doc {
+        Doc::join(Doc::text(";"), items)
+    }
+
+    fn delimited_layout(&self, node: &SyntaxNode) -> DelimitedLayout {
+        let mut layout = DelimitedLayout::default();
+        let mut row = DelimitedRow::default();
+        let mut saw_item = false;
+
+        for elem in node.children_with_tokens() {
+            match elem {
+                SyntaxElement::Token(t) => match t.kind() {
+                    SyntaxKind::Whitespace
+                    | SyntaxKind::LParen
+                    | SyntaxKind::RParen
+                    | SyntaxKind::LBrack
+                    | SyntaxKind::RBrack
+                    | SyntaxKind::LBrace
+                    | SyntaxKind::RBrace
+                    | SyntaxKind::Bang => {}
+                    SyntaxKind::Semicolon => {
+                        if !row.items.is_empty() {
+                            row.trailing_semicolon = true;
+                        }
+                    }
+                    SyntaxKind::Newline => {
+                        layout.saw_newline = true;
+                        if !saw_item {
+                            layout.leading_newline = true;
+                        }
+                        if !row.items.is_empty() {
+                            layout.rows.push(row);
+                            row = DelimitedRow::default();
+                        }
+                        layout.close_on_own_line = true;
+                    }
+                    // Callers avoid comment-bearing delimited forms before
+                    // reaching this helper. Keep defensive behavior here.
+                    SyntaxKind::Comment => {}
+                    _ => {}
+                },
+                SyntaxElement::Node(n) => {
+                    saw_item = true;
+                    layout.close_on_own_line = false;
+                    if row.trailing_semicolon {
+                        // The previous semicolon separated this item from
+                        // the preceding item on the same source row.
+                        row.trailing_semicolon = false;
+                    }
+                    row.items.push(self.node(&n));
+                }
+            }
+        }
+
+        if !row.items.is_empty() {
+            layout.rows.push(row);
+        }
+        layout
+    }
+
+    fn delimited_source_doc(&self, open: Doc, layout: DelimitedLayout, close: Doc) -> Doc {
+        let row_docs = layout.rows.into_iter().map(Self::delimited_row_doc);
+        let body = Doc::join(Doc::line_hard(), row_docs);
+        let close_doc = if self.config.nlcd || layout.close_on_own_line {
+            Doc::line_hard() + close
+        } else {
+            close
+        };
+        let inner = if layout.leading_newline {
+            Doc::line_hard() + body
+        } else {
+            body
+        };
+        Doc::group(open + Doc::nest(self.indent(), inner) + close_doc)
+    }
+
+    fn delimited_row_doc(row: DelimitedRow) -> Doc {
+        let body = Self::tight_semicolon_joined(row.items);
+        if row.trailing_semicolon {
+            body + Doc::text(";")
+        } else {
+            body
+        }
+    }
+
     fn list_or_dict(&self, node: &SyntaxNode, dict: bool) -> Doc {
+        if Self::contains_comment(node) {
+            return Doc::text(node.text());
+        }
+        let layout = self.delimited_layout(node);
         let mut items: Vec<Doc> = node.children().map(|n| self.node(&n)).collect();
         if items.is_empty() {
             // The empty-dict syntax `(`)` keeps its backtick from
@@ -501,6 +683,9 @@ impl<'a> LowerCtx<'a> {
         // as the element alone). Dicts always parenthesize.
         if !dict && items.len() == 1 {
             return Doc::text(",") + items.remove(0);
+        }
+        if layout.saw_newline {
+            return self.delimited_source_doc(Doc::text("("), layout, Doc::text(")"));
         }
         let body = self.semicolon_joined(items);
         Doc::bracket(
@@ -554,13 +739,23 @@ impl<'a> LowerCtx<'a> {
         (leading_bang, items)
     }
 
-    fn arglist_has_separator(&self, node: &SyntaxNode) -> bool {
-        node.children_with_tokens().any(
-            |elem| matches!(elem, SyntaxElement::Token(t) if t.kind() == SyntaxKind::Semicolon),
-        )
+    fn arglist_has_separator_or_trivia(&self, node: &SyntaxNode) -> bool {
+        node.children_with_tokens().any(|elem| {
+            matches!(
+                elem,
+                SyntaxElement::Token(t)
+                    if matches!(
+                        t.kind(),
+                        SyntaxKind::Semicolon | SyntaxKind::Newline | SyntaxKind::Comment
+                    )
+            )
+        })
     }
 
     fn arglist(&self, node: &SyntaxNode) -> Doc {
+        if Self::contains_comment(node) {
+            return Doc::text(node.text());
+        }
         // ArgList children: items (nodes) and `;` separators (tokens). We
         // re-emit our own `;` between item nodes, ignoring source tokens
         // except `[`, `!`, and `]` which are structural markers.
@@ -573,6 +768,10 @@ impl<'a> LowerCtx<'a> {
         };
         if items.is_empty() {
             return open + Doc::text("]");
+        }
+        let layout = self.delimited_layout(node);
+        if layout.saw_newline {
+            return self.delimited_source_doc(open, layout, Doc::text("]"));
         }
         // Single argument: don't introduce a break between the brackets
         // and the argument. `f[somearg]` stays adjacent even when `somearg`
@@ -603,7 +802,7 @@ impl<'a> LowerCtx<'a> {
         enum Tail {
             Depth(Doc),
             ArgList(SyntaxNode),
-            Arg(SyntaxNode),
+            Arg { node: SyntaxNode, glued: bool },
         }
 
         // Children in source order:
@@ -614,19 +813,33 @@ impl<'a> LowerCtx<'a> {
         let mut object: Option<SyntaxNode> = None;
         let mut tails: Vec<Tail> = Vec::new();
         let mut has_explicit_arglist = false;
+        let mut saw_trivia_before_next_tail = false;
         for elem in node.children_with_tokens() {
             match elem {
-                SyntaxElement::Token(t) if t.kind().is_trivia() => {}
+                SyntaxElement::Token(t) if t.kind().is_trivia() => {
+                    saw_trivia_before_next_tail = true;
+                }
                 SyntaxElement::Token(t) if t.kind() == SyntaxKind::AtDepth => {
                     tails.push(Tail::Depth(Doc::text(t.text().to_string())));
+                    saw_trivia_before_next_tail = false;
                 }
                 SyntaxElement::Token(_) => {}
-                SyntaxElement::Node(n) if object.is_none() => object = Some(n),
+                SyntaxElement::Node(n) if object.is_none() => {
+                    object = Some(n);
+                    saw_trivia_before_next_tail = false;
+                }
                 SyntaxElement::Node(n) if n.kind() == SyntaxKind::ArgList => {
                     has_explicit_arglist = true;
                     tails.push(Tail::ArgList(n));
+                    saw_trivia_before_next_tail = false;
                 }
-                SyntaxElement::Node(n) => tails.push(Tail::Arg(n)),
+                SyntaxElement::Node(n) => {
+                    tails.push(Tail::Arg {
+                        node: n,
+                        glued: !saw_trivia_before_next_tail,
+                    });
+                    saw_trivia_before_next_tail = false;
+                }
             }
         }
         let Some(object_node) = object else {
@@ -655,34 +868,37 @@ impl<'a> LowerCtx<'a> {
                             out + self.node(&arglist)
                         }
                     }
-                    Tail::Arg(arg) => out + Doc::text(" ") + self.node(&arg),
+                    Tail::Arg { node, glued } => {
+                        out + self.postfix_arg_separator(&node, glued) + self.node(&node)
+                    }
                 };
             }
             out
         } else {
             let mut head = object;
-            let mut tail_docs: Vec<SyntaxNode> = Vec::new();
+            let mut tail_docs: Vec<(SyntaxNode, bool)> = Vec::new();
             for tail in tails {
                 match tail {
                     Tail::Depth(doc) => head = head + doc,
                     Tail::ArgList(arglist) => {
                         let (_, items) = self.arglist_items(&arglist);
-                        tail_docs.extend(items);
+                        tail_docs.extend(items.into_iter().map(|node| (node, false)));
                     }
-                    Tail::Arg(arg) => tail_docs.push(arg),
+                    Tail::Arg { node, glued } => tail_docs.push((node, glued)),
                 }
             }
             if tail_docs.is_empty() {
                 return head;
             }
             if allow_space_style && tail_docs.len() == 1 {
-                let arg = tail_docs.into_iter().next().expect("len == 1");
-                head + Doc::text(" ") + self.node(&arg)
+                let (arg, glued) = tail_docs.into_iter().next().expect("len == 1");
+                head + self.postfix_arg_separator(&arg, glued) + self.node(&arg)
             } else if tail_docs.len() == 1 {
-                let arg = tail_docs.into_iter().next().expect("len == 1");
+                let (arg, _) = tail_docs.into_iter().next().expect("len == 1");
                 head + Doc::text("[") + self.node(&arg) + Doc::text("]")
             } else {
-                let body = self.semicolon_joined(tail_docs.iter().map(|n| self.node(n)).collect());
+                let body =
+                    self.semicolon_joined(tail_docs.iter().map(|(n, _)| self.node(n)).collect());
                 head + Doc::bracket(
                     Doc::text("["),
                     body,
@@ -694,9 +910,24 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    fn postfix_arg_separator(&self, arg: &SyntaxNode, glued: bool) -> Doc {
+        if glued && Self::can_glue_postfix_arg(arg) {
+            Doc::nil()
+        } else {
+            Doc::text(" ")
+        }
+    }
+
+    fn can_glue_postfix_arg(node: &SyntaxNode) -> bool {
+        matches!(
+            node.kind(),
+            SyntaxKind::FunctionExpr | SyntaxKind::FStringExpr
+        )
+    }
+
     fn single_space_arg(&self, arglist: &SyntaxNode) -> Option<SyntaxNode> {
         let (leading_bang, items) = self.arglist_items(arglist);
-        if leading_bang || items.len() != 1 || self.arglist_has_separator(arglist) {
+        if leading_bang || items.len() != 1 || self.arglist_has_separator_or_trivia(arglist) {
             return None;
         }
         let arg = items.into_iter().next().expect("len == 1");
@@ -1146,6 +1377,12 @@ mod tests {
     }
 
     #[test]
+    fn list_preserves_source_rows() {
+        assert_eq!(fmt("x:(1;2;3;\n   4;5;6)", 80), "x:(1;2;3;\n  4;5;6)");
+        assert_eq!(fmt("x:((1;2)\n   (3;4))", 80), "x:((1;2)\n  (3;4))");
+    }
+
+    #[test]
     fn empty_list_and_dict() {
         assert_eq!(fmt("()", 80), "()");
         assert_eq!(fmt("(`)", 80), "(`)");
@@ -1157,22 +1394,45 @@ mod tests {
     }
 
     #[test]
+    fn arglist_preserves_source_rows() {
+        assert_eq!(
+            fmt("f[a;b;\n  `x:1;\n  `y:2]", 80),
+            "f[a;b;\n  `x:1;\n  `y:2]"
+        );
+        assert_eq!(fmt("f[\n  a;\n  b\n]", 80), "f[\n  a;\n  b\n]");
+    }
+
+    #[test]
     fn bare_block_is_canonical() {
         assert_eq!(fmt("[1]", 80), "[1]");
         assert_eq!(fmt("B[1]", 80), "[1]");
         assert_eq!(fmt("B.[1]", 80), "[1]");
-        assert_eq!(fmt("[1; 2; 3]", 80), "[1\n  2\n  3]");
-        assert_eq!(fmt("B[1; 2; 3]", 80), "[1\n  2\n  3]");
+        assert_eq!(fmt("[1; 2; 3]", 80), "[1;2;3]");
+        assert_eq!(fmt("B[1; 2; 3]", 80), "[1;2;3]");
+        assert_eq!(fmt("[1\n2; 3]", 80), "[1\n  2;3]");
     }
 
     #[test]
     fn implicit_function_body_block_keeps_legacy_head() {
         assert_eq!(fmt("{B[x]}", 80), "{B[x]}");
         assert_eq!(fmt("{B.[x]}", 80), "{B[x]}");
-        assert_eq!(fmt("{B[x; y]}", 80), "{\n  B[x\n    y]}");
-        assert_eq!(fmt("{B.[x; y]}", 80), "{\n  B[x\n    y]}");
+        assert_eq!(fmt("{B[x; y]}", 80), "{B[x;y]}");
+        assert_eq!(fmt("{B.[x; y]}", 80), "{B[x;y]}");
         assert_eq!(fmt("{[a]B[x]}", 80), "{[a][x]}");
-        assert_eq!(fmt("{x;B[y]}", 80), "{\n  x\n  [y]}");
+        assert_eq!(fmt("{x;B[y]}", 80), "{\n  x;[y]}");
+    }
+
+    #[test]
+    fn statement_sequences_preserve_same_line_semicolon_runs() {
+        assert_eq!(fmt("{a:1;b:2\nc:3}", 80), "{\n  a:1;b:2\n  c:3}");
+        assert_eq!(fmt("N[10;i:0;j:1]", 80), "N[10;i:0;j:1]");
+        assert_eq!(fmt("N[10\ni:0;j:1]", 80), "N[10\n  i:0;j:1]");
+    }
+
+    #[test]
+    fn wrapped_semicolon_runs_are_idempotent() {
+        let once = fmt("{alpha:1111;beta:2222;gamma:3333}", 18);
+        assert_eq!(fmt(&once, 18), once);
     }
 
     #[test]
@@ -1180,6 +1440,13 @@ mod tests {
         // The space-call `floor sqrt x` parses as nested Postfix; keep the
         // clean postfix surface syntax instead of adding brackets.
         assert_eq!(fmt("floor sqrt x", 80), "floor sqrt x");
+    }
+
+    #[test]
+    fn glued_function_and_fstring_postfix_stays_glued() {
+        assert_eq!(fmt("xs|map{x+1}", 80), "xs|map{x+1}");
+        assert_eq!(fmt("xs|map {x+1}", 80), "xs|map{x+1}");
+        assert_eq!(fmt(r#"echo@f"{x}""#, 80), r#"echo@f"{x}""#);
     }
 
     #[test]
@@ -1213,7 +1480,7 @@ mod tests {
     #[test]
     fn function_one_line() {
         let cfg = FormatConfig {
-            one_line_wizard: true,
+            oneline: true,
             ..FormatConfig::default()
         };
         let s = Session::new();
@@ -1241,7 +1508,7 @@ mod tests {
     #[test]
     fn conditional_one_line() {
         let cfg = FormatConfig {
-            one_line_wizard: true,
+            oneline: true,
             ..FormatConfig::default()
         };
         let s = Session::new();

@@ -1,14 +1,8 @@
 HEX:"0123456789abcdef"
 hb:{(x|shr 4|HEX;x|band 15|HEX)}
 u4:{
-  bs:alloc 16|map {rand 256}
-  bs 6:bs 6|band 15|bor 64
-  bs 8:bs 8|band 63|bor 128
-  cs:alloc 32
-  N[16
-    (cs[2*_n];cs[2*_n+1]):hb bs _n]
-  cs[!8;12;16;20]:"-"
-  cs}
+  bs:alloc 16|map{rand 256};bs 6:bs 6|band 15|bor 64;bs 8:bs 8|band 63|bor 128
+  cs:alloc 32;N[16;(cs[2*_n];cs[2*_n+1]):hb bs _n];cs[!8;12;16;20]:"-";cs}
 
 t:u4[]
 t 14="4"|echo

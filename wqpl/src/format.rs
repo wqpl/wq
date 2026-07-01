@@ -31,15 +31,13 @@ pub struct FormatConfig {
     /// Place the closing `]` / `}` of multi-line constructs on its own
     /// line, indented to the parent's column.
     pub nlcd: bool,
-    /// Force single-line layouts wherever possible. Strictly weaker than
-    /// the per-group flat/break decision: even with a huge `max_width`
-    /// some constructs (multi-statement blocks) emit hard newlines that
-    /// `one_line_wizard` collapses to `;`.
-    pub one_line_wizard: bool,
+    /// Force single-line layouts wherever possible. Strictly weaker than the
+    /// per-group flat/break decision: even with a huge `max_width`, some
+    /// constructs emit hard newlines that `oneline` collapses to `;`.
+    pub oneline: bool,
     /// Target line width for the Wadler/Lindig renderer. Honored when
-    /// `one_line_wizard` is false; otherwise everything collapses
-    /// regardless. Defaults to 100, the convention picked at the start of
-    /// the project.
+    /// `oneline` is false; otherwise everything collapses regardless.
+    /// Defaults to 100, the convention picked at the start of the project.
     pub max_width: usize,
     /// Preserve source spelling and only insert parser-safe wrapping newlines
     /// when a line exceeds `max_width`.
@@ -51,7 +49,7 @@ impl Default for FormatConfig {
         Self {
             indent_size: 2,
             nlcd: false,
-            one_line_wizard: false,
+            oneline: false,
             max_width: 100,
             wrap_only: false,
         }
@@ -96,7 +94,7 @@ impl Formatter {
             .expect("enable_cst was just called, so take_cst yields Some");
         let root = SyntaxNode::new_root(green);
         let doc = lower::lower(&root, &self.opts);
-        let width = if self.opts.one_line_wizard {
+        let width = if self.opts.oneline {
             usize::MAX
         } else {
             self.opts.max_width
@@ -147,9 +145,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn one_line_wizard_ignores_width_for_bracketed_forms() {
+    fn oneline_ignores_width_for_bracketed_forms() {
         let fmt = Formatter::new(FormatConfig {
-            one_line_wizard: true,
+            oneline: true,
             max_width: 1,
             ..FormatConfig::default()
         });

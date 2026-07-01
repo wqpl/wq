@@ -103,7 +103,7 @@ fn format_script<P: AsRef<Path>>(filename: P, opts: FmtOpts) {
             let mut config = FormatConfig {
                 indent_size: 2,
                 nlcd: opts.nlcd,
-                one_line_wizard: opts.olw,
+                oneline: opts.oneline,
                 ..FormatConfig::default()
             };
             if let Some(width) = opts.max_width {

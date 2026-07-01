@@ -258,7 +258,7 @@ impl WqReplHighlighter {
                     .map(str::to_string)
                     .collect()
             }
-            ReplArgKind::FmtMode => ["on", "off", "nlcd", "olw"]
+            ReplArgKind::FmtMode => ["on", "off", "nlcd", "oneline"]
                 .iter()
                 .filter(|name| name.starts_with(prefix))
                 .map(|name| (*name).to_string())

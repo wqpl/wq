@@ -1,48 +1,18 @@
 buildmap:{[code]
-  jump:alloc (l:#code)
-  stack:()
-  N[l
-    ch:code _n
-    $.[ch="["
-      stack,:_n]
-    $.[ch="]"
-      open_:stack[-1]
-      (stack;jump open_;jump _n):(stack[!];_n;open_)]]
+  jump:alloc (l:#code);stack:()
+  N[l;ch:code _n;$.[ch="[";stack,:_n]
+    $.[ch="]";open_:stack[-1];(stack;jump open_;jump _n):(stack[!];_n;open_)]];
   jump}
 bf:{[code]
-  tape:alloc 30000
-  ptr:0
-  jump:buildmap code
-  ip:0
-  W[ip<#code
-    op:code ip
-    $.[op=">"
-      ptr+:1
-      $.[ptr>=#tape
-        tape,:0]]
-    $.[op="<"
-      ptr-:1
-      $.[ptr<0
-        tape:0,tape
-        ptr:0]]
-    $.[op="+"
-      tape ptr+:1]
-    $.[op="-"
-      tape ptr-:1]
-    $.[op="."
-      print chr tape ptr]
-    $.[op=","
-      inp:input "[bf] "
-      tape ptr:$[#inp>0
-        ord inp 0
-        0]
-      echo @f"tape[ptr]={tape ptr}"]
-    $.[op="["
-      $.[tape ptr=0
-        ip:jump ip]]
-    $.[op="]"
-      $.[tape ptr~0
-        ip:jump ip]]
-    ip+:1]
+  tape:alloc 30000;ptr:0;jump:buildmap code;ip:0;
+  W[ip<#code;op:code ip
+    $.[op=">";ptr+:1;$.[ptr>=#tape;tape,:0]]
+    $.[op="<";ptr-:1;$.[ptr<0;tape:0,tape;ptr:0]]
+    $.[op="+";tape ptr+:1]
+    $.[op="-";tape ptr-:1]
+    $.[op=".";print chr tape ptr]
+    $.[op=",";inp:input "[bf] ";tape ptr:$[#inp>0;ord inp 0;0];echo@f"tape[ptr]={tape ptr}"]
+    $.[op="[";$.[tape ptr=0;ip:jump ip]]
+    $.[op="]";$.[tape ptr~0;ip:jump ip]];ip+:1];
   echo ""}
 bf ">++++++++[<+++++++++>-]<.>++++[<+++++++>-]<+.+++++++..+++.>>++++++[<+++++++>-]<++.------------.>++++++[<+++++++++>-]<+.<.+++.------.--------.>>>++++[<++++++++>-]<+."

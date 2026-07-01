@@ -1198,16 +1198,16 @@ impl ReplFmtState {
                     self.opts.nlcd = !self.opts.nlcd;
                     saw_mode_toggle = true;
                 }
-                "olw" => {
+                "oneline" | "olw" => {
                     self.opts.wrap_only = false;
-                    self.opts.olw = !self.opts.olw;
+                    self.opts.oneline = !self.opts.oneline;
                     saw_mode_toggle = true;
                 }
                 "wrap" | "wrap-only" => {
                     self.opts.wrap_only = !self.opts.wrap_only;
                     if self.opts.wrap_only {
                         self.opts.nlcd = false;
-                        self.opts.olw = false;
+                        self.opts.oneline = false;
                     }
                     saw_mode_toggle = true;
                 }
@@ -1220,7 +1220,7 @@ impl ReplFmtState {
                         self.opts.max_width = Some(width);
                         self.opts.wrap_only = true;
                         self.opts.nlcd = false;
-                        self.opts.olw = false;
+                        self.opts.oneline = false;
                         saw_mode_toggle = true;
                     } else if let Some(width_mode) = parse_width_mode(other)? {
                         match width_mode {
@@ -1230,7 +1230,7 @@ impl ReplFmtState {
                         saw_mode_toggle = true;
                     } else {
                         return Err(format!(
-                            "unknown fmt mode '{other}'\nAvailable: on, off, nlcd, olw, wrap-only, width=COLS, nowrap"
+                            "unknown fmt mode '{other}'\nAvailable: on, off, nlcd, oneline, wrap-only, width=COLS, nowrap"
                         ));
                     }
                 }
@@ -1246,7 +1246,7 @@ impl ReplFmtState {
         let mut config = FormatConfig {
             indent_size: 2,
             nlcd: self.opts.nlcd,
-            one_line_wizard: self.opts.olw,
+            oneline: self.opts.oneline,
             ..FormatConfig::default()
         };
         if let Some(width) = self.opts.max_width {
@@ -1267,8 +1267,8 @@ impl ReplFmtState {
         if self.opts.nlcd {
             modes.push("nlcd".to_string());
         }
-        if self.opts.olw {
-            modes.push("olw".to_string());
+        if self.opts.oneline {
+            modes.push("oneline".to_string());
         }
         if modes.is_empty() {
             "default".into()
@@ -1531,6 +1531,17 @@ mod tests {
         assert!(!state.opts.wrap_only);
         assert!(state.opts.nlcd);
         assert!(!state.config().wrap_only);
+    }
+
+    #[test]
+    fn fmt_repl_oneline_mode_uses_clear_name() {
+        let mut state = ReplFmtState::default();
+        state.toggle_modes("oneline").expect("oneline mode parses");
+
+        assert!(state.enabled);
+        assert!(state.opts.oneline);
+        assert_eq!(state.modes(), "oneline");
+        assert!(state.config().oneline);
     }
 
     #[test]

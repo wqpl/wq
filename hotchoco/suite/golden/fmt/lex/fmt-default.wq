@@ -7,27 +7,12 @@ is_lower:{and[x>="a";x<="z"]}
 is_alpha:{or[is_upper x;is_lower x]}
 is_id_char:{or[is_upper x;is_lower x;is_digit x]}
 lex:{[s]
-  tokens:()
-  i:0
-  n:#s
-  W[i<n
-    c:s i
-    $$[is_op c
-      [tokens,:,(`op;c)
-        i+:1]
-      is_alpha c
-      [j:i
-        W[[j<n;is_id_char s j]
-          j+:1]
-        tokens,:,(`id;s i..j)
-        i:j]
-      is_digit c
-      [j:i
-        W[[j<n;is_digit s j]
-          j+:1]
-        tokens,:,(`int;s i..j)
-        i:j]
-      i+:1]]
+  tokens:();i:0;n:#s
+  W[i<n;c:s i
+    $$[is_op c;[tokens,:,(`op;c);i+:1]
+      is_alpha c;[j:i;W[[j<n;is_id_char s j];j+:1];tokens,:,(`id;s i..j);i:j]
+      is_digit c;[j:i;W[[j<n;is_digit s j];j+:1];tokens,:,(`int;s i..j);i:j]
+      i+:1]];
   tokens}
 
 echo "--- Test 1: basic ---"
@@ -44,7 +29,3 @@ echo lex "helloWorld"
 
 echo "--- Test 5: deny 1k ---"
 echo lex "1k"
-
-
-=== VALIDATION ERRORS ===
-STABILISATION FAILED: re-formatting produced different output

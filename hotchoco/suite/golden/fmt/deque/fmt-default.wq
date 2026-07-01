@@ -2,199 +2,82 @@
 // The demo trace shows the logical list and the raw ring storage side by side.
 make_deque:{[]
   // mutable state
-  data:alloc 4
-  head:0
-  tail:0
-  sz:0 /* number of elements */
-  cap:4 /* ring buffer capacity */
+  data:alloc 4;head:0;tail:0;sz:0 /* number of elements */;cap:4 /* ring buffer capacity */
   // -- private --
   check:'{[]
-    $.[or[cap<4;sz<0]
-      raise "deque invariant: bad cap or size"]
-    $.[or[sz>cap;or[head<0;head>=cap]]
-      raise "deque invariant: bad head or size"]
-    $.[or[tail<0;tail>=cap]
-      raise "deque invariant: bad tail"]
-    $.[not[tail=((head+sz)%cap)]
-      raise "deque invariant: bad tail position"]}
+    $.[or[cap<4;sz<0];raise "deque invariant: bad cap or size"]
+    $.[or[sz>cap;or[head<0;head>=cap]];raise "deque invariant: bad head or size"]
+    $.[or[tail<0;tail>=cap];raise "deque invariant: bad tail"]
+    $.[not[tail=((head+sz)%cap)];raise "deque invariant: bad tail position"]}
   grow:'{[]
-    check[]
-    old_data:data
-    old_cap:cap
-    old_sz:sz
-    new_cap:old_cap*2
-    new_data:alloc new_cap
-    i:head
-    j:0
-    N[old_sz
-      new_data j:old_data i
-      i:(i+1)%old_cap
-      j+:1]
-    data:new_data
-    cap:new_cap
-    head:0
-    tail:old_sz
-    check[]}
+    check[];old_data:data;old_cap:cap;old_sz:sz;new_cap:old_cap*2;new_data:alloc new_cap
+    i:head;j:0;N[old_sz;new_data j:old_data i;i:(i+1)%old_cap;j+:1]
+    data:new_data;cap:new_cap;head:0;tail:old_sz;check[]}
   shrink:'{[]
-    check[]
-    old_sz:sz
-    old_cap:cap
-    $.[old_sz>=old_cap/%4
-      @r ()]
-    new_cap:max[old_cap/%2;4]
-    $.[new_cap<old_sz
-      new_cap:old_sz]
-    $.[new_cap>=old_cap
-      @r ()]
-    new_data:alloc new_cap
-    i:head
-    j:0
-    N[old_sz
-      new_data j:data i
-      i:(i+1)%old_cap
-      j+:1]
-    data:new_data
-    cap:new_cap
-    head:0
-    tail:old_sz
-    check[]}
+    check[];old_sz:sz;old_cap:cap
+    $.[old_sz>=old_cap/%4;@r ()];new_cap:max[old_cap/%2;4]
+    $.[new_cap<old_sz;new_cap:old_sz];$.[new_cap>=old_cap;@r ()]
+    new_data:alloc new_cap;i:head;j:0
+    N[old_sz;new_data j:data i;i:(i+1)%old_cap;j+:1]
+    data:new_data;cap:new_cap;head:0;tail:old_sz;check[]}
   // -- public --
   push_back:'{[val]
-    check[]
-    $.[sz=cap
-      grow[]]
-    data tail:val
-    tail:(tail+1)%cap
-    sz+:1
-    check[]}
+    check[];$.[sz=cap;grow[]];data tail:val;tail:(tail+1)%cap;sz+:1;check[]}
   push_front:'{[val]
-    check[]
-    $.[sz=cap
-      grow[]]
-    head:(head-1+cap)%cap
-    data head:val
-    sz+:1
-    check[]}
+    check[];$.[sz=cap;grow[]];head:(head-1+cap)%cap;data head:val;sz+:1;check[]}
   pop_back:'{[]
-    check[]
-    $.[sz=0
-      raise "pop on empty deque"]
-    tail:(tail-1+cap)%cap
-    val:data tail
-    sz-:1
-    $.[sz<cap/%4
-      shrink[]]
-    check[]
-    val}
+    check[];$.[sz=0;raise "pop on empty deque"];tail:(tail-1+cap)%cap;val:data tail
+    sz-:1;$.[sz<cap/%4;shrink[]];check[];val}
   pop_front:'{[]
-    check[]
-    $.[sz=0
-      raise "pop on empty deque"]
-    val:data head
-    head:(head+1)%cap
-    sz-:1
-    $.[sz<cap/%4
-      shrink[]]
-    check[]
-    val}
+    check[];$.[sz=0;raise "pop on empty deque"];val:data head;head:(head+1)%cap
+    sz-:1;$.[sz<cap/%4;shrink[]];check[];val}
   // get element by logical index (0 <= idx < sz). negative index counts from end
   get:'{[idx]
-    check[]
-    $.[idx<0
-      idx+:sz]
-    $.[or[idx<0;idx>=sz]
-      raise "index out of bounds"]
+    check[];$.[idx<0;idx+:sz];$.[or[idx<0;idx>=sz];raise "index out of bounds"]
     data[(head+idx)%cap]}
   // set element by logical index
   set_:'{[idx;val]
-    check[]
-    $.[idx<0
-      idx+:sz]
-    $.[or[idx<0;idx>=sz]
-      raise "index out of bounds"]
-    data[(head+idx)%cap]:val
-    check[]}
+    check[];$.[idx<0;idx+:sz];$.[or[idx<0;idx>=sz];raise "index out of bounds"]
+    data[(head+idx)%cap]:val;check[]}
   deque_len:'{[]
-    check[]
-    sz}
+    check[];sz};
   empty?:'{[]
-    check[]
-    sz=0}
+    check[];sz=0};
   capacity:'{[]
-    check[]
-    cap}
+    check[];cap}
   to_list:'{[]
-    check[]
-    res:alloc sz
-    i:0
-    N[sz
-      res i:get i
-      i+:1]
-    res}
+    check[];res:alloc sz;i:0;N[sz;res i:get i;i+:1];res}
   state:'{[]
-    check[]
-    (`list:to_list[];`data:data;`head:head;`tail:tail;`sz:sz;`cap:cap)}
+    check[];(`list:to_list[];`data:data;`head:head;`tail:tail;`sz:sz;`cap:cap)}
   // return methods as a dict
-  (
-    `push_back:push_back;
-    `push_front:push_front;
-    `pop_back:pop_back;
-    `pop_front:pop_front;
-    `get:get;
-    `set:set_;
-    `len:deque_len;
-    `empty?:empty?;
-    `capacity:capacity;
-    `to_list:to_list;
-    `state:state;
-    `check:check)}
+  (`push_back:push_back;`push_front:push_front;`pop_back:pop_back;`pop_front:pop_front;
+    `get:get;`set:set_;`len:deque_len;`empty?:empty?;`capacity:capacity;`to_list:to_list;
+    `state:state;`check:check)}
 
 d:make_deque[]
 trace:{[label;d]
-  s:d[`state][]
-  lst:s `list
-  lst:$[#lst=0
-    "()"
-    lst]
-  dat:s `data
-  h:s `head
-  t:s `tail
-  sz:s `sz
-  cap:s `cap
-  echo @f"{label} | logical={lst} | raw={dat} | head={h} tail={t} sz={sz} cap={cap}"}
+  s:d[`state][];lst:s `list;lst:$[#lst=0;"()";lst];dat:s `data;h:s `head;t:s `tail;sz:s `sz;cap:s `cap
+  echo@f"{label} | logical={lst} | raw={dat} | head={h} tail={t} sz={sz} cap={cap}"}
 expect:{[label;got;want]
-  $[got=want
-    echo @f"ok {label}"
-    raise @f"FAIL {label}: got {got}, want {want}"]}
+  $[got=want;echo@f"ok {label}";raise@f"FAIL {label}: got {got}, want {want}"]}
 
 trace["new";d]
-d[`push_back] 10
-trace["push_back 10";d]
-d[`push_back] 20
-trace["push_back 20";d]
-d[`push_front] 5
-trace["push_front 5 wraps head";d]
-d[`push_front] 2
-trace["push_front 2 fills ring";d]
+d[`push_back] 10;trace["push_back 10";d]
+d[`push_back] 20;trace["push_back 20";d]
+d[`push_front] 5;trace["push_front 5 wraps head";d]
+d[`push_front] 2;trace["push_front 2 fills ring";d]
 expect["logical order after wrap";d[`to_list][];(2;5;10;20)]
 
-d[`push_back] 30
-trace["push_back 30 grows";d]
+d[`push_back] 30;trace["push_back 30 grows";d]
 expect["capacity after grow";d[`capacity][];8]
-expect["pop_back";d[`pop_back][];30]
-trace["pop_back 30";d]
-expect["pop_front";d[`pop_front][];2]
-trace["pop_front 2";d]
+expect["pop_back";d[`pop_back][];30];trace["pop_back 30";d]
+expect["pop_front";d[`pop_front][];2];trace["pop_front 2";d]
 
-d[`set][0;99]
-trace["set index 0 to 99";d]
+d[`set][0;99];trace["set index 0 to 99";d]
 expect["get front";d[`get] 0;99]
 expect["get back with negative index";d[`get][-1];20]
 
-expect["pop_front";d[`pop_front][];99]
-trace["pop_front 99";d]
-expect["pop_front triggers shrink";d[`pop_front][];10]
-trace["pop_front 10 shrinks";d]
-expect["pop_front";d[`pop_front][];20]
-trace["pop_front 20";d]
+expect["pop_front";d[`pop_front][];99];trace["pop_front 99";d]
+expect["pop_front triggers shrink";d[`pop_front][];10];trace["pop_front 10 shrinks";d]
+expect["pop_front";d[`pop_front][];20];trace["pop_front 20";d]
 expect["empty";d[`empty?][];true]

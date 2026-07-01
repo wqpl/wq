@@ -1,29 +1,25 @@
 north:{x 1..#x,(,0*x 0)}
 south:{(,0*x 0),x 0..(#x-1)}
-east:{x|M {0,x 0..(#x-1)}}
-west:{x|M {x 1..#x,0}}
+east:{x|M{0,x 0..(#x-1)}}
+west:{x|M{x 1..#x,0}}
 neighbors:{
   north x+south x+east x+west x+(east x|north)+(west x|north)+(east x|south)+(west x|south)}
 step:{
-  n:neighbors x
-  (1-sgn abs[n-3])+x*(1-sgn abs[n-2])}
+  n:neighbors x;(1-sgn abs[n-3])+x*(1-sgn abs[n-2])}
 show:{
-  x|M {".#" x|flatten|echo}
-  echo ""}
+  x|M{".#" x|flatten|echo};echo ""}
 after:{[g;n]
-  N[n
-    g:step g]
-  g}
+  N[n;g:step g];g}
 show_after:{[g;n]
-  g:after[g;n]
-  echo @f"t={n}"
-  show g
-  g}
+  g:after[g;n];echo@f"t={n}";show g;g}
 
 // blinker, a period-2 oscillator
-g:((0;0;0;0;0);(0;0;1;0;0);(0;0;1;0;0);(0;0;1;0;0);(0;0;0;0;0))
+g:((0;0;0;0;0)
+  (0;0;1;0;0)
+  (0;0;1;0;0)
+  (0;0;1;0;0)
+  (0;0;0;0;0))
 show_after[g;0]
-echo "neighbor counts"
-echo neighbors g
+echo "neighbor counts";echo neighbors g
 show_after[g;1]
 show_after[g;2]
