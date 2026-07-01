@@ -60,6 +60,7 @@
       - lexer/parser/compiler/vm/interpreter
       - anything that affects semantics
       - a `e/*.wq` script
+      - formatter
     - If a new major module is added, you may create a new test config for it.
     - Key commands: `python3 hotchoco.py run`, `python3 hotchoco.py show --no-pager`, `python3 hotchoco.py accept --test TEST`.
     - See `python3 hotchoco.py --help` for details.
@@ -124,7 +125,7 @@ Use:
     - `wqpl` for syntax/builtin changes
     - `wqpl/cas` for specific cas changes
     - `wq-cli` for specific cli changes
-- Clear, consise message body
+- Clear, consise message body. Do not manually insert hard-wrap newlines.
 - Include a `Release Notes:` section as the final section
 - Use one bullet under `Release Notes:`:
   - `- Added ...` for a new user-facing capability;
