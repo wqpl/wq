@@ -395,7 +395,10 @@ export default grammar({
       prec(PREC.POSTFIX, seq(optional($.depth_modifier), $.arg_list)),
 
     mutating_index_suffix: ($) =>
-      prec(PREC.POSTFIX, seq("[", "!", optional($.argument_items), "]")),
+      prec(
+        PREC.POSTFIX,
+        choice(seq("[", "!", optional($.argument_items), "]"), "!"),
+      ),
 
     juxtaposition_suffix: ($) =>
       prec(PREC.POSTFIX, seq(optional($.depth_modifier), $.juxtaposition_arg)),

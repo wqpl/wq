@@ -1622,31 +1622,40 @@
       "type": "PREC",
       "value": 10,
       "content": {
-        "type": "SEQ",
+        "type": "CHOICE",
         "members": [
           {
-            "type": "STRING",
-            "value": "["
-          },
-          {
-            "type": "STRING",
-            "value": "!"
-          },
-          {
-            "type": "CHOICE",
+            "type": "SEQ",
             "members": [
               {
-                "type": "SYMBOL",
-                "name": "argument_items"
+                "type": "STRING",
+                "value": "["
               },
               {
-                "type": "BLANK"
+                "type": "STRING",
+                "value": "!"
+              },
+              {
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "argument_items"
+                  },
+                  {
+                    "type": "BLANK"
+                  }
+                ]
+              },
+              {
+                "type": "STRING",
+                "value": "]"
               }
             ]
           },
           {
             "type": "STRING",
-            "value": "]"
+            "value": "!"
           }
         ]
       }

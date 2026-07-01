@@ -1,0 +1,63 @@
+============================
+Bare Mutating Index
+============================
+xs!
+xs!:15
+
+---
+
+(source_file
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (primary
+                              (variable_ref
+                                (identifier))))
+                          (suffix
+                            (mutating_index_suffix))))))))))))))
+  (separator
+    (newline))
+  (statement
+    (expression
+      (assignment_expr
+        (pipe_expr
+          (comma_expr
+            (comparison_expr
+              (additive_expr
+                (multiplicative_expr
+                  (range_expr
+                    (unary_expr
+                      (power_expr
+                        (postfix_expr
+                          (postfix_expr
+                            (primary
+                              (variable_ref
+                                (identifier))))
+                          (suffix
+                            (mutating_index_suffix)))))))))))
+        (assignment_operator)
+        (assignment_expr
+          (pipe_expr
+            (comma_expr
+              (comparison_expr
+                (additive_expr
+                  (multiplicative_expr
+                    (range_expr
+                      (unary_expr
+                        (power_expr
+                          (postfix_expr
+                            (primary
+                              (literal
+                                (integer))))))))))))))))
+  (separator
+    (newline)))

@@ -1,0 +1,5 @@
+xs:(10;20;30)
+echo xs!
+echo xs
+xs!:15
+echo xs

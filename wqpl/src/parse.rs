@@ -1914,6 +1914,10 @@ impl Parser {
         res
     }
 
+    fn is_bare_mutating_index_target(expr: &AstNode) -> bool {
+        matches!(expr, AstNode::Variable(_, _) | AstNode::OuterVariable(_, _))
+    }
+
     fn parse_postfix_internal<F>(&mut self, mut parse_arg: F) -> WqResult<AstNode>
     where
         F: FnMut(&mut Self) -> WqResult<AstNode>,
@@ -1990,6 +1994,28 @@ impl Parser {
                         self.cst_start_node_at(cp_outer, SyntaxKind::PostfixExpr);
                         self.cst_finish_node();
                     }
+                }
+                Some(TokenType::Bang) if Self::is_bare_mutating_index_target(&expr) => {
+                    if let Some((_, token)) = pending_depth.take() {
+                        return Err(
+                            self.syntax_err(&token, "depth modifier must be followed by a call")
+                        );
+                    }
+                    let cp_args = self.cst_checkpoint();
+                    let bang = self
+                        .current_token()
+                        .cloned()
+                        .expect("Bang branch has current token");
+                    self.advance();
+                    self.cst_start_node_at(cp_args, SyntaxKind::ArgList);
+                    self.cst_finish_node();
+                    expr = AstNode::MutatingIndex {
+                        object: Box::new(expr),
+                        index: Box::new(AstNode::List(Vec::new(), None)),
+                        span: Some((start_byte, bang.byte_end)),
+                    };
+                    self.cst_start_node_at(cp_outer, SyntaxKind::MutatingIndexExpr);
+                    self.cst_finish_node();
                 }
                 // allow minus as arg ONLY if the object is an operator
                 Some(TokenType::Minus) if is_operator => {
@@ -5458,6 +5484,53 @@ mod cst_integration_tests {
                 .any(|elem| elem.kind() == SyntaxKind::AtDepth),
             "expected AtDepth token in CST",
         );
+    }
+
+    #[test]
+    fn bare_bang_parses_as_empty_mutating_index() {
+        let src = "a!";
+        let (ast, cst) = parse_with_cst(src);
+        let AstNode::MutatingIndex {
+            object,
+            index,
+            span,
+        } = ast
+        else {
+            panic!("expected MutatingIndex, got {ast:?}");
+        };
+        assert!(matches!(object.as_ref(), AstNode::Variable(name, _) if name == "a"));
+        assert!(matches!(index.as_ref(), AstNode::List(items, _) if items.is_empty()));
+        assert_eq!(span, Some((0, 2)));
+
+        let root = SyntaxNode::new_root(cst);
+        let idx = root
+            .descendants()
+            .find(|n| n.kind() == SyntaxKind::MutatingIndexExpr)
+            .expect("MutatingIndexExpr present");
+        let arglist = idx
+            .children()
+            .find(|n| n.kind() == SyntaxKind::ArgList)
+            .expect("ArgList inside MutatingIndexExpr");
+        assert_eq!(arglist.text(), "!");
+    }
+
+    #[test]
+    fn bare_bang_assignment_parses_as_mutating_index_assignment() {
+        let src = "a!:1";
+        let (ast, _) = parse_with_cst(src);
+        let AstNode::MutatingIndexAssign {
+            object,
+            index,
+            value,
+            span,
+        } = ast
+        else {
+            panic!("expected MutatingIndexAssign, got {ast:?}");
+        };
+        assert!(matches!(object.as_ref(), AstNode::Variable(name, _) if name == "a"));
+        assert!(matches!(index.as_ref(), AstNode::List(items, _) if items.is_empty()));
+        assert!(matches!(value.as_ref(), AstNode::Literal(Value::Int(1), _)));
+        assert_eq!(span, Some((0, 4)));
     }
 
     #[test]
