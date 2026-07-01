@@ -8,6 +8,7 @@ mod escape;
 mod lex;
 mod parse;
 mod range;
+mod tree_pretty;
 
 pub mod astnode;
 pub mod boxmode;

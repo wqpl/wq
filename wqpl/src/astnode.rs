@@ -1,5 +1,6 @@
 use crate::highlight::Highlighter as SyntaxHighlighter;
-use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
+use crate::style::AnsiColor;
+use crate::tree_pretty::{self, HeadStyle, Pretty};
 use crate::value::Value;
 use crate::wqerror::WqError;
 
@@ -409,32 +410,6 @@ fn fmt_span_note(src: &PrettySource<'_>, span: Option<(usize, usize)>) -> String
     format!(" [{sl}:{sc}-{el}:{ec}] {snippet}")
 }
 
-/// Simple pretty-document: holds a flat (single-line) form and a multi-line
-/// form.
-struct Pretty {
-    flat: String,
-    flat_len: usize,
-    multi: String,
-}
-
-/// Strip ANSI escape sequences to get the visible width of a string.
-fn visible_len(s: &str) -> usize {
-    let mut len = 0;
-    let mut in_escape = false;
-    for c in s.chars() {
-        if in_escape {
-            if c.is_ascii_alphabetic() {
-                in_escape = false;
-            }
-        } else if c == '\x1b' {
-            in_escape = true;
-        } else {
-            len += 1;
-        }
-    }
-    len
-}
-
 /// Color used for a given AST node type in the pretty printer.
 fn node_color(node: &AstNode) -> AnsiColor {
     use AstNode::*;
@@ -474,102 +449,29 @@ fn node_color(node: &AstNode) -> AnsiColor {
     }
 }
 
-/// Budget shrinks as we go deeper so that deeply nested expressions break
-/// earlier.
-fn budget(depth: usize) -> usize {
-    60usize.saturating_sub(depth * 2)
-}
-
-fn pretty_style(color: AnsiColor) -> TextStyle {
-    TextStyle::new().fg(color).bold()
-}
-
-fn pretty_paint(text: &str, color: AnsiColor) -> String {
-    paint(text, pretty_style(color), ColorMode::Always)
-}
-
 fn pretty_leaf(text: &str, note: &str, color: AnsiColor) -> Pretty {
-    let body = pretty_paint(text, color);
-    let flat = if note.is_empty() {
-        body
-    } else {
-        format!("{body}{note}")
-    };
-    let flat_len = visible_len(&flat);
-    Pretty {
-        flat: flat.clone(),
-        flat_len,
-        multi: flat,
-    }
-}
-
-/// Color the first "word" of a head string (the label) while leaving any
-/// trailing span untouched. If the label already contains ANSI escapes,
-/// leave the whole head unchanged.
-fn colorize_head(head: &str, color: AnsiColor) -> String {
-    if head.starts_with('(') {
-        return head.to_string();
-    }
-
-    let (label, rest) = match head.find(char::is_whitespace) {
-        Some(pos) => (&head[..pos], &head[pos..]),
-        None => (head, ""),
-    };
-
-    if label.contains('\x1b') {
-        head.to_string()
-    } else {
-        format!("{}{}", pretty_paint(label, color), rest)
-    }
+    tree_pretty::leaf(text, note, color)
 }
 
 fn pretty_group(depth: usize, head: String, children: Vec<Pretty>, color: AnsiColor) -> Pretty {
-    let colored_head = colorize_head(&head, color);
-    let open = pretty_paint("(", color);
-    let close = pretty_paint(")", color);
+    tree_pretty::group(depth, head, children, color, HeadStyle::FirstWord, false)
+}
 
-    let mut flat_parts = vec![colored_head.clone()];
-    flat_parts.extend(children.iter().map(|c| c.flat.clone()));
-    let flat_body = flat_parts.join(" ");
-    let flat = format!("{open}{flat_body}{close}");
-    let flat_len = visible_len(&flat);
-
-    // Force multi-line for blocks / containers when they have more than one item.
-    let force_multi = matches!(
-        head.split_whitespace().next(),
-        Some("BLOCK" | "B" | "LIST" | "DICT")
-    ) && children.len() > 1;
-
-    if flat_len <= budget(depth) && !force_multi {
-        Pretty {
-            flat: flat.clone(),
-            flat_len,
-            multi: flat,
-        }
-    } else {
-        let mut lines = vec![format!("{open}{}", colored_head)];
-        for child in children {
-            let child_text = if child.flat_len <= 20 {
-                child.flat.clone()
-            } else {
-                child.multi.clone()
-            };
-            for line in child_text.lines() {
-                lines.push(format!("  {line}"));
-            }
-        }
-        if let Some(last) = lines.last_mut() {
-            last.push_str(&close);
-        } else {
-            lines.push(close);
-        }
-        let multi = lines.join("\n");
-        Pretty {
-            flat,
-            flat_len,
-            multi,
-        }
-    }
+fn pretty_container_group(
+    depth: usize,
+    head: String,
+    children: Vec<Pretty>,
+    color: AnsiColor,
+) -> Pretty {
+    let force_multi = children.len() > 1;
+    tree_pretty::group(
+        depth,
+        head,
+        children,
+        color,
+        HeadStyle::FirstWord,
+        force_multi,
+    )
 }
 
 impl AstNode {
@@ -719,7 +621,7 @@ impl AstNode {
                     .map(|i| i.pretty_with_depth(depth + 1, src))
                     .collect();
                 let head = format!("LIST{note}");
-                pretty_group(depth, head, children, color)
+                pretty_container_group(depth, head, children, color)
             }
             Cat(items, _) => {
                 let children: Vec<Pretty> = items
@@ -741,7 +643,7 @@ impl AstNode {
                     ));
                 }
                 let head = format!("DICT{note}");
-                pretty_group(depth, head, children, color)
+                pretty_container_group(depth, head, children, color)
             }
             Postfix {
                 object,
@@ -1017,7 +919,7 @@ impl AstNode {
                     .map(|s| s.pretty_with_depth(depth + 1, src))
                     .collect();
                 let head = format!("BLOCK{note}");
-                pretty_group(depth, head, children, color)
+                pretty_container_group(depth, head, children, color)
             }
             BlockExpr(stmts, _) => {
                 let children: Vec<Pretty> = stmts
@@ -1025,7 +927,7 @@ impl AstNode {
                     .map(|s| s.pretty_with_depth(depth + 1, src))
                     .collect();
                 let head = format!("B{note}");
-                pretty_group(depth, head, children, color)
+                pretty_container_group(depth, head, children, color)
             }
             UnpackAssignment { lhs, op, rhs, .. } => {
                 let head = if let Some(op) = op {

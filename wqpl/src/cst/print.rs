@@ -6,7 +6,8 @@
 use super::green::{GreenChild, GreenNode, GreenToken};
 use super::kind::SyntaxKind;
 use super::red::{SyntaxElement, SyntaxNode, SyntaxToken, TextRange};
-use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
+use crate::style::AnsiColor;
+use crate::tree_pretty::{self, HeadStyle, Pretty};
 
 // Color scheme.
 
@@ -69,106 +70,30 @@ fn kind_color(kind: SyntaxKind) -> AnsiColor {
 
 // Layout helpers.
 
-/// Visible width of a string that may contain ANSI escapes.
-fn visible_len(s: &str) -> usize {
-    let mut len = 0;
-    let mut in_escape = false;
-    for c in s.chars() {
-        if in_escape {
-            if c.is_ascii_alphabetic() {
-                in_escape = false;
-            }
-        } else if c == '\x1b' {
-            in_escape = true;
-        } else {
-            len += 1;
-        }
-    }
-    len
-}
-
-/// Line budget for this depth.
-fn budget(depth: usize) -> usize {
-    60usize.saturating_sub(depth * 2)
-}
-
-/// Flat and broken forms of a printed tree.
-struct Pretty {
-    flat: String,
-    flat_len: usize,
-    multi: String,
-}
-
-fn pretty_style(color: AnsiColor) -> TextStyle {
-    TextStyle::new().fg(color).bold()
-}
-
-fn pretty_paint(text: &str, color: AnsiColor) -> String {
-    paint(text, pretty_style(color), ColorMode::Always)
-}
-
 fn pretty_leaf(text: &str, note: &str, color: AnsiColor) -> Pretty {
-    let body = pretty_paint(text, color);
-    let flat = if note.is_empty() {
-        body
-    } else {
-        format!("{body}{note}")
-    };
-    let flat_len = visible_len(&flat);
-    Pretty {
-        flat: flat.clone(),
-        flat_len,
-        multi: flat,
-    }
+    tree_pretty::leaf(text, note, color)
 }
 
-fn pretty_group(depth: usize, head: String, children: Vec<Pretty>, color: AnsiColor) -> Pretty {
-    let colored_head = pretty_paint(&head, color);
-    let open = pretty_paint("(", color);
-    let close = pretty_paint(")", color);
+fn force_multiline_kind(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::Root
+            | SyntaxKind::Block
+            | SyntaxKind::ListExpr
+            | SyntaxKind::DictExpr
+            | SyntaxKind::ParamList
+            | SyntaxKind::ArgList
+    )
+}
 
-    let mut flat_parts = vec![colored_head.clone()];
-    flat_parts.extend(children.iter().map(|c| c.flat.clone()));
-    let flat_body = flat_parts.join(" ");
-    let flat = format!("{open}{flat_body}{close}");
-    let flat_len = visible_len(&flat);
-
-    // Keep larger containers readable.
-    let force_multi = matches!(
-        head.split_whitespace().next(),
-        Some("ROOT" | "BLOCK" | "LIST_EXPR" | "DICT_EXPR" | "SET_EXPR" | "PARAM_LIST" | "ARG_LIST")
-    ) && children.len() > 1;
-
-    if flat_len <= budget(depth) && !force_multi {
-        Pretty {
-            flat: flat.clone(),
-            flat_len,
-            multi: flat,
-        }
-    } else {
-        let mut lines = vec![format!("{open}{}", colored_head)];
-        for child in children {
-            let child_text = if child.flat_len <= 20 {
-                child.flat.clone()
-            } else {
-                child.multi.clone()
-            };
-            for line in child_text.lines() {
-                lines.push(format!("  {line}"));
-            }
-        }
-        if let Some(last) = lines.last_mut() {
-            last.push_str(&close);
-        } else {
-            lines.push(close);
-        }
-        let multi = lines.join("\n");
-        Pretty {
-            flat,
-            flat_len,
-            multi,
-        }
-    }
+fn pretty_group(
+    depth: usize,
+    head: String,
+    children: Vec<Pretty>,
+    color: AnsiColor,
+    force_multi: bool,
+) -> Pretty {
+    tree_pretty::group(depth, head, children, color, HeadStyle::Whole, force_multi)
 }
 
 // Escaping helpers.
@@ -211,7 +136,8 @@ fn green_node_pretty(node: &GreenNode, depth: usize) -> Pretty {
         .map(|c| green_child_pretty(c, depth + 1))
         .collect();
     let head = kind.name().to_string();
-    pretty_group(depth, head, children, color)
+    let force_multi = force_multiline_kind(kind) && children.len() > 1;
+    pretty_group(depth, head, children, color, force_multi)
 }
 
 impl std::fmt::Display for GreenToken {
@@ -275,7 +201,8 @@ fn red_node_pretty(node: &SyntaxNode, depth: usize, show_span: bool) -> Pretty {
         .map(|c| red_element_pretty(&c, depth + 1, show_span))
         .collect();
     let head = format!("{}{note}", kind.name());
-    pretty_group(depth, head, children, color)
+    let force_multi = force_multiline_kind(kind) && children.len() > 1;
+    pretty_group(depth, head, children, color, force_multi)
 }
 
 impl SyntaxNode {
