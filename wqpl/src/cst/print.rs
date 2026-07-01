@@ -1,51 +1,48 @@
-//! Pretty printer for green and red CST trees.
+//! Pretty-printer for green and red CST trees.
 //!
-//! Mirrors the style of [`crate::astnode::AstNode`] pretty printing:
-//! s-expression layout with heuristic line-breaking, ANSI colouring by
-//! [`SyntaxKind`], and optional source-span annotations.
+//! Uses s-expression layout, ANSI color by [`SyntaxKind`], and optional byte
+//! spans.
 
 use super::green::{GreenChild, GreenNode, GreenToken};
 use super::kind::SyntaxKind;
 use super::red::{SyntaxElement, SyntaxNode, SyntaxToken, TextRange};
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 
-// -----------------------------------------------------------------------
-// Colour scheme
-// -----------------------------------------------------------------------
+// Color scheme.
 
 fn kind_color(kind: SyntaxKind) -> AnsiColor {
     use SyntaxKind::*;
     match kind {
-        // Trivia
+        // Trivia.
         Whitespace | Newline | Comment => AnsiColor::BrightBlack,
         ScriptLine => AnsiColor::BrightYellow,
 
-        // Literals
+        // Literals.
         IntLit | BigIntLit | FloatLit | ImagLit | CharLit | StringLit | TagLit | InfLit
         | TrueKw | FalseKw | FString => AnsiColor::Cyan,
 
-        // Identifiers
+        // Identifiers.
         Ident | Apostrophe => AnsiColor::Blue,
 
-        // Keywords / directives
+        // Keywords and directives.
         AtAssert | AtBreak | AtContinue | AtReturn | AtDebug | AtPause | AtDepth | AtSymbolic
         | AtTry | Dollar | DollarDot | DollarDollar => AnsiColor::Green,
 
-        // Operators
+        // Operators.
         Plus | Minus | Star | Slash | SlashDot | Percent | Power | PowerDot | Matmul | FloorDiv
         | PlusColon | MinusColon | StarColon | SlashColon | SlashDotColon | PercentColon
         | PowerColon | PowerDotColon | CommaColon | FloorDivColon | EqEq | EqDot | NotEq
         | NotEqDot | Lt | Le | Gt | Ge => AnsiColor::Yellow,
 
-        // Punctuation / brackets
+        // Punctuation and brackets.
         Colon | Hash | Pipe | PipeDot | PipePipe | PipePipeDot | RangeOp | RangeIncOp | LParen
         | RParen | LBrack | RBrack | LBrace | RBrace | Semicolon | Comma | Bang | Ellipsis
         | Backtick => AnsiColor::White,
 
-        // Error token
+        // Error token.
         ErrorTok => AnsiColor::BrightMagenta,
 
-        // Internal nodes -- expressions are magenta, containers white, errors bright magenta
+        // Internal nodes.
         Root => AnsiColor::White,
         Block => AnsiColor::White,
         Shebang | ScriptDirective => AnsiColor::BrightYellow,
@@ -70,9 +67,7 @@ fn kind_color(kind: SyntaxKind) -> AnsiColor {
     }
 }
 
-// -----------------------------------------------------------------------
-// Layout helpers (same primitives as the AST printer)
-// -----------------------------------------------------------------------
+// Layout helpers.
 
 /// Visible width of a string that may contain ANSI escapes.
 fn visible_len(s: &str) -> usize {
@@ -92,12 +87,12 @@ fn visible_len(s: &str) -> usize {
     len
 }
 
-/// Budget shrinks with depth so deeply nested trees break earlier.
+/// Line budget for this depth.
 fn budget(depth: usize) -> usize {
     60usize.saturating_sub(depth * 2)
 }
 
-/// A document with a single-line (flat) form and a potentially multi-line form.
+/// Flat and broken forms of a printed tree.
 struct Pretty {
     flat: String,
     flat_len: usize,
@@ -138,7 +133,7 @@ fn pretty_group(depth: usize, head: String, children: Vec<Pretty>, color: AnsiCo
     let flat = format!("{open}{flat_body}{close}");
     let flat_len = visible_len(&flat);
 
-    // Force multi-line for containers with more than one child.
+    // Keep larger containers readable.
     let force_multi = matches!(
         head.split_whitespace().next(),
         Some("ROOT" | "BLOCK" | "LIST_EXPR" | "DICT_EXPR" | "SET_EXPR" | "PARAM_LIST" | "ARG_LIST")
@@ -176,9 +171,7 @@ fn pretty_group(depth: usize, head: String, children: Vec<Pretty>, color: AnsiCo
     }
 }
 
-// -----------------------------------------------------------------------
-// Escaping helpers
-// -----------------------------------------------------------------------
+// Escaping helpers.
 
 fn escape_text(text: &str, max_len: usize) -> String {
     let mut s = text.replace('\n', "\\n").replace('\t', "\\t");
@@ -188,9 +181,7 @@ fn escape_text(text: &str, max_len: usize) -> String {
     s
 }
 
-// -----------------------------------------------------------------------
-// Green tree printing
-// -----------------------------------------------------------------------
+// Green tree printing.
 
 fn green_token_pretty(token: &GreenToken, _depth: usize) -> Pretty {
     let kind = token.kind();
@@ -244,9 +235,7 @@ impl std::fmt::Display for GreenChild {
     }
 }
 
-// -----------------------------------------------------------------------
-// Red tree printing
-// -----------------------------------------------------------------------
+// Red tree printing.
 
 fn fmt_range_note(range: TextRange) -> String {
     format!(" [{}..{}]", range.start(), range.end())
@@ -334,9 +323,7 @@ impl std::fmt::Display for SyntaxElement {
     }
 }
 
-// -----------------------------------------------------------------------
-// Tests
-// -----------------------------------------------------------------------
+// Tests.
 
 #[cfg(test)]
 mod tests {
@@ -458,7 +445,7 @@ mod tests {
 
     #[test]
     fn nested_node_breaks_lines_when_deep() {
-        // Build a deeply nested left-associative chain: ((((1))))
+        // Deep nesting should force a broken layout.
         let mut inner = tok(SyntaxKind::IntLit, "1");
         for _ in 0..10 {
             inner = node(
@@ -472,7 +459,6 @@ mod tests {
         }
         let green = GreenNode::new(SyntaxKind::Root, vec![inner]);
         let s = format!("{green}");
-        // Should have broken into multiple lines due to depth/budget.
         assert!(s.contains('\n'), "{s}");
     }
 }

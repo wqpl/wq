@@ -1,22 +1,7 @@
-//! Red layer: positioned, parent-aware view over a [`super::green::GreenNode`].
+//! Positioned CST view.
 //!
-//! The red tree is what LSP requests, formatter passes, and lowering all walk.
-//! Each red node carries:
-//!
-//! * a clone of its green node (cheap -- it's an `Arc`),
-//! * a back-pointer to its red parent (also cheap; same `Arc` mechanism),
-//! * its absolute byte offset within the source document, and
-//! * its index in the parent's child list (needed for sibling navigation).
-//!
-//! Red nodes are created lazily as the tree is traversed. Re-walking a subtree
-//! produces new red nodes for the same green data, but with the same identity
-//! semantics. To compare red identity (i.e. "is this the same node instance"),
-//! use [`SyntaxNode::is_same`]; to compare structurally, compare the underlying
-//! [`SyntaxNode::green`] values.
-//!
-//! The `Arc` parent chain prevents us from recursing on construction: making a
-//! root is O(1), and a deeply nested child only allocates one [`Arc`] per
-//! ancestor on first access.
+//! Red nodes wrap green nodes with absolute byte offsets, parent links, and
+//! sibling indexes. They are built lazily while walking the tree.
 
 use std::sync::Arc;
 
@@ -68,8 +53,7 @@ impl TextRange {
         self.start <= offset && offset < self.end
     }
 
-    /// True when `offset` is inside the range *or* exactly at its end. Used by
-    /// `token_at_offset` so a cursor at end-of-token still finds something.
+    /// True when `offset` is inside the range or exactly at its end.
     #[inline]
     pub fn contains_inclusive(self, offset: u32) -> bool {
         self.start <= offset && offset <= self.end
@@ -148,11 +132,7 @@ impl SyntaxNode {
         self.inner.green.text()
     }
 
-    /// Whether `self` and `other` are the same red node instance (pointer
-    /// equality on the inner `Arc`).
-    ///
-    /// Use this for "is the user's cursor still on the node we cached?" type
-    /// checks. For structural equality, compare [`Self::green`] values.
+    /// Whether `self` and `other` are the same red node instance.
     pub fn is_same(&self, other: &SyntaxNode) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
@@ -212,26 +192,16 @@ impl SyntaxNode {
         None
     }
 
-    /// Return the token covering `offset`, descending into child nodes as
-    /// needed.
+    /// Return the token covering `offset`.
     ///
-    /// Semantics:
-    ///
-    /// * For any offset *strictly inside* a token's range, that token is
-    ///   returned (`start <= offset < end`).
-    /// * For an offset that falls exactly on a boundary between two tokens, the
-    ///   right-hand (later) token wins, because `[start, end)` ranges make a
-    ///   cursor positioned at `start` belong to the new token.
-    /// * For an offset equal to the parent's end (cursor at end-of-source or
-    ///   end-of-subtree), the last token in the subtree is returned, so
-    ///   end-of-line cursor lookups still find the previous token.
-    /// * For an offset outside the parent, [`None`].
+    /// Interior hits use half-open ranges. Boundary hits choose the right-hand
+    /// token, except the node's end offset returns the last token.
     pub fn token_at_offset(&self, offset: u32) -> Option<SyntaxToken> {
         let range = self.text_range();
         if !range.contains_inclusive(offset) {
             return None;
         }
-        // Strict containment first.
+        // Interior hit.
         for elem in self.children_with_tokens() {
             let er = elem.text_range();
             if er.contains(offset) {
@@ -241,8 +211,7 @@ impl SyntaxNode {
                 };
             }
         }
-        // Boundary case: offset == self.end. Fall back to the rightmost
-        // token of the rightmost element (if any) that ends at `offset`.
+        // End boundary.
         if offset == range.end() {
             return self.last_token();
         }
@@ -626,16 +595,12 @@ mod tests {
             tok(SyntaxKind::Whitespace, " "),
             tok(SyntaxKind::Ident, "bar"),
         ]);
-        // Cursor inside "foo"
         let t = r.token_at_offset(1).unwrap();
         assert_eq!(t.text(), "foo");
-        // Cursor on the '+'
         let t = r.token_at_offset(4).unwrap();
         assert_eq!(t.text(), "+");
-        // Cursor at end of source
         let t = r.token_at_offset(9).unwrap();
         assert_eq!(t.text(), "bar");
-        // Cursor past end
         assert!(r.token_at_offset(10).is_none());
     }
 
@@ -684,9 +649,7 @@ mod tests {
 
     #[test]
     fn is_same_distinguishes_different_walks() {
-        // Two separate root-walks of the same green tree produce different
-        // red instances (because each `children_with_tokens` call constructs
-        // fresh `SyntaxNode`s for child entries). `is_same` reflects that.
+        // Each walk creates fresh red child nodes over the same green node.
         let inner_g = GreenNode::new(
             SyntaxKind::BinaryExpr,
             vec![
@@ -702,7 +665,7 @@ mod tests {
         let a = r.children().next().unwrap();
         let b = r.children().next().unwrap();
         assert!(!a.is_same(&b));
-        // But they are structurally equal.
+        // They still share green structure.
         assert_eq!(a.green(), b.green());
     }
 

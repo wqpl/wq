@@ -1,31 +1,20 @@
-//! Concrete syntax kinds for the green/red tree.
+//! Syntax kinds for green and red trees.
 //!
-//! Every leaf in the green tree is a token kind; every internal node is a node
-//! kind. Trivia kinds are tokens, but they are tagged so the formatter and
-//! lowering pass can skip them when building the AST.
+//! Token kinds must stay before [`SyntaxKind::__LastToken`]; node kinds must
+//! stay after it. This keeps [`SyntaxKind::is_token`] and
+//! [`SyntaxKind::is_node`] cheap.
 //!
-//! The numeric layout matters: token kinds are kept contiguously in the lower
-//! half of the enum so [`SyntaxKind::is_token`] can be expressed as a single
-//! comparison. This keeps the helper inlinable without a giant `match`.
-//!
-//! Adding a new kind:
-//! 1. If it is a token, insert it before [`SyntaxKind::__LAST_TOKEN`].
-//! 2. If it is a node, insert it after [`SyntaxKind::__LAST_TOKEN`].
-//! 3. Update the trivia helper if it is whitespace-like.
-//!
-//! The leading `__LAST_TOKEN` sentinel is private; consumers should use
-//! [`SyntaxKind::is_token`] / [`SyntaxKind::is_node`] /
-//! [`SyntaxKind::is_trivia`].
+//! Add trivia-like tokens to [`SyntaxKind::is_trivia`].
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u16)]
 pub enum SyntaxKind {
-    // ===== trivia tokens =====
+    // Trivia tokens.
     Whitespace,
     Newline,
     Comment,
 
-    // ===== literal tokens =====
+    // Literal tokens.
     IntLit,
     BigIntLit,
     FloatLit,
@@ -37,17 +26,15 @@ pub enum SyntaxKind {
     InfLit,
     TrueKw,
     FalseKw,
-    /// Entire `@f"..."` literal kept as one token in this phase. A future
-    /// refinement will split it into a node containing text + interpolation
-    /// children, so the formatter can re-flow long strings.
+    /// Entire `@f"..."` literal as emitted by the lexer.
     FString,
 
-    // ===== identifiers =====
+    // Identifiers.
     Ident,
     Apostrophe,
     Ellipsis,
 
-    // ===== `@`-keywords =====
+    // `@`-keywords.
     AtAssert,
     AtBreak,
     AtContinue,
@@ -58,12 +45,12 @@ pub enum SyntaxKind {
     AtSymbolic,
     AtTry,
 
-    // ===== `$`-keywords =====
+    // `$`-keywords.
     Dollar,
     DollarDot,
     DollarDollar,
 
-    // ===== arithmetic operators =====
+    // Arithmetic operators.
     Plus,
     Minus,
     Star,
@@ -75,7 +62,7 @@ pub enum SyntaxKind {
     Matmul,
     FloorDiv,
 
-    // ===== augmented assignments =====
+    // Augmented assignments.
     PlusColon,
     MinusColon,
     StarColon,
@@ -89,7 +76,7 @@ pub enum SyntaxKind {
 
     Colon,
 
-    // ===== comparison =====
+    // Comparison.
     EqEq,
     EqDot,
     NotEq,
@@ -99,7 +86,7 @@ pub enum SyntaxKind {
     Gt,
     Ge,
 
-    // ===== pipes / range / misc =====
+    // Pipes, range, and misc.
     Hash,
     Pipe,
     PipeDot,
@@ -108,7 +95,7 @@ pub enum SyntaxKind {
     RangeOp,
     RangeIncOp,
 
-    // ===== brackets / punctuation =====
+    // Brackets and punctuation.
     LParen,
     RParen,
     LBrack,
@@ -120,23 +107,21 @@ pub enum SyntaxKind {
     Bang,
     ScriptLine,
 
-    /// A token the lexer could not classify; emitted in recovery mode so the
-    /// CST still covers every byte of source.
+    /// Lexer recovery token that keeps source coverage intact.
     ErrorTok,
 
-    /// Sentinel for the boundary between token and node kinds. Not a real
-    /// kind -- never emitted; never matched on by user code.
+    /// Sentinel between token and node kinds.
     #[doc(hidden)]
     __LastToken,
 
-    // ===== nodes =====
+    // Nodes.
     /// Top of the tree. Every parse produces exactly one of these.
     Root,
     Block,
     Shebang,
     ScriptDirective,
 
-    // ----- expression-shaped nodes -----
+    // Expression-shaped nodes.
     LiteralExpr,
     VarExpr,
     OuterVarExpr,
@@ -183,8 +168,7 @@ pub enum SyntaxKind {
     PipeExpr,
     PipeTapExpr,
 
-    /// Error-recovery node. Holds whatever tokens the parser was forced to
-    /// skip; the lowering pass turns these into [`AstNode::Error`].
+    /// Tokens skipped during parser recovery.
     ErrorNode,
 }
 
@@ -201,8 +185,7 @@ impl SyntaxKind {
         (self as u16) > (SyntaxKind::__LastToken as u16)
     }
 
-    /// True when this kind is whitespace-like trivia: it carries no semantic
-    /// meaning and is dropped by lowering.
+    /// True for trivia tokens with no semantic payload.
     #[inline]
     pub fn is_trivia(self) -> bool {
         matches!(
@@ -211,9 +194,7 @@ impl SyntaxKind {
         )
     }
 
-    /// Short, stable, human-readable name. Used in debug output and snapshot
-    /// tests; do not rely on it for any semantic decision -- match on the
-    /// variant instead.
+    /// Stable name for debug output and snapshots.
     pub fn name(self) -> &'static str {
         use SyntaxKind::*;
         match self {
@@ -363,7 +344,7 @@ mod tests {
 
     #[test]
     fn token_node_partition_is_total() {
-        // Every variant must satisfy exactly one of (is_token, is_node, ==__LastToken).
+        // Each variant belongs to exactly one partition.
         let all: &[SyntaxKind] = &[
             SyntaxKind::Whitespace,
             SyntaxKind::Newline,
@@ -409,8 +390,7 @@ mod tests {
 
     #[test]
     fn names_are_distinct() {
-        // Walk a representative slice; full enum coverage is checked by the
-        // exhaustive match in `name()`.
+        // `name()` itself gives full enum coverage.
         let mut names = std::collections::HashSet::new();
         for k in [
             SyntaxKind::Whitespace,

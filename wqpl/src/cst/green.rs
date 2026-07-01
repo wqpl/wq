@@ -1,39 +1,20 @@
-//! Immutable, position-free, content-addressable green tree.
+//! Immutable CST storage.
 //!
-//! Green nodes/tokens are the storage layer of the CST. They:
+//! Green nodes/tokens own source text, carry no parents or absolute offsets,
+//! and compare by structure. `Arc` sharing keeps cloned or cached subtrees
+//! cheap.
 //!
-//! * Cover every byte of source (including whitespace and comments).
-//! * Carry no absolute offsets -- only their own length. Absolute positions are
-//!   computed by the [`super::red`] layer on demand.
-//! * Implement structural [`Hash`] and [`Eq`] so identical subtrees compare
-//!   equal regardless of their `Arc` identity. This is the foundation for the
-//!   subtree cache that the LSP will use to skip unchanged regions on edits.
-//! * Are reference-counted via [`Arc`] so subtrees can be cheaply shared
-//!   between multiple parses (and therefore multiple LSP snapshots).
+//! Invariants:
 //!
-//! The green tree never holds parent pointers; that role belongs to the red
-//! tree. Avoiding back-edges here is what makes [`Arc::clone`] of a subtree a
-//! constant-time operation.
-//!
-//! ## Invariants
-//!
-//! * `GreenNode::text_len()` always equals the sum of its children's
-//!   `text_len`s. The constructor enforces this; mutating constructors are not
-//!   provided.
-//! * Every byte of the source covered by a parse appears verbatim in some token
-//!   text. There are no implicit gaps.
-//! * `GreenToken::text()` is exactly the bytes the lexer (or the trivia
-//!   synthesizer) consumed for that token. No normalization is performed.
+//! * `GreenNode::text_len()` is the sum of child lengths.
+//! * Covered source bytes are stored verbatim in tokens.
+//! * No covered source bytes are implicit.
 
 use std::sync::Arc;
 
 use super::kind::SyntaxKind;
 
-/// One element of a [`GreenNode`]'s child list.
-///
-/// Kept as a sum-type rather than a single-tag-bit pointer because the wq
-/// codebase already pulls in `Arc` heavily; saving a word per child would not
-/// pay for the extra unsafe code.
+/// A child node or token.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GreenChild {
     Node(GreenNode),
@@ -83,9 +64,7 @@ struct GreenTokenData {
 }
 
 impl GreenToken {
-    /// Construct a token leaf. The kind must be a token kind; constructing a
-    /// token with a node kind is a programmer error and is checked in debug
-    /// builds.
+    /// Construct a token leaf.
     pub fn new(kind: SyntaxKind, text: impl Into<Box<str>>) -> Self {
         debug_assert!(
             kind.is_token(),
@@ -106,15 +85,13 @@ impl GreenToken {
         &self.0.text
     }
 
-    /// Byte length of [`Self::text`]. Always fits in `u32`; see the constructor
-    /// check.
+    /// Byte length of [`Self::text`].
     #[inline]
     pub fn text_len(&self) -> u32 {
         u32::try_from(self.0.text.len()).expect("token text length checked at construction")
     }
 
-    /// Whether two tokens point to the *same* `Arc` allocation. Use sparingly;
-    /// most callers want structural [`PartialEq`] instead.
+    /// Whether two tokens share the same `Arc` allocation.
     pub fn ptr_eq(&self, other: &GreenToken) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
@@ -132,8 +109,7 @@ struct GreenNodeData {
 }
 
 impl GreenNode {
-    /// Construct a node from already-built children. The resulting node's
-    /// `text_len` is the sum of its children's `text_len`s.
+    /// Construct a node from already-built children.
     pub fn new(kind: SyntaxKind, children: Vec<GreenChild>) -> Self {
         debug_assert!(
             kind.is_node(),
@@ -163,17 +139,12 @@ impl GreenNode {
         &self.0.children
     }
 
-    /// `Arc` identity check. Cheap, but rarely what you want -- see the
-    /// [`PartialEq`] derive for content equality.
+    /// `Arc` identity check. For content equality, use [`PartialEq`].
     pub fn ptr_eq(&self, other: &GreenNode) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 
     /// Reconstruct the source text covered by this subtree.
-    ///
-    /// Allocates `text_len()` bytes once and pushes every leaf's text into it
-    /// in source order. Round-trip with the original source is guaranteed by
-    /// invariant (every byte appears in some token).
     pub fn text(&self) -> String {
         let capacity = usize::try_from(self.text_len()).expect("u32 text length fits in usize");
         let mut out = String::with_capacity(capacity);
@@ -230,7 +201,7 @@ mod tests {
 
     #[test]
     fn node_text_concatenates_children() {
-        // `1 + 2` with whitespace preserved.
+        // Whitespace is preserved.
         let n = root(vec![bin(vec![
             intlit("1"),
             ws(" "),
@@ -244,7 +215,7 @@ mod tests {
 
     #[test]
     fn deep_tree_round_trips() {
-        // `((a + b) * c)` with original whitespace. Tests recursive write_text.
+        // Recursive write_text preserves nested source text.
         let inner = bin(vec![ident("a"), ws(" "), plus(), ws(" "), ident("b")]);
         let outer = bin(vec![
             GreenChild::Token(GreenToken::new(SyntaxKind::LParen, "(")),
@@ -265,13 +236,11 @@ mod tests {
 
     #[test]
     fn structural_equality_independent_of_arc_identity() {
-        // Two independently-constructed identical subtrees compare equal even
-        // though they are separate allocations. This is what enables the
-        // subtree cache.
+        // Separate allocations with identical content compare equal.
         let a = root(vec![bin(vec![intlit("1"), plus(), intlit("2")])]);
         let b = root(vec![bin(vec![intlit("1"), plus(), intlit("2")])]);
         assert_eq!(a, b);
-        // Different content => not equal.
+        // Different content is not equal.
         let c = root(vec![bin(vec![intlit("1"), plus(), intlit("3")])]);
         assert_ne!(a, c);
     }

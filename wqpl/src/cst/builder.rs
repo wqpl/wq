@@ -1,57 +1,24 @@
-//! Incremental constructor for green trees.
+//! Green tree builder.
 //!
-//! [`GreenNodeBuilder`] is the only sanctioned way to build a [`GreenNode`]
-//! from a stream of tokens and structural decisions. It exposes the standard
-//! "stack of partial nodes" interface used by recursive-descent parsers:
+//! [`GreenNodeBuilder`] consumes parser events: start node, emit token, finish
+//! node. [`Checkpoint`] lets the parser wrap already-emitted children, which is
+//! useful for left-associative expressions.
 //!
-//! ```ignore
-//! let mut b = GreenNodeBuilder::new();
-//! b.start_node(SyntaxKind::Root);
-//! b.start_node(SyntaxKind::BinaryExpr);
-//! b.token(SyntaxKind::IntLit, "1");
-//! b.token(SyntaxKind::Plus, "+");
-//! b.token(SyntaxKind::IntLit, "2");
-//! b.finish_node();
-//! b.finish_node();
-//! let root: GreenNode = b.finish();
-//! ```
-//!
-//! The [`Checkpoint`] mechanism handles left-recursive shapes: record a
-//! checkpoint *before* parsing what might turn out to be the LHS of a binary
-//! expression; if it does, retroactively wrap the children since the
-//! checkpoint with [`GreenNodeBuilder::start_node_at`].
-//!
-//! ## Subtree caching
-//!
-//! The builder optionally interns finished nodes by structural identity. When
-//! [`GreenNodeBuilder::with_cache`] is used, completing a node whose
-//! `(kind, children)` exactly matches an already-cached one returns the cached
-//! `Arc` instead of allocating fresh. This is what enables the LSP's
-//! whole-file-reparse + subtree-keyed-cache strategy: re-parses produce green
-//! trees that share storage with their predecessors wherever the source did
-//! not change.
-//!
-//! The cache is bounded by `with_cache(limit)` so a malicious or pathological
-//! input cannot grow it without bound. Caching is opt-in because for short
-//! one-shot parses (CLI `exec`) it is pure overhead.
+//! [`GreenNodeBuilder::with_cache`] interns finished nodes by structural
+//! identity up to a fixed limit. [`GreenNodeBuilder::append_node`] lets callers
+//! reuse unchanged subtrees.
 
 use std::collections::HashMap;
 
 use super::green::{GreenChild, GreenNode, GreenToken};
 use super::kind::SyntaxKind;
 
-/// Recorded position within a [`GreenNodeBuilder`]'s child stack. Use with
-/// [`GreenNodeBuilder::start_node_at`].
-///
-/// Carries enough information to detect misuse (mismatched parent) in debug
-/// builds.
+/// Position in the open-node stack used by [`GreenNodeBuilder::start_node_at`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Checkpoint {
-    /// Index of the currently-open node when the checkpoint was taken. Used
-    /// to detect cross-frame checkpoint misuse.
+    /// Open-node depth when the checkpoint was taken.
     parent_depth: usize,
-    /// Number of children already pushed into the open node when the
-    /// checkpoint was taken.
+    /// Child count in that node at checkpoint time.
     children_at: usize,
 }
 
@@ -61,31 +28,25 @@ struct Frame {
     children: Vec<GreenChild>,
 }
 
-/// Builder state. Construct via [`GreenNodeBuilder::new`] or
-/// [`GreenNodeBuilder::with_cache`].
+/// Stack-based builder for [`GreenNode`] trees.
 #[derive(Debug)]
 pub struct GreenNodeBuilder {
     stack: Vec<Frame>,
-    /// Top-level frames that have been finished. After [`Self::finish`], this
-    /// must contain exactly one element which becomes the root.
+    /// Finished top-level children. [`Self::finish`] requires exactly one root.
     finished: Vec<GreenChild>,
-    /// Optional intern table for finished nodes. `None` disables caching.
+    /// Optional intern table for finished nodes.
     cache: Option<NodeCache>,
 }
 
 #[derive(Debug)]
 struct NodeCache {
     map: HashMap<NodeKey, GreenNode>,
-    /// Maximum number of entries before insertion is skipped. We never evict;
-    /// the cache simply stops growing. For the LSP's per-document use this is
-    /// fine: each document has its own builder, and the cache lives only as
-    /// long as the parse.
+    /// Maximum number of entries. We do not evict; insertion stops at the
+    /// limit.
     limit: usize,
 }
 
-/// Owned cache key. We could key by `&GreenNodeData` directly, but `GreenNode`
-/// already implements structural [`Hash`] and [`Eq`], so we just key on the
-/// node itself.
+/// Owned cache key. [`GreenNode`] already hashes and compares structurally.
 type NodeKey = GreenNode;
 
 impl Default for GreenNodeBuilder {
@@ -103,8 +64,7 @@ impl GreenNodeBuilder {
         }
     }
 
-    /// Enable subtree-level interning. `limit` caps the number of distinct
-    /// finished nodes that will be remembered.
+    /// Enable subtree interning, capped at `limit` distinct nodes.
     pub fn with_cache(limit: usize) -> Self {
         GreenNodeBuilder {
             stack: Vec::new(),
@@ -116,8 +76,7 @@ impl GreenNodeBuilder {
         }
     }
 
-    /// Open a new node of the given kind. Subsequent [`Self::token`] /
-    /// [`Self::start_node`] / [`Self::finish_node`] calls operate on it.
+    /// Open a node. Later builder calls target this node until it is finished.
     pub fn start_node(&mut self, kind: SyntaxKind) {
         debug_assert!(
             kind.is_node(),
@@ -129,8 +88,7 @@ impl GreenNodeBuilder {
         });
     }
 
-    /// Append a token to the currently-open node. Tokens at the top level
-    /// (no node open) are an error and are ignored in release builds.
+    /// Append a token to the currently-open node.
     pub fn token(&mut self, kind: SyntaxKind, text: impl Into<Box<str>>) {
         debug_assert!(kind.is_token(), "token called with non-token kind {kind:?}");
         let token = GreenToken::new(kind, text);
@@ -144,9 +102,7 @@ impl GreenNodeBuilder {
         }
     }
 
-    /// Append an already-built green node to the currently-open node. Useful
-    /// for the LSP's incremental cache: a previously-parsed subtree can be
-    /// spliced into the new tree without re-tokenizing it.
+    /// Append an already-built green node to the currently-open node.
     pub fn append_node(&mut self, node: GreenNode) {
         let child = GreenChild::Node(node);
         match self.stack.last_mut() {
@@ -155,8 +111,7 @@ impl GreenNodeBuilder {
         }
     }
 
-    /// Close the currently-open node and add it to its parent (or to the
-    /// "finished" list if there is no parent).
+    /// Close the current node and attach it to its parent or the root list.
     pub fn finish_node(&mut self) {
         let frame = self
             .stack
@@ -170,8 +125,7 @@ impl GreenNodeBuilder {
         }
     }
 
-    /// Take a checkpoint at the current position so a wrapping node can be
-    /// retroactively introduced.
+    /// Mark the current child position for a retroactive wrapper.
     pub fn checkpoint(&mut self) -> Checkpoint {
         let frame = self
             .stack
@@ -183,9 +137,7 @@ impl GreenNodeBuilder {
         }
     }
 
-    /// Wrap all children pushed since `checkpoint` into a new node of the
-    /// given kind. The new node remains open until [`Self::finish_node`] is
-    /// called for it.
+    /// Wrap children since `checkpoint` in a new open node of `kind`.
     ///
     /// # Panics
     ///
@@ -217,7 +169,7 @@ impl GreenNodeBuilder {
         });
     }
 
-    /// Finish building. Consumes the builder; returns the single root node.
+    /// Finish and return the single root node.
     ///
     /// # Panics
     ///
@@ -278,9 +230,7 @@ mod tests {
 
     #[test]
     fn checkpoint_wraps_left_recursive() {
-        // Simulate `1 + 2` parsed left-recursively: parser sees `1`, then
-        // discovers `+ 2` and retroactively wraps everything since the
-        // checkpoint into a BinaryExpr.
+        // Simulate left-recursive parsing of `1 + 2`.
         let mut b = GreenNodeBuilder::new();
         b.start_node(SyntaxKind::Root);
         let cp = b.checkpoint();
@@ -364,10 +314,9 @@ mod tests {
             .iter()
             .filter_map(|c| c.as_node().cloned())
             .collect();
-        // With limit 0 the cache never inserts, so distinct allocations stay
-        // distinct.
+        // With limit 0 the cache never inserts.
         assert!(!bins[0].ptr_eq(&bins[1]));
-        // But they are still structurally equal.
+        // Content equality still holds.
         assert_eq!(bins[0], bins[1]);
     }
 
@@ -394,7 +343,7 @@ mod tests {
 
     #[test]
     fn append_node_inlines_subtree() {
-        // Build an isolated `5+5` BinaryExpr we can splice in.
+        // Build an isolated `5+5` BinaryExpr.
         let mut tmp = GreenNodeBuilder::new();
         tmp.start_node(SyntaxKind::Root);
         tmp.start_node(SyntaxKind::BinaryExpr);
@@ -410,7 +359,7 @@ mod tests {
             .find_map(|c| c.as_node().cloned())
             .expect("bin");
 
-        // Splice the subtree into a fresh root via `append_node`.
+        // Splice the subtree into a fresh root.
         let mut spliced = GreenNodeBuilder::new();
         spliced.start_node(SyntaxKind::Root);
         spliced.append_node(bin.clone());
@@ -418,8 +367,7 @@ mod tests {
         let root = spliced.finish();
 
         assert_eq!(root.text(), "5+5");
-        // The node inside the spliced root must be Arc-identical to the one
-        // we appended (no copy, no re-allocation).
+        // `append_node` preserves the original Arc.
         let appended = root
             .children()
             .iter()
