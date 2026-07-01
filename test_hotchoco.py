@@ -1,5 +1,8 @@
+import io
+import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -20,7 +23,9 @@ class HotchocoHarnessTests(unittest.TestCase):
         self.assertEqual(hotchoco.expected_exit_code_for(testcase, mode, "tiny"), 2)
         self.assertEqual(hotchoco.expected_exit_code_for(testcase, mode, "other"), 3)
         self.assertEqual(
-            hotchoco.expected_exit_code_for({"expected_exit_code": 4}, {"name": "x"}, "y"),
+            hotchoco.expected_exit_code_for(
+                {"expected_exit_code": 4}, {"name": "x"}, "y"
+            ),
             4,
         )
         self.assertEqual(hotchoco.expected_exit_code_for({}, {"name": "x"}, "y"), 0)
@@ -94,9 +99,122 @@ class HotchocoHarnessTests(unittest.TestCase):
         self.assertNotIn("\n--golden", diff)
         self.assertNotIn("\n++actual", diff)
 
+    def test_create_output_dir_handles_timestamp_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            suite_dir = Path(tmp_dir) / "suite"
+            with (
+                mock.patch.object(hotchoco, "SUITE_DIR", suite_dir),
+                mock.patch.object(hotchoco, "datetime", FixedDatetime),
+            ):
+                first = hotchoco.create_output_dir()
+                second = hotchoco.create_output_dir()
+
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.name.startswith("20260102_030405_000006_"))
+        self.assertTrue(second.name.endswith("_1"))
+
+    def test_accept_preserves_pending_state_between_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            output_dir = root / "output"
+            output_dir.mkdir()
+            summary = write_accept_fixture(
+                root,
+                output_dir,
+                [
+                    ("wq/one/exec", "old one\n", "new one\n", 0, 0),
+                    ("wq/two/exec", "old two\n", "new two\n", 0, 0),
+                ],
+            )
+
+            def load_summary(_output_dir=None):
+                return output_dir, json.loads((output_dir / "summary.json").read_text())
+
+            with mock.patch.object(hotchoco, "load_summary", side_effect=load_summary):
+                first = io.StringIO()
+                with redirect_stdout(first):
+                    hotchoco.cmd_accept(mock.Mock(all=False, group=None, test="one"))
+
+                after_first = json.loads((output_dir / "summary.json").read_text())
+                self.assertEqual(after_first["wq/one/exec"]["status"], "pass")
+                self.assertEqual(after_first["wq/two/exec"]["status"], "fail")
+                self.assertIn("1 pending", first.getvalue())
+
+                second = io.StringIO()
+                with redirect_stdout(second):
+                    hotchoco.cmd_accept(mock.Mock(all=False, group=None, test="two"))
+
+            after_second = json.loads((output_dir / "summary.json").read_text())
+            self.assertEqual(after_second["wq/one/exec"]["status"], "pass")
+            self.assertEqual(after_second["wq/two/exec"]["status"], "pass")
+            self.assertIn("0 pending", second.getvalue())
+            self.assertEqual(summary["wq/one/exec"]["status"], "fail")
+
+    def test_accept_keeps_exit_code_mismatch_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            output_dir = root / "output"
+            output_dir.mkdir()
+            write_accept_fixture(
+                root,
+                output_dir,
+                [("wq/bad/exec", "old\n", "new\n", 1, 0)],
+            )
+
+            def load_summary(_output_dir=None):
+                return output_dir, json.loads((output_dir / "summary.json").read_text())
+
+            with mock.patch.object(hotchoco, "load_summary", side_effect=load_summary):
+                first = io.StringIO()
+                with redirect_stdout(first):
+                    hotchoco.cmd_accept(mock.Mock(all=True, group=None, test=None))
+
+                after_first = json.loads((output_dir / "summary.json").read_text())
+                self.assertEqual(after_first["wq/bad/exec"]["status"], "fail")
+                self.assertIn("still pending", first.getvalue())
+                self.assertIn("1 pending", first.getvalue())
+
+                second = io.StringIO()
+                with redirect_stdout(second):
+                    hotchoco.cmd_accept(mock.Mock(all=True, group=None, test=None))
+
+            after_second = json.loads((output_dir / "summary.json").read_text())
+            self.assertEqual(after_second["wq/bad/exec"]["status"], "fail")
+            self.assertIn("No snapshot changes to accept", second.getvalue())
+            self.assertIn("1 pending", second.getvalue())
+
 
 def subprocess_result(stdout="", stderr="", returncode=0):
     return mock.Mock(stdout=stdout, stderr=stderr, returncode=returncode)
+
+
+class FixedDatetime:
+    @classmethod
+    def now(cls):
+        return cls()
+
+    def strftime(self, _fmt):
+        return "20260102_030405_000006"
+
+
+def write_accept_fixture(root, output_dir, entries):
+    summary = {}
+    for key, expected_text, actual_text, return_code, expected_exit_code in entries:
+        actual_path = root / "actual" / key
+        expected_path = root / "golden" / key
+        actual_path.parent.mkdir(parents=True, exist_ok=True)
+        expected_path.parent.mkdir(parents=True, exist_ok=True)
+        actual_path.write_text(actual_text)
+        expected_path.write_text(expected_text)
+        summary[key] = {
+            "status": "fail",
+            "output_path": str(actual_path),
+            "expected_path": str(expected_path),
+            "return_code": return_code,
+            "expected_exit_code": expected_exit_code,
+        }
+    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    return summary
 
 
 if __name__ == "__main__":

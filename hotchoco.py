@@ -265,9 +265,7 @@ def run_one_test(test: dict, config: dict, output_dir: Path) -> dict:
 
 def run_tests(tests: list[dict], config: dict) -> tuple[Path, dict[str, dict]]:
     """Run all tests, return (output_dir, summary dict keyed by 'group/test/mode')."""
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = (SUITE_DIR / "output" / ts).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = create_output_dir()
 
     total = len(tests)
     summary = {}
@@ -449,6 +447,23 @@ def load_summary(output_dir: Path | None = None) -> tuple[Path, dict]:
     return output_dir, summary
 
 
+def create_output_dir() -> Path:
+    output_base = SUITE_DIR / "output"
+    pid = os.getpid()
+    for attempt in range(100):
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        name = f"{ts}_{pid}"
+        if attempt:
+            name = f"{name}_{attempt}"
+        output_dir = (output_base / name).resolve()
+        try:
+            output_dir.mkdir(parents=True, exist_ok=False)
+            return output_dir
+        except FileExistsError:
+            continue
+    raise RuntimeError("could not create a unique hotchoco output directory")
+
+
 # ── Filter tests by selectors ───────────────────────────────────────────────
 
 
@@ -534,6 +549,48 @@ def exit_code_note(result: dict) -> str | None:
     return f"exit code {return_code}, expected {expected}"
 
 
+def status_counts(summary: dict) -> tuple[int, int, int, int]:
+    passed = sum(1 for v in summary.values() if v["status"] == "pass")
+    failed = sum(1 for v in summary.values() if v["status"] == "fail")
+    new = sum(1 for v in summary.values() if v["status"] == "new")
+    return passed, failed, new, failed + new
+
+
+def snapshot_changed(result: dict) -> bool:
+    expected_path = Path(result["expected_path"])
+    actual_path = Path(result["output_path"])
+    if not expected_path.exists():
+        return True
+    return expected_path.read_text() != actual_path.read_text()
+
+
+def refresh_snapshot_status(result: dict) -> None:
+    expected_path = Path(result["expected_path"])
+    actual_path = Path(result["output_path"])
+    output_ok = (
+        expected_path.exists() and expected_path.read_text() == actual_path.read_text()
+    )
+    exit_ok = exit_code_note(result) is None
+    result["status"] = "pass" if output_ok and exit_ok else "fail"
+
+
+def accept_snapshot_change(result: dict) -> None:
+    expected_path = Path(result["expected_path"])
+    actual_path = Path(result["output_path"])
+    expected_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(actual_path, expected_path)
+    refresh_snapshot_status(result)
+
+
+def accept_detail(result: dict) -> str:
+    if result["status"] == "pass":
+        return ""
+    note = exit_code_note(result)
+    if note:
+        return f" ({note}; still pending)"
+    return " (still pending)"
+
+
 # ── CLI commands ────────────────────────────────────────────────────────────
 
 
@@ -551,12 +608,13 @@ def cmd_run(args: argparse.Namespace) -> None:
     output_dir, summary = run_tests(tests, config)
 
     # Print summary
-    passed = sum(1 for v in summary.values() if v["status"] == "pass")
-    failed = sum(1 for v in summary.values() if v["status"] == "fail")
-    new = sum(1 for v in summary.values() if v["status"] == "new")
+    passed, failed, new, pending = status_counts(summary)
     total = len(summary)
 
-    print(f"\nResults: {passed} passed, {failed} failed, {new} new, {total} total")
+    print(
+        f"\nResults: {passed} passed, {pending} pending "
+        f"({failed} failed, {new} new), {total} total"
+    )
     print(f"Output: {output_dir}")
 
     # Show diffs for failures
@@ -713,24 +771,36 @@ def cmd_accept(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     accepted = 0
+    changed_summary = False
     for key, val in summary.items():
         if val["status"] == "pass":
             continue
-        expected_path = Path(val["expected_path"])
-        actual_path = Path(val["output_path"])
-        expected_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(actual_path, expected_path)
-        full_summary[key]["status"] = "pass"
-        print(f"  ACCEPT: {key}")
+        if not snapshot_changed(val):
+            old_status = full_summary[key]["status"]
+            refresh_snapshot_status(full_summary[key])
+            changed_summary = (
+                changed_summary or full_summary[key]["status"] != old_status
+            )
+            continue
+        accept_snapshot_change(full_summary[key])
+        print(f"  ACCEPT: {key}{accept_detail(full_summary[key])}")
         accepted += 1
+        changed_summary = True
 
+    _, _, _, pending = status_counts(full_summary)
     if accepted:
         (output_dir / "summary.json").write_text(json.dumps(full_summary, indent=2))
-        print(f"\nAccepted {accepted} change(s).")
-    elif args.group or args.test:
-        print(f"No changes to accept ({len(summary)} selected test(s) already pass).")
+        print(f"\nAccepted {accepted} change(s); {pending} pending in this run.")
     else:
-        print("No changes to accept (all tests pass).")
+        if changed_summary:
+            (output_dir / "summary.json").write_text(json.dumps(full_summary, indent=2))
+        if args.group or args.test:
+            print(
+                f"No snapshot changes to accept in {selector_label(args.group, args.test)}; "
+                f"{pending} pending in this run."
+            )
+        else:
+            print(f"No snapshot changes to accept; {pending} pending in this run.")
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -745,13 +815,12 @@ def cmd_status(args: argparse.Namespace) -> None:
         print(f"No tests matched {selector_label(args.group, args.test)}.")
         return
 
-    passed = sum(1 for v in summary.values() if v["status"] == "pass")
-    failed = sum(1 for v in summary.values() if v["status"] == "fail")
-    new = sum(1 for v in summary.values() if v["status"] == "new")
+    passed, failed, new, pending = status_counts(summary)
 
     print(f"Run: {output_dir.name}")
     print(
-        f"     {passed} passed, {failed} failed, {new} new, {passed + failed + new} total"
+        f"     {passed} passed, {pending} pending "
+        f"({failed} failed, {new} new), {passed + failed + new} total"
     )
 
     if args.verbose:
@@ -863,10 +932,14 @@ def cmd_review(args: argparse.Namespace) -> None:
                 resp = "q"
 
             if resp in ("a", "accept"):
-                expected_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy(actual_path, expected_path)
-                print(f"  {ansi('✓ Accepted', ANSI_GREEN)}")
-                full_summary[key]["status"] = "pass"
+                if snapshot_changed(val):
+                    accept_snapshot_change(full_summary[key])
+                    detail = accept_detail(full_summary[key])
+                    print(f"  {ansi('✓ Accepted', ANSI_GREEN)}{detail}")
+                else:
+                    refresh_snapshot_status(full_summary[key])
+                    detail = accept_detail(full_summary[key])
+                    print(f"  No snapshot change to accept{detail}")
                 (output_dir / "summary.json").write_text(
                     json.dumps(full_summary, indent=2)
                 )
