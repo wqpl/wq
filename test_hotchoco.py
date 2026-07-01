@@ -1,6 +1,10 @@
+import argparse
+import fcntl
 import io
 import json
+import multiprocessing
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -127,10 +131,9 @@ class HotchocoHarnessTests(unittest.TestCase):
                 ],
             )
 
-            def load_summary(_output_dir=None):
-                return output_dir, json.loads((output_dir / "summary.json").read_text())
-
-            with mock.patch.object(hotchoco, "load_summary", side_effect=load_summary):
+            with mock.patch.object(
+                hotchoco, "latest_output_dir", return_value=output_dir
+            ):
                 first = io.StringIO()
                 with redirect_stdout(first):
                     hotchoco.cmd_accept(mock.Mock(all=False, group=None, test="one"))
@@ -161,10 +164,9 @@ class HotchocoHarnessTests(unittest.TestCase):
                 [("wq/bad/exec", "old\n", "new\n", 1, 0)],
             )
 
-            def load_summary(_output_dir=None):
-                return output_dir, json.loads((output_dir / "summary.json").read_text())
-
-            with mock.patch.object(hotchoco, "load_summary", side_effect=load_summary):
+            with mock.patch.object(
+                hotchoco, "latest_output_dir", return_value=output_dir
+            ):
                 first = io.StringIO()
                 with redirect_stdout(first):
                     hotchoco.cmd_accept(mock.Mock(all=True, group=None, test=None))
@@ -182,6 +184,51 @@ class HotchocoHarnessTests(unittest.TestCase):
             self.assertEqual(after_second["wq/bad/exec"]["status"], "fail")
             self.assertIn("No snapshot changes to accept", second.getvalue())
             self.assertIn("1 pending", second.getvalue())
+
+    def test_accept_reloads_summary_after_waiting_for_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            suite_dir = root / "suite"
+            output_dir = suite_dir / "output" / "run"
+            output_dir.mkdir(parents=True)
+            write_accept_fixture(
+                root,
+                output_dir,
+                [
+                    ("wq/one/exec", "old one\n", "new one\n", 0, 0),
+                    ("wq/two/exec", "old two\n", "new two\n", 0, 0),
+                ],
+            )
+
+            ready_path = root / "accept-ready"
+            process = multiprocessing.get_context("spawn").Process(
+                target=accept_in_child,
+                args=(str(suite_dir), "two", str(ready_path)),
+            )
+
+            with open(hotchoco.summary_lock_path(output_dir), "a") as lock_file:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    process.start()
+                    wait_for_path(ready_path)
+                    time.sleep(0.1)
+
+                    summary = hotchoco.read_summary(output_dir)
+                    hotchoco.accept_snapshot_change(summary["wq/one/exec"])
+                    hotchoco.write_summary(output_dir, summary)
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+            process.join(5)
+            if process.is_alive():
+                process.terminate()
+                process.join()
+                self.fail("child accept process did not finish")
+
+            self.assertEqual(process.exitcode, 0)
+            after = hotchoco.read_summary(output_dir)
+            self.assertEqual(after["wq/one/exec"]["status"], "pass")
+            self.assertEqual(after["wq/two/exec"]["status"], "pass")
 
 
 def subprocess_result(stdout="", stderr="", returncode=0):
@@ -215,6 +262,23 @@ def write_accept_fixture(root, output_dir, entries):
         }
     (output_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     return summary
+
+
+def accept_in_child(suite_dir, test_sel, ready_path):
+    hotchoco.SUITE_DIR = Path(suite_dir)
+    Path(ready_path).write_text("ready")
+    args = argparse.Namespace(all=False, group=None, test=test_sel)
+    with redirect_stdout(io.StringIO()):
+        hotchoco.cmd_accept(args)
+
+
+def wait_for_path(path):
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"timed out waiting for {path}")
 
 
 if __name__ == "__main__":

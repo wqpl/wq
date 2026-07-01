@@ -17,7 +17,9 @@ Testcase TOML may set expected_exit_code at the group or mode level. Use
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import difflib
+import fcntl
 import glob
 import json
 import os
@@ -36,6 +38,8 @@ DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_DIFF_CONTEXT_LINES = 3
 WQ_CLI_DEBUG_BUILD_CMD = ["cargo", "build", "-p", "wq-cli"]
 DEFAULT_EXPECTED_EXIT_CODE = 0
+SUMMARY_JSON = "summary.json"
+SUMMARY_LOCK = ".summary.json.lock"
 
 
 def resolve_glob(pattern: str) -> list[str]:
@@ -303,8 +307,7 @@ def run_tests(tests: list[dict], config: dict) -> tuple[Path, dict[str, dict]]:
 
     sys.stderr.write("\n")
     # Write summary
-    summary_path = output_dir / "summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2))
+    write_summary(output_dir, summary)
     return output_dir, summary
 
 
@@ -432,19 +435,59 @@ def latest_output_dir() -> Path | None:
         return None
     dirs = sorted(output_base.iterdir(), reverse=True)
     for d in dirs:
-        if (d / "summary.json").exists():
+        if summary_path(d).exists():
             return d
     return None
 
 
-def load_summary(output_dir: Path | None = None) -> tuple[Path, dict]:
+def require_output_dir(output_dir: Path | None = None) -> Path:
     if output_dir is None:
         output_dir = latest_output_dir()
     if output_dir is None:
         print("No previous run found. Run 'python hotchoco.py run' first.")
         sys.exit(1)
-    summary = json.loads((output_dir / "summary.json").read_text())
-    return output_dir, summary
+    return output_dir
+
+
+def summary_path(output_dir: Path) -> Path:
+    return output_dir / SUMMARY_JSON
+
+
+def summary_lock_path(output_dir: Path) -> Path:
+    return output_dir / SUMMARY_LOCK
+
+
+def read_summary(output_dir: Path) -> dict:
+    return json.loads(summary_path(output_dir).read_text())
+
+
+def write_summary(output_dir: Path, summary: dict) -> None:
+    path = summary_path(output_dir)
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp_path.write_text(json.dumps(summary, indent=2))
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
+@contextmanager
+def locked_summary(output_dir: Path | None = None):
+    output_dir = require_output_dir(output_dir)
+    lock_path = summary_lock_path(output_dir)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield output_dir, read_summary(output_dir)
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def load_summary(output_dir: Path | None = None) -> tuple[Path, dict]:
+    output_dir = require_output_dir(output_dir)
+    return output_dir, read_summary(output_dir)
 
 
 def create_output_dir() -> Path:
@@ -758,42 +801,43 @@ def cmd_show(args: argparse.Namespace) -> None:
 
 
 def cmd_accept(args: argparse.Namespace) -> None:
-    output_dir, full_summary = load_summary(None)
-    summary = filter_summary(full_summary, args.group, args.test)
-
     if not args.all and not args.group and not args.test:
         print("Use --all, --group, or --test to specify what to accept.")
         print("Or use 'python hotchoco.py review' for interactive mode.")
         sys.exit(1)
 
-    if not summary:
-        print(f"No tests matched {selector_label(args.group, args.test)}.")
-        sys.exit(1)
+    with locked_summary(None) as (output_dir, full_summary):
+        summary = filter_summary(full_summary, args.group, args.test)
 
-    accepted = 0
-    changed_summary = False
-    for key, val in summary.items():
-        if val["status"] == "pass":
-            continue
-        if not snapshot_changed(val):
-            old_status = full_summary[key]["status"]
-            refresh_snapshot_status(full_summary[key])
-            changed_summary = (
-                changed_summary or full_summary[key]["status"] != old_status
-            )
-            continue
-        accept_snapshot_change(full_summary[key])
-        print(f"  ACCEPT: {key}{accept_detail(full_summary[key])}")
-        accepted += 1
-        changed_summary = True
+        if not summary:
+            print(f"No tests matched {selector_label(args.group, args.test)}.")
+            sys.exit(1)
 
-    _, _, _, pending = status_counts(full_summary)
-    if accepted:
-        (output_dir / "summary.json").write_text(json.dumps(full_summary, indent=2))
-        print(f"\nAccepted {accepted} change(s); {pending} pending in this run.")
-    else:
-        if changed_summary:
-            (output_dir / "summary.json").write_text(json.dumps(full_summary, indent=2))
+        accepted = 0
+        changed_summary = False
+        for key, val in summary.items():
+            if val["status"] == "pass":
+                continue
+            if not snapshot_changed(val):
+                old_status = full_summary[key]["status"]
+                refresh_snapshot_status(full_summary[key])
+                changed_summary = (
+                    changed_summary or full_summary[key]["status"] != old_status
+                )
+                continue
+            accept_snapshot_change(full_summary[key])
+            print(f"  ACCEPT: {key}{accept_detail(full_summary[key])}")
+            accepted += 1
+            changed_summary = True
+
+        _, _, _, pending = status_counts(full_summary)
+        if accepted or changed_summary:
+            write_summary(output_dir, full_summary)
+
+        if accepted:
+            print(f"\nAccepted {accepted} change(s); {pending} pending in this run.")
+            return
+
         if args.group or args.test:
             print(
                 f"No snapshot changes to accept in {selector_label(args.group, args.test)}; "
@@ -809,7 +853,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         print("No previous run. Run 'python hotchoco.py run' first.")
         return
 
-    summary = json.loads((output_dir / "summary.json").read_text())
+    summary = read_summary(output_dir)
     summary = filter_summary(summary, args.group, args.test)
     if not summary:
         print(f"No tests matched {selector_label(args.group, args.test)}.")
@@ -932,17 +976,22 @@ def cmd_review(args: argparse.Namespace) -> None:
                 resp = "q"
 
             if resp in ("a", "accept"):
-                if snapshot_changed(val):
-                    accept_snapshot_change(full_summary[key])
-                    detail = accept_detail(full_summary[key])
-                    print(f"  {ansi('✓ Accepted', ANSI_GREEN)}{detail}")
-                else:
-                    refresh_snapshot_status(full_summary[key])
-                    detail = accept_detail(full_summary[key])
-                    print(f"  No snapshot change to accept{detail}")
-                (output_dir / "summary.json").write_text(
-                    json.dumps(full_summary, indent=2)
-                )
+                with locked_summary(output_dir) as (
+                    locked_output_dir,
+                    locked_summary_data,
+                ):
+                    if key not in locked_summary_data:
+                        print(f"  Test no longer exists in this run: {key}")
+                    elif snapshot_changed(locked_summary_data[key]):
+                        accept_snapshot_change(locked_summary_data[key])
+                        detail = accept_detail(locked_summary_data[key])
+                        print(f"  {ansi('✓ Accepted', ANSI_GREEN)}{detail}")
+                        write_summary(locked_output_dir, locked_summary_data)
+                    else:
+                        refresh_snapshot_status(locked_summary_data[key])
+                        detail = accept_detail(locked_summary_data[key])
+                        print(f"  No snapshot change to accept{detail}")
+                        write_summary(locked_output_dir, locked_summary_data)
                 idx += 1
                 break
             elif resp in ("s", "skip"):
