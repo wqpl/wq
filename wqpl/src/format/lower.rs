@@ -1024,20 +1024,30 @@ impl<'a> LowerCtx<'a> {
     }
 
     fn mutating_index(&self, node: &SyntaxNode) -> Doc {
-        // `obj[!args]`. CST shape: [obj_node, ArgList_with_bang_token]. The
-        // ArgList lowering already prefixes `!` when it sees the bang
-        // token, so we can just lower normally.
+        // `obj[!args]` or `obj!`. Empty bang index has a compact postfix form.
         let mut out = Doc::nil();
         let mut first = true;
         for child in node.children() {
             if first {
                 out = out + self.postfix_object(&child);
                 first = false;
+            } else if child.kind() == SyntaxKind::ArgList
+                && let Some(doc) = self.compact_empty_bang_arglist(&child)
+            {
+                out = out + doc;
             } else {
                 out = out + self.node(&child);
             }
         }
         out
+    }
+
+    fn compact_empty_bang_arglist(&self, node: &SyntaxNode) -> Option<Doc> {
+        if Self::contains_comment(node) {
+            return None;
+        }
+        let (leading_bang, items) = self.arglist_items(node);
+        (leading_bang && items.is_empty()).then(|| Doc::text("!"))
     }
 
     // ===== assignment =====
@@ -1475,6 +1485,16 @@ mod tests {
         assert_eq!(fmt("f[g[3]]", 80), "f g 3");
         assert_eq!(fmt("f[1][2]", 80), "f[1] 2");
         assert_eq!(fmt("f[1][2][3]", 80), "f[1][2] 3");
+    }
+
+    #[test]
+    fn empty_mutating_index_prefers_bare_bang() {
+        assert_eq!(fmt("xs[!]", 80), "xs!");
+        assert_eq!(fmt("xs[!]:15", 80), "xs!:15");
+        assert_eq!(fmt("xs!", 80), "xs!");
+        assert_eq!(fmt("xs!:15", 80), "xs!:15");
+        assert_eq!(fmt("xs[!1]", 80), "xs[!1]");
+        assert_eq!(fmt("xs[!/*pop*/]", 80), "xs[!/*pop*/]");
     }
 
     #[test]

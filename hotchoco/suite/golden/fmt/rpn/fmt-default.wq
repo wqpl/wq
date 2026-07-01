@@ -1,5 +1,5 @@
 rpn:{[p]
-  sta:();bpop:{'sta[!-2;-1]|fold x};upop:{'sta[!]|x};apop:{'sta[!0..#'sta]|fold x}
+  sta:();bpop:{'sta[!-2;-1]|fold x};upop:{'sta!|x};apop:{'sta[!0..#'sta]|fold x}
   p|map{
     'sta,:$$[x="+";
       'bpop (+);
@@ -14,7 +14,7 @@ rpn:{[p]
       x="+/";
       'apop (+);
       x]};
-  sta[!]}
+  sta!}
 
 ((3;4;"+";2;"*";1;"-")/* 13 */
  (3;4;"+";"_")/* -7 */

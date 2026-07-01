@@ -1,7 +1,7 @@
 buildmap:{[code]
   jump:alloc (l:#code);stack:()
   N[l;ch:code _n;$.[ch="[";stack,:_n]
-    $.[ch="]";open_:stack[-1];(stack;jump open_;jump _n):(stack[!];_n;open_)]];
+    $.[ch="]";open_:stack[-1];(stack;jump open_;jump _n):(stack!;_n;open_)]];
   jump}
 bf:{[code]
   tape:alloc 30000;ptr:0;jump:buildmap code;ip:0;
