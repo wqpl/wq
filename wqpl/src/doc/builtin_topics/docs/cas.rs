@@ -104,6 +104,16 @@ const SOLVE_EXAMPLES: &[DocExample] = &[
         code: "solve[@s a*x+b;@s x]",
         expectation: ExampleExpectation::ResultContains("-b/a"),
     },
+    DocExample {
+        title: "Keep exact real quadratic roots when possible",
+        code: "solve[@s x^2-2]",
+        expectation: ExampleExpectation::ResultContains("2^(1/2)"),
+    },
+    DocExample {
+        title: "Solve a numeric binomial quintic",
+        code: "solve[@s x^5-1]",
+        expectation: ExampleExpectation::ResultContains("0.309016"),
+    },
 ];
 
 const SOLVE_SYSTEM_EXAMPLES: &[DocExample] = &[
@@ -222,7 +232,7 @@ pub(super) const LIMIT: BuiltinDoc = BuiltinDoc {
 pub(super) const SOLVE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Solve,
     summary: "Solve a single-variable symbolic equation.",
-    details: "`solve[expr]` treats `expr` as equal to zero and infers the only symbolic variable. `solve[expr;var]` uses an explicit variable, and equation inputs solve `lhs = rhs`. With an explicit variable, linear and quadratic polynomial coefficients may contain other symbolic parameters.",
+    details: "`solve[expr]` treats `expr` as equal to zero and infers the only symbolic variable. `solve[expr;var]` uses an explicit variable, and equation inputs solve `lhs = rhs`. It handles linear and quadratic polynomials, including coefficients with other symbolic parameters when the variable is explicit. Exact real quadratic coefficients keep exact real roots when possible. For degree greater than 2, `solve` currently supports numeric binomials of the form `a*x^n + b = 0`, returning numeric real and complex roots. General higher-degree polynomials such as `x^3+x-1` are not solved symbolically; use `brent` or `newton` for numeric real roots.",
     examples: SOLVE_EXAMPLES,
     related: &["eq", "solve_system", "brent", "newton"],
 };

@@ -514,7 +514,7 @@ fn solve_quadratic_equation() {
         CasOp::Subtract,
         vec![
             op(CasOp::Power, vec![Value::from_cas_var("x"), Value::Int(2)]),
-            Value::Int(1),
+            Value::Int(4),
         ],
     );
     let result = solve_cas(
@@ -526,8 +526,47 @@ fn solve_quadratic_equation() {
         panic!("expected list of roots");
     };
     assert_eq!(roots.len(), 2);
-    assert!(roots.contains(&Value::float(1.0)));
-    assert!(roots.contains(&Value::float(-1.0)));
+    assert!(roots.contains(&Value::Int(2)));
+    assert!(roots.contains(&Value::Int(-2)));
+}
+
+#[test]
+fn solve_quadratic_exact_radical_roots() {
+    let x = Value::from_cas_var("x");
+    let expr = cas_sub(
+        cas_pow(x.clone(), Value::Int(2)).expect("x^2"),
+        Value::Int(2),
+    )
+    .expect("x^2 - 2");
+    let result = solve_cas(&expr, &x).expect("quadratic solve");
+    let Value::List(roots) = result else {
+        panic!("expected list of roots");
+    };
+    let root_text: Vec<String> = roots.iter().map(ToString::to_string).collect();
+    assert_eq!(roots.len(), 2);
+    assert!(root_text.iter().any(|root| root == "2^(1/2)"));
+    assert!(root_text.iter().any(|root| root == "-2^(1/2)"));
+    assert!(
+        roots
+            .iter()
+            .all(|root| !matches!(root, Value::Float(_) | Value::Complex(_))),
+        "roots: {roots:?}"
+    );
+}
+
+#[test]
+fn solve_quadratic_repeated_root_stays_exact() {
+    let x = Value::from_cas_var("x");
+    let expr = cas_pow(
+        cas_sub(x.clone(), Value::Int(1)).expect("x - 1"),
+        Value::Int(2),
+    )
+    .expect("(x - 1)^2");
+    let result = solve_cas(&expr, &x).expect("quadratic solve");
+    let Value::List(roots) = result else {
+        panic!("expected list of roots");
+    };
+    assert_eq!(roots.as_ref(), &vec![Value::Int(1), Value::Int(1)]);
 }
 
 #[test]
@@ -632,6 +671,50 @@ fn solve_monomial_cubic_equation() {
         root.as_f64()
             .is_some_and(|value| (value - 2.0).abs() < 1e-9)
     }));
+}
+
+#[test]
+fn solve_monomial_quintic_equation() {
+    let x = Value::from_cas_var("x");
+    let expr = cas_sub(
+        cas_pow(x.clone(), Value::Int(5)).expect("x^5"),
+        Value::Int(1),
+    )
+    .expect("x^5 - 1");
+    let result = solve_cas(&expr, &x).expect("monomial quintic solve");
+    let Value::List(roots) = result else {
+        panic!("expected list of roots");
+    };
+    assert_eq!(roots.len(), 5);
+    assert!(roots.iter().any(|root| {
+        root.as_f64()
+            .is_some_and(|value| (value - 1.0).abs() < 1e-9)
+    }));
+    assert_eq!(
+        roots
+            .iter()
+            .filter(|root| matches!(root, Value::Complex(_)))
+            .count(),
+        4
+    );
+}
+
+#[test]
+fn solve_general_cubic_reports_binomial_limit() {
+    let x = Value::from_cas_var("x");
+    let expr = cas_add(vec![
+        cas_pow(x.clone(), Value::Int(3)).expect("x^3"),
+        x.clone(),
+        Value::Int(-1),
+    ])
+    .expect("x^3 + x - 1");
+    let err = solve_cas(&expr, &x).expect_err("general cubic solve should fail");
+    assert!(
+        err.msg
+            .as_deref()
+            .is_some_and(|msg| msg.contains("a*x^3 + b = 0")),
+        "unexpected error: {err:?}"
+    );
 }
 
 #[test]

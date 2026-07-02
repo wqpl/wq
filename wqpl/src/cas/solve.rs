@@ -7,8 +7,8 @@ use rayon::prelude::*;
 
 use super::{
     cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub, contains_cas_var,
-    eval_exact_numeric_div, eval_numeric_binary, numeric_is_zero, poly_degree, poly_from_expr,
-    poly_from_expr_with_params, simplify_cas_value, var_name_from_value,
+    eval_exact_numeric_div, eval_numeric_binary, numeric_is_negative, numeric_is_zero, poly_degree,
+    poly_from_expr, poly_from_expr_with_params, simplify_cas_value, var_name_from_value,
 };
 use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
@@ -290,6 +290,35 @@ fn solve_normalized_system(equations: &[Value], var_names: &[String]) -> WqResul
     Ok(Value::from_items(gaussian_elimination_solve(rows)?))
 }
 
+fn coefficients_are_exact_real(coeffs: &[Value]) -> bool {
+    coeffs
+        .iter()
+        .all(|coeff| !matches!(coeff, Value::Float(_) | Value::Complex(_)))
+}
+
+fn quadratic_discriminant(coeffs: &[Value]) -> WqResult<Value> {
+    let four_ac = eval_numeric_binary(
+        "*",
+        &Value::Int(4),
+        &eval_numeric_binary("*", &coeffs[2], &coeffs[0])?,
+    )?;
+    eval_numeric_binary(
+        "-",
+        &eval_numeric_binary("^", &coeffs[1], &Value::Int(2))?,
+        &four_ac,
+    )
+}
+
+fn solve_numeric_quadratic(coeffs: &[Value], disc: Value) -> WqResult<Vec<Value>> {
+    let sqrt_disc = disc.sqrt().map_err(|e| e.src("cas"))?;
+    let neg_b = coeffs[1].neg().map_err(|e| e.src("cas"))?;
+    let denom = eval_numeric_binary("*", &Value::Int(2), &coeffs[2])?;
+    Ok(vec![
+        eval_numeric_binary("/", &eval_numeric_binary("+", &neg_b, &sqrt_disc)?, &denom)?,
+        eval_numeric_binary("/", &eval_numeric_binary("-", &neg_b, &sqrt_disc)?, &denom)?,
+    ])
+}
+
 fn solve_numeric_polynomial(coeffs: &[Value]) -> WqResult<Vec<Value>> {
     let degree = poly_degree(coeffs);
     match degree {
@@ -304,23 +333,12 @@ fn solve_numeric_polynomial(coeffs: &[Value]) -> WqResult<Vec<Value>> {
             &coeffs[1],
         )?]),
         2 => {
-            let four_ac = eval_numeric_binary(
-                "*",
-                &Value::Int(4),
-                &eval_numeric_binary("*", &coeffs[degree], &coeffs[0])?,
-            )?;
-            let disc = eval_numeric_binary(
-                "-",
-                &eval_numeric_binary("^", &coeffs[1], &Value::Int(2))?,
-                &four_ac,
-            )?;
-            let sqrt_disc = disc.sqrt().map_err(|e| e.src("cas"))?;
-            let neg_b = coeffs[1].neg().map_err(|e| e.src("cas"))?;
-            let denom = eval_numeric_binary("*", &Value::Int(2), &coeffs[degree])?;
-            Ok(vec![
-                eval_numeric_binary("/", &eval_numeric_binary("+", &neg_b, &sqrt_disc)?, &denom)?,
-                eval_numeric_binary("/", &eval_numeric_binary("-", &neg_b, &sqrt_disc)?, &denom)?,
-            ])
+            let disc = quadratic_discriminant(coeffs)?;
+            if coefficients_are_exact_real(coeffs) && !numeric_is_negative(&disc) {
+                solve_parameterized_polynomial(coeffs)
+            } else {
+                solve_numeric_quadratic(coeffs, disc)
+            }
         }
         _ => solve_monomial_polynomial(coeffs, degree),
     }
