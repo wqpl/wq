@@ -2,14 +2,18 @@ use num_bigint::BigInt;
 use num_traits::One as _;
 
 use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_neg, cas_pow, cas_sub, extract_linear_coefficients_with_params,
-    numeric_add, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, poly_degree,
-    poly_from_expr, simplify_cas_value, substitute_expr,
+    cas_add, cas_div, cas_mul, cas_neg, cas_pow, cas_sub, contains_cas_var,
+    extract_linear_coefficients_with_params, numeric_add, numeric_is_negative, numeric_is_one,
+    numeric_is_zero, numeric_mul, poly_degree, poly_from_expr, simplify_cas_value, substitute_expr,
 };
 use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+    if let Some(result) = try_special_integral_quotient(expr, var)? {
+        return Ok(Some(result));
+    }
+
     // Case 1: f(ax+b)
     // Call node like exp[2*x], sin[3*x+1]
     if let Some((name, args)) = expr.cas_function_parts()
@@ -70,6 +74,149 @@ pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Val
     }
 
     Ok(None)
+}
+
+fn try_special_integral_quotient(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+    let Some((source, arg, coeff, denominator)) = special_integral_quotient_parts(expr, var)?
+    else {
+        return Ok(None);
+    };
+    let Some((linear_coeff, _)) = extract_linear_coefficients_with_params(&arg, var) else {
+        return Ok(None);
+    };
+    if numeric_is_zero(&linear_coeff) {
+        return Ok(None);
+    }
+
+    let scale = simplify_cas_value(&cas_div(
+        cas_mul(vec![coeff, arg.clone()])?,
+        cas_mul(vec![denominator, linear_coeff])?,
+    )?)?;
+    if contains_cas_var(&scale, var) {
+        return Ok(None);
+    }
+
+    let target = match source {
+        CasFunction::Sin => CasFunction::Si,
+        CasFunction::Cos => CasFunction::Ci,
+        _ => return Ok(None),
+    };
+    let special = Value::from_cas_function(target, vec![arg]);
+    if numeric_is_one(&scale) {
+        Ok(Some(special))
+    } else {
+        simplify_cas_value(&cas_mul(vec![scale, special])?).map(Some)
+    }
+}
+
+fn special_integral_quotient_parts(
+    expr: &Value,
+    var: &str,
+) -> WqResult<Option<(CasFunction, Value, Value, Value)>> {
+    if let Some((CasOp::Divide, [numerator, denominator])) = expr.cas_op_parts() {
+        return special_integral_quotient_from_numerator(numerator, denominator, var);
+    }
+    if let Some((CasOp::Multiply, factors)) = expr.cas_op_parts() {
+        let mut special = None;
+        let mut denominator = None;
+        let mut coeff_factors = Vec::new();
+        for factor in factors {
+            if let Some(call) = sine_or_cosine_call(factor) {
+                if special.replace(call).is_some() {
+                    return Ok(None);
+                }
+            } else if let Some(base) = reciprocal_base(factor) {
+                if contains_cas_var(base, var) {
+                    if denominator.replace(base.clone()).is_some() {
+                        return Ok(None);
+                    }
+                } else {
+                    coeff_factors.push(factor.clone());
+                }
+            } else {
+                coeff_factors.push(factor.clone());
+            }
+        }
+        let Some((function, arg)) = special else {
+            return Ok(None);
+        };
+        let Some(denominator) = denominator else {
+            return Ok(None);
+        };
+        if coeff_factors
+            .iter()
+            .any(|factor| contains_cas_var(factor, var))
+        {
+            return Ok(None);
+        }
+        let coeff = coefficient_from_factors(coeff_factors)?;
+        return Ok(Some((function, arg, coeff, denominator)));
+    }
+    Ok(None)
+}
+
+fn special_integral_quotient_from_numerator(
+    numerator: &Value,
+    denominator: &Value,
+    var: &str,
+) -> WqResult<Option<(CasFunction, Value, Value, Value)>> {
+    if let Some((function, arg)) = sine_or_cosine_call(numerator) {
+        return Ok(Some((function, arg, Value::Int(1), denominator.clone())));
+    }
+    let Some((CasOp::Multiply, factors)) = numerator.cas_op_parts() else {
+        return Ok(None);
+    };
+    let mut special = None;
+    let mut coeff_factors = Vec::new();
+    for factor in factors {
+        if let Some(call) = sine_or_cosine_call(factor) {
+            if special.replace(call).is_some() {
+                return Ok(None);
+            }
+        } else {
+            coeff_factors.push(factor.clone());
+        }
+    }
+    let Some((function, arg)) = special else {
+        return Ok(None);
+    };
+    if coeff_factors
+        .iter()
+        .any(|factor| contains_cas_var(factor, var))
+    {
+        return Ok(None);
+    }
+    let coeff = coefficient_from_factors(coeff_factors)?;
+    Ok(Some((function, arg, coeff, denominator.clone())))
+}
+
+fn sine_or_cosine_call(expr: &Value) -> Option<(CasFunction, Value)> {
+    if let Some((function, [arg])) = expr.cas_function_parts()
+        && matches!(function, CasFunction::Sin | CasFunction::Cos)
+    {
+        return Some((function, arg.clone()));
+    }
+    None
+}
+
+fn reciprocal_base(expr: &Value) -> Option<&Value> {
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
+        && exp.exact_int_is(-1)
+    {
+        return Some(base);
+    }
+    None
+}
+
+fn coefficient_from_factors(factors: Vec<Value>) -> WqResult<Value> {
+    match factors.len() {
+        0 => Ok(Value::Int(1)),
+        1 => Ok(factors
+            .into_iter()
+            .next()
+            .expect("single coefficient factor")),
+        _ => cas_mul(factors),
+    }
 }
 
 fn try_affine_power_table(base: &Value, exp: &Value, var: &str) -> WqResult<Option<Value>> {

@@ -85,6 +85,16 @@ const INTEGRATE_EXAMPLES: &[DocExample] = &[
         code: "integrate[@s 1/(x+a);@s x]",
         expectation: ExampleExpectation::ResultContains("ln[abs[x + a]]"),
     },
+    DocExample {
+        title: "Recover sine integral form",
+        code: "integrate[@s sin[x]/x;@s x]",
+        expectation: ExampleExpectation::ResultContains("si[x]"),
+    },
+    DocExample {
+        title: "Recover cosine integral form",
+        code: "integrate[@s cos[x]/x;@s x]",
+        expectation: ExampleExpectation::ResultContains("ci[x]"),
+    },
 ];
 
 const LIMIT_EXAMPLES: &[DocExample] = &[DocExample {

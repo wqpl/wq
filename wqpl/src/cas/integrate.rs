@@ -549,7 +549,7 @@ fn unsupported_integral_reason(expr: &Value, var: &str) -> Option<String> {
     }
     if has_trig_or_hyperbolic(expr) && has_var_denominator(expr, var) {
         return Some(
-            "mixes trig or hyperbolic functions with a variable denominator; this combination is unsupported"
+            "trig or hyperbolic expression has a variable denominator outside supported derivative-matched sine/cosine integral forms"
                 .to_string(),
         );
     }
@@ -2744,6 +2744,38 @@ mod tests {
         let expr = call(CasFunction::Ci, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "ci[x]*x - sin[x]");
+    }
+
+    #[test]
+    fn integrate_si_derivative_form() {
+        let x = Value::from_cas_var("x");
+        let expr = cas_div(call(CasFunction::Sin, vec![x.clone()]), x.clone()).unwrap();
+        let result = integrate_cas(&expr, &x).unwrap();
+
+        assert_eq!(result.to_string(), "si[x]");
+    }
+
+    #[test]
+    fn integrate_ci_derivative_form() {
+        let x = Value::from_cas_var("x");
+        let expr = cas_div(call(CasFunction::Cos, vec![x.clone()]), x.clone()).unwrap();
+        let result = integrate_cas(&expr, &x).unwrap();
+
+        assert_eq!(result.to_string(), "ci[x]");
+    }
+
+    #[test]
+    fn integrate_si_affine_derivative_form_scales_by_linear_coeff() {
+        let x = Value::from_cas_var("x");
+        let arg = cas_add(vec![
+            cas_mul(vec![Value::Int(2), x.clone()]).unwrap(),
+            Value::Int(1),
+        ])
+        .unwrap();
+        let expr = cas_div(call(CasFunction::Sin, vec![arg.clone()]), arg).unwrap();
+        let result = integrate_cas(&expr, &x).unwrap();
+
+        assert_eq!(result.to_string(), "si[2*x + 1]/2");
     }
 
     #[test]
