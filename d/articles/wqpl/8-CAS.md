@@ -34,7 +34,7 @@ solve_system[@s(2*x+y=5;x-y=1)]|echo
 solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)]|echo
 ```
 
-The bracket calls keep the symbolic expression neatly inside the argument list. For linear systems, `solve_system` can infer variables and returns values in variable-name order unless you pass variables explicitly. When you pass the solve variables explicitly, other symbols can remain as parameters in supported linear and quadratic solves.
+The bracket calls keep the symbolic expression neatly inside the argument list. For linear systems, `solve_system` can infer variables and returns a dict keyed by variable name. Passing solve variables explicitly controls dict order, and other symbols can remain as parameters in supported linear and quadratic solves.
 
 ## Numeric And Symbolic Can Meet
 

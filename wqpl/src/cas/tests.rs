@@ -34,6 +34,17 @@ fn contains_op(value: &Value, needle: CasOp) -> bool {
     false
 }
 
+fn assert_dict_entries(value: &Value, expected: &[(&str, Value)]) {
+    let Value::Dict(map) = value else {
+        panic!("expected dict, got {value:?}");
+    };
+    assert_eq!(map.len(), expected.len(), "dict: {map:?}");
+    for ((actual_key, actual_value), (expected_key, expected_value)) in map.iter().zip(expected) {
+        assert_eq!(actual_key.as_ref(), *expected_key);
+        assert_eq!(actual_value, expected_value);
+    }
+}
+
 fn count_inverse_powers(value: &Value) -> usize {
     if let Some((op, args)) = value.cas_op_parts() {
         let here =
@@ -717,8 +728,20 @@ fn solve_general_cubic_reports_binomial_limit() {
     );
 }
 
+fn xy_sum_diff_equations() -> Value {
+    let x = Value::from_cas_var("x");
+    let y = Value::from_cas_var("y");
+    Value::List(Arc::new(vec![
+        Value::from_cas_eq(
+            cas_add(vec![x.clone(), y.clone()]).expect("x+y"),
+            Value::Int(3),
+        ),
+        Value::from_cas_eq(cas_sub(x, y).expect("x-y"), Value::Int(1)),
+    ]))
+}
+
 #[test]
-fn solve_linear_system_returns_values_in_variable_order() {
+fn solve_linear_system_returns_dict_in_variable_order() {
     let equations = Value::List(Arc::new(vec![
         Value::from_cas_eq(
             op(
@@ -745,9 +768,36 @@ fn solve_linear_system_returns_values_in_variable_order() {
         Value::from_cas_var("x"),
         Value::from_cas_var("y"),
     ]));
-    assert_eq!(
-        solve_system_cas(&equations, &vars).unwrap(),
-        Value::IntList(Arc::new(vec![2, 1]))
+    let result = solve_system_cas(&equations, &vars).unwrap();
+    assert_dict_entries(&result, &[("x", Value::Int(2)), ("y", Value::Int(1))]);
+}
+
+#[test]
+fn solve_linear_system_uses_explicit_variable_order_for_dict() {
+    let equations = xy_sum_diff_equations();
+    let vars = Value::List(Arc::new(vec![
+        Value::from_cas_var("y"),
+        Value::from_cas_var("x"),
+    ]));
+
+    let result = solve_system_cas(&equations, &vars).unwrap();
+    assert_dict_entries(&result, &[("y", Value::Int(1)), ("x", Value::Int(2))]);
+}
+
+#[test]
+fn solve_linear_system_rejects_duplicate_explicit_variables() {
+    let equations = xy_sum_diff_equations();
+    let vars = Value::List(Arc::new(vec![
+        Value::from_cas_var("x"),
+        Value::from_cas_var("x"),
+    ]));
+
+    let err = solve_system_cas(&equations, &vars).expect_err("duplicate variables should fail");
+    assert!(
+        err.msg
+            .as_deref()
+            .is_some_and(|msg| msg.contains("appears more than once")),
+        "unexpected error: {err:?}"
     );
 }
 
@@ -770,9 +820,6 @@ fn solve_linear_system_allows_explicit_parameters() {
     ]));
     let vars = Value::List(Arc::new(vec![x, y]));
     let result = solve_system_cas(&equations, &vars).expect("parameterized system solve");
-    let Value::List(values) = result else {
-        panic!("expected list of system values");
-    };
 
     let expected_x = cas_div(
         cas_add(vec![b.clone(), c.clone()]).expect("b+c"),
@@ -785,7 +832,7 @@ fn solve_linear_system_allows_explicit_parameters() {
     )
     .expect("y solution");
 
-    assert_eq!(values.as_ref(), &vec![expected_x, expected_y]);
+    assert_dict_entries(&result, &[("x", expected_x), ("y", expected_y)]);
 }
 
 #[test]
@@ -807,9 +854,80 @@ fn solve_linear_system_infers_variables_in_name_order() {
         ),
     ]));
 
-    assert_eq!(
-        solve_system_infer_cas(&equations).unwrap(),
-        Value::IntList(Arc::new(vec![1, 2]))
+    let result = solve_system_infer_cas(&equations).unwrap();
+    assert_dict_entries(&result, &[("a", Value::Int(1)), ("b", Value::Int(2))]);
+}
+
+#[test]
+fn solve_linear_system_accepts_overdetermined_unique_system() {
+    let x = Value::from_cas_var("x");
+    let y = Value::from_cas_var("y");
+    let equations = Value::List(Arc::new(vec![
+        Value::from_cas_eq(
+            cas_add(vec![x.clone(), y.clone()]).expect("x+y"),
+            Value::Int(3),
+        ),
+        Value::from_cas_eq(cas_sub(x.clone(), y.clone()).expect("x-y"), Value::Int(1)),
+        Value::from_cas_eq(
+            cas_add(vec![
+                cas_mul(vec![Value::Int(2), x]).expect("2*x"),
+                cas_mul(vec![Value::Int(2), y]).expect("2*y"),
+            ])
+            .expect("2*x+2*y"),
+            Value::Int(6),
+        ),
+    ]));
+
+    let result = solve_system_infer_cas(&equations).unwrap();
+    assert_dict_entries(&result, &[("x", Value::Int(2)), ("y", Value::Int(1))]);
+}
+
+#[test]
+fn solve_linear_system_reports_dependent_system() {
+    let x = Value::from_cas_var("x");
+    let y = Value::from_cas_var("y");
+    let equations = Value::List(Arc::new(vec![
+        Value::from_cas_eq(
+            cas_add(vec![x.clone(), y.clone()]).expect("x+y"),
+            Value::Int(3),
+        ),
+        Value::from_cas_eq(
+            cas_add(vec![
+                cas_mul(vec![Value::Int(2), x]).expect("2*x"),
+                cas_mul(vec![Value::Int(2), y]).expect("2*y"),
+            ])
+            .expect("2*x+2*y"),
+            Value::Int(6),
+        ),
+    ]));
+
+    let err = solve_system_infer_cas(&equations).expect_err("dependent system should fail");
+    assert!(
+        err.msg
+            .as_deref()
+            .is_some_and(|msg| msg.contains("infinitely many solutions")),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn solve_linear_system_reports_inconsistent_system() {
+    let x = Value::from_cas_var("x");
+    let y = Value::from_cas_var("y");
+    let equations = Value::List(Arc::new(vec![
+        Value::from_cas_eq(
+            cas_add(vec![x.clone(), y.clone()]).expect("x+y"),
+            Value::Int(3),
+        ),
+        Value::from_cas_eq(cas_add(vec![x, y]).expect("x+y"), Value::Int(4)),
+    ]));
+
+    let err = solve_system_infer_cas(&equations).expect_err("inconsistent system should fail");
+    assert!(
+        err.msg
+            .as_deref()
+            .is_some_and(|msg| msg.contains("no solution")),
+        "unexpected error: {err:?}"
     );
 }
 

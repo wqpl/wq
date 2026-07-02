@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use rayon::prelude::*;
@@ -146,51 +147,71 @@ fn linear_system_shape_err() -> WqError {
     cas_err("solve_system currently supports linear equations in the requested variables only")
 }
 
-fn pivot_row_for_col(rows: &[Vec<Value>], col: usize, n: usize) -> Option<usize> {
-    (col..n)
+fn pivot_row_for_col(rows: &[Vec<Value>], start_row: usize, col: usize) -> Option<usize> {
+    (start_row..rows.len())
         .find(|&row| rows[row][col].exact_int_is(1) || rows[row][col].exact_int_is(-1))
-        .or_else(|| (col..n).find(|&row| !numeric_is_zero(&rows[row][col])))
+        .or_else(|| (start_row..rows.len()).find(|&row| !numeric_is_zero(&rows[row][col])))
 }
 
-fn gaussian_elimination_solve(mut rows: Vec<Vec<Value>>) -> WqResult<Vec<Value>> {
-    let n = rows.len();
-    for col in 0..n {
-        let Some(pivot_row) = pivot_row_for_col(&rows, col, n) else {
-            return Err(cas_err(
-                "solve_system requires a system with a unique solution",
-            ));
+fn row_has_zero_coefficients(row: &[Value], var_count: usize) -> bool {
+    row[..var_count].iter().all(numeric_is_zero)
+}
+
+fn gaussian_elimination_solve(mut rows: Vec<Vec<Value>>, var_count: usize) -> WqResult<Vec<Value>> {
+    let rhs_col = var_count;
+    let mut rank = 0;
+    let mut pivot_cols = Vec::with_capacity(var_count);
+
+    for col in 0..var_count {
+        let Some(pivot_row) = pivot_row_for_col(&rows, rank, col) else {
+            continue;
         };
-        if pivot_row != col {
-            rows.swap(col, pivot_row);
+        if pivot_row != rank {
+            rows.swap(rank, pivot_row);
         }
 
-        let pivot = rows[col][col].clone();
-        let pivot_slice = rows[col][col..=n].to_vec();
-        for row in &mut rows[(col + 1)..n] {
+        let pivot = rows[rank][col].clone();
+        let pivot_slice = rows[rank][col..=rhs_col].to_vec();
+        for row in &mut rows[(rank + 1)..] {
             if numeric_is_zero(&row[col]) {
                 continue;
             }
             let factor = cas_div(row[col].clone(), pivot.clone())?;
-            for (offset, cell) in row[col..=n].iter_mut().enumerate() {
+            for (offset, cell) in row[col..=rhs_col].iter_mut().enumerate() {
                 let scaled = cas_mul(vec![factor.clone(), pivot_slice[offset].clone()])?;
                 *cell = cas_sub(cell.clone(), scaled)?;
             }
         }
+
+        pivot_cols.push(col);
+        rank += 1;
     }
 
-    let mut solution = vec![Value::Int(0); n];
-    for row in (0..n).rev() {
-        let mut rhs = rows[row][n].clone();
-        for (col, value) in solution.iter().enumerate().skip(row + 1) {
-            let term = cas_mul(vec![rows[row][col].clone(), value.clone()])?;
+    if rows
+        .iter()
+        .any(|row| row_has_zero_coefficients(row, var_count) && !numeric_is_zero(&row[rhs_col]))
+    {
+        return Err(cas_err(
+            "solve_system has no solution (inconsistent system)",
+        ));
+    }
+
+    if rank < var_count {
+        return Err(cas_err(
+            "solve_system has infinitely many solutions (dependent system)",
+        ));
+    }
+
+    let mut solution = vec![Value::Int(0); var_count];
+    for pivot_idx in (0..rank).rev() {
+        let row_idx = pivot_idx;
+        let pivot_col = pivot_cols[pivot_idx];
+        let mut rhs = rows[row_idx][rhs_col].clone();
+        for (col, value) in solution.iter().enumerate().skip(pivot_col + 1) {
+            let term = cas_mul(vec![rows[row_idx][col].clone(), value.clone()])?;
             rhs = cas_sub(rhs, term)?;
         }
-        if numeric_is_zero(&rows[row][row]) {
-            return Err(cas_err(
-                "solve_system requires a system with a unique solution",
-            ));
-        }
-        solution[row] = cas_div(rhs, rows[row][row].clone())?;
+        solution[pivot_col] = cas_div(rhs, rows[row_idx][pivot_col].clone())?;
     }
     Ok(solution)
 }
@@ -272,8 +293,15 @@ fn parse_system_var_names(vars: &Value) -> WqResult<Vec<String>> {
         _ => return Err(cas_err("solve_system expects a list of symbolic variables").got1(vars)),
     };
     let mut var_names = Vec::with_capacity(vars.len());
+    let mut seen = BTreeSet::new();
     for var in vars.iter() {
-        var_names.push(var_name_from_value(var)?);
+        let name = var_name_from_value(var)?;
+        if !seen.insert(name.clone()) {
+            return Err(cas_err(format!(
+                "solve_system variable '{name}' appears more than once"
+            )));
+        }
+        var_names.push(name);
     }
     Ok(var_names)
 }
@@ -287,7 +315,12 @@ fn solve_normalized_system(equations: &[Value], var_names: &[String]) -> WqResul
         rows.push(row);
     }
 
-    Ok(Value::from_items(gaussian_elimination_solve(rows)?))
+    let solution = gaussian_elimination_solve(rows, var_names.len())?;
+    let mut map = IndexMap::with_capacity(solution.len());
+    for (var_name, value) in var_names.iter().zip(solution) {
+        map.insert(Arc::from(var_name.as_str()), value);
+    }
+    Ok(Value::Dict(Arc::new(map)))
 }
 
 fn coefficients_are_exact_real(coeffs: &[Value]) -> bool {
@@ -405,9 +438,9 @@ pub(crate) fn solve_cas(input: &Value, var: &Value) -> WqResult<Value> {
 pub(crate) fn solve_system_cas(equations: &Value, vars: &Value) -> WqResult<Value> {
     let equations = normalize_system_equations(equations)?;
     let var_names = parse_system_var_names(vars)?;
-    if equations.len() != var_names.len() {
+    if var_names.is_empty() {
         return Err(cas_err(
-            "solve_system expects the same number of equations and variables",
+            "solve_system expects at least one symbolic variable",
         ));
     }
 
@@ -417,13 +450,6 @@ pub(crate) fn solve_system_cas(equations: &Value, vars: &Value) -> WqResult<Valu
 pub(crate) fn solve_system_infer_cas(equations: &Value) -> WqResult<Value> {
     let equations = normalize_system_equations(equations)?;
     let var_names = infer_system_var_names(&equations)?;
-    if equations.len() != var_names.len() {
-        return Err(cas_err(format!(
-            "solve_system inferred {} variables for {} equations; pass an explicit variable list",
-            var_names.len(),
-            equations.len()
-        )));
-    }
 
     solve_normalized_system(&equations, &var_names)
 }

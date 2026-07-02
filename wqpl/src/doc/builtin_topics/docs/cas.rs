@@ -120,12 +120,12 @@ const SOLVE_SYSTEM_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Solve a linear system",
         code: "solve_system[(eq[@s x;2];eq[@s y;3])]",
-        expectation: ExampleExpectation::ResultContains("(2;3)"),
+        expectation: ExampleExpectation::ResultContains("`x:2"),
     },
     DocExample {
         title: "Solve a system with parameters",
         code: "solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)]",
-        expectation: ExampleExpectation::ResultContains("(c + b)/3"),
+        expectation: ExampleExpectation::ResultContains("`x:(c + b)/3"),
     },
 ];
 
@@ -240,7 +240,7 @@ pub(super) const SOLVE: BuiltinDoc = BuiltinDoc {
 pub(super) const SOLVE_SYSTEM: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::SolveSystem,
     summary: "Solve a linear symbolic system.",
-    details: "`solve_system[eqs]` infers symbolic variables and returns values in variable-name order. `solve_system[eqs;vars]` uses an explicit same-length variable list, which also controls result order. Symbols outside that explicit list are treated as parameters. It solves linear systems with a unique solution.",
+    details: "`solve_system[eqs]` infers symbolic variables and returns a dict keyed by variable name. `solve_system[eqs;vars]` uses an explicit variable list, which also controls dict order. Symbols outside that explicit list are treated as parameters. It solves linear systems with a unique solution, including consistent overdetermined systems. Inconsistent systems report no solution, and dependent or underdetermined systems report infinitely many solutions.",
     examples: SOLVE_SYSTEM_EXAMPLES,
     related: &["solve", "eq", "substitute"],
 };
