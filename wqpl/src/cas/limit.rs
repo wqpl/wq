@@ -17,6 +17,26 @@ pub(crate) enum LimitDirection {
     Left,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApproachSign {
+    Negative,
+    Zero,
+    Positive,
+    Mixed,
+}
+
+impl ApproachSign {
+    fn from_numeric(sign: i32) -> Self {
+        if sign > 0 {
+            Self::Positive
+        } else if sign < 0 {
+            Self::Negative
+        } else {
+            Self::Zero
+        }
+    }
+}
+
 /// Evaluate the limit of `expr` as `var` -> `point`.
 ///
 /// Strategies are tried in order.  When all fail, returns an unevaluated
@@ -99,25 +119,33 @@ fn limit_cas_inner(
         };
     }
 
-    // Strategy 0: limits at infinity (must run before substitution --
+    // Strategy 1: limits at infinity (must run before substitution --
     // substituting inf into expressions produces garbage like inf^(-1)).
     try_strategy!("infinity", try_limit_at_infinity(expr, var, point));
 
-    // Strategy 1: direct substitution
-    try_strategy!("direct_subst", try_direct_substitution(expr, var, point));
-
-    // Strategy 1.25: finite composition such as ln(abs(x)) as x -> 0.
+    // Strategy 2: finite composition such as ln(abs(x)) as x -> 0.
+    // This runs before direct substitution so discontinuous functions can
+    // inspect approach direction instead of using only their point value.
     try_strategy!(
         "finite_function",
         try_finite_function_limit(expr, var, point, direction, lhopital_depth)
     );
 
-    // Strategy 1.5: series expansion at point 0 (faster than L'Hopital)
+    // Strategy 3: direct substitution.
+    try_strategy!("direct_subst", try_direct_substitution(expr, var, point));
+
+    // Strategy 4: quotient composition when denominator has a non-zero limit.
+    try_strategy!(
+        "quotient",
+        try_quotient_limit(expr, var, point, direction, lhopital_depth)
+    );
+
+    // Strategy 5: series expansion at point 0 (faster than L'Hopital).
     if matches!(point, Value::Int(0)) {
         try_strategy!("series", try_series_expansion(expr, var));
     }
 
-    // Strategy 2: L'Hopital's rule for 0/0 and inf/inf forms
+    // Strategy 6: L'Hopital's rule for 0/0 and inf/inf forms.
     if lhopital_depth < MAX_LHOPITAL_DEPTH {
         try_strategy!(
             "lhopital",
@@ -131,11 +159,14 @@ fn limit_cas_inner(
         );
     }
 
-    // Strategy 2.5: known limits table (classic patterns)
+    // Strategy 7: known limits table (classic patterns).
     try_strategy!("known_limits", try_known_limits(expr, var, point));
 
-    // Strategy 3: pole analysis -- num/den where den->0, num->c!=0
-    try_strategy!("pole", try_pole_limit(expr, var, point, direction));
+    // Strategy 8: pole analysis: num/den where den->0, num->c!=0.
+    try_strategy!(
+        "pole",
+        try_pole_limit(expr, var, point, direction, lhopital_depth)
+    );
 
     // Fallback: unevaluated limit node
     let fallback = Value::from_cas_limit(expr.clone(), var.clone(), point.clone(), direction);
@@ -147,7 +178,7 @@ fn limit_cas_inner(
     Ok(fallback)
 }
 
-/// Strategy 1: substitute the point and check if the result is determinate.
+/// Strategy 3: substitute the point and check if the result is determinate.
 fn try_direct_substitution(expr: &Value, var: &Value, point: &Value) -> WqResult<Option<Value>> {
     // Substituting infinity produces garbage like inf^(-1) -- skip.
     if matches!(
@@ -255,8 +286,8 @@ fn try_finite_function_limit(
                 return Ok(Some(Value::from_cas_const(CasConst::Undefined)));
             }
             if numeric_is_zero(&inner_limit) {
-                return match probe_expression_sign(arg, var, point, direction)? {
-                    Some(sign) if sign > 0 => {
+                return match probe_expression_approach_sign(arg, var, point, direction)? {
+                    Some(ApproachSign::Positive) => {
                         Ok(Some(Value::from_cas_const(CasConst::NegInfinity)))
                     }
                     Some(_) => Ok(Some(Value::from_cas_const(CasConst::Undefined))),
@@ -269,11 +300,98 @@ fn try_finite_function_limit(
             }
             Ok(None)
         }
+        CasFunction::Sgn => {
+            let Some(sign) = limit_approach_sign(arg, &inner_limit, var, point, direction)? else {
+                return Ok(None);
+            };
+            Ok(Some(match sign {
+                ApproachSign::Positive => Value::float(1.0),
+                ApproachSign::Negative => Value::float(-1.0),
+                ApproachSign::Zero => Value::float(0.0),
+                ApproachSign::Mixed => Value::from_cas_const(CasConst::Undefined),
+            }))
+        }
+        CasFunction::Heaviside => {
+            let Some(sign) = limit_approach_sign(arg, &inner_limit, var, point, direction)? else {
+                return Ok(None);
+            };
+            Ok(Some(match sign {
+                ApproachSign::Positive => Value::float(1.0),
+                ApproachSign::Negative => Value::float(0.0),
+                ApproachSign::Zero => Value::float(0.5),
+                ApproachSign::Mixed => Value::from_cas_const(CasConst::Undefined),
+            }))
+        }
         _ => Ok(None),
     }
 }
 
-/// Strategy 2: L'Hopital's rule.
+fn limit_approach_sign(
+    expr: &Value,
+    limit: &Value,
+    var: &Value,
+    point: &Value,
+    direction: Option<LimitDirection>,
+) -> WqResult<Option<ApproachSign>> {
+    match limit.cas_const() {
+        Some(CasConst::Infinity) => return Ok(Some(ApproachSign::Positive)),
+        Some(CasConst::NegInfinity) => return Ok(Some(ApproachSign::Negative)),
+        Some(CasConst::Undefined) => return Ok(Some(ApproachSign::Mixed)),
+        _ => {}
+    }
+
+    let Some(sign) = numeric_sign(limit) else {
+        return Ok(None);
+    };
+    if sign != 0 {
+        return Ok(Some(ApproachSign::from_numeric(sign)));
+    }
+
+    let var_name = var.cas_var_name().unwrap_or("x");
+    if !contains_cas_var(expr, var_name) {
+        return Ok(Some(ApproachSign::Zero));
+    }
+
+    probe_expression_approach_sign(expr, var, point, direction)
+}
+
+fn try_quotient_limit(
+    expr: &Value,
+    var: &Value,
+    point: &Value,
+    direction: Option<LimitDirection>,
+    lhopital_depth: usize,
+) -> WqResult<Option<Value>> {
+    let Some((num, den)) = split_fraction(expr) else {
+        return Ok(None);
+    };
+
+    let den_limit = limit_cas_inner(&den, var, point, direction, lhopital_depth + 1)?;
+    if den_limit.cas_const() == Some(CasConst::Undefined) {
+        let num_limit = limit_cas_inner(&num, var, point, direction, lhopital_depth + 1)?;
+        if numeric_sign(&num_limit).is_some_and(|sign| sign != 0) {
+            return Ok(Some(Value::from_cas_const(CasConst::Undefined)));
+        }
+        return Ok(None);
+    }
+
+    if numeric_sign(&den_limit).is_none_or(|sign| sign == 0) {
+        return Ok(None);
+    }
+
+    let num_limit = limit_cas_inner(&num, var, point, direction, lhopital_depth + 1)?;
+    if num_limit.cas_const() == Some(CasConst::Undefined) {
+        return Ok(Some(num_limit));
+    }
+
+    simplify_cas_value(&Value::from_cas_op(
+        CasOp::Divide,
+        vec![num_limit, den_limit],
+    ))
+    .map(Some)
+}
+
+/// Strategy 6: L'Hopital's rule.
 ///
 /// When the expression is a quotient f/g where both f and g -> 0 (or both ->
 /// inf) at the limit point, differentiate numerator and denominator and retry.
@@ -434,7 +552,7 @@ fn split_inf_times_zero_product(expr: &Value, var_name: &str) -> Option<(Value, 
     Some((num, denom))
 }
 
-/// Strategy 3: limits at infinity (point is `inf` or `-inf`).
+/// Strategy 1: limits at infinity (point is `inf` or `-inf`).
 ///
 /// Analyzes the asymptotic behaviour of the expression rather than
 /// substituting.  Handles rational functions via degree comparison,
@@ -648,6 +766,7 @@ fn asymp_at_infinity(name: CasFunction, inf_val: &Value) -> Option<Value> {
         } else {
             Value::Int(0)
         }),
+        CasFunction::Sgn => Some(Value::float(if is_pos { 1.0 } else { -1.0 })),
         CasFunction::Heaviside => Some(Value::float(if is_pos { 1.0 } else { 0.0 })),
         CasFunction::Erf => Some(Value::float(if is_pos { 1.0 } else { -1.0 })),
         CasFunction::Erfc => Some(Value::float(if is_pos { 0.0 } else { 2.0 })),
@@ -891,7 +1010,7 @@ fn rational_limit_at_infinity(
     Ok(Some(inf_with_sign(result_sign)))
 }
 
-/// Strategy 2.5: known limits table for classic patterns.
+/// Strategy 7: known limits table for classic patterns.
 fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option<Value>> {
     let (num, den) = match split_fraction(expr) {
         Some(pair) => pair,
@@ -963,7 +1082,7 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
     Ok(None)
 }
 
-// -- Strategy 2.6: series expansion at x=0 --
+// -- Strategy 5: series expansion at x=0 --
 
 /// Known Taylor series at x=0, up to order 6.  Coefficients are indexed by
 /// degree: `coeffs[i]` is the coefficient of `x^i`.
@@ -1121,7 +1240,7 @@ fn expand_series(expr: &Value, var_name: &str, order: usize) -> Option<Vec<f64>>
     None
 }
 
-/// Strategy 2.6: series expansion at x=0.
+/// Strategy 5: series expansion at x=0.
 ///
 /// For quotients f(x)/g(x) where both -> 0, expand both as Taylor series,
 /// cancel common powers of x, and evaluate the leading term.
@@ -1176,7 +1295,7 @@ fn try_series_expansion(expr: &Value, var: &Value) -> WqResult<Option<Value>> {
     }
 }
 
-/// Strategy 3: pole analysis -- handle limits where substitution fails due to
+/// Strategy 8: pole analysis: handle limits where substitution fails due to
 /// division by zero and the numerator approaches a non-zero constant.
 ///
 /// `limit(1/x, x->0+) = inf`, `limit(1/x, x->0-) = -inf`
@@ -1185,6 +1304,7 @@ fn try_pole_limit(
     var: &Value,
     point: &Value,
     direction: Option<LimitDirection>,
+    lhopital_depth: usize,
 ) -> WqResult<Option<Value>> {
     let (num, den) = match split_fraction(expr) {
         Some(pair) => pair,
@@ -1203,13 +1323,10 @@ fn try_pole_limit(
         return Ok(None);
     }
 
-    // Denominator must approach 0 at the point.
-    let den_at_point = match substitute_cas(&den, var, point) {
-        Ok(v) => v,
-        Err(_) => return Ok(None), // denominator substitution itself fails
-    };
-    if den_at_point.as_f64().map(|f| f != 0.0).unwrap_or(true) {
-        return Ok(None); // denominator doesn't vanish
+    // Denominator must approach 0, not merely be 0 at the point.
+    let den_limit = limit_cas_inner(&den, var, point, direction, lhopital_depth + 1)?;
+    if !numeric_is_zero(&den_limit) {
+        return Ok(None);
     }
 
     // Probe denominator sign near the point using a small epsilon.
@@ -1231,12 +1348,12 @@ fn try_pole_limit(
     }))
 }
 
-fn probe_expression_sign(
+fn probe_expression_approach_sign(
     expr: &Value,
     var: &Value,
     point: &Value,
     direction: Option<LimitDirection>,
-) -> WqResult<Option<i32>> {
+) -> WqResult<Option<ApproachSign>> {
     let Some(base) = point.as_f64() else {
         return Ok(None);
     };
@@ -1254,13 +1371,13 @@ fn probe_expression_sign(
             let right = sign_at(eps);
             let left = sign_at(-eps);
             match (right, left) {
-                (Some(r), Some(l)) if r != l => Some(0),
-                (Some(r), Some(_)) => Some(r),
+                (Some(r), Some(l)) if r == l => Some(ApproachSign::from_numeric(r)),
+                (Some(_), Some(_)) => Some(ApproachSign::Mixed),
                 _ => None,
             }
         }
-        Some(LimitDirection::Right) => sign_at(eps),
-        Some(LimitDirection::Left) => sign_at(-eps),
+        Some(LimitDirection::Right) => sign_at(eps).map(ApproachSign::from_numeric),
+        Some(LimitDirection::Left) => sign_at(-eps).map(ApproachSign::from_numeric),
     };
     Ok(result)
 }
@@ -1697,6 +1814,110 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, ninf());
+    }
+
+    #[test]
+    fn limit_abs_x_over_x_tracks_one_sided_sign() {
+        let expr = cas_div_expr(call(CasFunction::Abs, vec![cas_var("x")]), cas_var("x"));
+
+        let two_sided = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
+        assert_eq!(two_sided, konst(CasConst::Undefined));
+
+        let right = limit_cas(
+            &expr,
+            &cas_var("x"),
+            &Value::Int(0),
+            Some(LimitDirection::Right),
+        )
+        .unwrap();
+        assert_eq!(right.as_f64().unwrap(), 1.0);
+
+        let left = limit_cas(
+            &expr,
+            &cas_var("x"),
+            &Value::Int(0),
+            Some(LimitDirection::Left),
+        )
+        .unwrap();
+        assert_eq!(left.as_f64().unwrap(), -1.0);
+    }
+
+    #[test]
+    fn limit_x_over_abs_x_tracks_one_sided_sign() {
+        let expr = cas_div_expr(cas_var("x"), call(CasFunction::Abs, vec![cas_var("x")]));
+
+        let two_sided = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
+        assert_eq!(two_sided, konst(CasConst::Undefined));
+
+        let right = limit_cas(
+            &expr,
+            &cas_var("x"),
+            &Value::Int(0),
+            Some(LimitDirection::Right),
+        )
+        .unwrap();
+        assert_eq!(right.as_f64().unwrap(), 1.0);
+
+        let left = limit_cas(
+            &expr,
+            &cas_var("x"),
+            &Value::Int(0),
+            Some(LimitDirection::Left),
+        )
+        .unwrap();
+        assert_eq!(left.as_f64().unwrap(), -1.0);
+    }
+
+    #[test]
+    fn limit_sgn_at_zero_tracks_one_sided_sign() {
+        let expr = call(CasFunction::Sgn, vec![cas_var("x")]);
+
+        let two_sided = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
+        assert_eq!(two_sided, konst(CasConst::Undefined));
+
+        let right = limit_cas(
+            &expr,
+            &cas_var("x"),
+            &Value::Int(0),
+            Some(LimitDirection::Right),
+        )
+        .unwrap();
+        assert_eq!(right.as_f64().unwrap(), 1.0);
+
+        let left = limit_cas(
+            &expr,
+            &cas_var("x"),
+            &Value::Int(0),
+            Some(LimitDirection::Left),
+        )
+        .unwrap();
+        assert_eq!(left.as_f64().unwrap(), -1.0);
+    }
+
+    #[test]
+    fn limit_heaviside_at_zero_tracks_one_sided_step() {
+        let expr = call(CasFunction::Heaviside, vec![cas_var("x")]);
+
+        let two_sided = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
+        assert_eq!(two_sided, konst(CasConst::Undefined));
+
+        let right = limit_cas(
+            &expr,
+            &cas_var("x"),
+            &Value::Int(0),
+            Some(LimitDirection::Right),
+        )
+        .unwrap();
+        assert_eq!(right.as_f64().unwrap(), 1.0);
+
+        let left = limit_cas(
+            &expr,
+            &cas_var("x"),
+            &Value::Int(0),
+            Some(LimitDirection::Left),
+        )
+        .unwrap();
+        assert_eq!(left.as_f64().unwrap(), 0.0);
     }
 
     // -- inf/inf L'Hopital (partial) --
