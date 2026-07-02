@@ -483,7 +483,7 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
     }
     if expr.cas_apply_parts().is_some() {
         if contains_cas_var(expr, var) {
-            return Err(cas_err("unsupported symbolic integral for application").got1(expr));
+            return Err(unsupported_symbolic_integral_error(expr, var));
         }
         return cas_mul(vec![expr.clone(), Value::from_cas_var(var)]);
     }
@@ -526,9 +526,208 @@ fn try_strategies(expr: &Value, var: &str, depth: usize) -> WqResult<Value> {
         DebugLogFlags::CAS,
         "[cas] all strategies failed for: {formatted}"
     );
-    Err(cas_err(format!(
-        "unsupported symbolic integral: {formatted}"
-    )))
+    Err(unsupported_symbolic_integral_error(expr, var))
+}
+
+pub(super) fn unsupported_symbolic_integral_error(
+    expr: &Value,
+    var: &str,
+) -> crate::wqerror::WqError {
+    let formatted = expr.format_cas().unwrap_or_else(|| expr.to_string());
+    let err = cas_err(format!("unsupported symbolic integral: {formatted}"));
+    match unsupported_integral_reason(expr, var) {
+        Some(reason) => err.attach_note(format!("reason: {reason}")),
+        None => err,
+    }
+}
+
+fn unsupported_integral_reason(expr: &Value, var: &str) -> Option<String> {
+    if let Some(name) = find_var_dependent_application(expr, var) {
+        return Some(format!(
+            "contains {name}[...] depending on {var}; unknown functions are not integrated"
+        ));
+    }
+    if has_trig_or_hyperbolic(expr) && has_var_denominator(expr, var) {
+        return Some(
+            "mixes trig or hyperbolic functions with a variable denominator; this combination is unsupported"
+                .to_string(),
+        );
+    }
+    if has_var_dependent_exp(expr, var) {
+        return Some(format!(
+            "contains exp[...] depending on {var}; supported forms are affine, derivative-matched, Ei, and Gaussian"
+        ));
+    }
+    if let Some(name) = find_unhandled_builtin_function(expr, var) {
+        return Some(format!(
+            "contains {name}[...] depending on {var}; no integration rule for this function in this form"
+        ));
+    }
+    if has_unhandled_radical(expr, var) {
+        return Some(
+            "contains a radical outside supported polynomial and square-factor cases".to_string(),
+        );
+    }
+    None
+}
+
+fn find_var_dependent_application(expr: &Value, var: &str) -> Option<String> {
+    if let Some((name, args)) = expr.cas_apply_parts()
+        && args.iter().any(|arg| contains_cas_var(arg, var))
+    {
+        return Some(name.as_str().to_string());
+    }
+    visit_cas_children(expr, |child| find_var_dependent_application(child, var))
+}
+
+fn find_unhandled_builtin_function(expr: &Value, var: &str) -> Option<&'static str> {
+    if let Some((name, args)) = expr.cas_function_parts()
+        && args.iter().any(|arg| contains_cas_var(arg, var))
+        && is_unhandled_integral_function(name)
+    {
+        return Some(name.name());
+    }
+    visit_cas_children(expr, |child| find_unhandled_builtin_function(child, var))
+}
+
+fn is_unhandled_integral_function(name: CasFunction) -> bool {
+    matches!(
+        name,
+        CasFunction::Gamma
+            | CasFunction::LnGamma
+            | CasFunction::En
+            | CasFunction::EllPk
+            | CasFunction::EllPe
+            | CasFunction::EllIk
+            | CasFunction::EllIe
+            | CasFunction::ArcTan2
+            | CasFunction::Floor
+            | CasFunction::Ceil
+            | CasFunction::Round
+            | CasFunction::Integrate
+            | CasFunction::Log
+    )
+}
+
+fn has_trig_or_hyperbolic(expr: &Value) -> bool {
+    if let Some((name, _)) = expr.cas_function_parts()
+        && matches!(
+            name,
+            CasFunction::Sin
+                | CasFunction::Cos
+                | CasFunction::Tan
+                | CasFunction::Sec
+                | CasFunction::Csc
+                | CasFunction::Cot
+                | CasFunction::Sinh
+                | CasFunction::Cosh
+                | CasFunction::Tanh
+        )
+    {
+        return true;
+    }
+    visit_cas_children(expr, |child| has_trig_or_hyperbolic(child).then_some(true)).unwrap_or(false)
+}
+
+fn has_var_dependent_exp(expr: &Value, var: &str) -> bool {
+    if let Some((CasFunction::Exp, [arg])) = expr.cas_function_parts()
+        && contains_cas_var(arg, var)
+    {
+        return true;
+    }
+    if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
+        && base.cas_const_name() == Some("e")
+        && contains_cas_var(exp, var)
+    {
+        return true;
+    }
+    visit_cas_children(expr, |child| {
+        has_var_dependent_exp(child, var).then_some(true)
+    })
+    .unwrap_or(false)
+}
+
+fn has_var_denominator(expr: &Value, var: &str) -> bool {
+    if let Some((op, args)) = expr.cas_op_parts() {
+        match (op, args) {
+            (CasOp::Divide, [_, den]) if contains_cas_var(den, var) => return true,
+            (CasOp::Power, [base, exp])
+                if exp.exact_int().is_some_and(|n| n < BigInt::from(0))
+                    && contains_cas_var(base, var) =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+    }
+    visit_cas_children(expr, |child| {
+        has_var_denominator(child, var).then_some(true)
+    })
+    .unwrap_or(false)
+}
+
+fn has_unhandled_radical(expr: &Value, var: &str) -> bool {
+    let radical_base = if let Some((CasFunction::Sqrt, [base])) = expr.cas_function_parts() {
+        Some(base)
+    } else if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
+        && (exp.exact_half() || exp.exact_neg_half())
+    {
+        Some(base)
+    } else {
+        None
+    };
+
+    if let Some(base) = radical_base
+        && contains_cas_var(base, var)
+        && !is_supported_radical_base(base, var)
+    {
+        return true;
+    }
+    visit_cas_children(expr, |child| {
+        has_unhandled_radical(child, var).then_some(true)
+    })
+    .unwrap_or(false)
+}
+
+fn is_supported_radical_base(base: &Value, var: &str) -> bool {
+    match poly_from_expr(base, var) {
+        Ok(coeffs) => poly_degree(&coeffs) <= 4,
+        Err(_) => false,
+    }
+}
+
+fn visit_cas_children<T>(expr: &Value, mut visit: impl FnMut(&Value) -> Option<T>) -> Option<T> {
+    if let Some((_, args)) = expr.cas_op_parts() {
+        for arg in args {
+            if let Some(value) = visit(arg) {
+                return Some(value);
+            }
+        }
+    } else if let Some((_, args)) = expr.cas_function_parts() {
+        for arg in args {
+            if let Some(value) = visit(arg) {
+                return Some(value);
+            }
+        }
+    } else if let Some((_, args)) = expr.cas_apply_parts() {
+        for arg in args {
+            if let Some(value) = visit(arg) {
+                return Some(value);
+            }
+        }
+    } else if let Some((_, value)) = expr.cas_named_arg_parts() {
+        if let Some(value) = visit(value) {
+            return Some(value);
+        }
+    } else if let Some((lhs, rhs)) = expr.cas_eq_parts() {
+        if let Some(value) = visit(lhs) {
+            return Some(value);
+        }
+        if let Some(value) = visit(rhs) {
+            return Some(value);
+        }
+    }
+    None
 }
 
 fn integrate_abs_polynomial(expr: &Value, var: &str) -> WqResult<Option<Value>> {
@@ -1291,10 +1490,7 @@ mod tests {
             ],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x"));
-        assert!(
-            result.is_err(),
-            "expected unsupported integral, got {result:?}"
-        );
+        assert_unsupported_reason_contains(result, "unknown functions");
     }
 
     #[test]
@@ -1320,10 +1516,69 @@ mod tests {
             ],
         );
         let result = integrate_cas(&expr, &Value::from_cas_var("x"));
+        assert_unsupported_reason_contains(result, "variable denominator");
+    }
+
+    fn assert_unsupported_reason_contains(result: WqResult<Value>, reason_needle: &str) {
+        let err = result.expect_err("expected unsupported integral");
+        let msg = err.msg.as_deref().unwrap_or("");
         assert!(
-            result.is_err(),
-            "expected unsupported integral, got {result:?}"
+            msg.contains("unsupported symbolic integral"),
+            "expected unsupported integral, got {err:?}"
         );
+        let notes = err.notes.join("\n");
+        assert!(
+            notes.contains("reason:"),
+            "expected reason note, got {err:?}"
+        );
+        assert!(
+            notes.contains(reason_needle),
+            "expected reason to contain {reason_needle:?}, got {err:?}"
+        );
+        let text = format!("{msg}\n{notes}");
+        assert!(
+            !text.contains("Liouville") && !text.contains("inconsistent"),
+            "unexpected internal Liouville error leaked: {err:?}"
+        );
+    }
+
+    #[test]
+    fn integrate_exp_polynomial_inconsistent_liouville_is_unsupported() {
+        let x = Value::from_cas_var("x");
+        let poly = cas_add(vec![
+            cas_pow(x.clone(), Value::Int(2)).expect("x^2"),
+            Value::Int(1),
+        ])
+        .expect("x^2+1");
+        let exp_arg = cas_pow(x.clone(), Value::Int(3)).expect("x^3");
+        let expr = cas_mul(vec![poly, call(CasFunction::Exp, vec![exp_arg])]).expect("product");
+
+        assert_unsupported_reason_contains(integrate_cas(&expr, &x), "supported forms");
+    }
+
+    #[test]
+    fn integrate_exp_rational_inconsistent_liouville_is_unsupported() {
+        let x = Value::from_cas_var("x");
+        let numer = cas_add(vec![
+            cas_pow(x.clone(), Value::Int(2)).expect("x^2"),
+            Value::Int(1),
+        ])
+        .expect("x^2+1");
+        let denom_base = cas_add(vec![x.clone(), Value::Int(1)]).expect("x+1");
+        let denom = cas_pow(denom_base, Value::Int(2)).expect("(x+1)^2");
+        let rational = cas_div(numer, denom).expect("rational factor");
+        let exp_arg = cas_pow(x.clone(), Value::Int(2)).expect("x^2");
+        let expr = cas_mul(vec![rational, call(CasFunction::Exp, vec![exp_arg])]).expect("product");
+
+        assert_unsupported_reason_contains(integrate_cas(&expr, &x), "supported forms");
+    }
+
+    #[test]
+    fn integrate_unhandled_builtin_function_reports_reason() {
+        let x = Value::from_cas_var("x");
+        let expr = call(CasFunction::Gamma, vec![x.clone()]);
+
+        assert_unsupported_reason_contains(integrate_cas(&expr, &x), "gamma[...]");
     }
 
     #[test]

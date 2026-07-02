@@ -10,6 +10,7 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive as _;
 
 use super::byparts::try_extract_exp_arg;
+use super::unsupported_symbolic_integral_error;
 use crate::cas::{
     cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div, numeric_add,
     numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub, poly_degree,
@@ -71,13 +72,23 @@ pub(super) fn integrate_liouville(expr: &Value, var: &str) -> WqResult<Option<Va
     }
 
     // Try polynomial f and polynomial g
-    if let Some(result) = try_liouville_poly_poly(&f_expr, &g_expr, var)? {
-        return Ok(Some(result));
+    match try_liouville_poly_poly(&f_expr, &g_expr, var) {
+        Ok(Some(result)) => return Ok(Some(result)),
+        Ok(None) => {}
+        Err(err) if is_inconsistent_liouville_ansatz(&err, "Liouville:") => {
+            return Err(unsupported_symbolic_integral_error(&simplified, var));
+        }
+        Err(err) => return Err(err),
     }
 
     // Try rational f with linear g
-    if let Some(result) = try_liouville_rational(&f_expr, &g_expr, var)? {
-        return Ok(Some(result));
+    match try_liouville_rational(&f_expr, &g_expr, var) {
+        Ok(Some(result)) => return Ok(Some(result)),
+        Ok(None) => {}
+        Err(err) if is_inconsistent_liouville_ansatz(&err, "Liouville:") => {
+            return Err(unsupported_symbolic_integral_error(&simplified, var));
+        }
+        Err(err) => return Err(err),
     }
 
     // Try rational f with polynomial g (deg >= 2)
@@ -85,10 +96,15 @@ pub(super) fn integrate_liouville(expr: &Value, var: &str) -> WqResult<Option<Va
         Ok(c) => c,
         Err(_) => return Ok(None),
     };
-    if poly_degree(&g_coeffs) >= 2
-        && let Some(result) = try_liouville_rational_general(&f_expr, &g_coeffs, var)?
-    {
-        return Ok(Some(result));
+    if poly_degree(&g_coeffs) >= 2 {
+        match try_liouville_rational_general(&f_expr, &g_coeffs, var) {
+            Ok(Some(result)) => return Ok(Some(result)),
+            Ok(None) => {}
+            Err(err) if is_inconsistent_liouville_ansatz(&err, "Liouville gen:") => {
+                return Err(unsupported_symbolic_integral_error(&simplified, var));
+            }
+            Err(err) => return Err(err),
+        }
     }
 
     // Ei pattern: int C/x * e^(a*x^n) dx = (C/n)*Ei(a*x^n)
@@ -595,6 +611,12 @@ fn try_liouville_rational_general_inner(
     let result = simplify_cas_value(&cas_mul(vec![r_expr, exp_g])?)?;
 
     Ok(Some(result))
+}
+
+fn is_inconsistent_liouville_ansatz(err: &crate::wqerror::WqError, prefix: &str) -> bool {
+    err.msg
+        .as_deref()
+        .is_some_and(|msg| msg.starts_with(prefix) && msg.contains("inconsistent"))
 }
 
 /// Handle int C/x * e^(a*x^n) dx = (C/n)*Ei(a*x^n) via substitution u = a*x^n.
