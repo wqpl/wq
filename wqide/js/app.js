@@ -379,15 +379,13 @@ const PLAYGROUND_HTML = html`
               </button>
             </div>
           </div>
-          <div class="structure-panel-status" data-structure-status>
-            No code yet.
-          </div>
+          <div class="structure-panel-status" data-structure-status hidden></div>
           <pre
             id="structurePanelBody"
-            class="structure-panel-body"
+            class="structure-panel-body empty"
             data-structure-output
             role="tabpanel"
-            aria-live="polite"></pre>
+            aria-live="polite">No code yet.</pre>
         </section>
       </aside>
 

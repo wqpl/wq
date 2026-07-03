@@ -386,13 +386,15 @@ function renderStructureStatus(instance, message, isError = false) {
 
 function renderEmptyStructure(instance, message, isError = false) {
   if (instance.structureOutput) {
-    instance.structureOutput.innerHTML = "";
+    instance.structureOutput.textContent = isError ? "" : message;
+    instance.structureOutput.classList.toggle("empty", !isError);
   }
-  renderStructureStatus(instance, message, isError);
+  renderStructureStatus(instance, isError ? message : "", isError);
 }
 
 function renderStructureOutput(instance, text) {
   if (!instance.structureOutput) return;
+  instance.structureOutput.classList.remove("empty");
   instance.structureOutput.innerHTML = "";
   const renderer = createOutputRenderer(instance.structureOutput);
   renderer.appendOutput(text);
@@ -410,6 +412,10 @@ async function refreshStructure(instance) {
     return;
   }
 
+  if (instance.structureOutput?.classList.contains("empty")) {
+    instance.structureOutput.textContent = "";
+    instance.structureOutput.classList.remove("empty");
+  }
   renderStructureStatus(instance, "Parsing...");
 
   try {
