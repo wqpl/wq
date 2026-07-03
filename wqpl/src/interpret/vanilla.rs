@@ -11,7 +11,7 @@ use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
 use crate::value::cmp::eval_cmp_chain;
 use crate::value::func::ClosureData;
-use crate::value::{Value, WqResult, eval_binary, eval_unary};
+use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_unary};
 use crate::vm::call::{
     CallSpec, LocalCallable, PeekLocalCallable, PeekLocalUser, peek_local_callable,
 };
@@ -630,7 +630,11 @@ impl Interpreter for VanillaInterpreter {
                             return Err(index_err(
                                 "bulk index cannot appear before the final path segment",
                             )
-                            .attach_note(format!("index: '{idx_val}'")));
+                            .attach_note(format!(
+                                "index: '{}' ({})",
+                                idx_val.excerpt(),
+                                idx_val.type_name()
+                            )));
                         }
                     }
 
@@ -744,9 +748,7 @@ impl Interpreter for VanillaInterpreter {
                             })
                             .ok_or_else(|| {
                                 not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!(
-                                        "when trying to assign to '{name}[{idx}]'"
-                                    ))
+                                    .attach_note(format!("when trying to assign to {name}"))
                             })?;
                         if assigned.is_some() {
                             vm.stack.push(val);
@@ -760,8 +762,7 @@ impl Interpreter for VanillaInterpreter {
                                 );
                             }
                         } else {
-                            return Err(index_err(format!("invalid index '{idx}'"))
-                                .attach_note(format!("when trying to assign to {name}[{idx}]")));
+                            return Err(invalid_index_assign_err(&idx, name));
                         }
                     }
                     Instruction::IndexManyAssignVar(name, argc) => {
@@ -782,11 +783,8 @@ impl Interpreter for VanillaInterpreter {
                                 assigned
                             })
                             .ok_or_else(|| {
-                                let idx = index_args_value(&args);
                                 not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!(
-                                        "when trying to assign to '{name}[{idx}]'"
-                                    ))
+                                    .attach_note(format!("when trying to assign to {name}"))
                             })?;
                         if assigned.is_some() {
                             vm.stack.push(val);
@@ -800,9 +798,7 @@ impl Interpreter for VanillaInterpreter {
                                 );
                             }
                         } else {
-                            let idx = index_args_value(&args);
-                            return Err(index_err(format!("invalid index '{idx}'"))
-                                .attach_note(format!("when trying to assign to {name}[{idx}]")));
+                            return Err(invalid_index_assign_err_for_args(&args, name));
                         }
                     }
                     Instruction::IndexAssignVarDrop(name) => {
@@ -824,13 +820,10 @@ impl Interpreter for VanillaInterpreter {
                             })
                             .ok_or_else(|| {
                                 not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!(
-                                        "when trying to assign to '{name}[{idx}]'"
-                                    ))
+                                    .attach_note(format!("when trying to assign to {name}"))
                             })?;
                         if assigned.is_none() {
-                            return Err(index_err(format!("invalid index '{idx}'"))
-                                .attach_note(format!("when trying to assign to {name}[{idx}]")));
+                            return Err(invalid_index_assign_err(&idx, name));
                         }
                         if let Some((old, new)) = change {
                             vm.note_global_symbol_write(pc, name, "index-assign", Some(old), new);
@@ -854,16 +847,11 @@ impl Interpreter for VanillaInterpreter {
                                 assigned
                             })
                             .ok_or_else(|| {
-                                let idx = index_args_value(&args);
                                 not_bound_err(format!("'{name}' has not been bound to a value"))
-                                    .attach_note(format!(
-                                        "when trying to assign to '{name}[{idx}]'"
-                                    ))
+                                    .attach_note(format!("when trying to assign to {name}"))
                             })?;
                         if assigned.is_none() {
-                            let idx = index_args_value(&args);
-                            return Err(index_err(format!("invalid index '{idx}'"))
-                                .attach_note(format!("when trying to assign to {name}[{idx}]")));
+                            return Err(invalid_index_assign_err_for_args(&args, name));
                         }
                         if let Some((old, new)) = change {
                             vm.note_global_symbol_write(pc, name, "index-assign", Some(old), new);
@@ -915,9 +903,7 @@ impl Interpreter for VanillaInterpreter {
                         } else {
                             return Err(vm.attach_local_slot_note(
                                 slot,
-                                index_err(format!("invalid index '{idx}'")).attach_note(format!(
-                                    "when trying to assign to local[{slot}][{idx}]"
-                                )),
+                                invalid_index_assign_err(&idx, format!("local[{slot}]")),
                             ));
                         }
                     }
@@ -965,12 +951,9 @@ impl Interpreter for VanillaInterpreter {
                                 );
                             }
                         } else {
-                            let idx = index_args_value(&args);
                             return Err(vm.attach_local_slot_note(
                                 slot,
-                                index_err(format!("invalid index '{idx}'")).attach_note(format!(
-                                    "when trying to assign to local[{slot}][{idx}]"
-                                )),
+                                invalid_index_assign_err_for_args(&args, format!("local[{slot}]")),
                             ));
                         }
                     }
@@ -1012,9 +995,7 @@ impl Interpreter for VanillaInterpreter {
                                 );
                             }
                         } else {
-                            return Err(index_err(format!("invalid index '{idx}'")).attach_note(
-                                format!("when trying to assign to capture[{slot}][{idx}]"),
-                            ));
+                            return Err(invalid_index_assign_err(&idx, format!("capture[{slot}]")));
                         }
                     }
                     Instruction::IndexManyAssignCapture(slot, argc) => {
@@ -1055,9 +1036,9 @@ impl Interpreter for VanillaInterpreter {
                                 );
                             }
                         } else {
-                            let idx = index_args_value(&args);
-                            return Err(index_err(format!("invalid index '{idx}'")).attach_note(
-                                format!("when trying to assign to capture[{slot}][{idx}]"),
+                            return Err(invalid_index_assign_err_for_args(
+                                &args,
+                                format!("capture[{slot}]"),
                             ));
                         }
                     }
@@ -1084,9 +1065,7 @@ impl Interpreter for VanillaInterpreter {
                         if success.is_none() {
                             return Err(vm.attach_local_slot_note(
                                 slot_n,
-                                index_err(format!("invalid index '{idx}'")).attach_note(format!(
-                                    "when trying to assign to local[{slot_n}][{idx}]"
-                                )),
+                                invalid_index_assign_err(&idx, format!("local[{slot_n}]")),
                             ));
                         }
                         if let Some((old, new)) = change {
@@ -1121,12 +1100,12 @@ impl Interpreter for VanillaInterpreter {
                             success
                         };
                         if success.is_none() {
-                            let idx = index_args_value(&args);
                             return Err(vm.attach_local_slot_note(
                                 slot_n,
-                                index_err(format!("invalid index '{idx}'")).attach_note(format!(
-                                    "when trying to assign to local[{slot_n}][{idx}]"
-                                )),
+                                invalid_index_assign_err_for_args(
+                                    &args,
+                                    format!("local[{slot_n}]"),
+                                ),
                             ));
                         }
                         if let Some((old, new)) = change {
@@ -1166,9 +1145,7 @@ impl Interpreter for VanillaInterpreter {
                             success
                         };
                         if success.is_none() {
-                            return Err(index_err(format!("invalid index '{idx}'")).attach_note(
-                                format!("when trying to assign to capture[{slot}][{idx}]"),
-                            ));
+                            return Err(invalid_index_assign_err(&idx, format!("capture[{slot}]")));
                         }
                         if let Some((old, new)) = change {
                             vm.note_capture_symbol_write(
@@ -1207,9 +1184,9 @@ impl Interpreter for VanillaInterpreter {
                             success
                         };
                         if success.is_none() {
-                            let idx = index_args_value(&args);
-                            return Err(index_err(format!("invalid index '{idx}'")).attach_note(
-                                format!("when trying to assign to capture[{slot}][{idx}]"),
+                            return Err(invalid_index_assign_err_for_args(
+                                &args,
+                                format!("capture[{slot}]"),
                             ));
                         }
                         if let Some((old, new)) = change {
@@ -2149,6 +2126,15 @@ fn index_args_value(args: &[Value]) -> Value {
         [arg] => arg.clone(),
         _ => Value::from_items(args.to_vec()),
     }
+}
+
+fn invalid_index_assign_err(idx: &Value, target: impl std::fmt::Display) -> WqError {
+    index_err(format!("invalid index '{idx}' ({})", idx.type_name()))
+        .attach_note(format!("when trying to assign to {target}"))
+}
+
+fn invalid_index_assign_err_for_args(args: &[Value], target: impl std::fmt::Display) -> WqError {
+    invalid_index_assign_err(&index_args_value(args), target)
 }
 
 fn index_with_args(stack: &mut Vec<Value>, target: &Value, args: Sv4) -> WqResult<()> {

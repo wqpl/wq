@@ -1,7 +1,7 @@
 use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::value::cell::ValueCell;
 use crate::value::func::CallableExpr;
-use crate::value::{Value, WqResult, eval_binary, eval_unary};
+use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_unary};
 use crate::vm::inst::{Instruction, Operand};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -297,8 +297,17 @@ fn pure_index_err(target: &Value, args: &[Value]) -> WqError {
     };
     WqError::new(WqErrorType::Index)
         .src("pure callback")
-        .msg(format!("invalid index '{index}'"))
-        .got1(target)
+        .msg("invalid index")
+        .attach_note(format!(
+            "index: '{}' ({})",
+            index.excerpt(),
+            index.type_name()
+        ))
+        .attach_note(format!(
+            "target: '{}' ({})",
+            target.excerpt(),
+            target.type_name()
+        ))
 }
 
 #[cfg(test)]

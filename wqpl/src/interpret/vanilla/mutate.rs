@@ -7,8 +7,16 @@ use crate::wqerror::WqError;
 
 pub(super) fn index_load_err(idx_val: &Value, target: &Value) -> WqError {
     index_err("invalid index")
-        .attach_note(format!("index: '{}'", idx_val.excerpt()))
-        .attach_note(format!("target: '{}'", target.excerpt()))
+        .attach_note(format!(
+            "index: '{}' ({})",
+            idx_val.excerpt(),
+            idx_val.type_name()
+        ))
+        .attach_note(format!(
+            "target: '{}' ({})",
+            target.excerpt(),
+            target.type_name()
+        ))
 }
 
 pub(super) fn pop_count_from_stack(vm: &mut Vm, has_count: bool) -> WqResult<usize> {
