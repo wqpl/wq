@@ -634,7 +634,7 @@ fn sample_callable_series(
     let initial_samples = opts.samples.unwrap_or(opts.width).max(2);
     let pure = PureCallback::compile(func, 1);
 
-    if opts.complex_mode == "plane" {
+    if opts.complex_mode == ComplexMode::Plane {
         let mut sampler =
             |x: f64| -> Option<Value> { sample_callable_value(vm, func, pure.as_ref(), x) };
         let raw = sample_with_segments(xmin, xmax, initial_samples, &mut sampler);
@@ -642,7 +642,7 @@ fn sample_callable_series(
     } else {
         let mut sampler = |x: f64| -> Option<f64> {
             let y = sample_callable_value(vm, func, pure.as_ref(), x)?;
-            extract_numeric_component(&y, &opts.complex_mode)
+            extract_numeric_component(&y, opts.complex_mode)
         };
         Ok(sample_real_with_segments(
             xmin,
@@ -678,7 +678,7 @@ fn sample_cas_series(
 
     let var = Value::from_cas_var(infer_single_cas_var(expr).map_err(|e| e.src(BE::Asciiplot))?);
 
-    if opts.complex_mode == "plane" {
+    if opts.complex_mode == ComplexMode::Plane {
         let mut sampler = |x: f64| -> Option<Value> {
             substitute_cas(expr, &var, &Value::float(x))
                 .map_err(|e| e.src(BE::Asciiplot))
@@ -691,7 +691,7 @@ fn sample_cas_series(
             let y = substitute_cas(expr, &var, &Value::float(x))
                 .map_err(|e| e.src(BE::Asciiplot))
                 .ok()?;
-            extract_numeric_component(&y, &opts.complex_mode)
+            extract_numeric_component(&y, opts.complex_mode)
         };
         Ok(sample_real_with_segments(
             xmin,
@@ -842,24 +842,24 @@ fn expect_real_sample(value: &Value) -> Option<f64> {
     if y.is_finite() { Some(y) } else { None }
 }
 
-fn extract_numeric_component(value: &Value, mode: &str) -> Option<f64> {
+fn extract_numeric_component(value: &Value, mode: ComplexMode) -> Option<f64> {
     match mode {
-        "re" => expect_real_sample(value),
-        "im" => {
+        ComplexMode::Real | ComplexMode::Plane => expect_real_sample(value),
+        ComplexMode::Imaginary => {
             if let Some(z) = value.as_complex64() {
                 Some(z.im)
             } else {
                 value.as_f64().filter(|y| y.is_finite()).map(|_| 0.0)
             }
         }
-        "abs" => {
+        ComplexMode::Abs => {
             if let Some(z) = value.as_complex64() {
                 Some(z.norm())
             } else {
                 value.as_f64().filter(|y| y.is_finite()).map(|y| y.abs())
             }
         }
-        "arg" => {
+        ComplexMode::Argument => {
             if let Some(z) = value.as_complex64() {
                 Some(z.arg())
             } else {
@@ -869,7 +869,6 @@ fn extract_numeric_component(value: &Value, mode: &str) -> Option<f64> {
                     .map(|y| if y < 0.0 { std::f64::consts::PI } else { 0.0 })
             }
         }
-        _ => expect_real_sample(value),
     }
 }
 
@@ -917,21 +916,68 @@ enum PlotMode {
     Area,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ComplexMode {
+    Real,
+    Imaginary,
+    Abs,
+    Argument,
+    Plane,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PlotTheme {
+    Minimal,
+    Maximal,
+}
+
+fn option_keyword(value: &Value) -> Option<String> {
+    match value {
+        Value::Tag(sym) => Some(sym.to_string()),
+        _ => value.to_rust_string_with_note().ok(),
+    }
+    .map(|s| s.to_ascii_lowercase())
+}
+
 fn parse_plot_mode(value: &Value) -> Option<PlotMode> {
-    let owned;
-    let s = match value {
-        Value::Tag(sym) => sym.as_ref(),
-        _ => {
-            owned = value.to_rust_string_with_note().ok()?;
-            owned.as_str()
-        }
-    };
-    match s {
+    match option_keyword(value)?.as_str() {
         "line" | "l" => Some(PlotMode::Line),
         "scatter" | "sc" => Some(PlotMode::Scatter),
         "step" | "st" => Some(PlotMode::Step),
         "bar" | "b" => Some(PlotMode::Bar),
         "area" | "a" => Some(PlotMode::Area),
+        _ => None,
+    }
+}
+
+fn parse_complex_mode(value: &Value) -> Option<ComplexMode> {
+    match option_keyword(value)?.as_str() {
+        "re" | "real" => Some(ComplexMode::Real),
+        "im" | "imag" | "imaginary" => Some(ComplexMode::Imaginary),
+        "abs" => Some(ComplexMode::Abs),
+        "arg" => Some(ComplexMode::Argument),
+        "plane" => Some(ComplexMode::Plane),
+        _ => None,
+    }
+}
+
+fn parse_axes_mode(value: &Value) -> Option<AxesMode> {
+    match value {
+        Value::Bool(false) => Some(AxesMode::Off),
+        Value::Bool(true) => Some(AxesMode::Full),
+        _ => match option_keyword(value)?.as_str() {
+            "full" => Some(AxesMode::Full),
+            "minimal" => Some(AxesMode::Minimal),
+            "off" | "none" => Some(AxesMode::Off),
+            _ => None,
+        },
+    }
+}
+
+fn parse_plot_theme(value: &Value) -> Option<PlotTheme> {
+    match option_keyword(value)?.as_str() {
+        "minimal" => Some(PlotTheme::Minimal),
+        "maximal" => Some(PlotTheme::Maximal),
         _ => None,
     }
 }
@@ -1030,7 +1076,7 @@ struct PlotOptions {
     color: ColorMode,
     grid: GridMode,
     samples: Option<usize>,
-    complex_mode: String,
+    complex_mode: ComplexMode,
     ascii: bool,
     tick_labels: bool,
     title: Option<String>,
@@ -1081,7 +1127,7 @@ impl Default for PlotOptions {
             color: ColorMode::On,
             grid: GridMode::Off,
             samples: None,
-            complex_mode: "re".to_string(),
+            complex_mode: ComplexMode::Real,
             ascii: false,
             tick_labels: false,
             title: None,
@@ -1095,10 +1141,8 @@ impl PlotOptions {
     fn apply_from_named(&mut self, args: &BuiltinFnArgs) -> WqResult<bool> {
         let mut explicit_size = false;
 
-        if let Some(v) = args.named("theme")
-            && let Ok(theme) = v.to_rust_string_with_note()
-        {
-            self.apply_theme(&theme);
+        if let Some(theme) = args.named("theme").and_then(parse_plot_theme) {
+            self.apply_theme(theme);
         }
         if let Some(size) = args.named("size")
             && let Some((a, b)) = pair_as_f64(size)
@@ -1151,18 +1195,8 @@ impl PlotOptions {
                 self.symbols = vec![*c];
             }
         }
-        if let Some(v) = args.named("axes") {
-            if let Value::Bool(false) = v {
-                self.axes = AxesMode::Off;
-            } else if let Value::Bool(true) = v {
-                self.axes = AxesMode::Full;
-            } else if let Ok(s) = v.to_rust_string_with_note() {
-                self.axes = match s.as_str() {
-                    "full" => AxesMode::Full,
-                    "minimal" => AxesMode::Minimal,
-                    _ => self.axes,
-                };
-            }
+        if let Some(axes) = args.named("axes").and_then(parse_axes_mode) {
+            self.axes = axes;
         }
         if let Some(v) = args.named("mode")
             && let Some(mode) = parse_plot_mode(v)
@@ -1219,10 +1253,8 @@ impl PlotOptions {
         {
             self.samples = Some(plot_size_from_i64(v, 1, "samples", samples)?);
         }
-        if let Some(v) = args.named("complex")
-            && let Ok(s) = v.to_rust_string_with_note()
-        {
-            self.complex_mode = s;
+        if let Some(mode) = args.named("complex").and_then(parse_complex_mode) {
+            self.complex_mode = mode;
         }
         if let Some(Value::Bool(b)) = args.named("ascii") {
             self.ascii = *b;
@@ -1262,19 +1294,18 @@ impl PlotOptions {
         Ok(explicit_size)
     }
 
-    fn apply_theme(&mut self, theme: &str) {
+    fn apply_theme(&mut self, theme: PlotTheme) {
         match theme {
-            "minimal" => {
+            PlotTheme::Minimal => {
                 self.axes = AxesMode::Off;
                 self.grid = GridMode::Off;
                 self.color = ColorMode::On;
             }
-            "maximal" => {
+            PlotTheme::Maximal => {
                 self.axes = AxesMode::Full;
                 self.grid = GridMode::On;
                 self.color = ColorMode::On;
             }
-            _ => {}
         }
     }
 }
@@ -2150,8 +2181,8 @@ fn paint_char_with_color_mode(
 
 fn parse_palette(val: &Value) -> Option<Vec<AnsiColor>> {
     use AnsiColor::*;
-    fn name_to_color<S: AsRef<str>>(s: S) -> Option<AnsiColor> {
-        match s.as_ref().to_ascii_lowercase().as_str() {
+    fn parse_color(value: &Value) -> Option<AnsiColor> {
+        match option_keyword(value)?.as_str() {
             "black" | "bl" => Some(Black),
             "red" | "r" => Some(Red),
             "green" | "g" => Some(Green),
@@ -2176,22 +2207,14 @@ fn parse_palette(val: &Value) -> Option<Vec<AnsiColor>> {
         Value::List(items) => {
             let mut out = Vec::new();
             for it in items.iter() {
-                if let Ok(s) = it.to_rust_string_with_note()
-                    && let Some(c) = name_to_color(&s)
-                {
+                if let Some(c) = parse_color(it) {
                     out.push(c);
                 }
             }
             if out.is_empty() { None } else { Some(out) }
         }
         // Single value: "red"
-        _ => {
-            if let Ok(s) = val.to_rust_string_with_note() {
-                name_to_color(&s).map(|c| vec![c])
-            } else {
-                None
-            }
-        }
+        _ => parse_color(val).map(|c| vec![c]),
     }
 }
 
@@ -2286,6 +2309,10 @@ mod tests {
 
     fn string_value(s: &str) -> Value {
         Value::String(Arc::new(s.to_owned()))
+    }
+
+    fn tag_value(s: &'static str) -> Value {
+        Value::Tag(Arc::from(s))
     }
 
     fn mode_value(mode: &str) -> (Arc<str>, Value) {
@@ -2395,6 +2422,47 @@ mod tests {
         assert!(matches!(opts.axes, AxesMode::Full));
         assert!(matches!(opts.grid, GridMode::On));
         assert!(matches!(opts.color, ColorMode::Off));
+    }
+
+    #[test]
+    fn keyword_options_accept_tags() {
+        let mut opts = PlotOptions::default();
+
+        opts.apply_from_named(&BuiltinFnArgs::with_named(
+            smallvec![],
+            vec![
+                (Arc::from("theme"), tag_value("minimal")),
+                (Arc::from("axes"), tag_value("full")),
+                (Arc::from("mode"), tag_value("scatter")),
+                (Arc::from("complex"), tag_value("abs")),
+            ],
+        ))
+        .expect("tag keyword options should parse");
+
+        assert!(matches!(opts.axes, AxesMode::Full));
+        assert!(matches!(opts.grid, GridMode::Off));
+        assert!(matches!(opts.mode, PlotMode::Scatter));
+        assert!(matches!(opts.complex_mode, ComplexMode::Abs));
+    }
+
+    #[test]
+    fn complex_mode_extracts_components() {
+        let z = Value::from_complex64(num_complex::Complex64::new(3.0, 4.0));
+
+        assert_eq!(
+            extract_numeric_component(&Value::float(3.0), ComplexMode::Real),
+            Some(3.0)
+        );
+        assert_eq!(extract_numeric_component(&z, ComplexMode::Real), None);
+        assert_eq!(
+            extract_numeric_component(&z, ComplexMode::Imaginary),
+            Some(4.0)
+        );
+        assert_eq!(extract_numeric_component(&z, ComplexMode::Abs), Some(5.0));
+        assert_eq!(
+            extract_numeric_component(&z, ComplexMode::Argument),
+            Some((4.0_f64).atan2(3.0))
+        );
     }
 
     #[test]

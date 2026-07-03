@@ -78,13 +78,14 @@ Global options:
 
 Option values:
 
+- Keyword option values can be strings or tags, e.g. `` `mode:\"line\" `` or `` `mode:`line ``.
 - `mode`: `line`, `scatter`, `step`, `bar`, or `area` (also `l`, `sc`, `st`, `b`, `a`). `line` connects samples and is best for continuous lists, callables, and CAS. `scatter` marks only samples and works well for point clouds, noisy table columns, and `complex:\"plane\"`. `step` draws horizontal-then-vertical segments for piecewise or sample-and-hold data; for callables/CAS, `samples` controls the stair count. `bar` draws vertical bars from zero when visible, otherwise from the bottom edge; it is clearest with discrete y-lists, tables, or low `samples`. `area` fills between the curve and baseline; overlapping area fills are marked and their ANSI colors are mixed automatically.
-- `axes`: `T`, `F`, `\"full\"`, or `\"minimal\"`.
+- `axes`: `T`, `F`, `full`, `minimal`, `off`, or `none`.
 - `grid`: `T`, `F`, an integer density, or `(x;y)` densities.
 - `ticklabels:T`: add numeric labels for interior tick positions.
 - `color`: `T`, `F`, a color name, or a list of color names; known names include black, red, green, yellow, blue, magenta, cyan, white, gray/grey, and bright_* variants.
 - `theme`: apply a preset before other named options; `minimal` sets axes/grid off with color on, and `maximal` sets full axes, grid on, and color on. Later `axes`, `grid`, or `color` options override the preset.
-- `complex`: `re`, `im`, `abs`, `arg`, or `plane`; `plane` plots complex outputs as `(real;imag)` points.
+- `complex`: `re`/`real`, `im`/`imag`/`imaginary`, `abs`, `arg`, or `plane`; `plane` plots complex outputs as `(real;imag)` points.
 - `caption:(title;xlabel;ylabel)`: shortcut for the three label options.",
     examples: ASCIIPLOT_EXAMPLES,
     related: &["showtable", "fmt", "numeric"],
