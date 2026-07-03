@@ -174,21 +174,14 @@ impl Value {
 
     pub(crate) fn function_composition(op: BinaryOperator, left: Value, right: Value) -> Self {
         Value::LiftedCallable(Arc::new(LiftedCallableData {
-            expr: CallableExpr::Binary {
-                op,
-                left: Arc::new(CallableExpr::from_value(left)),
-                right: Arc::new(CallableExpr::from_value(right)),
-            },
+            expr: CallableExpr::binary(op, left, right),
             dbg_provenance: None,
         }))
     }
 
     pub(crate) fn unary_function_composition(op: UnaryOperator, operand: Value) -> Self {
         Value::LiftedCallable(Arc::new(LiftedCallableData {
-            expr: CallableExpr::Unary {
-                op,
-                operand: Arc::new(CallableExpr::from_value(operand)),
-            },
+            expr: CallableExpr::unary(op, operand),
             dbg_provenance: None,
         }))
     }
@@ -529,6 +522,54 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(hash_value(&first), hash_value(&second));
+    }
+
+    #[test]
+    fn callable_expr_normalizes_constant_only_subtrees() {
+        let folded = Value::function_composition(BinaryOperator::Add, Value::Int(1), Value::Int(2));
+        let Value::LiftedCallable(data) = &folded else {
+            unreachable!("constructor returns a function composition");
+        };
+        assert!(matches!(&data.expr, CallableExpr::Const(Value::Int(3))));
+
+        let nested =
+            Value::function_composition(BinaryOperator::Multiply, test_builtin("f", 1), folded);
+        assert_eq!(nested.to_string(), "<fn f * 3>");
+
+        let negated = Value::unary_function_composition(UnaryOperator::Negate, nested);
+        assert_eq!(negated.to_string(), "<fn -(f * 3)>");
+    }
+
+    #[test]
+    fn callable_expr_keeps_failed_constant_folds_deferred() {
+        let divided =
+            Value::function_composition(BinaryOperator::Divide, Value::Int(1), Value::Int(0));
+        let Value::LiftedCallable(data) = divided else {
+            unreachable!("constructor returns a function composition");
+        };
+        assert!(matches!(
+            &data.expr,
+            CallableExpr::Binary {
+                op: BinaryOperator::Divide,
+                left,
+                right,
+            } if matches!(left.as_ref(), CallableExpr::Const(Value::Int(1)))
+                && matches!(right.as_ref(), CallableExpr::Const(Value::Int(0)))
+        ));
+    }
+
+    #[test]
+    fn callable_expr_strict_normalization_keeps_call_dependent_ops() {
+        let f = test_builtin("f", 1);
+
+        let add_zero = Value::function_composition(BinaryOperator::Add, f.clone(), Value::Int(0));
+        let mul_zero =
+            Value::function_composition(BinaryOperator::Multiply, f.clone(), Value::Int(0));
+        let sub_self = Value::function_composition(BinaryOperator::Subtract, f.clone(), f);
+
+        assert_eq!(add_zero.to_string(), "<fn f + 0>");
+        assert_eq!(mul_zero.to_string(), "<fn f * 0>");
+        assert_eq!(sub_self.to_string(), "<fn f - f>");
     }
 
     #[test]

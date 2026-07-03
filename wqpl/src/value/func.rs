@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::value::Value;
 use crate::value::cell::{self, ValueCell};
+use crate::value::{Value, eval_binary, eval_unary};
 use crate::vm::inst::{DebugStmtMark, Instruction};
 use crate::wqdb::data::{ChunkId, DebugChunkSpec, DebugPcSpans, DebugProvenance, DebugStmtSpans};
 
@@ -82,6 +82,58 @@ impl CallableExpr {
             Value::LiftedCallable(data) => data.expr.clone(),
             other if other.is_callable() => Self::Call(other),
             other => Self::Const(other),
+        }
+    }
+
+    pub(crate) fn unary(op: UnaryOperator, operand: Value) -> Self {
+        Self::Unary {
+            op,
+            operand: Arc::new(Self::from_value(operand)),
+        }
+        .normalize()
+    }
+
+    pub(crate) fn binary(op: BinaryOperator, left: Value, right: Value) -> Self {
+        Self::Binary {
+            op,
+            left: Arc::new(Self::from_value(left)),
+            right: Arc::new(Self::from_value(right)),
+        }
+        .normalize()
+    }
+
+    fn normalize(self) -> Self {
+        match self {
+            Self::Const(_) | Self::Call(_) => self,
+            Self::Unary { op, operand } => {
+                let operand = operand.as_ref().clone().normalize();
+                if let Self::Const(value) = &operand
+                    && !value.is_callable()
+                    && let Ok(folded) = eval_unary(&op, value)
+                {
+                    return Self::Const(folded);
+                }
+                Self::Unary {
+                    op,
+                    operand: Arc::new(operand),
+                }
+            }
+            Self::Binary { op, left, right } => {
+                let left = left.as_ref().clone().normalize();
+                let right = right.as_ref().clone().normalize();
+                if let (Self::Const(left_value), Self::Const(right_value)) = (&left, &right)
+                    && !left_value.is_callable()
+                    && !right_value.is_callable()
+                    && let Ok(folded) = eval_binary(&op, left_value, right_value)
+                {
+                    return Self::Const(folded);
+                }
+                Self::Binary {
+                    op,
+                    left: Arc::new(left),
+                    right: Arc::new(right),
+                }
+            }
         }
     }
 }
