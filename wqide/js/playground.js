@@ -5,8 +5,9 @@ import {
   set_stderr_callback,
   highlight_wq,
   get_symbol_index_json,
+  get_wq_syntax_display,
 } from "wq-wasm";
-import { createOutputRenderer, renderAnsiToText } from "./ansi.js";
+import { createOutputRenderer } from "./ansi.js";
 import { getPlaygroundExample } from "./playground-examples.js";
 import {
   ensureWasm,
@@ -390,18 +391,6 @@ function renderEmptyStructure(instance, message, isError = false) {
   renderStructureStatus(instance, message, isError);
 }
 
-function stripDryModeLine(text) {
-  return String(text)
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .filter(
-      (line) =>
-        !/^\s*▍\s*dry: skipped execution\s*$/.test(renderAnsiToText(line)),
-    )
-    .join("\n")
-    .trimEnd();
-}
-
 function renderStructureOutput(instance, text) {
   if (!instance.structureOutput) return;
   instance.structureOutput.innerHTML = "";
@@ -427,37 +416,10 @@ async function refreshStructure(instance) {
     await ensureWasm();
     if (instance.structureRefreshSeq !== seq) return;
 
-    const chunks = [];
-    const previousFlags = instance.debugFlagsInput?.value || "0";
-
-    await queueEval(() => {
-      const session = new WasmWqSession();
-      try {
-        set_stdout_callback((chunk) => {
-          chunks.push(String(chunk));
-        });
-        set_stderr_callback((chunk) => {
-          chunks.push(String(chunk));
-        });
-        set_stdin_callback(() => null);
-        session.set_dry_mode(true);
-        session.set_debug_flags(mode);
-        session.eval_wq_result(code);
-      } finally {
-        try {
-          session.set_debug_flags(previousFlags || "0");
-        } finally {
-          session.free();
-          set_stdout_callback(null);
-          set_stderr_callback(null);
-          set_stdin_callback(null);
-        }
-      }
-    });
+    const text = get_wq_syntax_display(code, mode).trimEnd();
 
     if (instance.structureRefreshSeq !== seq) return;
 
-    const text = stripDryModeLine(chunks.join(""));
     if (!text) {
       renderEmptyStructure(instance, `No ${modeLabel} output.`);
       return;

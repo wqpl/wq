@@ -37,6 +37,25 @@ fn debug_header_with_color_mode(text: &str, color_mode: ColorMode) -> String {
     paint(text, TextStyle::new().bold().underline(), color_mode)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyntaxDisplayKind {
+    Ast,
+    Cst,
+}
+
+impl SyntaxDisplayKind {
+    pub fn from_name(name: &str) -> Option<Self> {
+        let name = name.trim();
+        if name.eq_ignore_ascii_case("ast") {
+            Some(Self::Ast)
+        } else if name.eq_ignore_ascii_case("cst") {
+            Some(Self::Cst)
+        } else {
+            None
+        }
+    }
+}
+
 pub struct Session {
     vm: Vm,
     // debug_flags: DebugFlags,
@@ -488,6 +507,30 @@ impl Session {
         Ok((ast, cst))
     }
 
+    pub fn format_syntax_display(
+        &self,
+        input: &str,
+        kind: SyntaxDisplayKind,
+        color_mode: ColorMode,
+    ) -> WqResult<String> {
+        let (ast, cst) = self.parse_with_cst(input)?;
+        let (header, body) = match kind {
+            SyntaxDisplayKind::Ast => {
+                let env = self.environment();
+                let builtins = self.vm.builtins.clone();
+                let ast = Resolver::from_env(env, builtins).resolve(ast);
+                let ast = fold::fold(ast);
+                ("AST @ fold - final", ast.sexpr_pretty_with_source(input))
+            }
+            SyntaxDisplayKind::Cst => ("CST", crate::cst::SyntaxNode::new_root(cst).pretty_print()),
+        };
+
+        let mut out = debug_header_with_color_mode(header, color_mode);
+        out.push('\n');
+        out.push_str(&body);
+        Ok(out)
+    }
+
     pub fn parse_with_cst_using_cache(
         &self,
         input: &str,
@@ -874,6 +917,31 @@ mod tests {
             debug_header_with_color_mode("TOKEN", ColorMode::Always),
             "\x1b[1;4mTOKEN\x1b[0m"
         );
+    }
+
+    #[test]
+    fn syntax_display_formats_folded_ast_without_running() {
+        let session = Session::new();
+        let before = session.environment();
+        let display = session
+            .format_syntax_display("x:1; x", SyntaxDisplayKind::Ast, ColorMode::Never)
+            .expect("AST display should parse");
+
+        assert!(display.starts_with("AST @ fold - final\n"));
+        assert!(display.contains("ASSIGN"));
+        assert_eq!(session.environment(), before);
+    }
+
+    #[test]
+    fn syntax_display_formats_cst_without_running() {
+        let session = Session::new();
+        let display = session
+            .format_syntax_display("1+2", SyntaxDisplayKind::Cst, ColorMode::Never)
+            .expect("CST display should parse");
+
+        assert!(display.starts_with("CST\n"));
+        assert!(display.contains("ROOT"));
+        assert!(display.contains("BINARY_EXPR"));
     }
 
     fn root_nodes(root: &crate::cst::GreenNode) -> Vec<crate::cst::GreenNode> {

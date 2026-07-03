@@ -6,3 +6,5 @@ __pycache__
 
 /.playwright-cli/
 /output/playwright/
+
+/.pnpm-store

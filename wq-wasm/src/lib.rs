@@ -11,12 +11,12 @@ use wqpl::display::{BoxPrintConfig, apply_box_spec, format_print_result, format_
 use wqpl::doc::{self, DocKind, DocRenderTarget};
 use wqpl::highlight::{HighlightEvent, HighlightName, Highlighter};
 use wqpl::interpret::InterpreterKind;
-use wqpl::session::Session;
 use wqpl::session::dbglog::DebugLogFlags;
 #[cfg(target_arch = "wasm32")]
 use wqpl::session::stdio::{
     WqStderr, WqStdin, WqStdinError, WqStdout, set_wqstderr, set_wqstdin, set_wqstdout,
 };
+use wqpl::session::{Session, SyntaxDisplayKind};
 use wqpl::style::{self, ColorMode};
 use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
 use wqpl::value::{Value, WqResult};
@@ -695,6 +695,18 @@ pub fn get_symbol_index_json(src: &str) -> String {
     }
 }
 
+#[wasm_bindgen]
+pub fn get_wq_syntax_display(src: &str, kind: &str) -> Result<String, JsValue> {
+    let kind = SyntaxDisplayKind::from_name(kind).ok_or_else(|| {
+        JsValue::from_str(&format!(
+            "unknown syntax display kind '{kind}'; expected ast or cst"
+        ))
+    })?;
+    Session::new()
+        .format_syntax_display(src, kind, ColorMode::Auto)
+        .map_err(|err| JsValue::from_str(&format_wasm_error(&err, BoxPrintConfig::default())))
+}
+
 fn symbol_error_json(err: &wqpl::wqerror::WqError) -> String {
     let mut out = String::from("{\"defs\":[],\"occurrences\":[],\"errors\":[{");
     push_json_opt_span_field(&mut out, "span", err.span);
@@ -1026,6 +1038,19 @@ mod tests {
             !json.contains('\u{1b}'),
             "symbol JSON should not contain terminal escape sequences: {json:?}",
         );
+    }
+
+    #[test]
+    fn syntax_display_export_returns_parse_trees_without_dry_output() {
+        let ast = get_wq_syntax_display("1+2", "ast").expect("AST display should parse");
+        assert!(ast.starts_with("AST @ fold - final\n"));
+        assert!(ast.contains("LIT[Int(3)]"));
+        assert!(!ast.contains("dry: skipped execution"));
+
+        let cst = get_wq_syntax_display("1+2", "cst").expect("CST display should parse");
+        assert!(cst.starts_with("CST\n"));
+        assert!(cst.contains("BINARY_EXPR"));
+        assert!(!cst.contains("dry: skipped execution"));
     }
 
     #[test]
