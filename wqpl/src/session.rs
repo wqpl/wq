@@ -1059,6 +1059,16 @@ mod tests {
     }
 
     #[test]
+    fn mixed_lifted_callable_calls_symbolic_operand() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("a:{x^2}+@s 2x;a[2]")
+            .expect("mixed function and symbolic expression should eval");
+
+        assert_eq!(result, Value::Int(8));
+    }
+
+    #[test]
     fn symbolic_expression_call_combines_named_and_positional_bindings() {
         let mut session = Session::new();
         let result = session
