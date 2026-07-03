@@ -37,14 +37,7 @@ impl Vm {
         let argc = args.len();
         match func {
             Value::LiftedCallable(data) => self.call_function_composition(data, args),
-            Value::Cas(_) if args.has_named() => {
-                if !args.is_empty() {
-                    return Err(arity_err_vm(
-                        "CAS binding call expects named arguments only",
-                    ));
-                }
-                crate::cas::substitute_cas_bindings(func, args.named_items())
-            }
+            Value::Cas(_) => self.call_cas_callable(func, args),
             Value::CompiledFunction(_) | Value::Closure(_) => {
                 let base = self.stack.len();
                 self.stack.extend(args);
@@ -60,6 +53,46 @@ impl Vm {
                 "expected callable, got {}",
                 other.type_name()
             ))),
+        }
+    }
+
+    pub(crate) fn invoke_cas_callable_on_stack(
+        &mut self,
+        expr: &Value,
+        argc: usize,
+    ) -> WqResult<Value> {
+        let args = self.take_call_args_from_stack(argc)?;
+        self.call_cas_callable(expr, args)
+    }
+
+    pub(crate) fn call_cas_callable(
+        &mut self,
+        expr: &Value,
+        args: crate::builtins::BuiltinFnArgs,
+    ) -> WqResult<Value> {
+        if !expr.is_cas_expr() {
+            return Err(not_bound_err(format!(
+                "expected callable, got {}",
+                expr.type_name()
+            )));
+        }
+
+        let result = if args.has_named() {
+            crate::cas::substitute_cas_bindings(expr, args.named_items())?
+        } else {
+            expr.clone()
+        };
+
+        match args.len() {
+            0 => Ok(result),
+            1 => {
+                let var = crate::cas::infer_single_cas_var(&result)
+                    .map_err(|err| err.src("CAS callable"))?;
+                crate::cas::substitute_cas(&result, &Value::from_cas_var(var), &args[0])
+            }
+            _ => Err(arity_err_vm(
+                "CAS callable expects at most one positional argument",
+            )),
         }
     }
 
@@ -316,6 +349,7 @@ impl Vm {
         callee_name: Option<Cow<'_, str>>,
     ) -> WqResult<Value> {
         match func {
+            Value::Cas(_) => self.invoke_cas_callable_on_stack(func, argc),
             Value::LiftedCallable(data) => self.invoke_function_composition_on_stack(data, argc),
             Value::CompiledFunction(_) | Value::Closure(_) => self.invoke_spec(
                 CallSpec::from_user_callable(func, argc, callee_name)
@@ -687,6 +721,7 @@ impl Vm {
             match func_val {
                 b @ Value::BuiltinFunction { .. } => Ok(b),
                 c @ Value::LiftedCallable(_) => Ok(c),
+                c @ Value::Cas(_) if c.is_cas_expr() => Ok(c),
                 other => Err(not_bound_err(format!(
                     "cannot call '{name}': expected callable, got {}",
                     other.type_name()

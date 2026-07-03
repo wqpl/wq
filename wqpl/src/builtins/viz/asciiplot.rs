@@ -314,11 +314,11 @@ fn parse_callable_or_cas_series_config_data(
     value: &Value,
     error_msg: &str,
 ) -> WqResult<SeriesData> {
-    if value.is_callable() {
-        return Ok(SeriesData::Callable(value.clone()));
-    }
     if value.is_cas_expr() {
         return Ok(SeriesData::Cas(value.clone()));
+    }
+    if value.is_callable() {
+        return Ok(SeriesData::Callable(value.clone()));
     }
     Err(WqError::new(WqErrorType::Domain)
         .src(BE::Asciiplot)

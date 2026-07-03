@@ -162,7 +162,7 @@ impl Value {
         self.is_list() || self.is_dict()
     }
 
-    pub(crate) fn is_callable(&self) -> bool {
+    pub(crate) fn is_runtime_callable(&self) -> bool {
         matches!(
             self,
             Value::CompiledFunction(_)
@@ -170,6 +170,10 @@ impl Value {
                 | Value::BuiltinFunction { .. }
                 | Value::LiftedCallable(_)
         )
+    }
+
+    pub(crate) fn is_callable(&self) -> bool {
+        self.is_runtime_callable() || self.is_cas_expr()
     }
 
     pub(crate) fn function_composition(op: BinaryOperator, left: Value, right: Value) -> Self {
@@ -212,7 +216,7 @@ impl Value {
             return None;
         }
 
-        if left.is_callable() || right.is_callable() {
+        if left.is_runtime_callable() || right.is_runtime_callable() {
             Some(Self::function_composition(op, left.clone(), right.clone()))
         } else {
             None
@@ -224,7 +228,7 @@ impl Value {
             return None;
         }
 
-        if operand.is_callable() {
+        if operand.is_runtime_callable() {
             Some(Self::unary_function_composition(op, operand.clone()))
         } else {
             None

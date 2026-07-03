@@ -7,7 +7,8 @@ expr:@s x^2+2*x+1
 expr|echo
 ```
 
-This is different from ordinary evaluation. A bare `x^2+2*x+1` tries to use a bound value named `x`; `@s` quotes the expression for symbolic work.
+This is different from ordinary evaluation.
+A bare `x^2+2*x+1` tries to use a bound value named `x`; `@s` quotes the expression for symbolic work.
 
 ## Transform The Expression
 
@@ -20,9 +21,12 @@ expr|I|echo
 integrate[@s 1/(x+a);@s x]|echo
 expr|substitute[`x:2]|echo
 expr[`x:2]|echo
+expr[2]|echo
 ```
 
-`@s` quotes the symbolic expression, then the value can move through normal pipes. Named arguments on CAS calls, and on CAS values themselves, bind symbolic variables.
+`@s` quotes the symbolic expression, then the value can move through normal pipes.
+Named arguments on CAS calls, and on CAS values themselves, bind symbolic variables.
+A single-variable CAS expression can also be called with one positional argument.
 
 ## Factor And Solve
 

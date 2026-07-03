@@ -80,7 +80,7 @@ impl CallableExpr {
     pub(crate) fn from_value(value: Value) -> Self {
         match value {
             Value::LiftedCallable(data) => data.expr.clone(),
-            other if other.is_callable() => Self::Call(other),
+            other if other.is_runtime_callable() => Self::Call(other),
             other => Self::Const(other),
         }
     }
@@ -108,7 +108,7 @@ impl CallableExpr {
             Self::Unary { op, operand } => {
                 let operand = operand.as_ref().clone().normalize();
                 if let Self::Const(value) = &operand
-                    && !value.is_callable()
+                    && !value.is_runtime_callable()
                     && let Ok(folded) = eval_unary(&op, value)
                 {
                     return Self::Const(folded);
@@ -122,8 +122,8 @@ impl CallableExpr {
                 let left = left.as_ref().clone().normalize();
                 let right = right.as_ref().clone().normalize();
                 if let (Self::Const(left_value), Self::Const(right_value)) = (&left, &right)
-                    && !left_value.is_callable()
-                    && !right_value.is_callable()
+                    && !left_value.is_runtime_callable()
+                    && !right_value.is_runtime_callable()
                     && let Ok(folded) = eval_binary(&op, left_value, right_value)
                 {
                     return Self::Const(folded);

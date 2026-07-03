@@ -971,6 +971,46 @@ mod tests {
     }
 
     #[test]
+    fn symbolic_expression_positional_call_infers_single_var() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("(@s x^2+2*x+1)[3]")
+            .expect("symbolic expression should accept one positional arg");
+
+        assert_eq!(result, Value::Int(16));
+    }
+
+    #[test]
+    fn symbolic_binding_can_be_called_by_name() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("f:@s x^2;f[4]")
+            .expect("bound symbolic expression should be callable");
+
+        assert_eq!(result, Value::Int(16));
+    }
+
+    #[test]
+    fn symbolic_expression_call_combines_named_and_positional_bindings() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("(@s x*y+y)[3;`y:2]")
+            .expect("symbolic expression should bind named args before positional arg");
+
+        assert_eq!(result, Value::Int(8));
+    }
+
+    #[test]
+    fn symbolic_expression_can_be_used_as_map_callback() {
+        let mut session = Session::new();
+        let result = session
+            .eval_string("map[(1;2;3);@s x^2]")
+            .expect("map should accept symbolic expression as callback");
+
+        assert_eq!(result, Value::IntList(Arc::new(vec![1, 4, 9])));
+    }
+
+    #[test]
     fn index_path_assignment_updates_nested_value() {
         let mut session = Session::new();
         let result = session

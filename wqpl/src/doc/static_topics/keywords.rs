@@ -49,6 +49,11 @@ const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[
         expectation: ExampleExpectation::ResultContains("\"cas\""),
     },
     DocExample {
+        title: "Call a single-variable expression",
+        code: "(@s x^2+1)[3]",
+        expectation: ExampleExpectation::ResultContains("10"),
+    },
+    DocExample {
         title: "Quote an opaque algebraic root",
         code: "@s root[_^3-_-1;1;2]",
         expectation: ExampleExpectation::ResultContains("root[_^3 - _ - 1;1;2]"),
@@ -206,7 +211,7 @@ pub(super) const AT_SYMBOLIC: StaticDoc = StaticDoc {
     group: "Keywords",
     aliases: &["@s", "symbolic", "cas"],
     summary: "Quote an expression into a symbolic CAS value.",
-    details: "Use `@s` once at the start of a CAS expression, then apply CAS builtins directly. Bare arithmetic without `@s` is normal evaluation. CAS-only special forms such as `root[...]` are recognized inside `@s` quoting and are not ordinary builtins.",
+    details: "Use `@s` once at the start of a CAS expression, then apply CAS builtins directly. Bare arithmetic without `@s` is normal evaluation. Single-variable CAS expressions can be called with one positional argument, while named arguments bind symbols by name. CAS-only special forms such as `root[...]` are recognized inside `@s` quoting and are not ordinary builtins.",
     examples: AT_SYMBOLIC_EXAMPLES,
     related: &["diff", "integrate", "simplify", "numeric"],
 };
