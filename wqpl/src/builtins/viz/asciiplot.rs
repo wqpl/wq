@@ -8,6 +8,7 @@ use crate::cas::{infer_single_cas_var, substitute_cas};
 use crate::session::stdio::wqstdout_println;
 use crate::style::{AnsiColor, ColorMode as StyleColorMode, TextStyle, paint};
 use crate::value::{Value, WqResult};
+use crate::vm::pure::PureCallback;
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
@@ -631,14 +632,16 @@ fn sample_callable_series(
 ) -> WqResult<SampledSeries<f64>> {
     let (xmin, xmax) = xlim.or(opts.xlim).unwrap_or((-10.0, 10.0));
     let initial_samples = opts.samples.unwrap_or(opts.width).max(2);
+    let pure = PureCallback::compile(func, 1);
 
     if opts.complex_mode == "plane" {
-        let mut sampler = |x: f64| -> Option<Value> { vm.call(func, Value::float(x).into()).ok() };
+        let mut sampler =
+            |x: f64| -> Option<Value> { sample_callable_value(vm, func, pure.as_ref(), x) };
         let raw = sample_with_segments(xmin, xmax, initial_samples, &mut sampler);
         Ok(transform_complex_plane(raw))
     } else {
         let mut sampler = |x: f64| -> Option<f64> {
-            let y = vm.call(func, Value::float(x).into()).ok()?;
+            let y = sample_callable_value(vm, func, pure.as_ref(), x)?;
             extract_numeric_component(&y, &opts.complex_mode)
         };
         Ok(sample_real_with_segments(
@@ -648,6 +651,21 @@ fn sample_callable_series(
             &mut sampler,
         ))
     }
+}
+
+fn sample_callable_value(
+    vm: &mut dyn BuiltinContext,
+    func: &Value,
+    pure: Option<&PureCallback>,
+    x: f64,
+) -> Option<Value> {
+    let arg = Value::float(x);
+    if let Some(pure) = pure
+        && let Some(value) = pure.eval(&[&arg]).ok()?
+    {
+        return Some(value);
+    }
+    vm.call(func, arg.into()).ok()
 }
 
 fn sample_cas_series(
@@ -2227,7 +2245,9 @@ mod tests {
     use crate::builtins::Builtins;
     use crate::session::stdio::{WqStdout, set_wqstdout};
     use crate::value::cas::{CasFunction, CasOp};
+    use crate::value::func::FunctionData;
     use crate::vm::Vm;
+    use crate::vm::inst::{Instruction, Operand};
 
     struct SinkStdout;
 
@@ -2235,6 +2255,24 @@ mod tests {
         fn print(&mut self, _s: &str) {}
 
         fn println(&mut self, _s: &str) {}
+    }
+
+    fn make_fn(params: Option<&[&str]>, locals: u16, instructions: Vec<Instruction>) -> Value {
+        Value::CompiledFunction(Arc::new(FunctionData {
+            params: params.map(|names| {
+                Arc::<[String]>::from(names.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+            }),
+            named_params: None,
+            locals,
+            instructions: instructions.into(),
+            dbg_chunk: None,
+            dbg_stmt_spans: None,
+            dbg_source_base_offset: 0,
+            dbg_pc_spans: None,
+            dbg_stmt_marks: None,
+            dbg_local_names: None,
+            dbg_provenance: None,
+        }))
     }
 
     fn assert_raw_points(config: &SeriesConfig, expected: &[(f64, f64)]) {
@@ -2388,6 +2426,37 @@ mod tests {
         )
         .unwrap();
         assert_eq!(series.points, vec![(-1.0, 1.0), (0.0, 0.0), (1.0, 1.0)]);
+        assert!(series.breaks_after.is_empty());
+    }
+
+    #[test]
+    fn sample_callable_series_uses_pure_user_callback() {
+        let opts = PlotOptions {
+            width: 3,
+            xlim: Some((0.0, 2.0)),
+            ..PlotOptions::default()
+        };
+        let mut vm = Vm::new(vec![]);
+        vm.max_call_depth = 0;
+        let f = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::LoadLocal(0),
+                Instruction::load_const(Value::Int(1)),
+                Instruction::binary_op(
+                    crate::ast::BinaryOperator::Add,
+                    Operand::Stack,
+                    Operand::Stack,
+                ),
+                Instruction::Return,
+            ],
+        );
+
+        let series =
+            sample_callable_series(&mut vm, &f, &opts, None).expect("pure callable should sample");
+
+        assert_eq!(series.points, vec![(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)]);
         assert!(series.breaks_after.is_empty());
     }
 

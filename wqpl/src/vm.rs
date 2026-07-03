@@ -2,6 +2,7 @@ pub mod call;
 pub(crate) mod debug;
 pub mod inst;
 mod owned_const;
+pub(crate) mod pure;
 mod slot;
 pub(crate) use slot::Slot;
 pub(crate) mod trace;
