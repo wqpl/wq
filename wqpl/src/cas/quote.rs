@@ -5,6 +5,10 @@ use crate::value::{Value, WqResult};
 
 pub(crate) type CasNamedArg = (String, Value);
 
+pub(crate) fn cas_special_call_name(name: &str) -> bool {
+    matches!(name, "limit" | "root")
+}
+
 fn limit_direction(named: &[CasNamedArg]) -> WqResult<Option<super::limit::LimitDirection>> {
     let mut direction = None;
     for (name, value) in named {

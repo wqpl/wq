@@ -57,23 +57,20 @@ fn token_type_index(name: HighlightName) -> Option<u32> {
     Some(match name {
         HighlightName::Comment => 0,
         HighlightName::Variable
-        | HighlightName::VariableOuter
         | HighlightName::VariableRefCapture
-        | HighlightName::VariableBuiltin => 1,
-        HighlightName::Constant
-        | HighlightName::ConstantBuiltin
+        | HighlightName::CasVariable => 1,
+        HighlightName::ConstantBuiltin
         | HighlightName::Boolean
-        | HighlightName::Tag => 2,
-        HighlightName::Function | HighlightName::FunctionCall | HighlightName::FunctionBuiltin => 3,
+        | HighlightName::Tag
+        | HighlightName::CasConstant => 2,
+        HighlightName::FunctionBuiltin | HighlightName::CasFunction => 3,
         HighlightName::Keyword | HighlightName::KeywordReturn | HighlightName::KeywordDebug => 4,
-        HighlightName::Module => 5,
+        HighlightName::CasSpecial => 4,
         HighlightName::Number => 6,
         HighlightName::Operator
         | HighlightName::OperatorPipe
         | HighlightName::PunctuationSpecial => 7,
-        HighlightName::Property | HighlightName::PropertyBuiltin => 8,
-        HighlightName::String | HighlightName::StringSpecial => 9,
-        HighlightName::Type | HighlightName::TypeBuiltin => 10,
+        HighlightName::String => 9,
         HighlightName::VariableParameter => 11,
         _ => return None,
     })

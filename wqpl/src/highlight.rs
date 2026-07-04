@@ -1,32 +1,31 @@
 use std::collections::HashSet;
 
 use crate::builtins::Builtins;
+use crate::cas::cas_special_call_name;
 use crate::lex::Lexer;
 use crate::script::{ScriptItem, ScriptSpan, might_have_script_meta, parse_script_items};
 use crate::token::{Token, TokenType};
+use crate::value::cas::{CasConst, CasFunction};
 
 pub const ANSI_RESET: &str = "\x1b[0m";
 
-/// Capture names that mirror `highlights.scm`.
+/// Native syntax highlight names plus semantic overlays used by editors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HighlightName {
     Comment,
-    Constant,
     ConstantBuiltin,
-    Function,
-    FunctionCall,
     FunctionBuiltin,
+    CasSpecial,
+    CasConstant,
+    CasFunction,
+    CasVariable,
     Keyword,
     KeywordReturn,
     KeywordDebug,
-    Module,
     Number,
     Boolean,
     Operator,
     OperatorPipe,
-    Property,
-    PropertyBuiltin,
-    Punctuation,
     PunctuationBracket,
     PunctuationBracket1,
     PunctuationBracket2,
@@ -37,14 +36,9 @@ pub enum HighlightName {
     PunctuationDelimiter,
     PunctuationSpecial,
     String,
-    StringSpecial,
     Tag,
-    Type,
-    TypeBuiltin,
     Variable,
-    VariableOuter,
     VariableRefCapture,
-    VariableBuiltin,
     VariableParameter,
     Meta,
 }
@@ -170,11 +164,12 @@ fn fstring_cursor_context(
 pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) {
     match name {
         HighlightName::Comment => ("\x1b[3;38;5;249m", ANSI_RESET),
-        HighlightName::Constant => ("\x1b[38;5;220m", ANSI_RESET),
         HighlightName::ConstantBuiltin => ("\x1b[1;38;5;220m", ANSI_RESET),
-        HighlightName::Function => ("\x1b[38;5;75m", ANSI_RESET),
-        HighlightName::FunctionCall => ("\x1b[1;38;5;75m", ANSI_RESET),
         HighlightName::FunctionBuiltin => ("\x1b[4;38;5;213m", ANSI_RESET),
+        HighlightName::CasSpecial => ("\x1b[1;38;5;199m", ANSI_RESET),
+        HighlightName::CasConstant => ("\x1b[1;38;5;220m", ANSI_RESET),
+        HighlightName::CasFunction => ("\x1b[38;5;75m", ANSI_RESET),
+        HighlightName::CasVariable => ("\x1b[38;5;117m", ANSI_RESET),
         HighlightName::Keyword => ("\x1b[38;5;199m", ANSI_RESET),
         HighlightName::KeywordReturn => ("\x1b[38;5;220m", ANSI_RESET),
         HighlightName::KeywordDebug => ("\x1b[38;5;210m", ANSI_RESET),
@@ -182,7 +177,6 @@ pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) 
         HighlightName::Boolean => ("\x1b[38;5;220m", ANSI_RESET),
         HighlightName::Operator => ("\x1b[38;5;208m", ANSI_RESET),
         HighlightName::OperatorPipe => ("\x1b[38;5;170m", ANSI_RESET),
-        HighlightName::Punctuation => ("\x1b[38;5;245m", ANSI_RESET),
         HighlightName::PunctuationBracket => ("\x1b[38;5;245m", ANSI_RESET),
         HighlightName::PunctuationBracket1 => ("\x1b[38;5;203m", ANSI_RESET),
         HighlightName::PunctuationBracket2 => ("\x1b[38;5;215m", ANSI_RESET),
@@ -195,12 +189,9 @@ pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) 
         HighlightName::String => ("\x1b[38;5;113m", ANSI_RESET),
         HighlightName::Tag => ("\x1b[38;5;113m", ANSI_RESET),
         HighlightName::Variable => ("\x1b[38;5;117m", ANSI_RESET),
-        HighlightName::VariableOuter => ("\x1b[38;5;199m", ANSI_RESET),
         HighlightName::VariableRefCapture => ("\x1b[38;5;39m", ANSI_RESET),
-        HighlightName::VariableBuiltin => ("\x1b[4;38;5;213m", ANSI_RESET),
         HighlightName::VariableParameter => ("\x1b[38;5;215m", ANSI_RESET),
         HighlightName::Meta => ("\x1b[38;5;228m", ANSI_RESET),
-        _ => (ANSI_RESET, ANSI_RESET),
     }
 }
 
@@ -478,6 +469,8 @@ impl Highlighter {
         semantic_spans: &[SemanticHighlightSpan],
     ) -> Vec<HighlightEvent> {
         let mut events = Vec::with_capacity(tokens.len() * 2);
+        let mut overlay_spans = Self::cas_semantic_spans_from_tokens(tokens);
+        overlay_spans.extend_from_slice(semantic_spans);
         let mut last_end: usize = 0;
         let mut paren_depth: usize = 0;
         let mut bracket_depth: usize = 0;
@@ -556,7 +549,7 @@ impl Highlighter {
                                     let mut inner_lexer = Lexer::new(source);
                                     let inner_tokens = inner_lexer.tokenize_recovery();
                                     let inner_semantic_spans =
-                                        Self::nested_semantic_spans(semantic_spans, *start, *end);
+                                        Self::nested_semantic_spans(&overlay_spans, *start, *end);
                                     let inner_events = Self::events_from_tokens(
                                         &inner_tokens,
                                         builtins,
@@ -596,7 +589,7 @@ impl Highlighter {
                         }
                     }
                     _ => {
-                        let name = Self::semantic_name_for_identifier(tok, semantic_spans)
+                        let name = Self::semantic_name_for_token(tok, &overlay_spans)
                             .or_else(|| Self::name_for_token(tok, builtins, keyword_spans));
                         match name {
                             Some(n) => {
@@ -648,13 +641,10 @@ impl Highlighter {
             .collect()
     }
 
-    fn semantic_name_for_identifier(
+    fn semantic_name_for_token(
         tok: &Token,
         semantic_spans: &[SemanticHighlightSpan],
     ) -> Option<HighlightName> {
-        if !matches!(tok.token_type, TokenType::Identifier(_)) {
-            return None;
-        }
         semantic_spans
             .iter()
             .find(|semantic_span| {
@@ -662,6 +652,126 @@ impl Highlighter {
                 start < tok.byte_end && tok.byte_start < end
             })
             .map(|semantic_span| semantic_span.name)
+    }
+
+    fn cas_semantic_spans_from_tokens(tokens: &[Token]) -> Vec<SemanticHighlightSpan> {
+        let mut spans = Vec::new();
+        let mut i = 0usize;
+
+        while i < tokens.len() {
+            if tokens[i].token_type != TokenType::AtSymbolic {
+                i += 1;
+                continue;
+            }
+
+            i += 1;
+            let mut started = false;
+            let mut paren_depth = 0usize;
+            let mut bracket_depth = 0usize;
+            let mut brace_depth = 0usize;
+
+            while i < tokens.len() {
+                let tok = &tokens[i];
+                if Self::cas_quote_should_stop(
+                    tok,
+                    started,
+                    paren_depth,
+                    bracket_depth,
+                    brace_depth,
+                ) {
+                    break;
+                }
+
+                if !matches!(tok.token_type, TokenType::Comment(_) | TokenType::Newline) {
+                    started = true;
+                }
+
+                if let Some(name) = Self::cas_name_for_token(tok) {
+                    spans.push(SemanticHighlightSpan {
+                        span: (tok.byte_start, tok.byte_end),
+                        name,
+                    });
+                }
+
+                Self::advance_cas_quote_depths(
+                    &tok.token_type,
+                    &mut paren_depth,
+                    &mut bracket_depth,
+                    &mut brace_depth,
+                );
+
+                i += 1;
+            }
+        }
+
+        spans
+    }
+
+    fn cas_quote_should_stop(
+        tok: &Token,
+        started: bool,
+        paren_depth: usize,
+        bracket_depth: usize,
+        brace_depth: usize,
+    ) -> bool {
+        if matches!(tok.token_type, TokenType::Eof) {
+            return true;
+        }
+        if !started {
+            return false;
+        }
+        if paren_depth != 0 || bracket_depth != 0 || brace_depth != 0 {
+            return false;
+        }
+        matches!(
+            tok.token_type,
+            TokenType::Newline
+                | TokenType::Semicolon
+                | TokenType::Pipe
+                | TokenType::PipeDot
+                | TokenType::PipePipe
+                | TokenType::PipePipeDot
+                | TokenType::RightParen
+                | TokenType::RightBracket
+                | TokenType::RightBrace
+        )
+    }
+
+    fn advance_cas_quote_depths(
+        token_type: &TokenType,
+        paren_depth: &mut usize,
+        bracket_depth: &mut usize,
+        brace_depth: &mut usize,
+    ) {
+        match token_type {
+            TokenType::LeftParen => *paren_depth += 1,
+            TokenType::LeftBracket => *bracket_depth += 1,
+            TokenType::LeftBrace => *brace_depth += 1,
+            TokenType::RightParen => *paren_depth = paren_depth.saturating_sub(1),
+            TokenType::RightBracket => *bracket_depth = bracket_depth.saturating_sub(1),
+            TokenType::RightBrace => *brace_depth = brace_depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+
+    fn cas_name_for_token(tok: &Token) -> Option<HighlightName> {
+        match &tok.token_type {
+            TokenType::Inf => Some(HighlightName::CasConstant),
+            TokenType::Identifier(name) => Some(Self::cas_name_for_identifier(name)),
+            _ => None,
+        }
+    }
+
+    fn cas_name_for_identifier(name: &str) -> HighlightName {
+        if cas_special_call_name(name) {
+            HighlightName::CasSpecial
+        } else if CasConst::from_name(name).is_some() {
+            HighlightName::CasConstant
+        } else if CasFunction::from_name(name).is_some() {
+            HighlightName::CasFunction
+        } else {
+            HighlightName::CasVariable
+        }
     }
 
     fn name_for_token(
@@ -921,6 +1031,15 @@ mod tests {
         out
     }
 
+    fn assert_region(regions: &[(String, Option<HighlightName>)], text: &str, name: HighlightName) {
+        assert!(
+            regions
+                .iter()
+                .any(|(region_text, region_name)| region_text == text && *region_name == Some(name)),
+            "expected {text:?} to have highlight {name:?}; regions: {regions:?}"
+        );
+    }
+
     #[test]
     fn test_w_loop_keyword_highlight() {
         let src = "W[1;2]";
@@ -955,6 +1074,36 @@ mod tests {
         let events = h.highlight(src);
         let regions = named_regions(&events, src);
         assert_eq!(regions[0], ("N".to_string(), Some(HighlightName::Variable)));
+    }
+
+    #[test]
+    fn test_cas_quote_highlights_cas_names() {
+        let src = "@s limit[sin[x]/x;pi]+root[_^3-_-1;1;2]+e+oo+_oo+undef";
+        let h = Highlighter::new();
+        let events = h.highlight(src);
+        let regions = named_regions(&events, src);
+
+        assert_region(&regions, "limit", HighlightName::CasSpecial);
+        assert_region(&regions, "root", HighlightName::CasSpecial);
+        assert_region(&regions, "sin", HighlightName::CasFunction);
+        assert_region(&regions, "pi", HighlightName::CasConstant);
+        assert_region(&regions, "e", HighlightName::CasConstant);
+        assert_region(&regions, "oo", HighlightName::CasConstant);
+        assert_region(&regions, "_oo", HighlightName::CasConstant);
+        assert_region(&regions, "undef", HighlightName::CasConstant);
+        assert_region(&regions, "x", HighlightName::CasVariable);
+        assert_region(&regions, "_", HighlightName::CasVariable);
+    }
+
+    #[test]
+    fn test_cas_quote_highlight_stops_at_expression_boundary() {
+        let src = "@s inf; pi";
+        let h = Highlighter::new();
+        let events = h.highlight(src);
+        let regions = named_regions(&events, src);
+
+        assert_region(&regions, "inf", HighlightName::CasConstant);
+        assert_region(&regions, "pi", HighlightName::Variable);
     }
 
     #[test]
