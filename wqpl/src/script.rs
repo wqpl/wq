@@ -148,9 +148,7 @@ fn process_line(
     let trimmed_leading = raw_line.trim_start();
     if !pending.has_payload && trimmed_leading.starts_with('\\') {
         pending.clear();
-        items.push(ScriptItem::Directive(parse_legacy_directive(
-            raw_line, span,
-        )));
+        items.push(ScriptItem::Directive(parse_directive(raw_line, span)));
         return;
     }
 
@@ -178,7 +176,7 @@ fn finish_pending(source: &str, pending: &mut PendingCode, items: &mut Vec<Scrip
     pending.clear();
 }
 
-pub fn parse_legacy_directive(line: &str, span: ScriptSpan) -> ScriptDirective {
+pub fn parse_directive(line: &str, span: ScriptSpan) -> ScriptDirective {
     let trimmed = line.trim();
     if trimmed == r"\p" {
         return ScriptDirective::PreludeAlias { span };
