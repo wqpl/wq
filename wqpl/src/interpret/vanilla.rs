@@ -13,7 +13,8 @@ use crate::value::cmp::eval_cmp_chain;
 use crate::value::func::ClosureData;
 use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_unary};
 use crate::vm::call::{
-    CallSpec, LocalCallable, PeekLocalCallable, PeekLocalUser, peek_local_callable,
+    CallSpec, LocalCallable, PeekLocalCallable, PeekLocalUser, ResolvedCallable,
+    peek_local_callable,
 };
 use crate::vm::inst::{BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
@@ -363,15 +364,7 @@ impl Interpreter for VanillaInterpreter {
                     Instruction::CallUser(name, argc) => {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc, || format!("fn '{name}' args"))?;
-                        if dispatch_user_call(
-                            vm,
-                            idx,
-                            name,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_named,
-                            hooks,
-                        )? {
+                        if dispatch_user_call::<false>(vm, idx, name, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -379,15 +372,7 @@ impl Interpreter for VanillaInterpreter {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc + 1, || "callable + args".into())?;
                         let func = vm.stack.remove(vm.stack.len() - argc - 1);
-                        if dispatch_anon_call(
-                            vm,
-                            idx,
-                            &func,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_push,
-                            hooks,
-                        )? {
+                        if dispatch_anon_call::<false>(vm, idx, &func, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -395,16 +380,7 @@ impl Interpreter for VanillaInterpreter {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_method_call(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_push,
-                            hooks,
-                        )? {
+                        if dispatch_method_call::<false>(vm, idx, &target, method, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -413,16 +389,7 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_method_call(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_push,
-                            hooks,
-                        )? {
+                        if dispatch_method_call::<false>(vm, idx, &target, method, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -431,16 +398,7 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_method_call(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_push,
-                            hooks,
-                        )? {
+                        if dispatch_method_call::<false>(vm, idx, &target, method, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -484,15 +442,7 @@ impl Interpreter for VanillaInterpreter {
                     Instruction::TailCallUser(name, argc) => {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc, || format!("fn '{name}' args"))?;
-                        if dispatch_user_call(
-                            vm,
-                            idx,
-                            name,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user_named,
-                            hooks,
-                        )? {
+                        if dispatch_user_call::<true>(vm, idx, name, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -500,15 +450,7 @@ impl Interpreter for VanillaInterpreter {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc + 1, || "callable + args".into())?;
                         let func = vm.stack.remove(vm.stack.len() - argc - 1);
-                        if dispatch_anon_call(
-                            vm,
-                            idx,
-                            &func,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user,
-                            hooks,
-                        )? {
+                        if dispatch_anon_call::<true>(vm, idx, &func, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -516,16 +458,7 @@ impl Interpreter for VanillaInterpreter {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_method_call(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user,
-                            hooks,
-                        )? {
+                        if dispatch_method_call::<true>(vm, idx, &target, method, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -534,16 +467,7 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_method_call(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user,
-                            hooks,
-                        )? {
+                        if dispatch_method_call::<true>(vm, idx, &target, method, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -552,16 +476,7 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_method_call(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user,
-                            hooks,
-                        )? {
+                        if dispatch_method_call::<true>(vm, idx, &target, method, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1204,15 +1119,7 @@ impl Interpreter for VanillaInterpreter {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc + 1, || "obj + args".into())?;
                         let target = vm.stack.remove(vm.stack.len() - argc - 1);
-                        if dispatch_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_push,
-                            hooks,
-                        )? {
+                        if dispatch_postfix::<false>(vm, idx, &target, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1220,15 +1127,7 @@ impl Interpreter for VanillaInterpreter {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_push,
-                            hooks,
-                        )? {
+                        if dispatch_postfix::<false>(vm, idx, &target, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1237,15 +1136,7 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_push,
-                            hooks,
-                        )? {
+                        if dispatch_postfix::<false>(vm, idx, &target, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1254,16 +1145,8 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_method_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_push,
-                            hooks,
-                        )? {
+                        if dispatch_method_postfix::<false>(vm, idx, &target, method, argc, hooks)?
+                        {
                             continue 'exec;
                         }
                     }
@@ -1272,15 +1155,7 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_push,
-                            hooks,
-                        )? {
+                        if dispatch_postfix::<false>(vm, idx, &target, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1289,16 +1164,8 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_method_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_push,
-                            hooks,
-                        )? {
+                        if dispatch_method_postfix::<false>(vm, idx, &target, method, argc, hooks)?
+                        {
                             continue 'exec;
                         }
                     }
@@ -1306,16 +1173,8 @@ impl Interpreter for VanillaInterpreter {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_method_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            invoke_spec_push,
-                            invoke_user_push,
-                            hooks,
-                        )? {
+                        if dispatch_method_postfix::<false>(vm, idx, &target, method, argc, hooks)?
+                        {
                             continue 'exec;
                         }
                     }
@@ -1324,15 +1183,7 @@ impl Interpreter for VanillaInterpreter {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc + 1, || "obj + args".into())?;
                         let target = vm.stack.remove(vm.stack.len() - argc - 1);
-                        if dispatch_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user,
-                            hooks,
-                        )? {
+                        if dispatch_postfix::<true>(vm, idx, &target, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1340,15 +1191,7 @@ impl Interpreter for VanillaInterpreter {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user,
-                            hooks,
-                        )? {
+                        if dispatch_postfix::<true>(vm, idx, &target, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1357,15 +1200,7 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user,
-                            hooks,
-                        )? {
+                        if dispatch_postfix::<true>(vm, idx, &target, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1374,16 +1209,7 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_method_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user,
-                            hooks,
-                        )? {
+                        if dispatch_method_postfix::<true>(vm, idx, &target, method, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1392,15 +1218,7 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user,
-                            hooks,
-                        )? {
+                        if dispatch_postfix::<true>(vm, idx, &target, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1409,16 +1227,7 @@ impl Interpreter for VanillaInterpreter {
                         let slot_usize = usize::from(*slot);
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_method_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user,
-                            hooks,
-                        )? {
+                        if dispatch_method_postfix::<true>(vm, idx, &target, method, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1426,16 +1235,7 @@ impl Interpreter for VanillaInterpreter {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc, || "args".into())?;
                         let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_method_postfix(
-                            vm,
-                            idx,
-                            &target,
-                            method,
-                            argc,
-                            prepare_tail,
-                            tail_invoke_user,
-                            hooks,
-                        )? {
+                        if dispatch_method_postfix::<true>(vm, idx, &target, method, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1808,6 +1608,91 @@ fn load_closure_debug_chunk(
 }
 
 impl VanillaInterpreter {
+    fn local_callable_from_resolved(target: &ResolvedCallable) -> LocalCallable {
+        LocalCallable::Func {
+            value: target.value.clone(),
+            params_len: target.params_len,
+            locals: target.locals,
+            instructions: Arc::clone(&target.code),
+            captured: Arc::clone(&target.captured),
+            dbg_chunk: target.dbg_chunk,
+            name_hint: None,
+        }
+    }
+
+    fn cached_local_callable(
+        vm: &Vm,
+        idx: usize,
+        fi: usize,
+        slot_usize: usize,
+    ) -> Option<LocalCallable> {
+        if vm.debug_artifacts_enabled() {
+            return None;
+        }
+        let slot_ref = vm.locals.get(fi)?.get(slot_usize)?;
+        let identity = slot_ref.with_ref(user_callable_identity)?;
+        let entry = &vm.inline_cache[idx];
+        if entry.version == identity {
+            return entry
+                .call_target
+                .as_ref()
+                .map(Self::local_callable_from_resolved);
+        }
+        None
+    }
+
+    fn cache_local_callable(vm: &mut Vm, idx: usize, identity: u64, target: ResolvedCallable) {
+        let entry = &mut vm.inline_cache[idx];
+        entry.version = identity;
+        entry.call_target = Some(target);
+        entry.slot = None;
+        entry.slot_b = None;
+    }
+
+    fn build_cached_local_callable(vm: &mut Vm, idx: usize, p: PeekLocalUser) -> LocalCallable {
+        let PeekLocalUser {
+            value,
+            params,
+            locals,
+            instructions,
+            dbg_chunk,
+            captured,
+        } = p;
+
+        if let Some(identity) = user_callable_identity(&value)
+            && let Some(resolved) = ResolvedCallable::from_user_callable(value.clone(), dbg_chunk)
+        {
+            let callable = Self::local_callable_from_resolved(&resolved);
+            Self::cache_local_callable(vm, idx, identity, resolved);
+            return callable;
+        }
+
+        LocalCallable::Func {
+            value,
+            params_len: params.as_ref().map(|x| x.len()),
+            locals,
+            instructions,
+            captured,
+            dbg_chunk,
+            name_hint: None,
+        }
+    }
+
+    fn build_local_callable_for_mode(
+        &self,
+        vm: &mut Vm,
+        idx: usize,
+        fi: usize,
+        slot_usize: usize,
+        p: PeekLocalUser,
+    ) -> WqResult<LocalCallable> {
+        if vm.debug_artifacts_enabled() {
+            self.build_local_callable(vm, fi, slot_usize, p)
+        } else {
+            Ok(Self::build_cached_local_callable(vm, idx, p))
+        }
+    }
+
     fn build_local_callable(
         &self,
         vm: &mut Vm,
@@ -1863,7 +1748,10 @@ impl VanillaInterpreter {
                 let depth = usize::from(depth);
                 if depth < vm.locals.len() {
                     let fi = vm.locals.len() - 1 - depth;
-                    if let Some(result) = try_peek_at(vm, fi) {
+                    if let Some(cached) = Self::cached_local_callable(vm, idx, fi, slot_usize) {
+                        found = Some(cached);
+                        found_fi = Some(fi);
+                    } else if let Some(result) = try_peek_at(vm, fi) {
                         let peeked = result?;
                         match peeked {
                             PeekLocalCallable::Builtin(id) => {
@@ -1871,7 +1759,9 @@ impl VanillaInterpreter {
                                 found_fi = Some(fi);
                             }
                             PeekLocalCallable::User(p) => {
-                                found = Some(self.build_local_callable(vm, fi, slot_usize, p)?);
+                                found = Some(
+                                    self.build_local_callable_for_mode(vm, idx, fi, slot_usize, p)?,
+                                );
                                 found_fi = Some(fi);
                             }
                         }
@@ -1898,7 +1788,9 @@ impl VanillaInterpreter {
                             break;
                         }
                         PeekLocalCallable::User(p) => {
-                            found = Some(self.build_local_callable(vm, fi, slot_usize, p)?);
+                            found = Some(
+                                self.build_local_callable_for_mode(vm, idx, fi, slot_usize, p)?,
+                            );
                             found_fi = Some(fi);
                             break;
                         }
@@ -2891,7 +2783,11 @@ mod tests {
 mod call_safety {
     use std::sync::Arc;
 
+    use indexmap::IndexMap;
+
     use crate::builtins::{BuiltinFnArgs, Builtins};
+    use crate::interpret::Interpreter;
+    use crate::interpret::vanilla::VanillaInterpreter;
     use crate::value::func::FunctionData;
     use crate::value::{Value, cell};
     use crate::vm::call::CallSpec;
@@ -2914,6 +2810,19 @@ mod call_safety {
             dbg_local_names: None,
             dbg_provenance: None,
         }))
+    }
+
+    fn dict_with_method(method: Value) -> Value {
+        let mut map = IndexMap::new();
+        map.insert(Arc::<str>::from("f"), method);
+        Value::Dict(Arc::new(map))
+    }
+
+    fn run_vm_again(vm: &mut Vm, limit: usize) -> Value {
+        vm.pc = 0;
+        vm.returned = false;
+        let mut interpreter = VanillaInterpreter;
+        interpreter.interpret(vm, limit).expect("execute")
     }
 
     #[test]
@@ -3063,6 +2972,59 @@ mod call_safety {
             .expect("builtin value call");
 
         assert_eq!(result, Value::Int(3));
+    }
+
+    #[test]
+    fn method_call_cache_revalidates_dict_entry_identity() {
+        let first = make_fn(
+            None,
+            0,
+            vec![Instruction::load_const(Value::Int(1)), Instruction::Return],
+        );
+        let second = make_fn(
+            None,
+            0,
+            vec![Instruction::load_const(Value::Int(2)), Instruction::Return],
+        );
+        let mut vm = Vm::new(vec![
+            Instruction::CallMethodVar("d".into(), "f".into(), 0),
+            Instruction::Return,
+        ]);
+        vm.assign_global_and_slot("d", dict_with_method(first));
+        let limit = vm.instructions.len();
+
+        assert_eq!(run_vm_again(&mut vm, limit), Value::Int(1));
+        vm.with_global_slot_mut("d", |target| {
+            assert_eq!(
+                target.assign_by_index(&Value::Tag(Arc::<str>::from("f")), second),
+                Some(())
+            );
+        })
+        .expect("global d should exist");
+
+        assert_eq!(run_vm_again(&mut vm, limit), Value::Int(2));
+    }
+
+    #[test]
+    fn local_call_cache_revalidates_slot_callable_identity() {
+        let first = make_fn(
+            None,
+            0,
+            vec![Instruction::load_const(Value::Int(1)), Instruction::Return],
+        );
+        let second = make_fn(
+            None,
+            0,
+            vec![Instruction::load_const(Value::Int(2)), Instruction::Return],
+        );
+        let mut vm = Vm::new(vec![Instruction::CallLocal(0, 0), Instruction::Return]);
+        vm.locals.push(vec![Slot::Value(first)]);
+        let limit = vm.instructions.len();
+
+        assert_eq!(run_vm_again(&mut vm, limit), Value::Int(1));
+        vm.locals[0][0].write(second);
+
+        assert_eq!(run_vm_again(&mut vm, limit), Value::Int(2));
     }
 
     #[test]

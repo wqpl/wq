@@ -23,6 +23,41 @@ struct TakenBuiltinArgs {
     had_named_meta: bool,
 }
 
+fn nested_interpreter_type_name(kind: crate::interpret::InterpreterKind) -> &'static str {
+    match kind {
+        crate::interpret::InterpreterKind::Vanilla => {
+            std::any::type_name::<crate::interpret::vanilla::VanillaInterpreter>()
+        }
+        crate::interpret::InterpreterKind::Sample => {
+            std::any::type_name::<crate::interpret::sample::SampleInterpreter>()
+        }
+        crate::interpret::InterpreterKind::Profiler => {
+            std::any::type_name::<crate::interpret::profiler::ProfilerInterpreter>()
+        }
+    }
+}
+
+fn interpret_nested_with_kind(
+    kind: crate::interpret::InterpreterKind,
+    vm: &mut Vm,
+    limit: usize,
+) -> WqResult<Value> {
+    match kind {
+        crate::interpret::InterpreterKind::Vanilla => {
+            let mut interpreter = crate::interpret::vanilla::VanillaInterpreter;
+            crate::interpret::Interpreter::interpret(&mut interpreter, vm, limit)
+        }
+        crate::interpret::InterpreterKind::Sample => {
+            let mut interpreter = crate::interpret::sample::SampleInterpreter::default();
+            crate::interpret::Interpreter::interpret(&mut interpreter, vm, limit)
+        }
+        crate::interpret::InterpreterKind::Profiler => {
+            let mut interpreter = crate::interpret::profiler::ProfilerInterpreter::default();
+            crate::interpret::Interpreter::interpret(&mut interpreter, vm, limit)
+        }
+    }
+}
+
 impl Vm {
     // API for Builtins ============================
 
@@ -284,7 +319,7 @@ impl Vm {
             );
         }
         let limit = self.instructions.len();
-        let mut interpreter = self.interpreter_kind.create();
+        let interpreter_kind = self.interpreter_kind;
         if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
             eprintln!(
                 "CALL enter chunk={:?} limit={} locals={} argc={} saved_pc={} interp_type={}",
@@ -293,10 +328,10 @@ impl Vm {
                 local_count,
                 argc,
                 saved_pc,
-                std::any::type_name_of_val(&*interpreter)
+                nested_interpreter_type_name(interpreter_kind)
             );
         }
-        let execute_res = interpreter.interpret(self, limit);
+        let execute_res = interpret_nested_with_kind(interpreter_kind, self, limit);
         self.returned = false;
         let res = match execute_res {
             Ok(value) => Ok(self.attach_provenance_to_returned_callable(value)),

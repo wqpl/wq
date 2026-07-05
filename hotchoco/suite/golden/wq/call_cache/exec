@@ -1,0 +1,4 @@
+ok dict method call cache sees mutation
+ok dict method postfix cache sees mutation
+ok local call cache sees mutation
+()

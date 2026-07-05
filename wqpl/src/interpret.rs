@@ -3,9 +3,6 @@ pub mod sample;
 pub mod vanilla;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
-use crate::interpret::profiler::ProfilerInterpreter;
-use crate::interpret::sample::SampleInterpreter;
-use crate::interpret::vanilla::VanillaInterpreter;
 use crate::value::{Value, WqResult};
 use crate::vm::Vm;
 use crate::vm::inst::Instruction;
@@ -49,15 +46,6 @@ impl InterpreterKind {
             "sample" | "s" => Some(InterpreterKind::Sample),
             "profiler" | "p" => Some(InterpreterKind::Profiler),
             _ => None,
-        }
-    }
-
-    /// Create a fresh interpreter instance corresponding to this kind.
-    pub fn create(&self) -> Box<dyn Interpreter> {
-        match self {
-            InterpreterKind::Vanilla => Box::new(VanillaInterpreter),
-            InterpreterKind::Sample => Box::new(SampleInterpreter::default()),
-            InterpreterKind::Profiler => Box::new(ProfilerInterpreter::default()),
         }
     }
 }

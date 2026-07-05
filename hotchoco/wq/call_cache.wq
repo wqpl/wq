@@ -1,0 +1,13 @@
+expect:{[label;got;want]
+  $[got=want;echo@f"ok {label}";raise@f"FAIL {label}: got {got}, want {want}"]}
+
+n:5
+
+d:(`f:{1})
+expect["dict method call cache sees mutation";N[n;r:d[`f][];d[`f]:{2};r];2]
+
+d:(`f:{x+1})
+expect["dict method postfix cache sees mutation";N[n;r:d[`f] 10;d[`f]:{x+2};r];12]
+
+outer:{[n]f:{1};N[n;r:f[];f:{2};r]}
+expect["local call cache sees mutation";outer n;2]
