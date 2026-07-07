@@ -2048,7 +2048,7 @@ mod tests {
         assert_eq!(dict, original);
     }
 
-    // ── String indexing and mutation tests ──
+    // String indexing and mutation tests
 
     #[test]
     fn string_index_single() {

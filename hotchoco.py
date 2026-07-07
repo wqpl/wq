@@ -17,7 +17,6 @@ Testcase TOML may set expected_exit_code at the group or mode level. Use
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
 import difflib
 import fcntl
 import glob
@@ -27,6 +26,7 @@ import re
 import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -52,7 +52,9 @@ def resolve_glob(pattern: str) -> list[str]:
         os.chdir(cwd)
 
 
-# ── Config ──────────────────────────────────────────────────────────────────
+# =====================================
+# Config
+# =====================================
 
 
 def load_config() -> dict:
@@ -78,7 +80,9 @@ def expected_exit_code_for(testcase: dict, mode: dict, test_name: str) -> int:
     return DEFAULT_EXPECTED_EXIT_CODE
 
 
-# ── Build ───────────────────────────────────────────────────────────────────
+# =====================================
+# Build
+# =====================================
 
 
 def build_wq_cli() -> None:
@@ -89,7 +93,9 @@ def build_wq_cli() -> None:
         sys.exit(proc.returncode)
 
 
-# ── ANSI strip ──────────────────────────────────────────────────────────────
+# =====================================
+# ANSI strip
+# =====================================
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 DIFF_TOKEN_RE = re.compile(r"\w+|\s+|[^\w\s]+")
@@ -112,7 +118,9 @@ def ansi(text: str, style: str) -> str:
     return f"{style}{text}{ANSI_RESET}"
 
 
-# ── Filters ─────────────────────────────────────────────────────────────────
+# =====================================
+# Filters
+# =====================================
 
 
 def apply_filters(text: str, filters: list[dict]) -> str:
@@ -129,7 +137,9 @@ def apply_filters_to_output(text: str, config: dict) -> str:
     return text
 
 
-# ── Test discovery ──────────────────────────────────────────────────────────
+# =====================================
+# Test discovery
+# =====================================
 
 
 def discover_testcases(config: dict) -> list[dict]:
@@ -173,7 +183,9 @@ def discover_testcases(config: dict) -> list[dict]:
     return result
 
 
-# ── Test execution ──────────────────────────────────────────────────────────
+# =====================================
+# Test execution
+# =====================================
 
 
 def run_one_test(test: dict, config: dict, output_dir: Path) -> dict:
@@ -311,7 +323,9 @@ def run_tests(tests: list[dict], config: dict) -> tuple[Path, dict[str, dict]]:
     return output_dir, summary
 
 
-# ── Diff ────────────────────────────────────────────────────────────────────
+# =====================================
+# Diff
+# =====================================
 
 
 def compute_diff(expected: str, actual: str, label: str) -> str:
@@ -426,7 +440,9 @@ def highlight_tokens(
     return f"{highlight_style}{text}{ANSI_RESET}{base_style}"
 
 
-# ── Find latest run ─────────────────────────────────────────────────────────
+# =====================================
+# Find latest run
+# =====================================
 
 
 def latest_output_dir() -> Path | None:
@@ -507,7 +523,9 @@ def create_output_dir() -> Path:
     raise RuntimeError("could not create a unique hotchoco output directory")
 
 
-# ── Filter tests by selectors ───────────────────────────────────────────────
+# =====================================
+# Filter tests by selectors
+# =====================================
 
 
 def filter_tests(
@@ -634,7 +652,9 @@ def accept_detail(result: dict) -> str:
     return " (still pending)"
 
 
-# ── CLI commands ────────────────────────────────────────────────────────────
+# =====================================
+# CLI commands
+# =====================================
 
 
 def cmd_run(args: argparse.Namespace) -> None:

@@ -5,9 +5,7 @@
 
 use super::polevl::polevl;
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Complete elliptic integral of the first kind K(m1)
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[rustfmt::skip]
 static ELLPK_P: &[f64] = &[
@@ -58,9 +56,7 @@ pub fn ellpk(m1: f64) -> f64 {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Complete elliptic integral of the second kind E(m1)
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[rustfmt::skip]
 static ELLPE_P: &[f64] = &[
@@ -107,9 +103,7 @@ pub fn ellpe(m1: f64) -> f64 {
     polevl(m1, ELLPE_P) - m1.ln() * (m1 * polevl(m1, ELLPE_Q))
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Incomplete elliptic integral of the first kind F(phi, m)
-// ─────────────────────────────────────────────────────────────────────────────
 
 /// Incomplete elliptic integral of the first kind.
 ///
@@ -196,9 +190,7 @@ pub fn ellik(phi: f64, m: f64) -> f64 {
     temp
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Incomplete elliptic integral of the second kind E(phi, m)
-// ─────────────────────────────────────────────────────────────────────────────
 
 /// Incomplete elliptic integral of the second kind.
 ///

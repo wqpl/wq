@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
+use crate::value::seq::ValueSeq;
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -485,14 +486,78 @@ where
     }
 }
 
-/// Both operands are containers
-/// zip element-wise, with String decomposed into chars and Dict key-ordering
-/// preserved.           Atom     List       IntList    String     Dict
-/// Atom      op        bc → L     bc → L     bc → L     bc → D
-/// List      bc → L   zip → L    zip → L    zip → L    zip → D
-/// IntList   bc → L   zip → L    zip → L    zip → L    zip → D
-/// String    bc → L   zip → L    zip → L    zip → L    zip → D
-/// Dict      bc → D   zip → D    zip → D    zip → D    zip → D*
+fn should_stream_mixed_sequence(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::IntRange(_) | Value::BoolList(_) | Value::FloatList(_)
+    )
+}
+
+fn zip_value_sequences<F>(
+    left: ValueSeq<'_>,
+    right: ValueSeq<'_>,
+    stop: Bc2Stop,
+    op: &mut F,
+    path: &mut Vec<usize>,
+) -> BcResult<Value>
+where
+    F: FnMut(&Value, &Value) -> WqResult<Value>,
+{
+    if left.len() != right.len() {
+        return Err(bc_len_mismatch(left.len(), right.len(), path));
+    }
+
+    let len = left.len();
+    let mut out = Vec::with_capacity(len);
+    let mut left_values = left.values();
+    let mut right_values = right.values();
+    for i in 0..len {
+        path.push(i);
+        let lhs = left_values
+            .next()
+            .expect("iterator length matches sequence length");
+        let rhs = right_values
+            .next()
+            .expect("iterator length matches sequence length");
+        out.push(lhs.bc2_until_with_path(&rhs, stop, op, path)?);
+        path.pop();
+    }
+    Ok(Value::from_items(out))
+}
+
+fn zip_sequence_with_dict<F>(
+    seq: ValueSeq<'_>,
+    map: &IndexMap<Arc<str>, Value>,
+    sequence_left: bool,
+    stop: Bc2Stop,
+    op: &mut F,
+    path: &mut Vec<usize>,
+) -> BcResult<Value>
+where
+    F: FnMut(&Value, &Value) -> WqResult<Value>,
+{
+    if seq.len() != map.len() {
+        return Err(bc_len_mismatch(seq.len(), map.len(), path));
+    }
+
+    let mut out = IndexMap::with_capacity(map.len());
+    let mut seq_values = seq.values();
+    for (i, (key, dict_value)) in map.iter().enumerate() {
+        path.push(i);
+        let seq_value = seq_values
+            .next()
+            .expect("iterator length matches sequence length");
+        let value = if sequence_left {
+            seq_value.bc2_until_with_path(dict_value, stop, op, path)?
+        } else {
+            dict_value.bc2_until_with_path(&seq_value, stop, op, path)?
+        };
+        path.pop();
+        out.insert(key.clone(), value);
+    }
+    Ok(Value::Dict(Arc::new(out)))
+}
+
 fn zip_containers<F>(
     left: &Value,
     right: &Value,
@@ -577,6 +642,30 @@ where
         _ => {}
     }
 
+    let stream_left = should_stream_mixed_sequence(left);
+    let stream_right = should_stream_mixed_sequence(right);
+    if stream_left || stream_right {
+        match (left, right) {
+            (Value::Dict(map), _) if stream_right => {
+                if let Some(seq) = ValueSeq::from_value(right) {
+                    return zip_sequence_with_dict(seq, map, false, stop, op, path);
+                }
+            }
+            (_, Value::Dict(map)) if stream_left => {
+                if let Some(seq) = ValueSeq::from_value(left) {
+                    return zip_sequence_with_dict(seq, map, true, stop, op, path);
+                }
+            }
+            _ => {
+                if let (Some(left), Some(right)) =
+                    (ValueSeq::from_value(left), ValueSeq::from_value(right))
+                {
+                    return zip_value_sequences(left, right, stop, op, path);
+                }
+            }
+        }
+    }
+
     if let Value::IntRange(range) = left {
         let left = Value::IntList(Arc::new(range.to_vec()));
         return zip_containers(&left, right, stop, op, path);
@@ -603,7 +692,7 @@ where
     }
 
     match (left, right) {
-        // ── Same type pairs = 5 ──────────────────────────────────────────
+        // Same type pairs = 5
         (Value::IntList(a), Value::IntList(b)) => {
             if a.len() != b.len() {
                 return Err(bc_len_mismatch(a.len(), b.len(), path));
@@ -665,7 +754,7 @@ where
             Ok(Value::Dict(Arc::new(out)))
         }
 
-        // ── IntList x List = 2 ─────────────────────
+        // IntList x List = 2
         (Value::IntList(a), Value::List(b)) => {
             if a.len() != b.len() {
                 return Err(bc_len_mismatch(a.len(), b.len(), path));
@@ -693,7 +782,7 @@ where
             Ok(Value::from_items(out))
         }
 
-        // ── String x IntList, List = 4 ──────────
+        // String x (IntList, List) = 4
         (Value::String(a), Value::List(b)) => {
             if a.chars().count() != b.len() {
                 return Err(bc_len_mismatch(a.chars().count(), b.len(), path));
@@ -749,7 +838,7 @@ where
             Ok(Value::from_items(out))
         }
 
-        // ── Dict x IntList, List, Set, String, 8 ──────────
+        // Dict x (IntList, List, Set, String) = 8
         (Value::Dict(dx), Value::List(ys)) => {
             if dx.len() != ys.len() {
                 return Err(bc_len_mismatch(dx.len(), ys.len(), path));
@@ -947,5 +1036,45 @@ mod tests {
             floats.eq_bc(&floats).expect("float zip"),
             Value::BoolList(Arc::new(vec![true, true]))
         );
+    }
+
+    #[test]
+    fn mixed_packed_containers_zip_without_widening_semantics() {
+        let range = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(0, 1, 3)));
+        let list = Value::List(Arc::new(vec![
+            Value::Int(10),
+            Value::Int(20),
+            Value::Int(30),
+        ]));
+        assert_eq!(
+            range.add(&list).expect("range and list zip"),
+            Value::IntList(Arc::new(vec![10, 21, 32]))
+        );
+
+        let bools = Value::BoolList(Arc::new(vec![true, false]));
+        let floats = Value::FloatList(Arc::new(vec![
+            ordered_float::OrderedFloat(1.0),
+            ordered_float::OrderedFloat(0.0),
+        ]));
+        assert_eq!(
+            bools.eq_bc(&floats).expect("bools and floats zip"),
+            Value::BoolList(Arc::new(vec![false, false]))
+        );
+
+        let floats = Value::FloatList(Arc::new(vec![
+            ordered_float::OrderedFloat(1.5),
+            ordered_float::OrderedFloat(2.5),
+        ]));
+        let mut map = IndexMap::new();
+        map.insert("a".into(), Value::Int(1));
+        map.insert("b".into(), Value::Int(2));
+        let result = floats
+            .add(&Value::Dict(Arc::new(map)))
+            .expect("float list and dict zip");
+
+        let mut expected = IndexMap::new();
+        expected.insert("a".into(), Value::float(2.5));
+        expected.insert("b".into(), Value::float(4.5));
+        assert_eq!(result, Value::Dict(Arc::new(expected)));
     }
 }

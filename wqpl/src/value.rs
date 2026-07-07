@@ -945,7 +945,7 @@ mod tests {
         );
     }
 
-    // ── String variant tests ──
+    // String variant tests
 
     #[test]
     fn string_construction_via_into_wq_str() {
@@ -1094,7 +1094,7 @@ mod tests {
         assert_eq!(result.to_string(), "\"hello world\"");
     }
 
-    // ── Complex variant tests ──
+    // Complex variant tests
 
     #[test]
     fn complex_construction() {
@@ -1150,7 +1150,7 @@ mod tests {
         assert_eq!(sum, expected);
     }
 
-    // ── Fraction variant tests ──
+    // Fraction variant tests
 
     #[test]
     fn fraction_construction() {

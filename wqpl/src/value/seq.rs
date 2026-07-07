@@ -159,6 +159,15 @@ impl<'a> ExactIntSeq<'a> {
         }
     }
 
+    pub(crate) fn get(&self, idx: usize) -> Option<i64> {
+        match self {
+            Self::Atom(i) => (idx == 0).then_some(*i),
+            Self::PackedSlice(items) => items.get(idx).copied(),
+            Self::PackedRange(range) => range.get(idx),
+            Self::General(items) => items.get(idx).copied(),
+        }
+    }
+
     pub(crate) fn is_atom(&self) -> bool {
         matches!(self, Self::Atom(_))
     }
@@ -236,8 +245,28 @@ impl<'a> ListStorageSeq<'a> {
         }
     }
 
+    pub(crate) fn get(&self, idx: usize) -> Option<Value> {
+        match self {
+            Self::List(items) => items.get(idx).cloned(),
+            Self::Int(items) => items.get(idx).map(Value::Int),
+            Self::Float(items) => items.get(idx).copied().map(Value::Float),
+            Self::Bool(items) => items.get(idx).copied().map(Value::Bool),
+        }
+    }
+
+    pub(crate) fn extend_values(&self, out: &mut Vec<Value>) {
+        match self {
+            Self::List(items) => out.extend(items.iter().cloned()),
+            Self::Int(items) => out.extend(items.iter().map(Value::Int)),
+            Self::Float(items) => out.extend(items.iter().copied().map(Value::Float)),
+            Self::Bool(items) => out.extend(items.iter().copied().map(Value::Bool)),
+        }
+    }
+
     pub(crate) fn to_values_vec(&self) -> Vec<Value> {
-        self.values().collect()
+        let mut out = Vec::with_capacity(self.len());
+        self.extend_values(&mut out);
+        out
     }
 }
 

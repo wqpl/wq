@@ -442,13 +442,13 @@ pub(super) fn rscan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
                 if seq.len() == 0 {
                     return Ok(Value::unit());
                 }
-                let values = seq.to_values_vec();
-                let mut results: Vec<Value> = Vec::with_capacity(values.len());
-                let mut iter = values.iter().rev();
-                let mut acc = iter.next().expect("sequence is non-empty").clone();
+                let mut results: Vec<Value> = Vec::with_capacity(seq.len());
+                let last_idx = seq.len() - 1;
+                let mut acc = seq.get(last_idx).expect("sequence is non-empty");
                 results.push(acc.clone());
-                for item in iter {
-                    acc = call_fold_func(vm, &f, acc, item.clone())?;
+                for idx in (0..last_idx).rev() {
+                    let item = seq.get(idx).expect("index came from sequence length");
+                    acc = call_fold_func(vm, &f, acc, item)?;
                     results.push(acc.clone());
                 }
                 results.reverse();
@@ -477,10 +477,10 @@ pub(super) fn rscan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
         3 => {
             let mut acc = iter.next().unwrap();
             if let Some(seq) = ListStorageSeq::from_value(&xs) {
-                let values = seq.to_values_vec();
-                let mut results: Vec<Value> = Vec::with_capacity(values.len());
-                for item in values.iter().rev() {
-                    acc = call_fold_func(vm, &f, acc, item.clone())?;
+                let mut results: Vec<Value> = Vec::with_capacity(seq.len());
+                for idx in (0..seq.len()).rev() {
+                    let item = seq.get(idx).expect("index came from sequence length");
+                    acc = call_fold_func(vm, &f, acc, item)?;
                     results.push(acc.clone());
                 }
                 results.reverse();
@@ -768,28 +768,37 @@ fn findwith_search(
     };
 
     if let Some(seq) = ListStorageSeq::from_value(xs) {
-        let values = seq.to_values_vec();
-        let indices: Vec<usize> = if ctx.reverse {
-            (0..values.len()).rev().collect()
-        } else {
-            (0..values.len()).collect()
-        };
-        for idx in indices {
+        let mut visit = |idx: usize| -> WqResult<bool> {
             if findwith_threshold_reached(results.len(), ctx.threshold) {
-                return Ok(());
+                return Ok(true);
             }
-            let item = &values[idx];
-            if is_match(vm, item)? {
+            let item = seq.get(idx).expect("index came from sequence length");
+            if is_match(vm, &item)? {
                 path.push(idx as i64);
                 results.push(Value::IntList(Arc::new(path.clone())));
                 path.pop();
                 if findwith_threshold_reached(results.len(), ctx.threshold) {
-                    return Ok(());
+                    return Ok(true);
                 }
             } else if current_depth < ctx.max_depth {
                 path.push(idx as i64);
-                findwith_search(vm, item, current_depth + 1, results, path, ctx)?;
+                findwith_search(vm, &item, current_depth + 1, results, path, ctx)?;
                 path.pop();
+            }
+            Ok(false)
+        };
+
+        if ctx.reverse {
+            for idx in (0..seq.len()).rev() {
+                if visit(idx)? {
+                    return Ok(());
+                }
+            }
+        } else {
+            for idx in 0..seq.len() {
+                if visit(idx)? {
+                    return Ok(());
+                }
             }
         }
         return Ok(());
@@ -797,28 +806,36 @@ fn findwith_search(
 
     match xs {
         Value::Dict(map) => {
-            let values: Vec<_> = map.values().collect();
-            let indices: Vec<usize> = if ctx.reverse {
-                (0..values.len()).rev().collect()
-            } else {
-                (0..values.len()).collect()
-            };
-            for idx in indices {
+            let mut visit = |idx: usize, item: &Value| -> WqResult<bool> {
                 if findwith_threshold_reached(results.len(), ctx.threshold) {
-                    return Ok(());
+                    return Ok(true);
                 }
-                let item = values[idx];
                 if is_match(vm, item)? {
                     path.push(idx as i64);
                     results.push(Value::IntList(Arc::new(path.clone())));
                     path.pop();
                     if findwith_threshold_reached(results.len(), ctx.threshold) {
-                        return Ok(());
+                        return Ok(true);
                     }
                 } else if current_depth < ctx.max_depth {
                     path.push(idx as i64);
                     findwith_search(vm, item, current_depth + 1, results, path, ctx)?;
                     path.pop();
+                }
+                Ok(false)
+            };
+
+            if ctx.reverse {
+                for (idx, item) in map.values().enumerate().rev() {
+                    if visit(idx, item)? {
+                        return Ok(());
+                    }
+                }
+            } else {
+                for (idx, item) in map.values().enumerate() {
+                    if visit(idx, item)? {
+                        return Ok(());
+                    }
                 }
             }
         }

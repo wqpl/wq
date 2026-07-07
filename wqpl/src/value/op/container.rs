@@ -232,7 +232,7 @@ impl Value {
             for v in values {
                 let items = ListStorageSeq::from_value(&v)
                     .expect("all values are generic or packed list storage");
-                res.extend(items.values());
+                items.extend_values(&mut res);
             }
             return Value::List(Arc::new(res));
         }
