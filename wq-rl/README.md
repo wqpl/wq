@@ -2,6 +2,8 @@ wq-cli's internal editor
 
 forked from `rustyline`, itself based on `linenoise`
 
+See [NOTICE.md](NOTICE.md) for upstream attribution and license notices.
+
 **Supported Platforms**
 
 - Unix (tested on FreeBSD, Linux and macOS)

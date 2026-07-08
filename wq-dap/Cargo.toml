@@ -1,8 +1,10 @@
 [package]
 name = "wq-dap"
 version.workspace = true
-edition = "2024"
+edition.workspace = true
 license = "MIT"
+repository.workspace = true
+readme = "README.md"
 description = "wq's internal fork of `emmy_dap_types`"
 
 [dependencies]
