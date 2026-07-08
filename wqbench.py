@@ -45,11 +45,11 @@ USAGE
 DIRECTORY LAYOUT
 ------------------------------------------------------------------------------
     .benchmarks/
-    ├── v1.0.0_R_20260101_120000/   one directory per run
-    │   ├── benches/                per-benchmark hyperfine exports
-    │   ├── plots/                  summary.png and trend.png
-    │   └── summary.csv             aggregated results for this run
-    └── history.jsonl               append-only regression history
+    |-- v1.0.0_R_20260101_120000/   one directory per run
+    |   |-- benches/                per-benchmark hyperfine exports
+    |   |-- plots/                  summary.png and trend.png
+    |   `-- summary.csv             aggregated results for this run
+    `-- history.jsonl               append-only regression history
 
 ------------------------------------------------------------------------------
 REGRESSION ANALYSIS
