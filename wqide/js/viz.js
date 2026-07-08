@@ -39,7 +39,7 @@ const DEFAULT_STATE = {
   ylabelText: "y",
   labels: true,
   seriesOptions: true,
-  ascii: false,
+  unicode: false,
   autoRun: true,
   series: [
     { expr: "sin", label: "sin", symbol: "s", mode: "line" },
@@ -503,9 +503,11 @@ function plotOptions(state) {
   args.push(
     axesOption(state),
     gridOption(state),
-    named("ascii", boolLit(state.ascii)),
     colorOption(state),
   );
+  if (state.unicode) {
+    args.push(named("unicode", boolLit(state.unicode)));
+  }
   if (state.complex !== "re") {
     args.push(named("complex", wqString(state.complex)));
   }

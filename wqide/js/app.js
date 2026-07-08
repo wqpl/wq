@@ -986,8 +986,8 @@ const VIZ_HTML = html`
                 <span>Per-series</span>
               </label>
               <label class="viz-switch">
-                <input type="checkbox" data-viz-toggle="ascii" />
-                <span>ASCII</span>
+                <input type="checkbox" data-viz-toggle="unicode" />
+                <span>Unicode</span>
               </label>
             </div>
           </section>
