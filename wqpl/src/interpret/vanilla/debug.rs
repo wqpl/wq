@@ -356,6 +356,26 @@ mod tests {
         out
     }
 
+    fn has_highlighted_visible_line(s: &str, visible_line: &str) -> bool {
+        s.lines()
+            .any(|line| line.contains('\x1b') && strip_ansi(line) == visible_line)
+    }
+
+    fn has_ansi_underline(s: &str) -> bool {
+        let mut rest = s;
+        while let Some(start) = rest.find("\x1b[") {
+            rest = &rest[start + 2..];
+            let Some(end) = rest.find('m') else {
+                return false;
+            };
+            if rest[..end].split(';').any(|code| code == "4") {
+                return true;
+            }
+            rest = &rest[end + 1..];
+        }
+        false
+    }
+
     fn vm_with_local_names(inst: Instruction, names: &[&str]) -> Vm {
         let mut vm = Vm::new(vec![inst]);
         let file_id = vm.debug_info.new_file("<trace-test>", "");
@@ -458,23 +478,24 @@ mod tests {
         let rendered = render_trace_line(&vm, 0, &Value::Int(3), &records);
 
         assert!(
-            rendered.contains("\x1b[38;5;220m1\x1b[0m\x1b[38;5;208m+\x1b[0m"),
+            has_highlighted_visible_line(&rendered, "1+2 = 3 (int)"),
             "expected highlighted expression snippet, got: {rendered:?}"
         );
         assert!(
-            rendered.contains("+- \x1b[38;5;220m1\x1b[0m = 1 (int)"),
+            has_highlighted_visible_line(&rendered, "  - 1 = 1 (int)"),
             "expected highlighted child trace snippet, got: {rendered:?}"
         );
         assert!(
-            !rendered.contains("\x1b[4m") && !rendered.contains("\x1b[4;"),
+            !has_ansi_underline(&rendered),
             "trace snippets should not be underlined, got: {rendered:?}"
         );
+        let visible = strip_ansi(&rendered);
         assert!(
-            strip_ansi(&rendered).contains("[<trace-test>:1:4]\n1+2 = 3 (int)"),
+            visible.contains("[<trace-test>:1:4]\n1+2 = 3 (int)"),
             "visible header changed, got: {rendered:?}"
         );
         assert!(
-            strip_ansi(&rendered).contains("+- 1 = 1 (int)"),
+            visible.contains("\n- 1+2 = 3 (int)\n  - 1 = 1 (int)\n  - 2 = 2 (int)"),
             "visible trace tree changed, got: {rendered:?}"
         );
     }

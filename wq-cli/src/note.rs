@@ -480,6 +480,23 @@ pub fn run_markdown(path: &Path, no_pager: bool) {
 mod tests {
     use super::*;
 
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
     #[test]
     fn test_strip_frontmatter_basic() {
         let content = "---\nbuiltins = \"all\"\n---\n# Hello\n";
@@ -590,12 +607,13 @@ mod tests {
     #[test]
     fn test_format_code_fence_wraps_long_wq_at_formatter_breaks() {
         let out = format_code_fence_with_width("wq", "f[(1;2;3;4;5;6;7;8;9;10)]", None, Some(12));
+        let visible = strip_ansi(&out);
 
-        assert!(out.contains("| f[(1;2;3;4;\x1b[0m\n"), "got: {out:?}");
-        assert!(out.contains("|     5;6;7;8;\x1b[0m\n"), "got: {out:?}");
-        assert!(out.contains("|     9;10)]\x1b[0m\n"), "got: {out:?}");
+        assert!(visible.contains("| f[(1;2;3;4;\n"), "got: {out:?}");
+        assert!(visible.contains("|     5;6;7;8;\n"), "got: {out:?}");
+        assert!(visible.contains("|     9;10)]\n"), "got: {out:?}");
         assert!(
-            !out.contains("| f[(1;2;3;4;5;6;7;8;9;10)]\x1b[0m\n"),
+            !visible.contains("| f[(1;2;3;4;5;6;7;8;9;10)]\n"),
             "got: {out:?}"
         );
     }
@@ -604,7 +622,10 @@ mod tests {
     fn test_format_code_fence_preserves_non_wq() {
         let out = format_code_fence_with_width("python", "print('abcdef')", None, Some(6));
 
-        assert!(out.contains("| print('abcdef')\n"), "got: {out:?}");
+        assert!(
+            strip_ansi(&out).contains("| print('abcdef')\n"),
+            "got: {out:?}"
+        );
     }
 
     #[test]
@@ -613,9 +634,10 @@ mod tests {
 
         let wide_text = "界".repeat(25);
         let out = format_code_fence_with_width("python", &wide_text, None, Some(80));
-        let mut lines = out.lines();
+        let visible = strip_ansi(&out);
+        let mut lines = visible.lines();
         let top = lines.next().expect("top fence line");
-        let bottom = out.lines().last().expect("bottom fence line");
+        let bottom = visible.lines().last().expect("bottom fence line");
 
         assert_eq!(top, format!("+ python {}", "-".repeat(43)));
         assert_eq!(bottom, format!("+{}", "-".repeat(51)));

@@ -695,6 +695,23 @@ mod tests {
         xs.iter().map(OsString::from).collect()
     }
 
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
     fn ok(p: Result<(RuntimeFlags, CliCommand), i32>) -> (RuntimeFlags, CliCommand) {
         p.unwrap()
     }
@@ -784,22 +801,24 @@ mod tests {
     #[test]
     fn rendered_top_level_help_includes_note_rendered_appendix() {
         let text = render_cli_help(None).expect("top-level help");
+        let visible = strip_ansi(&text);
 
-        assert!(text.contains("Usage: wq"));
-        assert!(text.contains("Debug flags"));
-        assert!(text.contains("Run a script"));
-        assert!(text.contains("wq script.wq"));
-        assert!(text.contains("wq exec '1+1' -d ast,inst -p"));
+        assert!(visible.contains("Usage: wq"));
+        assert!(visible.contains("Debug flags"));
+        assert!(visible.contains("Run a script"));
+        assert!(visible.contains("wq script.wq"));
+        assert!(visible.contains("wq exec '1+1' -d ast,inst -p"));
     }
 
     #[test]
     fn rendered_exec_help_uses_exec_appendix() {
         let text = render_cli_help(Some("exec")).expect("exec help");
+        let visible = strip_ansi(&text);
 
-        assert!(text.contains("Usage: wq exec"));
-        assert!(text.contains("Evaluate inline code"));
-        assert!(text.contains("wq exec '1+1' -p"));
-        assert!(!text.contains("Run a script"));
+        assert!(visible.contains("Usage: wq exec"));
+        assert!(visible.contains("Evaluate inline code"));
+        assert!(visible.contains("wq exec '1+1' -p"));
+        assert!(!visible.contains("Run a script"));
     }
 
     #[test]
