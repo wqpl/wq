@@ -32,6 +32,7 @@ pub(super) enum ReplCommandKind {
     Wqdb,
     WqdbOneshot,
     Help,
+    Commands,
     DebugShow,
     DebugToggle,
     DebugOneshot,
@@ -98,6 +99,12 @@ pub(super) enum ParsedReplCommand {
         kind: ReplCommandKind,
         arg: Option<String>,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ReplCommandHelpRow {
+    pub(super) usage: String,
+    pub(super) desc: &'static str,
 }
 
 const fn exact(
@@ -230,11 +237,11 @@ const fn exact_and_space_or_suffix_arg_with_usages(
 const BOX_USAGES: &[ReplUsage] = &[
     ReplUsage {
         name: r"\box <spec>",
-        desc: "set display config; on/off or +/- modifies",
+        desc: "set display config; +/- modifies",
     },
     ReplUsage {
         name: r"\b <spec>",
-        desc: "set display config; on/off or +/- modifies",
+        desc: "set display config; +/- modifies",
     },
 ];
 
@@ -371,6 +378,11 @@ const REPL_COMMAND_SPECS: &[ReplCommandSpec] = &[
         ReplCommandKind::Help,
         ReplArgKind::HelpTopic,
     ),
+    exact(
+        &[r"\commands", r"\cmds", r"\c"],
+        "show repl commands",
+        ReplCommandKind::Commands,
+    ),
     exact(&[r"\type"], "toggle type mode", ReplCommandKind::TypeShow),
     exact(
         &[r"\type?"],
@@ -385,7 +397,7 @@ const REPL_COMMAND_SPECS: &[ReplCommandSpec] = &[
     ),
     optional_space_arg(
         &[r"\debug"],
-        "show debug flags help",
+        "show or set debug flags",
         ReplCommandKind::DebugShow,
         ReplCommandKind::DebugSet,
         ReplArgKind::DebugFlags,
@@ -421,6 +433,82 @@ pub(super) fn repl_hint_vectors() -> (Vec<String>, Vec<String>) {
         }
     }
     (names, descs)
+}
+
+pub(super) fn repl_command_help_rows() -> Vec<ReplCommandHelpRow> {
+    let mut rows = Vec::new();
+
+    for spec in REPL_COMMAND_SPECS {
+        if spec.exact.is_none() && spec.arg.is_none() {
+            continue;
+        }
+
+        let mut usages = command_usages(spec);
+
+        let Some(main_usage) = usages.next() else {
+            continue;
+        };
+
+        rows.push(ReplCommandHelpRow {
+            usage: main_usage,
+            desc: spec.desc,
+        });
+
+        for usage in usages {
+            rows.push(ReplCommandHelpRow {
+                usage: format!("  {usage}"),
+                desc: "",
+            });
+        }
+
+        for usage in spec.usages {
+            rows.push(ReplCommandHelpRow {
+                usage: format!("  {}", usage.name),
+                desc: usage.desc,
+            });
+        }
+    }
+
+    rows
+}
+
+fn command_usages(spec: &ReplCommandSpec) -> impl Iterator<Item = String> + '_ {
+    spec.aliases.iter().map(|alias| alias_usage(alias, spec))
+}
+
+fn alias_usage(alias: &str, spec: &ReplCommandSpec) -> String {
+    let Some(arg) = spec.arg.filter(|_| spec.usages.is_empty()) else {
+        return alias.to_string();
+    };
+
+    let optional = (spec.exact.is_some() && !matches!(arg.target, ReplCommandTarget::Directive))
+        || matches!(
+            arg.style,
+            ReplArgStyle::Suffix | ReplArgStyle::SpaceOrSuffix
+        );
+
+    let placeholder = arg_placeholder(arg.kind, optional);
+
+    match arg.style {
+        ReplArgStyle::Space => format!("{alias} {placeholder}"),
+        ReplArgStyle::Suffix | ReplArgStyle::SpaceOrSuffix => format!("{alias}{placeholder}"),
+    }
+}
+
+fn arg_placeholder(kind: ReplArgKind, optional: bool) -> String {
+    let name = match kind {
+        ReplArgKind::BuiltinPreset => "preset",
+        ReplArgKind::Interpreter => "name",
+        ReplArgKind::HelpTopic => "topic",
+        ReplArgKind::DebugFlags | ReplArgKind::BoxSpec => "spec",
+        ReplArgKind::FmtMode => "mode",
+        ReplArgKind::LoadTarget => "target",
+    };
+    if optional {
+        format!("[{name}]")
+    } else {
+        format!("<{name}>")
+    }
 }
 
 pub(super) fn parse(input: &str) -> ParsedReplCommand {
@@ -472,5 +560,35 @@ fn parsed_from_target(target: ReplCommandTarget, arg: Option<String>) -> ParsedR
     match target {
         ReplCommandTarget::Handled(kind) => ParsedReplCommand::Handled { kind, arg },
         ReplCommandTarget::Directive => ParsedReplCommand::Directive,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_dump_command_parses() {
+        assert!(matches!(
+            parse(r"\commands"),
+            ParsedReplCommand::Handled {
+                kind: ReplCommandKind::Commands,
+                arg: None
+            }
+        ));
+        assert!(matches!(
+            parse(r"\cmds"),
+            ParsedReplCommand::Handled {
+                kind: ReplCommandKind::Commands,
+                arg: None
+            }
+        ));
+        assert!(matches!(
+            parse(r"\c"),
+            ParsedReplCommand::Handled {
+                kind: ReplCommandKind::Commands,
+                arg: None
+            }
+        ));
     }
 }

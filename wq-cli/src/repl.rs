@@ -107,6 +107,7 @@ enum ReplCommand {
     Wqdb,
     WqdbOneshot,
     Help(Option<String>),
+    Commands,
     DebugShow,
     DebugToggle,
     DebugOneshot(String),
@@ -162,6 +163,7 @@ impl ReplCommand {
             command::ReplCommandKind::Wqdb => Self::Wqdb,
             command::ReplCommandKind::WqdbOneshot => Self::WqdbOneshot,
             command::ReplCommandKind::Help => Self::Help(arg),
+            command::ReplCommandKind::Commands => Self::Commands,
             command::ReplCommandKind::DebugShow => Self::DebugShow,
             command::ReplCommandKind::DebugToggle => Self::DebugToggle,
             command::ReplCommandKind::DebugOneshot => Self::DebugOneshot(arg.unwrap_or_default()),
@@ -483,6 +485,10 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                             }
                             println!("{}", repl_card_rule(width));
                         }
+                        continue;
+                    }
+                    ReplCommand::Commands => {
+                        print_repl_commands();
                         continue;
                     }
                     ReplCommand::DebugShow => {
@@ -1436,6 +1442,23 @@ fn debug_help_table_row(left: &str, right: &str, left_w: usize, right_w: usize) 
         right,
         repl_dim("|")
     )
+}
+
+fn print_repl_commands() {
+    let rows = command::repl_command_help_rows();
+    let usage_w = rows
+        .iter()
+        .map(|row| vis_width(&row.usage))
+        .max()
+        .unwrap_or(0);
+    println!();
+    println!("{}", repl_bold_underline("REPL commands"));
+    for row in rows {
+        let usage = repl_color(&row.usage, AnsiColor::Magenta);
+        let padding = usage_w.saturating_sub(vis_width(&row.usage));
+        println!("  {usage}{:padding$}  {}", "", repl_dim(row.desc));
+    }
+    println!();
 }
 
 fn dump_builtins(builtins: &Builtins) {

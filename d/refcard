@@ -1,9 +1,10 @@
---wq-- 0.9.0 (c) tttiw (l) MIT
-  :     ,   | |. || ||.    [...]
+--wq 0.9.0 refcard-- (c) tttiw (l) MIT
+  :     ,   | |. || ||.    [...]      @a @b @c @d @p @r @t
 assign cat     pipes    block/postfix
 $[c;t;f1;f2...] $.[c;t1;t2...] $$[c1;t1;c2;t2...]
 A[o1;o2...] O[o1;o2...] W[c;t1;t2...] N[n;_n...]
-+ - * / /. % ^ ^. /% = =. ~ ~. < <= > >= band bor xor rand
-1/.2 1+2i @sx^2+2*x+1 (1;2)0 a..n..b a..=b
++ - * / /. % ^ ^. /% = =. ~ ~. < <= > >= rand
+1/.2 1+2i @sx^2+2*x+1 (1;2)0 a..n..b a..=b T true F false
 "c" "str" @l"\" @f"{[x]3735928559}" (`a:1)`a {expr} {[x]expr}
-M R TP U V Z I D REPL: \ builtins \\ exit \d debug \w wqdb
+ M     R       TP         I       D    REPL: \h <topic> \c     \
+map reshape transpose integrate  diff           docs   cmds builtins
