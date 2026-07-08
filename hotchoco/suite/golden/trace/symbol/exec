@@ -1,7 +1,7 @@
 9
 [<TEST_PATH>
 @d b = 3 (int)
-\- b = 3 (int)
+- b = 3 (int)
 [<TEST_PATH>
 @d (b*3) = 9 (int)
-\- b = 3 (int)
+- b = 3 (int)

@@ -292,18 +292,16 @@ fn render_children(
     out: &mut String,
     highlighter: &Highlighter,
 ) {
-    let last_i = nodes.len().saturating_sub(1);
-    for (i, node) in nodes.iter().enumerate() {
-        let is_last = i == last_i;
-        let connector = if is_last { "\\- " } else { "+- " };
-        let child_prefix = if is_last { "   " } else { "|  " };
+    for node in nodes {
         out.push('\n');
         out.push_str(prefix);
-        out.push_str(connector);
+        out.push_str("- ");
         out.push_str(&format_trace_node(vm, &node.record, highlighter));
-        let mut next_prefix = String::with_capacity(prefix.len() + child_prefix.len());
+
+        let mut next_prefix = String::with_capacity(prefix.len() + 2);
         next_prefix.push_str(prefix);
-        next_prefix.push_str(child_prefix);
+        next_prefix.push_str("  ");
+
         render_children(vm, &node.children, &next_prefix, out, highlighter);
     }
 }
