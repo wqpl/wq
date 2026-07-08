@@ -1,28 +1,24 @@
 ▍ Error at <TEST_PATH>
   zero-div: cannot divide by 0
   - from binary operator /
-+ at t, <TEST_PATH>
+* at t, <TEST_PATH>
 |    1    t:{k:3
 |    2 ->   1/0}
 |           ~~~
 |    3    
-
-\ at <fn>, <TEST_PATH>
++ at <fn>, <TEST_PATH>
 |    6        N[1
 |    7 ->       1;{1;t}
 |                    ~
 |    8        ]
-
-\ at a, <TEST_PATH>
++ at a, <TEST_PATH>
 |    6        N[1
 |    7 ->       1;{1;t}
 |                 ~~~~~
 |    8        ]
-
-\ at <script>, <TEST_PATH>
++ at <script>, <TEST_PATH>
 |   11    
 |   12 -> a[][][]
 |         ~~~~~~~
 |   13    
-
 ▍ Import stack: <TEST_PATH>

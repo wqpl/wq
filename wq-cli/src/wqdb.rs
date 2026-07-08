@@ -2,7 +2,7 @@
 
 use wqpl::session::Session;
 use wqpl::session::stdio::{
-    WqStdinError, wqstderr_print, wqstderr_println, wqstdin_readline, wqstdin_with_highlight_off,
+    WqStdinError, wqstderr_println, wqstdin_readline, wqstdin_with_highlight_off,
 };
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::Excerpt;
@@ -508,7 +508,7 @@ fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
             let di = host.debug_info();
             for (idx, (loc, name)) in frames.iter().enumerate() {
                 let is_current = idx == 0;
-                wqstderr_print(format_frame(di, *loc, name, is_current));
+                wqstderr_println(format_frame(di, *loc, name, is_current));
             }
             false
         }
@@ -1063,7 +1063,7 @@ fn print_current_context(host: &mut Vm) {
     let meta = di.chunk(loc.chunk);
     let span_here = meta.line_table.context_span_at(loc.pc);
     if span_here.file_id != u32::MAX {
-        wqstderr_print(format_frame(di, loc, &name, true));
+        wqstderr_println(format_frame(di, loc, &name, true));
         return;
     }
     // Find next statement at or after current pc
@@ -1078,10 +1078,10 @@ fn print_current_context(host: &mut Vm) {
         }
     }
     if let Some(nl) = next_loc {
-        wqstderr_print(format_frame(di, nl, &name, true));
+        wqstderr_println(format_frame(di, nl, &name, true));
     } else {
         // Fallback to previous behavior
-        wqstderr_print(format_frame(di, loc, &name, true));
+        wqstderr_println(format_frame(di, loc, &name, true));
     }
 }
 

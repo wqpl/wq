@@ -327,7 +327,7 @@ pub fn format_frame_with_color_mode(
     let meta = match di.chunk_opt(loc.chunk) {
         Some(m) => m,
         None => {
-            let bullet = if is_last { '+' } else { '\\' };
+            let bullet = if is_last { '*' } else { '+' };
             let gutter = paint(
                 "| ",
                 TextStyle::new().fg(AnsiColor::BrightYellow),
@@ -348,7 +348,7 @@ pub fn format_frame_with_color_mode(
     if span.file_id == u32::MAX {
         span = meta.line_table.context_span_at(loc.pc);
     }
-    let bullet = if is_last { '+' } else { '\\' };
+    let bullet = if is_last { '*' } else { '+' };
     let gutter = paint(
         "| ",
         TextStyle::new().fg(AnsiColor::BrightYellow),
@@ -460,6 +460,9 @@ pub fn format_frame_with_color_mode(
                 out.push('\n');
             }
         }
+        if out.ends_with('\n') {
+            out.truncate(out.len() - 1);
+        }
         out
     } else {
         // Unknown file but known chunk
@@ -512,6 +515,7 @@ mod tests {
 
         assert!(rendered.contains("2 -> "), "frame was: {rendered}");
         assert!(rendered.contains("1/0"), "frame was: {rendered}");
+        assert!(!rendered.ends_with('\n'), "frame was: {rendered:?}");
     }
 
     #[test]
