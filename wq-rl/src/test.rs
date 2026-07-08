@@ -207,8 +207,8 @@ fn menu_completion_is_bounded_without_prompt_or_pager() {
     let cmd = super::complete_line(&mut rdr, &mut s, &mut input_state, &config).expect("complete");
 
     assert_eq!(None, cmd);
-    assert!(out.output.contains("\n> ● alpha    first item"));
-    assert!(out.output.contains("\n  ● hotel    eighth item"));
+    assert!(out.output.contains("\n> * alpha    first item"));
+    assert!(out.output.contains("\n  * hotel    eighth item"));
     assert!(
         out.output
             .contains("\n  1-8 of 10  selected 1/10  builtin  alpha")

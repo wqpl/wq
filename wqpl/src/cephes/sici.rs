@@ -5,7 +5,7 @@
 
 use super::polevl::{EUL, p1evl, polevl};
 
-// Coefficients for |x| ≤ 4 (rational approximation)
+// Coefficients for |x| <= 4 (rational approximation)
 #[rustfmt::skip]
 static SN: &[f64] = &[
     -8.39167827910303881427e-11,
@@ -86,7 +86,7 @@ static GD4: &[f64] = &[
     7.82579218933534490868e-9,
 ];
 
-// Coefficients for x ≥ 8 (auxiliary functions f and g)
+// Coefficients for x >= 8 (auxiliary functions f and g)
 #[rustfmt::skip]
 static FN8: &[f64] = &[
     4.55880873470465315206e-1,
@@ -137,8 +137,8 @@ static GD8: &[f64] = &[
 
 /// Compute sine integral Si(x) and cosine integral Ci(x).
 ///
-/// Si(x) = ∫₀ˣ sin(t)/t dt
-/// Ci(x) = γ + ln(x) + ∫₀ˣ (cos(t)-1)/t dt
+/// Si(x) = integral from 0 to x of sin(t)/t dt
+/// Ci(x) = gamma + ln(x) + integral from 0 to x of (cos(t)-1)/t dt
 pub fn sici(x: f64) -> (f64, f64) {
     let sign = if x < 0.0 { -1.0 } else { 1.0 };
     let ax = x.abs();

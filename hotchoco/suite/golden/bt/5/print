@@ -1,20 +1,20 @@
 ▍ Error at <TEST_PATH>
   zero-div: cannot divide by 0
   - from binary operator /
-● at <fn>, <TEST_PATH>
-│    1 -> b:{c:{1/0}}
-│               ~~~
-│    2    b[][]
++ at <fn>, <TEST_PATH>
+|    1 -> b:{c:{1/0}}
+|               ~~~
+|    2    b[][]
 
-○ at b, <TEST_PATH>
-│    1 -> b:{c:{1/0}}
-│            ~~~~~~~
-│    2    b[][]
+\ at b, <TEST_PATH>
+|    1 -> b:{c:{1/0}}
+|            ~~~~~~~
+|    2    b[][]
 
-○ at <script>, <TEST_PATH>
-│    1    b:{c:{1/0}}
-│    2 -> b[][]
-│         ~~~~~
-│    3    
+\ at <script>, <TEST_PATH>
+|    1    b:{c:{1/0}}
+|    2 -> b[][]
+|         ~~~~~
+|    3    
 
 ▍ Import stack: <TEST_PATH>

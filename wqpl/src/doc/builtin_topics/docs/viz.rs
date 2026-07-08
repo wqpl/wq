@@ -17,7 +17,7 @@ const SHOWTABLE_EXAMPLES: &[DocExample] = &[
 const ASCIIPLOT_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Plot a sampled function",
-        code: "asciiplot[sin;`xlim:(0;6.283);`size:(40;10);`samples:80;`grid:4;`ticklabels:T;`ascii:T;`color:F;`symbols:\"*\";`caption:(\"Sine\";\"x\";\"y\");`labels:(\"sin\")]",
+        code: "asciiplot[sin;`xlim:(0;6.283);`size:(40;10);`samples:80;`grid:4;`ticklabels:T;`color:F;`symbols:\"*\";`caption:(\"Sine\";\"x\";\"y\");`labels:(\"sin\")]",
         expectation: ExampleExpectation::NoRun("writes a terminal plot to stdout"),
     },
     DocExample {
@@ -74,7 +74,7 @@ Global options:
 - Size: `size:(w;h)`, `width`, `height`, or the current terminal when unset.
 - Bounds and sampling: `xlim`, `ylim`, `samples`, and `complex`.
 - Table columns: `x` and `y`.
-- Styling: `symbols`, `labels`, `mode`, `axes`, `color`, `grid`, `theme`, `ascii`, `ticklabels`, `title`, `xlabel`, `ylabel`, and `caption`.
+- Styling: `symbols`, `labels`, `mode`, `axes`, `color`, `grid`, `theme`, `unicode`, `ticklabels`, `title`, `xlabel`, `ylabel`, and `caption`.
 
 Option values:
 
@@ -84,6 +84,7 @@ Option values:
 - `grid`: `T`, `F`, an integer density, or `(x;y)` densities.
 - `ticklabels:T`: add numeric labels for interior tick positions.
 - `color`: `T`, `F`, a color name, or a list of color names; known names include black, red, green, yellow, blue, magenta, cyan, white, gray/grey, and bright_* variants.
+- `unicode:T`: use Unicode drawing glyphs instead of the default ASCII glyphs.
 - `theme`: apply a preset before other named options; `minimal` sets axes/grid off with color on, and `maximal` sets full axes, grid on, and color on. Later `axes`, `grid`, or `color` options override the preset.
 - `complex`: `re`/`real`, `im`/`imag`/`imaginary`, `abs`, `arg`, or `plane`; `plane` plots complex outputs as `(real;imag)` points.
 - `caption:(title;xlabel;ylabel)`: shortcut for the three label options.",

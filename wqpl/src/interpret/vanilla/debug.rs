@@ -295,8 +295,8 @@ fn render_children(
     let last_i = nodes.len().saturating_sub(1);
     for (i, node) in nodes.iter().enumerate() {
         let is_last = i == last_i;
-        let connector = if is_last { "└─ " } else { "├─ " };
-        let child_prefix = if is_last { "   " } else { "│  " };
+        let connector = if is_last { "\\- " } else { "+- " };
+        let child_prefix = if is_last { "   " } else { "|  " };
         out.push('\n');
         out.push_str(prefix);
         out.push_str(connector);
@@ -464,7 +464,7 @@ mod tests {
             "expected highlighted expression snippet, got: {rendered:?}"
         );
         assert!(
-            rendered.contains("├─ \x1b[38;5;220m1\x1b[0m = 1 (int)"),
+            rendered.contains("+- \x1b[38;5;220m1\x1b[0m = 1 (int)"),
             "expected highlighted child trace snippet, got: {rendered:?}"
         );
         assert!(
@@ -476,7 +476,7 @@ mod tests {
             "visible header changed, got: {rendered:?}"
         );
         assert!(
-            strip_ansi(&rendered).contains("├─ 1 = 1 (int)"),
+            strip_ansi(&rendered).contains("+- 1 = 1 (int)"),
             "visible trace tree changed, got: {rendered:?}"
         );
     }

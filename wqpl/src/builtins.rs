@@ -1171,7 +1171,7 @@ declare_builtins! {
     (ASCIIPLOT, Asciiplot, "asciiplot",
         concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim;",
             "`x;`y;`symbols;`labels;`mode;`axes;`color;`grid;",
-            "`samples;`theme;`complex;`ascii;",
+            "`samples;`theme;`complex;`unicode;",
             "`ticklabels;`title;`xlabel;`ylabel;`caption]"), sig!(arity!(1..), named ASCIIPLOT_NAMED_ARGS), with_context(viz::asciiplot), BuiltinGroup::Viz),
 
     // Intrinsic ====================================================
@@ -1223,7 +1223,7 @@ const ASCIIPLOT_NAMED_ARGS: &[&str] = &[
     "samples",
     "theme",
     "complex",
-    "ascii",
+    "unicode",
     "title",
     "xlabel",
     "ylabel",
@@ -1926,7 +1926,10 @@ mod tests {
 
         let asciiplot_args = BuiltinFnArgs::with_named(
             SmallVec::from_vec(vec![Value::IntList(Arc::new(vec![1, 2, 3]))]),
-            vec![(Arc::<str>::from("width"), Value::Int(40))],
+            vec![
+                (Arc::<str>::from("width"), Value::Int(40)),
+                (Arc::<str>::from("unicode"), Value::Bool(true)),
+            ],
         );
         assert!(
             builtins

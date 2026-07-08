@@ -37,7 +37,7 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
         configs.extend(parse_series_arg(&arg, &opts)?);
     }
     if configs.is_empty() {
-        return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg("expected each arg to be (a list of numbers) or (a list of 2‑element numeric lists)").attach_note(
+        return Err(WqError::new(WqErrorType::Domain).src(BE::Asciiplot).msg("expected each arg to be (a list of numbers) or (a list of 2-element numeric lists)").attach_note(
                 "e.g. (1;2;3), ((1;2);(2;4))"));
     }
     let mut all_series: Vec<PlotSeries> = Vec::with_capacity(configs.len());
@@ -1077,7 +1077,7 @@ struct PlotOptions {
     grid: GridMode,
     samples: Option<usize>,
     complex_mode: ComplexMode,
-    ascii: bool,
+    unicode: bool,
     tick_labels: bool,
     title: Option<String>,
     xlabel: Option<String>,
@@ -1128,7 +1128,7 @@ impl Default for PlotOptions {
             grid: GridMode::Off,
             samples: None,
             complex_mode: ComplexMode::Real,
-            ascii: false,
+            unicode: false,
             tick_labels: false,
             title: None,
             xlabel: None,
@@ -1256,8 +1256,8 @@ impl PlotOptions {
         if let Some(mode) = args.named("complex").and_then(parse_complex_mode) {
             self.complex_mode = mode;
         }
-        if let Some(Value::Bool(b)) = args.named("ascii") {
-            self.ascii = *b;
+        if let Some(Value::Bool(b)) = args.named("unicode") {
+            self.unicode = *b;
         }
         if let Some(Value::Bool(b)) = args.named("ticklabels") {
             self.tick_labels = *b;
@@ -1395,8 +1395,8 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
         let xticks = ticks_in_range(xmin, xmax, gx);
         let yticks = ticks_in_range(ymin, ymax, gy);
         let grid_color = Some(AnsiColor::BrightBlack);
-        let ch_h = if opts.ascii { '.' } else { '┈' };
-        let ch_v = if opts.ascii { ':' } else { '┊' };
+        let ch_h = if opts.unicode { '┈' } else { '.' };
+        let ch_v = if opts.unicode { '┊' } else { ':' };
         for yv in yticks {
             let t = (yv - ymin) / yspan;
             let row = (height as f64 - 1.0 - t * (height as f64 - 1.0)).round() as isize;
@@ -1438,9 +1438,9 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
     match opts.axes {
         AxesMode::Off => {}
         AxesMode::Minimal => {
-            let axis_h = if opts.ascii { '-' } else { '─' };
-            let axis_v = if opts.ascii { '|' } else { '│' };
-            let cross = if opts.ascii { '+' } else { '┼' };
+            let axis_h = if opts.unicode { '─' } else { '-' };
+            let axis_v = if opts.unicode { '│' } else { '|' };
+            let cross = if opts.unicode { '┼' } else { '+' };
             for x in 0..width {
                 set_cell_layer(
                     &mut grid,
@@ -1478,9 +1478,9 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
             }
         }
         AxesMode::Full => {
-            let axis_h = if opts.ascii { '-' } else { '─' };
-            let axis_v = if opts.ascii { '|' } else { '│' };
-            let cross = if opts.ascii { '+' } else { '┼' };
+            let axis_h = if opts.unicode { '─' } else { '-' };
+            let axis_v = if opts.unicode { '│' } else { '|' };
+            let cross = if opts.unicode { '┼' } else { '+' };
             for x in 0..width {
                 set_cell_layer(
                     &mut grid,
@@ -1530,7 +1530,7 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
                         &mut grid,
                         c,
                         y0_row as isize,
-                        if opts.ascii { '+' } else { '┼' },
+                        if opts.unicode { '┼' } else { '+' },
                         Layer::Axis,
                         None,
                         opts.color.is_on(),
@@ -1547,7 +1547,7 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
                         &mut grid,
                         x0_col as isize,
                         r,
-                        if opts.ascii { '+' } else { '┼' },
+                        if opts.unicode { '┼' } else { '+' },
                         Layer::Axis,
                         None,
                         opts.color.is_on(),
@@ -1676,7 +1676,7 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
                                 color,
                                 opts.color.is_on(),
                                 si,
-                                opts.ascii,
+                                opts.unicode,
                             );
                         }
                     }
@@ -1694,7 +1694,7 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
                             color,
                             opts.color.is_on(),
                             si,
-                            opts.ascii,
+                            opts.unicode,
                         );
                     }
                 }
@@ -1820,7 +1820,7 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
 
 fn plot_series_symbol(series: Option<&PlotSeries>, idx: usize, opts: &PlotOptions) -> char {
     let fallback = if opts.symbols.is_empty() {
-        '·'
+        '*'
     } else {
         opts.symbols[idx % opts.symbols.len()]
     };
@@ -2000,7 +2000,7 @@ fn set_area_cell(
     color: Option<AnsiColor>,
     color_on: bool,
     series_idx: usize,
-    ascii: bool,
+    unicode: bool,
 ) {
     let Some((x, y)) = grid_index(grid, x, y) else {
         return;
@@ -2016,7 +2016,7 @@ fn set_area_cell(
 
     let overlaps_area = cell.layer == Layer::Data && cell.area_count > 0;
     if overlaps_area {
-        cell.ch = area_overlap_char(ascii);
+        cell.ch = area_overlap_char(unicode);
         cell.layer = Layer::Data;
         cell.color = if color_on {
             mix_area_colors(cell.color, color)
@@ -2043,8 +2043,8 @@ fn area_series_bit(series_idx: usize) -> Option<u128> {
     }
 }
 
-fn area_overlap_char(ascii: bool) -> char {
-    if ascii { '%' } else { '▓' }
+fn area_overlap_char(unicode: bool) -> char {
+    if unicode { '▓' } else { '%' }
 }
 
 fn rasterize_line(mut x0: isize, mut y0: isize, x1: isize, y1: isize) -> Vec<(isize, isize)> {
@@ -2912,6 +2912,62 @@ mod tests {
     }
 
     #[test]
+    fn render_defaults_to_ascii_glyphs() {
+        let opts = PlotOptions {
+            width: 5,
+            height: 5,
+            xlim: Some((-1.0, 1.0)),
+            ylim: Some((-1.0, 1.0)),
+            axes: AxesMode::Minimal,
+            color: ColorMode::Off,
+            ..PlotOptions::default()
+        };
+        let series = vec![PlotSeries {
+            points: vec![(1.0, 1.0)],
+            breaks_after: Vec::new(),
+            symbol: None,
+            mode: Some(PlotMode::Scatter),
+            label: None,
+        }];
+
+        let rendered = render_ascii_plot(&series, &opts);
+
+        assert!(rendered.contains('+'));
+        assert!(rendered.contains('-'));
+        assert!(rendered.contains('|'));
+        assert!(rendered.contains('·'));
+        assert!(!rendered.contains('┼'));
+        assert!(!rendered.contains('─'));
+        assert!(!rendered.contains('│'));
+    }
+
+    #[test]
+    fn render_can_opt_into_unicode_glyphs() {
+        let opts = PlotOptions {
+            width: 5,
+            height: 5,
+            xlim: Some((-1.0, 1.0)),
+            ylim: Some((-1.0, 1.0)),
+            axes: AxesMode::Minimal,
+            unicode: true,
+            color: ColorMode::Off,
+            ..PlotOptions::default()
+        };
+        let series = vec![PlotSeries {
+            points: vec![(1.0, 1.0)],
+            breaks_after: Vec::new(),
+            symbol: None,
+            mode: Some(PlotMode::Scatter),
+            label: None,
+        }];
+
+        let rendered = render_ascii_plot(&series, &opts);
+
+        assert!(rendered.contains('┼'));
+        assert!(rendered.contains('·'));
+    }
+
+    #[test]
     fn area_overlap_mixes_primary_colors() {
         assert_eq!(
             mix_area_colors(Some(AnsiColor::Red), Some(AnsiColor::Blue)),
@@ -3058,7 +3114,7 @@ mod tests {
             grid: GridMode::Density(4, 4),
             tick_labels: true,
             axes: AxesMode::Full,
-            ascii: true,
+            unicode: false,
             color: ColorMode::Off,
             ..PlotOptions::default()
         };

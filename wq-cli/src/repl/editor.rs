@@ -23,9 +23,9 @@ const REPL_INPUT_RESET: &str = "\x1b[0m";
 const REPL_INPUT_TOKEN_RESET: &str = "\x1b[22;23;24;39m";
 const HINT_DIM: &str = "\x1b[38;5;244m";
 const HINT_RESET: &str = "\x1b[22;39m";
-const MENU_DOT: &str = "●";
-const MENU_DOT_DIM: &str = "\x1b[38;5;67m";
-const MENU_DOT_SELECTED: &str = "\x1b[38;5;150m";
+const MENU_MARKER: &str = "*";
+const MENU_MARKER_DIM: &str = "\x1b[38;5;67m";
+const MENU_MARKER_SELECTED: &str = "\x1b[38;5;150m";
 const MENU_FOOTER: &str = "\x1b[38;5;248m";
 const MENU_SELECTED: &str = "\x1b[1;38;5;252m";
 
@@ -386,7 +386,7 @@ impl WqReplHighlighter {
     }
 
     fn is_completion_menu_row(line: &str) -> bool {
-        line.starts_with("> ● ") || line.starts_with("  ● ")
+        line.starts_with("> * ") || line.starts_with("  * ")
     }
 
     fn colorize_completion_menu_hint(hint: &str) -> String {
@@ -396,20 +396,20 @@ impl WqReplHighlighter {
             if idx > 0 {
                 out.push('\n');
             }
-            if let Some(rest) = line.strip_prefix("> ● ") {
+            if let Some(rest) = line.strip_prefix("> * ") {
                 out.push_str(MENU_SELECTED);
                 out.push_str("> ");
-                out.push_str(MENU_DOT_SELECTED);
-                out.push_str(MENU_DOT);
+                out.push_str(MENU_MARKER_SELECTED);
+                out.push_str(MENU_MARKER);
                 out.push(' ');
                 out.push_str(MENU_SELECTED);
                 out.push_str(rest);
                 out.push_str(HINT_DIM);
-            } else if let Some(rest) = line.strip_prefix("  ● ") {
+            } else if let Some(rest) = line.strip_prefix("  * ") {
                 out.push_str(HINT_DIM);
                 out.push_str("  ");
-                out.push_str(MENU_DOT_DIM);
-                out.push_str(MENU_DOT);
+                out.push_str(MENU_MARKER_DIM);
+                out.push_str(MENU_MARKER);
                 out.push(' ');
                 out.push_str(HINT_DIM);
                 out.push_str(rest);
@@ -756,20 +756,20 @@ mod tests {
     #[test]
     fn completion_menu_hint_coloring_preserves_visible_text() {
         let h = WqReplHighlighter::new();
-        let src = "\n> ● alpha    first item\n  ● beta     second item\n  1-2 of 2  selected 1/2  builtin  alpha";
+        let src = "\n> * alpha    first item\n  * beta     second item\n  1-2 of 2  selected 1/2  builtin  alpha";
         let out = h.highlight_hint(src);
 
         if cfg!(unix) {
-            assert!(out.contains(MENU_DOT_SELECTED));
+            assert!(out.contains(MENU_MARKER_SELECTED));
             assert!(out.contains(MENU_FOOTER));
         }
         assert_eq!(strip_ansi(&out), src);
 
-        let selected_line = "> ● alpha    first item";
+        let selected_line = "> * alpha    first item";
         let selected_out = h.highlight_hint(selected_line);
 
         if cfg!(unix) {
-            assert!(selected_out.contains(MENU_DOT_SELECTED));
+            assert!(selected_out.contains(MENU_MARKER_SELECTED));
         }
         assert_eq!(strip_ansi(&selected_out), selected_line);
     }

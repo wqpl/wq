@@ -40,9 +40,9 @@ static ELLPK_Q: &[f64] = &[
 ///
 /// `ellpk(m1) = K(m)` where `m = 1 - m1`.
 ///
-/// `K(m) = ∫₀^(π/2) (1 - m sin²t)^(-1/2) dt`
+/// `K(m) = integral from 0 to pi/2 of (1 - m sin^2(t))^(-1/2) dt`
 ///
-/// Domain: `0 ≤ m1 ≤ 1`.
+/// Domain: `0 <= m1 <= 1`.
 pub fn ellpk(m1: f64) -> f64 {
     if !(0.0..=1.0).contains(&m1) {
         return f64::NAN;
@@ -90,9 +90,9 @@ static ELLPE_Q: &[f64] = &[
 ///
 /// `ellpe(m1) = E(m)` where `m = 1 - m1`.
 ///
-/// `E(m) = ∫₀^(π/2) sqrt(1 - m sin²t) dt`
+/// `E(m) = integral from 0 to pi/2 of sqrt(1 - m sin^2(t)) dt`
 ///
-/// Domain: `0 ≤ m1 ≤ 1`.
+/// Domain: `0 <= m1 <= 1`.
 pub fn ellpe(m1: f64) -> f64 {
     if m1 == 0.0 {
         return 1.0;
@@ -107,9 +107,10 @@ pub fn ellpe(m1: f64) -> f64 {
 
 /// Incomplete elliptic integral of the first kind.
 ///
-/// `ellik(phi, m) = F(φ | m) = ∫₀^φ (1 - m sin²t)^(-1/2) dt`
+/// `ellik(phi, m) = F(phi | m) = integral from 0 to phi of (1 - m
+/// sin^2(t))^(-1/2) dt`
 ///
-/// Domain: `0 ≤ m ≤ 1`.
+/// Domain: `0 <= m <= 1`.
 pub fn ellik(phi: f64, m: f64) -> f64 {
     if !(0.0..=1.0).contains(&m) {
         return f64::NAN;
@@ -194,9 +195,10 @@ pub fn ellik(phi: f64, m: f64) -> f64 {
 
 /// Incomplete elliptic integral of the second kind.
 ///
-/// `ellie(phi, m) = E(φ | m) = ∫₀^φ sqrt(1 - m sin²t) dt`
+/// `ellie(phi, m) = E(phi | m) = integral from 0 to phi of sqrt(1 - m sin^2(t))
+/// dt`
 ///
-/// Domain: `0 ≤ m ≤ 1`.
+/// Domain: `0 <= m <= 1`.
 pub fn ellie(phi: f64, m: f64) -> f64 {
     if !(0.0..=1.0).contains(&m) {
         return f64::NAN;

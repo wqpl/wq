@@ -477,13 +477,11 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                             let refcard = include_str!("../../d/refcard");
                             let lines: Vec<&str> = refcard.lines().collect();
                             let width = lines.iter().map(|l| vis_width(l)).max().unwrap_or(0);
-                            let top = format!("┌{}┐", "─".repeat(width + 4));
-                            let bot = format!("└{}┘", "─".repeat(width + 4));
-                            println!("{}", repl_dim(&top));
+                            println!("{}", repl_card_rule(width));
                             for line in lines {
-                                println!("│  {}  │", pad_vis(line.to_string(), width));
+                                println!("{}", repl_card_row(line.to_string(), width));
                             }
-                            println!("{}", repl_dim(&bot));
+                            println!("{}", repl_card_rule(width));
                         }
                         continue;
                     }
@@ -841,26 +839,26 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
 
     const INNER: usize = 44;
 
-    let top = format!("┌{}┐", "─".repeat(INNER + 4));
-    let sep = format!("├{}┤", "─".repeat(INNER + 4));
-    let bot = format!("└{}┘", "─".repeat(INNER + 4));
+    let top = repl_card_rule(INNER);
+    let sep = repl_card_separator(INNER);
+    let bot = repl_card_rule(INNER);
 
     let mut lines: Vec<String> = Vec::new();
 
-    lines.push(repl_dim(&top));
+    lines.push(top);
     let title = format!(
         "{}         {}",
         repl_color(&format!("wq {WQ_VERSION}"), AnsiColor::Magenta),
         repl_dim("(c) tttiw  (l) MIT")
     );
-    lines.push(format!("│  {}  │", pad_vis(title, INNER)));
+    lines.push(repl_card_row(title, INNER));
     let hints = format!(
         "{}  {}",
         repl_color(r"\help", AnsiColor::Green),
         repl_color(r"\exit", AnsiColor::Green)
     );
-    lines.push(format!("│  {}  │", pad_vis(hints, INNER)));
-    lines.push(repl_dim(&sep));
+    lines.push(repl_card_row(hints, INNER));
+    lines.push(sep);
 
     const SECOND_COL: usize = 31;
 
@@ -884,7 +882,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         pad_label(repl_color("avpa", AnsiColor::Blue), 5),
         repl_dim(&avpa)
     ));
-    lines.push(format!("│  {}  │", pad_vis(host_line, INNER)));
+    lines.push(repl_card_row(host_line, INNER));
 
     let mut pid_line = format!(
         "{}  {}",
@@ -897,7 +895,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         pad_label(repl_color("stack", AnsiColor::Blue), 5),
         repl_dim(&stack_size.to_string())
     ));
-    lines.push(format!("│  {}  │", pad_vis(pid_line, INNER)));
+    lines.push(repl_card_row(pid_line, INNER));
 
     let cwd_prefix = format!("{}  ", pad_label(repl_color("cwd", AnsiColor::Blue), 4));
     let cwd_prefix_vis = vis_width(&cwd_prefix);
@@ -909,7 +907,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         } else {
             format!("{}{}", " ".repeat(cwd_prefix_vis), repl_dim(chunk))
         };
-        lines.push(format!("│  {}  │", pad_vis(content, INNER)));
+        lines.push(repl_card_row(content, INNER));
     }
 
     let mut profile_line = format!(
@@ -924,18 +922,15 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         pad_label(repl_color("llvm", AnsiColor::Red), 5),
         repl_dim(RUSTC_LLVM_VERSION)
     ));
-    lines.push(format!("│  {}  │", pad_vis(profile_line, INNER)));
+    lines.push(repl_card_row(profile_line, INNER));
 
-    lines.push(format!(
-        "│  {}  │",
-        pad_vis(
-            format!(
-                "{}  {}",
-                repl_color("rustc", AnsiColor::Red),
-                repl_dim(rustc_ver_short)
-            ),
-            INNER
-        )
+    lines.push(repl_card_row(
+        format!(
+            "{}  {}",
+            repl_color("rustc", AnsiColor::Red),
+            repl_dim(rustc_ver_short)
+        ),
+        INNER,
     ));
 
     let mut interp_line = format!(
@@ -949,9 +944,9 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         pad_label(repl_color("bfn", AnsiColor::BrightYellow), 5),
         repl_dim(evaluator.builtins_preset().name())
     ));
-    lines.push(format!("│  {}  │", pad_vis(interp_line, INNER)));
+    lines.push(repl_card_row(interp_line, INNER));
 
-    lines.push(repl_dim(&bot));
+    lines.push(bot);
 
     let term_w = terminal_size()
         .map(|(Width(w), _)| w as usize)
@@ -988,7 +983,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         (237, 63, 133),  // #ED3F85 pink
         (254, 194, 250), // #FEC2FA light pink
     ];
-    let sky_chars = ["·", ".", "*", "+", "•"];
+    let sky_chars = [".", "*", "+", "·"];
     let sky_stars: Vec<String> = sky_chars
         .iter()
         .flat_map(|&ch| palette.iter().map(|(r, g, b)| repl_rgb(ch, *r, *g, *b)))
@@ -1007,7 +1002,7 @@ fn print_repl_startup(evaluator: &Session, stack_size: usize) {
         0
     };
     let cat_y_start = 0;
-    let cat_chars = ["*", "•", "+"];
+    let cat_chars = ["*", "+", "·"];
     let cat_stars: Vec<String> = cat_chars
         .iter()
         .flat_map(|&ch| palette.iter().map(|(r, g, b)| repl_rgb(ch, *r, *g, *b)))
@@ -1110,6 +1105,28 @@ fn pad_vis(s: String, width: usize) -> String {
     } else {
         s
     }
+}
+
+fn repl_card_rule(inner_width: usize) -> String {
+    repl_dim(&format!("+{}+", "-".repeat(inner_width + 4)))
+}
+
+fn repl_card_separator(inner_width: usize) -> String {
+    format!(
+        "{}{}{}",
+        repl_dim("|"),
+        repl_dim(&"-".repeat(inner_width + 4)),
+        repl_dim("|")
+    )
+}
+
+fn repl_card_row(content: String, inner_width: usize) -> String {
+    format!(
+        "{}  {}  {}",
+        repl_dim("|"),
+        pad_vis(content, inner_width),
+        repl_dim("|")
+    )
 }
 
 fn wrap_text(s: &str, width: usize) -> Vec<String> {
@@ -1350,21 +1367,18 @@ fn print_goodbye() {
     } else {
         [":D", ":D", ":D", ":D", ":)"]
     };
-    print!("{}", repl_color("\u{258D} goodbye! ", AnsiColor::Cyan));
+    print!("{}", repl_color("| goodbye! ", AnsiColor::Cyan));
     stdout.flush().unwrap();
     thread::sleep(Duration::from_millis(250));
     for &face in &frames {
         print!(
             "\r{}",
-            repl_color(&format!("\u{258D} goodbye! {face}"), AnsiColor::Cyan)
+            repl_color(&format!("| goodbye! {face}"), AnsiColor::Cyan)
         );
         stdout.flush().unwrap();
         thread::sleep(Duration::from_millis(300));
     }
-    print!(
-        "\r{}",
-        repl_color("\u{258D} goodbye!        ", AnsiColor::Cyan)
-    );
+    print!("\r{}", repl_color("| goodbye!        ", AnsiColor::Cyan));
     println!();
 }
 
@@ -1397,20 +1411,31 @@ fn debug_help_table(active: DebugLogFlags) -> String {
     ];
     let left_w = rows.iter().map(|(l, _)| l.len()).max().unwrap_or(0);
     let right_w = rows.iter().map(|(_, r)| r.len()).max().unwrap_or(0);
-    let rule = format!("+-{:-<left_w$}-+-{:-<right_w$}-+", "", "");
+    let rule = repl_dim(&format!("+-{:-<left_w$}-+-{:-<right_w$}-+", "", ""));
     let mut out = String::new();
     out.push_str(&rule);
     out.push('\n');
-    out.push_str(&format!("| {:<left_w$} | {:<right_w$} |", "spec", "flags"));
+    out.push_str(&debug_help_table_row("spec", "flags", left_w, right_w));
     out.push('\n');
     out.push_str(&rule);
     out.push('\n');
     for (left, right) in rows {
-        out.push_str(&format!("| {:<left_w$} | {:<right_w$} |", left, right));
+        out.push_str(&debug_help_table_row(left, &right, left_w, right_w));
         out.push('\n');
     }
     out.push_str(&rule);
     out
+}
+
+fn debug_help_table_row(left: &str, right: &str, left_w: usize, right_w: usize) -> String {
+    format!(
+        "{} {:<left_w$} {} {:<right_w$} {}",
+        repl_dim("|"),
+        left,
+        repl_dim("|"),
+        right,
+        repl_dim("|")
+    )
 }
 
 fn dump_builtins(builtins: &Builtins) {

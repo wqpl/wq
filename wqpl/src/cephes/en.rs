@@ -9,9 +9,9 @@ const BIG: f64 = 1.44115188075855872e17;
 const MACHEP: f64 = f64::EPSILON;
 const MAXLOG: f64 = 709.782712893384; // approximately f64::MAX.ln()
 
-/// Exponential integral En(n, x) for n ≥ 0, x ≥ 0.
+/// Exponential integral En(n, x) for n >= 0, x >= 0.
 ///
-/// Eₙ(x) = ∫₁^∞ e^(-xt) / tⁿ dt
+/// E_n(x) = integral from 1 to infinity of e^(-xt) / t^n dt
 ///
 /// Returns NaN for n < 0 or x < 0.
 pub fn en(n: i32, x: f64) -> f64 {

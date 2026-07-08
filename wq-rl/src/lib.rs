@@ -273,7 +273,7 @@ fn complete_hint_line<H: Helper, P: Prompt + ?Sized>(s: &mut State<'_, '_, H, P>
 }
 
 const MENU_MAX_ROWS: usize = 8;
-const MENU_MARKER: &str = "●";
+const MENU_MARKER: &str = "*";
 const MENU_FALLBACK_KIND: &str = "candidate";
 const MENU_RIGHT_GUARD_WIDTH: Unit = 1;
 const MENU_ROW_PREFIX_WIDTH: Unit = 4;
