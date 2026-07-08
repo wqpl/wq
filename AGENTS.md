@@ -6,7 +6,7 @@
   - `lhs:rhs` is assignment
   - `a=b` is equality
   - list is `(1;2;3)`
-    - wrong: `(1 2 3)`
+    - wrong shape: `(1 2 3)`
   - call/index is `target[expr1;expr2...]`. Notice the brackets and semicolons
   - postfix:
     - `fn arg` calls
@@ -14,21 +14,21 @@
       - wrong: `fn arg1 arg2`
     - `container index` indexes
   - `+` is broadcasting add
-  - binary `,` is cat
-  - leading `,` is enlist
+  - binary `,` concats
+  - leading `,` enlists
   - `/` is classic division and integer division produces floats. `/.` is exact division and preserves rational fractions when possible.
-  - `^` is classic/runtime power; negative or fractional numeric exponents may produce floats/complex values. `^.` is exact power. Use exact operands such as `1/.3`, not `1/3`, when you need exact fractional exponents.
+  - `^` is classic power; negative or fractional numeric exponents may produce floats/complex values. `^.` is exact power. Use exact operands such as `1/.3`, not `1/3`, when you need exact fractional exponents.
   - CAS simplification (`@s`, `cas_*`, `numeric_*`) should preserve exact constants where possible. It may use exact dot arithmetic internally even when the symbolic surface operator is `CasOp::Divide` or `CasOp::Power`.
     - If you add or change CAS integration strategies, update the unsupported integral reason classifier in `wqpl/src/cas/integrate.rs` and its tests so `unsupported symbolic integral` notes stay accurate.
-  - `$[c;t;f]` is ternary. If false, every expression after the second semicolon belongs to the false branch, so `$[c;t;f1;f2]` runs `f1` then returns `f2` when `c` is false.
+  - `$[c;t;f;...]` is ternary. If false, every expression after the second semicolon belongs to the false branch, so `$[c;t;f1;f2]` runs `f1` then returns `f2` when `c` is false.
   - `$.[c;t1;t2...]` is a guard. It runs the body only when `c` is true; otherwise it returns unit `()`.
   - `$$[c1;t1;c2;t2;default]` is a condition chain. Conditions are checked in order. The final default is optional; omitted default is unit.
   - `|` is pipe, which inserts lhs as the first arg to rhs call
-  - `\` or `bor[...]` (backslash) is bitwise or.
-  - `\|` (backslash pipe) is short-circuit bool or.
-  - `or[...]` is eager bool or.
-  - `(1)` is not a list. It is simply atom `1`
-  - comments: `//` `/* */`
+  - `bor[...]` (backslash) is bitwise or.
+  - `A[...]`, `O[...]` is short-circuit bool and/or.
+  - `and[...]`, `or[...]` is eager bool or.
+  - `(1)` is not a list. It is atom `1`.
+  - comments: `//` `/* */`. `/ a` is division and not a comment.
   - canonical value naming:
     - user-facing containers are `list` and `dict`
     - user-facing non-containers are atoms; do not call wq values scalars
@@ -38,7 +38,7 @@
     - do not use "list-like" in user-facing docs; use "container" when both list and dict are meant, or "list" when dicts are not included
     - in user-facing docs, prefer prose such as "list of ints" over compact type notation
     - reserve internal Rust storage names such as `Value::IntList`, `Value::BoolList`, `Value::FloatList`, and `Value::String` for implementation details
-  - `@r expr` is return
+  - `@r expr` returns from a function.
   - `@s <expr>` creates a symbolic CAS structure.
     - After using `@s` to create one, apply operations directly instead of stacking `@s`.
       - e.g. `diff integrate @s 1/(x^3-2)`
