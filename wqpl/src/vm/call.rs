@@ -265,6 +265,7 @@ impl Vm {
         let saved_cache = std::mem::replace(&mut self.inline_cache, new_cache);
         let mut saved_tail_journal = std::mem::take(&mut self.tail_call_journal);
         let saved_tail_overflow = self.tail_call_journal_overflow;
+        let saved_tail_depth = std::mem::take(&mut self.tail_call_depth);
         self.tail_call_journal_overflow = false;
         // Push debug frame
         let mut pushed_dbg = false;
@@ -308,6 +309,7 @@ impl Vm {
             return_cache_to_pool(&mut self.cache_pool, cache_len, unused_cache);
             std::mem::swap(&mut self.tail_call_journal, &mut saved_tail_journal);
             self.tail_call_journal_overflow = saved_tail_overflow;
+            self.tail_call_depth = saved_tail_depth;
             if pushed_dbg && let Some(fr) = self.call_stack.pop() {
                 self.current_chunk = fr.chunk;
             }
@@ -369,6 +371,7 @@ impl Vm {
         self.pc = saved_pc;
         std::mem::swap(&mut self.tail_call_journal, &mut saved_tail_journal);
         self.tail_call_journal_overflow = saved_tail_overflow;
+        self.tail_call_depth = saved_tail_depth;
         if pushed_dbg && let Some(fr) = self.call_stack.pop() {
             self.current_chunk = fr.chunk;
         }

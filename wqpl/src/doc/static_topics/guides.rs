@@ -121,7 +121,12 @@ pub(super) const WQDB: StaticDoc = StaticDoc {
     details: "wqdb pauses execution at source locations, records backtraces and locals, and gives hosts enough debug metadata to implement stepping, breakpoints, symbol tracking, and stop hooks.
 The core `wqpl` crate owns this debug model and APIs such as pause state, breakpoint state, and source-location metadata.
 Concrete command names, aliases, colored terminal help, and command-line flags such as `-w`, `-o`, and `--wqdb-script` belong to the host application.
-In the standard CLI, `@p` pauses in wqdb when debugging is enabled, `-w` enables wqdb, and repeated `-o <cmd>` values run once at the first debugger stop.",
+In the standard CLI, `@p` pauses in wqdb when debugging is enabled, `-w` enables wqdb, and repeated `-o <cmd>` values run once at the first debugger stop.
+
+Stepping starts at `expr` granularity, which pauses at each semicolon-separated expression.
+Use `g line` to coalesce expressions on the same source line, `g inst` to pause before every VM instruction, or `g expr` to return to expression stepping.
+`g` by itself reports the current granularity.
+The `s`, `n`, and `fin` commands keep their step-in, step-over, and step-out behavior at every granularity.",
     examples: WQDB_EXAMPLES,
     related: &["@p", "@d", "assignment-forms"],
 };

@@ -5,6 +5,7 @@ use crate::value::func::{
 };
 use crate::value::{Excerpt, Value};
 use crate::vm::Vm;
+use crate::vm::inst::Instruction;
 use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
 };
@@ -12,7 +13,7 @@ use crate::wqdb::data::{
     Backtrace, ChunkId, CodeLoc, DebugChunkSpec, DebugInfo, DebugLocalsFrame, DebugProvenance,
     DebugStepHints,
 };
-use crate::wqdb::model::{BreakpointKind, StepMode, SymbolTrackTarget};
+use crate::wqdb::model::{BreakpointKind, StepGranularity, StepMode, SymbolTrackTarget};
 
 impl Vm {
     pub fn set_bt_mode(&mut self, flag: bool) {
@@ -595,10 +596,10 @@ impl Vm {
         }
     }
 
-    /// The VM’s call_depth() is debugger-only and stays at 0 unless
-    /// debug/backtrace mode is active
+    /// The VM's call depth is debugger-only and includes journaled tail-call
+    /// frames so step-over and step-out follow logical calls.
     pub(crate) fn call_depth(&self) -> usize {
-        self.call_stack.len()
+        self.call_stack.len().saturating_add(self.tail_call_depth)
     }
 
     pub fn debug_info(&self) -> &DebugInfo {
@@ -844,6 +845,14 @@ impl Vm {
         self.wqdb.clear_mode();
     }
 
+    pub fn dbg_step_granularity(&self) -> StepGranularity {
+        self.wqdb.granularity()
+    }
+
+    pub fn dbg_set_step_granularity(&mut self, granularity: StepGranularity) {
+        self.wqdb.set_granularity(granularity);
+    }
+
     pub fn dbg_step_in(&mut self) {
         if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
             eprintln!("[wqdb]: dbg_step_in called at PC {}", self.pc);
@@ -855,133 +864,11 @@ impl Vm {
     }
 
     pub fn dbg_step_over(&mut self) {
-        // Step over: pause at the next statement encountered in the
-        // current or outer frames (do not step into deeper frames).
-        // Heuristic: also place a temporary breakpoint at the first
-        // statement inside a forward-branch loop body (e.g. W[...]) so
-        // 'next' on a loop header does not jump past the entire loop.
         self.wqdb.req_over(self.call_depth());
-        let here = CodeLoc {
-            chunk: self.current_chunk,
-            pc: self.pc,
-        };
-        let meta = self.debug_info.chunk(here.chunk);
-        // At a Return instruction, set up temp breaks in the caller
-        if self.is_at_return() {
-            if !self.call_stack.is_empty() {
-                let caller_frame = &self.call_stack[self.call_stack.len() - 1];
-                let caller_meta = self.debug_info.chunk(caller_frame.chunk);
-                // Look for the next statement after the call site
-                for pc in caller_frame.pc + 1..caller_meta.len {
-                    if caller_meta.line_table.is_stmt(pc) {
-                        self.wqdb.add_temp_break(CodeLoc {
-                            chunk: caller_frame.chunk,
-                            pc,
-                        });
-                        break;
-                    }
-                }
-            }
-            return;
-        }
-
-        // Add a forward-only temp break at the next stmt in this chunk
-        // To guarantee progress at the last stmt of a function
-        for pc in here.pc + 1..meta.len {
-            if meta.line_table.is_stmt(pc) {
-                self.wqdb.add_temp_break(CodeLoc {
-                    chunk: here.chunk,
-                    pc,
-                });
-                break;
-            }
-        }
-        // If on a loop header (cond -> exit)
-        // Pause at the first stmt inside the body
-        let code = &self.instructions;
-        // Find a nearby conditional jump with a forward target (typical loop header)
-        let mut cond_pc_and_exit: Option<(usize, usize)> = None;
-        for k in (here.pc.saturating_sub(16))..((here.pc + 32).min(code.len().saturating_sub(1))) {
-            use crate::vm::inst::Instruction::*;
-            let hit = match code.get(k) {
-                Some(JumpIfFalse(t)) if *t > k + 1 => Some((k, *t)),
-                Some(JumpIfGE(t)) if *t > k + 1 => Some((k, *t)),
-                Some(JumpIfLEZLocal(_, t)) if *t > k + 1 => Some((k, *t)),
-                _ => None,
-            };
-            if let Some(pair) = hit {
-                cond_pc_and_exit = Some(pair);
-                break;
-            }
-        }
-        // If at a Return instruction, set up temp breaks in the caller
-        // And clear step mode to continue properly
-        if self.is_at_return() {
-            if !self.call_stack.is_empty() {
-                let caller_frame = &self.call_stack[self.call_stack.len() - 1];
-                let caller_meta = self.debug_info.chunk(caller_frame.chunk);
-                // Look for the next statement after the call site
-                for pc in caller_frame.pc..caller_meta.len {
-                    if caller_meta.line_table.is_stmt(pc) {
-                        self.wqdb.add_temp_break(CodeLoc {
-                            chunk: caller_frame.chunk,
-                            pc,
-                        });
-                        break;
-                    }
-                }
-            }
-            self.wqdb.clear_mode();
-            return;
-        }
-        if let Some((cond_pc, exit_pc)) = cond_pc_and_exit {
-            // First stmt in [cond_pc+1, exit_pc)
-            for pc in (cond_pc + 1)..exit_pc {
-                if meta.line_table.is_stmt(pc) {
-                    self.wqdb.add_temp_break(CodeLoc {
-                        chunk: here.chunk,
-                        pc,
-                    });
-                    break;
-                }
-            }
-        }
     }
 
     pub fn dbg_step_out(&mut self) {
-        if self.is_at_return() {
-            if !self.call_stack.is_empty() {
-                let caller_frame = &self.call_stack[self.call_stack.len() - 1];
-                let caller_meta = self.debug_info.chunk(caller_frame.chunk);
-                // Look for the next statement after the call site
-                for pc in caller_frame.pc..caller_meta.len {
-                    if caller_meta.line_table.is_stmt(pc) {
-                        self.wqdb.add_temp_break(CodeLoc {
-                            chunk: caller_frame.chunk,
-                            pc,
-                        });
-                        break;
-                    }
-                }
-            }
-            self.wqdb.clear_mode();
-            return;
-        }
         self.wqdb.req_out(self.call_depth());
-        if !self.call_stack.is_empty() {
-            let caller_frame = &self.call_stack[self.call_stack.len() - 1];
-            let caller_meta = self.debug_info.chunk(caller_frame.chunk);
-            // Look for the next statement after the call site
-            for pc in caller_frame.pc..caller_meta.len {
-                if caller_meta.line_table.is_stmt(pc) {
-                    self.wqdb.add_temp_break(CodeLoc {
-                        chunk: caller_frame.chunk,
-                        pc,
-                    });
-                    break;
-                }
-            }
-        }
     }
 
     pub fn dbg_set_break(&mut self, loc: CodeLoc) {
@@ -1151,6 +1038,39 @@ impl Vm {
     }
 
     pub fn dbg_ins_at(&self, pc: usize) -> Option<String> {
-        self.instructions.get(pc).map(|ins| format!("{ins:?}"))
+        self.instructions
+            .get(pc)
+            .map(|instruction| match instruction {
+                Instruction::LoadConst(value) => match value.as_ref() {
+                    Value::CompiledFunction(function) => format!(
+                        "LoadConst(CompiledFunction params={} locals={} insts={})",
+                        Self::format_debug_params(function.params.as_deref()),
+                        function.locals,
+                        function.instructions.len()
+                    ),
+                    Value::Closure(closure) => format!(
+                        "LoadConst(Closure params={} locals={} insts={})",
+                        Self::format_debug_params(closure.params.as_deref()),
+                        closure.locals,
+                        closure.instructions.len()
+                    ),
+                    _ => format!("{instruction:?}"),
+                },
+                Instruction::LoadClosure(payload) => format!(
+                    "LoadClosure(params={} locals={} captures={} insts={})",
+                    Self::format_debug_params(payload.params.as_deref()),
+                    payload.locals,
+                    payload.captures.len(),
+                    payload.instructions.len()
+                ),
+                _ => format!("{instruction:?}"),
+            })
+    }
+
+    fn format_debug_params(params: Option<&[String]>) -> String {
+        match params {
+            Some(params) => format!("[{}]", params.join(", ")),
+            None => "None".to_string(),
+        }
     }
 }

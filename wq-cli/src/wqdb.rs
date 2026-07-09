@@ -7,8 +7,9 @@ use wqpl::session::stdio::{
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::Excerpt;
 use wqpl::vm::Vm;
-use wqpl::wqdb::data::{CodeLoc, DebugInfo, DebugLocalsFrame};
-use wqpl::wqdb::format_frame;
+use wqpl::wqdb::data::{CodeLoc, DebugInfo, DebugLocalsFrame, Span};
+use wqpl::wqdb::model::StepGranularity;
+use wqpl::wqdb::{format_frame, format_span_snippet_with_color_mode};
 
 /// Enter wqdb shell after a crash for inspection.
 /// Print a short notice, then reuse the interactive shell.
@@ -29,6 +30,7 @@ enum WqdbCommand {
     StepIn,
     StepOver,
     Finish,
+    Granularity,
     BreakFunction,
     BreakPc,
     Breakpoints,
@@ -82,6 +84,12 @@ const WQDB_COMMANDS: &[WqdbCommandSpec] = &[
         aliases: &["fin", "finish", "out"],
         args: &[],
         summary: "step out",
+    },
+    WqdbCommandSpec {
+        command: WqdbCommand::Granularity,
+        aliases: &["g", "gran", "granularity"],
+        args: &[WqdbUsageArg::Optional("line|expr|inst")],
+        summary: "show or set stepping granularity",
     },
     WqdbCommandSpec {
         command: WqdbCommand::BreakFunction,
@@ -370,6 +378,23 @@ fn print_wqdb_help() {
         wqstderr_println(wqdb_help_row(spec, usage_width));
     }
     wqstderr_println("");
+    wqstderr_println(wqdb_bold("stepping granularity"));
+    wqstderr_println(format!(
+        "  {}  {}",
+        styled_subcommand("line"),
+        wqdb_dim("pause once per source line")
+    ));
+    wqstderr_println(format!(
+        "  {}  {}",
+        styled_subcommand("expr"),
+        wqdb_dim("pause at each expression (default)")
+    ));
+    wqstderr_println(format!(
+        "  {}  {}",
+        styled_subcommand("inst"),
+        wqdb_dim("pause before every VM instruction")
+    ));
+    wqstderr_println("");
     wqstderr_println(wqdb_bold("track scopes"));
     let track_name = format!(
         "{} {}",
@@ -454,6 +479,10 @@ fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
         WqdbCommand::Finish => {
             host.dbg_step_out();
             true
+        }
+        WqdbCommand::Granularity => {
+            set_step_granularity(host, it.next());
+            false
         }
         WqdbCommand::BreakFunction => {
             set_breakpoint_at_function(host, it.next(), it.next()).unwrap_or_else(wqstderr_println);
@@ -621,6 +650,24 @@ fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
     }
 }
 
+fn set_step_granularity(host: &mut Vm, arg: Option<&str>) {
+    let Some(arg) = arg else {
+        wqstderr_println(format!(
+            "stepping granularity: {}",
+            host.dbg_step_granularity().as_str()
+        ));
+        return;
+    };
+    let Some(granularity) = StepGranularity::parse(arg) else {
+        wqstderr_println("usage: granularity [line|expr|inst]");
+        return;
+    };
+    host.dbg_set_step_granularity(granularity);
+    wqstderr_println(format!("stepping granularity -> {}", granularity.as_str()));
+    print_stop_card(host);
+    print_stop_controls(granularity);
+}
+
 pub fn wqdb_shell(host: &mut Vm) {
     if !host.wqdb.batch_cmds.is_empty() {
         let cmds = std::mem::take(&mut host.wqdb.batch_cmds);
@@ -636,18 +683,15 @@ pub fn wqdb_shell(host: &mut Vm) {
     }
 
     let mut dbg_line = 1usize;
-    print_current_context(host);
-    print_navigation_hint(host);
-    peek_instructions(host, 1);
+    print_stop_card(host);
+    print_stop_controls(host.dbg_step_granularity());
     loop {
         #[cfg(not(target_os = "windows"))]
-        let prompt = format!(
-            "{}[{}] ",
-            wqdb_title("wqdb"),
-            wqdb_color(&dbg_line.to_string(), AnsiColor::BrightBlue)
-        );
+        let prompt =
+            wqdb_prompt_with_color_mode(host.dbg_step_granularity(), dbg_line, ColorMode::Auto);
         #[cfg(target_os = "windows")]
-        let prompt = format!("wqdb[{dbg_line}] ");
+        let prompt =
+            wqdb_prompt_with_color_mode(host.dbg_step_granularity(), dbg_line, ColorMode::Never);
 
         let res = wqstdin_with_highlight_off(|| wqstdin_readline(&prompt));
         match res {
@@ -1017,24 +1061,265 @@ fn print_frame_locals(host: &Vm, frame: &DebugLocalsFrame, include_header: bool)
     }
 }
 
-fn print_navigation_hint(host: &Vm) {
-    let di = host.debug_info();
-    let hints = host.dbg_step_hints();
-    if let Some(prev) = hints.previous {
-        wqstderr_println(format!("previously:  {}", format_loc_hint(di, prev, None)));
+fn wqdb_prompt_with_color_mode(
+    granularity: StepGranularity,
+    line: usize,
+    color_mode: ColorMode,
+) -> String {
+    let title = wqdb_paint_with_color_mode(
+        "wqdb",
+        TextStyle::new().fg(AnsiColor::BrightMagenta).bold(),
+        color_mode,
+    );
+    let granularity = wqdb_paint_with_color_mode(
+        granularity.as_str(),
+        TextStyle::new().fg(AnsiColor::BrightCyan),
+        color_mode,
+    );
+    let line = wqdb_paint_with_color_mode(
+        &line.to_string(),
+        TextStyle::new().fg(AnsiColor::BrightBlue),
+        color_mode,
+    );
+    format!("{title}[{granularity}:{line}] ")
+}
+
+fn mode_header_with_color_mode(label: &str, detail: &str, color_mode: ColorMode) -> String {
+    let label = wqdb_paint_with_color_mode(
+        label,
+        TextStyle::new().fg(AnsiColor::BrightCyan).bold(),
+        color_mode,
+    );
+    format!("{label}  {detail}")
+}
+
+fn resolved_stop_span(di: &DebugInfo, loc: CodeLoc) -> (Span, bool) {
+    let meta = di.chunk(loc.chunk);
+    if let Some(span) = meta.line_table.exact_pc_span.get(loc.pc)
+        && span.file_id != u32::MAX
+    {
+        return (*span, true);
     }
-    if let Some(step) = hints.step {
-        wqstderr_println(format!("step in:     {}", format_loc_hint(di, step, None)));
+    if meta.line_table.is_stmt(loc.pc)
+        && let Some(span) = meta.line_table.pc_to_stmt_span.get(loc.pc)
+        && span.file_id != u32::MAX
+    {
+        return (*span, true);
     }
-    if let Some(next) = hints.next {
-        wqstderr_println(format!("over (next): {}", format_loc_hint(di, next, None)));
+    let span = meta.line_table.context_span_at(loc.pc);
+    if span.file_id != u32::MAX {
+        return (span, false);
     }
-    if let Some(finish) = hints.finish {
-        wqstderr_println(format!(
-            "finish to:   {}",
-            format_loc_hint(di, finish, None)
+    for &pc in &meta.line_table.stmt_pcs {
+        if pc >= loc.pc {
+            let span = meta.line_table.span_at(pc);
+            if span.file_id != u32::MAX {
+                return (span, false);
+            }
+        }
+    }
+    (Span::NONE, false)
+}
+
+fn format_line_stop_card_with_color_mode(
+    di: &DebugInfo,
+    loc: CodeLoc,
+    name: &str,
+    radius: usize,
+    color_mode: ColorMode,
+) -> String {
+    let (span, _) = resolved_stop_span(di, loc);
+    let Some(source) = di.file(span.file_id) else {
+        return mode_header_with_color_mode(
+            "LINE",
+            &format!("pc {} in {name}\n  source unavailable", loc.pc),
+            color_mode,
+        );
+    };
+    let (line, _) = source.line_col(span.start);
+    let mut out = mode_header_with_color_mode(
+        "LINE",
+        &format!("{}:{line} in {name}", source.path),
+        color_mode,
+    );
+    let total = source
+        .line_starts
+        .len()
+        .saturating_sub(usize::from(source.text.ends_with('\n')))
+        .max(1);
+    let first = line.saturating_sub(radius).max(1);
+    let last = line.saturating_add(radius).min(total);
+    for current in first..=last {
+        out.push('\n');
+        let source_line = source.line_text(current);
+        if current == line {
+            out.push_str(&wqdb_paint_with_color_mode(
+                &format!("{current:>4} -> {source_line}"),
+                TextStyle::new().fg(AnsiColor::Green).bold(),
+                color_mode,
+            ));
+        } else {
+            out.push_str(&format!("{current:>4}    {source_line}"));
+        }
+    }
+    out
+}
+
+fn format_expr_stop_card_with_color_mode(
+    di: &DebugInfo,
+    loc: CodeLoc,
+    name: &str,
+    instruction: Option<&str>,
+    color_mode: ColorMode,
+) -> String {
+    let (span, _) = resolved_stop_span(di, loc);
+    let Some(source) = di.file(span.file_id) else {
+        let mut out =
+            mode_header_with_color_mode("EXPR", &format!("pc {} in {name}", loc.pc), color_mode);
+        out.push_str("\n  source unavailable");
+        if let Some(instruction) = instruction {
+            out.push('\n');
+            out.push_str(&wqdb_paint_with_color_mode(
+                &format!("pc {}  {}", loc.pc, compact_instruction(instruction)),
+                TextStyle::new().fg(AnsiColor::BrightBlack),
+                color_mode,
+            ));
+        }
+        return out;
+    };
+    let (line, col) = source.display_line_col(span.start);
+    let mut out = mode_header_with_color_mode(
+        "EXPR",
+        &format!("{}:{line}:{col} in {name}", source.path),
+        color_mode,
+    );
+    out.push('\n');
+    out.push_str(
+        format_span_snippet_with_color_mode(source, span.start, span.end, color_mode)
+            .trim_end_matches('\n'),
+    );
+    if let Some(instruction) = instruction {
+        out.push('\n');
+        out.push_str(&wqdb_paint_with_color_mode(
+            &format!("pc {}  {}", loc.pc, compact_instruction(instruction)),
+            TextStyle::new().fg(AnsiColor::BrightBlack),
+            color_mode,
         ));
     }
+    out
+}
+
+fn compact_instruction(instruction: &str) -> String {
+    const LIMIT: usize = 120;
+    let instruction = instruction.replace(['\n', '\r'], " ");
+    if instruction.chars().count() <= LIMIT {
+        return instruction;
+    }
+    let mut compact: String = instruction.chars().take(LIMIT - 1).collect();
+    compact.push('…');
+    compact
+}
+
+fn format_inst_stop_card_with_color_mode(
+    di: &DebugInfo,
+    loc: CodeLoc,
+    name: &str,
+    instruction_len: usize,
+    instructions: &[(usize, String)],
+    color_mode: ColorMode,
+) -> String {
+    let last_pc = instruction_len.saturating_sub(1);
+    let mut out = mode_header_with_color_mode(
+        "INST",
+        &format!("{name}  pc {}/{last_pc}", loc.pc),
+        color_mode,
+    );
+    for (pc, instruction) in instructions {
+        out.push('\n');
+        let row = if *pc == loc.pc {
+            format!("{pc:>4} -> {}", compact_instruction(instruction))
+        } else {
+            format!("{pc:>4}    {}", compact_instruction(instruction))
+        };
+        if *pc == loc.pc {
+            out.push_str(&wqdb_paint_with_color_mode(
+                &row,
+                TextStyle::new().fg(AnsiColor::Green).bold(),
+                color_mode,
+            ));
+        } else {
+            out.push_str(&row);
+        }
+    }
+
+    let (span, is_precise) = resolved_stop_span(di, loc);
+    if let Some(source) = di.file(span.file_id) {
+        let (line, col) = source.display_line_col(span.start);
+        out.push_str("\n\n");
+        out.push_str(&mode_header_with_color_mode(
+            if is_precise { "SOURCE" } else { "CONTEXT" },
+            &format!("{}:{line}:{col}", source.path),
+            color_mode,
+        ));
+        out.push('\n');
+        out.push_str(
+            format_span_snippet_with_color_mode(source, span.start, span.end, color_mode)
+                .trim_end_matches('\n'),
+        );
+    } else {
+        out.push_str("\n\n");
+        out.push_str(&mode_header_with_color_mode(
+            "SOURCE",
+            "unavailable",
+            color_mode,
+        ));
+    }
+    out
+}
+
+fn render_stop_card_with_color_mode(host: &Vm, color_mode: ColorMode) -> String {
+    let loc = host.loc();
+    let di = host.debug_info();
+    let meta = di.chunk(loc.chunk);
+    let name = meta.name.as_ref();
+    match host.dbg_step_granularity() {
+        StepGranularity::Line => {
+            format_line_stop_card_with_color_mode(di, loc, name, 2, color_mode)
+        }
+        StepGranularity::Expr => format_expr_stop_card_with_color_mode(
+            di,
+            loc,
+            name,
+            host.dbg_ins_at(loc.pc).as_deref(),
+            color_mode,
+        ),
+        StepGranularity::Inst => {
+            let start = loc.pc.saturating_sub(3);
+            let end = loc.pc.saturating_add(3).min(meta.len.saturating_sub(1));
+            let instructions = (start..=end)
+                .filter_map(|pc| host.dbg_ins_at(pc).map(|instruction| (pc, instruction)))
+                .collect::<Vec<_>>();
+            format_inst_stop_card_with_color_mode(
+                di,
+                loc,
+                name,
+                meta.len,
+                &instructions,
+                color_mode,
+            )
+        }
+    }
+}
+
+fn print_stop_card(host: &Vm) {
+    wqstderr_println(render_stop_card_with_color_mode(host, ColorMode::Auto));
+}
+
+fn print_stop_controls(granularity: StepGranularity) {
+    wqstderr_println(wqdb_dim(&format!(
+        "n next {} | s step in | fin step out | c continue | g <line|expr|inst>",
+        granularity.as_str()
+    )));
 }
 
 fn format_loc_hint(di: &DebugInfo, loc: CodeLoc, name_hint: Option<&str>) -> String {
@@ -1052,37 +1337,6 @@ fn format_loc_hint(di: &DebugInfo, loc: CodeLoc, name_hint: Option<&str>) -> Str
         loc.pc,
         name_hint.unwrap_or(meta.name.as_ref())
     )
-}
-
-fn print_current_context(host: &mut Vm) {
-    let di = host.debug_info();
-    let loc = host.loc();
-    let name = di.chunk(loc.chunk).name.to_string();
-    // If current PC does not have a mapped span yet (e.g., pc 0),
-    // Try to present the next statement span to show a useful context.
-    let meta = di.chunk(loc.chunk);
-    let span_here = meta.line_table.context_span_at(loc.pc);
-    if span_here.file_id != u32::MAX {
-        wqstderr_println(format_frame(di, loc, &name, true));
-        return;
-    }
-    // Find next statement at or after current pc
-    let mut next_loc = None;
-    for pc in loc.pc..meta.len {
-        if meta.line_table.is_stmt(pc) {
-            next_loc = Some(CodeLoc {
-                chunk: loc.chunk,
-                pc,
-            });
-            break;
-        }
-    }
-    if let Some(nl) = next_loc {
-        wqstderr_println(format_frame(di, nl, &name, true));
-    } else {
-        // Fallback to previous behavior
-        wqstderr_println(format_frame(di, loc, &name, true));
-    }
 }
 
 fn peek_context(host: &mut Vm, n: usize) {
@@ -1108,11 +1362,11 @@ fn peek_context(host: &mut Vm, n: usize) {
         for ln in lo_ln..=hi_ln {
             if ln == l {
                 wqstderr_println(wqdb_paint(
-                    &format!("{:>4} -> {}", ln, sf.line_snippet(ln).trim()),
+                    &format!("{:>4} -> {}", ln, sf.line_text(ln)),
                     TextStyle::new().fg(AnsiColor::Green).bold(),
                 ));
             } else {
-                wqstderr_println(format!("{:>4}    {}", ln, sf.line_snippet(ln).trim()));
+                wqstderr_println(format!("{:>4}    {}", ln, sf.line_text(ln)));
             }
         }
     } else {
@@ -1153,6 +1407,30 @@ fn peek_instructions(host: &mut Vm, n: usize) {
 mod tests {
     use super::*;
 
+    fn stop_card_debug_info() -> (DebugInfo, CodeLoc) {
+        let mut di = DebugInfo::default();
+        let file_id = di.new_file("demo.wq", "first\n  total:price*qty\nlast\n");
+        let chunk = di.new_chunk("calc", file_id, 5);
+        let table = &mut di.chunk_mut(chunk).line_table;
+        table.set_stmt_mark(
+            2,
+            Span {
+                file_id,
+                start: 6,
+                end: 23,
+            },
+        );
+        table.set_exact_span(
+            2,
+            Span {
+                file_id,
+                start: 14,
+                end: 23,
+            },
+        );
+        (di, CodeLoc { chunk, pc: 2 })
+    }
+
     #[test]
     fn command_aliases_parse_to_typed_commands() {
         assert_eq!(WqdbCommand::parse("c"), Some(WqdbCommand::Continue));
@@ -1160,6 +1438,10 @@ mod tests {
         assert_eq!(WqdbCommand::parse("over"), Some(WqdbCommand::StepOver));
         assert_eq!(WqdbCommand::parse("track"), Some(WqdbCommand::Track));
         assert_eq!(WqdbCommand::parse("sh"), Some(WqdbCommand::StopHook));
+        assert_eq!(
+            WqdbCommand::parse("granularity"),
+            Some(WqdbCommand::Granularity)
+        );
         assert_eq!(WqdbCommand::parse("unknown"), None);
     }
 
@@ -1183,9 +1465,17 @@ mod tests {
             .iter()
             .find(|spec| spec.command == WqdbCommand::BreakFunction)
             .expect("break function command spec");
+        let granularity_spec = WQDB_COMMANDS
+            .iter()
+            .find(|spec| spec.command == WqdbCommand::Granularity)
+            .expect("granularity command spec");
 
         assert_eq!(command_usage_plain(continue_spec), "c | continue");
         assert_eq!(command_usage_plain(break_fn_spec), "bf <func> [pc]");
+        assert_eq!(
+            command_usage_plain(granularity_spec),
+            "g | gran | granularity [line|expr|inst]"
+        );
     }
 
     #[test]
@@ -1214,6 +1504,183 @@ mod tests {
         let row = wqdb_help_row(&WQDB_COMMANDS[0], usage_width);
 
         assert!(row.starts_with("  "));
+    }
+
+    #[test]
+    fn prompt_keeps_the_active_granularity_visible() {
+        assert_eq!(
+            wqdb_prompt_with_color_mode(StepGranularity::Expr, 3, ColorMode::Never),
+            "wqdb[expr:3] "
+        );
+    }
+
+    #[test]
+    fn line_stop_card_is_source_first_and_preserves_indentation() {
+        let (di, loc) = stop_card_debug_info();
+
+        let rendered = format_line_stop_card_with_color_mode(&di, loc, "calc", 1, ColorMode::Never);
+
+        assert_eq!(
+            rendered,
+            "LINE  demo.wq:2 in calc\n   1    first\n   2 ->   total:price*qty\n   3    last"
+        );
+    }
+
+    #[test]
+    fn expression_stop_card_focuses_the_exact_span() {
+        let (di, loc) = stop_card_debug_info();
+
+        let rendered = format_expr_stop_card_with_color_mode(
+            &di,
+            loc,
+            "calc",
+            Some("BinaryOp(Multiply)"),
+            ColorMode::Never,
+        );
+
+        assert_eq!(
+            rendered,
+            "EXPR  demo.wq:2:9 in calc\n  2 ->   total:price*qty\n               ~~~~~~~~~\npc 2  BinaryOp(Multiply)"
+        );
+    }
+
+    #[test]
+    fn instruction_stop_card_leads_with_disassembly_then_source() {
+        let (di, loc) = stop_card_debug_info();
+        let instructions = vec![
+            (0, "LoadLocal(0)".to_string()),
+            (1, "LoadLocal(1)".to_string()),
+            (2, "BinaryOp(Multiply)".to_string()),
+            (3, "StoreLocal(2)".to_string()),
+        ];
+
+        let rendered = format_inst_stop_card_with_color_mode(
+            &di,
+            loc,
+            "calc",
+            5,
+            &instructions,
+            ColorMode::Never,
+        );
+
+        assert_eq!(
+            rendered,
+            "INST  calc  pc 2/4\n   0    LoadLocal(0)\n   1    LoadLocal(1)\n   2 -> BinaryOp(Multiply)\n   3    StoreLocal(2)\n\nSOURCE  demo.wq:2:9\n  2 ->   total:price*qty\n               ~~~~~~~~~"
+        );
+    }
+
+    #[test]
+    fn expression_stop_card_clamps_a_multiline_span() {
+        let mut di = DebugInfo::default();
+        let file_id = di.new_file("demo.wq", "x:(1;\n  2)\n");
+        let chunk = di.new_chunk("calc", file_id, 1);
+        di.chunk_mut(chunk).line_table.set_exact_span(
+            0,
+            Span {
+                file_id,
+                start: 2,
+                end: 10,
+            },
+        );
+
+        let rendered = format_expr_stop_card_with_color_mode(
+            &di,
+            CodeLoc { chunk, pc: 0 },
+            "calc",
+            Some("MakeList(2)"),
+            ColorMode::Never,
+        );
+
+        assert_eq!(
+            rendered,
+            "EXPR  demo.wq:1:3 in calc\n  1 -> x:(1;\n         ~~~\npc 0  MakeList(2)"
+        );
+    }
+
+    #[test]
+    fn stop_cards_keep_instruction_context_when_source_is_unavailable() {
+        let mut di = DebugInfo::default();
+        let file_id = di.new_file("demo.wq", "");
+        let chunk = di.new_chunk("calc", file_id, 1);
+        let loc = CodeLoc { chunk, pc: 0 };
+
+        let expr = format_expr_stop_card_with_color_mode(
+            &di,
+            loc,
+            "calc",
+            Some("Return"),
+            ColorMode::Never,
+        );
+        let inst = format_inst_stop_card_with_color_mode(
+            &di,
+            loc,
+            "calc",
+            1,
+            &[(0, "Return".to_string())],
+            ColorMode::Never,
+        );
+
+        assert_eq!(
+            expr,
+            "EXPR  pc 0 in calc\n  source unavailable\npc 0  Return"
+        );
+        assert!(
+            inst.ends_with("\n\nSOURCE  unavailable"),
+            "card was: {inst}"
+        );
+    }
+
+    #[test]
+    fn expression_stop_card_reports_display_columns() {
+        let mut di = DebugInfo::default();
+        let file_id = di.new_file("demo.wq", "α:1\n");
+        let chunk = di.new_chunk("calc", file_id, 1);
+        di.chunk_mut(chunk).line_table.set_exact_span(
+            0,
+            Span {
+                file_id,
+                start: 3,
+                end: 4,
+            },
+        );
+
+        let rendered = format_expr_stop_card_with_color_mode(
+            &di,
+            CodeLoc { chunk, pc: 0 },
+            "calc",
+            None,
+            ColorMode::Never,
+        );
+
+        assert!(
+            rendered.starts_with("EXPR  demo.wq:1:3 in calc"),
+            "card was: {rendered}"
+        );
+    }
+
+    #[test]
+    fn line_stop_card_omits_a_phantom_line_after_final_newline() {
+        let mut di = DebugInfo::default();
+        let file_id = di.new_file("demo.wq", "a:1\nb:2\n");
+        let chunk = di.new_chunk("calc", file_id, 1);
+        di.chunk_mut(chunk).line_table.set_stmt_mark(
+            0,
+            Span {
+                file_id,
+                start: 4,
+                end: 7,
+            },
+        );
+
+        let rendered = format_line_stop_card_with_color_mode(
+            &di,
+            CodeLoc { chunk, pc: 0 },
+            "calc",
+            2,
+            ColorMode::Never,
+        );
+
+        assert!(!rendered.contains("\n   3"), "card was: {rendered}");
     }
 
     #[test]

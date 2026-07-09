@@ -901,8 +901,8 @@ fn compute_dirty_byte_range(old: &str, new: &str) -> (usize, usize, usize, usize
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
 
     use super::*;
     use crate::cst::GreenChild;
@@ -1293,6 +1293,225 @@ mod tests {
             .eval_string("@p x")
             .expect("explicit pause should run");
         assert_eq!(PAUSES.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn instruction_step_on_pause_instruction_does_not_stop_twice_at_that_pc() {
+        static PAUSES: AtomicUsize = AtomicUsize::new(0);
+
+        fn count_pause(vm: &mut crate::vm::Vm) {
+            let stop = PAUSES.fetch_add(1, Ordering::SeqCst) + 1;
+            if stop == 1 {
+                vm.dbg_set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+                vm.dbg_step_in();
+            } else {
+                vm.dbg_continue();
+            }
+        }
+
+        PAUSES.store(0, Ordering::SeqCst);
+        let mut session = Session::new();
+        session.set_pause_callback(Some(count_pause));
+        session.set_wqdb(true);
+
+        session
+            .eval_string("@p 1")
+            .expect("pause expression should run");
+
+        assert_eq!(PAUSES.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn line_stepping_uses_compiled_lines_and_revisits_loop_lines() {
+        static LINES: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+        fn step_by_line(vm: &mut crate::vm::Vm) {
+            let loc = vm.loc();
+            let meta = vm.debug_info().chunk(loc.chunk);
+            let span = meta.line_table.context_span_at(loc.pc);
+            if let Some(source) = vm.debug_info().file(span.file_id) {
+                LINES
+                    .lock()
+                    .expect("line stops lock")
+                    .push(source.line_col(span.start).0);
+            }
+            vm.dbg_set_step_granularity(crate::wqdb::model::StepGranularity::Line);
+            vm.dbg_step_in();
+        }
+
+        LINES.lock().expect("line stops lock").clear();
+        let mut session = Session::new();
+        session.set_pause_callback(Some(step_by_line));
+        session.set_wqdb(true);
+
+        let result = session
+            .eval_string("i:0;a:1\nW[i<2;\n  i+:1]\ni")
+            .expect("line stepping program should run");
+
+        assert_eq!(result, Value::Int(2));
+        assert_eq!(
+            *LINES.lock().expect("line stops lock"),
+            vec![1, 2, 3, 2, 3, 2, 4]
+        );
+    }
+
+    #[test]
+    fn instruction_next_and_finish_cross_real_call_frames() {
+        static PHASE: AtomicUsize = AtomicUsize::new(0);
+        static TARGETS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+        fn drive_calls(vm: &mut crate::vm::Vm) {
+            vm.dbg_set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+            let loc = vm.loc();
+            let name = vm.func_name_for_chunk(loc.chunk);
+            let instruction = vm.dbg_ins_at(loc.pc).unwrap_or_default();
+            match PHASE.load(Ordering::SeqCst) {
+                0 if name == "g" && instruction.starts_with("Postfix(1)") => {
+                    PHASE.store(1, Ordering::SeqCst);
+                    vm.dbg_step_over();
+                }
+                1 => {
+                    TARGETS
+                        .lock()
+                        .expect("call targets lock")
+                        .push(format!("{name}:{instruction}"));
+                    PHASE.store(2, Ordering::SeqCst);
+                    vm.dbg_step_in();
+                }
+                2 if name == "g" && instruction.starts_with("Postfix(1)") => {
+                    PHASE.store(3, Ordering::SeqCst);
+                    vm.dbg_step_in();
+                }
+                3 => {
+                    TARGETS
+                        .lock()
+                        .expect("call targets lock")
+                        .push(format!("{name}:{instruction}"));
+                    PHASE.store(4, Ordering::SeqCst);
+                    vm.dbg_step_out();
+                }
+                4 => {
+                    TARGETS
+                        .lock()
+                        .expect("call targets lock")
+                        .push(format!("{name}:{instruction}"));
+                    PHASE.store(5, Ordering::SeqCst);
+                    vm.dbg_continue();
+                }
+                _ => vm.dbg_step_in(),
+            }
+        }
+
+        PHASE.store(0, Ordering::SeqCst);
+        TARGETS.lock().expect("call targets lock").clear();
+        let mut session = Session::new();
+        session.set_pause_callback(Some(drive_calls));
+        session.set_wqdb(true);
+
+        let result = session
+            .eval_string("f:{x+1};g:{y:f x;y+1};a:g 3;b:g 4;b")
+            .expect("call stepping program should run");
+
+        assert_eq!(result, Value::Int(6));
+        assert_eq!(PHASE.load(Ordering::SeqCst), 5);
+        let targets = TARGETS.lock().expect("call targets lock");
+        assert!(targets[0].starts_with("g:StoreLocal"), "{targets:?}");
+        assert!(targets[1].starts_with("f:BinaryOp"), "{targets:?}");
+        assert!(targets[2].starts_with("g:StoreLocal"), "{targets:?}");
+    }
+
+    #[test]
+    fn instruction_next_steps_over_tail_called_frames() {
+        static PHASE: AtomicUsize = AtomicUsize::new(0);
+        static TARGET: Mutex<Option<String>> = Mutex::new(None);
+
+        fn drive_tail_call(vm: &mut crate::vm::Vm) {
+            vm.dbg_set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+            let loc = vm.loc();
+            let name = vm.func_name_for_chunk(loc.chunk);
+            let instruction = vm.dbg_ins_at(loc.pc).unwrap_or_default();
+            if PHASE.load(Ordering::SeqCst) == 0 {
+                if name == "g" && instruction.starts_with("TailPostfix(1)") {
+                    PHASE.store(1, Ordering::SeqCst);
+                    vm.dbg_step_over();
+                } else {
+                    vm.dbg_step_in();
+                }
+            } else {
+                *TARGET.lock().expect("tail target lock") = Some(format!("{name}:{instruction}"));
+                PHASE.store(2, Ordering::SeqCst);
+                vm.dbg_continue();
+            }
+        }
+
+        PHASE.store(0, Ordering::SeqCst);
+        *TARGET.lock().expect("tail target lock") = None;
+        let mut session = Session::new();
+        session.set_pause_callback(Some(drive_tail_call));
+        session.set_wqdb(true);
+
+        let result = session
+            .eval_string("f:{x+1};g:{f x};a:g 3;a")
+            .expect("tail-call stepping program should run");
+
+        assert_eq!(result, Value::Int(4));
+        assert_eq!(PHASE.load(Ordering::SeqCst), 2);
+        let target = TARGET
+            .lock()
+            .expect("tail target lock")
+            .clone()
+            .expect("step-over target");
+        assert!(target.starts_with("<script>:"), "target was {target}");
+    }
+
+    #[test]
+    fn instruction_next_steps_over_tail_calls_beyond_backtrace_capacity() {
+        static TAIL_CALLS: AtomicUsize = AtomicUsize::new(0);
+        static PHASE: AtomicUsize = AtomicUsize::new(0);
+        static TARGET: Mutex<Option<String>> = Mutex::new(None);
+
+        fn drive_deep_tail_calls(vm: &mut crate::vm::Vm) {
+            vm.dbg_set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+            let loc = vm.loc();
+            let name = vm.func_name_for_chunk(loc.chunk);
+            let instruction = vm.dbg_ins_at(loc.pc).unwrap_or_default();
+            if PHASE.load(Ordering::SeqCst) == 0 {
+                if name == "f" && instruction.starts_with("TailPostfix(1)") {
+                    let tail_call = TAIL_CALLS.fetch_add(1, Ordering::SeqCst) + 1;
+                    if tail_call == 129 {
+                        PHASE.store(1, Ordering::SeqCst);
+                        vm.dbg_step_over();
+                        return;
+                    }
+                }
+                vm.dbg_step_in();
+            } else {
+                *TARGET.lock().expect("deep tail target lock") =
+                    Some(format!("{name}:{instruction}"));
+                PHASE.store(2, Ordering::SeqCst);
+                vm.dbg_continue();
+            }
+        }
+
+        TAIL_CALLS.store(0, Ordering::SeqCst);
+        PHASE.store(0, Ordering::SeqCst);
+        *TARGET.lock().expect("deep tail target lock") = None;
+        let mut session = Session::new();
+        session.set_pause_callback(Some(drive_deep_tail_calls));
+        session.set_wqdb(true);
+
+        let result = session
+            .eval_string("f:{[n]$[n=0;0;f[n-1]]};a:f 130;a")
+            .expect("deep tail-call stepping program should run");
+
+        assert_eq!(result, Value::Int(0));
+        assert_eq!(PHASE.load(Ordering::SeqCst), 2);
+        let target = TARGET
+            .lock()
+            .expect("deep tail target lock")
+            .clone()
+            .expect("deep step-over target");
+        assert!(target.starts_with("<script>:"), "target was {target}");
     }
 
     #[test]

@@ -60,6 +60,7 @@ impl Interpreter for VanillaInterpreter {
                 limit = instructions.len();
             }
             while vm.pc < limit {
+                let mut paused_before_instruction = false;
                 // Record a probe for the previously executed interesting
                 // instruction.  We record *here* (one iteration late) so that
                 // call instructions which `continue 'exec` after a cache hit
@@ -82,6 +83,7 @@ impl Interpreter for VanillaInterpreter {
                         if let Some(f) = cb {
                             f(vm);
                         }
+                        paused_before_instruction = true;
                     }
                 }
                 let idx = vm.pc;
@@ -1436,6 +1438,7 @@ impl Interpreter for VanillaInterpreter {
                         hooks.on_return(vm);
                         vm.tail_call_journal.clear();
                         vm.tail_call_journal_overflow = false;
+                        vm.tail_call_depth = 0;
                         vm.returned = true;
                         break 'exec;
                     }
@@ -1505,6 +1508,9 @@ impl Interpreter for VanillaInterpreter {
                             pc: idx,
                         };
                         if !vm.wqdb.pause_break_enabled(loc) {
+                            continue;
+                        }
+                        if paused_before_instruction {
                             continue;
                         }
                         vm.wqdb.note_pause(loc);

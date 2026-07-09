@@ -21,6 +21,36 @@ pub enum StepMode {
     Out,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum StepGranularity {
+    /// Pause once per source line in each frame.
+    Line,
+    /// Pause at every semicolon-separated expression boundary.
+    #[default]
+    Expr,
+    /// Pause before every VM instruction.
+    Inst,
+}
+
+impl StepGranularity {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Line => "line",
+            Self::Expr => "expr",
+            Self::Inst => "inst",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "line" | "l" => Some(Self::Line),
+            "expr" | "expression" | "e" => Some(Self::Expr),
+            "inst" | "instruction" | "i" => Some(Self::Inst),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SymbolTrackTarget {
     Global {

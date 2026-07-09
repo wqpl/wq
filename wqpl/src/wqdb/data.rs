@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use unicode_width::UnicodeWidthChar as _;
+
 use crate::value::Value;
 use crate::vm::inst::Instruction;
 
@@ -43,6 +45,21 @@ impl SourceFile {
         };
         let start = self.line_starts[i];
         (i + 1, byte_off - start + 1)
+    }
+
+    pub fn display_line_col(&self, byte_off: usize) -> (usize, usize) {
+        const TAB_STOP: usize = 8;
+        let (line, _) = self.line_col(byte_off);
+        let line_start = self.line_starts[line - 1];
+        let mut column = 0usize;
+        for ch in self.text[line_start..byte_off].chars() {
+            if ch == '\t' {
+                column += TAB_STOP - column % TAB_STOP;
+            } else {
+                column += ch.width().unwrap_or(0);
+            }
+        }
+        (line, column + 1)
     }
 
     pub fn line_snippet(&self, line1: usize) -> &str {

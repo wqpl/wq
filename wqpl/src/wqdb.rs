@@ -4,12 +4,15 @@ pub mod model;
 
 use std::collections::{HashMap, HashSet};
 
+use unicode_width::UnicodeWidthChar as _;
+
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::vm::Vm;
 use crate::wqdb::data::{CodeLoc, DebugInfo};
 use crate::wqdb::model::{
-    Breakpoint, BreakpointKind, StepMode, StopHook, SymbolTrackTarget, SymbolTracker,
+    Breakpoint, BreakpointKind, StepGranularity, StepMode, StopHook, SymbolTrackTarget,
+    SymbolTracker,
 };
 
 pub struct Wqdb {
@@ -18,10 +21,10 @@ pub struct Wqdb {
     pub next_break_id: usize,
     temps: HashSet<CodeLoc>,
     mode: StepMode,
+    granularity: StepGranularity,
     base_depth: usize,
-    last_stmt: Option<CodeLoc>,
+    last_pause: Option<CodeLoc>,
     current_pause: Option<CodeLoc>,
-    step_count: u64,
     symbol_trackers: Vec<SymbolTracker>,
     next_symbol_tracker_id: usize,
     stop_hooks: Vec<StopHook>,
@@ -38,10 +41,10 @@ impl Default for Wqdb {
             next_break_id: 1,
             temps: HashSet::new(),
             mode: StepMode::None,
+            granularity: StepGranularity::default(),
             base_depth: 0,
-            last_stmt: None,
+            last_pause: None,
             current_pause: None,
-            step_count: 0,
             symbol_trackers: Vec::new(),
             next_symbol_tracker_id: 1,
             stop_hooks: Vec::new(),
@@ -87,7 +90,7 @@ impl Wqdb {
         if !self.enabled {
             return false;
         }
-        if self.last_stmt.is_none() && here.pc == 0 && call_depth == 0 {
+        if self.last_pause.is_none() && here.pc == 0 && call_depth == 0 {
             return true;
         }
         if let Some(bp) = self.breaks.get(&here) {
@@ -116,22 +119,60 @@ impl Wqdb {
         }
         let meta = di.chunk(here.chunk);
         let is_stmt = meta.line_table.is_stmt(here.pc);
+        let is_step_point = match self.granularity {
+            StepGranularity::Line => {
+                is_stmt && !self.is_same_line_as_last_pause(di, here, call_depth)
+            }
+            StepGranularity::Expr => is_stmt,
+            StepGranularity::Inst => true,
+        };
         match self.mode {
             StepMode::None => false,
-            StepMode::In => is_stmt && Some(here) != self.last_stmt,
-            StepMode::Over => {
-                call_depth <= self.base_depth && is_stmt && Some(here) != self.last_stmt
-            }
-            StepMode::Out => {
-                call_depth < self.base_depth && is_stmt && Some(here) != self.last_stmt
-            }
+            StepMode::In => is_step_point,
+            StepMode::Over => call_depth <= self.base_depth && is_step_point,
+            StepMode::Out => call_depth < self.base_depth && is_step_point,
         }
     }
 
+    fn is_same_line_as_last_pause(&self, di: &DebugInfo, here: CodeLoc, call_depth: usize) -> bool {
+        if call_depth != self.base_depth {
+            return false;
+        }
+        let Some(last) = self.last_pause else {
+            return false;
+        };
+        if last.chunk != here.chunk {
+            return false;
+        }
+        match (
+            Self::source_line_at(di, last),
+            Self::source_line_at(di, here),
+        ) {
+            (Some(last_line), Some(here_line)) => last_line == here_line,
+            _ => last == here,
+        }
+    }
+
+    fn source_line_at(di: &DebugInfo, loc: CodeLoc) -> Option<(u32, usize)> {
+        let meta = di.chunk_opt(loc.chunk)?;
+        let mut span = meta.line_table.context_span_at(loc.pc);
+        if span.file_id == u32::MAX {
+            for &pc in &meta.line_table.stmt_pcs {
+                if pc >= loc.pc {
+                    span = meta.line_table.span_at(pc);
+                    if span.file_id != u32::MAX {
+                        break;
+                    }
+                }
+            }
+        }
+        let file = di.file(span.file_id)?;
+        Some((span.file_id, file.line_col(span.start).0))
+    }
+
     pub fn note_pause(&mut self, loc: CodeLoc) {
-        self.last_stmt = Some(loc);
+        self.last_pause = Some(loc);
         self.current_pause = Some(loc);
-        self.step_count += 1;
         self.temps.clear();
         // Don't clear step mode here - let the stepping methods manage mode
         // transitions
@@ -141,24 +182,18 @@ impl Wqdb {
         self.mode = StepMode::In;
         self.base_depth = depth;
         self.current_pause = None;
-        // Keep last_stmt so subsequent step-in advances to a new source span
-        self.step_count = 0;
     }
 
     pub fn req_over(&mut self, depth: usize) {
         self.mode = StepMode::Over;
         self.base_depth = depth;
         self.current_pause = None;
-        self.step_count = 0;
-        // Don't reset last_stmt for step-over to avoid revisiting same
-        // statement
     }
 
     pub fn req_out(&mut self, depth: usize) {
         self.mode = StepMode::Out;
         self.base_depth = depth;
         self.current_pause = None;
-        self.step_count = 0;
     }
 
     pub fn pause_loc(&self) -> Option<CodeLoc> {
@@ -177,6 +212,14 @@ impl Wqdb {
 
     pub fn mode(&self) -> StepMode {
         self.mode
+    }
+
+    pub fn granularity(&self) -> StepGranularity {
+        self.granularity
+    }
+
+    pub fn set_granularity(&mut self, granularity: StepGranularity) {
+        self.granularity = granularity;
     }
 
     pub fn ensure_symbol_tracker(&mut self, target: SymbolTrackTarget) -> (&SymbolTracker, bool) {
@@ -272,8 +315,9 @@ pub fn format_span_snippet_with_color_mode(
     let end_byte = end_byte.max(start_byte.saturating_add(1));
     let (l, _) = sf.line_col(start_byte);
     let line_text = sf.line_text(l);
-    let (line_start, line_end) = sf.line_bounds(l);
-    let span_start = start_byte.max(line_start);
+    let (line_start, line_end_raw) = sf.line_bounds(l);
+    let line_end = line_end_raw.min(line_start + line_text.len());
+    let span_start = start_byte.max(line_start).min(line_end);
     let span_end = end_byte.min(line_end);
     let rel_start = span_start.saturating_sub(line_start);
     let rel_end = span_end.saturating_sub(line_start);
@@ -304,13 +348,28 @@ pub fn format_span_snippet_with_color_mode(
 
     if !use_color {
         let prefix_len = prefix_gut.chars().count();
-        let underline_start = rel_start + prefix_len;
+        let source_column = prefix_len + 1;
+        let underline_start =
+            source_column + terminal_text_width(&line_text[..rel_start], source_column);
         out.push_str(&" ".repeat(underline_start));
-        let width = line_text[rel_start..rel_end].chars().count().max(1);
+        let width = terminal_text_width(&line_text[rel_start..rel_end], underline_start).max(1);
         let underline = "~".repeat(width);
         out.push_str(&underline);
     }
     out
+}
+
+fn terminal_text_width(text: &str, start_column: usize) -> usize {
+    const TAB_STOP: usize = 8;
+    let mut column = start_column;
+    for ch in text.chars() {
+        if ch == '\t' {
+            column += TAB_STOP - column % TAB_STOP;
+        } else {
+            column += ch.width().unwrap_or(0);
+        }
+    }
+    column - start_column
 }
 
 pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> String {
@@ -482,7 +541,126 @@ pub fn format_frame_with_color_mode(
 mod tests {
     use super::*;
     use crate::wqdb::build::apply_stmt_debug_exact_offs;
-    use crate::wqdb::data::{LineTable, Span};
+    use crate::wqdb::data::{ChunkId, LineTable, Span};
+    use crate::wqdb::model::StepGranularity;
+
+    fn granularity_debug_info() -> (DebugInfo, ChunkId) {
+        let mut di = DebugInfo::default();
+        let file_id = di.new_file("wq[test]", "a:1;b:2\nc:3\n");
+        let chunk = di.new_chunk("<script>", file_id, 5);
+        let table = &mut di.chunk_mut(chunk).line_table;
+        table.set_stmt_mark(
+            0,
+            Span {
+                file_id,
+                start: 0,
+                end: 3,
+            },
+        );
+        table.set_exact_span(
+            1,
+            Span {
+                file_id,
+                start: 0,
+                end: 3,
+            },
+        );
+        table.set_stmt_mark(
+            2,
+            Span {
+                file_id,
+                start: 4,
+                end: 7,
+            },
+        );
+        table.set_stmt_mark(
+            3,
+            Span {
+                file_id,
+                start: 8,
+                end: 11,
+            },
+        );
+        (di, chunk)
+    }
+
+    #[test]
+    fn expression_granularity_is_the_compatible_default() {
+        assert_eq!(Wqdb::default().granularity(), StepGranularity::Expr);
+    }
+
+    #[test]
+    fn line_granularity_coalesces_expressions_on_the_same_line() {
+        let (di, chunk) = granularity_debug_info();
+        let mut wqdb = Wqdb {
+            enabled: true,
+            ..Wqdb::default()
+        };
+        wqdb.set_granularity(StepGranularity::Line);
+        wqdb.note_pause(CodeLoc { chunk, pc: 0 });
+        wqdb.req_in(0);
+
+        assert!(!wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 2 }, 0));
+        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 3 }, 0));
+    }
+
+    #[test]
+    fn line_step_in_stops_in_a_deeper_frame_on_the_same_source_line() {
+        let (di, chunk) = granularity_debug_info();
+        let mut wqdb = Wqdb {
+            enabled: true,
+            ..Wqdb::default()
+        };
+        wqdb.set_granularity(StepGranularity::Line);
+        wqdb.note_pause(CodeLoc { chunk, pc: 0 });
+        wqdb.req_in(0);
+
+        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 2 }, 1));
+    }
+
+    #[test]
+    fn expression_granularity_stops_at_each_expression_and_on_revisit() {
+        let (di, chunk) = granularity_debug_info();
+        let mut wqdb = Wqdb {
+            enabled: true,
+            ..Wqdb::default()
+        };
+        wqdb.note_pause(CodeLoc { chunk, pc: 0 });
+        wqdb.req_in(0);
+
+        assert!(!wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 1 }, 0));
+        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 2 }, 0));
+        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 0 }, 0));
+    }
+
+    #[test]
+    fn instruction_granularity_stops_at_every_instruction() {
+        let (di, chunk) = granularity_debug_info();
+        let mut wqdb = Wqdb {
+            enabled: true,
+            ..Wqdb::default()
+        };
+        wqdb.set_granularity(StepGranularity::Inst);
+        wqdb.note_pause(CodeLoc { chunk, pc: 0 });
+        wqdb.req_in(0);
+
+        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 1 }, 0));
+    }
+
+    #[test]
+    fn step_over_applies_depth_to_instruction_granularity() {
+        let (di, chunk) = granularity_debug_info();
+        let mut wqdb = Wqdb {
+            enabled: true,
+            ..Wqdb::default()
+        };
+        wqdb.set_granularity(StepGranularity::Inst);
+        wqdb.note_pause(CodeLoc { chunk, pc: 0 });
+        wqdb.req_over(0);
+
+        assert!(!wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 1 }, 1));
+        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 1 }, 0));
+    }
 
     #[test]
     fn format_frame_underlines_exact_columns() {
@@ -516,6 +694,58 @@ mod tests {
         assert!(rendered.contains("2 -> "), "frame was: {rendered}");
         assert!(rendered.contains("1/0"), "frame was: {rendered}");
         assert!(!rendered.ends_with('\n'), "frame was: {rendered:?}");
+    }
+
+    #[test]
+    fn span_snippet_plain_underline_aligns_with_source() {
+        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "abc\n");
+
+        let rendered = format_span_snippet_with_color_mode(&source, 1, 2, ColorMode::Never);
+
+        assert_eq!(rendered, "  1 -> abc\n        ~");
+    }
+
+    #[test]
+    fn span_snippet_plain_underline_counts_unicode_columns() {
+        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "αβγ\n");
+
+        let rendered = format_span_snippet_with_color_mode(&source, 2, 4, ColorMode::Never);
+
+        assert_eq!(rendered, "  1 -> αβγ\n        ~");
+    }
+
+    #[test]
+    fn span_snippet_plain_underline_uses_terminal_width() {
+        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "界a\n");
+
+        let rendered = format_span_snippet_with_color_mode(&source, 3, 4, ColorMode::Never);
+
+        assert_eq!(rendered, "  1 -> 界a\n         ~");
+    }
+
+    #[test]
+    fn span_snippet_clamps_multiline_span_to_the_first_displayed_line() {
+        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "a:1\nb:2\n");
+
+        let rendered = format_span_snippet_with_color_mode(&source, 0, 7, ColorMode::Never);
+
+        assert_eq!(rendered, "  1 -> a:1\n       ~~~");
+    }
+
+    #[test]
+    fn span_snippet_plain_underline_expands_tabs_from_the_source_column() {
+        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "  \ta:1\n");
+
+        let rendered = format_span_snippet_with_color_mode(&source, 3, 6, ColorMode::Never);
+
+        assert_eq!(rendered, "  1 ->   \ta:1\n                ~~~");
+    }
+
+    #[test]
+    fn source_file_reports_display_columns_for_debugger_cards() {
+        let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "α界\tz\n");
+
+        assert_eq!(source.display_line_col(6), (1, 9));
     }
 
     #[test]

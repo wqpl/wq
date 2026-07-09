@@ -56,6 +56,8 @@ pub struct Vm {
     /// Tail-call journal for backtrace when TCE is active.
     pub(crate) tail_call_journal: Vec<Frame>,
     pub(crate) tail_call_journal_overflow: bool,
+    /// Uncapped logical tail-call depth for debugger stepping.
+    pub(crate) tail_call_depth: usize,
 
     /// Maximum physical call depth before raising Recursion error.
     pub(crate) max_call_depth: usize,
@@ -169,6 +171,7 @@ impl Vm {
             // args_scratch: Vec::new(),
             tail_call_journal: Vec::new(),
             tail_call_journal_overflow: false,
+            tail_call_depth: 0,
             max_call_depth: if cfg!(debug_assertions) { 64 } else { 1024 },
             wqdb: Wqdb::default(),
             debug_info: DebugInfo::default(),
@@ -208,6 +211,7 @@ impl Vm {
         self.call_stack.clear();
         self.tail_call_journal.clear();
         self.tail_call_journal_overflow = false;
+        self.tail_call_depth = 0;
         self.trace_depth = 0;
         self.trace_buf.clear();
         self.trace_bases.clear();
@@ -278,6 +282,7 @@ impl Vm {
     #[inline]
     pub(crate) fn push_tail_call_frame(&mut self, frame: Frame) {
         const TAIL_CALL_JOURNAL_CAP: usize = 128;
+        self.tail_call_depth = self.tail_call_depth.saturating_add(1);
         if self.tail_call_journal.len() >= TAIL_CALL_JOURNAL_CAP {
             self.tail_call_journal_overflow = true;
             // Shift out oldest to keep most recent
