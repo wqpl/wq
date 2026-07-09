@@ -626,11 +626,7 @@ impl LineBuffer {
     ///
     /// Fails if the cursor is on the first line
     fn n_lines_up(&self, n: RepeatCount) -> Option<(usize, usize)> {
-        let mut start = if let Some(off) = self.buf[..self.pos].rfind('\n') {
-            off + 1
-        } else {
-            return None;
-        };
+        let mut start = self.buf[..self.pos].rfind('\n')? + 1;
         let end = self.buf[self.pos..]
             .find('\n')
             .map_or_else(|| self.buf.len(), |x| self.pos + x + 1);
@@ -649,11 +645,7 @@ impl LineBuffer {
     ///
     /// Fails if the cursor is on the last line
     fn n_lines_down(&self, n: RepeatCount) -> Option<(usize, usize)> {
-        let mut end = if let Some(off) = self.buf[self.pos..].find('\n') {
-            self.pos + off + 1
-        } else {
-            return None;
-        };
+        let mut end = self.pos + self.buf[self.pos..].find('\n')? + 1;
         let start = self.buf[..self.pos].rfind('\n').unwrap_or(0);
         for _ in 0..n {
             if let Some(off) = self.buf[end..].find('\n') {
