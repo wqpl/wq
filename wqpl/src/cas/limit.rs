@@ -1,7 +1,10 @@
+use num_bigint::BigInt;
+use num_traits::{Signed, Zero};
+
 use crate::cas::diff::diff_expr;
 use crate::cas::{
-    cas_product, contains_cas_var, numeric_is_negative, numeric_is_zero, simplify_cas_value,
-    substitute_cas,
+    cas_div, cas_product, contains_cas_var, numeric_is_negative, numeric_is_zero, poly_degree,
+    poly_from_expr, simplify_cas_value, substitute_cas,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -129,6 +132,10 @@ fn limit_cas_inner(
     try_strategy!(
         "finite_function",
         try_finite_function_limit(expr, var, point, direction, lhopital_depth)
+    );
+    try_strategy!(
+        "finite_power_domain",
+        try_finite_power_domain_limit(expr, var, point, direction, lhopital_depth)
     );
 
     // Strategy 3: direct substitution.
@@ -323,6 +330,46 @@ fn try_finite_function_limit(
             }))
         }
         _ => Ok(None),
+    }
+}
+
+fn try_finite_power_domain_limit(
+    expr: &Value,
+    var: &Value,
+    point: &Value,
+    direction: Option<LimitDirection>,
+    lhopital_depth: usize,
+) -> WqResult<Option<Value>> {
+    if matches!(
+        point.cas_const(),
+        Some(CasConst::Infinity | CasConst::NegInfinity)
+    ) {
+        return Ok(None);
+    }
+    let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts() else {
+        return Ok(None);
+    };
+    let Some((numer, denom)) = exp.rational_parts() else {
+        return Ok(None);
+    };
+    if (&denom % BigInt::from(2)) != BigInt::zero() {
+        return Ok(None);
+    }
+    let base_limit = limit_cas_inner(base, var, point, direction, lhopital_depth)?;
+    if !numeric_is_zero(&base_limit) {
+        return Ok(None);
+    }
+    let Some(sign) = probe_expression_approach_sign(base, var, point, direction)? else {
+        return Ok(None);
+    };
+    match sign {
+        ApproachSign::Negative | ApproachSign::Mixed => {
+            Ok(Some(Value::from_cas_const(CasConst::Undefined)))
+        }
+        ApproachSign::Positive if numer.is_negative() => {
+            Ok(Some(Value::from_cas_const(CasConst::Infinity)))
+        }
+        ApproachSign::Zero | ApproachSign::Positive => Ok(None),
     }
 }
 
@@ -584,6 +631,10 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
         }
     }
 
+    if let Some(result) = polynomial_limit_at_infinity(expr, var_name, sign)? {
+        return Ok(Some(result));
+    }
+
     // exp(arg) or a^arg: base e or any constant base
     if let Some((CasOp::Power, [base, exp_arg])) = expr.cas_op_parts()
         && !base.is_cas_expr()
@@ -593,18 +644,20 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
         if a > 1.0 {
             let (coeff, _) = extract_linear_coeff(exp_arg, var_name);
             let c = coeff.as_f64().unwrap_or(0.0);
-            if c > 0.0 {
-                return Ok(Some(inf_with_sign(sign)));
-            } else if c < 0.0 {
+            let exponent_direction = c * f64::from(sign);
+            if exponent_direction > 0.0 {
+                return Ok(Some(Value::from_cas_const(CasConst::Infinity)));
+            } else if exponent_direction < 0.0 {
                 return Ok(Some(Value::Int(0)));
             }
         } else if a > 0.0 && a < 1.0 {
             let (coeff, _) = extract_linear_coeff(exp_arg, var_name);
             let c = coeff.as_f64().unwrap_or(0.0);
-            if c > 0.0 {
+            let exponent_direction = c * f64::from(sign);
+            if exponent_direction > 0.0 {
                 return Ok(Some(Value::Int(0)));
-            } else if c < 0.0 {
-                return Ok(Some(inf_with_sign(sign)));
+            } else if exponent_direction < 0.0 {
+                return Ok(Some(Value::from_cas_const(CasConst::Infinity)));
             }
         }
         return Ok(None);
@@ -729,17 +782,30 @@ fn try_limit_at_infinity(expr: &Value, var: &Value, point: &Value) -> WqResult<O
     if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts()
         && base.cas_var_name() == Some(var_name)
     {
-        if let Some(n) = exp.as_f64() {
-            if n > 0.0 {
-                return Ok(Some(inf_with_sign(sign)));
-            } else if n < 0.0 {
+        if let Some((numer, denom)) = exp.rational_parts() {
+            if sign < 0 && (&denom % BigInt::from(2)).is_zero() {
+                return Ok(Some(Value::from_cas_const(CasConst::Undefined)));
+            }
+            if numer.is_positive() {
+                if sign > 0 {
+                    return Ok(Some(Value::from_cas_const(CasConst::Infinity)));
+                }
+                let result_sign = if (&numer % BigInt::from(2)).is_zero() {
+                    1
+                } else {
+                    -1
+                };
+                return Ok(Some(inf_with_sign(result_sign)));
+            } else if numer.is_negative() {
                 return Ok(Some(Value::Int(0)));
             }
         }
-        if let Some(n) = exp.as_i64() {
-            if n > 0 {
-                return Ok(Some(inf_with_sign(sign)));
-            } else if n < 0 {
+        if sign > 0
+            && let Some(n) = exp.as_f64()
+        {
+            if n > 0.0 {
+                return Ok(Some(Value::from_cas_const(CasConst::Infinity)));
+            } else if n < 0.0 {
                 return Ok(Some(Value::Int(0)));
             }
         }
@@ -765,6 +831,11 @@ fn asymp_at_infinity(name: CasFunction, inf_val: &Value) -> Option<Value> {
             inf_val.clone()
         } else {
             Value::Int(0)
+        }),
+        CasFunction::Ln => Some(if is_pos {
+            inf_val.clone()
+        } else {
+            Value::from_cas_const(CasConst::Undefined)
         }),
         CasFunction::Sgn => Some(Value::float(if is_pos { 1.0 } else { -1.0 })),
         CasFunction::Heaviside => Some(Value::float(if is_pos { 1.0 } else { 0.0 })),
@@ -957,8 +1028,6 @@ fn rational_limit_at_infinity(
     var_name: &str,
     sign: i32,
 ) -> WqResult<Option<Value>> {
-    use crate::cas::{poly_degree, poly_from_expr};
-
     let num_poly = match poly_from_expr(num, var_name) {
         Ok(p) => p,
         Err(_) => return Ok(None),
@@ -982,9 +1051,7 @@ fn rational_limit_at_infinity(
         if numeric_is_zero(lead_den) {
             return Ok(None);
         }
-        let ratio =
-            Value::float(lead_num.as_f64().unwrap_or(0.0) / lead_den.as_f64().unwrap_or(1.0));
-        return Ok(Some(ratio));
+        return cas_div(lead_num.clone(), lead_den.clone()).map(Some);
     }
 
     // num_deg > den_deg -> +/-inf
@@ -1008,6 +1075,30 @@ fn rational_limit_at_infinity(
         ratio_sign * sign
     };
     Ok(Some(inf_with_sign(result_sign)))
+}
+
+fn polynomial_limit_at_infinity(
+    expr: &Value,
+    var_name: &str,
+    sign: i32,
+) -> WqResult<Option<Value>> {
+    let polynomial = match poly_from_expr(expr, var_name) {
+        Ok(polynomial) => polynomial,
+        Err(_) => return Ok(None),
+    };
+    let degree = poly_degree(&polynomial);
+    let leading = &polynomial[degree];
+    if degree == 0 {
+        return Ok(Some(leading.clone()));
+    }
+    let Some(leading_sign) = numeric_sign(leading) else {
+        return Ok(None);
+    };
+    if leading_sign == 0 {
+        return Ok(Some(Value::Int(0)));
+    }
+    let approach_sign = if degree.is_multiple_of(2) { 1 } else { sign };
+    Ok(Some(inf_with_sign(leading_sign * approach_sign)))
 }
 
 /// Strategy 7: known limits table for classic patterns.
@@ -1441,6 +1532,8 @@ pub(crate) fn parse_limit_direction(value: &Value) -> Option<LimitDirection> {
 
 #[cfg(test)]
 mod tests {
+    use num_bigint::BigInt;
+
     use super::*;
 
     fn cas_var(name: &str) -> Value {
@@ -1527,6 +1620,25 @@ mod tests {
         let expr = call(CasFunction::Sin, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
         assert_eq!(result, Value::Int(0));
+    }
+
+    #[test]
+    fn limit_even_root_at_zero_from_left_is_undefined() {
+        let expr = op(
+            CasOp::Power,
+            vec![
+                cas_var("x"),
+                Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+            ],
+        );
+        let result = limit_cas(
+            &expr,
+            &cas_var("x"),
+            &Value::Int(0),
+            Some(LimitDirection::Left),
+        )
+        .unwrap();
+        assert_eq!(result, konst(CasConst::Undefined));
     }
 
     #[test]
@@ -1651,13 +1763,81 @@ mod tests {
     }
 
     #[test]
+    fn limit_even_power_at_neg_infinity_is_positive_infinity() {
+        let expr = op(CasOp::Power, vec![cas_var("x"), Value::Int(2)]);
+        let result = limit_cas(&expr, &cas_var("x"), &ninf(), None).unwrap();
+        assert_eq!(result, inf());
+    }
+
+    #[test]
+    fn limit_even_root_at_neg_infinity_is_undefined() {
+        let expr = op(
+            CasOp::Power,
+            vec![
+                cas_var("x"),
+                Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+            ],
+        );
+        let result = limit_cas(&expr, &cas_var("x"), &ninf(), None).unwrap();
+        assert_eq!(result, konst(CasConst::Undefined));
+    }
+
+    #[test]
+    fn limit_inverse_even_root_at_neg_infinity_is_undefined() {
+        let expr = op(
+            CasOp::Power,
+            vec![
+                cas_var("x"),
+                Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2)),
+            ],
+        );
+        let result = limit_cas(&expr, &cas_var("x"), &ninf(), None).unwrap();
+        assert_eq!(result, konst(CasConst::Undefined));
+    }
+
+    #[test]
+    fn limit_polynomial_at_neg_infinity_uses_degree_parity() {
+        let expr = op(
+            CasOp::Add,
+            vec![
+                op(CasOp::Power, vec![cas_var("x"), Value::Int(4)]),
+                Value::Int(1),
+            ],
+        );
+        let result = limit_cas(&expr, &cas_var("x"), &ninf(), None).unwrap();
+        assert_eq!(result, inf());
+    }
+
+    #[test]
     fn limit_rational_same_degree() {
         // limit((x+1)/(x-1), x->inf) = 1
         let num = op(CasOp::Add, vec![cas_var("x"), Value::Int(1)]);
         let den = op(CasOp::Subtract, vec![cas_var("x"), Value::Int(1)]);
         let expr = cas_div_expr(num, den);
         let result = limit_cas(&expr, &cas_var("x"), &inf(), None).unwrap();
-        assert_eq!(result.as_f64().unwrap(), 1.0);
+        assert_eq!(result, Value::Int(1));
+    }
+
+    #[test]
+    fn limit_rational_same_degree_preserves_large_exact_ratio() {
+        let coefficient = 9_007_199_254_740_993_i64;
+        let num = op(
+            CasOp::Add,
+            vec![
+                op(CasOp::Multiply, vec![Value::Int(coefficient), cas_var("x")]),
+                Value::Int(1),
+            ],
+        );
+        let den = op(
+            CasOp::Add,
+            vec![
+                op(CasOp::Multiply, vec![Value::Int(3), cas_var("x")]),
+                Value::Int(1),
+            ],
+        );
+        let expr = cas_div_expr(num, den);
+        let result = limit_cas(&expr, &cas_var("x"), &inf(), None).unwrap();
+        assert_eq!(result, Value::Int(3_002_399_751_580_331));
     }
 
     #[test]
@@ -1691,6 +1871,28 @@ mod tests {
         let expr = call(CasFunction::Exp, vec![cas_var("x")]);
         let result = limit_cas(&expr, &cas_var("x"), &ninf(), None).unwrap();
         assert_eq!(result, Value::Int(0));
+    }
+
+    #[test]
+    fn limit_positive_constant_base_at_neg_infinity_is_zero() {
+        let expr = op(CasOp::Power, vec![Value::Int(2), cas_var("x")]);
+        let result = limit_cas(&expr, &cas_var("x"), &ninf(), None).unwrap();
+        assert_eq!(result, Value::Int(0));
+    }
+
+    #[test]
+    fn limit_positive_constant_base_with_negative_exponent_at_neg_infinity_is_infinity() {
+        let exponent = op(CasOp::Multiply, vec![Value::Int(-1), cas_var("x")]);
+        let expr = op(CasOp::Power, vec![Value::Int(2), exponent]);
+        let result = limit_cas(&expr, &cas_var("x"), &ninf(), None).unwrap();
+        assert_eq!(result, inf());
+    }
+
+    #[test]
+    fn limit_ln_at_infinity_is_infinity() {
+        let expr = call(CasFunction::Ln, vec![cas_var("x")]);
+        let result = limit_cas(&expr, &cas_var("x"), &inf(), None).unwrap();
+        assert_eq!(result, inf());
     }
 
     #[test]

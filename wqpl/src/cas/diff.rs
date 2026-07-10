@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+
+use ahash::AHashMap;
 use num_bigint::BigInt;
 
 use crate::cas::{
@@ -8,6 +11,69 @@ use crate::cas::{
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
+
+// Large elliptic antiderivatives repeat structural subexpressions. Keep their
+// derivatives only for the duration of one recursive differentiation.
+struct DiffCache {
+    var: String,
+    entries: AHashMap<Value, Value>,
+}
+
+thread_local! {
+    static DIFF_CACHE: RefCell<Option<DiffCache>> = const { RefCell::new(None) };
+}
+
+struct DiffCacheScope {
+    owns_cache: bool,
+}
+
+impl DiffCacheScope {
+    fn enter(var: &str) -> Self {
+        let owns_cache = DIFF_CACHE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if slot.is_some() {
+                false
+            } else {
+                *slot = Some(DiffCache {
+                    var: var.to_owned(),
+                    entries: AHashMap::new(),
+                });
+                true
+            }
+        });
+        Self { owns_cache }
+    }
+}
+
+impl Drop for DiffCacheScope {
+    fn drop(&mut self) {
+        if self.owns_cache {
+            DIFF_CACHE.with(|slot| {
+                *slot.borrow_mut() = None;
+            });
+        }
+    }
+}
+
+fn diff_cache_get(expr: &Value, var: &str) -> Option<Value> {
+    DIFF_CACHE.with(|slot| {
+        slot.borrow().as_ref().and_then(|cache| {
+            (cache.var == var)
+                .then(|| cache.entries.get(expr).cloned())
+                .flatten()
+        })
+    })
+}
+
+fn diff_cache_insert(expr: Value, var: &str, result: Value) {
+    DIFF_CACHE.with(|slot| {
+        if let Some(cache) = slot.borrow_mut().as_mut()
+            && cache.var == var
+        {
+            cache.entries.insert(expr, result);
+        }
+    });
+}
 
 fn fmt_cas(v: &Value) -> String {
     v.format_cas().unwrap_or_else(|| v.to_string())
@@ -91,6 +157,10 @@ pub(crate) fn diff_cas(expr: &Value, var: &Value) -> WqResult<Value> {
 }
 
 pub(super) fn diff_expr(expr: &Value, var: &str) -> WqResult<Value> {
+    let _scope = DiffCacheScope::enter(var);
+    if let Some(cached) = diff_cache_get(expr, var) {
+        return Ok(cached);
+    }
     cas_trace_depth!(
         DebugLogFlags::CAS_VERBOSE,
         0,
@@ -113,6 +183,9 @@ pub(super) fn diff_expr(expr: &Value, var: &str) -> WqResult<Value> {
             "[cas-v] diff_expr exit: {} -> Err",
             fmt_cas(expr)
         );
+    }
+    if let Ok(value) = &result {
+        diff_cache_insert(expr.clone(), var, value.clone());
     }
     result
 }
@@ -185,7 +258,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                         cas_mul(vec![n.clone(), d_diff])?,
                     )?)?;
                     let denom_factor = Value::from_cas_op(CasOp::Power, vec![d, Value::Int(-2)]);
-                    return simplify_cas_value(&cas_mul(vec![num, denom_factor])?);
+                    return cas_mul(vec![num, denom_factor]);
                 }
 
                 // No denominator factors -- use the general product rule.
@@ -233,7 +306,10 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 )));
             }
         };
-        return simplify_cas_value(&out);
+        // The CAS constructors above simplify each result as it is built, and
+        // diff_cas performs the final whole-tree rewrite. Re-simplifying the
+        // entire subtree at every recursive level causes repeated tree walks.
+        return Ok(out);
     }
     if let Some((name, args)) = expr.cas_function_parts() {
         let out = match (name, args) {
@@ -328,24 +404,25 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 diff_expr(arg, var)?,
             ])?,
             (CasFunction::En, [n, arg]) => {
-                // d/dx En(n, x) = -En(n-1, x) for n > 1
-                // For n = 1, E1'(x) = -exp(-x)/x
-                let dn = if let Some(f) = n.as_f64() {
-                    if f > 1.0 {
-                        cas_sub(n.clone(), Value::Int(1))?
-                    } else {
-                        n.clone()
-                    }
-                } else {
-                    n.clone()
-                };
-                let inner = if n.as_f64().is_some_and(|f| f <= 1.0) {
+                // d/dx En(n, x) = -En(n-1, x). Keep elementary forms for
+                // n = 0 and n = 1 so their derivatives remain numerically
+                // evaluable by the runtime, which defines En only for n >= 0.
+                let inner = if n.exact_int_is(0) {
+                    cas_mul(vec![
+                        Value::from_cas_function(CasFunction::Exp, vec![cas_neg(arg.clone())?]),
+                        cas_add(vec![arg.clone(), Value::Int(1)])?,
+                        cas_pow(arg.clone(), Value::Int(-2))?,
+                    ])?
+                } else if n.exact_int_is(1) {
                     cas_div(
                         Value::from_cas_function(CasFunction::Exp, vec![cas_neg(arg.clone())?]),
                         arg.clone(),
                     )?
                 } else {
-                    Value::from_cas_function(CasFunction::En, vec![dn, arg.clone()])
+                    Value::from_cas_function(
+                        CasFunction::En,
+                        vec![cas_sub(n.clone(), Value::Int(1))?, arg.clone()],
+                    )
                 };
                 cas_mul(vec![cas_neg(inner)?, diff_expr(arg, var)?])?
             }
@@ -498,7 +575,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                 )));
             }
         };
-        return simplify_cas_value(&out);
+        return Ok(out);
     }
     if let Some((name, args)) = expr.cas_apply_parts() {
         if args.iter().any(|arg| contains_cas_var(arg, var)) {
@@ -768,6 +845,16 @@ mod tests {
         );
         let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
         assert_eq!(result.to_string(), "-en[1;x]");
+    }
+
+    #[test]
+    fn differentiate_en_zero_uses_explicit_elementary_form() {
+        let expr = call(
+            CasFunction::En,
+            vec![Value::Int(0), Value::from_cas_var("x")],
+        );
+        let result = diff_cas(&expr, &Value::from_cas_var("x")).unwrap();
+        assert_eq!(result.to_string(), "-e^(-x)*(x + 1)/x^2");
     }
 
     #[test]
