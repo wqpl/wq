@@ -145,20 +145,20 @@ const TILE_K: usize = 64;
 /// Lightweight sequence accessor that avoids recursive `index_path` traversal.
 /// Borrows from packed or general sequence values and provides O(1) element
 /// access where the backing storage can support it.
-enum ValueSeq<'a> {
+enum NumericSeq<'a> {
     List(&'a [Value]),
     IntList(&'a [i64]),
     IntRange(&'a crate::value::seq::IntRangeData),
     FloatList(&'a [OrderedFloat<f64>]),
 }
 
-impl<'a> ValueSeq<'a> {
+impl<'a> NumericSeq<'a> {
     fn from_value(v: &'a Value) -> Option<Self> {
         match v {
-            Value::List(items) => Some(ValueSeq::List(items.as_slice())),
-            Value::IntList(items) => Some(ValueSeq::IntList(items.as_slice())),
-            Value::IntRange(range) => Some(ValueSeq::IntRange(range)),
-            Value::FloatList(items) => Some(ValueSeq::FloatList(items.as_slice())),
+            Value::List(items) => Some(NumericSeq::List(items.as_slice())),
+            Value::IntList(items) => Some(NumericSeq::IntList(items.as_slice())),
+            Value::IntRange(range) => Some(NumericSeq::IntRange(range)),
+            Value::FloatList(items) => Some(NumericSeq::FloatList(items.as_slice())),
             _ => None,
         }
     }
@@ -166,10 +166,10 @@ impl<'a> ValueSeq<'a> {
     #[inline]
     fn get(&self, idx: usize) -> Option<Value> {
         match self {
-            ValueSeq::List(items) => items.get(idx).cloned(),
-            ValueSeq::IntList(items) => items.get(idx).map(|&x| Value::Int(x)),
-            ValueSeq::IntRange(range) => range.get(idx).map(Value::Int),
-            ValueSeq::FloatList(items) => items.get(idx).copied().map(Value::Float),
+            NumericSeq::List(items) => items.get(idx).cloned(),
+            NumericSeq::IntList(items) => items.get(idx).map(|&x| Value::Int(x)),
+            NumericSeq::IntRange(range) => range.get(idx).map(Value::Int),
+            NumericSeq::FloatList(items) => items.get(idx).copied().map(Value::Float),
         }
     }
 }
@@ -267,9 +267,9 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
     let b_base = index_path(ctx.b, &b_bidx)
         .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("invalid index while reading B"))?;
 
-    let a_seq = ValueSeq::from_value(&a_base)
+    let a_seq = NumericSeq::from_value(&a_base)
         .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("A must be a sequence for matmul"))?;
-    let b_seq = ValueSeq::from_value(&b_base)
+    let b_seq = NumericSeq::from_value(&b_base)
         .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("B must be a sequence for matmul"))?;
 
     match (ctx.a_rank >= 2, ctx.b_rank >= 2) {
@@ -295,10 +295,10 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
             // (A: MxK) x (B: K) -> M
             let m = ctx.m_opt.expect("M known when a_rank>=2");
             // Pre-extract A rows from base to avoid per-element index_path
-            let a_rows: Vec<ValueSeq> = match &a_base {
+            let a_rows: Vec<NumericSeq> = match &a_base {
                 Value::List(items) => items
                     .iter()
-                    .map(ValueSeq::from_value)
+                    .map(NumericSeq::from_value)
                     .collect::<Option<Vec<_>>>(),
 
                 _ => None,
@@ -333,10 +333,10 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
             // Loop interchange: iterate kk outer, j inner for sequential B access
             let n = ctx.n_opt.expect("N known when b_rank>=2");
             // Pre-extract B rows from base
-            let b_rows: Vec<ValueSeq> = match &b_base {
+            let b_rows: Vec<NumericSeq> = match &b_base {
                 Value::List(items) => items
                     .iter()
-                    .map(ValueSeq::from_value)
+                    .map(NumericSeq::from_value)
                     .collect::<Option<Vec<_>>>(),
 
                 _ => None,
@@ -372,19 +372,19 @@ fn mm_core(ctx: &MmCtx<'_>, out_batch_idx: &[usize]) -> WqResult<Value> {
             let n = ctx.n_opt.expect("N known when b_rank>=2");
 
             // Pre-extract rows from bases
-            let a_rows: Vec<ValueSeq> = match &a_base {
+            let a_rows: Vec<NumericSeq> = match &a_base {
                 Value::List(items) => items
                     .iter()
-                    .map(ValueSeq::from_value)
+                    .map(NumericSeq::from_value)
                     .collect::<Option<Vec<_>>>(),
 
                 _ => None,
             }
             .ok_or_else(|| WqError::new(WqErrorType::Domain).msg("A rows must be sequences"))?;
-            let b_rows: Vec<ValueSeq> = match &b_base {
+            let b_rows: Vec<NumericSeq> = match &b_base {
                 Value::List(items) => items
                     .iter()
-                    .map(ValueSeq::from_value)
+                    .map(NumericSeq::from_value)
                     .collect::<Option<Vec<_>>>(),
 
                 _ => None,

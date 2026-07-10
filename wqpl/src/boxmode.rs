@@ -1,6 +1,7 @@
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::Value;
 use crate::value::meta::ShapeMeta;
+use crate::value::seq::ValueSeq;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BoxFormatOptions {
@@ -49,58 +50,34 @@ fn expand_as_cells(row: &Value) -> Option<Vec<String>> {
     if row.len() < 2 || row.is_string() {
         return None;
     }
-    match row {
-        Value::List(cells) => Some(cells.iter().map(ToString::to_string).collect()),
-        Value::IntList(items) => Some(items.iter().map(|n| n.to_string()).collect()),
-        Value::FloatList(items) => Some(
-            items
-                .iter()
-                .copied()
-                .map(Value::Float)
-                .map(|v| v.to_string())
-                .collect(),
-        ),
-        _ => None,
-    }
+    Some(
+        ValueSeq::from_value(row)?
+            .values()
+            .map(|value| value.to_string())
+            .collect(),
+    )
 }
 
 fn expand_axis_cells(row: &Value) -> Option<Vec<String>> {
     if row.is_string() {
         return None;
     }
-    match row {
-        Value::List(cells) => Some(cells.iter().map(ToString::to_string).collect()),
-        Value::IntList(items) => Some(items.iter().map(|n| n.to_string()).collect()),
-        Value::FloatList(items) => Some(
-            items
-                .iter()
-                .copied()
-                .map(Value::Float)
-                .map(|v| v.to_string())
-                .collect(),
-        ),
-        _ => Some(vec![row.to_string()]),
+    if let Some(items) = ValueSeq::from_value(row) {
+        Some(items.values().map(|value| value.to_string()).collect())
+    } else {
+        Some(vec![row.to_string()])
     }
 }
 
 fn expand_simple_1d(v: &Value) -> Option<Vec<String>> {
-    match v {
-        Value::IntList(items) if items.len() >= 2 => {
-            Some(items.iter().map(|n| n.to_string()).collect())
-        }
-        Value::FloatList(items) if items.len() >= 2 => Some(
-            items
-                .iter()
-                .copied()
-                .map(Value::Float)
-                .map(|v| v.to_string())
-                .collect(),
-        ),
-        Value::List(items) if items.len() >= 2 && items.iter().all(Value::is_atom) => {
-            Some(items.iter().map(ToString::to_string).collect())
-        }
-        _ => None,
+    if v.is_string() {
+        return None;
     }
+    let items = ValueSeq::from_value(v)?;
+    if items.len() < 2 || !items.values().all(|value| value.is_atom()) {
+        return None;
+    }
+    Some(items.values().map(|value| value.to_string()).collect())
 }
 
 fn render_table(table: &[Vec<String>]) -> String {
@@ -213,13 +190,7 @@ fn format_ragged_value(v: &Value) -> String {
     items
         .iter()
         .map(|item| {
-            if item.len() >= 2
-                && !item.is_string()
-                && matches!(
-                    item,
-                    Value::List(_) | Value::IntList(_) | Value::FloatList(_)
-                )
-            {
+            if item.len() >= 2 && !item.is_string() && item.is_list() {
                 format!("({})", format_compact(item))
             } else {
                 item.to_string()
@@ -383,12 +354,7 @@ fn format_ragged_rows(v: &Value, options: BoxFormatOptions) -> Option<String> {
     };
     if rows.len() < 2
         || rows.iter().any(Value::is_string)
-        || !rows.iter().any(|row| {
-            matches!(
-                row,
-                Value::List(_) | Value::IntList(_) | Value::FloatList(_)
-            )
-        })
+        || !rows.iter().any(|row| row.is_list() && !row.is_string())
     {
         return None;
     }
@@ -510,6 +476,15 @@ mod tests {
     fn flat_intlist_renders_as_single_row() {
         let v = Value::IntList(Arc::new(vec![1, 2, 3]));
         assert_eq!(format_boxed(&v), "1 2 3");
+    }
+
+    #[test]
+    fn packed_bool_and_range_lists_expand_like_other_rows() {
+        let bools = Value::BoolList(Arc::new(vec![true, false]));
+        assert_eq!(format_boxed(&bools), "T F");
+
+        let range = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, 1, 3)));
+        assert_eq!(format_boxed(&range), "1 2 3");
     }
 
     #[test]

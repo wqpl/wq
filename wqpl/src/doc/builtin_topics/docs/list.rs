@@ -110,7 +110,7 @@ pub(super) const FLATTEN: BuiltinDoc = BuiltinDoc {
 pub(super) const REVERSE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Reverse,
     summary: "Reverse the top-level order of a value.",
-    details: "`reverse` reverses lists and dict insertion order. Other values are returned unchanged. `V` is an alias of `reverse`.",
+    details: "`reverse` reverses lists, strings, and dict insertion order. Other values are returned unchanged. `V` is an alias of `reverse`.",
     examples: REVERSE_EXAMPLES,
     related: &["sort"],
 };
@@ -118,7 +118,7 @@ pub(super) const REVERSE: BuiltinDoc = BuiltinDoc {
 pub(super) const SORT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Sort,
     summary: "Sort a list or dict.",
-    details: "`sort` sorts lists of ints numerically. General lists and dicts sort by string form when available, otherwise by atom comparison where possible; non-list values are returned unchanged.",
+    details: "`sort` sorts lists of ints numerically and strings by character. General lists and dicts sort by string form when available, otherwise by atom comparison where possible; non-list values are returned unchanged.",
     examples: SORT_EXAMPLES,
     related: &["min", "max", "reverse"],
 };

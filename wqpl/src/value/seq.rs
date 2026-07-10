@@ -46,6 +46,7 @@ impl IntRangeData {
     pub(crate) fn iter(&self) -> IntRangeIter {
         IntRangeIter {
             next: self.start,
+            back: self.last_value().unwrap_or(self.start),
             step: self.step,
             remaining: self.len,
         }
@@ -54,12 +55,131 @@ impl IntRangeData {
     pub(crate) fn to_vec(&self) -> Vec<i64> {
         self.iter().collect()
     }
+
+    pub(crate) fn reversed(&self) -> Option<Self> {
+        if self.len <= 1 {
+            return Some(self.clone());
+        }
+        Some(Self::new(
+            self.last_value()?,
+            self.step.checked_neg()?,
+            self.len,
+        ))
+    }
 }
 
+#[derive(Clone)]
 pub(crate) struct IntRangeIter {
     next: i64,
+    back: i64,
     step: i64,
     remaining: usize,
+}
+
+pub(crate) enum ExactIntSeqIter<'a> {
+    Atom(std::iter::Once<i64>),
+    Slice(std::iter::Copied<std::slice::Iter<'a, i64>>),
+    Range(IntRangeIter),
+}
+
+impl DoubleEndedIterator for IntRangeIter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+
+        let value = self.back;
+        self.remaining -= 1;
+        if self.remaining > 0 {
+            debug_assert!(self.back.checked_sub(self.step).is_some());
+            self.back = self.back.wrapping_sub(self.step);
+        }
+        Some(value)
+    }
+}
+
+impl Iterator for ExactIntSeqIter<'_> {
+    type Item = i64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Atom(iter) => iter.next(),
+            Self::Slice(iter) => iter.next(),
+            Self::Range(iter) => iter.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::Atom(iter) => iter.size_hint(),
+            Self::Slice(iter) => iter.size_hint(),
+            Self::Range(iter) => iter.size_hint(),
+        }
+    }
+}
+
+impl ExactSizeIterator for ExactIntSeqIter<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Atom(iter) => iter.len(),
+            Self::Slice(iter) => iter.len(),
+            Self::Range(iter) => iter.len(),
+        }
+    }
+}
+
+impl DoubleEndedIterator for ExactIntSeqIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Atom(iter) => iter.next_back(),
+            Self::Slice(iter) => iter.next_back(),
+            Self::Range(iter) => iter.next_back(),
+        }
+    }
+}
+
+pub(crate) enum ValueSeqIter<'a> {
+    List(std::iter::Cloned<std::slice::Iter<'a, Value>>),
+    Int(ExactIntSeqIter<'a>),
+    Float(std::iter::Copied<std::slice::Iter<'a, OrderedFloat<f64>>>),
+    Bool(std::iter::Copied<std::slice::Iter<'a, bool>>),
+    String(std::str::Chars<'a>),
+}
+
+impl Iterator for ValueSeqIter<'_> {
+    type Item = Value;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::List(iter) => iter.next(),
+            Self::Int(iter) => iter.next().map(Value::Int),
+            Self::Float(iter) => iter.next().map(Value::Float),
+            Self::Bool(iter) => iter.next().map(Value::Bool),
+            Self::String(iter) => iter.next().map(Value::Char),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::List(iter) => iter.size_hint(),
+            Self::Int(iter) => iter.size_hint(),
+            Self::Float(iter) => iter.size_hint(),
+            Self::Bool(iter) => iter.size_hint(),
+            Self::String(iter) => iter.size_hint(),
+        }
+    }
+}
+
+impl DoubleEndedIterator for ValueSeqIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::List(iter) => iter.next_back(),
+            Self::Int(iter) => iter.next_back().map(Value::Int),
+            Self::Float(iter) => iter.next_back().map(Value::Float),
+            Self::Bool(iter) => iter.next_back().map(Value::Bool),
+            Self::String(iter) => iter.next_back().map(Value::Char),
+        }
+    }
 }
 
 impl Iterator for IntRangeIter {
@@ -90,6 +210,10 @@ impl ExactSizeIterator for IntRangeIter {
     }
 }
 
+/// Borrowed view over every public list representation.
+///
+/// Use [`ListStorageSeq`] instead when strings must remain single values rather
+/// than expand into chars, such as generic list insertion.
 pub(crate) enum ValueSeq<'a> {
     List(&'a [Value]),
     IntList(&'a [i64]),
@@ -159,15 +283,6 @@ impl<'a> ExactIntSeq<'a> {
         }
     }
 
-    pub(crate) fn get(&self, idx: usize) -> Option<i64> {
-        match self {
-            Self::Atom(i) => (idx == 0).then_some(*i),
-            Self::PackedSlice(items) => items.get(idx).copied(),
-            Self::PackedRange(range) => range.get(idx),
-            Self::General(items) => items.get(idx).copied(),
-        }
-    }
-
     pub(crate) fn is_atom(&self) -> bool {
         matches!(self, Self::Atom(_))
     }
@@ -176,12 +291,12 @@ impl<'a> ExactIntSeq<'a> {
         matches!(self, Self::PackedSlice(_) | Self::PackedRange(_))
     }
 
-    pub(crate) fn iter(&self) -> Box<dyn Iterator<Item = i64> + '_> {
+    pub(crate) fn iter(&self) -> ExactIntSeqIter<'_> {
         match self {
-            Self::Atom(i) => Box::new(std::iter::once(*i)),
-            Self::PackedSlice(items) => Box::new(items.iter().copied()),
-            Self::PackedRange(range) => Box::new(range.iter()),
-            Self::General(items) => Box::new(items.iter().copied()),
+            Self::Atom(i) => ExactIntSeqIter::Atom(std::iter::once(*i)),
+            Self::PackedSlice(items) => ExactIntSeqIter::Slice(items.iter().copied()),
+            Self::General(items) => ExactIntSeqIter::Slice(items.iter().copied()),
+            Self::PackedRange(range) => ExactIntSeqIter::Range(range.iter()),
         }
     }
 
@@ -236,21 +351,12 @@ impl<'a> ListStorageSeq<'a> {
         }
     }
 
-    pub(crate) fn values(&self) -> Box<dyn Iterator<Item = Value> + '_> {
+    pub(crate) fn values(&self) -> ValueSeqIter<'_> {
         match self {
-            Self::List(items) => Box::new(items.iter().cloned()),
-            Self::Int(items) => Box::new(items.iter().map(Value::Int)),
-            Self::Float(items) => Box::new(items.iter().copied().map(Value::Float)),
-            Self::Bool(items) => Box::new(items.iter().copied().map(Value::Bool)),
-        }
-    }
-
-    pub(crate) fn get(&self, idx: usize) -> Option<Value> {
-        match self {
-            Self::List(items) => items.get(idx).cloned(),
-            Self::Int(items) => items.get(idx).map(Value::Int),
-            Self::Float(items) => items.get(idx).copied().map(Value::Float),
-            Self::Bool(items) => items.get(idx).copied().map(Value::Bool),
+            Self::List(items) => ValueSeqIter::List(items.iter().cloned()),
+            Self::Int(items) => ValueSeqIter::Int(items.iter()),
+            Self::Float(items) => ValueSeqIter::Float(items.iter().copied()),
+            Self::Bool(items) => ValueSeqIter::Bool(items.iter().copied()),
         }
     }
 
@@ -353,14 +459,16 @@ impl<'a> ValueSeq<'a> {
         }
     }
 
-    pub(crate) fn values(&self) -> Box<dyn Iterator<Item = Value> + '_> {
+    pub(crate) fn values(&self) -> ValueSeqIter<'_> {
         match self {
-            Self::List(items) => Box::new(items.iter().cloned()),
-            Self::IntList(items) => Box::new(items.iter().copied().map(Value::Int)),
-            Self::IntRange(range) => Box::new(range.iter().map(Value::Int)),
-            Self::FloatList(items) => Box::new(items.iter().copied().map(Value::Float)),
-            Self::BoolList(items) => Box::new(items.iter().copied().map(Value::Bool)),
-            Self::String(s) => Box::new(s.chars().map(Value::Char)),
+            Self::List(items) => ValueSeqIter::List(items.iter().cloned()),
+            Self::IntList(items) => {
+                ValueSeqIter::Int(ExactIntSeqIter::Slice(items.iter().copied()))
+            }
+            Self::IntRange(range) => ValueSeqIter::Int(ExactIntSeqIter::Range(range.iter())),
+            Self::FloatList(items) => ValueSeqIter::Float(items.iter().copied()),
+            Self::BoolList(items) => ValueSeqIter::Bool(items.iter().copied()),
+            Self::String(s) => ValueSeqIter::String(s.chars()),
         }
     }
 
@@ -378,7 +486,7 @@ enum ValueSeqBuilderState {
     Int(Vec<i64>),
     Float(Vec<OrderedFloat<f64>>),
     Bool(Vec<bool>),
-    String(String),
+    String { value: String, item_capacity: usize },
     General(Vec<Value>),
 }
 
@@ -410,7 +518,10 @@ impl ValueSeqBuilder {
             (ValueSeqBuilderState::Empty { capacity }, Value::Char(c)) => {
                 let mut s = String::with_capacity(capacity);
                 s.push(c);
-                ValueSeqBuilderState::String(s)
+                ValueSeqBuilderState::String {
+                    value: s,
+                    item_capacity: capacity,
+                }
             }
             (ValueSeqBuilderState::Empty { capacity }, value) => {
                 let mut items = Vec::with_capacity(capacity);
@@ -423,7 +534,7 @@ impl ValueSeqBuilder {
                 ValueSeqBuilderState::Int(items)
             }
             (ValueSeqBuilderState::Int(items), value) => {
-                let mut out = Vec::with_capacity(items.len() + 1);
+                let mut out = Vec::with_capacity(items.capacity().max(items.len() + 1));
                 out.extend(items.into_iter().map(Value::Int));
                 out.push(value);
                 ValueSeqBuilderState::General(out)
@@ -434,7 +545,7 @@ impl ValueSeqBuilder {
                 ValueSeqBuilderState::Float(items)
             }
             (ValueSeqBuilderState::Float(items), value) => {
-                let mut out = Vec::with_capacity(items.len() + 1);
+                let mut out = Vec::with_capacity(items.capacity().max(items.len() + 1));
                 out.extend(items.into_iter().map(Value::Float));
                 out.push(value);
                 ValueSeqBuilderState::General(out)
@@ -445,18 +556,34 @@ impl ValueSeqBuilder {
                 ValueSeqBuilderState::Bool(items)
             }
             (ValueSeqBuilderState::Bool(items), value) => {
-                let mut out = Vec::with_capacity(items.len() + 1);
+                let mut out = Vec::with_capacity(items.capacity().max(items.len() + 1));
                 out.extend(items.into_iter().map(Value::Bool));
                 out.push(value);
                 ValueSeqBuilderState::General(out)
             }
 
-            (ValueSeqBuilderState::String(mut s), Value::Char(c)) => {
-                s.push(c);
-                ValueSeqBuilderState::String(s)
+            (
+                ValueSeqBuilderState::String {
+                    mut value,
+                    item_capacity,
+                },
+                Value::Char(c),
+            ) => {
+                value.push(c);
+                ValueSeqBuilderState::String {
+                    value,
+                    item_capacity,
+                }
             }
-            (ValueSeqBuilderState::String(s), value) => {
-                let mut out = Vec::with_capacity(s.chars().count() + 1);
+            (
+                ValueSeqBuilderState::String {
+                    value: s,
+                    item_capacity,
+                },
+                value,
+            ) => {
+                let char_len = s.chars().count();
+                let mut out = Vec::with_capacity(item_capacity.max(char_len + 1));
                 out.extend(s.chars().map(Value::Char));
                 out.push(value);
                 ValueSeqBuilderState::General(out)
@@ -475,7 +602,7 @@ impl ValueSeqBuilder {
             ValueSeqBuilderState::Int(items) => Value::IntList(Arc::new(items)),
             ValueSeqBuilderState::Float(items) => Value::FloatList(Arc::new(items)),
             ValueSeqBuilderState::Bool(items) => Value::BoolList(Arc::new(items)),
-            ValueSeqBuilderState::String(s) => Value::String(Arc::new(s)),
+            ValueSeqBuilderState::String { value, .. } => Value::String(Arc::new(value)),
             ValueSeqBuilderState::General(items) => Value::List(Arc::new(items)),
         }
     }
@@ -532,6 +659,17 @@ mod tests {
     }
 
     #[test]
+    fn builder_preserves_reserved_capacity_when_widening() {
+        let mut builder = ValueSeqBuilder::with_capacity(32);
+        builder.push(Value::Int(1));
+        builder.push(Value::Char('a'));
+        let Value::List(items) = builder.finish() else {
+            unreachable!("mixed values should use general list storage");
+        };
+        assert!(items.capacity() >= 32);
+    }
+
+    #[test]
     fn int_range_reads_without_materializing() {
         let range = IntRangeData::new(2, 3, 4);
         assert_eq!(range.start(), 2);
@@ -541,6 +679,11 @@ mod tests {
         assert_eq!(range.get(4), None);
         assert_eq!(range.last_value(), Some(11));
         assert_eq!(range.to_vec(), vec![2, 5, 8, 11]);
+
+        let mut iter = range.iter();
+        assert_eq!(iter.next(), Some(2));
+        assert_eq!(iter.next_back(), Some(11));
+        assert_eq!(iter.collect::<Vec<_>>(), vec![5, 8]);
     }
 
     #[test]

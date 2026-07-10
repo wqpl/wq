@@ -177,7 +177,13 @@ fn exact_fraction_from_value(value: &Value, builtin: BuiltinEnum) -> WqResult<(B
             .attach_note(format!("got {}", value.excerpt()))),
         Value::String(s) => parse_fraction_string(s, builtin),
         Value::Char(c) => parse_fraction_string(&c.to_string(), builtin),
-        Value::IntList(l) if value.len() == 2 => Ok((l[0].into(), l[1].into())),
+        Value::IntList(_) | Value::IntRange(_) if value.len() == 2 => {
+            let items = value
+                .packed_int_seq()
+                .expect("guard checked value is a packed int sequence")
+                .to_vec();
+            Ok((items[0].into(), items[1].into()))
+        }
         Value::List(l) if value.len() == 2 => match (&l[0], &l[1]) {
             (Value::Int(n), Value::Int(d)) => Ok((BigInt::from(*n), BigInt::from(*d))),
             (Value::BigInt(n), Value::Int(d)) => Ok(((**n).clone(), BigInt::from(*d))),
@@ -346,6 +352,15 @@ mod tests {
             fraction(BuiltinFnArgs::from(smallvec![Value::Int(1), Value::Int(2)])).unwrap();
         assert_eq!(
             result,
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2))
+        );
+    }
+
+    #[test]
+    fn fraction_accepts_virtual_range_pair() {
+        let pair = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, 1, 2)));
+        assert_eq!(
+            fraction(BuiltinFnArgs::from(pair)).expect("fraction succeeds"),
             Value::from_fraction_parts(BigInt::from(1), BigInt::from(2))
         );
     }

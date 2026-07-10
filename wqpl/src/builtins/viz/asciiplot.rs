@@ -7,6 +7,7 @@ use crate::builtins::{BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_na
 use crate::cas::{infer_single_cas_var, substitute_cas};
 use crate::session::stdio::wqstdout_println;
 use crate::style::{AnsiColor, ColorMode as StyleColorMode, TextStyle, paint};
+use crate::value::seq::ValueSeq;
 use crate::value::{Value, WqResult};
 use crate::vm::pure::PureCallback;
 use crate::wqerror::{WqError, WqErrorType};
@@ -336,59 +337,19 @@ fn parse_raw_series_config_data(value: &Value) -> WqResult<SeriesData> {
 }
 
 fn parse_raw_series_data(value: &Value) -> Option<SampledSeries<f64>> {
-    match value {
-        Value::IntList(arr) if !arr.is_empty() => Some(SampledSeries::from_points(
-            arr.iter()
-                .enumerate()
-                .map(|(i, &y)| (i as f64, y as f64))
-                .collect(),
-        )),
-        Value::FloatList(arr) if !arr.is_empty() => Some(SampledSeries::from_points(
-            arr.iter()
-                .enumerate()
-                .map(|(i, &y)| (i as f64, y.0))
-                .collect(),
-        )),
-        Value::List(items)
-            if items.iter().all(|it| {
-                if let Value::List(ref pair) = *it {
-                    pair.len() == 2 && pair[0].as_f64().is_some() && pair[1].as_f64().is_some()
-                } else {
-                    false
-                }
-            }) && !items.is_empty() =>
-        {
-            Some(SampledSeries::from_points(
-                items
-                    .iter()
-                    .map(|it| {
-                        let Value::List(ref pair) = *it else {
-                            unreachable!();
-                        };
-                        (
-                            pair[0].as_f64().expect("guard checked x is numeric"),
-                            pair[1].as_f64().expect("guard checked y is numeric"),
-                        )
-                    })
-                    .collect(),
-            ))
-        }
-        Value::List(items) if items.iter().all(|v| v.as_f64().is_some()) && !items.is_empty() => {
-            Some(SampledSeries::from_points(
-                items
-                    .iter()
-                    .enumerate()
-                    .map(|(i, y)| {
-                        (
-                            i as f64,
-                            y.as_f64().expect("guard checked list item is numeric"),
-                        )
-                    })
-                    .collect(),
-            ))
-        }
-        _ => None,
+    if let Value::List(items) = value
+        && !items.is_empty()
+        && let Some(points) = items.iter().map(numeric_pair).collect::<Option<Vec<_>>>()
+    {
+        return Some(SampledSeries::from_points(points));
     }
+    let ys = numeric_sequence(value)?;
+    Some(SampledSeries::from_points(
+        ys.into_iter()
+            .enumerate()
+            .map(|(i, y)| (i as f64, y))
+            .collect(),
+    ))
 }
 
 fn parse_xy_series_data(x_value: &Value, y_value: &Value) -> WqResult<SampledSeries<f64>> {
@@ -412,25 +373,19 @@ fn parse_xy_series_data(x_value: &Value, y_value: &Value) -> WqResult<SampledSer
 }
 
 fn numeric_sequence(value: &Value) -> Option<Vec<f64>> {
-    match value {
-        Value::IntList(items) if !items.is_empty() => {
-            Some(items.iter().map(|&item| item as f64).collect())
-        }
-        Value::FloatList(items) if !items.is_empty() => {
-            Some(items.iter().map(|&item| item.0).collect())
-        }
-        Value::List(items)
-            if !items.is_empty() && items.iter().all(|item| item.as_f64().is_some()) =>
-        {
-            Some(
-                items
-                    .iter()
-                    .map(|item| item.as_f64().expect("guard checked item is numeric"))
-                    .collect(),
-            )
-        }
-        _ => None,
+    let items = ValueSeq::from_value(value)?;
+    if items.len() == 0 {
+        return None;
     }
+    items.values().map(|item| item.as_f64()).collect()
+}
+
+fn numeric_pair(value: &Value) -> Option<(f64, f64)> {
+    let items = ValueSeq::from_value(value)?;
+    if items.len() != 2 {
+        return None;
+    }
+    Some((items.get(0)?.as_f64()?, items.get(1)?.as_f64()?))
 }
 
 fn parse_series_symbol(value: &Value) -> Option<char> {
@@ -459,11 +414,7 @@ fn parse_table_arg(arg: &Value) -> Option<TableData> {
 }
 
 fn parse_dict_of_lists_table(map: &IndexMap<std::sync::Arc<str>, Value>) -> Option<TableData> {
-    if map.is_empty()
-        || !map
-            .values()
-            .all(|v| matches!(v, Value::List(_) | Value::IntList(_)))
-    {
+    if map.is_empty() || !map.values().all(is_non_string_table_column) {
         return None;
     }
 
@@ -482,6 +433,18 @@ fn parse_dict_of_lists_table(map: &IndexMap<std::sync::Arc<str>, Value>) -> Opti
         columns,
         nrows,
     })
+}
+
+fn is_non_string_table_column(value: &Value) -> bool {
+    match value {
+        Value::String(_) => false,
+        Value::List(items)
+            if !items.is_empty() && items.iter().all(|item| matches!(item, Value::Char(_))) =>
+        {
+            false
+        }
+        _ => ValueSeq::from_value(value).is_some(),
+    }
 }
 
 fn parse_list_of_dicts_table(rows: &[Value]) -> Option<TableData> {
@@ -521,21 +484,11 @@ fn parse_list_of_dicts_table(rows: &[Value]) -> Option<TableData> {
 }
 
 fn column_len(value: &Value) -> usize {
-    match value {
-        Value::List(items) => items.len(),
-        Value::IntList(items) => items.len(),
-        Value::FloatList(items) => items.len(),
-        _ => 0,
-    }
+    ValueSeq::from_value(value).map_or(0, |items| items.len())
 }
 
 fn column_item(value: &Value, idx: usize) -> Option<Value> {
-    match value {
-        Value::List(items) => items.get(idx).cloned(),
-        Value::IntList(items) => items.get(idx).copied().map(Value::Int),
-        Value::FloatList(items) => items.get(idx).copied().map(Value::Float),
-        _ => None,
-    }
+    ValueSeq::from_value(value)?.get(idx)
 }
 
 fn table_series_configs(table: TableData, opts: &PlotOptions) -> WqResult<Vec<SeriesConfig>> {
@@ -1311,13 +1264,7 @@ impl PlotOptions {
 }
 
 fn pair_as_f64(value: &Value) -> Option<(f64, f64)> {
-    let (a, b) = match value {
-        Value::List(items) if items.len() == 2 => (items[0].as_f64()?, items[1].as_f64()?),
-        Value::IntList(items) if items.len() == 2 => (items[0] as f64, items[1] as f64),
-        Value::FloatList(items) if items.len() == 2 => (items[0].0, items[1].0),
-        _ => return None,
-    };
-    Some((a, b))
+    numeric_pair(value)
 }
 
 fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
@@ -2317,6 +2264,29 @@ mod tests {
 
     fn mode_value(mode: &str) -> (Arc<str>, Value) {
         (Arc::from("mode"), string_value(mode))
+    }
+
+    #[test]
+    fn raw_series_accepts_virtual_ranges_and_packed_point_pairs() {
+        let range = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(2, 2, 3)));
+        let series = parse_raw_series_data(&range).expect("range is a numeric series");
+        assert_eq!(series.points, vec![(0.0, 2.0), (1.0, 4.0), (2.0, 6.0)]);
+
+        let points = Value::List(Arc::new(vec![
+            Value::IntList(Arc::new(vec![10, 3])),
+            Value::FloatList(Arc::new(vec![
+                ordered_float::OrderedFloat(20.0),
+                ordered_float::OrderedFloat(4.5),
+            ])),
+        ]));
+        let series = parse_raw_series_data(&points).expect("packed pairs are explicit points");
+        assert_eq!(series.points, vec![(10.0, 3.0), (20.0, 4.5)]);
+
+        let empty_range = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(0, 1, 0)));
+        assert!(is_non_string_table_column(&empty_range));
+        assert!(!is_non_string_table_column(&Value::String(Arc::new(
+            String::new()
+        ))));
     }
 
     #[test]

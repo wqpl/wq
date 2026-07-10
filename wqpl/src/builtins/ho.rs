@@ -4,7 +4,7 @@ use crate::builtins::{
     BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
 };
 use crate::value::bc::{Bc1Stop, Bc2Stop};
-use crate::value::seq::ListStorageSeq;
+use crate::value::seq::ValueSeq;
 use crate::value::{Value, WqResult};
 use crate::vm::pure::PureCallback;
 use crate::wqerror::{WqError, WqErrorType};
@@ -203,7 +203,7 @@ fn any_all_at_depth(
         };
     }
 
-    if let Some(seq) = ListStorageSeq::from_value(xs) {
+    if let Some(seq) = ValueSeq::from_value(xs) {
         for item in seq.values() {
             let result = any_all_at_depth(
                 vm,
@@ -308,7 +308,7 @@ pub(super) fn fold(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
 
     match n {
         2 => {
-            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+            if let Some(seq) = ValueSeq::from_value(&xs) {
                 if seq.len() == 0 {
                     return Ok(Value::unit());
                 }
@@ -337,7 +337,7 @@ pub(super) fn fold(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
         }
         3 => {
             let mut acc = iter.next().unwrap();
-            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+            if let Some(seq) = ValueSeq::from_value(&xs) {
                 for item in seq.values() {
                     acc = call_fold_func(vm, &f, acc, item)?;
                 }
@@ -368,7 +368,7 @@ pub(super) fn scan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
 
     match n {
         2 => {
-            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+            if let Some(seq) = ValueSeq::from_value(&xs) {
                 if seq.len() == 0 {
                     return Ok(Value::unit());
                 }
@@ -403,7 +403,7 @@ pub(super) fn scan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
         }
         3 => {
             let mut acc = iter.next().unwrap();
-            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+            if let Some(seq) = ValueSeq::from_value(&xs) {
                 let mut results: Vec<Value> = Vec::with_capacity(seq.len());
                 for item in seq.values() {
                     acc = call_fold_func(vm, &f, acc, item)?;
@@ -438,16 +438,15 @@ pub(super) fn rscan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
 
     match n {
         2 => {
-            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+            if let Some(seq) = ValueSeq::from_value(&xs) {
                 if seq.len() == 0 {
                     return Ok(Value::unit());
                 }
                 let mut results: Vec<Value> = Vec::with_capacity(seq.len());
-                let last_idx = seq.len() - 1;
-                let mut acc = seq.get(last_idx).expect("sequence is non-empty");
+                let mut values = seq.values().rev();
+                let mut acc = values.next().expect("sequence is non-empty");
                 results.push(acc.clone());
-                for idx in (0..last_idx).rev() {
-                    let item = seq.get(idx).expect("index came from sequence length");
+                for item in values {
                     acc = call_fold_func(vm, &f, acc, item)?;
                     results.push(acc.clone());
                 }
@@ -476,10 +475,9 @@ pub(super) fn rscan(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
         }
         3 => {
             let mut acc = iter.next().unwrap();
-            if let Some(seq) = ListStorageSeq::from_value(&xs) {
+            if let Some(seq) = ValueSeq::from_value(&xs) {
                 let mut results: Vec<Value> = Vec::with_capacity(seq.len());
-                for idx in (0..seq.len()).rev() {
-                    let item = seq.get(idx).expect("index came from sequence length");
+                for item in seq.values().rev() {
                     acc = call_fold_func(vm, &f, acc, item)?;
                     results.push(acc.clone());
                 }
@@ -511,7 +509,7 @@ pub(super) fn filter(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
     let xs = iter.next().unwrap();
     let func = iter.next().unwrap();
     let pure = PureCallback::compile(&func, 1);
-    if let Some(seq) = ListStorageSeq::from_value(&xs) {
+    if let Some(seq) = ValueSeq::from_value(&xs) {
         let mut result = Vec::new();
         for item in seq.values() {
             if filter_predicate(vm, &func, pure.as_ref(), &item)? {
@@ -541,7 +539,7 @@ pub(super) fn filter_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -
     let xs = iter.next().unwrap();
     let func = iter.next().unwrap();
     let pure = PureCallback::compile(&func, 1);
-    if let Some(seq) = ListStorageSeq::from_value(&xs) {
+    if let Some(seq) = ValueSeq::from_value(&xs) {
         for item in seq.values() {
             filter_predicate(vm, &func, pure.as_ref(), &item)?;
         }
@@ -680,8 +678,7 @@ pub(super) fn splitw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
             Ok(Value::value_from_str_chunks(chunks))
         }
         Value::IntList(_) | Value::IntRange(_) | Value::FloatList(_) | Value::BoolList(_) => {
-            let seq =
-                ListStorageSeq::from_value(&val).expect("guard checked value has list storage");
+            let seq = ValueSeq::from_value(&val).expect("guard checked value has list storage");
             let mut chunks = Vec::new();
             let mut current = Vec::new();
             for item in seq.values() {
@@ -767,12 +764,11 @@ fn findwith_search(
         }
     };
 
-    if let Some(seq) = ListStorageSeq::from_value(xs) {
-        let mut visit = |idx: usize| -> WqResult<bool> {
+    if let Some(seq) = ValueSeq::from_value(xs) {
+        let mut visit = |idx: usize, item: Value| -> WqResult<bool> {
             if findwith_threshold_reached(results.len(), ctx.threshold) {
                 return Ok(true);
             }
-            let item = seq.get(idx).expect("index came from sequence length");
             if is_match(vm, &item)? {
                 path.push(idx as i64);
                 results.push(Value::IntList(Arc::new(path.clone())));
@@ -789,14 +785,14 @@ fn findwith_search(
         };
 
         if ctx.reverse {
-            for idx in (0..seq.len()).rev() {
-                if visit(idx)? {
+            for (item, idx) in seq.values().rev().zip((0..seq.len()).rev()) {
+                if visit(idx, item)? {
                     return Ok(());
                 }
             }
         } else {
-            for idx in 0..seq.len() {
-                if visit(idx)? {
+            for (idx, item) in seq.values().enumerate() {
+                if visit(idx, item)? {
                     return Ok(());
                 }
             }
@@ -1358,6 +1354,58 @@ mod tests {
         assert_eq!(
             findw(&mut vm, BuiltinFnArgs::from(smallvec![range, eq_three])).unwrap(),
             Value::IntList(Arc::new(vec![2]))
+        );
+    }
+
+    #[test]
+    fn higher_order_builtins_treat_strings_as_char_lists() {
+        let mut vm = Vm::new(vec![]);
+        let text = Value::String(Arc::new("abc".to_owned()));
+        let is_b = make_fn(
+            Some(&["x"]),
+            1,
+            vec![
+                Instruction::binary_op(
+                    crate::ast::BinaryOperator::Equal,
+                    Operand::Local(0),
+                    Operand::Const(Box::new(Value::Char('b'))),
+                ),
+                Instruction::Return,
+            ],
+        );
+        let take_item = make_fn(
+            Some(&["x", "y"]),
+            2,
+            vec![Instruction::LoadLocal(1), Instruction::Return],
+        );
+
+        assert_eq!(
+            fold(
+                &mut vm,
+                BuiltinFnArgs::from(smallvec![text.clone(), take_item])
+            )
+            .expect("fold succeeds"),
+            Value::Char('c')
+        );
+        assert_eq!(
+            filter(
+                &mut vm,
+                BuiltinFnArgs::from(smallvec![text.clone(), is_b.clone()])
+            )
+            .expect("filter succeeds"),
+            Value::String(Arc::new("b".to_owned()))
+        );
+        assert_eq!(
+            any(
+                &mut vm,
+                BuiltinFnArgs::from(smallvec![text.clone(), is_b.clone()])
+            )
+            .expect("any succeeds"),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            findw(&mut vm, BuiltinFnArgs::from(smallvec![text, is_b])).expect("findw succeeds"),
+            Value::IntList(Arc::new(vec![1]))
         );
     }
 

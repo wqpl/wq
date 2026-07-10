@@ -9,7 +9,7 @@ use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 use crate::ast::{binary_op_display, unary_op_display};
 use crate::value::Value;
 use crate::value::func::CallableExpr;
-use crate::value::seq::ExactIntSeq;
+use crate::value::seq::{ExactIntSeq, ValueSeq};
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -333,7 +333,7 @@ fn parse_dict_table(val: &Value) -> Option<TableData> {
 
 fn is_table_column_value(value: &Value) -> bool {
     match value {
-        Value::IntList(_) | Value::FloatList(_) | Value::BoolList(_) => true,
+        Value::IntList(_) | Value::IntRange(_) | Value::FloatList(_) | Value::BoolList(_) => true,
         Value::List(items) => !is_char_list(items),
         _ => false,
     }
@@ -388,13 +388,8 @@ fn parse_dict_of_lists(val: &Value) -> Option<TableData> {
         let headers: Vec<String> = map.keys().map(|k| k.to_string()).collect();
         let nrows = map
             .values()
-            .filter_map(|v| match v {
-                Value::List(items) => Some(items.len()),
-                Value::IntList(items) => Some(items.len()),
-                Value::FloatList(items) => Some(items.len()),
-                Value::BoolList(items) => Some(items.len()),
-                _ => None,
-            })
+            .filter_map(ValueSeq::from_value)
+            .map(|items| items.len())
             .max()
             .unwrap_or(0);
         let mut data = Vec::new();
@@ -402,37 +397,12 @@ fn parse_dict_of_lists(val: &Value) -> Option<TableData> {
             let mut row = Vec::new();
             for h in &headers {
                 if let Some(value) = map.get(h.as_str()) {
-                    match value {
-                        Value::List(items) => {
-                            if let Some(v) = items.get(i) {
-                                row.push(v.to_string());
-                            } else {
-                                row.push(String::new());
-                            }
-                        }
-                        Value::IntList(items) => {
-                            if let Some(v) = items.get(i) {
-                                row.push(v.to_string());
-                            } else {
-                                row.push(String::new());
-                            }
-                        }
-                        Value::FloatList(items) => {
-                            if let Some(v) = items.get(i) {
-                                row.push(Value::Float(*v).to_string());
-                            } else {
-                                row.push(String::new());
-                            }
-                        }
-                        Value::BoolList(items) => {
-                            if let Some(v) = items.get(i) {
-                                row.push(if *v { "T".to_string() } else { "F".to_string() });
-                            } else {
-                                row.push(String::new());
-                            }
-                        }
-                        _ => row.push(String::new()),
-                    }
+                    row.push(
+                        ValueSeq::from_value(value)
+                            .and_then(|items| items.get(i))
+                            .map(|item| item.to_string())
+                            .unwrap_or_default(),
+                    );
                 } else {
                     row.push(String::new());
                 }

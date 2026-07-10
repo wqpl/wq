@@ -3,6 +3,7 @@ use std::sync::Arc;
 use num_bigint::BigInt;
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
+use crate::value::seq::ValueSeq;
 use crate::value::{Value, WqResult, into_wq_string};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -99,7 +100,14 @@ pub(super) fn to_bool(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn to_list(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::List, [1], &args)?;
     let input = args.into_iter().next().unwrap();
-    if matches!(&input, Value::List(_) | Value::IntList(_)) {
+    if matches!(
+        &input,
+        Value::List(_)
+            | Value::IntList(_)
+            | Value::IntRange(_)
+            | Value::FloatList(_)
+            | Value::BoolList(_)
+    ) {
         return Ok(input);
     }
     match input {
@@ -116,32 +124,25 @@ pub(super) fn to_dict(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Dict, [1], &args)?;
 
     fn extract_entry(v: &Value) -> WqResult<(Arc<str>, Value)> {
-        match v {
-            Value::List(pair) if pair.len() == 2 => {
-                let key = match &pair[0] {
-                    Value::Tag(s) => s.clone(),
-                    Value::String(s) => Arc::from(s.as_str()),
-                    Value::Char(c) => Arc::from(c.to_string().as_str()),
-                    other => {
-                        return Err(crate::wqerror::WqError::new(
-                            crate::wqerror::WqErrorType::Domain,
-                        )
-                        .msg(format!(
-                            "dict key must be tag, string or char, got {}",
-                            other.type_name()
-                        )));
-                    }
-                };
-                Ok((key, pair[1].clone()))
+        let Some(pair) = ValueSeq::from_value(v).filter(|pair| pair.len() == 2) else {
+            return Err(WqError::new(WqErrorType::Domain)
+                .msg(format!("expected list of pairs, got {}", v.type_name())));
+        };
+        let key_value = pair.get(0).expect("two-item pair has a key");
+        let key = match key_value {
+            Value::Tag(s) => s,
+            Value::String(s) => Arc::from(s.as_str()),
+            Value::Char(c) => Arc::from(c.to_string()),
+            Value::Int(i) => Arc::from(i.to_string()),
+            Value::BigInt(i) => Arc::from(i.to_string()),
+            other => {
+                return Err(WqError::new(WqErrorType::Domain).msg(format!(
+                    "dict key must be tag, string, char or int, got {}",
+                    other.type_name()
+                )));
             }
-            Value::IntList(pair) if pair.len() == 2 => {
-                Ok((Arc::from(pair[0].to_string().as_str()), Value::Int(pair[1])))
-            }
-            other => Err(
-                crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Domain)
-                    .msg(format!("expected list of pairs, got {}", other.type_name())),
-            ),
-        }
+        };
+        Ok((key, pair.get(1).expect("two-item pair has a value")))
     }
 
     let entries = match &args[0] {
@@ -186,5 +187,34 @@ mod tests {
         let val = Value::List(Arc::new(vec![Value::Int(1)]));
         let result = is_atom(BuiltinFnArgs::from(val)).unwrap();
         assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn list_conversion_preserves_all_non_string_list_storage() {
+        let values = [
+            Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, 1, 3))),
+            Value::FloatList(Arc::new(vec![ordered_float::OrderedFloat(1.5)])),
+            Value::BoolList(Arc::new(vec![true, false])),
+        ];
+
+        for value in values {
+            let converted = to_list(BuiltinFnArgs::from(value.clone())).expect("list succeeds");
+            assert_eq!(converted.type_name_verbose(), value.type_name_verbose());
+            assert_eq!(converted, value);
+        }
+    }
+
+    #[test]
+    fn dict_conversion_reads_pairs_through_the_list_abstraction() {
+        let pairs = Value::List(Arc::new(vec![
+            Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, 1, 2))),
+            Value::String(Arc::new("ab".to_owned())),
+        ]));
+        let converted = to_dict(BuiltinFnArgs::from(pairs)).expect("dict succeeds");
+        let Value::Dict(entries) = converted else {
+            unreachable!("dict conversion should return a dict");
+        };
+        assert_eq!(entries.get("1"), Some(&Value::Int(2)));
+        assert_eq!(entries.get("a"), Some(&Value::Char('b')));
     }
 }

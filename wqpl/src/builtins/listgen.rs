@@ -37,21 +37,7 @@ fn cache_insert(key: ListGenKey, value: Value) -> Value {
 /// Extract a shape vector of i64 from common Value shapes.
 /// Returns None for types that are not simple int-based shapes.
 fn extract_int_shape(v: &Value) -> Option<Vec<i64>> {
-    match v {
-        Value::Int(n) => Some(vec![*n]),
-        Value::IntList(dims) => Some(dims.as_ref().clone()),
-        Value::List(items) => {
-            let mut out = Vec::with_capacity(items.len());
-            for item in items.iter() {
-                match item {
-                    Value::Int(n) => out.push(*n),
-                    _ => return None,
-                }
-            }
-            Some(out)
-        }
-        _ => None,
-    }
+    v.exact_int_seq().map(|items| items.to_vec())
 }
 
 pub(super) fn alloc(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -84,7 +70,7 @@ pub(super) fn til(args: BuiltinFnArgs) -> WqResult<Value> {
             return Err(WqError::new(WqErrorType::Domain)
                 .src(BE::Til)
                 .msg("invalid shape")
-                .attach_note("shape is positive int or list<positive int>"));
+                .attach_note("shape is a non-negative int or list of non-negative ints"));
         };
         return Ok(Value::IntRange(Arc::new(IntRangeData::new(0, 1, len))));
     }
@@ -142,7 +128,7 @@ pub(super) fn iota(args: BuiltinFnArgs) -> WqResult<Value> {
                 return Err(WqError::new(WqErrorType::Domain)
                     .src(BE::Iota)
                     .msg("invalid shape")
-                    .attach_note("shape is positive int or list<positive int>"));
+                    .attach_note("shape is a non-negative int or list of non-negative ints"));
             };
             Ok(Value::IntRange(Arc::new(IntRangeData::new(0, 1, len))))
         }
@@ -229,25 +215,73 @@ pub(super) fn repeat(args: BuiltinFnArgs) -> WqResult<Value> {
                 )));
         }
     };
+    let too_large = || {
+        WqError::new(WqErrorType::Domain)
+            .src(BE::Repeat)
+            .msg("repeated value is too large")
+    };
+    let repeated_len = |len: usize| len.checked_mul(count).ok_or_else(&too_large);
 
     match &args[0] {
         Value::String(s) => {
-            let repeated = s.repeat(count);
+            let mut repeated = String::new();
+            repeated
+                .try_reserve_exact(repeated_len(s.len())?)
+                .map_err(|_| too_large())?;
+            for _ in 0..count {
+                repeated.push_str(s);
+            }
             Ok(Value::String(Arc::new(repeated)))
         }
         Value::Char(c) => {
-            let repeated: String = std::iter::repeat_n(*c, count).collect();
+            let mut repeated = String::new();
+            repeated
+                .try_reserve_exact(repeated_len(c.len_utf8())?)
+                .map_err(|_| too_large())?;
+            repeated.extend(std::iter::repeat_n(*c, count));
             Ok(Value::String(Arc::new(repeated)))
         }
         Value::IntList(items) => {
-            let mut res = Vec::with_capacity(items.len() * count);
+            let mut res = Vec::new();
+            res.try_reserve_exact(repeated_len(items.len())?)
+                .map_err(|_| too_large())?;
             for _ in 0..count {
                 res.extend(items.iter().copied());
             }
             Ok(Value::IntList(Arc::new(res)))
         }
+        Value::IntRange(items) if count == 1 => Ok(Value::IntRange(items.clone())),
+        Value::IntRange(items) => {
+            let mut res = Vec::new();
+            res.try_reserve_exact(repeated_len(items.len())?)
+                .map_err(|_| too_large())?;
+            for _ in 0..count {
+                res.extend(items.iter());
+            }
+            Ok(Value::IntList(Arc::new(res)))
+        }
+        Value::FloatList(items) => {
+            let mut res = Vec::new();
+            res.try_reserve_exact(repeated_len(items.len())?)
+                .map_err(|_| too_large())?;
+            for _ in 0..count {
+                res.extend(items.iter().copied());
+            }
+            Ok(Value::FloatList(Arc::new(res)))
+        }
+        Value::BoolList(items) => {
+            let mut res = Vec::new();
+            res.try_reserve_exact(repeated_len(items.len())?)
+                .map_err(|_| too_large())?;
+            for _ in 0..count {
+                res.extend(items.iter().copied());
+            }
+            Ok(Value::BoolList(Arc::new(res)))
+        }
         Value::List(items) => {
-            let mut res = Vec::with_capacity(items.len() * count);
+            let mut res = Vec::new();
+            res.try_reserve_exact(repeated_len(items.len())?)
+                .map_err(|_| too_large())?;
             for _ in 0..count {
                 res.extend(items.iter().cloned());
             }
@@ -255,7 +289,8 @@ pub(super) fn repeat(args: BuiltinFnArgs) -> WqResult<Value> {
         }
 
         other => {
-            let mut res = Vec::with_capacity(count);
+            let mut res = Vec::new();
+            res.try_reserve_exact(count).map_err(|_| too_large())?;
             for _ in 0..count {
                 res.push(other.clone());
             }
@@ -344,8 +379,11 @@ pub(super) fn wq_where(args: BuiltinFnArgs) -> WqResult<Value> {
                 }
                 Ok(())
             }
-            Value::IntList(items) => {
-                for (i, &n) in items.iter().enumerate() {
+            value @ (Value::IntList(_) | Value::IntRange(_)) => {
+                let items = value
+                    .packed_int_seq()
+                    .expect("guard checked value is a packed int sequence");
+                for (i, n) in items.iter().enumerate() {
                     if n != 0 {
                         let mut coord = prefix.clone();
                         coord.push(i.try_into().map_err(|e| {
@@ -392,10 +430,13 @@ pub(super) fn wq_where(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Where, [1], &args)?;
     match &args[0] {
         // Flat vector of ints -> indices as list of ints
-        Value::IntList(items) => {
+        value @ (Value::IntList(_) | Value::IntRange(_)) => {
             let mut indices = Vec::new();
+            let items = value
+                .packed_int_seq()
+                .expect("guard checked value is a packed int sequence");
             for (i, n) in items.iter().enumerate() {
-                if *n != 0 {
+                if n != 0 {
                     indices.push(i.try_into().map_err(|e| {
                         WqError::new(WqErrorType::Domain)
                             .src(BE::Where)
@@ -421,9 +462,12 @@ pub(super) fn wq_where(args: BuiltinFnArgs) -> WqResult<Value> {
         // Generic list: nested -> coordinate vectors (with atom for length-1), else flat
         // ints/bools.
         Value::List(items) => {
-            let has_nested = items
-                .iter()
-                .any(|x| matches!(x, Value::List(_) | Value::IntList(_) | Value::BoolList(_)));
+            let has_nested = items.iter().any(|x| {
+                matches!(
+                    x,
+                    Value::List(_) | Value::IntList(_) | Value::IntRange(_) | Value::BoolList(_)
+                )
+            });
             if has_nested {
                 let mut out = Vec::new();
                 let mut pref = Vec::new();
@@ -445,54 +489,25 @@ pub(super) fn wq_where(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 fn parse_shape(v: &Value) -> WqResult<Vec<usize>> {
-    const EXP: &str = "positive int or list<positive int>";
-    match v {
-        Value::Int(n) => {
-            if *n < 0 {
-                Err(WqError::new(WqErrorType::Domain).msg(EXP))
-            } else {
-                let n =
-                    usize::try_from(*n).map_err(|_| WqError::new(WqErrorType::Domain).msg(EXP))?;
-                Ok(vec![n])
-            }
-        }
-        Value::IntList(dims) => dims
-            .iter()
-            .enumerate()
-            .map(|(i, &d)| {
-                if d < 0 {
-                    Err(WqError::new(WqErrorType::Domain)
-                        .msg(EXP)
-                        .attach_note(format!("at index {i}"))
-                        .attach_note(format!("value excerpt is {}", d.excerpt())))
+    const EXP: &str = "non-negative int or list of non-negative ints";
+    let Some(dims) = v.exact_int_seq() else {
+        return Err(WqError::new(WqErrorType::Domain).msg(EXP));
+    };
+    dims.iter()
+        .enumerate()
+        .map(|(i, d)| {
+            usize::try_from(d).map_err(|_| {
+                let error = WqError::new(WqErrorType::Domain).msg(EXP);
+                if dims.is_atom() {
+                    error
                 } else {
-                    usize::try_from(d).map_err(|_| {
-                        WqError::new(WqErrorType::Domain)
-                            .msg(EXP)
-                            .attach_note(format!("at index {i}"))
-                            .attach_note(format!("value excerpt is {}", d.excerpt()))
-                    })
+                    error
+                        .attach_note(format!("at index {i}"))
+                        .attach_note(format!("value excerpt is {}", d.excerpt()))
                 }
             })
-            .collect(),
-        Value::List(items) => items
-            .iter()
-            .enumerate()
-            .map(|(i, v)| match &v {
-                Value::Int(n) if *n > 0 => usize::try_from(*n).map_err(|_| {
-                    WqError::new(WqErrorType::Domain)
-                        .msg(EXP)
-                        .attach_note(format!("at index {i}"))
-                        .attach_note(format!("value excerpt is {}", v.excerpt()))
-                }),
-                _ => Err(WqError::new(WqErrorType::Domain)
-                    .msg(EXP)
-                    .attach_note(format!("at index {i}"))
-                    .attach_note(format!("value excerpt is {}", v.excerpt()))),
-            })
-            .collect(),
-        _ => Err(WqError::new(WqErrorType::Domain).msg(EXP)),
-    }
+        })
+        .collect()
 }
 
 fn build_from_parsed_shape<F>(shape: &[usize], next: &mut F) -> Value
@@ -652,6 +667,72 @@ mod tests {
                 Value::IntList(Arc::new(vec![4, 4, 4])),
                 Value::IntList(Arc::new(vec![4, 4, 4]))
             ]))
+        );
+    }
+
+    #[test]
+    fn repeat_preserves_packed_list_element_semantics() {
+        assert_eq!(
+            repeat(BuiltinFnArgs::from(smallvec![
+                Value::FloatList(Arc::new(vec![OrderedFloat(1.5), OrderedFloat(2.5)])),
+                Value::Int(2),
+            ]))
+            .expect("repeat succeeds"),
+            Value::FloatList(Arc::new(vec![
+                OrderedFloat(1.5),
+                OrderedFloat(2.5),
+                OrderedFloat(1.5),
+                OrderedFloat(2.5),
+            ]))
+        );
+        assert_eq!(
+            repeat(BuiltinFnArgs::from(smallvec![
+                Value::BoolList(Arc::new(vec![true, false])),
+                Value::Int(2),
+            ]))
+            .expect("repeat succeeds"),
+            Value::BoolList(Arc::new(vec![true, false, true, false]))
+        );
+
+        let range = Value::IntRange(Arc::new(IntRangeData::new(2, 2, 3)));
+        assert_eq!(
+            repeat(BuiltinFnArgs::from(smallvec![range, Value::Int(2)])).expect("repeat succeeds"),
+            Value::IntList(Arc::new(vec![2, 4, 6, 2, 4, 6]))
+        );
+
+        let error = repeat(BuiltinFnArgs::from(smallvec![
+            Value::Char('x'),
+            Value::Int(i64::MAX),
+        ]))
+        .expect_err("oversized repeat should fail");
+        assert_eq!(error.msg.as_deref(), Some("repeated value is too large"));
+    }
+
+    #[test]
+    fn shape_parsing_is_independent_of_int_list_storage() {
+        let general = Value::List(Arc::new(vec![Value::Int(0), Value::Int(2)]));
+        let packed = Value::IntList(Arc::new(vec![0, 2]));
+        assert_eq!(parse_shape(&general).expect("general shape"), vec![0, 2]);
+        assert_eq!(parse_shape(&packed).expect("packed shape"), vec![0, 2]);
+
+        let range = Value::IntRange(Arc::new(IntRangeData::new(2, 1, 2)));
+        assert_eq!(parse_shape(&range).expect("range shape"), vec![2, 3]);
+    }
+
+    #[test]
+    fn where_treats_virtual_ranges_as_int_lists() {
+        let range = Value::IntRange(Arc::new(IntRangeData::new(0, 1, 3)));
+        assert_eq!(
+            wq_where(BuiltinFnArgs::from(range)).expect("where succeeds"),
+            Value::IntList(Arc::new(vec![1, 2]))
+        );
+
+        let nested = Value::List(Arc::new(vec![Value::IntRange(Arc::new(
+            IntRangeData::new(0, 1, 2),
+        ))]));
+        assert_eq!(
+            wq_where(BuiltinFnArgs::from(nested)).expect("nested where succeeds"),
+            Value::List(Arc::new(vec![Value::IntList(Arc::new(vec![0, 1]))]))
         );
     }
 }

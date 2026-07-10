@@ -11,7 +11,7 @@ use crate::builtins::{
 };
 use crate::value::bc::Bc2Stop;
 use crate::value::cmp::cmp_atom;
-use crate::value::seq::{ExactIntSeq, IntRangeData, ListStorageSeq};
+use crate::value::seq::{ExactIntSeq, IntRangeData, ListStorageSeq, ValueSeq};
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -341,136 +341,83 @@ pub(super) fn product(args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(acc)
 }
 
-pub(super) fn min(args: BuiltinFnArgs) -> WqResult<Value> {
+fn extreme_values(
+    values: impl IntoIterator<Item = Value>,
+    desired: Ordering,
+    src: BE,
+) -> WqResult<Value> {
+    let mut extreme: Option<Value> = None;
+    for value in values {
+        if !value.is_atom() {
+            continue;
+        }
+        extreme = Some(match extreme {
+            None => value,
+            Some(current) => match cmp_atom(&value, &current) {
+                Some(ordering) if ordering == desired => value,
+                Some(_) => current,
+                None => {
+                    return Err(WqError::new(WqErrorType::Domain).src(src).msg(format!(
+                        "cannot compare {} and {}",
+                        value.type_name(),
+                        current.type_name()
+                    )));
+                }
+            },
+        });
+    }
+    Ok(extreme.unwrap_or_else(Value::unit))
+}
+
+fn extreme(args: BuiltinFnArgs, desired: Ordering, src: BE) -> WqResult<Value> {
     if args.is_empty() {
         return Err(WqError::new(WqErrorType::Arity)
-            .src(BE::Min)
+            .src(src)
             .msg("expected at least 1 argument"));
     }
-    if args.len() == 1 && args[0].is_atom() {
-        return Ok(args.into_iter().next().unwrap());
+    if args.len() != 1 {
+        return extreme_values(args, desired, src);
     }
-    let values: Vec<&Value> = if args.len() == 1 {
-        // Single argument: extract immediate elements only
-        match &args[0] {
-            Value::List(items) => items.iter().collect(),
-            Value::IntList(_) | Value::IntRange(_) => {
-                return Ok(min_exact_int_seq(
-                    args[0]
-                        .packed_int_seq()
-                        .expect("guard checked value is packed int sequence"),
-                ));
-            }
-            Value::FloatList(items) => {
-                let min_float = items.iter().copied().min();
-                return Ok(min_float.map(Value::Float).unwrap_or_else(Value::unit));
-            }
-            Value::Dict(items) => items.values().collect(),
+    if args[0].is_atom() {
+        return Ok(args.into_iter().next().expect("one argument"));
+    }
 
-            _atom => return Ok(args.into_iter().next().unwrap()),
+    match &args[0] {
+        Value::IntList(_) | Value::IntRange(_) => {
+            let items = args[0]
+                .packed_int_seq()
+                .expect("guard checked value is packed int sequence");
+            Ok(if desired == Ordering::Less {
+                min_exact_int_seq(items)
+            } else {
+                max_exact_int_seq(items)
+            })
         }
-    } else {
-        // Multiple arguments: compare them directly
-        args.iter().collect()
-    };
-    if values.is_empty() {
-        return Ok(Value::unit());
-    }
-    // Filter to only atoms (skip nested lists/dicts)
-    let mut min_val: Option<&Value> = None;
-    for val in values {
-        // Only consider atoms
-        match val {
-            v if !v.is_atom() => continue,
-            atom => {
-                min_val = Some(match min_val {
-                    None => atom,
-                    Some(current) => {
-                        if let Some(ord) = cmp_atom(atom, current) {
-                            if ord == Ordering::Less { atom } else { current }
-                        } else {
-                            return Err(WqError::new(WqErrorType::Domain).src(BE::Min).msg(
-                                format!(
-                                    "cannot compare {} and {}",
-                                    atom.type_name(),
-                                    current.type_name()
-                                ),
-                            ));
-                        }
-                    }
-                });
+        Value::FloatList(items) => {
+            let item = if desired == Ordering::Less {
+                items.iter().copied().min()
+            } else {
+                items.iter().copied().max()
+            };
+            Ok(item.map(Value::Float).unwrap_or_else(Value::unit))
+        }
+        Value::Dict(items) => extreme_values(items.values().cloned(), desired, src),
+        value => {
+            if let Some(items) = ValueSeq::from_value(value) {
+                extreme_values(items.values(), desired, src)
+            } else {
+                Ok(value.clone())
             }
         }
     }
-    Ok(min_val.cloned().unwrap_or_else(Value::unit))
+}
+
+pub(super) fn min(args: BuiltinFnArgs) -> WqResult<Value> {
+    extreme(args, Ordering::Less, BE::Min)
 }
 
 pub(super) fn max(args: BuiltinFnArgs) -> WqResult<Value> {
-    if args.is_empty() {
-        return Err(WqError::new(WqErrorType::Arity)
-            .src(BE::Max)
-            .msg("expected at least 1 argument"));
-    }
-    if args.len() == 1 && args[0].is_atom() {
-        return Ok(args.into_iter().next().unwrap());
-    }
-    let values: Vec<&Value> = if args.len() == 1 {
-        // Single argument: extract immediate elements only
-        match &args[0] {
-            Value::List(items) => items.iter().collect(),
-            Value::IntList(_) | Value::IntRange(_) => {
-                return Ok(max_exact_int_seq(
-                    args[0]
-                        .packed_int_seq()
-                        .expect("guard checked value is packed int sequence"),
-                ));
-            }
-            Value::FloatList(items) => {
-                let max_float = items.iter().copied().max();
-                return Ok(max_float.map(Value::Float).unwrap_or_else(Value::unit));
-            }
-            Value::Dict(items) => items.values().collect(),
-
-            _atom => return Ok(args.into_iter().next().unwrap()),
-        }
-    } else {
-        // Multiple arguments: compare them directly
-        args.iter().collect()
-    };
-    if values.is_empty() {
-        return Ok(Value::unit());
-    }
-    // Filter to only atoms (skip nested lists/dicts)
-    let mut max_val: Option<&Value> = None;
-    for val in values {
-        // Only consider atoms (not List or Dict)
-        match val {
-            v if !v.is_atom() => continue,
-            atom => {
-                max_val = Some(match max_val {
-                    None => atom,
-                    Some(current) => {
-                        if let Some(ord) = cmp_atom(atom, current) {
-                            if ord == Ordering::Greater {
-                                atom
-                            } else {
-                                current
-                            }
-                        } else {
-                            return Err(WqError::new(WqErrorType::Domain).src(BE::Max).msg(
-                                format!(
-                                    "cannot compare {} and {}",
-                                    atom.type_name(),
-                                    current.type_name()
-                                ),
-                            ));
-                        }
-                    }
-                });
-            }
-        }
-    }
-    Ok(max_val.cloned().unwrap_or_else(Value::unit))
+    extreme(args, Ordering::Greater, BE::Max)
 }
 
 pub(super) fn flatten(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -481,51 +428,76 @@ pub(super) fn flatten(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn reverse(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Reverse, [1], &args)?;
     let v = args.into_iter().next().unwrap();
-    if let Some(seq) = ListStorageSeq::from_value(&v) {
-        let mut reversed = seq.to_values_vec();
-        reversed.reverse();
-        return Ok(Value::from_items(reversed));
-    }
-
-    match &v {
-        Value::Dict(items) => {
-            let mut reversed = items.clone();
-            Arc::make_mut(&mut reversed).reverse();
-            Ok(Value::Dict(reversed))
+    Ok(match v {
+        Value::IntRange(range) => {
+            if let Some(reversed) = range.reversed() {
+                Value::IntRange(Arc::new(reversed))
+            } else {
+                let mut items = range.to_vec();
+                items.reverse();
+                Value::IntList(Arc::new(items))
+            }
         }
-
-        _ => Ok(v),
-    }
+        Value::IntList(mut items) => {
+            Arc::make_mut(&mut items).reverse();
+            Value::IntList(items)
+        }
+        Value::FloatList(mut items) => {
+            Arc::make_mut(&mut items).reverse();
+            Value::FloatList(items)
+        }
+        Value::BoolList(mut items) => {
+            Arc::make_mut(&mut items).reverse();
+            Value::BoolList(items)
+        }
+        Value::List(mut items) => {
+            let items = Arc::make_mut(&mut items);
+            items.reverse();
+            Value::from_items(std::mem::take(items))
+        }
+        Value::String(items) => Value::String(Arc::new(items.chars().rev().collect::<String>())),
+        Value::Dict(mut items) => {
+            Arc::make_mut(&mut items).reverse();
+            Value::Dict(items)
+        }
+        other => other,
+    })
 }
 
 pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Sort, [1], &args)?;
     let v = args.into_iter().next().unwrap();
-    let res = match &v {
-        Value::IntList(_) | Value::IntRange(_) => {
-            let mut sorted = v
-                .packed_int_seq()
-                .expect("guard checked value is packed int sequence")
-                .to_vec();
+    let res = match v {
+        Value::IntRange(range) if range.step() > 0 => Value::IntRange(range),
+        Value::IntRange(range) => {
+            if let Some(sorted) = range.reversed() {
+                Value::IntRange(Arc::new(sorted))
+            } else {
+                let mut sorted = range.to_vec();
+                sorted.sort();
+                Value::IntList(Arc::new(sorted))
+            }
+        }
+        Value::IntList(mut items) => {
+            let sorted = Arc::make_mut(&mut items);
             if sorted.len() > 2000 {
                 sorted.par_sort();
             } else {
                 sorted.sort();
             }
-            Value::IntList(Arc::new(sorted))
+            Value::IntList(items)
         }
-        Value::FloatList(items) => {
-            let mut sorted = Arc::clone(items);
-            let slice = Arc::make_mut(&mut sorted);
+        Value::FloatList(mut items) => {
+            let slice = Arc::make_mut(&mut items);
             if slice.len() > 2000 {
                 slice.par_sort();
             } else {
                 slice.sort();
             }
-            Value::FloatList(sorted)
+            Value::FloatList(items)
         }
-        Value::List(items) => {
-            let mut sorted: Vec<Value> = items.iter().cloned().collect();
+        Value::List(mut items) => {
+            let sorted = Arc::make_mut(&mut items);
             let cmp = |a: &Value, b: &Value| {
                 if let (Ok(sa), Ok(sb)) =
                     (a.to_rust_string_with_note(), b.to_rust_string_with_note())
@@ -539,11 +511,15 @@ pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
             } else {
                 sorted.sort_by(cmp);
             }
-            Value::from_items(sorted)
+            Value::from_items(std::mem::take(sorted))
         }
-        Value::Dict(items) => {
-            let mut sorted = items.clone();
-            Arc::make_mut(&mut sorted).sort_by(|_ka, va, _kb, vb| {
+        Value::String(items) => {
+            let mut chars = items.chars().collect::<Vec<_>>();
+            chars.sort();
+            Value::String(Arc::new(chars.into_iter().collect()))
+        }
+        Value::Dict(mut items) => {
+            Arc::make_mut(&mut items).sort_by(|_ka, va, _kb, vb| {
                 if let (Ok(sa), Ok(sb)) =
                     (va.to_rust_string_with_note(), vb.to_rust_string_with_note())
                 {
@@ -551,10 +527,10 @@ pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
                 }
                 cmp_atom(va, vb).unwrap_or(Ordering::Equal)
             });
-            Value::Dict(sorted)
+            Value::Dict(items)
         }
 
-        _ => v,
+        other => other,
     };
     Ok(res)
 }
@@ -635,58 +611,22 @@ pub(super) fn split(args: BuiltinFnArgs) -> WqResult<Value> {
                 Ok(split_string_by_whitespace(&s, maxsplit))
             }
         }
-        // list<int> split
-        Value::IntList(_) | Value::IntRange(_) => {
+        value if ListStorageSeq::from_value(value).is_some() => {
+            let items = ListStorageSeq::from_value(value)
+                .expect("guard checked value has non-string list storage");
             let mut chunks = Vec::new();
             let mut current = Vec::new();
             let limit = maxsplit.unwrap_or(usize::MAX);
             let mut splits_done = 0;
-            for item in data
-                .packed_int_seq()
-                .expect("guard checked value is packed int sequence")
-                .iter()
-            {
-                if delim.is_some_and(|d| Value::Int(item) == *d) && splits_done < limit {
-                    chunks.push(Value::IntList(Arc::new(std::mem::take(&mut current))));
+            for item in items.values() {
+                if delim.is_some_and(|d| item == *d) && splits_done < limit {
+                    chunks.push(Value::from_items(std::mem::take(&mut current)));
                     splits_done += 1;
                 } else {
                     current.push(item);
                 }
             }
-            chunks.push(Value::IntList(Arc::new(current)));
-            Ok(Value::List(Arc::new(chunks)))
-        }
-        Value::FloatList(items) => {
-            let mut chunks = Vec::new();
-            let mut current = Vec::new();
-            let limit = maxsplit.unwrap_or(usize::MAX);
-            let mut splits_done = 0;
-            for &item in items.iter() {
-                if delim.is_some_and(|d| Value::Float(item) == *d) && splits_done < limit {
-                    chunks.push(Value::FloatList(Arc::new(std::mem::take(&mut current))));
-                    splits_done += 1;
-                } else {
-                    current.push(item);
-                }
-            }
-            chunks.push(Value::FloatList(Arc::new(current)));
-            Ok(Value::List(Arc::new(chunks)))
-        }
-        // List split
-        Value::List(items) => {
-            let mut chunks = Vec::new();
-            let mut current = Vec::new();
-            let limit = maxsplit.unwrap_or(usize::MAX);
-            let mut splits_done = 0;
-            for item in items.iter() {
-                if delim.is_some_and(|d| item == d) && splits_done < limit {
-                    chunks.push(Value::List(Arc::new(std::mem::take(&mut current))));
-                    splits_done += 1;
-                } else {
-                    current.push(item.clone());
-                }
-            }
-            chunks.push(Value::List(Arc::new(current)));
+            chunks.push(Value::from_items(current));
             Ok(Value::List(Arc::new(chunks)))
         }
         other => Err(WqError::new(WqErrorType::Domain)
@@ -818,19 +758,12 @@ fn find_search(
         return;
     }
 
-    if let Some(seq) = ListStorageSeq::from_value(xs) {
-        let values = seq.to_values_vec();
-        let indices: Vec<usize> = if ctx.reverse {
-            (0..values.len()).rev().collect()
-        } else {
-            (0..values.len()).collect()
-        };
-        for idx in indices {
+    if let Some(seq) = ValueSeq::from_value(xs) {
+        let visit = |idx: usize, item: Value, results: &mut Vec<Value>, path: &mut Vec<i64>| {
             if find_threshold_reached(results.len(), ctx.threshold) {
                 return;
             }
-            let item = &values[idx];
-            let is_match = ctx.elem == item;
+            let is_match = ctx.elem == &item;
             if is_match {
                 path.push(idx as i64);
                 results.push(Value::IntList(Arc::new(path.clone())));
@@ -841,8 +774,23 @@ fn find_search(
             }
             if !is_match && current_depth < ctx.max_depth {
                 path.push(idx as i64);
-                find_search(item, current_depth + 1, results, path, ctx);
+                find_search(&item, current_depth + 1, results, path, ctx);
                 path.pop();
+            }
+        };
+        if ctx.reverse {
+            for (item, idx) in seq.values().rev().zip((0..seq.len()).rev()) {
+                visit(idx, item, results, path);
+                if find_threshold_reached(results.len(), ctx.threshold) {
+                    break;
+                }
+            }
+        } else {
+            for (idx, item) in seq.values().enumerate() {
+                visit(idx, item, results, path);
+                if find_threshold_reached(results.len(), ctx.threshold) {
+                    break;
+                }
             }
         }
         return;
@@ -850,30 +798,39 @@ fn find_search(
 
     match xs {
         Value::Dict(map) => {
-            let values: Vec<_> = map.values().collect();
-            let indices: Vec<usize> = if ctx.reverse {
-                (0..values.len()).rev().collect()
-            } else {
-                (0..values.len()).collect()
-            };
-            for idx in indices {
-                if find_threshold_reached(results.len(), ctx.threshold) {
-                    return;
-                }
-                let item = values[idx];
-                let is_match = ctx.elem == item;
-                if is_match {
-                    path.push(idx as i64);
-                    results.push(Value::IntList(Arc::new(path.clone())));
-                    path.pop();
+            let visit =
+                |idx: usize, item: &Value, results: &mut Vec<Value>, path: &mut Vec<i64>| {
                     if find_threshold_reached(results.len(), ctx.threshold) {
                         return;
                     }
+                    let is_match = ctx.elem == item;
+                    if is_match {
+                        path.push(idx as i64);
+                        results.push(Value::IntList(Arc::new(path.clone())));
+                        path.pop();
+                        if find_threshold_reached(results.len(), ctx.threshold) {
+                            return;
+                        }
+                    }
+                    if !is_match && current_depth < ctx.max_depth {
+                        path.push(idx as i64);
+                        find_search(item, current_depth + 1, results, path, ctx);
+                        path.pop();
+                    }
+                };
+            if ctx.reverse {
+                for (item, idx) in map.values().rev().zip((0..map.len()).rev()) {
+                    visit(idx, item, results, path);
+                    if find_threshold_reached(results.len(), ctx.threshold) {
+                        break;
+                    }
                 }
-                if !is_match && current_depth < ctx.max_depth {
-                    path.push(idx as i64);
-                    find_search(item, current_depth + 1, results, path, ctx);
-                    path.pop();
+            } else {
+                for (idx, item) in map.values().enumerate() {
+                    visit(idx, item, results, path);
+                    if find_threshold_reached(results.len(), ctx.threshold) {
+                        break;
+                    }
                 }
             }
         }
@@ -1027,6 +984,17 @@ mod tests {
                 Value::IntList(Arc::new(vec![1])),
                 Value::IntList(Arc::new(vec![3])),
                 Value::IntList(Arc::new(vec![4])),
+            ]))
+        );
+        assert_eq!(
+            split(BuiltinFnArgs::from(vec![
+                Value::BoolList(Arc::new(vec![true, false, true])),
+                Value::Bool(false),
+            ]))
+            .unwrap(),
+            Value::List(Arc::new(vec![
+                Value::BoolList(Arc::new(vec![true])),
+                Value::BoolList(Arc::new(vec![true])),
             ]))
         );
     }
@@ -1475,14 +1443,19 @@ mod tests {
     #[test]
     fn list_builtins_treat_int_range_as_int_list() {
         let descending = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(3, -1, 3)));
-        assert_eq!(
-            reverse(BuiltinFnArgs::from(descending.clone())).unwrap(),
-            Value::IntList(Arc::new(vec![1, 2, 3]))
-        );
-        assert_eq!(
-            sort(BuiltinFnArgs::from(descending)).unwrap(),
-            Value::IntList(Arc::new(vec![1, 2, 3]))
-        );
+        let reversed = reverse(BuiltinFnArgs::from(descending.clone())).unwrap();
+        assert!(matches!(
+            &reversed,
+            Value::IntRange(range) if range.start() == 1 && range.step() == 1 && range.len() == 3
+        ));
+        assert_eq!(reversed, Value::IntList(Arc::new(vec![1, 2, 3])));
+
+        let sorted = sort(BuiltinFnArgs::from(descending)).unwrap();
+        assert!(matches!(
+            &sorted,
+            Value::IntRange(range) if range.start() == 1 && range.step() == 1 && range.len() == 3
+        ));
+        assert_eq!(sorted, Value::IntList(Arc::new(vec![1, 2, 3])));
 
         let range = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, 1, 5)));
         assert_eq!(
@@ -1499,6 +1472,31 @@ mod tests {
         assert_eq!(
             rfind(BuiltinFnArgs::from(smallvec![range, Value::Int(3)])).unwrap(),
             Value::IntList(Arc::new(vec![2]))
+        );
+    }
+
+    #[test]
+    fn list_builtins_treat_strings_as_char_lists() {
+        let text = "cba".into_wq_value();
+        assert_eq!(
+            reverse(BuiltinFnArgs::from(text.clone())).expect("reverse succeeds"),
+            "abc".into_wq_value()
+        );
+        assert_eq!(
+            sort(BuiltinFnArgs::from(text.clone())).expect("sort succeeds"),
+            "abc".into_wq_value()
+        );
+        assert_eq!(
+            min(BuiltinFnArgs::from(text.clone())).expect("min succeeds"),
+            Value::Char('a')
+        );
+        assert_eq!(
+            max(BuiltinFnArgs::from(text.clone())).expect("max succeeds"),
+            Value::Char('c')
+        );
+        assert_eq!(
+            find(BuiltinFnArgs::from(smallvec![text, Value::Char('b')])).expect("find succeeds"),
+            Value::IntList(Arc::new(vec![1]))
         );
     }
 }

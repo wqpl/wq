@@ -33,8 +33,8 @@ impl Value {
             .unwrap_or_else(|| Value::BigInt(Arc::new(n)))
     }
 
-    /// Construct a list value from items, promoting to IntList if all items are
-    /// ints, or to String if all items are chars.
+    /// Construct a list value from items, selecting packed storage for
+    /// homogeneous ints, floats, or bools and string storage for chars.
     pub(crate) fn from_items(items: Vec<Value>) -> Value {
         ValueSeqBuilder::from_items(items)
     }

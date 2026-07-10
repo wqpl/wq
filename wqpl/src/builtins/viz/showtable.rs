@@ -243,6 +243,15 @@ mod tests {
     }
 
     #[test]
+    fn formats_virtual_range_columns() {
+        let value = Value::Dict(Arc::new(IndexMap::from([(
+            "n".into(),
+            Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, 1, 3))),
+        )])));
+        assert_eq!(format_table_value(&value).as_deref(), Some("n\n1\n2\n3"));
+    }
+
+    #[test]
     fn truncates_cells_by_display_width() {
         let value = Value::Dict(Arc::new(IndexMap::from([(
             "note".into(),

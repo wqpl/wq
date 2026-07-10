@@ -94,33 +94,14 @@ fn transpose_batched(v: &Value, shape: &[usize]) -> WqResult<Value> {
 }
 
 fn parse_axes(v: &Value, rank: usize) -> WqResult<Vec<usize>> {
-    let mut raw_axes = Vec::new();
-    match v {
-        Value::Int(n) => raw_axes.push(*n),
-        Value::IntList(items) => raw_axes.extend(items.iter().copied()),
-        Value::List(items) => {
-            raw_axes.reserve(items.len());
-            for (i, item) in items.iter().enumerate() {
-                match item {
-                    Value::Int(n) => raw_axes.push(*n),
-                    other => {
-                        return Err(WqError::new(WqErrorType::Domain)
-                            .src(BE::Transpose)
-                            .msg("axis list must contain ints")
-                            .at_arg(1)
-                            .unexpected_element(other, i));
-                    }
-                }
-            }
-        }
-        other => {
-            return Err(WqError::new(WqErrorType::Domain)
-                .src(BE::Transpose)
-                .msg("expected int or list<int> axes")
-                .at_arg(1)
-                .got1(other));
-        }
-    }
+    let Some(axes) = v.exact_int_seq() else {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BE::Transpose)
+            .msg("expected int or list<int> axes")
+            .at_arg(1)
+            .got1(v));
+    };
+    let raw_axes = axes.to_vec();
 
     if raw_axes.len() != rank {
         return Err(WqError::new(WqErrorType::Length)
@@ -279,6 +260,14 @@ mod tests {
         // Expected: [[1, 4], [2, 5], [3, 6]]
         let expect = mat(&[&[1, 4], &[2, 5], &[3, 6]]);
         assert_eq!(res, expect);
+    }
+
+    #[test]
+    fn transpose_accepts_virtual_range_axes() {
+        let m = mat(&[&[1, 2, 3], &[4, 5, 6]]);
+        let axes = Value::IntRange(Arc::new(crate::value::seq::IntRangeData::new(1, -1, 2)));
+        let res = transpose(BuiltinFnArgs::from(vec![m, axes])).expect("transpose with axes");
+        assert_eq!(res, mat(&[&[1, 4], &[2, 5], &[3, 6]]));
     }
 
     #[test]
