@@ -1,0 +1,38 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const appSource = await readFile(new URL("app.js", import.meta.url), "utf8");
+const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+
+function cssRule(selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return styles.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+}
+
+test("theme artwork is clipped inside the pill border", () => {
+  assert.match(
+    appSource,
+    /class="theme-toggle-scene"[\s\S]*class="theme-cloud theme-cloud-front"[\s\S]*class="theme-toggle-icon theme-toggle-midnight"[\s\S]*<span class="theme-toggle-label">/,
+  );
+
+  const scene = cssRule(".theme-toggle-scene");
+  assert.match(scene, /inset:\s*1px;/);
+  assert.match(scene, /overflow:\s*hidden;/);
+  assert.match(scene, /border-radius:\s*inherit;/);
+});
+
+test("theme change crossfades scenes without replaying travel keyframes", () => {
+  const toggle = cssRule(".theme-toggle");
+  assert.doesNotMatch(toggle, /background\s+\d+ms/);
+  assert.match(cssRule(".theme-night-sky"), /opacity\s+\d+ms/);
+  assert.doesNotMatch(styles, /@keyframes theme-(?:sun|moon)-(?:rise|set)/);
+});
+
+test("midnight stars use quiet layers without flashing sparkles", () => {
+  assert.match(appSource, /theme-stars-far/);
+  assert.match(appSource, /theme-stars-mid/);
+  assert.match(appSource, /theme-stars-near/);
+  assert.doesNotMatch(appSource, /theme-star-sparkles/);
+  assert.doesNotMatch(styles, /steps\(/);
+});

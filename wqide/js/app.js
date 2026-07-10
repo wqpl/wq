@@ -134,8 +134,12 @@ const SHELL_HTML = html`
             data-theme-toggle
             type="button"
             aria-label="Toggle midnight mode"
-            aria-pressed="false"
-            title="Switch to midnight mode">
+            aria-pressed="false">
+            <span class="theme-toggle-scene" aria-hidden="true">
+              <span class="theme-night-sky"></span>
+              <span class="theme-sky-haze"></span>
+              <span class="theme-cloud theme-cloud-back"></span>
+              <span class="theme-cloud theme-cloud-front"></span>
             <span class="theme-toggle-icon theme-toggle-sun" aria-hidden="true">
               <svg viewBox="0 0 84 36" preserveAspectRatio="none">
                 <defs>
@@ -166,36 +170,38 @@ const SHELL_HTML = html`
                   </linearGradient>
                 </defs>
 
-                <circle
-                  class="theme-sun-glow"
-                  cx="-1"
-                  cy="18"
-                  r="27"
-                  fill="url(#themeSunGlow)" />
+                <g class="theme-sun-orbit">
+                  <circle
+                    class="theme-sun-glow"
+                    cx="-1"
+                    cy="18"
+                    r="27"
+                    fill="url(#themeSunGlow)" />
 
-                <circle
-                  class="theme-sun-disc"
-                  cx="-1"
-                  cy="18"
-                  r="18"
-                  fill="url(#themeSunSphere)" />
+                  <circle
+                    class="theme-sun-disc"
+                    cx="-1"
+                    cy="18"
+                    r="18"
+                    fill="url(#themeSunSphere)" />
 
-                <circle
-                  cx="-1"
-                  cy="18"
-                  r="17.4"
-                  fill="none"
-                  stroke="#fff7b2"
-                  stroke-opacity="0.42"
-                  stroke-width="0.8" />
+                  <circle
+                    cx="-1"
+                    cy="18"
+                    r="17.4"
+                    fill="none"
+                    stroke="#fff7b2"
+                    stroke-opacity="0.42"
+                    stroke-width="0.8" />
 
-                <ellipse
-                  cx="4"
-                  cy="11.5"
-                  rx="7.5"
-                  ry="4.5"
-                  fill="url(#themeSunHighlight)"
-                  transform="rotate(-18 4 11.5)" />
+                  <ellipse
+                    cx="4"
+                    cy="11.5"
+                    rx="7.5"
+                    ry="4.5"
+                    fill="url(#themeSunHighlight)"
+                    transform="rotate(-18 4 11.5)" />
+                </g>
               </svg>
             </span>
             <span
@@ -213,11 +219,31 @@ const SHELL_HTML = html`
                     <stop offset="1" stop-color="#c9d4ea"></stop>
                   </radialGradient>
                 </defs>
-                <circle class="theme-moon" cx="-1" cy="18" r="18"></circle>
-                <circle class="theme-star" cx="48" cy="10" r="1.2"></circle>
-                <circle class="theme-star" cx="66" cy="20" r="0.9"></circle>
-                <circle class="theme-star" cx="60" cy="7" r="0.65"></circle>
+                <g class="theme-moon-orbit">
+                  <circle class="theme-moon-glow" cx="-1" cy="18" r="23"></circle>
+                  <circle class="theme-moon" cx="-1" cy="18" r="18"></circle>
+                  <circle class="theme-moon-crater" cx="5" cy="11" r="3.2"></circle>
+                  <circle class="theme-moon-crater theme-moon-crater-small" cx="9" cy="23" r="1.8"></circle>
+                </g>
+                <g class="theme-stars theme-stars-far">
+                  <circle cx="30" cy="7" r="0.3"></circle>
+                  <circle cx="40" cy="27" r="0.28"></circle>
+                  <circle cx="52" cy="13" r="0.34"></circle>
+                  <circle cx="65" cy="29" r="0.3"></circle>
+                  <circle cx="78" cy="8" r="0.26"></circle>
+                </g>
+                <g class="theme-stars theme-stars-mid">
+                  <circle cx="35" cy="18" r="0.52"></circle>
+                  <circle cx="48" cy="7" r="0.62"></circle>
+                  <circle cx="59" cy="23" r="0.48"></circle>
+                  <circle cx="73" cy="16" r="0.56"></circle>
+                </g>
+                <g class="theme-stars theme-stars-near">
+                  <circle cx="55" cy="30" r="0.74"></circle>
+                  <circle cx="69" cy="8" r="0.7"></circle>
+                </g>
               </svg>
+            </span>
             </span>
             <span class="theme-toggle-label">light</span>
           </button>
@@ -1676,9 +1702,6 @@ function syncThemeToggle() {
   );
   const label = button.querySelector(".theme-toggle-label");
   if (label) label.textContent = isMidnight ? "midnight" : "light";
-  button.title = isMidnight
-    ? "Switch to light mode"
-    : "Switch to midnight mode";
 }
 
 function applyTheme(theme, options = {}) {
