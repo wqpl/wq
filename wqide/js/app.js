@@ -15,6 +15,7 @@ import {
   referenceTopicCards,
 } from "./reference-cards.js";
 import { PLAYGROUND_EXAMPLES } from "./playground-examples.js";
+import { renderWqCatConstellation } from "./startup-constellation.js";
 
 console.debug("[wqide] app shell loaded");
 
@@ -97,6 +98,45 @@ const FEATURED_HTML = html`
           wqide is a space for learning wq and trying random ideas in your
           browser.
         </p>
+      </div>
+      <div
+        class="welcome-constellation"
+        role="img"
+        aria-label="A colorful animated ASCII constellation shaped like the wq cat">
+        <div class="constellation-sky" aria-hidden="true">
+          <span
+            class="ambient-star"
+            style="--star-x: 8%; --star-y: 21%; --star-delay: -1.1s"
+            >·</span
+          >
+          <span
+            class="ambient-star"
+            style="--star-x: 18%; --star-y: 72%; --star-delay: -2.4s"
+            >+</span
+          >
+          <span
+            class="ambient-star"
+            style="--star-x: 34%; --star-y: 13%; --star-delay: -0.3s"
+            >*</span
+          >
+          <span
+            class="ambient-star"
+            style="--star-x: 70%; --star-y: 15%; --star-delay: -1.8s"
+            >·</span
+          >
+          <span
+            class="ambient-star"
+            style="--star-x: 87%; --star-y: 31%; --star-delay: -0.7s"
+            >*</span
+          >
+          <span
+            class="ambient-star"
+            style="--star-x: 81%; --star-y: 78%; --star-delay: -2.8s"
+            >+</span
+          >
+          <span class="constellation-shooting-star"></span>
+          <pre class="wq-cat-constellation">${renderWqCatConstellation()}</pre>
+        </div>
       </div>
       <div class="welcome-links" aria-label="Useful articles">
         <a class="article-link" href="article.html?slug=installation">
