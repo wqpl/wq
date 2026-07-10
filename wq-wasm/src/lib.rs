@@ -1119,6 +1119,15 @@ mod tests {
         assert_eq!(result.value(), "x^2 + 2*x + 1");
         assert!(result.is_cas());
     }
+
+    #[test]
+    fn html_highlighter_uses_string_escape_class_only_for_valid_escapes() {
+        let html = highlight_wq(r#""a\nb \u{1f4a9}" "\u{d800}" "\q" @l"\n""#);
+
+        assert_eq!(html.matches("class=\"hl-string-escape\"").count(), 2);
+        assert!(html.contains("<span class=\"hl-string-escape\">\\n</span>"));
+        assert!(html.contains("<span class=\"hl-string-escape\">\\u{1f4a9}</span>"));
+    }
 }
 
 // /// Error codes and names for quick reference
@@ -1258,6 +1267,7 @@ fn class_for_name(name: HighlightName) -> &'static str {
         HighlightName::PunctuationDelimiter => "hl-punctuation-delimiter",
         HighlightName::PunctuationSpecial => "hl-punctuation-special",
         HighlightName::String => "hl-string",
+        HighlightName::StringEscape => "hl-string-escape",
         HighlightName::Tag => "hl-tag",
         HighlightName::Variable => "hl-variable",
         HighlightName::VariableRefCapture => "hl-variable-ref-capture",

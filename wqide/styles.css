@@ -3492,6 +3492,10 @@ textarea.editor-text.repl-input,
 .hl-string {
   color: #2a5a2a;
 }
+.hl-string-escape {
+  color: #006d8f;
+  font-weight: 600;
+}
 .hl-number {
   color: #b35a00;
 }
@@ -5150,6 +5154,10 @@ textarea.editor-text.repl-input,
 :root[data-theme="midnight"] .hl-string,
 :root[data-theme="midnight"] .hl-tag {
   color: #9fd6c5;
+}
+
+:root[data-theme="midnight"] .hl-string-escape {
+  color: #80dfff;
 }
 
 :root[data-theme="midnight"] .hl-number,

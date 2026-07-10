@@ -176,6 +176,36 @@ pub(crate) fn unescape_string_inner(s: &str) -> Result<String, UnescapeError> {
     Ok(out)
 }
 
+/// Return the byte length of a supported escape sequence at the start of `s`.
+/// Unknown and malformed escapes are intentionally excluded, matching the
+/// compatibility behavior of `unescape_string_inner`.
+pub(crate) fn valid_escape_sequence_len(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    if bytes.first() != Some(&b'\\') {
+        return None;
+    }
+
+    match bytes.get(1).copied()? {
+        b'"' | b'\'' | b'\\' | b'n' | b'r' | b't' | b'0' => Some(2),
+        b'x' => {
+            let digits = bytes.get(2..4)?;
+            digits.iter().all(u8::is_ascii_hexdigit).then_some(4)
+        }
+        b'u' if bytes.get(2) == Some(&b'{') => {
+            let close = bytes.get(3..)?.iter().position(|byte| *byte == b'}')? + 3;
+            let digits = &bytes[3..close];
+            if !(1..=6).contains(&digits.len()) || !digits.iter().all(u8::is_ascii_hexdigit) {
+                return None;
+            }
+
+            let digits = std::str::from_utf8(digits).ok()?;
+            let value = u32::from_str_radix(digits, 16).ok()?;
+            char::from_u32(value).map(|_| close + 1)
+        }
+        _ => None,
+    }
+}
+
 fn hex_val(c: char) -> u8 {
     c.to_digit(16)
         .and_then(|digit| u8::try_from(digit).ok())
@@ -222,5 +252,37 @@ mod tests {
         assert_eq!(unescape_string_inner("\\").unwrap(), "\\");
         // Unknown escapes kept literally
         assert_eq!(unescape_string_inner("\\q").unwrap(), "\\q");
+    }
+
+    #[test]
+    fn identifies_only_supported_escape_sequences() {
+        for escape in [
+            r#"\""#,
+            r"\'",
+            r"\\",
+            r"\n",
+            r"\r",
+            r"\t",
+            r"\0",
+            r"\x41",
+            r"\u{0}",
+            r"\u{10ffff}",
+        ] {
+            assert_eq!(valid_escape_sequence_len(escape), Some(escape.len()));
+        }
+
+        for escape in [
+            r"\q",
+            r"\x",
+            r"\x4",
+            r"\xGG",
+            r"\u",
+            r"\u{}",
+            r"\u{d800}",
+            r"\u{110000}",
+            r"\u{0000000}",
+        ] {
+            assert_eq!(valid_escape_sequence_len(escape), None);
+        }
     }
 }

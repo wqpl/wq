@@ -36,6 +36,7 @@ pub enum HighlightName {
     PunctuationDelimiter,
     PunctuationSpecial,
     String,
+    StringEscape,
     Tag,
     Variable,
     VariableRefCapture,
@@ -187,6 +188,7 @@ pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) 
         HighlightName::PunctuationDelimiter => ("\x1b[38;5;243m", ANSI_RESET),
         HighlightName::PunctuationSpecial => ("\x1b[38;5;170m", ANSI_RESET),
         HighlightName::String => ("\x1b[38;5;113m", ANSI_RESET),
+        HighlightName::StringEscape => ("\x1b[1;38;5;81m", ANSI_RESET),
         HighlightName::Tag => ("\x1b[38;5;113m", ANSI_RESET),
         HighlightName::Variable => ("\x1b[38;5;117m", ANSI_RESET),
         HighlightName::VariableRefCapture => ("\x1b[38;5;39m", ANSI_RESET),
@@ -281,7 +283,7 @@ impl Highlighter {
         let mut lexer = Lexer::new(src);
         let tokens = lexer.tokenize_recovery();
         let keyword_spans = Self::keyword_spans_from_tokens(&tokens);
-        Self::events_from_tokens(&tokens, &self.builtins, &keyword_spans, semantic_spans)
+        Self::events_from_tokens(src, &tokens, &self.builtins, &keyword_spans, semantic_spans)
     }
 
     pub fn highlight_ansi(&self, src: &str) -> String {
@@ -440,6 +442,7 @@ impl Highlighter {
                     let nested_semantic_spans =
                         Self::nested_semantic_spans(semantic_spans, span.start, span.end);
                     let chunk_events = Self::events_from_tokens(
+                        source,
                         &tokens,
                         &self.builtins,
                         &keyword_spans,
@@ -463,6 +466,7 @@ impl Highlighter {
     }
 
     fn events_from_tokens(
+        src: &str,
         tokens: &[Token],
         builtins: &Builtins,
         keyword_spans: &HashSet<(usize, usize)>,
@@ -529,14 +533,7 @@ impl Highlighter {
                                             end: *start,
                                         });
                                     }
-                                    events.push(HighlightEvent::HighlightStart(
-                                        HighlightName::String,
-                                    ));
-                                    events.push(HighlightEvent::Source {
-                                        start: *start,
-                                        end: *end,
-                                    });
-                                    events.push(HighlightEvent::HighlightEnd);
+                                    Self::push_string_events(&mut events, src, *start, *end, true);
                                     inner_last = *end;
                                 }
                                 crate::token::FmtPart::Expr { source, start, end } => {
@@ -551,6 +548,7 @@ impl Highlighter {
                                     let inner_semantic_spans =
                                         Self::nested_semantic_spans(&overlay_spans, *start, *end);
                                     let inner_events = Self::events_from_tokens(
+                                        source,
                                         &inner_tokens,
                                         builtins,
                                         &HashSet::new(),
@@ -588,6 +586,16 @@ impl Highlighter {
                             });
                         }
                     }
+                    TokenType::String(_) | TokenType::Character(_) => {
+                        let is_raw = src[tok.byte_start..tok.byte_end].starts_with("@l");
+                        Self::push_string_events(
+                            &mut events,
+                            src,
+                            tok.byte_start,
+                            tok.byte_end,
+                            !is_raw,
+                        );
+                    }
                     _ => {
                         let name = Self::semantic_name_for_token(tok, &overlay_spans)
                             .or_else(|| Self::name_for_token(tok, builtins, keyword_spans));
@@ -615,6 +623,51 @@ impl Highlighter {
         }
 
         events
+    }
+
+    fn push_string_events(
+        events: &mut Vec<HighlightEvent>,
+        src: &str,
+        start: usize,
+        end: usize,
+        highlight_escapes: bool,
+    ) {
+        events.push(HighlightEvent::HighlightStart(HighlightName::String));
+
+        let mut cursor = start;
+        if highlight_escapes {
+            let mut search_start = start;
+            while let Some(relative_start) = src[search_start..end].find('\\') {
+                let escape_start = search_start + relative_start;
+                let Some(len) = crate::escape::valid_escape_sequence_len(&src[escape_start..end])
+                else {
+                    search_start = escape_start + 1;
+                    continue;
+                };
+                let escape_end = escape_start + len;
+
+                if escape_start > cursor {
+                    events.push(HighlightEvent::Source {
+                        start: cursor,
+                        end: escape_start,
+                    });
+                }
+                events.push(HighlightEvent::HighlightStart(HighlightName::StringEscape));
+                events.push(HighlightEvent::Source {
+                    start: escape_start,
+                    end: escape_end,
+                });
+                events.push(HighlightEvent::HighlightEnd);
+
+                cursor = escape_end;
+                search_start = escape_end;
+            }
+        }
+
+        if cursor < end {
+            events.push(HighlightEvent::Source { start: cursor, end });
+        }
+        events.push(HighlightEvent::HighlightEnd);
     }
 
     fn nested_semantic_spans(
@@ -1037,6 +1090,69 @@ mod tests {
                 .iter()
                 .any(|(region_text, region_name)| region_text == text && *region_name == Some(name)),
             "expected {text:?} to have highlight {name:?}; regions: {regions:?}"
+        );
+    }
+
+    fn regions_with_name(
+        regions: &[(String, Option<HighlightName>)],
+        name: HighlightName,
+    ) -> Vec<&str> {
+        regions
+            .iter()
+            .filter_map(|(text, region_name)| (*region_name == Some(name)).then_some(text.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn valid_string_and_character_escapes_use_special_highlight() {
+        let src = r#""prefix\nsuffix" "\r" "\t" "\0" "\\" "\"" "\'" "\x41" "\u{1f4a9}""#;
+        let h = Highlighter::new();
+        let regions = named_regions(&h.highlight(src), src);
+
+        assert_eq!(
+            regions_with_name(&regions, HighlightName::StringEscape),
+            vec![
+                r"\n",
+                r"\r",
+                r"\t",
+                r"\0",
+                r"\\",
+                r#"\""#,
+                r"\'",
+                r"\x41",
+                r"\u{1f4a9}",
+            ]
+        );
+    }
+
+    #[test]
+    fn invalid_and_unknown_escapes_do_not_use_special_highlight() {
+        let src = r#""\q" "\x" "\x4" "\xGG" "\u" "\u{}" "\u{d800}" "\u{110000}" "\u{0000000}""#;
+        let h = Highlighter::new();
+        let regions = named_regions(&h.highlight(src), src);
+
+        assert!(regions_with_name(&regions, HighlightName::StringEscape).is_empty());
+    }
+
+    #[test]
+    fn raw_string_escapes_remain_plain_string_content() {
+        let src = r#"@l"\n\x41\u{41}""#;
+        let h = Highlighter::new();
+        let regions = named_regions(&h.highlight(src), src);
+
+        assert!(regions_with_name(&regions, HighlightName::StringEscape).is_empty());
+        assert_region(&regions, src, HighlightName::String);
+    }
+
+    #[test]
+    fn format_string_text_highlights_only_valid_escapes() {
+        let src = r#"@f"line\n \x41 {x} \u{10ffff} \u{d800} \x4 \q""#;
+        let h = Highlighter::new();
+        let regions = named_regions(&h.highlight(src), src);
+
+        assert_eq!(
+            regions_with_name(&regions, HighlightName::StringEscape),
+            vec![r"\n", r"\x41"]
         );
     }
 
