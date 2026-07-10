@@ -27,13 +27,13 @@ pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Opt
 
     for (gi, f_of_g) in symbolic.iter().enumerate() {
         let (fname_opt, inner_opt, is_half_pow): (Option<CasFunction>, Option<&Value>, bool) =
-            // f(g(x)) -- Call node like sin[x^2], exp[x^3], sqrt[x+1]
+            // f(g(x)), Call node like sin[x^2], exp[x^3], sqrt[x+1]
             if let Some((name, fargs)) = f_of_g.cas_function_parts()
                 && fargs.len() == 1
             {
                 (Some(name), Some(&fargs[0]), false)
             }
-            // (g(x))^(1/2) or (g(x))^(-1/2) -- half-power Op node
+            // (g(x))^(1/2) or (g(x))^(-1/2), half-power Op node
             else if let Some((CasOp::Power, [base, exp])) = f_of_g.cas_op_parts()
                 && (exp.exact_half() || exp.exact_neg_half())
             {

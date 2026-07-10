@@ -1415,17 +1415,11 @@ impl Parser {
 
     fn parse_pipe(&mut self) -> WqResult<AstNode> {
         use crate::ast::PipeKind;
-        // The Pipe AST span now covers the whole expression `LHS | RHS` --
-        // matching the CST `PipeExpr`. Previously it covered only the
-        // operator and RHS; the change makes spans usable for highlighting
-        // and diagnostics without a second computation step, and makes the
-        // CST/AST consistent.
+        // The Pipe AST span covers the full `lhs | rhs` expression, matching the CST.
+        // This supports highlighting and diagnostics without recomputing the span.
         //
-        // Lookahead trick: with CST building on, every `advance()` is a
-        // permanent flush -- we can't rewind. So we peek through trivia
-        // *without* advancing to decide whether a pipe follows; only when
-        // the answer is yes do we actually consume the trivia and the
-        // operator.
+        // Since `advance()` cannot be reversed during CST construction, look ahead
+        // through trivia before consuming the pipe operator.
         let pending = self.cst_open();
         let mut left = self.parse_comma()?;
         while let Some(token) = self.peek_real_token_from_here().cloned() {
@@ -2375,13 +2369,9 @@ impl Parser {
 
             AstNode::Ellipsis(_) => SyntaxKind::EllipsisExpr,
             AstNode::Error(..) => SyntaxKind::ErrorNode,
-            // The following variants never come out of `parse_primary_inner`
-            // -- they are produced by higher-precedence parse layers that
-            // wrap themselves. If one of them shows up here it means a parse
-            // function was refactored to bypass the precedence ladder; the
-            // green tree stays correct (just unwrapped at this level), and
-            // the reachable sites of those variants will continue to wrap
-            // themselves.
+
+            // These variants are created and wrapped by higher-precedence parse layers.
+            // If one appears here, a refactor bypassed the precedence ladder.
             AstNode::PipeInput
             | AstNode::Postfix { .. }
             | AstNode::CallName { .. }
@@ -4113,7 +4103,7 @@ impl Parser {
             self.eat_trivia(true, true);
             let condition = self.parse_expression()?;
             if self.is_token(&TokenType::RightBracket) {
-                // Single-branch $[cond] -- same as $.[cond]
+                // Single-branch $[cond], same as $.[cond]
                 self.consume(TokenType::RightBracket)?;
                 let header_end_byte = self.last_consumed_byte_end();
                 self.record_stmt_span_idx(header_start_idx, self.current.saturating_sub(1));
@@ -4131,7 +4121,7 @@ impl Parser {
                 TokenType::RightBracket,
             ])?;
             if self.is_token(&TokenType::RightBracket) {
-                // Single-branch $[cond;true] -- same as $.[cond;true]
+                // Single-branch $[cond;true],  same as $.[cond;true]
                 self.consume(TokenType::RightBracket)?;
                 let header_end_byte = self.last_consumed_byte_end();
                 self.record_stmt_span_idx(header_start_idx, self.current.saturating_sub(1));
@@ -5729,9 +5719,10 @@ mod cst_integration_tests {
         }
     }
 
-    /// Helper for [`ast_spans_correspond_to_cst_ranges`]. Returns
-    /// references to every direct child AST node of `node` that itself can
-    /// carry a span. Kept minimal -- we don't recurse here, the caller does.
+    /// Return direct child AST nodes that can carry spans.
+    ///
+    /// Used by [`ast_spans_correspond_to_cst_ranges`]. Recursion is handled by
+    /// the caller.
     fn collect_children(node: &AstNode) -> Vec<&AstNode> {
         let mut out = Vec::new();
         match node {

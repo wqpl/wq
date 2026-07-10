@@ -149,7 +149,7 @@ pub(super) fn try_eval_with_const_resolve(
                 _ => return Ok(None),
             });
         } else {
-            // Variable, operator, or other CAS node -- can't resolve
+            // Variable, operator, or other CAS node
             return Ok(None);
         }
     }

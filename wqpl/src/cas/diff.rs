@@ -261,7 +261,7 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
                     return cas_mul(vec![num, denom_factor]);
                 }
 
-                // No denominator factors -- use the general product rule.
+                // No denominator factors; use the general product rule.
                 let mut terms = Vec::with_capacity(args.len());
                 for idx in 0..args.len() {
                     let mut factors = Vec::with_capacity(args.len());

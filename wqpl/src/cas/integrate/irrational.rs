@@ -764,7 +764,7 @@ fn classify_quadratic(expr: &Value, var: &str) -> Option<QuadInfo> {
     // Must be a polynomial of degree 2
     let coeffs = poly_from_expr(expr, var).ok()?;
     if poly_degree(&coeffs) != 2 {
-        // Check deg 0 or 1 -- not a quadratic sqrt
+        // Check deg 0 or 1
         return None;
     }
 
@@ -885,7 +885,7 @@ fn integrate_sqrt_quadratic(q: &QuadInfo, var: &str) -> WqResult<Value> {
         let inner = integrate_sqrt_quadratic(&simple_q, var)?;
         simplify_cas_value(&cas_mul(vec![sqrt_a, inner])?)
     } else {
-        // k = 0: sqrt(x^2) = |x| -- already handled by simpler rules
+        // k = 0: sqrt(x^2) = |x|, already handled by simpler rules
         Err(crate::cas::cas_err("degenerate quadratic under sqrt"))
     }
 }
@@ -966,7 +966,7 @@ fn integrate_poly_times_root(
     }
 
     if deg == 1 && numeric_is_zero(&q.shift) && numeric_is_one(&q.a) {
-        // int x*sqrt(x^2+k)^(+/-1/2) dx -- power rule
+        // int x*sqrt(x^2+k)^(+/-1/2) dx, power rule
         let k = &q.k;
         if is_sqrt {
             // int x*(x^2+k)^(1/2) dx = (x^2+k)^(3/2)/3
@@ -1486,7 +1486,7 @@ mod tests {
 
     #[test]
     fn test_extract_square_factors_cubic_no_square() {
-        // x^3+1 -- no repeated factors -> out=1, in=x^3+1
+        // x^3+1, no repeated factors -> out=1, in=x^3+1
         let poly = vec![Value::Int(1), Value::Int(0), Value::Int(0), Value::Int(1)];
         let (out, inn) = super::extract_square_factors(&poly, "x").unwrap();
         assert_eq!(out, vec![Value::Int(1)]);

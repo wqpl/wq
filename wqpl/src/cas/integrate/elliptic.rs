@@ -1,9 +1,8 @@
-//! Integration of elliptic integrals -- sqrt(cubic) and sqrt(quartic)
-//! that cannot be reduced to elementary form by square factor extraction.
+//! Integration of elliptic integrals, sqrt(cubic) and sqrt(quartic)
 //!
 //! Handles:
-//!   int sqrt(x^3 + a) dx  ->  algebraic part + first-kind elliptic integral
-//!   int 1/sqrt(x^3 + a) dx  ->  first-kind elliptic integral
+//!   - int sqrt(x^3 + a) dx  ->  algebraic part + first-kind elliptic integral
+//!   - int 1/sqrt(x^3 + a) dx  ->  first-kind elliptic integral
 
 use crate::cas::{
     cas_add, cas_div, cas_mul, cas_pow, expand_expr, numeric_div, numeric_is_one, numeric_is_zero,

@@ -21,7 +21,7 @@ use crate::value::{Value, WqResult};
 /// (e.g., contains transcendental functions, non-polynomial subexpressions,
 /// etc.).
 fn extract_rational(expr: &Value, var: &str) -> WqResult<Option<(Vec<Value>, Vec<Value>)>> {
-    // Case: pure polynomial -- no negative powers present
+    // Case: pure polynomial, no negative powers present
     if !contains_var_negative_power(expr, var) {
         match poly_from_expr(expr, var) {
             Ok(num) => return Ok(Some((num, vec![Value::Int(1)]))),
@@ -169,7 +169,7 @@ fn extract_rational_product(
             continue;
         }
 
-        // Can't recognize -- not a rational function
+        // Can't recognize
         return Ok(None);
     }
 
@@ -192,11 +192,9 @@ fn extract_rational_product(
 
 /// Check if an expression is a polynomial in `var`.
 fn is_polynomial_in_var(expr: &Value, var: &str) -> bool {
-    // If it's a constant (not CAS), it's trivially a polynomial
     if !expr.is_cas_expr() {
         return true;
     }
-    // Try to convert -- if successful, it's a polynomial
     poly_from_expr(expr, var).is_ok()
 }
 
@@ -844,8 +842,7 @@ fn find_real_algebraic_root(poly: &[Value]) -> Option<Value> {
     // Build generator alpha with proper basis: [0, 1, 0, ..., 0] with length = deg
     let deg = poly_arc.len().saturating_sub(1);
     if deg == 1 {
-        // Degree 1 polynomial -- the "algebraic" number is just a rational
-        // (-c0/c1). Return None since it's not truly algebraic.
+        // Degree 1 polynomial
         return None;
     }
     let field = AlgebraicField::new_real_root(scaled, interval).ok()?;
@@ -971,7 +968,7 @@ fn bisect_and_refine(
         let mid = (lo + hi) * 0.5;
         let fmid = eval(mid)?;
         if fmid.abs() < 1e-15 {
-            // Exact hit -- tiny epsilon interval
+            // Exact hit
             let eps = mid.abs().max(1.0) * 1e-12 + 1e-10;
             return Some((mid - eps, mid + eps));
         }
@@ -1105,9 +1102,7 @@ fn find_real_roots_poly(poly: &[Value]) -> (Vec<Value>, Vec<Value>) {
         }
 
         // For any remaining irreducible factor, try to find a real algebraic root.
-        // After finding one, also check its negation -- even polynomials (biquadratics
-        // with only even-degree terms) have roots at +/-alpha, and the Rothstein-Trager
-        // method needs all real roots of the resultant.
+        // After finding one, also check its negation
         if let Some(alg_root) = find_real_algebraic_root(&current) {
             if !algebraic.contains(&alg_root) {
                 algebraic.push(alg_root.clone());
@@ -1700,16 +1695,8 @@ fn eval_rational_derivative(
         return eval_exact_numeric_div(&num_val, &den_val);
     }
 
-    // For k > 0, use Leibniz-like recursion on the rational function.
-    // g(x) = N(x)/D(x)
-    // g'(x) = (N'(x)*D(x) - N(x)*D'(x)) / D(x)^2
-    // Compute numerator and denominator separately, then evaluate.
-
     let (deriv_num, _) = rational_deriv_numer_denom(numer, denom, k);
 
-    // The k-th derivative has denominator D(x)^(2^k) -- actually D(x)^(k+1) for
-    // rational functions. More precisely: g^{(k)}(x) = P_k(x) / D(x)^{k+1}
-    // where P_k is some polynomial.
     let denom_pow = poly_pow(denom, k + 1)?;
     let num_val = poly_evaluate(&deriv_num, x)?;
     let den_val = poly_evaluate(&denom_pow, x)?;
@@ -1765,7 +1752,7 @@ fn integrate_quadratic_factor_all(
     integrate_repeated_quadratic(numer, denom, factor, &b, &c, mult, var)
 }
 
-/// Integrate (A*x + B) / (x^2 + bx + c) -- simple quadratic denominator.
+/// Integrate (A*x + B) / (x^2 + bx + c)
 fn integrate_simple_quadratic(
     numer: &[Value],
     denom: &[Value],
@@ -1903,7 +1890,7 @@ fn integrate_quadratic_log_arctan_term(
     }
 }
 
-/// Integrate C / (x^2 + bx + c) -- complete the square.
+/// Integrate C / (x^2 + bx + c)
 /// If `value` is a constant Algebraic (all coeffs[1..] zero), unwrap it
 /// to the underlying constant value. Otherwise return the original value.
 fn unwrap_constant_algebraic(value: Value) -> Value {
@@ -2067,7 +2054,7 @@ fn algebraic_sqrt_of_rational(value: &Value) -> Option<Value> {
         }
         return Some(Value::from_fraction_parts(s, d));
     }
-    // Not a perfect square -- create Algebraic number for sqrt(n/d) = sqrt(c) / d
+    // Not a perfect square; create Algebraic number for sqrt(n/d) = sqrt(c) / d
     let poly = vec![-c.clone(), BigInt::zero(), BigInt::one()];
     let poly_arc: Arc<[BigInt]> = Arc::from(poly.clone());
     let interval = isolate_root_interval(&poly_arc)?;
@@ -2385,7 +2372,7 @@ mod tests {
         );
         let (num, denom) = extract_rational(&expr, "x").unwrap().unwrap();
         assert_eq!(denom, vec![Value::Int(1)]);
-        // num should be [1, 0, 1] -- 1 + x^2
+        // num should be [1, 0, 1] (1 + x^2)
         assert_eq!(num.len(), 3);
         assert_eq!(num[0], Value::Int(1));
         assert_eq!(num[2], Value::Int(1));
@@ -2402,7 +2389,7 @@ mod tests {
         );
         let (num, denom) = extract_rational(&expr, "x").unwrap().unwrap();
         assert_eq!(num, vec![Value::Int(1)]);
-        // denom should be [1, 1] -- 1 + x
+        // denom should be [1, 1] (1 + x)
         assert_eq!(denom.len(), 2);
         assert_eq!(denom[0], Value::Int(1));
         assert_eq!(denom[1], Value::Int(1));
@@ -2445,7 +2432,7 @@ mod tests {
 
     #[test]
     fn test_square_free_square_free_input() {
-        // x^2 + x + 1 = [1, 1, 1] -- irreducible over reals, square-free
+        // x^2 + x + 1 = [1, 1, 1], irreducible over reals, square-free
         let poly = vec![Value::Int(1), Value::Int(1), Value::Int(1)];
         let factors = square_free_factor(&poly, "x").unwrap();
         // Should be a single factor with multiplicity 1
@@ -2456,7 +2443,7 @@ mod tests {
 
     #[test]
     fn test_square_free_x2_plus_4() {
-        // x^2 + 4 = [4, 0, 1] -- square-free
+        // x^2 + 4 = [4, 0, 1], square-free
         let poly = vec![Value::Int(4), Value::Int(0), Value::Int(1)];
         let factors = square_free_factor(&poly, "x").unwrap();
         assert_eq!(factors.len(), 1, "x^2+4 should be square-free");

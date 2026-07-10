@@ -453,8 +453,7 @@ fn expand_deep_nested_addition() {
 
 #[test]
 fn expand_high_power_no_stack_overflow() {
-    // (x + 1)^20 -- the original recursive power loop recursed 20 times
-    // on growing intermediate expressions.
+    // (x + 1)^20
     let base = op(CasOp::Add, vec![Value::from_cas_var("x"), Value::Int(1)]);
     let expr = op(CasOp::Power, vec![base, Value::Int(20)]);
     let result = expand_cas(&expr).unwrap();

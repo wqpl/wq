@@ -619,7 +619,7 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
                     Ok(coeffs)
                 } else if !contains_cas_var(base, var) {
                     let Some(n) = exp.exact_int() else {
-                        // Fractional power of constant base -- not a polynomial.
+                        // Fractional power of constant base
                         return Err(cas_err(
                             "solve currently supports polynomial expressions with exact numeric coefficients",
                         ));
@@ -639,7 +639,7 @@ pub(crate) fn poly_from_expr(expr: &Value, var: &str) -> WqResult<Vec<Value>> {
                             return Ok(vec![val]);
                         }
                     }
-                    // Base or pow couldn't be reduced -- keep as CAS expr.
+                    // Base or pow couldn't be reduced
                     Ok(vec![expr.clone()])
                 } else {
                     Err(cas_err(

@@ -1328,7 +1328,7 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
         match core_opt {
             Some(core) => keep.push((core, coeff)),
             None => {
-                // Pure constant -- wrap so rebuild_scaled_term(c, Some(1)) = c*1 = c
+                // Pure constant; wrap so rebuild_scaled_term(c, Some(1)) = c*1 = c
                 keep.push((Value::Int(1), coeff));
             }
         }
@@ -1405,7 +1405,7 @@ fn extract_ln_abs_pref(core: &Value) -> Option<(Value, Value)> {
             (&args[0], &args[1])
         };
         if !rest.is_cas_expr() {
-            // pref is the ln term, rest is the coefficient -- swap
+            // pref is the ln term, rest is the coefficient; swap
             if let Some((CasFunction::Ln, [ln_arg])) = pref.cas_function_parts()
                 && let Some((CasFunction::Abs, [abs_arg])) = ln_arg.cas_function_parts()
             {
@@ -1879,8 +1879,8 @@ fn try_simplify_sqrt_poly(coeffs: &[Value], var: &str, is_sqrt: bool) -> WqResul
     if !has_reduction {
         return Ok(None);
     }
-    // Skip pure monomial squares like x^2, x^4 -- rewrite_cas handles those
-    // with proper abs() semantics via the sqrt(square) -> abs rewrite rule.
+    // Skip pure monomial squares like x^2, x^4. rewrite_cas handles them
+    // with abs() semantics.
     if factors.len() == 1 && factors[0].1 == 2 && is_monomial_poly(&factors[0].0) {
         return Ok(None);
     }
@@ -1948,7 +1948,7 @@ fn try_simplify_sqrt_poly(coeffs: &[Value], var: &str, is_sqrt: bool) -> WqResul
 pub(crate) fn cas_pow(base: Value, exp: Value) -> WqResult<Value> {
     let base = simplify_cas_value(&base)?;
     let exp = simplify_cas_value(&exp)?;
-    // Algebraic values can't be numerically evaluated -- keep symbolic
+    // Algebraic values can't be numerically evaluated
     if !base.is_cas_expr() && !exp.is_cas_expr() && !base.is_algebraic_number() {
         // For fractional powers of rationals, keep symbolic unless it's a
         // perfect power (e.g. (4)^(1/2) = 2 stays numeric, but (3/4)^(1/2)

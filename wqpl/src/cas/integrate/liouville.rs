@@ -125,7 +125,7 @@ fn try_liouville_poly_poly(f_expr: &Value, g_expr: &Value, var: &str) -> WqResul
     // Extract polynomial coefficients
     let p = match poly_from_expr(f_expr, var) {
         Ok(c) => c,
-        Err(_) => return Ok(None), // f is not a polynomial -- defer
+        Err(_) => return Ok(None), // f is not a polynomial, defer
     };
     let g = match poly_from_expr(g_expr, var) {
         Ok(c) => c,
@@ -136,7 +136,7 @@ fn try_liouville_poly_poly(f_expr: &Value, g_expr: &Value, var: &str) -> WqResul
     let deg_g = poly_degree(&g);
 
     if deg_g == 0 {
-        // g is constant -> e^(const) * int P(x) dx -- already handled
+        // g is constant -> e^(const) * int P(x) dx, already handled
         return Ok(None);
     }
 
@@ -192,7 +192,7 @@ fn solve_liouville_coeffs(p: &[Value], g: &[Value], deg_r: usize) -> WqResult<Ve
 
     if m == 0 {
         // G is constant k.  R' + k*R = P.
-        // At x^j: (j+1)*r_{j+1} + k*r_j = p_j -- solve r_j from j=deg_r down to 0.
+        // At x^j: (j+1)*r_{j+1} + k*r_j = p_j, solve r_j from j=deg_r down to 0.
         let k = &g[0];
         for j in (0..=deg_r).rev() {
             let p_j = p.get(j).cloned().unwrap_or(Value::Int(0));
@@ -207,7 +207,7 @@ fn solve_liouville_coeffs(p: &[Value], g: &[Value], deg_r: usize) -> WqResult<Ve
     } else {
         // General case: G has degree m >= 1.
         // Equation at x^t: (t+1)*r_{t+1} + sum_{k=max(0,t-m)}^{min(n,t)} g_{t-k}*r_k =
-        // p_t Process t from n+m down to m -- each equation determines exactly
+        // p_t Process t from n+m down to m, each equation determines exactly
         // one new variable r_{t-m} via the leading coefficient g_m.
         let g_m = g[m].clone();
 
@@ -541,7 +541,7 @@ fn try_liouville_rational_general(
         return Ok(None);
     }
 
-    // Try the inner solver on the full rational f -- do not split into
+    // Try the inner solver on the full rational f, do not split into
     // quotient + remainder, because the quotient part int Q*e^g is only
     // elementary when deg(Q) >= deg(g'), and the combined solution
     // A*P' + B*P = H correctly handles all cases.
@@ -559,16 +559,16 @@ fn try_liouville_rational_general_inner(
     g_coeffs: &[Value],
     var: &str,
 ) -> WqResult<Option<Value>> {
-    // 1. Compute D0 = gcd(D, D') -- denominator of R
+    // 1. Compute D0 = gcd(D, D'), denominator of R
     let denom_deriv = poly_derivative(denom);
     let d0 = poly_gcd(denom, &denom_deriv)?;
     if poly_degree(&d0) == 0 {
-        // All poles are simple -- R would be polynomial.
+        // All poles are simple, R would be polynomial.
         // But f has poles, so R cannot cancel them. Not elementary via this method.
         return Ok(None);
     }
 
-    // 2. Compute D1 = D / D0 -- product of distinct irreducible factors
+    // 2. Compute D1 = D / D0, product of distinct irreducible factors
     let (d1, rem) = poly_divide(denom, &d0)?;
     if !poly_is_zero(&rem) {
         return Ok(None);
@@ -714,7 +714,7 @@ fn try_liouville_erf_pattern(
     let c = match f_expr {
         v if !v.is_cas_expr() => v.clone(),
         v if v.cas_var_name().is_some() => {
-            // f is just the variable -- not a constant
+            // f is just the variable, not a constant
             return Ok(None);
         }
         _ => {
@@ -735,7 +735,7 @@ fn try_liouville_erf_pattern(
     let a = &g_coeffs[2]; // coefficient of x^2
     let b_term = g_coeffs.get(1).cloned().unwrap_or(Value::Int(0));
     if !numeric_is_zero(&b_term) {
-        return Ok(None); // has linear term -- not pure Gaussian
+        return Ok(None); // has linear term, not pure Gaussian
     }
     // Constant term in g becomes e^(constant) factor
     let g_const = g_coeffs.first().cloned().unwrap_or(Value::Int(0));
@@ -885,13 +885,6 @@ mod tests {
 
     #[test]
     fn test_integrate_cubic_exponent() {
-        // int (2x+1)*e^(x^3/3) dx = (2x+1)*e^(x^3/3) -- wait, that's not right.
-        // R' + x^2*R = 2x+1 where D(x)=x^2 is the derivative of g=x^3/3.
-        // deg_r = deg_p - deg(D) = 1 - 2 = -1 < 0, so no polynomial solution.
-        //
-        // Let's use a solvable case: g = x^3/3, f = R' + x^2*R with R = x^2.
-        // R' + x^2*R = 2x + x^4 -> f = x^4 + 2x.
-        // int (x^4+2x)*e^(x^3/3) dx = x^2*e^(x^3/3).
         let f_expr = op(
             CasOp::Add,
             vec![
@@ -924,10 +917,6 @@ mod tests {
 
     #[test]
     fn test_solve_inconsistent_system() {
-        // D = x^2 (d0=0, d1=0, d2=1), deg_r=1, deg_p=3.
-        // For R = r0 + r1*x: R' + x^2*R = r1 + r0*x^2 + r1*x^3.
-        // This constrains p1 = 0 and p0 = p3.
-        // P = [1, 1, 1, 1] violates both -- must return an error.
         let p = vec![Value::Int(1), Value::Int(1), Value::Int(1), Value::Int(1)];
         let g = vec![Value::Int(0), Value::Int(0), Value::Int(1)];
         assert!(
@@ -983,7 +972,7 @@ mod tests {
         let _ = result;
     }
 
-    // -- Liouville general rational f(x) tests --
+    // === Liouville general rational f(x) tests ===
 
     /// Build integrand f(x) * exp(g(x))
     fn build_integrand(f: Value, g: Value) -> Value {
@@ -1154,7 +1143,6 @@ mod tests {
             .unwrap()
             .unwrap();
         let s = simplify_cas_value(&result).unwrap().to_string();
-        // Result should be e^(x^2)/(x-1)^2 -- denominator may be expanded to x^2-2x+1
         assert!(
             s.contains("x^2") && s.contains("2*x") && s.contains("1"),
             "expected e^(x^2)/(x-1)^2 (possibly expanded) in result: {s}"
@@ -1167,7 +1155,6 @@ mod tests {
 
     #[test]
     fn test_rational_liouville_non_elementary() {
-        // int e^(x^2)/x^2 dx -- not elementary and not Ei-pattern
         let x = Value::from_cas_var("x");
         let f = op(
             CasOp::Divide,

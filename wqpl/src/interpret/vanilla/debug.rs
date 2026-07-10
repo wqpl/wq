@@ -199,11 +199,10 @@ fn build_trace_tree(records: &[TraceRecord]) -> Vec<TraceNode> {
     stack
 }
 
-/// Render a `@d` flush: the original single-line header plus, if any probes
-/// were captured, a reverse tree (outer expression first, then nested
-/// sub-results).  The outermost root record's information is already in the
-/// header, so its own line is not repeated -- we descend straight into its
-/// children.
+/// Render a `@d` flush with the original header and any captured probes.
+///
+/// Probe output uses a reverse tree, starting with the outer expression.
+/// The root is already shown in the header, so only its children are rendered.
 pub(super) fn render_trace_line(
     vm: &Vm,
     debug_pc: usize,
@@ -216,11 +215,8 @@ pub(super) fn render_trace_line(
         return head;
     }
     let mut roots = build_trace_tree(records);
-    // A single root with children is the @d expression's outermost evaluation
-    // probe -- its `expr = value` would duplicate the header line, so inline
-    // its children directly under the header.  Single childless roots (e.g.
-    // when short-circuit evaluation skipped the outermost op) are kept so the
-    // user can still see what actually ran.
+    // Inline the children of a single root to avoid duplicating the header.
+    // Keep childless roots so the user can see what ran.
     let children: Vec<TraceNode> = if roots.len() == 1
         && !roots[0].children.is_empty()
         && root_matches_debug_operand(vm, debug_pc, &roots[0].record)

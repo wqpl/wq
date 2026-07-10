@@ -1,49 +1,29 @@
 //! Wadler/Lindig pretty-printing IR.
 //!
-//! The formatter lowers a CST into a tree of [`Doc`] values, then a renderer
-//! turns that tree into a string subject to a target line width. The IR is
-//! deliberately small -- every constructor maps onto a tiny piece of layout
-//! semantics so the lowering passes stay declarative.
+//! The formatter lowers a CST into [`Doc`] values. The renderer then selects
+//! layouts that fit the target line width.
 //!
-//! ## Semantics in one paragraph
+//! Each [`Doc::Group`] tries a single-line layout first, then falls back to a
+//! broken layout. Line constructors control whether whitespace becomes a
+//! space or newline.
 //!
-//! A `Doc` describes possible layouts. The renderer chooses between them by
-//! looking at each [`Doc::Group`] in turn: try the *flat* (single-line) form
-//! first; if it fits in the remaining width, use it; otherwise fall back to
-//! the *break* form. Line-break constructors give the lowering pass
-//! fine-grained control over which whitespace becomes "space" in flat mode
-//! and which becomes "newline" in break mode.
+//! Constructors take and return `Doc` values. Use `+` to concatenate, `nest`
+//! to indent, and `group` to introduce a layout choice.
 //!
-//! ## Construction style
-//!
-//! All constructors take `Doc` arguments by value and return a `Doc`. There
-//! is no `&mut` builder; chain calls instead. The `+` operator concatenates,
-//! `nest` indents, `group` introduces a choice point. Together this reads as
-//! a direct translation of the layout intent.
-//!
-//! ```ignore
+//! `ignore
 //! use crate::format::doc::Doc;
-//! // `(1; 2; 3)` that may break:
-//! //   (
-//! //     1;
-//! //     2;
-//! //     3
-//! //   )
+//!
 //! Doc::group(
 //!     Doc::text("(")
-//!         + Doc::nest(
-//!             2,
-//!             Doc::line_soft()
-//!                 + Doc::join(Doc::text(";") + Doc::line(), [
-//!                     Doc::text("1"),
-//!                     Doc::text("2"),
-//!                     Doc::text("3"),
+//!         + Doc::nest( 2, Doc::line_soft()
+//!                 + Doc::join(Doc::text(";") + Doc::line(), [ Doc::text("1"),
+//!                   Doc::text("2"), Doc::text("3"),
 //!                 ]),
 //!         )
 //!         + Doc::line_soft()
 //!         + Doc::text(")"),
 //! )
-//! ```
+//! `
 
 use std::borrow::Cow;
 use std::ops::Add;
@@ -190,17 +170,10 @@ impl Doc {
         matches!(self, Doc::Nil)
     }
 
-    /// True when this doc, anywhere in its subtree, contains a forced
-    /// newline (`LineHard` or `Blank`).
+    /// Return whether this doc contains a forced newline.
     ///
-    /// Used by the renderer to decide whether a `Group` is permitted to
-    /// flatten. A group that contains a forced break can never be rendered
-    /// on a single line; entering flat mode would produce a layout where
-    /// surrounding [`Doc::Line`] / [`Doc::LineSoft`] separators collapse
-    /// but the embedded `LineHard` still emits a newline -- the worst of
-    /// both worlds.
-    ///
-    /// O(N) in the size of the subtree; called once per `Group` decision.
+    /// Groups with forced breaks cannot use flat mode. This check is linear in
+    /// the subtree size and runs once per group decision.
     pub fn has_forced_break(&self) -> bool {
         match self {
             Doc::Nil | Doc::Text(_) | Doc::Line | Doc::LineSoft => false,

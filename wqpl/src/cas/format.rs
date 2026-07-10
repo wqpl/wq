@@ -549,7 +549,7 @@ fn format_product_parts(
     aliases: &AlgebraicAliasEnv,
 ) -> String {
     /// True when a CAS expression is a manifest constant (no variable
-    /// dependency). Used only for display grouping -- does not affect
+    /// dependency). Used only for display grouping and does not affect
     /// canonical sort order.
     fn is_constant_cas(value: &Value) -> bool {
         if let Some([base, _]) = value.cas_op_args(CasOp::Power) {

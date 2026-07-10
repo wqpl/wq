@@ -3,13 +3,7 @@
 //!
 //! # Stack-overflow prevention
 //!
-//! This module must not call `integrate_expr_with_depth`.
-//! Instead, every reduction is carried to completion with coefficient-vector
-//! arithmetic (`expand_binomial_poly` + `integrate_poly_coeffs` for odd-power
-//! substitutions, recurrence relations for even-power and product reductions).
-//!
-//! When adding new patterns, follow the same discipline -- expand the integrand
-//! into monomials, integrate each term by hand, and substitute back.
+//! Do not call `integrate_expr_with_depth`.
 
 use std::sync::Arc;
 
@@ -558,7 +552,7 @@ fn integrate_sec_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Va
 // csc^n(a*x + b)
 // ---------------------------------------------------------------------------
 
-/// int csc^n(ax+b) dx -- mirror of sec^n with sign adjustments.
+/// int csc^n(ax+b) dx, mirror of sec^n with sign adjustments.
 fn integrate_csc_power(n: usize, a: &Value, b: &Value, var: &str) -> WqResult<Value> {
     if n == 0 {
         return Ok(Value::from_cas_var(var));

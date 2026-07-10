@@ -391,7 +391,7 @@ impl AlgebraicData {
 
         let (lo, hi) = self.interval();
         if lo > 0.0 {
-            // Pure constant (only c0 non-zero) -- sign is c0's sign.
+            // Pure constant (only c0 non-zero). sign is c0's sign.
             if !self.coeffs.is_empty() && !crate::cas::numeric_is_zero(&self.coeffs[0]) {
                 let all_higher_zero = self.coeffs[1..].iter().all(crate::cas::numeric_is_zero);
                 if all_higher_zero {

@@ -1,14 +1,13 @@
-//! Public entry point for the CST-driven Wadler/Lindig formatter.
+//! Public entry point for the CST formatter.
 //!
-//! The actual layout work lives in three siblings:
+//! Layout is handled by:
 //!
-//! * [`mod@doc`] -- the pretty-printing IR.
-//! * [`mod@lower`] -- CST → [`Doc`] lowering, one branch per
-//!   [`crate::cst::SyntaxKind`].
-//! * [`mod@render`] -- best-fit renderer.
+//! * [`mod@doc`]: pretty-printing IR.
+//! * [`mod@lower`]: CST to [`Doc`] lowering.
+//! * [`mod@render`]: best-fit rendering.
 //!
-//! This file owns the public surface: [`Formatter`], [`FormatConfig`], and
-//! the script-aware [`Formatter::format_script`] driver.
+//! This module exposes [`Formatter`], [`FormatConfig`], and
+//! [`Formatter::format_script`].
 
 use crate::lex::Lexer;
 use crate::parse::Parser;
@@ -102,20 +101,18 @@ impl Formatter {
         Ok(render::render(&doc, width))
     }
 
-    /// Format a script that may contain meta commands like `\load <path>`.
+    /// Format a script that may contain meta commands such as `\load <path>`.
     ///
-    /// Meta lines (starting with `\`, or a shebang `#!` on line 1) are
-    /// passed through verbatim. Everything else -- including comments and
-    /// blank lines -- is forwarded to [`Self::format_source`], which
-    /// preserves them via CST trivia attachment.
+    /// Meta lines starting with `\`, and a `#!` shebang on line 1, are
+    /// preserved. All other content is passed to [`Self::format_source`].
     pub fn format_script(&self, content: &str) -> WqResult<String> {
         let mut result = String::new();
         let mut buffer = String::new();
         let mut buffer_has_payload = false;
         for (i, line) in content.lines().enumerate() {
             let trimmed = line.trim();
-            // Meta-command lines (shell-style `\cmd`, or a shebang on line 1)
-            // bypass the formatter -- they aren't wq syntax.
+            // Meta-command lines (`\cmd`, or a shebang on line 1)
+            // bypass the formatter.
             if trimmed.starts_with("\\") || (i == 0 && trimmed.starts_with("#!")) {
                 if buffer_has_payload {
                     result.push_str(&self.format_source(&buffer)?);

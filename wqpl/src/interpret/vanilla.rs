@@ -89,10 +89,8 @@ impl Interpreter for VanillaInterpreter {
                 let idx = vm.pc;
                 vm.pc += 1;
                 let op = &instructions[idx];
-                // Mark for trace probe BEFORE dispatch.  Some call arms
-                // `continue 'exec` after a synchronous push, skipping any
-                // post-match check -- the next iteration's top-of-loop flush
-                // handles those uniformly.
+                // Mark the trace probe before dispatch. Some call arms continue after a
+                // synchronous push, so the next loop iteration handles the flush.
                 if vm.trace_depth > 0 && op.is_trace_interesting() {
                     last_probe_pc = Some(idx);
                 }
@@ -2705,7 +2703,7 @@ mod tests {
 
     #[test]
     fn trace_records_binary_op() {
-        // No Debug to drain -- check buf after Return
+        // No Debug to drain
         let insts = vec![
             Instruction::TraceBegin,
             Instruction::load_const(Value::Int(1)),

@@ -186,8 +186,8 @@ impl BuiltinPreset {
 
 /// Owned positional and named arguments passed to a builtin.
 ///
-/// Positional args: `SmallVec<[Value; 4]>` -- zero heap for ≤4 args.
-/// Named args: `Option<Vec<(Arc<str>, Value)>>` -- heap-allocated, None when
+/// Positional args: `SmallVec<[Value; 4]>`, zero heap for <=4 args.
+/// Named args: `Option<Vec<(Arc<str>, Value)>>`, heap-allocated, None when
 /// empty.
 pub struct BuiltinFnArgs {
     pos: Sv4,

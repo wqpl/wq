@@ -697,13 +697,10 @@ impl Compiler {
         }
     }
 
-    /// Allocate local slots for function parameters (including the hidden
-    /// `--named-mask` slot when named parameters are present) and emit the
-    /// prologue that evaluates default values for omitted named parameters.
+    /// Allocate parameter slots, including the hidden `--named-mask` slot, and
+    /// emit default values for omitted named parameters.
     ///
-    /// Returns the span of the parameter list so the caller can associate
-    /// prologue instructions with the definition site (rather than the first
-    /// body expression) for arity-error reporting.
+    /// Return the parameter list span for arity error reporting.
     fn emit_params_and_prologue(
         &mut self,
         params: &Option<Vec<Parameter>>,

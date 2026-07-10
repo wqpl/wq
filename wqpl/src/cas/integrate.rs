@@ -1826,7 +1826,7 @@ mod tests {
         assert!(s.contains("ln"), "expected ln in result: {s}");
     }
 
-    // -- trigonometric integration tests --
+    // === trigonometric integration tests ===
 
     #[test]
     fn integrate_sin_cubed() {
@@ -1976,7 +1976,7 @@ mod tests {
         assert!(!s.contains("unsupported"), "got unsupported: {s}");
     }
 
-    // -- exponential * polynomial integration tests --
+    // === exponential * polynomial integration tests ===
 
     #[test]
     fn integrate_exp_poly_x_times_exp_x() {
@@ -2071,7 +2071,7 @@ mod tests {
         assert!(!s.contains("unsupported"), "got unsupported: {s}");
     }
 
-    // -- linear argument trig tests --
+    // === linear argument trig tests ===
 
     #[test]
     fn integrate_sin_2x() {
@@ -2142,7 +2142,7 @@ mod tests {
         assert!(s.contains("cos"), "expected cos: {s}");
     }
 
-    // -- sec / csc / cot tests --
+    // === sec / csc / cot tests ===
 
     #[test]
     fn integrate_sec_squared() {
@@ -2208,7 +2208,7 @@ mod tests {
 
     #[test]
     fn integrate_cot_reduction() {
-        // int cot(x) dx = ln|sin(x)| -- verify reduction path
+        // int cot(x) dx = ln|sin(x)|
         let expr = call(CasFunction::Cot, vec![Value::from_cas_var("x")]);
         let result = integrate_cas(&expr, &Value::from_cas_var("x")).unwrap();
         let s = result.to_string();
@@ -2216,11 +2216,11 @@ mod tests {
         assert!(s.contains("ln"), "expected ln: {s}");
     }
 
-    // -- Rothstein-Trager / higher-degree denominator tests --
+    // === Rothstein-Trager / higher-degree denominator tests ===
 
     #[test]
     fn integrate_one_over_x3_plus_x_plus_1() {
-        // int 1/(x^3+x+1) dx -- irreducible cubic, now handled via Cardano's formula.
+        // int 1/(x^3+x+1) dx
         let denom = op(
             CasOp::Add,
             vec![
@@ -2240,7 +2240,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_x3_minus_2() {
-        // int 1/(x^3-2) dx -- denominator has one real and two complex roots.
+        // int 1/(x^3-2) dx
         // Partial fractions: A/(x-cbrt(2)) + (Bx+C)/(x^2+cbrt(2)*x+cbrt(4))
         // Result should have:
         //   - a ln term from the linear factor (x-cbrt(2))
@@ -2269,7 +2269,7 @@ mod tests {
 
     #[test]
     fn integrate_poly_over_irreducible_cubic() {
-        // int (3x^2+1)/(x^3+x+1) dx -- N = D', the derivative case, int D'/D = ln|D|
+        // int (3x^2+1)/(x^3+x+1) dx
         // This should be handled before reaching RT (table / substitution)
         let numer = op(
             CasOp::Add,
@@ -2302,7 +2302,7 @@ mod tests {
         assert!(s.contains("ln"), "expected ln|denom| form, got: {s}");
     }
 
-    // -- irrational / sqrt(quadratic) tests --
+    // === irrational / sqrt(quadratic) tests ===
 
     #[test]
     fn integrate_one_over_sqrt_x2_plus_1() {
@@ -2436,7 +2436,7 @@ mod tests {
 
     #[test]
     fn integrate_sqrt_x2_plus_2x_plus_5() {
-        // int sqrt(x^2+2x+5) dx -- shifted quadratic
+        // int sqrt(x^2+2x+5) dx
         let inner = op(
             CasOp::Add,
             vec![
@@ -2456,7 +2456,7 @@ mod tests {
 
     #[test]
     fn integrate_x2_sqrt_x2_plus_1() {
-        // int x^2*sqrt(x^2+1) dx -- degree-2 polynomial times sqrt, triggers Euler
+        // int x^2*sqrt(x^2+1) dx
         let sqrt_inner = op(
             CasOp::Add,
             vec![
@@ -2478,7 +2478,7 @@ mod tests {
 
     #[test]
     fn integrate_one_over_x_sqrt_x2_plus_1() {
-        // int 1/(x*sqrt(x^2+1)) dx -- Euler #2 (c=1 > 0)
+        // int 1/(x*sqrt(x^2+1)) dx
         // Substitution reduces to a rational integral in t, then back-substitutes
         // the logarithmic antiderivative.
         let sqrt_part = call(
@@ -2509,7 +2509,7 @@ mod tests {
         );
     }
 
-    // -- Liouville / exponential-polynomial tests --
+    // === Liouville / exponential-polynomial tests ===
 
     #[test]
     fn integrate_poly_times_exp_quadratic() {
@@ -2543,7 +2543,7 @@ mod tests {
         assert!(s.contains("e^(x^2 + x)"), "expected exp: {s}");
     }
 
-    // -- Tabular integration & exp*trig direct formula tests --
+    // === Tabular integration & exp*trig direct formula tests ===
 
     #[test]
     fn integrate_exp_sin_direct() {
@@ -2786,7 +2786,7 @@ mod tests {
         assert!(s.contains("ei[x]") && s.contains("e^x"), "unexpected: {s}");
     }
 
-    // -- definite integrals --
+    // === definite integrals ===
 
     #[test]
     fn definite_polynomial() {
@@ -2846,7 +2846,6 @@ mod tests {
             &Value::Int(2),
         )
         .unwrap();
-        // ln stays symbolic now -- result is ln[2]
         assert_eq!(result.to_string(), "ln[2]");
     }
 
@@ -2866,7 +2865,7 @@ mod tests {
         assert!(result.to_string().contains("e"));
     }
 
-    // -- elliptic integral tests --
+    // === elliptic integral tests ===
 
     #[test]
     fn integrate_sqrt_x3_plus_1() {

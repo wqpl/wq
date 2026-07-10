@@ -122,12 +122,12 @@ fn limit_cas_inner(
         };
     }
 
-    // Strategy 1: limits at infinity (must run before substitution --
-    // substituting inf into expressions produces garbage like inf^(-1)).
+    // Strategy 1: limits at infinity (run before substitution;
+    // substituting inf into expressions produces inf^(-1)).
     try_strategy!("infinity", try_limit_at_infinity(expr, var, point));
 
     // Strategy 2: finite composition such as ln(abs(x)) as x -> 0.
-    // This runs before direct substitution so discontinuous functions can
+    // Runs before direct substitution so discontinuous functions can
     // inspect approach direction instead of using only their point value.
     try_strategy!(
         "finite_function",
@@ -187,7 +187,6 @@ fn limit_cas_inner(
 
 /// Strategy 3: substitute the point and check if the result is determinate.
 fn try_direct_substitution(expr: &Value, var: &Value, point: &Value) -> WqResult<Option<Value>> {
-    // Substituting infinity produces garbage like inf^(-1) -- skip.
     if matches!(
         point.cas_const(),
         Some(CasConst::Infinity | CasConst::NegInfinity)
@@ -1142,7 +1141,7 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
     if let Some((CasOp::Add, args)) = num.cas_op_parts()
         && args.len() == 2
     {
-        // (e^x + (-1)) or similar -- match exp(x) - 1
+        // (e^x + (-1))
         for arg in args {
             if let Some((CasFunction::Exp, [inner])) = arg.cas_function_parts()
                 && inner.cas_var_name() == Some(var_name)
@@ -1173,7 +1172,7 @@ fn try_known_limits(expr: &Value, var: &Value, point: &Value) -> WqResult<Option
     Ok(None)
 }
 
-// -- Strategy 5: series expansion at x=0 --
+// === Strategy 5: series expansion at x=0 ===
 
 /// Known Taylor series at x=0, up to order 6.  Coefficients are indexed by
 /// degree: `coeffs[i]` is the coefficient of `x^i`.
@@ -1556,7 +1555,7 @@ mod tests {
         Value::from_cas_const(konst)
     }
 
-    // -- helpers --
+    // === helpers ===
 
     #[test]
     fn split_fraction_simple_reciprocal() {
@@ -1587,7 +1586,7 @@ mod tests {
         assert_eq!(split_fraction(&expr), None);
     }
 
-    // -- direct substitution --
+    // === direct substitution ===
 
     #[test]
     fn limit_var_approaching_zero() {
@@ -1663,7 +1662,7 @@ mod tests {
         assert_eq!(result, Value::Int(1));
     }
 
-    // -- L'Hopital --
+    // === L'Hopital ===
 
     #[test]
     fn limit_sin_x_over_x_lhopital() {
@@ -1710,17 +1709,17 @@ mod tests {
         assert_eq!(result.as_f64().unwrap(), 1.0);
     }
 
-    // -- still unevaluated --
+    // === still unevaluated ===
 
     #[test]
     fn limit_one_over_x_at_zero_two_sided_undef() {
-        // limit(1/x, x->0) = undef (two-sided -- left=-inf, right=+inf)
+        // limit(1/x, x->0) = undef (two-sided: left=-inf, right=+inf)
         let expr = cas_div_expr(Value::Int(1), cas_var("x"));
         let result = limit_cas(&expr, &cas_var("x"), &Value::Int(0), None).unwrap();
         assert_eq!(result, konst(CasConst::Undefined));
     }
 
-    // -- limits at infinity --
+    // === limits at infinity ===
 
     fn inf() -> Value {
         konst(CasConst::Infinity)
@@ -1911,7 +1910,7 @@ mod tests {
         assert_eq!(result, inf());
     }
 
-    // -- pole limits (one-sided -> +/-inf) --
+    // === pole limits (one-sided -> +/-inf) ===
 
     #[test]
     fn limit_one_over_x_right() {
@@ -2122,18 +2121,18 @@ mod tests {
         assert_eq!(left.as_f64().unwrap(), 0.0);
     }
 
-    // -- inf/inf L'Hopital (partial) --
+    // === inf/inf L'Hopital (partial) ===
 
     #[test]
     fn limit_x_over_exp_x_at_infinity() {
-        // limit(x/exp(x), x->inf) = 0 -- inf/inf L'Hopital via
+        // limit(x/exp(x), x->inf) = 0: inf/inf L'Hopital via
         // split_inf_times_zero_product.
         let expr = cas_div_expr(cas_var("x"), call(CasFunction::Exp, vec![cas_var("x")]));
         let result = limit_cas(&expr, &cas_var("x"), &inf(), None).unwrap();
         assert_eq!(result, Value::Int(0));
     }
 
-    // -- product analysis at infinity --
+    // === product analysis at infinity ===
 
     #[test]
     fn limit_two_x_at_infinity() {
@@ -2161,7 +2160,7 @@ mod tests {
         assert_eq!(result, Value::Int(0));
     }
 
-    // -- known limits table --
+    // === known limits table ===
 
     #[test]
     fn limit_ln_one_plus_x_over_x() {
@@ -2171,7 +2170,7 @@ mod tests {
         assert_eq!(result.as_f64().unwrap(), 1.0);
     }
 
-    // -- series expansion --
+    // === series expansion ===
 
     #[test]
     fn series_expand_tan() {
@@ -2240,7 +2239,7 @@ mod tests {
         assert!((result.as_f64().unwrap() - 0.5).abs() < 1e-10);
     }
 
-    // -- trig asymptotics at infinity --
+    // === trig asymptotics at infinity ===
 
     #[test]
     fn limit_arctan_at_infinity() {
@@ -2308,7 +2307,7 @@ mod tests {
         assert_eq!(result, Value::Int(0));
     }
 
-    // -- Limit infrastructure: constants and direction parsing --
+    // === constants and direction parsing ===
 
     #[test]
     fn cas_const_infinity_displays() {
@@ -2382,7 +2381,7 @@ mod tests {
         assert_eq!(format!("{:?}", LimitDirection::Left), "Left");
     }
 
-    // -- Limit expression node construction/destruction --
+    // === Limit expression node construction/destruction ===
 
     #[test]
     fn from_cas_limit_two_sided() {
