@@ -679,7 +679,6 @@ impl Session {
     /// Clear all global bindings.
     pub fn clear_environment(&mut self) {
         self.vm.global_slots.clear();
-        self.vm.global_slot_versions.clear();
         self.vm.global_slot_map.clear();
     }
 
@@ -1677,6 +1676,61 @@ mod tests {
             .expect("long lazy bool chain should eval");
 
         assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn fused_try_region_does_not_consume_following_expression() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("f:{[x](@t $[x=1;42;0];99)};f[1]")
+            .expect("fused try expression should remain bounded");
+
+        assert_eq!(
+            result,
+            Value::from_items(vec![Value::Bool(true), Value::Int(99)])
+        );
+    }
+
+    #[test]
+    fn recursive_try_reports_a_wq_result_before_native_stack_overflow() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("f:{[n]@t $[n=0;0;f[n-1]]};f[100]")
+            .expect("recursive try should remain inside the wq error model");
+
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn named_call_evaluates_target_before_arguments() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("f:{[x]1};a:f[(f:{[x]2};0)];f:{[x]1};b:($[T;f;f])[(f:{[x]2};0)];(a;b)")
+            .expect("call target evaluation order should be stable");
+
+        assert_eq!(
+            result,
+            Value::from_items(vec![Value::Int(1), Value::Int(1)])
+        );
+    }
+
+    #[test]
+    fn method_call_evaluates_target_before_arguments() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string(
+                "d:(`f:{[x]1});a:d[`f][(d[`f]:{[x]2};0)];d:(`f:{[x]1});b:($[T;d;d])[`f][(d[`f]:{[x]2};0)];(a;b)",
+            )
+            .expect("method target evaluation order should be stable");
+
+        assert_eq!(
+            result,
+            Value::from_items(vec![Value::Int(1), Value::Int(1)])
+        );
     }
 
     #[test]

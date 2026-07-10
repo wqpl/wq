@@ -396,6 +396,7 @@ fn is_load(op: &Instruction) -> bool {
             | I::LoadOwnedConst(_)
             | I::LoadClosure(_)
             | I::LoadVar(_)
+            | I::LoadCallTarget(_)
             | I::LoadVarExists(_)
             | I::LoadCapture(_)
             | I::LoadSelf

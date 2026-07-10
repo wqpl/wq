@@ -18,6 +18,10 @@ use crate::vm::{
 use crate::wqdb::build::mark_stmt_heuristic;
 use crate::wqdb::data::ChunkId;
 
+// `invoke_spec` is recursively hosted. Keep protected calls below the native
+// stack limit so `@t` can catch a wq Recursion error reliably.
+const MAX_PROTECTED_CALL_DEPTH: usize = 8;
+
 struct TakenBuiltinArgs {
     args: BuiltinFnArgs,
     had_named_meta: bool,
@@ -69,16 +73,41 @@ impl Vm {
         if let Value::BuiltinFunction { id, .. } = func {
             return self.call_builtin_id(*id, args);
         }
-        let argc = args.len();
         match func {
             Value::LiftedCallable(data) => self.call_function_composition(data, args),
             Value::Cas(_) => self.call_cas_callable(func, args),
             Value::CompiledFunction(_) | Value::Closure(_) => {
+                let (positional, named) = args.into_parts();
+                let argc = positional
+                    .len()
+                    .checked_add(named.len())
+                    .ok_or_else(|| arity_err_vm("call has too many arguments".to_string()))?;
+                let pos_count = u16::try_from(positional.len()).map_err(|_| {
+                    arity_err_vm("call has too many positional arguments".to_string())
+                })?;
+                let named_positions: Vec<(u16, Arc<str>)> = named
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (name, _))| {
+                        let position = u16::try_from(positional.len() + index)
+                            .map_err(|_| arity_err_vm("call has too many arguments".to_string()))?;
+                        Ok((position, Arc::clone(name)))
+                    })
+                    .collect::<WqResult<_>>()?;
                 let base = self.stack.len();
-                self.stack.extend(args);
+                self.stack.extend(positional);
+                self.stack.extend(named.into_iter().map(|(_, value)| value));
+                let saved_named_meta = self.pending_named_meta.take();
+                if !named_positions.is_empty() {
+                    self.pending_named_meta = Some(Box::new(NamedArgMeta {
+                        pos_count,
+                        named: named_positions.into_boxed_slice(),
+                    }));
+                }
                 let spec =
                     CallSpec::from_user_callable(func, argc, None).expect("matched user function");
                 let res = self.invoke_spec(spec);
+                self.pending_named_meta = saved_named_meta;
                 if res.is_err() {
                     self.stack.truncate(base);
                 }
@@ -295,7 +324,12 @@ impl Vm {
         self.captures.push(captured);
         self.current_closure_stack.push(callee);
         // Recursion limit check (tail calls are exempt because they reuse the frame)
-        if self.locals.len() > self.max_call_depth {
+        let max_call_depth = if self.try_stack.is_empty() {
+            self.max_call_depth
+        } else {
+            self.max_call_depth.min(MAX_PROTECTED_CALL_DEPTH)
+        };
+        if self.locals.len() > max_call_depth {
             self.current_closure_stack.pop();
             if let Some(frame) = self.locals.pop() {
                 return_locals_to_pool(&mut self.locals_pool, frame);
@@ -314,10 +348,8 @@ impl Vm {
                 self.current_chunk = fr.chunk;
             }
             return Err(
-                crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Recursion).msg(format!(
-                    "exceeded maximum call depth {}",
-                    self.max_call_depth
-                )),
+                crate::wqerror::WqError::new(crate::wqerror::WqErrorType::Recursion)
+                    .msg(format!("exceeded maximum call depth {}", max_call_depth)),
             );
         }
         let limit = self.instructions.len();
@@ -695,78 +727,6 @@ impl Vm {
                 None => vm_err(format!("invalid local slot {slot}")),
             })
     }
-
-    #[inline]
-    fn cache_callable(&mut self, idx: usize, rc: ResolvedCallable, version: u64) {
-        let entry = &mut self.inline_cache[idx];
-        entry.version = version;
-        entry.call_target = Some(rc);
-        entry.slot = None;
-    }
-
-    #[inline]
-    pub(crate) fn resolve_user_callable(&mut self, idx: usize, name: &str) -> WqResult<Value> {
-        // Fast path: cache
-        let slot = self.lookup_global_slot(name);
-        if let Some(slot) = slot {
-            let name_version = self.global_slot_version(slot);
-            if self.inline_cache[idx].version == name_version
-                && let Some(ref target) = self.inline_cache[idx].call_target
-            {
-                return Ok(target.value.clone());
-            }
-        }
-
-        // Slow path: resolve from globals
-        let func_val = if let Some(slot) = slot {
-            self.global_slot_value(slot)
-                .ok_or_else(|| vm_err("invalid global slot"))?
-                .clone()
-        } else if self.builtins.is_disabled_name(name) {
-            return Err(
-                not_bound_err(format!("'{name}' has not been bound to a value")).attach_note(
-                    format!(
-                        "a builtin named '{name}' exists but is disabled in the current preset"
-                    ),
-                ),
-            );
-        } else {
-            self.lookup_global(name)
-                .ok_or_else(|| not_bound_err(format!("fn '{name}' is not defined")))?
-        };
-
-        if func_val.as_user_function().is_some() {
-            let mut value = func_val;
-            let dbg_chunk = if self.debug_artifacts_enabled() {
-                self.stamp_user_function_debug_chunk(&mut value, name, None)
-            } else {
-                value
-                    .as_user_function()
-                    .expect("checked user function")
-                    .dbg_chunk
-            };
-            if let Some(slot) = slot {
-                let name_version = self.global_slot_version(slot);
-                self.cache_callable(
-                    idx,
-                    ResolvedCallable::from_user_callable(value.clone(), dbg_chunk)
-                        .expect("checked user function"),
-                    name_version,
-                );
-            }
-            Ok(value)
-        } else {
-            match func_val {
-                b @ Value::BuiltinFunction { .. } => Ok(b),
-                c @ Value::LiftedCallable(_) => Ok(c),
-                c @ Value::Cas(_) if c.is_cas_expr() => Ok(c),
-                other => Err(not_bound_err(format!(
-                    "cannot call '{name}': expected callable, got {}",
-                    other.type_name()
-                ))),
-            }
-        }
-    }
 }
 
 impl BuiltinContext for Vm {
@@ -929,6 +889,14 @@ fn validate_user_call_shape(
     callee_named: Option<&[Arc<str>]>,
 ) -> WqResult<()> {
     if let Some(meta) = named_meta {
+        for (index, (_, name)) in meta.named.iter().enumerate() {
+            if meta.named[..index]
+                .iter()
+                .any(|(_, previous)| previous == name)
+            {
+                return Err(arity_err_vm(format!("duplicate named argument '{name}'")));
+            }
+        }
         if let Some(expected) = params_len
             && usize::from(meta.pos_count) != expected
         {
@@ -1226,5 +1194,46 @@ mod tests {
             .call(&bit_not, BuiltinFnArgs::from(Value::Int(5)))
             .expect("bit-not callable should evaluate");
         assert_eq!(out, Value::Int(-6));
+    }
+
+    #[test]
+    fn call_preserves_named_arguments_for_user_functions() {
+        let named_identity = Value::CompiledFunction(Arc::new(FunctionData {
+            params: Some(Arc::from([])),
+            named_params: Some(Arc::from([Arc::<str>::from("x")])),
+            locals: 2,
+            instructions: Arc::from([Instruction::LoadLocal(0), Instruction::Return]),
+            dbg_chunk: None,
+            dbg_stmt_spans: None,
+            dbg_source_base_offset: 0,
+            dbg_pc_spans: None,
+            dbg_stmt_marks: None,
+            dbg_local_names: None,
+            dbg_provenance: None,
+        }));
+        let args =
+            BuiltinFnArgs::with_named(smallvec![], vec![(Arc::<str>::from("x"), Value::Int(7))]);
+        let mut vm = Vm::new(vec![]);
+
+        let result = vm
+            .call(&named_identity, args)
+            .expect("named user call should succeed");
+
+        assert_eq!(result, Value::Int(7));
+    }
+
+    #[test]
+    fn user_call_shape_rejects_duplicate_named_arguments() {
+        let meta = NamedArgMeta {
+            pos_count: 0,
+            named: Box::new([(0, Arc::<str>::from("x")), (1, Arc::<str>::from("x"))]),
+        };
+        let named_params = [Arc::<str>::from("x")];
+
+        let err = validate_user_call_shape(2, Some(0), 2, Some(&meta), Some(&named_params))
+            .expect_err("duplicate named args should fail user call validation");
+
+        assert_eq!(err.err_type, crate::wqerror::WqErrorType::Arity);
+        assert_eq!(err.msg.as_deref(), Some("duplicate named argument 'x'"));
     }
 }

@@ -187,13 +187,22 @@ fn fuse_once(
     if n == 0 {
         return changed_any;
     }
+    let mut try_boundaries = vec![false; n + 1];
+    for (index, instruction) in old.iter().enumerate() {
+        if let Try(len) = instruction {
+            let end = index.saturating_add(1).saturating_add(*len);
+            if end <= n {
+                try_boundaries[end] = true;
+            }
+        }
+    }
     let mut keep = vec![true; n];
     let mut out: Vec<Instruction> = Vec::with_capacity(n);
     let mut origin: Vec<usize> = Vec::with_capacity(n);
     let mut i = 0;
     while i < n {
         // Early: eliminate StoreKeep; Pop and IndexAssign*; Pop
-        if i + 1 < n {
+        if i + 1 < n && !try_boundaries[i + 1] {
             match (&old[i], &old[i + 1]) {
                 // Purge LoadConst(anything); Pop
                 (LoadConst(_), Pop) => {
@@ -308,6 +317,7 @@ fn fuse_once(
         // 2-op fusion: BinaryOp(GT, Local(slot), Const(0)); JIFalse T ->
         // JumpIfLEZLocal(slot, T)
         if i + 1 < n
+            && !try_boundaries[i + 1]
             && let BinaryOp(data) = &old[i]
             && data.op == BinaryOperator::Gt
             && let Operand::Local(slot) = &data.left
@@ -325,6 +335,7 @@ fn fuse_once(
         }
         // cmp+branch: BinaryOp(LT, Stack, Stack); JIFalse -> JGE (stack-based)
         if i + 1 < n
+            && !try_boundaries[i + 1]
             && let BinaryOp(data) = &old[i]
             && data.op == BinaryOperator::Lt
             && let Operand::Stack = &data.left
@@ -342,6 +353,7 @@ fn fuse_once(
         }
         // cmp+branch: BinaryOp(cmp, lhs, rhs); JIFalse -> JumpIfCmpFalse.
         if i + 1 < n
+            && !try_boundaries[i + 1]
             && let BinaryOp(data) = &old[i]
             && is_branch_comparison(data.op)
             && let JumpIfFalse(pos) = &old[i + 1]
@@ -392,7 +404,7 @@ fn fuse_once(
             }
         }
         // Remap jump targets to new indices
-        for ins in &mut out {
+        for (new_idx, ins) in out.iter_mut().enumerate() {
             match ins {
                 Jump(pos) | JumpIfFalse(pos) | JumpIfGE(pos) => {
                     *pos = old_to_new[*pos];
@@ -405,6 +417,16 @@ fn fuse_once(
                 }
                 BoolAndLazy(pos) | BoolOrLazy(pos) => {
                     *pos = old_to_new[*pos];
+                }
+                Try(len) => {
+                    let old_idx = origin[new_idx];
+                    let old_end = old_idx.saturating_add(1).saturating_add(*len);
+                    debug_assert!(
+                        old_end <= n,
+                        "try body extends beyond its instruction slice"
+                    );
+                    let new_end = old_to_new[old_end.min(n)];
+                    *len = new_end.saturating_sub(new_idx + 1);
                 }
                 _ => {}
             }
@@ -499,5 +521,54 @@ mod tests {
         );
         assert_eq!(stats.ll0_gt_jifalse, 1);
         assert_eq!(stats.cmp_jifalse, 0);
+    }
+
+    #[test]
+    fn remaps_try_body_length_when_fusion_removes_instructions() {
+        let mut code = vec![
+            Instruction::Try(5),
+            Instruction::binary_op(
+                BinaryOperator::Equal,
+                Operand::Local(0),
+                Operand::const_val(Value::Int(1)),
+            ),
+            Instruction::JumpIfFalse(5),
+            Instruction::load_const(Value::Int(42)),
+            Instruction::Jump(6),
+            Instruction::load_const(Value::Int(0)),
+            Instruction::Return,
+        ];
+        let mut stats = Stats::default();
+
+        let changed = fuse_once(&mut code, None, None, &mut stats);
+
+        assert!(changed);
+        assert_eq!(code.len(), 6);
+        assert_eq!(code[0], Instruction::Try(4));
+        assert!(matches!(code[1], Instruction::JumpIfCmpFalse(_)));
+        assert_eq!(code[3], Instruction::Jump(5));
+        assert_eq!(code[5], Instruction::Return);
+    }
+
+    #[test]
+    fn does_not_fuse_across_try_boundary() {
+        let original = vec![
+            Instruction::Try(1),
+            Instruction::binary_op(
+                BinaryOperator::Equal,
+                Operand::Local(0),
+                Operand::const_val(Value::Int(1)),
+            ),
+            Instruction::JumpIfFalse(4),
+            Instruction::load_const(Value::Int(42)),
+            Instruction::Return,
+        ];
+        let mut code = original.clone();
+        let mut stats = Stats::default();
+
+        let changed = fuse_once(&mut code, None, None, &mut stats);
+
+        assert!(!changed);
+        assert_eq!(code, original);
     }
 }

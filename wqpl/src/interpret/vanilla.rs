@@ -18,7 +18,7 @@ use crate::vm::call::{
 };
 use crate::vm::inst::{BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
-use crate::vm::{Frame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
+use crate::vm::{Frame, TryFrame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
 use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
 };
@@ -44,6 +44,28 @@ pub(crate) type Sv4 = SmallVec<[Value; 4]>;
 
 impl Interpreter for VanillaInterpreter {
     fn interpret(&mut self, vm: &mut Vm, limit: usize) -> WqResult<Value> {
+        self.interpret_with_try_stack(vm, limit)
+    }
+}
+
+impl VanillaInterpreter {
+    fn interpret_with_try_stack(&mut self, vm: &mut Vm, limit: usize) -> WqResult<Value> {
+        loop {
+            match self.interpret_inner(vm, limit) {
+                Ok(value) => {
+                    Self::discard_current_try_frames(vm);
+                    return Ok(value);
+                }
+                Err(err) => {
+                    if !Self::catch_current_try_error(vm) {
+                        return Err(err);
+                    }
+                }
+            }
+        }
+    }
+
+    fn interpret_inner(&mut self, vm: &mut Vm, limit: usize) -> WqResult<Value> {
         if limit > vm.instructions.len() {
             return Err(vm_err(format!("limit out of bounds: {limit}")));
         }
@@ -60,6 +82,9 @@ impl Interpreter for VanillaInterpreter {
                 limit = instructions.len();
             }
             while vm.pc < limit {
+                if Self::finish_try_boundary(vm) {
+                    continue;
+                }
                 let mut paused_before_instruction = false;
                 // Record a probe for the previously executed interesting
                 // instruction.  We record *here* (one iteration late) so that
@@ -155,6 +180,10 @@ impl Interpreter for VanillaInterpreter {
                         return Err(not_bound_err(format!(
                             "'{name}' has not been bound to a value"
                         )));
+                    }
+                    Instruction::LoadCallTarget(operand) => {
+                        let target = resolve_operand(vm, idx, operand, 0, hooks)?;
+                        vm.stack.push(target);
                     }
                     Instruction::LoadLocal(i) => {
                         let slot = usize::from(*i);
@@ -363,8 +392,11 @@ impl Interpreter for VanillaInterpreter {
                     }
                     Instruction::CallUser(name, argc) => {
                         let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc, || format!("fn '{name}' args"))?;
-                        if dispatch_user_call::<false>(vm, idx, name, argc, hooks)? {
+                        ensure_stack_len(&vm.stack, argc + 1, || {
+                            format!("fn '{name}' target + args")
+                        })?;
+                        let func = vm.stack.remove(vm.stack.len() - argc - 1);
+                        if dispatch_loaded_user_call::<false>(vm, idx, name, &func, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -441,8 +473,11 @@ impl Interpreter for VanillaInterpreter {
 
                     Instruction::TailCallUser(name, argc) => {
                         let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc, || format!("fn '{name}' args"))?;
-                        if dispatch_user_call::<true>(vm, idx, name, argc, hooks)? {
+                        ensure_stack_len(&vm.stack, argc + 1, || {
+                            format!("fn '{name}' target + args")
+                        })?;
+                        let func = vm.stack.remove(vm.stack.len() - argc - 1);
+                        if dispatch_loaded_user_call::<true>(vm, idx, name, &func, argc, hooks)? {
                             continue 'exec;
                         }
                     }
@@ -1458,34 +1493,19 @@ impl Interpreter for VanillaInterpreter {
                     Instruction::Try(len) => {
                         let len = *len;
                         let start_pc = vm.pc;
-                        let end_pc = start_pc + len;
-                        let stack_start = vm.stack.len();
-                        let saved_pending_named_meta = vm.pending_named_meta.take();
-                        vm.try_depth += 1;
-                        let initial_inst_ptr = vm.instructions.as_ptr();
-                        let try_result = self.interpret(vm, end_pc);
-                        vm.try_depth = vm.try_depth.saturating_sub(1);
-                        match try_result {
-                            Ok(val) => {
-                                if vm.returned || vm.instructions.as_ptr() != initial_inst_ptr {
-                                    vm.pending_named_meta = saved_pending_named_meta;
-                                    return Ok(val);
-                                }
-                                vm.pending_named_meta = saved_pending_named_meta;
-                                if vm.pc == end_pc {
-                                    vm.stack.truncate(stack_start);
-                                    vm.stack.push(Value::Bool(true));
-                                } else {
-                                    vm.stack.truncate(stack_start);
-                                }
-                            }
-                            Err(_) => {
-                                vm.pending_named_meta = saved_pending_named_meta;
-                                vm.stack.truncate(stack_start);
-                                vm.stack.push(Value::Bool(false));
-                                vm.pc = end_pc;
-                            }
-                        }
+                        let end_pc = start_pc.saturating_add(len);
+                        vm.try_stack.push(TryFrame {
+                            instructions: Arc::clone(&vm.instructions),
+                            locals_depth: vm.locals.len(),
+                            end_pc,
+                            stack_start: vm.stack.len(),
+                            saved_pending_named_meta: vm.pending_named_meta.take(),
+                            saved_last_backtrace: vm.last_backtrace.take(),
+                            saved_last_locals_snapshot: vm.last_locals_snapshot.take(),
+                            saved_trace_depth: vm.trace_depth,
+                            saved_trace_bases_len: vm.trace_bases.len(),
+                            saved_trace_buf_len: vm.trace_buf.len(),
+                        });
                     }
                     Instruction::TraceBegin => {
                         vm.trace_depth = vm.trace_depth.saturating_add(1);
@@ -1519,6 +1539,10 @@ impl Interpreter for VanillaInterpreter {
                 }
             }
 
+            if Self::finish_try_boundary(vm) {
+                continue 'exec;
+            }
+
             if !Arc::ptr_eq(&instructions, &vm.instructions) {
                 instructions = Arc::clone(&vm.instructions);
                 limit = instructions.len();
@@ -1537,6 +1561,70 @@ impl Interpreter for VanillaInterpreter {
         }
         let value = vm.stack.pop().unwrap_or(Value::unit());
         Ok(value)
+    }
+
+    fn finish_try_boundary(vm: &mut Vm) -> bool {
+        let Some(frame) = vm.try_stack.last() else {
+            return false;
+        };
+        if frame.locals_depth != vm.locals.len()
+            || !Arc::ptr_eq(&frame.instructions, &vm.instructions)
+            || vm.pc < frame.end_pc
+        {
+            return false;
+        }
+
+        let frame = vm.try_stack.pop().expect("checked try frame");
+        let completed = vm.pc == frame.end_pc;
+        let stack_start = frame.stack_start;
+        Self::restore_try_state(vm, frame, false);
+        vm.stack.truncate(stack_start);
+        if completed {
+            vm.stack.push(Value::Bool(true));
+        }
+        true
+    }
+
+    fn catch_current_try_error(vm: &mut Vm) -> bool {
+        let Some(frame) = vm.try_stack.last() else {
+            return false;
+        };
+        if frame.locals_depth != vm.locals.len() {
+            return false;
+        }
+
+        let frame = vm.try_stack.pop().expect("checked try frame");
+        let end_pc = frame.end_pc;
+        let instructions = Arc::clone(&frame.instructions);
+        let stack_start = frame.stack_start;
+        Self::restore_try_state(vm, frame, true);
+        vm.instructions = instructions;
+        vm.pc = end_pc;
+        vm.stack.truncate(stack_start);
+        vm.stack.push(Value::Bool(false));
+        true
+    }
+
+    fn discard_current_try_frames(vm: &mut Vm) {
+        while vm
+            .try_stack
+            .last()
+            .is_some_and(|frame| frame.locals_depth == vm.locals.len())
+        {
+            let frame = vm.try_stack.pop().expect("checked try frame");
+            Self::restore_try_state(vm, frame, false);
+        }
+    }
+
+    fn restore_try_state(vm: &mut Vm, frame: TryFrame, rollback_trace: bool) {
+        vm.pending_named_meta = frame.saved_pending_named_meta;
+        vm.last_backtrace = frame.saved_last_backtrace;
+        vm.last_locals_snapshot = frame.saved_last_locals_snapshot;
+        if rollback_trace {
+            vm.trace_depth = frame.saved_trace_depth;
+            vm.trace_bases.truncate(frame.saved_trace_bases_len);
+            vm.trace_buf.truncate(frame.saved_trace_buf_len);
+        }
     }
 }
 
@@ -3103,5 +3191,60 @@ mod call_safety {
         assert_eq!(vm.pc, saved_pc);
         assert_eq!(vm.stack.len(), saved_stack_len);
         assert_eq!(vm.stack.last(), Some(&Value::Int(42)));
+    }
+
+    #[test]
+    fn caught_call_error_does_not_leave_backtrace_snapshot() {
+        let bad = make_fn(
+            None,
+            0,
+            vec![Instruction::LoadVar("missing".into()), Instruction::Return],
+        );
+        let instructions = vec![
+            Instruction::Try(2),
+            Instruction::LoadVar("bad".into()),
+            Instruction::CallUser("bad".into(), 0),
+            Instruction::Return,
+        ];
+        let limit = instructions.len();
+        let mut vm = Vm::new(instructions);
+        vm.set_bt_mode(true);
+        let file_id = vm.debug_info.new_file("<test>", "@t bad[]");
+        vm.current_chunk = vm.debug_info.new_chunk("<test>", file_id, limit);
+        vm.assign_global_and_slot("bad", bad);
+
+        let result = VanillaInterpreter
+            .interpret(&mut vm, limit)
+            .expect("try should catch missing global error");
+
+        assert_eq!(result, Value::Bool(false));
+        assert!(vm.last_backtrace.is_none());
+        assert!(vm.last_locals_snapshot.is_none());
+    }
+
+    #[test]
+    fn caught_trace_error_restores_trace_scope() {
+        let instructions = vec![
+            Instruction::Try(3),
+            Instruction::TraceBegin,
+            Instruction::binary_op(
+                crate::ast::BinaryOperator::Divide,
+                crate::vm::inst::Operand::Const(Box::new(Value::Int(1))),
+                crate::vm::inst::Operand::Const(Box::new(Value::Int(0))),
+            ),
+            Instruction::Debug,
+            Instruction::Return,
+        ];
+        let limit = instructions.len();
+        let mut vm = Vm::new(instructions);
+
+        let result = VanillaInterpreter
+            .interpret(&mut vm, limit)
+            .expect("try should catch divide error");
+
+        assert_eq!(result, Value::Bool(false));
+        assert_eq!(vm.trace_depth, 0);
+        assert!(vm.trace_bases.is_empty());
+        assert!(vm.trace_buf.is_empty());
     }
 }

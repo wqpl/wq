@@ -523,6 +523,7 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::LoadOwnedConst(_) => "LoadOwnedConst",
         I::LoadClosure(_) => "LoadClosure",
         I::LoadVar(_) => "LoadVar",
+        I::LoadCallTarget(_) => "LoadCallTarget",
         I::LoadVarExists(_) => "LoadVarExists",
         I::LoadCapture(_) => "LoadCapture",
         I::LoadSelf => "LoadSelf",
@@ -621,6 +622,7 @@ fn instruction_profile_key(inst: &Instruction) -> String {
             payload.instructions.len()
         ),
         I::LoadVar(name) => format!("LoadVar({name})"),
+        I::LoadCallTarget(operand) => format!("LoadCallTarget({operand:?})"),
         I::LoadVarExists(name) => format!("LoadVarExists({name})"),
         I::LoadCapture(slot) => format!("LoadCapture({slot})"),
         I::LoadSelf => "LoadSelf".to_string(),

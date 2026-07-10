@@ -225,6 +225,9 @@ impl BuiltinFnArgs {
     pub(crate) fn named_items(&self) -> &[(Arc<str>, Value)] {
         self.named.as_deref().unwrap_or(&[])
     }
+    pub(crate) fn into_parts(self) -> (Sv4, Vec<(Arc<str>, Value)>) {
+        (self.pos, self.named.unwrap_or_default())
+    }
     pub fn push(&mut self, v: Value) {
         self.runtime_validated = false;
         self.pos.push(v)
@@ -1279,6 +1282,21 @@ impl Builtins {
         id: u16,
         args: &BuiltinFnArgs,
     ) -> WqResult<bool> {
+        for (index, (name, _)) in args.named_items().iter().enumerate() {
+            if args.named_items()[..index]
+                .iter()
+                .any(|(previous, _)| previous == name)
+            {
+                let err = WqError::new(WqErrorType::Arity)
+                    .msg(format!("duplicate named argument '{name}'"));
+                return Err(if let Some(builtin) = BuiltinEnum::from_id(id) {
+                    err.src(builtin)
+                } else {
+                    err
+                });
+            }
+        }
+
         let Some(check) = self.call_checks.get(usize::from(id)).copied().flatten() else {
             return Ok(false);
         };
@@ -1905,6 +1923,19 @@ mod tests {
             .expect_err("unknown named arg should fail runtime validation");
         assert_eq!(err.src.as_deref(), Some("bfn 'echo'"));
         assert_eq!(err.msg.as_deref(), Some("unknown named argument 'bad'"));
+
+        let duplicate_args = BuiltinFnArgs::with_named(
+            SmallVec::new(),
+            vec![
+                (Arc::<str>::from("sep"), into_wq_string(",")),
+                (Arc::<str>::from("sep"), into_wq_string(";")),
+            ],
+        );
+        let err = builtins
+            .validate_runtime_call_args(Builtins::E, &duplicate_args)
+            .expect_err("duplicate named args should fail runtime validation");
+        assert_eq!(err.err_type, WqErrorType::Arity);
+        assert_eq!(err.msg.as_deref(), Some("duplicate named argument 'sep'"));
 
         let print_bad_args = BuiltinFnArgs::with_named(
             SmallVec::new(),

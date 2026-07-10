@@ -120,6 +120,8 @@ pub(crate) enum Instruction {
     LoadClosure(Box<ClosurePayload>),
     /// Load a global variable or builtin by name
     LoadVar(Arc<str>),
+    /// Snapshot a named call target without adding a separate trace probe.
+    LoadCallTarget(Operand),
     /// Push whether a global variable is currently bound
     LoadVarExists(Arc<str>),
     /// Load a captured value by index from the current closure frame
@@ -159,6 +161,7 @@ pub(crate) enum Instruction {
     /// result will be discarded.
     CallBuiltinDiscardId(u16, u16),
     /// Call a function stored in a local slot
+    #[allow(dead_code)]
     CallLocal(u16, usize),
     CallUser(Arc<str>, usize),
     TailCallLocal(u16, usize),
@@ -169,30 +172,39 @@ pub(crate) enum Instruction {
     Postfix(usize),
     TailPostfix(usize),
     /// Call or index a local variable, avoiding cloning if indexing
+    #[allow(dead_code)]
     PostfixLocal(u16, usize),
     TailPostfixLocal(u16, usize),
     /// Look up a constant-tag method on a local dict, then call or index it.
+    #[allow(dead_code)]
     PostfixMethodLocal(u16, Arc<str>, usize),
     TailPostfixMethodLocal(u16, Arc<str>, usize),
     /// Look up a constant-tag method on a local dict, then call it.
+    #[allow(dead_code)]
     CallMethodLocal(u16, Arc<str>, usize),
     TailCallMethodLocal(u16, Arc<str>, usize),
     /// Call or index a captured variable, avoiding cloning if indexing
+    #[allow(dead_code)]
     PostfixCapture(u16, usize),
     TailPostfixCapture(u16, usize),
     /// Look up a constant-tag method on a captured dict, then call or index it.
+    #[allow(dead_code)]
     PostfixMethodCapture(u16, Arc<str>, usize),
     TailPostfixMethodCapture(u16, Arc<str>, usize),
     /// Look up a constant-tag method on a captured dict, then call it.
+    #[allow(dead_code)]
     CallMethodCapture(u16, Arc<str>, usize),
     TailCallMethodCapture(u16, Arc<str>, usize),
     /// Call or index a global variable, avoiding cloning if indexing
+    #[allow(dead_code)]
     PostfixVar(Arc<str>, usize),
     TailPostfixVar(Arc<str>, usize),
     /// Look up a constant-tag method on a global dict, then call or index it.
+    #[allow(dead_code)]
     PostfixMethodVar(Arc<str>, Arc<str>, usize),
     TailPostfixMethodVar(Arc<str>, Arc<str>, usize),
     /// Look up a constant-tag method on a global dict, then call it.
+    #[allow(dead_code)]
     CallMethodVar(Arc<str>, Arc<str>, usize),
     TailCallMethodVar(Arc<str>, Arc<str>, usize),
     MakeList(usize),
@@ -370,6 +382,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         | I::LoadCapture(_)
         | I::LoadClosure(_)
         | I::LoadVar(_)
+        | I::LoadCallTarget(_)
         | I::LoadVarExists(_)
         => (Load, false),
         I::LoadSelf => (Load, true),
@@ -661,6 +674,11 @@ impl InstPrettyDumper {
             }
             _ => {}
         }
+        if let Instruction::LoadCallTarget(Operand::Local(slot)) = inst
+            && let Some(name) = Self::local_name(*slot, locals_names)
+        {
+            parts.push(name.into());
+        }
 
         // capture indices
         if let Instruction::LoadCapture(i)
@@ -676,6 +694,11 @@ impl InstPrettyDumper {
         {
             let desc =
                 Self::capture_desc(i, captures_spec).unwrap_or_else(|| "capture".to_string());
+            parts.push(desc);
+        }
+        if let Instruction::LoadCallTarget(Operand::Capture(slot)) = inst {
+            let desc =
+                Self::capture_desc(*slot, captures_spec).unwrap_or_else(|| "capture".to_string());
             parts.push(desc);
         }
 

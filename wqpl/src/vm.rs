@@ -34,7 +34,6 @@ pub struct Vm {
     pub(crate) stack: Vec<Value>,
     /// Global slots (stable indices) for fast access
     pub(crate) global_slots: Vec<Value>,
-    pub(crate) global_slot_versions: Vec<u64>,
     pub(crate) global_slot_map: GlobalSlotMap,
     pub(crate) builtins: Builtins,
     pub(crate) builtins_preset: BuiltinPreset,
@@ -77,7 +76,7 @@ pub struct Vm {
     pub(crate) last_backtrace: Option<Backtrace>,
     pub(crate) last_locals_snapshot: Option<Vec<DebugLocalsFrame>>,
     pub(crate) hooks: Option<NonNull<dyn InterpreterHook>>,
-    pub(crate) try_depth: usize,
+    pub(crate) try_stack: Vec<TryFrame>,
     pub(crate) returned: bool,
     /// The interpreter kind to use for nested calls.
     pub(crate) interpreter_kind: InterpreterKind,
@@ -101,6 +100,19 @@ pub(crate) struct Frame {
     pub chunk: ChunkId,
     pub pc: usize,
     pub func_name: std::sync::Arc<str>,
+}
+
+pub(crate) struct TryFrame {
+    pub(crate) instructions: Arc<[Instruction]>,
+    pub(crate) locals_depth: usize,
+    pub(crate) end_pc: usize,
+    pub(crate) stack_start: usize,
+    pub(crate) saved_pending_named_meta: Option<Box<crate::vm::inst::NamedArgMeta>>,
+    pub(crate) saved_last_backtrace: Option<Backtrace>,
+    pub(crate) saved_last_locals_snapshot: Option<Vec<DebugLocalsFrame>>,
+    pub(crate) saved_trace_depth: u32,
+    pub(crate) saved_trace_bases_len: usize,
+    pub(crate) saved_trace_buf_len: usize,
 }
 
 #[derive(Clone, Default)]
@@ -157,7 +169,6 @@ impl Vm {
             pc: 0,
             stack: Vec::with_capacity(256),
             global_slots: Vec::new(),
-            global_slot_versions: Vec::new(),
             global_slot_map: AHashMap::new(),
             builtins: Builtins::new(),
             builtins_preset: BuiltinPreset::DEFAULT,
@@ -184,7 +195,7 @@ impl Vm {
             last_backtrace: None,
             last_locals_snapshot: None,
             hooks: None,
-            try_depth: 0,
+            try_stack: Vec::new(),
             returned: false,
             interpreter_kind: InterpreterKind::Vanilla,
             pending_named_meta: None,
@@ -205,7 +216,7 @@ impl Vm {
         self.inline_cache = vec![InlineCache::default(); self.instructions.len()];
         self.current_closure_stack.clear();
         self.hooks = None;
-        self.try_depth = 0;
+        self.try_stack.clear();
         self.returned = false;
         // Ensure no stale frames leak
         self.call_stack.clear();
@@ -221,7 +232,6 @@ impl Vm {
     /// Reset all global variable state (for session reset).
     pub(crate) fn reset_globals(&mut self) {
         self.global_slots.clear();
-        self.global_slot_versions.clear();
         self.global_slot_map.clear();
     }
 
@@ -336,21 +346,6 @@ impl Vm {
         self.global_slots.get(slot)
     }
 
-    #[inline]
-    pub(crate) fn global_slot_version(&self, slot: usize) -> u64 {
-        self.global_slot_versions.get(slot).copied().unwrap_or(0)
-    }
-
-    #[inline]
-    pub(crate) fn bump_global_slot_version(&mut self, slot: usize) -> u64 {
-        if let Some(entry) = self.global_slot_versions.get_mut(slot) {
-            *entry = entry.wrapping_add(1);
-            *entry
-        } else {
-            0
-        }
-    }
-
     pub(crate) fn with_global_slot_mut<R>(
         &mut self,
         name: &str,
@@ -361,7 +356,6 @@ impl Vm {
             let slot_val = self.global_slots.get_mut(slot)?;
             f(slot_val)
         };
-        self.bump_global_slot_version(slot);
         Some(result)
     }
 
@@ -375,14 +369,12 @@ impl Vm {
                 let slot = self.global_slots.len();
                 self.global_slot_map.insert(name.to_string(), slot);
                 self.global_slots.push(Value::unit());
-                self.global_slot_versions.push(0);
                 slot
             }
         };
         if let Some(dest) = self.global_slots.get_mut(slot) {
             *dest = value;
         }
-        self.bump_global_slot_version(slot);
         slot
     }
 
@@ -396,10 +388,6 @@ impl Vm {
         if self.global_slot_map.get(name).copied().is_none() {
             self.global_slot_map.insert(name.to_string(), slot);
         }
-        if self.global_slot_versions.len() <= slot {
-            self.global_slot_versions.resize(slot + 1, 0);
-        }
-        self.bump_global_slot_version(slot);
     }
 
     // pub(crate) fn remove_global(&mut self, name: &str) -> bool {
@@ -410,8 +398,6 @@ impl Vm {
 
     //     let last_slot = self.global_slots.len().saturating_sub(1);
     //     self.global_slots.swap_remove(slot);
-    //     self.global_slot_versions.swap_remove(slot);
-
     //     if slot != last_slot
     //         && let Some((_, moved_slot)) = self
     //             .global_slot_map

@@ -132,7 +132,7 @@ pub(super) fn dispatch_postfix<const TAIL: bool>(
             Ok(false)
         }
         Value::CompiledFunction { .. } | Value::Closure { .. } => {
-            dispatch_user_value_cached::<TAIL>(vm, idx, target, argc, hooks)
+            dispatch_user_value_cached::<TAIL>(vm, idx, target, argc, hooks, None)
         }
         _ => {
             if vm.pending_named_meta.take().is_some() {
@@ -181,7 +181,7 @@ pub(super) fn dispatch_anon_call<const TAIL: bool>(
             Ok(false)
         }
         Value::CompiledFunction { .. } | Value::Closure { .. } => {
-            dispatch_user_value_cached::<TAIL>(vm, idx, func, argc, hooks)
+            dispatch_user_value_cached::<TAIL>(vm, idx, func, argc, hooks, None)
         }
         _ => dispatch_user_value::<TAIL>(vm, idx, func, argc),
     }
@@ -319,15 +319,20 @@ fn dispatch_user_value_cached<const TAIL: bool>(
     func: &Value,
     argc: usize,
     hooks: &dyn InterpreterHook,
+    name: Option<&str>,
 ) -> WqResult<bool> {
     let Some(identity) = user_callable_identity(func) else {
-        return dispatch_user_value::<TAIL>(vm, idx, func, argc);
+        return if let Some(name) = name {
+            dispatch_user_named_value::<TAIL>(vm, idx, func, argc, name)
+        } else {
+            dispatch_user_value::<TAIL>(vm, idx, func, argc)
+        };
     };
 
     if vm.inline_cache[idx].version == identity
         && let Some(ref target) = vm.inline_cache[idx].call_target
     {
-        let spec = CallSpec::from_resolved(target, argc, None);
+        let spec = CallSpec::from_resolved(target, argc, CallSpec::name_hint(name));
         dispatch_spec::<TAIL>(vm, idx, spec)?;
         hooks.on_call_user_cache_hit();
         return Ok(true);
@@ -335,14 +340,48 @@ fn dispatch_user_value_cached<const TAIL: bool>(
 
     hooks.on_call_user_cache_miss();
     if let Some(target) = ResolvedCallable::from_user_callable(func.clone(), user_dbg_chunk(func)) {
-        let spec = CallSpec::from_resolved(&target, argc, None);
+        let spec = CallSpec::from_resolved(&target, argc, CallSpec::name_hint(name));
         vm.inline_cache[idx].version = identity;
         vm.inline_cache[idx].call_target = Some(target);
         vm.inline_cache[idx].slot = None;
         vm.inline_cache[idx].slot_b = None;
         dispatch_spec::<TAIL>(vm, idx, spec)
     } else {
-        dispatch_user_value::<TAIL>(vm, idx, func, argc)
+        if let Some(name) = name {
+            dispatch_user_named_value::<TAIL>(vm, idx, func, argc, name)
+        } else {
+            dispatch_user_value::<TAIL>(vm, idx, func, argc)
+        }
+    }
+}
+
+pub(super) fn dispatch_loaded_user_call<const TAIL: bool>(
+    vm: &mut Vm,
+    idx: usize,
+    name: &str,
+    func: &Value,
+    argc: usize,
+    hooks: &dyn InterpreterHook,
+) -> WqResult<bool> {
+    match func {
+        Value::BuiltinFunction { id, .. } => {
+            let out = vm.invoke_bfn_value(*id, argc)?;
+            vm.stack.push(out);
+            Ok(false)
+        }
+        Value::CompiledFunction { .. } | Value::Closure { .. } => {
+            dispatch_user_value_cached::<TAIL>(vm, idx, func, argc, hooks, Some(name))
+        }
+        Value::LiftedCallable(_) | Value::Cas(_) => {
+            dispatch_user_named_value::<TAIL>(vm, idx, func, argc, name)
+        }
+        other => {
+            vm.pending_named_meta.take();
+            Err(not_bound_err(format!(
+                "cannot call '{name}': expected callable, got {}",
+                other.type_name()
+            )))
+        }
     }
 }
 
@@ -367,37 +406,6 @@ fn clear_call_target_cache(vm: &mut Vm, idx: usize) {
     entry.version = 0;
     entry.call_target = None;
     entry.slot_b = None;
-}
-
-pub(super) fn dispatch_user_call<const TAIL: bool>(
-    vm: &mut Vm,
-    idx: usize,
-    name: &str,
-    argc: usize,
-    hooks: &dyn InterpreterHook,
-) -> WqResult<bool> {
-    // Try inline cache
-    if let Some(slot) = vm.lookup_global_slot(name) {
-        let name_version = vm.global_slot_version(slot);
-        if vm.inline_cache[idx].version == name_version
-            && let Some(ref target) = vm.inline_cache[idx].call_target
-        {
-            let spec = CallSpec::from_resolved(target, argc, CallSpec::name_hint(Some(name)));
-            dispatch_spec::<TAIL>(vm, idx, spec)?;
-            hooks.on_call_user_cache_hit();
-            return Ok(true); // continue 'exec
-        }
-    }
-
-    hooks.on_call_user_cache_miss();
-    let func = vm.resolve_user_callable(idx, name)?;
-    if let Value::BuiltinFunction { id, .. } = &func {
-        let out = vm.invoke_bfn_value(*id, argc)?;
-        vm.stack.push(out);
-        return Ok(false);
-    }
-
-    dispatch_user_named_value::<TAIL>(vm, idx, &func, argc, name)
 }
 
 pub(super) fn resolve_postfix_var(vm: &mut Vm, idx: usize, name: &str) -> WqResult<Value> {

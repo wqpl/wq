@@ -361,6 +361,17 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(state.global(name));
             fallthrough(pc, state)
         }
+        I::LoadCallTarget(operand) => {
+            let value = match operand {
+                Operand::Const(value) => Some((**value).clone()),
+                Operand::Local(slot) => state.local(*slot),
+                Operand::Capture(slot) => state.capture(*slot),
+                Operand::Var(name) => state.global(name),
+                Operand::Stack | Operand::Self_ => None,
+            };
+            state.push(value);
+            fallthrough(pc, state)
+        }
         I::LoadVarExists(_) | I::LoadSelf => {
             state.push_unknown();
             fallthrough(pc, state)
@@ -1165,6 +1176,7 @@ fn inferred_capture_count(code: &[Instruction]) -> usize {
 fn note_inst_locals(inst: &Instruction, count: &mut usize) {
     use Instruction as I;
     match inst {
+        I::LoadCallTarget(operand) => note_operand_locals(operand, count),
         I::LoadLocal(slot)
         | I::StoreLocal(slot)
         | I::StoreLocalKeep(slot)
@@ -1205,6 +1217,7 @@ fn note_operand_locals(operand: &Operand, count: &mut usize) {
 fn note_inst_captures(inst: &Instruction, count: &mut usize) {
     use Instruction as I;
     match inst {
+        I::LoadCallTarget(operand) => note_operand_captures(operand, count),
         I::LoadCapture(slot)
         | I::StoreCaptureKeep(slot)
         | I::PostfixCapture(slot, _)

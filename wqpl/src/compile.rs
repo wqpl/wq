@@ -16,12 +16,6 @@ use crate::vm::inst::{Capture, DebugStmtMark, Instruction, MutationOp, Operand, 
 use crate::wqerror::{WqError, WqErrorType};
 
 #[derive(Clone, Copy)]
-enum MethodDispatchKind {
-    Postfix,
-    Call,
-}
-
-#[derive(Clone, Copy)]
 enum IndexPathRoot<'a> {
     Variable(&'a str),
     OuterVariable(&'a str, AstSpan),
@@ -143,8 +137,14 @@ impl Compiler {
     /// collect the metadata and emit `SetupNamedCall` for the VM.
     fn compile_call_args(&mut self, args: &[AstNode]) -> WqResult<()> {
         let mut named_args: Vec<(u16, Arc<str>)> = Vec::new();
+        let mut seen_named = IndexSet::new();
         for (i, arg) in args.iter().enumerate() {
-            if let AstNode::NamedArg { name, .. } = arg {
+            if let AstNode::NamedArg { name, span, .. } = arg {
+                if !seen_named.insert(name.as_str()) {
+                    return Err(
+                        self.syntax_err_at(*span, format!("duplicate named argument '{name}'"))
+                    );
+                }
                 let pos = u16::try_from(i)
                     .map_err(|_| self.syntax_err_here("call has too many arguments"))?;
                 named_args.push((pos, Arc::from(name.as_str())));
@@ -525,122 +525,6 @@ impl Compiler {
                         .push(Self::index_assign_var_drop_inst(name.into(), argc));
                 }
             }
-        }
-    }
-
-    fn method_lookup_target(object: &AstNode) -> Option<(&AstNode, Arc<str>)> {
-        match object {
-            AstNode::Postfix {
-                object,
-                items,
-                depth: None,
-                ..
-            } => {
-                let [AstNode::Literal(Value::Tag(name), _)] = items.as_slice() else {
-                    return None;
-                };
-                Some((object.as_ref(), Arc::clone(name)))
-            }
-            AstNode::Index { object, index, .. } => {
-                let AstNode::Literal(Value::Tag(name), _) = index.as_ref() else {
-                    return None;
-                };
-                Some((object.as_ref(), Arc::clone(name)))
-            }
-            _ => None,
-        }
-    }
-
-    fn compile_method_dispatch(
-        &mut self,
-        receiver: &AstNode,
-        method: Arc<str>,
-        args: &[AstNode],
-        kind: MethodDispatchKind,
-    ) -> WqResult<bool> {
-        let AstNode::Variable(name, _) = receiver else {
-            return Ok(false);
-        };
-
-        if self.fn_depth > 0 {
-            if self.is_local(name) {
-                let slot = self.locals[name];
-                self.compile_call_args(args)?;
-                self.instructions
-                    .push(Self::method_local_inst(kind, slot, method, args.len()));
-                return Ok(true);
-            }
-            if self.is_ref_default_name(name) {
-                self.compile_call_args(args)?;
-                if let Some(idx) = self.ref_capture_map.get(name).copied() {
-                    self.instructions.push(Self::method_capture_inst(
-                        kind,
-                        idx,
-                        method,
-                        args.len(),
-                    ));
-                } else {
-                    self.instructions.push(Self::method_var_inst(
-                        kind,
-                        name.clone().into(),
-                        method,
-                        args.len(),
-                    ));
-                }
-                return Ok(true);
-            }
-            if let Some(idx) = self.capture_map.get(name).copied() {
-                self.compile_call_args(args)?;
-                self.instructions
-                    .push(Self::method_capture_inst(kind, idx, method, args.len()));
-                return Ok(true);
-            }
-            return Ok(false);
-        }
-
-        self.compile_call_args(args)?;
-        self.instructions.push(Self::method_var_inst(
-            kind,
-            name.clone().into(),
-            method,
-            args.len(),
-        ));
-        Ok(true)
-    }
-
-    fn method_local_inst(
-        kind: MethodDispatchKind,
-        slot: u16,
-        method: Arc<str>,
-        argc: usize,
-    ) -> Instruction {
-        match kind {
-            MethodDispatchKind::Postfix => Instruction::PostfixMethodLocal(slot, method, argc),
-            MethodDispatchKind::Call => Instruction::CallMethodLocal(slot, method, argc),
-        }
-    }
-
-    fn method_capture_inst(
-        kind: MethodDispatchKind,
-        slot: u16,
-        method: Arc<str>,
-        argc: usize,
-    ) -> Instruction {
-        match kind {
-            MethodDispatchKind::Postfix => Instruction::PostfixMethodCapture(slot, method, argc),
-            MethodDispatchKind::Call => Instruction::CallMethodCapture(slot, method, argc),
-        }
-    }
-
-    fn method_var_inst(
-        kind: MethodDispatchKind,
-        receiver: Arc<str>,
-        method: Arc<str>,
-        argc: usize,
-    ) -> Instruction {
-        match kind {
-            MethodDispatchKind::Postfix => Instruction::PostfixMethodVar(receiver, method, argc),
-            MethodDispatchKind::Call => Instruction::CallMethodVar(receiver, method, argc),
         }
     }
 
@@ -1294,42 +1178,24 @@ impl Compiler {
                     self.compile_call_args(args)?;
                     self.instructions
                         .push(self.builtin_call_inst(id, args.len()));
-                } else if self.fn_depth > 0 {
-                    // Inside a function
-                    //  locals => CallLocal
-                    //  everything else => emit_load => LoadSelf/LoadCapture/LoadVar
-                    if self.is_local(name) && self.fn_locals.contains(name) {
-                        self.compile_call_args(args)?;
-                        let slot = self.locals[name];
+                } else {
+                    let target = self.operand_for_name(name)?;
+                    self.instructions.push(Instruction::LoadCallTarget(target));
+                    self.compile_call_args(args)?;
+                    if self.fn_depth == 0 {
                         self.instructions
-                            .push(Instruction::CallLocal(slot, args.len()));
+                            .push(Instruction::CallUser(name.clone().into(), args.len()));
+                    } else if self.is_local(name) && self.fn_locals.contains(name) {
+                        self.instructions.push(Instruction::CallAnon(args.len()));
                     } else {
-                        self.emit_load(name, None)?;
-                        self.compile_call_args(args)?;
                         self.instructions.push(Instruction::Postfix(args.len()));
                     }
-                } else {
-                    self.compile_call_args(args)?;
-                    self.instructions
-                        .push(Instruction::CallUser(name.clone().into(), args.len()));
                 }
                 let end = self.instructions.len();
                 self.fill_span_range(start, end, *span);
             }
             AstNode::CallAnonymous { object, args, span } => {
                 let start = self.instructions.len();
-                if let Some((receiver, method)) = Self::method_lookup_target(object.as_ref())
-                    && self.compile_method_dispatch(
-                        receiver,
-                        method,
-                        args,
-                        MethodDispatchKind::Call,
-                    )?
-                {
-                    let end = self.instructions.len();
-                    self.fill_span_range(start, end, *span);
-                    return Ok(());
-                }
                 self.compile_expr(object)?;
                 self.compile_call_args(args)?;
                 self.instructions.push(Instruction::CallAnon(args.len()));
@@ -1368,18 +1234,6 @@ impl Compiler {
                     self.fill_span_range(start, end, *span);
                     return Ok(());
                 }
-                if let Some((receiver, method)) = Self::method_lookup_target(object.as_ref())
-                    && self.compile_method_dispatch(
-                        receiver,
-                        method,
-                        items,
-                        MethodDispatchKind::Postfix,
-                    )?
-                {
-                    let end = self.instructions.len();
-                    self.fill_span_range(start, end, *span);
-                    return Ok(());
-                }
                 let builtin_id = match object.as_ref() {
                     AstNode::Variable(name, _) => self.builtins.get_id(name),
                     _ => None,
@@ -1392,43 +1246,9 @@ impl Compiler {
                         .push(self.builtin_call_inst(id, items.len()));
                 } else {
                     // Non-builtin: compile the callee first, then the args
-                    let mut optimized = false;
-                    if let AstNode::Variable(name, _) = object.as_ref() {
-                        if self.is_local(name) {
-                            let slot = self.locals[name];
-                            self.compile_call_args(items)?;
-                            self.instructions
-                                .push(Instruction::PostfixLocal(slot, items.len()));
-                            optimized = true;
-                        } else if self.is_ref_default_name(name) {
-                            self.compile_call_args(items)?;
-                            if let Some(idx) = self.ref_capture_map.get(name).copied() {
-                                self.instructions
-                                    .push(Instruction::PostfixCapture(idx, items.len()));
-                            } else {
-                                self.instructions.push(Instruction::PostfixVar(
-                                    name.clone().into(),
-                                    items.len(),
-                                ));
-                            }
-                            optimized = true;
-                        } else if let Some(idx) = self.capture_map.get(name).copied() {
-                            self.compile_call_args(items)?;
-                            self.instructions
-                                .push(Instruction::PostfixCapture(idx, items.len()));
-                            optimized = true;
-                        } else if self.fn_depth == 0 {
-                            self.compile_call_args(items)?;
-                            self.instructions
-                                .push(Instruction::PostfixVar(name.clone().into(), items.len()));
-                            optimized = true;
-                        }
-                    }
-                    if !optimized {
-                        self.compile_expr(object)?;
-                        self.compile_call_args(items)?;
-                        self.instructions.push(Instruction::Postfix(items.len()));
-                    }
+                    self.compile_expr(object)?;
+                    self.compile_call_args(items)?;
+                    self.instructions.push(Instruction::Postfix(items.len()));
                 }
                 let end = self.instructions.len();
                 self.fill_span_range(start, end, *span);
@@ -3906,12 +3726,12 @@ mod tests {
     }
 
     #[test]
-    fn ref_rebinding_function_name_uses_dynamic_call_or_index() {
+    fn ref_rebinding_function_name_loads_target_before_dynamic_postfix() {
         let top = compile_source("f:{'f:1};f[0];f[0]");
 
         let dynamic_dispatches = top
             .iter()
-            .filter(|inst| matches!(inst, Instruction::PostfixVar(name, 1) if name.as_ref() == "f"))
+            .filter(|inst| matches!(inst, Instruction::Postfix(1)))
             .count();
 
         assert_eq!(dynamic_dispatches, 2);
@@ -3922,19 +3742,17 @@ mod tests {
     }
 
     #[test]
-    fn constant_tag_method_postfix_uses_method_dispatch() {
+    fn constant_tag_method_calls_use_loaded_targets() {
         let top = compile_source("d:(`f:{[x]x+1});d[`f][2];d[`f][]");
 
-        assert!(top.iter().any(|inst| matches!(
-            inst,
-            Instruction::PostfixMethodVar(receiver, method, 1)
-                if receiver.as_ref() == "d" && method.as_ref() == "f"
-        )));
-        assert!(top.iter().any(|inst| matches!(
-            inst,
-            Instruction::CallMethodVar(receiver, method, 0)
-                if receiver.as_ref() == "d" && method.as_ref() == "f"
-        )));
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::Postfix(1)))
+        );
+        assert!(
+            top.iter()
+                .any(|inst| matches!(inst, Instruction::CallAnon(0)))
+        );
     }
 
     #[test]
@@ -4512,6 +4330,14 @@ mod tests {
                 .contains("function has too many named parameters"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn call_rejects_duplicate_named_arguments() {
+        let err = compile_source_err("f:{[`x:0]x};f[`x:1;`x:2]");
+
+        assert_eq!(err.err_type, WqErrorType::Syntax);
+        assert_eq!(err.msg.as_deref(), Some("duplicate named argument 'x'"));
     }
 
     #[test]
