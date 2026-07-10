@@ -1124,6 +1124,7 @@ mod tests {
             1,
             vec![grid, Value::Int(0), Value::Int(0)],
             vec![
+                Instruction::LoadCapture(0),
                 Instruction::binary_op(
                     crate::ast::BinaryOperator::FloorDiv,
                     Operand::Local(0),
@@ -1134,7 +1135,7 @@ mod tests {
                     Operand::Stack,
                     Operand::Capture(1),
                 ),
-                Instruction::PostfixCapture(0, 1),
+                Instruction::Postfix(1),
                 Instruction::binary_op(
                     crate::ast::BinaryOperator::Modulo,
                     Operand::Local(0),
@@ -1168,9 +1169,10 @@ mod tests {
             Some(&["x"]),
             1,
             vec![
+                Instruction::LoadLocal(0),
                 Instruction::load_const(Value::Int(2)),
                 Instruction::load_const(Value::Int(0)),
-                Instruction::TailPostfixLocal(0, 2),
+                Instruction::TailPostfix(2),
                 Instruction::Return,
             ],
         );

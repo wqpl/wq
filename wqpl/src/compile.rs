@@ -164,7 +164,7 @@ impl Compiler {
 
         if !named_args.is_empty() {
             self.instructions
-                .push(Instruction::PrepareNamedArgs(Box::new(
+                .push(Instruction::PrepareNamedArgs(Arc::new(
                     crate::vm::inst::NamedArgMeta {
                         pos_count,
                         named: named_args.into_boxed_slice(),
@@ -643,22 +643,16 @@ impl Compiler {
 
         if let Some(mask_slot) = mask_slot {
             for (slot, bit_idx, default_expr) in &named_prologue {
-                self.instructions.push(Instruction::LoadLocal(mask_slot));
+                let jump_idx = self.instructions.len();
                 self.instructions
-                    .push(Instruction::LoadNamedArgsProvided(*bit_idx));
-                let jmp_false_idx = self.instructions.len();
-                self.instructions.push(Instruction::JumpIfFalse(0));
-                let jmp_skip_idx = self.instructions.len();
-                self.instructions.push(Instruction::Jump(0));
-                let eval_start = self.instructions.len();
+                    .push(Instruction::JumpIfNamedProvided(mask_slot, *bit_idx, 0));
                 self.compile_expr(default_expr)?;
                 self.instructions.push(Instruction::StoreLocal(*slot));
                 self.instructions.push(Instruction::Pop);
                 let end = self.instructions.len();
-                if let Instruction::JumpIfFalse(ref mut target) = self.instructions[jmp_false_idx] {
-                    *target = eval_start;
-                }
-                if let Instruction::Jump(ref mut target) = self.instructions[jmp_skip_idx] {
+                if let Instruction::JumpIfNamedProvided(_, _, ref mut target) =
+                    self.instructions[jump_idx]
+                {
                     *target = end;
                 }
             }
@@ -1186,7 +1180,8 @@ impl Compiler {
                         self.instructions
                             .push(Instruction::CallUser(name.clone().into(), args.len()));
                     } else if self.is_local(name) && self.fn_locals.contains(name) {
-                        self.instructions.push(Instruction::CallAnon(args.len()));
+                        self.instructions
+                            .push(Instruction::CallLocal(self.locals[name], args.len()));
                     } else {
                         self.instructions.push(Instruction::Postfix(args.len()));
                     }
@@ -4330,6 +4325,21 @@ mod tests {
                 .contains("function has too many named parameters"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn named_default_prologue_uses_fused_mask_branch() {
+        let insts = compile_source("f:{[`x:1]x}");
+        let func = compiled_function_in(&insts);
+
+        assert_eq!(func.instructions.len(), 6);
+        assert_eq!(
+            func.instructions[0],
+            Instruction::JumpIfNamedProvided(1, 0, 4)
+        );
+        assert_eq!(func.instructions[1], Instruction::load_const(Value::Int(1)));
+        assert_eq!(func.instructions[2], Instruction::StoreLocal(0));
+        assert_eq!(func.instructions[3], Instruction::Pop);
     }
 
     #[test]

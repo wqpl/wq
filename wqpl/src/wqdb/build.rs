@@ -30,14 +30,6 @@ pub(crate) fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::inst
                 | CallUser(_, _)
                 | CallAnon(_)
                 | Postfix(_)
-                | PostfixLocal(_, _)
-                | PostfixMethodLocal(_, _, _)
-                | CallMethodLocal(_, _, _)
-                | PostfixCapture(_, _)
-                | PostfixMethodCapture(_, _, _)
-                | CallMethodCapture(_, _, _)
-                | PostfixMethodVar(_, _, _)
-                | CallMethodVar(_, _, _)
                 | Index
                 | IndexMany(_)
                 | IndexManyLoadLocal(_, _)
@@ -59,6 +51,7 @@ pub(crate) fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::inst
                 | JumpIfFalse(_)
                 | JumpIfGE(_)
                 | JumpIfLEZLocal(_, _)
+                | JumpIfNamedProvided(_, _, _)
                 | Debug
                 | Return
                 // Avoid marking plain stack pops as separate statements to reduce duplicates in loops
@@ -182,15 +175,6 @@ fn apply_stmt_spans_exact(
                         | Some(CallUser(_, _))
                         | Some(CallAnon(_))
                         | Some(Postfix(_))
-                        | Some(PostfixLocal(_, _))
-                        | Some(PostfixMethodLocal(_, _, _))
-                        | Some(CallMethodLocal(_, _, _))
-                        | Some(PostfixCapture(_, _))
-                        | Some(PostfixMethodCapture(_, _, _))
-                        | Some(CallMethodCapture(_, _, _))
-                        | Some(PostfixVar(_, _))
-                        | Some(PostfixMethodVar(_, _, _))
-                        | Some(CallMethodVar(_, _, _))
                 );
                 if is_call {
                     call_idx.push(i);

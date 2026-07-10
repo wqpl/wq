@@ -12,13 +12,9 @@ use crate::session::stdio::wqstderr_println;
 use crate::value::cmp::eval_cmp_chain;
 use crate::value::func::ClosureData;
 use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_unary};
-use crate::vm::call::{
-    CallSpec, LocalCallable, PeekLocalCallable, PeekLocalUser, ResolvedCallable,
-    peek_local_callable,
-};
 use crate::vm::inst::{BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
-use crate::vm::{Frame, TryFrame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
+use crate::vm::{TryFrame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
 use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
 };
@@ -298,17 +294,6 @@ impl VanillaInterpreter {
                         })));
                     }
 
-                    Instruction::LoadNamedArgsProvided(bit) => {
-                        let mask = vm
-                            .stack
-                            .pop()
-                            .ok_or_else(|| vm_err("CheckNamedProvided: stack empty"))?;
-                        let provided = match mask {
-                            Value::Int(n) => (n & (1i64 << bit)) != 0,
-                            _ => false,
-                        };
-                        vm.stack.push(Value::Bool(provided));
-                    }
                     Instruction::LoadVarExists(name) => {
                         vm.stack
                             .push(Value::Bool(vm.lookup_global_slot(name).is_some()));
@@ -408,66 +393,19 @@ impl VanillaInterpreter {
                             continue 'exec;
                         }
                     }
-                    Instruction::CallMethodVar(name, method, argc) => {
-                        let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_method_call::<false>(vm, idx, &target, method, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::CallMethodLocal(slot, method, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_method_call::<false>(vm, idx, &target, method, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::CallMethodCapture(slot, method, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_method_call::<false>(vm, idx, &target, method, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
                     Instruction::CallLocal(slot, argc) => {
                         let argc = *argc;
                         let slot_num = *slot;
                         let slot_usize = usize::from(slot_num);
-                        ensure_stack_len(&vm.stack, argc, || {
-                            format!("local call slot {slot_num} args")
+                        ensure_stack_len(&vm.stack, argc + 1, || {
+                            format!("local call slot {slot_num} target + args")
                         })
                         .map_err(|e| vm.attach_local_slot_note(slot_usize, e))?;
-                        match self.resolve_local_callable(vm, idx, slot_num, slot_usize)? {
-                            LocalCallable::Func {
-                                value,
-                                params_len,
-                                locals,
-                                instructions,
-                                captured,
-                                dbg_chunk,
-                                name_hint,
-                            } => {
-                                let res = vm.invoke_spec(CallSpec {
-                                    instructions,
-                                    params_len,
-                                    locals,
-                                    captured,
-                                    argc,
-                                    callee_name: CallSpec::name_hint(name_hint.as_deref()),
-                                    dbg_chunk,
-                                    callee: value,
-                                })?;
-                                vm.stack.push(res);
-                            }
-                            LocalCallable::Builtin(id) => {
-                                let result = vm.invoke_bfn_value(id, argc)?;
-                                vm.stack.push(result);
-                            }
+                        let func = vm.stack.remove(vm.stack.len() - argc - 1);
+                        if dispatch_loaded_local_call::<false>(
+                            vm, idx, slot_num, &func, argc, hooks,
+                        )? {
+                            continue 'exec;
                         }
                     }
 
@@ -489,73 +427,19 @@ impl VanillaInterpreter {
                             continue 'exec;
                         }
                     }
-                    Instruction::TailCallMethodVar(name, method, argc) => {
-                        let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_method_call::<true>(vm, idx, &target, method, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::TailCallMethodLocal(slot, method, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_method_call::<true>(vm, idx, &target, method, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::TailCallMethodCapture(slot, method, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_method_call::<true>(vm, idx, &target, method, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
                     Instruction::TailCallLocal(slot, argc) => {
                         let argc = *argc;
                         let slot_num = *slot;
                         let slot_usize = usize::from(slot_num);
-                        ensure_stack_len(&vm.stack, argc, || {
-                            format!("local call slot {slot_num} args")
+                        ensure_stack_len(&vm.stack, argc + 1, || {
+                            format!("local call slot {slot_num} target + args")
                         })
                         .map_err(|e| vm.attach_local_slot_note(slot_usize, e))?;
-                        match self.resolve_local_callable(vm, idx, slot_num, slot_usize)? {
-                            LocalCallable::Func {
-                                value,
-                                params_len,
-                                locals,
-                                instructions,
-                                captured,
-                                dbg_chunk,
-                                name_hint,
-                            } => {
-                                if vm.debug_artifacts_enabled() {
-                                    vm.push_tail_call_frame(Frame {
-                                        chunk: vm.current_chunk,
-                                        pc: idx + 1,
-                                        func_name: vm.func_name_arc_for_chunk(vm.current_chunk),
-                                    });
-                                }
-                                vm.prepare_tail(CallSpec {
-                                    instructions,
-                                    params_len,
-                                    locals,
-                                    captured,
-                                    argc,
-                                    callee_name: CallSpec::name_hint(name_hint.as_deref()),
-                                    dbg_chunk,
-                                    callee: value,
-                                })?;
-                                continue 'exec;
-                            }
-                            LocalCallable::Builtin(id) => {
-                                let result = vm.invoke_bfn_value(id, argc)?;
-                                vm.stack.push(result);
-                            }
+                        let func = vm.stack.remove(vm.stack.len() - argc - 1);
+                        if dispatch_loaded_local_call::<true>(
+                            vm, idx, slot_num, &func, argc, hooks,
+                        )? {
+                            continue 'exec;
                         }
                     }
 
@@ -1158,62 +1042,6 @@ impl VanillaInterpreter {
                             continue 'exec;
                         }
                     }
-                    Instruction::PostfixVar(name, argc) => {
-                        let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_postfix::<false>(vm, idx, &target, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::PostfixLocal(slot, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_postfix::<false>(vm, idx, &target, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::PostfixMethodLocal(slot, method, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_method_postfix::<false>(vm, idx, &target, method, argc, hooks)?
-                        {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::PostfixCapture(slot, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_postfix::<false>(vm, idx, &target, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::PostfixMethodCapture(slot, method, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_method_postfix::<false>(vm, idx, &target, method, argc, hooks)?
-                        {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::PostfixMethodVar(name, method, argc) => {
-                        let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_method_postfix::<false>(vm, idx, &target, method, argc, hooks)?
-                        {
-                            continue 'exec;
-                        }
-                    }
-
                     Instruction::TailPostfix(argc) => {
                         let argc = *argc;
                         ensure_stack_len(&vm.stack, argc + 1, || "obj + args".into())?;
@@ -1222,59 +1050,6 @@ impl VanillaInterpreter {
                             continue 'exec;
                         }
                     }
-                    Instruction::TailPostfixVar(name, argc) => {
-                        let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_postfix::<true>(vm, idx, &target, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::TailPostfixLocal(slot, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_postfix::<true>(vm, idx, &target, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::TailPostfixMethodLocal(slot, method, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_local_target(vm, slot_usize)?;
-                        if dispatch_method_postfix::<true>(vm, idx, &target, method, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::TailPostfixCapture(slot, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_postfix::<true>(vm, idx, &target, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::TailPostfixMethodCapture(slot, method, argc) => {
-                        let argc = *argc;
-                        let slot_usize = usize::from(*slot);
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = read_capture_target(vm, slot_usize)?;
-                        if dispatch_method_postfix::<true>(vm, idx, &target, method, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-                    Instruction::TailPostfixMethodVar(name, method, argc) => {
-                        let argc = *argc;
-                        ensure_stack_len(&vm.stack, argc, || "args".into())?;
-                        let target = resolve_postfix_var(vm, idx, name)?;
-                        if dispatch_method_postfix::<true>(vm, idx, &target, method, argc, hooks)? {
-                            continue 'exec;
-                        }
-                    }
-
                     Instruction::IndexMutate { target, op } => index_mutate(vm, idx, target, op)?,
 
                     Instruction::Jump(pos) => vm.pc = *pos,
@@ -1361,6 +1136,26 @@ impl VanillaInterpreter {
                             )),
                         })?;
                         if is_le_zero {
+                            vm.pc = target;
+                        }
+                    }
+                    Instruction::JumpIfNamedProvided(slot, bit, pos) => {
+                        let slot_num = usize::from(*slot);
+                        let target = *pos;
+                        let slot_ref = vm
+                            .locals
+                            .last()
+                            .and_then(|frame| frame.get(slot_num))
+                            .ok_or_else(|| {
+                                vm.attach_local_slot_note(
+                                    slot_num,
+                                    vm_err(format!("invalid local slot {slot_num}")),
+                                )
+                            })?;
+                        let provided = slot_ref.with_ref(
+                            |value| matches!(value, Value::Int(mask) if mask & (1i64 << bit) != 0),
+                        );
+                        if provided {
                             vm.pc = target;
                         }
                     }
@@ -1470,7 +1265,6 @@ impl VanillaInterpreter {
                     Instruction::Return => {
                         hooks.on_return(vm);
                         vm.tail_call_journal.clear();
-                        vm.tail_call_journal_overflow = false;
                         vm.tail_call_depth = 0;
                         vm.returned = true;
                         break 'exec;
@@ -1697,212 +1491,6 @@ fn load_closure_debug_chunk(
         vm.debug_info.chunk_mut(id).local_names = Some(ps.iter().cloned().collect());
     }
     Some(id)
-}
-
-impl VanillaInterpreter {
-    fn local_callable_from_resolved(target: &ResolvedCallable) -> LocalCallable {
-        LocalCallable::Func {
-            value: target.value.clone(),
-            params_len: target.params_len,
-            locals: target.locals,
-            instructions: Arc::clone(&target.code),
-            captured: Arc::clone(&target.captured),
-            dbg_chunk: target.dbg_chunk,
-            name_hint: None,
-        }
-    }
-
-    fn cached_local_callable(
-        vm: &Vm,
-        idx: usize,
-        fi: usize,
-        slot_usize: usize,
-    ) -> Option<LocalCallable> {
-        if vm.debug_artifacts_enabled() {
-            return None;
-        }
-        let slot_ref = vm.locals.get(fi)?.get(slot_usize)?;
-        let identity = slot_ref.with_ref(user_callable_identity)?;
-        let entry = &vm.inline_cache[idx];
-        if entry.version == identity {
-            return entry
-                .call_target
-                .as_ref()
-                .map(Self::local_callable_from_resolved);
-        }
-        None
-    }
-
-    fn cache_local_callable(vm: &mut Vm, idx: usize, identity: u64, target: ResolvedCallable) {
-        let entry = &mut vm.inline_cache[idx];
-        entry.version = identity;
-        entry.call_target = Some(target);
-        entry.slot = None;
-        entry.slot_b = None;
-    }
-
-    fn build_cached_local_callable(vm: &mut Vm, idx: usize, p: PeekLocalUser) -> LocalCallable {
-        let PeekLocalUser {
-            value,
-            params,
-            locals,
-            instructions,
-            dbg_chunk,
-            captured,
-        } = p;
-
-        if let Some(identity) = user_callable_identity(&value)
-            && let Some(resolved) = ResolvedCallable::from_user_callable(value.clone(), dbg_chunk)
-        {
-            let callable = Self::local_callable_from_resolved(&resolved);
-            Self::cache_local_callable(vm, idx, identity, resolved);
-            return callable;
-        }
-
-        LocalCallable::Func {
-            value,
-            params_len: params.as_ref().map(|x| x.len()),
-            locals,
-            instructions,
-            captured,
-            dbg_chunk,
-            name_hint: None,
-        }
-    }
-
-    fn build_local_callable_for_mode(
-        &self,
-        vm: &mut Vm,
-        idx: usize,
-        fi: usize,
-        slot_usize: usize,
-        p: PeekLocalUser,
-    ) -> WqResult<LocalCallable> {
-        if vm.debug_artifacts_enabled() {
-            self.build_local_callable(vm, fi, slot_usize, p)
-        } else {
-            Ok(Self::build_cached_local_callable(vm, idx, p))
-        }
-    }
-
-    fn build_local_callable(
-        &self,
-        vm: &mut Vm,
-        fi: usize,
-        slot_usize: usize,
-        p: PeekLocalUser,
-    ) -> WqResult<LocalCallable> {
-        let mut value = p.value;
-        let dbg_new = vm.stamp_user_function_debug_chunk(&mut value, "<fn>", None);
-        if dbg_new != p.dbg_chunk
-            && let Some(slot_ref) = vm.locals.get_mut(fi).and_then(|f| f.get_mut(slot_usize))
-        {
-            slot_ref.with_mut(|value| {
-                if value
-                    .as_user_function()
-                    .is_some_and(|shape| shape.dbg_chunk != dbg_new)
-                {
-                    *value = value
-                        .with_user_function_dbg_chunk(dbg_new)
-                        .expect("checked user function");
-                }
-            });
-        }
-        Ok(LocalCallable::Func {
-            value,
-            params_len: p.params.as_ref().map(|x| x.len()),
-            locals: p.locals,
-            instructions: p.instructions,
-            captured: p.captured,
-            dbg_chunk: dbg_new,
-            name_hint: None,
-        })
-    }
-
-    fn resolve_local_callable(
-        &self,
-        vm: &mut Vm,
-        idx: usize,
-        slot: u16,
-        slot_usize: usize,
-    ) -> WqResult<LocalCallable> {
-        let try_peek_at = |vm: &Vm, fi: usize| -> Option<WqResult<PeekLocalCallable>> {
-            let v = vm.locals[fi].get(slot_usize)?;
-            Some(peek_local_callable(slot, v).map_err(|e| vm.attach_local_slot_note(slot_usize, e)))
-        };
-
-        let mut found_fi: Option<usize> = None;
-        let callable = {
-            let mut found: Option<LocalCallable> = None;
-
-            // Try cached frame depth first
-            if let Some(depth) = vm.inline_cache[idx].local_frame_depth {
-                let depth = usize::from(depth);
-                if depth < vm.locals.len() {
-                    let fi = vm.locals.len() - 1 - depth;
-                    if let Some(cached) = Self::cached_local_callable(vm, idx, fi, slot_usize) {
-                        found = Some(cached);
-                        found_fi = Some(fi);
-                    } else if let Some(result) = try_peek_at(vm, fi) {
-                        let peeked = result?;
-                        match peeked {
-                            PeekLocalCallable::Builtin(id) => {
-                                found = Some(LocalCallable::Builtin(id));
-                                found_fi = Some(fi);
-                            }
-                            PeekLocalCallable::User(p) => {
-                                found = Some(
-                                    self.build_local_callable_for_mode(vm, idx, fi, slot_usize, p)?,
-                                );
-                                found_fi = Some(fi);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Fall back to full iteration
-            if found.is_none() {
-                for fi in (0..vm.locals.len()).rev() {
-                    if found_fi == Some(fi) {
-                        continue;
-                    }
-                    let peeked = if let Some(result) = try_peek_at(vm, fi) {
-                        result?
-                    } else {
-                        continue;
-                    };
-
-                    match peeked {
-                        PeekLocalCallable::Builtin(id) => {
-                            found = Some(LocalCallable::Builtin(id));
-                            found_fi = Some(fi);
-                            break;
-                        }
-                        PeekLocalCallable::User(p) => {
-                            found = Some(
-                                self.build_local_callable_for_mode(vm, idx, fi, slot_usize, p)?,
-                            );
-                            found_fi = Some(fi);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // Update cache
-            if let Some(fi) = found_fi {
-                vm.inline_cache[idx].local_frame_depth =
-                    u16::try_from(vm.locals.len() - 1 - fi).ok();
-            }
-
-            found
-        }
-        .ok_or_else(|| {
-            vm.attach_local_slot_note(slot_usize, vm_err(format!("invalid local slot {slot}")))
-        })?;
-        Ok(callable)
-    }
 }
 
 // int fast path =================================
@@ -2621,6 +2209,7 @@ mod tests {
             Some(&["f"]),
             1,
             vec![
+                Instruction::LoadLocal(0),
                 Instruction::load_const(Value::Int(41)),
                 Instruction::TailCallLocal(0, 1),
                 Instruction::Return,
@@ -3014,6 +2603,7 @@ mod call_safety {
             callee_name: None,
             dbg_chunk: None,
             callee: Value::unit(),
+            cache_idx: None,
         })
         .expect("prepare_tail");
 
@@ -3044,6 +2634,7 @@ mod call_safety {
             callee_name: None,
             dbg_chunk: None,
             callee: Value::unit(),
+            cache_idx: None,
         });
 
         assert!(result.is_err());
@@ -3067,7 +2658,7 @@ mod call_safety {
     }
 
     #[test]
-    fn method_call_cache_revalidates_dict_entry_identity() {
+    fn indexed_call_cache_revalidates_dict_entry_identity() {
         let first = make_fn(
             None,
             0,
@@ -3079,7 +2670,10 @@ mod call_safety {
             vec![Instruction::load_const(Value::Int(2)), Instruction::Return],
         );
         let mut vm = Vm::new(vec![
-            Instruction::CallMethodVar("d".into(), "f".into(), 0),
+            Instruction::LoadVar("d".into()),
+            Instruction::load_const(Value::Tag(Arc::<str>::from("f"))),
+            Instruction::Index,
+            Instruction::CallAnon(0),
             Instruction::Return,
         ]);
         vm.assign_global_and_slot("d", dict_with_method(first));
@@ -3109,7 +2703,11 @@ mod call_safety {
             0,
             vec![Instruction::load_const(Value::Int(2)), Instruction::Return],
         );
-        let mut vm = Vm::new(vec![Instruction::CallLocal(0, 0), Instruction::Return]);
+        let mut vm = Vm::new(vec![
+            Instruction::LoadLocal(0),
+            Instruction::CallLocal(0, 0),
+            Instruction::Return,
+        ]);
         vm.locals.push(vec![Slot::Value(first)]);
         let limit = vm.instructions.len();
 
@@ -3117,6 +2715,40 @@ mod call_safety {
         vm.locals[0][0].write(second);
 
         assert_eq!(run_vm_again(&mut vm, limit), Value::Int(2));
+    }
+
+    #[test]
+    fn local_call_cache_stores_stamped_callable_with_debug_artifacts() {
+        let func = make_fn(
+            None,
+            0,
+            vec![Instruction::load_const(Value::Int(1)), Instruction::Return],
+        );
+        let mut vm = Vm::new(vec![
+            Instruction::LoadLocal(0),
+            Instruction::CallLocal(0, 0),
+            Instruction::Return,
+        ]);
+        vm.locals.push(vec![Slot::Value(func)]);
+        vm.set_bt_mode(true);
+        let file = vm.debug_info.new_file("<test>", "f[]");
+        vm.current_chunk = vm.debug_info.new_chunk("<test>", file, 3);
+
+        assert_eq!(run_vm_again(&mut vm, 3), Value::Int(1));
+
+        let cached = vm.inline_cache[1]
+            .call_target
+            .as_ref()
+            .expect("local call should cache its resolved target");
+        assert!(cached.dbg_chunk.is_some());
+        assert_eq!(
+            cached
+                .value
+                .as_user_function()
+                .and_then(|shape| shape.dbg_chunk),
+            cached.dbg_chunk
+        );
+        assert_eq!(run_vm_again(&mut vm, 3), Value::Int(1));
     }
 
     #[test]
@@ -3145,7 +2777,7 @@ mod call_safety {
         let base = vm.stack.len();
 
         // Set up named meta with a bad named arg "z" (not a named param)
-        vm.pending_named_meta = Some(Box::new(NamedArgMeta {
+        vm.pending_named_meta = Some(Arc::new(NamedArgMeta {
             pos_count: 1,
             named: Box::new([(1u16, Arc::<str>::from("z"))]),
         }));

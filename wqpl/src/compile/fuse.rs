@@ -412,6 +412,9 @@ fn fuse_once(
                 JumpIfLEZLocal(_, pos) => {
                     *pos = old_to_new[*pos];
                 }
+                JumpIfNamedProvided(_, _, pos) => {
+                    *pos = old_to_new[*pos];
+                }
                 JumpIfCmpFalse(data) => {
                     data.target = old_to_new[data.target];
                 }

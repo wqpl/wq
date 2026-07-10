@@ -953,7 +953,7 @@ impl Vm {
                 fr.func_name.clone(),
             ));
         }
-        if self.tail_call_journal_overflow {
+        if self.tail_call_journal.overflowed() {
             Self::append_unique_frame(
                 &mut v,
                 (

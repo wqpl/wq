@@ -115,22 +115,6 @@ impl PureCallback {
                     let target = stack.pop()?;
                     stack.push(Self::index_expr(target, args));
                 }
-                Instruction::PostfixLocal(slot, argc)
-                | Instruction::TailPostfixLocal(slot, argc)
-                    if *argc > 0 =>
-                {
-                    let args = Self::index_args(&mut stack, *argc)?;
-                    let target = Self::local_expr(*slot, arity)?;
-                    stack.push(Self::index_expr(target, args));
-                }
-                Instruction::PostfixCapture(slot, argc)
-                | Instruction::TailPostfixCapture(slot, argc)
-                    if *argc > 0 =>
-                {
-                    let args = Self::index_args(&mut stack, *argc)?;
-                    let target = Self::capture_expr(&captures, *slot)?;
-                    stack.push(Self::index_expr(target, args));
-                }
                 _ => return None,
             }
         }

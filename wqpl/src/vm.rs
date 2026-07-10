@@ -7,6 +7,7 @@ mod slot;
 pub(crate) use slot::Slot;
 pub(crate) mod trace;
 
+use std::collections::VecDeque;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
@@ -53,8 +54,7 @@ pub struct Vm {
     pub(crate) current_closure_stack: Vec<Value>,
     // args_scratch: Vec<Value>,
     /// Tail-call journal for backtrace when TCE is active.
-    pub(crate) tail_call_journal: Vec<Frame>,
-    pub(crate) tail_call_journal_overflow: bool,
+    pub(crate) tail_call_journal: TailCallJournal,
     /// Uncapped logical tail-call depth for debugger stepping.
     pub(crate) tail_call_depth: usize,
 
@@ -81,7 +81,7 @@ pub struct Vm {
     /// The interpreter kind to use for nested calls.
     pub(crate) interpreter_kind: InterpreterKind,
     /// Named-argument metadata set by SetupNamedCall, consumed by next call.
-    pub(crate) pending_named_meta: Option<Box<crate::vm::inst::NamedArgMeta>>,
+    pub(crate) pending_named_meta: Option<Arc<crate::vm::inst::NamedArgMeta>>,
     /// Value-provenance recording state for `@d` expressions.
     ///
     /// `trace_depth` is a nesting counter so a `@d` inside a callee of another
@@ -102,12 +102,51 @@ pub(crate) struct Frame {
     pub func_name: std::sync::Arc<str>,
 }
 
+const TAIL_CALL_JOURNAL_CAP: usize = 128;
+
+pub(crate) struct TailCallJournal {
+    frames: VecDeque<Frame>,
+    overflowed: bool,
+}
+
+impl Default for TailCallJournal {
+    fn default() -> Self {
+        Self {
+            frames: VecDeque::with_capacity(TAIL_CALL_JOURNAL_CAP),
+            overflowed: false,
+        }
+    }
+}
+
+impl TailCallJournal {
+    fn push(&mut self, frame: Frame) {
+        if self.frames.len() == TAIL_CALL_JOURNAL_CAP {
+            self.frames.pop_front();
+            self.overflowed = true;
+        }
+        self.frames.push_back(frame);
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.frames.clear();
+        self.overflowed = false;
+    }
+
+    pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = &Frame> {
+        self.frames.iter()
+    }
+
+    pub(crate) fn overflowed(&self) -> bool {
+        self.overflowed
+    }
+}
+
 pub(crate) struct TryFrame {
     pub(crate) instructions: Arc<[Instruction]>,
     pub(crate) locals_depth: usize,
     pub(crate) end_pc: usize,
     pub(crate) stack_start: usize,
-    pub(crate) saved_pending_named_meta: Option<Box<crate::vm::inst::NamedArgMeta>>,
+    pub(crate) saved_pending_named_meta: Option<Arc<crate::vm::inst::NamedArgMeta>>,
     pub(crate) saved_last_backtrace: Option<Backtrace>,
     pub(crate) saved_last_locals_snapshot: Option<Vec<DebugLocalsFrame>>,
     pub(crate) saved_trace_depth: u32,
@@ -119,10 +158,9 @@ pub(crate) struct TryFrame {
 pub(crate) struct InlineCache {
     pub(crate) version: u64,
     pub(crate) call_target: Option<ResolvedCallable>,
+    pub(crate) named_layout: Option<Arc<call::NamedArgLayout>>,
     pub(crate) slot: Option<usize>,
     pub(crate) slot_b: Option<usize>,
-    /// Cached frame depth (0 = innermost) for CallLocal / TailCallLocal.
-    pub(crate) local_frame_depth: Option<u16>,
 }
 
 pub(crate) struct PreparedInstructions {
@@ -180,8 +218,7 @@ impl Vm {
             stack_pool: Vec::new(),
             current_closure_stack: Vec::new(),
             // args_scratch: Vec::new(),
-            tail_call_journal: Vec::new(),
-            tail_call_journal_overflow: false,
+            tail_call_journal: TailCallJournal::default(),
             tail_call_depth: 0,
             max_call_depth: if cfg!(debug_assertions) { 64 } else { 1024 },
             wqdb: Wqdb::default(),
@@ -221,7 +258,6 @@ impl Vm {
         // Ensure no stale frames leak
         self.call_stack.clear();
         self.tail_call_journal.clear();
-        self.tail_call_journal_overflow = false;
         self.tail_call_depth = 0;
         self.trace_depth = 0;
         self.trace_buf.clear();
@@ -291,13 +327,7 @@ impl Vm {
 
     #[inline]
     pub(crate) fn push_tail_call_frame(&mut self, frame: Frame) {
-        const TAIL_CALL_JOURNAL_CAP: usize = 128;
         self.tail_call_depth = self.tail_call_depth.saturating_add(1);
-        if self.tail_call_journal.len() >= TAIL_CALL_JOURNAL_CAP {
-            self.tail_call_journal_overflow = true;
-            // Shift out oldest to keep most recent
-            self.tail_call_journal.remove(0);
-        }
         self.tail_call_journal.push(frame);
     }
 
@@ -476,7 +506,7 @@ fn vm_err(msg: impl Into<String>) -> WqError {
 }
 
 #[inline]
-fn call_err(msg: impl Into<String>) -> WqError {
+pub(crate) fn call_err(msg: impl Into<String>) -> WqError {
     WqError::new(WqErrorType::Call).src("vm").msg(msg.into())
 }
 
@@ -576,5 +606,25 @@ mod tests {
 
         assert!(vm.last_backtrace.is_none());
         assert!(vm.last_locals_snapshot.is_none());
+    }
+
+    #[test]
+    fn tail_call_journal_keeps_recent_frames_in_ring_order() {
+        let mut journal = TailCallJournal::default();
+        for pc in 0..TAIL_CALL_JOURNAL_CAP + 3 {
+            journal.push(Frame {
+                chunk: ChunkId(0),
+                pc,
+                func_name: Arc::from("f"),
+            });
+        }
+
+        assert_eq!(journal.frames.len(), TAIL_CALL_JOURNAL_CAP);
+        assert_eq!(journal.frames.front().map(|frame| frame.pc), Some(3));
+        assert_eq!(
+            journal.frames.back().map(|frame| frame.pc),
+            Some(TAIL_CALL_JOURNAL_CAP + 2)
+        );
+        assert!(journal.overflowed());
     }
 }

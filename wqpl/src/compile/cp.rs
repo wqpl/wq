@@ -655,42 +655,8 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push_unknown();
             fallthrough(pc, state)
         }
-        I::CallLocal(_, argc) | I::CallUser(_, argc) => {
-            state.pop_args(*argc);
-            state.clear_volatile_facts();
-            state.push_unknown();
-            fallthrough(pc, state)
-        }
-        I::CallAnon(argc) => {
+        I::CallLocal(_, argc) | I::CallUser(_, argc) | I::CallAnon(argc) => {
             state.pop_call_target_and_args(*argc);
-            state.clear_volatile_facts();
-            state.push_unknown();
-            fallthrough(pc, state)
-        }
-        I::CallMethodLocal(_, _, argc)
-        | I::CallMethodCapture(_, _, argc)
-        | I::CallMethodVar(_, _, argc) => {
-            state.pop_args(*argc);
-            state.clear_volatile_facts();
-            state.push_unknown();
-            fallthrough(pc, state)
-        }
-        I::PostfixLocal(slot, argc) => {
-            let args = state.pop_args(*argc);
-            let target = state.local(*slot);
-            let result = target
-                .as_ref()
-                .zip(args.as_ref())
-                .and_then(|(target, args)| postfix_index(target, args))
-                .and_then(trackable_value);
-            if target.is_none() {
-                state.clear_volatile_facts();
-            }
-            state.push(result);
-            fallthrough(pc, state)
-        }
-        I::PostfixMethodLocal(_, _, argc) => {
-            state.pop_args(*argc);
             state.clear_volatile_facts();
             state.push_unknown();
             fallthrough(pc, state)
@@ -708,67 +674,11 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             state.push(result);
             fallthrough(pc, state)
         }
-        I::PostfixCapture(slot, argc) => {
-            let args = state.pop_args(*argc);
-            let target = state.capture(*slot);
-            let result = target
-                .as_ref()
-                .zip(args.as_ref())
-                .and_then(|(target, args)| postfix_index(target, args))
-                .and_then(trackable_value);
-            if target.is_none() {
-                state.clear_volatile_facts();
-            }
-            state.push(result);
-            fallthrough(pc, state)
-        }
-        I::PostfixMethodCapture(_, _, argc) => {
-            state.pop_args(*argc);
-            state.clear_volatile_facts();
-            state.push_unknown();
-            fallthrough(pc, state)
-        }
-        I::PostfixVar(name, argc) => {
-            let args = state.pop_args(*argc);
-            let target = state.global(name);
-            let result = target
-                .as_ref()
-                .zip(args.as_ref())
-                .and_then(|(target, args)| postfix_index(target, args))
-                .and_then(trackable_value);
-            if target.is_none() {
-                state.clear_volatile_facts();
-            }
-            state.push(result);
-            fallthrough(pc, state)
-        }
-        I::PostfixMethodVar(_, _, argc) => {
-            state.pop_args(*argc);
-            state.clear_volatile_facts();
-            state.push_unknown();
-            fallthrough(pc, state)
-        }
-        I::TailCallLocal(_, argc) | I::TailCallUser(_, argc) => {
-            state.pop_args(*argc);
-            Vec::new()
-        }
-        I::TailCallAnon(argc) | I::TailPostfix(argc) => {
+        I::TailCallLocal(_, argc)
+        | I::TailCallUser(_, argc)
+        | I::TailCallAnon(argc)
+        | I::TailPostfix(argc) => {
             state.pop_call_target_and_args(*argc);
-            Vec::new()
-        }
-        I::TailCallMethodLocal(_, _, argc)
-        | I::TailCallMethodCapture(_, _, argc)
-        | I::TailCallMethodVar(_, _, argc) => {
-            state.pop_args(*argc);
-            Vec::new()
-        }
-        I::TailPostfixLocal(_, argc)
-        | I::TailPostfixMethodLocal(_, _, argc)
-        | I::TailPostfixCapture(_, argc)
-        | I::TailPostfixMethodCapture(_, _, argc)
-        | I::TailPostfixVar(_, argc)
-        | I::TailPostfixMethodVar(_, _, argc) => {
-            state.pop_args(*argc);
             Vec::new()
         }
         I::Jump(target) => vec![(*target, state)],
@@ -801,6 +711,11 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
         I::JumpIfLEZLocal(slot, target) => match state.local(*slot).and_then(le_zero) {
             Some(true) => vec![(*target, state)],
             Some(false) => fallthrough(pc, state),
+            None => vec![(pc + 1, state.clone()), (*target, state)],
+        },
+        I::JumpIfNamedProvided(slot, bit, target) => match state.local(*slot) {
+            Some(Value::Int(mask)) if mask & (1i64 << bit) != 0 => vec![(*target, state)],
+            Some(_) => fallthrough(pc, state),
             None => vec![(pc + 1, state.clone()), (*target, state)],
         },
         I::BoolAndLazy(target) => match state.peek().and_then(|value| value.try_to_rust_bool()) {
@@ -848,15 +763,6 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             }
             out.push((end, after_try));
             out
-        }
-        I::LoadNamedArgsProvided(bit) => {
-            let mask = state.pop();
-            let provided = match mask {
-                Some(Value::Int(mask)) => Some(Value::Bool((mask & (1i64 << bit)) != 0)),
-                Some(_) | None => None,
-            };
-            state.push(provided);
-            fallthrough(pc, state)
         }
     }
 }
@@ -1182,15 +1088,14 @@ fn note_inst_locals(inst: &Instruction, count: &mut usize) {
         | I::StoreLocalKeep(slot)
         | I::CallLocal(slot, _)
         | I::TailCallLocal(slot, _)
-        | I::PostfixLocal(slot, _)
-        | I::TailPostfixLocal(slot, _)
         | I::IndexLoadLocal(slot)
         | I::IndexManyLoadLocal(slot, _)
         | I::IndexAssignLocal(slot)
         | I::IndexManyAssignLocal(slot, _)
         | I::IndexAssignLocalDrop(slot)
         | I::IndexManyAssignLocalDrop(slot, _)
-        | I::JumpIfLEZLocal(slot, _) => note_slot(*slot, count),
+        | I::JumpIfLEZLocal(slot, _)
+        | I::JumpIfNamedProvided(slot, _, _) => note_slot(*slot, count),
         I::BinaryOp(data) => {
             note_operand_locals(&data.left, count);
             note_operand_locals(&data.right, count);
@@ -1220,8 +1125,6 @@ fn note_inst_captures(inst: &Instruction, count: &mut usize) {
         I::LoadCallTarget(operand) => note_operand_captures(operand, count),
         I::LoadCapture(slot)
         | I::StoreCaptureKeep(slot)
-        | I::PostfixCapture(slot, _)
-        | I::TailPostfixCapture(slot, _)
         | I::IndexLoadCapture(slot)
         | I::IndexManyLoadCapture(slot, _)
         | I::IndexAssignCapture(slot)

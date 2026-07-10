@@ -401,7 +401,6 @@ fn is_load(op: &Instruction) -> bool {
             | I::LoadCapture(_)
             | I::LoadSelf
             | I::LoadLocal(_)
-            | I::LoadNamedArgsProvided(_)
     )
 }
 
@@ -444,6 +443,7 @@ fn is_jump(op: &Instruction) -> bool {
             | I::JumpIfCmpFalse(_)
             | I::JumpIfGE(_)
             | I::JumpIfLEZLocal(_, _)
+            | I::JumpIfNamedProvided(_, _, _)
             | I::BoolAndLazy(_)
             | I::BoolOrLazy(_)
     )
@@ -492,24 +492,6 @@ fn is_call(op: &Instruction) -> bool {
             | I::TailCallAnon(_)
             | I::Postfix(_)
             | I::TailPostfix(_)
-            | I::PostfixLocal(_, _)
-            | I::TailPostfixLocal(_, _)
-            | I::PostfixMethodLocal(_, _, _)
-            | I::TailPostfixMethodLocal(_, _, _)
-            | I::CallMethodLocal(_, _, _)
-            | I::TailCallMethodLocal(_, _, _)
-            | I::PostfixCapture(_, _)
-            | I::TailPostfixCapture(_, _)
-            | I::PostfixMethodCapture(_, _, _)
-            | I::TailPostfixMethodCapture(_, _, _)
-            | I::CallMethodCapture(_, _, _)
-            | I::TailCallMethodCapture(_, _, _)
-            | I::PostfixVar(_, _)
-            | I::TailPostfixVar(_, _)
-            | I::PostfixMethodVar(_, _, _)
-            | I::TailPostfixMethodVar(_, _, _)
-            | I::CallMethodVar(_, _, _)
-            | I::TailCallMethodVar(_, _, _)
     )
 }
 
@@ -529,10 +511,6 @@ fn instruction_amount(op: &Instruction) -> usize {
         }
         I::CallLocal(slot, argc)
         | I::TailCallLocal(slot, argc)
-        | I::PostfixLocal(slot, argc)
-        | I::TailPostfixLocal(slot, argc)
-        | I::PostfixCapture(slot, argc)
-        | I::TailPostfixCapture(slot, argc)
         | I::IndexManyLoadLocal(slot, argc)
         | I::IndexManyLoadCapture(slot, argc)
         | I::IndexManyAssignLocal(slot, argc)
@@ -540,23 +518,9 @@ fn instruction_amount(op: &Instruction) -> usize {
         | I::IndexManyAssignLocalDrop(slot, argc)
         | I::IndexManyAssignCaptureDrop(slot, argc) => usize::from(*slot) ^ *argc,
         I::CallUser(name, argc) | I::TailCallUser(name, argc) => name.len() ^ *argc,
-        I::PostfixMethodLocal(slot, name, argc)
-        | I::TailPostfixMethodLocal(slot, name, argc)
-        | I::CallMethodLocal(slot, name, argc)
-        | I::TailCallMethodLocal(slot, name, argc)
-        | I::PostfixMethodCapture(slot, name, argc)
-        | I::TailPostfixMethodCapture(slot, name, argc)
-        | I::CallMethodCapture(slot, name, argc)
-        | I::TailCallMethodCapture(slot, name, argc) => usize::from(*slot) ^ name.len() ^ *argc,
-        I::PostfixVar(name, argc)
-        | I::TailPostfixVar(name, argc)
-        | I::IndexManyLoadVar(name, argc)
+        I::IndexManyLoadVar(name, argc)
         | I::IndexManyAssignVar(name, argc)
         | I::IndexManyAssignVarDrop(name, argc) => name.len() ^ *argc,
-        I::PostfixMethodVar(receiver, name, argc)
-        | I::TailPostfixMethodVar(receiver, name, argc)
-        | I::CallMethodVar(receiver, name, argc)
-        | I::TailCallMethodVar(receiver, name, argc) => receiver.len() ^ name.len() ^ *argc,
         I::CmpChain(ops) => ops.len(),
         I::Jump(target)
         | I::JumpIfFalse(target)
@@ -565,6 +529,9 @@ fn instruction_amount(op: &Instruction) -> usize {
         | I::BoolOrLazy(target) => *target,
         I::JumpIfCmpFalse(data) => data.target,
         I::JumpIfLEZLocal(slot, target) => usize::from(*slot) ^ *target,
+        I::JumpIfNamedProvided(slot, bit, target) => {
+            usize::from(*slot) ^ usize::from(*bit) ^ *target
+        }
         I::MakeRange {
             inclusive,
             has_next,

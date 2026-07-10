@@ -60,6 +60,10 @@ fn successors(pc: usize, inst: &Instruction, len: usize) -> Vec<usize> {
             push_fallthrough(&mut out, pc, len);
             push_target(&mut out, *target, len);
         }
+        Instruction::JumpIfNamedProvided(_, _, target) => {
+            push_fallthrough(&mut out, pc, len);
+            push_target(&mut out, *target, len);
+        }
         Instruction::Try(body_len) => {
             if *body_len > 0 {
                 push_fallthrough(&mut out, pc, len);

@@ -549,24 +549,6 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::TailCallAnon(_) => "TailCallAnon",
         I::Postfix(_) => "Postfix",
         I::TailPostfix(_) => "TailPostfix",
-        I::PostfixLocal(_, _) => "PostfixLocal",
-        I::TailPostfixLocal(_, _) => "TailPostfixLocal",
-        I::PostfixMethodLocal(_, _, _) => "PostfixMethodLocal",
-        I::TailPostfixMethodLocal(_, _, _) => "TailPostfixMethodLocal",
-        I::CallMethodLocal(_, _, _) => "CallMethodLocal",
-        I::TailCallMethodLocal(_, _, _) => "TailCallMethodLocal",
-        I::PostfixCapture(_, _) => "PostfixCapture",
-        I::TailPostfixCapture(_, _) => "TailPostfixCapture",
-        I::PostfixMethodCapture(_, _, _) => "PostfixMethodCapture",
-        I::TailPostfixMethodCapture(_, _, _) => "TailPostfixMethodCapture",
-        I::CallMethodCapture(_, _, _) => "CallMethodCapture",
-        I::TailCallMethodCapture(_, _, _) => "TailCallMethodCapture",
-        I::PostfixVar(_, _) => "PostfixVar",
-        I::TailPostfixVar(_, _) => "TailPostfixVar",
-        I::PostfixMethodVar(_, _, _) => "PostfixMethodVar",
-        I::TailPostfixMethodVar(_, _, _) => "TailPostfixMethodVar",
-        I::CallMethodVar(_, _, _) => "CallMethodVar",
-        I::TailCallMethodVar(_, _, _) => "TailCallMethodVar",
         I::MakeList(_) => "MakeList",
         I::MakeDict(_) => "MakeDict",
 
@@ -597,6 +579,7 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::JumpIfCmpFalse(_) => "JumpIfCmpFalse",
         I::JumpIfGE(_) => "JumpIfGE",
         I::JumpIfLEZLocal(_, _) => "JumpIfLEZLocal",
+        I::JumpIfNamedProvided(_, _, _) => "JumpIfNamedProvided",
         I::IndexMutate { .. } => "IndexMutate",
         I::Pop => "Pop",
         I::Return => "Return",
@@ -606,7 +589,6 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::Pause => "Pause",
         I::Try(_) => "Try",
         I::PrepareNamedArgs(_) => "PrepareNamedArgs",
-        I::LoadNamedArgsProvided(_) => "LoadNamedArgsProvided",
     }
 }
 
@@ -654,48 +636,6 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         I::TailCallAnon(argc) => format!("TailCallAnon({argc})"),
         I::Postfix(argc) => format!("Postfix({argc})"),
         I::TailPostfix(argc) => format!("TailPostfix({argc})"),
-        I::PostfixLocal(slot, argc) => format!("PostfixLocal({slot}/{argc})"),
-        I::TailPostfixLocal(slot, argc) => format!("TailPostfixLocal({slot}/{argc})"),
-        I::PostfixMethodLocal(slot, name, argc) => {
-            format!("PostfixMethodLocal({slot}.{name}/{argc})")
-        }
-        I::TailPostfixMethodLocal(slot, name, argc) => {
-            format!("TailPostfixMethodLocal({slot}.{name}/{argc})")
-        }
-        I::CallMethodLocal(slot, name, argc) => {
-            format!("CallMethodLocal({slot}.{name}/{argc})")
-        }
-        I::TailCallMethodLocal(slot, name, argc) => {
-            format!("TailCallMethodLocal({slot}.{name}/{argc})")
-        }
-        I::PostfixCapture(slot, argc) => format!("PostfixCapture({slot}/{argc})"),
-        I::TailPostfixCapture(slot, argc) => format!("TailPostfixCapture({slot}/{argc})"),
-        I::PostfixMethodCapture(slot, name, argc) => {
-            format!("PostfixMethodCapture({slot}.{name}/{argc})")
-        }
-        I::TailPostfixMethodCapture(slot, name, argc) => {
-            format!("TailPostfixMethodCapture({slot}.{name}/{argc})")
-        }
-        I::CallMethodCapture(slot, name, argc) => {
-            format!("CallMethodCapture({slot}.{name}/{argc})")
-        }
-        I::TailCallMethodCapture(slot, name, argc) => {
-            format!("TailCallMethodCapture({slot}.{name}/{argc})")
-        }
-        I::PostfixVar(name, argc) => format!("PostfixVar({name}/{argc})"),
-        I::TailPostfixVar(name, argc) => format!("TailPostfixVar({name}/{argc})"),
-        I::PostfixMethodVar(receiver, name, argc) => {
-            format!("PostfixMethodVar({receiver}.{name}/{argc})")
-        }
-        I::TailPostfixMethodVar(receiver, name, argc) => {
-            format!("TailPostfixMethodVar({receiver}.{name}/{argc})")
-        }
-        I::CallMethodVar(receiver, name, argc) => {
-            format!("CallMethodVar({receiver}.{name}/{argc})")
-        }
-        I::TailCallMethodVar(receiver, name, argc) => {
-            format!("TailCallMethodVar({receiver}.{name}/{argc})")
-        }
         I::MakeList(count) => format!("MakeList({count})"),
         I::MakeDict(count) => format!("MakeDict({count})"),
 
@@ -737,6 +677,9 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         I::JumpIfCmpFalse(data) => format!("JumpIfCmpFalse({:?})", data.op),
         I::JumpIfGE(_) => "JumpIfGE".to_string(),
         I::JumpIfLEZLocal(slot, _) => format!("JumpIfLEZLocal({slot})"),
+        I::JumpIfNamedProvided(slot, bit, _) => {
+            format!("JumpIfNamedProvided({slot}, {bit})")
+        }
         I::IndexMutate { target, op } => format!("IndexMutate({target:?}, {op:?})"),
         I::Pop => "Pop".to_string(),
         I::Return => "Return".to_string(),
@@ -752,7 +695,6 @@ fn instruction_profile_key(inst: &Instruction) -> String {
                 meta.named.len()
             )
         }
-        I::LoadNamedArgsProvided(bit) => format!("LoadNamedArgsProvided({bit})"),
     }
 }
 

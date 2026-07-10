@@ -161,7 +161,6 @@ pub(crate) enum Instruction {
     /// result will be discarded.
     CallBuiltinDiscardId(u16, u16),
     /// Call a function stored in a local slot
-    #[allow(dead_code)]
     CallLocal(u16, usize),
     CallUser(Arc<str>, usize),
     TailCallLocal(u16, usize),
@@ -171,42 +170,6 @@ pub(crate) enum Instruction {
     /// Call if the object is a function, otherwise index
     Postfix(usize),
     TailPostfix(usize),
-    /// Call or index a local variable, avoiding cloning if indexing
-    #[allow(dead_code)]
-    PostfixLocal(u16, usize),
-    TailPostfixLocal(u16, usize),
-    /// Look up a constant-tag method on a local dict, then call or index it.
-    #[allow(dead_code)]
-    PostfixMethodLocal(u16, Arc<str>, usize),
-    TailPostfixMethodLocal(u16, Arc<str>, usize),
-    /// Look up a constant-tag method on a local dict, then call it.
-    #[allow(dead_code)]
-    CallMethodLocal(u16, Arc<str>, usize),
-    TailCallMethodLocal(u16, Arc<str>, usize),
-    /// Call or index a captured variable, avoiding cloning if indexing
-    #[allow(dead_code)]
-    PostfixCapture(u16, usize),
-    TailPostfixCapture(u16, usize),
-    /// Look up a constant-tag method on a captured dict, then call or index it.
-    #[allow(dead_code)]
-    PostfixMethodCapture(u16, Arc<str>, usize),
-    TailPostfixMethodCapture(u16, Arc<str>, usize),
-    /// Look up a constant-tag method on a captured dict, then call it.
-    #[allow(dead_code)]
-    CallMethodCapture(u16, Arc<str>, usize),
-    TailCallMethodCapture(u16, Arc<str>, usize),
-    /// Call or index a global variable, avoiding cloning if indexing
-    #[allow(dead_code)]
-    PostfixVar(Arc<str>, usize),
-    TailPostfixVar(Arc<str>, usize),
-    /// Look up a constant-tag method on a global dict, then call or index it.
-    #[allow(dead_code)]
-    PostfixMethodVar(Arc<str>, Arc<str>, usize),
-    TailPostfixMethodVar(Arc<str>, Arc<str>, usize),
-    /// Look up a constant-tag method on a global dict, then call it.
-    #[allow(dead_code)]
-    CallMethodVar(Arc<str>, Arc<str>, usize),
-    TailCallMethodVar(Arc<str>, Arc<str>, usize),
     MakeList(usize),
     MakeDict(usize),
 
@@ -243,6 +206,8 @@ pub(crate) enum Instruction {
     JumpIfGE(usize),
     /// Jump if local slot value <= 0
     JumpIfLEZLocal(u16, usize),
+    /// Jump when bit N is set in the hidden named-argument mask local.
+    JumpIfNamedProvided(u16, u8, usize),
     /// Unified mutating index instruction: pop, remove, or insert.
     IndexMutate {
         target: StoreTarget,
@@ -259,10 +224,7 @@ pub(crate) enum Instruction {
     Try(usize),
     /// Store named-argument metadata into the VM.  The next call
     /// instruction consumes it (and clears it after the call).
-    PrepareNamedArgs(Box<NamedArgMeta>),
-    /// Read the hidden `--named-mask` local slot, test bit N, push bool.
-    /// Used in function prologues for named parameters with defaults.
-    LoadNamedArgsProvided(u8),
+    PrepareNamedArgs(Arc<NamedArgMeta>),
 }
 
 impl Instruction {
@@ -324,15 +286,6 @@ impl Instruction {
                 | I::CallAnon(_)
                 | I::CallLocal(_, _)
                 | I::Postfix(_)
-                | I::PostfixLocal(_, _)
-                | I::PostfixMethodLocal(_, _, _)
-                | I::CallMethodLocal(_, _, _)
-                | I::PostfixCapture(_, _)
-                | I::PostfixMethodCapture(_, _, _)
-                | I::CallMethodCapture(_, _, _)
-                | I::PostfixVar(_, _)
-                | I::PostfixMethodVar(_, _, _)
-                | I::CallMethodVar(_, _, _)
                 | I::Index
                 | I::IndexMany(_)
                 | I::IndexLoadLocal(_)
@@ -404,24 +357,6 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         | I::TailCallLocal(_, _)
         | I::Postfix(_)
         | I::TailPostfix(_)
-        | I::PostfixLocal(_, _)
-        | I::TailPostfixLocal(_, _)
-        | I::PostfixMethodLocal(_, _, _)
-        | I::TailPostfixMethodLocal(_, _, _)
-        | I::CallMethodLocal(_, _, _)
-        | I::TailCallMethodLocal(_, _, _)
-        | I::PostfixCapture(_, _)
-        | I::TailPostfixCapture(_, _)
-        | I::PostfixMethodCapture(_, _, _)
-        | I::TailPostfixMethodCapture(_, _, _)
-        | I::CallMethodCapture(_, _, _)
-        | I::TailCallMethodCapture(_, _, _)
-        | I::PostfixVar(_, _)
-        | I::TailPostfixVar(_, _)
-        | I::PostfixMethodVar(_, _, _)
-        | I::TailPostfixMethodVar(_, _, _)
-        | I::CallMethodVar(_, _, _)
-        | I::TailCallMethodVar(_, _, _)
         | I::CallAnon(_)
         | I::TailCallAnon(_)
         | I::CallUser(_, _)
@@ -433,13 +368,13 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         | I::JumpIfCmpFalse(_)
         | I::JumpIfGE(_)
         | I::JumpIfLEZLocal(_, _)
+        | I::JumpIfNamedProvided(_, _, _)
         | I::BoolAndLazy(_)
         | I::BoolOrLazy(_) => (Jump, false),
 
         I::IndexMutate { .. } => (Store, false),
 
         I::PrepareNamedArgs(_) => (Stack, false),
-        I::LoadNamedArgsProvided(_) => (Load, false),
 
         // Stack-ish
         I::Pop | I::Return | I::Debug | I::Pause | I::Assert | I::TraceBegin => (Stack, false),
@@ -651,12 +586,6 @@ impl InstPrettyDumper {
             | Instruction::StoreLocalKeep(slot)
             | Instruction::IndexLoadLocal(slot)
             | Instruction::IndexManyLoadLocal(slot, _)
-            | Instruction::PostfixLocal(slot, _)
-            | Instruction::TailPostfixLocal(slot, _)
-            | Instruction::PostfixMethodLocal(slot, _, _)
-            | Instruction::TailPostfixMethodLocal(slot, _, _)
-            | Instruction::CallMethodLocal(slot, _, _)
-            | Instruction::TailCallMethodLocal(slot, _, _)
             | Instruction::IndexAssignLocal(slot)
             | Instruction::IndexManyAssignLocal(slot, _)
             | Instruction::IndexManyAssignLocalDrop(slot, _)
@@ -665,6 +594,7 @@ impl InstPrettyDumper {
                 ..
             }
             | Instruction::JumpIfLEZLocal(slot, _)
+            | Instruction::JumpIfNamedProvided(slot, _, _)
             | Instruction::TailCallLocal(slot, _)
             | Instruction::CallLocal(slot, _) => {
                 if let Some(name) = Self::local_name(slot, locals_names) {
@@ -686,8 +616,6 @@ impl InstPrettyDumper {
         | Instruction::StoreCaptureKeep(i)
         | Instruction::IndexLoadCapture(i)
         | Instruction::IndexManyLoadCapture(i, _)
-        | Instruction::PostfixCapture(i, _)
-        | Instruction::TailPostfixCapture(i, _)
         | Instruction::IndexManyAssignCapture(i, _)
         | Instruction::IndexManyAssignCaptureDrop(i, _)
         | Instruction::IndexMutate { target: StoreTarget::Capture(i), .. } = *inst
@@ -826,6 +754,7 @@ impl InstPrettyDumper {
             | Instruction::JumpIfFalse(target)
             | Instruction::JumpIfGE(target)
             | Instruction::JumpIfLEZLocal(_, target)
+            | Instruction::JumpIfNamedProvided(_, _, target)
             | Instruction::BoolAndLazy(target)
             | Instruction::BoolOrLazy(target) => Some(*target),
             Instruction::JumpIfCmpFalse(data) => Some(data.target),
