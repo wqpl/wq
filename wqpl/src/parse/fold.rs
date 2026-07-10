@@ -3,7 +3,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 
 use crate::ast::AstNode;
-use crate::builtins::BuiltinFnArgs;
+use crate::builtins::{BuiltinFnArgs, Builtins};
 use crate::range::{make_range, make_range_from_next};
 use crate::value::{Value, eval_binary, eval_unary};
 
@@ -215,6 +215,10 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
                 }
                 let folded_val = PURE_BUILTINS.with(|builtins| {
                     if let Some(id) = builtins.get_id(name.as_str())
+                        && u16::try_from(id)
+                            .ok()
+                            .and_then(Builtins::metadata_from_id)
+                            .is_some_and(|metadata| metadata.policy.is_const_foldable())
                         && let Some(func) = builtins.get_fn_by_id(id).copied()
                         && let Some(func) = func.as_plain()
                     {

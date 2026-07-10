@@ -1464,8 +1464,8 @@ fn print_repl_commands() {
 fn dump_builtins(builtins: &Builtins) {
     const TERM_WIDTH: usize = 80;
     const GUTTER: usize = 2;
-    for (group_name, names) in builtins.list_functions_by_group() {
-        let title = format!(" {} ", group_name);
+    for (category_name, names) in builtins.list_functions_by_category() {
+        let title = format!(" {} ", category_name);
         let dash_len = TERM_WIDTH.saturating_sub(title.len());
         let left = dash_len / 2;
         let right = dash_len - left;

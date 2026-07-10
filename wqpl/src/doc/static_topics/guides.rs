@@ -65,7 +65,8 @@ pub(super) const BUILTINS: StaticDoc = StaticDoc {
 Individual builtin pages always render their signature and arity from `builtins.rs` metadata.
 The `bfn[]` builtin returns a sorted list of builtin names enabled in the current preset, which lets wq code inspect its own runtime surface.
 The standard CLI and REPL expose four preset names: `all`, `pure`, `minimal`, and `constrained`; short names `a`, `p`, `m`, and `c` are accepted where a preset is parsed.
-`all` enables every builtin, `minimal` keeps only intrinsic operators, `pure` keeps pure builtin groups, and `constrained` keeps groups allowed by constrained hosts.
+`all` enables every builtin. `minimal` keeps operators, `fmt`, `len`, and `bfn`.
+`pure` keeps side-effect-free builtins, and `constrained` additionally permits standard I/O, random generation, and visualization while excluding process execution and file I/O.
 At the command line, `--builtins <preset>` selects the initial preset.
 In the interactive REPL, `\\bfn` or `\\` shows the current preset and enabled builtin table, while `\\bfn pure`, `\\bfn minimal`, and similar commands switch the live session preset.",
     examples: BUILTIN_EXAMPLES,
@@ -121,7 +122,7 @@ pub(super) const WQDB: StaticDoc = StaticDoc {
     details: "wqdb pauses execution at source locations, records backtraces and locals, and gives hosts enough debug metadata to implement stepping, breakpoints, symbol tracking, and stop hooks.
 The core `wqpl` crate owns this debug model and APIs such as pause state, breakpoint state, and source-location metadata.
 Concrete command names, aliases, colored terminal help, and command-line flags such as `-w`, `-o`, and `--wqdb-script` belong to the host application.
-In the standard CLI, `@p` pauses in wqdb when debugging is enabled, `-w` enables wqdb, and repeated `-o <cmd>` values run once at the first debugger stop.
+In wq-cli, `@p` pauses in wqdb when debugging is enabled, `-w` enables wqdb, and repeated `-o <cmd>` values run once at the first debugger stop.
 
 Stepping starts at `expr` granularity, which pauses at each semicolon-separated expression.
 Use `g line` to coalesce expressions on the same source line, `g inst` to pause before every VM instruction, or `g expr` to return to expression stepping.

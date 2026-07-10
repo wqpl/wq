@@ -67,7 +67,6 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     file_io::FTELL,
     #[cfg(not(target_arch = "wasm32"))]
     file_io::FCLOSE,
-    meta::STRONG_COUNT,
     meta::SHAPE,
     meta::DEPTH,
     meta::UNIFORM_Q,

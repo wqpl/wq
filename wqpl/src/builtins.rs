@@ -29,123 +29,137 @@ use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub enum BuiltinGroup {
-    Intrinsic,
-
-    Cas,
-    Complex,
-
-    CorePure,
-    CoreIO,
+pub enum BuiltinCategory {
+    Core,
     Exec,
-
-    Dict,
     Encoding,
-    Fraction,
-    HigherOrder,
     FileIO,
+    Meta,
     List,
     ListGen,
-    Logical,
-
-    Math,
-    Meta,
-    Rand,
-
     Mat,
+    HigherOrder,
+    Dict,
     Set,
+    Logical,
+    Math,
+    Rand,
+    Complex,
+    Fraction,
+    Cas,
     Str,
-    Viz,
     Type,
+    Viz,
 }
 
-impl BuiltinGroup {
+impl BuiltinCategory {
+    pub const ALL: &'static [Self] = &[
+        Self::Core,
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::Exec,
+        Self::Encoding,
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::FileIO,
+        Self::Meta,
+        Self::List,
+        Self::ListGen,
+        Self::Mat,
+        Self::HigherOrder,
+        Self::Dict,
+        Self::Set,
+        Self::Logical,
+        Self::Math,
+        Self::Rand,
+        Self::Complex,
+        Self::Fraction,
+        Self::Cas,
+        Self::Str,
+        Self::Type,
+        Self::Viz,
+    ];
+
     pub fn name(self) -> &'static str {
         match self {
-            BuiltinGroup::Intrinsic => "Intrinsic",
+            BuiltinCategory::Cas => "CAS",
+            BuiltinCategory::Complex => "Complex",
+            BuiltinCategory::Core => "Core",
+            BuiltinCategory::Exec => "Exec",
+            BuiltinCategory::Dict => "Dict",
+            BuiltinCategory::Encoding => "Encoding",
+            BuiltinCategory::Fraction => "Fraction",
+            BuiltinCategory::HigherOrder => "Higher-Order",
+            BuiltinCategory::FileIO => "File IO",
+            BuiltinCategory::List => "List",
+            BuiltinCategory::ListGen => "List Generation",
+            BuiltinCategory::Logical => "Logical",
+            BuiltinCategory::Mat => "Matrix",
+            BuiltinCategory::Meta => "Meta",
+            BuiltinCategory::Math => "Math",
+            BuiltinCategory::Rand => "Random",
+            BuiltinCategory::Set => "Set",
+            BuiltinCategory::Str => "String",
+            BuiltinCategory::Viz => "Visualization",
+            BuiltinCategory::Type => "Type",
+        }
+    }
+}
 
-            BuiltinGroup::CorePure => "Core Pure",
-            BuiltinGroup::CoreIO => "Core IO",
-            BuiltinGroup::Exec => "Exec",
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct BuiltinPolicy {
+    minimal: bool,
+    pure: bool,
+    constrained: bool,
+    const_foldable: bool,
+}
 
-            BuiltinGroup::Cas => "CAS",
-            BuiltinGroup::Complex => "Complex",
-            BuiltinGroup::Dict => "Dict",
-            BuiltinGroup::Encoding => "Encoding",
-            BuiltinGroup::Fraction => "Fraction",
-            BuiltinGroup::HigherOrder => "Higher-Order",
-            BuiltinGroup::FileIO => "File IO",
-            BuiltinGroup::List => "List",
-            BuiltinGroup::ListGen => "List Generation",
-            BuiltinGroup::Logical => "Logical",
-            BuiltinGroup::Mat => "Matrix",
+impl BuiltinPolicy {
+    const REQUIRED: Self = Self::new(true, true, true, true);
+    const REQUIRED_CONTEXTUAL: Self = Self::new(true, true, true, false);
+    const PURE: Self = Self::new(false, true, true, true);
+    const PURE_CONTEXTUAL: Self = Self::new(false, true, true, false);
+    const CONSTRAINED_EFFECT: Self = Self::new(false, false, true, false);
+    #[cfg(not(target_arch = "wasm32"))]
+    const UNCONSTRAINED_EFFECT: Self = Self::new(false, false, false, false);
 
-            BuiltinGroup::Meta => "Meta",
-            BuiltinGroup::Math => "Math",
-            BuiltinGroup::Rand => "Random",
+    const fn new(minimal: bool, pure: bool, constrained: bool, const_foldable: bool) -> Self {
+        assert!(!minimal || pure, "minimal builtins must be pure");
+        assert!(!pure || constrained, "pure builtins must be constrained");
+        assert!(
+            !const_foldable || pure,
+            "constant-foldable builtins must be pure"
+        );
 
-            BuiltinGroup::Set => "Set",
-            BuiltinGroup::Str => "String",
-            BuiltinGroup::Viz => "Visualization",
-            BuiltinGroup::Type => "Type",
+        Self {
+            minimal,
+            pure,
+            constrained,
+            const_foldable,
         }
     }
 
-    pub(crate) fn is_pure(self) -> bool {
-        #![deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            BuiltinGroup::CoreIO
-            | BuiltinGroup::Exec
-            | BuiltinGroup::FileIO
-            | BuiltinGroup::Viz
-            | BuiltinGroup::Rand => false,
-
-            BuiltinGroup::Intrinsic
-            | BuiltinGroup::Cas
-            | BuiltinGroup::Complex
-            | BuiltinGroup::CorePure
-            | BuiltinGroup::Dict
-            | BuiltinGroup::Encoding
-            | BuiltinGroup::Fraction
-            | BuiltinGroup::HigherOrder
-            | BuiltinGroup::List
-            | BuiltinGroup::ListGen
-            | BuiltinGroup::Logical
-            | BuiltinGroup::Math
-            | BuiltinGroup::Meta
-            | BuiltinGroup::Mat
-            | BuiltinGroup::Set
-            | BuiltinGroup::Str
-            | BuiltinGroup::Type => true,
+    pub const fn is_enabled_in(self, preset: BuiltinPreset) -> bool {
+        match preset {
+            BuiltinPreset::All => true,
+            BuiltinPreset::Pure => self.pure,
+            BuiltinPreset::Minimal => self.minimal,
+            BuiltinPreset::Constrained => self.constrained,
         }
     }
 
-    pub(crate) fn is_allowed_in_constrained_mode(self) -> bool {
-        #![deny(clippy::wildcard_enum_match_arm)]
-        match self {
-            BuiltinGroup::Exec | BuiltinGroup::FileIO => false,
+    pub const fn is_const_foldable(self) -> bool {
+        self.const_foldable
+    }
+}
 
-            BuiltinGroup::Intrinsic
-            | BuiltinGroup::Cas
-            | BuiltinGroup::Complex
-            | BuiltinGroup::CorePure
-            | BuiltinGroup::CoreIO
-            | BuiltinGroup::Dict
-            | BuiltinGroup::Encoding
-            | BuiltinGroup::Fraction
-            | BuiltinGroup::HigherOrder
-            | BuiltinGroup::List
-            | BuiltinGroup::ListGen
-            | BuiltinGroup::Logical
-            | BuiltinGroup::Math
-            | BuiltinGroup::Meta
-            | BuiltinGroup::Rand
-            | BuiltinGroup::Mat
-            | BuiltinGroup::Set
-            | BuiltinGroup::Str
-            | BuiltinGroup::Viz
-            | BuiltinGroup::Type => true,
-        }
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct BuiltinMetadata {
+    pub category: BuiltinCategory,
+    pub policy: BuiltinPolicy,
+}
+
+impl BuiltinMetadata {
+    const fn new(category: BuiltinCategory, policy: BuiltinPolicy) -> Self {
+        Self { category, policy }
     }
 }
 
@@ -498,20 +512,17 @@ impl Builtins {
 
     pub fn apply_preset(&mut self, preset: BuiltinPreset) {
         let total = self.functions.len();
-        debug_assert_eq!(BUILTIN_GROUPS.len(), total, "builtin group map out of sync");
+        debug_assert_eq!(
+            BUILTIN_METADATA.len(),
+            total,
+            "builtin metadata out of sync"
+        );
         self.enabled = vec![false; total];
-        for (idx, group) in BUILTIN_GROUPS.iter().enumerate() {
-            let enabled = match preset {
-                BuiltinPreset::All => true,
-                BuiltinPreset::Minimal => *group == BuiltinGroup::Intrinsic,
-                BuiltinPreset::Pure => group.is_pure(),
-                BuiltinPreset::Constrained => group.is_allowed_in_constrained_mode(),
-            };
-            if enabled {
+        for (idx, metadata) in BUILTIN_METADATA.iter().enumerate() {
+            if metadata.policy.is_enabled_in(preset) {
                 self.enabled[idx] = true;
             }
         }
-        self.force_intrinsics();
     }
 
     pub fn is_enabled_id(&self, id: u16) -> bool {
@@ -537,7 +548,8 @@ impl Builtins {
     fn add(&mut self, name: &str, func: BuiltinFn) {
         let id = self.functions.len();
         self.functions.push(func);
-        self.name_to_id.insert(name.to_string(), id);
+        let previous = self.name_to_id.insert(name.to_string(), id);
+        assert!(previous.is_none(), "duplicate builtin name '{name}'");
     }
 
     pub fn has_function(&self, name: &str) -> bool {
@@ -581,32 +593,22 @@ impl Builtins {
         self.name_to_id.keys().cloned().collect()
     }
 
-    pub fn list_functions_by_group(&self) -> Vec<(&'static str, Vec<String>)> {
+    pub fn list_functions_by_category(&self) -> Vec<(&'static str, Vec<String>)> {
         use std::collections::BTreeMap;
-        let mut grouped: BTreeMap<BuiltinGroup, Vec<String>> = BTreeMap::new();
+        let mut categorized: BTreeMap<BuiltinCategory, Vec<String>> = BTreeMap::new();
         for (name, &id) in self.name_to_id.iter() {
             if self.enabled.get(id).copied().unwrap_or(false) {
-                let group = BUILTIN_GROUPS[id];
-                grouped.entry(group).or_default().push(name.clone());
+                let category = BUILTIN_METADATA[id].category;
+                categorized.entry(category).or_default().push(name.clone());
             }
         }
-        grouped
+        categorized
             .into_iter()
-            .map(|(g, mut names)| {
+            .map(|(category, mut names)| {
                 names.sort();
-                (g.name(), names)
+                (category.name(), names)
             })
             .collect()
-    }
-
-    fn force_intrinsics(&mut self) {
-        for (idx, group) in BUILTIN_GROUPS.iter().enumerate() {
-            if *group == BuiltinGroup::Intrinsic
-                && let Some(slot) = self.enabled.get_mut(idx)
-            {
-                *slot = true;
-            }
-        }
     }
 }
 
@@ -677,6 +679,12 @@ macro_rules! __builtin_depth_sugar {
     };
     ($depth:expr) => {
         $depth
+    };
+}
+
+macro_rules! builtin_metadata {
+    ($category:ident, $policy:ident) => {
+        BuiltinMetadata::new(BuiltinCategory::$category, BuiltinPolicy::$policy)
     };
 }
 
@@ -758,7 +766,7 @@ macro_rules! __declare_builtins_impl {
                 $usage:expr,
                 $signature:expr,
                 $fn_kind:ident($func:path),
-                $group:path
+                $metadata:expr
                 $(, $depth_sugar:expr)?
             ),
         )+
@@ -808,6 +816,15 @@ macro_rules! __declare_builtins_impl {
                 self.signature().arity
             }
 
+            pub const fn metadata(self) -> BuiltinMetadata {
+                match self {
+                    $(
+                        $(#[$m])*
+                        BuiltinEnum::$VAR => $metadata,
+                    )+
+                }
+            }
+
             pub fn from_id(id: u16) -> Option<Self> {
                 match id {
                     $(
@@ -832,10 +849,10 @@ macro_rules! __declare_builtins_impl {
             }
         }
 
-        pub const BUILTIN_GROUPS: &[BuiltinGroup] = &[
+        pub const BUILTIN_METADATA: &[BuiltinMetadata] = &[
             $(
                 $(#[$m])*
-                $group
+                $metadata
             ),+
         ];
 
@@ -880,6 +897,8 @@ macro_rules! __declare_builtins_impl {
                 ),+
             ];
 
+            pub const METADATA: &'static [BuiltinMetadata] = BUILTIN_METADATA;
+
             pub(crate) const DEPTH_SUGAR: &'static [BuiltinDepthSugar] = BUILTIN_DEPTH_SUGAR;
 
             #[inline]
@@ -895,6 +914,11 @@ macro_rules! __declare_builtins_impl {
             #[inline]
             pub fn arity_from_id(id: u16) -> Option<BuiltinCallArity> {
                 Self::SIGNATURES.get(usize::from(id)).map(|signature| signature.arity)
+            }
+
+            #[inline]
+            pub fn metadata_from_id(id: u16) -> Option<BuiltinMetadata> {
+                Self::METADATA.get(usize::from(id)).copied()
             }
 
             pub fn doc_for_name(&self, name: &str) -> Option<crate::doc::DocTopic> {
@@ -939,269 +963,267 @@ macro_rules! __declare_builtins_impl {
 }
 
 declare_builtins! {
-    // Core (Pure) =========================================================
-    (BFN, Bfn, "bfn", "bfn[]", sig!(arity!(0)), with_context(core::bfn), BuiltinGroup::CorePure),
-    (CHR, Chr, "chr", "chr[xs]", sig!(arity!(1)), plain(core::chr), BuiltinGroup::CorePure),
-    (ORD, Ord, "ord", "ord[xs]", sig!(arity!(1)), plain(core::ord), BuiltinGroup::CorePure),
-    (INT, Int, "int", "int[x], int[x;base]", sig!(arity!(1, 2)), plain(core::int), BuiltinGroup::CorePure),
-    (FLOAT, Float, "float", "float[x]", sig!(arity!(1)), plain(core::float), BuiltinGroup::CorePure),
-    (BIN, Bin, "bin", "bin[xs;prefix?]", sig!(arity!(1, 2)), plain(core::bin), BuiltinGroup::CorePure),
-    (OCT, Oct, "oct", "oct[xs;prefix?]", sig!(arity!(1, 2)), plain(core::oct), BuiltinGroup::CorePure),
-    (HEX, Hex, "hex", "hex[xs;prefix?]", sig!(arity!(1, 2)), plain(core::hex), BuiltinGroup::CorePure),
-    (HASH, Hash, "hash", "hash[x]", sig!(arity!(1)), plain(core::hash), BuiltinGroup::CorePure),
-    (RAISE, Raise, "raise", "raise[]; raise[msg]", sig!(arity!(0, 1)), plain(core::raise), BuiltinGroup::CorePure),
+    // Core =========================================================
+    (BFN, Bfn, "bfn", "bfn[]", sig!(arity!(0)), with_context(core::bfn), builtin_metadata!(Core, REQUIRED_CONTEXTUAL)),
+    (CHR, Chr, "chr", "chr[xs]", sig!(arity!(1)), plain(core::chr), builtin_metadata!(Core, PURE)),
+    (ORD, Ord, "ord", "ord[xs]", sig!(arity!(1)), plain(core::ord), builtin_metadata!(Core, PURE)),
+    (INT, Int, "int", "int[x], int[x;base]", sig!(arity!(1, 2)), plain(core::int), builtin_metadata!(Core, PURE)),
+    (FLOAT, Float, "float", "float[x]", sig!(arity!(1)), plain(core::float), builtin_metadata!(Core, PURE)),
+    (BIN, Bin, "bin", "bin[xs;prefix?]", sig!(arity!(1, 2)), plain(core::bin), builtin_metadata!(Core, PURE)),
+    (OCT, Oct, "oct", "oct[xs;prefix?]", sig!(arity!(1, 2)), plain(core::oct), builtin_metadata!(Core, PURE)),
+    (HEX, Hex, "hex", "hex[xs;prefix?]", sig!(arity!(1, 2)), plain(core::hex), builtin_metadata!(Core, PURE)),
+    (HASH, Hash, "hash", "hash[x]", sig!(arity!(1)), plain(core::hash), builtin_metadata!(Core, PURE)),
+    (RAISE, Raise, "raise", "raise[]; raise[msg]", sig!(arity!(0, 1)), plain(core::raise), builtin_metadata!(Core, PURE)),
 
-    // Core (IO) =========================================================
-    (ECHO, Echo, "echo", "echo[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS), plain(core::echo), BuiltinGroup::CoreIO),
-    (E, E, "E", "E[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS, alias Echo), plain(core::echo), BuiltinGroup::CoreIO), // alias of echo
-    (PRINT, Print, "print", "print[value*]", sig!(arity!(0..)), plain(core::print), BuiltinGroup::CoreIO),
-    (INPUT, Input, "input", "input[prompt?]", sig!(arity!(0, 1)), plain(core::input), BuiltinGroup::CoreIO),
+    (ECHO, Echo, "echo", "echo[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS), plain(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
+    (E, E, "E", "E[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS, alias Echo), plain(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)), // alias of echo
+    (PRINT, Print, "print", "print[value*]", sig!(arity!(0..)), plain(core::print), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
+    (INPUT, Input, "input", "input[prompt?]", sig!(arity!(0, 1)), plain(core::input), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
     #[cfg(not(target_arch = "wasm32"))]
-    (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", sig!(arity!(1..), named EXEC_NAMED_ARGS), plain(core::exec), BuiltinGroup::Exec),
+    (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", sig!(arity!(1..), named EXEC_NAMED_ARGS), plain(core::exec), builtin_metadata!(Exec, UNCONSTRAINED_EFFECT)),
 
     // ENCODING =========================================================
-    (DECODE, Decode, "decode", "decode[bytes;codec;mode?]", sig!(arity!(2, 3)), plain(encoding::decode), BuiltinGroup::Encoding),
-    (ENCODE, Encode, "encode", "encode[text;codec;mode?]", sig!(arity!(2, 3)), plain(encoding::encode), BuiltinGroup::Encoding),
-    (VALIDBYTES, ValidBytes, "bytes?", "bytes?[x]", sig!(arity!(1)), plain(encoding::is_valid_bytes), BuiltinGroup::Encoding),
+    (DECODE, Decode, "decode", "decode[bytes;codec;mode?]", sig!(arity!(2, 3)), plain(encoding::decode), builtin_metadata!(Encoding, PURE)),
+    (ENCODE, Encode, "encode", "encode[text;codec;mode?]", sig!(arity!(2, 3)), plain(encoding::encode), builtin_metadata!(Encoding, PURE)),
+    (VALIDBYTES, ValidBytes, "bytes?", "bytes?[x]", sig!(arity!(1)), plain(encoding::is_valid_bytes), builtin_metadata!(Encoding, PURE)),
 
     // FILE IO =========================================================
     #[cfg(not(target_arch = "wasm32"))]
     {
-        (OPEN, Open, "open", "open[path;`r;`w;`a;`t;`c;`cn]", sig!(arity!(1), named OPEN_NAMED_ARGS), plain(io::open), BuiltinGroup::FileIO),
-        (FEXISTS_Q, FexistsQ, "fexists?", "fexists?[path]", sig!(arity!(1)), plain(io::fexists), BuiltinGroup::FileIO),
-        (MKDIR, Mkdir, "mkdir", "mkdir[path]", sig!(arity!(1)), plain(io::mkdir), BuiltinGroup::FileIO),
-        (FSIZE, Fsize, "fsize", "fsize[path]", sig!(arity!(1)), plain(io::fsize), BuiltinGroup::FileIO),
-        (FWRITE, Fwrite, "fwrite", "fwrite[stream;bytes]", sig!(arity!(2)), plain(io::fwrite), BuiltinGroup::FileIO),
-        (FWRITET, Fwritet, "fwritet", "fwritet[stream;text]", sig!(arity!(2)), plain(io::fwritet), BuiltinGroup::FileIO),
-        (FREAD, Fread, "fread", "fread[stream;len?]", sig!(arity!(1, 2)), plain(io::fread), BuiltinGroup::FileIO),
-        (FREADT, Freadt, "freadt", "freadt[stream;len?]", sig!(arity!(1, 2)), plain(io::freadt), BuiltinGroup::FileIO),
-        (FREADTLN, Freadtln, "freadtln", "freadtln[stream]", sig!(arity!(1)), plain(io::freadtln), BuiltinGroup::FileIO),
-        (FREADTLNS, Freadtlns, "freadtlns", "freadtlns[stream]", sig!(arity!(1)), plain(io::freadtlns), BuiltinGroup::FileIO),
-        (FSEEK, Fseek, "fseek", "fseek[stream;offset;whence?]", sig!(arity!(2, 3)), plain(io::fseek), BuiltinGroup::FileIO),
-        (FTELL, Ftell, "ftell", "ftell[stream]", sig!(arity!(1)), plain(io::ftell), BuiltinGroup::FileIO),
-        (FCLOSE, Fclose, "fclose", "fclose[stream]", sig!(arity!(1)), plain(io::fclose), BuiltinGroup::FileIO),
+        (OPEN, Open, "open", "open[path;`r;`w;`a;`t;`c;`cn]", sig!(arity!(1), named OPEN_NAMED_ARGS), plain(io::open), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FEXISTS_Q, FexistsQ, "fexists?", "fexists?[path]", sig!(arity!(1)), plain(io::fexists), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (MKDIR, Mkdir, "mkdir", "mkdir[path]", sig!(arity!(1)), plain(io::mkdir), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FSIZE, Fsize, "fsize", "fsize[path]", sig!(arity!(1)), plain(io::fsize), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FWRITE, Fwrite, "fwrite", "fwrite[stream;bytes]", sig!(arity!(2)), plain(io::fwrite), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FWRITET, Fwritet, "fwritet", "fwritet[stream;text]", sig!(arity!(2)), plain(io::fwritet), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FREAD, Fread, "fread", "fread[stream;len?]", sig!(arity!(1, 2)), plain(io::fread), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FREADT, Freadt, "freadt", "freadt[stream;len?]", sig!(arity!(1, 2)), plain(io::freadt), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FREADTLN, Freadtln, "freadtln", "freadtln[stream]", sig!(arity!(1)), plain(io::freadtln), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FREADTLNS, Freadtlns, "freadtlns", "freadtlns[stream]", sig!(arity!(1)), plain(io::freadtlns), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FSEEK, Fseek, "fseek", "fseek[stream;offset;whence?]", sig!(arity!(2, 3)), plain(io::fseek), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FTELL, Ftell, "ftell", "ftell[stream]", sig!(arity!(1)), plain(io::ftell), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
+        (FCLOSE, Fclose, "fclose", "fclose[stream]", sig!(arity!(1)), plain(io::fclose), builtin_metadata!(FileIO, UNCONSTRAINED_EFFECT)),
     },
 
     // Meta =========================================================
-    (LEN, Len, "len", "len[xs]", sig!(arity!(1)), plain(meta::len), BuiltinGroup::Intrinsic),
-    (STRONG_COUNT, StrongCount, "strong_count", "strong_count[x]", sig!(arity!(1)), plain(meta::strong_count), BuiltinGroup::Meta),
-    (SHAPE, Shape, "shape", "shape[xs]", sig!(arity!(1)), plain(meta::shape), BuiltinGroup::Meta),
-    (DEPTH, Depth, "depth", "depth[xs]", sig!(arity!(1)), plain(meta::depth), BuiltinGroup::Meta),
-    (UNIFORM_Q, UniformQ, "uniform?", "uniform?[xs]", sig!(arity!(1)), plain(meta::is_uniform), BuiltinGroup::Meta),
+    (LEN, Len, "len", "len[xs]", sig!(arity!(1)), plain(meta::len), builtin_metadata!(Meta, REQUIRED)),
+    (SHAPE, Shape, "shape", "shape[xs]", sig!(arity!(1)), plain(meta::shape), builtin_metadata!(Meta, PURE)),
+    (DEPTH, Depth, "depth", "depth[xs]", sig!(arity!(1)), plain(meta::depth), builtin_metadata!(Meta, PURE)),
+    (UNIFORM_Q, UniformQ, "uniform?", "uniform?[xs]", sig!(arity!(1)), plain(meta::is_uniform), builtin_metadata!(Meta, PURE)),
 
     // List =========================================================
-    (SUM, Sum, "sum", "sum[xs*]", sig!(arity!(0..)), plain(list::sum), BuiltinGroup::List),
-    (PRODUCT, Product, "product", "product[xs*]", sig!(arity!(0..)), plain(list::product), BuiltinGroup::List),
-    (MIN, Min, "min", "min[xs], min[xs;ys+]", sig!(arity!(1..)), plain(list::min), BuiltinGroup::List),
-    (MAX, Max, "max", "max[xs], max[xs;ys+]", sig!(arity!(1..)), plain(list::max), BuiltinGroup::List),
-    (FLATTEN, Flatten, "flatten", "flatten[xs]", sig!(arity!(1)), plain(list::flatten), BuiltinGroup::List),
-    (REVERSE, Reverse, "reverse", "reverse[xs]", sig!(arity!(1)), plain(list::reverse), BuiltinGroup::List),
-    (V, V, "V", "V[xs]", sig!(arity!(1), alias Reverse), plain(list::reverse), BuiltinGroup::List), // alias of reverse
-    (SORT, Sort, "sort", "sort[xs]", sig!(arity!(1)), plain(list::sort), BuiltinGroup::List),
-    (SPLIT, Split, "split", "split[xs;opts?]", sig!(arity!(1, 2), named MAXSPLIT_NAMED_ARGS), plain(list::split), BuiltinGroup::List),
-    (FIND, Find, "find", "find[xs;elem;threshold?;d?]", sig!(arity!(2, 3, 4)), plain(list::find), BuiltinGroup::List, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
-    (RFIND, RFind, "rfind", "rfind[xs;elem;threshold?;d?]", sig!(arity!(2, 3, 4)), plain(list::rfind), BuiltinGroup::List, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
-    (ZIP, Zip, "zip", "zip[xs;ys;d?]", sig!(arity!(2, 3)), plain(list::zip), BuiltinGroup::List, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (SUM, Sum, "sum", "sum[xs*]", sig!(arity!(0..)), plain(list::sum), builtin_metadata!(List, PURE)),
+    (PRODUCT, Product, "product", "product[xs*]", sig!(arity!(0..)), plain(list::product), builtin_metadata!(List, PURE)),
+    (MIN, Min, "min", "min[xs], min[xs;ys+]", sig!(arity!(1..)), plain(list::min), builtin_metadata!(List, PURE)),
+    (MAX, Max, "max", "max[xs], max[xs;ys+]", sig!(arity!(1..)), plain(list::max), builtin_metadata!(List, PURE)),
+    (FLATTEN, Flatten, "flatten", "flatten[xs]", sig!(arity!(1)), plain(list::flatten), builtin_metadata!(List, PURE)),
+    (REVERSE, Reverse, "reverse", "reverse[xs]", sig!(arity!(1)), plain(list::reverse), builtin_metadata!(List, PURE)),
+    (V, V, "V", "V[xs]", sig!(arity!(1), alias Reverse), plain(list::reverse), builtin_metadata!(List, PURE)), // alias of reverse
+    (SORT, Sort, "sort", "sort[xs]", sig!(arity!(1)), plain(list::sort), builtin_metadata!(List, PURE)),
+    (SPLIT, Split, "split", "split[xs;opts?]", sig!(arity!(1, 2), named MAXSPLIT_NAMED_ARGS), plain(list::split), builtin_metadata!(List, PURE)),
+    (FIND, Find, "find", "find[xs;elem;threshold?;d?]", sig!(arity!(2, 3, 4)), plain(list::find), builtin_metadata!(List, PURE), BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
+    (RFIND, RFind, "rfind", "rfind[xs;elem;threshold?;d?]", sig!(arity!(2, 3, 4)), plain(list::rfind), builtin_metadata!(List, PURE), BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
+    (ZIP, Zip, "zip", "zip[xs;ys;d?]", sig!(arity!(2, 3)), plain(list::zip), builtin_metadata!(List, PURE), BuiltinDepthSugar::Append { non_depth_argc: 2 }),
 
     // List Gen =========================================================
-    (ALLOC, Alloc, "alloc", "alloc[shape], alloc[shape;x]", sig!(arity!(1, 2)), plain(listgen::alloc), BuiltinGroup::ListGen),
-    (TIL, Til, "til", "til[shape]", sig!(arity!(1)), plain(listgen::til), BuiltinGroup::ListGen),
-    (IOTA, Iota, "iota", "iota[shape]", sig!(arity!(1)), plain(listgen::iota), BuiltinGroup::ListGen),
-    (RANGE, Range, "range", "range[start;end], range[start;end;step]", sig!(arity!(2, 3)), plain(listgen::range), BuiltinGroup::ListGen),
+    (ALLOC, Alloc, "alloc", "alloc[shape], alloc[shape;x]", sig!(arity!(1, 2)), plain(listgen::alloc), builtin_metadata!(ListGen, PURE)),
+    (TIL, Til, "til", "til[shape]", sig!(arity!(1)), plain(listgen::til), builtin_metadata!(ListGen, PURE)),
+    (IOTA, Iota, "iota", "iota[shape]", sig!(arity!(1)), plain(listgen::iota), builtin_metadata!(ListGen, PURE)),
+    (RANGE, Range, "range", "range[start;end], range[start;end;step]", sig!(arity!(2, 3)), plain(listgen::range), builtin_metadata!(ListGen, PURE)),
 
-    (RESHAPE, Reshape, "reshape", "reshape[xs;shape]", sig!(arity!(2)), plain(listgen::reshape), BuiltinGroup::ListGen),
-    (R, R, "R", "R[xs;shape]", sig!(arity!(2), alias Reshape), plain(listgen::reshape), BuiltinGroup::ListGen), // alias of reshape
-    (TRANSPOSE, Transpose, "transpose", "transpose[x;axes?]", sig!(arity!(1, 2)), plain(listgen::transpose::transpose), BuiltinGroup::ListGen),
-    (TP, TP, "TP", "TP[x;axes?]", sig!(arity!(1, 2), alias Transpose), plain(listgen::transpose::transpose), BuiltinGroup::ListGen), // alias of transpose
+    (RESHAPE, Reshape, "reshape", "reshape[xs;shape]", sig!(arity!(2)), plain(listgen::reshape), builtin_metadata!(ListGen, PURE)),
+    (R, R, "R", "R[xs;shape]", sig!(arity!(2), alias Reshape), plain(listgen::reshape), builtin_metadata!(ListGen, PURE)), // alias of reshape
+    (TRANSPOSE, Transpose, "transpose", "transpose[x;axes?]", sig!(arity!(1, 2)), plain(listgen::transpose::transpose), builtin_metadata!(Mat, PURE)),
+    (TP, TP, "TP", "TP[x;axes?]", sig!(arity!(1, 2), alias Transpose), plain(listgen::transpose::transpose), builtin_metadata!(Mat, PURE)), // alias of transpose
 
-    (REPEAT, Repeat, "repeat", "repeat[xs;n]", sig!(arity!(2)), plain(listgen::repeat), BuiltinGroup::ListGen),
-    (WHERE, Where, "where", "where[xs]", sig!(arity!(1)), plain(listgen::wq_where), BuiltinGroup::ListGen),
-    (Z, Z, "Z", "Z[xs]", sig!(arity!(1), alias Where), plain(listgen::wq_where), BuiltinGroup::ListGen), // alias of where
+    (REPEAT, Repeat, "repeat", "repeat[xs;n]", sig!(arity!(2)), plain(listgen::repeat), builtin_metadata!(ListGen, PURE)),
+    (WHERE, Where, "where", "where[xs]", sig!(arity!(1)), plain(listgen::wq_where), builtin_metadata!(ListGen, PURE)),
+    (Z, Z, "Z", "Z[xs]", sig!(arity!(1), alias Where), plain(listgen::wq_where), builtin_metadata!(ListGen, PURE)), // alias of where
 
     // Higher-order =========================================================
-    (APPLY, Apply, "apply", "apply[fs;x]", sig!(arity!(2)), with_context(ho::apply), BuiltinGroup::HigherOrder),
-    (MAP, Map, "map", "map[xs;f;d?]", sig!(arity!(2, 3)), with_context(ho::map), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
-    (M, M, "M", "M[xs;f;d?]", sig!(arity!(2, 3), alias Map), with_context(ho::map), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }), // alias of map
-    (FOLD, Fold, "fold", "fold[xs;f;i?]", sig!(arity!(2, 3)), with_context(ho::fold), BuiltinGroup::HigherOrder),
-    (REDUCE, Reduce, "reduce", "reduce[xs;f;i?]", sig!(arity!(2, 3), alias Fold), with_context(ho::fold), BuiltinGroup::HigherOrder), // alias of fold
-    (SCAN, Scan, "scan", "scan[xs;f;acc?]", sig!(arity!(2, 3)), with_context(ho::scan), BuiltinGroup::HigherOrder),
-    (RSCAN, RScan, "rscan", "rscan[xs;f;acc?]", sig!(arity!(2, 3)), with_context(ho::rscan), BuiltinGroup::HigherOrder),
-    (ANY, Any, "any", "any[xs;f;d?]", sig!(arity!(2, 3)), with_context(ho::any), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
-    (ALL, All, "all", "all[xs;f;d?]", sig!(arity!(2, 3)), with_context(ho::all), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
-    (FILTER, Filter, "filter", "filter[xs;f]", sig!(arity!(2)), with_context(ho::filter), BuiltinGroup::HigherOrder),
+    (APPLY, Apply, "apply", "apply[fs;x]", sig!(arity!(2)), with_context(ho::apply), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL)),
+    (MAP, Map, "map", "map[xs;f;d?]", sig!(arity!(2, 3)), with_context(ho::map), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL), BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (M, M, "M", "M[xs;f;d?]", sig!(arity!(2, 3), alias Map), with_context(ho::map), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL), BuiltinDepthSugar::Append { non_depth_argc: 2 }), // alias of map
+    (FOLD, Fold, "fold", "fold[xs;f;i?]", sig!(arity!(2, 3)), with_context(ho::fold), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL)),
+    (REDUCE, Reduce, "reduce", "reduce[xs;f;i?]", sig!(arity!(2, 3), alias Fold), with_context(ho::fold), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL)), // alias of fold
+    (SCAN, Scan, "scan", "scan[xs;f;acc?]", sig!(arity!(2, 3)), with_context(ho::scan), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL)),
+    (RSCAN, RScan, "rscan", "rscan[xs;f;acc?]", sig!(arity!(2, 3)), with_context(ho::rscan), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL)),
+    (ANY, Any, "any", "any[xs;f;d?]", sig!(arity!(2, 3)), with_context(ho::any), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL), BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (ALL, All, "all", "all[xs;f;d?]", sig!(arity!(2, 3)), with_context(ho::all), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL), BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (FILTER, Filter, "filter", "filter[xs;f]", sig!(arity!(2)), with_context(ho::filter), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL)),
 
-    (ZIPW, ZipW, "zipw", "zipw[xs;ys;f;d?]", sig!(arity!(3, 4)), with_context(ho::zipw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::Append { non_depth_argc: 3 }),
-    (SPLITW, SplitW, "splitw", "splitw[xs;f;`m]", sig!(arity!(2), named MAXSPLIT_NAMED_ARGS), with_context(ho::splitw), BuiltinGroup::HigherOrder),
-    (FINDW, FindW, "findw", "findw[xs;f;threshold?;d?]", sig!(arity!(2, 3, 4)), with_context(ho::findw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
-    (RFINDW, RFindW, "rfindw", "rfindw[xs;f;threshold?;d?]", sig!(arity!(2, 3, 4)), with_context(ho::rfindw), BuiltinGroup::HigherOrder, BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
+    (ZIPW, ZipW, "zipw", "zipw[xs;ys;f;d?]", sig!(arity!(3, 4)), with_context(ho::zipw), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL), BuiltinDepthSugar::Append { non_depth_argc: 3 }),
+    (SPLITW, SplitW, "splitw", "splitw[xs;f;`m]", sig!(arity!(2), named MAXSPLIT_NAMED_ARGS), with_context(ho::splitw), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL)),
+    (FINDW, FindW, "findw", "findw[xs;f;threshold?;d?]", sig!(arity!(2, 3, 4)), with_context(ho::findw), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL), BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
+    (RFINDW, RFindW, "rfindw", "rfindw[xs;f;threshold?;d?]", sig!(arity!(2, 3, 4)), with_context(ho::rfindw), builtin_metadata!(HigherOrder, PURE_CONTEXTUAL), BuiltinDepthSugar::AppendDefaultInt { required_argc: 2, optional_argc: 3, default: 1 }),
 
     // Dict =========================================================
-    (KEYS, Keys, "keys", "keys[dct]", sig!(arity!(1)), plain(dict::keys), BuiltinGroup::Dict),
-    (IDX_TO_KEY, IdxToKey, "itk", "itk[dct;i]", sig!(arity!(2)), plain(dict::idx_to_key), BuiltinGroup::Dict),
-    (KEY_TO_IDX, KeyToIdx, "kti", "kti[dct;k]", sig!(arity!(2)), plain(dict::key_to_idx), BuiltinGroup::Dict),
+    (KEYS, Keys, "keys", "keys[dct]", sig!(arity!(1)), plain(dict::keys), builtin_metadata!(Dict, PURE)),
+    (IDX_TO_KEY, IdxToKey, "itk", "itk[dct;i]", sig!(arity!(2)), plain(dict::idx_to_key), builtin_metadata!(Dict, PURE)),
+    (KEY_TO_IDX, KeyToIdx, "kti", "kti[dct;k]", sig!(arity!(2)), plain(dict::key_to_idx), builtin_metadata!(Dict, PURE)),
 
     // Set ==========================================================
-    (UNIQUE, Unique, "unique", "unique[xs]", sig!(arity!(1)), plain(set::unique), BuiltinGroup::Set),
-    (COUNTS, Counts, "counts", "counts[xs]", sig!(arity!(1)), plain(set::counts), BuiltinGroup::Set),
-    (UNION, Union, "union", "union[xs;ys]", sig!(arity!(2)), plain(set::union), BuiltinGroup::Set),
-    (INTERSECT, Intersect, "intersect", "intersect[xs;ys]", sig!(arity!(2)), plain(set::intersect), BuiltinGroup::Set),
-    (WITHOUT, Without, "without", "without[xs;ys]", sig!(arity!(2)), plain(set::without), BuiltinGroup::Set),
-    (SYMDIFF, Symdiff, "symdiff", "symdiff[xs;ys]", sig!(arity!(2)), plain(set::symdiff), BuiltinGroup::Set),
-    (SUB_Q, SubQ, "sub?", "sub?[xs;ys]", sig!(arity!(2)), plain(set::subset), BuiltinGroup::Set),
-    (SUPER_Q, SuperQ, "super?", "super?[xs;ys]", sig!(arity!(2)), plain(set::superset), BuiltinGroup::Set),
-    (P_SUB_Q, PSubQ, "psub?", "psub?[xs;ys]", sig!(arity!(2)), plain(set::proper_subset), BuiltinGroup::Set),
-    (P_SUPER_Q, PSuperQ, "psuper?", "psuper?[xs;ys]", sig!(arity!(2)), plain(set::proper_superset), BuiltinGroup::Set),
-    (MEMBER_Q, MemberQ, "member?", "member?[xs;ys]", sig!(arity!(2)), plain(set::member), BuiltinGroup::Set),
-    (CART, Cart, "cart", "cart[xs;ys]", sig!(arity!(2)), plain(set::carproduct), BuiltinGroup::Set),
-    (IN_Q, InQ, "in?", "in?[x;xs;d?]", sig!(arity!(2, 3)), plain(set::in_), BuiltinGroup::Set, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
-    (HAS_Q, HasQ, "has?", "has?[xs;x;d?]", sig!(arity!(2, 3)), plain(set::has), BuiltinGroup::Set, BuiltinDepthSugar::Append { non_depth_argc: 2 }),
-    (DISJOINT_Q, DisjointQ, "disjoint?", "disjoint?[xs;ys]", sig!(arity!(2)), plain(set::disjoint), BuiltinGroup::Set),
-    (MULTIPLICITY, Multiplicity, "multiplicity", "multiplicity[x;xs]", sig!(arity!(2)), plain(set::multiplicity), BuiltinGroup::Set),
+    (UNIQUE, Unique, "unique", "unique[xs]", sig!(arity!(1)), plain(set::unique), builtin_metadata!(Set, PURE)),
+    (COUNTS, Counts, "counts", "counts[xs]", sig!(arity!(1)), plain(set::counts), builtin_metadata!(Set, PURE)),
+    (UNION, Union, "union", "union[xs;ys]", sig!(arity!(2)), plain(set::union), builtin_metadata!(Set, PURE)),
+    (INTERSECT, Intersect, "intersect", "intersect[xs;ys]", sig!(arity!(2)), plain(set::intersect), builtin_metadata!(Set, PURE)),
+    (WITHOUT, Without, "without", "without[xs;ys]", sig!(arity!(2)), plain(set::without), builtin_metadata!(Set, PURE)),
+    (SYMDIFF, Symdiff, "symdiff", "symdiff[xs;ys]", sig!(arity!(2)), plain(set::symdiff), builtin_metadata!(Set, PURE)),
+    (SUB_Q, SubQ, "sub?", "sub?[xs;ys]", sig!(arity!(2)), plain(set::subset), builtin_metadata!(Set, PURE)),
+    (SUPER_Q, SuperQ, "super?", "super?[xs;ys]", sig!(arity!(2)), plain(set::superset), builtin_metadata!(Set, PURE)),
+    (P_SUB_Q, PSubQ, "psub?", "psub?[xs;ys]", sig!(arity!(2)), plain(set::proper_subset), builtin_metadata!(Set, PURE)),
+    (P_SUPER_Q, PSuperQ, "psuper?", "psuper?[xs;ys]", sig!(arity!(2)), plain(set::proper_superset), builtin_metadata!(Set, PURE)),
+    (MEMBER_Q, MemberQ, "member?", "member?[xs;ys]", sig!(arity!(2)), plain(set::member), builtin_metadata!(Set, PURE)),
+    (CART, Cart, "cart", "cart[xs;ys]", sig!(arity!(2)), plain(set::carproduct), builtin_metadata!(Set, PURE)),
+    (IN_Q, InQ, "in?", "in?[x;xs;d?]", sig!(arity!(2, 3)), plain(set::in_), builtin_metadata!(Set, PURE), BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (HAS_Q, HasQ, "has?", "has?[xs;x;d?]", sig!(arity!(2, 3)), plain(set::has), builtin_metadata!(Set, PURE), BuiltinDepthSugar::Append { non_depth_argc: 2 }),
+    (DISJOINT_Q, DisjointQ, "disjoint?", "disjoint?[xs;ys]", sig!(arity!(2)), plain(set::disjoint), builtin_metadata!(Set, PURE)),
+    (MULTIPLICITY, Multiplicity, "multiplicity", "multiplicity[x;xs]", sig!(arity!(2)), plain(set::multiplicity), builtin_metadata!(Set, PURE)),
 
     // Logical ======================================================
-    (NOT, Not, "not", "not[xs]", sig!(arity!(1)), plain(logical::not), BuiltinGroup::Logical),
-    (XOR, Xor, "xor", "xor[xs;ys+]", sig!(arity!(2..)), plain(logical::xor), BuiltinGroup::Logical),
+    (NOT, Not, "not", "not[xs]", sig!(arity!(1)), plain(logical::not), builtin_metadata!(Logical, PURE)),
+    (XOR, Xor, "xor", "xor[xs;ys+]", sig!(arity!(2..)), plain(logical::xor), builtin_metadata!(Logical, PURE)),
 
-    (AND, And, "and", "and[xs;ys+]", sig!(arity!(2..)), plain(logical::and), BuiltinGroup::Logical),
-    (OR, Or, "or", "or[xs;ys+]", sig!(arity!(2..)), plain(logical::or), BuiltinGroup::Logical),
+    (AND, And, "and", "and[xs;ys+]", sig!(arity!(2..)), plain(logical::and), builtin_metadata!(Logical, PURE)),
+    (OR, Or, "or", "or[xs;ys+]", sig!(arity!(2..)), plain(logical::or), builtin_metadata!(Logical, PURE)),
 
-    (BAND, Band, "band", "band[xs;ys+]", sig!(arity!(2..)), plain(logical::band), BuiltinGroup::Logical),
-    (BOR, Bor, "bor", "bor[xs;ys+]", sig!(arity!(2..)), plain(logical::bor), BuiltinGroup::Logical),
+    (BAND, Band, "band", "band[xs;ys+]", sig!(arity!(2..)), plain(logical::band), builtin_metadata!(Logical, PURE)),
+    (BOR, Bor, "bor", "bor[xs;ys+]", sig!(arity!(2..)), plain(logical::bor), builtin_metadata!(Logical, PURE)),
 
-    (SHL, Shl, "shl", "shl[xs;shift+]", sig!(arity!(2..)), plain(logical::shl), BuiltinGroup::Logical),
-    (SHR, Shr, "shr", "shr[xs;shift+]", sig!(arity!(2..)), plain(logical::shr), BuiltinGroup::Logical),
+    (SHL, Shl, "shl", "shl[xs;shift+]", sig!(arity!(2..)), plain(logical::shl), builtin_metadata!(Logical, PURE)),
+    (SHR, Shr, "shr", "shr[xs;shift+]", sig!(arity!(2..)), plain(logical::shr), builtin_metadata!(Logical, PURE)),
 
     // Math =========================================================
-    (NEG, Neg, "neg", "neg[xs]", sig!(arity!(1)), plain(math::neg), BuiltinGroup::Math),
-    (ABS, Abs, "abs", "abs[xs]", sig!(arity!(1)), plain(math::abs), BuiltinGroup::Math),
-    (SGN, Sgn, "sgn", "sgn[xs]", sig!(arity!(1)), plain(math::sgn), BuiltinGroup::Math),
-    (SQRT, Sqrt, "sqrt", "sqrt[xs]", sig!(arity!(1)), plain(math::sqrt), BuiltinGroup::Math),
-    (EXP, Exp, "exp", "exp[xs]", sig!(arity!(1)), plain(math::exp), BuiltinGroup::Math),
-    (LN, Ln, "ln", "ln[xs]", sig!(arity!(1)), plain(math::ln), BuiltinGroup::Math),
-    (LOG2, Log2, "log2", "log2[xs]", sig!(arity!(1)), plain(math::log2), BuiltinGroup::Math),
-    (LOG10, Log10, "log10", "log10[xs]", sig!(arity!(1)), plain(math::log10), BuiltinGroup::Math),
-    (FLOOR, Floor, "floor", "floor[xs;d?]", sig!(arity!(1, 2)), plain(math::floor), BuiltinGroup::Math),
-    (CEIL, Ceil, "ceil", "ceil[xs;d?]", sig!(arity!(1, 2)), plain(math::ceil), BuiltinGroup::Math),
-    (ROUND, Round, "round", "round[xs;d?]", sig!(arity!(1, 2)), plain(math::round), BuiltinGroup::Math),
+    (NEG, Neg, "neg", "neg[xs]", sig!(arity!(1)), plain(math::neg), builtin_metadata!(Math, PURE)),
+    (ABS, Abs, "abs", "abs[xs]", sig!(arity!(1)), plain(math::abs), builtin_metadata!(Math, PURE)),
+    (SGN, Sgn, "sgn", "sgn[xs]", sig!(arity!(1)), plain(math::sgn), builtin_metadata!(Math, PURE)),
+    (SQRT, Sqrt, "sqrt", "sqrt[xs]", sig!(arity!(1)), plain(math::sqrt), builtin_metadata!(Math, PURE)),
+    (EXP, Exp, "exp", "exp[xs]", sig!(arity!(1)), plain(math::exp), builtin_metadata!(Math, PURE)),
+    (LN, Ln, "ln", "ln[xs]", sig!(arity!(1)), plain(math::ln), builtin_metadata!(Math, PURE)),
+    (LOG2, Log2, "log2", "log2[xs]", sig!(arity!(1)), plain(math::log2), builtin_metadata!(Math, PURE)),
+    (LOG10, Log10, "log10", "log10[xs]", sig!(arity!(1)), plain(math::log10), builtin_metadata!(Math, PURE)),
+    (FLOOR, Floor, "floor", "floor[xs;d?]", sig!(arity!(1, 2)), plain(math::floor), builtin_metadata!(Math, PURE)),
+    (CEIL, Ceil, "ceil", "ceil[xs;d?]", sig!(arity!(1, 2)), plain(math::ceil), builtin_metadata!(Math, PURE)),
+    (ROUND, Round, "round", "round[xs;d?]", sig!(arity!(1, 2)), plain(math::round), builtin_metadata!(Math, PURE)),
 
-    (SIN, Sin, "sin", "sin[xs]", sig!(arity!(1)), plain(math::sin), BuiltinGroup::Math),
-    (COS, Cos, "cos", "cos[xs]", sig!(arity!(1)), plain(math::cos), BuiltinGroup::Math),
-    (TAN, Tan, "tan", "tan[xs]", sig!(arity!(1)), plain(math::tan), BuiltinGroup::Math),
-    (SEC, Sec, "sec", "sec[xs]", sig!(arity!(1)), plain(math::sec), BuiltinGroup::Math),
-    (CSC, Csc, "csc", "csc[xs]", sig!(arity!(1)), plain(math::csc), BuiltinGroup::Math),
-    (COT, Cot, "cot", "cot[xs]", sig!(arity!(1)), plain(math::cot), BuiltinGroup::Math),
-    (ARCSIN, Arcsin, "arcsin", "arcsin[xs]", sig!(arity!(1)), plain(math::arcsin), BuiltinGroup::Math),
-    (ARCCOS, Arccos, "arccos", "arccos[xs]", sig!(arity!(1)), plain(math::arccos), BuiltinGroup::Math),
-    (ARCTAN, Arctan, "arctan", "arctan[xs]", sig!(arity!(1)), plain(math::arctan), BuiltinGroup::Math),
-    (SINH, Sinh, "sinh", "sinh[xs]", sig!(arity!(1)), plain(math::sinh), BuiltinGroup::Math),
-    (COSH, Cosh, "cosh", "cosh[xs]", sig!(arity!(1)), plain(math::cosh), BuiltinGroup::Math),
-    (TANH, Tanh, "tanh", "tanh[xs]", sig!(arity!(1)), plain(math::tanh), BuiltinGroup::Math),
-    (ARCSINH, Arcsinh, "arcsinh", "arcsinh[xs]", sig!(arity!(1)), plain(math::arcsinh), BuiltinGroup::Math),
-    (ARCCOSH, Arccosh, "arccosh", "arccosh[xs]", sig!(arity!(1)), plain(math::arccosh), BuiltinGroup::Math),
-    (ARCTANH, Arctanh, "arctanh", "arctanh[xs]", sig!(arity!(1)), plain(math::arctanh), BuiltinGroup::Math),
-    (LOG, Log, "log", "log[x;a]", sig!(arity!(2)), plain(math::log), BuiltinGroup::Math),
-    (ARCTAN2, Arctan2, "arctan2", "arctan2[y;x]", sig!(arity!(2)), plain(math::arctan2), BuiltinGroup::Math),
+    (SIN, Sin, "sin", "sin[xs]", sig!(arity!(1)), plain(math::sin), builtin_metadata!(Math, PURE)),
+    (COS, Cos, "cos", "cos[xs]", sig!(arity!(1)), plain(math::cos), builtin_metadata!(Math, PURE)),
+    (TAN, Tan, "tan", "tan[xs]", sig!(arity!(1)), plain(math::tan), builtin_metadata!(Math, PURE)),
+    (SEC, Sec, "sec", "sec[xs]", sig!(arity!(1)), plain(math::sec), builtin_metadata!(Math, PURE)),
+    (CSC, Csc, "csc", "csc[xs]", sig!(arity!(1)), plain(math::csc), builtin_metadata!(Math, PURE)),
+    (COT, Cot, "cot", "cot[xs]", sig!(arity!(1)), plain(math::cot), builtin_metadata!(Math, PURE)),
+    (ARCSIN, Arcsin, "arcsin", "arcsin[xs]", sig!(arity!(1)), plain(math::arcsin), builtin_metadata!(Math, PURE)),
+    (ARCCOS, Arccos, "arccos", "arccos[xs]", sig!(arity!(1)), plain(math::arccos), builtin_metadata!(Math, PURE)),
+    (ARCTAN, Arctan, "arctan", "arctan[xs]", sig!(arity!(1)), plain(math::arctan), builtin_metadata!(Math, PURE)),
+    (SINH, Sinh, "sinh", "sinh[xs]", sig!(arity!(1)), plain(math::sinh), builtin_metadata!(Math, PURE)),
+    (COSH, Cosh, "cosh", "cosh[xs]", sig!(arity!(1)), plain(math::cosh), builtin_metadata!(Math, PURE)),
+    (TANH, Tanh, "tanh", "tanh[xs]", sig!(arity!(1)), plain(math::tanh), builtin_metadata!(Math, PURE)),
+    (ARCSINH, Arcsinh, "arcsinh", "arcsinh[xs]", sig!(arity!(1)), plain(math::arcsinh), builtin_metadata!(Math, PURE)),
+    (ARCCOSH, Arccosh, "arccosh", "arccosh[xs]", sig!(arity!(1)), plain(math::arccosh), builtin_metadata!(Math, PURE)),
+    (ARCTANH, Arctanh, "arctanh", "arctanh[xs]", sig!(arity!(1)), plain(math::arctanh), builtin_metadata!(Math, PURE)),
+    (LOG, Log, "log", "log[x;a]", sig!(arity!(2)), plain(math::log), builtin_metadata!(Math, PURE)),
+    (ARCTAN2, Arctan2, "arctan2", "arctan2[y;x]", sig!(arity!(2)), plain(math::arctan2), builtin_metadata!(Math, PURE)),
 
-    (ERF, Erf, "erf", "erf[xs]", sig!(arity!(1)), plain(math::erf), BuiltinGroup::Math),
-    (ERFC, Erfc, "erfc", "erfc[xs]", sig!(arity!(1)), plain(math::erfc), BuiltinGroup::Math),
-    (GAMMA, Gamma, "gamma", "gamma[xs]", sig!(arity!(1)), plain(math::gamma), BuiltinGroup::Math),
-    (LNGAMMA, Lngamma, "lngamma", "lngamma[xs]", sig!(arity!(1)), plain(math::lngamma), BuiltinGroup::Math),
-    (SI, Si, "si", "si[xs]", sig!(arity!(1)), plain(math::si), BuiltinGroup::Math),
-    (CI, Ci, "ci", "ci[xs]", sig!(arity!(1)), plain(math::ci), BuiltinGroup::Math),
-    (EI, Ei, "ei", "ei[xs]", sig!(arity!(1)), plain(math::ei), BuiltinGroup::Math),
-    (EN, En, "en", "en[n;xs]", sig!(arity!(2)), plain(math::en), BuiltinGroup::Math),
-    (ELLPK, Ellpk, "ellpk", "ellpk[xs]", sig!(arity!(1)), plain(math::ellpk), BuiltinGroup::Math),
-    (ELLPE, Ellpe, "ellpe", "ellpe[xs]", sig!(arity!(1)), plain(math::ellpe), BuiltinGroup::Math),
-    (ELLIK, Ellik, "ellik", "ellik[phi;m]", sig!(arity!(2)), plain(math::ellik), BuiltinGroup::Math),
-    (ELLIE, Ellie, "ellie", "ellie[phi;m]", sig!(arity!(2)), plain(math::ellie), BuiltinGroup::Math),
-    (HEAVISIDE, Heaviside, "heaviside", "heaviside[xs]", sig!(arity!(1)), plain(math::heaviside), BuiltinGroup::Math),
-    (DELTA, Delta, "delta", "delta[xs]", sig!(arity!(1)), plain(math::delta), BuiltinGroup::Math),
+    (ERF, Erf, "erf", "erf[xs]", sig!(arity!(1)), plain(math::erf), builtin_metadata!(Math, PURE)),
+    (ERFC, Erfc, "erfc", "erfc[xs]", sig!(arity!(1)), plain(math::erfc), builtin_metadata!(Math, PURE)),
+    (GAMMA, Gamma, "gamma", "gamma[xs]", sig!(arity!(1)), plain(math::gamma), builtin_metadata!(Math, PURE)),
+    (LNGAMMA, Lngamma, "lngamma", "lngamma[xs]", sig!(arity!(1)), plain(math::lngamma), builtin_metadata!(Math, PURE)),
+    (SI, Si, "si", "si[xs]", sig!(arity!(1)), plain(math::si), builtin_metadata!(Math, PURE)),
+    (CI, Ci, "ci", "ci[xs]", sig!(arity!(1)), plain(math::ci), builtin_metadata!(Math, PURE)),
+    (EI, Ei, "ei", "ei[xs]", sig!(arity!(1)), plain(math::ei), builtin_metadata!(Math, PURE)),
+    (EN, En, "en", "en[n;xs]", sig!(arity!(2)), plain(math::en), builtin_metadata!(Math, PURE)),
+    (ELLPK, Ellpk, "ellpk", "ellpk[xs]", sig!(arity!(1)), plain(math::ellpk), builtin_metadata!(Math, PURE)),
+    (ELLPE, Ellpe, "ellpe", "ellpe[xs]", sig!(arity!(1)), plain(math::ellpe), builtin_metadata!(Math, PURE)),
+    (ELLIK, Ellik, "ellik", "ellik[phi;m]", sig!(arity!(2)), plain(math::ellik), builtin_metadata!(Math, PURE)),
+    (ELLIE, Ellie, "ellie", "ellie[phi;m]", sig!(arity!(2)), plain(math::ellie), builtin_metadata!(Math, PURE)),
+    (HEAVISIDE, Heaviside, "heaviside", "heaviside[xs]", sig!(arity!(1)), plain(math::heaviside), builtin_metadata!(Math, PURE)),
+    (DELTA, Delta, "delta", "delta[xs]", sig!(arity!(1)), plain(math::delta), builtin_metadata!(Math, PURE)),
 
     // Rand
-    (RAND, Rand, "rand", "rand[]; rand[upper]; rand[lower;upper]", sig!(arity!(0, 1, 2)), plain(math::rand), BuiltinGroup::Rand),
+    (RAND, Rand, "rand", "rand[]; rand[upper]; rand[lower;upper]", sig!(arity!(0, 1, 2)), plain(math::rand), builtin_metadata!(Rand, CONSTRAINED_EFFECT)),
 
     // Complex
-    (COMPLEX, Complex, "complex", "complex[re;im]", sig!(arity!(2)), plain(complex::complex), BuiltinGroup::Complex),
-    (RE, Re, "re", "re[x]", sig!(arity!(1)), plain(complex::real), BuiltinGroup::Complex),
-    (IM, Im, "im", "im[x]", sig!(arity!(1)), plain(complex::imag), BuiltinGroup::Complex),
-    (CONJ, Conj, "conj", "conj[x]", sig!(arity!(1)), plain(complex::conj), BuiltinGroup::Complex),
+    (COMPLEX, Complex, "complex", "complex[re;im]", sig!(arity!(2)), plain(complex::complex), builtin_metadata!(Complex, PURE)),
+    (RE, Re, "re", "re[x]", sig!(arity!(1)), plain(complex::real), builtin_metadata!(Complex, PURE)),
+    (IM, Im, "im", "im[x]", sig!(arity!(1)), plain(complex::imag), builtin_metadata!(Complex, PURE)),
+    (CONJ, Conj, "conj", "conj[x]", sig!(arity!(1)), plain(complex::conj), builtin_metadata!(Complex, PURE)),
 
     // Fraction
-    (FRACTION, Fraction, "fraction", "fraction[xs;lim?]", sig!(arity!(1, 2)), plain(fraction::fraction), BuiltinGroup::Fraction),
-    (FRACTIONL, Fractionl, "fractionl", "fractionl[xs]", sig!(arity!(1)), plain(fraction::fractionl), BuiltinGroup::Fraction),
+    (FRACTION, Fraction, "fraction", "fraction[xs;lim?]", sig!(arity!(1, 2)), plain(fraction::fraction), builtin_metadata!(Fraction, PURE)),
+    (FRACTIONL, Fractionl, "fractionl", "fractionl[xs]", sig!(arity!(1)), plain(fraction::fractionl), builtin_metadata!(Fraction, PURE)),
 
     // CAS
-    (EQ, Eq, "eq", "eq[lhs;rhs]", sig!(arity!(2)), plain(cas::eq), BuiltinGroup::Cas),
-    (SIMPLIFY, Simplify, "simplify", "simplify[expr]", sig!(arity!(1)), plain(cas::simplify), BuiltinGroup::Cas),
-    (REWRITE, Rewrite, "rewrite", "rewrite[expr]", sig!(arity!(1)), plain(cas::rewrite), BuiltinGroup::Cas),
-    (NUMERIC, Numeric, "numeric", "numeric[expr], numeric[expr;`name:val...]", sig!(arity!(1), defer), plain(cas::numeric), BuiltinGroup::Cas),
-    (DIFF, Diff, "diff", "diff[expr;var?]", sig!(arity!(1, 2)), plain(cas::diff), BuiltinGroup::Cas),
-    (D, D, "D", "D[expr;var?]", sig!(arity!(1, 2), alias Diff), plain(cas::diff), BuiltinGroup::Cas), // alias of diff
-    (SUBSTITUTE, Substitute, "substitute", "substitute[expr;eqs], substitute[expr;var;val], substitute[expr;`name:val...]", sig!(arity!(1, 2, 3), defer), plain(cas::substitute), BuiltinGroup::Cas),
-    (EXPAND, Expand, "expand", "expand[expr]", sig!(arity!(1)), plain(cas::expand), BuiltinGroup::Cas),
-    (FACTOR_COMMON, FactorCommon, "factor_common", "factor_common[expr]", sig!(arity!(1)), plain(cas::factor_common), BuiltinGroup::Cas),
-    (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;1], factor[expr;1;var]", sig!(arity!(1, 2, 3)), plain(cas::factor_poly), BuiltinGroup::Cas),
-    (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", sig!(arity!(1, 2, 4)), plain(cas::integrate), BuiltinGroup::Cas),
-    (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", sig!(arity!(1, 2, 4), alias Integrate), plain(cas::integrate), BuiltinGroup::Cas), // alias of integrate
-    (LIMIT, Limit, "limit", "limit[expr;point;`d], limit[expr;var;point;`d]", sig!(arity!(2..), named LIMIT_NAMED_ARGS), plain(cas::limit), BuiltinGroup::Cas),
-    (SOLVE, Solve, "solve", "solve[expr], solve[expr;var], solve[eq;var]", sig!(arity!(1, 2)), plain(cas::solve), BuiltinGroup::Cas),
-    (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs], solve_system[eqs;vars]", sig!(arity!(1, 2)), plain(cas::solve_system), BuiltinGroup::Cas),
-    (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", sig!(arity!(3, 4, 5)), plain(cas::brent), BuiltinGroup::Cas),
-    (NEWTON, Newton, "newton", "newton[expr;x0], newton[expr;x0;tol], newton[expr;x0;tol;max_iter], newton[eq;x0]", sig!(arity!(2, 3, 4)), plain(cas::newton), BuiltinGroup::Cas),
+    (EQ, Eq, "eq", "eq[lhs;rhs]", sig!(arity!(2)), plain(cas::eq), builtin_metadata!(Cas, PURE)),
+    (SIMPLIFY, Simplify, "simplify", "simplify[expr]", sig!(arity!(1)), plain(cas::simplify), builtin_metadata!(Cas, PURE)),
+    (REWRITE, Rewrite, "rewrite", "rewrite[expr]", sig!(arity!(1)), plain(cas::rewrite), builtin_metadata!(Cas, PURE)),
+    (NUMERIC, Numeric, "numeric", "numeric[expr], numeric[expr;`name:val...]", sig!(arity!(1), defer), plain(cas::numeric), builtin_metadata!(Cas, PURE)),
+    (DIFF, Diff, "diff", "diff[expr;var?]", sig!(arity!(1, 2)), plain(cas::diff), builtin_metadata!(Cas, PURE)),
+    (D, D, "D", "D[expr;var?]", sig!(arity!(1, 2), alias Diff), plain(cas::diff), builtin_metadata!(Cas, PURE)), // alias of diff
+    (SUBSTITUTE, Substitute, "substitute", "substitute[expr;eqs], substitute[expr;var;val], substitute[expr;`name:val...]", sig!(arity!(1, 2, 3), defer), plain(cas::substitute), builtin_metadata!(Cas, PURE)),
+    (EXPAND, Expand, "expand", "expand[expr]", sig!(arity!(1)), plain(cas::expand), builtin_metadata!(Cas, PURE)),
+    (FACTOR_COMMON, FactorCommon, "factor_common", "factor_common[expr]", sig!(arity!(1)), plain(cas::factor_common), builtin_metadata!(Cas, PURE)),
+    (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;1], factor[expr;1;var]", sig!(arity!(1, 2, 3)), plain(cas::factor_poly), builtin_metadata!(Cas, PURE)),
+    (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", sig!(arity!(1, 2, 4)), plain(cas::integrate), builtin_metadata!(Cas, PURE)),
+    (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", sig!(arity!(1, 2, 4), alias Integrate), plain(cas::integrate), builtin_metadata!(Cas, PURE)), // alias of integrate
+    (LIMIT, Limit, "limit", "limit[expr;point;`d], limit[expr;var;point;`d]", sig!(arity!(2..), named LIMIT_NAMED_ARGS), plain(cas::limit), builtin_metadata!(Cas, PURE)),
+    (SOLVE, Solve, "solve", "solve[expr], solve[expr;var], solve[eq;var]", sig!(arity!(1, 2)), plain(cas::solve), builtin_metadata!(Cas, PURE)),
+    (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs], solve_system[eqs;vars]", sig!(arity!(1, 2)), plain(cas::solve_system), builtin_metadata!(Cas, PURE)),
+    (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", sig!(arity!(3, 4, 5)), plain(cas::brent), builtin_metadata!(Cas, PURE)),
+    (NEWTON, Newton, "newton", "newton[expr;x0], newton[expr;x0;tol], newton[expr;x0;tol;max_iter], newton[eq;x0]", sig!(arity!(2, 3, 4)), plain(cas::newton), builtin_metadata!(Cas, PURE)),
 
     // String =========================================================
-    (STR, Str, "str", "str[x]", sig!(arity!(1)), plain(string::to_str), BuiltinGroup::Str),
-    (GRAPHEMES, Graphemes, "graphemes", "graphemes[s]", sig!(arity!(1)), plain(string::graphemes), BuiltinGroup::Str),
-    (WS_Q, WsQ, "ws?", "ws?[c]", sig!(arity!(1)), plain(string::is_whitespace), BuiltinGroup::Str),
-    (WORDS, Words, "words", "words[s]", sig!(arity!(1)), plain(string::words), BuiltinGroup::Str),
-    (TRIM, Trim, "trim", "trim[s]", sig!(arity!(1)), plain(string::trim), BuiltinGroup::Str),
-    (L_TRIM, LTrim, "ltrim", "ltrim[s]", sig!(arity!(1)), plain(string::trim_left), BuiltinGroup::Str),
-    (R_TRIM, RTrim, "rtrim", "rtrim[s]", sig!(arity!(1)), plain(string::trim_right), BuiltinGroup::Str),
+    (STR, Str, "str", "str[x]", sig!(arity!(1)), plain(string::to_str), builtin_metadata!(Str, PURE)),
+    (GRAPHEMES, Graphemes, "graphemes", "graphemes[s]", sig!(arity!(1)), plain(string::graphemes), builtin_metadata!(Str, PURE)),
+    (WS_Q, WsQ, "ws?", "ws?[c]", sig!(arity!(1)), plain(string::is_whitespace), builtin_metadata!(Str, PURE)),
+    (WORDS, Words, "words", "words[s]", sig!(arity!(1)), plain(string::words), builtin_metadata!(Str, PURE)),
+    (TRIM, Trim, "trim", "trim[s]", sig!(arity!(1)), plain(string::trim), builtin_metadata!(Str, PURE)),
+    (L_TRIM, LTrim, "ltrim", "ltrim[s]", sig!(arity!(1)), plain(string::trim_left), builtin_metadata!(Str, PURE)),
+    (R_TRIM, RTrim, "rtrim", "rtrim[s]", sig!(arity!(1)), plain(string::trim_right), builtin_metadata!(Str, PURE)),
 
     // Type =========================================================
-    (TYPE, Type, "type", "type[x]", sig!(arity!(1)), plain(wqtype::type_of), BuiltinGroup::Type),
-    (TAG, Tag, "tag", "tag[x]", sig!(arity!(1)), plain(wqtype::to_tag), BuiltinGroup::Type),
-    (BOOL, Bool, "bool", "bool[x]", sig!(arity!(1)), plain(wqtype::to_bool), BuiltinGroup::Type),
-    (CHAR, Char, "char", "char[x]", sig!(arity!(1)), plain(wqtype::to_char), BuiltinGroup::Type),
-    (ATOM_Q, AtomQ, "atom?", "atom?[x]", sig!(arity!(1)), plain(wqtype::is_atom), BuiltinGroup::Type),
-    (UNIT_Q, UnitQ, "unit?", "unit?[x]", sig!(arity!(1)), plain(wqtype::is_unit), BuiltinGroup::Type),
-    (U, U, "U", "U[x]", sig!(arity!(1), alias UnitQ), plain(wqtype::is_unit), BuiltinGroup::Type), // alias of unit?
-    (LIST, List, "list", "list[x]", sig!(arity!(1)), plain(wqtype::to_list), BuiltinGroup::Type),
-    (DICT, Dict, "dict", "dict[x]", sig!(arity!(1)), plain(wqtype::to_dict), BuiltinGroup::Type),
+    (TYPE, Type, "type", "type[x]", sig!(arity!(1)), plain(wqtype::type_of), builtin_metadata!(Type, PURE)),
+    (TAG, Tag, "tag", "tag[x]", sig!(arity!(1)), plain(wqtype::to_tag), builtin_metadata!(Type, PURE)),
+    (BOOL, Bool, "bool", "bool[x]", sig!(arity!(1)), plain(wqtype::to_bool), builtin_metadata!(Type, PURE)),
+    (CHAR, Char, "char", "char[x]", sig!(arity!(1)), plain(wqtype::to_char), builtin_metadata!(Type, PURE)),
+    (ATOM_Q, AtomQ, "atom?", "atom?[x]", sig!(arity!(1)), plain(wqtype::is_atom), builtin_metadata!(Type, PURE)),
+    (UNIT_Q, UnitQ, "unit?", "unit?[x]", sig!(arity!(1)), plain(wqtype::is_unit), builtin_metadata!(Type, PURE)),
+    (U, U, "U", "U[x]", sig!(arity!(1), alias UnitQ), plain(wqtype::is_unit), builtin_metadata!(Type, PURE)), // alias of unit?
+    (LIST, List, "list", "list[x]", sig!(arity!(1)), plain(wqtype::to_list), builtin_metadata!(Type, PURE)),
+    (DICT, Dict, "dict", "dict[x]", sig!(arity!(1)), plain(wqtype::to_dict), builtin_metadata!(Type, PURE)),
 
     // Visualization =========================================================
-    (SHOWTABLE, Showtable, "showtable", "showtable[table;`cols;`limit;`width;`style;`missing]", sig!(arity!(1), named SHOWTABLE_NAMED_ARGS), plain(viz::show_table), BuiltinGroup::Viz),
+    (SHOWTABLE, Showtable, "showtable", "showtable[table;`cols;`limit;`width;`style;`missing]", sig!(arity!(1), named SHOWTABLE_NAMED_ARGS), plain(viz::show_table), builtin_metadata!(Viz, CONSTRAINED_EFFECT)),
     (ASCIIPLOT, Asciiplot, "asciiplot",
         concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim;",
             "`x;`y;`symbols;`labels;`mode;`axes;`color;`grid;",
             "`samples;`theme;`complex;`unicode;",
-            "`ticklabels;`title;`xlabel;`ylabel;`caption]"), sig!(arity!(1..), named ASCIIPLOT_NAMED_ARGS), with_context(viz::asciiplot), BuiltinGroup::Viz),
+            "`ticklabels;`title;`xlabel;`ylabel;`caption]"), sig!(arity!(1..), named ASCIIPLOT_NAMED_ARGS), with_context(viz::asciiplot), builtin_metadata!(Viz, CONSTRAINED_EFFECT)),
 
-    // Intrinsic ====================================================
-    (FMT, Fmt, "fmt", "fmt[template;v*]", sig!(arity!(1..)), plain(string::fmt), BuiltinGroup::Intrinsic),
+    // Language-required builtins ===================================
+    (FMT, Fmt, "fmt", "fmt[template;v*]", sig!(arity!(1..)), plain(string::fmt), builtin_metadata!(Str, REQUIRED)),
 
-    (OP_ADD, OpAdd, "+", "+[xs;ys+]", sig!(arity!(2..)), plain(op::op_add), BuiltinGroup::Intrinsic),
-    (OP_SUB, OpSub, "-", "-[x], -[xs;ys+]", sig!(arity!(1..)), plain(op::op_sub), BuiltinGroup::Intrinsic),
-    (OP_MUL, OpMul, "*", "*[xs;ys+]", sig!(arity!(2..)), plain(op::op_mul), BuiltinGroup::Intrinsic),
-    (OP_DIV, OpDiv, "/", "/[xs;ys+]", sig!(arity!(2..)), plain(op::op_div), BuiltinGroup::Intrinsic),
-    (OP_DIV_DOT, OpDivDot, "/.", "/.[xs;ys+]", sig!(arity!(2..)), plain(op::op_divdot), BuiltinGroup::Intrinsic),
-    (OP_MOD, OpMod, "%", "%[xs;ys+]", sig!(arity!(2..)), plain(op::op_mod), BuiltinGroup::Intrinsic),
-    (OP_FLOORDIV, OpFloorDiv, "/%", "/%[xs;ys+]", sig!(arity!(2..)), plain(op::op_floordiv), BuiltinGroup::Intrinsic),
-    (OP_POWER, OpPower, "^", "^[xs;ys+]", sig!(arity!(2..)), plain(op::op_power), BuiltinGroup::Intrinsic),
-    (OP_POWER_DOT, OpPowerDot, "^.", "^.[xs;ys+]", sig!(arity!(2..)), plain(op::op_power_dot), BuiltinGroup::Intrinsic),
-    (OP_MATMUL, OpMatmul, "**", "**[xs;ys+]", sig!(arity!(2..)), plain(op::op_matmul), BuiltinGroup::Intrinsic),
+    (OP_ADD, OpAdd, "+", "+[xs;ys+]", sig!(arity!(2..)), plain(op::op_add), builtin_metadata!(Math, REQUIRED)),
+    (OP_SUB, OpSub, "-", "-[x], -[xs;ys+]", sig!(arity!(1..)), plain(op::op_sub), builtin_metadata!(Math, REQUIRED)),
+    (OP_MUL, OpMul, "*", "*[xs;ys+]", sig!(arity!(2..)), plain(op::op_mul), builtin_metadata!(Math, REQUIRED)),
+    (OP_DIV, OpDiv, "/", "/[xs;ys+]", sig!(arity!(2..)), plain(op::op_div), builtin_metadata!(Math, REQUIRED)),
+    (OP_DIV_DOT, OpDivDot, "/.", "/.[xs;ys+]", sig!(arity!(2..)), plain(op::op_divdot), builtin_metadata!(Math, REQUIRED)),
+    (OP_MOD, OpMod, "%", "%[xs;ys+]", sig!(arity!(2..)), plain(op::op_mod), builtin_metadata!(Math, REQUIRED)),
+    (OP_FLOORDIV, OpFloorDiv, "/%", "/%[xs;ys+]", sig!(arity!(2..)), plain(op::op_floordiv), builtin_metadata!(Math, REQUIRED)),
+    (OP_POWER, OpPower, "^", "^[xs;ys+]", sig!(arity!(2..)), plain(op::op_power), builtin_metadata!(Math, REQUIRED)),
+    (OP_POWER_DOT, OpPowerDot, "^.", "^.[xs;ys+]", sig!(arity!(2..)), plain(op::op_power_dot), builtin_metadata!(Math, REQUIRED)),
+    (OP_MATMUL, OpMatmul, "**", "**[xs;ys+]", sig!(arity!(2..)), plain(op::op_matmul), builtin_metadata!(Mat, REQUIRED)),
 
-    (OP_EQUAL, OpEqual, "=", "=[xs;ys+]", sig!(arity!(2..)), plain(op::op_equal), BuiltinGroup::Intrinsic),
-    (OP_EQUAL_DOT, OpEqualDot, "=.", "=.[xs;ys+]", sig!(arity!(2..)), plain(op::op_equal_dot), BuiltinGroup::Intrinsic),
-    (OP_TILDE, OpTilde, "~", "~[x], ~[xs;ys+]", sig!(arity!(1..)), plain(op::op_tilde), BuiltinGroup::Intrinsic),
-    (OP_TILDE_DOT, OpTildeDot, "~.", "~.[xs;ys+]", sig!(arity!(2..)), plain(op::op_tilde_dot), BuiltinGroup::Intrinsic),
-    (OP_LT, OpLt, "<", "<[xs;ys+]", sig!(arity!(2..)), plain(op::op_lt), BuiltinGroup::Intrinsic),
-    (OP_LTE, OpLte, "<=", "<=[xs;ys+]", sig!(arity!(2..)), plain(op::op_lte), BuiltinGroup::Intrinsic),
-    (OP_GT, OpGt, ">", ">[xs;ys+]", sig!(arity!(2..)), plain(op::op_gt), BuiltinGroup::Intrinsic),
-    (OP_GTE, OpGte, ">=", ">=[xs;ys+]", sig!(arity!(2..)), plain(op::op_gte), BuiltinGroup::Intrinsic),
+    (OP_EQUAL, OpEqual, "=", "=[xs;ys+]", sig!(arity!(2..)), plain(op::op_equal), builtin_metadata!(Logical, REQUIRED)),
+    (OP_EQUAL_DOT, OpEqualDot, "=.", "=.[xs;ys+]", sig!(arity!(2..)), plain(op::op_equal_dot), builtin_metadata!(Logical, REQUIRED)),
+    (OP_TILDE, OpTilde, "~", "~[x], ~[xs;ys+]", sig!(arity!(1..)), plain(op::op_tilde), builtin_metadata!(Logical, REQUIRED)),
+    (OP_TILDE_DOT, OpTildeDot, "~.", "~.[xs;ys+]", sig!(arity!(2..)), plain(op::op_tilde_dot), builtin_metadata!(Logical, REQUIRED)),
+    (OP_LT, OpLt, "<", "<[xs;ys+]", sig!(arity!(2..)), plain(op::op_lt), builtin_metadata!(Logical, REQUIRED)),
+    (OP_LTE, OpLte, "<=", "<=[xs;ys+]", sig!(arity!(2..)), plain(op::op_lte), builtin_metadata!(Logical, REQUIRED)),
+    (OP_GT, OpGt, ">", ">[xs;ys+]", sig!(arity!(2..)), plain(op::op_gt), builtin_metadata!(Logical, REQUIRED)),
+    (OP_GTE, OpGte, ">=", ">=[xs;ys+]", sig!(arity!(2..)), plain(op::op_gte), builtin_metadata!(Logical, REQUIRED)),
 
-    (OP_CAT, OpCat, ",", ",[xs;ys+]", sig!(arity!(2..)), plain(op::op_cat), BuiltinGroup::Intrinsic),
-    (OP_SHARP, OpSharp, "#", "#[x]", sig!(arity!(1)), plain(op::op_sharp), BuiltinGroup::Intrinsic),
+    (OP_CAT, OpCat, ",", ",[xs;ys+]", sig!(arity!(2..)), plain(op::op_cat), builtin_metadata!(List, REQUIRED)),
+    (OP_SHARP, OpSharp, "#", "#[x]", sig!(arity!(1)), plain(op::op_sharp), builtin_metadata!(Meta, REQUIRED)),
 
 }
 
@@ -1503,7 +1525,88 @@ mod tests {
         assert_eq!(Builtins::ENUMS.len(), Builtins::NAMES.len());
         assert_eq!(Builtins::ENUMS.len(), Builtins::USAGES.len());
         assert_eq!(Builtins::ENUMS.len(), Builtins::SIGNATURES.len());
+        assert_eq!(Builtins::ENUMS.len(), Builtins::METADATA.len());
         assert_eq!(builtins.functions.len(), Builtins::SIGNATURES.len());
+    }
+
+    #[test]
+    fn builtin_metadata_respects_registry_invariants() {
+        let builtins = Builtins::new();
+        let mut names = std::collections::HashSet::new();
+
+        for ((builtin, name), metadata) in Builtins::ENUMS
+            .iter()
+            .zip(Builtins::NAMES)
+            .zip(Builtins::METADATA)
+        {
+            assert!(names.insert(*name), "duplicate builtin name '{name}'");
+            assert_eq!(builtin.metadata(), *metadata, "{builtin}");
+            assert!(
+                !metadata.policy.is_const_foldable()
+                    || builtins.functions[usize::from(builtin.id())]
+                        .as_plain()
+                        .is_some(),
+                "constant-foldable builtin '{name}' must be plain"
+            );
+
+            let canonical = builtin.canonical();
+            if canonical != *builtin {
+                assert_eq!(
+                    metadata,
+                    &canonical.metadata(),
+                    "alias '{name}' must inherit canonical metadata"
+                );
+            }
+        }
+
+        for category in BuiltinCategory::ALL {
+            assert!(
+                Builtins::METADATA
+                    .iter()
+                    .any(|metadata| metadata.category == *category),
+                "builtin category '{}' must not be empty",
+                category.name()
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_presets_form_expected_lattice() {
+        let all = Builtins::with_preset(BuiltinPreset::All);
+        let pure = Builtins::with_preset(BuiltinPreset::Pure);
+        let minimal = Builtins::with_preset(BuiltinPreset::Minimal);
+        let constrained = Builtins::with_preset(BuiltinPreset::Constrained);
+
+        for name in Builtins::NAMES {
+            assert!(
+                !minimal.is_enabled_name(name) || pure.is_enabled_name(name),
+                "minimal builtin '{name}' must also be pure"
+            );
+            assert!(
+                !pure.is_enabled_name(name) || constrained.is_enabled_name(name),
+                "pure builtin '{name}' must also be constrained"
+            );
+            assert!(
+                !constrained.is_enabled_name(name) || all.is_enabled_name(name),
+                "constrained builtin '{name}' must also be available in all"
+            );
+        }
+    }
+
+    #[test]
+    fn minimal_includes_builtin_introspection() {
+        let minimal = Builtins::with_preset(BuiltinPreset::Minimal);
+        let mut names = minimal.list_functions();
+        names.sort();
+
+        assert!(minimal.is_enabled_name("bfn"));
+        assert_eq!(
+            names,
+            [
+                "#", "%", "*", "**", "+", ",", "-", "/", "/%", "/.", "<", "<=", "=", "=.", ">",
+                ">=", "^", "^.", "bfn", "fmt", "len", "~", "~.",
+            ]
+        );
     }
 
     #[test]
@@ -1555,7 +1658,6 @@ mod tests {
             #[cfg(not(target_arch = "wasm32"))]
             (BuiltinEnum::Fclose, "1"),
             (BuiltinEnum::Len, "1"),
-            (BuiltinEnum::StrongCount, "1"),
             (BuiltinEnum::Shape, "1"),
             (BuiltinEnum::Depth, "1"),
             (BuiltinEnum::UniformQ, "1"),

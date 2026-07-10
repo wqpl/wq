@@ -2,15 +2,12 @@ mod aliases;
 mod docs;
 
 use super::model::{DocKind, DocTopic};
-use crate::builtins::{BUILTIN_GROUPS, BuiltinEnum, BuiltinGroup};
+use crate::builtins::{BuiltinCategory, BuiltinEnum};
 
 pub fn builtin_topic(builtin: BuiltinEnum) -> DocTopic {
     let canonical = canonical_builtin(builtin);
     let builtin_doc = builtin_doc(canonical);
-    let group = builtin_group(builtin)
-        .map(BuiltinGroup::name)
-        .unwrap_or("Builtin")
-        .to_string();
+    let group = builtin_category(builtin).name().to_string();
     let alias_summary;
     let summary = if let Some(doc) = builtin_doc {
         if canonical == builtin {
@@ -62,6 +59,6 @@ fn canonical_builtin(builtin: BuiltinEnum) -> BuiltinEnum {
         .unwrap_or(builtin)
 }
 
-fn builtin_group(builtin: BuiltinEnum) -> Option<BuiltinGroup> {
-    BUILTIN_GROUPS.get(usize::from(builtin.id())).copied()
+fn builtin_category(builtin: BuiltinEnum) -> BuiltinCategory {
+    builtin.metadata().category
 }

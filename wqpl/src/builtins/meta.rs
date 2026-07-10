@@ -1,13 +1,6 @@
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::value::{IntoWqValue as _, Value, WqResult};
 
-pub(super) fn strong_count(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BE::StrongCount, [1], &args)?;
-    Ok(args[0]
-        .strong_count()
-        .map_or_else(|| Value::Int(1), |v| v.into_wq_value()))
-}
-
 pub(super) fn len(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Len, [1], &args)?;
     Ok(args[0].len().into_wq_value())

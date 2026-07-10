@@ -69,14 +69,22 @@ fn render_debug_line_with_highlighter(
         let (line, col) = file.line_col(start);
         let expr = format_debug_expr(file.text.as_ref(), start, end);
         let expr = highlighter.highlight_ansi(&expr);
+        let metadata = format_value_metadata(value.type_name_verbose(), value.strong_count());
         format!(
-            "[{path}:{line}:{col}]\n{expr} = {value} ({type})",
+            "[{path}:{line}:{col}]\n{expr} = {value} ({metadata})",
             path = file.path,
-            type = value.type_name()
         )
     } else {
-        format!("[{}] {}", meta.name, value)
+        let metadata = format_value_metadata(value.type_name_verbose(), value.strong_count());
+        format!("[{}] {} ({metadata})", meta.name, value)
     }
+}
+
+fn format_value_metadata(type_name: &str, strong_count: Option<usize>) -> String {
+    strong_count.map_or_else(
+        || type_name.to_string(),
+        |count| format!("{type_name}, strong={count}"),
+    )
 }
 
 /// Append a [`TraceRecord`] for the instruction at `pc`.
@@ -102,12 +110,14 @@ pub(super) fn record_trace_probe(vm: &mut Vm, pc: usize) {
         return;
     }
     let call_depth = u32::try_from(vm.call_depth()).unwrap_or(u32::MAX);
-    let type_name = value.type_name();
+    let type_name = value.type_name_verbose();
     let value_excerpt = value.excerpt();
+    let strong_count = value.strong_count();
     vm.trace_buf.push(TraceRecord {
         span,
         value_excerpt,
         type_name,
+        strong_count,
         call_depth,
     });
 }
@@ -311,7 +321,8 @@ fn format_trace_node(vm: &Vm, rec: &TraceRecord, highlighter: &Highlighter) -> S
         }
         None => "<expr>".to_string(),
     };
-    format!("{} = {} ({})", expr, rec.value_excerpt, rec.type_name)
+    let metadata = format_value_metadata(rec.type_name, rec.strong_count);
+    format!("{} = {} ({metadata})", expr, rec.value_excerpt)
 }
 
 /// Attach source context from the current PC to a `WqError`, if debug info is
@@ -447,6 +458,7 @@ mod tests {
                 },
                 value_excerpt: "1".to_string(),
                 type_name: "int",
+                strong_count: None,
                 call_depth: 0,
             },
             TraceRecord {
@@ -457,6 +469,7 @@ mod tests {
                 },
                 value_excerpt: "2".to_string(),
                 type_name: "int",
+                strong_count: None,
                 call_depth: 0,
             },
             TraceRecord {
@@ -467,6 +480,7 @@ mod tests {
                 },
                 value_excerpt: "3".to_string(),
                 type_name: "int",
+                strong_count: None,
                 call_depth: 0,
             },
         ];
@@ -493,6 +507,31 @@ mod tests {
         assert!(
             visible.contains("\n- 1+2 = 3 (int)\n  - 1 = 1 (int)\n  - 2 = 2 (int)"),
             "visible trace tree changed, got: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn render_trace_line_shows_arc_backing_strong_count() {
+        let source = "@d (1;2;3)";
+        let mut vm = Vm::new(vec![Instruction::Return]);
+        let file_id = vm.debug_info.new_file("<trace-test>", source);
+        let chunk = vm.debug_info.new_chunk("<trace-test>", file_id, 1);
+        vm.current_chunk = chunk;
+        vm.debug_info.chunk_mut(chunk).line_table.set_exact_span(
+            0,
+            Span {
+                file_id,
+                start: 0,
+                end: source.len(),
+            },
+        );
+        let value = Value::IntList(std::sync::Arc::new(vec![1, 2, 3]));
+
+        let rendered = strip_ansi(&render_trace_line(&vm, 0, &value, &[]));
+
+        assert!(
+            rendered.contains("(list<int>, strong=1)"),
+            "expected Arc strong count in debug output, got: {rendered:?}"
         );
     }
 

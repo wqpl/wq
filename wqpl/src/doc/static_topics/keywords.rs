@@ -175,7 +175,7 @@ pub(super) const AT_DEBUG: StaticDoc = StaticDoc {
     group: "Keywords",
     aliases: &["@d", "debug"],
     summary: "Evaluate an expression while printing a trace.",
-    details: "`@d expr` is a runtime debugging probe. It yields the expression value after showing trace information.",
+    details: "`@d expr` is a runtime debugging probe. It yields the expression value after showing trace information. For values stored in shared Arc-backed storage, the output includes `strong=N`, the reference count observed when the value was traced. Immediate atoms do not show a strong count.",
     examples: AT_DEBUG_EXAMPLES,
     related: &["@p"],
 };

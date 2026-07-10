@@ -1,12 +1,6 @@
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
 use crate::builtins::BuiltinEnum;
 
-const STRONG_COUNT_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Immediate atoms report one reference",
-    code: "strong_count 42",
-    expectation: ExampleExpectation::ResultContains("1"),
-}];
-
 const SHAPE_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Describe a regular nested outline",
     code: "shape ((1;2);(3;4))",
@@ -31,14 +25,6 @@ const UNIFORM_Q_EXAMPLES: &[DocExample] = &[DocExample {
     code: "(uniform? ((1;2);(3;4));uniform? ((1;2);(3;4;5)))",
     expectation: ExampleExpectation::ResultContains("(T;F)"),
 }];
-
-pub(super) const STRONG_COUNT: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::StrongCount,
-    summary: "Report how many references share a value's backing storage.",
-    details: "`strong_count[x]` is a runtime diagnostic. Values stored behind shared backing storage, such as strings, lists, dicts, functions, and streams, report the current reference count of that storage. Immediate atoms such as ints, floats, chars, bools, and builtin functions are not shared this way and report `1`. Treat the number as an implementation detail for debugging memory sharing, not as a property of the data itself.",
-    examples: STRONG_COUNT_EXAMPLES,
-    related: &["shape", "depth", "len"],
-};
 
 pub(super) const SHAPE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Shape,
