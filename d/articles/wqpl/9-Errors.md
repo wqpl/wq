@@ -40,7 +40,7 @@ If the assertion is false, execution stops.
 
 ## Try
 
-`@t expr` turns success into `T` and failure into `F`.
+`@t expr` preserves either the successful value or the error as a tagged pair.
 
 ```wq
 (@t 1+1)|echo
@@ -48,11 +48,21 @@ If the assertion is false, execution stops.
 (@t raise "boom")|echo
 ```
 
-This is useful for small probes. If you need the actual value, evaluate it normally.
+Success has the shape ``(`ok;value)``. Failure has the shape
+``(`error;error_dict)``. Check the first item before reading the payload.
+
+```wq
+result:@t 1+1
+$[result 0=`ok;result 1;raise "unexpected failure"]
+```
+
+The error dict has stable `version`, `kind`, `message`, `source`, `span`,
+`notes`, `data`, `stack`, and `cause` fields. `message` and `notes` are for
+people. Branch on the `kind` tag instead of parsing those strings.
 
 ## Keep
 
 - Errors stop the current run.
 - `raise` creates an error intentionally.
 - `@a` asserts a truth.
-- `@t` catches failure and returns a boolean.
+- `@t` catches failure and returns a tagged result with the value or error.

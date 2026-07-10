@@ -37,9 +37,9 @@ const AT_PAUSE_EXAMPLES: &[DocExample] = &[DocExample {
 }];
 
 const AT_TRY_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Convert an error to false",
+    title: "Capture a structured error",
     code: "@t 1/0",
-    expectation: ExampleExpectation::ResultContains("F"),
+    expectation: ExampleExpectation::ResultContains("`error"),
 }];
 
 const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[
@@ -198,8 +198,8 @@ pub(super) const AT_TRY: StaticDoc = StaticDoc {
     kind: DocKind::Keyword,
     group: "Keywords",
     aliases: &["@t", "try"],
-    summary: "Turn a failing expression into a false result.",
-    details: "`@t expr` catches runtime errors from `expr`, returning the value on success or `F` on failure.",
+    summary: "Capture success or failure as a tagged result.",
+    details: "`@t expr` returns ``(`ok; value)`` on success or ``(`error; error_dict)`` on failure. The error dict has stable `version`, `kind`, `message`, `source`, `span`, `notes`, `data`, `stack`, and `cause` fields. Return, break, and continue remain control flow and are not caught as errors.",
     examples: AT_TRY_EXAMPLES,
     related: &["raise"],
 };

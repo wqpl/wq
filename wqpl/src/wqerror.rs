@@ -1,5 +1,10 @@
+use std::sync::Arc;
+
+use indexmap::IndexMap;
+
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::{Excerpt as _, Value};
+use crate::wqdb::data::{CodeLoc, DebugInfo};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceCtx {
@@ -83,6 +88,144 @@ impl WqError {
         self = self.attach_note(format!("at arg[{}]", pos));
         self
     }
+
+    /// Convert this error into the stable wq-side error payload used by `@t`.
+    pub(crate) fn to_wq_value(
+        &self,
+        debug_info: &DebugInfo,
+        backtrace: &[(CodeLoc, Arc<str>)],
+    ) -> Value {
+        value_dict([
+            ("version", Value::Int(1)),
+            ("kind", Value::Tag(Arc::from(self.err_type.name()))),
+            (
+                "message",
+                string_value(self.msg.as_deref().unwrap_or_else(|| self.err_type.name())),
+            ),
+            (
+                "source",
+                self.src
+                    .as_deref()
+                    .map(string_value)
+                    .unwrap_or_else(Value::unit),
+            ),
+            ("span", self.wq_span_value(debug_info, backtrace)),
+            (
+                "notes",
+                Value::List(Arc::new(
+                    self.notes.iter().map(string_value).collect::<Vec<_>>(),
+                )),
+            ),
+            ("data", Value::Dict(Arc::new(IndexMap::new()))),
+            ("stack", wq_stack_value(debug_info, backtrace)),
+            ("cause", Value::unit()),
+        ])
+    }
+
+    fn wq_span_value(&self, debug_info: &DebugInfo, backtrace: &[(CodeLoc, Arc<str>)]) -> Value {
+        if let (Some((start, end)), Some(source)) = (self.span, self.source_ctx.as_deref()) {
+            return span_value(&source.path, &source.text, start, end);
+        }
+
+        let Some((loc, _)) = backtrace.first() else {
+            return Value::unit();
+        };
+        let Some(chunk) = debug_info.chunk_opt(loc.chunk) else {
+            return Value::unit();
+        };
+        let span = chunk.line_table.context_span_at(loc.pc);
+        let Some(file) = debug_info.file(span.file_id) else {
+            return Value::unit();
+        };
+        span_value(&file.path, &file.text, span.start, span.end)
+    }
+}
+
+fn wq_stack_value(debug_info: &DebugInfo, backtrace: &[(CodeLoc, Arc<str>)]) -> Value {
+    let frames = backtrace
+        .iter()
+        .map(|(loc, name)| {
+            let location = debug_info.chunk_opt(loc.chunk).and_then(|chunk| {
+                let span = chunk.line_table.context_span_at(loc.pc);
+                debug_info.file(span.file_id).map(|file| {
+                    let byte = clamp_byte_boundary(&file.text, span.start);
+                    (Arc::clone(&file.path), byte, file.display_line_col(byte))
+                })
+            });
+            let (path, byte, line, column) = if let Some((path, byte, (line, column))) = location {
+                (
+                    string_value(&path),
+                    usize_value(byte),
+                    usize_value(line),
+                    usize_value(column),
+                )
+            } else {
+                (Value::unit(), Value::unit(), Value::unit(), Value::unit())
+            };
+            value_dict([
+                ("function", string_value(name)),
+                ("path", path),
+                ("line", line),
+                ("column", column),
+                ("byte", byte),
+            ])
+        })
+        .collect();
+    Value::List(Arc::new(frames))
+}
+
+fn span_value(path: &str, source: &str, start: usize, end: usize) -> Value {
+    let start = clamp_byte_boundary(source, start);
+    let end = clamp_byte_boundary(source, end);
+    let (start_line, start_column) = byte_to_line_col(source, start);
+    let (end_line, end_column) = byte_to_line_col(source, end);
+    value_dict([
+        ("path", string_value(path)),
+        (
+            "start",
+            Value::IntList(Arc::new(vec![
+                usize_to_i64(start_line),
+                usize_to_i64(start_column),
+                usize_to_i64(start),
+            ])),
+        ),
+        (
+            "end",
+            Value::IntList(Arc::new(vec![
+                usize_to_i64(end_line),
+                usize_to_i64(end_column),
+                usize_to_i64(end),
+            ])),
+        ),
+    ])
+}
+
+fn value_dict<const N: usize>(entries: [(&str, Value); N]) -> Value {
+    let mut values = IndexMap::with_capacity(N);
+    for (key, value) in entries {
+        values.insert(Arc::from(key), value);
+    }
+    Value::Dict(Arc::new(values))
+}
+
+fn string_value(value: impl AsRef<str>) -> Value {
+    Value::String(Arc::new(value.as_ref().to_string()))
+}
+
+fn usize_value(value: usize) -> Value {
+    Value::Int(usize_to_i64(value))
+}
+
+fn usize_to_i64(value: usize) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+fn clamp_byte_boundary(source: &str, byte: usize) -> usize {
+    let mut byte = byte.min(source.len());
+    while !source.is_char_boundary(byte) {
+        byte -= 1;
+    }
+    byte
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -159,7 +302,7 @@ impl std::fmt::Display for WqErrorType {
 
 /// Convert a byte offset into (1-based) line and column within `src`.
 pub(crate) fn byte_to_line_col(src: &str, byte_pos: usize) -> (usize, usize) {
-    let b = byte_pos.min(src.len());
+    let b = clamp_byte_boundary(src, byte_pos);
     let prefix = &src[..b];
     let line = prefix.chars().filter(|&c| c == '\n').count() + 1;
     let last_nl = prefix.rfind('\n').map(|i| i + 1).unwrap_or(0);
@@ -309,5 +452,64 @@ mod tests {
         assert!(rendered.contains("\x1b[1;4msyntax\x1b[0m: unexpected token"));
         assert!(rendered.contains("\x1b[1;4;32m1\x1b[0m+2"));
         assert!(!rendered.contains("        ~"));
+    }
+
+    #[test]
+    fn wq_value_has_versioned_stable_fields_and_source_span() {
+        let err = WqError::new(WqErrorType::Domain)
+            .src("test")
+            .msg("bad value")
+            .attach_note("got int")
+            .span(Some((2, 3)))
+            .source_ctx("x\n1+2\n", "<test>");
+
+        let value = err.to_wq_value(&DebugInfo::default(), &[]);
+        let Value::Dict(error) = value else {
+            panic!("expected error dict");
+        };
+
+        assert_eq!(
+            error.keys().map(AsRef::as_ref).collect::<Vec<_>>(),
+            vec![
+                "version", "kind", "message", "source", "span", "notes", "data", "stack", "cause"
+            ]
+        );
+        assert_eq!(error.get("version"), Some(&Value::Int(1)));
+        assert_eq!(error.get("kind"), Some(&Value::Tag(Arc::from("domain"))));
+        let Some(Value::Dict(span)) = error.get("span") else {
+            panic!("expected span dict");
+        };
+        assert_eq!(
+            span.get("start"),
+            Some(&Value::IntList(Arc::new(vec![2, 1, 2])))
+        );
+        assert_eq!(
+            span.get("end"),
+            Some(&Value::IntList(Arc::new(vec![2, 2, 3])))
+        );
+    }
+
+    #[test]
+    fn wq_value_clamps_malformed_utf8_byte_spans() {
+        let err = WqError::new(WqErrorType::Domain)
+            .span(Some((1, usize::MAX)))
+            .source_ctx("éx", "<test>");
+
+        let value = err.to_wq_value(&DebugInfo::default(), &[]);
+        let Value::Dict(error) = value else {
+            panic!("expected error dict");
+        };
+        let Some(Value::Dict(span)) = error.get("span") else {
+            panic!("expected span dict");
+        };
+
+        assert_eq!(
+            span.get("start"),
+            Some(&Value::IntList(Arc::new(vec![1, 1, 0])))
+        );
+        assert_eq!(
+            span.get("end"),
+            Some(&Value::IntList(Arc::new(vec![1, 3, 3])))
+        );
     }
 }

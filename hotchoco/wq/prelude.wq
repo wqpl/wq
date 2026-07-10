@@ -36,10 +36,10 @@ expect["drop string back";drop["abcd";-2];"ab"]
 expect["chunks";chunks[1..=5;2];((1;2);(3;4);,5)]
 expect["chunks empty";chunks[();2];()]
 expect["chunks exact";chunks[1..=4;2];((1;2);(3;4))]
-expect["chunks rejects zero";@t chunks[(1;2);0];F]
+expect["chunks rejects zero";(@t chunks[(1;2);0])0;`error]
 expect["windows";windows[1..=4;3];((1;2;3);(2;3;4))]
 expect["windows too large";windows[(1;2);3];()]
-expect["windows rejects zero";@t windows[(1;2);0];F]
+expect["windows rejects zero";(@t windows[(1;2);0])0;`error]
 
 animals:("ant";"ape";"bee")
 expect["groupby";groupby[animals;{x 0}];(("a";("ant";"ape"));("b";,"bee"))]
@@ -70,5 +70,5 @@ false_calls:0
 false_thunk:once '{[]false_calls+:1;F}
 expect["once false";(false_thunk[];false_thunk[];false_calls);(F;F;1)]
 
-expect["assert";(assert[T;"ok"];@t assert[F;"bad"]);(T;F)]
-expect["assert_eq";(assert_eq[3;3];@t assert_eq[3;4]);(T;F)]
+expect["assert";(assert[T;"ok"];(@t assert[F;"bad"])0);(T;`error)]
+expect["assert_eq";(assert_eq[3;3];(@t assert_eq[3;4])0);(T;`error)]

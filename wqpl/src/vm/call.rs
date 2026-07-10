@@ -16,9 +16,6 @@ use crate::vm::{Frame, InlineCache, Vm, arity_err_vm, ensure_stack_len, not_boun
 use crate::wqdb::build::mark_stmt_heuristic;
 use crate::wqdb::data::ChunkId;
 
-// `invoke_spec` is recursively hosted. Keep protected calls below the native
-// stack limit so `@t` can catch a wq Recursion error reliably.
-const MAX_PROTECTED_CALL_DEPTH: usize = 8;
 const DEFAULT_OPERAND_STACK_CAPACITY: usize = 256;
 
 struct TakenBuiltinArgs {
@@ -362,11 +359,7 @@ impl Vm {
         self.captures.push(captured);
         self.current_closure_stack.push(callee);
         // Recursion limit check (tail calls are exempt because they reuse the frame)
-        let max_call_depth = if self.try_stack.is_empty() {
-            self.max_call_depth
-        } else {
-            self.max_call_depth.min(MAX_PROTECTED_CALL_DEPTH)
-        };
+        let max_call_depth = self.max_call_depth;
         if self.locals.len() > max_call_depth {
             self.current_closure_stack.pop();
             if let Some(frame) = self.locals.pop() {

@@ -53,7 +53,8 @@ impl VanillaInterpreter {
                     return Ok(value);
                 }
                 Err(err) => {
-                    if !Self::catch_current_try_error(vm) {
+                    vm.capture_bt_if_empty();
+                    if !Self::catch_current_try_error(vm, &err) {
                         return Err(err);
                     }
                 }
@@ -1287,7 +1288,10 @@ impl VanillaInterpreter {
                     Instruction::Try(len) => {
                         let len = *len;
                         let start_pc = vm.pc;
-                        let end_pc = start_pc.saturating_add(len);
+                        let end_pc = start_pc
+                            .checked_add(len)
+                            .filter(|end| *end <= limit)
+                            .ok_or_else(|| vm_err("invalid try region"))?;
                         vm.try_stack.push(TryFrame {
                             instructions: Arc::clone(&vm.instructions),
                             locals_depth: vm.locals.len(),
@@ -1371,19 +1375,28 @@ impl VanillaInterpreter {
         let frame = vm.try_stack.pop().expect("checked try frame");
         let completed = vm.pc == frame.end_pc;
         let stack_start = frame.stack_start;
+        let value = completed.then(|| {
+            if vm.stack.len() > stack_start {
+                vm.stack.pop().expect("stack length checked")
+            } else {
+                Value::unit()
+            }
+        });
         Self::restore_try_state(vm, frame, false);
         vm.stack.truncate(stack_start);
-        if completed {
-            vm.stack.push(Value::Bool(true));
+        if let Some(value) = value {
+            vm.stack.push(try_result("ok", value));
         }
         true
     }
 
-    fn catch_current_try_error(vm: &mut Vm) -> bool {
+    fn catch_current_try_error(vm: &mut Vm, err: &WqError) -> bool {
         let Some(frame) = vm.try_stack.last() else {
             return false;
         };
-        if frame.locals_depth != vm.locals.len() {
+        if frame.locals_depth != vm.locals.len()
+            || !Arc::ptr_eq(&frame.instructions, &vm.instructions)
+        {
             return false;
         }
 
@@ -1391,11 +1404,13 @@ impl VanillaInterpreter {
         let end_pc = frame.end_pc;
         let instructions = Arc::clone(&frame.instructions);
         let stack_start = frame.stack_start;
+        let backtrace = vm.last_backtrace.as_deref().unwrap_or_default();
+        let error_value = err.to_wq_value(&vm.debug_info, backtrace);
         Self::restore_try_state(vm, frame, true);
         vm.instructions = instructions;
         vm.pc = end_pc;
         vm.stack.truncate(stack_start);
-        vm.stack.push(Value::Bool(false));
+        vm.stack.push(try_result("error", error_value));
         true
     }
 
@@ -1420,6 +1435,10 @@ impl VanillaInterpreter {
             vm.trace_buf.truncate(frame.saved_trace_buf_len);
         }
     }
+}
+
+fn try_result(kind: &'static str, value: Value) -> Value {
+    Value::List(Arc::new(vec![Value::Tag(Arc::from(kind)), value]))
 }
 
 fn load_closure_debug_chunk(
@@ -2474,6 +2493,7 @@ mod call_safety {
     use crate::vm::call::CallSpec;
     use crate::vm::inst::Instruction;
     use crate::vm::{InlineCache, Slot, Vm};
+    use crate::wqerror::WqErrorType;
 
     fn make_fn(params: Option<&[&str]>, locals: u16, instructions: Vec<Instruction>) -> Value {
         Value::CompiledFunction(Arc::new(FunctionData {
@@ -2849,7 +2869,10 @@ mod call_safety {
             .interpret(&mut vm, limit)
             .expect("try should catch missing global error");
 
-        assert_eq!(result, Value::Bool(false));
+        let Value::List(result) = result else {
+            panic!("expected tagged try result");
+        };
+        assert_eq!(result.first(), Some(&Value::Tag(Arc::from("error"))));
         assert!(vm.last_backtrace.is_none());
         assert!(vm.last_locals_snapshot.is_none());
     }
@@ -2874,9 +2897,44 @@ mod call_safety {
             .interpret(&mut vm, limit)
             .expect("try should catch divide error");
 
-        assert_eq!(result, Value::Bool(false));
+        let Value::List(result) = result else {
+            panic!("expected tagged try result");
+        };
+        assert_eq!(result.first(), Some(&Value::Tag(Arc::from("error"))));
         assert_eq!(vm.trace_depth, 0);
         assert!(vm.trace_bases.is_empty());
         assert!(vm.trace_buf.is_empty());
+    }
+
+    #[test]
+    fn invalid_try_region_returns_vm_error() {
+        let instructions = vec![Instruction::Try(usize::MAX), Instruction::Return];
+        let limit = instructions.len();
+        let mut vm = Vm::new(instructions);
+
+        let err = VanillaInterpreter
+            .interpret(&mut vm, limit)
+            .expect_err("invalid try region should fail safely");
+
+        assert_eq!(err.err_type, WqErrorType::Vm);
+        assert_eq!(err.msg.as_deref(), Some("invalid try region"));
+    }
+
+    #[test]
+    fn empty_try_region_does_not_consume_existing_stack_value() {
+        let instructions = vec![Instruction::Try(0), Instruction::Return];
+        let limit = instructions.len();
+        let mut vm = Vm::new(instructions);
+        vm.stack.push(Value::Int(42));
+
+        let result = VanillaInterpreter
+            .interpret(&mut vm, limit)
+            .expect("empty try should succeed with unit");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![Value::Tag(Arc::from("ok")), Value::unit(),]))
+        );
+        assert_eq!(vm.stack, vec![Value::Int(42)]);
     }
 }

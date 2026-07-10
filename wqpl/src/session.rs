@@ -1688,19 +1688,80 @@ mod tests {
 
         assert_eq!(
             result,
-            Value::from_items(vec![Value::Bool(true), Value::Int(99)])
+            Value::from_items(vec![
+                Value::List(Arc::new(vec![Value::Tag(Arc::from("ok")), Value::Int(42),])),
+                Value::Int(99),
+            ])
         );
     }
 
     #[test]
-    fn recursive_try_reports_a_wq_result_before_native_stack_overflow() {
+    fn try_returns_tagged_success_with_the_protected_value() {
+        let mut session = Session::new();
+
+        let result = session.eval_string("@t 1+1").expect("try should succeed");
+
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![Value::Tag(Arc::from("ok")), Value::Int(2),]))
+        );
+    }
+
+    #[test]
+    fn try_returns_stable_structured_error() {
         let mut session = Session::new();
 
         let result = session
-            .eval_string("f:{[n]@t $[n=0;0;f[n-1]]};f[100]")
+            .eval_string("@t 1/0")
+            .expect("try should catch divide error");
+        let Value::List(result) = result else {
+            panic!("expected tagged try result");
+        };
+        assert_eq!(result.first(), Some(&Value::Tag(Arc::from("error"))));
+        let Some(Value::Dict(error)) = result.get(1) else {
+            panic!("expected structured error payload");
+        };
+        assert_eq!(error.get("version"), Some(&Value::Int(1)));
+        assert_eq!(error.get("kind"), Some(&Value::Tag(Arc::from("zero-div"))));
+        assert!(matches!(error.get("message"), Some(Value::String(_))));
+        assert!(error.contains_key("source"));
+        assert!(error.contains_key("span"));
+        assert!(matches!(error.get("notes"), Some(Value::List(_))));
+        assert!(matches!(error.get("data"), Some(Value::Dict(_))));
+        assert!(matches!(error.get("stack"), Some(Value::List(_))));
+        assert!(error.contains_key("cause"));
+    }
+
+    #[test]
+    fn protected_recursion_uses_the_normal_vm_depth_limit() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("f:{[n]$[n=0;0;1+f[n-1]]};@t f[16]")
             .expect("recursive try should remain inside the wq error model");
 
-        assert_eq!(result, Value::Bool(true));
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![Value::Tag(Arc::from("ok")), Value::Int(16),]))
+        );
+    }
+
+    #[test]
+    fn protected_recursion_is_caught_at_the_configured_vm_limit() {
+        let mut session = Session::new();
+        session.vm.max_call_depth = 12;
+
+        let result = session
+            .eval_string("f:{[n]$[n=0;0;1+f[n-1]]};@t f[100]")
+            .expect("recursion limit should be caught by try");
+        let Value::List(result) = result else {
+            panic!("expected tagged try result");
+        };
+        assert_eq!(result.first(), Some(&Value::Tag(Arc::from("error"))));
+        let Some(Value::Dict(error)) = result.get(1) else {
+            panic!("expected error payload");
+        };
+        assert_eq!(error.get("kind"), Some(&Value::Tag(Arc::from("recursion"))));
     }
 
     #[test]
