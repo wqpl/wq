@@ -282,16 +282,6 @@ impl WqErrorType {
             W::Recursion => "recursion",
         }
     }
-
-    pub const fn to_code(&self) -> u16 {
-        use WqErrorType::*;
-        match self {
-            Vm => 1,
-            Eof | Syntax => 2,
-            NotBound | Index | Call | Arity | Domain | Length | ZeroDiv | Io | Encode | Exec
-            | Raise | Recursion => 3,
-        }
-    }
 }
 
 impl std::fmt::Display for WqErrorType {
