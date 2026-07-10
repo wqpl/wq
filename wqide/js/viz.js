@@ -7,7 +7,12 @@ import {
 import { createOutputRenderer } from "./ansi.js";
 import { createWqEditor } from "./editor.js";
 import { named, plotSeriesArg, wqString } from "./viz-codegen.js";
-import { alignTurnBody, ensureWasm, escapeHtml, queueEval } from "./wq-shared.js";
+import {
+  alignTurnBody,
+  ensureWasm,
+  escapeHtml,
+  queueEval,
+} from "./wq-shared.js";
 
 const instances = new WeakMap();
 
@@ -202,7 +207,9 @@ const PRESETS = {
     titleText: "bar values",
     xlabelText: "index",
     ylabelText: "value",
-    series: [{ expr: "(3;7;4;8;5;9;6;11)", label: "score", symbol: "#", mode: "bar" }],
+    series: [
+      { expr: "(3;7;4;8;5;9;6;11)", label: "score", symbol: "#", mode: "bar" },
+    ],
     seriesOptions: false,
   },
   complex: {
@@ -355,7 +362,8 @@ function cloneSeries(series) {
 function splitLimitText(text) {
   const value = String(text || "").trim();
   if (!value) return ["", ""];
-  const unwrapped = value.startsWith("(") && value.endsWith(")") ? value.slice(1, -1) : value;
+  const unwrapped =
+    value.startsWith("(") && value.endsWith(")") ? value.slice(1, -1) : value;
   const range = unwrapped.match(/^(.+)\.\.(.+)$/);
   if (range) return [range[1].trim(), range[2].trim()];
   const parts = unwrapped.replace(",", ";").split(";");
@@ -459,7 +467,9 @@ function indentWqBlock(text) {
 
 function defaultSeriesForKind(kind) {
   if (kind === "data") {
-    return [{ expr: "(3;7;4;8;5;9;6;11)", label: "score", symbol: "#", mode: "bar" }];
+    return [
+      { expr: "(3;7;4;8;5;9;6;11)", label: "score", symbol: "#", mode: "bar" },
+    ];
   }
   if (kind === "cas") {
     return [
@@ -481,7 +491,9 @@ function normalizedSeries(state) {
 function labelsOption(state, series) {
   if (!state.labels) return null;
   const labels = series.map((item) => item.label.trim()).filter(Boolean);
-  return labels.length ? named("labels", `(${labels.map(wqString).join(";")})`) : null;
+  return labels.length
+    ? named("labels", `(${labels.map(wqString).join(";")})`)
+    : null;
 }
 
 function symbolsOption(series) {
@@ -500,11 +512,7 @@ function plotOptions(state) {
   if (state.theme !== "none") {
     args.push(named("theme", wqString(state.theme)));
   }
-  args.push(
-    axesOption(state),
-    gridOption(state),
-    colorOption(state),
-  );
+  args.push(axesOption(state), gridOption(state), colorOption(state));
   if (state.unicode) {
     args.push(named("unicode", boolLit(state.unicode)));
   }
@@ -526,7 +534,7 @@ function plotOptions(state) {
 }
 
 function plotCall(args) {
-  return `asciiplot[\n${args.join(";\n")}\n]`;
+  return `asciiplot[\n${args.join(";\n")}]`;
 }
 
 function buildPlotCode(state) {
@@ -566,9 +574,16 @@ const PHYSICS_ROWS = [
 const CHEMISTRY_COLUMNS = [
   {
     key: "element",
-    values: ["hydrogen", "oxygen", "carbon", "sodium", "chlorine", "iron", "copper", "calcium"].map(
-      wqString,
-    ),
+    values: [
+      "hydrogen",
+      "oxygen",
+      "carbon",
+      "sodium",
+      "chlorine",
+      "iron",
+      "copper",
+      "calcium",
+    ].map(wqString),
   },
   {
     key: "symbol",
@@ -580,7 +595,16 @@ const CHEMISTRY_COLUMNS = [
   },
   {
     key: "mass",
-    values: ["1.008", "15.999", "12.011", "22.990", "35.450", "55.845", "63.546", "40.078"],
+    values: [
+      "1.008",
+      "15.999",
+      "12.011",
+      "22.990",
+      "35.450",
+      "55.845",
+      "63.546",
+      "40.078",
+    ],
   },
 ];
 
@@ -646,7 +670,9 @@ function buildMathTableEntry([key, kind, dim, invariant, value]) {
 function tableRowsForShape(shape) {
   if (shape === "text") return BIOLOGY_ROWS.map(buildTextTableRow);
   if (shape === "matrix") {
-    return MATH_ROWS.map(buildMathTableEntry).map((entry) => `${entry.key}:${entry.value}`);
+    return MATH_ROWS.map(buildMathTableEntry).map(
+      (entry) => `${entry.key}:${entry.value}`,
+    );
   }
   return PHYSICS_ROWS.map(buildPhysicsTableRow);
 }
@@ -746,7 +772,9 @@ function unwrapWqParens(text) {
       }
     }
   }
-  return validOuter && depth === 0 && !inString ? value.slice(1, -1).trim() : null;
+  return validOuter && depth === 0 && !inString
+    ? value.slice(1, -1).trim()
+    : null;
 }
 
 function splitWqTopLevel(text, delimiter = ";") {
@@ -814,7 +842,9 @@ function resizeListRows(source, shape, rows) {
   const generatedRows = tableRowsForShape(shape);
   const nextRows = currentRows.slice(0, rows);
   for (let idx = currentRows.length; idx < rows; idx += 1) {
-    nextRows.push(generatedRows[idx] || generatedRows[generatedRows.length - 1]);
+    nextRows.push(
+      generatedRows[idx] || generatedRows[generatedRows.length - 1],
+    );
   }
   return formatListRows(nextRows);
 }
@@ -822,7 +852,9 @@ function resizeListRows(source, shape, rows) {
 function resizeDictColumns(source, rows) {
   const entries = parseWqDictEntries(source);
   if (!entries) return null;
-  const generatedColumns = new Map(CHEMISTRY_COLUMNS.map((column) => [column.key, column.values]));
+  const generatedColumns = new Map(
+    CHEMISTRY_COLUMNS.map((column) => [column.key, column.values]),
+  );
   const nextEntries = entries.map((entry) => {
     const values = parseWqListItems(entry.value);
     if (!values) return entry;
@@ -845,7 +877,9 @@ function resizeDictRows(source, rows) {
   const generatedEntries = MATH_ROWS.map(buildMathTableEntry);
   const nextEntries = entries.slice(0, rows);
   for (let idx = entries.length; idx < rows; idx += 1) {
-    nextEntries.push(generatedEntries[idx] || generatedEntries[generatedEntries.length - 1]);
+    nextEntries.push(
+      generatedEntries[idx] || generatedEntries[generatedEntries.length - 1],
+    );
   }
   return formatDictEntries(nextEntries);
 }
@@ -858,7 +892,9 @@ function resizeTableValue(source, shape, rows) {
 }
 
 function buildTableCode(state) {
-  const source = String(state.sourceExpr || "").trim() || buildTableValue(state.tableShape, state.rows);
+  const source =
+    String(state.sourceExpr || "").trim() ||
+    buildTableValue(state.tableShape, state.rows);
   if (source.startsWith("showtable")) return source;
   const args = [
     indentWqBlock(source),
@@ -868,11 +904,13 @@ function buildTableCode(state) {
     named("style", wqString(state.tableStyle || "plain")),
     textOption("missing", state.tableMissingText),
   ].filter(Boolean);
-  return `showtable[\n${args.join(";\n")}\n]`;
+  return `showtable[\n${args.join(";\n")}]`;
 }
 
 function buildCode(state) {
-  return state.sourceKind === "table" ? buildTableCode(state) : buildPlotCode(state);
+  return state.sourceKind === "table"
+    ? buildTableCode(state)
+    : buildPlotCode(state);
 }
 
 function setStatus(instance, text, tone = "") {
@@ -977,7 +1015,8 @@ function outputFontForMeasure(output) {
 function measureOutputCharWidth(output) {
   if (!output || typeof document === "undefined") return null;
   const canvas =
-    measureOutputCharWidth.canvas || (measureOutputCharWidth.canvas = document.createElement("canvas"));
+    measureOutputCharWidth.canvas ||
+    (measureOutputCharWidth.canvas = document.createElement("canvas"));
   const context = canvas.getContext("2d");
   if (!context) return null;
   context.font = outputFontForMeasure(output);
@@ -990,10 +1029,14 @@ function measureOutputPlotWidth(instance) {
   if (!output || typeof window === "undefined") return null;
   const style = window.getComputedStyle(output);
   const innerWidth =
-    output.clientWidth - cssPixels(style.paddingLeft) - cssPixels(style.paddingRight);
+    output.clientWidth -
+    cssPixels(style.paddingLeft) -
+    cssPixels(style.paddingRight);
   const charWidth = measureOutputCharWidth(output);
   if (innerWidth <= 0 || !charWidth) return null;
-  return clampPlotWidth(Math.floor(innerWidth / charWidth) - plotWidthReserve(instance.state));
+  return clampPlotWidth(
+    Math.floor(innerWidth / charWidth) - plotWidthReserve(instance.state),
+  );
 }
 
 function syncWidthControl(instance) {
@@ -1008,7 +1051,9 @@ function syncWidthControl(instance) {
     input.title = instance.state.widthAuto ? "Auto width is on" : "";
   }
   if (label) {
-    label.textContent = instance.state.widthAuto ? `auto ${plotWidth}` : String(manualWidth);
+    label.textContent = instance.state.widthAuto
+      ? `auto ${plotWidth}`
+      : String(manualWidth);
   }
 }
 
@@ -1093,9 +1138,12 @@ function setLimitInputValue(instance, key, value) {
   const previousNumber = finiteNumber(previousValue);
   const nextNumber = finiteNumber(value);
   const partnerNumber = finiteNumber(instance.state[meta.partnerKey]);
-  if (previousNumber === null || nextNumber === null || partnerNumber === null) return;
+  if (previousNumber === null || nextNumber === null || partnerNumber === null)
+    return;
 
-  const partnerValue = formatLimitNumber(partnerNumber + nextNumber - previousNumber);
+  const partnerValue = formatLimitNumber(
+    partnerNumber + nextNumber - previousNumber,
+  );
   setInputValue(instance, meta.partnerKey, partnerValue);
 }
 
@@ -1106,7 +1154,11 @@ function syncTableSource(instance, options = {}) {
   const next =
     options.preserveCurrent === false || !current.trim()
       ? buildTableValue(instance.state.tableShape, instance.state.rows)
-      : resizeTableValue(current, instance.state.tableShape, instance.state.rows);
+      : resizeTableValue(
+          current,
+          instance.state.tableShape,
+          instance.state.rows,
+        );
   if (next !== null) {
     setInputValue(instance, "sourceExpr", next);
   }
@@ -1121,7 +1173,8 @@ function syncTableDisplayDefaults(instance, shape) {
 }
 
 function seedSourceForKind(instance, kind) {
-  instance.state.series = kind === "table" ? [] : cloneSeries(defaultSeriesForKind("function"));
+  instance.state.series =
+    kind === "table" ? [] : cloneSeries(defaultSeriesForKind("function"));
   if (kind === "table") {
     syncTableDisplayDefaults(instance, instance.state.tableShape);
     syncTableSource(instance, { preserveCurrent: false });
@@ -1171,7 +1224,15 @@ function makeSeriesTextField(instance, row, idx, key, labelText, options = {}) {
   return field;
 }
 
-function makeSeriesSelectField(instance, row, idx, key, labelText, options, fieldOptions = {}) {
+function makeSeriesSelectField(
+  instance,
+  row,
+  idx,
+  key,
+  labelText,
+  options,
+  fieldOptions = {},
+) {
   const field = document.createElement("div");
   field.className = `viz-series-field viz-series-field-${key} viz-field`;
   field.dataset.vizSelect = "";
@@ -1205,7 +1266,8 @@ function makeSeriesSelectField(instance, row, idx, key, labelText, options, fiel
     const selectedValue = value || "";
     instance.state.series[idx][key] = selectedValue;
     valueLabel.textContent =
-      options.find(([optionValue]) => optionValue === selectedValue)?.[1] || "default";
+      options.find(([optionValue]) => optionValue === selectedValue)?.[1] ||
+      "default";
     menu.querySelectorAll("[data-viz-option]").forEach((option) => {
       const active = option.dataset.vizOption === selectedValue;
       option.classList.toggle("active", active);
@@ -1248,10 +1310,18 @@ function makeSeriesSelectField(instance, row, idx, key, labelText, options, fiel
 }
 
 function makeSeriesModeField(instance, row, idx) {
-  return makeSeriesSelectField(instance, row, idx, "mode", "Mode", SERIES_MODE_OPTIONS, {
-    disabled: !instance.state.seriesOptions,
-    disabledReason: "Turn on Per-series to edit row modes",
-  });
+  return makeSeriesSelectField(
+    instance,
+    row,
+    idx,
+    "mode",
+    "Mode",
+    SERIES_MODE_OPTIONS,
+    {
+      disabled: !instance.state.seriesOptions,
+      disabledReason: "Turn on Per-series to edit row modes",
+    },
+  );
 }
 
 function renderSeriesEditor(instance) {
@@ -1436,7 +1506,11 @@ async function runViz(instance) {
         session.free();
       }
     });
-    if (result.value !== undefined && result.value !== null && String(result.value).length) {
+    if (
+      result.value !== undefined &&
+      result.value !== null &&
+      String(result.value).length
+    ) {
       const bar = document.createElement("span");
       bar.className = "repl-bar repl-bar-success";
       bar.textContent = "\u258d ";
@@ -1504,7 +1578,9 @@ function wireSelect(instance, field) {
 
 export async function mountViz(root) {
   await ensureWasm();
-  const tableSourceTextarea = root.querySelector('textarea[data-viz-input="sourceExpr"]');
+  const tableSourceTextarea = root.querySelector(
+    'textarea[data-viz-input="sourceExpr"]',
+  );
   const tableSourceEditor = tableSourceTextarea
     ? createWqEditor(tableSourceTextarea, { multilineMode: "plain" })
     : null;
@@ -1533,7 +1609,9 @@ export async function mountViz(root) {
     presetMenuButton: root.querySelector("[data-viz-preset-toggle]"),
     presetMenuPanel: root.querySelector("[data-viz-preset-panel]"),
     presetButtons: Array.from(root.querySelectorAll("[data-viz-preset]")),
-    layoutButtons: Array.from(root.querySelectorAll("[data-viz-layout-option]")),
+    layoutButtons: Array.from(
+      root.querySelectorAll("[data-viz-layout-option]"),
+    ),
     stepButtons: Array.from(root.querySelectorAll("[data-viz-step]")),
     selects: {},
     ranges: Object.fromEntries(
@@ -1639,7 +1717,9 @@ export async function mountViz(root) {
     await copyCode(instance);
   });
   instance.openBtn?.addEventListener("click", () => {
-    window.navigate(`playground.html?code=${encodeURIComponent(instance.code)}`);
+    window.navigate(
+      `playground.html?code=${encodeURIComponent(instance.code)}`,
+    );
   });
   document.addEventListener("click", (event) => {
     if (!root.contains(event.target)) {

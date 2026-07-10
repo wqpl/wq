@@ -55,6 +55,70 @@ function playgroundExampleCardHtml(example, index) {
   `;
 }
 
+const SEARCH_ICON_HTML = html`
+  <svg viewBox="0 0 20 20" aria-hidden="true">
+    <circle cx="8.5" cy="8.5" r="5.25"></circle>
+    <path d="m12.4 12.4 4.1 4.1"></path>
+  </svg>
+`;
+
+const NESTED_SEARCH_TOGGLE_HTML = html`
+  <button
+    class="pill inactive crumb-search"
+    data-nested-search-toggle
+    type="button"
+    aria-expanded="false">
+    <span class="crumb-search-icon">${SEARCH_ICON_HTML}</span>
+    <span class="crumb-search-label">Search</span>
+  </button>
+`;
+
+const NESTED_SEARCH_CARD_HTML = html`
+  <section
+    class="featured-search nested-featured-search"
+    data-nested-search-card
+    aria-label="Search featured pages"
+    hidden>
+    <div class="featured-search-head">
+      <h2>Search</h2>
+      <div class="nested-search-head-actions">
+        <span
+          class="featured-search-count"
+          data-featured-search-count
+          aria-live="polite"></span>
+        <button
+          class="nested-search-close"
+          data-nested-search-close
+          type="button"
+          aria-label="Close search">
+          x
+        </button>
+      </div>
+    </div>
+    <div class="featured-search-box">
+      <input
+        data-featured-search-input
+        type="search"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="Search featured pages"
+        placeholder="Search docs, tutorials, builtins, syntax" />
+      <button
+        class="featured-search-clear"
+        data-featured-search-clear
+        type="button"
+        aria-label="Clear search"
+        hidden>
+        x
+      </button>
+    </div>
+    <div
+      class="featured-search-results nested-search-results grid"
+      data-featured-search-results
+      hidden></div>
+  </section>
+`;
+
 const ROUTE_ORDER = ["featured", "playground", "viz", "repl", "more"];
 const THEME_STORAGE_KEY = "wqide:theme";
 const THEME_MIDNIGHT = "midnight";
@@ -72,7 +136,90 @@ const SHELL_HTML = html`
             aria-label="Toggle midnight mode"
             aria-pressed="false"
             title="Switch to midnight mode">
-            theme
+            <span class="theme-toggle-icon theme-toggle-sun" aria-hidden="true">
+              <svg viewBox="0 0 84 36" preserveAspectRatio="none">
+                <defs>
+                  <radialGradient id="themeSunGlow" cx="50%" cy="50%" r="50%">
+                    <stop offset="0" stop-color="#ffd84d" stop-opacity="0.34" />
+                    <stop
+                      offset="0.62"
+                      stop-color="#ffd84d"
+                      stop-opacity="0.14" />
+                    <stop offset="1" stop-color="#ffd84d" stop-opacity="0" />
+                  </radialGradient>
+
+                  <radialGradient id="themeSunSphere" cx="64%" cy="28%" r="78%">
+                    <stop offset="0" stop-color="#fffde0" />
+                    <stop offset="0.28" stop-color="#fff18a" />
+                    <stop offset="0.68" stop-color="#ffd044" />
+                    <stop offset="1" stop-color="#e9aa00" />
+                  </radialGradient>
+
+                  <linearGradient
+                    id="themeSunHighlight"
+                    x1="0"
+                    y1="0"
+                    x2="1"
+                    y2="1">
+                    <stop offset="0" stop-color="#ffffff" stop-opacity="0.58" />
+                    <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+                  </linearGradient>
+                </defs>
+
+                <circle
+                  class="theme-sun-glow"
+                  cx="-1"
+                  cy="18"
+                  r="27"
+                  fill="url(#themeSunGlow)" />
+
+                <circle
+                  class="theme-sun-disc"
+                  cx="-1"
+                  cy="18"
+                  r="18"
+                  fill="url(#themeSunSphere)" />
+
+                <circle
+                  cx="-1"
+                  cy="18"
+                  r="17.4"
+                  fill="none"
+                  stroke="#fff7b2"
+                  stroke-opacity="0.42"
+                  stroke-width="0.8" />
+
+                <ellipse
+                  cx="4"
+                  cy="11.5"
+                  rx="7.5"
+                  ry="4.5"
+                  fill="url(#themeSunHighlight)"
+                  transform="rotate(-18 4 11.5)" />
+              </svg>
+            </span>
+            <span
+              class="theme-toggle-icon theme-toggle-midnight"
+              aria-hidden="true">
+              <svg viewBox="0 0 84 36" preserveAspectRatio="none">
+                <defs>
+                  <radialGradient
+                    id="themeMoonSphere"
+                    cx="68%"
+                    cy="32%"
+                    r="72%">
+                    <stop offset="0" stop-color="#ffffff"></stop>
+                    <stop offset="0.6" stop-color="#edf3ff"></stop>
+                    <stop offset="1" stop-color="#c9d4ea"></stop>
+                  </radialGradient>
+                </defs>
+                <circle class="theme-moon" cx="-1" cy="18" r="18"></circle>
+                <circle class="theme-star" cx="48" cy="10" r="1.2"></circle>
+                <circle class="theme-star" cx="66" cy="20" r="0.9"></circle>
+                <circle class="theme-star" cx="60" cy="7" r="0.65"></circle>
+              </svg>
+            </span>
+            <span class="theme-toggle-label">light</span>
           </button>
         </div>
       </div>
@@ -375,7 +522,6 @@ const PLAYGROUND_HTML = html`
             </div>
           </div>
         </div>
-
       </div>
 
       <aside class="playground-inspector" aria-label="Playground inspector">
@@ -419,13 +565,17 @@ const PLAYGROUND_HTML = html`
               </button>
             </div>
           </div>
-          <div class="structure-panel-status" data-structure-status hidden></div>
+          <div
+            class="structure-panel-status"
+            data-structure-status
+            hidden></div>
           <pre
             id="structurePanelBody"
             class="structure-panel-body empty"
             data-structure-output
             role="tabpanel"
-            aria-live="polite">No code yet.</pre>
+            aria-live="polite">
+No code yet.</pre>
         </section>
       </aside>
 
@@ -1441,7 +1591,9 @@ const SUBFOLDER_HTML = html`
         <a href="index.html">~</a><span class="sep">/</span
         ><span class="crumb-current" data-role="section-crumb">Basics</span>
       </div>
+      ${NESTED_SEARCH_TOGGLE_HTML}
     </nav>
+    ${NESTED_SEARCH_CARD_HTML}
 
     <div class="folder-head"><h1 data-role="section-title"></h1></div>
 
@@ -1469,7 +1621,9 @@ const ARTICLE_HTML = html`
           >Loading...</span
         >
       </div>
+      ${NESTED_SEARCH_TOGGLE_HTML}
     </nav>
+    ${NESTED_SEARCH_CARD_HTML}
 
     <div class="layout-3col">
       <aside class="left-rail">
@@ -1514,6 +1668,14 @@ function syncThemeToggle() {
   button.classList.toggle("active", isMidnight);
   button.classList.toggle("inactive", !isMidnight);
   button.setAttribute("aria-pressed", String(isMidnight));
+  button.setAttribute(
+    "aria-label",
+    isMidnight
+      ? "Midnight mode. Switch to light mode"
+      : "Light mode. Switch to midnight mode",
+  );
+  const label = button.querySelector(".theme-toggle-label");
+  if (label) label.textContent = isMidnight ? "midnight" : "light";
   button.title = isMidnight
     ? "Switch to light mode"
     : "Switch to midnight mode";
@@ -1903,21 +2065,21 @@ async function runFeaturedSearch(root, query) {
   }
 }
 
-function clearFeaturedSearch(root) {
+function clearFeaturedSearch(root, options = {}) {
   const input = root.querySelector("[data-featured-search-input]");
   if (!input) return;
   input.value = "";
-  setFeaturedSearchQueryParam("");
+  if (options.syncQuery !== false) setFeaturedSearchQueryParam("");
   runFeaturedSearch(root, "");
 }
 
-function wireFeaturedSearch(root) {
+function wireFeaturedSearch(root, options = {}) {
   const input = root.querySelector("[data-featured-search-input]");
   const clear = root.querySelector("[data-featured-search-clear]");
   if (!input || input.dataset.wired === "true") return;
   input.dataset.wired = "true";
   input.addEventListener("input", () => {
-    setFeaturedSearchQueryParam(input.value);
+    if (options.syncQuery !== false) setFeaturedSearchQueryParam(input.value);
     runFeaturedSearch(root, input.value);
   });
   input.addEventListener("focus", () => {
@@ -1928,7 +2090,12 @@ function wireFeaturedSearch(root) {
   input.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && input.value) {
       event.preventDefault();
-      clearFeaturedSearch(root);
+      clearFeaturedSearch(root, options);
+      return;
+    }
+    if (event.key === "Escape" && options.onEscape) {
+      event.preventDefault();
+      options.onEscape();
       return;
     }
     if (event.key === "Enter" && input.value.trim()) {
@@ -1942,9 +2109,40 @@ function wireFeaturedSearch(root) {
     }
   });
   clear?.addEventListener("click", () => {
-    clearFeaturedSearch(root);
+    clearFeaturedSearch(root, options);
     input.focus();
   });
+}
+
+function setNestedSearchOpen(root, open) {
+  const toggle = root.querySelector("[data-nested-search-toggle]");
+  const card = root.querySelector("[data-nested-search-card]");
+  if (!toggle || !card) return;
+  card.hidden = !open;
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.classList.toggle("active", open);
+  toggle.classList.toggle("inactive", !open);
+  if (open) {
+    card.querySelector("[data-featured-search-input]")?.focus();
+  } else {
+    toggle.focus();
+  }
+}
+
+function wireNestedSearch(root) {
+  const toggle = root.querySelector("[data-nested-search-toggle]");
+  const card = root.querySelector("[data-nested-search-card]");
+  const close = root.querySelector("[data-nested-search-close]");
+  if (!toggle || !card || toggle.dataset.wired === "true") return;
+  toggle.dataset.wired = "true";
+  wireFeaturedSearch(card, {
+    syncQuery: false,
+    onEscape: () => setNestedSearchOpen(root, false),
+  });
+  toggle.addEventListener("click", () => {
+    setNestedSearchOpen(root, card.hidden);
+  });
+  close?.addEventListener("click", () => setNestedSearchOpen(root, false));
 }
 
 function applyFeaturedSearchRoute(root, route) {
@@ -2087,6 +2285,7 @@ async function mountSubfolder(route) {
   }
   if (title) title.textContent = titleText;
   wireBackButton(root);
+  wireNestedSearch(root);
   if (grid && !grid.dataset.loadedFor) {
     const docs = isReferenceSection(sectionName) ? await getDocIndex() : [];
     const list = isReferenceSection(sectionName)
@@ -2140,6 +2339,7 @@ async function mountArticle(route) {
   const articleRoot = root.querySelector('[data-role="article-root"]');
   if (articleRoot) articleRoot.setAttribute("data-article-slug", slug);
   wireBackButton(root);
+  wireNestedSearch(root);
 
   function fail(msg) {
     if (titleEl) titleEl.textContent = "Not Found";
