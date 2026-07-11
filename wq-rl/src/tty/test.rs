@@ -94,6 +94,8 @@ impl RawReader for IntoIter<KeyEvent> {
 pub struct Sink {
     pub output: String,
     pub hints: Vec<Option<String>>,
+    pub colors_enabled: bool,
+    pub multiline_positions: bool,
 }
 
 impl Renderer for Sink {
@@ -120,9 +122,20 @@ impl Renderer for Sink {
         Ok(())
     }
 
-    fn calculate_position(&self, s: &str, orig: Position, _continuation: Position) -> Position {
+    fn calculate_position(&self, s: &str, orig: Position, continuation: Position) -> Position {
         let mut pos = orig;
-        pos.col += u16::try_from(s.len()).unwrap();
+        if !self.multiline_positions {
+            pos.col += u16::try_from(s.len()).unwrap();
+            return pos;
+        }
+        for c in s.chars() {
+            if c == '\n' {
+                pos.row += 1 + continuation.row;
+                pos.col = continuation.col;
+            } else {
+                pos.col += 1;
+            }
+        }
         pos
     }
 
@@ -158,7 +171,7 @@ impl Renderer for Sink {
     }
 
     fn colors_enabled(&self) -> bool {
-        false
+        self.colors_enabled
     }
 
     fn grapheme_cluster_mode(&self) -> GraphemeClusterMode {

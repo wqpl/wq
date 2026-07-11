@@ -235,6 +235,10 @@ impl<'out, 'prompt, H: Helper, P: Prompt + ?Sized> State<'out, 'prompt, H, P> {
         let prompt_size = self.input_area_prompt_size(prompt_size);
         let continuation_size = if continuation_prompt.is_some() {
             Some(self.input_area_continuation_size(self.continuation_prompt_size))
+        } else if self.input_area_style().is_some() {
+            // The renderer still draws the input area's horizontal padding on
+            // every line when there is no explicit continuation prompt.
+            Some(self.input_area_continuation_size(Position::default()))
         } else {
             None
         };
@@ -894,8 +898,73 @@ pub fn init_state<'out, H: Helper>(
 #[cfg(test)]
 mod test {
     use super::init_state;
+    use crate::Helper;
+    use crate::completion::Completer;
+    use crate::highlight::{CmdKind, Highlighter, InputAreaStyle};
+    use crate::hint::Hinter;
     use crate::history::{DefaultHistory, History as _};
+    use crate::keymap::Refresher as _;
+    use crate::layout::Position;
     use crate::tty::Sink;
+    use crate::validate::Validator;
+
+    struct InputAreaHelper;
+
+    impl Completer for InputAreaHelper {
+        type Candidate = String;
+    }
+
+    impl Hinter for InputAreaHelper {
+        type Hint = String;
+    }
+
+    impl Highlighter for InputAreaHelper {
+        fn input_area_style(&self) -> Option<InputAreaStyle> {
+            Some(InputAreaStyle {
+                background: "",
+                reset: "",
+                horizontal_padding: 1,
+                vertical_padding: 1,
+            })
+        }
+
+        fn highlight_char(&self, _line: &str, _pos: usize, _kind: CmdKind) -> bool {
+            true
+        }
+    }
+
+    impl Validator for InputAreaHelper {}
+    impl Helper for InputAreaHelper {}
+
+    #[test]
+    fn multiline_input_area_layout_includes_continuation_padding() {
+        let mut out = Sink {
+            colors_enabled: true,
+            multiline_positions: true,
+            ..Sink::default()
+        };
+        let history = DefaultHistory::new();
+        let helper = InputAreaHelper;
+        let mut state = init_state(
+            &mut out,
+            "111\n222",
+            "111\n222".len(),
+            Some(&helper),
+            &history,
+        );
+
+        state.refresh_line().expect("refresh multiline input");
+
+        assert_eq!(Position { col: 4, row: 2 }, state.layout.cursor);
+        assert_eq!(state.layout.cursor, state.layout.end);
+        state.edit_move_backward(1).expect("move cursor left");
+        assert_eq!(Position { col: 3, row: 2 }, state.layout.cursor);
+        state.edit_move_forward(1).expect("move cursor right");
+        assert_eq!(Position { col: 4, row: 2 }, state.layout.cursor);
+        state.edit_insert('3', 1).expect("insert after paste");
+        assert_eq!("111\n2223", state.line.as_str());
+        assert_eq!(Position { col: 5, row: 2 }, state.layout.cursor);
+    }
 
     #[test]
     fn edit_history_next() {
