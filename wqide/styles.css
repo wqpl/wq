@@ -528,24 +528,90 @@ body {
     0 20px 40px rgba(7, 14, 35, 0.2);
   color: var(--welcome-text);
 }
+
 .welcome-card::before {
   position: absolute;
   z-index: 0;
   inset: 0;
   background-image:
-    radial-gradient(circle, rgba(178, 255, 180, 0.9) 0 1px, transparent 1.5px),
-    radial-gradient(circle, rgba(254, 194, 250, 0.8) 0 1px, transparent 1.5px),
-    radial-gradient(circle, rgba(84, 234, 245, 0.7) 0 0.8px, transparent 1.4px);
-  background-position:
-    11px 19px,
-    37px 61px,
-    24px 2px;
-  background-size:
-    83px 83px,
-    127px 127px,
-    59px 59px;
+    radial-gradient(
+      circle at 7% 16%,
+      rgba(178, 255, 180, 0.9) 0 1px,
+      transparent 1.6px
+    ),
+    radial-gradient(
+      circle at 19% 38%,
+      rgba(254, 194, 250, 0.72) 0 0.8px,
+      transparent 1.4px
+    ),
+    radial-gradient(
+      circle at 31% 11%,
+      rgba(84, 234, 245, 0.78) 0 1.1px,
+      transparent 1.8px
+    ),
+    radial-gradient(
+      circle at 43% 67%,
+      rgba(178, 255, 180, 0.62) 0 0.7px,
+      transparent 1.3px
+    ),
+    radial-gradient(
+      circle at 54% 27%,
+      rgba(254, 194, 250, 0.86) 0 1px,
+      transparent 1.7px
+    ),
+    radial-gradient(
+      circle at 63% 84%,
+      rgba(84, 234, 245, 0.66) 0 0.8px,
+      transparent 1.5px
+    ),
+    radial-gradient(
+      circle at 72% 12%,
+      rgba(178, 255, 180, 0.76) 0 0.9px,
+      transparent 1.5px
+    ),
+    radial-gradient(
+      circle at 79% 49%,
+      rgba(254, 194, 250, 0.7) 0 1.1px,
+      transparent 1.8px
+    ),
+    radial-gradient(
+      circle at 91% 24%,
+      rgba(84, 234, 245, 0.8) 0 0.7px,
+      transparent 1.4px
+    ),
+    radial-gradient(
+      circle at 87% 76%,
+      rgba(178, 255, 180, 0.68) 0 1px,
+      transparent 1.6px
+    ),
+    radial-gradient(
+      circle at 24% 88%,
+      rgba(254, 194, 250, 0.64) 0 0.8px,
+      transparent 1.4px
+    ),
+    radial-gradient(
+      circle at 4% 69%,
+      rgba(84, 234, 245, 0.7) 0 0.9px,
+      transparent 1.5px
+    ),
+    radial-gradient(
+      circle at 48% 45%,
+      rgba(255, 255, 255, 0.44) 0 0.6px,
+      transparent 1.2px
+    ),
+    radial-gradient(
+      circle at 68% 58%,
+      rgba(255, 255, 255, 0.38) 0 0.7px,
+      transparent 1.3px
+    ),
+    radial-gradient(
+      circle at 36% 79%,
+      rgba(255, 255, 255, 0.34) 0 0.6px,
+      transparent 1.2px
+    );
+  background-repeat: no-repeat;
   content: "";
-  opacity: 0.22;
+  opacity: 0.42;
   pointer-events: none;
 }
 
@@ -4410,6 +4476,7 @@ textarea.editor-text.repl-input,
   opacity: 0;
   transition: opacity 520ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .theme-toggle-icon,
 .theme-toggle-icon svg {
   position: absolute;
@@ -4418,20 +4485,22 @@ textarea.editor-text.repl-input,
   width: 100%;
   height: 100%;
 }
+
 .theme-toggle-icon {
   z-index: 2;
   pointer-events: none;
-  transition: opacity 360ms ease;
   will-change: opacity;
 }
+
 .theme-toggle-icon svg {
   overflow: visible;
 }
+
 .theme-sky-haze {
   position: absolute;
   z-index: 1;
-  right: -4px;
-  bottom: -5px;
+  right: 0;
+  bottom: -6px;
   width: 61px;
   height: 23px;
   border-radius: 50%;
@@ -4441,28 +4510,34 @@ textarea.editor-text.repl-input,
     transparent 69%
   );
   filter: blur(2px);
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: 70% 100%;
   transition:
-    opacity 360ms ease,
-    transform 520ms cubic-bezier(0.4, 0, 0.2, 1);
+    opacity 300ms ease 180ms,
+    transform 620ms cubic-bezier(0.22, 0.72, 0.24, 1) 100ms;
+  will-change: opacity, transform;
 }
+
 .theme-cloud {
   --theme-cloud-scale: 1;
   position: absolute;
   z-index: 3;
-  bottom: 0;
+  bottom: -2px;
   height: 9px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.8);
   box-shadow:
     inset 0 2px 2px rgba(255, 255, 255, 0.9),
     0 2px 4px rgba(94, 170, 215, 0.12);
-  transform: translate(0, 0) scale(var(--theme-cloud-scale));
-  transform-origin: right bottom;
+  transform: translateY(0) scale(var(--theme-cloud-scale));
+  transform-origin: 68% 100%;
   transition:
-    opacity 340ms ease,
-    transform 520ms cubic-bezier(0.4, 0, 0.2, 1);
+    opacity 260ms ease 220ms,
+    transform 640ms cubic-bezier(0.22, 0.72, 0.24, 1) 100ms;
   will-change: opacity, transform;
 }
+
 .theme-cloud::before,
 .theme-cloud::after {
   position: absolute;
@@ -4471,65 +4546,97 @@ textarea.editor-text.repl-input,
   background: inherit;
   box-shadow: inset 1px 2px 2px rgba(255, 255, 255, 0.72);
 }
+
 .theme-cloud-back {
   --theme-cloud-scale: 0.88;
   right: 19px;
-  bottom: 5px;
+  bottom: 4px;
   width: 32px;
   opacity: 0.42;
+  transition-delay: 160ms, 70ms;
 }
+
 .theme-cloud-back::before {
   left: 4px;
   bottom: 2px;
   width: 14px;
   height: 14px;
 }
+
 .theme-cloud-back::after {
   right: 4px;
   bottom: 3px;
   width: 12px;
   height: 12px;
 }
+
 .theme-cloud-front {
-  right: -1px;
+  right: 3px;
+  bottom: -2px;
   width: 42px;
+  opacity: 1;
   background: rgba(248, 253, 255, 0.92);
+  transition-delay: 250ms, 120ms;
 }
+
 .theme-cloud-front::before {
   left: 6px;
   bottom: 2px;
   width: 18px;
   height: 18px;
 }
+
 .theme-cloud-front::after {
   right: 9px;
   bottom: 3px;
   width: 14px;
   height: 14px;
 }
+
+/*
+ * Both bodies rotate around a point below the toggle.
+ * Since the pivot is outside the visible area, the movement reads
+ * as a broad horizon-crossing arc.
+ */
 .theme-sun-orbit,
 .theme-moon-orbit {
-  transform-box: fill-box;
-  transform-origin: center;
-  transition: transform 560ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform-box: view-box;
+  transform-origin: 42px 70px;
   will-change: transform;
+  transition: transform 760ms cubic-bezier(0.45, 0, 0.16, 1);
 }
+
 .theme-sun-orbit {
-  transform: translate(0, 0) rotate(0) scale(1);
+  transform: rotate(0deg) scale(1);
 }
+
 .theme-moon-orbit {
-  transform: translate(-3px, 18px) rotate(-8deg) scale(0.88);
+  transform: rotate(-76deg) scale(0.8);
 }
-.theme-toggle-sun .theme-sun-disc {
-  fill: url(#themeSunSphere);
+
+/*
+ * The incoming body fades in after it has started rising.
+ * The outgoing body remains visible until it approaches the horizon.
+ */
+.theme-toggle-sun {
+  opacity: 1;
+  transition: opacity 170ms ease 260ms;
 }
+
 .theme-toggle-midnight {
   opacity: 0;
   pointer-events: none;
+  transition: opacity 170ms ease 430ms;
 }
+
+.theme-toggle-sun .theme-sun-disc {
+  fill: url(#themeSunSphere);
+}
+
 .theme-toggle-midnight .theme-moon {
   fill: url(#themeMoonSphere);
 }
+
 .theme-moon-glow {
   fill: rgba(185, 211, 255, 0.1);
 }
@@ -4570,31 +4677,41 @@ textarea.editor-text.repl-input,
   white-space: nowrap;
   border: 0;
 }
+
 :root[data-theme="midnight"] .theme-night-sky {
   opacity: 1;
 }
+
 :root[data-theme="midnight"] .theme-toggle-sun {
   opacity: 0;
+  transition-delay: 430ms;
 }
+
 :root[data-theme="midnight"] .theme-sun-orbit {
-  transform: translate(-4px, 18px) rotate(10deg) scale(0.84);
+  transform: rotate(-76deg) scale(0.8);
 }
+
 :root[data-theme="midnight"] .theme-toggle-midnight {
   opacity: 1;
+  transition-delay: 260ms;
 }
+
 :root[data-theme="midnight"] .theme-moon-orbit {
-  transform: translate(0, 0) rotate(0) scale(1);
+  transform: rotate(0deg) scale(1);
 }
-:root[data-theme="midnight"] .theme-sky-haze,
+
+:root[data-theme="midnight"] .theme-sky-haze {
+  opacity: 0;
+  transform: translateY(7px) scale(0.9);
+  transition-delay: 0ms, 0ms;
+}
+
 :root[data-theme="midnight"] .theme-cloud {
   opacity: 0;
+  transform: translateY(9px) scale(0.78);
+  transition-delay: 0ms, 0ms;
 }
-:root[data-theme="midnight"] .theme-sky-haze {
-  transform: translate(7px, 4px) scale(0.96);
-}
-:root[data-theme="midnight"] .theme-cloud {
-  transform: translate(9px, 3px) scale(var(--theme-cloud-scale));
-}
+
 :root[data-theme="midnight"] .theme-toggle.active,
 :root[data-theme="midnight"] .theme-toggle.active:hover {
   border-color: #4b5877;
