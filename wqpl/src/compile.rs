@@ -911,18 +911,29 @@ impl Compiler {
                 ));
             }
             AstNode::Assignment {
-                name, op, value, ..
+                name,
+                op,
+                value,
+                name_span,
+                ..
             } => {
                 if let Some(op) = op {
                     if *op == BinaryOperator::Cat {
                         // Cat assignment: name ,: rhs → name = name, rhs
                         // Compile both operands as stack values for Cat(n)
-                        let left_name = name.clone();
-                        self.compile_expr(&AstNode::Variable(left_name, None))?;
+                        self.compile_expr(&AstNode::Variable(name.clone(), *name_span))?;
                         self.compile_expr(value)?;
                         self.instructions.push(Instruction::Cat(2));
                     } else {
-                        let left = self.operand_for_name(name)?;
+                        let left = if Self::rhs_cannot_mutate_bindings(value) {
+                            self.operand_for_name(name)?
+                        } else {
+                            // Snapshot the old value before evaluating an RHS
+                            // that may mutate this binding directly or through
+                            // a reference capture.
+                            self.compile_expr(&AstNode::Variable(name.clone(), *name_span))?;
+                            Operand::Stack
+                        };
                         let right = self.compile_expr_as_operand(value)?;
                         self.instructions
                             .push(Instruction::binary_op(*op, left, right));
@@ -1075,10 +1086,18 @@ impl Compiler {
                         self.compile_expr(value)?;
                         self.instructions.push(Instruction::Cat(2));
                     } else {
-                        let left = if let Some(idx) = self.ref_capture_map.get(name) {
-                            Operand::Capture(*idx)
+                        let left = if Self::rhs_cannot_mutate_bindings(value) {
+                            if let Some(idx) = self.ref_capture_map.get(name) {
+                                Operand::Capture(*idx)
+                            } else {
+                                Operand::Var(name.clone().into())
+                            }
                         } else {
-                            Operand::Var(name.clone().into())
+                            // Keep augmented assignment evaluation consistent
+                            // with Cat assignment and ordinary binary
+                            // expressions when the RHS may have effects.
+                            self.compile_expr(&AstNode::OuterVariable(name.clone(), *name_span))?;
+                            Operand::Stack
                         };
                         let right = self.compile_expr_as_operand(value)?;
                         self.instructions
@@ -2295,6 +2314,21 @@ impl Compiler {
         }
     }
 
+    fn compile_expr_as_ordered_left_operand(&mut self, node: &AstNode) -> WqResult<Operand> {
+        if let AstNode::Literal(value, ..) = node {
+            return Ok(Operand::const_val(value.clone()));
+        }
+        self.compile_expr(node)?;
+        Ok(Operand::Stack)
+    }
+
+    fn rhs_cannot_mutate_bindings(node: &AstNode) -> bool {
+        matches!(
+            node,
+            AstNode::Literal(..) | AstNode::Variable(..) | AstNode::OuterVariable(..)
+        )
+    }
+
     fn compile_binary_chain(
         &mut self,
         mut left: &AstNode,
@@ -2319,8 +2353,16 @@ impl Compiler {
             left = next_left;
         }
 
-        let mut left_op = self.compile_expr_as_operand(left)?;
-        for (op, right) in chain.into_iter().rev() {
+        chain.reverse();
+        let first_right = chain.first().expect("binary chain is not empty").1;
+        let mut left_op = if Self::rhs_cannot_mutate_bindings(first_right) {
+            self.compile_expr_as_operand(left)?
+        } else {
+            // Deferring a variable as Operand::Local/Var/Capture would let a
+            // side-effecting RHS change which value the left operand observes.
+            self.compile_expr_as_ordered_left_operand(left)?
+        };
+        for (op, right) in chain {
             let right_op = self.compile_expr_as_operand(right)?;
             self.instructions
                 .push(Instruction::binary_op(op, left_op, right_op));

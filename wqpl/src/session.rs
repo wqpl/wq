@@ -1899,6 +1899,76 @@ mod tests {
     }
 
     #[test]
+    fn binary_operators_read_left_operand_before_rhs_effects() {
+        let mut session = Session::new();
+
+        let local = session
+            .eval_string("f:{[]n:10;bump:{[]'n+:1;5};r:n+bump[]+1;(r;n)};f[]")
+            .expect("local binary evaluation should succeed");
+        assert_eq!(
+            local,
+            Value::from_items(vec![Value::Int(16), Value::Int(11)])
+        );
+
+        let outer = session
+            .eval_string("f:{[]n:10;bump:{[]'n+:1;5};calc:{[]r:'n+bump[];(r;'n)};calc[]};f[]")
+            .expect("captured binary evaluation should succeed");
+        assert_eq!(
+            outer,
+            Value::from_items(vec![Value::Int(15), Value::Int(11)])
+        );
+
+        let global = session
+            .eval_string("n:10;bump:{[]'n+:1;5};r:n+bump[];(r;n)")
+            .expect("global binary evaluation should succeed");
+        assert_eq!(
+            global,
+            Value::from_items(vec![Value::Int(15), Value::Int(11)])
+        );
+
+        let multiply = session
+            .eval_string("f:{[]n:10;bump:{[]'n+:1;5};r:n*bump[];(r;n)};f[]")
+            .expect("multiply evaluation should succeed");
+        assert_eq!(
+            multiply,
+            Value::from_items(vec![Value::Int(50), Value::Int(11)])
+        );
+    }
+
+    #[test]
+    fn augmented_assignments_read_old_value_before_rhs_effects() {
+        let mut session = Session::new();
+
+        let add = session
+            .eval_string("f:{[]n:10;bump:{[]'n+:1;5};n+:bump[];n};f[]")
+            .expect("add assignment should succeed");
+        assert_eq!(add, Value::Int(15));
+
+        let outer_add = session
+            .eval_string("f:{[]n:10;bump:{[]'n+:1;5};calc:{[]'n+:bump[];'n};calc[]};f[]")
+            .expect("captured add assignment should succeed");
+        assert_eq!(outer_add, Value::Int(15));
+
+        let global_add = session
+            .eval_string("n:10;bump:{[]'n+:1;5};n+:bump[];n")
+            .expect("global add assignment should succeed");
+        assert_eq!(global_add, Value::Int(15));
+
+        let multiply = session
+            .eval_string("f:{[]n:10;bump:{[]'n+:1;5};n*:bump[];n};f[]")
+            .expect("multiply assignment should succeed");
+        assert_eq!(multiply, Value::Int(50));
+
+        let cat = session
+            .eval_string("f:{[]s:(3;4);both:{[]'s[!-2;-1]|fold(+)};s,:both[];s};f[]")
+            .expect("cat assignment should succeed");
+        assert_eq!(
+            cat,
+            Value::from_items(vec![Value::Int(3), Value::Int(4), Value::Int(7)])
+        );
+    }
+
+    #[test]
     fn test_cached_parse_reuses_unchanged_root_statements() {
         let session = Session::new();
         let src = "a:1\nb:2\nc:3\n";

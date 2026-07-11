@@ -354,7 +354,7 @@ pub(super) const ASSIGNMENT: StaticDoc = StaticDoc {
         "unpack",
     ],
     summary: "Bind, update, unpack, or checkpoint values with assignment forms.",
-    details: "`name:expr` binds a value. Operator-colon forms such as `x+:1` update from the old value, and `xs,:x` appends with comma assignment. List-shaped left sides unpack values, so `(a;b):(1;2)` binds both names; patterns may nest, and `...` skips the middle. Index targets can be assigned too, and `value|name:` checkpoints a pipe value under a name.",
+    details: "`name:expr` binds a value. Operator-colon forms such as `x+:1` update from the old value, and `xs,:x` appends with comma assignment. If a right operand runs code that mutates a binding used on the left, binary expressions and operator-colon updates still use the left value from before that mutation. List-shaped left sides unpack values, so `(a;b):(1;2)` binds both names; patterns may nest, and `...` skips the middle. Index targets can be assigned too, and `value|name:` checkpoints a pipe value under a name.",
     examples: ASSIGNMENT_EXAMPLES,
     related: &["equality", "index-mutation", "pipes"],
 };
