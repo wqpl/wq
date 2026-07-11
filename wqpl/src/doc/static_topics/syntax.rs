@@ -293,6 +293,24 @@ const PRECEDENCE_EXAMPLES: &[DocExample] = &[
     },
 ];
 
+const BOOLEAN_LOGIC_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Short-circuit boolean and",
+        code: "and[F;raise \"unreached\"]",
+        expectation: ExampleExpectation::ResultContains("F"),
+    },
+    DocExample {
+        title: "Short-circuit boolean or",
+        code: "or[T;raise \"unreached\"]",
+        expectation: ExampleExpectation::ResultContains("T"),
+    },
+    DocExample {
+        title: "Apply bitwise operations to bools",
+        code: "(band[T;F];bor[T;F];bxor[T;F])",
+        expectation: ExampleExpectation::ResultContains("(F;T;T)"),
+    },
+];
+
 const CONDITIONAL_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Choose a branch",
@@ -535,9 +553,21 @@ pub(super) const PRECEDENCE: StaticDoc = StaticDoc {
         "order of operations",
     ],
     summary: "Understand which syntax groups first.",
-    details: "From tight to loose: grouping/literals, postfix calls and indexing, power, unary operators, ranges, multiply/divide/modulo/matmul, add/subtract, comparisons, comma, pipes, and assignment. Use named calls such as `band[x;y]`, `bor[x;y]`, `xor[x;y]`, `shl[x;y]`, and `shr[x;y]` for bitwise operations. Lazy boolean forms are special bracket syntax: `A[x;y]` short-circuits and, while `O[x;y]` short-circuits or. Postfix binds before binary operators, so `fn 1+2` means `(fn 1)+2`; use `fn(1+2)`, `fn[1+2]`, or `1+2|fn` when the whole expression is the argument.",
+    details: "From tight to loose: grouping/literals, postfix calls and indexing, power, unary operators, ranges, multiply/divide/modulo/matmul, add/subtract, comparisons, comma, pipes, and assignment. Use named calls such as `band[x;y]`, `bor[x;y]`, `bxor[x;y]`, `shl[x;y]`, and `shr[x;y]` for bitwise operations. Lazy boolean forms are special bracket syntax: `A[x;y]` and its `and[x;y]` alias short-circuit and, while `O[x;y]` and its `or[x;y]` alias short-circuit or. Postfix binds before binary operators, so `fn 1+2` means `(fn 1)+2`; use `fn(1+2)`, `fn[1+2]`, or `1+2|fn` when the whole expression is the argument.",
     examples: PRECEDENCE_EXAMPLES,
     related: &["operators", "postfix", "pipes", "calls", "ranges"],
+};
+
+pub(super) const BOOLEAN_LOGIC: StaticDoc = StaticDoc {
+    id: "boolean-logic",
+    title: "Boolean and Bitwise Logic",
+    kind: DocKind::Syntax,
+    group: "Syntax",
+    aliases: &["A", "O", "and", "or", "boolean", "logical"],
+    summary: "Combine bools lazily or apply eager bitwise operations.",
+    details: "`A[xs;ys+]` and `O[xs;ys+]` combine bool expressions with short-circuit evaluation. `and[xs;ys+]` and `or[xs;ys+]` are parser aliases for those forms, not builtins. `band[xs;ys+]`, `bor[xs;ys+]`, and `bxor[xs;ys+]` eagerly fold bitwise and, or, and xor over integers, bools, and compatible lists of them.",
+    examples: BOOLEAN_LOGIC_EXAMPLES,
+    related: &["conditionals", "precedence", "not", "all", "any"],
 };
 
 pub(super) const CONDITIONALS: StaticDoc = StaticDoc {

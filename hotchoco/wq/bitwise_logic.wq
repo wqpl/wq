@@ -10,9 +10,11 @@ O[false;false] |echo
 
 // bitwise and
 band[5;3] |echo
+band[T;F] |echo
 
 // bitwise or
 bor[5;3] |echo
+bor[T;F] |echo
 
 // left shift
 shl[1;3] |echo
@@ -26,7 +28,8 @@ shr[8;64] |echo
 shr[-3;1] |echo
 
 // bitwise xor
-xor[5;3] |echo
+bxor[5;3] |echo
+bxor[T;F] |echo
 
 // floor division
 7 /% 3 |echo
@@ -37,21 +40,21 @@ xor[5;3] |echo
 ~false |echo
 ~5 |echo
 
-// builtin call form
+// bracket forms
 and[true;true;false] |echo
 or[false;true;false] |echo
 band[5;3;1] |echo
 bor[5;3;1] |echo
 shl[1;2;3] |echo
 shr[32;2;1] |echo
-xor[5;3;1] |echo
+bxor[5;3;1] |echo
 /%[7;3] |echo
 
-// named logical calls
+// logical forms
 ((not 5)=~5) |echo
 (and[false;1]) |echo
 (or[true;1]) |echo
-(xor[5;3;1]=7) |echo
+(bxor[5;3;1]=7) |echo
 (band[5;3;1]=1) |echo
 (bor[5;3;1]=7) |echo
 (shl[1;2;3]=32) |echo
@@ -78,5 +81,5 @@ a:5
 a:band[a;3]
 a |echo
 b:5
-b:xor[b;3]
+b:bxor[b;3]
 b |echo

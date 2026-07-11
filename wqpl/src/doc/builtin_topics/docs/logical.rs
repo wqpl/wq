@@ -1,21 +1,9 @@
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
 use crate::builtins::BuiltinEnum;
 
-const AND_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Fold boolean and",
-    code: "and[T;F;T]",
-    expectation: ExampleExpectation::ResultContains("F"),
-}];
-
-const OR_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Fold boolean or",
-    code: "or[F;F;T]",
-    expectation: ExampleExpectation::ResultContains("T"),
-}];
-
-const XOR_EXAMPLES: &[DocExample] = &[DocExample {
+const BXOR_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Apply bitwise xor",
-    code: "xor[5;3]",
+    code: "bxor[5;3]",
     expectation: ExampleExpectation::ResultContains("6"),
 }];
 
@@ -43,44 +31,28 @@ const SHR_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("4"),
 }];
 
-pub(super) const AND: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::And,
-    summary: "Combine bools eagerly with boolean and.",
-    details: "`and[xs;ys+]` folds boolean and over bool values. All arguments are evaluated before the call. Use `A[xs;ys+]` when later expressions should short-circuit.",
-    examples: AND_EXAMPLES,
-    related: &["A", "or", "all"],
-};
-
-pub(super) const OR: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::Or,
-    summary: "Combine bools eagerly with boolean or.",
-    details: "`or[xs;ys+]` folds boolean or over bool values. All arguments are evaluated before the call. Use `O[xs;ys+]` when later expressions should short-circuit.",
-    examples: OR_EXAMPLES,
-    related: &["O", "and", "any"],
-};
-
-pub(super) const XOR: BuiltinDoc = BuiltinDoc {
-    builtin: BuiltinEnum::Xor,
+pub(super) const BXOR: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Bxor,
     summary: "Apply bitwise xor.",
-    details: "`xor[xs;ys+]` folds bitwise xor over integers, integer lists, and bool pairs.",
-    examples: XOR_EXAMPLES,
+    details: "`bxor[xs;ys+]` folds bitwise xor over integers, bools, and compatible lists of them.",
+    examples: BXOR_EXAMPLES,
     related: &["band", "bor"],
 };
 
 pub(super) const BAND: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Band,
     summary: "Apply bitwise and.",
-    details: "`band[xs;ys+]` folds bitwise and over integers and integer lists.",
+    details: "`band[xs;ys+]` folds bitwise and over integers, bools, and compatible lists of them.",
     examples: BAND_EXAMPLES,
-    related: &["bor", "xor"],
+    related: &["bor", "bxor"],
 };
 
 pub(super) const BOR: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Bor,
     summary: "Apply bitwise or.",
-    details: "`bor[xs;ys+]` folds bitwise or over integers and integer lists.",
+    details: "`bor[xs;ys+]` folds bitwise or over integers, bools, and compatible lists of them.",
     examples: BOR_EXAMPLES,
-    related: &["band", "xor"],
+    related: &["band", "bxor"],
 };
 
 pub(super) const SHL: BuiltinDoc = BuiltinDoc {

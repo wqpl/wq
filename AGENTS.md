@@ -24,9 +24,9 @@
   - `$.[c;t1;t2...]` is a guard. It runs the body only when `c` is true; otherwise it returns unit `()`.
   - `$$[c1;t1;c2;t2;default]` is a condition chain. Conditions are checked in order. The final default is optional; omitted default is unit.
   - `|` is pipe, which inserts lhs as the first arg to rhs call
-  - `bor[...]` (backslash) is bitwise or.
-  - `A[...]`, `O[...]` is short-circuit bool and/or.
-  - `and[...]`, `or[...]` is eager bool or.
+  - `band[...]`, `bor[...]`, and `bxor[...]` apply eager bitwise logic to integers or bools.
+  - `A[...]` and `O[...]` are short-circuit bool and/or forms.
+  - `and[...]` and `or[...]` are parser aliases for `A[...]` and `O[...]`.
   - `(1)` is not a list. It is atom `1`.
   - comments: `//` `/* */`. `/ a` is division and not a comment.
   - ordinary quoted literals are strings at every length: `"a"` is a one-character string, not a char atom

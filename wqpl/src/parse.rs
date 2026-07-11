@@ -1849,10 +1849,10 @@ impl Parser {
         header_start_byte: usize,
         cp_outer: Option<Checkpoint>,
     ) -> WqResult<AstNode> {
-        // `A[...]` and `O[...]` use postfix surface syntax even though they
-        // lower to lazy binary operators in the AST. Preserve the ordinary
-        // postfix CST invariant: the object is an expression node followed by
-        // an ArgList, never a bare identifier token followed by an ArgList.
+        // Lazy bool forms use postfix surface syntax even though they lower to
+        // lazy binary operators in the AST. Preserve the ordinary postfix CST
+        // invariant: the object is an expression node followed by an ArgList,
+        // never a bare identifier token followed by an ArgList.
         self.cst_start_node_at(cp_outer, SyntaxKind::VarExpr);
         self.cst_finish_node();
         let cp_args = self.cst_checkpoint();
@@ -2612,16 +2612,16 @@ impl Parser {
                         } else if val == "B" {
                             self.advance();
                             return self.parse_block_expr(header_start_byte, header_start_idx);
-                        } else if val == "A" {
+                        } else if val == "A" || val == "and" {
                             return self.parse_lazy_bool_form(
-                                "A",
+                                &val,
                                 BinaryOperator::BoolAnd,
                                 header_start_byte,
                                 postfix_cp,
                             );
-                        } else if val == "O" {
+                        } else if val == "O" || val == "or" {
                             return self.parse_lazy_bool_form(
-                                "O",
+                                &val,
                                 BinaryOperator::BoolOr,
                                 header_start_byte,
                                 postfix_cp,
@@ -5411,7 +5411,7 @@ mod cst_integration_tests {
 
     #[test]
     fn lazy_boolean_postfix_has_an_expression_object() {
-        for src in ["A[T;F]", "O[T;F]"] {
+        for src in ["A[T;F]", "O[T;F]", "and[T;F]", "or[T;F]"] {
             let (_, cst) = parse_with_cst(src);
             let root = SyntaxNode::new_root(cst);
             let postfix = root.children().next().expect("postfix expression");
@@ -5421,6 +5421,20 @@ mod cst_integration_tests {
                 child_kinds,
                 [SyntaxKind::VarExpr, SyntaxKind::ArgList],
                 "source: {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn word_boolean_forms_alias_lazy_boolean_forms() {
+        for (src, expected) in [
+            ("and[T;F]", BinaryOperator::BoolAnd),
+            ("or[T;F]", BinaryOperator::BoolOr),
+        ] {
+            let ast = parse_without_cst(src);
+            assert!(
+                matches!(ast, AstNode::BinaryOp { operator, .. } if operator == expected),
+                "source: {src}, ast: {ast:?}"
             );
         }
     }

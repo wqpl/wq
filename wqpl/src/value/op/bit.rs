@@ -122,6 +122,7 @@ fn band_atoms(a: &Value, b: &Value) -> WqResult<Value> {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x & y)),
         (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x & &**y)),
+        (Value::Bool(x), Value::Bool(y)) => Ok(Value::Bool(*x & *y)),
         _ => {
             if let Some((x, y)) = int_bigint_pair(a, b) {
                 return Ok(Value::from_bigint(BigInt::from(x) & y));
@@ -138,6 +139,7 @@ fn bor_atoms(a: &Value, b: &Value) -> WqResult<Value> {
     match (a, b) {
         (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x | y)),
         (Value::BigInt(x), Value::BigInt(y)) => Ok(Value::from_bigint(&**x | &**y)),
+        (Value::Bool(x), Value::Bool(y)) => Ok(Value::Bool(*x | *y)),
         _ => {
             if let Some((x, y)) = int_bigint_pair(a, b) {
                 return Ok(Value::from_bigint(BigInt::from(x) | y));
@@ -377,6 +379,28 @@ mod tests {
         assert_eq!(
             values.shr(&Value::Int(64)).expect("shift should succeed"),
             Value::IntList(Arc::new(vec![0, -1, -1]))
+        );
+    }
+
+    #[test]
+    fn bitwise_logical_ops_accept_bool_pairs() {
+        assert_eq!(
+            Value::Bool(true)
+                .band(&Value::Bool(false))
+                .expect("bool band should succeed"),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            Value::Bool(true)
+                .bor(&Value::Bool(false))
+                .expect("bool bor should succeed"),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            Value::Bool(true)
+                .xor(&Value::Bool(false))
+                .expect("bool xor should succeed"),
+            Value::Bool(true)
         );
     }
 }

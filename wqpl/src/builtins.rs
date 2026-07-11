@@ -1085,10 +1085,7 @@ declare_builtins! {
 
     // Logical ======================================================
     (NOT, Not, "not", "not[xs]", sig!(arity!(1)), plain(logical::not), builtin_metadata!(Logical, PURE)),
-    (XOR, Xor, "xor", "xor[xs;ys+]", sig!(arity!(2..)), plain(logical::xor), builtin_metadata!(Logical, PURE)),
-
-    (AND, And, "and", "and[xs;ys+]", sig!(arity!(2..)), plain(logical::and), builtin_metadata!(Logical, PURE)),
-    (OR, Or, "or", "or[xs;ys+]", sig!(arity!(2..)), plain(logical::or), builtin_metadata!(Logical, PURE)),
+    (BXOR, Bxor, "bxor", "bxor[xs;ys+]", sig!(arity!(2..)), plain(logical::bxor), builtin_metadata!(Logical, PURE)),
 
     (BAND, Band, "band", "band[xs;ys+]", sig!(arity!(2..)), plain(logical::band), builtin_metadata!(Logical, PURE)),
     (BOR, Bor, "bor", "bor[xs;ys+]", sig!(arity!(2..)), plain(logical::bor), builtin_metadata!(Logical, PURE)),
@@ -1533,6 +1530,14 @@ mod tests {
     }
 
     #[test]
+    fn logical_builtin_names_exclude_parser_aliases() {
+        assert!(Builtins::NAMES.contains(&"bxor"));
+        assert!(!Builtins::NAMES.contains(&"xor"));
+        assert!(!Builtins::NAMES.contains(&"and"));
+        assert!(!Builtins::NAMES.contains(&"or"));
+    }
+
+    #[test]
     fn builtin_metadata_respects_registry_invariants() {
         let builtins = Builtins::new();
         let mut names = std::collections::HashSet::new();
@@ -1721,9 +1726,7 @@ mod tests {
             (BuiltinEnum::DisjointQ, "2"),
             (BuiltinEnum::Multiplicity, "2"),
             (BuiltinEnum::Not, "1"),
-            (BuiltinEnum::Xor, "2.."),
-            (BuiltinEnum::And, "2.."),
-            (BuiltinEnum::Or, "2.."),
+            (BuiltinEnum::Bxor, "2.."),
             (BuiltinEnum::Band, "2.."),
             (BuiltinEnum::Bor, "2.."),
             (BuiltinEnum::Shl, "2.."),
@@ -1927,7 +1930,7 @@ mod tests {
                 "expected 1 or more args, got 0",
             ),
             (
-                Builtins::AND,
+                Builtins::BXOR,
                 BuiltinFnArgs::from(Value::Bool(true)),
                 "expected 2 or more args, got 1",
             ),

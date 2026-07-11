@@ -60,7 +60,7 @@ pub(crate) fn binary_op_display(op: &BinaryOperator) -> &'static str {
         BitOr => "bor",
         Shl => "shl",
         Shr => "shr",
-        BitXor => "xor",
+        BitXor => "bxor",
         FloorDiv => "/%",
         Lt => "<",
         Lte => "<=",

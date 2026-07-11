@@ -34,6 +34,7 @@ pub(super) const STATIC_DOCS: &[StaticDoc] = &[
     syntax::NAMED_ARGUMENTS,
     syntax::PIPES,
     syntax::PRECEDENCE,
+    syntax::BOOLEAN_LOGIC,
     syntax::CONDITIONALS,
     syntax::N_LOOP,
     syntax::W_LOOP,
