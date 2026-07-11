@@ -536,6 +536,7 @@ export default grammar({
         $.imaginary,
         $.float,
         $.integer,
+        $.unicode_scalar,
         $.string,
         $.raw_string,
         $.format_string,
@@ -694,6 +695,8 @@ export default grammar({
     imaginary: (_) => token(seq(choice(decimalFloat, integerBody), "i")),
 
     string: ($) => $._string_content,
+    unicode_scalar: ($) =>
+      seq("@u", optional(/[ \t\r]*/), $._string_content),
     raw_string: ($) => seq("@l", optional(/[ \t\r]*/), $._raw_string_content),
     format_string: ($) =>
       seq("@f", optional(/[ \t\r]*/), $._format_string_content),

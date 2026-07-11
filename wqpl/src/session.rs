@@ -1969,6 +1969,75 @@ mod tests {
     }
 
     #[test]
+    fn unicode_scalar_literals_are_distinct_from_strings() {
+        let mut session = Session::new();
+
+        assert_eq!(
+            session
+                .eval_string("\"a\"")
+                .expect("string should evaluate"),
+            crate::value::into_wq_string("a")
+        );
+        assert_eq!(
+            session
+                .eval_string("@u\"a\"")
+                .expect("unicode scalar should evaluate"),
+            Value::Char('a')
+        );
+        assert_eq!(
+            session
+                .eval_string("\"a\"=@u\"a\"")
+                .expect("comparison should evaluate"),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn apply_always_preserves_a_function_result_frame() {
+        let mut session = Session::new();
+
+        assert_eq!(
+            session
+                .eval_string("apply[abs;-3]")
+                .expect("single function apply should succeed"),
+            Value::from_items(vec![Value::Int(3)])
+        );
+        assert_eq!(
+            session
+                .eval_string("apply[{,x};1]")
+                .expect("container result apply should succeed"),
+            Value::from_items(vec![Value::from_items(vec![Value::Int(1)])])
+        );
+        assert_eq!(
+            session
+                .eval_string("apply[{()};1]")
+                .expect("empty container result apply should succeed"),
+            Value::List(std::sync::Arc::new(vec![Value::unit()]))
+        );
+    }
+
+    #[test]
+    fn find_builtins_always_preserve_a_path_result_frame() {
+        let mut session = Session::new();
+        let one_path = Value::List(std::sync::Arc::new(vec![Value::from_items(vec![
+            Value::Int(1),
+        ])]));
+
+        for source in [
+            "find[(1;2;3);2]",
+            "rfind[(1;2;3);2]",
+            "findw[(1;2;3);{x=2}]",
+            "rfindw[(1;2;3);{x=2}]",
+        ] {
+            assert_eq!(
+                session.eval_string(source).expect("find should succeed"),
+                one_path,
+                "{source} should preserve its result frame"
+            );
+        }
+    }
+
+    #[test]
     fn test_cached_parse_reuses_unchanged_root_statements() {
         let session = Session::new();
         let src = "a:1\nb:2\nc:3\n";

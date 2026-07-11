@@ -143,7 +143,7 @@ const RANGE_EXAMPLES: &[DocExample] = &[
     },
     DocExample {
         title: "Char range",
-        code: "\"a\"..=\"d\"",
+        code: "@u\"a\"..=@u\"d\"",
         expectation: ExampleExpectation::ResultContains("\"abcd\""),
     },
     DocExample {
@@ -440,7 +440,7 @@ pub(super) const RANGES: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["range", "ranges", "slice", "slices", "..", "..="],
     summary: "Build ranges for lists, loops, strings, and slices.",
-    details: "`a..b` builds a half-open range that stops before `b`; `a..=b` includes the end. Use `a..next..b` or `a..next..=b` when you want a stride, as in `0..2..10` or `0..2..=10`. Numeric ranges produce lists of numbers. Char ranges return strings in Unicode scalar order, so `\"a\"..=\"d\"` is `\"abcd\"`. Ranges are ordinary values, but they are most often used as indexes and slices, such as `xs[1..3]`.",
+    details: "`a..b` builds a half-open range that stops before `b`; `a..=b` includes the end. Use `a..next..b` or `a..next..=b` when you want a stride, as in `0..2..10` or `0..2..=10`. Numeric ranges produce lists of numbers. Char ranges return strings in Unicode scalar order, so `@u\"a\"..=@u\"d\"` is `\"abcd\"`. Ranges are ordinary values, but they are most often used as indexes and slices, such as `xs[1..3]`.",
     examples: RANGE_EXAMPLES,
     related: &["lists", "calls", "index-mutation", "precedence"],
 };

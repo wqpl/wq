@@ -436,7 +436,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_string_or_char(
+    fn read_string_literal(
         &mut self,
         start_line: usize,
         start_column: usize,
@@ -496,13 +496,7 @@ impl<'a> Lexer<'a> {
 
                 // Now unescape the raw inner content using the shared helper
                 match crate::escape::unescape_string_inner(&raw) {
-                    Ok(content) => {
-                        if content.chars().count() == 1 {
-                            Ok(TokenType::Character(content.chars().next().unwrap()))
-                        } else {
-                            Ok(TokenType::String(content))
-                        }
-                    }
+                    Ok(content) => Ok(TokenType::String(content)),
                     Err(err) => {
                         // Map to a syntax error with a reasonable message
                         use crate::escape::UnescapeErrorKind::*;
@@ -594,6 +588,50 @@ impl<'a> Lexer<'a> {
             }
             _ => unreachable!(),
         }
+    }
+
+    fn read_unicode_scalar_literal(
+        &mut self,
+        start_line: usize,
+        start_column: usize,
+        start_byte: usize,
+    ) -> WqResult<TokenType> {
+        self.skip_whitespace();
+        if self.current_char != Some('"') {
+            return Err(self.syntax_error_span(
+                start_line,
+                start_column,
+                start_byte,
+                self.byte_pos,
+                "expected quoted Unicode scalar after @u",
+            ));
+        }
+
+        let TokenType::String(content) =
+            self.read_string_literal(start_line, start_column, start_byte)?
+        else {
+            unreachable!("quoted literal reader always returns a string")
+        };
+        let mut chars = content.chars();
+        let Some(value) = chars.next() else {
+            return Err(self.syntax_error_span(
+                start_line,
+                start_column,
+                start_byte,
+                self.byte_pos,
+                "Unicode scalar literal must contain exactly one scalar",
+            ));
+        };
+        if chars.next().is_some() {
+            return Err(self.syntax_error_span(
+                start_line,
+                start_column,
+                start_byte,
+                self.byte_pos,
+                "Unicode scalar literal must contain exactly one scalar",
+            ));
+        }
+        Ok(TokenType::Character(value))
     }
 
     fn read_inline_comment(
@@ -1174,6 +1212,15 @@ impl<'a> Lexer<'a> {
                                 self.read_raw_string(token_line, token_column, token_byte_start)?;
                             return emit(t, self.byte_pos);
                         }
+                        Some('u') => {
+                            self.advance();
+                            let t = self.read_unicode_scalar_literal(
+                                token_line,
+                                token_column,
+                                token_byte_start,
+                            )?;
+                            return emit(t, self.byte_pos);
+                        }
                         _ => continue, // unknown @ sequence, skip
                     };
                     return emit(tok, self.byte_pos);
@@ -1329,9 +1376,9 @@ impl<'a> Lexer<'a> {
                     return emit(symbol, self.byte_pos);
                 }
 
-                // Strings / chars
+                // Strings
                 Some('"') => {
-                    let t = self.read_string_or_char(token_line, token_column, token_byte_start)?;
+                    let t = self.read_string_literal(token_line, token_column, token_byte_start)?;
                     return emit(t, self.byte_pos);
                 }
 
@@ -1539,10 +1586,35 @@ mod tests {
     }
 
     #[test]
-    fn test_tokenize_char() {
+    fn test_single_unicode_scalar_quoted_literal_is_string() {
         let mut lexer = Lexer::new("\"a\"");
         let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].token_type, TokenType::String("a".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_unicode_scalar_literal() {
+        let mut lexer = Lexer::new("@u\"a\" @u\"\\n\" @u\"🦀\"");
+        let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens[0].token_type, TokenType::Character('a'));
+        assert_eq!(tokens[1].token_type, TokenType::Character('\n'));
+        assert_eq!(tokens[2].token_type, TokenType::Character('🦀'));
+    }
+
+    #[test]
+    fn test_unicode_scalar_literal_requires_exactly_one_scalar() {
+        for source in ["@u\"\"", "@u\"ab\"", "@u\"é\""] {
+            let mut lexer = Lexer::new(source);
+            assert!(lexer.tokenize().is_err(), "{source} should be rejected");
+        }
+    }
+
+    #[test]
+    fn test_unicode_scalar_literal_requires_quoted_content() {
+        for source in ["@u", "@u  ", "@u a"] {
+            let mut lexer = Lexer::new(source);
+            assert!(lexer.tokenize().is_err(), "{source} should be rejected");
+        }
     }
 
     #[test]

@@ -5,13 +5,13 @@
 1=.(1.0;2.0) | echo
 1=.(1;2) | echo
 1=.(`a:1;`b:2) | echo
-"a"=."ab" | echo
+@u"a"=."ab" | echo
 
 // Container × Atom (broadcast_right)
 (1.0;2.0)=.1 | echo
 (1;2)=.1 | echo
 (`a:1;`b:2)=.1 | echo
-"ab"=."a" | echo
+"ab"=.@u"a" | echo
 
 // Same-type container pairs
 (1.0;2.0)=.(1.0;2.0) | echo
@@ -32,7 +32,7 @@
 // String crosses
 "ab"=.(1;2) | echo
 (1;2)=."ab" | echo
-"ab"=.(1.0;"b") | echo
-(1.0;"b")=."ab" | echo
+"ab"=.(1.0;@u"b") | echo
+(1.0;@u"b")=."ab" | echo
 "ab"=.(`a:1;`b:2) | echo
 (`a:1;`b:2)=."ab" | echo

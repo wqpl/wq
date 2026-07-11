@@ -1,6 +1,6 @@
-echo "a".."d"
-echo "a"..="d"
-echo "d".."a"
-echo "a".."c".."h"
-echo range["a";"h";2]
-echo "\u{3041}"..="\u{3043}"
+echo @u"a"..@u"d"
+echo @u"a"..=@u"d"
+echo @u"d"..@u"a"
+echo @u"a"..@u"c"..@u"h"
+echo range[@u"a";@u"h";2]
+echo @u"\u{3041}"..=@u"\u{3043}"

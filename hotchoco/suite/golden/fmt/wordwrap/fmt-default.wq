@@ -1,6 +1,6 @@
 wordwrap:{[cs;w]
   W[#cs>w;idx_:w-1
-    W[cs idx_~" "|and idx_>=0;idx_-:1]
+    W[cs idx_~@u" "|and idx_>=0;idx_-:1]
     seg:$[idx_<=0;cs[!0..w];t:cs[!0..idx_];cs[!0];t]
     echo seg];
   $.[~U cs;echo cs]}

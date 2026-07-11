@@ -15,7 +15,7 @@ const GRAPHEMES_EXAMPLES: &[DocExample] = &[DocExample {
 
 const WS_Q_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Test for whitespace",
-    code: "ws? \" \"",
+    code: "ws? @u\" \"",
     expectation: ExampleExpectation::ResultContains("T"),
 }];
 
@@ -109,7 +109,7 @@ pub(super) const GRAPHEMES: BuiltinDoc = BuiltinDoc {
 pub(super) const WS_Q: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::WsQ,
     summary: "Return true when a character is whitespace.",
-    details: "`ws?` accepts a char and uses Unicode whitespace classification. A one-character string literal is accepted by the parser as a char.",
+    details: "`ws?` accepts a char and uses Unicode whitespace classification. Create chars with `@u\"...\"`; ordinary quoted literals are strings at every length.",
     examples: WS_Q_EXAMPLES,
     related: &["trim", "words"],
 };

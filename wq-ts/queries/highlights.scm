@@ -8,6 +8,7 @@
 (float)     @number
 (imaginary) @number
 (string)        @string
+(unicode_scalar) @string
 (raw_string)    @string
 (format_string) @string
 (tag)   @tag

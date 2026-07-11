@@ -652,13 +652,7 @@ pub(super) fn find(args: BuiltinFnArgs) -> WqResult<Value> {
         reverse: false,
     };
     find_search(xs, 0, &mut results, &mut path, &ctx);
-    if results.is_empty() {
-        Ok(Value::unit())
-    } else if results.len() == 1 {
-        Ok(results.into_iter().next().unwrap())
-    } else {
-        Ok(Value::List(Arc::new(results)))
-    }
+    Ok(Value::List(Arc::new(results)))
 }
 
 /// rfind[xs;elem] - find last occurrence, depth 1
@@ -679,13 +673,7 @@ pub(super) fn rfind(args: BuiltinFnArgs) -> WqResult<Value> {
         reverse: true,
     };
     find_search(xs, 0, &mut results, &mut path, &ctx);
-    if results.is_empty() {
-        Ok(Value::unit())
-    } else if results.len() == 1 {
-        Ok(results.into_iter().next().unwrap())
-    } else {
-        Ok(Value::List(Arc::new(results)))
-    }
+    Ok(Value::List(Arc::new(results)))
 }
 
 fn parse_find_args(args: &[Value], src: BE) -> WqResult<(&Value, &Value, i64, i64)> {
@@ -1186,9 +1174,12 @@ mod tests {
             Value::Int(2),
         ]));
         let result = find(BuiltinFnArgs::from(smallvec![list, Value::Int(2)])).unwrap();
-        assert_eq!(result, Value::IntList(Arc::new(vec![1])));
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![Value::IntList(Arc::new(vec![1]))]))
+        );
 
-        // Not found - return unit
+        // Not found returns an empty path-result frame.
         let list = Value::List(Arc::new(vec![Value::Int(1), Value::Int(2), Value::Int(3)]));
         let result = find(BuiltinFnArgs::from(smallvec![list, Value::Int(5)])).unwrap();
         assert_eq!(result, Value::unit());
@@ -1260,7 +1251,10 @@ mod tests {
             Value::Int(2)
         ]))
         .unwrap();
-        assert_eq!(result, Value::IntList(Arc::new(vec![0])));
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![Value::IntList(Arc::new(vec![0]))]))
+        );
 
         // Find at depth 2 with inf threshold
         let result = find(BuiltinFnArgs::from(smallvec![
@@ -1300,14 +1294,17 @@ mod tests {
 
     #[test]
     fn test_find_sublist() {
-        // Find a sub-list: find[(2;3);((1;2);(2;3))] should return (1)
+        // Find a sub-list and keep the outer path-result frame.
         let target = Value::List(Arc::new(vec![Value::Int(2), Value::Int(3)]));
         let list = Value::List(Arc::new(vec![
             Value::List(Arc::new(vec![Value::Int(1), Value::Int(2)])),
             Value::List(Arc::new(vec![Value::Int(2), Value::Int(3)])),
         ]));
         let result = find(BuiltinFnArgs::from(smallvec![list, target.clone()])).unwrap();
-        assert_eq!(result, Value::IntList(Arc::new(vec![1])));
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![Value::IntList(Arc::new(vec![1]))]))
+        );
 
         // Find multiple sub-lists with threshold
         let list = Value::List(Arc::new(vec![
@@ -1344,7 +1341,10 @@ mod tests {
             Value::Int(2),
         ]))
         .unwrap();
-        assert_eq!(result, Value::IntList(Arc::new(vec![1, 0])));
+        assert_eq!(
+            result,
+            Value::List(Arc::new(vec![Value::IntList(Arc::new(vec![1, 0]))]))
+        );
     }
 
     #[test]
@@ -1463,11 +1463,11 @@ mod tests {
         );
         assert_eq!(
             find(BuiltinFnArgs::from(smallvec![range.clone(), Value::Int(3)])).unwrap(),
-            Value::IntList(Arc::new(vec![2]))
+            Value::List(Arc::new(vec![Value::IntList(Arc::new(vec![2]))]))
         );
         assert_eq!(
             rfind(BuiltinFnArgs::from(smallvec![range, Value::Int(3)])).unwrap(),
-            Value::IntList(Arc::new(vec![2]))
+            Value::List(Arc::new(vec![Value::IntList(Arc::new(vec![2]))]))
         );
     }
 
@@ -1492,7 +1492,7 @@ mod tests {
         );
         assert_eq!(
             find(BuiltinFnArgs::from(smallvec![text, Value::Char('b')])).expect("find succeeds"),
-            Value::IntList(Arc::new(vec![1]))
+            Value::List(Arc::new(vec![Value::IntList(Arc::new(vec![1]))]))
         );
     }
 }

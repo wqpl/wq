@@ -41,7 +41,7 @@ impl fmt::Display for Value {
             }
             Value::Char(c) => {
                 let esc = escape_str_for_display(&c.to_string());
-                write!(f, "\"{esc}\"")
+                write!(f, "@u\"{esc}\"")
             }
             Value::Tag(s) => write!(f, "`{s}"),
             Value::Bool(b) => write!(f, "{}", if *b { "T" } else { "F" }),

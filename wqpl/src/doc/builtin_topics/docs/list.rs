@@ -52,13 +52,13 @@ const SPLIT_EXAMPLES: &[DocExample] = &[DocExample {
 const FIND_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Find the first matching path",
     code: "find[(1;2;3;2);2]",
-    expectation: ExampleExpectation::ResultContains(",1"),
+    expectation: ExampleExpectation::ResultContains(",(,1)"),
 }];
 
 const RFIND_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Find the last matching path",
     code: "rfind[(1;2;3;2);2]",
-    expectation: ExampleExpectation::ResultContains(",3"),
+    expectation: ExampleExpectation::ResultContains(",(,3)"),
 }];
 
 const ZIP_EXAMPLES: &[DocExample] = &[DocExample {
@@ -134,7 +134,7 @@ pub(super) const SPLIT: BuiltinDoc = BuiltinDoc {
 pub(super) const FIND: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Find,
     summary: "Find paths to matching values from the front.",
-    details: "`find[xs;elem;threshold?;d?]` returns index paths to matching items. No match returns unit, one match returns that path directly, and multiple matches return a list of paths. Threshold accepts non-negative ints or `inf`; depth defaults to `1`.",
+    details: "`find[xs;elem;threshold?;d?]` always returns a list of index paths to matching items. No match returns an empty list, and one match returns a one-item list containing its path. Threshold accepts non-negative ints or `inf`; depth defaults to `1`.",
     examples: FIND_EXAMPLES,
     related: &["rfind", "findw", "@depth"],
 };

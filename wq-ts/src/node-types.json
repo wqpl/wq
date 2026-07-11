@@ -854,6 +854,10 @@
         {
           "type": "true",
           "named": true
+        },
+        {
+          "type": "unicode_scalar",
+          "named": true
         }
       ]
     }
@@ -1575,6 +1579,11 @@
     }
   },
   {
+    "type": "unicode_scalar",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "variable_ref",
     "named": true,
     "fields": {},
@@ -1774,6 +1783,10 @@
   },
   {
     "type": "@t",
+    "named": false
+  },
+  {
+    "type": "@u",
     "named": false
   },
   {

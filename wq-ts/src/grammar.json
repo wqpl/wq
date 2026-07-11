@@ -2241,6 +2241,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "unicode_scalar"
+        },
+        {
+          "type": "SYMBOL",
           "name": "string"
         },
         {
@@ -3492,6 +3496,31 @@
     "string": {
       "type": "SYMBOL",
       "name": "_string_content"
+    },
+    "unicode_scalar": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "@u"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "PATTERN",
+              "value": "[ \\t\\r]*"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_string_content"
+        }
+      ]
     },
     "raw_string": {
       "type": "SEQ",

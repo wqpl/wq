@@ -1,9 +1,9 @@
 // Lexer: tokenize strings containing + - * / and identifiers (A-Za-z0-9)
 
-is_op:{or[x="+";x="-";x="*";x="/"]}
-is_digit:{and[x>="0";x<="9"]}
-is_upper:{and[x>="A";x<="Z"]}
-is_lower:{and[x>="a";x<="z"]}
+is_op:{or[x=@u"+";x=@u"-";x=@u"*";x=@u"/"]}
+is_digit:{and[x>=@u"0";x<=@u"9"]}
+is_upper:{and[x>=@u"A";x<=@u"Z"]}
+is_lower:{and[x>=@u"a";x<=@u"z"]}
 is_alpha:{or[is_upper x;is_lower x]}
 is_id_char:{or[is_upper x;is_lower x;is_digit x]}
 lex:{[s]tokens:();i:0;n:#s

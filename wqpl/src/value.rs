@@ -835,6 +835,12 @@ mod tests {
     }
 
     #[test]
+    fn char_display_uses_unicode_scalar_literal() {
+        assert_eq!(Value::Char('a').to_string(), "@u\"a\"");
+        assert_eq!(Value::Char('\n').to_string(), "@u\"\\n\"");
+    }
+
+    #[test]
     fn string_partial_eq() {
         let a = into_wq_string("hello");
         let b = into_wq_string("hello");

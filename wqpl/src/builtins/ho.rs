@@ -87,8 +87,7 @@ fn predicate_result(src: BE, pred: Value) -> WqResult<bool> {
 }
 
 /// apply[fs;x]
-/// apply each function in fs to x, returning a list of results.
-/// If fs is a single function (not a list), returns f[x] unwrapped.
+/// apply each function in fs to x, returning a framed list of results.
 pub(super) fn apply(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Apply, [2, 2], &args)?;
     let (fs, x) = (&args[0], &args[1]);
@@ -100,7 +99,9 @@ pub(super) fn apply(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
             }
             Ok(Value::from_items(results))
         }
-        _ => vm.call(fs, BuiltinFnArgs::from(x.clone())),
+        _ => Ok(Value::from_items(vec![
+            vm.call(fs, BuiltinFnArgs::from(x.clone()))?,
+        ])),
     }
 }
 
@@ -913,13 +914,7 @@ pub(super) fn findw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResul
         src: BE::FindW,
     };
     findwith_search(vm, &xs, 0, &mut results, &mut path, &ctx)?;
-    if results.is_empty() {
-        Ok(Value::unit())
-    } else if results.len() == 1 {
-        Ok(results.into_iter().next().unwrap())
-    } else {
-        Ok(Value::List(Arc::new(results)))
-    }
+    Ok(Value::List(Arc::new(results)))
 }
 
 /// rfindw[xs;f;threshold?;d?]
@@ -983,13 +978,7 @@ pub(super) fn rfindw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
         src: BE::RFindW,
     };
     findwith_search(vm, &xs, 0, &mut results, &mut path, &ctx)?;
-    if results.is_empty() {
-        Ok(Value::unit())
-    } else if results.len() == 1 {
-        Ok(results.into_iter().next().unwrap())
-    } else {
-        Ok(Value::List(Arc::new(results)))
-    }
+    Ok(Value::List(Arc::new(results)))
 }
 
 #[cfg(test)]
@@ -1363,7 +1352,7 @@ mod tests {
         );
         assert_eq!(
             findw(&mut vm, BuiltinFnArgs::from(smallvec![range, eq_three])).unwrap(),
-            Value::IntList(Arc::new(vec![2]))
+            Value::List(Arc::new(vec![Value::IntList(Arc::new(vec![2]))]))
         );
     }
 
@@ -1415,7 +1404,7 @@ mod tests {
         );
         assert_eq!(
             findw(&mut vm, BuiltinFnArgs::from(smallvec![text, is_b])).expect("findw succeeds"),
-            Value::IntList(Arc::new(vec![1]))
+            Value::List(Arc::new(vec![Value::IntList(Arc::new(vec![1]))]))
         );
     }
 

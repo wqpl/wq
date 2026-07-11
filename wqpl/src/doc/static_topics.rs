@@ -19,6 +19,7 @@ pub(super) const STATIC_DOCS: &[StaticDoc] = &[
     keywords::AT_SYMBOLIC,
     keywords::AT_FSTRING,
     keywords::AT_RAW_STRING,
+    keywords::AT_UNICODE_SCALAR,
     keywords::AT_DEPTH,
     syntax::ASSIGNMENT,
     syntax::EQUALITY,

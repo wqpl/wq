@@ -1,11 +1,18 @@
 use super::super::super::model::{BuiltinDoc, DocExample, ExampleExpectation};
 use crate::builtins::BuiltinEnum;
 
-const APPLY_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Apply several functions to one value",
-    code: "apply[(neg;abs);-3]",
-    expectation: ExampleExpectation::ResultContains("(3;3)"),
-}];
+const APPLY_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Apply one function and keep the result frame",
+        code: "apply[abs;-3]",
+        expectation: ExampleExpectation::ResultContains(",3"),
+    },
+    DocExample {
+        title: "Apply several functions to one value",
+        code: "apply[(neg;abs);-3]",
+        expectation: ExampleExpectation::ResultContains("(3;3)"),
+    },
+];
 
 const MAP_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Map a function over a list",
@@ -57,26 +64,26 @@ const ZIPW_EXAMPLES: &[DocExample] = &[DocExample {
 
 const SPLITW_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Split where a predicate matches",
-    code: "splitw[\"a,b,c\";{x=\",\"};`m:1]",
+    code: "splitw[\"a,b,c\";{x=@u\",\"};`m:1]",
     expectation: ExampleExpectation::ResultContains("\"b,c\""),
 }];
 
 const FINDW_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Find the first matching path",
     code: "findw[(1;2;3);{x>1}]",
-    expectation: ExampleExpectation::ResultContains(",1"),
+    expectation: ExampleExpectation::ResultContains(",(,1)"),
 }];
 
 const RFINDW_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Find the last matching path",
     code: "rfindw[(1;2;3;4);{x%2=0}]",
-    expectation: ExampleExpectation::ResultContains(",3"),
+    expectation: ExampleExpectation::ResultContains(",(,3)"),
 }];
 
 pub(super) const APPLY: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Apply,
-    summary: "Apply one function or several functions to a value.",
-    details: "`apply[fs;x]` calls each function in `fs` with `x`. When `fs` is a list, the result is a list of callback results; when `fs` is a single callable, the callback result is returned directly.",
+    summary: "Apply one function or several functions and return a result list.",
+    details: "`apply[fs;x]` calls each function in `fs` with `x` and always returns one outer result item per function. A single callable therefore returns a one-item list, preserving the function-result frame even when the callback itself returns a container. Call `f[x]` directly when no result frame is wanted.",
     examples: APPLY_EXAMPLES,
     related: &["map", "fold"],
 };
@@ -156,7 +163,7 @@ pub(super) const SPLITW: BuiltinDoc = BuiltinDoc {
 pub(super) const FINDW: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::FindW,
     summary: "Find paths to items that satisfy a predicate.",
-    details: "`findw[xs;f;threshold?;d?]` searches forward and returns index paths. No match returns unit, one match is returned directly, and multiple matches are returned as a list of paths.",
+    details: "`findw[xs;f;threshold?;d?]` searches forward and always returns a list of index paths. No match returns an empty list, and one match returns a one-item list containing its path.",
     examples: FINDW_EXAMPLES,
     related: &["rfindw", "find", "filter"],
 };

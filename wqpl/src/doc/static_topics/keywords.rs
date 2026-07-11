@@ -102,6 +102,12 @@ const AT_RAW_STRING_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("2"),
 }];
 
+const AT_UNICODE_SCALAR_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Create a char atom",
+    code: "type @u\"a\"",
+    expectation: ExampleExpectation::ResultContains("char"),
+}];
+
 const AT_DEPTH_EXAMPLES: &[DocExample] = &[
     DocExample {
         title: "Search one level deep",
@@ -238,6 +244,18 @@ pub(super) const AT_RAW_STRING: StaticDoc = StaticDoc {
     details: "`@l\"...\"` keeps backslashes as ordinary characters.",
     examples: AT_RAW_STRING_EXAMPLES,
     related: &["@f"],
+};
+
+pub(super) const AT_UNICODE_SCALAR: StaticDoc = StaticDoc {
+    id: "at-unicode-scalar",
+    title: "@u Unicode Scalar",
+    kind: DocKind::Keyword,
+    group: "Keywords",
+    aliases: &["@u", "unicode scalar", "char", "character"],
+    summary: "Create a char atom from one Unicode scalar.",
+    details: "`@u\"...\"` decodes escapes and requires exactly one Unicode scalar. Ordinary quoted literals are strings at every length, so `\"a\"` is a one-character string while `@u\"a\"` is a char atom. A user-perceived character may contain more than one Unicode scalar; use `graphemes` when that distinction matters.",
+    examples: AT_UNICODE_SCALAR_EXAMPLES,
+    related: &["@l", "chr", "ord", "graphemes"],
 };
 
 pub(super) const AT_DEPTH: StaticDoc = StaticDoc {

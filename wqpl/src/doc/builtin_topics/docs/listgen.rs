@@ -27,7 +27,7 @@ const RANGE_EXAMPLES: &[DocExample] = &[
     },
     DocExample {
         title: "Generate a stepped char range",
-        code: "range[\"a\";\"h\";2]",
+        code: "range[@u\"a\";@u\"h\";2]",
         expectation: ExampleExpectation::ResultContains("\"aceg\""),
     },
 ];
