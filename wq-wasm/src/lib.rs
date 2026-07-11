@@ -1128,6 +1128,16 @@ mod tests {
         assert!(html.contains("<span class=\"hl-string-escape\">\\n</span>"));
         assert!(html.contains("<span class=\"hl-string-escape\">\\u{1f4a9}</span>"));
     }
+
+    #[test]
+    fn html_highlighter_distinguishes_valid_and_invalid_unicode_scalars() {
+        let html = highlight_wq(r#""a" @u"a" @u"\n" @u"" @u"ab" @u"\q" @u"x"#);
+
+        assert!(html.contains("<span class=\"hl-string\">&quot;a&quot;</span>"));
+        assert!(html.contains("<span class=\"hl-character\">@u&quot;a&quot;</span>"));
+        assert!(html.contains("<span class=\"hl-string-escape\">\\n</span>"));
+        assert_eq!(html.matches("class=\"hl-character-invalid\"").count(), 4);
+    }
 }
 
 // /// Error codes and names for quick reference
@@ -1268,6 +1278,8 @@ fn class_for_name(name: HighlightName) -> &'static str {
         HighlightName::PunctuationSpecial => "hl-punctuation-special",
         HighlightName::String => "hl-string",
         HighlightName::StringEscape => "hl-string-escape",
+        HighlightName::Character => "hl-character",
+        HighlightName::InvalidCharacter => "hl-character-invalid",
         HighlightName::Tag => "hl-tag",
         HighlightName::Variable => "hl-variable",
         HighlightName::VariableRefCapture => "hl-variable-ref-capture",

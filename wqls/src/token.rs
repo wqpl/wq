@@ -70,7 +70,7 @@ fn token_type_index(name: HighlightName) -> Option<u32> {
         HighlightName::Operator
         | HighlightName::OperatorPipe
         | HighlightName::PunctuationSpecial => 7,
-        HighlightName::String => 9,
+        HighlightName::String | HighlightName::Character => 9,
         HighlightName::VariableParameter => 11,
         _ => return None,
     })
@@ -231,6 +231,12 @@ mod tests {
         assert_eq!(tokens[1].delta_start, 2);
         assert_eq!(tokens[1].length, 1);
         assert_eq!(tokens[1].token_type, 6); // NUMBER
+    }
+
+    #[test]
+    fn character_highlight_uses_the_string_semantic_token_type() {
+        assert_eq!(token_type_index(HighlightName::Character), Some(9));
+        assert_eq!(token_type_index(HighlightName::InvalidCharacter), None);
     }
 
     #[test]

@@ -11,3 +11,16 @@ test("string escapes have dedicated light and midnight theme colors", () => {
     /^:root\[data-theme="midnight"\] \.hl-string-escape\s*\{/m,
   );
 });
+
+test("characters and invalid characters have dedicated theme colors", () => {
+  assert.match(styles, /^\.hl-character\s*\{/m);
+  assert.match(styles, /^\.hl-character-invalid\s*\{/m);
+  assert.match(
+    styles,
+    /^:root\[data-theme="midnight"\] \.hl-character\s*\{/m,
+  );
+  assert.match(
+    styles,
+    /^:root\[data-theme="midnight"\] \.hl-character-invalid\s*\{/m,
+  );
+});

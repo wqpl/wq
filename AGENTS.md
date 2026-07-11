@@ -29,6 +29,12 @@
   - `and[...]`, `or[...]` is eager bool or.
   - `(1)` is not a list. It is atom `1`.
   - comments: `//` `/* */`. `/ a` is division and not a comment.
+  - ordinary quoted literals are strings at every length: `"a"` is a one-character string, not a char atom
+  - char atoms use `@u"..."`, where `u` means one Unicode scalar
+    - the contents are escape-decoded and must contain exactly one Unicode scalar, so `@u"a"`, `@u"\n"`, and `@u"🦀"` are valid
+    - `@u""`, `@u"ab"`, and a multi-scalar grapheme such as `@u"é"` are invalid
+    - indexing a string returns char atoms, so compare an indexed character with `@u`, for example `"abc" 0=@u"a"`
+    - char atoms display as `@u"..."`; use `graphemes` when user-perceived characters rather than Unicode scalars matter
   - canonical value naming:
     - user-facing containers are `list` and `dict`
     - user-facing non-containers are atoms; do not call wq values scalars

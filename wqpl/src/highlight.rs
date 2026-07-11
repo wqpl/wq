@@ -37,6 +37,8 @@ pub enum HighlightName {
     PunctuationSpecial,
     String,
     StringEscape,
+    Character,
+    InvalidCharacter,
     Tag,
     Variable,
     VariableRefCapture,
@@ -111,6 +113,11 @@ fn cursor_context_from_tokens(src: &str, pos: usize, tokens: &[Token]) -> Cursor
         return match &tok.token_type {
             TokenType::Comment(_) => CursorContext::Comment,
             TokenType::String(_) | TokenType::Character(_) => CursorContext::String,
+            TokenType::Error
+                if unicode_scalar_error_start(src, tok).is_some_and(|start| pos >= start) =>
+            {
+                CursorContext::String
+            }
             TokenType::Tag(_) => CursorContext::Tag,
             TokenType::FormatString(parts, open_quote, close_quote) => {
                 fstring_cursor_context(pos, tok, parts, *open_quote, *close_quote)
@@ -189,6 +196,8 @@ pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) 
         HighlightName::PunctuationSpecial => ("\x1b[38;5;170m", ANSI_RESET),
         HighlightName::String => ("\x1b[38;5;113m", ANSI_RESET),
         HighlightName::StringEscape => ("\x1b[1;38;5;81m", ANSI_RESET),
+        HighlightName::Character => ("\x1b[38;5;81m", ANSI_RESET),
+        HighlightName::InvalidCharacter => ("\x1b[4;38;5;203m", ANSI_RESET),
         HighlightName::Tag => ("\x1b[38;5;113m", ANSI_RESET),
         HighlightName::Variable => ("\x1b[38;5;117m", ANSI_RESET),
         HighlightName::VariableRefCapture => ("\x1b[38;5;39m", ANSI_RESET),
@@ -533,7 +542,14 @@ impl Highlighter {
                                             end: *start,
                                         });
                                     }
-                                    Self::push_string_events(&mut events, src, *start, *end, true);
+                                    Self::push_string_events(
+                                        &mut events,
+                                        src,
+                                        *start,
+                                        *end,
+                                        HighlightName::String,
+                                        true,
+                                    );
                                     inner_last = *end;
                                 }
                                 crate::token::FmtPart::Expr { source, start, end } => {
@@ -586,15 +602,56 @@ impl Highlighter {
                             });
                         }
                     }
-                    TokenType::String(_) | TokenType::Character(_) => {
+                    TokenType::String(_) => {
                         let is_raw = src[tok.byte_start..tok.byte_end].starts_with("@l");
                         Self::push_string_events(
                             &mut events,
                             src,
                             tok.byte_start,
                             tok.byte_end,
+                            HighlightName::String,
                             !is_raw,
                         );
+                    }
+                    TokenType::Character(_) => {
+                        if Self::unicode_scalar_token_is_valid(src, tok) {
+                            Self::push_string_events(
+                                &mut events,
+                                src,
+                                tok.byte_start,
+                                tok.byte_end,
+                                HighlightName::Character,
+                                true,
+                            );
+                        } else {
+                            Self::push_highlighted_source(
+                                &mut events,
+                                tok.byte_start,
+                                tok.byte_end,
+                                HighlightName::InvalidCharacter,
+                            );
+                        }
+                    }
+                    TokenType::Error => {
+                        if let Some(start) = unicode_scalar_error_start(src, tok) {
+                            if tok.byte_start < start {
+                                events.push(HighlightEvent::Source {
+                                    start: tok.byte_start,
+                                    end: start,
+                                });
+                            }
+                            Self::push_highlighted_source(
+                                &mut events,
+                                start,
+                                tok.byte_end,
+                                HighlightName::InvalidCharacter,
+                            );
+                        } else {
+                            events.push(HighlightEvent::Source {
+                                start: tok.byte_start,
+                                end: tok.byte_end,
+                            });
+                        }
                     }
                     _ => {
                         let name = Self::semantic_name_for_token(tok, &overlay_spans)
@@ -630,9 +687,10 @@ impl Highlighter {
         src: &str,
         start: usize,
         end: usize,
+        name: HighlightName,
         highlight_escapes: bool,
     ) {
-        events.push(HighlightEvent::HighlightStart(HighlightName::String));
+        events.push(HighlightEvent::HighlightStart(name));
 
         let mut cursor = start;
         if highlight_escapes {
@@ -668,6 +726,40 @@ impl Highlighter {
             events.push(HighlightEvent::Source { start: cursor, end });
         }
         events.push(HighlightEvent::HighlightEnd);
+    }
+
+    fn push_highlighted_source(
+        events: &mut Vec<HighlightEvent>,
+        start: usize,
+        end: usize,
+        name: HighlightName,
+    ) {
+        events.push(HighlightEvent::HighlightStart(name));
+        events.push(HighlightEvent::Source { start, end });
+        events.push(HighlightEvent::HighlightEnd);
+    }
+
+    fn unicode_scalar_token_is_valid(src: &str, tok: &Token) -> bool {
+        let Some(token_src) = src.get(tok.byte_start..tok.byte_end) else {
+            return false;
+        };
+        let mut lexer = Lexer::new(token_src);
+        let Ok(tokens) = lexer.tokenize() else {
+            return false;
+        };
+        matches!(
+            tokens.as_slice(),
+            [
+                Token {
+                    token_type: TokenType::Character(_),
+                    ..
+                },
+                Token {
+                    token_type: TokenType::Eof,
+                    ..
+                }
+            ]
+        )
     }
 
     fn nested_semantic_spans(
@@ -844,7 +936,7 @@ impl Highlighter {
             TokenType::True | TokenType::False => Some(HighlightName::Boolean),
 
             TokenType::String(_) => Some(HighlightName::String),
-            TokenType::Character(_) => Some(HighlightName::String),
+            TokenType::Character(_) => Some(HighlightName::Character),
             TokenType::Tag(_) => Some(HighlightName::Tag),
 
             TokenType::Identifier(name) => {
@@ -964,6 +1056,14 @@ fn push_offset_events(
             other => events.push(other),
         }
     }
+}
+
+fn unicode_scalar_error_start(src: &str, tok: &Token) -> Option<usize> {
+    let token_src = src.get(tok.byte_start..tok.byte_end)?;
+    let trimmed = token_src.trim_start_matches(|ch: char| ch.is_whitespace() && ch != '\n');
+    trimmed
+        .starts_with("@u")
+        .then_some(tok.byte_end - trimmed.len())
 }
 
 #[cfg(test)]
@@ -1132,6 +1232,26 @@ mod tests {
         let regions = named_regions(&h.highlight(src), src);
 
         assert!(regions_with_name(&regions, HighlightName::StringEscape).is_empty());
+    }
+
+    #[test]
+    fn unicode_scalar_literals_distinguish_valid_invalid_and_string_regions() {
+        let src = r#""a" @u"a" @u"\n" @u"" @u"ab" @u"é" @u"\q" @u"x"#;
+        let h = Highlighter::new();
+        let regions = named_regions(&h.highlight(src), src);
+
+        assert_region(&regions, r#""a""#, HighlightName::String);
+        assert_region(&regions, r#"@u"a""#, HighlightName::Character);
+        assert_region(&regions, r"\n", HighlightName::StringEscape);
+        assert_eq!(
+            regions_with_name(&regions, HighlightName::InvalidCharacter),
+            vec![r#"@u"""#, r#"@u"ab""#, r#"@u"é""#, r#"@u"\q""#, r#"@u"x"#]
+        );
+    }
+
+    #[test]
+    fn invalid_unicode_scalar_literal_suppresses_completion_inside_its_contents() {
+        assert_eq!(cursor_context_at(r#"@u"x"#, 4), CursorContext::String);
     }
 
     #[test]
