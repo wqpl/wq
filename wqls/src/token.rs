@@ -236,6 +236,7 @@ mod tests {
     #[test]
     fn character_highlight_uses_the_string_semantic_token_type() {
         assert_eq!(token_type_index(HighlightName::Character), Some(9));
+        assert_eq!(token_type_index(HighlightName::InvalidString), None);
         assert_eq!(token_type_index(HighlightName::InvalidCharacter), None);
     }
 

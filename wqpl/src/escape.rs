@@ -1,5 +1,6 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum UnescapeErrorKind {
+    InvalidHexEscape,
     InvalidUnicodeEscape,
     InvalidUnicodeScalar,
 }
@@ -62,7 +63,7 @@ pub(crate) fn unescape_string_inner(s: &str) -> Result<String, UnescapeError> {
             continue;
         }
         // start of an escape
-        let _esc_start = i.saturating_sub(1);
+        let esc_start = i.saturating_sub(1);
         let Some(next) = chars.next() else {
             // Compatibility: treat trailing backslash as literal
             out.push('\\');
@@ -78,14 +79,15 @@ pub(crate) fn unescape_string_inner(s: &str) -> Result<String, UnescapeError> {
             't' => out.push('\t'),
             '0' => out.push('\0'),
             'x' => {
-                // two hex digits; if malformed, keep literally as "\\x"
+                // Hex escapes require exactly two hexadecimal digits.
                 let (d1, d2);
                 match chars.peek().copied() {
                     Some(c) if c.is_ascii_hexdigit() => d1 = c,
                     _ => {
-                        out.push('\\');
-                        out.push('x');
-                        continue;
+                        return Err(UnescapeError {
+                            kind: UnescapeErrorKind::InvalidHexEscape,
+                            index: esc_start,
+                        });
                     }
                 }
                 // consume d1
@@ -94,11 +96,10 @@ pub(crate) fn unescape_string_inner(s: &str) -> Result<String, UnescapeError> {
                 match chars.peek().copied() {
                     Some(c) if c.is_ascii_hexdigit() => d2 = c,
                     _ => {
-                        // backtrack impossible; emit literally
-                        out.push('\\');
-                        out.push('x');
-                        out.push(d1);
-                        continue;
+                        return Err(UnescapeError {
+                            kind: UnescapeErrorKind::InvalidHexEscape,
+                            index: esc_start,
+                        });
                     }
                 }
                 let _ = chars.next();
@@ -245,8 +246,14 @@ mod tests {
 
     #[test]
     fn rejects_invalid() {
-        // Malformed \x should be kept literally (compat mode)
-        assert_eq!(unescape_string_inner("\\xG0").unwrap(), "\\xG0");
+        for source in ["\\x", "\\x4", "\\xG0"] {
+            assert_eq!(
+                unescape_string_inner(source)
+                    .expect_err("malformed hex escape should fail")
+                    .kind,
+                UnescapeErrorKind::InvalidHexEscape
+            );
+        }
         assert!(unescape_string_inner("\\u{}").is_err());
         // Trailing backslash kept literally
         assert_eq!(unescape_string_inner("\\").unwrap(), "\\");

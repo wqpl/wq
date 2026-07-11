@@ -3562,6 +3562,11 @@ textarea.editor-text.repl-input,
   color: #006d8f;
   font-weight: 600;
 }
+.hl-string-invalid {
+  color: #b42318;
+  text-decoration: underline wavy #b42318;
+  text-underline-offset: 2px;
+}
 .hl-character {
   color: #006d8f;
 }
@@ -5299,6 +5304,11 @@ textarea.editor-text.repl-input,
 
 :root[data-theme="midnight"] .hl-string-escape {
   color: #80dfff;
+}
+
+:root[data-theme="midnight"] .hl-string-invalid {
+  color: #ff8a80;
+  text-decoration-color: #ff8a80;
 }
 
 :root[data-theme="midnight"] .hl-character {

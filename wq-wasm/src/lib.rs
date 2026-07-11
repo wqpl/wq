@@ -1138,6 +1138,14 @@ mod tests {
         assert!(html.contains("<span class=\"hl-string-escape\">\\n</span>"));
         assert_eq!(html.matches("class=\"hl-character-invalid\"").count(), 4);
     }
+
+    #[test]
+    fn html_highlighter_marks_invalid_strings() {
+        let html = highlight_wq(r#""ok" "\x" "\u{}z" @f"\x""#);
+
+        assert!(html.contains("<span class=\"hl-string\">&quot;ok&quot;</span>"));
+        assert_eq!(html.matches("class=\"hl-string-invalid\"").count(), 3);
+    }
 }
 
 // /// Error codes and names for quick reference
@@ -1278,6 +1286,7 @@ fn class_for_name(name: HighlightName) -> &'static str {
         HighlightName::PunctuationSpecial => "hl-punctuation-special",
         HighlightName::String => "hl-string",
         HighlightName::StringEscape => "hl-string-escape",
+        HighlightName::InvalidString => "hl-string-invalid",
         HighlightName::Character => "hl-character",
         HighlightName::InvalidCharacter => "hl-character-invalid",
         HighlightName::Tag => "hl-tag",

@@ -494,26 +494,8 @@ impl<'a> Lexer<'a> {
                     ));
                 }
 
-                // Now unescape the raw inner content using the shared helper
-                match crate::escape::unescape_string_inner(&raw) {
-                    Ok(content) => Ok(TokenType::String(content)),
-                    Err(err) => {
-                        // Map to a syntax error with a reasonable message
-                        use crate::escape::UnescapeErrorKind::*;
-                        let msg = match err.kind {
-                            InvalidUnicodeEscape => "invalid unicode escape",
-                            InvalidUnicodeScalar => "invalid unicode escape",
-                        };
-                        let err_byte_start = content_start_byte.saturating_add(err.index);
-                        Err(self.syntax_error_span(
-                            start_line,
-                            start_column,
-                            err_byte_start,
-                            err_byte_start + 1,
-                            msg,
-                        ))
-                    }
-                }
+                self.decode_string_content(&raw, start_line, start_column, content_start_byte)
+                    .map(TokenType::String)
             }
             n if n >= 3 => {
                 let content_start_byte = self.byte_pos;
@@ -567,26 +549,45 @@ impl<'a> Lexer<'a> {
                     ));
                 }
 
-                match crate::escape::unescape_string_inner(&raw) {
-                    Ok(content) => Ok(TokenType::String(content)),
-                    Err(err) => {
-                        use crate::escape::UnescapeErrorKind::*;
-                        let msg = match err.kind {
-                            InvalidUnicodeEscape => "invalid unicode escape",
-                            InvalidUnicodeScalar => "invalid unicode escape",
-                        };
-                        let err_byte_start = content_start_byte.saturating_add(err.index);
-                        Err(self.syntax_error_span(
-                            start_line,
-                            start_column,
-                            err_byte_start,
-                            err_byte_start + 1,
-                            msg,
-                        ))
-                    }
-                }
+                self.decode_string_content(&raw, start_line, start_column, content_start_byte)
+                    .map(TokenType::String)
             }
             _ => unreachable!(),
+        }
+    }
+
+    fn decode_string_content(
+        &self,
+        raw: &str,
+        start_line: usize,
+        start_column: usize,
+        content_start_byte: usize,
+    ) -> WqResult<String> {
+        crate::escape::unescape_string_inner(raw).map_err(|err| {
+            use crate::escape::UnescapeErrorKind::*;
+            let msg = match err.kind {
+                InvalidHexEscape => "invalid hex escape",
+                InvalidUnicodeEscape | InvalidUnicodeScalar => "invalid unicode escape",
+            };
+            let err_byte_start = content_start_byte.saturating_add(err.index);
+            self.syntax_error_span(
+                start_line,
+                start_column,
+                err_byte_start,
+                err_byte_start + 1,
+                msg,
+            )
+        })
+    }
+
+    fn advance_string_escape(&mut self) {
+        let start = self.byte_pos;
+        let remaining = &self.source[start..];
+        let len = crate::escape::valid_escape_sequence_len(remaining)
+            .unwrap_or_else(|| remaining.chars().take(2).map(char::len_utf8).sum::<usize>());
+        let end = start.saturating_add(len);
+        while self.byte_pos < end && self.current_char.is_some() {
+            self.advance();
         }
     }
 
@@ -770,6 +771,7 @@ impl<'a> Lexer<'a> {
                     if let Some(text_start) = current_text_start.take() {
                         let text_end = close_quote; // exclude closing quote
                         let content = self.source[text_start..text_end].to_string();
+                        self.decode_string_content(&content, start_line, start_column, text_start)?;
                         parts.push(FmtPart::Text {
                             content,
                             start: text_start,
@@ -782,10 +784,7 @@ impl<'a> Lexer<'a> {
                     if current_text_start.is_none() {
                         current_text_start = Some(self.byte_pos);
                     }
-                    self.advance(); // skip '\'
-                    if self.current_char.is_some() {
-                        self.advance(); // skip escaped char
-                    }
+                    self.advance_string_escape();
                 }
                 '{' => {
                     if self.peek() == Some('{') {
@@ -800,6 +799,12 @@ impl<'a> Lexer<'a> {
                         if let Some(text_start) = current_text_start.take() {
                             let text_end = self.byte_pos;
                             let content = self.source[text_start..text_end].to_string();
+                            self.decode_string_content(
+                                &content,
+                                start_line,
+                                start_column,
+                                text_start,
+                            )?;
                             parts.push(FmtPart::Text {
                                 content,
                                 start: text_start,
@@ -900,6 +905,7 @@ impl<'a> Lexer<'a> {
             if let Some(text_start) = current_text_start.take() {
                 let text_end = self.byte_pos;
                 let content = self.source[text_start..text_end].to_string();
+                self.decode_string_content(&content, start_line, start_column, text_start)?;
                 parts.push(FmtPart::Text {
                     content,
                     start: text_start,
@@ -1614,6 +1620,21 @@ mod tests {
         for source in ["@u", "@u  ", "@u a"] {
             let mut lexer = Lexer::new(source);
             assert!(lexer.tokenize().is_err(), "{source} should be rejected");
+        }
+    }
+
+    #[test]
+    fn test_strings_reject_malformed_hex_escapes() {
+        for source in [
+            r#""\x""#,
+            r#""\x4""#,
+            r#""\xGG""#,
+            r#"@f"\x""#,
+            r#"@f"\x4""#,
+            r#"@f"\xGG""#,
+        ] {
+            let err = lexer_err(source);
+            assert_eq!(err.msg.as_deref(), Some("invalid hex escape"));
         }
     }
 

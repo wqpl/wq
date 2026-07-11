@@ -17,6 +17,66 @@ static inline void skip(TSLexer *lexer) {
   lexer->advance(lexer, true);
 }
 
+static bool is_hex_digit(int32_t ch) {
+  return
+    (ch >= '0' && ch <= '9') ||
+    (ch >= 'a' && ch <= 'f') ||
+    (ch >= 'A' && ch <= 'F');
+}
+
+static uint32_t hex_value(int32_t ch) {
+  if (ch >= '0' && ch <= '9') {
+    return (uint32_t)(ch - '0');
+  }
+  if (ch >= 'a' && ch <= 'f') {
+    return (uint32_t)(ch - 'a' + 10);
+  }
+  return (uint32_t)(ch - 'A' + 10);
+}
+
+static bool scan_escape(TSLexer *lexer) {
+  advance(lexer);
+  if (lexer->eof(lexer)) {
+    return true;
+  }
+
+  int32_t kind = lexer->lookahead;
+  advance(lexer);
+  if (kind == 'x') {
+    for (unsigned i = 0; i < 2; i++) {
+      if (!is_hex_digit(lexer->lookahead)) {
+        return false;
+      }
+      advance(lexer);
+    }
+    return true;
+  }
+
+  if (kind != 'u') {
+    return true;
+  }
+  if (lexer->lookahead != '{') {
+    return false;
+  }
+  advance(lexer);
+
+  uint32_t value = 0;
+  unsigned digits = 0;
+  while (is_hex_digit(lexer->lookahead)) {
+    if (digits == 6) {
+      return false;
+    }
+    value = (value << 4) | hex_value(lexer->lookahead);
+    digits++;
+    advance(lexer);
+  }
+  if (digits == 0 || lexer->lookahead != '}') {
+    return false;
+  }
+  advance(lexer);
+  return value <= 0x10ffff && !(value >= 0xd800 && value <= 0xdfff);
+}
+
 static void skip_inline_whitespace(TSLexer *lexer) {
   while (
     lexer->lookahead == ' ' ||
@@ -88,9 +148,8 @@ static bool scan_quoted_string(TSLexer *lexer) {
   if (quote_count == 1) {
     while (!lexer->eof(lexer)) {
       if (lexer->lookahead == '\\') {
-        advance(lexer);
-        if (!lexer->eof(lexer)) {
-          advance(lexer);
+        if (!scan_escape(lexer)) {
+          return false;
         }
         continue;
       }
@@ -119,9 +178,8 @@ static bool scan_quoted_string(TSLexer *lexer) {
 
     consecutive_quotes = 0;
     if (lexer->lookahead == '\\') {
-      advance(lexer);
-      if (!lexer->eof(lexer)) {
-        advance(lexer);
+      if (!scan_escape(lexer)) {
+        return false;
       }
       continue;
     }
@@ -151,15 +209,17 @@ static bool scan_raw_string(TSLexer *lexer) {
   return true;
 }
 
-static void skip_string_in_format_expr(TSLexer *lexer) {
-  scan_quoted_string(lexer);
+static bool skip_string_in_format_expr(TSLexer *lexer) {
+  return scan_quoted_string(lexer);
 }
 
-static void skip_format_expr(TSLexer *lexer) {
+static bool skip_format_expr(TSLexer *lexer) {
   unsigned depth = 1;
   while (depth > 0 && !lexer->eof(lexer)) {
     if (lexer->lookahead == '"') {
-      skip_string_in_format_expr(lexer);
+      if (!skip_string_in_format_expr(lexer)) {
+        return false;
+      }
       continue;
     }
 
@@ -177,6 +237,7 @@ static void skip_format_expr(TSLexer *lexer) {
 
     advance(lexer);
   }
+  return depth == 0;
 }
 
 static bool scan_format_string(TSLexer *lexer) {
@@ -193,9 +254,8 @@ static bool scan_format_string(TSLexer *lexer) {
     }
 
     if (lexer->lookahead == '\\') {
-      advance(lexer);
-      if (!lexer->eof(lexer)) {
-        advance(lexer);
+      if (!scan_escape(lexer)) {
+        return false;
       }
       continue;
     }
@@ -205,7 +265,9 @@ static bool scan_format_string(TSLexer *lexer) {
       if (lexer->lookahead == '{') {
         advance(lexer);
       } else {
-        skip_format_expr(lexer);
+        if (!skip_format_expr(lexer)) {
+          return false;
+        }
       }
       continue;
     }

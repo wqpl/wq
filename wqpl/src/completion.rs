@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::builtins::Builtins;
 use crate::doc::DocTopic;
+use crate::highlight::cursor_context_at;
 use crate::session::Session;
 use crate::symbol::DefKind;
 use crate::token::{FmtPart, Token, TokenType};
@@ -178,6 +179,7 @@ fn is_in_no_completion_zone(session: &Session, content: &str, byte_offset: usize
             });
             !in_expr
         }
+        TokenType::Error => cursor_context_at(content, byte_offset).suppresses_completion(),
         _ => false,
     }
 }
@@ -296,5 +298,14 @@ mod tests {
 
         assert!(should_suppress_expression_completion(&session, "123", 3));
         assert!(should_suppress_expression_completion(&session, "1 ", 2));
+    }
+
+    #[test]
+    fn suppression_blocks_completion_inside_invalid_strings() {
+        let session = Session::new();
+        let src = r#""\u{}z""#;
+        let pos = src.find('z').expect("invalid string contains z") + 1;
+
+        assert!(should_suppress_expression_completion(&session, src, pos));
     }
 }

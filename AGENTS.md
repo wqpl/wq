@@ -32,6 +32,7 @@
   - ordinary quoted literals are strings at every length: `"a"` is a one-character string, not a char atom
   - char atoms use `@u"..."`, where `u` means one Unicode scalar
     - the contents are escape-decoded and must contain exactly one Unicode scalar, so `@u"a"`, `@u"\n"`, and `@u"🦀"` are valid
+    - hex escapes use exactly two digits, such as `\x41`; malformed forms such as `\x`, `\x4`, and `\xGG` are syntax errors in strings and chars
     - `@u""`, `@u"ab"`, and a multi-scalar grapheme such as `@u"é"` are invalid
     - indexing a string returns char atoms, so compare an indexed character with `@u`, for example `"abc" 0=@u"a"`
     - char atoms display as `@u"..."`; use `graphemes` when user-perceived characters rather than Unicode scalars matter

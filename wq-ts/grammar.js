@@ -40,7 +40,7 @@ export default grammar({
 
   externals: ($) => [
     $.block_comment,
-    $._string_content,
+    $._string_content, // scanner validates quoted escape syntax
     $._raw_string_content,
     $._format_string_content,
   ],

@@ -24,3 +24,11 @@ test("characters and invalid characters have dedicated theme colors", () => {
     /^:root\[data-theme="midnight"\] \.hl-character-invalid\s*\{/m,
   );
 });
+
+test("invalid strings have dedicated light and midnight theme colors", () => {
+  assert.match(styles, /^\.hl-string-invalid\s*\{/m);
+  assert.match(
+    styles,
+    /^:root\[data-theme="midnight"\] \.hl-string-invalid\s*\{/m,
+  );
+});

@@ -37,6 +37,7 @@ pub enum HighlightName {
     PunctuationSpecial,
     String,
     StringEscape,
+    InvalidString,
     Character,
     InvalidCharacter,
     Tag,
@@ -114,7 +115,7 @@ fn cursor_context_from_tokens(src: &str, pos: usize, tokens: &[Token]) -> Cursor
             TokenType::Comment(_) => CursorContext::Comment,
             TokenType::String(_) | TokenType::Character(_) => CursorContext::String,
             TokenType::Error
-                if unicode_scalar_error_start(src, tok).is_some_and(|start| pos >= start) =>
+                if invalid_literal_error(src, tok).is_some_and(|(start, _)| pos >= start) =>
             {
                 CursorContext::String
             }
@@ -196,6 +197,7 @@ pub fn ansi_style_for_name(name: HighlightName) -> (&'static str, &'static str) 
         HighlightName::PunctuationSpecial => ("\x1b[38;5;170m", ANSI_RESET),
         HighlightName::String => ("\x1b[38;5;113m", ANSI_RESET),
         HighlightName::StringEscape => ("\x1b[1;38;5;81m", ANSI_RESET),
+        HighlightName::InvalidString => ("\x1b[4;38;5;203m", ANSI_RESET),
         HighlightName::Character => ("\x1b[38;5;81m", ANSI_RESET),
         HighlightName::InvalidCharacter => ("\x1b[4;38;5;203m", ANSI_RESET),
         HighlightName::Tag => ("\x1b[38;5;113m", ANSI_RESET),
@@ -604,14 +606,23 @@ impl Highlighter {
                     }
                     TokenType::String(_) => {
                         let is_raw = src[tok.byte_start..tok.byte_end].starts_with("@l");
-                        Self::push_string_events(
-                            &mut events,
-                            src,
-                            tok.byte_start,
-                            tok.byte_end,
-                            HighlightName::String,
-                            !is_raw,
-                        );
+                        if Self::string_token_is_invalid(src, tok) {
+                            Self::push_highlighted_source(
+                                &mut events,
+                                tok.byte_start,
+                                tok.byte_end,
+                                HighlightName::InvalidString,
+                            );
+                        } else {
+                            Self::push_string_events(
+                                &mut events,
+                                src,
+                                tok.byte_start,
+                                tok.byte_end,
+                                HighlightName::String,
+                                !is_raw,
+                            );
+                        }
                     }
                     TokenType::Character(_) => {
                         if Self::unicode_scalar_token_is_valid(src, tok) {
@@ -633,19 +644,14 @@ impl Highlighter {
                         }
                     }
                     TokenType::Error => {
-                        if let Some(start) = unicode_scalar_error_start(src, tok) {
+                        if let Some((start, name)) = invalid_literal_error(src, tok) {
                             if tok.byte_start < start {
                                 events.push(HighlightEvent::Source {
                                     start: tok.byte_start,
                                     end: start,
                                 });
                             }
-                            Self::push_highlighted_source(
-                                &mut events,
-                                start,
-                                tok.byte_end,
-                                HighlightName::InvalidCharacter,
-                            );
+                            Self::push_highlighted_source(&mut events, start, tok.byte_end, name);
                         } else {
                             events.push(HighlightEvent::Source {
                                 start: tok.byte_start,
@@ -760,6 +766,29 @@ impl Highlighter {
                 }
             ]
         )
+    }
+
+    fn string_token_is_invalid(src: &str, tok: &Token) -> bool {
+        let Some(token_src) = src.get(tok.byte_start..tok.byte_end) else {
+            return true;
+        };
+        let mut lexer = Lexer::new(token_src);
+        let valid_token = lexer.tokenize().is_ok_and(|tokens| {
+            matches!(
+                tokens.as_slice(),
+                [
+                    Token {
+                        token_type: TokenType::String(_),
+                        ..
+                    },
+                    Token {
+                        token_type: TokenType::Eof,
+                        ..
+                    }
+                ]
+            )
+        });
+        !valid_token
     }
 
     fn nested_semantic_spans(
@@ -1058,12 +1087,17 @@ fn push_offset_events(
     }
 }
 
-fn unicode_scalar_error_start(src: &str, tok: &Token) -> Option<usize> {
+fn invalid_literal_error(src: &str, tok: &Token) -> Option<(usize, HighlightName)> {
     let token_src = src.get(tok.byte_start..tok.byte_end)?;
     let trimmed = token_src.trim_start_matches(|ch: char| ch.is_whitespace() && ch != '\n');
-    trimmed
-        .starts_with("@u")
-        .then_some(tok.byte_end - trimmed.len())
+    let name = if trimmed.starts_with("@u") {
+        HighlightName::InvalidCharacter
+    } else if trimmed.starts_with('"') || trimmed.starts_with("@f") || trimmed.starts_with("@l") {
+        HighlightName::InvalidString
+    } else {
+        return None;
+    };
+    Some((tok.byte_end - trimmed.len(), name))
 }
 
 #[cfg(test)]
@@ -1235,6 +1269,36 @@ mod tests {
     }
 
     #[test]
+    fn malformed_hex_and_unicode_escapes_mark_the_whole_string_invalid() {
+        let src = r#""ok" "\x41" "\x" "\x4" "\xGG" "\u{}z" "\u{d800}" @f"\x" "\q""#;
+        let h = Highlighter::new();
+        let regions = named_regions(&h.highlight(src), src);
+
+        assert_region(&regions, r#""ok""#, HighlightName::String);
+        assert_region(&regions, r"\x41", HighlightName::StringEscape);
+        assert_region(&regions, r#""\q""#, HighlightName::String);
+        assert_eq!(
+            regions_with_name(&regions, HighlightName::InvalidString),
+            vec![
+                r#""\x""#,
+                r#""\x4""#,
+                r#""\xGG""#,
+                r#""\u{}z""#,
+                r#""\u{d800}""#,
+                r#"@f"\x""#
+            ]
+        );
+    }
+
+    #[test]
+    fn invalid_string_cursor_context_stays_inside_the_string() {
+        let src = r#""\u{}z""#;
+        let pos = src.find('z').expect("invalid string contains z") + 1;
+
+        assert_eq!(cursor_context_at(src, pos), CursorContext::String);
+    }
+
+    #[test]
     fn unicode_scalar_literals_distinguish_valid_invalid_and_string_regions() {
         let src = r#""a" @u"a" @u"\n" @u"" @u"ab" @u"é" @u"\q" @u"x"#;
         let h = Highlighter::new();
@@ -1266,13 +1330,13 @@ mod tests {
 
     #[test]
     fn format_string_text_highlights_only_valid_escapes() {
-        let src = r#"@f"line\n \x41 {x} \u{10ffff} \u{d800} \x4 \q""#;
+        let src = r#"@f"line\n \x41 \u{10ffff} {x} \q""#;
         let h = Highlighter::new();
         let regions = named_regions(&h.highlight(src), src);
 
         assert_eq!(
             regions_with_name(&regions, HighlightName::StringEscape),
-            vec![r"\n", r"\x41"]
+            vec![r"\n", r"\x41", r"\u{10ffff}"]
         );
     }
 

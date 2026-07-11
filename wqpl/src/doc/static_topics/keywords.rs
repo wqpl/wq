@@ -253,7 +253,7 @@ pub(super) const AT_UNICODE_SCALAR: StaticDoc = StaticDoc {
     group: "Keywords",
     aliases: &["@u", "unicode scalar", "char", "character"],
     summary: "Create a char atom from one Unicode scalar.",
-    details: "`@u\"...\"` decodes escapes and requires exactly one Unicode scalar. Ordinary quoted literals are strings at every length, so `\"a\"` is a one-character string while `@u\"a\"` is a char atom. A user-perceived character may contain more than one Unicode scalar; use `graphemes` when that distinction matters.",
+    details: "`@u\"...\"` decodes escapes and requires exactly one Unicode scalar. Ordinary quoted literals are strings at every length, so `\"a\"` is a one-character string while `@u\"a\"` is a char atom. Hex escapes require exactly two digits, such as `\\x41`; malformed hex and Unicode escapes are syntax errors. A user-perceived character may contain more than one Unicode scalar; use `graphemes` when that distinction matters.",
     examples: AT_UNICODE_SCALAR_EXAMPLES,
     related: &["@l", "chr", "ord", "graphemes"],
 };
