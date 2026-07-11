@@ -483,7 +483,7 @@ impl Vm {
             };
 
             if needs_rename {
-                self.debug_info.rename_chunk(id, name);
+                self.debug_info.rename_function_chunk(id, name);
             }
 
             if let (Some(pc_spans), Some(stmt_marks)) =
@@ -535,7 +535,11 @@ impl Vm {
             return Some(id);
         }
         let file_id = self.debug_info.chunk(self.current_chunk).file_id;
-        let id = self.debug_info.new_chunk(name, file_id, instructions.len());
+        let id = self.debug_info.new_function_chunk(
+            Some(std::sync::Arc::from(name)),
+            file_id,
+            instructions.len(),
+        );
         if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
             eprintln!(
                 "[wqdb]: ensure_dbg_chunk new name={name} file_id={file_id} instructions={} base_offset={}",

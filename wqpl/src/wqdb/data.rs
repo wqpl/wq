@@ -230,6 +230,7 @@ pub struct DebugInfo {
     files: HashMap<u32, Arc<SourceFile>>,
     chunks: HashMap<ChunkId, ChunkMeta>,
     pub by_name: HashMap<Arc<str>, ChunkId>,
+    function_by_name: HashMap<Arc<str>, ChunkId>,
     next_chunk: u32,
     next_file: u32,
 }
@@ -248,9 +249,33 @@ impl DebugInfo {
     }
 
     pub fn new_chunk(&mut self, name: impl Into<Arc<str>>, file_id: u32, len: usize) -> ChunkId {
+        self.insert_chunk(name.into(), file_id, len, true)
+    }
+
+    pub(crate) fn new_function_chunk(
+        &mut self,
+        name: Option<Arc<str>>,
+        file_id: u32,
+        len: usize,
+    ) -> ChunkId {
+        let display_name = name.as_ref().cloned().unwrap_or_else(|| Arc::from("<fn>"));
+        let id = self.insert_chunk(display_name, file_id, len, false);
+        if let Some(name) = name {
+            self.by_name.insert(Arc::clone(&name), id);
+            self.function_by_name.insert(name, id);
+        }
+        id
+    }
+
+    fn insert_chunk(
+        &mut self,
+        name_arc: Arc<str>,
+        file_id: u32,
+        len: usize,
+        register_name: bool,
+    ) -> ChunkId {
         let id = ChunkId(self.next_chunk);
         self.next_chunk += 1;
-        let name_arc: Arc<str> = name.into();
         self.chunks.insert(
             id,
             ChunkMeta {
@@ -264,8 +289,9 @@ impl DebugInfo {
                 local_names: None,
             },
         );
-        // Record name->chunk mapping for convenience
-        self.by_name.insert(name_arc, id);
+        if register_name {
+            self.by_name.insert(name_arc, id);
+        }
         id
     }
 
@@ -298,6 +324,28 @@ impl DebugInfo {
             self.by_name.remove(old_name.as_ref());
         }
         self.by_name.insert(new_name, id);
+    }
+
+    pub(crate) fn rename_function_chunk(&mut self, id: ChunkId, new_name: impl Into<Arc<str>>) {
+        let new_name = new_name.into();
+        self.rename_chunk(id, Arc::clone(&new_name));
+        self.function_by_name.insert(new_name, id);
+    }
+
+    pub fn function_chunk(&self, name: &str) -> Option<ChunkId> {
+        self.function_by_name.get(name).copied()
+    }
+
+    pub fn function_names(&self) -> impl Iterator<Item = &str> {
+        self.function_by_name.keys().map(AsRef::as_ref)
+    }
+
+    pub(crate) fn remove_function_name(&mut self, name: &str) {
+        self.function_by_name.remove(name);
+    }
+
+    pub(crate) fn clear_function_names(&mut self) {
+        self.function_by_name.clear();
     }
 
     pub fn file(&self, id: u32) -> Option<&Arc<SourceFile>> {
@@ -369,6 +417,38 @@ impl DebugInfo {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn function_registry_excludes_synthetic_chunks() {
+        let mut info = DebugInfo::default();
+        let file = info.new_file("test", "");
+        info.new_chunk("<script>", file, 1);
+        info.new_function_chunk(None, file, 1);
+        let function = info.new_function_chunk(Some(Arc::from("f")), file, 1);
+
+        assert_eq!(info.function_chunk("f"), Some(function));
+        assert_eq!(info.function_chunk("<script>"), None);
+        assert_eq!(info.function_chunk("<fn>"), None);
+        assert!(!info.by_name.contains_key("<fn>"));
+    }
+
+    #[test]
+    fn function_registry_preserves_aliases_when_chunk_is_renamed() {
+        let mut info = DebugInfo::default();
+        let file = info.new_file("test", "");
+        let function = info.new_function_chunk(Some(Arc::from("f")), file, 1);
+
+        info.rename_function_chunk(function, "g");
+
+        assert_eq!(info.function_chunk("f"), Some(function));
+        assert_eq!(info.function_chunk("g"), Some(function));
+        assert_eq!(info.chunk(function).name.as_ref(), "g");
     }
 }
 

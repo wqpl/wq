@@ -342,6 +342,9 @@ impl From<Vec<Value>> for BuiltinFnArgs {
 pub trait BuiltinContext {
     fn call(&mut self, func: &Value, args: BuiltinFnArgs) -> WqResult<Value>;
     fn list_enabled_builtins(&self) -> Vec<String>;
+    fn requires_callback_frames(&self) -> bool {
+        false
+    }
 }
 
 pub type BuiltinPlainFn = fn(BuiltinFnArgs) -> WqResult<Value>;

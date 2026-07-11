@@ -1463,7 +1463,9 @@ fn load_closure_debug_chunk(
     }
 
     let instructions = &payload.instructions;
-    let id = vm.debug_info.new_chunk("<fn>", file_id, instructions.len());
+    let id = vm
+        .debug_info
+        .new_function_chunk(None, file_id, instructions.len());
     if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
         eprintln!(
             "[wqdb]: LoadClosure new chunk={id:?} file_id={file_id} instructions={} base_offset={}",

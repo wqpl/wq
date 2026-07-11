@@ -269,6 +269,7 @@ impl Vm {
     pub(crate) fn reset_globals(&mut self) {
         self.global_slots.clear();
         self.global_slot_map.clear();
+        self.debug_info.clear_function_names();
     }
 
     /// Build a snapshot of globals from slots.
@@ -390,7 +391,9 @@ impl Vm {
     }
 
     pub(crate) fn assign_global_and_slot(&mut self, name: &str, mut value: Value) -> usize {
-        if self.debug_artifacts_enabled() {
+        if value.as_user_function().is_none() {
+            self.debug_info.remove_function_name(name);
+        } else if self.debug_artifacts_enabled() {
             let _ = self.stamp_user_function_debug_chunk(&mut value, name, None);
         }
         let slot = match self.global_slot_map.get(name).copied() {
@@ -409,7 +412,9 @@ impl Vm {
     }
 
     pub(crate) fn assign_global_at_slot(&mut self, name: &str, slot: usize, mut value: Value) {
-        if self.debug_artifacts_enabled() {
+        if value.as_user_function().is_none() {
+            self.debug_info.remove_function_name(name);
+        } else if self.debug_artifacts_enabled() {
             let _ = self.stamp_user_function_debug_chunk(&mut value, name, None);
         }
         if let Some(dest) = self.global_slots.get_mut(slot) {

@@ -42,22 +42,35 @@ thread_local! {
     pub(crate) static WQ_STDERR: RefCell<Option<WqStderrHandle>> = RefCell::new(None);
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WqInputMode {
+    #[default]
+    Wq,
+    Wqdb,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WqGlobalHint {
+    pub name: String,
+    pub type_name: String,
+    pub excerpt: String,
+}
+
 pub trait WqStdin {
     fn readline(&mut self, prompt: &str) -> Result<String, WqStdinError>;
     fn add_history(&mut self, _line: &str) {}
     fn set_highlight(&mut self, _on: bool) {}
     fn highlight_enabled(&self) -> bool;
+    fn set_input_mode(&mut self, _mode: WqInputMode) {}
+    fn input_mode(&self) -> WqInputMode {
+        WqInputMode::Wq
+    }
     /// Update the list of builtin names and usages used for completion/hints.
     fn set_builtin_hints(&mut self, _names: Vec<String>, _usages: Vec<String>) {}
-    /// Update the list of global variable names, types and excerpts used for
-    /// completion/hints.
-    fn set_global_hints(
-        &mut self,
-        _names: Vec<String>,
-        _types: Vec<String>,
-        _excerpts: Vec<String>,
-    ) {
-    }
+    /// Update the global variables used for completion and hints.
+    fn set_global_hints(&mut self, _hints: Vec<WqGlobalHint>) {}
+    /// Update the debugger function names used for completion.
+    fn set_wqdb_function_hints(&mut self, _names: Vec<String>) {}
     /// Update the list of repl command names and descriptions used for
     /// completion/hints.
     fn set_repl_hints(&mut self, _names: Vec<String>, _descs: Vec<String>) {}
@@ -272,6 +285,38 @@ pub fn wqstdin_highlight_enabled() -> bool {
     })
 }
 
+pub fn wqstdin_set_input_mode(mode: WqInputMode) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Some(r) = WQ_STDIN.lock().unwrap().as_deref_mut() {
+            r.set_input_mode(mode);
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    WQ_STDIN.with(|cell| {
+        if let Some(r) = cell.borrow_mut().as_deref_mut() {
+            r.set_input_mode(mode);
+        }
+    });
+}
+
+pub fn wqstdin_input_mode() -> WqInputMode {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        WQ_STDIN
+            .lock()
+            .unwrap()
+            .as_deref()
+            .map_or(WqInputMode::Wq, WqStdin::input_mode)
+    }
+    #[cfg(target_arch = "wasm32")]
+    WQ_STDIN.with(|cell| {
+        cell.borrow()
+            .as_deref()
+            .map_or(WqInputMode::Wq, WqStdin::input_mode)
+    })
+}
+
 pub fn wqstdin_set_builtin_hints(names: Vec<String>, usages: Vec<String>) {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -287,17 +332,32 @@ pub fn wqstdin_set_builtin_hints(names: Vec<String>, usages: Vec<String>) {
     });
 }
 
-pub fn wqstdin_set_global_hints(names: Vec<String>, types: Vec<String>, excerpts: Vec<String>) {
+pub fn wqstdin_set_global_hints(hints: Vec<WqGlobalHint>) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         if let Some(r) = WQ_STDIN.lock().unwrap().as_deref_mut() {
-            r.set_global_hints(names, types, excerpts);
+            r.set_global_hints(hints);
         }
     }
     #[cfg(target_arch = "wasm32")]
     WQ_STDIN.with(|cell| {
         if let Some(r) = cell.borrow_mut().as_deref_mut() {
-            r.set_global_hints(names, types, excerpts);
+            r.set_global_hints(hints);
+        }
+    });
+}
+
+pub fn wqstdin_set_wqdb_function_hints(names: Vec<String>) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Some(r) = WQ_STDIN.lock().unwrap().as_deref_mut() {
+            r.set_wqdb_function_hints(names);
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    WQ_STDIN.with(|cell| {
+        if let Some(r) = cell.borrow_mut().as_deref_mut() {
+            r.set_wqdb_function_hints(names);
         }
     });
 }
@@ -362,6 +422,23 @@ where
     let prev = wqstdin_highlight_enabled();
     wqstdin_set_highlight(false);
     let _restore = HighlightRestore(prev);
+    f()
+}
+
+struct InputModeRestore(WqInputMode);
+impl Drop for InputModeRestore {
+    fn drop(&mut self) {
+        wqstdin_set_input_mode(self.0);
+    }
+}
+
+pub fn wqstdin_with_input_mode<F, R>(mode: WqInputMode, f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    let previous = wqstdin_input_mode();
+    wqstdin_set_input_mode(mode);
+    let _restore = InputModeRestore(previous);
     f()
 }
 

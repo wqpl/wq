@@ -1,7 +1,7 @@
 use wq_rl::Editor;
 use wq_rl::error::ReadlineError;
 use wq_rl::history::FileHistory;
-use wqpl::session::stdio::{WqStdin, WqStdinError};
+use wqpl::session::stdio::{WqGlobalHint, WqInputMode, WqStdin, WqStdinError};
 
 use crate::repl::editor::WqReplHighlighter;
 
@@ -45,15 +45,34 @@ impl WqStdin for RustylineInput {
         self.rl.helper().map(|h| h.enabled()).unwrap_or(true)
     }
 
+    fn set_input_mode(&mut self, mode: WqInputMode) {
+        if let Some(h) = self.rl.helper_mut() {
+            h.set_input_mode(mode);
+        }
+    }
+
+    fn input_mode(&self) -> WqInputMode {
+        self.rl
+            .helper()
+            .map(WqReplHighlighter::input_mode)
+            .unwrap_or_default()
+    }
+
     fn set_builtin_hints(&mut self, names: Vec<String>, usages: Vec<String>) {
         if let Some(h) = self.rl.helper_mut() {
             h.set_builtin_hints(names, usages);
         }
     }
 
-    fn set_global_hints(&mut self, names: Vec<String>, types: Vec<String>, excerpts: Vec<String>) {
+    fn set_global_hints(&mut self, hints: Vec<WqGlobalHint>) {
         if let Some(h) = self.rl.helper_mut() {
-            h.set_global_hints(names, types, excerpts);
+            h.set_global_hints(hints);
+        }
+    }
+
+    fn set_wqdb_function_hints(&mut self, names: Vec<String>) {
+        if let Some(h) = self.rl.helper_mut() {
+            h.set_wqdb_function_hints(names);
         }
     }
 

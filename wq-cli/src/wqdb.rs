@@ -2,7 +2,8 @@
 
 use wqpl::session::Session;
 use wqpl::session::stdio::{
-    WqStdinError, wqstderr_println, wqstdin_readline, wqstdin_with_highlight_off,
+    WqInputMode, WqStdinError, wqstderr_println, wqstdin_readline, wqstdin_set_wqdb_function_hints,
+    wqstdin_with_input_mode,
 };
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::Excerpt;
@@ -12,6 +13,8 @@ use wqpl::wqdb::model::StepGranularity;
 use wqpl::wqdb::{format_frame, format_span_snippet_with_color_mode};
 
 use crate::repl::InteractiveOutputSpacing;
+
+pub(crate) mod editor;
 
 /// Enter wqdb shell after a crash for inspection.
 /// Print a short notice, then reuse the interactive shell.
@@ -690,6 +693,13 @@ pub fn wqdb_shell(host: &mut Vm) {
     print_stop_controls(host.dbg_step_granularity());
     output_spacing.after_output();
     loop {
+        let mut function_names = host
+            .debug_info()
+            .function_names()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        function_names.sort();
+        wqstdin_set_wqdb_function_hints(function_names);
         if output_spacing.before_prompt() {
             wqstderr_println("");
         }
@@ -700,7 +710,7 @@ pub fn wqdb_shell(host: &mut Vm) {
         let prompt =
             wqdb_prompt_with_color_mode(host.dbg_step_granularity(), dbg_line, ColorMode::Never);
 
-        let res = wqstdin_with_highlight_off(|| wqstdin_readline(&prompt));
+        let res = wqstdin_with_input_mode(WqInputMode::Wqdb, || wqstdin_readline(&prompt));
         match res {
             Ok(line) => {
                 dbg_line += 1;
@@ -946,7 +956,7 @@ fn set_breakpoint_at_function(
         ),
         None => None,
     };
-    let Some(&chunk) = host.debug_info().by_name.get(fname) else {
+    let Some(chunk) = host.debug_info().function_chunk(fname) else {
         return Err(format!("function '{fname}' not found"));
     };
     let meta = host.debug_info().chunk(chunk);

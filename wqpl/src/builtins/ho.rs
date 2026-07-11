@@ -9,6 +9,14 @@ use crate::value::{Value, WqResult};
 use crate::vm::pure::PureCallback;
 use crate::wqerror::{WqError, WqErrorType};
 
+fn pure_callback(vm: &dyn BuiltinContext, func: &Value, arity: usize) -> Option<PureCallback> {
+    if vm.requires_callback_frames() {
+        None
+    } else {
+        PureCallback::compile(func, arity)
+    }
+}
+
 #[inline]
 fn call_pure_or_vm1(
     vm: &mut dyn BuiltinContext,
@@ -153,7 +161,7 @@ fn map_stop(xs: &Value, d: &Value) -> WqResult<Bc1Stop> {
 
 fn map_impl(vm: &mut dyn BuiltinContext, xs: &Value, f: &Value, d: &Value) -> WqResult<Value> {
     let stop = map_stop(xs, d)?;
-    let pure = PureCallback::compile(f, 1);
+    let pure = pure_callback(vm, f, 1);
     let op1 = |v: &Value| call_pure_or_vm1(vm, f, pure.as_ref(), v);
     xs.bc1_until(stop, op1)
         .map_err(|e| e.into_wqerror().src(BE::Map))
@@ -166,7 +174,7 @@ fn map_discard_impl(
     d: &Value,
 ) -> WqResult<Value> {
     let stop = map_stop(xs, d)?;
-    let pure = PureCallback::compile(f, 1);
+    let pure = pure_callback(vm, f, 1);
     let op1 = |v: &Value| call_pure_or_vm1(vm, f, pure.as_ref(), v);
     xs.bc1_for_each_until(stop, op1)
         .map_err(|e| e.into_wqerror().src(BE::Map))?;
@@ -508,7 +516,7 @@ pub(super) fn filter(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResu
     let mut iter = args.into_iter();
     let xs = iter.next().unwrap();
     let func = iter.next().unwrap();
-    let pure = PureCallback::compile(&func, 1);
+    let pure = pure_callback(vm, &func, 1);
     if let Some(seq) = ValueSeq::from_value(&xs) {
         let mut result = Vec::new();
         for item in seq.values() {
@@ -538,7 +546,7 @@ pub(super) fn filter_discard(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -
     let mut iter = args.into_iter();
     let xs = iter.next().unwrap();
     let func = iter.next().unwrap();
-    let pure = PureCallback::compile(&func, 1);
+    let pure = pure_callback(vm, &func, 1);
     if let Some(seq) = ValueSeq::from_value(&xs) {
         for item in seq.values() {
             filter_predicate(vm, &func, pure.as_ref(), &item)?;
@@ -585,7 +593,7 @@ pub(super) fn zipw(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult
         };
         // atoms are always leaves; stop after traversing L layers from the root
         let stop = Bc2Stop::BothAtomOrDepth(el);
-        let pure = PureCallback::compile(f, 2);
+        let pure = pure_callback(vm, f, 2);
         let op2 = |a: &Value, b: &Value| call_pure_or_vm2(vm, f, pure.as_ref(), a, b);
         xs.bc2_until(ys, stop, op2)
             .map_err(|e| e.into_wqerror().src(BE::ZipW))

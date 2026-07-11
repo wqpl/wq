@@ -294,9 +294,11 @@ impl Vm {
                             instructions.len(),
                         );
                     }
-                    let id = self
-                        .debug_info
-                        .new_chunk(title, file_id, instructions.len());
+                    let id = self.debug_info.new_function_chunk(
+                        Some(std::sync::Arc::from(title)),
+                        file_id,
+                        instructions.len(),
+                    );
                     let table = &mut self.debug_info.chunk_mut(id).line_table;
                     // Heuristic stepping if no spans are attached to the callee.
                     mark_stmt_heuristic(table, instructions.as_ref());
@@ -764,6 +766,10 @@ impl BuiltinContext for Vm {
 
     fn list_enabled_builtins(&self) -> Vec<String> {
         self.builtins.list_functions()
+    }
+
+    fn requires_callback_frames(&self) -> bool {
+        self.wqdb.enabled
     }
 }
 

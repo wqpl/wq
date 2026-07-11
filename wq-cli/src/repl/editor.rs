@@ -13,9 +13,11 @@ use wqpl::highlight::{Highlighter, cursor_context_at};
 use wqpl::interpret::InterpreterKind;
 use wqpl::session::Session;
 use wqpl::session::dbglog::DEBUG_LOG_FLAG_NAMES;
+use wqpl::session::stdio::{WqGlobalHint, WqInputMode};
 
 use super::command::{self, ReplArgKind};
 use crate::load::embed::embedded_aliases;
+use crate::wqdb::editor as wqdb_editor;
 
 const RESET: &str = "\x1b[0m";
 const REPL_INPUT_BG: &str = "\x1b[48;5;236m";
@@ -28,6 +30,12 @@ const MENU_MARKER_DIM: &str = "\x1b[38;5;67m";
 const MENU_MARKER_SELECTED: &str = "\x1b[38;5;150m";
 const MENU_FOOTER: &str = "\x1b[38;5;248m";
 const MENU_SELECTED: &str = "\x1b[1;38;5;252m";
+const WQDB_COMMAND_COLOR: &str = "\x1b[32m";
+const WQDB_UNKNOWN_COMMAND_COLOR: &str = "\x1b[31m";
+const WQDB_SUBCOMMAND_COLOR: &str = "\x1b[96m";
+const WQDB_FLAG_COLOR: &str = "\x1b[95m";
+const WQDB_NUMBER_COLOR: &str = "\x1b[93m";
+const WQDB_ARGUMENT_COLOR: &str = "\x1b[93m";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WqHint {
@@ -69,12 +77,12 @@ pub struct WqReplHighlighter {
     builtin_names: Vec<String>,
     builtin_usages: Vec<String>,
     help_topics: Vec<(String, String)>,
-    global_names: Vec<String>,
-    global_types: Vec<String>,
-    global_excerpts: Vec<String>,
+    global_hints: Vec<WqGlobalHint>,
+    wqdb_function_names: Vec<String>,
     repl_names: Vec<String>,
     repl_descs: Vec<String>,
     hints_enabled: bool,
+    input_mode: WqInputMode,
 }
 
 impl Default for WqReplHighlighter {
@@ -93,12 +101,12 @@ impl WqReplHighlighter {
             builtin_names: Vec::new(),
             builtin_usages: Vec::new(),
             help_topics: Self::collect_help_topics(),
-            global_names: Vec::new(),
-            global_types: Vec::new(),
-            global_excerpts: Vec::new(),
+            global_hints: Vec::new(),
+            wqdb_function_names: Vec::new(),
             repl_names,
             repl_descs,
             hints_enabled: true,
+            input_mode: WqInputMode::Wq,
         }
     }
 
@@ -108,6 +116,14 @@ impl WqReplHighlighter {
 
     pub fn enabled(&self) -> bool {
         self.enabled
+    }
+
+    pub fn set_input_mode(&mut self, mode: WqInputMode) {
+        self.input_mode = mode;
+    }
+
+    pub fn input_mode(&self) -> WqInputMode {
+        self.input_mode
     }
 
     pub fn set_hints_enabled(&mut self, on: bool) {
@@ -123,15 +139,12 @@ impl WqReplHighlighter {
         self.builtin_usages = usages;
     }
 
-    pub fn set_global_hints(
-        &mut self,
-        names: Vec<String>,
-        types: Vec<String>,
-        excerpts: Vec<String>,
-    ) {
-        self.global_names = names;
-        self.global_types = types;
-        self.global_excerpts = excerpts;
+    pub fn set_global_hints(&mut self, hints: Vec<WqGlobalHint>) {
+        self.global_hints = hints;
+    }
+
+    pub fn set_wqdb_function_hints(&mut self, names: Vec<String>) {
+        self.wqdb_function_names = names;
     }
 
     pub fn set_repl_hints(&mut self, names: Vec<String>, descs: Vec<String>) {
@@ -361,7 +374,7 @@ impl WqReplHighlighter {
         false
     }
 
-    fn colorize_input(&self, line: &str) -> String {
+    fn colorize_wq_input(&self, line: &str) -> String {
         let semantic_spans = self.semantic_highlight_spans(line);
         self.highlighter
             .highlight_ansi_with_semantic_spans_and_reset(
@@ -369,6 +382,138 @@ impl WqReplHighlighter {
                 &semantic_spans,
                 REPL_INPUT_TOKEN_RESET,
             )
+    }
+
+    fn colorize_wqdb_input(&self, line: &str) -> String {
+        let mut out = String::with_capacity(line.len() * 2);
+        let mut copied = 0;
+        for span in wqdb_editor::token_spans(line) {
+            out.push_str(&line[copied..span.start]);
+            let color = match span.kind {
+                wqdb_editor::TokenKind::Command => WQDB_COMMAND_COLOR,
+                wqdb_editor::TokenKind::UnknownCommand => WQDB_UNKNOWN_COMMAND_COLOR,
+                wqdb_editor::TokenKind::Subcommand => WQDB_SUBCOMMAND_COLOR,
+                wqdb_editor::TokenKind::Flag => WQDB_FLAG_COLOR,
+                wqdb_editor::TokenKind::Number => WQDB_NUMBER_COLOR,
+                wqdb_editor::TokenKind::Argument => WQDB_ARGUMENT_COLOR,
+            };
+            out.push_str(color);
+            out.push_str(&line[span.start..span.end]);
+            out.push_str(REPL_INPUT_TOKEN_RESET);
+            copied = span.end;
+        }
+        out.push_str(&line[copied..]);
+        out
+    }
+
+    fn colorize_input(&self, line: &str) -> String {
+        match self.input_mode {
+            WqInputMode::Wq => self.colorize_wq_input(line),
+            WqInputMode::Wqdb => self.colorize_wqdb_input(line),
+        }
+    }
+
+    fn complete_wqdb(&self, line: &str, pos: usize) -> (usize, Vec<Pair>) {
+        let target = wqdb_editor::cursor_target(line, pos);
+        let start = target.start();
+        let (command, previous_args, prefix) = match &target {
+            wqdb_editor::CursorTarget::Empty { .. } => return (start, Vec::new()),
+            wqdb_editor::CursorTarget::Command { prefix, .. } => {
+                let candidates = wqdb_editor::command_entries(prefix)
+                    .into_iter()
+                    .map(|entry| {
+                        Pair::described(entry.name, entry.name, entry.summary).with_kind("command")
+                    })
+                    .collect();
+                return (start, candidates);
+            }
+            wqdb_editor::CursorTarget::Argument {
+                command,
+                prefix,
+                previous_args,
+                ..
+            } => (*command, previous_args.as_slice(), *prefix),
+        };
+        let mut candidates = wqdb_editor::argument_candidates(command, previous_args, prefix)
+            .into_iter()
+            .map(|candidate| {
+                Pair::described(candidate.value, candidate.value, candidate.description)
+                    .with_kind(candidate.kind)
+            })
+            .collect::<Vec<_>>();
+        match wqdb_editor::dynamic_argument_kind(command, previous_args) {
+            Some(wqdb_editor::DynamicArgumentKind::Function) => {
+                for name in self
+                    .wqdb_function_names
+                    .iter()
+                    .filter(|name| name.starts_with(prefix))
+                {
+                    candidates
+                        .push(Pair::described(name, name, "debug function").with_kind("function"));
+                }
+            }
+            Some(wqdb_editor::DynamicArgumentKind::Symbol) => {
+                for hint in self
+                    .global_hints
+                    .iter()
+                    .filter(|hint| hint.name.starts_with(prefix))
+                {
+                    candidates.push(
+                        Pair::described(&hint.name, &hint.name, "track global symbol")
+                            .with_kind("global"),
+                    );
+                }
+            }
+            Some(wqdb_editor::DynamicArgumentKind::Command) => {
+                candidates.extend(
+                    wqdb_editor::command_entries(prefix)
+                        .into_iter()
+                        .map(|entry| {
+                            Pair::described(entry.name, entry.name, entry.summary)
+                                .with_kind("command")
+                        }),
+                );
+            }
+            None => {}
+        }
+        candidates.sort_by(|left, right| left.display.cmp(&right.display));
+        candidates.dedup_by(|left, right| left.replacement == right.replacement);
+        (start, candidates)
+    }
+
+    fn hint_wqdb(&self, line: &str, pos: usize) -> Option<WqHint> {
+        let target = wqdb_editor::cursor_target(line, pos);
+        let (command, prefix) = match &target {
+            wqdb_editor::CursorTarget::Empty { .. } => return None,
+            wqdb_editor::CursorTarget::Command { prefix, .. } => {
+                if let Some(entry) = wqdb_editor::command_entry(prefix) {
+                    return Some(WqHint::info(format!(
+                        "  {}  {}",
+                        entry.usage, entry.summary
+                    )));
+                }
+                let entry = wqdb_editor::command_entries(prefix).into_iter().next()?;
+                return Some(WqHint::completion(&entry.name[prefix.len()..]));
+            }
+            wqdb_editor::CursorTarget::Argument {
+                command, prefix, ..
+            } => (*command, *prefix),
+        };
+        let (_, candidates) = self.complete_wqdb(line, pos);
+        if let Some(candidate) = candidates
+            .iter()
+            .find(|candidate| candidate.replacement == prefix)
+        {
+            return candidate
+                .description
+                .as_ref()
+                .map(|description| WqHint::info(format!("  {description}")));
+        }
+        if let Some(candidate) = candidates.first() {
+            return Some(WqHint::completion(&candidate.replacement[prefix.len()..]));
+        }
+        wqdb_editor::command_entry(command)
+            .map(|entry| WqHint::info(format!("  {}  {}", entry.usage, entry.summary)))
     }
 
     pub fn highlight_text(&self, text: &str) -> String {
@@ -447,6 +592,9 @@ impl Completer for WqReplHighlighter {
         _ctx: &RLContext<'_>,
     ) -> wq_rl::Result<(usize, Vec<Self::Candidate>)> {
         let pos = pos.min(line.len());
+        if self.input_mode == WqInputMode::Wqdb {
+            return Ok(self.complete_wqdb(line, pos));
+        }
         if self.should_suppress(line, pos) {
             return Ok((pos, Vec::new()));
         }
@@ -510,23 +658,20 @@ impl Completer for WqReplHighlighter {
                     .with_kind("builtin");
                 candidates.push(candidate);
             }
-            let globals = &self.global_names;
-            for (idx, name) in globals
+            for hint in self
+                .global_hints
                 .iter()
-                .enumerate()
-                .filter(|(_, name)| name.starts_with(prefix))
+                .filter(|hint| hint.name.starts_with(prefix))
             {
-                let ty = self.global_types.get(idx).cloned().unwrap_or_default();
-                let excerpt = self.global_excerpts.get(idx).cloned().unwrap_or_default();
-                let description = match (ty.is_empty(), excerpt.is_empty()) {
+                let description = match (hint.type_name.is_empty(), hint.excerpt.is_empty()) {
                     (true, true) => None,
-                    (true, false) => Some(excerpt),
-                    (false, true) => Some(format!(":{ty}")),
-                    (false, false) => Some(format!(":{ty} {excerpt}")),
+                    (true, false) => Some(hint.excerpt.clone()),
+                    (false, true) => Some(format!(":{}", hint.type_name)),
+                    (false, false) => Some(format!(":{} {}", hint.type_name, hint.excerpt)),
                 };
                 let candidate = description.map_or_else(
-                    || Pair::new(name.clone(), name.clone()),
-                    |desc| Pair::described(name.clone(), name.clone(), desc),
+                    || Pair::new(hint.name.clone(), hint.name.clone()),
+                    |desc| Pair::described(hint.name.clone(), hint.name.clone(), desc),
                 );
                 candidates.push(candidate.with_kind("global"));
             }
@@ -541,7 +686,13 @@ impl Hinter for WqReplHighlighter {
     type Hint = WqHint;
     fn hint(&self, line: &str, pos: usize, _ctx: &RLContext<'_>) -> Option<Self::Hint> {
         let pos = pos.min(line.len());
-        if !self.hints_enabled || self.should_suppress(line, pos) {
+        if !self.hints_enabled {
+            return None;
+        }
+        if self.input_mode == WqInputMode::Wqdb {
+            return self.hint_wqdb(line, pos);
+        }
+        if self.should_suppress(line, pos) {
             return None;
         }
         let start = Self::current_word_start(line, pos);
@@ -594,18 +745,15 @@ impl Hinter for WqReplHighlighter {
         // Builtin + global hinting
         let names = &self.builtin_names;
         let usages = &self.builtin_usages;
-        let globals = &self.global_names;
-        let global_types = &self.global_types;
-        let global_excerpts = &self.global_excerpts;
-
         let mut merged: Vec<(String, Option<String>)> = Vec::new();
         for (name, usage) in names.iter().zip(usages.iter()) {
             merged.push((name.clone(), Some(format!("  {}", usage.clone()))));
         }
-        for (i, name) in globals.iter().enumerate() {
-            let ty = global_types.get(i).cloned().unwrap_or_default();
-            let excerpt = global_excerpts.get(i).cloned().unwrap_or_default();
-            merged.push((name.clone(), Some(format!("  :{ty} {excerpt}"))));
+        for hint in &self.global_hints {
+            merged.push((
+                hint.name.clone(),
+                Some(format!("  :{} {}", hint.type_name, hint.excerpt)),
+            ));
         }
         merged.sort_by(|a, b| a.0.cmp(&b.0));
         merged.dedup_by(|a, b| a.0 == b.0);
@@ -632,6 +780,9 @@ impl Hinter for WqReplHighlighter {
 impl Validator for WqReplHighlighter {
     fn validate(&self, ctx: &mut ValidationContext) -> wq_rl::Result<ValidationResult> {
         let input = ctx.input();
+        if self.input_mode == WqInputMode::Wqdb {
+            return Ok(ValidationResult::Valid(None));
+        }
         if input.trim().is_empty() {
             return Ok(ValidationResult::Valid(None));
         }
@@ -841,11 +992,11 @@ mod tests {
     fn expression_completion_carries_menu_metadata() {
         let mut h = WqReplHighlighter::new();
         h.set_builtin_hints(vec!["sum".to_string()], vec!["sum[xs*]".to_string()]);
-        h.set_global_hints(
-            vec!["score".to_string()],
-            vec!["num".to_string()],
-            vec!["score:42".to_string()],
-        );
+        h.set_global_hints(vec![WqGlobalHint {
+            name: "score".to_string(),
+            type_name: "num".to_string(),
+            excerpt: "score:42".to_string(),
+        }]);
         let history = DefaultHistory::new();
         let ctx = RLContext::new(&history);
 
@@ -982,5 +1133,114 @@ mod tests {
             "  Bind, update, unpack, or checkpoint values with assignment forms."
         );
         assert_eq!(hint.completion(), None);
+    }
+
+    #[test]
+    fn wqdb_mode_completes_debugger_commands_instead_of_wq_names() {
+        let mut h = WqReplHighlighter::new();
+        h.set_builtin_hints(vec!["sum".to_string()], vec!["sum[xs*]".to_string()]);
+        h.set_input_mode(WqInputMode::Wqdb);
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let (start, candidates) = h.complete("s", 1, &ctx).expect("completion");
+
+        assert_eq!(start, 0);
+        assert!(candidates.iter().any(|c| c.replacement == "step"));
+        assert!(candidates.iter().any(|c| c.replacement == "stop-hook"));
+        assert!(!candidates.iter().any(|c| c.replacement == "sum"));
+    }
+
+    #[test]
+    fn wqdb_mode_completes_command_arguments() {
+        let mut h = WqReplHighlighter::new();
+        h.set_input_mode(WqInputMode::Wqdb);
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let (start, candidates) = h.complete("g i", 3, &ctx).expect("completion");
+
+        assert_eq!(start, 2);
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| candidate.replacement.as_str())
+                .collect::<Vec<_>>(),
+            vec!["inst"]
+        );
+        assert_eq!(candidates[0].kind.as_deref(), Some("granularity"));
+    }
+
+    #[test]
+    fn wqdb_mode_completes_dynamic_debugger_arguments() {
+        let mut h = WqReplHighlighter::new();
+        h.set_global_hints(vec![WqGlobalHint {
+            name: "count".to_string(),
+            type_name: "fn".to_string(),
+            excerpt: "3".to_string(),
+        }]);
+        h.set_wqdb_function_hints(vec!["worker".to_string()]);
+        h.set_input_mode(WqInputMode::Wqdb);
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let (_, function_candidates) = h.complete("bf w", 4, &ctx).expect("function completion");
+        let (_, hook_candidates) = h
+            .complete("stop-hook add -o gr", "stop-hook add -o gr".len(), &ctx)
+            .expect("hook completion");
+
+        assert_eq!(function_candidates.len(), 1);
+        assert_eq!(function_candidates[0].replacement, "worker");
+        assert_eq!(function_candidates[0].kind.as_deref(), Some("function"));
+        assert!(
+            hook_candidates
+                .iter()
+                .any(|candidate| candidate.replacement == "granularity")
+        );
+    }
+
+    #[test]
+    fn wqdb_mode_exact_command_hint_shows_usage() {
+        let mut h = WqReplHighlighter::new();
+        h.set_input_mode(WqInputMode::Wqdb);
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let hint = h.hint("g", 1, &ctx).expect("hint");
+
+        assert!(hint.display().contains("g [line|expr|inst]"));
+        assert!(!hint.display().contains(" | "));
+        assert!(hint.display().contains("show or set stepping granularity"));
+        assert_eq!(hint.completion(), None);
+    }
+
+    #[test]
+    fn wqdb_mode_highlights_command_subcommand_flag_and_number() {
+        let mut h = WqReplHighlighter::new();
+        h.set_input_mode(WqInputMode::Wqdb);
+        let src = "stop-hook add -o b 12";
+
+        let out = h.colorize_input(src);
+
+        assert!(out.contains(&format!("{WQDB_COMMAND_COLOR}stop-hook")));
+        assert!(out.contains(&format!("{WQDB_SUBCOMMAND_COLOR}add")));
+        assert!(out.contains(&format!("{WQDB_FLAG_COLOR}-o")));
+        assert!(out.contains(&format!("{WQDB_NUMBER_COLOR}12")));
+        assert_eq!(strip_ansi(&out), src);
+    }
+
+    #[test]
+    fn leaving_wqdb_mode_restores_wq_completion() {
+        let mut h = WqReplHighlighter::new();
+        h.set_builtin_hints(vec!["sum".to_string()], vec!["sum[xs*]".to_string()]);
+        h.set_input_mode(WqInputMode::Wqdb);
+        h.set_input_mode(WqInputMode::Wq);
+        let history = DefaultHistory::new();
+        let ctx = RLContext::new(&history);
+
+        let (_, candidates) = h.complete("su", 2, &ctx).expect("completion");
+
+        assert!(candidates.iter().any(|c| c.replacement == "sum"));
+        assert!(!candidates.iter().any(|c| c.replacement == "step"));
     }
 }

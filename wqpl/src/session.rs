@@ -678,8 +678,7 @@ impl Session {
 
     /// Clear all global bindings.
     pub fn clear_environment(&mut self) {
-        self.vm.global_slots.clear();
-        self.vm.global_slot_map.clear();
+        self.vm.reset_globals();
     }
 
     /// Check whether `input` forms a syntactically complete wq snippet.
@@ -1315,6 +1314,88 @@ mod tests {
         session.eval_string("x+:1").expect("second eval should run");
 
         assert_eq!(PAUSES.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn global_function_aliases_share_a_breakpointable_chunk() {
+        let mut session = Session::new();
+
+        session
+            .eval_string("f:{x+1};g:f")
+            .expect("function aliases should evaluate");
+
+        let f = session
+            .vm
+            .debug_info
+            .function_chunk("f")
+            .expect("f function chunk");
+        let g = session
+            .vm
+            .debug_info
+            .function_chunk("g")
+            .expect("g function chunk");
+        assert_eq!(f, g);
+        assert!(session.vm.debug_info.function_chunk("<fn>").is_none());
+    }
+
+    #[test]
+    fn returned_closure_is_registered_under_its_global_name() {
+        let mut session = Session::new();
+
+        session
+            .eval_string("factory:{a:1;{x+a}};f:factory[]")
+            .expect("returned closure should evaluate");
+
+        assert!(session.vm.debug_info.function_chunk("f").is_some());
+        assert!(session.vm.debug_info.function_chunk("<fn>").is_none());
+    }
+
+    #[test]
+    fn overwriting_function_global_only_removes_that_breakpoint_name() {
+        let mut session = Session::new();
+        session
+            .eval_string("f:{x+1};g:f")
+            .expect("function aliases should evaluate");
+
+        session
+            .eval_string("f:1")
+            .expect("function overwrite should evaluate");
+
+        assert!(session.vm.debug_info.function_chunk("f").is_none());
+        assert!(session.vm.debug_info.function_chunk("g").is_some());
+    }
+
+    #[test]
+    fn wqdb_breakpoints_disable_pure_callback_fast_path() {
+        static PAUSES: AtomicUsize = AtomicUsize::new(0);
+
+        fn set_breakpoint_then_continue(vm: &mut crate::vm::Vm) {
+            let pause = PAUSES.fetch_add(1, Ordering::SeqCst);
+            if pause == 0 {
+                let chunk = vm
+                    .debug_info()
+                    .function_chunk("f")
+                    .expect("f function chunk");
+                let meta = vm.debug_info().chunk(chunk);
+                let pc = (0..meta.len)
+                    .find(|pc| meta.line_table.is_stmt(*pc))
+                    .unwrap_or(0);
+                vm.dbg_set_break(crate::wqdb::data::CodeLoc { chunk, pc });
+            }
+            vm.dbg_continue();
+        }
+
+        PAUSES.store(0, Ordering::SeqCst);
+        let mut session = Session::new();
+        session.set_pause_callback(Some(set_breakpoint_then_continue));
+        session.set_wqdb(true);
+
+        let result = session
+            .eval_string("f:{x+1};map[(1;2);f]")
+            .expect("debugged map should evaluate");
+
+        assert_eq!(result, Value::IntList(Arc::new(vec![2, 3])));
+        assert_eq!(PAUSES.load(Ordering::SeqCst), 3);
     }
 
     #[test]

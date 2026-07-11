@@ -308,7 +308,7 @@ fn register_closure_payload_chunk(
     name: Option<std::sync::Arc<str>>,
     base_offset: usize,
 ) -> ChunkId {
-    let chunk = di.new_chunk("<fn>", file_id, payload.instructions.len());
+    let chunk = di.new_function_chunk(name.clone(), file_id, payload.instructions.len());
     if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
         eprintln!(
             "[wqdb]: register_function_chunks new chunk={chunk:?} name={} file_id={} instructions={} base_offset={}",
@@ -351,10 +351,6 @@ fn register_closure_payload_chunk(
     } else if let Some(params) = payload.params.as_ref() {
         di.chunk_mut(chunk).local_names = Some(params.iter().cloned().collect());
     }
-    if let Some(name) = name {
-        di.chunk_mut(chunk).name = name.clone();
-        di.by_name.insert(name, chunk);
-    }
     payload.dbg_chunk = Some(chunk);
     chunk
 }
@@ -389,7 +385,11 @@ pub(crate) fn register_function_chunks(
                         && f.dbg_chunk.is_none()
                     {
                         let f_mut = std::sync::Arc::make_mut(f);
-                        let chunk = di.new_chunk("<fn>", file_id, f_mut.instructions.len());
+                        let chunk = di.new_function_chunk(
+                            next_name.clone(),
+                            file_id,
+                            f_mut.instructions.len(),
+                        );
                         if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
                             eprintln!(
                                 "[wqdb]: register_function_chunks new chunk={chunk:?} name={} file_id={} instructions={} base_offset={}",
@@ -431,10 +431,6 @@ pub(crate) fn register_function_chunks(
                         }
                         if let Some(names) = &f_mut.dbg_local_names {
                             di.chunk_mut(chunk).local_names = Some(names.iter().cloned().collect());
-                        }
-                        if let Some(name) = next_name {
-                            di.chunk_mut(chunk).name = name.clone();
-                            di.by_name.insert(name, chunk);
                         }
                         f_mut.dbg_chunk = Some(chunk);
                         // Recurse into nested functions

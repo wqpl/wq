@@ -17,7 +17,7 @@ use wqpl::interpret::InterpreterKind;
 use wqpl::session::Session;
 use wqpl::session::dbglog::{DebugLogFlags, get_debug_log_flags, set_debug_log_flags};
 use wqpl::session::stdio::{
-    WqStdinError, set_wqstdin, wqstdin_add_history, wqstdin_highlight_enabled,
+    WqGlobalHint, WqStdinError, set_wqstdin, wqstdin_add_history, wqstdin_highlight_enabled,
     wqstdin_hints_enabled, wqstdin_readline, wqstdin_set_builtin_hints, wqstdin_set_global_hints,
     wqstdin_set_highlight, wqstdin_set_hints_enabled, wqstdin_set_repl_hints,
 };
@@ -819,15 +819,15 @@ fn sync_builtin_hints(session: &Session) {
 
 fn sync_global_hints(session: &Session) {
     let env = session.env_vars();
-    let mut names = Vec::with_capacity(env.len());
-    let mut types = Vec::with_capacity(env.len());
-    let mut excerpts = Vec::with_capacity(env.len());
-    for (name, value) in env {
-        names.push(name.clone());
-        types.push(value.type_name().to_string());
-        excerpts.push(value.excerpt());
-    }
-    wqstdin_set_global_hints(names, types, excerpts);
+    let hints = env
+        .iter()
+        .map(|(name, value)| WqGlobalHint {
+            name: name.clone(),
+            type_name: value.type_name().to_string(),
+            excerpt: value.excerpt(),
+        })
+        .collect();
+    wqstdin_set_global_hints(hints);
 }
 
 fn sync_repl_hints() {
