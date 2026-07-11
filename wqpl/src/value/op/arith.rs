@@ -61,7 +61,7 @@ fn complex_operand(v: &Value) -> WqResult<Complex64> {
             .to_f64()
             .map(|re| Complex64::new(re, 0.0))
             .ok_or_else(bigint_too_big_for_float),
-        _ => v.try_as_complex64(),
+        _ => v.as_complex64().ok_or_else(|| expected_numeric1(v)),
     }
 }
 

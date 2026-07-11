@@ -2367,8 +2367,8 @@ pub(super) fn var_name_from_value(value: &Value) -> WqResult<String> {
         return Ok(name.to_string());
     }
     value
-        .to_rust_string_with_note()
-        .map_err(|_| cas_err("expected symbolic variable, symbol, or string").got1(value))
+        .try_to_rust_string()
+        .ok_or_else(|| cas_err("expected symbolic variable, symbol, or string").got1(value))
 }
 
 pub(super) fn substitute_expr(expr: &Value, var: &str, val: &Value) -> WqResult<Value> {

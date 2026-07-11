@@ -12,7 +12,7 @@ use super::{
     poly_from_expr, poly_from_expr_with_params, simplify_cas_value, var_name_from_value,
 };
 use crate::value::cas::CasOp;
-use crate::value::{Value, WqResult};
+use crate::value::{Value, WqResult, expected_numeric1};
 use crate::wqerror::WqError;
 
 fn complex_to_value(z: Complex64) -> Value {
@@ -42,12 +42,14 @@ fn solve_monomial_polynomial(coeffs: &[Value], degree: usize) -> WqResult<Vec<Va
         )));
     }
     let leading = coeffs[degree]
-        .try_as_complex64()
-        .map_err(|e| e.src("cas"))?;
+        .as_complex64()
+        .ok_or_else(|| expected_numeric1(&coeffs[degree]).src("cas"))?;
     if leading == Complex64::new(0.0, 0.0) {
         return Err(cas_err("leading coefficient cannot be zero"));
     }
-    let constant = coeffs[0].try_as_complex64().map_err(|e| e.src("cas"))?;
+    let constant = coeffs[0]
+        .as_complex64()
+        .ok_or_else(|| expected_numeric1(&coeffs[0]).src("cas"))?;
     let target = -constant / leading;
     let radius = target.norm().powf(1.0 / degree as f64);
     let angle = target.arg();

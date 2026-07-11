@@ -20,7 +20,7 @@ use crate::builtins::{
 use crate::session::stdio::{
     WqStdinError, wqstdin_readline, wqstdin_with_highlight_off, wqstdout_print, wqstdout_println,
 };
-use crate::value::{Excerpt, IntoWqValue, Value, WqResult, into_wq_string};
+use crate::value::{Excerpt, IntoWqValue, Value, WqResult, expected_string1, into_wq_string};
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(super) fn print(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -28,7 +28,7 @@ pub(super) fn print(args: BuiltinFnArgs) -> WqResult<Value> {
         return Ok(Value::unit());
     }
     for arg in args {
-        if let Some(s) = arg.try_flatten_to_string() {
+        if let Some(s) = arg.try_flatten_to_rust_string() {
             wqstdout_print(s);
         } else {
             wqstdout_print(arg.to_string());
@@ -46,8 +46,9 @@ pub(super) fn echo(args: BuiltinFnArgs) -> WqResult<Value> {
     }
 
     if let Some(sep_val) = args.named("sep") {
-        let sep = sep_val.to_rust_string_with_note().map_err(|e| {
-            e.src(BuiltinEnum::Echo)
+        let sep = sep_val.try_to_rust_string().ok_or_else(|| {
+            expected_string1(sep_val)
+                .src(BuiltinEnum::Echo)
                 .attach_note("named arg 'sep' must be a string")
         })?;
         let mut out = String::new();
@@ -55,7 +56,7 @@ pub(super) fn echo(args: BuiltinFnArgs) -> WqResult<Value> {
             if i > 0 {
                 out.push_str(&sep);
             }
-            if let Some(s) = arg.try_flatten_to_string() {
+            if let Some(s) = arg.try_flatten_to_rust_string() {
                 out.push_str(&s);
             } else {
                 out.push_str(&arg.to_string());
@@ -64,7 +65,7 @@ pub(super) fn echo(args: BuiltinFnArgs) -> WqResult<Value> {
         wqstdout_println(out);
     } else {
         for arg in args {
-            if let Some(s) = arg.try_flatten_to_string() {
+            if let Some(s) = arg.try_flatten_to_rust_string() {
                 wqstdout_println(s);
             } else {
                 wqstdout_println(arg.to_string());
@@ -78,8 +79,8 @@ pub(super) fn input(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Input, [0, 1], &args)?;
     let prompt = if args.len() == 1 {
         args[0]
-            .to_rust_string_with_note()
-            .map_err(|e| e.src(BuiltinEnum::Input))?
+            .try_to_rust_string()
+            .ok_or_else(|| expected_string1(&args[0]).src(BuiltinEnum::Input))?
     } else {
         String::new()
     };
@@ -161,8 +162,8 @@ pub(super) fn int(args: BuiltinFnArgs) -> WqResult<Value> {
         }
         v => {
             let s = v
-                .to_rust_string_with_note()
-                .map_err(|e| e.src(BuiltinEnum::Int))?;
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(v).src(BuiltinEnum::Int))?;
             let s = s.trim();
             if s.is_empty() {
                 return Ok(Value::unit());
@@ -227,8 +228,8 @@ pub(super) fn float(args: BuiltinFnArgs) -> WqResult<Value> {
     }
 
     let s = input
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BuiltinEnum::Float).at_arg(0))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(input).src(BuiltinEnum::Float).at_arg(0))?;
     let s = s.trim();
     if s.is_empty() {
         return Ok(Value::unit());
@@ -308,8 +309,8 @@ pub(super) fn raise(args: BuiltinFnArgs) -> WqResult<Value> {
         0 => Err(WqError::new(WqErrorType::Raise).src(BuiltinEnum::Raise)),
         1 => {
             let msg = args[0]
-                .to_rust_string_with_note()
-                .map_err(|e| e.src(BuiltinEnum::Raise))?;
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(&args[0]).src(BuiltinEnum::Raise))?;
             Err(WqError::new(WqErrorType::Raise)
                 .src(BuiltinEnum::Raise)
                 .msg(msg))
@@ -330,7 +331,10 @@ pub(super) fn exec(args: BuiltinFnArgs) -> WqResult<Value> {
     let parts: Vec<String> = args
         .iter()
         .enumerate()
-        .map(|(i, v)| v.to_rust_string_with_note().map_err(|e| (i, e)))
+        .map(|(i, v)| {
+            v.try_to_rust_string()
+                .ok_or_else(|| (i, expected_string1(v)))
+        })
         .collect::<Result<_, _>>()
         .map_err(|(i, e)| e.src(BuiltinEnum::Exec).at_arg(i))?;
 
@@ -368,14 +372,14 @@ fn exec_options_from_named(args: &BuiltinFnArgs) -> WqResult<ExecOptions> {
 
     if let Some(v) = args.named("stdin") {
         opts.stdin = Some(
-            v.to_rust_string_with_note()
-                .map_err(|e| exec_named_arg_error(e, "stdin", "a string"))?,
+            v.try_to_rust_string()
+                .ok_or_else(|| exec_named_arg_error(expected_string1(v), "stdin", "a string"))?,
         );
     }
     if let Some(v) = args.named("cwd") {
         opts.cwd = Some(
-            v.to_rust_string_with_note()
-                .map_err(|e| exec_named_arg_error(e, "cwd", "a string"))?,
+            v.try_to_rust_string()
+                .ok_or_else(|| exec_named_arg_error(expected_string1(v), "cwd", "a string"))?,
         );
     }
     if let Some(v) = args.named("env") {
@@ -385,8 +389,8 @@ fn exec_options_from_named(args: &BuiltinFnArgs) -> WqResult<ExecOptions> {
         let mut pairs = Vec::with_capacity(env_map.len());
         for (ek, ev) in env_map.iter() {
             let key = ek.to_string();
-            let val = ev.to_rust_string_with_note().map_err(|e| {
-                exec_named_arg_error(e, "env", "a dict of string values")
+            let val = ev.try_to_rust_string().ok_or_else(|| {
+                exec_named_arg_error(expected_string1(ev), "env", "a dict of string values")
                     .attach_note(format!("at env key '{key}'"))
             })?;
             pairs.push((key, val));
@@ -742,31 +746,38 @@ mod tests {
 
     #[test]
     fn try_flatten_to_string_basic() {
-        assert_eq!(Value::Char('a').try_flatten_to_string(), Some("a".into()));
         assert_eq!(
-            into_wq_string("hello").try_flatten_to_string(),
+            Value::Char('a').try_flatten_to_rust_string(),
+            Some("a".into())
+        );
+        assert_eq!(
+            into_wq_string("hello").try_flatten_to_rust_string(),
             Some("hello".into())
         );
-        assert_eq!(into_wq_string("").try_flatten_to_string(), Some("".into()));
-        assert_eq!(Value::unit().try_flatten_to_string(), Some("".into()));
         assert_eq!(
-            Value::List(Arc::new(vec![])).try_flatten_to_string(),
+            into_wq_string("").try_flatten_to_rust_string(),
+            Some("".into())
+        );
+        assert_eq!(Value::unit().try_flatten_to_rust_string(), Some("".into()));
+        assert_eq!(
+            Value::List(Arc::new(vec![])).try_flatten_to_rust_string(),
             Some("".into())
         );
 
         assert_eq!(
             Value::List(Arc::new(vec![into_wq_string("ab"), into_wq_string("cd")]))
-                .try_flatten_to_string(),
+                .try_flatten_to_rust_string(),
             Some("abcd".into())
         );
         assert_eq!(
-            Value::List(Arc::new(vec![Value::Char('x'), Value::Char('y')])).try_flatten_to_string(),
+            Value::List(Arc::new(vec![Value::Char('x'), Value::Char('y')]))
+                .try_flatten_to_rust_string(),
             Some("xy".into())
         );
         // Mixed list is not flattened
         assert!(
             Value::List(Arc::new(vec![Value::Int(1), Value::Int(2)]))
-                .try_flatten_to_string()
+                .try_flatten_to_rust_string()
                 .is_none()
         );
     }

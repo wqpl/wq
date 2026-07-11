@@ -12,7 +12,7 @@ use crate::builtins::{
 use crate::value::bc::Bc2Stop;
 use crate::value::cmp::cmp_atom;
 use crate::value::seq::{ExactIntSeq, IntRangeData, ListStorageSeq, ValueSeq};
-use crate::value::{Value, WqResult};
+use crate::value::{Value, WqResult, expected_string1};
 use crate::wqerror::{WqError, WqErrorType};
 
 fn int_or_bigint(n: BigInt) -> Value {
@@ -499,9 +499,7 @@ pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
         Value::List(mut items) => {
             let sorted = Arc::make_mut(&mut items);
             let cmp = |a: &Value, b: &Value| {
-                if let (Ok(sa), Ok(sb)) =
-                    (a.to_rust_string_with_note(), b.to_rust_string_with_note())
-                {
+                if let (Some(sa), Some(sb)) = (a.try_to_rust_string(), b.try_to_rust_string()) {
                     return sa.cmp(&sb);
                 }
                 cmp_atom(a, b).unwrap_or(Ordering::Equal)
@@ -520,9 +518,7 @@ pub(super) fn sort(args: BuiltinFnArgs) -> WqResult<Value> {
         }
         Value::Dict(mut items) => {
             Arc::make_mut(&mut items).sort_by(|_ka, va, _kb, vb| {
-                if let (Ok(sa), Ok(sb)) =
-                    (va.to_rust_string_with_note(), vb.to_rust_string_with_note())
-                {
+                if let (Some(sa), Some(sb)) = (va.try_to_rust_string(), vb.try_to_rust_string()) {
                     return sa.cmp(&sb);
                 }
                 cmp_atom(va, vb).unwrap_or(Ordering::Equal)
@@ -590,8 +586,8 @@ pub(super) fn split(args: BuiltinFnArgs) -> WqResult<Value> {
         Value::String(s) => {
             if let Some(d) = delim {
                 let d_str = d
-                    .to_rust_string_with_note()
-                    .map_err(|e| e.src(BE::Split).at_arg(DELIM_ARG))?;
+                    .try_to_rust_string()
+                    .ok_or_else(|| expected_string1(d).src(BE::Split).at_arg(DELIM_ARG))?;
                 Ok(split_string_by_delim(s, &d_str, maxsplit))
             } else {
                 Ok(split_string_by_whitespace(s, maxsplit))
@@ -600,12 +596,12 @@ pub(super) fn split(args: BuiltinFnArgs) -> WqResult<Value> {
         // Char list: whitespace or delim split
         v @ Value::List(items) if items.iter().all(|v| matches!(v, Value::Char(_))) => {
             let s = v
-                .to_rust_string_with_note()
-                .map_err(|e| e.src(BE::Split).at_arg(0))?;
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(v).src(BE::Split).at_arg(0))?;
             if let Some(d) = delim {
                 let d_str = d
-                    .to_rust_string_with_note()
-                    .map_err(|e| e.src(BE::Split).at_arg(DELIM_ARG))?;
+                    .try_to_rust_string()
+                    .ok_or_else(|| expected_string1(d).src(BE::Split).at_arg(DELIM_ARG))?;
                 Ok(split_string_by_delim(&s, &d_str, maxsplit))
             } else {
                 Ok(split_string_by_whitespace(&s, maxsplit))

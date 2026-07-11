@@ -1,7 +1,7 @@
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity_named};
 use crate::session::stdio::wqstdout_println;
 use crate::value::display::{TableFormatOptions, TableStyle, format_table_value_with_options};
-use crate::value::{Value, WqResult};
+use crate::value::{Value, WqResult, expected_string1};
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(crate) fn show_table(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -77,8 +77,9 @@ fn parse_column_names(value: &Value) -> WqResult<Vec<String>> {
 fn parse_text(value: &Value, option: &str) -> WqResult<String> {
     match value {
         Value::Tag(sym) => Ok(sym.to_string()),
-        _ => value.to_rust_string_with_note().map_err(|e| {
-            e.src(BE::Showtable)
+        _ => value.try_to_rust_string().ok_or_else(|| {
+            expected_string1(value)
+                .src(BE::Showtable)
                 .msg(format!("{option} must be a string, char, or tag"))
         }),
     }

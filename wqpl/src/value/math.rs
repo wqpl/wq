@@ -58,9 +58,10 @@ where
     }
     if arg.is_complex() {
         return arg
-            .try_as_complex64()
+            .as_complex64()
             .map(complex_func)
-            .map(Value::from_complex64);
+            .map(Value::from_complex64)
+            .ok_or_else(|| expected_numeric1(arg));
     }
 
     let op = function.name();
@@ -131,11 +132,11 @@ where
     let op = function.name();
     if lhs.is_complex() || rhs.is_complex() {
         let left = lhs
-            .try_as_complex64()
-            .map_err(|_| expected_numeric2(lhs, rhs))?;
+            .as_complex64()
+            .ok_or_else(|| expected_numeric2(lhs, rhs))?;
         let right = rhs
-            .try_as_complex64()
-            .map_err(|_| expected_numeric2(lhs, rhs))?;
+            .as_complex64()
+            .ok_or_else(|| expected_numeric2(lhs, rhs))?;
         return Ok(Value::from_complex64(complex_func(left, right)));
     }
 
@@ -207,7 +208,9 @@ impl Value {
             }),
             Value::BigInt(n) => Ok(Value::from_bigint(n.abs())),
             Value::Float(_) => unary_float_math("abs", v, |x| x.abs()),
-            _ if v.is_complex() => Ok(Value::float(v.try_as_complex64()?.norm())),
+            _ if v.is_complex() => Ok(Value::float(
+                v.as_complex64().ok_or_else(|| expected_numeric1(v))?.norm(),
+            )),
             _ if v.is_algebraic_number() => {
                 if let Value::Algebraic(a) = v {
                     match a.sign() {

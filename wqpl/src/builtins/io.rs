@@ -10,7 +10,9 @@ use crate::builtins::{
     BuiltinEnum as BE, BuiltinFnArgs, check_arity, check_arity_named, type_mismatch,
 };
 use crate::value::stream::{BufReadSeek, StreamHandle, WriteSeek};
-use crate::value::{Excerpt, IntoWqValue, Value, WqResult, into_wq_string};
+use crate::value::{
+    Excerpt, IntoWqValue, Value, WqResult, expected_bytes1, expected_string1, into_wq_string,
+};
 use crate::wqerror::{WqError, WqErrorType};
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -45,8 +47,8 @@ impl OpenFlags {
 pub(super) fn open(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity_named(BE::Open, [1], &args, &["r", "w", "a", "t", "c", "cn"])?;
     let path = args[0]
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BE::Open))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::Open))?;
 
     let flags = openflags_from_named(&args)?;
     let options = flags.into_openoptions();
@@ -129,16 +131,16 @@ fn openflags_from_named(args: &BuiltinFnArgs) -> WqResult<OpenFlags> {
 pub(super) fn fexists(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::FexistsQ, [1], &args)?;
     let path = args[0]
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BE::FexistsQ).at_arg(0))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::FexistsQ).at_arg(0))?;
     Ok(Value::Bool(Path::new(&path).exists()))
 }
 
 pub(super) fn mkdir(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Mkdir, [1], &args)?;
     let path = args[0]
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BE::Mkdir).at_arg(0))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::Mkdir).at_arg(0))?;
     fs::create_dir_all(&path).map_err(|e| io_err(e, BE::Mkdir))?;
     Ok(Value::unit())
 }
@@ -146,8 +148,8 @@ pub(super) fn mkdir(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn fsize(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Fsize, [1], &args)?;
     let path = args[0]
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BE::Fsize).at_arg(0))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::Fsize).at_arg(0))?;
     let meta = fs::metadata(&path).map_err(|e| io_err(e, BE::Fsize))?;
     Ok(meta.len().into_wq_value())
 }
@@ -162,8 +164,8 @@ pub(super) fn fwrite(args: BuiltinFnArgs) -> WqResult<Value> {
         return Err(stream_not_writeable(BE::Fwrite));
     };
     let bytes = args[1]
-        .try_to_vec_u8()
-        .map_err(|e| e.src(BE::Fwrite).at_arg(1))?;
+        .try_to_rust_vec_u8()
+        .ok_or_else(|| expected_bytes1(&args[1]).src(BE::Fwrite).at_arg(1))?;
     w.write_all(&bytes).map_err(|e| io_err(e, BE::Fwrite))?;
     w.flush().map_err(|e| io_err(e, BE::Fwrite))?;
     Ok(Value::unit())
@@ -179,8 +181,8 @@ pub(super) fn fwritet(args: BuiltinFnArgs) -> WqResult<Value> {
         return Err(stream_not_writeable(BE::Fwritet));
     };
     let s = args[1]
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BE::Fwritet).at_arg(1))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(&args[1]).src(BE::Fwritet).at_arg(1))?;
     w.write_all(s.as_bytes())
         .map_err(|e| io_err(e, BE::Fwritet))?;
     w.flush().map_err(|e| io_err(e, BE::Fwritet))?;

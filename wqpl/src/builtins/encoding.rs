@@ -3,7 +3,7 @@ use std::sync::Arc;
 use encoding_rs::Encoding;
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
-use crate::value::{IntoWqValue as _, Value, WqResult};
+use crate::value::{IntoWqValue as _, Value, WqResult, expected_bytes1, expected_string1};
 use crate::wqerror::{WqError, WqErrorType};
 
 fn find_encoding(label: &str) -> Option<&'static Encoding> {
@@ -15,23 +15,23 @@ pub(super) fn decode(args: BuiltinFnArgs) -> WqResult<Value> {
     let (bytes, codec, mode) = match &*args {
         [bytes, codec] => {
             let bytes = bytes
-                .try_to_vec_u8()
-                .map_err(|e| e.src(BE::Decode).at_arg(0))?;
+                .try_to_rust_vec_u8()
+                .ok_or_else(|| expected_bytes1(bytes).src(BE::Decode).at_arg(0))?;
             let codec = codec
-                .to_rust_string_with_note()
-                .map_err(|e| e.src(BE::Decode).at_arg(1))?;
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(codec).src(BE::Decode).at_arg(1))?;
             (bytes, codec, "s".to_string())
         }
         [bytes, codec, mode] => {
             let bytes = bytes
-                .try_to_vec_u8()
-                .map_err(|e| e.src(BE::Decode).at_arg(0))?;
+                .try_to_rust_vec_u8()
+                .ok_or_else(|| expected_bytes1(bytes).src(BE::Decode).at_arg(0))?;
             let codec = codec
-                .to_rust_string_with_note()
-                .map_err(|e| e.src(BE::Decode).at_arg(1))?;
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(codec).src(BE::Decode).at_arg(1))?;
             let mode = mode
-                .to_rust_string_with_note()
-                .map_err(|e| e.src(BE::Decode).at_arg(2))?;
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(mode).src(BE::Decode).at_arg(2))?;
             (bytes, codec, mode)
         }
         _ => unreachable!(),
@@ -68,24 +68,24 @@ pub(super) fn encode(args: BuiltinFnArgs) -> WqResult<Value> {
     let (text, codec, mode) = match &*args {
         [text, codec] => {
             let text = text
-                .to_rust_string_with_note()
-                .map_err(|e| e.src(BE::Encode).at_arg(0))?;
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(text).src(BE::Encode).at_arg(0))?;
             let codec = codec
-                .to_rust_string_with_note()
-                .map_err(|e| e.src(BE::Encode).at_arg(1))?;
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(codec).src(BE::Encode).at_arg(1))?;
 
             (text, codec, "s".to_string())
         }
         [text, codec, mode] => {
             let text = text
-                .to_rust_string_with_note()
-                .map_err(|e| e.src(BE::Encode).at_arg(0))?;
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(text).src(BE::Encode).at_arg(0))?;
             let codec = codec
-                .to_rust_string_with_note()
-                .map_err(|e| e.src(BE::Encode).at_arg(1))?;
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(codec).src(BE::Encode).at_arg(1))?;
             let mode = mode
-                .to_rust_string_with_note()
-                .map_err(|e| e.src(BE::Encode).at_arg(2))?;
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(mode).src(BE::Encode).at_arg(2))?;
             (text, codec, mode)
         }
         _ => unreachable!(),

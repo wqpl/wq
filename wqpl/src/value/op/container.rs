@@ -14,8 +14,8 @@ impl Value {
                 return Value::unit();
             }
 
-            let mut s = self.to_rust_string_with_note().expect("valid string");
-            s.push_str(&other.to_rust_string_with_note().expect("valid string"));
+            let mut s = self.try_to_rust_string().expect("valid string");
+            s.push_str(&other.try_to_rust_string().expect("valid string"));
             return Value::String(Arc::from(s));
         }
 
@@ -165,7 +165,7 @@ impl Value {
         if values.iter().all(|v| v.is_string()) {
             let strings: Vec<String> = values
                 .into_iter()
-                .filter_map(|v| v.to_rust_string_with_note().ok())
+                .filter_map(|v| v.try_to_rust_string())
                 .collect();
             let total_len: usize = strings.iter().map(|s| s.len()).sum();
             let mut s = String::with_capacity(total_len);

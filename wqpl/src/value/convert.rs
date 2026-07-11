@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use num_bigint::BigInt;
@@ -6,10 +7,92 @@ use num_rational::Ratio;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::value::seq::ValueSeqBuilder;
-use crate::value::{Value, expected_numeric1, into_wq_string};
-use crate::wqerror::WqError;
+use crate::value::{Value, into_wq_string};
 
 impl Value {
+    pub(crate) fn can_convert_to_vec_u8(&self) -> bool {
+        self.exact_int_seq()
+            .is_some_and(|items| items.iter().all(|item| u8::try_from(item).is_ok()))
+    }
+
+    pub(crate) fn as_rust_char_slice<'a>(&'a self) -> Option<Cow<'a, [Value]>> {
+        match self {
+            Value::String(value) => Some(Cow::Owned(value.chars().map(Value::Char).collect())),
+            Value::List(items) if items.iter().all(|item| matches!(item, Value::Char(_))) => {
+                Some(Cow::Borrowed(items))
+            }
+            Value::Char(value) => Some(Cow::Owned(vec![Value::Char(*value)])),
+            value if value.is_unit() => Some(Cow::Owned(vec![])),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn try_to_rust_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Convert a char, string, unit, or char-only list into a Rust string.
+    ///
+    /// Do not call from `Display::fmt`.
+    pub(crate) fn try_to_rust_string(&self) -> Option<String> {
+        match self {
+            Value::String(value) => Some(value.to_string()),
+            Value::Char(value) => Some(value.to_string()),
+            Value::List(items) => {
+                let mut string = String::with_capacity(items.len());
+                for item in items.iter() {
+                    let Value::Char(value) = item else {
+                        return None;
+                    };
+                    string.push(*value);
+                }
+                Some(string)
+            }
+            value if value.is_unit() => Some(String::new()),
+            _ => None,
+        }
+    }
+
+    /// Try to flatten a value into a Rust [`String`].
+    ///
+    /// - `Char` → single-character string
+    /// - `String` → cloned string
+    /// - `List` where every element is string-like → concatenated string
+    /// - empty list containers → empty string
+    /// - everything else → `None`
+    pub(crate) fn try_flatten_to_rust_string(&self) -> Option<String> {
+        match self {
+            Value::Char(value) => Some(value.to_string()),
+            Value::String(value) => Some(value.to_string()),
+            Value::List(items) => {
+                if items.is_empty() {
+                    return Some(String::new());
+                }
+                if !items.iter().all(Value::is_string) {
+                    return None;
+                }
+                let mut output = String::new();
+                for item in items.iter() {
+                    output.push_str(&item.try_to_rust_string()?);
+                }
+                Some(output)
+            }
+            value if value.is_unit() => Some(String::new()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn try_to_rust_vec_u8(&self) -> Option<Vec<u8>> {
+        self.exact_int_seq()?
+            .iter()
+            .map(|item| u8::try_from(item).ok())
+            .collect()
+    }
+
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Value::Int(n) => Some(*n),
@@ -119,24 +202,6 @@ impl Value {
         }
     }
 
-    pub(crate) fn try_as_complex64(&self) -> Result<Complex64, WqError> {
-        match self {
-            Value::Complex(z) => Ok(*z),
-            Value::Int(n) => Ok(Complex64::new(*n as f64, 0.0)),
-            Value::BigInt(n) => n
-                .as_ref()
-                .to_f64()
-                .map(|re| Complex64::new(re, 0.0))
-                .ok_or_else(|| expected_numeric1(self)),
-            Value::Float(f) => Ok(Complex64::new(**f, 0.0)),
-            _ if self.is_fraction() => self
-                .as_f64()
-                .map(|re| Complex64::new(re, 0.0))
-                .ok_or_else(|| expected_numeric1(self)),
-            _ => Err(expected_numeric1(self)),
-        }
-    }
-
     pub(crate) fn from_complex64(z: Complex64) -> Value {
         Value::Complex(z)
     }
@@ -234,5 +299,19 @@ mod tests {
     fn fraction_from_pairs() {
         let f = Value::from_fraction_parts(BigInt::from(3), BigInt::from(9));
         assert_eq!(f.to_string(), "1/3");
+    }
+
+    #[test]
+    fn string_conversion_has_no_diagnostic_side_effects() {
+        let value = Value::List(Arc::new(vec![Value::Char('a'), Value::Int(2)]));
+
+        assert_eq!(value.try_to_rust_string(), None);
+    }
+
+    #[test]
+    fn byte_conversion_has_no_diagnostic_side_effects() {
+        let value = Value::IntList(Arc::new(vec![0, 255, 256]));
+
+        assert_eq!(value.try_to_rust_vec_u8(), None);
     }
 }

@@ -6,7 +6,7 @@ use num_traits::Signed;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity, type_mismatch};
-use crate::value::{IntoWqValue, Value, WqResult};
+use crate::value::{IntoWqValue, Value, WqResult, expected_string1};
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(super) fn to_str(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -432,7 +432,7 @@ fn format_percentage(value: &Value, precision: Option<usize>) -> String {
             }
         }
         _ => {
-            if let Ok(s) = value.to_rust_string_with_note() {
+            if let Some(s) = value.try_to_rust_string() {
                 s
             } else {
                 value.to_string()
@@ -475,7 +475,7 @@ fn format_value(
             Value::Float(f) => format_float(**f, spec, precision)?,
             Value::Char(c) => format_string(&c.to_string(), spec, precision)?,
             _ => {
-                if let Ok(s) = value.to_rust_string_with_note() {
+                if let Some(s) = value.try_to_rust_string() {
                     format_string(&s, spec, precision)?
                 } else {
                     let s = value.to_string();
@@ -732,8 +732,8 @@ pub(super) fn fmt(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn graphemes(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Graphemes, [1], &args)?;
     let s = args[0]
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BE::Graphemes))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::Graphemes))?;
     let count = s.graphemes(true).count();
     Ok(count.into_wq_value())
 }
@@ -742,8 +742,8 @@ pub(super) fn graphemes(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn words(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Words, [1], &args)?;
     let s = args[0]
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BE::Words))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::Words))?;
     let res = s
         .split_word_bounds()
         .filter(|w| !w.trim().is_empty())
@@ -755,24 +755,24 @@ pub(super) fn words(args: BuiltinFnArgs) -> WqResult<Value> {
 pub(super) fn trim(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::Trim, [1], &args)?;
     let s = args[0]
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BE::Trim))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::Trim))?;
     Ok(s.trim().into_wq_value())
 }
 
 pub(super) fn trim_left(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::LTrim, [1], &args)?;
     let s = args[0]
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BE::LTrim))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::LTrim))?;
     Ok(s.trim_start().into_wq_value())
 }
 
 pub(super) fn trim_right(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BE::RTrim, [1], &args)?;
     let s = args[0]
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BE::RTrim))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(&args[0]).src(BE::RTrim))?;
     Ok(s.trim_end().into_wq_value())
 }
 
@@ -829,7 +829,7 @@ mod tests {
         let mut all_args = vec![t];
         all_args.extend_from_slice(args);
         let res = fmt(BuiltinFnArgs::from(all_args)).unwrap();
-        res.to_rust_string_with_note().unwrap_or_default()
+        res.try_to_rust_string().unwrap_or_default()
     }
 
     #[test]

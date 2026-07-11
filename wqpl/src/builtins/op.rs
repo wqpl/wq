@@ -119,7 +119,7 @@ pub(super) fn op_cat(args: BuiltinFnArgs) -> WqResult<Value> {
     if args.iter().all(|v| v.is_string()) {
         let mut s = String::new();
         for arg in args {
-            s.push_str(&arg.to_rust_string_with_note().expect("valid string"));
+            s.push_str(&arg.try_to_rust_string().expect("valid string"));
         }
         return Ok(Value::String(Arc::from(s)));
     }

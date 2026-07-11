@@ -137,9 +137,7 @@ impl SeriesAttrs {
             xlim: map.get("xlim").and_then(pair_as_f64),
             symbol: map.get("symbol").and_then(parse_series_symbol),
             mode: map.get("mode").and_then(parse_plot_mode),
-            label: map
-                .get("label")
-                .and_then(|v| v.to_rust_string_with_note().ok()),
+            label: map.get("label").and_then(Value::try_to_rust_string),
         }
     }
 
@@ -391,10 +389,7 @@ fn numeric_pair(value: &Value) -> Option<(f64, f64)> {
 fn parse_series_symbol(value: &Value) -> Option<char> {
     match value {
         Value::Char(c) => Some(*c),
-        _ => value
-            .to_rust_string_with_note()
-            .ok()
-            .and_then(|s| s.chars().next()),
+        _ => value.try_to_rust_string().and_then(|s| s.chars().next()),
     }
 }
 
@@ -887,7 +882,7 @@ enum PlotTheme {
 fn option_keyword(value: &Value) -> Option<String> {
     match value {
         Value::Tag(sym) => Some(sym.to_string()),
-        _ => value.to_rust_string_with_note().ok(),
+        _ => value.try_to_rust_string(),
     }
     .map(|s| s.to_ascii_lowercase())
 }
@@ -938,7 +933,7 @@ fn parse_plot_theme(value: &Value) -> Option<PlotTheme> {
 fn parse_column_name(value: &Value) -> Option<String> {
     let name = match value {
         Value::Tag(sym) => sym.to_string(),
-        _ => value.to_rust_string_with_note().ok()?,
+        _ => value.try_to_rust_string()?,
     };
     if name.is_empty() { None } else { Some(name) }
 }
@@ -1128,7 +1123,7 @@ impl PlotOptions {
                 match *it {
                     Value::Char(c) => syms.push(c),
                     _ => {
-                        if let Ok(s) = it.to_rust_string_with_note()
+                        if let Some(s) = it.try_to_rust_string()
                             && let Some(c) = s.chars().next()
                         {
                             syms.push(c);
@@ -1140,7 +1135,7 @@ impl PlotOptions {
                 self.symbols = syms;
             }
         } else if let Some(val) = args.named("symbols") {
-            if let Ok(s) = val.to_rust_string_with_note() {
+            if let Some(s) = val.try_to_rust_string() {
                 if let Some(c) = s.chars().next() {
                     self.symbols = vec![c];
                 }
@@ -1183,7 +1178,7 @@ impl PlotOptions {
         if let Some(Value::List(items)) = args.named("labels") {
             let mut labs = Vec::new();
             for it in items.iter() {
-                if let Ok(s) = it.to_rust_string_with_note() {
+                if let Some(s) = it.try_to_rust_string() {
                     labs.push(s);
                 }
             }
@@ -1216,30 +1211,30 @@ impl PlotOptions {
             self.tick_labels = *b;
         }
         if let Some(v) = args.named("title")
-            && let Ok(s) = v.to_rust_string_with_note()
+            && let Some(s) = v.try_to_rust_string()
         {
             self.title = Some(s);
         }
         if let Some(v) = args.named("xlabel")
-            && let Ok(s) = v.to_rust_string_with_note()
+            && let Some(s) = v.try_to_rust_string()
         {
             self.xlabel = Some(s);
         }
         if let Some(v) = args.named("ylabel")
-            && let Ok(s) = v.to_rust_string_with_note()
+            && let Some(s) = v.try_to_rust_string()
         {
             self.ylabel = Some(s);
         }
         if let Some(Value::List(items)) = args.named("caption")
             && items.len() >= 3
         {
-            if let Ok(s) = items[0].to_rust_string_with_note() {
+            if let Some(s) = items[0].try_to_rust_string() {
                 self.title = Some(s);
             }
-            if let Ok(s) = items[1].to_rust_string_with_note() {
+            if let Some(s) = items[1].try_to_rust_string() {
                 self.xlabel = Some(s);
             }
-            if let Ok(s) = items[2].to_rust_string_with_note() {
+            if let Some(s) = items[2].try_to_rust_string() {
                 self.ylabel = Some(s);
             }
         }

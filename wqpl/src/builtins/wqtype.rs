@@ -4,7 +4,7 @@ use num_bigint::BigInt;
 
 use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity};
 use crate::value::seq::ValueSeq;
-use crate::value::{Value, WqResult, into_wq_string};
+use crate::value::{Value, WqResult, expected_string1, into_wq_string};
 use crate::wqerror::{WqError, WqErrorType};
 
 pub(super) fn type_of(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -36,8 +36,8 @@ pub(super) fn to_tag(args: BuiltinFnArgs) -> WqResult<Value> {
         return Ok(input);
     }
     let name = input
-        .to_rust_string_with_note()
-        .map_err(|e| e.src(BE::Tag).at_arg(0))?;
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(&input).src(BE::Tag).at_arg(0))?;
     if !is_valid_tag_name(&name) {
         return Err(WqError::new(WqErrorType::Domain)
             .src(BE::Tag)
@@ -56,8 +56,8 @@ pub(super) fn to_char(args: BuiltinFnArgs) -> WqResult<Value> {
     let s = match input {
         Value::Char(c) => return Ok(Value::Char(c)),
         ref val if val.is_string() => val
-            .to_rust_string_with_note()
-            .map_err(|e| e.src(BE::Char).at_arg(0))?,
+            .try_to_rust_string()
+            .ok_or_else(|| expected_string1(val).src(BE::Char).at_arg(0))?,
         ref val => val.to_string(),
     };
     let mut chars = s.chars();

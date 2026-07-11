@@ -6,6 +6,7 @@ pub mod cell;
 pub mod cmp;
 pub mod convert;
 pub mod display;
+mod error;
 pub mod func;
 pub mod hash;
 pub mod mat;
@@ -15,17 +16,16 @@ pub mod op;
 pub mod seq;
 pub mod stream;
 
-use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
 pub(crate) use convert::IntoWqValue;
 pub use display::Excerpt;
 pub(crate) use display::into_wq_string;
+pub(crate) use error::*;
 use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_rational::Ratio;
-use num_traits::ToPrimitive;
 pub(crate) use op::{eval_binary, eval_unary};
 use ordered_float::OrderedFloat;
 
@@ -33,7 +33,7 @@ use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::value::cas::CasData;
 use crate::value::func::{CallableExpr, ClosureData, FunctionData, LiftedCallableData};
 use crate::value::stream::StreamHandle;
-use crate::wqerror::{WqError, WqErrorType};
+use crate::wqerror::WqError;
 
 pub type WqResult<T> = Result<T, WqError>;
 
@@ -235,137 +235,6 @@ impl Value {
         }
     }
 
-    pub(crate) fn can_convert_to_vec_u8(&self) -> bool {
-        if let Some(items) = self.exact_int_seq() {
-            items.iter().all(|n| u8::try_from(n).is_ok())
-        } else {
-            false
-        }
-    }
-
-    pub(crate) fn as_rust_char_slice<'a>(&'a self) -> Option<Cow<'a, [Value]>> {
-        match self {
-            Value::String(s) => Some(Cow::Owned(s.chars().map(Value::Char).collect())),
-            Value::List(items) if items.iter().all(|v| matches!(v, Value::Char(_))) => {
-                Some(Cow::Borrowed(items))
-            }
-            Value::Char(c) => Some(Cow::Owned(vec![Value::Char(*c)])),
-            v if v.is_unit() => Some(Cow::Owned(vec![])),
-            _ => None,
-        }
-    }
-
-    #[inline]
-    pub(crate) fn try_to_rust_bool(&self) -> Option<bool> {
-        match self {
-            Value::Bool(b) => Some(*b),
-            _ => None,
-        }
-    }
-
-    /// Convert a char, string, unit, or char-only list into a Rust
-    /// String.
-    ///
-    /// Do not call from `Display::fmt`.
-    pub(crate) fn to_rust_string_with_note(&self) -> WqResult<String> {
-        const EXP: &str = "expected char or string";
-        match self {
-            Value::String(s) => Ok(s.to_string()),
-            Value::Char(c) => Ok(c.to_string()),
-            Value::List(items) => {
-                let mut s = String::with_capacity(items.len());
-                for (i, v) in items.iter().enumerate() {
-                    if let Value::Char(c) = v {
-                        s.push(*c);
-                    } else {
-                        return Err(WqError::new(WqErrorType::Domain)
-                            .msg(EXP)
-                            .unexpected_element(v, i));
-                    }
-                }
-                Ok(s)
-            }
-            _ if self.is_unit() => Ok(String::new()),
-            _ => Err(WqError::new(WqErrorType::Domain).msg(EXP).got1(self)),
-        }
-    }
-
-    /// Try to flatten a value into a Rust [`String`].
-    ///
-    /// - `Char` → single-character string
-    /// - `String` → cloned string
-    /// - `List` where every element is string-like → concatenated string
-    /// - empty list-like values → empty string
-    /// - everything else → `None`
-    pub(crate) fn try_flatten_to_string(&self) -> Option<String> {
-        match self {
-            Value::Char(c) => Some(c.to_string()),
-            Value::String(s) => Some(s.to_string()),
-            Value::List(items) => {
-                if items.is_empty() {
-                    return Some(String::new());
-                }
-                if !items.iter().all(|v| v.is_string()) {
-                    return None;
-                }
-                let mut out = String::new();
-                for v in items.iter() {
-                    out.push_str(&v.to_rust_string_with_note().ok()?);
-                }
-                Some(out)
-            }
-            v if v.is_unit() => Some(String::new()),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn try_to_vec_u8(&self) -> WqResult<Vec<u8>> {
-        const EXP: &str = "expected list<int in 0..=255>";
-
-        match self {
-            Value::IntList(_) | Value::IntRange(_) => self
-                .packed_int_seq()
-                .expect("list<int> and int-range are packed int sequences")
-                .iter()
-                .enumerate()
-                .map(|(i, n)| {
-                    u8::try_from(n).map_err(|_| {
-                        WqError::new(WqErrorType::Domain)
-                            .msg(EXP)
-                            .unexpected_element(&Value::Int(n), i)
-                    })
-                })
-                .collect(),
-            Value::List(items) => items
-                .iter()
-                .enumerate()
-                .map(|(i, v)| match v {
-                    Value::Int(n) => u8::try_from(*n).map_err(|_| {
-                        WqError::new(WqErrorType::Domain)
-                            .msg(EXP)
-                            .unexpected_element(v, i)
-                    }),
-                    Value::BigInt(n) => n.to_u8().ok_or_else(|| {
-                        WqError::new(WqErrorType::Domain)
-                            .msg(EXP)
-                            .unexpected_element(v, i)
-                    }),
-                    _ => Err(WqError::new(WqErrorType::Domain)
-                        .msg(EXP)
-                        .unexpected_element(v, i)),
-                })
-                .collect(),
-            Value::Int(n) => u8::try_from(*n)
-                .map(|b| vec![b])
-                .map_err(|_| WqError::new(WqErrorType::Domain).msg(EXP).got1(self)),
-            Value::BigInt(n) => n
-                .to_u8()
-                .map(|b| vec![b])
-                .ok_or_else(|| WqError::new(WqErrorType::Domain).msg(EXP).got1(self)),
-            _ => Err(WqError::new(WqErrorType::Domain).msg(EXP).got1(self)),
-        }
-    }
-
     /// Get the type name of a value
     pub fn type_name(&self) -> &'static str {
         match self {
@@ -427,42 +296,6 @@ impl Value {
             Value::Stream(_) => "stream",
         }
     }
-}
-
-pub(crate) fn expected_numeric1(v: &Value) -> WqError {
-    WqError::new(WqErrorType::Domain)
-        .msg("expected int, bigint, float or fraction")
-        .got1(v)
-}
-
-pub(crate) fn expected_numeric2(lhs: &Value, rhs: &Value) -> WqError {
-    WqError::new(WqErrorType::Domain)
-        .msg("expected int, bigint, float or fraction")
-        .got2(lhs, rhs)
-}
-
-pub(crate) fn expected_integer1(v: &Value) -> WqError {
-    WqError::new(WqErrorType::Domain)
-        .msg("expected int or bigint")
-        .got1(v)
-}
-
-pub(crate) fn expected_integer2(lhs: &Value, rhs: &Value) -> WqError {
-    WqError::new(WqErrorType::Domain)
-        .msg("expected int or bigint")
-        .got2(lhs, rhs)
-}
-
-pub(crate) fn expected_bool1(v: &Value) -> WqError {
-    WqError::new(WqErrorType::Domain)
-        .msg("expected bool")
-        .got1(v)
-}
-
-pub(crate) fn expected_bool2(lhs: &Value, rhs: &Value) -> WqError {
-    WqError::new(WqErrorType::Domain)
-        .msg("expected bool")
-        .got2(lhs, rhs)
 }
 
 #[cfg(test)]
@@ -643,7 +476,10 @@ mod tests {
 
         let empty_bools = Value::BoolList(Arc::new(vec![]));
         assert!(empty_bools.is_unit());
-        assert_eq!(empty_bools.try_flatten_to_string(), Some(String::new()));
+        assert_eq!(
+            empty_bools.try_flatten_to_rust_string(),
+            Some(String::new())
+        );
     }
 
     #[test]
@@ -982,11 +818,11 @@ mod tests {
     #[test]
     fn string_try_to_rust_string() {
         assert_eq!(
-            into_wq_string("hello").to_rust_string_with_note().unwrap(),
+            into_wq_string("hello").try_to_rust_string().unwrap(),
             "hello".to_string()
         );
         assert_eq!(
-            into_wq_string("").to_rust_string_with_note().unwrap(),
+            into_wq_string("").try_to_rust_string().unwrap(),
             "".to_string()
         );
     }
@@ -1051,10 +887,7 @@ mod tests {
         // Old-style List<Char> still works as a string via fallback paths
         let old_style = Value::List(Arc::new("hi".chars().map(Value::Char).collect()));
         assert!(old_style.is_string());
-        assert_eq!(
-            old_style.to_rust_string_with_note().unwrap(),
-            "hi".to_string()
-        );
+        assert_eq!(old_style.try_to_rust_string().unwrap(), "hi".to_string());
         assert_eq!(old_style.to_string(), "\"hi\"");
     }
 

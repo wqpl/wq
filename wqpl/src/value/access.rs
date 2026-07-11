@@ -6,7 +6,7 @@ use num_traits::ToPrimitive;
 use ordered_float::OrderedFloat;
 
 use crate::value::seq::{ExactIntSeq, ListStorageSeq, ValueSeq};
-use crate::value::{IntoWqValue as _, Value, WqResult};
+use crate::value::{IntoWqValue as _, Value, WqResult, expected_string1};
 use crate::wqerror::{WqError, WqErrorType};
 
 impl Value {
@@ -1391,13 +1391,21 @@ fn string_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<String>> {
     match xs {
         Value::List(items) if items.len() == len => items
             .iter()
-            .map(Value::to_rust_string_with_note)
+            .map(|item| {
+                item.try_to_rust_string()
+                    .ok_or_else(|| expected_string1(item))
+            })
             .collect::<WqResult<Vec<_>>>(),
         _ if ListStorageSeq::from_value(xs).is_none() => {
-            Ok(vec![xs.to_rust_string_with_note()?; len])
+            let string = xs
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(xs))?;
+            Ok(vec![string; len])
         }
         other => {
-            let s = other.to_rust_string_with_note()?;
+            let s = other
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(other))?;
             let chars = s.chars().map(|ch| ch.to_string()).collect::<Vec<_>>();
             if chars.len() == len {
                 Ok(chars)
@@ -1410,7 +1418,9 @@ fn string_insert_pairwise(xs: &Value, len: usize) -> WqResult<Vec<String>> {
 }
 
 fn insert_string_in_place(data: &mut Value, dsts: Option<&Value>, xs: &Value) -> WqResult<()> {
-    let s = data.to_rust_string_with_note()?;
+    let s = data
+        .try_to_rust_string()
+        .ok_or_else(|| expected_string1(data))?;
     let chars = s.chars().collect::<Vec<_>>();
     let (positions, is_multi) = parse_insert_positions(dsts, chars.len())?;
     if positions.is_empty() {
@@ -1421,7 +1431,9 @@ fn insert_string_in_place(data: &mut Value, dsts: Option<&Value>, xs: &Value) ->
         insert_string_chunks(&chars, positions.into_iter().zip(values).collect())
     } else {
         let idx = positions[0];
-        let insert_text = xs.to_rust_string_with_note()?;
+        let insert_text = xs
+            .try_to_rust_string()
+            .ok_or_else(|| expected_string1(xs))?;
         insert_string_chunks(&chars, vec![(idx, insert_text)])
     };
     *data = updated.into_wq_value();
