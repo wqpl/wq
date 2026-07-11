@@ -1405,6 +1405,15 @@ mod tests {
     }
 
     #[test]
+    fn lazy_boolean_forms_preserve_their_sigil() {
+        assert_eq!(fmt("A[T; F]", 80), "A[T;F]");
+        assert_eq!(fmt("O[F; raise \"boom\"]", 80), "O[F;raise \"boom\"]");
+        let nested = fmt("$[A[#token>1;token[-1]=\"/\"];1;0]", 80);
+        assert_eq!(nested, "$[A[#token>1;token[-1]=\"/\"];1;0]");
+        assert_eq!(fmt(&nested, 80), nested);
+    }
+
+    #[test]
     fn bare_block_is_canonical() {
         assert_eq!(fmt("[1]", 80), "[1]");
         assert_eq!(fmt("B[1]", 80), "[1]");

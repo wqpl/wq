@@ -1849,6 +1849,12 @@ impl Parser {
         header_start_byte: usize,
         cp_outer: Option<Checkpoint>,
     ) -> WqResult<AstNode> {
+        // `A[...]` and `O[...]` use postfix surface syntax even though they
+        // lower to lazy binary operators in the AST. Preserve the ordinary
+        // postfix CST invariant: the object is an expression node followed by
+        // an ArgList, never a bare identifier token followed by an ArgList.
+        self.cst_start_node_at(cp_outer, SyntaxKind::VarExpr);
+        self.cst_finish_node();
         let cp_args = self.cst_checkpoint();
         self.advance();
         let (items, _) = self.parse_bracket_items()?;
@@ -5399,6 +5405,22 @@ mod cst_integration_tests {
                 "expected to see a {} node in the CST of `{src}`, only saw: {:?}",
                 k.name(),
                 seen.iter().map(|k| k.name()).collect::<Vec<_>>(),
+            );
+        }
+    }
+
+    #[test]
+    fn lazy_boolean_postfix_has_an_expression_object() {
+        for src in ["A[T;F]", "O[T;F]"] {
+            let (_, cst) = parse_with_cst(src);
+            let root = SyntaxNode::new_root(cst);
+            let postfix = root.children().next().expect("postfix expression");
+            assert_eq!(postfix.kind(), SyntaxKind::PostfixExpr, "source: {src}");
+            let child_kinds: Vec<_> = postfix.children().map(|child| child.kind()).collect();
+            assert_eq!(
+                child_kinds,
+                [SyntaxKind::VarExpr, SyntaxKind::ArgList],
+                "source: {src}"
             );
         }
     }

@@ -1,7 +1,46 @@
-rpn:{[p]sta:();bpop:{'sta[!-2;-1]|fold x};upop:{'sta[!]|x};apop:{'sta[!0..#'sta]|fold x}
-  p|map{'sta,:$$[x="+";'bpop(+);x="-";'bpop(-);x="*";'bpop(*);x="%";'bpop(/);x="_";'upop(-);x="+/";'apop(+);x]};sta[!]}
+verb?:{O[x="+";x="-";x="*";x="%"]}
+verb:{[symbol]
+  $$[symbol="+";+;symbol="-";-;symbol="*";*;symbol="%";/;
+    raise@f"rpn: unknown verb {symbol}"]}
+parse_number:{[token]
+  integer:@t int token
+  $[integer 0=`ok;
+    integer 1;
+    [decimal:@t float token
+      $[decimal 0=`ok;decimal 1;raise@f"rpn: expected a number or verb, got {token}"]]]}
+parse_rpn:{
+  split x|map{
+    token:x
+    $[A[#token>1;token[-1]="/"]
+      [base:token 0..(#token-1);$.[~A[#base=1;verb? base 0];raise@f"rpn: / cannot modify {base}"]
+        (`adverb;"/";base 0)]
+      $[A[#token=1;verb? token 0];(`verb;token 0);(`noun;parse_number token)]]}}
+eval_rpn:{[program]
+  sta:()
+  N[#program;instruction:program _n;kind:instruction 0
+    $$[kind=`noun;sta,:instruction 1
+      kind=`verb;
+      [symbol:instruction 1;fn:verb symbol
+        $[and[symbol="-";#sta=1]
+          [value:sta[!];sta,:fn value]
+          [$.[#sta<2;raise "rpn: verb needs two operands"]
+            values:sta[!-2;-1];sta,:fold[values;fn]]]]
+      kind=`adverb;
+      [$.[#sta<1;raise "rpn: adverb needs an operand"]
+        fn:verb instruction 2;values:sta[!0..#sta];sta,:fold[values;fn]]]]
+  $.[#sta=1;@r sta 0]
+  raise@f"rpn: expected one result, stack has {#sta}"}
+rpn:{eval_rpn parse_rpn x}
 
-((3;4;"+";2;"*";1;"-")/* 13 */
- (3;4;"+";"_")/* -7 */
- (1;2;3;4;"+/")/* 10 */
- (10;2;3;"+/";"_")/* -15 */)|map rpn
+expect:{[label;got;want]
+  $[got=want;echo@f"ok {label}";raise@f"FAIL {label}: got {got}, want {want}"]}
+
+expect["parses / as an adverb";parse_rpn "1 2 */";((`noun;1);(`noun;2);(`adverb;"/";"*"))]
+expect["parses and evaluates RPN";rpn "3 4 + 2 * 1 -";13]
+expect["uses - as unary minus";rpn "3 4 + -";-7]
+expect["folds with +/";rpn "1 2 3 4 +/";10]
+expect["folds with */";rpn "1 2 3 4 */";24]
+expect["folds with -/";rpn "10 2 3 -/";5]
+expect["folds with %/";rpn "100 5 2 %/";10.0]
+expect["parses signed and decimal numbers";rpn "-3 1.5 +";-1.5]
+expect["rejects _";(@t rpn "3 _")0;`error]
