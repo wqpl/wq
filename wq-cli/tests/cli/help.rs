@@ -64,7 +64,7 @@ fn topic_flag_bypasses_subcommand_help() -> Result<()> {
 }
 
 #[test]
-fn reference_docs_fold_at_requested_width() -> Result<()> {
+fn reference_docs_render_auto_wraps_as_hard_breaks() -> Result<()> {
     let output = Command::cargo_bin("wq")
         .context("cargo_bin('wq') failed")?
         .args([

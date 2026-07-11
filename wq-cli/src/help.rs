@@ -45,7 +45,11 @@ pub(crate) fn render_reference_topic(
         DocRenderTarget::Cli,
         doc::MarkdownRenderOptions { fold_width },
     );
-    note::render_markdown_document(&markdown, Some(highlighter))
+    note::render_markdown_document_with_soft_break_mode(
+        &markdown,
+        Some(highlighter),
+        note::SoftBreakMode::Newline,
+    )
 }
 
 fn resolve_fold_width(explicit: Option<usize>, detected: Option<usize>) -> Option<usize> {

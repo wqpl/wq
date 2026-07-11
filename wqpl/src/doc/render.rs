@@ -1,5 +1,7 @@
 use std::fmt::Write as _;
 
+use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
+
 use super::model::{DocKind, DocRenderTarget, DocTopic};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -105,7 +107,7 @@ fn fold_markdown(markdown: &str, width: usize) -> String {
             fold_prefixed_text(
                 &mut out,
                 &item.prefix,
-                &" ".repeat(item.prefix.chars().count()),
+                &" ".repeat(item.prefix.width()),
                 item.body,
                 width,
             );
@@ -141,31 +143,217 @@ fn fold_prefixed_text(
     width: usize,
 ) {
     let mut line = first_prefix.to_string();
-    let mut line_width = first_prefix.chars().count();
-    let mut has_word = false;
+    let mut line_width = first_prefix.width();
+    let mut has_content = false;
+    let continuation_width = continuation_prefix.width();
 
-    for word in text.split_whitespace() {
-        let word_width = word.chars().count();
-        let separator_width = usize::from(has_word);
-        if has_word && line_width + separator_width + word_width > width {
+    for token in fold_tokens(text) {
+        let separator_width = usize::from(token.space_before && has_content);
+        let token_width = token.visible_width();
+        if has_content && line_width + separator_width + token_width > width {
             push_line(out, &line);
             line.clear();
             line.push_str(continuation_prefix);
-            line_width = continuation_prefix.chars().count();
-            has_word = false;
+            line_width = continuation_width;
+            has_content = false;
         }
-        if has_word {
+
+        if let FoldTokenKind::InlineCode {
+            markdown,
+            delimiter,
+            body,
+        } = token.kind
+            && token_width > width.saturating_sub(continuation_width)
+        {
+            let payload_width = width.saturating_sub(continuation_width + 2).max(1);
+            let chunks = split_code_body(body, payload_width);
+            if chunks.is_empty() {
+                line.push_str(markdown);
+                line_width += token_width;
+                has_content = true;
+                continue;
+            }
+            for (index, chunk) in chunks.iter().enumerate() {
+                line.push_str(delimiter);
+                line.push_str(chunk);
+                line.push_str(delimiter);
+                line_width += chunk.width() + 2;
+                has_content = true;
+                if index + 1 < chunks.len() {
+                    push_line(out, &line);
+                    line.clear();
+                    line.push_str(continuation_prefix);
+                    line_width = continuation_width;
+                    has_content = false;
+                }
+            }
+            continue;
+        }
+
+        if token.space_before && has_content {
             line.push(' ');
             line_width += 1;
         }
-        line.push_str(word);
-        line_width += word_width;
-        has_word = true;
+        line.push_str(token.markdown());
+        line_width += token_width;
+        has_content = true;
     }
 
-    if has_word || !first_prefix.is_empty() {
+    if has_content || !first_prefix.is_empty() {
         push_line(out, &line);
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FoldToken<'a> {
+    kind: FoldTokenKind<'a>,
+    space_before: bool,
+}
+
+impl<'a> FoldToken<'a> {
+    fn markdown(self) -> &'a str {
+        match self.kind {
+            FoldTokenKind::Text(text) => text,
+            FoldTokenKind::InlineCode { markdown, .. } => markdown,
+        }
+    }
+
+    fn visible_width(self) -> usize {
+        match self.kind {
+            FoldTokenKind::Text(text) => text.width(),
+            FoldTokenKind::InlineCode { body, .. } => body.width() + 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FoldTokenKind<'a> {
+    Text(&'a str),
+    InlineCode {
+        markdown: &'a str,
+        delimiter: &'a str,
+        body: &'a str,
+    },
+}
+
+fn fold_tokens(text: &str) -> Vec<FoldToken<'_>> {
+    let mut tokens = Vec::new();
+    let mut position = 0;
+    while position < text.len() {
+        let mut space_before = false;
+        while let Some(ch) = text[position..].chars().next()
+            && ch.is_whitespace()
+        {
+            position += ch.len_utf8();
+            space_before = true;
+        }
+        if position == text.len() {
+            break;
+        }
+
+        if text.as_bytes()[position] == b'`' {
+            let delimiter_len = backtick_run_len(text, position);
+            let body_start = position + delimiter_len;
+            if let Some(body_end) = find_closing_backticks(text, body_start, delimiter_len) {
+                let markdown_end = body_end + delimiter_len;
+                tokens.push(FoldToken {
+                    kind: FoldTokenKind::InlineCode {
+                        markdown: &text[position..markdown_end],
+                        delimiter: &text[position..body_start],
+                        body: &text[body_start..body_end],
+                    },
+                    space_before,
+                });
+                position = markdown_end;
+                continue;
+            }
+        }
+
+        let start = position;
+        while let Some(ch) = text[position..].chars().next() {
+            if ch.is_whitespace() || ch == '`' && position > start {
+                break;
+            }
+            position += ch.len_utf8();
+        }
+        tokens.push(FoldToken {
+            kind: FoldTokenKind::Text(&text[start..position]),
+            space_before,
+        });
+    }
+    tokens
+}
+
+fn backtick_run_len(text: &str, start: usize) -> usize {
+    text.as_bytes()[start..]
+        .iter()
+        .take_while(|byte| **byte == b'`')
+        .count()
+}
+
+fn find_closing_backticks(text: &str, mut position: usize, delimiter_len: usize) -> Option<usize> {
+    while position < text.len() {
+        if text.as_bytes()[position] != b'`' {
+            position += text[position..]
+                .chars()
+                .next()
+                .expect("position is before the end of text")
+                .len_utf8();
+            continue;
+        }
+        let run_len = backtick_run_len(text, position);
+        if run_len == delimiter_len {
+            return Some(position);
+        }
+        position += run_len;
+    }
+    None
+}
+
+fn split_code_body(body: &str, width: usize) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut chunk = String::new();
+    let mut chunk_width = 0;
+
+    for word in body.split_whitespace() {
+        let word_width = word.width();
+        if word_width > width {
+            if !chunk.is_empty() {
+                chunks.push(std::mem::take(&mut chunk));
+                chunk_width = 0;
+            }
+            let mut word_chunk = String::new();
+            let mut word_chunk_width = 0;
+            for ch in word.chars() {
+                let char_width = ch.width().unwrap_or(0);
+                if !word_chunk.is_empty() && word_chunk_width + char_width > width {
+                    chunks.push(std::mem::take(&mut word_chunk));
+                    word_chunk_width = 0;
+                }
+                word_chunk.push(ch);
+                word_chunk_width += char_width;
+            }
+            if !word_chunk.is_empty() {
+                chunk_width = word_chunk_width;
+                chunk = word_chunk;
+            }
+        } else if chunk.is_empty() {
+            chunk.push_str(word);
+            chunk_width = word_width;
+        } else if chunk_width + 1 + word_width <= width {
+            chunk.push(' ');
+            chunk.push_str(word);
+            chunk_width += 1 + word_width;
+        } else {
+            chunks.push(std::mem::take(&mut chunk));
+            chunk.push_str(word);
+            chunk_width = word_width;
+        }
+    }
+    if !chunk.is_empty() {
+        chunks.push(chunk);
+    }
+    chunks
 }
 
 struct ListItem<'a> {
@@ -262,6 +450,30 @@ mod tests {
             folded,
             "12. alpha beta\n    gamma delta\n  - alpha beta\n    gamma"
         );
+    }
+
+    #[test]
+    fn inline_code_prefers_starting_on_a_fresh_line() {
+        let folded = fold_markdown("alpha ``beta gamma``", 12);
+
+        assert_eq!(folded, "alpha\n``beta gamma``");
+    }
+
+    #[test]
+    fn inline_code_splits_when_it_cannot_fit_a_full_line() {
+        let folded = fold_markdown("x ``alpha beta gamma`` y", 10);
+
+        assert_eq!(folded, "x\n``alpha``\n``beta``\n``gamma`` y");
+
+        let folded = fold_markdown("x ``abcdefghijkl``", 8);
+        assert_eq!(folded, "x\n``abcdef``\n``ghijkl``");
+    }
+
+    #[test]
+    fn fold_width_uses_terminal_columns() {
+        assert_eq!(fold_markdown("界 a", 3), "界\na");
+        assert_eq!(fold_markdown("e\u{301} x", 3), "e\u{301} x");
+        assert_eq!(fold_markdown("x `界界界`", 6), "x\n`界界`\n`界`");
     }
 
     #[test]

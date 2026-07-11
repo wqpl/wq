@@ -15,6 +15,13 @@ pub enum Segment {
     Markdown(String),
     Heading { level: u8, text: String },
     CodeFence { lang: String, code: String },
+    Newlines(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SoftBreakMode {
+    Space,
+    Newline,
 }
 
 fn strip_frontmatter(content: &str) -> &str {
@@ -60,11 +67,27 @@ fn split_markdown_blocks(segments: Vec<Segment>) -> Vec<Segment> {
         match seg {
             Segment::Markdown(text) => {
                 let normalized = text.replace("\r\n", "\n");
-                for block in normalized.split("\n\n") {
-                    let trimmed = block.trim();
-                    if !trimmed.is_empty() {
-                        result.push(Segment::Markdown(trimmed.to_string()));
+                let mut block = String::new();
+                let mut blank_lines = 0;
+                for line in normalized.split('\n') {
+                    if line.trim().is_empty() {
+                        blank_lines += 1;
+                        continue;
                     }
+                    if blank_lines > 0 {
+                        if !block.is_empty() {
+                            result.push(Segment::Markdown(block.trim().to_string()));
+                            result.push(Segment::Newlines(blank_lines));
+                            block.clear();
+                        }
+                        blank_lines = 0;
+                    } else if !block.is_empty() {
+                        block.push('\n');
+                    }
+                    block.push_str(line);
+                }
+                if !block.trim().is_empty() {
+                    result.push(Segment::Markdown(block.trim().to_string()));
                 }
             }
             other => result.push(other),
@@ -285,7 +308,7 @@ fn terminal_width(s: &str) -> usize {
     s.width()
 }
 
-pub(crate) fn render_terminal(md: &str) -> String {
+fn render_terminal_with_soft_break_mode(md: &str, soft_break_mode: SoftBreakMode) -> String {
     let parser = Parser::new(md);
     let mut out = String::new();
 
@@ -353,11 +376,20 @@ pub(crate) fn render_terminal(md: &str) -> String {
             Event::Code(code) => {
                 out.push_str(&format!("`{}`", note_dim(&code)));
             }
-            Event::SoftBreak | Event::HardBreak => {
-                out.push('\n');
-                if let Some(indent) = item_continuation_indent.last() {
-                    out.push_str(indent);
+            Event::SoftBreak => match soft_break_mode {
+                SoftBreakMode::Space => out.push(' '),
+                SoftBreakMode::Newline => {
+                    push_terminal_newline(
+                        &mut out,
+                        item_continuation_indent.last().map(String::as_str),
+                    );
                 }
+            },
+            Event::HardBreak => {
+                push_terminal_newline(
+                    &mut out,
+                    item_continuation_indent.last().map(String::as_str),
+                );
             }
             Event::Rule => out.push_str(&format!("{}\n", note_dim(&"─".repeat(40)))),
             Event::Html(html) => out.push_str(&html),
@@ -366,6 +398,13 @@ pub(crate) fn render_terminal(md: &str) -> String {
     }
 
     out.trim_end().to_string()
+}
+
+fn push_terminal_newline(out: &mut String, indent: Option<&str>) {
+    out.push('\n');
+    if let Some(indent) = indent {
+        out.push_str(indent);
+    }
 }
 
 fn apply_text_style(text: &str, strong: bool, em: bool, link: bool) -> String {
@@ -412,11 +451,23 @@ pub(crate) fn render_markdown_document(
     md: &str,
     highlighter: Option<&WqReplHighlighter>,
 ) -> String {
+    render_markdown_document_with_soft_break_mode(md, highlighter, SoftBreakMode::Space)
+}
+
+pub(crate) fn render_markdown_document_with_soft_break_mode(
+    md: &str,
+    highlighter: Option<&WqReplHighlighter>,
+    soft_break_mode: SoftBreakMode,
+) -> String {
     let mut out = String::new();
-    for segment in split_markdown_blocks(parse_segments(md)) {
+    let mut segments = split_markdown_blocks(parse_segments(md))
+        .into_iter()
+        .peekable();
+    while let Some(segment) = segments.next() {
+        let is_newlines = matches!(segment, Segment::Newlines(_));
         match segment {
             Segment::Markdown(md) => {
-                out.push_str(&render_terminal(&md));
+                out.push_str(&render_terminal_with_soft_break_mode(&md, soft_break_mode));
             }
             Segment::Heading { level, text } => {
                 out.push_str(&format_heading(level, &text));
@@ -424,8 +475,15 @@ pub(crate) fn render_markdown_document(
             Segment::CodeFence { lang, code } => {
                 out.push_str(&format_code_fence(&lang, &code, highlighter));
             }
+            Segment::Newlines(count) => {
+                out.push_str(&"\n".repeat(count));
+            }
         }
-        out.push_str("\n\n");
+        if !is_newlines
+            && matches!(segments.peek(), Some(segment) if !matches!(segment, Segment::Newlines(_)))
+        {
+            out.push_str("\n\n");
+        }
     }
     out.trim_end().to_string()
 }
@@ -479,6 +537,10 @@ pub fn run_markdown(path: &Path, no_pager: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn render_terminal(md: &str) -> String {
+        render_terminal_with_soft_break_mode(md, SoftBreakMode::Space)
+    }
 
     fn strip_ansi(s: &str) -> String {
         let mut out = String::new();
@@ -580,11 +642,41 @@ mod tests {
     }
 
     #[test]
-    fn test_render_terminal_list_soft_break_indents_continuation() {
+    fn test_render_terminal_list_soft_break_is_inline() {
         let md = "- alpha\n  beta\n";
         let out = render_terminal(md);
 
-        assert!(out.contains("alpha\n  beta"));
+        assert!(out.contains("alpha beta"));
+    }
+
+    #[test]
+    fn markdown_newline_runs_render_one_newline_shorter() {
+        for (markdown, expected) in [
+            ("a.\nb.", "a. b."),
+            ("a.\r\nb.", "a. b."),
+            ("a.\n\nb.", "a.\nb."),
+            ("a.\n\n\nb.", "a.\n\nb."),
+            ("a.\n\n\n\nb.", "a.\n\n\nb."),
+        ] {
+            assert_eq!(render_markdown_document(markdown, None), expected);
+        }
+    }
+
+    #[test]
+    fn explicit_markdown_hard_break_still_renders_a_newline() {
+        assert_eq!(render_terminal("a.  \nb."), "a.\nb.");
+        assert_eq!(
+            render_terminal("x  \n``alpha``  \n``beta``"),
+            "x\n`alpha`\n`beta`"
+        );
+    }
+
+    #[test]
+    fn rendered_reference_soft_breaks_can_use_terminal_newlines() {
+        assert_eq!(
+            render_terminal_with_soft_break_mode("a.\nb.", SoftBreakMode::Newline),
+            "a.\nb."
+        );
     }
 
     // #[test]
