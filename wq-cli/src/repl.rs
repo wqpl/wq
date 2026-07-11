@@ -183,6 +183,29 @@ impl ReplCommand {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct InteractiveOutputSpacing {
+    separate_before_prompt: bool,
+}
+
+impl InteractiveOutputSpacing {
+    pub(crate) fn before_prompt(&mut self) -> bool {
+        std::mem::take(&mut self.separate_before_prompt)
+    }
+
+    pub(crate) fn after_input(&mut self, input: &str) -> bool {
+        if input.is_empty() {
+            return false;
+        }
+        self.separate_before_prompt = true;
+        true
+    }
+
+    pub(crate) fn after_output(&mut self) {
+        self.separate_before_prompt = true;
+    }
+}
+
 pub fn enter_repl(rtflags: RuntimeFlags) {
     let mut session = Session::new();
     session.set_pause_callback(Some(wqdb_pause_handler));
@@ -206,13 +229,18 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
     let mut oneshot_time = false;
     let mut oneshot_debug: Option<DebugLogFlags> = None;
     let mut oneshot_wqdb = false;
+    let mut output_spacing = InteractiveOutputSpacing::default();
     // Unified loader state for directive lines handled by load
     let repl_loading = RefCell::new(HashSet::new());
     print_repl_startup(&session, rtflags.stack_size_mebibyte);
     sync_global_hints(&session);
     sync_repl_hints();
+    output_spacing.after_output();
 
     loop {
+        if output_spacing.before_prompt() {
+            println!();
+        }
         let prompt = if cfg!(windows) {
             format!("wq[{line_number}] ")
         } else {
@@ -226,6 +254,9 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
         match wqstdin_readline(&prompt) {
             Ok(line) => {
                 let input = line.trim_end_matches('\r');
+                if output_spacing.after_input(input) {
+                    println!();
+                }
                 if !input.is_empty() {
                     wqstdin_add_history(input);
                 }
@@ -694,6 +725,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                 if oneshot_wqdb {
                     session.set_wqdb(true);
                 }
+                session.arm_wqdb_next();
 
                 // Ensure interactive inputs map to a unique source label per iteration
                 let source_label = format!("wq[{}]", line_number);
@@ -1058,33 +1090,23 @@ fn print_repl_result_msg(msg: String) {
 }
 
 fn system_msg_out(msg: impl Into<String>, msg_type: MsgType) {
-    println!();
     raw_system_msg_out(msg, msg_type);
-    println!();
 }
 
 fn system_msg_err(msg: impl Into<String>, msg_type: MsgType) {
-    eprintln!();
     raw_system_msg_err(msg, msg_type);
-    eprintln!();
 }
 
 fn print_load_report(report: &crate::load::report::LoadReport) {
-    println!();
     raw_print_load_report(report);
-    println!();
 }
 
 fn print_load_error(err: &crate::load::report::LoadError, session: &mut Session) {
-    eprintln!();
     raw_print_load_error(err, session);
-    eprintln!();
 }
 
 fn print_dry_run_status() {
-    println!();
     raw_print_dry_run_status();
-    println!();
 }
 
 fn vis_width(s: &str) -> usize {
@@ -1451,14 +1473,12 @@ fn print_repl_commands() {
         .map(|row| vis_width(&row.usage))
         .max()
         .unwrap_or(0);
-    println!();
     println!("{}", repl_bold_underline("REPL commands"));
     for row in rows {
         let usage = repl_color(&row.usage, AnsiColor::Magenta);
         let padding = usage_w.saturating_sub(vis_width(&row.usage));
         println!("  {usage}{:padding$}  {}", "", repl_dim(row.desc));
     }
-    println!();
 }
 
 fn dump_builtins(builtins: &Builtins) {
@@ -1604,5 +1624,21 @@ mod tests {
         let config = state.config();
         assert_eq!(config.max_width, 44);
         assert!(!config.wrap_only);
+    }
+
+    #[test]
+    fn repl_output_spacing_wraps_each_non_empty_interaction_once() {
+        let mut spacing = InteractiveOutputSpacing::default();
+
+        assert!(!spacing.before_prompt());
+        spacing.after_output();
+        assert!(spacing.before_prompt());
+        assert!(spacing.after_input("1"));
+        assert!(spacing.before_prompt());
+        assert!(!spacing.before_prompt());
+        assert!(!spacing.after_input(""));
+        assert!(!spacing.before_prompt());
+        assert!(spacing.after_input(r"\w"));
+        assert!(spacing.before_prompt());
     }
 }

@@ -11,6 +11,8 @@ use wqpl::wqdb::data::{CodeLoc, DebugInfo, DebugLocalsFrame, Span};
 use wqpl::wqdb::model::StepGranularity;
 use wqpl::wqdb::{format_frame, format_span_snippet_with_color_mode};
 
+use crate::repl::InteractiveOutputSpacing;
+
 /// Enter wqdb shell after a crash for inspection.
 /// Print a short notice, then reuse the interactive shell.
 pub fn enter_wqdb_after_err(s: &mut Session) {
@@ -683,9 +685,14 @@ pub fn wqdb_shell(host: &mut Vm) {
     }
 
     let mut dbg_line = 1usize;
+    let mut output_spacing = InteractiveOutputSpacing::default();
     print_stop_card(host);
     print_stop_controls(host.dbg_step_granularity());
+    output_spacing.after_output();
     loop {
+        if output_spacing.before_prompt() {
+            wqstderr_println("");
+        }
         #[cfg(not(target_os = "windows"))]
         let prompt =
             wqdb_prompt_with_color_mode(host.dbg_step_granularity(), dbg_line, ColorMode::Auto);
@@ -698,6 +705,9 @@ pub fn wqdb_shell(host: &mut Vm) {
             Ok(line) => {
                 dbg_line += 1;
                 let s = line.trim();
+                if output_spacing.after_input(s) {
+                    wqstderr_println("");
+                }
                 if s.is_empty() {
                     continue;
                 }
@@ -1180,10 +1190,11 @@ fn format_expr_stop_card_with_color_mode(
         if let Some(instruction) = instruction {
             out.push('\n');
             out.push_str(&wqdb_paint_with_color_mode(
-                &format!("pc {}  {}", loc.pc, compact_instruction(instruction)),
+                &format!("pc {}  ", loc.pc),
                 TextStyle::new().fg(AnsiColor::BrightBlack),
                 color_mode,
             ));
+            out.push_str(&compact_instruction(instruction));
         }
         return out;
     };
@@ -1201,10 +1212,11 @@ fn format_expr_stop_card_with_color_mode(
     if let Some(instruction) = instruction {
         out.push('\n');
         out.push_str(&wqdb_paint_with_color_mode(
-            &format!("pc {}  {}", loc.pc, compact_instruction(instruction)),
+            &format!("pc {}  ", loc.pc),
             TextStyle::new().fg(AnsiColor::BrightBlack),
             color_mode,
         ));
+        out.push_str(&compact_instruction(instruction));
     }
     out
 }
@@ -1212,12 +1224,50 @@ fn format_expr_stop_card_with_color_mode(
 fn compact_instruction(instruction: &str) -> String {
     const LIMIT: usize = 120;
     let instruction = instruction.replace(['\n', '\r'], " ");
-    if instruction.chars().count() <= LIMIT {
+    if ansi_visible_len(&instruction) <= LIMIT {
         return instruction;
     }
-    let mut compact: String = instruction.chars().take(LIMIT - 1).collect();
-    compact.push('…');
+    let mut compact = String::with_capacity(instruction.len().min(LIMIT * 2));
+    let mut visible = 0usize;
+    let mut in_escape = false;
+    for ch in instruction.chars() {
+        if in_escape {
+            compact.push(ch);
+            if ch == 'm' {
+                in_escape = false;
+            }
+        } else if ch == '\x1b' {
+            compact.push(ch);
+            in_escape = true;
+        } else if visible == LIMIT - 1 {
+            compact.push('…');
+            break;
+        } else {
+            compact.push(ch);
+            visible += 1;
+        }
+    }
+    if instruction.contains('\x1b') {
+        compact.push_str("\x1b[0m");
+    }
     compact
+}
+
+fn ansi_visible_len(text: &str) -> usize {
+    let mut visible = 0usize;
+    let mut in_escape = false;
+    for ch in text.chars() {
+        if in_escape {
+            if ch == 'm' {
+                in_escape = false;
+            }
+        } else if ch == '\x1b' {
+            in_escape = true;
+        } else {
+            visible += 1;
+        }
+    }
+    visible
 }
 
 fn format_inst_stop_card_with_color_mode(
@@ -1236,20 +1286,17 @@ fn format_inst_stop_card_with_color_mode(
     );
     for (pc, instruction) in instructions {
         out.push('\n');
-        let row = if *pc == loc.pc {
-            format!("{pc:>4} -> {}", compact_instruction(instruction))
-        } else {
-            format!("{pc:>4}    {}", compact_instruction(instruction))
-        };
-        if *pc == loc.pc {
-            out.push_str(&wqdb_paint_with_color_mode(
-                &row,
+        let prefix = if *pc == loc.pc {
+            wqdb_paint_with_color_mode(
+                &format!("{pc:>4} -> "),
                 TextStyle::new().fg(AnsiColor::Green).bold(),
                 color_mode,
-            ));
+            )
         } else {
-            out.push_str(&row);
-        }
+            format!("{pc:>4}    ")
+        };
+        out.push_str(&prefix);
+        out.push_str(&compact_instruction(instruction));
     }
 
     let (span, is_precise) = resolved_stop_span(di, loc);
@@ -1290,14 +1337,18 @@ fn render_stop_card_with_color_mode(host: &Vm, color_mode: ColorMode) -> String 
             di,
             loc,
             name,
-            host.dbg_ins_at(loc.pc).as_deref(),
+            host.dbg_ins_at_with_color_mode(loc.pc, color_mode)
+                .as_deref(),
             color_mode,
         ),
         StepGranularity::Inst => {
             let start = loc.pc.saturating_sub(3);
             let end = loc.pc.saturating_add(3).min(meta.len.saturating_sub(1));
             let instructions = (start..=end)
-                .filter_map(|pc| host.dbg_ins_at(pc).map(|instruction| (pc, instruction)))
+                .filter_map(|pc| {
+                    host.dbg_ins_at_with_color_mode(pc, color_mode)
+                        .map(|instruction| (pc, instruction))
+                })
                 .collect::<Vec<_>>();
             format_inst_stop_card_with_color_mode(
                 di,
@@ -1317,7 +1368,7 @@ fn print_stop_card(host: &Vm) {
 
 fn print_stop_controls(granularity: StepGranularity) {
     wqstderr_println(wqdb_dim(&format!(
-        "n next {} | s step in | fin step out | c continue | g <line|expr|inst>",
+        "[n] next {} [s] step in [fin] step out [c] continue [g] <line|expr|inst>",
         granularity.as_str()
     )));
 }
@@ -1390,16 +1441,17 @@ fn peek_instructions(host: &mut Vm, n: usize) {
     let end = (loc.pc + n).min(len.saturating_sub(1));
     for pc in start..=end {
         let text = host
-            .dbg_ins_at(pc)
+            .dbg_ins_at_with_color_mode(pc, ColorMode::Auto)
             .unwrap_or_else(|| "<unavailable>".to_string());
-        if pc == loc.pc {
-            wqstderr_println(wqdb_paint(
-                &format!("{pc:>4} -> {text}"),
+        let prefix = if pc == loc.pc {
+            wqdb_paint(
+                &format!("{pc:>4} -> "),
                 TextStyle::new().fg(AnsiColor::Green).bold(),
-            ));
+            )
         } else {
-            wqstderr_println(format!("{pc:>4}    {text}"));
-        }
+            format!("{pc:>4}    ")
+        };
+        wqstderr_println(format!("{prefix}{text}"));
     }
 }
 
@@ -1545,6 +1597,25 @@ mod tests {
     }
 
     #[test]
+    fn expression_stop_card_preserves_pretty_instruction_color() {
+        let (di, loc) = stop_card_debug_info();
+        let instruction = "\x1b[35mBinaryOp\x1b[0m(Multiply)";
+
+        let rendered = format_expr_stop_card_with_color_mode(
+            &di,
+            loc,
+            "calc",
+            Some(instruction),
+            ColorMode::Always,
+        );
+
+        assert!(
+            rendered.ends_with(&format!("\x1b[90mpc 2  \x1b[0m{instruction}")),
+            "card was: {rendered:?}"
+        );
+    }
+
+    #[test]
     fn instruction_stop_card_leads_with_disassembly_then_source() {
         let (di, loc) = stop_card_debug_info();
         let instructions = vec![
@@ -1567,6 +1638,37 @@ mod tests {
             rendered,
             "INST  calc  pc 2/4\n   0    LoadLocal(0)\n   1    LoadLocal(1)\n   2 -> BinaryOp(Multiply)\n   3    StoreLocal(2)\n\nSOURCE  demo.wq:2:9\n  2 ->   total:price*qty\n               ~~~~~~~~~"
         );
+    }
+
+    #[test]
+    fn instruction_stop_card_colors_prefix_without_overriding_opcode() {
+        let (di, loc) = stop_card_debug_info();
+        let instruction = "\x1b[35mBinaryOp\x1b[0m(Multiply)";
+
+        let rendered = format_inst_stop_card_with_color_mode(
+            &di,
+            loc,
+            "calc",
+            5,
+            &[(2, instruction.to_string())],
+            ColorMode::Always,
+        );
+
+        assert!(
+            rendered.contains(&format!("\x1b[1;32m   2 -> \x1b[0m{instruction}")),
+            "card was: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn compact_instruction_preserves_complete_ansi_sequences() {
+        let instruction = format!("\x1b[31mLoadConst\x1b[0m({})", "x".repeat(140));
+
+        let compact = compact_instruction(&instruction);
+
+        assert!(compact.starts_with("\x1b[31mLoadConst\x1b[0m("));
+        assert!(compact.ends_with("…\x1b[0m"));
+        assert_eq!(ansi_visible_len(&compact), 120);
     }
 
     #[test]

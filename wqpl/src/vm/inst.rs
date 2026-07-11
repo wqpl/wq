@@ -440,6 +440,26 @@ impl InstPrettyDumper {
         self.lines
     }
 
+    pub(crate) fn render_at(
+        mut self,
+        instructions: &[Instruction],
+        pc: usize,
+        local_names: Option<&[String]>,
+    ) -> Option<String> {
+        let instruction = instructions.get(pc)?;
+        let labels = Self::build_label_map(instructions);
+        self.dump_one(
+            pc,
+            instruction,
+            0,
+            &labels,
+            instructions.len(),
+            local_names,
+            None,
+        );
+        self.lines.into_iter().next()
+    }
+
     fn style_opcode_with_class(&self, opcode: &str, class: InstClass, is_special: bool) -> String {
         if !self.colorize {
             return opcode.to_string();
@@ -789,5 +809,16 @@ mod tests {
         let rendered = dumper.highlight_inst(&Instruction::load_const(Value::Int(1)));
 
         assert_eq!(rendered, "LoadConst(Int(1))");
+    }
+
+    #[test]
+    fn render_at_uses_pretty_printer_context() {
+        let instructions = [Instruction::LoadLocal(0), Instruction::Return];
+        let names = ["answer".to_string()];
+        let rendered = InstPrettyDumper::new(true, false)
+            .render_at(&instructions, 0, Some(&names))
+            .expect("instruction should render");
+
+        assert_eq!(rendered, "LoadLocal(0)  // answer");
     }
 }

@@ -1,11 +1,12 @@
 use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
+use crate::style::ColorMode;
 use crate::value::func::{
     CallableExpr, ClosureData, FunctionData, LiftedCallableData, UserFunctionShape,
 };
 use crate::value::{Excerpt, Value};
 use crate::vm::Vm;
-use crate::vm::inst::Instruction;
+use crate::vm::inst::InstPrettyDumper;
 use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
 };
@@ -1038,39 +1039,18 @@ impl Vm {
     }
 
     pub fn dbg_ins_at(&self, pc: usize) -> Option<String> {
-        self.instructions
-            .get(pc)
-            .map(|instruction| match instruction {
-                Instruction::LoadConst(value) => match value.as_ref() {
-                    Value::CompiledFunction(function) => format!(
-                        "LoadConst(CompiledFunction params={} locals={} insts={})",
-                        Self::format_debug_params(function.params.as_deref()),
-                        function.locals,
-                        function.instructions.len()
-                    ),
-                    Value::Closure(closure) => format!(
-                        "LoadConst(Closure params={} locals={} insts={})",
-                        Self::format_debug_params(closure.params.as_deref()),
-                        closure.locals,
-                        closure.instructions.len()
-                    ),
-                    _ => format!("{instruction:?}"),
-                },
-                Instruction::LoadClosure(payload) => format!(
-                    "LoadClosure(params={} locals={} captures={} insts={})",
-                    Self::format_debug_params(payload.params.as_deref()),
-                    payload.locals,
-                    payload.captures.len(),
-                    payload.instructions.len()
-                ),
-                _ => format!("{instruction:?}"),
-            })
+        self.dbg_ins_at_with_color_mode(pc, ColorMode::Never)
     }
 
-    fn format_debug_params(params: Option<&[String]>) -> String {
-        match params {
-            Some(params) => format!("[{}]", params.join(", ")),
-            None => "None".to_string(),
-        }
+    pub fn dbg_ins_at_with_color_mode(&self, pc: usize, color_mode: ColorMode) -> Option<String> {
+        let local_names = self
+            .debug_info
+            .chunk_opt(self.current_chunk)
+            .and_then(|meta| meta.local_names.as_deref());
+        InstPrettyDumper::new(true, color_mode.should_colorize()).render_at(
+            &self.instructions,
+            pc,
+            local_names,
+        )
     }
 }

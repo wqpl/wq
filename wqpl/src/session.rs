@@ -698,10 +698,12 @@ impl Session {
         }
     }
 
-    // Arm wqdb for the next eval.
-    // pub fn arm_wqdb_next(&mut self) {
-    //     self.wqdb_arm_next = true;
-    // }
+    /// Enter wqdb at the start of the next evaluation when it is enabled.
+    pub fn arm_wqdb_next(&mut self) {
+        if self.vm.wqdb.enabled {
+            self.wqdb_arm_next = true;
+        }
+    }
 
     pub fn dbg_set_source(&mut self, path: &str, full_text: &str) {
         self.dbg_source_ctx = Some((path.to_string(), full_text.to_string()));
@@ -1291,6 +1293,27 @@ mod tests {
         session
             .eval_string("@p x")
             .expect("explicit pause should run");
+        assert_eq!(PAUSES.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn enabled_wqdb_can_be_rearmed_for_another_eval() {
+        static PAUSES: AtomicUsize = AtomicUsize::new(0);
+
+        fn count_pause(vm: &mut crate::vm::Vm) {
+            PAUSES.fetch_add(1, Ordering::SeqCst);
+            vm.dbg_continue();
+        }
+
+        PAUSES.store(0, Ordering::SeqCst);
+        let mut session = Session::new();
+        session.set_pause_callback(Some(count_pause));
+        session.set_wqdb(true);
+
+        session.eval_string("x:1").expect("first eval should run");
+        session.arm_wqdb_next();
+        session.eval_string("x+:1").expect("second eval should run");
+
         assert_eq!(PAUSES.load(Ordering::SeqCst), 2);
     }
 
