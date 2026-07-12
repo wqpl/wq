@@ -205,6 +205,7 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     viz::SHOWTABLE,
     viz::ASCIIPLOT,
     cas::EQ,
+    cas::NONZERO,
     cas::SIMPLIFY,
     cas::REWRITE,
     cas::NUMERIC,

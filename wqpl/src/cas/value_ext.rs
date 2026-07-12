@@ -6,7 +6,7 @@ use num_traits::{One, ToPrimitive};
 use super::limit::LimitDirection;
 use super::{format_cas_equation, format_cas_value};
 use crate::value::Value;
-use crate::value::cas::{CasConst, CasData, CasFunction, CasKind, CasOp, CasSymbol};
+use crate::value::cas::{CasConst, CasData, CasFunction, CasKind, CasOp, CasPredicate, CasSymbol};
 
 impl Value {
     pub fn is_cas(&self) -> bool {
@@ -14,7 +14,7 @@ impl Value {
     }
 
     pub(crate) fn is_cas_expr(&self) -> bool {
-        matches!(self, Value::Cas(cd) if !matches!(cd.kind, CasKind::Eq(..)))
+        matches!(self, Value::Cas(cd) if !matches!(cd.kind, CasKind::Eq(..) | CasKind::Predicate(..)))
     }
 
     pub(crate) fn is_cas_equation(&self) -> bool {
@@ -73,6 +73,12 @@ impl Value {
     pub(crate) fn from_cas_eq(lhs: Value, rhs: Value) -> Value {
         Value::Cas(Arc::new(CasData {
             kind: CasKind::Eq(lhs, rhs),
+        }))
+    }
+
+    pub(crate) fn from_cas_nonzero(expr: Value) -> Value {
+        Value::Cas(Arc::new(CasData {
+            kind: CasKind::Predicate(CasPredicate::NonZero(expr)),
         }))
     }
 
@@ -181,6 +187,16 @@ impl Value {
         }
     }
 
+    pub(crate) fn cas_predicate(&self) -> Option<&CasPredicate> {
+        match self {
+            Value::Cas(cd) => match &cd.kind {
+                CasKind::Predicate(predicate) => Some(predicate),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub(crate) fn cas_limit_parts(
         &self,
     ) -> Option<(&Value, &Value, &Value, Option<LimitDirection>)> {
@@ -213,6 +229,8 @@ impl Value {
             Some(format_cas_value(self))
         } else if let Some((lhs, rhs)) = self.cas_eq_parts() {
             Some(format_cas_equation(lhs, rhs))
+        } else if let Some(CasPredicate::NonZero(expr)) = self.cas_predicate() {
+            Some(format!("nonzero[{}]", format_cas_value(expr)))
         } else {
             None
         }

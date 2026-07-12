@@ -1,5 +1,6 @@
 #[macro_use]
 mod debug;
+mod assumption;
 mod eqsat;
 mod expand_factor;
 mod format;
@@ -14,6 +15,7 @@ mod solve;
 mod tests;
 mod value_ext;
 
+pub(crate) use assumption::CasAssumptions;
 pub(crate) use debug::cas_debug_enabled;
 use expand_factor::{
     eval_numeric_binary_gcd, expand_expr, extract_algebraic_content, factor_expr, split_off_results,
@@ -51,7 +53,12 @@ use simplify::{
     common_numeric_gcd, rebuild_scaled_term, split_add_term, split_mul_factor, substitute_expr,
     var_name_from_value,
 };
-pub(crate) use solve::{solve_cas, solve_system_cas, solve_system_infer_cas};
+pub(crate) use solve::{
+    solve_cas, solve_cas_with_assumptions, solve_system_cas_with_assumptions,
+    solve_system_infer_cas_with_assumptions,
+};
+#[cfg(test)]
+pub(crate) use solve::{solve_system_cas, solve_system_infer_cas};
 
 pub(crate) mod diff;
 pub(crate) mod integrate;

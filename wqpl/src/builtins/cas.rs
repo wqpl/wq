@@ -1,11 +1,14 @@
-use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity, check_arity_any_named};
+use crate::builtins::{
+    BuiltinEnum, BuiltinFnArgs, check_arity, check_arity_any_named, check_arity_named,
+};
 use crate::cas::diff::diff_cas;
 use crate::cas::integrate::{definite_integrate_cas, integrate_cas};
 use crate::cas::limit::{limit_cas, parse_limit_direction};
 use crate::cas::{
-    eval_numeric_cas, expand_cas, factor_cas, infer_single_cas_var, normalize_root_objective_cas,
-    rewrite_cas, simplify_cas_value, solve_cas, solve_system_cas, solve_system_infer_cas,
-    substitute_cas, substitute_cas_bindings,
+    CasAssumptions, eval_numeric_cas, expand_cas, factor_cas, infer_single_cas_var,
+    normalize_root_objective_cas, rewrite_cas, simplify_cas_value, solve_cas_with_assumptions,
+    solve_system_cas_with_assumptions, solve_system_infer_cas_with_assumptions, substitute_cas,
+    substitute_cas_bindings,
 };
 use crate::value::cas::CasOp;
 use crate::value::{Value, WqResult};
@@ -17,6 +20,18 @@ pub(super) fn eq(args: BuiltinFnArgs) -> WqResult<Value> {
     let a = iter.next().unwrap();
     let b = iter.next().unwrap();
     Ok(Value::from_cas_eq(a, b))
+}
+
+pub(super) fn nonzero(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity(BuiltinEnum::Nonzero, [1], &args)?;
+    let expr = &args[0];
+    if expr.is_cas_equation() || expr.cas_predicate().is_some() {
+        return Err(WqError::new(WqErrorType::Domain)
+            .src(BuiltinEnum::Nonzero)
+            .msg("nonzero expects a numeric or symbolic expression")
+            .got1(expr));
+    }
+    Ok(Value::from_cas_nonzero(expr.clone()))
 }
 
 pub(super) fn simplify(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -191,7 +206,12 @@ pub(super) fn limit(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn solve(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BuiltinEnum::Solve, [1, 2], &args)?;
+    check_arity_named(BuiltinEnum::Solve, [1, 2], &args, &["assuming"])?;
+    let assumptions = args
+        .named("assuming")
+        .map(CasAssumptions::from_value)
+        .transpose()?
+        .unwrap_or_default();
     let n = args.len();
     let mut iter = args.into_iter();
     let expr = iter.next().unwrap();
@@ -201,15 +221,20 @@ pub(super) fn solve(args: BuiltinFnArgs) -> WqResult<Value> {
     } else {
         iter.next().unwrap()
     };
-    solve_cas(&expr, &var)
+    solve_cas_with_assumptions(&expr, &var, &assumptions)
 }
 
 pub(super) fn solve_system(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BuiltinEnum::SolveSystem, [1, 2], &args)?;
+    check_arity_named(BuiltinEnum::SolveSystem, [1, 2], &args, &["assuming"])?;
+    let assumptions = args
+        .named("assuming")
+        .map(CasAssumptions::from_value)
+        .transpose()?
+        .unwrap_or_default();
     if args.len() == 1 {
-        solve_system_infer_cas(&args[0])
+        solve_system_infer_cas_with_assumptions(&args[0], &assumptions)
     } else {
-        solve_system_cas(&args[0], &args[1])
+        solve_system_cas_with_assumptions(&args[0], &args[1], &assumptions)
     }
 }
 

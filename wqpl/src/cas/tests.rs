@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use num_bigint::BigInt;
 
+use super::assumption::CasAssumptions;
 use super::*;
 use crate::value::Value;
 use crate::value::algebraic::{AlgebraicData, AlgebraicField};
@@ -602,12 +603,51 @@ fn solve_parameterized_linear_equation() {
         b.clone(),
     ])
     .expect("linear expression");
-    let result = solve_cas(&expr, &x).expect("parameterized linear solve");
+    let assumptions = CasAssumptions::from_value(&Value::from_cas_nonzero(a.clone()))
+        .expect("valid leading coefficient assumption");
+    let result =
+        solve_cas_with_assumptions(&expr, &x, &assumptions).expect("parameterized linear solve");
     let Value::List(roots) = result else {
         panic!("expected list of roots");
     };
     let expected = cas_div(cas_neg(b).expect("-b"), a).expect("-b/a");
     assert_eq!(roots.as_ref(), &vec![expected]);
+}
+
+#[test]
+fn solve_parameterized_linear_equation_requires_leading_coefficient_assumption() {
+    let a = Value::from_cas_var("a");
+    let x = Value::from_cas_var("x");
+    let expr = cas_mul(vec![a, x.clone()]).expect("a*x");
+
+    let err = solve_cas(&expr, &x).expect_err("unknown leading coefficient should fail");
+    assert!(
+        err.msg
+            .as_deref()
+            .is_some_and(|msg| msg.contains("nonzero[a]")),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn solve_parameterized_linear_equation_downgrades_under_zero_assumption() {
+    let a = Value::from_cas_var("a");
+    let b = Value::from_cas_var("b");
+    let x = Value::from_cas_var("x");
+    let expr = cas_add(vec![
+        cas_mul(vec![a.clone(), x.clone()]).expect("a*x"),
+        b.clone(),
+    ])
+    .expect("a*x+b");
+    let assumptions = CasAssumptions::from_value(&Value::List(Arc::new(vec![
+        Value::from_cas_eq(a, Value::Int(0)),
+        Value::from_cas_nonzero(b),
+    ])))
+    .expect("valid degenerate assumptions");
+
+    let result = solve_cas_with_assumptions(&expr, &x, &assumptions)
+        .expect("nonzero constant equation has no roots");
+    assert_eq!(result, Value::List(Arc::new(Vec::new())));
 }
 
 #[test]
@@ -928,6 +968,82 @@ fn solve_linear_system_reports_inconsistent_system() {
             .is_some_and(|msg| msg.contains("no solution")),
         "unexpected error: {err:?}"
     );
+}
+
+#[test]
+fn solve_symbolic_single_equation_requires_a_determinant_assumption() {
+    let a = Value::from_cas_var("a");
+    let x = Value::from_cas_var("x");
+    let equations = Value::List(Arc::new(vec![Value::from_cas_eq(
+        cas_mul(vec![a.clone(), x.clone()]).expect("a*x"),
+        Value::Int(1),
+    )]));
+    let vars = Value::List(Arc::new(vec![x]));
+
+    let err = solve_system_cas(&equations, &vars)
+        .expect_err("an unknown determinant must not be assumed nonzero");
+    assert!(
+        err.msg
+            .as_deref()
+            .is_some_and(|msg| msg.contains("nonzero[a]")),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn solve_symbolic_single_equation_uses_nonzero_assumption() {
+    let a = Value::from_cas_var("a");
+    let x = Value::from_cas_var("x");
+    let equations = Value::List(Arc::new(vec![Value::from_cas_eq(
+        cas_mul(vec![a.clone(), x.clone()]).expect("a*x"),
+        Value::Int(1),
+    )]));
+    let vars = Value::List(Arc::new(vec![x]));
+    let predicate = Value::from_cas_nonzero(a.clone());
+    let assumptions = CasAssumptions::from_value(&predicate).expect("valid assumption");
+
+    let result = solve_system_cas_with_assumptions(&equations, &vars, &assumptions)
+        .expect("nonzero determinant should solve");
+    assert_dict_entries(&result, &[("x", cas_pow(a, Value::Int(-1)).expect("a^-1"))]);
+}
+
+#[test]
+fn solve_symbolic_two_by_two_uses_determinant_assumption() {
+    let a = Value::from_cas_var("a");
+    let b = Value::from_cas_var("b");
+    let c = Value::from_cas_var("c");
+    let d = Value::from_cas_var("d");
+    let x = Value::from_cas_var("x");
+    let y = Value::from_cas_var("y");
+    let equations = Value::List(Arc::new(vec![
+        Value::from_cas_eq(
+            cas_add(vec![
+                cas_mul(vec![a.clone(), x.clone()]).expect("a*x"),
+                cas_mul(vec![b.clone(), y.clone()]).expect("b*y"),
+            ])
+            .expect("first lhs"),
+            Value::Int(1),
+        ),
+        Value::from_cas_eq(
+            cas_add(vec![
+                cas_mul(vec![c.clone(), x.clone()]).expect("c*x"),
+                cas_mul(vec![d.clone(), y.clone()]).expect("d*y"),
+            ])
+            .expect("second lhs"),
+            Value::Int(2),
+        ),
+    ]));
+    let vars = Value::List(Arc::new(vec![x, y]));
+    let determinant = cas_sub(
+        cas_mul(vec![a, d]).expect("a*d"),
+        cas_mul(vec![b, c]).expect("b*c"),
+    )
+    .expect("determinant");
+    let assumptions = CasAssumptions::from_value(&Value::from_cas_nonzero(determinant))
+        .expect("valid determinant assumption");
+
+    solve_system_cas_with_assumptions(&equations, &vars, &assumptions)
+        .expect("a nonzero determinant should solve without assuming a is nonzero");
 }
 
 #[test]

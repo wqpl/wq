@@ -54,7 +54,7 @@ solve[@s x^2=1] | echo
 solve[@s x^3=8] | echo
 
 //test solve a parameterized linear equation with explicit target variable
-solve[@s a*x+b;@s x] | echo
+solve[@s a*x+b;@s x;`assuming:nonzero[@s a]] | echo
 
 //test solve a parameterized quadratic equation with explicit target variable
 solve[@s x^2+a*x+b;@s x] | echo
@@ -67,6 +67,17 @@ solve_system[@s(b+a=3;b-a=1)] | echo
 
 //test solve a linear system with explicit symbolic parameters
 solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)] | echo
+
+//test describe and apply a nonzero CAS assumption
+nonzero[@s a] | echo
+(@t solve_system[,eq[@s a*x;1];,@s x])0 | echo
+solve_system[,eq[@s a*x;1];,@s x;`assuming:nonzero[@s a]] | echo
+
+//test solve a symbolic 2 by 2 system under its determinant condition
+solve_system[
+  (eq[@s a*x+b*y;1];eq[@s c*x+d*y;2]);
+  (@s x;@s y);
+  `assuming:nonzero[@s a*d-b*c]] | echo
 
 //test brent root finding on a quadratic
 brent[@s x^2-2;1;2] | echo

@@ -6,6 +6,7 @@ use num_bigint::BigInt;
 use num_complex::Complex64;
 use rayon::prelude::*;
 
+use super::assumption::{CasAssumptions, Truth};
 use super::{
     cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub, contains_cas_var,
     eval_exact_numeric_div, eval_numeric_binary, numeric_is_negative, numeric_is_zero, poly_degree,
@@ -149,23 +150,65 @@ fn linear_system_shape_err() -> WqError {
     cas_err("solve_system currently supports linear equations in the requested variables only")
 }
 
-fn pivot_row_for_col(rows: &[Vec<Value>], start_row: usize, col: usize) -> Option<usize> {
-    (start_row..rows.len())
-        .find(|&row| rows[row][col].exact_int_is(1) || rows[row][col].exact_int_is(-1))
-        .or_else(|| (start_row..rows.len()).find(|&row| !numeric_is_zero(&rows[row][col])))
+fn undecidable_zero_error(value: &Value, role: &str) -> WqError {
+    cas_err(format!(
+        "solve_system cannot determine whether {role} {value} is zero; pass nonzero[{value}] to named argument assuming, or assert zero with eq[{value};0]"
+    ))
 }
 
-fn row_has_zero_coefficients(row: &[Value], var_count: usize) -> bool {
-    row[..var_count].iter().all(numeric_is_zero)
+fn pivot_row_for_col(
+    rows: &[Vec<Value>],
+    start_row: usize,
+    col: usize,
+    assumptions: &CasAssumptions,
+) -> WqResult<Option<usize>> {
+    if let Some(row) = (start_row..rows.len()).find(|&row| {
+        (rows[row][col].exact_int_is(1) || rows[row][col].exact_int_is(-1))
+            && assumptions.prove_zero(&rows[row][col]) == Truth::Refuted
+    }) {
+        return Ok(Some(row));
+    }
+    if let Some(row) = (start_row..rows.len())
+        .find(|&row| assumptions.prove_zero(&rows[row][col]) == Truth::Refuted)
+    {
+        return Ok(Some(row));
+    }
+    if let Some(row) = (start_row..rows.len())
+        .find(|&row| assumptions.prove_zero(&rows[row][col]) == Truth::Unknown)
+    {
+        return Err(undecidable_zero_error(&rows[row][col], "pivot candidate"));
+    }
+    Ok(None)
 }
 
-fn gaussian_elimination_solve(mut rows: Vec<Vec<Value>>, var_count: usize) -> WqResult<Vec<Value>> {
+fn row_has_zero_coefficients(
+    row: &[Value],
+    var_count: usize,
+    assumptions: &CasAssumptions,
+) -> WqResult<bool> {
+    for coefficient in &row[..var_count] {
+        match assumptions.prove_zero(coefficient) {
+            Truth::Proven => {}
+            Truth::Refuted => return Ok(false),
+            Truth::Unknown => {
+                return Err(undecidable_zero_error(coefficient, "row coefficient"));
+            }
+        }
+    }
+    Ok(true)
+}
+
+fn gaussian_elimination_solve(
+    mut rows: Vec<Vec<Value>>,
+    var_count: usize,
+    assumptions: &CasAssumptions,
+) -> WqResult<Vec<Value>> {
     let rhs_col = var_count;
     let mut rank = 0;
     let mut pivot_cols = Vec::with_capacity(var_count);
 
     for col in 0..var_count {
-        let Some(pivot_row) = pivot_row_for_col(&rows, rank, col) else {
+        let Some(pivot_row) = pivot_row_for_col(&rows, rank, col, assumptions)? else {
             continue;
         };
         if pivot_row != rank {
@@ -175,8 +218,12 @@ fn gaussian_elimination_solve(mut rows: Vec<Vec<Value>>, var_count: usize) -> Wq
         let pivot = rows[rank][col].clone();
         let pivot_slice = rows[rank][col..=rhs_col].to_vec();
         for row in &mut rows[(rank + 1)..] {
-            if numeric_is_zero(&row[col]) {
-                continue;
+            match assumptions.prove_zero(&row[col]) {
+                Truth::Proven => continue,
+                Truth::Refuted => {}
+                Truth::Unknown => {
+                    return Err(undecidable_zero_error(&row[col], "elimination coefficient"));
+                }
             }
             let factor = cas_div(row[col].clone(), pivot.clone())?;
             for (offset, cell) in row[col..=rhs_col].iter_mut().enumerate() {
@@ -189,13 +236,20 @@ fn gaussian_elimination_solve(mut rows: Vec<Vec<Value>>, var_count: usize) -> Wq
         rank += 1;
     }
 
-    if rows
-        .iter()
-        .any(|row| row_has_zero_coefficients(row, var_count) && !numeric_is_zero(&row[rhs_col]))
-    {
-        return Err(cas_err(
-            "solve_system has no solution (inconsistent system)",
-        ));
+    for row in &rows {
+        if row_has_zero_coefficients(row, var_count, assumptions)? {
+            match assumptions.prove_zero(&row[rhs_col]) {
+                Truth::Proven => {}
+                Truth::Refuted => {
+                    return Err(cas_err(
+                        "solve_system has no solution (inconsistent system)",
+                    ));
+                }
+                Truth::Unknown => {
+                    return Err(undecidable_zero_error(&row[rhs_col], "residual"));
+                }
+            }
+        }
     }
 
     if rank < var_count {
@@ -216,6 +270,64 @@ fn gaussian_elimination_solve(mut rows: Vec<Vec<Value>>, var_count: usize) -> Wq
         solution[pivot_col] = cas_div(rhs, rows[row_idx][pivot_col].clone())?;
     }
     Ok(solution)
+}
+
+fn determinant(matrix: &[Vec<Value>]) -> WqResult<Value> {
+    match matrix.len() {
+        0 => Ok(Value::Int(1)),
+        1 => Ok(matrix[0][0].clone()),
+        size => {
+            let mut terms = Vec::with_capacity(size);
+            for col in 0..size {
+                let mut minor = Vec::with_capacity(size - 1);
+                for row in matrix.iter().skip(1) {
+                    let mut minor_row = Vec::with_capacity(size - 1);
+                    for (idx, value) in row.iter().enumerate() {
+                        if idx != col {
+                            minor_row.push(value.clone());
+                        }
+                    }
+                    minor.push(minor_row);
+                }
+                let term = cas_mul(vec![matrix[0][col].clone(), determinant(&minor)?])?;
+                terms.push(if col % 2 == 0 { term } else { cas_neg(term)? });
+            }
+            cas_add(terms)
+        }
+    }
+}
+
+fn solve_square_system(
+    rows: &[Vec<Value>],
+    var_count: usize,
+    assumptions: &CasAssumptions,
+) -> WqResult<Option<Vec<Value>>> {
+    if rows.len() != var_count || var_count == 0 || var_count > 6 {
+        return Ok(None);
+    }
+    let matrix = rows
+        .iter()
+        .map(|row| row[..var_count].to_vec())
+        .collect::<Vec<_>>();
+    if !matrix.iter().flatten().any(Value::is_cas_expr) {
+        return Ok(None);
+    }
+    let det = determinant(&matrix)?;
+    match assumptions.prove_zero(&det) {
+        Truth::Proven => Ok(None),
+        Truth::Unknown => Err(undecidable_zero_error(&det, "determinant")),
+        Truth::Refuted => {
+            let mut solution = Vec::with_capacity(var_count);
+            for replaced_col in 0..var_count {
+                let mut replaced = matrix.clone();
+                for (row_idx, row) in rows.iter().enumerate() {
+                    replaced[row_idx][replaced_col] = row[var_count].clone();
+                }
+                solution.push(cas_div(determinant(&replaced)?, det.clone())?);
+            }
+            Ok(Some(solution))
+        }
+    }
 }
 
 fn normalize_system_equation(equation: &Value) -> WqResult<Value> {
@@ -308,7 +420,11 @@ fn parse_system_var_names(vars: &Value) -> WqResult<Vec<String>> {
     Ok(var_names)
 }
 
-fn solve_normalized_system(equations: &[Value], var_names: &[String]) -> WqResult<Value> {
+fn solve_normalized_system(
+    equations: &[Value],
+    var_names: &[String],
+    assumptions: &CasAssumptions,
+) -> WqResult<Value> {
     let mut rows = Vec::with_capacity(equations.len());
     for expr in equations {
         let (coeffs, constant) = linear_coefficients_from_expr(expr, var_names)?;
@@ -317,7 +433,12 @@ fn solve_normalized_system(equations: &[Value], var_names: &[String]) -> WqResul
         rows.push(row);
     }
 
-    let solution = gaussian_elimination_solve(rows, var_names.len())?;
+    let solution = if let Some(solution) = solve_square_system(&rows, var_names.len(), assumptions)?
+    {
+        solution
+    } else {
+        gaussian_elimination_solve(rows, var_names.len(), assumptions)?
+    };
     let mut map = IndexMap::with_capacity(solution.len());
     for (var_name, value) in var_names.iter().zip(solution) {
         map.insert(Arc::from(var_name.as_str()), value);
@@ -370,7 +491,7 @@ fn solve_numeric_polynomial(coeffs: &[Value]) -> WqResult<Vec<Value>> {
         2 => {
             let disc = quadratic_discriminant(coeffs)?;
             if coefficients_are_exact_real(coeffs) && !numeric_is_negative(&disc) {
-                solve_parameterized_polynomial(coeffs)
+                solve_parameterized_polynomial(coeffs, &CasAssumptions::default())
             } else {
                 solve_numeric_quadratic(coeffs, disc)
             }
@@ -379,16 +500,36 @@ fn solve_numeric_polynomial(coeffs: &[Value]) -> WqResult<Vec<Value>> {
     }
 }
 
-fn solve_parameterized_polynomial(coeffs: &[Value]) -> WqResult<Vec<Value>> {
-    let coeff_at = |idx: usize| coeffs.get(idx).cloned().unwrap_or(Value::Int(0));
-    let degree = poly_degree(coeffs);
-    match degree {
-        0 => {
-            if numeric_is_zero(&coeffs[0]) {
-                return Err(cas_err("solve identity has infinitely many solutions"));
+fn parameterized_poly_degree(coeffs: &[Value], assumptions: &CasAssumptions) -> WqResult<usize> {
+    for (degree, coefficient) in coeffs.iter().enumerate().rev() {
+        match assumptions.prove_zero(coefficient) {
+            Truth::Proven => {}
+            Truth::Refuted => return Ok(degree),
+            Truth::Unknown => {
+                return Err(cas_err(format!(
+                    "solve cannot determine whether leading coefficient {coefficient} is zero; pass nonzero[{coefficient}] to named argument assuming, or assert zero with eq[{coefficient};0]"
+                )));
             }
-            Ok(Vec::new())
         }
+    }
+    Ok(0)
+}
+
+fn solve_parameterized_polynomial(
+    coeffs: &[Value],
+    assumptions: &CasAssumptions,
+) -> WqResult<Vec<Value>> {
+    let coeff_at = |idx: usize| coeffs.get(idx).cloned().unwrap_or(Value::Int(0));
+    let degree = parameterized_poly_degree(coeffs, assumptions)?;
+    match degree {
+        0 => match assumptions.prove_zero(&coeffs[0]) {
+            Truth::Proven => Err(cas_err("solve identity has infinitely many solutions")),
+            Truth::Refuted => Ok(Vec::new()),
+            Truth::Unknown => Err(cas_err(format!(
+                "solve cannot determine whether constant {} is zero; pass nonzero[{}] to named argument assuming, or assert zero with eq[{};0]",
+                coeffs[0], coeffs[0], coeffs[0]
+            ))),
+        },
         1 => {
             let root = cas_div(cas_neg(coeff_at(0))?, coeff_at(1))?;
             Ok(vec![simplify_cas_value(&root)?])
@@ -421,6 +562,14 @@ fn solve_parameterized_polynomial(coeffs: &[Value]) -> WqResult<Vec<Value>> {
 }
 
 pub(crate) fn solve_cas(input: &Value, var: &Value) -> WqResult<Value> {
+    solve_cas_with_assumptions(input, var, &CasAssumptions::default())
+}
+
+pub(crate) fn solve_cas_with_assumptions(
+    input: &Value,
+    var: &Value,
+    assumptions: &CasAssumptions,
+) -> WqResult<Value> {
     let var = var_name_from_value(var)?;
     let expr = if let Some((lhs, rhs)) = input.cas_eq_parts() {
         cas_sub(lhs.clone(), rhs.clone())?
@@ -431,13 +580,22 @@ pub(crate) fn solve_cas(input: &Value, var: &Value) -> WqResult<Value> {
         Ok(coeffs) => solve_numeric_polynomial(&coeffs)?,
         Err(_) => {
             let coeffs = poly_from_expr_with_params(&expr, &var)?;
-            solve_parameterized_polynomial(&coeffs)?
+            solve_parameterized_polynomial(&coeffs, assumptions)?
         }
     };
     Ok(Value::List(Arc::new(roots)))
 }
 
+#[cfg(test)]
 pub(crate) fn solve_system_cas(equations: &Value, vars: &Value) -> WqResult<Value> {
+    solve_system_cas_with_assumptions(equations, vars, &CasAssumptions::default())
+}
+
+pub(crate) fn solve_system_cas_with_assumptions(
+    equations: &Value,
+    vars: &Value,
+    assumptions: &CasAssumptions,
+) -> WqResult<Value> {
     let equations = normalize_system_equations(equations)?;
     let var_names = parse_system_var_names(vars)?;
     if var_names.is_empty() {
@@ -446,12 +604,20 @@ pub(crate) fn solve_system_cas(equations: &Value, vars: &Value) -> WqResult<Valu
         ));
     }
 
-    solve_normalized_system(&equations, &var_names)
+    solve_normalized_system(&equations, &var_names, assumptions)
 }
 
+#[cfg(test)]
 pub(crate) fn solve_system_infer_cas(equations: &Value) -> WqResult<Value> {
+    solve_system_infer_cas_with_assumptions(equations, &CasAssumptions::default())
+}
+
+pub(crate) fn solve_system_infer_cas_with_assumptions(
+    equations: &Value,
+    assumptions: &CasAssumptions,
+) -> WqResult<Value> {
     let equations = normalize_system_equations(equations)?;
     let var_names = infer_system_var_names(&equations)?;
 
-    solve_normalized_system(&equations, &var_names)
+    solve_normalized_system(&equations, &var_names, assumptions)
 }

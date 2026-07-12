@@ -266,6 +266,15 @@ pub(crate) enum CasKind {
     Root { poly: Value, lo: f64, hi: f64 },
     /// Equation (lhs = rhs).
     Eq(Value, Value),
+    /// Symbolic condition used by CAS assumption contexts.
+    Predicate(CasPredicate),
+}
+
+/// Atomic symbolic facts accepted by CAS assumption contexts.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CasPredicate {
+    /// The expression is defined and unequal to zero.
+    NonZero(Value),
 }
 
 /// Heap-allocated symbolic algebra value.
@@ -335,6 +344,16 @@ mod cas_tests {
         let (lhs, rhs) = eq.cas_eq_parts().unwrap();
         assert_eq!(*lhs, Value::from_cas_var("x"));
         assert_eq!(*rhs, Value::Int(1));
+    }
+
+    #[test]
+    fn cas_predicate_is_not_an_expression() {
+        let predicate = Value::from_cas_nonzero(Value::from_cas_var("x"));
+        assert!(predicate.is_cas());
+        assert!(!predicate.is_cas_expr());
+        assert!(!predicate.is_cas_equation());
+        assert_eq!(predicate.to_string(), "nonzero[x]");
+        assert!(crate::cas::cas_add(vec![predicate, Value::Int(1)]).is_err());
     }
 
     #[test]

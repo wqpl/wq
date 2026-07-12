@@ -185,6 +185,15 @@ impl std::hash::Hash for Value {
                         lhs.hash(state);
                         rhs.hash(state);
                     }
+                    CasKind::Predicate(predicate) => {
+                        9u8.hash(state);
+                        match predicate {
+                            crate::value::cas::CasPredicate::NonZero(expr) => {
+                                0u8.hash(state);
+                                expr.hash(state);
+                            }
+                        }
+                    }
                 }
             }
             Value::Stream(s) => {
@@ -306,6 +315,7 @@ impl PartialEq for Value {
                         && hia.to_bits() == hib.to_bits()
                 }
                 (CasKind::Eq(lhsa, rhsa), CasKind::Eq(lhsb, rhsb)) => lhsa == lhsb && rhsa == rhsb,
+                (CasKind::Predicate(a), CasKind::Predicate(b)) => a == b,
                 _ => false,
             },
 

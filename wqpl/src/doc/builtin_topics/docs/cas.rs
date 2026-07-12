@@ -7,6 +7,12 @@ const EQ_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("x^2 = 1"),
 }];
 
+const NONZERO_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Describe a nonzero symbolic parameter",
+    code: "nonzero @s a",
+    expectation: ExampleExpectation::ResultContains("nonzero[a]"),
+}];
+
 const SIMPLIFY_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Combine like terms",
     code: "simplify @s 2*x+x+1",
@@ -111,7 +117,7 @@ const SOLVE_EXAMPLES: &[DocExample] = &[
     },
     DocExample {
         title: "Solve with symbolic parameters",
-        code: "solve[@s a*x+b;@s x]",
+        code: "solve[@s a*x+b;@s x;`assuming:nonzero[@s a]]",
         expectation: ExampleExpectation::ResultContains("-b/a"),
     },
     DocExample {
@@ -157,6 +163,14 @@ pub(super) const EQ: BuiltinDoc = BuiltinDoc {
     details: "`eq[lhs;rhs]` wraps two values as a CAS equation without solving it. Use `@s` for symbolic sides when names should remain variables; equation values can be passed to `solve`, `substitute`, `brent`, and `newton`.",
     examples: EQ_EXAMPLES,
     related: &["solve", "substitute", "brent", "newton"],
+};
+
+pub(super) const NONZERO: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Nonzero,
+    summary: "Build a symbolic nonzero condition.",
+    details: "`nonzero[expr]` creates a CAS condition asserting that `expr` is defined and unequal to zero. Pass one condition or a list of conditions through the `assuming` named argument of an assumption-aware CAS builtin.",
+    examples: NONZERO_EXAMPLES,
+    related: &["eq", "solve_system"],
 };
 
 pub(super) const SIMPLIFY: BuiltinDoc = BuiltinDoc {
@@ -242,17 +256,17 @@ pub(super) const LIMIT: BuiltinDoc = BuiltinDoc {
 pub(super) const SOLVE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Solve,
     summary: "Solve a single-variable symbolic equation.",
-    details: "`solve[expr]` treats `expr` as equal to zero and infers the only symbolic variable. `solve[expr;var]` uses an explicit variable, and equation inputs solve `lhs = rhs`. It handles linear and quadratic polynomials, including coefficients with other symbolic parameters when the variable is explicit. Exact real quadratic coefficients keep exact real roots when possible. For degree greater than 2, `solve` currently supports numeric binomials of the form `a*x^n + b = 0`, returning numeric real and complex roots. General higher-degree polynomials such as `x^3+x-1` are not solved symbolically; use `brent` or `newton` for numeric real roots.",
+    details: "`solve[expr]` treats `expr` as equal to zero and infers the only symbolic variable. `solve[expr;var]` uses an explicit variable, and equation inputs solve `lhs = rhs`. It handles linear and quadratic polynomials, including coefficients with other symbolic parameters when the variable is explicit. Use named argument `assuming` when a symbolic leading coefficient may be zero. Exact real quadratic coefficients keep exact real roots when possible. For degree greater than 2, `solve` currently supports numeric binomials of the form `a*x^n + b = 0`, returning numeric real and complex roots. General higher-degree polynomials such as `x^3+x-1` are not solved symbolically; use `brent` or `newton` for numeric real roots.",
     examples: SOLVE_EXAMPLES,
-    related: &["eq", "solve_system", "brent", "newton"],
+    related: &["eq", "nonzero", "solve_system", "brent", "newton"],
 };
 
 pub(super) const SOLVE_SYSTEM: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::SolveSystem,
     summary: "Solve a linear symbolic system.",
-    details: "`solve_system[eqs]` infers symbolic variables and returns a dict keyed by variable name. `solve_system[eqs;vars]` uses an explicit variable list, which also controls dict order. Symbols outside that explicit list are treated as parameters. It solves linear systems with a unique solution, including consistent overdetermined systems. Inconsistent systems report no solution, and dependent or underdetermined systems report infinitely many solutions.",
+    details: "`solve_system[eqs]` infers symbolic variables and returns a dict keyed by variable name. `solve_system[eqs;vars]` uses an explicit variable list, which also controls dict order. Symbols outside that explicit list are treated as parameters. Use named argument `assuming` with `nonzero[expr]`, `eq[expr;0]`, or a list of such conditions when a symbolic determinant or pivot may be zero. The solver reports an unresolved zero condition instead of assuming it is nonzero. It solves linear systems with a unique solution, including consistent overdetermined systems. Inconsistent systems report no solution, and dependent or underdetermined systems report infinitely many solutions.",
     examples: SOLVE_SYSTEM_EXAMPLES,
-    related: &["solve", "eq", "substitute"],
+    related: &["solve", "eq", "nonzero", "substitute"],
 };
 
 pub(super) const BRENT: BuiltinDoc = BuiltinDoc {

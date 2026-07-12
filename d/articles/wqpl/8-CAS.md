@@ -33,12 +33,23 @@ A single-variable CAS expression can also be called with one positional argument
 ```wq
 factor[@s x^2-1]|echo
 solve[@s x^2=1]|echo
-solve[@s a*x+b;@s x]|echo
+solve[@s a*x+b;@s x;`assuming:nonzero[@s a]]|echo
 solve_system[@s(2*x+y=5;x-y=1)]|echo
 solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)]|echo
 ```
 
 The bracket calls keep the symbolic expression neatly inside the argument list. For linear systems, `solve_system` can infer variables and returns a dict keyed by variable name. Passing solve variables explicitly controls dict order, and other symbols can remain as parameters in supported linear and quadratic solves.
+
+When a symbolic system can change rank for different parameter values, state the relevant zero or nonzero conditions explicitly. `solve_system` does not assume an unresolved symbolic determinant is nonzero:
+
+```wq
+solve_system[
+  (eq[@s a*x+b*y;1];eq[@s c*x+d*y;2]);
+  (@s x;@s y);
+  `assuming:nonzero[@s a*d-b*c]]|echo
+```
+
+Use `nonzero[expr]` for a nonzero condition and `eq[expr;0]` for a zero condition. A list passed to named argument `assuming` represents their conjunction.
 
 ## Numeric And Symbolic Can Meet
 

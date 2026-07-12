@@ -53,6 +53,8 @@ pub(super) fn numeric_abs(value: &Value) -> Value {
 pub(crate) fn ensure_expr_arg(value: &Value, ctx: &str) -> WqResult<()> {
     if value.is_cas_equation() {
         Err(cas_err(format!("{ctx} expects an expression, got equation")).got1(value))
+    } else if value.cas_predicate().is_some() {
+        Err(cas_err(format!("{ctx} expects an expression, got condition")).got1(value))
     } else {
         Ok(())
     }
