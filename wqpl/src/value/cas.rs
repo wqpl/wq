@@ -273,8 +273,46 @@ pub(crate) enum CasKind {
 /// Atomic symbolic facts accepted by CAS assumption contexts.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum CasPredicate {
+    /// The expression equals zero.
+    Zero(Value),
     /// The expression is defined and unequal to zero.
     NonZero(Value),
+    /// The expression is real and greater than zero.
+    Positive(Value),
+    /// The expression is real and less than zero.
+    Negative(Value),
+    /// The expression is real and greater than or equal to zero.
+    NonNegative(Value),
+    /// The expression is real.
+    Real(Value),
+    /// The expression is an integer.
+    Integer(Value),
+}
+
+impl CasPredicate {
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            Self::Zero(_) => "zero",
+            Self::NonZero(_) => "nonzero",
+            Self::Positive(_) => "positive",
+            Self::Negative(_) => "negative",
+            Self::NonNegative(_) => "nonnegative",
+            Self::Real(_) => "real",
+            Self::Integer(_) => "integer",
+        }
+    }
+
+    pub(crate) fn expr(&self) -> &Value {
+        match self {
+            Self::Zero(expr)
+            | Self::NonZero(expr)
+            | Self::Positive(expr)
+            | Self::Negative(expr)
+            | Self::NonNegative(expr)
+            | Self::Real(expr)
+            | Self::Integer(expr) => expr,
+        }
+    }
 }
 
 /// Heap-allocated symbolic algebra value.

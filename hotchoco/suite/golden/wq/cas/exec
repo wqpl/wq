@@ -21,9 +21,19 @@ x^3/3
 (`x:2;`y:1)
 (`a:1;`b:2)
 (`x:(c + b)/3;`y:(b - 2*c)/3)
+zero[a]
 nonzero[a]
-`error
+positive[a]
+negative[a]
+nonnegative[a]
+real[a]
+integer[a]
+(`cases:((`when:,nonzero[a];`solutions:,0);(`when:,zero[a];`solutions:`all)))
+(`cases:((`when:,nonzero[a];`solution:(`x:a^-1));(`when:,zero[a];`solution:`none)))
 (`x:a^-1)
+(`solution:(`x:-p0 + 3;`y:p0);`parameters:,p0)
+`none
+
 (`x:(d - 2*b)/(a*d - b*c);`y:(2*a - c)/(a*d - b*c))
 1.4142135623731364
 1.4142135623730951

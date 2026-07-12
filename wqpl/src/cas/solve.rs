@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -12,7 +12,7 @@ use super::{
     eval_exact_numeric_div, eval_numeric_binary, numeric_is_negative, numeric_is_zero, poly_degree,
     poly_from_expr, poly_from_expr_with_params, simplify_cas_value, var_name_from_value,
 };
-use crate::value::cas::CasOp;
+use crate::value::cas::{CasOp, CasPredicate};
 use crate::value::{Value, WqResult, expected_numeric1};
 use crate::wqerror::WqError;
 
@@ -150,10 +150,57 @@ fn linear_system_shape_err() -> WqError {
     cas_err("solve_system currently supports linear equations in the requested variables only")
 }
 
-fn undecidable_zero_error(value: &Value, role: &str) -> WqError {
-    cas_err(format!(
-        "solve_system cannot determine whether {role} {value} is zero; pass nonzero[{value}] to named argument assuming, or assert zero with eq[{value};0]"
-    ))
+#[derive(Clone)]
+struct ConditionalCase<T> {
+    conditions: Vec<CasPredicate>,
+    result: T,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SolveDomain {
+    Complex,
+    Real,
+}
+
+#[derive(Clone)]
+enum RootSolution {
+    Empty,
+    All,
+    Finite(Vec<Value>),
+    Cases(Vec<ConditionalCase<RootSolution>>),
+}
+
+enum DegreeDecision {
+    Degree(usize),
+    NeedDecision(Value),
+}
+
+#[derive(Clone)]
+enum LinearSolution {
+    Empty,
+    Unique(Vec<Value>),
+    Parametric {
+        values: Vec<Value>,
+        parameters: Vec<Value>,
+    },
+    Cases(Vec<ConditionalCase<LinearSolution>>),
+}
+
+enum PivotDecision {
+    Row(usize),
+    None,
+    NeedDecision(Value),
+}
+
+enum GaussianOutcome {
+    Solved(LinearSolution),
+    NeedDecision(Value),
+}
+
+enum SquareOutcome {
+    NotApplicable,
+    Solved(Vec<Value>),
+    NeedDecision(Value),
 }
 
 fn pivot_row_for_col(
@@ -161,55 +208,65 @@ fn pivot_row_for_col(
     start_row: usize,
     col: usize,
     assumptions: &CasAssumptions,
-) -> WqResult<Option<usize>> {
+) -> PivotDecision {
     if let Some(row) = (start_row..rows.len()).find(|&row| {
         (rows[row][col].exact_int_is(1) || rows[row][col].exact_int_is(-1))
             && assumptions.prove_zero(&rows[row][col]) == Truth::Refuted
     }) {
-        return Ok(Some(row));
+        return PivotDecision::Row(row);
     }
     if let Some(row) = (start_row..rows.len())
         .find(|&row| assumptions.prove_zero(&rows[row][col]) == Truth::Refuted)
     {
-        return Ok(Some(row));
+        return PivotDecision::Row(row);
     }
     if let Some(row) = (start_row..rows.len())
         .find(|&row| assumptions.prove_zero(&rows[row][col]) == Truth::Unknown)
     {
-        return Err(undecidable_zero_error(&rows[row][col], "pivot candidate"));
+        return PivotDecision::NeedDecision(rows[row][col].clone());
     }
-    Ok(None)
+    PivotDecision::None
 }
 
 fn row_has_zero_coefficients(
     row: &[Value],
     var_count: usize,
     assumptions: &CasAssumptions,
-) -> WqResult<bool> {
+) -> Result<bool, Value> {
+    let mut unknown = None;
     for coefficient in &row[..var_count] {
         match assumptions.prove_zero(coefficient) {
             Truth::Proven => {}
             Truth::Refuted => return Ok(false),
             Truth::Unknown => {
-                return Err(undecidable_zero_error(coefficient, "row coefficient"));
+                unknown.get_or_insert_with(|| coefficient.clone());
             }
         }
     }
-    Ok(true)
+    if let Some(unknown) = unknown {
+        Err(unknown)
+    } else {
+        Ok(true)
+    }
 }
 
-fn gaussian_elimination_solve(
+fn gaussian_elimination(
     mut rows: Vec<Vec<Value>>,
     var_count: usize,
+    var_names: &[String],
     assumptions: &CasAssumptions,
-) -> WqResult<Vec<Value>> {
+) -> WqResult<GaussianOutcome> {
     let rhs_col = var_count;
     let mut rank = 0;
     let mut pivot_cols = Vec::with_capacity(var_count);
 
     for col in 0..var_count {
-        let Some(pivot_row) = pivot_row_for_col(&rows, rank, col, assumptions)? else {
-            continue;
+        let pivot_row = match pivot_row_for_col(&rows, rank, col, assumptions) {
+            PivotDecision::Row(row) => row,
+            PivotDecision::None => continue,
+            PivotDecision::NeedDecision(value) => {
+                return Ok(GaussianOutcome::NeedDecision(value));
+            }
         };
         if pivot_row != rank {
             rows.swap(rank, pivot_row);
@@ -218,12 +275,8 @@ fn gaussian_elimination_solve(
         let pivot = rows[rank][col].clone();
         let pivot_slice = rows[rank][col..=rhs_col].to_vec();
         for row in &mut rows[(rank + 1)..] {
-            match assumptions.prove_zero(&row[col]) {
-                Truth::Proven => continue,
-                Truth::Refuted => {}
-                Truth::Unknown => {
-                    return Err(undecidable_zero_error(&row[col], "elimination coefficient"));
-                }
+            if assumptions.prove_zero(&row[col]) == Truth::Proven {
+                continue;
             }
             let factor = cas_div(row[col].clone(), pivot.clone())?;
             for (offset, cell) in row[col..=rhs_col].iter_mut().enumerate() {
@@ -237,28 +290,32 @@ fn gaussian_elimination_solve(
     }
 
     for row in &rows {
-        if row_has_zero_coefficients(row, var_count, assumptions)? {
+        let all_zero = match row_has_zero_coefficients(row, var_count, assumptions) {
+            Ok(all_zero) => all_zero,
+            Err(value) => return Ok(GaussianOutcome::NeedDecision(value)),
+        };
+        if all_zero {
             match assumptions.prove_zero(&row[rhs_col]) {
                 Truth::Proven => {}
                 Truth::Refuted => {
-                    return Err(cas_err(
-                        "solve_system has no solution (inconsistent system)",
-                    ));
+                    return Ok(GaussianOutcome::Solved(LinearSolution::Empty));
                 }
                 Truth::Unknown => {
-                    return Err(undecidable_zero_error(&row[rhs_col], "residual"));
+                    return Ok(GaussianOutcome::NeedDecision(row[rhs_col].clone()));
                 }
             }
         }
     }
 
-    if rank < var_count {
-        return Err(cas_err(
-            "solve_system has infinitely many solutions (dependent system)",
-        ));
+    let free_cols = (0..var_count)
+        .filter(|col| !pivot_cols.contains(col))
+        .collect::<Vec<_>>();
+    let parameters = fresh_parameters(&rows, var_names, free_cols.len());
+    let mut solution = vec![Value::Int(0); var_count];
+    for (&col, parameter) in free_cols.iter().zip(&parameters) {
+        solution[col] = parameter.clone();
     }
 
-    let mut solution = vec![Value::Int(0); var_count];
     for pivot_idx in (0..rank).rev() {
         let row_idx = pivot_idx;
         let pivot_col = pivot_cols[pivot_idx];
@@ -269,53 +326,101 @@ fn gaussian_elimination_solve(
         }
         solution[pivot_col] = cas_div(rhs, rows[row_idx][pivot_col].clone())?;
     }
-    Ok(solution)
+    if parameters.is_empty() {
+        Ok(GaussianOutcome::Solved(LinearSolution::Unique(solution)))
+    } else {
+        Ok(GaussianOutcome::Solved(LinearSolution::Parametric {
+            values: solution,
+            parameters,
+        }))
+    }
+}
+
+fn fresh_parameters(rows: &[Vec<Value>], var_names: &[String], count: usize) -> Vec<Value> {
+    let mut used = var_names.iter().cloned().collect::<BTreeSet<_>>();
+    for row in rows {
+        for value in row {
+            collect_cas_vars(value, &mut used);
+        }
+    }
+    let mut parameters = Vec::with_capacity(count);
+    let mut index = 0usize;
+    while parameters.len() < count {
+        let name = format!("p{index}");
+        if used.insert(name.clone()) {
+            parameters.push(Value::from_cas_var(name));
+        }
+        index += 1;
+    }
+    parameters
 }
 
 fn determinant(matrix: &[Vec<Value>]) -> WqResult<Value> {
-    match matrix.len() {
-        0 => Ok(Value::Int(1)),
-        1 => Ok(matrix[0][0].clone()),
-        size => {
-            let mut terms = Vec::with_capacity(size);
-            for col in 0..size {
-                let mut minor = Vec::with_capacity(size - 1);
-                for row in matrix.iter().skip(1) {
-                    let mut minor_row = Vec::with_capacity(size - 1);
-                    for (idx, value) in row.iter().enumerate() {
-                        if idx != col {
-                            minor_row.push(value.clone());
-                        }
-                    }
-                    minor.push(minor_row);
-                }
-                let term = cas_mul(vec![matrix[0][col].clone(), determinant(&minor)?])?;
-                terms.push(if col % 2 == 0 { term } else { cas_neg(term)? });
-            }
-            cas_add(terms)
-        }
+    if matrix.is_empty() {
+        return Ok(Value::Int(1));
     }
+    if matrix.len() > 12 {
+        return Err(cas_err(
+            "symbolic determinant currently supports matrices up to 12 by 12",
+        ));
+    }
+    let full_mask = (1u16 << matrix.len()) - 1;
+    determinant_mask(matrix, 0, full_mask, &mut HashMap::new())
+}
+
+fn determinant_mask(
+    matrix: &[Vec<Value>],
+    row: usize,
+    columns: u16,
+    memo: &mut HashMap<(usize, u16), Value>,
+) -> WqResult<Value> {
+    if row == matrix.len() {
+        return Ok(Value::Int(1));
+    }
+    if let Some(value) = memo.get(&(row, columns)) {
+        return Ok(value.clone());
+    }
+
+    let mut terms = Vec::with_capacity(columns.count_ones() as usize);
+    let mut position = 0usize;
+    for col in 0..matrix.len() {
+        let bit = 1u16 << col;
+        if columns & bit == 0 {
+            continue;
+        }
+        let minor = determinant_mask(matrix, row + 1, columns ^ bit, memo)?;
+        let term = cas_mul(vec![matrix[row][col].clone(), minor])?;
+        terms.push(if position.is_multiple_of(2) {
+            term
+        } else {
+            cas_neg(term)?
+        });
+        position += 1;
+    }
+    let result = cas_add(terms)?;
+    memo.insert((row, columns), result.clone());
+    Ok(result)
 }
 
 fn solve_square_system(
     rows: &[Vec<Value>],
     var_count: usize,
     assumptions: &CasAssumptions,
-) -> WqResult<Option<Vec<Value>>> {
-    if rows.len() != var_count || var_count == 0 || var_count > 6 {
-        return Ok(None);
+) -> WqResult<SquareOutcome> {
+    if rows.len() != var_count || var_count == 0 || var_count > 12 {
+        return Ok(SquareOutcome::NotApplicable);
     }
     let matrix = rows
         .iter()
         .map(|row| row[..var_count].to_vec())
         .collect::<Vec<_>>();
     if !matrix.iter().flatten().any(Value::is_cas_expr) {
-        return Ok(None);
+        return Ok(SquareOutcome::NotApplicable);
     }
     let det = determinant(&matrix)?;
     match assumptions.prove_zero(&det) {
-        Truth::Proven => Ok(None),
-        Truth::Unknown => Err(undecidable_zero_error(&det, "determinant")),
+        Truth::Proven => Ok(SquareOutcome::NotApplicable),
+        Truth::Unknown => Ok(SquareOutcome::NeedDecision(det)),
         Truth::Refuted => {
             let mut solution = Vec::with_capacity(var_count);
             for replaced_col in 0..var_count {
@@ -325,8 +430,74 @@ fn solve_square_system(
                 }
                 solution.push(cas_div(determinant(&replaced)?, det.clone())?);
             }
-            Ok(Some(solution))
+            Ok(SquareOutcome::Solved(solution))
         }
+    }
+}
+
+fn solve_linear_with_cases(
+    rows: &[Vec<Value>],
+    var_names: &[String],
+    assumptions: &CasAssumptions,
+    branch_depth: usize,
+) -> WqResult<LinearSolution> {
+    match solve_square_system(rows, var_names.len(), assumptions)? {
+        SquareOutcome::Solved(values) => return Ok(LinearSolution::Unique(values)),
+        SquareOutcome::NeedDecision(value) => {
+            return branch_linear_solution(rows, var_names, assumptions, value, branch_depth);
+        }
+        SquareOutcome::NotApplicable => {}
+    }
+    match gaussian_elimination(rows.to_vec(), var_names.len(), var_names, assumptions)? {
+        GaussianOutcome::Solved(solution) => Ok(solution),
+        GaussianOutcome::NeedDecision(value) => {
+            branch_linear_solution(rows, var_names, assumptions, value, branch_depth)
+        }
+    }
+}
+
+fn branch_linear_solution(
+    rows: &[Vec<Value>],
+    var_names: &[String],
+    assumptions: &CasAssumptions,
+    value: Value,
+    branch_depth: usize,
+) -> WqResult<LinearSolution> {
+    if branch_depth == 0 {
+        return Err(cas_err(
+            "solve_system exceeded its conditional branch limit; pass more assumptions",
+        ));
+    }
+    let predicates = [
+        CasPredicate::NonZero(value.clone()),
+        CasPredicate::Zero(value),
+    ];
+    let mut cases = Vec::with_capacity(predicates.len());
+    for predicate in predicates {
+        let branch_assumptions = assumptions.clone().with_predicate(predicate.clone())?;
+        let result =
+            solve_linear_with_cases(rows, var_names, &branch_assumptions, branch_depth - 1)?;
+        push_linear_case(&mut cases, predicate, result);
+    }
+    Ok(LinearSolution::Cases(cases))
+}
+
+fn push_linear_case(
+    cases: &mut Vec<ConditionalCase<LinearSolution>>,
+    predicate: CasPredicate,
+    result: LinearSolution,
+) {
+    match result {
+        LinearSolution::Cases(nested) => {
+            for mut case in nested {
+                case.conditions.insert(0, predicate.clone());
+                cases.push(case);
+            }
+        }
+        result => cases.push(ConditionalCase {
+            conditions: vec![predicate],
+            result,
+        }),
     }
 }
 
@@ -433,17 +604,59 @@ fn solve_normalized_system(
         rows.push(row);
     }
 
-    let solution = if let Some(solution) = solve_square_system(&rows, var_names.len(), assumptions)?
-    {
-        solution
-    } else {
-        gaussian_elimination_solve(rows, var_names.len(), assumptions)?
-    };
-    let mut map = IndexMap::with_capacity(solution.len());
-    for (var_name, value) in var_names.iter().zip(solution) {
+    let solution = solve_linear_with_cases(&rows, var_names, assumptions, 8)?;
+    Ok(linear_solution_value(solution, var_names))
+}
+
+fn binding_dict(var_names: &[String], values: Vec<Value>) -> Value {
+    let mut map = IndexMap::with_capacity(values.len());
+    for (var_name, value) in var_names.iter().zip(values) {
         map.insert(Arc::from(var_name.as_str()), value);
     }
-    Ok(Value::Dict(Arc::new(map)))
+    Value::Dict(Arc::new(map))
+}
+
+fn named_dict(entries: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
+    Value::Dict(Arc::new(
+        entries
+            .into_iter()
+            .map(|(name, value)| (Arc::from(name), value))
+            .collect(),
+    ))
+}
+
+fn condition_value(conditions: Vec<CasPredicate>) -> Value {
+    Value::List(Arc::new(
+        conditions
+            .into_iter()
+            .map(Value::from_cas_predicate)
+            .collect(),
+    ))
+}
+
+fn linear_solution_value(solution: LinearSolution, var_names: &[String]) -> Value {
+    match solution {
+        LinearSolution::Empty => Value::Tag(Arc::from("none")),
+        LinearSolution::Unique(values) => binding_dict(var_names, values),
+        LinearSolution::Parametric { values, parameters } => named_dict([
+            ("solution", binding_dict(var_names, values)),
+            ("parameters", Value::List(Arc::new(parameters))),
+        ]),
+        LinearSolution::Cases(cases) => named_dict([(
+            "cases",
+            Value::List(Arc::new(
+                cases
+                    .into_iter()
+                    .map(|case| {
+                        named_dict([
+                            ("when", condition_value(case.conditions)),
+                            ("solution", linear_solution_value(case.result, var_names)),
+                        ])
+                    })
+                    .collect(),
+            )),
+        )]),
+    }
 }
 
 fn coefficients_are_exact_real(coeffs: &[Value]) -> bool {
@@ -465,74 +678,115 @@ fn quadratic_discriminant(coeffs: &[Value]) -> WqResult<Value> {
     )
 }
 
-fn solve_numeric_quadratic(coeffs: &[Value], disc: Value) -> WqResult<Vec<Value>> {
+fn solve_numeric_quadratic(
+    coeffs: &[Value],
+    disc: Value,
+    domain: SolveDomain,
+) -> WqResult<RootSolution> {
+    if domain == SolveDomain::Real && numeric_is_negative(&disc) {
+        return Ok(RootSolution::Empty);
+    }
     let sqrt_disc = disc.sqrt().map_err(|e| e.src("cas"))?;
     let neg_b = coeffs[1].neg().map_err(|e| e.src("cas"))?;
     let denom = eval_numeric_binary("*", &Value::Int(2), &coeffs[2])?;
-    Ok(vec![
-        eval_numeric_binary("/", &eval_numeric_binary("+", &neg_b, &sqrt_disc)?, &denom)?,
-        eval_numeric_binary("/", &eval_numeric_binary("-", &neg_b, &sqrt_disc)?, &denom)?,
-    ])
+    let first = eval_numeric_binary("/", &eval_numeric_binary("+", &neg_b, &sqrt_disc)?, &denom)?;
+    if domain == SolveDomain::Real && numeric_is_zero(&disc) {
+        Ok(RootSolution::Finite(vec![first]))
+    } else {
+        Ok(RootSolution::Finite(vec![
+            first,
+            eval_numeric_binary("/", &eval_numeric_binary("-", &neg_b, &sqrt_disc)?, &denom)?,
+        ]))
+    }
 }
 
-fn solve_numeric_polynomial(coeffs: &[Value]) -> WqResult<Vec<Value>> {
+fn solve_numeric_polynomial(coeffs: &[Value], domain: SolveDomain) -> WqResult<RootSolution> {
     let degree = poly_degree(coeffs);
     match degree {
         0 => {
             if numeric_is_zero(&coeffs[0]) {
-                return Err(cas_err("solve identity has infinitely many solutions"));
+                return Ok(RootSolution::All);
             }
-            Ok(Vec::new())
+            Ok(RootSolution::Empty)
         }
-        1 => Ok(vec![eval_exact_numeric_div(
+        1 => Ok(RootSolution::Finite(vec![eval_exact_numeric_div(
             &coeffs[0].neg().map_err(|e| e.src("cas"))?,
             &coeffs[1],
-        )?]),
+        )?])),
         2 => {
             let disc = quadratic_discriminant(coeffs)?;
             if coefficients_are_exact_real(coeffs) && !numeric_is_negative(&disc) {
-                solve_parameterized_polynomial(coeffs, &CasAssumptions::default())
+                solve_parameterized_polynomial(coeffs, &CasAssumptions::default(), domain, 8)
             } else {
-                solve_numeric_quadratic(coeffs, disc)
+                solve_numeric_quadratic(coeffs, disc, domain)
             }
         }
-        _ => solve_monomial_polynomial(coeffs, degree),
+        _ => {
+            let roots = solve_monomial_polynomial(coeffs, degree)?;
+            if domain == SolveDomain::Real {
+                let roots = roots
+                    .into_iter()
+                    .filter_map(|root| match root {
+                        Value::Complex(value)
+                            if value.im.abs() <= 1e-12 * value.re.abs().max(1.0) =>
+                        {
+                            Some(Value::float(value.re))
+                        }
+                        Value::Complex(_) => None,
+                        root => Some(root),
+                    })
+                    .collect();
+                return Ok(RootSolution::Finite(roots));
+            }
+            Ok(RootSolution::Finite(roots))
+        }
     }
 }
 
-fn parameterized_poly_degree(coeffs: &[Value], assumptions: &CasAssumptions) -> WqResult<usize> {
+fn parameterized_poly_degree(coeffs: &[Value], assumptions: &CasAssumptions) -> DegreeDecision {
     for (degree, coefficient) in coeffs.iter().enumerate().rev() {
         match assumptions.prove_zero(coefficient) {
             Truth::Proven => {}
-            Truth::Refuted => return Ok(degree),
-            Truth::Unknown => {
-                return Err(cas_err(format!(
-                    "solve cannot determine whether leading coefficient {coefficient} is zero; pass nonzero[{coefficient}] to named argument assuming, or assert zero with eq[{coefficient};0]"
-                )));
-            }
+            Truth::Refuted => return DegreeDecision::Degree(degree),
+            Truth::Unknown => return DegreeDecision::NeedDecision(coefficient.clone()),
         }
     }
-    Ok(0)
+    DegreeDecision::Degree(0)
 }
 
 fn solve_parameterized_polynomial(
     coeffs: &[Value],
     assumptions: &CasAssumptions,
-) -> WqResult<Vec<Value>> {
+    domain: SolveDomain,
+    branch_depth: usize,
+) -> WqResult<RootSolution> {
+    if domain == SolveDomain::Real {
+        for coefficient in coeffs {
+            if assumptions.prove_real(coefficient) != Truth::Proven {
+                return Err(cas_err(format!(
+                    "real-domain solve cannot prove coefficient {coefficient} is real; pass real[{coefficient}] to named argument assuming"
+                )));
+            }
+        }
+    }
+    let degree = match parameterized_poly_degree(coeffs, assumptions) {
+        DegreeDecision::Degree(degree) => degree,
+        DegreeDecision::NeedDecision(value) => {
+            return branch_root_solution(coeffs, assumptions, domain, value, branch_depth);
+        }
+    };
     let coeff_at = |idx: usize| coeffs.get(idx).cloned().unwrap_or(Value::Int(0));
-    let degree = parameterized_poly_degree(coeffs, assumptions)?;
     match degree {
         0 => match assumptions.prove_zero(&coeffs[0]) {
-            Truth::Proven => Err(cas_err("solve identity has infinitely many solutions")),
-            Truth::Refuted => Ok(Vec::new()),
-            Truth::Unknown => Err(cas_err(format!(
-                "solve cannot determine whether constant {} is zero; pass nonzero[{}] to named argument assuming, or assert zero with eq[{};0]",
-                coeffs[0], coeffs[0], coeffs[0]
-            ))),
+            Truth::Proven => Ok(RootSolution::All),
+            Truth::Refuted => Ok(RootSolution::Empty),
+            Truth::Unknown => {
+                branch_root_solution(coeffs, assumptions, domain, coeffs[0].clone(), branch_depth)
+            }
         },
         1 => {
             let root = cas_div(cas_neg(coeff_at(0))?, coeff_at(1))?;
-            Ok(vec![simplify_cas_value(&root)?])
+            Ok(RootSolution::Finite(vec![simplify_cas_value(&root)?]))
         }
         2 => {
             let a = coeff_at(2);
@@ -541,19 +795,7 @@ fn solve_parameterized_polynomial(
             let b_squared = cas_pow(b.clone(), Value::Int(2))?;
             let four_ac = cas_mul(vec![Value::Int(4), a.clone(), c])?;
             let disc = cas_sub(b_squared, four_ac)?;
-            let sqrt_disc = cas_pow(
-                disc,
-                Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
-            )?;
-            let neg_b = cas_neg(b)?;
-            let denom = cas_mul(vec![Value::Int(2), a])?;
-            Ok(vec![
-                simplify_cas_value(&cas_div(
-                    cas_add(vec![neg_b.clone(), sqrt_disc.clone()])?,
-                    denom.clone(),
-                )?)?,
-                simplify_cas_value(&cas_div(cas_sub(neg_b, sqrt_disc)?, denom)?)?,
-            ])
+            solve_parameterized_quadratic(a, b, disc, assumptions, domain)
         }
         _ => Err(cas_err(
             "parameterized solve currently supports polynomial degree <= 2",
@@ -561,14 +803,169 @@ fn solve_parameterized_polynomial(
     }
 }
 
-pub(crate) fn solve_cas(input: &Value, var: &Value) -> WqResult<Value> {
-    solve_cas_with_assumptions(input, var, &CasAssumptions::default())
+fn solve_parameterized_quadratic(
+    a: Value,
+    b: Value,
+    disc: Value,
+    assumptions: &CasAssumptions,
+    domain: SolveDomain,
+) -> WqResult<RootSolution> {
+    if domain == SolveDomain::Real {
+        if assumptions.prove_positive(&disc) == Truth::Proven {
+            return Ok(RootSolution::Finite(quadratic_formula_roots(
+                a, b, disc, false,
+            )?));
+        }
+        if assumptions.prove_zero(&disc) == Truth::Proven {
+            return Ok(RootSolution::Finite(quadratic_formula_roots(
+                a, b, disc, true,
+            )?));
+        }
+        if assumptions.prove_negative(&disc) == Truth::Proven {
+            return Ok(RootSolution::Empty);
+        }
+        let candidates = vec![
+            ConditionalCase {
+                conditions: vec![CasPredicate::Positive(disc.clone())],
+                result: RootSolution::Finite(quadratic_formula_roots(
+                    a.clone(),
+                    b.clone(),
+                    disc.clone(),
+                    false,
+                )?),
+            },
+            ConditionalCase {
+                conditions: vec![CasPredicate::Zero(disc.clone())],
+                result: RootSolution::Finite(quadratic_formula_roots(a, b, disc.clone(), true)?),
+            },
+            ConditionalCase {
+                conditions: vec![CasPredicate::Negative(disc)],
+                result: RootSolution::Empty,
+            },
+        ];
+        let cases = candidates
+            .into_iter()
+            .filter(|case| assumptions.prove_predicate(&case.conditions[0]) != Truth::Refuted)
+            .collect();
+        return Ok(RootSolution::Cases(cases));
+    }
+
+    Ok(RootSolution::Finite(quadratic_formula_roots(
+        a, b, disc, false,
+    )?))
 }
 
+fn quadratic_formula_roots(
+    a: Value,
+    b: Value,
+    disc: Value,
+    repeated: bool,
+) -> WqResult<Vec<Value>> {
+    let sqrt_disc = cas_pow(
+        disc,
+        Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+    )?;
+    let neg_b = cas_neg(b)?;
+    let denom = cas_mul(vec![Value::Int(2), a])?;
+    let first = simplify_cas_value(&cas_div(
+        cas_add(vec![neg_b.clone(), sqrt_disc.clone()])?,
+        denom.clone(),
+    )?)?;
+    if repeated {
+        Ok(vec![first])
+    } else {
+        Ok(vec![
+            first,
+            simplify_cas_value(&cas_div(cas_sub(neg_b, sqrt_disc)?, denom)?)?,
+        ])
+    }
+}
+
+fn branch_root_solution(
+    coeffs: &[Value],
+    assumptions: &CasAssumptions,
+    domain: SolveDomain,
+    value: Value,
+    branch_depth: usize,
+) -> WqResult<RootSolution> {
+    if branch_depth == 0 {
+        return Err(cas_err(
+            "solve exceeded its conditional branch limit; pass more assumptions",
+        ));
+    }
+    let predicates = [
+        CasPredicate::NonZero(value.clone()),
+        CasPredicate::Zero(value),
+    ];
+    let mut cases = Vec::with_capacity(predicates.len());
+    for predicate in predicates {
+        let branch_assumptions = assumptions.clone().with_predicate(predicate.clone())?;
+        let result =
+            solve_parameterized_polynomial(coeffs, &branch_assumptions, domain, branch_depth - 1)?;
+        push_root_case(&mut cases, predicate, result);
+    }
+    Ok(RootSolution::Cases(cases))
+}
+
+fn push_root_case(
+    cases: &mut Vec<ConditionalCase<RootSolution>>,
+    predicate: CasPredicate,
+    result: RootSolution,
+) {
+    match result {
+        RootSolution::Cases(nested) => {
+            for mut case in nested {
+                case.conditions.insert(0, predicate.clone());
+                cases.push(case);
+            }
+        }
+        result => cases.push(ConditionalCase {
+            conditions: vec![predicate],
+            result,
+        }),
+    }
+}
+
+fn root_solution_value(solution: RootSolution) -> Value {
+    match solution {
+        RootSolution::Empty => Value::List(Arc::new(Vec::new())),
+        RootSolution::All => Value::Tag(Arc::from("all")),
+        RootSolution::Finite(roots) => Value::List(Arc::new(roots)),
+        RootSolution::Cases(cases) => named_dict([(
+            "cases",
+            Value::List(Arc::new(
+                cases
+                    .into_iter()
+                    .map(|case| {
+                        named_dict([
+                            ("when", condition_value(case.conditions)),
+                            ("solutions", root_solution_value(case.result)),
+                        ])
+                    })
+                    .collect(),
+            )),
+        )]),
+    }
+}
+
+pub(crate) fn solve_cas(input: &Value, var: &Value) -> WqResult<Value> {
+    solve_cas_with_options(input, var, &CasAssumptions::default(), SolveDomain::Complex)
+}
+
+#[cfg(test)]
 pub(crate) fn solve_cas_with_assumptions(
     input: &Value,
     var: &Value,
     assumptions: &CasAssumptions,
+) -> WqResult<Value> {
+    solve_cas_with_options(input, var, assumptions, SolveDomain::Complex)
+}
+
+pub(crate) fn solve_cas_with_options(
+    input: &Value,
+    var: &Value,
+    assumptions: &CasAssumptions,
+    domain: SolveDomain,
 ) -> WqResult<Value> {
     let var = var_name_from_value(var)?;
     let expr = if let Some((lhs, rhs)) = input.cas_eq_parts() {
@@ -576,14 +973,14 @@ pub(crate) fn solve_cas_with_assumptions(
     } else {
         simplify_cas_value(input)?
     };
-    let roots = match poly_from_expr(&expr, &var) {
-        Ok(coeffs) => solve_numeric_polynomial(&coeffs)?,
+    let solution = match poly_from_expr(&expr, &var) {
+        Ok(coeffs) => solve_numeric_polynomial(&coeffs, domain)?,
         Err(_) => {
             let coeffs = poly_from_expr_with_params(&expr, &var)?;
-            solve_parameterized_polynomial(&coeffs, assumptions)?
+            solve_parameterized_polynomial(&coeffs, assumptions, domain, 8)?
         }
     };
-    Ok(Value::List(Arc::new(roots)))
+    Ok(root_solution_value(solution))
 }
 
 #[cfg(test)]

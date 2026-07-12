@@ -76,9 +76,14 @@ impl Value {
         }))
     }
 
+    #[cfg(test)]
     pub(crate) fn from_cas_nonzero(expr: Value) -> Value {
+        Self::from_cas_predicate(CasPredicate::NonZero(expr))
+    }
+
+    pub(crate) fn from_cas_predicate(predicate: CasPredicate) -> Value {
         Value::Cas(Arc::new(CasData {
-            kind: CasKind::Predicate(CasPredicate::NonZero(expr)),
+            kind: CasKind::Predicate(predicate),
         }))
     }
 
@@ -229,10 +234,14 @@ impl Value {
             Some(format_cas_value(self))
         } else if let Some((lhs, rhs)) = self.cas_eq_parts() {
             Some(format_cas_equation(lhs, rhs))
-        } else if let Some(CasPredicate::NonZero(expr)) = self.cas_predicate() {
-            Some(format!("nonzero[{}]", format_cas_value(expr)))
         } else {
-            None
+            self.cas_predicate().map(|predicate| {
+                format!(
+                    "{}[{}]",
+                    predicate.name(),
+                    format_cas_value(predicate.expr())
+                )
+            })
         }
     }
 

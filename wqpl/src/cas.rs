@@ -54,11 +54,11 @@ use simplify::{
     var_name_from_value,
 };
 pub(crate) use solve::{
-    solve_cas, solve_cas_with_assumptions, solve_system_cas_with_assumptions,
+    SolveDomain, solve_cas, solve_cas_with_options, solve_system_cas_with_assumptions,
     solve_system_infer_cas_with_assumptions,
 };
 #[cfg(test)]
-pub(crate) use solve::{solve_system_cas, solve_system_infer_cas};
+pub(crate) use solve::{solve_cas_with_assumptions, solve_system_cas, solve_system_infer_cas};
 
 pub(crate) mod diff;
 pub(crate) mod integrate;

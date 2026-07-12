@@ -3,9 +3,9 @@ verb:{[symbol]
   $$[symbol=@u"+";+;symbol=@u"-";-;symbol=@u"*";*;symbol=@u"%";/;
     raise@f"rpn: unknown verb {symbol}"]}
 parse_number:{[token]
-  integer:@t int token
-  $[integer 0=`ok;
-    integer 1;
+  parsed_integer:@t int token
+  $[parsed_integer 0=`ok;
+    parsed_integer 1;
     [decimal:@t float token
       $[decimal 0=`ok;decimal 1;raise@f"rpn: expected a number or verb, got {token}"]]]}
 parse_rpn:{

@@ -13,6 +13,42 @@ const NONZERO_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("nonzero[a]"),
 }];
 
+const ZERO_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Describe a zero symbolic expression",
+    code: "zero @s a",
+    expectation: ExampleExpectation::ResultContains("zero[a]"),
+}];
+
+const POSITIVE_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Describe a positive symbolic parameter",
+    code: "positive @s a",
+    expectation: ExampleExpectation::ResultContains("positive[a]"),
+}];
+
+const NEGATIVE_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Describe a negative symbolic parameter",
+    code: "negative @s a",
+    expectation: ExampleExpectation::ResultContains("negative[a]"),
+}];
+
+const NONNEGATIVE_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Describe a nonnegative symbolic parameter",
+    code: "nonnegative @s a",
+    expectation: ExampleExpectation::ResultContains("nonnegative[a]"),
+}];
+
+const REAL_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Describe a real symbolic parameter",
+    code: "real @s a",
+    expectation: ExampleExpectation::ResultContains("real[a]"),
+}];
+
+const INTEGER_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Describe an integer symbolic parameter",
+    code: "integer @s n",
+    expectation: ExampleExpectation::ResultContains("integer[n]"),
+}];
+
 const SIMPLIFY_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Combine like terms",
     code: "simplify @s 2*x+x+1",
@@ -117,8 +153,8 @@ const SOLVE_EXAMPLES: &[DocExample] = &[
     },
     DocExample {
         title: "Solve with symbolic parameters",
-        code: "solve[@s a*x+b;@s x;`assuming:nonzero[@s a]]",
-        expectation: ExampleExpectation::ResultContains("-b/a"),
+        code: "solve[@s a*x;@s x]",
+        expectation: ExampleExpectation::ResultContains("`cases"),
     },
     DocExample {
         title: "Keep exact real quadratic roots when possible",
@@ -129,6 +165,11 @@ const SOLVE_EXAMPLES: &[DocExample] = &[
         title: "Solve a numeric binomial quintic",
         code: "solve[@s x^5-1]",
         expectation: ExampleExpectation::ResultContains("0.309016"),
+    },
+    DocExample {
+        title: "Restrict roots to the real domain",
+        code: "solve[@s x^2+1;`domain:`real]",
+        expectation: ExampleExpectation::ResultContains("()"),
     },
 ];
 
@@ -170,7 +211,55 @@ pub(super) const NONZERO: BuiltinDoc = BuiltinDoc {
     summary: "Build a symbolic nonzero condition.",
     details: "`nonzero[expr]` creates a CAS condition asserting that `expr` is defined and unequal to zero. Pass one condition or a list of conditions through the `assuming` named argument of an assumption-aware CAS builtin.",
     examples: NONZERO_EXAMPLES,
-    related: &["eq", "solve_system"],
+    related: &["zero", "positive", "solve", "solve_system"],
+};
+
+pub(super) const ZERO: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Zero,
+    summary: "Build a symbolic zero condition.",
+    details: "`zero[expr]` creates a CAS condition asserting that `expr` equals zero. It is equivalent to `eq[expr;0]` when used through the `assuming` named argument.",
+    examples: ZERO_EXAMPLES,
+    related: &["nonzero", "eq", "solve", "solve_system"],
+};
+
+pub(super) const POSITIVE: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Positive,
+    summary: "Build a symbolic positive condition.",
+    details: "`positive[expr]` asserts that `expr` is real and greater than zero. The CAS can derive nonzero, nonnegative, and real facts from this condition.",
+    examples: POSITIVE_EXAMPLES,
+    related: &["negative", "nonnegative", "real", "solve"],
+};
+
+pub(super) const NEGATIVE: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Negative,
+    summary: "Build a symbolic negative condition.",
+    details: "`negative[expr]` asserts that `expr` is real and less than zero. The CAS can derive nonzero and real facts from this condition.",
+    examples: NEGATIVE_EXAMPLES,
+    related: &["positive", "nonnegative", "real", "solve"],
+};
+
+pub(super) const NONNEGATIVE: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Nonnegative,
+    summary: "Build a symbolic nonnegative condition.",
+    details: "`nonnegative[expr]` asserts that `expr` is real and greater than or equal to zero. It does not imply that the expression is nonzero.",
+    examples: NONNEGATIVE_EXAMPLES,
+    related: &["positive", "negative", "real", "solve"],
+};
+
+pub(super) const REAL: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Real,
+    summary: "Build a symbolic real condition.",
+    details: "`real[expr]` asserts that `expr` belongs to the real numbers. Integer, positive, negative, and nonnegative conditions also imply realness.",
+    examples: REAL_EXAMPLES,
+    related: &["integer", "positive", "negative", "solve"],
+};
+
+pub(super) const INTEGER: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Integer,
+    summary: "Build a symbolic integer condition.",
+    details: "`integer[expr]` asserts that `expr` is an integer. Integer conditions also imply that the expression is real.",
+    examples: INTEGER_EXAMPLES,
+    related: &["real", "positive", "solve"],
 };
 
 pub(super) const SIMPLIFY: BuiltinDoc = BuiltinDoc {
@@ -256,7 +345,16 @@ pub(super) const LIMIT: BuiltinDoc = BuiltinDoc {
 pub(super) const SOLVE: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Solve,
     summary: "Solve a single-variable symbolic equation.",
-    details: "`solve[expr]` treats `expr` as equal to zero and infers the only symbolic variable. `solve[expr;var]` uses an explicit variable, and equation inputs solve `lhs = rhs`. It handles linear and quadratic polynomials, including coefficients with other symbolic parameters when the variable is explicit. Use named argument `assuming` when a symbolic leading coefficient may be zero. Exact real quadratic coefficients keep exact real roots when possible. For degree greater than 2, `solve` currently supports numeric binomials of the form `a*x^n + b = 0`, returning numeric real and complex roots. General higher-degree polynomials such as `x^3+x-1` are not solved symbolically; use `brent` or `newton` for numeric real roots.",
+    details: "`solve[expr]` treats `expr` as equal to zero and infers the only symbolic variable.
+`solve[expr;var]` uses an explicit variable, and equation inputs solve `lhs = rhs`.
+It handles linear and quadratic polynomials, including coefficients with other symbolic parameters when the variable is explicit.
+When a symbolic coefficient can change the degree, the result contains `cases` with `when` conditions and branch `solutions`.
+A finite solution is a list, the `all` tag is the identity result, and an empty list means no solution.
+Named argument `assuming` narrows the cases. Named argument `domain` accepts the `complex` tag, which is the default, or the `real` tag.
+Parameterized real-domain solves require `real` assumptions for symbolic coefficients.
+Exact real quadratic coefficients keep exact real roots when possible.
+For degree greater than 2, `solve` currently supports numeric binomials of the form `a*x^n + b = 0`.
+General higher-degree polynomials such as `x^3+x-1` are not solved symbolically; use `brent` or `newton` for numeric real roots.",
     examples: SOLVE_EXAMPLES,
     related: &["eq", "nonzero", "solve_system", "brent", "newton"],
 };
@@ -264,7 +362,14 @@ pub(super) const SOLVE: BuiltinDoc = BuiltinDoc {
 pub(super) const SOLVE_SYSTEM: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::SolveSystem,
     summary: "Solve a linear symbolic system.",
-    details: "`solve_system[eqs]` infers symbolic variables and returns a dict keyed by variable name. `solve_system[eqs;vars]` uses an explicit variable list, which also controls dict order. Symbols outside that explicit list are treated as parameters. Use named argument `assuming` with `nonzero[expr]`, `eq[expr;0]`, or a list of such conditions when a symbolic determinant or pivot may be zero. The solver reports an unresolved zero condition instead of assuming it is nonzero. It solves linear systems with a unique solution, including consistent overdetermined systems. Inconsistent systems report no solution, and dependent or underdetermined systems report infinitely many solutions.",
+    details: "`solve_system[eqs]` infers symbolic variables and returns a dict keyed by variable name for a unique solution.
+`solve_system[eqs;vars]` uses an explicit variable list, which also controls dict order.
+Symbols outside that explicit list are treated as parameters.
+When a symbolic determinant or pivot can be zero, the result contains `cases` with `when` conditions and branch `solution` values.
+Named argument `assuming` narrows those cases.
+A dependent or underdetermined system returns `solution` bindings plus a `parameters` list of fresh symbols.
+The `none` tag means the system is inconsistent.
+The symbolic square-system path supports up to 12 variables, and Gaussian elimination handles other linear shapes.",
     examples: SOLVE_SYSTEM_EXAMPLES,
     related: &["solve", "eq", "nonzero", "substitute"],
 };
@@ -272,7 +377,8 @@ pub(super) const SOLVE_SYSTEM: BuiltinDoc = BuiltinDoc {
 pub(super) const BRENT: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Brent,
     summary: "Find a real root in a bracketed interval.",
-    details: "`brent[expr;a;b]` treats `expr` as equal to zero, infers its single variable, and finds a real root between finite bounds `a` and `b`. The interval must bracket a sign change; optional tolerance and iteration-limit arguments follow the bounds.",
+    details: "`brent[expr;a;b]` treats `expr` as equal to zero, infers its single variable, and finds a real root between finite bounds `a` and `b`.
+The interval must bracket a sign change; optional tolerance and iteration-limit arguments follow the bounds.",
     examples: BRENT_EXAMPLES,
     related: &["newton", "solve", "eq", "numeric"],
 };
@@ -280,7 +386,8 @@ pub(super) const BRENT: BuiltinDoc = BuiltinDoc {
 pub(super) const NEWTON: BuiltinDoc = BuiltinDoc {
     builtin: BuiltinEnum::Newton,
     summary: "Find a real root with Newton iteration.",
-    details: "`newton[expr;x0]` treats `expr` as equal to zero, infers its single variable, differentiates it symbolically, and iterates from the real initial guess `x0`. Optional tolerance and iteration-limit arguments follow the guess.",
+    details: "`newton[expr;x0]` treats `expr` as equal to zero, infers its single variable, differentiates it symbolically, and iterates from the real initial guess `x0`.
+Optional tolerance and iteration-limit arguments follow the guess.",
     examples: NEWTON_EXAMPLES,
     related: &["brent", "diff", "solve", "numeric"],
 };

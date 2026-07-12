@@ -187,12 +187,18 @@ impl std::hash::Hash for Value {
                     }
                     CasKind::Predicate(predicate) => {
                         9u8.hash(state);
-                        match predicate {
-                            crate::value::cas::CasPredicate::NonZero(expr) => {
-                                0u8.hash(state);
-                                expr.hash(state);
-                            }
-                        }
+                        use crate::value::cas::CasPredicate;
+                        let discriminant = match predicate {
+                            CasPredicate::Zero(_) => 0u8,
+                            CasPredicate::NonZero(_) => 1,
+                            CasPredicate::Positive(_) => 2,
+                            CasPredicate::Negative(_) => 3,
+                            CasPredicate::NonNegative(_) => 4,
+                            CasPredicate::Real(_) => 5,
+                            CasPredicate::Integer(_) => 6,
+                        };
+                        discriminant.hash(state);
+                        predicate.expr().hash(state);
                     }
                 }
             }

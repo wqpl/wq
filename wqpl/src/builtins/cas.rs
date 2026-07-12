@@ -5,12 +5,12 @@ use crate::cas::diff::diff_cas;
 use crate::cas::integrate::{definite_integrate_cas, integrate_cas};
 use crate::cas::limit::{limit_cas, parse_limit_direction};
 use crate::cas::{
-    CasAssumptions, eval_numeric_cas, expand_cas, factor_cas, infer_single_cas_var,
-    normalize_root_objective_cas, rewrite_cas, simplify_cas_value, solve_cas_with_assumptions,
+    CasAssumptions, SolveDomain, eval_numeric_cas, expand_cas, factor_cas, infer_single_cas_var,
+    normalize_root_objective_cas, rewrite_cas, simplify_cas_value, solve_cas_with_options,
     solve_system_cas_with_assumptions, solve_system_infer_cas_with_assumptions, substitute_cas,
     substitute_cas_bindings,
 };
-use crate::value::cas::CasOp;
+use crate::value::cas::{CasOp, CasPredicate};
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -22,16 +22,51 @@ pub(super) fn eq(args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(Value::from_cas_eq(a, b))
 }
 
-pub(super) fn nonzero(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BuiltinEnum::Nonzero, [1], &args)?;
+fn predicate(
+    args: BuiltinFnArgs,
+    builtin: BuiltinEnum,
+    make: impl FnOnce(Value) -> CasPredicate,
+) -> WqResult<Value> {
+    check_arity(builtin, [1], &args)?;
     let expr = &args[0];
     if expr.is_cas_equation() || expr.cas_predicate().is_some() {
         return Err(WqError::new(WqErrorType::Domain)
-            .src(BuiltinEnum::Nonzero)
-            .msg("nonzero expects a numeric or symbolic expression")
+            .src(builtin)
+            .msg(format!(
+                "{} expects a numeric or symbolic expression",
+                builtin.name()
+            ))
             .got1(expr));
     }
-    Ok(Value::from_cas_nonzero(expr.clone()))
+    Ok(Value::from_cas_predicate(make(expr.clone())))
+}
+
+pub(super) fn zero(args: BuiltinFnArgs) -> WqResult<Value> {
+    predicate(args, BuiltinEnum::Zero, CasPredicate::Zero)
+}
+
+pub(super) fn nonzero(args: BuiltinFnArgs) -> WqResult<Value> {
+    predicate(args, BuiltinEnum::Nonzero, CasPredicate::NonZero)
+}
+
+pub(super) fn positive(args: BuiltinFnArgs) -> WqResult<Value> {
+    predicate(args, BuiltinEnum::Positive, CasPredicate::Positive)
+}
+
+pub(super) fn negative(args: BuiltinFnArgs) -> WqResult<Value> {
+    predicate(args, BuiltinEnum::Negative, CasPredicate::Negative)
+}
+
+pub(super) fn nonnegative(args: BuiltinFnArgs) -> WqResult<Value> {
+    predicate(args, BuiltinEnum::Nonnegative, CasPredicate::NonNegative)
+}
+
+pub(super) fn real(args: BuiltinFnArgs) -> WqResult<Value> {
+    predicate(args, BuiltinEnum::Real, CasPredicate::Real)
+}
+
+pub(super) fn integer(args: BuiltinFnArgs) -> WqResult<Value> {
+    predicate(args, BuiltinEnum::Integer, CasPredicate::Integer)
 }
 
 pub(super) fn simplify(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -206,12 +241,17 @@ pub(super) fn limit(args: BuiltinFnArgs) -> WqResult<Value> {
 }
 
 pub(super) fn solve(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity_named(BuiltinEnum::Solve, [1, 2], &args, &["assuming"])?;
+    check_arity_named(BuiltinEnum::Solve, [1, 2], &args, &["assuming", "domain"])?;
     let assumptions = args
         .named("assuming")
         .map(CasAssumptions::from_value)
         .transpose()?
         .unwrap_or_default();
+    let domain = args
+        .named("domain")
+        .map(parse_solve_domain)
+        .transpose()?
+        .unwrap_or(SolveDomain::Complex);
     let n = args.len();
     let mut iter = args.into_iter();
     let expr = iter.next().unwrap();
@@ -221,7 +261,26 @@ pub(super) fn solve(args: BuiltinFnArgs) -> WqResult<Value> {
     } else {
         iter.next().unwrap()
     };
-    solve_cas_with_assumptions(&expr, &var, &assumptions)
+    solve_cas_with_options(&expr, &var, &assumptions, domain)
+}
+
+fn parse_solve_domain(value: &Value) -> WqResult<SolveDomain> {
+    let name = match value {
+        Value::Tag(name) => name.as_ref(),
+        Value::String(name) => name.as_str(),
+        _ => {
+            return Err(WqError::new(WqErrorType::Domain)
+                .msg("solve domain must be `complex or `real")
+                .got1(value));
+        }
+    };
+    match name {
+        "complex" => Ok(SolveDomain::Complex),
+        "real" => Ok(SolveDomain::Real),
+        _ => Err(WqError::new(WqErrorType::Domain)
+            .msg("solve domain must be `complex or `real")
+            .got1(value)),
+    }
 }
 
 pub(super) fn solve_system(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -781,6 +840,20 @@ fn poly_to_expr_complex(coeffs: &[Value], var: &str) -> Value {
 mod tests {
     use super::*;
     use crate::value::cas::CasFunction;
+
+    #[test]
+    fn solve_domain_accepts_tags_and_strings() {
+        assert_eq!(
+            parse_solve_domain(&Value::Tag("real".into())).expect("real tag"),
+            SolveDomain::Real
+        );
+        assert_eq!(
+            parse_solve_domain(&Value::String("complex".to_string().into()))
+                .expect("complex string"),
+            SolveDomain::Complex
+        );
+        assert!(parse_solve_domain(&Value::Tag("integer".into())).is_err());
+    }
 
     #[test]
     fn complex_quadratic_factorization_uses_algebraic_coefficients() {

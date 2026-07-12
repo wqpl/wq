@@ -68,10 +68,28 @@ solve_system[@s(b+a=3;b-a=1)] | echo
 //test solve a linear system with explicit symbolic parameters
 solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)] | echo
 
-//test describe and apply a nonzero CAS assumption
+//test describe CAS assumptions
+zero[@s a] | echo
 nonzero[@s a] | echo
-(@t solve_system[,eq[@s a*x;1];,@s x])0 | echo
+positive[@s a] | echo
+negative[@s a] | echo
+nonnegative[@s a] | echo
+real[@s a] | echo
+integer[@s a] | echo
+
+//test return conditional solutions without assuming a symbolic coefficient
+solve[@s a*x;@s x] | echo
+solve_system[,eq[@s a*x;1];,@s x] | echo
+
+//test narrow a symbolic system with a nonzero assumption
 solve_system[,eq[@s a*x;1];,@s x;`assuming:nonzero[@s a]] | echo
+
+//test return parametric and inconsistent system results
+solve_system[(eq[@s x+y;3];eq[@s 2*x+2*y;6])] | echo
+solve_system[(eq[@s x+y;3];eq[@s x+y;4])] | echo
+
+//test solve over the real domain
+solve[@s x^2+1;`domain:`real] | echo
 
 //test solve a symbolic 2 by 2 system under its determinant condition
 solve_system[

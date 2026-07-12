@@ -6,7 +6,7 @@ use super::assumption::CasAssumptions;
 use super::*;
 use crate::value::Value;
 use crate::value::algebraic::{AlgebraicData, AlgebraicField};
-use crate::value::cas::{CasConst, CasFunction, CasOp};
+use crate::value::cas::{CasConst, CasFunction, CasOp, CasPredicate};
 
 fn op(op: CasOp, args: Vec<Value>) -> Value {
     Value::from_cas_op(op, args)
@@ -581,16 +581,73 @@ fn solve_quadratic_repeated_root_stays_exact() {
 }
 
 #[test]
+fn solve_real_domain_excludes_complex_roots() {
+    let x = Value::from_cas_var("x");
+    let expr = cas_add(vec![
+        cas_pow(x.clone(), Value::Int(2)).expect("x^2"),
+        Value::Int(1),
+    ])
+    .expect("x^2 + 1");
+    let result = solve_cas_with_options(&expr, &x, &CasAssumptions::default(), SolveDomain::Real)
+        .expect("real solve");
+    assert_eq!(result, Value::List(Arc::new(Vec::new())));
+}
+
+#[test]
+fn solve_real_domain_deduplicates_repeated_root() {
+    let x = Value::from_cas_var("x");
+    let expr = cas_pow(
+        cas_sub(x.clone(), Value::Int(1)).expect("x - 1"),
+        Value::Int(2),
+    )
+    .expect("(x - 1)^2");
+    let result = solve_cas_with_options(&expr, &x, &CasAssumptions::default(), SolveDomain::Real)
+        .expect("real solve");
+    assert_eq!(result, Value::List(Arc::new(vec![Value::Int(1)])));
+}
+
+#[test]
+fn solve_real_parameterized_quadratic_returns_discriminant_cases() {
+    let a = Value::from_cas_var("a");
+    let x = Value::from_cas_var("x");
+    let expr = cas_add(vec![cas_pow(x.clone(), Value::Int(2)).expect("x^2"), a]).expect("x^2 + a");
+    let assumptions = CasAssumptions::from_value(&Value::from_cas_predicate(CasPredicate::Real(
+        Value::from_cas_var("a"),
+    )))
+    .expect("real coefficient assumption");
+    let result = solve_cas_with_options(&expr, &x, &assumptions, SolveDomain::Real)
+        .expect("real parameterized solve");
+    let Value::Dict(result) = result else {
+        panic!("expected conditional result");
+    };
+    let Value::List(cases) = &result["cases"] else {
+        panic!("expected case list");
+    };
+    assert_eq!(cases.len(), 3);
+}
+
+#[test]
+fn solve_real_parameterized_polynomial_requires_real_coefficients() {
+    let a = Value::from_cas_var("a");
+    let x = Value::from_cas_var("x");
+    let expr = cas_add(vec![x.clone(), a]).expect("x + a");
+    let error = solve_cas_with_options(&expr, &x, &CasAssumptions::default(), SolveDomain::Real)
+        .expect_err("a symbolic coefficient needs a real assumption");
+    assert!(
+        error
+            .msg
+            .as_deref()
+            .is_some_and(|message| message.contains("real[a]")),
+        "unexpected error: {error:?}"
+    );
+}
+
+#[test]
 fn solve_identity_reports_infinite_solutions() {
     let x = Value::from_cas_var("x");
-    let err = solve_cas(&Value::from_cas_eq(x.clone(), x.clone()), &x)
-        .expect_err("identity should not look like an empty root list");
-    assert!(
-        err.msg
-            .as_deref()
-            .is_some_and(|msg| msg.contains("infinitely many solutions")),
-        "unexpected error: {err:?}"
-    );
+    let result = solve_cas(&Value::from_cas_eq(x.clone(), x.clone()), &x)
+        .expect("identity should have an explicit result");
+    assert_eq!(result, Value::Tag(Arc::from("all")));
 }
 
 #[test]
@@ -615,18 +672,19 @@ fn solve_parameterized_linear_equation() {
 }
 
 #[test]
-fn solve_parameterized_linear_equation_requires_leading_coefficient_assumption() {
+fn solve_parameterized_linear_equation_returns_coefficient_cases() {
     let a = Value::from_cas_var("a");
     let x = Value::from_cas_var("x");
     let expr = cas_mul(vec![a, x.clone()]).expect("a*x");
 
-    let err = solve_cas(&expr, &x).expect_err("unknown leading coefficient should fail");
-    assert!(
-        err.msg
-            .as_deref()
-            .is_some_and(|msg| msg.contains("nonzero[a]")),
-        "unexpected error: {err:?}"
-    );
+    let result = solve_cas(&expr, &x).expect("unknown leading coefficient should branch");
+    let Value::Dict(result) = result else {
+        panic!("expected conditional result");
+    };
+    let Value::List(cases) = &result["cases"] else {
+        panic!("expected case list");
+    };
+    assert_eq!(cases.len(), 2);
 }
 
 #[test]
@@ -721,6 +779,27 @@ fn solve_monomial_cubic_equation() {
         root.as_f64()
             .is_some_and(|value| (value - 2.0).abs() < 1e-9)
     }));
+}
+
+#[test]
+fn solve_real_monomial_cubic_returns_only_real_root() {
+    let x = Value::from_cas_var("x");
+    let expr = cas_sub(
+        cas_pow(x.clone(), Value::Int(3)).expect("x^3"),
+        Value::Int(8),
+    )
+    .expect("x^3 - 8");
+    let result = solve_cas_with_options(&expr, &x, &CasAssumptions::default(), SolveDomain::Real)
+        .expect("real cubic solve");
+    let Value::List(roots) = result else {
+        panic!("expected list of roots");
+    };
+    assert_eq!(roots.len(), 1);
+    assert!(
+        roots[0]
+            .as_f64()
+            .is_some_and(|value| (value - 2.0).abs() < 1e-9)
+    );
 }
 
 #[test]
@@ -922,7 +1001,7 @@ fn solve_linear_system_accepts_overdetermined_unique_system() {
 }
 
 #[test]
-fn solve_linear_system_reports_dependent_system() {
+fn solve_linear_system_returns_parametric_dependent_system() {
     let x = Value::from_cas_var("x");
     let y = Value::from_cas_var("y");
     let equations = Value::List(Arc::new(vec![
@@ -940,17 +1019,19 @@ fn solve_linear_system_reports_dependent_system() {
         ),
     ]));
 
-    let err = solve_system_infer_cas(&equations).expect_err("dependent system should fail");
-    assert!(
-        err.msg
-            .as_deref()
-            .is_some_and(|msg| msg.contains("infinitely many solutions")),
-        "unexpected error: {err:?}"
-    );
+    let result = solve_system_infer_cas(&equations).expect("dependent system should solve");
+    let Value::Dict(result) = result else {
+        panic!("expected parametric result");
+    };
+    let Value::List(parameters) = &result["parameters"] else {
+        panic!("expected parameter list");
+    };
+    assert_eq!(parameters.len(), 1);
+    assert!(matches!(&result["solution"], Value::Dict(_)));
 }
 
 #[test]
-fn solve_linear_system_reports_inconsistent_system() {
+fn solve_linear_system_returns_no_solution_for_inconsistent_system() {
     let x = Value::from_cas_var("x");
     let y = Value::from_cas_var("y");
     let equations = Value::List(Arc::new(vec![
@@ -961,17 +1042,12 @@ fn solve_linear_system_reports_inconsistent_system() {
         Value::from_cas_eq(cas_add(vec![x, y]).expect("x+y"), Value::Int(4)),
     ]));
 
-    let err = solve_system_infer_cas(&equations).expect_err("inconsistent system should fail");
-    assert!(
-        err.msg
-            .as_deref()
-            .is_some_and(|msg| msg.contains("no solution")),
-        "unexpected error: {err:?}"
-    );
+    let result = solve_system_infer_cas(&equations).expect("inconsistent system should resolve");
+    assert_eq!(result, Value::Tag(Arc::from("none")));
 }
 
 #[test]
-fn solve_symbolic_single_equation_requires_a_determinant_assumption() {
+fn solve_symbolic_single_equation_returns_determinant_cases() {
     let a = Value::from_cas_var("a");
     let x = Value::from_cas_var("x");
     let equations = Value::List(Arc::new(vec![Value::from_cas_eq(
@@ -980,14 +1056,47 @@ fn solve_symbolic_single_equation_requires_a_determinant_assumption() {
     )]));
     let vars = Value::List(Arc::new(vec![x]));
 
-    let err = solve_system_cas(&equations, &vars)
-        .expect_err("an unknown determinant must not be assumed nonzero");
-    assert!(
-        err.msg
-            .as_deref()
-            .is_some_and(|msg| msg.contains("nonzero[a]")),
-        "unexpected error: {err:?}"
-    );
+    let result =
+        solve_system_cas(&equations, &vars).expect("an unknown determinant should produce cases");
+    let Value::Dict(result) = result else {
+        panic!("expected conditional result");
+    };
+    let Value::List(cases) = &result["cases"] else {
+        panic!("expected case list");
+    };
+    assert_eq!(cases.len(), 2);
+}
+
+#[test]
+fn solve_symbolic_seven_by_seven_system_returns_determinant_cases() {
+    let a = Value::from_cas_var("a");
+    let vars = (0..7)
+        .map(|idx| Value::from_cas_var(format!("x{idx}")))
+        .collect::<Vec<_>>();
+    let equations = vars
+        .iter()
+        .enumerate()
+        .map(|(idx, var)| {
+            let lhs = if idx == 0 {
+                cas_mul(vec![a.clone(), var.clone()]).expect("a*x0")
+            } else {
+                var.clone()
+            };
+            Value::from_cas_eq(lhs, Value::Int(idx as i64 + 1))
+        })
+        .collect::<Vec<_>>();
+    let result = solve_system_cas(
+        &Value::List(Arc::new(equations)),
+        &Value::List(Arc::new(vars)),
+    )
+    .expect("seven by seven symbolic solve");
+    let Value::Dict(result) = result else {
+        panic!("expected conditional result");
+    };
+    let Value::List(cases) = &result["cases"] else {
+        panic!("expected case list");
+    };
+    assert_eq!(cases.len(), 2);
 }
 
 #[test]

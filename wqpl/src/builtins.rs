@@ -1154,7 +1154,13 @@ declare_builtins! {
 
     // CAS
     (EQ, Eq, "eq", "eq[lhs;rhs]", sig!(arity!(2)), plain(cas::eq), builtin_metadata!(Cas, PURE)),
+    (ZERO, Zero, "zero", "zero[expr]", sig!(arity!(1)), plain(cas::zero), builtin_metadata!(Cas, PURE)),
     (NONZERO, Nonzero, "nonzero", "nonzero[expr]", sig!(arity!(1)), plain(cas::nonzero), builtin_metadata!(Cas, PURE)),
+    (POSITIVE, Positive, "positive", "positive[expr]", sig!(arity!(1)), plain(cas::positive), builtin_metadata!(Cas, PURE)),
+    (NEGATIVE, Negative, "negative", "negative[expr]", sig!(arity!(1)), plain(cas::negative), builtin_metadata!(Cas, PURE)),
+    (NONNEGATIVE, Nonnegative, "nonnegative", "nonnegative[expr]", sig!(arity!(1)), plain(cas::nonnegative), builtin_metadata!(Cas, PURE)),
+    (REAL, Real, "real", "real[expr]", sig!(arity!(1)), plain(cas::real), builtin_metadata!(Cas, PURE)),
+    (INTEGER, Integer, "integer", "integer[expr]", sig!(arity!(1)), plain(cas::integer), builtin_metadata!(Cas, PURE)),
     (SIMPLIFY, Simplify, "simplify", "simplify[expr]", sig!(arity!(1)), plain(cas::simplify), builtin_metadata!(Cas, PURE)),
     (REWRITE, Rewrite, "rewrite", "rewrite[expr]", sig!(arity!(1)), plain(cas::rewrite), builtin_metadata!(Cas, PURE)),
     (NUMERIC, Numeric, "numeric", "numeric[expr], numeric[expr;`name:val...]", sig!(arity!(1), defer), plain(cas::numeric), builtin_metadata!(Cas, PURE)),
@@ -1167,7 +1173,7 @@ declare_builtins! {
     (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", sig!(arity!(1, 2, 4)), plain(cas::integrate), builtin_metadata!(Cas, PURE)),
     (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", sig!(arity!(1, 2, 4), alias Integrate), plain(cas::integrate), builtin_metadata!(Cas, PURE)), // alias of integrate
     (LIMIT, Limit, "limit", "limit[expr;point;`d], limit[expr;var;point;`d]", sig!(arity!(2..), named LIMIT_NAMED_ARGS), plain(cas::limit), builtin_metadata!(Cas, PURE)),
-    (SOLVE, Solve, "solve", "solve[expr;`assuming], solve[expr;var;`assuming], solve[eq;var;`assuming]", sig!(arity!(1, 2), named SOLVE_NAMED_ARGS), plain(cas::solve), builtin_metadata!(Cas, PURE)),
+    (SOLVE, Solve, "solve", "solve[expr;`assuming;`domain], solve[expr;var;`assuming;`domain], solve[eq;var;`assuming;`domain]", sig!(arity!(1, 2), named SOLVE_NAMED_ARGS), plain(cas::solve), builtin_metadata!(Cas, PURE)),
     (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs;`assuming], solve_system[eqs;vars;`assuming]", sig!(arity!(1, 2), named SOLVE_SYSTEM_NAMED_ARGS), plain(cas::solve_system), builtin_metadata!(Cas, PURE)),
     (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", sig!(arity!(3, 4, 5)), plain(cas::brent), builtin_metadata!(Cas, PURE)),
     (NEWTON, Newton, "newton", "newton[expr;x0], newton[expr;x0;tol], newton[expr;x0;tol;max_iter], newton[eq;x0]", sig!(arity!(2, 3, 4)), plain(cas::newton), builtin_metadata!(Cas, PURE)),
@@ -1231,7 +1237,7 @@ declare_builtins! {
 const ECHO_NAMED_ARGS: &[&str] = &["sep"];
 const MAXSPLIT_NAMED_ARGS: &[&str] = &["m"];
 const LIMIT_NAMED_ARGS: &[&str] = &["d"];
-const SOLVE_NAMED_ARGS: &[&str] = &["assuming"];
+const SOLVE_NAMED_ARGS: &[&str] = &["assuming", "domain"];
 const SOLVE_SYSTEM_NAMED_ARGS: &[&str] = &["assuming"];
 const SHOWTABLE_NAMED_ARGS: &[&str] = &["cols", "limit", "width", "style", "missing"];
 const ASCIIPLOT_NAMED_ARGS: &[&str] = &[
@@ -1784,7 +1790,13 @@ mod tests {
             (BuiltinEnum::Fraction, "1 2"),
             (BuiltinEnum::Fractionl, "1"),
             (BuiltinEnum::Eq, "2"),
+            (BuiltinEnum::Zero, "1"),
             (BuiltinEnum::Nonzero, "1"),
+            (BuiltinEnum::Positive, "1"),
+            (BuiltinEnum::Negative, "1"),
+            (BuiltinEnum::Nonnegative, "1"),
+            (BuiltinEnum::Real, "1"),
+            (BuiltinEnum::Integer, "1"),
             (BuiltinEnum::Simplify, "1"),
             (BuiltinEnum::Rewrite, "1"),
             (BuiltinEnum::Numeric, "1"),

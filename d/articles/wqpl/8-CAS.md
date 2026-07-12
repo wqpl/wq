@@ -33,14 +33,19 @@ A single-variable CAS expression can also be called with one positional argument
 ```wq
 factor[@s x^2-1]|echo
 solve[@s x^2=1]|echo
-solve[@s a*x+b;@s x;`assuming:nonzero[@s a]]|echo
+solve[@s a*x;@s x]|echo
+solve[@s x^2+1;`domain:`real]|echo
 solve_system[@s(2*x+y=5;x-y=1)]|echo
 solve_system[(eq[@s 2*x+y;@s b];eq[@s x-y;@s c]);(@s x;@s y)]|echo
 ```
 
-The bracket calls keep the symbolic expression neatly inside the argument list. For linear systems, `solve_system` can infer variables and returns a dict keyed by variable name. Passing solve variables explicitly controls dict order, and other symbols can remain as parameters in supported linear and quadratic solves.
+The bracket calls keep the symbolic expression neatly inside the argument list.
+For linear systems, `solve_system` can infer variables and returns a dict keyed by variable name.
+Passing solve variables explicitly controls dict order, and other symbols can remain as parameters in supported linear and quadratic solves.
 
-When a symbolic system can change rank for different parameter values, state the relevant zero or nonzero conditions explicitly. `solve_system` does not assume an unresolved symbolic determinant is nonzero:
+When a symbolic coefficient can change a polynomial's degree or a system's rank, the solver returns explicit cases.
+Each case has a `when` list of conditions and a branch result.
+You can narrow those cases with assumptions:
 
 ```wq
 solve_system[
@@ -50,6 +55,10 @@ solve_system[
 ```
 
 Use `nonzero[expr]` for a nonzero condition and `eq[expr;0]` for a zero condition. A list passed to named argument `assuming` represents their conjunction.
+
+Conditions can also describe `zero`, `positive`, `negative`, `nonnegative`, `real`, and `integer` expressions. The CAS derives basic consequences such as positive values being nonzero and integers being real. Contradictory assumptions are rejected.
+
+For `solve`, a finite root set is a list, the `all` tag means every value is a solution, and an empty list means there is no solution. The default domain is the `complex` tag. Pass named argument `domain` with the `real` tag to exclude non-real roots. A parameterized real-domain solve also needs `real` assumptions for its symbolic coefficients, so the solver does not silently assume that a parameter is real. For `solve_system`, a unique solution stays a variable dict, the `none` tag means no solution, and dependent systems return a `solution` dict with a `parameters` list of fresh symbols.
 
 ## Numeric And Symbolic Can Meet
 
