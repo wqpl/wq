@@ -1,4 +1,6 @@
-use super::{AstNode, FStringPart, Parameter, PipeKind, binary_op_display, unary_op_display};
+use super::{
+    AstNode, FStringPart, Parameter, PipeKind, binary_op_display, bool_op_display, unary_op_display,
+};
 use crate::highlight::Highlighter as SyntaxHighlighter;
 use crate::style::AnsiColor;
 use crate::tree_pretty::{self, HeadStyle, Pretty};
@@ -96,9 +98,12 @@ fn node_color(node: &AstNode) -> AnsiColor {
         | Postfix { .. }
         | Pipe { .. }
         | PipeTap { .. } => AnsiColor::Magenta,
-        BinaryOp { .. } | UnaryOp { .. } | ComparisonChain { .. } | Range { .. } | Group { .. } => {
-            AnsiColor::Yellow
-        }
+        BinaryOp { .. }
+        | LazyBool { .. }
+        | UnaryOp { .. }
+        | ComparisonChain { .. }
+        | Range { .. }
+        | Group { .. } => AnsiColor::Yellow,
         Conditional { .. }
         | ConditionalDot { .. }
         | ConditionalChain { .. }
@@ -194,6 +199,16 @@ impl AstNode {
                 let l = left.pretty_with_depth(depth + 1, src);
                 let r = right.pretty_with_depth(depth + 1, src);
                 pretty_group(depth, head, vec![l, r], color)
+            }
+            LazyBool {
+                operator, operands, ..
+            } => {
+                let head = format!("LAZY-BOOL[{}]{note}", bool_op_display(operator));
+                let children = operands
+                    .iter()
+                    .map(|operand| operand.pretty_with_depth(depth + 1, src))
+                    .collect();
+                pretty_group(depth, head, children, color)
             }
             ComparisonChain { first, rest, .. } => {
                 let mut children = vec![first.pretty_with_depth(depth + 1, src)];

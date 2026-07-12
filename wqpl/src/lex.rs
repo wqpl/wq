@@ -4,7 +4,7 @@ use std::str::Chars;
 use num_bigint::BigInt;
 use num_traits::{Num, ToPrimitive};
 
-use crate::token::{Token, TokenType};
+use crate::token::{Keyword, Token, TokenType};
 use crate::value::WqResult;
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -1402,7 +1402,8 @@ impl<'a> Lexer<'a> {
                         "true" | "T" => TokenType::True,
                         "false" | "F" => TokenType::False,
                         "inf" => TokenType::Inf,
-                        _ => TokenType::Identifier(ident),
+                        _ => Keyword::from_identifier(&ident)
+                            .map_or(TokenType::Identifier(ident), TokenType::Keyword),
                     };
                     return emit(tt, self.byte_pos);
                 }
@@ -1680,6 +1681,32 @@ mod tests {
         assert_eq!(
             tokens[4].token_type,
             TokenType::Identifier("a???".to_string())
+        );
+    }
+
+    #[test]
+    fn control_keywords_are_not_identifiers() {
+        let tokens = Lexer::new("W N B A and O or Word android or_else")
+            .tokenize()
+            .expect("tokenize keywords");
+        assert_eq!(tokens[0].token_type, TokenType::Keyword(Keyword::WLoop));
+        assert_eq!(tokens[1].token_type, TokenType::Keyword(Keyword::NLoop));
+        assert_eq!(tokens[2].token_type, TokenType::Keyword(Keyword::Block));
+        assert_eq!(tokens[3].token_type, TokenType::Keyword(Keyword::And));
+        assert_eq!(tokens[4].token_type, TokenType::Keyword(Keyword::And));
+        assert_eq!(tokens[5].token_type, TokenType::Keyword(Keyword::Or));
+        assert_eq!(tokens[6].token_type, TokenType::Keyword(Keyword::Or));
+        assert_eq!(
+            tokens[7].token_type,
+            TokenType::Identifier("Word".to_string())
+        );
+        assert_eq!(
+            tokens[8].token_type,
+            TokenType::Identifier("android".to_string())
+        );
+        assert_eq!(
+            tokens[9].token_type,
+            TokenType::Identifier("or_else".to_string())
         );
     }
 

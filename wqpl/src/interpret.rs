@@ -2,7 +2,7 @@ pub mod profiler;
 pub mod sample;
 pub mod vanilla;
 
-use crate::ast::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
 use crate::value::{Value, WqResult};
 use crate::vm::Vm;
 use crate::vm::inst::Instruction;
@@ -57,6 +57,7 @@ pub(crate) trait InterpreterHook: 'static {
     fn on_call_user_cache_hit(&self) {}
     fn on_call_user_cache_miss(&self) {}
     fn on_binary_result(&self, _op: &BinaryOperator, _result: &Value) {}
+    fn on_lazy_bool_result(&self, _op: BoolOperator, _result: &Value) {}
     fn on_unary_result(&self, _op: &UnaryOperator, _result: &Value) {}
     fn on_builtin_result(&self, _name: &str, _argc: usize, _result: &Value) {}
     fn on_cat_alloc(&self, _len: &dyn Fn() -> usize) {}

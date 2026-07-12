@@ -1,8 +1,8 @@
 mod operator;
 mod print;
 
-pub use operator::{BinaryOperator, UnaryOperator};
-pub(crate) use operator::{binary_op_display, unary_op_display};
+pub use operator::{BinaryOperator, BoolOperator, UnaryOperator};
+pub(crate) use operator::{binary_op_display, bool_op_display, unary_op_display};
 
 use crate::value::Value;
 use crate::wqerror::WqError;
@@ -47,6 +47,11 @@ pub enum AstNode {
         left: Box<AstNode>,
         operator: BinaryOperator,
         right: Box<AstNode>,
+        span: AstSpan,
+    },
+    LazyBool {
+        operator: BoolOperator,
+        operands: Vec<AstNode>,
         span: AstSpan,
     },
     /// Chain of comparison operators like `a < b <= c`
@@ -257,6 +262,7 @@ impl AstNode {
         match self {
             Error(_, s) | Literal(_, s) | Variable(_, s) | OuterVariable(_, s) => *s,
             BinaryOp { span, .. }
+            | LazyBool { span, .. }
             | ComparisonChain { span, .. }
             | Range { span, .. }
             | Assignment { span, .. }

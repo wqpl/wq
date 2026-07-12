@@ -31,6 +31,11 @@ pub enum SyntaxKind {
 
     // Identifiers.
     Ident,
+    WLoopKw,
+    NLoopKw,
+    BlockKw,
+    AndKw,
+    OrKw,
     Apostrophe,
     Ellipsis,
 
@@ -141,6 +146,7 @@ pub enum SyntaxKind {
 
     ParenExpr,
     PostfixExpr,
+    LazyBoolExpr,
     /// Named argument at a call site: `<backtick>name: value`
     NamedArgExpr,
     /// Argument list inside `[...]` for postfix calls/indexing. Holds the
@@ -214,6 +220,11 @@ impl SyntaxKind {
             FalseKw => "FALSE_KW",
             FString => "FSTRING",
             Ident => "IDENT",
+            WLoopKw => "W_KW",
+            NLoopKw => "N_KW",
+            BlockKw => "B_KW",
+            AndKw => "AND_KW",
+            OrKw => "OR_KW",
             Apostrophe => "APOS",
             Ellipsis => "ELLIPSIS",
             AtAssert => "AT_ASSERT",
@@ -303,6 +314,7 @@ impl SyntaxKind {
 
             ParenExpr => "PAREN_EXPR",
             PostfixExpr => "POSTFIX_EXPR",
+            LazyBoolExpr => "LAZY_BOOL_EXPR",
             NamedArgExpr => "NAMED_ARG_EXPR",
             ArgList => "ARG_LIST",
             FStringExpr => "FSTRING_EXPR",

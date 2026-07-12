@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use crate::compile::Compiler;
 use crate::value::cmp::eval_cmp_chain;
 use crate::value::func::FunctionData;
-use crate::value::{Value, eval_binary, eval_unary};
+use crate::value::{Value, eval_binary, eval_bool_op, eval_unary};
 use crate::vm::GlobalMap;
 use crate::vm::inst::{Capture, ClosurePayload, Instruction, MutationOp, Operand, StoreTarget};
 
@@ -408,6 +408,14 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             let result = left
                 .zip(right)
                 .and_then(|(left, right)| eval_binary(&data.op, &left, &right).ok())
+                .and_then(trackable_value);
+            state.push(result);
+            fallthrough(pc, state)
+        }
+        I::BoolCombine(operator) => {
+            let values = state.pop_many(2);
+            let result = values
+                .and_then(|values| eval_bool_op(*operator, &values[0], &values[1]).ok())
                 .and_then(trackable_value);
             state.push(result);
             fallthrough(pc, state)

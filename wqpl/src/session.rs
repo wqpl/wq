@@ -1767,7 +1767,7 @@ mod tests {
     }
 
     #[test]
-    fn evals_long_left_deep_lazy_bool_chain() {
+    fn evals_long_nary_lazy_bool_form() {
         let terms = std::iter::once("true")
             .chain(std::iter::repeat_n("missing", 512))
             .collect::<Vec<_>>()

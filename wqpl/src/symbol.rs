@@ -464,6 +464,11 @@ impl SymbolAnalyzer {
             AstNode::BinaryOp { left, right, .. } => {
                 self.analyze_binary_chain(left, right);
             }
+            AstNode::LazyBool { operands, .. } => {
+                for operand in operands {
+                    self.analyze(operand);
+                }
+            }
             AstNode::ComparisonChain { first, rest, .. } => {
                 self.analyze(first);
                 for (_, n) in rest {

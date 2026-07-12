@@ -261,6 +261,18 @@ impl Resolver {
                 right,
                 span,
             } => self.resolve_binary_chain(*left, operator, *right, span),
+            AstNode::LazyBool {
+                operator,
+                operands,
+                span,
+            } => AstNode::LazyBool {
+                operator,
+                operands: operands
+                    .into_iter()
+                    .map(|operand| self.resolve_node(operand))
+                    .collect(),
+                span,
+            },
             AstNode::ComparisonChain { first, rest, span } => AstNode::ComparisonChain {
                 first: Box::new(self.resolve_node(*first)),
                 rest: rest
@@ -1524,6 +1536,9 @@ fn expr_uses_vars(node: &AstNode, vars: &HashSet<&str>) -> bool {
         AstNode::BinaryOp { left, right, .. } => {
             expr_uses_vars(left, vars) || expr_uses_vars(right, vars)
         }
+        AstNode::LazyBool { operands, .. } => {
+            operands.iter().any(|operand| expr_uses_vars(operand, vars))
+        }
         AstNode::ComparisonChain { first, rest, .. } => {
             expr_uses_vars(first, vars) || rest.iter().any(|(_, n)| expr_uses_vars(n, vars))
         }
@@ -1695,6 +1710,9 @@ mod tests {
             AstNode::BinaryOp { left, right, .. } => {
                 contains_call_name(left, target) || contains_call_name(right, target)
             }
+            AstNode::LazyBool { operands, .. } => operands
+                .iter()
+                .any(|operand| contains_call_name(operand, target)),
             AstNode::ComparisonChain { first, rest, .. } => {
                 contains_call_name(first, target)
                     || rest

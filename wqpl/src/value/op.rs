@@ -3,7 +3,7 @@ pub mod bit;
 pub mod char;
 pub mod container;
 
-use crate::ast::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
 use crate::value::convert::IntoWqValue;
 use crate::value::{Value, WqResult, expected_bool1, expected_bool2};
 
@@ -58,14 +58,20 @@ pub(crate) fn eval_binary(op: &BinaryOperator, left: &Value, right: &Value) -> W
         Gt => left.gt(right).map_err(|e| e.src(bp!(">"))),
         Gte => left.geq(right).map_err(|e| e.src(bp!(">="))),
         Cat => Ok(left.clone().cat(right.clone())),
-        BoolAnd => left.bool_and(right).map_err(|e| e.src(bp!("and"))),
-        BoolOr => left.bool_or(right).map_err(|e| e.src(bp!("or"))),
-        BitAnd => left.band(right).map_err(|e| e.src(bp!("band"))),
-        BitOr => left.bor(right).map_err(|e| e.src(bp!("bor"))),
-        BitXor => left.xor(right).map_err(|e| e.src(bp!("bxor"))),
-        Shl => left.shl(right).map_err(|e| e.src(bp!("shl"))),
-        Shr => left.shr(right).map_err(|e| e.src(bp!("shr"))),
+        BitAnd => left.band(right).map_err(|e| e.src("band")),
+        BitOr => left.bor(right).map_err(|e| e.src("bor")),
+        BitXor => left.bxor(right).map_err(|e| e.src("bxor")),
+        Shl => left.shl(right).map_err(|e| e.src("shl")),
+        Shr => left.shr(right).map_err(|e| e.src("shr")),
         FloorDiv => left.floor_div(right).map_err(|e| e.src(bp!("/%"))),
+    }
+}
+
+#[inline]
+pub(crate) fn eval_bool_op(op: BoolOperator, left: &Value, right: &Value) -> WqResult<Value> {
+    match op {
+        BoolOperator::And => left.bool_and(right).map_err(|e| e.src("A/and")),
+        BoolOperator::Or => left.bool_or(right).map_err(|e| e.src("O/or")),
     }
 }
 

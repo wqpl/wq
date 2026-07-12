@@ -565,7 +565,10 @@ pub(super) const BOOLEAN_LOGIC: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["A", "O", "and", "or", "boolean", "logical"],
     summary: "Combine bools lazily or apply eager bitwise operations.",
-    details: "`A[xs;ys+]` and `O[xs;ys+]` combine bool expressions with short-circuit evaluation. `and[xs;ys+]` and `or[xs;ys+]` are parser aliases for those forms, not builtins. `band[xs;ys+]`, `bor[xs;ys+]`, and `bxor[xs;ys+]` eagerly fold bitwise and, or, and xor over integers, bools, and compatible lists of them.",
+    details: "`A[xs;ys+]` and `O[xs;ys+]` combine bool expressions with short-circuit evaluation.
+`and[xs;ys+]` and `or[xs;ys+]` are aliases.
+`A`, `and`, `O`, and `or` are reserved names.
+`band[xs;ys+]`, `bor[xs;ys+]`, and `bxor[xs;ys+]` eagerly fold bitwise and, or, and xor over integers, bools, and compatible lists of them.",
     examples: BOOLEAN_LOGIC_EXAMPLES,
     related: &["conditionals", "precedence", "not", "all", "any"],
 };
@@ -589,7 +592,7 @@ pub(super) const N_LOOP: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["N", "N loop", "n-loop"],
     summary: "Repeat a body a fixed number of times.",
-    details: "`N[n;body]` exposes `_n` as the zero-based iteration counter.",
+    details: "`N[n;body]` exposes `_n` as the zero-based iteration counter. `N` is a reserved name.",
     examples: N_LOOP_EXAMPLES,
     related: &["@b", "@c"],
 };
@@ -601,7 +604,7 @@ pub(super) const W_LOOP: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["W", "W loop", "w-loop"],
     summary: "Repeat while a bool condition remains true.",
-    details: "`W[cond;body]` requires `cond` to evaluate to a bool.",
+    details: "`W[cond;body]` requires `cond` to evaluate to a bool. `W` is a reserved name.",
     examples: W_LOOP_EXAMPLES,
     related: &["@b", "@c"],
 };
@@ -613,7 +616,10 @@ pub(super) const BLOCK: StaticDoc = StaticDoc {
     group: "Syntax",
     aliases: &["B", "B block", "block"],
     summary: "Evaluate statements as a single expression.",
-    details: "`[...]` groups multiple statements in expression positions such as condition branches. `B[...]` is accepted as a legacy spelling, but the formatter prefers the bare bracket form.",
+    details:
+        "`[...]` groups multiple statements in expression positions such as condition branches.
+`B[...]` is an alternative spelling.
+`B` is a reserved name.",
     examples: BLOCK_EXAMPLES,
     related: &["conditionals"],
 };

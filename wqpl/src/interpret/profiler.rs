@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
-use crate::ast::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
 use crate::builtins::Builtins;
 use crate::interpret::vanilla::VanillaInterpreter;
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
@@ -245,6 +245,13 @@ impl InterpreterHook for ProfilerInterpreter {
 
     fn on_binary_result(&self, op: &BinaryOperator, result: &Value) {
         let label = format!("binary {op:?}");
+        self.stats
+            .borrow_mut()
+            .record_sequence_output(label, result);
+    }
+
+    fn on_lazy_bool_result(&self, op: BoolOperator, result: &Value) {
+        let label = format!("lazy bool {op:?}");
         self.stats
             .borrow_mut()
             .record_sequence_output(label, result);
@@ -539,6 +546,7 @@ fn instruction_kind(inst: &Instruction) -> &'static str {
         I::UnaryOp(_) => "UnaryOp",
         I::BoolAndLazy(_) => "BoolAndLazy",
         I::BoolOrLazy(_) => "BoolOrLazy",
+        I::BoolCombine(_) => "BoolCombine",
         I::CallBuiltinId(_, _) => "CallBuiltinId",
         I::CallBuiltinDiscardId(_, _) => "CallBuiltinDiscardId",
         I::CallLocal(_, _) => "CallLocal",
@@ -620,6 +628,7 @@ fn instruction_profile_key(inst: &Instruction) -> String {
         I::UnaryOp(data) => format!("UnaryOp({:?})", data.op),
         I::BoolAndLazy(_) => "BoolAndLazy".to_string(),
         I::BoolOrLazy(_) => "BoolOrLazy".to_string(),
+        I::BoolCombine(operator) => format!("BoolCombine({operator:?})"),
         I::CallBuiltinId(id, argc) => {
             let name = Builtins::name_from_id(*id).unwrap_or("<invalid>");
             format!("CallBuiltin({name}/{argc})")

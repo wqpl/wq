@@ -11,7 +11,7 @@ use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
 use crate::session::stdio::wqstderr_println;
 use crate::value::cmp::eval_cmp_chain;
 use crate::value::func::ClosureData;
-use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_unary};
+use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_bool_op, eval_unary};
 use crate::vm::inst::{BinaryOpData, Capture, ClosurePayload, CmpBranchData, Instruction, Operand};
 use crate::vm::trace::TraceRecord;
 use crate::vm::{TryFrame, Vm, ensure_stack_len, last_clone_stack, pop1_stack, pop2_stack};
@@ -1185,6 +1185,13 @@ impl VanillaInterpreter {
                             vm.pc = *target;
                         }
                     }
+                    Instruction::BoolCombine(operator) => {
+                        let (left, right) =
+                            pop2_stack(&mut vm.stack, || "lazy bool operands".into())?;
+                        let result = eval_bool_op(*operator, &left, &right)?;
+                        hooks.on_lazy_bool_result(*operator, &result);
+                        vm.stack.push(result);
+                    }
                     Instruction::MakeList(n) => {
                         let count = *n;
                         ensure_stack_len(&vm.stack, count, || "list elements".into())?;
@@ -1685,7 +1692,7 @@ fn eval_int_binary(op: BinaryOperator, left: i64, right: i64) -> Option<Value> {
         Shr => u32::try_from(right)
             .ok()
             .map(|shift| Value::from_bigint(BigInt::from(left) >> shift)),
-        Power | PowerDot | DivideDot | Matmul | Cat | BoolAnd | BoolOr => None,
+        Power | PowerDot | DivideDot | Matmul | Cat => None,
     }?;
 
     Some(result)
@@ -1702,7 +1709,7 @@ fn eval_int_comparison(op: BinaryOperator, left: i64, right: i64) -> Option<bool
         Gt => Some(left > right),
         Gte => Some(left >= right),
         Add | Subtract | Multiply | Power | PowerDot | Divide | DivideDot | Modulo | Matmul
-        | BoolAnd | BoolOr | Cat | BitAnd | BitOr | Shl | Shr | BitXor | FloorDiv => None,
+        | Cat | BitAnd | BitOr | Shl | Shr | BitXor | FloorDiv => None,
     }
 }
 
@@ -1794,7 +1801,7 @@ mod tests {
 
     use num_bigint::BigInt;
 
-    use crate::ast::BinaryOperator;
+    use crate::ast::{BinaryOperator, BoolOperator};
     use crate::builtins::BuiltinFnArgs;
     use crate::interpret::Interpreter;
     use crate::interpret::vanilla::VanillaInterpreter;
@@ -2252,7 +2259,7 @@ mod tests {
             Instruction::load_const(Value::Bool(false)),
             Instruction::BoolAndLazy(4), // short-circuit → jump to Return
             Instruction::load_const(Value::Bool(true)),
-            Instruction::binary_op(BinaryOperator::BoolAnd, Operand::Stack, Operand::Stack),
+            Instruction::BoolCombine(BoolOperator::And),
             Instruction::Return,
         ]);
         assert_eq!(result, Value::Bool(false));
@@ -2265,7 +2272,7 @@ mod tests {
             Instruction::load_const(Value::Bool(true)),
             Instruction::BoolAndLazy(4),
             Instruction::load_const(Value::Bool(true)),
-            Instruction::binary_op(BinaryOperator::BoolAnd, Operand::Stack, Operand::Stack),
+            Instruction::BoolCombine(BoolOperator::And),
             Instruction::Return,
         ]);
         assert_eq!(result, Value::Bool(true));
@@ -2278,7 +2285,7 @@ mod tests {
             Instruction::load_const(Value::Bool(true)),
             Instruction::BoolOrLazy(4),
             Instruction::load_const(Value::Bool(false)),
-            Instruction::binary_op(BinaryOperator::BoolOr, Operand::Stack, Operand::Stack),
+            Instruction::BoolCombine(BoolOperator::Or),
             Instruction::Return,
         ]);
         assert_eq!(result, Value::Bool(true));
@@ -2291,7 +2298,7 @@ mod tests {
             Instruction::load_const(Value::Bool(false)),
             Instruction::BoolOrLazy(4),
             Instruction::load_const(Value::Bool(true)),
-            Instruction::binary_op(BinaryOperator::BoolOr, Operand::Stack, Operand::Stack),
+            Instruction::BoolCombine(BoolOperator::Or),
             Instruction::Return,
         ]);
         assert_eq!(result, Value::Bool(true));

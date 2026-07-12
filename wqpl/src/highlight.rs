@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::builtins::Builtins;
 use crate::cas::cas_special_call_name;
 use crate::lex::Lexer;
@@ -293,8 +291,7 @@ impl Highlighter {
 
         let mut lexer = Lexer::new(src);
         let tokens = lexer.tokenize_recovery();
-        let keyword_spans = Self::keyword_spans_from_tokens(&tokens);
-        Self::events_from_tokens(src, &tokens, &self.builtins, &keyword_spans, semantic_spans)
+        Self::events_from_tokens(src, &tokens, &self.builtins, semantic_spans)
     }
 
     pub fn highlight_ansi(&self, src: &str) -> String {
@@ -329,32 +326,6 @@ impl Highlighter {
             self.highlight_with_semantic_spans(src, semantic_spans),
             reset,
         )
-    }
-
-    /// Mirror the parser's special-treatment logic for `W`, `N`, and `S`:
-    /// an Identifier is a keyword only when it is immediately followed
-    /// (allowing only comments in between, exactly as the parser does) by
-    /// the correct bracket type.
-    fn keyword_spans_from_tokens(tokens: &[Token]) -> HashSet<(usize, usize)> {
-        let mut spans = HashSet::new();
-        for (i, tok) in tokens.iter().enumerate() {
-            let TokenType::Identifier(name) = &tok.token_type else {
-                continue;
-            };
-            let target = match name.as_str() {
-                "W" | "N" => TokenType::LeftBracket,
-
-                _ => continue,
-            };
-            let mut j = i + 1;
-            while j < tokens.len() && matches!(tokens[j].token_type, TokenType::Comment(_)) {
-                j += 1;
-            }
-            if j < tokens.len() && tokens[j].token_type == target {
-                spans.insert((tok.byte_start, tok.byte_end));
-            }
-        }
-        spans
     }
 
     fn bracket_name(depth: usize) -> HighlightName {
@@ -449,14 +420,12 @@ impl Highlighter {
                     let source = &src[span.as_range()];
                     let mut lexer = Lexer::new(source);
                     let tokens = lexer.tokenize_recovery();
-                    let keyword_spans = Self::keyword_spans_from_tokens(&tokens);
                     let nested_semantic_spans =
                         Self::nested_semantic_spans(semantic_spans, span.start, span.end);
                     let chunk_events = Self::events_from_tokens(
                         source,
                         &tokens,
                         &self.builtins,
-                        &keyword_spans,
                         &nested_semantic_spans,
                     );
                     push_offset_events(&mut events, chunk_events, span.start);
@@ -480,7 +449,6 @@ impl Highlighter {
         src: &str,
         tokens: &[Token],
         builtins: &Builtins,
-        keyword_spans: &HashSet<(usize, usize)>,
         semantic_spans: &[SemanticHighlightSpan],
     ) -> Vec<HighlightEvent> {
         let mut events = Vec::with_capacity(tokens.len() * 2);
@@ -569,7 +537,6 @@ impl Highlighter {
                                         source,
                                         &inner_tokens,
                                         builtins,
-                                        &HashSet::new(),
                                         &inner_semantic_spans,
                                     );
                                     for ev in inner_events {
@@ -661,7 +628,7 @@ impl Highlighter {
                     }
                     _ => {
                         let name = Self::semantic_name_for_token(tok, &overlay_spans)
-                            .or_else(|| Self::name_for_token(tok, builtins, keyword_spans));
+                            .or_else(|| Self::name_for_token(tok, builtins));
                         match name {
                             Some(n) => {
                                 events.push(HighlightEvent::HighlightStart(n));
@@ -948,11 +915,7 @@ impl Highlighter {
         }
     }
 
-    fn name_for_token(
-        tok: &Token,
-        builtins: &Builtins,
-        keyword_spans: &HashSet<(usize, usize)>,
-    ) -> Option<HighlightName> {
+    fn name_for_token(tok: &Token, builtins: &Builtins) -> Option<HighlightName> {
         match &tok.token_type {
             TokenType::Comment(_) => Some(HighlightName::Comment),
 
@@ -969,14 +932,13 @@ impl Highlighter {
             TokenType::Tag(_) => Some(HighlightName::Tag),
 
             TokenType::Identifier(name) => {
-                if keyword_spans.contains(&(tok.byte_start, tok.byte_end)) {
-                    Some(HighlightName::Keyword)
-                } else if builtins.is_known_name(name) {
+                if builtins.is_known_name(name) {
                     Some(HighlightName::FunctionBuiltin)
                 } else {
                     Some(HighlightName::Variable)
                 }
             }
+            TokenType::Keyword(_) => Some(HighlightName::Keyword),
 
             TokenType::AtReturn => Some(HighlightName::KeywordReturn),
             TokenType::AtDebug => Some(HighlightName::KeywordDebug),
@@ -1359,21 +1321,18 @@ mod tests {
     }
 
     #[test]
-    fn test_w_as_variable_when_not_loop() {
-        let src = "W + 1";
+    fn reserved_control_names_are_always_keywords() {
+        let src = "W N B A and O or";
         let h = Highlighter::new();
         let events = h.highlight(src);
         let regions = named_regions(&events, src);
-        assert_eq!(regions[0], ("W".to_string(), Some(HighlightName::Variable)));
-    }
-
-    #[test]
-    fn test_n_as_variable_when_not_loop() {
-        let src = "N + 1";
-        let h = Highlighter::new();
-        let events = h.highlight(src);
-        let regions = named_regions(&events, src);
-        assert_eq!(regions[0], ("N".to_string(), Some(HighlightName::Variable)));
+        assert_eq!(
+            regions
+                .iter()
+                .filter_map(|(text, name)| (*name == Some(HighlightName::Keyword)).then_some(text))
+                .collect::<Vec<_>>(),
+            ["W", "N", "B", "A", "and", "O", "or"]
+        );
     }
 
     #[test]
@@ -1416,13 +1375,12 @@ mod tests {
     }
 
     #[test]
-    fn test_w_loop_with_line_comment_not_keyword() {
-        // Line comment swallows the rest of the line, so '[' is never seen.
+    fn test_reserved_keyword_before_line_comment() {
         let src = "W//comment\n[1;2]";
         let h = Highlighter::new();
         let events = h.highlight(src);
         let regions = named_regions(&events, src);
-        assert_eq!(regions[0], ("W".to_string(), Some(HighlightName::Variable)));
+        assert_eq!(regions[0], ("W".to_string(), Some(HighlightName::Keyword)));
     }
 
     #[test]

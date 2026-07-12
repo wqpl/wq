@@ -13,7 +13,7 @@ use super::builder::GreenNodeBuilder;
 use super::green::GreenNode;
 use super::kind::SyntaxKind;
 use crate::lex::Lexer;
-use crate::token::{Token, TokenType};
+use crate::token::{Keyword, Token, TokenType};
 use crate::value::WqResult;
 
 /// Map a lexer token type onto its CST kind.
@@ -25,6 +25,11 @@ pub fn syntax_kind_of_token(tt: &TokenType) -> SyntaxKind {
     match tt {
         // Identifiers and literals.
         T::Identifier(_) => K::Ident,
+        T::Keyword(Keyword::WLoop) => K::WLoopKw,
+        T::Keyword(Keyword::NLoop) => K::NLoopKw,
+        T::Keyword(Keyword::Block) => K::BlockKw,
+        T::Keyword(Keyword::And) => K::AndKw,
+        T::Keyword(Keyword::Or) => K::OrKw,
         T::Integer(_) => K::IntLit,
         T::BigInteger(_) => K::BigIntLit,
         T::Float(_) => K::FloatLit,

@@ -4,13 +4,15 @@ pub(crate) mod resolve;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ast::{AstNode, AstSpan, BinaryOperator, FStringPart, Parameter, UnaryOperator};
+use crate::ast::{
+    AstNode, AstSpan, BinaryOperator, BoolOperator, FStringPart, Parameter, UnaryOperator,
+};
 use crate::cas::{cas_binary_expr, cas_symbolic_call_expr, cas_unary_expr};
 use crate::cst::{
     Checkpoint, GreenNode, GreenNodeBuilder, SyntaxKind, SyntaxNode, syntax_kind_of_token,
 };
 use crate::lex::Lexer;
-use crate::token::{Token, TokenType};
+use crate::token::{Keyword, Token, TokenType};
 use crate::value::cas::{CasConst, CasOp};
 use crate::value::{IntoWqValue, Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
@@ -1845,16 +1847,10 @@ impl Parser {
     fn parse_lazy_bool_form(
         &mut self,
         keyword: &str,
-        operator: BinaryOperator,
+        operator: BoolOperator,
         header_start_byte: usize,
         cp_outer: Option<Checkpoint>,
     ) -> WqResult<AstNode> {
-        // Lazy bool forms use postfix surface syntax even though they lower to
-        // lazy binary operators in the AST. Preserve the ordinary postfix CST
-        // invariant: the object is an expression node followed by an ArgList,
-        // never a bare identifier token followed by an ArgList.
-        self.cst_start_node_at(cp_outer, SyntaxKind::VarExpr);
-        self.cst_finish_node();
         let cp_args = self.cst_checkpoint();
         self.advance();
         let (items, _) = self.parse_bracket_items()?;
@@ -1869,26 +1865,13 @@ impl Parser {
             ));
         }
 
-        let item_count = items.len();
-        let mut iter = items.into_iter();
-        let mut acc = iter.next().expect("len checked above");
-        for (idx, right) in iter.enumerate() {
-            let span = if idx + 2 == item_count {
-                Some((header_start_byte, end_byte))
-            } else {
-                Self::merge_spans(acc.span(), right.span())
-            };
-            acc = AstNode::BinaryOp {
-                left: Box::new(acc),
-                operator,
-                right: Box::new(right),
-                span,
-            };
-        }
-
-        self.cst_start_node_at(cp_outer, SyntaxKind::PostfixExpr);
+        self.cst_start_node_at(cp_outer, SyntaxKind::LazyBoolExpr);
         self.cst_finish_node();
-        Ok(acc)
+        Ok(AstNode::LazyBool {
+            operator,
+            operands: items,
+            span: Some((header_start_byte, end_byte)),
+        })
     }
 
     fn is_operator_node(expr: &AstNode) -> bool {
@@ -2036,6 +2019,7 @@ impl Parser {
                 | Some(TokenType::BigInteger(_))
                 | Some(TokenType::Tag(_))
                 | Some(TokenType::Identifier(_))
+                | Some(TokenType::Keyword(_))
                 | Some(TokenType::Apostrophe)
                 // No minus allowed here
                 | Some(TokenType::Sharp)
@@ -2390,6 +2374,7 @@ impl Parser {
             | AstNode::OuterAssignment { .. }
             | AstNode::UnpackAssignment { .. }
             | AstNode::BinaryOp { .. }
+            | AstNode::LazyBool { .. }
             | AstNode::UnaryOp { .. }
             | AstNode::ComparisonChain { .. }
             | AstNode::Range { .. }
@@ -2579,63 +2564,50 @@ impl Parser {
                     ))
                 }
 
-                TokenType::Identifier(name) => {
-                    let val = name.clone();
+                TokenType::Keyword(keyword) => {
                     let span = (token.byte_start, token.byte_end);
-                    let postfix_cp = self.cst_checkpoint();
-                    // Capture the byte position of the identifier itself so
-                    // the W/N/B/S branches below have a byte-based span
-                    // start without reaching back into `self.tokens` by
-                    // index after the sigils have been consumed.
+                    let keyword_text = self.source[span.0..span.1].to_string();
+                    let form_cp = self.cst_checkpoint();
                     let header_start_byte = span.0;
                     let header_start_idx = self.current;
                     self.advance();
-
-                    // Allow comments between W/N and '['; newline not allowed
-                    while matches!(
-                        self.current_token().map(|t| &t.token_type),
-                        Some(TokenType::Comment(_))
-                    ) {
-                        self.advance();
+                    if !self.is_token(&TokenType::LeftBracket) {
+                        return Err(self.syntax_err(
+                            &token,
+                            format!("expected '[' after keyword '{keyword_text}'"),
+                        ));
                     }
-                    if let Some(Token {
-                        token_type: TokenType::LeftBracket,
-                        ..
-                    }) = self.current_token()
-                    {
-                        if val == "W" {
+                    match keyword {
+                        Keyword::WLoop => {
                             self.advance();
-                            return self.parse_w_loop(header_start_byte, header_start_idx);
-                        } else if val == "N" {
-                            self.advance();
-                            return self.parse_n_loop(header_start_byte, header_start_idx);
-                        } else if val == "B" {
-                            self.advance();
-                            return self.parse_block_expr(header_start_byte, header_start_idx);
-                        } else if val == "A" || val == "and" {
-                            return self.parse_lazy_bool_form(
-                                &val,
-                                BinaryOperator::BoolAnd,
-                                header_start_byte,
-                                postfix_cp,
-                            );
-                        } else if val == "O" || val == "or" {
-                            return self.parse_lazy_bool_form(
-                                &val,
-                                BinaryOperator::BoolOr,
-                                header_start_byte,
-                                postfix_cp,
-                            );
+                            self.parse_w_loop(header_start_byte, header_start_idx)
                         }
+                        Keyword::NLoop => {
+                            self.advance();
+                            self.parse_n_loop(header_start_byte, header_start_idx)
+                        }
+                        Keyword::Block => {
+                            self.advance();
+                            self.parse_block_expr(header_start_byte, header_start_idx)
+                        }
+                        Keyword::And => self.parse_lazy_bool_form(
+                            &keyword_text,
+                            BoolOperator::And,
+                            header_start_byte,
+                            form_cp,
+                        ),
+                        Keyword::Or => self.parse_lazy_bool_form(
+                            &keyword_text,
+                            BoolOperator::Or,
+                            header_start_byte,
+                            form_cp,
+                        ),
                     }
-                    // Allow comments between S and '('; newline not allowed
-                    while matches!(
-                        self.current_token().map(|t| &t.token_type),
-                        Some(TokenType::Comment(_))
-                    ) {
-                        self.advance();
-                    }
-
+                }
+                TokenType::Identifier(name) => {
+                    let val = name.clone();
+                    let span = (token.byte_start, token.byte_end);
+                    self.advance();
                     Ok(AstNode::Variable(val, Some(span)))
                 }
                 TokenType::Apostrophe => {
@@ -3046,6 +3018,15 @@ impl Parser {
                 }
                 Self::offset_spans(left, offset);
                 Self::offset_spans(right, offset);
+            }
+            AstNode::LazyBool { operands, span, .. } => {
+                if let Some(span) = span {
+                    span.0 += offset;
+                    span.1 += offset;
+                }
+                for operand in operands {
+                    Self::offset_spans(operand, offset);
+                }
             }
             AstNode::UnaryOp { operand, span, .. } => {
                 if let Some(s) = span {
@@ -3546,6 +3527,11 @@ impl Parser {
             AstNode::BinaryOp { left, right, .. } => {
                 self.recontextualize_fstring_error_nodes(left);
                 self.recontextualize_fstring_error_nodes(right);
+            }
+            AstNode::LazyBool { operands, .. } => {
+                for operand in operands {
+                    self.recontextualize_fstring_error_nodes(operand);
+                }
             }
             AstNode::UnaryOp { operand, .. } | AstNode::Group { expr: operand, .. } => {
                 self.recontextualize_fstring_error_nodes(operand);
@@ -5410,17 +5396,39 @@ mod cst_integration_tests {
     }
 
     #[test]
-    fn lazy_boolean_postfix_has_an_expression_object() {
+    fn lazy_boolean_forms_have_dedicated_cst_nodes() {
         for src in ["A[T;F]", "O[T;F]", "and[T;F]", "or[T;F]"] {
             let (_, cst) = parse_with_cst(src);
             let root = SyntaxNode::new_root(cst);
-            let postfix = root.children().next().expect("postfix expression");
-            assert_eq!(postfix.kind(), SyntaxKind::PostfixExpr, "source: {src}");
-            let child_kinds: Vec<_> = postfix.children().map(|child| child.kind()).collect();
+            let lazy = root.children().next().expect("lazy boolean expression");
+            assert_eq!(lazy.kind(), SyntaxKind::LazyBoolExpr, "source: {src}");
             assert_eq!(
-                child_kinds,
-                [SyntaxKind::VarExpr, SyntaxKind::ArgList],
+                lazy.children()
+                    .map(|child| child.kind())
+                    .collect::<Vec<_>>(),
+                [SyntaxKind::ArgList],
                 "source: {src}"
+            );
+            let keyword_kind = lazy.first_token().expect("keyword token").kind();
+            assert_eq!(
+                keyword_kind,
+                if src.starts_with('A') || src.starts_with("and") {
+                    SyntaxKind::AndKw
+                } else {
+                    SyntaxKind::OrKw
+                },
+                "source: {src}"
+            );
+        }
+    }
+
+    #[test]
+    fn reserved_control_keywords_cannot_be_assigned() {
+        for src in ["W:1", "N:1", "B:1", "A:1", "and:1", "O:1", "or:1"] {
+            let ast = parse_without_cst(src);
+            assert!(
+                matches!(ast, AstNode::Error(..)),
+                "source: {src}, ast: {ast:?}"
             );
         }
     }
@@ -5428,15 +5436,33 @@ mod cst_integration_tests {
     #[test]
     fn word_boolean_forms_alias_lazy_boolean_forms() {
         for (src, expected) in [
-            ("and[T;F]", BinaryOperator::BoolAnd),
-            ("or[T;F]", BinaryOperator::BoolOr),
+            ("and[T;F]", BoolOperator::And),
+            ("or[T;F]", BoolOperator::Or),
         ] {
             let ast = parse_without_cst(src);
             assert!(
-                matches!(ast, AstNode::BinaryOp { operator, .. } if operator == expected),
+                matches!(ast, AstNode::LazyBool { operator, .. } if operator == expected),
                 "source: {src}, ast: {ast:?}"
             );
         }
+    }
+
+    #[test]
+    fn lazy_boolean_ast_is_nary() {
+        let ast = parse_without_cst("and[x;y;z;q]");
+        let AstNode::LazyBool {
+            operator, operands, ..
+        } = ast
+        else {
+            panic!("expected lazy boolean AST, got {ast:?}");
+        };
+        assert_eq!(operator, BoolOperator::And);
+        assert_eq!(operands.len(), 4);
+        assert!(
+            operands
+                .iter()
+                .all(|operand| matches!(operand, AstNode::Variable(..)))
+        );
     }
 
     #[test]
@@ -5591,6 +5617,7 @@ mod cst_integration_tests {
             | AstNode::OuterVariable(_, s)
             | AstNode::Error(_, s) => *s,
             AstNode::BinaryOp { span, .. }
+            | AstNode::LazyBool { span, .. }
             | AstNode::ComparisonChain { span, .. }
             | AstNode::Range { span, .. }
             | AstNode::Assignment { span, .. }
@@ -5648,6 +5675,7 @@ mod cst_integration_tests {
             "$$[c1;t1;d]",
             "W[c;b]",
             "N[3;@b]",
+            "and[T;F]",
             "B[1;2]",
             "[1;2]",
             "S(1;2;3)",
@@ -5745,6 +5773,7 @@ mod cst_integration_tests {
             AstNode::OuterAssignment { .. } => "OuterAssignment",
             AstNode::UnpackAssignment { .. } => "UnpackAssignment",
             AstNode::BinaryOp { .. } => "BinaryOp",
+            AstNode::LazyBool { .. } => "LazyBool",
             AstNode::UnaryOp { .. } => "UnaryOp",
             AstNode::ComparisonChain { .. } => "ComparisonChain",
             AstNode::Range { .. } => "Range",
@@ -5807,6 +5836,7 @@ mod cst_integration_tests {
                 out.push(left);
                 out.push(right);
             }
+            AstNode::LazyBool { operands, .. } => out.extend(operands.iter()),
             AstNode::UnaryOp { operand, .. } => out.push(operand),
             AstNode::ComparisonChain { first, rest, .. } => {
                 out.push(first);

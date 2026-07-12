@@ -2471,7 +2471,15 @@
               },
               {
                 "type": "STRING",
+                "value": "and"
+              },
+              {
+                "type": "STRING",
                 "value": "O"
+              },
+              {
+                "type": "STRING",
+                "value": "or"
               }
             ]
           },
@@ -3735,5 +3743,56 @@
   ],
   "inline": [],
   "supertypes": [],
-  "reserved": {}
+  "reserved": {
+    "global": [
+      {
+        "type": "STRING",
+        "value": "W"
+      },
+      {
+        "type": "STRING",
+        "value": "N"
+      },
+      {
+        "type": "STRING",
+        "value": "B"
+      },
+      {
+        "type": "STRING",
+        "value": "A"
+      },
+      {
+        "type": "STRING",
+        "value": "and"
+      },
+      {
+        "type": "STRING",
+        "value": "O"
+      },
+      {
+        "type": "STRING",
+        "value": "or"
+      },
+      {
+        "type": "STRING",
+        "value": "T"
+      },
+      {
+        "type": "STRING",
+        "value": "true"
+      },
+      {
+        "type": "STRING",
+        "value": "F"
+      },
+      {
+        "type": "STRING",
+        "value": "false"
+      },
+      {
+        "type": "STRING",
+        "value": "inf"
+      }
+    ]
+  }
 }

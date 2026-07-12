@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::ast::{AstNode, AstSpan, BinaryOperator, Parameter};
+use crate::ast::{AstNode, AstSpan, BinaryOperator, BoolOperator, Parameter};
 use crate::builtins::{BuiltinDepthSugar, Builtins};
 use crate::value::func::FunctionData;
 use crate::value::{Value, WqResult};
@@ -1114,15 +1114,10 @@ impl Compiler {
                 operator,
                 right,
                 ..
-            } => match operator {
-                BinaryOperator::BoolAnd => {
-                    self.compile_lazy_binary_chain(left, *operator, right)?;
-                }
-                BinaryOperator::BoolOr => {
-                    self.compile_lazy_binary_chain(left, *operator, right)?;
-                }
-                _ => self.compile_binary_chain(left, *operator, right)?,
-            },
+            } => self.compile_binary_chain(left, *operator, right)?,
+            AstNode::LazyBool {
+                operator, operands, ..
+            } => self.compile_lazy_bool(*operator, operands)?,
             AstNode::ComparisonChain { first, rest, .. } => {
                 self.compile_expr(first)?;
                 let mut ops: Vec<BinaryOperator> = Vec::with_capacity(rest.len());
@@ -2343,12 +2338,6 @@ impl Compiler {
             ..
         } = left
         {
-            if matches!(
-                next_operator,
-                BinaryOperator::BoolAnd | BinaryOperator::BoolOr
-            ) {
-                break;
-            }
             chain.push((*next_operator, next_right));
             left = next_left;
         }
@@ -2371,50 +2360,31 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_lazy_binary_chain(
-        &mut self,
-        mut left: &AstNode,
-        operator: BinaryOperator,
-        right: &AstNode,
-    ) -> WqResult<()> {
-        let mut rights = vec![right];
-        while let AstNode::BinaryOp {
-            left: next_left,
-            operator: next_operator,
-            right: next_right,
-            ..
-        } = left
-        {
-            if *next_operator != operator {
-                break;
-            }
-            rights.push(next_right);
-            left = next_left;
-        }
-
-        self.compile_expr(left)?;
-        for right in rights.into_iter().rev() {
+    fn compile_lazy_bool(&mut self, operator: BoolOperator, operands: &[AstNode]) -> WqResult<()> {
+        let (first, rest) = operands
+            .split_first()
+            .expect("parser requires at least two lazy bool operands");
+        self.compile_expr(first)?;
+        let mut lazy_positions = Vec::with_capacity(rest.len());
+        for right in rest {
             let lazy_pos = self.instructions.len();
             match operator {
-                BinaryOperator::BoolAnd => self.instructions.push(Instruction::BoolAndLazy(0)),
-                BinaryOperator::BoolOr => self.instructions.push(Instruction::BoolOrLazy(0)),
-                _ => unreachable!("lazy binary chain only accepts bool operators"),
+                BoolOperator::And => self.instructions.push(Instruction::BoolAndLazy(0)),
+                BoolOperator::Or => self.instructions.push(Instruction::BoolOrLazy(0)),
             }
+            lazy_positions.push(lazy_pos);
             self.compile_expr(right)?;
-            self.instructions.push(Instruction::binary_op(
-                operator,
-                Operand::Stack,
-                Operand::Stack,
-            ));
-            let end = self.instructions.len();
+            self.instructions.push(Instruction::BoolCombine(operator));
+        }
+        let end = self.instructions.len();
+        for lazy_pos in lazy_positions {
             match operator {
-                BinaryOperator::BoolAnd => {
+                BoolOperator::And => {
                     self.instructions[lazy_pos] = Instruction::BoolAndLazy(end);
                 }
-                BinaryOperator::BoolOr => {
+                BoolOperator::Or => {
                     self.instructions[lazy_pos] = Instruction::BoolOrLazy(end);
                 }
-                _ => unreachable!("lazy binary chain only accepts bool operators"),
             }
         }
         Ok(())
@@ -2663,6 +2633,11 @@ fn collect_ref_default_assignment_needs_inner(
             collect_ref_default_assignment_needs_inner(left, available, excluded, needs);
             collect_ref_default_assignment_needs_inner(right, available, excluded, needs);
         }
+        AstNode::LazyBool { operands, .. } => {
+            for operand in operands {
+                collect_ref_default_assignment_needs_inner(operand, available, excluded, needs);
+            }
+        }
         AstNode::ComparisonChain { first, rest, .. } => {
             collect_ref_default_assignment_needs_inner(first, available, excluded, needs);
             for (_, node) in rest {
@@ -2829,6 +2804,7 @@ fn has_ctrl(node: &AstNode) -> bool {
         AstNode::PipeTap { input, effect, .. } => has_ctrl(input) || has_ctrl(effect),
         AstNode::Postfix { object, items, .. } => has_ctrl(object) || items.iter().any(has_ctrl),
         AstNode::BinaryOp { left, right, .. } => has_ctrl(left) || has_ctrl(right),
+        AstNode::LazyBool { operands, .. } => operands.iter().any(has_ctrl),
         AstNode::ComparisonChain { first, rest, .. } => {
             has_ctrl(first) || rest.iter().any(|(_, node)| has_ctrl(node))
         }
@@ -2928,6 +2904,18 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
             left: Box::new(replace_pipe_input(left, temp_name)),
             operator: *operator,
             right: Box::new(replace_pipe_input(right, temp_name)),
+            span: *span,
+        },
+        AstNode::LazyBool {
+            operator,
+            operands,
+            span,
+        } => AstNode::LazyBool {
+            operator: *operator,
+            operands: operands
+                .iter()
+                .map(|operand| replace_pipe_input(operand, temp_name))
+                .collect(),
             span: *span,
         },
         AstNode::ComparisonChain { first, rest, span } => AstNode::ComparisonChain {
@@ -3282,6 +3270,11 @@ fn collect_capture_needs(
         AstNode::BinaryOp { left, right, .. } => {
             collect_capture_needs(left, locals, needs, ref_capture, defining_name);
             collect_capture_needs(right, locals, needs, ref_capture, defining_name);
+        }
+        AstNode::LazyBool { operands, .. } => {
+            for operand in operands {
+                collect_capture_needs(operand, locals, needs, ref_capture, defining_name);
+            }
         }
         AstNode::ComparisonChain { first, rest, .. } => {
             collect_capture_needs(first, locals, needs, ref_capture, defining_name);

@@ -1842,6 +1842,10 @@
     "named": false
   },
   {
+    "type": "and",
+    "named": false
+  },
+  {
     "type": "backtick",
     "named": true
   },
@@ -1900,6 +1904,10 @@
   {
     "type": "newline",
     "named": true
+  },
+  {
+    "type": "or",
+    "named": false
   },
   {
     "type": "shebang",

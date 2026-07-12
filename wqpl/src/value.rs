@@ -26,7 +26,7 @@ use indexmap::IndexMap;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_rational::Ratio;
-pub(crate) use op::{eval_binary, eval_unary};
+pub(crate) use op::{eval_binary, eval_bool_op, eval_unary};
 use ordered_float::OrderedFloat;
 
 use crate::ast::{BinaryOperator, UnaryOperator};
@@ -306,6 +306,7 @@ mod tests {
     use indexmap::indexmap;
 
     use super::*;
+    use crate::ast::BoolOperator;
 
     fn test_builtin(name: &str, id: u16) -> Value {
         Value::builtin_function(name, id)
@@ -432,7 +433,6 @@ mod tests {
         assert!(Value::lift_callable_binary(BinaryOperator::Equal, &f, &Value::Int(1)).is_none());
         assert!(Value::lift_callable_binary(BinaryOperator::Lt, &f, &Value::Int(1)).is_none());
         assert!(Value::lift_callable_binary(BinaryOperator::Cat, &f, &Value::Int(1)).is_none());
-        assert!(Value::lift_callable_binary(BinaryOperator::BoolOr, &f, &Value::Int(1)).is_none());
     }
 
     #[test]
@@ -606,7 +606,7 @@ mod tests {
         );
 
         assert_eq!(
-            eval_binary(&BinaryOperator::BoolOr, &b, &Value::Bool(false)),
+            eval_bool_op(BoolOperator::Or, &b, &Value::Bool(false)),
             Ok(Value::List(Arc::new(vec![
                 Value::Bool(true),
                 Value::Bool(false)
@@ -646,7 +646,7 @@ mod tests {
         let b = Value::Int(3);
         assert_eq!(a.band(&b), Ok(Value::Int(2)));
         assert_eq!(a.bor(&b), Ok(Value::Int(7)));
-        assert_eq!(a.xor(&b), Ok(Value::Int(5)));
+        assert_eq!(a.bxor(&b), Ok(Value::Int(5)));
         assert_eq!(a.not(), Ok(Value::Int(!6)));
         assert_eq!(Value::Int(1).shl(&Value::Int(3)), Ok(Value::Int(8)));
         assert_eq!(Value::Int(8).shr(&Value::Int(2)), Ok(Value::Int(2)));

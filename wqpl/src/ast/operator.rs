@@ -18,15 +18,19 @@ pub enum BinaryOperator {
     Lte,
     Gt,
     Gte,
-    BoolAnd, // A[...]
-    BoolOr,  // O[...]
-    Cat,     // , (augmented-assignment marker only; compiled to Instruction::Cat)
+    Cat, // aug-assign marker only
     BitAnd,
     BitOr,
     Shl,
     Shr,
     BitXor,
     FloorDiv,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BoolOperator {
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -54,8 +58,6 @@ pub(crate) fn binary_op_display(op: &BinaryOperator) -> &'static str {
         NotEqual => "~",
         NotEqualDot => "~.",
 
-        BoolAnd => "A",
-        BoolOr => "O",
         BitAnd => "band",
         BitOr => "bor",
         Shl => "shl",
@@ -67,6 +69,13 @@ pub(crate) fn binary_op_display(op: &BinaryOperator) -> &'static str {
         Gt => ">",
         Gte => ">=",
         Cat => ",",
+    }
+}
+
+pub(crate) fn bool_op_display(op: &BoolOperator) -> &'static str {
+    match op {
+        BoolOperator::And => "and",
+        BoolOperator::Or => "or",
     }
 }
 

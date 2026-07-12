@@ -47,6 +47,23 @@ export default grammar({
 
   word: ($) => $.identifier,
 
+  reserved: {
+    global: (_) => [
+      "W",
+      "N",
+      "B",
+      "A",
+      "and",
+      "O",
+      "or",
+      "T",
+      "true",
+      "F",
+      "false",
+      "inf",
+    ],
+  },
+
   conflicts: ($) => [
     [$.literal, $.dict_pair],
     [$.operator_identifier, $.unary_expr],
@@ -597,7 +614,8 @@ export default grammar({
         "#",
       ),
 
-    lazy_bool_form: ($) => prec.dynamic(1, seq(choice("A", "O"), $.arg_list)),
+    lazy_bool_form: ($) =>
+      prec.dynamic(1, seq(choice("A", "and", "O", "or"), $.arg_list)),
 
     function_literal: ($) =>
       seq(optional("'"), "{", optional($.param_list), optional($.block), "}"),

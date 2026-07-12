@@ -294,6 +294,7 @@ impl<'a> LowerCtx<'a> {
             SyntaxKind::CondExpr | SyntaxKind::CondDotExpr | SyntaxKind::CondChainExpr => {
                 self.control_form(node)
             }
+            SyntaxKind::LazyBoolExpr => self.tight_concat(node),
             SyntaxKind::WLoopExpr | SyntaxKind::NLoopExpr | SyntaxKind::BlockExpr => {
                 self.control_form(node)
             }
@@ -946,6 +947,7 @@ impl<'a> LowerCtx<'a> {
             | SyntaxKind::CondExpr
             | SyntaxKind::CondDotExpr
             | SyntaxKind::CondChainExpr
+            | SyntaxKind::LazyBoolExpr
             | SyntaxKind::WLoopExpr
             | SyntaxKind::NLoopExpr
             | SyntaxKind::BlockExpr

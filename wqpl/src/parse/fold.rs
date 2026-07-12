@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use crate::ast::AstNode;
 use crate::builtins::{BuiltinFnArgs, Builtins};
 use crate::range::{make_range, make_range_from_next};
-use crate::value::{Value, eval_binary, eval_unary};
+use crate::value::{Value, eval_binary, eval_bool_op, eval_unary};
 
 pub(crate) fn fold(node: AstNode) -> AstNode {
     use AstNode::*;
@@ -45,6 +45,30 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
             right,
             span,
         } => fold_binary_chain(*left, operator, *right, span),
+        LazyBool {
+            operator,
+            operands,
+            span,
+        } => {
+            let operands: Vec<_> = operands.into_iter().map(fold).collect();
+            let mut values = operands.iter().map(|operand| match operand {
+                Literal(value, _) => Some(value),
+                _ => None,
+            });
+            if let Some(Some(first)) = values.next() {
+                let folded = values.try_fold(first.clone(), |left, right| {
+                    eval_bool_op(operator, &left, right?).ok()
+                });
+                if let Some(value) = folded {
+                    return Literal(value, span);
+                }
+            }
+            LazyBool {
+                operator,
+                operands,
+                span,
+            }
+        }
         ComparisonChain { first, rest, span } => ComparisonChain {
             first: Box::new(fold(*first)),
             rest: rest

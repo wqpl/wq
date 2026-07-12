@@ -1,8 +1,31 @@
 use num_bigint::BigInt;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Keyword {
+    WLoop,
+    NLoop,
+    Block,
+    And,
+    Or,
+}
+
+impl Keyword {
+    pub(crate) fn from_identifier(identifier: &str) -> Option<Self> {
+        match identifier {
+            "W" => Some(Self::WLoop),
+            "N" => Some(Self::NLoop),
+            "B" => Some(Self::Block),
+            "A" | "and" => Some(Self::And),
+            "O" | "or" => Some(Self::Or),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Identifier(String),
+    Keyword(Keyword),
 
     Integer(i64),
     BigInteger(BigInt),

@@ -26,8 +26,10 @@ fn kind_color(kind: SyntaxKind) -> AnsiColor {
         Ident | Apostrophe => AnsiColor::Blue,
 
         // Keywords and directives.
-        AtAssert | AtBreak | AtContinue | AtReturn | AtDebug | AtPause | AtDepth | AtSymbolic
-        | AtTry | Dollar | DollarDot | DollarDollar => AnsiColor::Green,
+        WLoopKw | NLoopKw | BlockKw | AndKw | OrKw | AtAssert | AtBreak | AtContinue | AtReturn
+        | AtDebug | AtPause | AtDepth | AtSymbolic | AtTry | Dollar | DollarDot | DollarDollar => {
+            AnsiColor::Green
+        }
 
         // Operators.
         Plus | Minus | Star | Slash | SlashDot | Percent | Power | PowerDot | Matmul | FloorDiv
@@ -48,7 +50,9 @@ fn kind_color(kind: SyntaxKind) -> AnsiColor {
         Block => AnsiColor::White,
         Shebang | ScriptDirective => AnsiColor::BrightYellow,
         LiteralExpr | VarExpr | OuterVarExpr => AnsiColor::Cyan,
-        BinaryExpr | UnaryExpr | ComparisonChainExpr | RangeExpr => AnsiColor::Yellow,
+        BinaryExpr | UnaryExpr | ComparisonChainExpr | RangeExpr | LazyBoolExpr => {
+            AnsiColor::Yellow
+        }
         AssignExpr
         | OuterAssignExpr
         | UnpackAssignExpr

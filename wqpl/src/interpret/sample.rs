@@ -431,7 +431,10 @@ fn is_store(op: &Instruction) -> bool {
 
 fn is_op(op: &Instruction) -> bool {
     use Instruction as I;
-    matches!(op, I::BinaryOp(_) | I::UnaryOp(_) | I::CmpChain(_))
+    matches!(
+        op,
+        I::BinaryOp(_) | I::UnaryOp(_) | I::CmpChain(_) | I::BoolCombine(_)
+    )
 }
 
 fn is_jump(op: &Instruction) -> bool {

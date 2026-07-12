@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use crate::ast::{BinaryOperator, UnaryOperator};
+use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
 use crate::builtins::Builtins;
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::Value;
@@ -154,6 +154,8 @@ pub(crate) enum Instruction {
     BoolAndLazy(usize),
     /// Short-circuit boolean or lazy check (O[...])
     BoolOrLazy(usize),
+    /// Combine two already-evaluated lazy boolean operands from the stack.
+    BoolCombine(BoolOperator),
     // CallBuiltin(String, usize),
     /// Builtin call resolved to an ID at compile time for faster dispatch
     CallBuiltinId(u16, u16),
@@ -274,6 +276,7 @@ impl Instruction {
         matches!(
             self,
             I::BinaryOp(_)
+                | I::BoolCombine(_)
                 | I::LoadVar(_)
                 | I::LoadLocal(_)
                 | I::LoadCapture(_)
@@ -380,7 +383,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         I::Pop | I::Return | I::Debug | I::Pause | I::Assert | I::TraceBegin => (Stack, false),
 
         // Arithmetic / logic
-        I::UnaryOp(_) | I::BinaryOp(_) | I::CmpChain(_) => (Op, false),
+        I::UnaryOp(_) | I::BinaryOp(_) | I::CmpChain(_) | I::BoolCombine(_) => (Op, false),
 
         // Indexing
         I::Index | I::IndexMany(_) | I::CheckAtomPathIndex

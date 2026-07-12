@@ -249,7 +249,7 @@ impl Value {
         self.bc2(other, bor_atoms).map_err(|e| e.into_wqerror())
     }
 
-    pub(crate) fn xor(&self, other: &Value) -> WqResult<Value> {
+    pub(crate) fn bxor(&self, other: &Value) -> WqResult<Value> {
         if let Some(res) = xor_intlist(self, other) {
             return Ok(res);
         }
@@ -398,7 +398,7 @@ mod tests {
         );
         assert_eq!(
             Value::Bool(true)
-                .xor(&Value::Bool(false))
+                .bxor(&Value::Bool(false))
                 .expect("bool xor should succeed"),
             Value::Bool(true)
         );
