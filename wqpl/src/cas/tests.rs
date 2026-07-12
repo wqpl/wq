@@ -212,7 +212,7 @@ fn rewrite_combines_log_terms() {
 }
 
 #[test]
-fn rewrite_factors_common_product_with_egg() {
+fn rewrite_factors_common_product() {
     let expr = op(
         CasOp::Add,
         vec![

@@ -1,7 +1,6 @@
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use super::eqsat::rewrite_with_egg;
 use super::{
     cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub, collect_single_poly_var,
     common_numeric_gcd, eval_exact_numeric_div, eval_numeric_binary, expand_expr,
@@ -1326,6 +1325,302 @@ fn try_split_var_free_product_power(base: &Value, exp: &Value) -> WqResult<Optio
     Ok(Some(cas_mul(factors)?))
 }
 
+fn cas_tree_size(value: &Value) -> usize {
+    if let Some((_, args)) = value.cas_op_parts() {
+        return 1 + args.iter().map(cas_tree_size).sum::<usize>();
+    }
+    if let Some((_, args)) = value.cas_function_parts() {
+        return 1 + args.iter().map(cas_tree_size).sum::<usize>();
+    }
+    if let Some((_, args)) = value.cas_apply_parts() {
+        return 1 + args.iter().map(cas_tree_size).sum::<usize>();
+    }
+    if let Some((_, named_value)) = value.cas_named_arg_parts() {
+        return 1 + cas_tree_size(named_value);
+    }
+    if let Some((inner, limit_var, point, _)) = value.cas_limit_parts() {
+        return 1 + cas_tree_size(inner) + cas_tree_size(limit_var) + cas_tree_size(point);
+    }
+    if let Some((lhs, rhs)) = value.cas_eq_parts() {
+        return 1 + cas_tree_size(lhs) + cas_tree_size(rhs);
+    }
+    1
+}
+
+fn contains_fractional_numeric(value: &Value) -> bool {
+    if let Some((_, denom)) = value.rational_parts()
+        && !denom.is_one()
+    {
+        return true;
+    }
+    if matches!(value, Value::Float(_)) {
+        return true;
+    }
+    if let Some((_, args)) = value.cas_op_parts() {
+        return args.iter().any(contains_fractional_numeric);
+    }
+    if let Some((_, args)) = value.cas_function_parts() {
+        return args.iter().any(contains_fractional_numeric);
+    }
+    if let Some((_, args)) = value.cas_apply_parts() {
+        return args.iter().any(contains_fractional_numeric);
+    }
+    false
+}
+
+fn common_factor_values_equal(lhs: &Value, rhs: &Value) -> bool {
+    lhs == rhs || (!lhs.is_cas_expr() && !rhs.is_cas_expr() && numeric_values_equal(lhs, rhs))
+}
+
+fn exact_common_product_factors(args: &[Value]) -> Vec<Value> {
+    let Some((first, rest)) = args.split_first() else {
+        return Vec::new();
+    };
+    let mut common = product_factors(first);
+    for term in rest {
+        let mut factors = product_factors(term);
+        common.retain(|common_factor| {
+            let Some(idx) = factors
+                .iter()
+                .position(|factor| common_factor_values_equal(factor, common_factor))
+            else {
+                return false;
+            };
+            factors.remove(idx);
+            true
+        });
+        if common.is_empty() {
+            break;
+        }
+    }
+    common.retain(|factor| !factor.exact_int_is(1) && !factor.exact_int_is(-1));
+    common
+}
+
+fn remove_exact_product_factors(value: &Value, common: &[Value]) -> Value {
+    let mut factors = product_factors(value);
+    for common_factor in common {
+        if let Some(idx) = factors
+            .iter()
+            .position(|factor| common_factor_values_equal(factor, common_factor))
+        {
+            factors.remove(idx);
+        }
+    }
+    cas_product(factors)
+}
+
+fn normalize_factored_sums(value: Value) -> WqResult<Value> {
+    let Some((CasOp::Multiply, factors)) = value.cas_op_parts() else {
+        return Ok(value);
+    };
+    let mut changed = false;
+    let mut normalized = Vec::with_capacity(factors.len());
+    for factor in factors {
+        if matches!(factor.cas_op_parts(), Some((CasOp::Add, _))) {
+            let expanded = simplify_cas_value(&expand_expr(factor)?)?;
+            changed |= expanded != *factor;
+            normalized.push(expanded);
+        } else {
+            normalized.push(factor.clone());
+        }
+    }
+    if changed {
+        simplify_cas_value(&cas_product(normalized))
+    } else {
+        Ok(value)
+    }
+}
+
+fn try_factor_general_sum(value: &Value, args: &[Value]) -> WqResult<Option<Value>> {
+    let common = exact_common_product_factors(args);
+    if common.is_empty() {
+        return Ok(None);
+    }
+    let has_preferred_common_factor = common.iter().any(|factor| {
+        factor.cas_var_name().is_some()
+            || factor.cas_function_parts().is_some()
+            || factor.cas_apply_parts().is_some()
+            || matches!(factor.cas_op_parts(), Some((CasOp::Power, _)))
+            || factor.is_algebraic_number()
+    });
+    let reduced_terms = args
+        .iter()
+        .map(|term| remove_exact_product_factors(term, &common))
+        .collect();
+    let mut factors = common;
+    factors.push(cas_add(reduced_terms)?);
+    let factored = normalize_factored_sums(cas_mul(factors)?)?;
+    if factored == *value || cas_tree_size(&factored) >= cas_tree_size(value) {
+        return Ok(None);
+    }
+    if !has_preferred_common_factor && factored.is_cas_expr() {
+        return Ok(None);
+    }
+
+    if let Some((CasOp::Multiply, factors)) = factored.cas_op_parts()
+        && let Some(inner_terms) = factors.iter().find_map(|factor| {
+            factor
+                .cas_op_parts()
+                .and_then(|(op, args)| (op == CasOp::Add).then_some(args))
+        })
+    {
+        return Ok((!inner_terms.iter().any(contains_fractional_numeric)).then_some(factored));
+    }
+
+    let original_text = value.format_cas().unwrap_or_else(|| value.to_string());
+    let factored_text = factored
+        .format_cas()
+        .unwrap_or_else(|| factored.to_string());
+    Ok((factored_text.len().saturating_add(4) < original_text.len()).then_some(factored))
+}
+
+fn try_collapse_factored_sum(value: &Value) -> WqResult<Option<Value>> {
+    let factored = factor_expr(value)?;
+    Ok((factored != *value
+        && !contains_symbolic_var(&factored)
+        && cas_tree_size(&factored) < cas_tree_size(value))
+    .then_some(factored))
+}
+
+fn try_factor_common_algebraic_coefficient(value: &Value) -> WqResult<Option<Value>> {
+    let factored = factor_expr(value)?;
+    let Some((CasOp::Multiply, factors)) = factored.cas_op_parts() else {
+        return Ok(None);
+    };
+    let Some((sum_idx, _inner_terms)) = factors.iter().enumerate().find_map(|(idx, factor)| {
+        factor
+            .cas_op_parts()
+            .and_then(|(op, args)| (op == CasOp::Add).then_some((idx, args)))
+    }) else {
+        return Ok(None);
+    };
+    let common = simplify_cas_value(&cas_product(
+        factors
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| *idx != sum_idx)
+            .map(|(_, factor)| factor.clone())
+            .collect(),
+    ))?;
+    let is_irrational_constant =
+        !contains_symbolic_var(&common) && common.rational_parts().is_none();
+    if !is_irrational_constant || cas_tree_size(&factored) >= cas_tree_size(value) {
+        return Ok(None);
+    }
+    Ok(Some(factored))
+}
+
+fn try_factor_common_algebraic_pair(value: &Value, args: &[Value]) -> WqResult<Option<Value>> {
+    if args.len() < 3 {
+        return Ok(None);
+    }
+    let pair = cas_add(vec![args[0].clone(), args[1].clone()])?;
+    let Some(factored_pair) = try_factor_common_algebraic_coefficient(&pair)? else {
+        return Ok(None);
+    };
+    let mut candidate_terms = Vec::with_capacity(args.len() - 1);
+    candidate_terms.push(factored_pair);
+    candidate_terms.extend(args[2..].iter().cloned());
+    let candidate = cas_add(candidate_terms)?;
+    if cas_tree_size(&candidate) >= cas_tree_size(value) {
+        return Ok(None);
+    }
+    let original_text = value.format_cas().unwrap_or_else(|| value.to_string());
+    let candidate_text = candidate
+        .format_cas()
+        .unwrap_or_else(|| candidate.to_string());
+    if candidate_text.len().saturating_add(4) < original_text.len() {
+        Ok(Some(candidate))
+    } else {
+        Ok(None)
+    }
+}
+
+fn direct_inverse_pair(lhs: &Value, rhs: &Value) -> bool {
+    matches!(lhs.cas_op_parts(), Some((CasOp::Power, [base, exp])) if exp.exact_int_is(-1) && base == rhs)
+        || matches!(rhs.cas_op_parts(), Some((CasOp::Power, [base, exp])) if exp.exact_int_is(-1) && base == lhs)
+}
+
+fn try_distribute_direct_inverse_sum(value: &Value, args: &[Value]) -> WqResult<Option<Value>> {
+    if args.len() != 2 {
+        return Ok(None);
+    }
+    for (factor_idx, sum_idx) in [(0, 1), (1, 0)] {
+        let factor = &args[factor_idx];
+        let Some((CasOp::Add, terms)) = args[sum_idx].cas_op_parts() else {
+            continue;
+        };
+        let mut cancelled = false;
+        let mut distributed = Vec::with_capacity(terms.len());
+        for term in terms {
+            if !cancelled && direct_inverse_pair(factor, term) {
+                distributed.push(Value::Int(1));
+                cancelled = true;
+            } else {
+                distributed.push(cas_mul(vec![factor.clone(), term.clone()])?);
+            }
+        }
+        if !cancelled {
+            continue;
+        }
+        let candidate = cas_add(distributed)?;
+        if cas_tree_size(&candidate) < cas_tree_size(value) {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
+}
+
+fn try_cancel_numeric_factor_over_inverse_sum(
+    value: &Value,
+    args: &[Value],
+) -> WqResult<Option<Value>> {
+    for (factor_idx, factor) in args.iter().enumerate() {
+        if factor.rational_parts().is_none() || numeric_is_zero(factor) {
+            continue;
+        }
+        for (inverse_idx, inverse) in args.iter().enumerate() {
+            if factor_idx == inverse_idx {
+                continue;
+            }
+            let Some((CasOp::Power, [base, exp])) = inverse.cas_op_parts() else {
+                continue;
+            };
+            if !exp.exact_int_is(-1) {
+                continue;
+            }
+            let Some((CasOp::Add, terms)) = base.cas_op_parts() else {
+                continue;
+            };
+            if !exact_common_product_factors(terms).contains(factor) {
+                continue;
+            }
+            let reduced_terms = terms
+                .iter()
+                .map(|term| remove_exact_product_factors(term, std::slice::from_ref(factor)))
+                .collect();
+            let reduced_inverse = cas_pow(cas_add(reduced_terms)?, Value::Int(-1))?;
+            let mut candidate_factors = Vec::with_capacity(args.len() - 1);
+            for (idx, arg) in args.iter().enumerate() {
+                if idx == factor_idx {
+                    continue;
+                }
+                if idx == inverse_idx {
+                    candidate_factors.push(reduced_inverse.clone());
+                } else {
+                    candidate_factors.push(arg.clone());
+                }
+            }
+            let candidate = cas_mul(candidate_factors)?;
+            if cas_tree_size(&candidate) < cas_tree_size(value) {
+                return Ok(Some(candidate));
+            }
+        }
+    }
+    Ok(None)
+}
+
 fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
     if let Some((CasOp::Add, args)) = value.cas_op_parts() {
         if let Some(result) = try_combine_unit_with_fraction_sum(args)? {
@@ -1354,7 +1649,19 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
         if let Some(result) = try_factor_binary_product(args)? {
             return Ok(Some(result));
         }
-        return combine_logs_in_sum(args);
+        if let Some(result) = combine_logs_in_sum(args)? {
+            return Ok(Some(result));
+        }
+        if let Some(result) = try_factor_general_sum(value, args)? {
+            return Ok(Some(result));
+        }
+        if let Some(result) = try_collapse_factored_sum(value)? {
+            return Ok(Some(result));
+        }
+        if let Some(result) = try_factor_common_algebraic_coefficient(value)? {
+            return Ok(Some(result));
+        }
+        return try_factor_common_algebraic_pair(value, args);
     }
 
     // Distribute -1 over sum: (* -1 (+ a b ...)) -> (+ (* -1 a) (* -1 b) ...)
@@ -1383,6 +1690,18 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
 
     if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
         && let Some(result) = try_cancel_affine_over_product(args)?
+    {
+        return Ok(Some(result));
+    }
+
+    if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
+        && let Some(result) = try_distribute_direct_inverse_sum(value, args)?
+    {
+        return Ok(Some(result));
+    }
+
+    if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
+        && let Some(result) = try_cancel_numeric_factor_over_inverse_sum(value, args)?
     {
         return Ok(Some(result));
     }
@@ -1581,10 +1900,6 @@ pub(crate) fn rewrite_cas(expr: &Value) -> WqResult<Value> {
     with_cas_div_cache(|| {
         let mut current = simplify_cas_value(expr)?;
         rewrite_loop(&mut current)?;
-        if let Some(next) = rewrite_with_egg(&current)? {
-            current = next;
-            rewrite_loop(&mut current)?;
-        }
         Ok(current)
     })
 }
@@ -1730,5 +2045,154 @@ mod tests {
         let result = rewrite_cas(&expr).expect("rewrite");
         let text = result.format_cas().unwrap_or_else(|| result.to_string());
         assert_eq!(text, "-x^2/2 + 1/2");
+    }
+
+    #[test]
+    fn tree_rewrite_factors_general_common_product() {
+        let x = Value::from_cas_var("x");
+        let expr = cas_add(vec![
+            cas_mul(vec![x.clone(), Value::from_cas_var("y")]).expect("x*y"),
+            cas_mul(vec![x, Value::from_cas_var("z")]).expect("x*z"),
+        ])
+        .expect("sum");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result.to_string(), "x*(z + y)");
+    }
+
+    #[test]
+    fn tree_rewrite_factors_product_plus_bare_factor() {
+        let common =
+            cas_mul(vec![Value::from_cas_var("a"), Value::from_cas_var("b")]).expect("a*b");
+        let expr = cas_add(vec![
+            cas_mul(vec![
+                common.clone(),
+                cas_pow(Value::from_cas_var("x"), Value::Int(3)).expect("x^3"),
+            ])
+            .expect("a*b*x^3"),
+            common,
+        ])
+        .expect("sum");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result.to_string(), "a*b*(x^3 + 1)");
+    }
+
+    #[test]
+    fn tree_rewrite_preserves_repeated_opaque_literals_when_factoring() {
+        let common = cas_mul(vec![
+            Value::from_fraction_parts(BigInt::from(3), BigInt::from(5)),
+            cas_pow(
+                Value::Int(3),
+                Value::from_fraction_parts(BigInt::from(1), BigInt::from(4)),
+            )
+            .expect("3^(1/4)"),
+            Value::from_cas_var("z"),
+        ])
+        .expect("common factor");
+        let expr = cas_add(vec![
+            cas_mul(vec![
+                common.clone(),
+                cas_pow(Value::from_cas_var("x"), Value::Int(3)).expect("x^3"),
+            ])
+            .expect("scaled term"),
+            common,
+        ])
+        .expect("sum");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        let text = result.to_string();
+        assert!(
+            text.contains("x^3 + 1") && text.contains("3/5") && text.contains("3^(1/4)"),
+            "unexpected factored form: {text}"
+        );
+    }
+
+    #[test]
+    fn tree_rewrite_distributes_direct_inverse_for_cancellation() {
+        let x = Value::from_cas_var("x");
+        let expr = cas_mul(vec![
+            x.clone(),
+            cas_add(vec![
+                cas_pow(x, Value::Int(-1)).expect("x^-1"),
+                Value::from_cas_var("z"),
+            ])
+            .expect("x^-1 + z"),
+        ])
+        .expect("product");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result.to_string(), "x*z + 1");
+    }
+
+    #[test]
+    fn tree_rewrite_keeps_equal_cost_factorization_expanded() {
+        let x = Value::from_cas_var("x");
+        let expr = cas_add(vec![
+            cas_mul(vec![x.clone(), Value::from_cas_var("y")]).expect("x*y"),
+            x,
+        ])
+        .expect("sum");
+        let simplified = simplify_cas_value(&expr).expect("simplify");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result, simplified);
+    }
+
+    #[test]
+    fn tree_rewrite_keeps_numeric_only_factorization_expanded() {
+        let x = Value::from_cas_var("x");
+        let expr = cas_add(vec![
+            cas_mul(vec![
+                Value::Int(2),
+                cas_add(vec![x, Value::Int(-1)]).expect("x - 1"),
+            ])
+            .expect("2*(x - 1)"),
+            Value::Int(2),
+        ])
+        .expect("sum");
+        let simplified = simplify_cas_value(&expr).expect("simplify");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result, simplified);
+    }
+
+    #[test]
+    fn tree_rewrite_accepts_numeric_factor_when_inner_sum_cancels() {
+        let x = Value::from_cas_var("x");
+        let expr = cas_add(vec![
+            cas_mul(vec![
+                Value::Int(2),
+                cas_add(vec![x.clone(), Value::Int(1)]).expect("x + 1"),
+            ])
+            .expect("2*(x + 1)"),
+            cas_mul(vec![
+                Value::Int(2),
+                cas_add(vec![cas_neg(x).expect("-x"), Value::Int(1)]).expect("1 - x"),
+            ])
+            .expect("2*(1 - x)"),
+        ])
+        .expect("sum");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result, Value::Int(4));
+    }
+
+    #[test]
+    fn tree_rewrite_keeps_fractional_inner_factorization_expanded() {
+        let x = Value::from_cas_var("x");
+        let expr = cas_add(vec![
+            cas_mul(vec![x.clone(), Value::from_cas_var("y")]).expect("x*y"),
+            cas_div(
+                cas_mul(vec![x, Value::from_cas_var("z")]).expect("x*z"),
+                Value::Int(2),
+            )
+            .expect("x*z/2"),
+        ])
+        .expect("sum");
+        let simplified = simplify_cas_value(&expr).expect("simplify");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result, simplified);
     }
 }

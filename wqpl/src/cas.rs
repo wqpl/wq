@@ -1,7 +1,6 @@
 #[macro_use]
 mod debug;
 mod assumption;
-mod eqsat;
 mod expand_factor;
 mod format;
 mod numeric;
