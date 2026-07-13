@@ -6,7 +6,8 @@ use super::{
     common_numeric_gcd, eval_exact_numeric_div, eval_numeric_binary, expand_expr,
     extract_perfect_power_factor, factor_expr, numeric_add, numeric_is_negative, numeric_is_one,
     numeric_is_zero, numeric_mul, numeric_sub, poly_degree, poly_divide, poly_from_expr,
-    poly_is_zero, rebuild_scaled_term, simplify_cas_value, split_add_term, with_cas_div_cache,
+    poly_is_zero, poly_to_expr, rebuild_scaled_term, simplify_cas_value, split_add_term,
+    square_free_factor, with_cas_div_cache,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -1344,6 +1345,12 @@ fn cas_tree_size(value: &Value) -> usize {
     if let Some((lhs, rhs)) = value.cas_eq_parts() {
         return 1 + cas_tree_size(lhs) + cas_tree_size(rhs);
     }
+    if let Some((poly, _, _)) = value.cas_root_parts() {
+        return 1 + cas_tree_size(poly);
+    }
+    if let Some(predicate) = value.cas_predicate() {
+        return 1 + cas_tree_size(predicate.expr());
+    }
     1
 }
 
@@ -1432,18 +1439,92 @@ fn normalize_factored_sums(value: Value) -> WqResult<Value> {
     }
 }
 
+fn normalize_matching_power_factors(value: Value) -> WqResult<Value> {
+    let Some((CasOp::Multiply, factors)) = value.cas_op_parts() else {
+        return Ok(value);
+    };
+    let mut normalized = Vec::with_capacity(factors.len());
+    for factor in factors {
+        if matches!(factor.cas_op_parts(), Some((CasOp::Add, _))) {
+            let expanded = simplify_cas_value(&expand_expr(factor)?)?;
+            normalized.push(factor_expr(&expanded)?);
+        } else {
+            normalized.push(factor.clone());
+        }
+    }
+    simplify_cas_value(&cas_mul(normalized)?)
+}
+
+fn try_factor_matching_power_sum(value: &Value) -> WqResult<Option<Value>> {
+    let factored = factor_expr(value)?;
+    let factors = product_factors(&factored);
+    let has_fractional_power = factors.iter().any(|factor| {
+        matches!(
+            factor.cas_op_parts(),
+            Some((CasOp::Power, [base, exp]))
+                if contains_symbolic_var(base)
+                    && exp.rational_parts().is_some_and(|(_, denom)| !denom.is_one())
+        )
+    });
+    if !has_fractional_power {
+        return Ok(None);
+    }
+    let candidate = normalize_matching_power_factors(factored)?;
+    Ok(
+        (candidate != *value && cas_tree_size(&candidate) < cas_tree_size(value))
+            .then_some(candidate),
+    )
+}
+
+fn try_reduce_perfect_polynomial_power(
+    value: &Value,
+    base: &Value,
+    exp: &Value,
+) -> WqResult<Option<Value>> {
+    let Some(power) = exp.exact_int() else {
+        return Ok(None);
+    };
+    if !power.is_negative() {
+        return Ok(None);
+    }
+    let mut var = None;
+    if !collect_single_poly_var(base, &mut var) {
+        return Ok(None);
+    }
+    let Some(var) = var else {
+        return Ok(None);
+    };
+    let Ok(poly) = poly_from_expr(base, &var) else {
+        return Ok(None);
+    };
+    if poly_degree(&poly) < 2 || poly.iter().any(|coeff| coeff.rational_parts().is_none()) {
+        return Ok(None);
+    }
+    let factors = square_free_factor(&poly)?;
+    let [(factor, multiplicity)] = factors.as_slice() else {
+        return Ok(None);
+    };
+    if *multiplicity < 2 || poly_degree(factor) < 1 {
+        return Ok(None);
+    }
+    let factor_base = poly_to_expr(factor, &var)?;
+    let raw_factored = Value::from_cas_op(
+        CasOp::Power,
+        vec![factor_base.clone(), Value::Int(*multiplicity as i64)],
+    );
+    if !expand_equivalent(base, &raw_factored)? {
+        return Ok(None);
+    }
+    let combined_exp = numeric_mul(exp, &Value::Int(*multiplicity as i64))?;
+    let candidate = cas_pow(factor_base, combined_exp)?;
+    Ok((cas_tree_size(&candidate) < cas_tree_size(value)).then_some(candidate))
+}
+
 fn try_factor_general_sum(value: &Value, args: &[Value]) -> WqResult<Option<Value>> {
     let common = exact_common_product_factors(args);
     if common.is_empty() {
         return Ok(None);
     }
-    let has_preferred_common_factor = common.iter().any(|factor| {
-        factor.cas_var_name().is_some()
-            || factor.cas_function_parts().is_some()
-            || factor.cas_apply_parts().is_some()
-            || matches!(factor.cas_op_parts(), Some((CasOp::Power, _)))
-            || factor.is_algebraic_number()
-    });
     let reduced_terms = args
         .iter()
         .map(|term| remove_exact_product_factors(term, &common))
@@ -1454,9 +1535,6 @@ fn try_factor_general_sum(value: &Value, args: &[Value]) -> WqResult<Option<Valu
     if factored == *value || cas_tree_size(&factored) >= cas_tree_size(value) {
         return Ok(None);
     }
-    if !has_preferred_common_factor && factored.is_cas_expr() {
-        return Ok(None);
-    }
 
     if let Some((CasOp::Multiply, factors)) = factored.cas_op_parts()
         && let Some(inner_terms) = factors.iter().find_map(|factor| {
@@ -1464,15 +1542,12 @@ fn try_factor_general_sum(value: &Value, args: &[Value]) -> WqResult<Option<Valu
                 .cas_op_parts()
                 .and_then(|(op, args)| (op == CasOp::Add).then_some(args))
         })
+        && inner_terms.iter().any(contains_fractional_numeric)
     {
-        return Ok((!inner_terms.iter().any(contains_fractional_numeric)).then_some(factored));
+        return Ok(None);
     }
 
-    let original_text = value.format_cas().unwrap_or_else(|| value.to_string());
-    let factored_text = factored
-        .format_cas()
-        .unwrap_or_else(|| factored.to_string());
-    Ok((factored_text.len().saturating_add(4) < original_text.len()).then_some(factored))
+    Ok(Some(factored))
 }
 
 fn try_collapse_factored_sum(value: &Value) -> WqResult<Option<Value>> {
@@ -1526,15 +1601,7 @@ fn try_factor_common_algebraic_pair(value: &Value, args: &[Value]) -> WqResult<O
     if cas_tree_size(&candidate) >= cas_tree_size(value) {
         return Ok(None);
     }
-    let original_text = value.format_cas().unwrap_or_else(|| value.to_string());
-    let candidate_text = candidate
-        .format_cas()
-        .unwrap_or_else(|| candidate.to_string());
-    if candidate_text.len().saturating_add(4) < original_text.len() {
-        Ok(Some(candidate))
-    } else {
-        Ok(None)
-    }
+    Ok(Some(candidate))
 }
 
 fn direct_inverse_pair(lhs: &Value, rhs: &Value) -> bool {
@@ -1621,6 +1688,79 @@ fn try_cancel_numeric_factor_over_inverse_sum(
     Ok(None)
 }
 
+fn try_cancel_polynomial_factor_over_power(
+    value: &Value,
+    args: &[Value],
+) -> WqResult<Option<Value>> {
+    for (inverse_idx, inverse) in args.iter().enumerate() {
+        let Some((CasOp::Power, [base, exp])) = inverse.cas_op_parts() else {
+            continue;
+        };
+        let Some(power) = exp.exact_int() else {
+            continue;
+        };
+        if !power.is_negative() {
+            continue;
+        }
+        let mut var = None;
+        if !collect_single_poly_var(base, &mut var) {
+            continue;
+        }
+        let Some(var) = var else {
+            continue;
+        };
+        let Ok(base_poly) = poly_from_expr(base, &var) else {
+            continue;
+        };
+        if poly_degree(&base_poly) < 1
+            || base_poly
+                .iter()
+                .any(|coeff| coeff.rational_parts().is_none())
+        {
+            continue;
+        }
+
+        for (numerator_idx, numerator) in args.iter().enumerate() {
+            if numerator_idx == inverse_idx || !contains_cas_var(numerator, &var) {
+                continue;
+            }
+            let expanded = simplify_cas_value(&expand_expr(numerator)?)?;
+            let Ok(numerator_poly) = poly_from_expr(&expanded, &var) else {
+                continue;
+            };
+            if numerator_poly
+                .iter()
+                .any(|coeff| coeff.rational_parts().is_none())
+            {
+                continue;
+            }
+            let (quotient, remainder) = poly_divide(&numerator_poly, &base_poly)?;
+            if !poly_is_zero(&remainder) {
+                continue;
+            }
+
+            let quotient = poly_to_expr(&quotient, &var)?;
+            let reduced_exp = numeric_add(exp, &Value::Int(1))?;
+            let reduced_inverse = cas_pow(base.clone(), reduced_exp)?;
+            let mut candidate_factors = Vec::with_capacity(args.len());
+            for (idx, arg) in args.iter().enumerate() {
+                if idx == numerator_idx {
+                    candidate_factors.push(quotient.clone());
+                } else if idx == inverse_idx {
+                    candidate_factors.push(reduced_inverse.clone());
+                } else {
+                    candidate_factors.push(arg.clone());
+                }
+            }
+            let candidate = cas_mul(candidate_factors)?;
+            if cas_tree_size(&candidate) < cas_tree_size(value) {
+                return Ok(Some(candidate));
+            }
+        }
+    }
+    Ok(None)
+}
+
 fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
     if let Some((CasOp::Add, args)) = value.cas_op_parts() {
         if let Some(result) = try_combine_unit_with_fraction_sum(args)? {
@@ -1653,6 +1793,9 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
             return Ok(Some(result));
         }
         if let Some(result) = try_factor_general_sum(value, args)? {
+            return Ok(Some(result));
+        }
+        if let Some(result) = try_factor_matching_power_sum(value)? {
             return Ok(Some(result));
         }
         if let Some(result) = try_collapse_factored_sum(value)? {
@@ -1707,6 +1850,12 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
     }
 
     if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
+        && let Some(result) = try_cancel_polynomial_factor_over_power(value, args)?
+    {
+        return Ok(Some(result));
+    }
+
+    if let Some((CasOp::Multiply, args)) = value.cas_op_parts()
         && let Some(result) = try_cancel_inverse_sqrt_denominator(args)?
     {
         return Ok(Some(result));
@@ -1726,6 +1875,9 @@ fn apply_tree_rewrite(value: &Value) -> WqResult<Option<Value>> {
     }
 
     if let Some((CasOp::Power, [base, exp])) = value.cas_op_parts() {
+        if let Some(result) = try_reduce_perfect_polynomial_power(value, base, exp)? {
+            return Ok(Some(result));
+        }
         if let Some(result) = try_split_var_free_product_power(base, exp)? {
             return Ok(Some(result));
         }
@@ -1981,6 +2133,7 @@ pub(crate) fn contains_cas_var(expr: &Value, var: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::value::cas::CasPredicate;
 
     #[test]
     fn factor_binary_product_handles_non_unit_exp_common_factor() {
@@ -2140,7 +2293,7 @@ mod tests {
     }
 
     #[test]
-    fn tree_rewrite_keeps_numeric_only_factorization_expanded() {
+    fn tree_rewrite_factors_numeric_common_factor_when_structure_shrinks() {
         let x = Value::from_cas_var("x");
         let expr = cas_add(vec![
             cas_mul(vec![
@@ -2151,10 +2304,214 @@ mod tests {
             Value::Int(2),
         ])
         .expect("sum");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result.to_string(), "2*x");
+    }
+
+    #[test]
+    fn tree_rewrite_factors_numeric_common_product() {
+        let expr = cas_add(vec![
+            cas_mul(vec![Value::Int(2), Value::from_cas_var("x")]).expect("2*x"),
+            cas_mul(vec![Value::Int(2), Value::from_cas_var("y")]).expect("2*y"),
+        ])
+        .expect("sum");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result.to_string(), "2*(y + x)");
+    }
+
+    #[test]
+    fn tree_rewrite_simplifies_affine_exponent() {
+        let x = Value::from_cas_var("x");
+        let exponent = cas_add(vec![
+            cas_mul(vec![
+                Value::Int(2),
+                cas_add(vec![x.clone(), Value::Int(-1)]).expect("x - 1"),
+            ])
+            .expect("2*(x - 1)"),
+            Value::Int(2),
+        ])
+        .expect("exponent");
+        let expr = cas_pow(Value::from_cas_const(CasConst::E), exponent).expect("exponential");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result.to_string(), "e^(2*x)");
+    }
+
+    #[test]
+    fn tree_cost_counts_root_and_predicate_contents() {
+        let poly = cas_add(vec![Value::from_cas_var("x"), Value::Int(1)]).expect("x + 1");
+        let root = Value::from_cas_root(poly.clone(), 0.0, 1.0);
+        let predicate = Value::from_cas_predicate(CasPredicate::Positive(poly));
+
+        assert_eq!(cas_tree_size(&root), 4);
+        assert_eq!(cas_tree_size(&predicate), 4);
+    }
+
+    #[test]
+    fn tree_rewrite_cancels_factored_perfect_power_denominator() {
+        let x = Value::from_cas_var("x");
+        let linear = cas_add(vec![x.clone(), Value::Int(-1)]).expect("x - 1");
+        let expanded_square = cas_add(vec![
+            cas_pow(x.clone(), Value::Int(2)).expect("x^2"),
+            cas_mul(vec![Value::Int(-2), x]).expect("-2*x"),
+            Value::Int(1),
+        ])
+        .expect("expanded square");
+        let expr = cas_mul(vec![
+            linear,
+            cas_pow(expanded_square, Value::Int(-2)).expect("inverse square"),
+        ])
+        .expect("rational expression");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result.to_string(), "(x - 1)^-3");
+    }
+
+    #[test]
+    fn tree_rewrite_combines_nested_rational_denominators() {
+        let x = Value::from_cas_var("x");
+        let x_squared = cas_pow(x, Value::Int(2)).expect("x^2");
+        let base = cas_add(vec![x_squared.clone(), Value::Int(1)]).expect("x^2 + 1");
+        let half = Value::from_fraction_parts(BigInt::from(1), BigInt::from(2));
+        let first_numerator = cas_add(vec![
+            cas_mul(vec![Value::Int(-1), half.clone(), x_squared]).expect("-x^2/2"),
+            half.clone(),
+        ])
+        .expect("first numerator");
+        let expr = cas_add(vec![
+            cas_mul(vec![
+                first_numerator,
+                cas_pow(base.clone(), Value::Int(-2)).expect("inverse square"),
+            ])
+            .expect("first term"),
+            cas_mul(vec![
+                half,
+                cas_pow(base.clone(), Value::Int(-1)).expect("inverse"),
+            ])
+            .expect("second term"),
+        ])
+        .expect("sum");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(
+            result,
+            cas_pow(base, Value::Int(-2)).expect("expected inverse square")
+        );
+    }
+
+    #[test]
+    fn tree_rewrite_combines_matching_half_powers() {
+        let x = Value::from_cas_var("x");
+        let x_squared = cas_pow(x.clone(), Value::Int(2)).expect("x^2");
+        let base = cas_add(vec![x_squared.clone(), Value::Int(1)]).expect("x^2 + 1");
+        let half = Value::from_fraction_parts(BigInt::from(1), BigInt::from(2));
+        let neg_half = Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2));
+        let expr = cas_add(vec![
+            cas_mul(vec![
+                half.clone(),
+                x_squared,
+                cas_pow(base.clone(), neg_half.clone()).expect("inverse root"),
+            ])
+            .expect("first term"),
+            cas_mul(vec![
+                half.clone(),
+                cas_pow(base.clone(), half.clone()).expect("root"),
+            ])
+            .expect("second term"),
+            cas_mul(vec![
+                half,
+                cas_pow(base.clone(), neg_half).expect("inverse root"),
+            ])
+            .expect("third term"),
+        ])
+        .expect("sum");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(
+            result,
+            cas_pow(base, Value::from_fraction_parts(1.into(), 2.into())).expect("root")
+        );
+    }
+
+    #[test]
+    fn tree_rewrite_reduces_polynomial_over_matching_power() {
+        let x = Value::from_cas_var("x");
+        let x_squared = cas_pow(x.clone(), Value::Int(2)).expect("x^2");
+        let base = cas_add(vec![x_squared.clone(), Value::Int(-2)]).expect("x^2 - 2");
+        let expanded_square = cas_add(vec![
+            cas_pow(x.clone(), Value::Int(4)).expect("x^4"),
+            cas_mul(vec![Value::Int(-4), x_squared.clone()]).expect("-4*x^2"),
+            Value::Int(4),
+        ])
+        .expect("(x^2 - 2)^2");
+        let numerator =
+            cas_mul(vec![Value::Int(2), x_squared, base.clone()]).expect("2*x^2*(x^2 - 2)");
+        let expr = cas_mul(vec![
+            numerator,
+            cas_pow(expanded_square, Value::Int(-1)).expect("inverse square"),
+        ])
+        .expect("rational expression");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        let expected = cas_mul(vec![
+            Value::Int(2),
+            cas_pow(x, Value::Int(2)).expect("x^2"),
+            cas_pow(base, Value::Int(-1)).expect("inverse base"),
+        ])
+        .expect("expected result");
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn tree_rewrite_skips_perfect_power_search_for_algebraic_coefficients() {
+        let x = Value::from_cas_var("x");
+        let sqrt_three = cas_pow(
+            Value::Int(3),
+            Value::from_fraction_parts(BigInt::from(1), BigInt::from(2)),
+        )
+        .expect("sqrt three");
+        let numerator = cas_add(vec![
+            sqrt_three.clone(),
+            cas_neg(x.clone()).expect("-x"),
+            Value::Int(-1),
+        ])
+        .expect("numerator");
+        let denominator = cas_add(vec![sqrt_three, x, Value::Int(1)]).expect("denominator");
+        let expr = cas_div(numerator, denominator).expect("ratio");
         let simplified = simplify_cas_value(&expr).expect("simplify");
 
         let result = rewrite_expr(&expr).expect("rewrite");
         assert_eq!(result, simplified);
+    }
+
+    #[test]
+    fn tree_rewrite_cancels_polynomial_factor_over_power() {
+        let x = Value::from_cas_var("x");
+        let x_squared = cas_pow(x.clone(), Value::Int(2)).expect("x^2");
+        let expanded_square = cas_add(vec![
+            x_squared.clone(),
+            cas_mul(vec![Value::Int(-2), x.clone()]).expect("-2*x"),
+            Value::Int(1),
+        ])
+        .expect("expanded square");
+        let numerator = cas_add(vec![
+            cas_mul(vec![Value::Int(2), x.clone(), expanded_square.clone()])
+                .expect("2*x*(x^2 - 2*x + 1)"),
+            cas_mul(vec![Value::Int(-2), x.clone()]).expect("-2*x"),
+            Value::Int(2),
+        ])
+        .expect("numerator");
+        let expr = cas_mul(vec![
+            Value::from_cas_function(CasFunction::Exp, vec![x_squared]),
+            numerator,
+            cas_pow(expanded_square, Value::Int(-2)).expect("inverse square"),
+        ])
+        .expect("expression");
+
+        let result = rewrite_expr(&expr).expect("rewrite");
+        assert_eq!(result.to_string(), "e^(x^2)*(2*x^2 - 2*x - 2)/(x - 1)^3");
     }
 
     #[test]

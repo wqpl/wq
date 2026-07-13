@@ -1065,7 +1065,73 @@ fn try_collapse_numerator_over_single_inverse(factors: &[Value]) -> WqResult<Opt
 struct RationalTerm {
     denom: Value,
     numer: Value,
-    core: Value,
+    originals: Vec<(Value, Value)>,
+}
+
+fn negative_power_denominator(value: &Value) -> WqResult<Option<(Value, bool)>> {
+    let Some([base, exp]) = value.cas_op_args(CasOp::Power) else {
+        return Ok(None);
+    };
+    let Some(power) = exp.exact_int() else {
+        return Ok(None);
+    };
+    if !power.is_negative() {
+        return Ok(None);
+    }
+    let denominator_power = -power;
+    if denominator_power.is_one() {
+        Ok(Some((base.clone(), false)))
+    } else {
+        let mut var = None;
+        if !collect_single_poly_var(base, &mut var) {
+            return Ok(None);
+        }
+        let Some(var) = var else {
+            return Ok(None);
+        };
+        let Ok(poly) = poly_from_expr(base, &var) else {
+            return Ok(None);
+        };
+        if poly.iter().any(|coeff| coeff.rational_parts().is_none()) {
+            return Ok(None);
+        }
+        Ok(Some((
+            cas_pow(base.clone(), Value::from_bigint(denominator_power))?,
+            true,
+        )))
+    }
+}
+
+fn split_rational_core(core: &Value, coeff: &Value) -> WqResult<Option<(Value, Value)>> {
+    if let Some((denominator, _)) = negative_power_denominator(core)? {
+        return Ok(Some((denominator, coeff.clone())));
+    }
+    let Some(args) = core.cas_op_args(CasOp::Multiply) else {
+        return Ok(None);
+    };
+    let mut denominator_parts = Vec::new();
+    let mut numerator_parts = Vec::new();
+    let mut has_higher_power = false;
+    let mut has_symbolic_numerator = false;
+    if !numeric_is_one(coeff) {
+        numerator_parts.push(coeff.clone());
+    }
+    for arg in args {
+        if let Some((denominator, higher_power)) = negative_power_denominator(arg)? {
+            denominator_parts.push(denominator);
+            has_higher_power |= higher_power;
+        } else {
+            numerator_parts.push(arg.clone());
+            has_symbolic_numerator = true;
+        }
+    }
+    if denominator_parts.is_empty() || (has_symbolic_numerator && !has_higher_power) {
+        return Ok(None);
+    }
+    Ok(Some((
+        cas_product(denominator_parts),
+        cas_product(numerator_parts),
+    )))
 }
 
 const MAX_RATIONAL_COMBINE_TERMS: usize = 6;
@@ -1076,14 +1142,20 @@ fn push_rational_term(
     denom: Value,
     numer: Value,
     core: Value,
+    original_coeff: Value,
 ) -> WqResult<()> {
     for existing in terms.iter_mut() {
         if existing.denom == denom || existing.denom.to_string() == denom.to_string() {
             existing.numer = factor_expr(&cas_add(vec![existing.numer.clone(), numer])?)?;
+            existing.originals.push((core, original_coeff));
             return Ok(());
         }
     }
-    terms.push(RationalTerm { denom, numer, core });
+    terms.push(RationalTerm {
+        denom,
+        numer,
+        originals: vec![(core, original_coeff)],
+    });
     Ok(())
 }
 
@@ -1109,8 +1181,7 @@ fn push_original_rational_terms(
     indices: Vec<usize>,
 ) {
     for i in indices {
-        let term = &terms[i];
-        keep.push((term.core.clone(), term.numer.clone()));
+        keep.extend(terms[i].originals.iter().cloned());
     }
 }
 
@@ -1124,77 +1195,35 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
     let mut rational_by_var: HashMap<String, Vec<RationalTerm>> = HashMap::new();
     let mut keep = Vec::new();
     for (core, coeff) in grouped.drain(..) {
-        // Single (^ D -1) core
-        if let Some([d, e]) = core.cas_op_args(CasOp::Power)
-            && e.exact_int_is(-1)
-        {
+        if let Some((denominator, numerator)) = split_rational_core(&core, &coeff)? {
             let mut var: Option<String> = None;
-            if collect_single_poly_var(d, &mut var)
+            if collect_single_poly_var(&denominator, &mut var)
                 && let Some(ref v) = var
-                && let Ok(Some(d_norm)) = normalized_poly_expr(d, v)
+                && let Ok(Some(d_norm)) = normalized_poly_expr(&denominator, v)
                 && let Ok(d_poly) = poly_from_expr_relaxed_constants(&d_norm, v)
                 && poly_degree(&d_poly) >= 1
-                && coeff_ok_in_var(&coeff, v)
+                && coeff_ok_in_var(&numerator, v)
             {
                 push_rational_term(
                     rational_by_var.entry(v.clone()).or_default(),
                     d_norm,
-                    coeff,
+                    numerator,
                     core,
+                    coeff,
                 )?;
                 continue;
             }
             keep.push((core, coeff));
             continue;
         }
-        // Multi-factor core: (* (^ D1 -1) (^ D2 -1) ...)
-        if let Some(args) = core.cas_op_args(CasOp::Multiply)
-            && args.iter().all(|a| {
-                a.cas_op_args(CasOp::Power)
-                    .is_some_and(|args| matches!(args, [_, exp] if exp.exact_int_is(-1)))
-            })
-            && args.len() >= 2
-        {
-            let mut var: Option<String> = None;
-            let mut ok = true;
-            for arg in args.iter() {
-                if let Some([d, _]) = arg.cas_op_args(CasOp::Power)
-                    && !collect_single_poly_var(d, &mut var)
-                {
-                    ok = false;
-                    break;
-                }
-            }
-            if ok
-                && let Some(ref v) = var
-                && coeff_ok_in_var(&coeff, v)
-            {
-                // Merge denominators into one: D = (* D1 D2 ...)
-                let mut d_parts = Vec::with_capacity(args.len());
-                for arg in args.iter() {
-                    if let Some([d, _]) = arg.cas_op_args(CasOp::Power) {
-                        d_parts.push(d.clone());
-                    }
-                }
-                let d = cas_product(d_parts);
-                let d = normalized_poly_expr(&d, v)?.unwrap_or(d);
-                push_rational_term(
-                    rational_by_var.entry(v.clone()).or_default(),
-                    d,
-                    coeff,
-                    core,
-                )?;
-                continue;
-            }
-        }
         keep.push((core, coeff));
     }
 
     // Combine each variable group
     for (var, terms) in rational_by_var {
-        if terms.len() < 2 {
+        if terms.len() < 2 && terms.iter().all(|term| term.originals.len() < 2) {
             for term in terms {
-                keep.push((term.core, term.numer));
+                keep.extend(term.originals);
             }
             continue;
         }
@@ -1218,11 +1247,11 @@ fn combine_rational_terms(grouped: &mut Vec<(Value, Value)>) -> WqResult<()> {
                     succeeded.push(i);
                 }
                 Err(_) => {
-                    keep.push((term.core.clone(), term.numer.clone()));
+                    keep.extend(term.originals.iter().cloned());
                 }
             }
         }
-        if d_polys.len() < 2 {
+        if d_polys.len() < 2 && succeeded.iter().all(|&i| terms[i].originals.len() < 2) {
             push_original_rational_terms(&mut keep, &terms, succeeded);
             continue;
         }
@@ -2479,4 +2508,64 @@ pub(crate) fn substitute_cas_bindings(
         result = substitute_cas(&result, &Value::from_cas_var(name.as_ref()), value)?;
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod rational_combine_tests {
+    use super::*;
+
+    #[test]
+    fn degree_limited_mixed_rational_term_restores_original_coefficient() {
+        let x = Value::from_cas_var("x");
+        let high_degree_base = cas_add(vec![
+            cas_pow(x.clone(), Value::Int(6)).expect("x^6"),
+            Value::Int(1),
+        ])
+        .expect("x^6 + 1");
+        let mixed_core = cas_mul(vec![
+            x.clone(),
+            cas_pow(high_degree_base, Value::Int(-2)).expect("inverse square"),
+        ])
+        .expect("mixed rational core");
+        let linear_core = cas_pow(
+            cas_add(vec![x, Value::Int(1)]).expect("x + 1"),
+            Value::Int(-1),
+        )
+        .expect("linear inverse");
+        let mut grouped = vec![
+            (mixed_core.clone(), Value::Int(2)),
+            (linear_core.clone(), Value::Int(1)),
+        ];
+
+        combine_rational_terms(&mut grouped).expect("combine rational terms");
+
+        assert!(grouped.contains(&(mixed_core, Value::Int(2))));
+        assert!(grouped.contains(&(linear_core, Value::Int(1))));
+    }
+
+    #[test]
+    fn matching_denominators_combine_after_bucket_merge() {
+        let x = Value::from_cas_var("x");
+        let denominator = cas_add(vec![
+            cas_pow(x.clone(), Value::Int(4)).expect("x^4"),
+            Value::Int(1),
+        ])
+        .expect("x^4 + 1");
+        let inverse = cas_pow(denominator, Value::Int(-1)).expect("inverse quartic");
+        let mut grouped = vec![
+            (inverse.clone(), x.clone()),
+            (
+                inverse.clone(),
+                cas_add(vec![
+                    Value::Int(1),
+                    cas_mul(vec![Value::Int(-1), x]).expect("-x"),
+                ])
+                .expect("1 - x"),
+            ),
+        ];
+
+        combine_rational_terms(&mut grouped).expect("combine rational terms");
+
+        assert_eq!(grouped, vec![(inverse, Value::Int(1))]);
+    }
 }
