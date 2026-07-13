@@ -79,8 +79,8 @@
   --code-panel-bg: #e8ffe8;
   --code-panel-border: #b5e6b5;
   --code-panel-head-bg: #d4fcd4;
-  --welcome-bg: #111c3b;
-  --welcome-bg-deep: #071027;
+  --welcome-bg: #0d1732;
+  --welcome-bg-deep: #040a1d;
   --welcome-border: #4a6e93;
   --welcome-text: #f7fcff;
   --welcome-text-muted: #c7d9e9;
@@ -143,8 +143,8 @@
   --code-panel-bg: #101a2f;
   --code-panel-border: #4a3f6b;
   --code-panel-head-bg: #1d2d4d;
-  --welcome-bg: #141626;
-  --welcome-bg-deep: #050916;
+  --welcome-bg: #10121f;
+  --welcome-bg-deep: #030610;
   --welcome-border: #6a5a8f;
   --welcome-text: #f1f1f3;
   --welcome-text-muted: #c2b8e0;
@@ -2389,7 +2389,6 @@ textarea.editor-text.repl-input,
   font-size: 16px;
   line-height: 1.2;
 }
-.viz-builtin-chip,
 .viz-status {
   flex: 0 0 auto;
   display: inline-flex;
@@ -2764,9 +2763,6 @@ textarea.editor-text.repl-input,
 .viz-data-panel {
   overflow: visible;
 }
-.viz-output-kind {
-  max-width: 260px;
-}
 .viz-control-group {
   display: grid;
   align-content: start;
@@ -2787,10 +2783,6 @@ textarea.editor-text.repl-input,
 }
 [data-viz-control-group="series"] {
   grid-column: span 3;
-}
-[data-viz-control-group="table"] {
-  display: none;
-  grid-column: 1 / -1;
 }
 [data-viz-layout="side"] .viz-control-group {
   grid-column: auto;
@@ -3101,46 +3093,10 @@ textarea.editor-text.repl-input,
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   line-height: 1.35;
 }
-.viz-text-field-tall textarea {
-  min-height: 132px;
-}
-.viz-table-source .wq-editor.editor-text {
-  min-height: 154px;
-  height: auto;
-  max-height: 320px;
-  border: 1px solid var(--surface-border-soft);
-  border-radius: 9px;
-  background: var(--surface-bg-field);
-  padding: 9px 10px;
-  font-size: 13px;
-  line-height: 1.35;
-}
-.viz-table-source .wq-editor.editor-text .hl-string,
-.viz-table-source .wq-editor.editor-text .hl-tag {
-  color: #226b35;
-}
-.viz-table-source .wq-editor.editor-text .hl-number,
-.viz-table-source .wq-editor.editor-text .hl-boolean,
-.viz-table-source .wq-editor.editor-text .hl-cas-constant {
-  color: #a45300;
-}
-.viz-table-source .wq-editor.editor-text .hl-punctuation-bracket,
-.viz-table-source .wq-editor.editor-text .hl-punctuation-delimiter {
-  color: #7a2a6b;
-}
-.viz-table-source .wq-editor.editor-text .hl-variable,
-.viz-table-source .wq-editor.editor-text .hl-cas-variable {
-  color: #005a7a;
-}
 .viz-text-field input:focus,
 .viz-text-field textarea:focus {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
-}
-.viz-table-source .wq-editor.editor-text:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-  box-shadow: none;
 }
 .viz-series-editor {
   display: grid;
@@ -3198,11 +3154,12 @@ textarea.editor-text.repl-input,
 }
 .viz-series-field .wq-editor.editor-text {
   height: auto;
-  max-height: 74px;
+  min-height: 74px;
+  max-height: 180px;
   padding: 7px 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: pre;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
   line-height: 20px;
   caret-color: #7a2a6b;
 }
@@ -3264,28 +3221,6 @@ textarea.editor-text.repl-input,
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
-.viz-table-config,
-.viz-table-source,
-[data-viz-control-group="table"] {
-  display: none;
-}
-[data-viz-source-kind="table"] .viz-table-plot-config {
-  display: none;
-}
-[data-viz-source-kind="table"] .viz-series-editor {
-  display: none;
-}
-[data-viz-source-kind="table"] .viz-table-config,
-[data-viz-source-kind="table"] .viz-table-source,
-[data-viz-source-kind="table"] [data-viz-control-group="table"] {
-  display: grid;
-}
-[data-viz-source-kind="table"] [data-viz-control-group="plot"],
-[data-viz-source-kind="table"] [data-viz-control-group="limits"],
-[data-viz-source-kind="table"] [data-viz-control-group="series"] {
-  display: none;
-}
-
 /* === Article and Tutorial === */
 .layout-3col {
   display: grid;
@@ -5090,7 +5025,6 @@ textarea.editor-text.repl-input,
   color: #8798b6;
 }
 
-:root[data-theme="midnight"] .viz-builtin-chip,
 :root[data-theme="midnight"] .viz-status {
   background: #241b38;
   border-color: #6a5a8f;
@@ -5173,48 +5107,6 @@ textarea.editor-text.repl-input,
 
 :root[data-theme="midnight"] .viz-code-panel pre {
   background: #0b1326;
-}
-
-:root[data-theme="midnight"]
-  .viz-table-source
-  .wq-editor.editor-text
-  .hl-string,
-:root[data-theme="midnight"] .viz-table-source .wq-editor.editor-text .hl-tag {
-  color: #9fd6c5;
-}
-
-:root[data-theme="midnight"]
-  .viz-table-source
-  .wq-editor.editor-text
-  .hl-number,
-:root[data-theme="midnight"]
-  .viz-table-source
-  .wq-editor.editor-text
-  .hl-boolean,
-:root[data-theme="midnight"]
-  .viz-table-source
-  .wq-editor.editor-text
-  .hl-cas-constant {
-  color: #f0bf85;
-}
-
-:root[data-theme="midnight"]
-  .viz-table-source
-  .wq-editor.editor-text
-  .hl-punctuation-bracket,
-:root[data-theme="midnight"]
-  .viz-table-source
-  .wq-editor.editor-text
-  .hl-punctuation-delimiter,
-:root[data-theme="midnight"]
-  .viz-table-source
-  .wq-editor.editor-text
-  .hl-variable,
-:root[data-theme="midnight"]
-  .viz-table-source
-  .wq-editor.editor-text
-  .hl-cas-variable {
-  color: #a0c1d1;
 }
 
 :root[data-theme="midnight"] .viz-series-field.is-disabled > span,

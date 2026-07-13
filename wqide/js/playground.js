@@ -843,7 +843,6 @@ export async function mountPlayground(root) {
   const debugPanel = root.querySelector("#playgroundDebugPanel");
   const templateButtons = Array.from(root.querySelectorAll("[data-template]"));
   const resetBtn = root.querySelector("#resetBtn");
-  const openInReplBtn = root.querySelector("#openInReplBtn");
   const symbolList = root.querySelector("[data-symbol-list]");
   const symbolCount = root.querySelector("[data-symbol-count]");
   const symbolStatus = root.querySelector("[data-symbol-status]");
@@ -884,7 +883,6 @@ export async function mountPlayground(root) {
     ),
     templateButtons,
     resetBtn,
-    openInReplBtn,
     symbolList,
     symbolCount,
     symbolStatus,
@@ -1031,12 +1029,6 @@ export async function mountPlayground(root) {
     requestPanelHeightSync(instance);
     ta.focus();
   });
-  openInReplBtn?.addEventListener("click", () => {
-    const code = ta.value.trim();
-    if (!code) return;
-    window.navigate(`repl.html?input=${encodeURIComponent(code)}`);
-  });
-
   refreshLines(instance);
   await ensureWasm();
   syncBoxControls(instance);

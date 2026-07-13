@@ -7,6 +7,7 @@ import {
 import { createOutputRenderer } from "./ansi.js";
 import { createWqEditor } from "./editor.js";
 import { named, plotSeriesArg, wqString } from "./viz-codegen.js";
+import { DEFAULT_STATE, PRESETS } from "./viz-presets.js";
 import {
   alignTurnBody,
   ensureWasm,
@@ -15,250 +16,6 @@ import {
 } from "./wq-shared.js";
 
 const instances = new WeakMap();
-
-const DEFAULT_STATE = {
-  title: "Function plot",
-  sourceKind: "plot",
-  sourceExpr: "",
-  layout: "below",
-  mode: "line",
-  complex: "re",
-  theme: "none",
-  axes: "full",
-  grid: "4",
-  palette: "classic",
-  width: 90,
-  widthAuto: true,
-  height: 24,
-  samples: 140,
-  xlimMinText: "0",
-  xlimMaxText: "6.283",
-  ylimMinText: "",
-  ylimMaxText: "",
-  xlimLocked: false,
-  ylimLocked: false,
-  tableXText: "",
-  tableYText: "",
-  titleText: "sin and cos",
-  xlabelText: "x",
-  ylabelText: "y",
-  labels: true,
-  seriesOptions: true,
-  unicode: false,
-  autoRun: true,
-  series: [
-    { expr: "sin", label: "sin", symbol: "s", mode: "line" },
-    { expr: "cos", label: "cos", symbol: "c", mode: "line" },
-  ],
-  tableShape: "list",
-  rows: 5,
-  tableColsText: "",
-  tableLimitText: "",
-  tableWidthText: "",
-  tableStyle: "plain",
-  tableMissingText: "",
-};
-
-const PRESETS = {
-  trig: {
-    title: "Function plot",
-    sourceKind: "plot",
-    mode: "line",
-    complex: "re",
-    theme: "none",
-    axes: "full",
-    grid: "4",
-    palette: "classic",
-    width: 90,
-    height: 24,
-    samples: 140,
-    xlimMinText: "0",
-    xlimMaxText: "6.283",
-    ylimMinText: "",
-    ylimMaxText: "",
-    titleText: "sin and cos",
-    xlabelText: "x",
-    ylabelText: "y",
-    series: [
-      { expr: "sin", label: "sin", symbol: "s", mode: "line" },
-      { expr: "cos", label: "cos", symbol: "c", mode: "line" },
-    ],
-  },
-  data: {
-    title: "Data series",
-    sourceKind: "plot",
-    mode: "bar",
-    complex: "re",
-    theme: "none",
-    axes: "minimal",
-    grid: "off",
-    palette: "ink",
-    width: 86,
-    height: 20,
-    samples: 80,
-    xlimMinText: "",
-    xlimMaxText: "",
-    ylimMinText: "",
-    ylimMaxText: "",
-    titleText: "raw values",
-    xlabelText: "index",
-    ylabelText: "value",
-    series: [
-      { expr: "(3;7;4;8;5;9;6;11)", label: "north", symbol: "#", mode: "bar" },
-      { expr: "(2;5;7;4;10;6;12;8)", label: "south", symbol: "+", mode: "bar" },
-    ],
-    seriesOptions: false,
-  },
-  tablePlot: {
-    title: "Table plot",
-    sourceKind: "plot",
-    mode: "line",
-    complex: "re",
-    theme: "none",
-    axes: "full",
-    grid: "4",
-    palette: "bright",
-    width: 90,
-    height: 22,
-    samples: 80,
-    xlimMinText: "0",
-    xlimMaxText: "5",
-    ylimMinText: "",
-    ylimMaxText: "",
-    tableXText: "x",
-    tableYText: "sin;cos",
-    titleText: "table columns",
-    xlabelText: "x",
-    ylabelText: "value",
-    series: [
-      {
-        expr: "(`x:(0;1;2;3;4;5);`sin:(0;0.84;0.91;0.14;-0.76;-0.96);`cos:(1;0.54;-0.42;-0.99;-0.65;0.28))",
-        label: "",
-        symbol: "",
-        mode: "",
-      },
-    ],
-    seriesOptions: false,
-  },
-  cas: {
-    title: "CAS curve",
-    sourceKind: "plot",
-    mode: "line",
-    complex: "re",
-    theme: "none",
-    axes: "full",
-    grid: "4",
-    palette: "bright",
-    width: 92,
-    height: 24,
-    samples: 170,
-    xlimMinText: "-4",
-    xlimMaxText: "4",
-    ylimMinText: "",
-    ylimMaxText: "",
-    titleText: "symbolic curves",
-    xlabelText: "x",
-    ylabelText: "y",
-    series: [
-      { expr: "@s x^2-2*x", label: "quadratic", symbol: "q", mode: "line" },
-      { expr: "@s 1/(x^2+1)", label: "inverse", symbol: "i", mode: "scatter" },
-    ],
-  },
-  modes: {
-    title: "Mode mixer",
-    sourceKind: "plot",
-    mode: "line",
-    complex: "re",
-    theme: "none",
-    axes: "full",
-    grid: "4",
-    palette: "bright",
-    width: 92,
-    height: 24,
-    samples: 160,
-    xlimMinText: "0",
-    xlimMaxText: "6.283",
-    ylimMinText: "",
-    ylimMaxText: "",
-    titleText: "mode mixer",
-    xlabelText: "x",
-    ylabelText: "y",
-    series: [
-      { expr: "sin", label: "line", symbol: "l", mode: "line" },
-      { expr: "cos", label: "scatter", symbol: "s", mode: "scatter" },
-    ],
-  },
-  bars: {
-    title: "Bars",
-    sourceKind: "plot",
-    mode: "bar",
-    complex: "re",
-    theme: "none",
-    axes: "minimal",
-    grid: "off",
-    palette: "ink",
-    width: 78,
-    height: 18,
-    samples: 80,
-    xlimMinText: "",
-    xlimMaxText: "",
-    ylimMinText: "",
-    ylimMaxText: "",
-    titleText: "bar values",
-    xlabelText: "index",
-    ylabelText: "value",
-    series: [
-      { expr: "(3;7;4;8;5;9;6;11)", label: "score", symbol: "#", mode: "bar" },
-    ],
-    seriesOptions: false,
-  },
-  complex: {
-    title: "Complex plane",
-    sourceKind: "plot",
-    mode: "scatter",
-    complex: "plane",
-    theme: "none",
-    axes: "minimal",
-    grid: "4",
-    palette: "classic",
-    width: 90,
-    height: 24,
-    samples: 180,
-    xlimMinText: "-8",
-    xlimMaxText: "8",
-    ylimMinText: "",
-    ylimMaxText: "",
-    titleText: "sqrt complex plane",
-    xlabelText: "real",
-    ylabelText: "imag",
-    series: [{ expr: "sqrt", label: "sqrt", symbol: "*", mode: "scatter" }],
-    seriesOptions: false,
-  },
-  table: {
-    title: "Show table",
-    sourceKind: "table",
-    sourceExpr: "",
-    tableShape: "text",
-    rows: 5,
-    tableColsText: "species;tissue;observation;markers",
-    tableLimitText: "",
-    tableWidthText: "",
-    tableStyle: "plain",
-    tableMissingText: "",
-  },
-  tableMap: {
-    title: "Math map",
-    sourceKind: "table",
-    sourceExpr: "",
-    tableShape: "matrix",
-    rows: 5,
-    tableColsText: "row;kind;dim;invariant;value",
-    tableLimitText: "",
-    tableWidthText: "",
-    tableStyle: "plain",
-    tableMissingText: "",
-  },
-};
 
 const PALETTES = {
   classic: ["red", "blue", "green", "magenta"],
@@ -292,37 +49,6 @@ const SERIES_MODE_OPTIONS = [
   ["area", "area"],
 ];
 
-const TABLE_SHAPE_DEFAULTS = {
-  text: {
-    tableColsText: "species;tissue;observation;markers",
-    tableLimitText: "",
-    tableWidthText: "",
-    tableStyle: "plain",
-    tableMissingText: "",
-  },
-  list: {
-    tableColsText: "system;observable;unit;value",
-    tableLimitText: "",
-    tableWidthText: "",
-    tableStyle: "plain",
-    tableMissingText: "",
-  },
-  dict: {
-    tableColsText: "element;symbol;z;mass",
-    tableLimitText: "",
-    tableWidthText: "",
-    tableStyle: "plain",
-    tableMissingText: "",
-  },
-  matrix: {
-    tableColsText: "row;kind;dim;invariant;value",
-    tableLimitText: "",
-    tableWidthText: "",
-    tableStyle: "plain",
-    tableMissingText: "",
-  },
-};
-
 const LIMIT_INPUTS = {
   xlimMinText: {
     partnerKey: "xlimMaxText",
@@ -344,10 +70,6 @@ const LIMIT_INPUTS = {
 
 function boolLit(value) {
   return value ? "T" : "F";
-}
-
-function wqTag(value) {
-  return `\`${value}`;
 }
 
 function cloneSeries(series) {
@@ -385,16 +107,12 @@ function hydrateLimitState(state) {
 
 function stateForPreset(key) {
   const preset = PRESETS[key] || PRESETS.trig;
-  const state = hydrateLimitState({
+  return hydrateLimitState({
     ...DEFAULT_STATE,
     ...preset,
     series: cloneSeries(preset.series || DEFAULT_STATE.series),
     preset: key,
   });
-  if (state.sourceKind === "table" && !state.sourceExpr) {
-    state.sourceExpr = buildTableValue(state.tableShape, state.rows);
-  }
-  return state;
 }
 
 function colorOption(state) {
@@ -443,11 +161,6 @@ function textOption(name, text) {
   return value ? named(name, wqString(value)) : null;
 }
 
-function numberTextOption(name, text) {
-  const value = String(text || "").trim();
-  return value ? named(name, value) : null;
-}
-
 function textListOption(name, text) {
   const values = String(text || "")
     .split(/[;,\n]+/)
@@ -458,34 +171,9 @@ function textListOption(name, text) {
   return named(name, `(${values.map(wqString).join(";")})`);
 }
 
-function indentWqBlock(text) {
-  return String(text)
-    .split("\n")
-    .map((line) => `  ${line}`)
-    .join("\n");
-}
-
-function defaultSeriesForKind(kind) {
-  if (kind === "data") {
-    return [
-      { expr: "(3;7;4;8;5;9;6;11)", label: "score", symbol: "#", mode: "bar" },
-    ];
-  }
-  if (kind === "cas") {
-    return [
-      { expr: "@s x^2-2*x", label: "quadratic", symbol: "q", mode: "line" },
-      { expr: "@s 1/(x^2+1)", label: "inverse", symbol: "i", mode: "scatter" },
-    ];
-  }
-  return [
-    { expr: "sin", label: "sin", symbol: "s", mode: "line" },
-    { expr: "cos", label: "cos", symbol: "c", mode: "line" },
-  ];
-}
-
 function normalizedSeries(state) {
   const series = cloneSeries(state.series).filter((item) => item.expr.trim());
-  return series.length ? series : defaultSeriesForKind("function");
+  return series.length ? series : cloneSeries(DEFAULT_STATE.series);
 }
 
 function labelsOption(state, series) {
@@ -549,368 +237,8 @@ function buildPlotCode(state) {
   return plotCall(args);
 }
 
-const BIOLOGY_ROWS = [
-  ["yeast", "bud", "cell cycle", ["cdc28", "cln3"]],
-  ["arabidopsis", "leaf", "stomata", ["guard", "chlorophyll"]],
-  ["zebrafish", "embryo", "somite wave", ["notch", "fgf"]],
-  ["e coli", "culture", "log phase", ["lac", "oriC"]],
-  ["drosophila", "wing", "pattern", ["hedgehog", "wingless"]],
-  ["mouse", "hippocampus", "slice", ["ca1", "synapse"]],
-  ["human", "fibroblast", "repair", ["brca1", "p53"]],
-  ["xenopus", "oocyte", "gradient", ["bmp", "wnt"]],
-];
-
-const PHYSICS_ROWS = [
-  ["pendulum", "period", "s", "2.01"],
-  ["spring", "frequency", "Hz", "3.18"],
-  ["capacitor", "charge", "uC", "47.2"],
-  ["photon", "energy", "eV", "1.91"],
-  ["orbit", "speed", "km/s", "7.67"],
-  ["gas", "pressure", "kPa", "101.3"],
-  ["coil", "field", "mT", "12.4"],
-  ["slab", "flux", "W/m2", "1361"],
-];
-
-const CHEMISTRY_COLUMNS = [
-  {
-    key: "element",
-    values: [
-      "hydrogen",
-      "oxygen",
-      "carbon",
-      "sodium",
-      "chlorine",
-      "iron",
-      "copper",
-      "calcium",
-    ].map(wqString),
-  },
-  {
-    key: "symbol",
-    values: ["H", "O", "C", "Na", "Cl", "Fe", "Cu", "Ca"].map(wqTag),
-  },
-  {
-    key: "z",
-    values: ["1", "8", "6", "11", "17", "26", "29", "20"],
-  },
-  {
-    key: "mass",
-    values: [
-      "1.008",
-      "15.999",
-      "12.011",
-      "22.990",
-      "35.450",
-      "55.845",
-      "63.546",
-      "40.078",
-    ],
-  },
-];
-
-const MATH_ROWS = [
-  ["identity", "matrix", "2x2", "det", "1"],
-  ["rotation", "matrix", "2x2", "trace", "1.414"],
-  ["prime", "number", "atom", "mod", "7"],
-  ["fibonacci", "sequence", "n", "term", "55"],
-  ["gaussian", "function", "R", "area", "1"],
-  ["fourier", "basis", "N", "mode", "3"],
-  ["euler", "formula", "C", "phase", "3.142"],
-  ["simplex", "polytope", "3D", "faces", "4"],
-];
-
-function inlineWqList(items) {
-  return `(${items.join(";")})`;
-}
-
-function tableDict(fields) {
-  return `(${fields.map(([key, value]) => `${wqTag(key)}:${value}`).join(";")})`;
-}
-
-function formatListRows(rows) {
-  if (!rows.length) return "()";
-  return `(\n${rows.map((row) => `  ${row}`).join(";\n")}\n)`;
-}
-
-function formatDictEntries(entries) {
-  if (!entries.length) return "()";
-  return `(\n${entries.map((entry) => `  ${entry.key}:${entry.value}`).join(";\n")}\n)`;
-}
-
-function buildTextTableRow([species, tissue, observation, markers]) {
-  return tableDict([
-    ["species", wqString(species)],
-    ["tissue", wqString(tissue)],
-    ["observation", wqString(observation)],
-    ["markers", inlineWqList(markers.map(wqString))],
-  ]);
-}
-
-function buildPhysicsTableRow([system, observable, unit, value]) {
-  return tableDict([
-    ["system", wqString(system)],
-    ["observable", wqString(observable)],
-    ["unit", wqString(unit)],
-    ["value", value],
-  ]);
-}
-
-function buildMathTableEntry([key, kind, dim, invariant, value]) {
-  return {
-    key: wqTag(key),
-    value: tableDict([
-      ["kind", wqString(kind)],
-      ["dim", wqString(dim)],
-      ["invariant", wqString(invariant)],
-      ["value", value],
-    ]),
-  };
-}
-
-function tableRowsForShape(shape) {
-  if (shape === "text") return BIOLOGY_ROWS.map(buildTextTableRow);
-  if (shape === "matrix") {
-    return MATH_ROWS.map(buildMathTableEntry).map(
-      (entry) => `${entry.key}:${entry.value}`,
-    );
-  }
-  return PHYSICS_ROWS.map(buildPhysicsTableRow);
-}
-
-function buildListTableValue(rows) {
-  return formatListRows(tableRowsForShape("list").slice(0, clampRows(rows)));
-}
-
-function buildDictTableValue(rows) {
-  const rowCount = clampRows(rows);
-  return formatDictEntries(
-    CHEMISTRY_COLUMNS.map((column) => ({
-      key: wqTag(column.key),
-      value: inlineWqList(column.values.slice(0, rowCount)),
-    })),
-  );
-}
-
-function buildMatrixTableValue(rows) {
-  const entries = MATH_ROWS.slice(0, clampRows(rows)).map(buildMathTableEntry);
-  return formatDictEntries(entries);
-}
-
-function buildTextTableValue(rows) {
-  return formatListRows(tableRowsForShape("text").slice(0, clampRows(rows)));
-}
-
-function buildTableValue(shape, rows) {
-  if (shape === "text") return buildTextTableValue(rows);
-  if (shape === "dict") return buildDictTableValue(rows);
-  if (shape === "matrix") return buildMatrixTableValue(rows);
-  return buildListTableValue(rows);
-}
-
-function scanWqTopLevel(text, visit) {
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let idx = 0; idx < text.length; idx += 1) {
-    const char = text[idx];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-    if (char === "(" || char === "[" || char === "{") {
-      depth += 1;
-    } else if (char === ")" || char === "]" || char === "}") {
-      depth -= 1;
-      if (depth < 0) return false;
-    }
-    if (visit(char, idx, depth) === false) return false;
-  }
-  return depth === 0 && !inString;
-}
-
-function unwrapWqParens(text) {
-  const value = String(text || "").trim();
-  if (!value.startsWith("(") || !value.endsWith(")")) return null;
-  let validOuter = false;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let idx = 0; idx < value.length; idx += 1) {
-    const char = value[idx];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-    if (char === "(" || char === "[" || char === "{") {
-      depth += 1;
-    } else if (char === ")" || char === "]" || char === "}") {
-      depth -= 1;
-      if (depth < 0) return null;
-      if (depth === 0) {
-        if (idx !== value.length - 1) return null;
-        validOuter = true;
-      }
-    }
-  }
-  return validOuter && depth === 0 && !inString
-    ? value.slice(1, -1).trim()
-    : null;
-}
-
-function splitWqTopLevel(text, delimiter = ";") {
-  const parts = [];
-  let start = 0;
-  const valid = scanWqTopLevel(text, (char, idx, depth) => {
-    if (char === delimiter && depth === 0) {
-      parts.push(text.slice(start, idx).trim());
-      start = idx + 1;
-    }
-    return true;
-  });
-  if (!valid) return null;
-  const tail = text.slice(start).trim();
-  if (tail) parts.push(tail);
-  return parts.filter(Boolean);
-}
-
-function topLevelIndexOf(text, needle) {
-  let found = -1;
-  scanWqTopLevel(text, (char, idx, depth) => {
-    if (char === needle && depth === 0) {
-      found = idx;
-      return false;
-    }
-    return true;
-  });
-  return found;
-}
-
-function parseWqListItems(text) {
-  const body = unwrapWqParens(text);
-  if (body === null) return null;
-  if (!body) return [];
-  return splitWqTopLevel(body);
-}
-
-function keyNameFromWq(key) {
-  const value = key.trim();
-  return value.startsWith("`") ? value.slice(1) : value;
-}
-
-function parseWqDictEntries(text) {
-  const items = parseWqListItems(text);
-  if (!items) return null;
-  const entries = [];
-  for (const item of items) {
-    const colon = topLevelIndexOf(item, ":");
-    if (colon < 0) return null;
-    const key = item.slice(0, colon).trim();
-    const value = item.slice(colon + 1).trim();
-    if (!key || !value) return null;
-    entries.push({
-      key,
-      keyName: keyNameFromWq(key),
-      value,
-    });
-  }
-  return entries;
-}
-
-function resizeListRows(source, shape, rows) {
-  const currentRows = parseWqListItems(source);
-  if (!currentRows) return null;
-  const generatedRows = tableRowsForShape(shape);
-  const nextRows = currentRows.slice(0, rows);
-  for (let idx = currentRows.length; idx < rows; idx += 1) {
-    nextRows.push(
-      generatedRows[idx] || generatedRows[generatedRows.length - 1],
-    );
-  }
-  return formatListRows(nextRows);
-}
-
-function resizeDictColumns(source, rows) {
-  const entries = parseWqDictEntries(source);
-  if (!entries) return null;
-  const generatedColumns = new Map(
-    CHEMISTRY_COLUMNS.map((column) => [column.key, column.values]),
-  );
-  const nextEntries = entries.map((entry) => {
-    const values = parseWqListItems(entry.value);
-    if (!values) return entry;
-    const generatedValues = generatedColumns.get(entry.keyName);
-    const nextValues = values.slice(0, rows);
-    for (let idx = values.length; idx < rows; idx += 1) {
-      nextValues.push(generatedValues?.[idx] || '""');
-    }
-    return {
-      ...entry,
-      value: inlineWqList(nextValues),
-    };
-  });
-  return formatDictEntries(nextEntries);
-}
-
-function resizeDictRows(source, rows) {
-  const entries = parseWqDictEntries(source);
-  if (!entries) return null;
-  const generatedEntries = MATH_ROWS.map(buildMathTableEntry);
-  const nextEntries = entries.slice(0, rows);
-  for (let idx = entries.length; idx < rows; idx += 1) {
-    nextEntries.push(
-      generatedEntries[idx] || generatedEntries[generatedEntries.length - 1],
-    );
-  }
-  return formatDictEntries(nextEntries);
-}
-
-function resizeTableValue(source, shape, rows) {
-  const rowCount = clampRows(rows);
-  if (shape === "dict") return resizeDictColumns(source, rowCount);
-  if (shape === "matrix") return resizeDictRows(source, rowCount);
-  return resizeListRows(source, shape, rowCount);
-}
-
-function buildTableCode(state) {
-  const source =
-    String(state.sourceExpr || "").trim() ||
-    buildTableValue(state.tableShape, state.rows);
-  if (source.startsWith("showtable")) return source;
-  const args = [
-    indentWqBlock(source),
-    textListOption("cols", state.tableColsText),
-    numberTextOption("limit", state.tableLimitText),
-    numberTextOption("width", state.tableWidthText),
-    named("style", wqString(state.tableStyle || "plain")),
-    textOption("missing", state.tableMissingText),
-  ].filter(Boolean);
-  return `showtable[\n${args.join(";\n")}]`;
-}
-
 function buildCode(state) {
-  return state.sourceKind === "table"
-    ? buildTableCode(state)
-    : buildPlotCode(state);
+  return buildPlotCode(state);
 }
 
 function setStatus(instance, text, tone = "") {
@@ -1075,7 +403,7 @@ function setRangeValue(instance, key, value) {
     syncWidthControl(instance);
     return;
   }
-  instance.state[key] = key === "rows" ? clampRows(value) : Number(value);
+  instance.state[key] = Number(value);
   const input = instance.ranges[key];
   const label = instance.root.querySelector(`[data-viz-range-value="${key}"]`);
   if (input) input.value = String(instance.state[key]);
@@ -1105,12 +433,6 @@ function setInputValue(instance, key, value) {
   instance.state[key] = value;
   const input = instance.inputs[key];
   if (input) input.value = value;
-}
-
-function clampRows(value) {
-  const number = Math.round(Number(value));
-  if (!Number.isFinite(number)) return 1;
-  return Math.max(1, Math.min(8, number));
 }
 
 function finiteNumber(text) {
@@ -1147,41 +469,6 @@ function setLimitInputValue(instance, key, value) {
   setInputValue(instance, meta.partnerKey, partnerValue);
 }
 
-function syncTableSource(instance, options = {}) {
-  if (instance.state.sourceKind !== "table") return;
-  instance.state.rows = clampRows(instance.state.rows);
-  const current = String(instance.state.sourceExpr || "");
-  const next =
-    options.preserveCurrent === false || !current.trim()
-      ? buildTableValue(instance.state.tableShape, instance.state.rows)
-      : resizeTableValue(
-          current,
-          instance.state.tableShape,
-          instance.state.rows,
-        );
-  if (next !== null) {
-    setInputValue(instance, "sourceExpr", next);
-  }
-}
-
-function syncTableDisplayDefaults(instance, shape) {
-  const defaults = TABLE_SHAPE_DEFAULTS[shape] || TABLE_SHAPE_DEFAULTS.text;
-  for (const [key, value] of Object.entries(defaults)) {
-    setInputValue(instance, key, value);
-  }
-  setSelectValue(instance, "tableStyle", defaults.tableStyle);
-}
-
-function seedSourceForKind(instance, kind) {
-  instance.state.series =
-    kind === "table" ? [] : cloneSeries(defaultSeriesForKind("function"));
-  if (kind === "table") {
-    syncTableDisplayDefaults(instance, instance.state.tableShape);
-    syncTableSource(instance, { preserveCurrent: false });
-  }
-  renderSeriesEditor(instance);
-}
-
 function makeSeriesTextField(instance, row, idx, key, labelText, options = {}) {
   const field = document.createElement(key === "expr" ? "div" : "label");
   field.className = `viz-series-field viz-series-field-${key}`;
@@ -1192,14 +479,14 @@ function makeSeriesTextField(instance, row, idx, key, labelText, options = {}) {
   if (key === "expr") {
     const input = document.createElement("textarea");
     input.className = "viz-series-expr-input editor-text";
-    input.rows = 1;
+    input.rows = 3;
     input.spellcheck = false;
     input.placeholder = "sin, @s x^2, or (1;2;3)";
     input.setAttribute("aria-label", `Series ${idx + 1} expression`);
     input.value = row[key] || "";
     field.append(label, input);
 
-    const editor = createWqEditor(input, { multilineMode: "none" });
+    const editor = createWqEditor(input, { multilineMode: "plain" });
     editor.addEventListener("input", () => {
       instance.state.series[idx][key] = editor.value;
       updateView(instance);
@@ -1326,12 +613,8 @@ function makeSeriesModeField(instance, row, idx) {
 
 function renderSeriesEditor(instance) {
   if (!instance.seriesList) return;
-  if (instance.state.sourceKind === "table") {
-    instance.seriesList.innerHTML = "";
-    return;
-  }
   if (!instance.state.series.length) {
-    instance.state.series = cloneSeries(defaultSeriesForKind("function"));
+    instance.state.series = cloneSeries(DEFAULT_STATE.series);
   }
   instance.seriesList.innerHTML = "";
   instance.state.series.forEach((row, idx) => {
@@ -1457,12 +740,7 @@ function scheduleRun(instance, delay = 160) {
 
 function updateView(instance, options = {}) {
   const preset = PRESETS[instance.state.preset] || PRESETS.trig;
-  const sourceKind = instance.state.sourceKind || "plot";
-  const builtin = sourceKind === "table" ? "showtable" : "asciiplot";
   instance.title.textContent = instance.state.title || preset.title;
-  instance.builtin.textContent = builtin;
-  instance.root.dataset.vizBuiltin = builtin;
-  instance.root.dataset.vizSourceKind = sourceKind;
   instance.root.dataset.vizLayout = instance.state.layout || "below";
   refreshAutoWidth(instance);
   renderCode(instance);
@@ -1489,7 +767,7 @@ async function runViz(instance) {
   const renderer = createOutputRenderer(instance.output);
   try {
     await ensureWasm();
-    const result = await queueEval(() => {
+    await queueEval(() => {
       set_stdout_callback((chunk) => {
         renderer.appendStreamOutput(chunk);
         instance.output.scrollTop = instance.output.scrollHeight;
@@ -1501,23 +779,11 @@ async function runViz(instance) {
       const session = new WasmWqSession();
       try {
         session.set_box_flags("0");
-        return session.eval_wq_result(instance.code);
+        session.eval_wq_result(instance.code).free();
       } finally {
         session.free();
       }
     });
-    if (
-      result.value !== undefined &&
-      result.value !== null &&
-      String(result.value).length
-    ) {
-      const bar = document.createElement("span");
-      bar.className = "repl-bar repl-bar-success";
-      bar.textContent = "\u258d ";
-      instance.output.appendChild(bar);
-      const resultRenderer = createOutputRenderer(instance.output, bar);
-      resultRenderer.appendOutput(alignTurnBody(String(result.value)) + "\n");
-    }
     setStatus(instance, "done", "ok");
   } catch (err) {
     const bar = document.createElement("span");
@@ -1559,17 +825,9 @@ function wireSelect(instance, field) {
     const option = event.target.closest("[data-viz-option]");
     if (!option) return;
     const nextValue = option.dataset.vizOption;
-    const previousValue = instance.state[key];
     setSelectValue(instance, key, nextValue);
-    if (key === "sourceKind" && nextValue !== previousValue) {
-      seedSourceForKind(instance, nextValue);
-    }
-    if (key === "theme" && nextValue !== previousValue) {
+    if (key === "theme") {
       applyThemePresetToControls(instance, nextValue);
-    }
-    if (key === "tableShape") {
-      syncTableDisplayDefaults(instance, nextValue);
-      syncTableSource(instance, { preserveCurrent: false });
     }
     closeSelect(field);
     updateView(instance);
@@ -1578,15 +836,6 @@ function wireSelect(instance, field) {
 
 export async function mountViz(root) {
   await ensureWasm();
-  const tableSourceTextarea = root.querySelector(
-    'textarea[data-viz-input="sourceExpr"]',
-  );
-  const tableSourceEditor = tableSourceTextarea
-    ? createWqEditor(tableSourceTextarea, { multilineMode: "plain" })
-    : null;
-  if (tableSourceEditor) {
-    tableSourceEditor.element.dataset.vizInput = "sourceExpr";
-  }
   const instance = {
     root,
     state: stateForPreset("trig"),
@@ -1595,14 +844,12 @@ export async function mountViz(root) {
     isRunning: false,
     pendingRun: false,
     title: root.querySelector("[data-viz-title]"),
-    builtin: root.querySelector("[data-viz-builtin]"),
     status: root.querySelector("[data-viz-status]"),
     output: root.querySelector("[data-viz-output]"),
     codeEl: root.querySelector("[data-viz-code]"),
     copyCodeBtn: root.querySelector("[data-viz-copy-code]"),
     copyCodeTimer: 0,
     runBtn: root.querySelector("[data-viz-run]"),
-    openBtn: root.querySelector("[data-viz-open]"),
     addSeriesBtn: root.querySelector("[data-viz-add-series]"),
     seriesList: root.querySelector("[data-viz-series-list]"),
     presetMenu: root.querySelector("[data-viz-preset-menu]"),
@@ -1633,9 +880,6 @@ export async function mountViz(root) {
       ]),
     ),
   };
-  if (tableSourceEditor) {
-    instance.inputs.sourceExpr = tableSourceEditor;
-  }
   instances.set(root, instance);
 
   root.querySelectorAll("[data-viz-select]").forEach((field) => {
@@ -1647,9 +891,6 @@ export async function mountViz(root) {
         setToggleValue(instance, "widthAuto", false);
       }
       setRangeValue(instance, key, input.value);
-      if (key === "rows") {
-        syncTableSource(instance);
-      }
       updateView(instance);
     });
   });
@@ -1663,9 +904,6 @@ export async function mountViz(root) {
         setToggleValue(instance, "widthAuto", false);
       }
       setRangeValue(instance, key, current + delta);
-      if (key === "rows") {
-        syncTableSource(instance);
-      }
       updateView(instance);
     });
   });
@@ -1715,11 +953,6 @@ export async function mountViz(root) {
   });
   instance.copyCodeBtn?.addEventListener("click", async () => {
     await copyCode(instance);
-  });
-  instance.openBtn?.addEventListener("click", () => {
-    window.navigate(
-      `playground.html?code=${encodeURIComponent(instance.code)}`,
-    );
   });
   document.addEventListener("click", (event) => {
     if (!root.contains(event.target)) {

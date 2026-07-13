@@ -1156,7 +1156,6 @@ export async function mountRepl(root) {
         root.querySelector(`[data-debug-flag="${flag}"]`),
       ]),
     ),
-    openInPlaygroundBtn: root.querySelector("#openInPlaygroundBtn"),
     historyToggleBtn: root.querySelector("#historyToggleBtn"),
     historySearch: root.querySelector("#historySearch"),
     historySearchInput: root.querySelector("#historySearchInput"),
@@ -1208,14 +1207,6 @@ export async function mountRepl(root) {
   });
   ui.refreshGlobalsBtn?.addEventListener("click", () => {
     syncGlobalsPanel();
-  });
-  ui.openInPlaygroundBtn?.addEventListener("click", () => {
-    let code = ui.codeEl.value.trim();
-    if (!code && history.length) {
-      code = history[history.length - 1];
-    }
-    if (!code) return;
-    window.navigate(`playground.html?code=${encodeURIComponent(code)}`);
   });
   ui.pillBox?.addEventListener("click", () => {
     toggleRuntimePanel(ui.pillBox, ui.boxPanel);

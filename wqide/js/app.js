@@ -525,9 +525,6 @@ const PLAYGROUND_HTML = html`
                   Make Poster
                 </button>
                 <button id="resetBtn" class="btn" type="button">Reset</button>
-                <button id="openInReplBtn" class="btn" type="button">
-                  Open in REPL
-                </button>
               </div>
             </div>
             <div class="stdin-row">
@@ -628,7 +625,7 @@ const VIZ_HTML = html`
       <section class="viz-topbar" aria-label="Viz summary">
         <div class="viz-stage-title">
           <div class="viz-stage-title-row">
-            <h1 data-viz-title>Function plot</h1>
+            <h1 data-viz-title>Callable curves</h1>
             <div class="viz-preset-menu" data-viz-preset-menu>
               <button
                 class="viz-preset-trigger"
@@ -657,8 +654,8 @@ const VIZ_HTML = html`
                       role="menuitemradio"
                       aria-checked="true"
                       data-viz-preset="trig">
-                      <span class="viz-preset-title">Function plot</span>
-                      <span class="viz-preset-meta">sin / cos</span>
+                      <span class="viz-preset-title">Callable curves</span>
+                      <span class="viz-preset-meta">functions · line</span>
                     </button>
                     <button
                       class="viz-preset"
@@ -666,8 +663,8 @@ const VIZ_HTML = html`
                       role="menuitemradio"
                       aria-checked="false"
                       data-viz-preset="data">
-                      <span class="viz-preset-title">Data series</span>
-                      <span class="viz-preset-meta">raw values</span>
+                      <span class="viz-preset-title">Sampled area</span>
+                      <span class="viz-preset-meta">raw list · area</span>
                     </button>
                     <button
                       class="viz-preset"
@@ -675,8 +672,8 @@ const VIZ_HTML = html`
                       role="menuitemradio"
                       aria-checked="false"
                       data-viz-preset="tablePlot">
-                      <span class="viz-preset-title">Table plot</span>
-                      <span class="viz-preset-meta">x + y columns</span>
+                      <span class="viz-preset-title">Column data</span>
+                      <span class="viz-preset-meta">dict columns · x/y</span>
                     </button>
                     <button
                       class="viz-preset"
@@ -684,8 +681,8 @@ const VIZ_HTML = html`
                       role="menuitemradio"
                       aria-checked="false"
                       data-viz-preset="cas">
-                      <span class="viz-preset-title">CAS curve</span>
-                      <span class="viz-preset-meta">symbolic x</span>
+                      <span class="viz-preset-title">Symbolic curves</span>
+                      <span class="viz-preset-meta">CAS expressions</span>
                     </button>
                     <button
                       class="viz-preset"
@@ -693,8 +690,8 @@ const VIZ_HTML = html`
                       role="menuitemradio"
                       aria-checked="false"
                       data-viz-preset="modes">
-                      <span class="viz-preset-title">Mode mixer</span>
-                      <span class="viz-preset-meta">line + scatter</span>
+                      <span class="viz-preset-title">Mixed modes</span>
+                      <span class="viz-preset-meta">line · step · scatter</span>
                     </button>
                     <button
                       class="viz-preset"
@@ -702,8 +699,8 @@ const VIZ_HTML = html`
                       role="menuitemradio"
                       aria-checked="false"
                       data-viz-preset="bars">
-                      <span class="viz-preset-title">Bars</span>
-                      <span class="viz-preset-meta">series values</span>
+                      <span class="viz-preset-title">Category bars</span>
+                      <span class="viz-preset-meta">raw list · bar</span>
                     </button>
                     <button
                       class="viz-preset"
@@ -712,33 +709,7 @@ const VIZ_HTML = html`
                       aria-checked="false"
                       data-viz-preset="complex">
                       <span class="viz-preset-title">Complex plane</span>
-                      <span class="viz-preset-meta">sqrt[x]</span>
-                    </button>
-                  </div>
-                </section>
-                <section
-                  class="viz-preset-group"
-                  role="group"
-                  aria-labelledby="vizPresetShowtable">
-                  <h2 id="vizPresetShowtable">showtable</h2>
-                  <div class="viz-preset-list">
-                    <button
-                      class="viz-preset"
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked="false"
-                      data-viz-preset="table">
-                      <span class="viz-preset-title">Show table</span>
-                      <span class="viz-preset-meta">string cells</span>
-                    </button>
-                    <button
-                      class="viz-preset"
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked="false"
-                      data-viz-preset="tableMap">
-                      <span class="viz-preset-title">Math map</span>
-                      <span class="viz-preset-meta">dict of dicts</span>
+                      <span class="viz-preset-meta">sqrt · plane</span>
                     </button>
                   </div>
                 </section>
@@ -760,13 +731,9 @@ const VIZ_HTML = html`
             </button>
             <button type="button" data-viz-layout-option="side">Side</button>
           </div>
-          <span class="viz-builtin-chip" data-viz-builtin>asciiplot</span>
           <span class="viz-status" data-viz-status>ready</span>
           <button class="btn primary" type="button" data-viz-run>
             Refresh
-          </button>
-          <button class="btn" type="button" data-viz-open>
-            Open in Playground
           </button>
         </div>
       </section>
@@ -785,24 +752,6 @@ const VIZ_HTML = html`
             data-viz-control-group="source">
             <div class="viz-control-head">
               <h2>Data</h2>
-            </div>
-            <div class="viz-field viz-output-kind" data-viz-select="sourceKind">
-              <label>Output</label>
-              <button
-                class="viz-select-button"
-                type="button"
-                aria-haspopup="listbox"
-                aria-expanded="false">
-                <span data-viz-select-value>plot</span>
-              </button>
-              <div class="viz-select-menu" role="listbox">
-                <button type="button" role="option" data-viz-option="plot">
-                  plot
-                </button>
-                <button type="button" role="option" data-viz-option="table">
-                  table
-                </button>
-              </div>
             </div>
             <div class="viz-series-editor" data-viz-series-editor>
               <div class="viz-series-list" data-viz-series-list></div>
@@ -828,75 +777,6 @@ const VIZ_HTML = html`
                 </label>
               </div>
             </div>
-            <div class="viz-table-config" data-viz-table-config>
-              <div class="viz-control-grid">
-                <div class="viz-field" data-viz-select="tableShape">
-                  <label>Shape</label>
-                  <button
-                    class="viz-select-button"
-                    type="button"
-                    aria-haspopup="listbox"
-                    aria-expanded="false">
-                    <span data-viz-select-value>list of dicts</span>
-                  </button>
-                  <div class="viz-select-menu" role="listbox">
-                    <button type="button" role="option" data-viz-option="text">
-                      biology cells
-                    </button>
-                    <button type="button" role="option" data-viz-option="list">
-                      physics rows
-                    </button>
-                    <button type="button" role="option" data-viz-option="dict">
-                      chem columns
-                    </button>
-                    <button
-                      type="button"
-                      role="option"
-                      data-viz-option="matrix">
-                      math map
-                    </button>
-                  </div>
-                </div>
-                <div
-                  class="viz-stepper"
-                  role="group"
-                  aria-label="Generated rows">
-                  <span>Rows</span>
-                  <button
-                    class="viz-stepper-btn"
-                    type="button"
-                    aria-label="Fewer rows"
-                    data-viz-step="rows"
-                    data-viz-step-delta="-1">
-                    -
-                  </button>
-                  <input
-                    type="number"
-                    min="1"
-                    max="8"
-                    value="5"
-                    data-viz-range="rows" />
-                  <button
-                    class="viz-stepper-btn"
-                    type="button"
-                    aria-label="More rows"
-                    data-viz-step="rows"
-                    data-viz-step-delta="1">
-                    +
-                  </button>
-                </div>
-              </div>
-            </div>
-            <label
-              class="viz-text-field viz-text-field-tall viz-table-source"
-              data-viz-table-source>
-              <span>Table value</span>
-              <textarea
-                class="editor-text"
-                rows="6"
-                spellcheck="false"
-                data-viz-input="sourceExpr"></textarea>
-            </label>
           </section>
 
           <div class="viz-code-panel-wrap">
@@ -1208,65 +1088,6 @@ const VIZ_HTML = html`
             </div>
           </section>
 
-          <section class="viz-control-group" data-viz-control-group="table">
-            <div class="viz-control-head">
-              <h2>Table Display</h2>
-            </div>
-            <div class="viz-control-grid">
-              <div class="viz-field" data-viz-select="tableStyle">
-                <label>Style</label>
-                <button
-                  class="viz-select-button"
-                  type="button"
-                  aria-haspopup="listbox"
-                  aria-expanded="false">
-                  <span data-viz-select-value>plain</span>
-                </button>
-                <div class="viz-select-menu" role="listbox">
-                  <button type="button" role="option" data-viz-option="plain">
-                    plain
-                  </button>
-                  <button
-                    type="button"
-                    role="option"
-                    data-viz-option="markdown">
-                    markdown
-                  </button>
-                </div>
-              </div>
-              <label class="viz-text-field">
-                <span>Columns</span>
-                <input
-                  type="text"
-                  spellcheck="false"
-                  data-viz-input="tableColsText" />
-              </label>
-              <label class="viz-text-field">
-                <span>Limit</span>
-                <input
-                  type="text"
-                  inputmode="numeric"
-                  spellcheck="false"
-                  data-viz-input="tableLimitText" />
-              </label>
-              <label class="viz-text-field">
-                <span>Cell width</span>
-                <input
-                  type="text"
-                  inputmode="numeric"
-                  spellcheck="false"
-                  placeholder="auto"
-                  data-viz-input="tableWidthText" />
-              </label>
-              <label class="viz-text-field">
-                <span>Missing</span>
-                <input
-                  type="text"
-                  spellcheck="false"
-                  data-viz-input="tableMissingText" />
-              </label>
-            </div>
-          </section>
         </aside>
       </div>
     </div>
@@ -1429,9 +1250,6 @@ const REPL_HTML = html`
               </button>
               <button id="clearBtn" class="btn" type="button">
                 Clear Flow
-              </button>
-              <button id="openInPlaygroundBtn" class="btn" type="button">
-                Open in Playground
               </button>
             </div>
           </div>
