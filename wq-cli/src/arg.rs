@@ -21,6 +21,7 @@ pub struct RuntimeFlags {
     pub debug_flags: DebugLogFlags,
     pub interpreter: Option<String>,
     pub builtins: Option<String>,
+    pub seed: Option<i64>,
     pub print: bool,                // default: false
     pub stack_size_mebibyte: usize, // default: 12
     pub experimental: Vec<String>,
@@ -43,6 +44,7 @@ impl RuntimeFlags {
             debug_flags: DebugLogFlags::empty(),
             interpreter: None,
             builtins: None,
+            seed: None,
             print: false,
             stack_size_mebibyte: DEFAULT_STACK_SIZE_MEBIBYTE,
             experimental: Vec::new(),
@@ -172,6 +174,10 @@ struct RuntimeOpts {
     /// Specify builtins preset (all, constrained, pure, minimal)
     #[arg(short = 'b', long, value_name = "PRESET", global = true)]
     builtins: Option<String>,
+
+    /// Seed the default random generator
+    #[arg(long, value_name = "INT", allow_hyphen_values = true, global = true)]
+    seed: Option<i64>,
 
     /// Disable backtrace. Necessary for certain experimental features.
     #[arg(long, global = true)]
@@ -390,6 +396,7 @@ where
     }
     rt.dry = cli.runtime.dry;
     rt.builtins = cli.runtime.builtins;
+    rt.seed = cli.runtime.seed;
     if cli.runtime.no_bt {
         rt.bt = false;
     }
@@ -1147,6 +1154,17 @@ mod tests {
     #[test]
     fn stack_size_missing_errors() {
         assert_eq!(is_err(parse_args(v(&["--stack-size"]))), 2);
+    }
+
+    #[test]
+    fn seed_parses_signed_int() {
+        let (rt, _) = ok(parse_args(v(&["--seed", "-42", "a.wq"])));
+        assert_eq!(rt.seed, Some(-42));
+    }
+
+    #[test]
+    fn seed_rejects_non_int() {
+        assert_eq!(is_err(parse_args(v(&["--seed", "4.2", "a.wq"]))), 2);
     }
 
     #[test]

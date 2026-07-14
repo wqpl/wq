@@ -122,6 +122,11 @@ pub(super) fn dispatch_postfix<const TAIL: bool>(
             vm.stack.push(result);
             Ok(false)
         }
+        Value::Rng(rng) => {
+            let result = vm.invoke_rng_value(rng, argc)?;
+            vm.stack.push(result);
+            Ok(false)
+        }
         Value::LiftedCallable(data) => {
             let result = vm.invoke_function_composition_on_stack(data, argc)?;
             vm.stack.push(result);
@@ -173,6 +178,11 @@ pub(super) fn dispatch_anon_call<const TAIL: bool>(
     match func {
         Value::BuiltinFunction { id, .. } => {
             let out = vm.invoke_bfn_value(*id, argc)?;
+            vm.stack.push(out);
+            Ok(false)
+        }
+        Value::Rng(rng) => {
+            let out = vm.invoke_rng_value(rng, argc)?;
             vm.stack.push(out);
             Ok(false)
         }
@@ -259,6 +269,11 @@ pub(super) fn dispatch_loaded_local_call<const TAIL: bool>(
             vm.stack.push(out);
             Ok(false)
         }
+        Value::Rng(rng) => {
+            let out = vm.invoke_rng_value(rng, argc)?;
+            vm.stack.push(out);
+            Ok(false)
+        }
         Value::CompiledFunction { .. } | Value::Closure { .. } => {
             dispatch_user_value_cached::<TAIL>(vm, idx, func, argc, hooks, None)
         }
@@ -287,7 +302,7 @@ pub(super) fn dispatch_loaded_user_call<const TAIL: bool>(
         Value::CompiledFunction { .. } | Value::Closure { .. } => {
             dispatch_user_value_cached::<TAIL>(vm, idx, func, argc, hooks, Some(name))
         }
-        Value::LiftedCallable(_) | Value::Cas(_) => {
+        Value::LiftedCallable(_) | Value::Cas(_) | Value::Rng(_) => {
             dispatch_user_named_value::<TAIL>(vm, idx, func, argc, name)
         }
         other => {

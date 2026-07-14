@@ -99,6 +99,11 @@ impl Session {
         self.vm.argv = argv.into();
     }
 
+    /// Seed the default generator used by `rand`.
+    pub fn seed_rng(&mut self, seed: i64) {
+        self.vm.default_rng = crate::value::rng::RngState::from_seed(seed);
+    }
+
     /// Return the status requested by a controlled `cliargs` halt.
     pub fn halt_status(&self) -> Option<i32> {
         self.vm.halt_status

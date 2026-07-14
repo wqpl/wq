@@ -36,7 +36,7 @@ use crate::msg::{
 use crate::repl::editor::WqReplHighlighter;
 use crate::repl::input::RustylineInput;
 use crate::wqdb::enter_wqdb_after_err;
-use crate::{apply_builtins_flag, apply_interpreter_flag, wqdb_pause_handler};
+use crate::{apply_builtins_flag, apply_interpreter_flag, apply_seed_flag, wqdb_pause_handler};
 
 fn repl_color(text: &str, color: AnsiColor) -> String {
     repl_paint(text, TextStyle::new().fg(color))
@@ -218,6 +218,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
     set_debug_log_flags(rtflags.debug_flags);
     session.set_bt_mode(rtflags.bt);
     session.set_wqdb(rtflags.wqdb);
+    apply_seed_flag(&mut session, &rtflags);
     session.set_dry_mode(dry_mode);
     apply_builtins_flag(&mut session, &rtflags);
     apply_interpreter_flag(&mut session, &rtflags);

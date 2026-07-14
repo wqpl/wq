@@ -1,5 +1,3 @@
-use rand::RngExt;
-
 use crate::builtins::{BuiltinEnum, BuiltinFnArgs, check_arity};
 use crate::value::{Excerpt, Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
@@ -142,54 +140,3 @@ macro_rules! def_rounding_math_fn {
 def_rounding_math_fn!(floor, Floor, floor, floor);
 def_rounding_math_fn!(ceil, Ceil, ceil, ceil);
 def_rounding_math_fn!(round, Round, round, round);
-
-pub(super) fn rand(args: BuiltinFnArgs) -> WqResult<Value> {
-    check_arity(BuiltinEnum::Rand, [0, 1, 2], &args)?;
-    let mut rng = rand::rng();
-    match args.len() {
-        0 => Ok(Value::float(rng.random::<f64>())),
-        1 => match &args[0] {
-            Value::Int(n) if *n > 0 => Ok(Value::Int(rng.random_range(0..*n))),
-            Value::Float(f) if **f > 0.0 => Ok(Value::float(rng.random_range(0.0..**f))),
-            _ => Err(WqError::new(WqErrorType::Domain)
-                .src(BuiltinEnum::Rand)
-                .msg("expected positive int or float")
-                .at_arg(0)),
-        },
-        2 => match (&args[0], &args[1]) {
-            (Value::Int(a), Value::Int(b)) if a < b => Ok(Value::Int(rng.random_range(*a..*b))),
-            (a, b) => {
-                let af = match a {
-                    Value::Int(n) => *n as f64,
-                    Value::Float(f) => **f,
-                    _ => {
-                        return Err(WqError::new(WqErrorType::Domain)
-                            .src(BuiltinEnum::Rand)
-                            .msg("expected positive int or float")
-                            .at_arg(0));
-                    }
-                };
-                let bf = match b {
-                    Value::Int(n) => *n as f64,
-                    Value::Float(f) => **f,
-                    _ => {
-                        return Err(WqError::new(WqErrorType::Domain)
-                            .src(BuiltinEnum::Rand)
-                            .msg("expected positive int or float")
-                            .at_arg(1));
-                    }
-                };
-                if af < bf {
-                    Ok(Value::float(rng.random_range(af..bf)))
-                } else {
-                    Err(WqError::new(WqErrorType::Domain)
-                        .src(BuiltinEnum::Rand)
-                        .msg("expected lower < upper")
-                        .attach_note(format!("got {af} for lower"))
-                        .attach_note(format!("got {bf} for upper")))
-                }
-            }
-        },
-        _ => unreachable!(),
-    }
-}

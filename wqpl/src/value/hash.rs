@@ -206,6 +206,10 @@ impl std::hash::Hash for Value {
                 17u8.hash(state);
                 Arc::as_ptr(s).hash(state);
             }
+            Value::Rng(rng) => {
+                21u8.hash(state);
+                Arc::as_ptr(rng).hash(state);
+            }
             Value::Algebraic(a) => {
                 20u8.hash(state);
                 a.field().hash(state);
@@ -338,6 +342,8 @@ impl PartialEq for Value {
             (LiftedCallable(a), LiftedCallable(b)) => a.expr == b.expr,
 
             (Stream(a), Stream(b)) => Arc::ptr_eq(a, b),
+
+            (Rng(a), Rng(b)) => Arc::ptr_eq(a, b),
 
             (Algebraic(a), Algebraic(b)) => {
                 a.field() == b.field()

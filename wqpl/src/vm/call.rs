@@ -70,6 +70,7 @@ impl Vm {
             return self.call_builtin_id(*id, args);
         }
         match func {
+            Value::Rng(rng) => Self::call_rng_value(rng, args),
             Value::LiftedCallable(data) => self.call_function_composition(data, args),
             Value::Cas(_) => self.call_cas_callable(func, args),
             Value::CompiledFunction(_) | Value::Closure(_) => {
@@ -114,6 +115,29 @@ impl Vm {
                 other.type_name()
             ))),
         }
+    }
+
+    fn call_rng_value(
+        rng: &Arc<std::sync::Mutex<crate::value::rng::RngState>>,
+        args: BuiltinFnArgs,
+    ) -> WqResult<Value> {
+        if args.has_named() {
+            return Err(arity_err_vm(
+                "rng does not accept named arguments".to_string(),
+            ));
+        }
+        rng.lock()
+            .expect("poisoned rng")
+            .draw(&args, "rng", "rng[]; rng[upper]; rng[lower;upper]")
+    }
+
+    pub(crate) fn invoke_rng_value(
+        &mut self,
+        rng: &Arc<std::sync::Mutex<crate::value::rng::RngState>>,
+        argc: usize,
+    ) -> WqResult<Value> {
+        let args = self.take_call_args_from_stack(argc)?;
+        Self::call_rng_value(rng, args)
     }
 
     fn resolve_named_arg_layout(
@@ -451,6 +475,7 @@ impl Vm {
     ) -> WqResult<Value> {
         match func {
             Value::Cas(_) => self.invoke_cas_callable_on_stack(func, argc),
+            Value::Rng(rng) => self.invoke_rng_value(rng, argc),
             Value::LiftedCallable(data) => self.invoke_function_composition_on_stack(data, argc),
             Value::CompiledFunction(_) | Value::Closure(_) => self.invoke_spec(
                 CallSpec::from_user_callable(func, argc, callee_name)
@@ -762,6 +787,11 @@ impl Vm {
 impl BuiltinContext for Vm {
     fn call(&mut self, func: &Value, args: BuiltinFnArgs) -> WqResult<Value> {
         Vm::call(self, func, args)
+    }
+
+    fn draw_default_random(&mut self, args: &[Value]) -> WqResult<Value> {
+        let builtin = BuiltinEnum::Rand;
+        self.default_rng.draw(args, builtin.name(), builtin.usage())
     }
 
     fn list_enabled_builtins(&self) -> Vec<String> {

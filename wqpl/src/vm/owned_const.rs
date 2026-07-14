@@ -193,6 +193,7 @@ fn has_shared_backing(value: &Value) -> bool {
         | Value::Closure(_)
         | Value::BuiltinFunction { .. }
         | Value::LiftedCallable(_)
+        | Value::Rng(_)
         | Value::Stream(_) => false,
     }
 }

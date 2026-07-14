@@ -16,6 +16,7 @@ use ahash::AHashMap;
 use crate::builtins::{BuiltinPreset, Builtins};
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
 use crate::value::cell::ValueCell;
+use crate::value::rng::RngState;
 use crate::value::{Value, WqResult};
 use crate::vm::call::ResolvedCallable;
 use crate::vm::inst::Instruction;
@@ -38,6 +39,7 @@ pub struct Vm {
     pub(crate) global_slot_map: GlobalSlotMap,
     pub(crate) builtins: Builtins,
     pub(crate) builtins_preset: BuiltinPreset,
+    pub(crate) default_rng: RngState,
     pub(crate) argv: Arc<[String]>,
     pub(crate) halt_status: Option<i32>,
     /// Stack of local slot frames
@@ -212,6 +214,7 @@ impl Vm {
             global_slot_map: AHashMap::new(),
             builtins: Builtins::new(),
             builtins_preset: BuiltinPreset::DEFAULT,
+            default_rng: RngState::from_entropy(),
             argv: Arc::from([]),
             halt_status: None,
             locals: Vec::new(),

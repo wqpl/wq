@@ -13,6 +13,7 @@ pub mod mat;
 pub mod math;
 pub mod meta;
 pub mod op;
+pub mod rng;
 pub mod seq;
 pub mod stream;
 
@@ -32,6 +33,7 @@ use ordered_float::OrderedFloat;
 use crate::ast::{BinaryOperator, UnaryOperator};
 use crate::value::cas::CasData;
 use crate::value::func::{CallableExpr, ClosureData, FunctionData, LiftedCallableData};
+use crate::value::rng::RngState;
 use crate::value::stream::StreamHandle;
 use crate::wqerror::WqError;
 
@@ -66,6 +68,7 @@ pub enum Value {
         id: u16,
     },
     LiftedCallable(Arc<LiftedCallableData>),
+    Rng(Arc<Mutex<RngState>>),
     Stream(Arc<Mutex<StreamHandle>>),
 }
 
@@ -105,6 +108,10 @@ impl Value {
         Value::Float(OrderedFloat(f.into()))
     }
 
+    pub(crate) fn rng(seed: i64) -> Self {
+        Value::Rng(Arc::new(Mutex::new(RngState::from_seed(seed))))
+    }
+
     /// Create a new stream value
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn stream(handle: StreamHandle) -> Self {
@@ -128,6 +135,7 @@ impl Value {
                 | Value::Closure(_)
                 | Value::BuiltinFunction { .. }
                 | Value::LiftedCallable(_)
+                | Value::Rng(_)
                 | Value::Stream(_)
         )
     }
@@ -169,6 +177,7 @@ impl Value {
                 | Value::Closure(_)
                 | Value::BuiltinFunction { .. }
                 | Value::LiftedCallable(_)
+                | Value::Rng(_)
         )
     }
 
@@ -266,6 +275,7 @@ impl Value {
             Value::BuiltinFunction { .. } => "bfn",
             Value::LiftedCallable(_) => "func",
 
+            Value::Rng(_) => "rng",
             Value::Stream(_) => "stream",
         }
     }
@@ -293,6 +303,7 @@ impl Value {
             Value::Closure(_) => "closure",
             Value::BuiltinFunction { .. } => "bfn",
             Value::LiftedCallable(_) => "fn-comp",
+            Value::Rng(_) => "rng",
             Value::Stream(_) => "stream",
         }
     }

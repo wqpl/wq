@@ -98,6 +98,17 @@ fn builtin_and_keyword_docs_render() -> Result<()> {
     assert!(stdout.contains("map builtin"));
     assert!(stdout.contains("arity: `2 3`"));
 
+    let rng = Command::cargo_bin("wq")
+        .context("cargo_bin('wq') failed")?
+        .args(["help", "--no-pager", "rng"])
+        .output()
+        .context("run wq help rng")?;
+    assert!(rng.status.success());
+    let stdout = String::from_utf8(rng.stdout).context("stdout is utf8")?;
+    let stdout = strip_ansi(&stdout);
+    assert!(stdout.contains("rng builtin"));
+    assert!(stdout.contains("wq-rng-v1"));
+
     let ret = Command::cargo_bin("wq")
         .context("cargo_bin('wq') failed")?
         .args(["help", "--no-pager", "@r"])

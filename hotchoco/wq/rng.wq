@@ -1,0 +1,19 @@
+r:rng 42
+r[]|echo
+r[10]|echo
+r[-5;5]|echo
+echo type r
+echo str r
+
+a:rng 7;b:rng 7
+echo[(til 4|map{a[]})=(til 4|map{b[]})]
+
+a:rng 7;b:a;c:rng 7
+echo[(a[];b[])=(c[];c[])]
+
+draw:{[generator]generator[]}
+echo draw rng 9
+
+make_draw:{[seed]generator:rng seed;{[]generator[]}}
+f:make_draw 11;g:make_draw 11
+echo[(f[];f[])=(g[];g[])]

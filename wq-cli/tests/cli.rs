@@ -10,6 +10,8 @@ mod exit_status;
 mod help;
 #[path = "cli/print_box.rs"]
 mod print_box;
+#[path = "cli/random.rs"]
+mod random;
 #[path = "cli/script_directives.rs"]
 mod script_directives;
 

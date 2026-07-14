@@ -11,7 +11,7 @@ use crate::load::{eval_inline_with_load, load_script};
 use crate::msg::{print_dry_run_status, print_load_error};
 use crate::repl::input::RustylineInput;
 use crate::wqdb::enter_wqdb_after_err;
-use crate::{apply_builtins_flag, apply_interpreter_flag, wqdb_pause_handler};
+use crate::{apply_builtins_flag, apply_interpreter_flag, apply_seed_flag, wqdb_pause_handler};
 
 pub fn exec_script<P: AsRef<Path>>(filename: P, args: Vec<String>, rtflags: RuntimeFlags) -> i32 {
     let mut evaluator = Session::new();
@@ -25,6 +25,7 @@ pub fn exec_script<P: AsRef<Path>>(filename: P, args: Vec<String>, rtflags: Runt
         evaluator.set_wqdb_batch_cmds(rtflags.wqdb_cmds.clone());
     }
     evaluator.set_dry_mode(rtflags.dry);
+    apply_seed_flag(&mut evaluator, &rtflags);
     apply_builtins_flag(&mut evaluator, &rtflags);
     apply_interpreter_flag(&mut evaluator, &rtflags);
     let loading = RefCell::new(HashSet::new());
@@ -69,6 +70,7 @@ pub fn exec_cmd(content: &str, args: Vec<String>, rtflags: RuntimeFlags) -> i32 
         session.set_wqdb_batch_cmds(rtflags.wqdb_cmds.clone());
     }
     session.set_dry_mode(rtflags.dry);
+    apply_seed_flag(&mut session, &rtflags);
     apply_builtins_flag(&mut session, &rtflags);
     apply_interpreter_flag(&mut session, &rtflags);
     let loading = RefCell::new(HashSet::new());

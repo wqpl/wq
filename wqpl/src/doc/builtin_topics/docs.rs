@@ -175,6 +175,7 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     math::HEAVISIDE,
     math::DELTA,
     rand::RAND,
+    rand::RNG,
     complex::COMPLEX,
     complex::RE,
     complex::IM,

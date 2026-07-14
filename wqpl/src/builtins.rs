@@ -14,6 +14,7 @@ mod logical;
 mod math;
 mod meta;
 mod op;
+mod random;
 mod set;
 mod string;
 mod viz;
@@ -342,6 +343,7 @@ impl From<Vec<Value>> for BuiltinFnArgs {
 
 pub trait BuiltinContext {
     fn call(&mut self, func: &Value, args: BuiltinFnArgs) -> WqResult<Value>;
+    fn draw_default_random(&mut self, args: &[Value]) -> WqResult<Value>;
     fn list_enabled_builtins(&self) -> Vec<String>;
     fn argv(&self) -> &[String];
     fn request_halt(&mut self, status: i32);
@@ -1146,7 +1148,8 @@ declare_builtins! {
     (DELTA, Delta, "delta", "delta[xs]", sig!(arity!(1)), plain(math::delta), builtin_metadata!(Math, PURE)),
 
     // Rand
-    (RAND, Rand, "rand", "rand[]; rand[upper]; rand[lower;upper]", sig!(arity!(0, 1, 2)), plain(math::rand), builtin_metadata!(Rand, CONSTRAINED_EFFECT)),
+    (RAND, Rand, "rand", "rand[]; rand[upper]; rand[lower;upper]", sig!(arity!(0, 1, 2)), with_context(random::rand), builtin_metadata!(Rand, CONSTRAINED_EFFECT)),
+    (RNG, Rng, "rng", "rng[seed]", sig!(arity!(1)), plain(random::rng), builtin_metadata!(Rand, CONSTRAINED_EFFECT)),
 
     // Complex
     (COMPLEX, Complex, "complex", "complex[re;im]", sig!(arity!(2)), plain(complex::complex), builtin_metadata!(Complex, PURE)),
@@ -1792,6 +1795,7 @@ mod tests {
             (BuiltinEnum::Heaviside, "1"),
             (BuiltinEnum::Delta, "1"),
             (BuiltinEnum::Rand, "0 1 2"),
+            (BuiltinEnum::Rng, "1"),
             (BuiltinEnum::Complex, "2"),
             (BuiltinEnum::Re, "1"),
             (BuiltinEnum::Im, "1"),

@@ -159,6 +159,7 @@ impl fmt::Display for Value {
             Value::LiftedCallable(data) => {
                 write!(f, "<fn {}>", fmt_callable_expr(&data.expr, false))
             }
+            Value::Rng(_) => write!(f, "<rng>"),
             Value::Stream(_) => write!(f, "<stream>"),
             Value::Algebraic(a) => crate::value::algebraic::fmt_algebraic_human(a, f),
         }

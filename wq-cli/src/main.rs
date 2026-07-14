@@ -155,6 +155,12 @@ pub(crate) fn apply_builtins_flag(evaluator: &mut Session, rtflags: &RuntimeFlag
     }
 }
 
+pub(crate) fn apply_seed_flag(evaluator: &mut Session, rtflags: &RuntimeFlags) {
+    if let Some(seed) = rtflags.seed {
+        evaluator.seed_rng(seed);
+    }
+}
+
 /// Callback for wqdb pause hook - called by the VM when debugger pauses
 fn wqdb_pause_handler(host: &mut Vm) {
     wqdb::wqdb_shell(host);

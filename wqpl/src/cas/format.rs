@@ -258,6 +258,10 @@ fn push_atom_key(value: &Value, out: &mut String) {
             write!(out, "stream:{:p};", std::sync::Arc::as_ptr(data))
                 .expect("writing to String should not fail");
         }
+        Value::Rng(data) => {
+            write!(out, "rng:{:p};", std::sync::Arc::as_ptr(data))
+                .expect("writing to String should not fail");
+        }
     }
 }
 

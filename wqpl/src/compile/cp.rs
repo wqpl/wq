@@ -1047,6 +1047,7 @@ fn trackable_value(value: Value) -> Option<Value> {
         | Value::Closure(_)
         | Value::LiftedCallable(_)
         | Value::BuiltinFunction { .. }
+        | Value::Rng(_)
         | Value::Stream(_) => None,
         other => Some(other),
     }

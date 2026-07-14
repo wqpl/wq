@@ -38,6 +38,7 @@ impl Value {
             Value::Closure(v) => Arc::strong_count(v),
             Value::LiftedCallable(v) => Arc::strong_count(v),
 
+            Value::Rng(v) => Arc::strong_count(v),
             Value::Stream(v) => Arc::strong_count(v),
 
             Value::Int(_)
