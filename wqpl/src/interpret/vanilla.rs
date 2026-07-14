@@ -1401,6 +1401,9 @@ impl VanillaInterpreter {
     }
 
     fn catch_current_try_error(vm: &mut Vm, err: &WqError) -> bool {
+        if err.err_type == WqErrorType::Vm {
+            return false;
+        }
         let Some(frame) = vm.try_stack.last() else {
             return false;
         };
@@ -2927,6 +2930,24 @@ mod call_safety {
         let err = VanillaInterpreter
             .interpret(&mut vm, limit)
             .expect_err("invalid try region should fail safely");
+
+        assert_eq!(err.err_type, WqErrorType::Vm);
+        assert_eq!(err.msg.as_deref(), Some("invalid try region"));
+    }
+
+    #[test]
+    fn try_does_not_catch_vm_error() {
+        let instructions = vec![
+            Instruction::Try(1),
+            Instruction::Try(usize::MAX),
+            Instruction::Return,
+        ];
+        let limit = instructions.len();
+        let mut vm = Vm::new(instructions);
+
+        let err = VanillaInterpreter
+            .interpret(&mut vm, limit)
+            .expect_err("try must not catch VM errors");
 
         assert_eq!(err.err_type, WqErrorType::Vm);
         assert_eq!(err.msg.as_deref(), Some("invalid try region"));

@@ -205,7 +205,10 @@ pub(super) const AT_TRY: StaticDoc = StaticDoc {
     group: "Keywords",
     aliases: &["@t", "try"],
     summary: "Capture success or failure as a tagged result.",
-    details: "`@t expr` returns ``(`ok; value)`` on success or ``(`error; error_dict)`` on failure. The error dict has stable `version`, `kind`, `message`, `source`, `span`, `notes`, `data`, `stack`, and `cause` fields. Return, break, and continue remain control flow and are not caught as errors.",
+    details: "`@t expr` returns ``(`ok; value)`` on success or ``(`error; error_dict)`` on failure.
+The error dict has stable `version`, `kind`, `message`, `source`, `span`, `notes`, `data`, `stack`, and `cause` fields.
+Errors with kind `vm` are not caught.
+Return, break, and continue remain control flow and are not caught as errors.",
     examples: AT_TRY_EXAMPLES,
     related: &["raise"],
 };
