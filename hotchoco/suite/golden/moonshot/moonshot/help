@@ -1,0 +1,18 @@
+Usage: wq e/moonshot.wq -- [OPTIONS]
+
+Moonshot Delivery - a pocket-sized lunar lander
+
+Controls:
+  w  main engine       a  thrust left       d  thrust right
+  wa main + left       wd main + right      .  coast
+  q  abandon mission
+
+Land on the === pad with vertical speed at most 3.5 and horizontal
+speed at most 2.0. Every burn costs fuel, so elegance earns points.
+
+Options:
+  --demo  let the onboard computer fly the lander
+  --plain  use compact, color-free output
+  --seed <N>  replay a mission with a positive seed
+  --max-turns <N>  abort after N turns (default: 160)
+  -h, --help  Print help

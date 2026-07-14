@@ -1,0 +1,18 @@
+name = "moonshot"
+source_glob = "e/moonshot.wq"
+
+[[modes]]
+name = "demo"
+flags = ["--", "--demo", "--plain", "--seed", "4242"]
+capture = "stdout+stderr"
+
+[[modes]]
+name = "help"
+flags = ["--", "--help"]
+capture = "stdout+stderr"
+
+[[modes]]
+name = "invalid-seed"
+flags = ["--", "--seed", "0"]
+capture = "stdout+stderr"
+expected_exit_code = 2

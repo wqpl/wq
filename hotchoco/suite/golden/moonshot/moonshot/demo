@@ -1,0 +1,116 @@
+MOONSHOT DELIVERY  mission seed 4242  turn 0
+alt  110.0   fall  0.40   drift   0.10   fuel 64
+  command a
+MOONSHOT DELIVERY  mission seed 4242  turn 1
+alt  108.4   fall  1.60   drift  -0.25   fuel 63
+  command a
+MOONSHOT DELIVERY  mission seed 4242  turn 2
+alt  105.6   fall  2.80   drift  -0.59   fuel 62
+  command a
+MOONSHOT DELIVERY  mission seed 4242  turn 3
+alt  101.6   fall  4.00   drift  -0.92   fuel 61
+  command a
+MOONSHOT DELIVERY  mission seed 4242  turn 4
+alt   96.4   fall  5.20   drift  -1.25   fuel 60
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 5
+alt   90.0   fall  6.40   drift  -1.24   fuel 60
+  command wd
+MOONSHOT DELIVERY  mission seed 4242  turn 6
+alt   85.5   fall  4.55   drift  -0.87   fuel 57
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 7
+alt   79.7   fall  5.75   drift  -0.86   fuel 57
+  command wd
+MOONSHOT DELIVERY  mission seed 4242  turn 8
+alt   75.8   fall  3.90   drift  -0.50   fuel 54
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 9
+alt   70.7   fall  5.10   drift  -0.49   fuel 54
+  command w
+MOONSHOT DELIVERY  mission seed 4242  turn 10
+alt   67.4   fall  3.25   drift  -0.49   fuel 52
+  command d
+MOONSHOT DELIVERY  mission seed 4242  turn 11
+alt   63.0   fall  4.45   drift  -0.13   fuel 51
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 12
+alt   57.3   fall  5.65   drift  -0.13   fuel 51
+  command w
+MOONSHOT DELIVERY  mission seed 4242  turn 13
+alt   53.5   fall  3.80   drift  -0.13   fuel 49
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 14
+alt   48.5   fall  5.00   drift  -0.13   fuel 49
+  command w
+MOONSHOT DELIVERY  mission seed 4242  turn 15
+alt   45.4   fall  3.15   drift  -0.13   fuel 47
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 16
+alt   41.0   fall  4.35   drift  -0.12   fuel 47
+  command w
+MOONSHOT DELIVERY  mission seed 4242  turn 17
+alt   38.5   fall  2.50   drift  -0.12   fuel 45
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 18
+alt   34.8   fall  3.70   drift  -0.12   fuel 45
+  command w
+MOONSHOT DELIVERY  mission seed 4242  turn 19
+alt   33.0   fall  1.85   drift  -0.12   fuel 43
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 20
+alt   29.9   fall  3.05   drift  -0.12   fuel 43
+  command w
+MOONSHOT DELIVERY  mission seed 4242  turn 21
+alt   28.7   fall  1.20   drift  -0.12   fuel 41
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 22
+alt   26.3   fall  2.40   drift  -0.11   fuel 41
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 23
+alt   22.7   fall  3.60   drift  -0.11   fuel 41
+  command w
+MOONSHOT DELIVERY  mission seed 4242  turn 24
+alt   21.0   fall  1.75   drift  -0.11   fuel 39
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 25
+alt   18.0   fall  2.95   drift  -0.11   fuel 39
+  command wd
+MOONSHOT DELIVERY  mission seed 4242  turn 26
+alt   16.9   fall  1.10   drift   0.24   fuel 36
+  command a
+MOONSHOT DELIVERY  mission seed 4242  turn 27
+alt   14.6   fall  2.30   drift  -0.11   fuel 35
+  command w
+MOONSHOT DELIVERY  mission seed 4242  turn 28
+alt   14.2   fall  0.45   drift  -0.11   fuel 33
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 29
+alt   12.5   fall  1.65   drift  -0.11   fuel 33
+  command d
+MOONSHOT DELIVERY  mission seed 4242  turn 30
+alt    9.7   fall  2.85   drift   0.24   fuel 32
+  command wa
+MOONSHOT DELIVERY  mission seed 4242  turn 31
+alt    8.7   fall  1.00   drift  -0.11   fuel 29
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 32
+alt    6.5   fall  2.20   drift  -0.11   fuel 29
+  command wd
+MOONSHOT DELIVERY  mission seed 4242  turn 33
+alt    6.1   fall  0.35   drift   0.24   fuel 26
+  command a
+MOONSHOT DELIVERY  mission seed 4242  turn 34
+alt    4.6   fall  1.55   drift  -0.11   fuel 25
+  command .
+MOONSHOT DELIVERY  mission seed 4242  turn 35
+alt    1.8   fall  2.75   drift  -0.11   fuel 25
+  command wd
+MOONSHOT DELIVERY  mission seed 4242  turn 36
+alt    0.9   fall  0.90   drift   0.24   fuel 22
+  command a
+MOONSHOT DELIVERY  mission seed 4242  turn 37
+alt    0.0   fall  2.10   drift  -0.11   fuel 21
+
+LANDED! Cargo delivered with all the important pieces attached.
+Final: x 22.81 / pad 23, fall 2.10, drift -0.11, fuel 21, score 1056

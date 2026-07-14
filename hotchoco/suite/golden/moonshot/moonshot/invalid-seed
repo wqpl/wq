@@ -1,0 +1,5 @@
+error: invalid value '0' for '--seed': expected a positive integer
+
+Usage: wq e/moonshot.wq -- [OPTIONS]
+
+For more information, try '--help'.
