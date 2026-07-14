@@ -1317,15 +1317,6 @@ impl Compiler {
                 }
                 self.instructions.push(Instruction::Return);
             }
-            AstNode::Assert { expr, span } => {
-                self.has_runtime_debug = true;
-                self.compile_expr(expr)?;
-                let pc = self.instructions.len();
-                self.push_inst(Instruction::Assert);
-                if let Some(slot) = self.dbg_pc_spans.get_mut(pc) {
-                    *slot = *span;
-                }
-            }
             AstNode::Debug { expr, span } => {
                 self.has_runtime_debug = true;
                 let begin_pc = self.instructions.len();
@@ -2712,9 +2703,7 @@ fn collect_ref_default_assignment_needs_inner(
             collect_ref_default_assignment_needs_inner(index, available, excluded, needs);
             collect_ref_default_assignment_needs_inner(value, available, excluded, needs);
         }
-        AstNode::NamedArg { value, .. }
-        | AstNode::Assert { expr: value, .. }
-        | AstNode::Debug { expr: value, .. } => {
+        AstNode::NamedArg { value, .. } | AstNode::Debug { expr: value, .. } => {
             collect_ref_default_assignment_needs_inner(value, available, excluded, needs);
         }
         AstNode::Pause { expr, .. } | AstNode::Return(expr, _) => {
@@ -3127,10 +3116,6 @@ fn replace_pipe_input(node: &AstNode, temp_name: &str) -> AstNode {
                 .map(|expr| Box::new(replace_pipe_input(expr, temp_name))),
             *span,
         ),
-        AstNode::Assert { expr, span } => AstNode::Assert {
-            expr: Box::new(replace_pipe_input(expr, temp_name)),
-            span: *span,
-        },
         AstNode::Debug { expr, span } => AstNode::Debug {
             expr: Box::new(replace_pipe_input(expr, temp_name)),
             span: *span,
@@ -3429,9 +3414,6 @@ fn collect_capture_needs(
             if let Some(expr) = expr {
                 collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
             }
-        }
-        AstNode::Assert { expr, .. } => {
-            collect_capture_needs(expr, locals, needs, ref_capture, defining_name);
         }
         AstNode::Debug { expr, .. } => {
             collect_capture_needs(expr, locals, needs, ref_capture, defining_name);

@@ -1281,20 +1281,6 @@ impl VanillaInterpreter {
                         break 'exec;
                     }
 
-                    Instruction::Assert => {
-                        let value = vm.stack.last().ok_or_else(|| vm_err("missing @d value"))?;
-                        match value {
-                            Value::Bool(true) => {}
-                            Value::Bool(false) => {
-                                wqstderr_println(render_debug_line(vm, idx, value));
-                                return Err(vm_err("assertion failed: got false"));
-                            }
-                            _ => {
-                                wqstderr_println(render_debug_line(vm, idx, value));
-                                return Err(vm_err("assertion failed: not a bool"));
-                            }
-                        }
-                    }
                     Instruction::Try(len) => {
                         let len = *len;
                         let start_pc = vm.pc;

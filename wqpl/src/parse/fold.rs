@@ -393,10 +393,6 @@ pub(crate) fn fold(node: AstNode) -> AstNode {
                 span,
             }
         }
-        Assert { expr, span } => Assert {
-            expr: Box::new(fold(*expr)),
-            span,
-        },
         Debug { expr, span } => Debug {
             expr: Box::new(fold(*expr)),
             span,

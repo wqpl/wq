@@ -28,7 +28,6 @@
 (break_form) @keyword
 (continue_form) @keyword
 (try_form) @keyword
-(assert_form) @keyword
 (debug_form) @keyword
 (pause_form) @keyword
 (symbolic_form) @keyword

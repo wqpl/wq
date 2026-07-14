@@ -300,9 +300,7 @@ impl<'a> LowerCtx<'a> {
             }
 
             SyntaxKind::ReturnExpr => self.at_keyword_expr(node),
-            SyntaxKind::AssertExpr | SyntaxKind::DebugExpr | SyntaxKind::TryExpr => {
-                self.at_keyword_expr(node)
-            }
+            SyntaxKind::DebugExpr | SyntaxKind::TryExpr => self.at_keyword_expr(node),
             SyntaxKind::PauseExpr => self.verbatim_concat(node),
             SyntaxKind::SymbolicExpr => self.verbatim_concat(node),
 

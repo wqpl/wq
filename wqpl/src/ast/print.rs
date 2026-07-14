@@ -115,9 +115,7 @@ fn node_color(node: &AstNode) -> AnsiColor {
         | Try(..) => AnsiColor::Green,
         Cat(..) | List(..) | Dict(..) | Block(..) | BlockExpr(..) => AnsiColor::White,
         Index { .. } | MutatingIndex { .. } => AnsiColor::BrightBlue,
-        Assert { .. } | Debug { .. } | Pause { .. } | PipeInput | Ellipsis(..) => {
-            AnsiColor::BrightRed
-        }
+        Debug { .. } | Pause { .. } | PipeInput | Ellipsis(..) => AnsiColor::BrightRed,
         UnpackAssignment { .. } => AnsiColor::Red,
         NamedArg { .. } => AnsiColor::BrightBlue,
         Error(..) => AnsiColor::BrightMagenta,
@@ -535,11 +533,6 @@ impl AstNode {
                 }
                 let head = format!("@r{note}");
                 pretty_group(depth, head, children, color)
-            }
-            Assert { expr, .. } => {
-                let head = format!("@a{note}");
-                let child = expr.pretty_with_depth(depth + 1, src);
-                pretty_group(depth, head, vec![child], color)
             }
             Debug { expr, .. } => {
                 let head = format!("@d{note}");

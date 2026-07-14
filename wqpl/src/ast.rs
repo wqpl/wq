@@ -213,10 +213,6 @@ pub enum AstNode {
     Break(AstSpan),
     Continue(AstSpan),
     Return(Option<Box<AstNode>>, AstSpan),
-    Assert {
-        expr: Box<AstNode>,
-        span: AstSpan,
-    },
     Debug {
         expr: Box<AstNode>,
         span: AstSpan,
@@ -283,7 +279,6 @@ impl AstNode {
             | ConditionalChain { span, .. }
             | WLoop { span, .. }
             | NLoop { span, .. }
-            | Assert { span, .. }
             | Debug { span, .. }
             | Pause { span, .. }
             | NamedArg { span, .. }

@@ -9,7 +9,6 @@ pub(super) const STATIC_DOCS: &[StaticDoc] = &[
     guides::OPERATORS,
     guides::INTERPRETERS,
     guides::WQDB,
-    keywords::AT_ASSERT,
     keywords::AT_BREAK,
     keywords::AT_CONTINUE,
     keywords::AT_RETURN,

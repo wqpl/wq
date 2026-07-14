@@ -1021,10 +1021,6 @@
         },
         {
           "type": "SYMBOL",
-          "name": "assert_form"
-        },
-        {
-          "type": "SYMBOL",
           "name": "debug_form"
         },
         {
@@ -1965,10 +1961,6 @@
         },
         {
           "type": "SYMBOL",
-          "name": "assert_form"
-        },
-        {
-          "type": "SYMBOL",
           "name": "debug_form"
         },
         {
@@ -2205,10 +2197,6 @@
         {
           "type": "SYMBOL",
           "name": "try_form"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "assert_form"
         },
         {
           "type": "SYMBOL",
@@ -3110,19 +3098,6 @@
         {
           "type": "STRING",
           "value": "@t"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "expression"
-        }
-      ]
-    },
-    "assert_form": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "@a"
         },
         {
           "type": "SYMBOL",

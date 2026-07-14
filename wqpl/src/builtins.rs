@@ -981,6 +981,8 @@ declare_builtins! {
     (OCT, Oct, "oct", "oct[xs;prefix?]", sig!(arity!(1, 2)), plain(core::oct), builtin_metadata!(Core, PURE)),
     (HEX, Hex, "hex", "hex[xs;prefix?]", sig!(arity!(1, 2)), plain(core::hex), builtin_metadata!(Core, PURE)),
     (HASH, Hash, "hash", "hash[x]", sig!(arity!(1)), plain(core::hash), builtin_metadata!(Core, PURE)),
+    (ASSERT, Assert, "assert", "assert[condition;message?;`context]", sig!(arity!(1, 2), named ASSERT_NAMED_ARGS), plain(core::assert_condition), builtin_metadata!(Core, PURE)),
+    (ASSERT_EQ, AssertEq, "assert_eq", "assert_eq[actual;expected;message?;`context]", sig!(arity!(2, 3), named ASSERT_NAMED_ARGS), plain(core::assert_equal), builtin_metadata!(Core, PURE)),
     (RAISE, Raise, "raise", "raise[]; raise[msg]", sig!(arity!(0, 1)), plain(core::raise), builtin_metadata!(Core, PURE)),
     (ARGV, Argv, "argv", "argv[]", sig!(arity!(0)), with_context(cli::argv), builtin_metadata!(Core, REQUIRED_CONTEXTUAL)),
     (ARGPARSE, Argparse, "argparse", "argparse[spec;args]", sig!(arity!(2)), with_context(cli::argparse), builtin_metadata!(Core, PURE_CONTEXTUAL)),
@@ -1244,6 +1246,7 @@ declare_builtins! {
 }
 
 const ECHO_NAMED_ARGS: &[&str] = &["sep"];
+const ASSERT_NAMED_ARGS: &[&str] = &["context"];
 const MAXSPLIT_NAMED_ARGS: &[&str] = &["m"];
 const LIMIT_NAMED_ARGS: &[&str] = &["d"];
 const SOLVE_NAMED_ARGS: &[&str] = &["assuming", "domain"];
@@ -1647,6 +1650,8 @@ mod tests {
             (BuiltinEnum::Oct, "1 2"),
             (BuiltinEnum::Hex, "1 2"),
             (BuiltinEnum::Hash, "1"),
+            (BuiltinEnum::Assert, "1 2"),
+            (BuiltinEnum::AssertEq, "2 3"),
             (BuiltinEnum::Raise, "0 1"),
             (BuiltinEnum::Argv, "0"),
             (BuiltinEnum::Argparse, "2"),

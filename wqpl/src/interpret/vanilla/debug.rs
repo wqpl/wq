@@ -47,17 +47,7 @@ pub(super) fn format_debug_expr(source: &str, start: usize, end: usize) -> Strin
     out
 }
 
-pub(super) fn render_debug_line(vm: &Vm, pc: usize, value: &Value) -> String {
-    let highlighter = Highlighter::new();
-    render_debug_line_with_highlighter(vm, pc, value, &highlighter)
-}
-
-fn render_debug_line_with_highlighter(
-    vm: &Vm,
-    pc: usize,
-    value: &Value,
-    highlighter: &Highlighter,
-) -> String {
+fn render_debug_line(vm: &Vm, pc: usize, value: &Value, highlighter: &Highlighter) -> String {
     let chunk = vm.current_chunk;
     let meta = vm.debug_info.chunk(chunk);
     let span = meta.line_table.span_at(pc);
@@ -220,7 +210,7 @@ pub(super) fn render_trace_line(
     records: &[TraceRecord],
 ) -> String {
     let highlighter = Highlighter::new();
-    let head = render_debug_line_with_highlighter(vm, debug_pc, final_value, &highlighter);
+    let head = render_debug_line(vm, debug_pc, final_value, &highlighter);
     if records.is_empty() {
         return head;
     }

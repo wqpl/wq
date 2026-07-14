@@ -217,7 +217,6 @@ pub(crate) enum Instruction {
     },
     Pop,
     Return,
-    Assert,
     /// Open a value-provenance trace scope.  The closing `Debug` instruction
     /// renders the recorded probes as a tree and prints the final value.
     TraceBegin,
@@ -380,7 +379,7 @@ fn classify(inst: &Instruction) -> (InstClass, bool /* is_special */) {
         I::PrepareNamedArgs(_) => (Stack, false),
 
         // Stack-ish
-        I::Pop | I::Return | I::Debug | I::Pause | I::Assert | I::TraceBegin => (Stack, false),
+        I::Pop | I::Return | I::Debug | I::Pause | I::TraceBegin => (Stack, false),
 
         // Arithmetic / logic
         I::UnaryOp(_) | I::BinaryOp(_) | I::CmpChain(_) | I::BoolCombine(_) => (Op, false),

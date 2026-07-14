@@ -1,11 +1,5 @@
 use super::super::model::{DocExample, DocKind, ExampleExpectation, StaticDoc};
 
-const AT_ASSERT_EXAMPLES: &[DocExample] = &[DocExample {
-    title: "Assert a condition",
-    code: "@a 1=1",
-    expectation: ExampleExpectation::ResultContains("T"),
-}];
-
 const AT_BREAK_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Break from the nearest loop",
     code: "i:0;N[10;$.[_n=3;@b];i+:1];i",
@@ -125,18 +119,6 @@ const AT_DEPTH_EXAMPLES: &[DocExample] = &[
         expectation: ExampleExpectation::ResultContains("((11;12);(13;14))"),
     },
 ];
-
-pub(super) const AT_ASSERT: StaticDoc = StaticDoc {
-    id: "at-assert",
-    title: "@a Assert",
-    kind: DocKind::Keyword,
-    group: "Keywords",
-    aliases: &["@a", "assert"],
-    summary: "Assert that an expression is true.",
-    details: "`@a expr` evaluates `expr` and raises if it is false. It is useful for executable examples and invariants.",
-    examples: AT_ASSERT_EXAMPLES,
-    related: &["@t", "raise"],
-};
 
 pub(super) const AT_BREAK: StaticDoc = StaticDoc {
     id: "at-break",

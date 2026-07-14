@@ -28,7 +28,4 @@ memo:{[f]keys_:();vals_:();'{[arg]i:0;W[i<#keys_;$.[keys_ i=arg;@r vals_ i];i+:1
     val:f arg;keys_,:,arg;vals_,:,val;val}} // Memoize a one-argument function.
 once:{[f]done:F;val:();'{[]$[done;val;[val:f[];done:T;val]]}} // Return a thunk that runs f once.
 
-assert:{[cond;msg]$[cond;T;raise msg]} // Raise msg unless cond is true.
-assert_eq:{[got;want]$[got=want;T;raise@f"assert_eq: got {got}, want {want}"]} // Raise unless got equals want.
-
 dumpbfn:{bfn[]|map{"\"",x,"\""}|join","|echo} // Print enabled builtin names as quoted CSV.

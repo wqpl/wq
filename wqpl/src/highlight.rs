@@ -942,8 +942,7 @@ impl Highlighter {
 
             TokenType::AtReturn => Some(HighlightName::KeywordReturn),
             TokenType::AtDebug => Some(HighlightName::KeywordDebug),
-            TokenType::AtAssert
-            | TokenType::AtBreak
+            TokenType::AtBreak
             | TokenType::AtContinue
             | TokenType::AtDepth(_)
             | TokenType::AtPause

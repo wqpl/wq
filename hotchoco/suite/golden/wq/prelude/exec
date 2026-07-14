@@ -51,5 +51,7 @@ ok memo list
 ok once
 ok once false
 ok assert
+ok assert data
 ok assert_eq
+ok assert_eq data
 ()

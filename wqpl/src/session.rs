@@ -1857,6 +1857,83 @@ mod tests {
     }
 
     #[test]
+    fn assert_builtins_return_the_checked_value_on_success() {
+        let mut session = Session::new();
+
+        assert_eq!(
+            session.eval_string("assert T").expect("true assertion"),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            session
+                .eval_string("assert_eq[(1;2);(1;2)]")
+                .expect("equal assertion"),
+            Value::IntList(Arc::new(vec![1, 2]))
+        );
+    }
+
+    #[test]
+    fn assert_failure_has_structured_truth_data() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("@t assert[F;\"expected readiness\";`context:`startup]")
+            .expect("try should catch assertion failure");
+        let Value::List(result) = result else {
+            panic!("expected tagged try result");
+        };
+        assert_eq!(result.first(), Some(&Value::Tag(Arc::from("error"))));
+        let Some(Value::Dict(error)) = result.get(1) else {
+            panic!("expected structured error payload");
+        };
+        assert_eq!(error.get("kind"), Some(&Value::Tag(Arc::from("assert"))));
+        assert_eq!(
+            error.get("message"),
+            Some(&Value::String(Arc::new("expected readiness".to_string())))
+        );
+        let Some(Value::Dict(data)) = error.get("data") else {
+            panic!("expected assertion data");
+        };
+        assert_eq!(data.get("check"), Some(&Value::Tag(Arc::from("truth"))));
+        assert_eq!(data.get("condition"), Some(&Value::Bool(false)));
+        assert_eq!(data.get("context"), Some(&Value::Tag(Arc::from("startup"))));
+    }
+
+    #[test]
+    fn assert_eq_failure_has_structured_comparison_data() {
+        let mut session = Session::new();
+
+        let result = session
+            .eval_string("@t assert_eq[3;4;\"numbers differ\";`context:42]")
+            .expect("try should catch assertion failure");
+        let Value::List(result) = result else {
+            panic!("expected tagged try result");
+        };
+        let Some(Value::Dict(error)) = result.get(1) else {
+            panic!("expected structured error payload");
+        };
+        assert_eq!(error.get("kind"), Some(&Value::Tag(Arc::from("assert"))));
+        let Some(Value::Dict(data)) = error.get("data") else {
+            panic!("expected assertion data");
+        };
+        assert_eq!(data.get("check"), Some(&Value::Tag(Arc::from("equal"))));
+        assert_eq!(data.get("actual"), Some(&Value::Int(3)));
+        assert_eq!(data.get("expected"), Some(&Value::Int(4)));
+        assert_eq!(data.get("context"), Some(&Value::Int(42)));
+    }
+
+    #[test]
+    fn assert_requires_a_bool_condition() {
+        let mut session = Session::new();
+
+        let error = session
+            .eval_string("assert 1")
+            .expect_err("non-bool assertion should fail");
+
+        assert_eq!(error.err_type, crate::wqerror::WqErrorType::Domain);
+    }
+
+    #[test]
     fn protected_recursion_uses_the_normal_vm_depth_limit() {
         let mut session = Session::new();
 

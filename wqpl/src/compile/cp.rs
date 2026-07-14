@@ -755,9 +755,7 @@ fn transfer(pc: usize, inst: &Instruction, mut state: State) -> Vec<(usize, Stat
             fallthrough(pc, state)
         }
         I::Return => Vec::new(),
-        I::Assert | I::Debug | I::Pause | I::TraceBegin | I::PrepareNamedArgs(_) => {
-            fallthrough(pc, state)
-        }
+        I::Debug | I::Pause | I::TraceBegin | I::PrepareNamedArgs(_) => fallthrough(pc, state),
         I::Try(len) => {
             let end = pc + 1 + len;
             let mut out = Vec::new();

@@ -84,7 +84,6 @@ pub enum TokenType {
     DollarDot,
     DollarDollar,
 
-    AtAssert,
     AtBreak,
     AtContinue,
     AtReturn,

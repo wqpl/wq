@@ -25,18 +25,30 @@ head ()
 
 ## Assertions
 
-`@a expr` asserts that an expression is true.
+`assert` requires a boolean condition to be true.
 
 ```wq
-@a 2<3
+assert[2<3]
 "still here"|echo
 ```
 
-If the assertion is false, execution stops.
+If the assertion is false, execution stops with an `assert` error. Add a message
+and named context when the failure needs more detail.
 
 ```wq error
-@a 2>3
+assert[2>3;"ordering invariant failed";`context:`example]
 ```
+
+Use `assert_eq` to compare whole values. It returns the actual value when the
+comparison succeeds.
+
+```wq
+assert_eq[(1;2);(1;2)]
+```
+
+On failure, the error's `data` dict stores the check type, actual value,
+expected value, and optional context. This keeps complete values available to
+code while terminal notes show short excerpts.
 
 ## Try
 
@@ -64,5 +76,5 @@ people. Branch on the `kind` tag instead of parsing those strings.
 
 - Errors stop the current run.
 - `raise` creates an error intentionally.
-- `@a` asserts a truth.
+- `assert` checks a boolean condition and `assert_eq` compares whole values.
 - `@t` catches failure and returns a tagged result with the value or error.

@@ -2352,7 +2352,6 @@ impl Parser {
             AstNode::Return(..) => SyntaxKind::ReturnExpr,
             AstNode::Break(_) => SyntaxKind::BreakExpr,
             AstNode::Continue(_) => SyntaxKind::ContinueExpr,
-            AstNode::Assert { .. } => SyntaxKind::AssertExpr,
             AstNode::Debug { .. } => SyntaxKind::DebugExpr,
             AstNode::Pause { .. } => SyntaxKind::PauseExpr,
             AstNode::Try(..) => SyntaxKind::TryExpr,
@@ -2518,15 +2517,6 @@ impl Parser {
                     }
                 }
 
-                TokenType::AtAssert => {
-                    let start = token.byte_start;
-                    self.advance();
-                    let expr = self.parse_expression()?;
-                    Ok(AstNode::Assert {
-                        expr: Box::new(expr),
-                        span: Some((start, self.last_consumed_byte_end())),
-                    })
-                }
                 TokenType::AtDebug => {
                     let start = token.byte_start;
                     self.advance();
@@ -2967,13 +2957,6 @@ impl Parser {
                 Self::offset_spans(object, offset);
                 Self::offset_spans(index, offset);
                 Self::offset_spans(value, offset);
-            }
-            AstNode::Assert { expr, span, .. } => {
-                if let Some(span) = span {
-                    span.0 += offset;
-                    span.1 += offset;
-                }
-                Self::offset_spans(expr, offset);
             }
             AstNode::Debug { expr, span, .. } => {
                 if let Some(span) = span {
@@ -3464,7 +3447,6 @@ impl Parser {
             AstNode::NamedArg { value, .. }
             | AstNode::Assignment { value, .. }
             | AstNode::OuterAssignment { value, .. }
-            | AstNode::Assert { expr: value, .. }
             | AstNode::Debug { expr: value, .. }
             | AstNode::Try(value, _) => {
                 self.recontextualize_fstring_error_nodes(value);
@@ -5632,7 +5614,6 @@ mod cst_integration_tests {
             | AstNode::MutatingIndex { span, .. }
             | AstNode::MutatingIndexAssign { span, .. }
             | AstNode::Function { span, .. }
-            | AstNode::Assert { span, .. }
             | AstNode::Debug { span, .. }
             | AstNode::Pause { span, .. }
             | AstNode::FString { span, .. }
@@ -5755,7 +5736,6 @@ mod cst_integration_tests {
             AstNode::Return(..) => "Return",
             AstNode::Break(_) => "Break",
             AstNode::Continue(_) => "Continue",
-            AstNode::Assert { .. } => "Assert",
             AstNode::Debug { .. } => "Debug",
             AstNode::Pause { .. } => "Pause",
             AstNode::Try(..) => "Try",
@@ -5914,7 +5894,7 @@ mod cst_integration_tests {
                 }
             }
             AstNode::Return(Some(e), _) | AstNode::Try(e, _) => out.push(e),
-            AstNode::Assert { expr, .. } | AstNode::Debug { expr, .. } => out.push(expr),
+            AstNode::Debug { expr, .. } => out.push(expr),
             AstNode::Pause {
                 expr: Some(expr), ..
             } => out.push(expr),

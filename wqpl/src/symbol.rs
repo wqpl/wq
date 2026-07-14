@@ -764,7 +764,7 @@ impl SymbolAnalyzer {
                     self.analyze(e);
                 }
             }
-            AstNode::Assert { expr, .. } | AstNode::Debug { expr, .. } => {
+            AstNode::Debug { expr, .. } => {
                 self.analyze(expr);
             }
             AstNode::Pause { expr, .. } => {

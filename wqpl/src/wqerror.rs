@@ -18,6 +18,7 @@ pub struct WqError {
     pub src: Option<String>,
     pub msg: Option<String>,
     pub notes: Vec<String>,
+    pub data: Arc<IndexMap<Arc<str>, Value>>,
     /// Byte span of the offending token(s) in the source, if known.
     pub span: Option<(usize, usize)>,
     /// Source context (text + path) for rendering the span snippet.
@@ -31,6 +32,7 @@ impl WqError {
             src: None,
             msg: None,
             notes: Vec::new(),
+            data: Arc::new(IndexMap::new()),
             span: None,
             source_ctx: None,
         }
@@ -61,6 +63,11 @@ impl WqError {
 
     pub(crate) fn attach_note(mut self, d: impl std::fmt::Display) -> Self {
         self.notes.push(d.to_string());
+        self
+    }
+
+    pub(crate) fn with_data(mut self, key: impl Into<Arc<str>>, value: Value) -> Self {
+        Arc::make_mut(&mut self.data).insert(key.into(), value);
         self
     }
 
@@ -116,7 +123,7 @@ impl WqError {
                     self.notes.iter().map(string_value).collect::<Vec<_>>(),
                 )),
             ),
-            ("data", Value::Dict(Arc::new(IndexMap::new()))),
+            ("data", Value::Dict(Arc::clone(&self.data))),
             ("stack", wq_stack_value(debug_info, backtrace)),
             ("cause", Value::unit()),
         ])
@@ -248,6 +255,7 @@ pub enum WqErrorType {
     Io,
     Encode,
     Exec,
+    Assert,
     Raise,
     Recursion,
 }
@@ -278,6 +286,7 @@ impl WqErrorType {
             W::Io => "io",
             W::Encode => "encoding",
             W::Exec => "exec",
+            W::Assert => "assert",
             W::Raise => "raise",
             W::Recursion => "recursion",
         }
@@ -450,6 +459,7 @@ mod tests {
             .src("test")
             .msg("bad value")
             .attach_note("got int")
+            .with_data("input", Value::Int(42))
             .span(Some((2, 3)))
             .source_ctx("x\n1+2\n", "<test>");
 
@@ -466,6 +476,10 @@ mod tests {
         );
         assert_eq!(error.get("version"), Some(&Value::Int(1)));
         assert_eq!(error.get("kind"), Some(&Value::Tag(Arc::from("domain"))));
+        let Some(Value::Dict(data)) = error.get("data") else {
+            panic!("expected structured error data");
+        };
+        assert_eq!(data.get("input"), Some(&Value::Int(42)));
         let Some(Value::Dict(span)) = error.get("span") else {
             panic!("expected span dict");
         };

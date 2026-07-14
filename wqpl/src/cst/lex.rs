@@ -48,7 +48,6 @@ pub fn syntax_kind_of_token(tt: &TokenType) -> SyntaxKind {
         T::Ellipsis => K::Ellipsis,
 
         // `@`-keywords.
-        T::AtAssert => K::AtAssert,
         T::AtBreak => K::AtBreak,
         T::AtContinue => K::AtContinue,
         T::AtReturn => K::AtReturn,

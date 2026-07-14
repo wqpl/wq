@@ -15,7 +15,8 @@ use num_bigint::BigInt;
 use num_traits::Num;
 
 use crate::builtins::{
-    BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_named_args, type_mismatch,
+    BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_arity_named, check_named_args,
+    type_mismatch,
 };
 use crate::session::stdio::{
     WqStdinError, wqstdin_readline, wqstdin_with_highlight_off, wqstdout_print, wqstdout_println,
@@ -303,6 +304,82 @@ pub(super) fn hash(args: BuiltinFnArgs) -> WqResult<Value> {
     Ok(h.into_wq_value())
 }
 
+fn assertion_message(
+    args: &BuiltinFnArgs,
+    index: usize,
+    builtin: BuiltinEnum,
+    default: &str,
+) -> WqResult<String> {
+    args.get_pos(index).map_or_else(
+        || Ok(default.to_string()),
+        |value| {
+            value
+                .try_to_rust_string()
+                .ok_or_else(|| expected_string1(value).src(builtin).at_arg(index))
+        },
+    )
+}
+
+pub(super) fn assert_condition(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity_named(BuiltinEnum::Assert, [1, 2], &args, super::ASSERT_NAMED_ARGS)?;
+    let condition = match args[0] {
+        Value::Bool(condition) => condition,
+        ref value => return Err(type_mismatch(BuiltinEnum::Assert, 0, "bool", value)),
+    };
+    let message = assertion_message(&args, 1, BuiltinEnum::Assert, "assertion failed")?;
+
+    if condition {
+        return Ok(Value::Bool(true));
+    }
+
+    let mut error = WqError::new(WqErrorType::Assert)
+        .src(BuiltinEnum::Assert)
+        .msg(message)
+        .with_data("check", Value::Tag(Arc::from("truth")))
+        .with_data("condition", Value::Bool(false));
+    if let Some(context) = args.named("context") {
+        error = error.with_data("context", context.clone());
+    }
+    Err(error)
+}
+
+pub(super) fn assert_equal(args: BuiltinFnArgs) -> WqResult<Value> {
+    check_arity_named(
+        BuiltinEnum::AssertEq,
+        [2, 3],
+        &args,
+        super::ASSERT_NAMED_ARGS,
+    )?;
+    let message = assertion_message(&args, 2, BuiltinEnum::AssertEq, "values are not equal")?;
+    let actual = &args[0];
+    let expected = &args[1];
+
+    if actual == expected {
+        return Ok(actual.clone());
+    }
+
+    let mut error = WqError::new(WqErrorType::Assert)
+        .src(BuiltinEnum::AssertEq)
+        .msg(message)
+        .attach_note(format!(
+            "actual '{}' ({})",
+            actual.excerpt(),
+            actual.type_name()
+        ))
+        .attach_note(format!(
+            "expected '{}' ({})",
+            expected.excerpt(),
+            expected.type_name()
+        ))
+        .with_data("check", Value::Tag(Arc::from("equal")))
+        .with_data("actual", actual.clone())
+        .with_data("expected", expected.clone());
+    if let Some(context) = args.named("context") {
+        error = error.with_data("context", context.clone());
+    }
+    Err(error)
+}
+
 pub(super) fn raise(args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Raise, [0, 1], &args)?;
     match args.len() {
@@ -333,10 +410,9 @@ pub(super) fn exec(args: BuiltinFnArgs) -> WqResult<Value> {
         .enumerate()
         .map(|(i, v)| {
             v.try_to_rust_string()
-                .ok_or_else(|| (i, expected_string1(v)))
+                .ok_or_else(|| expected_string1(v).src(BuiltinEnum::Exec).at_arg(i))
         })
-        .collect::<Result<_, _>>()
-        .map_err(|(i, e)| e.src(BuiltinEnum::Exec).at_arg(i))?;
+        .collect::<Result<_, _>>()?;
 
     if parts[0].is_empty() {
         return Err(WqError::new(WqErrorType::Domain)

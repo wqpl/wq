@@ -69,6 +69,32 @@ const HASH_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("T"),
 }];
 
+const ASSERT_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Check a condition",
+        code: "assert[2<3]",
+        expectation: ExampleExpectation::ResultContains("T"),
+    },
+    DocExample {
+        title: "Describe a failed condition",
+        code: "assert[F;\"configuration is not ready\";`context:`startup]",
+        expectation: ExampleExpectation::ErrorContains("configuration is not ready"),
+    },
+];
+
+const ASSERT_EQ_EXAMPLES: &[DocExample] = &[
+    DocExample {
+        title: "Check equal values",
+        code: "assert_eq[(1;2);(1;2)]",
+        expectation: ExampleExpectation::ResultContains("(1;2)"),
+    },
+    DocExample {
+        title: "Compare unequal values",
+        code: "assert_eq[3;4;\"unexpected result\"]",
+        expectation: ExampleExpectation::ErrorContains("unexpected result"),
+    },
+];
+
 const RAISE_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Raise a runtime error",
     code: "raise \"stop here\"",
@@ -216,6 +242,22 @@ pub(super) const HASH: BuiltinDoc = BuiltinDoc {
     details: "`hash` follows wq value equality, so equal values hash the same within the current implementation. Treat it as a runtime hash, not as a stable external digest format.",
     examples: HASH_EXAMPLES,
     related: &["=", "type"],
+};
+
+pub(super) const ASSERT: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Assert,
+    summary: "Require a boolean condition to be true.",
+    details: "`assert[condition]` returns `T` when its boolean condition is true and raises an assert error otherwise. The optional message replaces the default failure message. The optional named `context` value is preserved in the error's structured `data` dict. Assertion data includes `check:`truth and the failed `condition`, so `@t` callers can inspect it without parsing display text.",
+    examples: ASSERT_EXAMPLES,
+    related: &["assert_eq", "@t", "raise"],
+};
+
+pub(super) const ASSERT_EQ: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::AssertEq,
+    summary: "Require two whole values to be equal.",
+    details: "`assert_eq[actual;expected]` uses whole-value `=` semantics and returns `actual` when the values are equal. On failure it raises an assert error whose structured `data` dict includes `check:`equal, `actual`, `expected`, and the optional named `context` value. The optional positional message replaces the default failure message.",
+    examples: ASSERT_EQ_EXAMPLES,
+    related: &["assert", "=", "@t"],
 };
 
 pub(super) const RAISE: BuiltinDoc = BuiltinDoc {

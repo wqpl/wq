@@ -1,5 +1,5 @@
 -*-*- wq 0.9.0 refcard -*-*- (c) tttiw (l) MIT
-  :     ,   | |. || ||.    [...]      @a @b @c @d @p @r @t
+  :     ,   | |. || ||.    [...]      @b @c @d @p @r @t
 assign cat     pipes    block/postfix
 $[c;t;f1;f2...] $.[c;t1;t2...] $$[c1;t1;c2;t2...]
 A[o1;o2...] O[o1;o2...] W[c;t1;t2...] N[n;_n...]

@@ -71,4 +71,6 @@ false_thunk:once '{[]false_calls+:1;F}
 expect["once false";(false_thunk[];false_thunk[];false_calls);(F;F;1)]
 
 expect["assert";(assert[T;"ok"];(@t assert[F;"bad"])0);(T;`error)]
-expect["assert_eq";(assert_eq[3;3];(@t assert_eq[3;4])0);(T;`error)]
+expect["assert data";(@t assert[F;"bad";`context:`prelude])1|{$[`assert=x`kind;(`truth;F;`prelude)=((x`data)`check;(x`data)`condition;(x`data)`context);F]};T]
+expect["assert_eq";(assert_eq[3;3];(@t assert_eq[3;4])0);(3;`error)]
+expect["assert_eq data";(@t assert_eq[3;4;"bad";`context:`prelude])1|{$[`assert=x`kind;(`equal;3;4;`prelude)=((x`data)`check;(x`data)`actual;(x`data)`expected;(x`data)`context);F]};T]

@@ -40,7 +40,6 @@ pub enum SyntaxKind {
     Ellipsis,
 
     // `@`-keywords.
-    AtAssert,
     AtBreak,
     AtContinue,
     AtReturn,
@@ -163,7 +162,6 @@ pub enum SyntaxKind {
     ParamList,
     Param,
     ReturnExpr,
-    AssertExpr,
     DebugExpr,
     PauseExpr,
     TryExpr,
@@ -227,7 +225,6 @@ impl SyntaxKind {
             OrKw => "OR_KW",
             Apostrophe => "APOS",
             Ellipsis => "ELLIPSIS",
-            AtAssert => "AT_ASSERT",
             AtBreak => "AT_BREAK",
             AtContinue => "AT_CONTINUE",
             AtReturn => "AT_RETURN",
@@ -328,7 +325,6 @@ impl SyntaxKind {
             ParamList => "PARAM_LIST",
             Param => "PARAM",
             ReturnExpr => "RETURN_EXPR",
-            AssertExpr => "ASSERT_EXPR",
             DebugExpr => "DEBUG_EXPR",
             PauseExpr => "PAUSE_EXPR",
             TryExpr => "TRY_EXPR",

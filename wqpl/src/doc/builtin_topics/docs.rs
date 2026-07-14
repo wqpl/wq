@@ -31,6 +31,8 @@ pub(super) const BUILTIN_DOCS: &[BuiltinDoc] = &[
     core::OCT,
     core::HEX,
     core::HASH,
+    core::ASSERT,
+    core::ASSERT_EQ,
     core::RAISE,
     core::ARGV,
     core::ARGPARSE,

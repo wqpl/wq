@@ -514,7 +514,6 @@ impl Resolver {
             AstNode::Return(expr, span) => {
                 AstNode::Return(expr.map(|e| Box::new(self.resolve_node(*e))), span)
             }
-            // AstNode::Assert(e) => AstNode::Assert(Box::new(self.resolve_node(*e))),
             AstNode::Try(e, span) => AstNode::Try(Box::new(self.resolve_node(*e)), span),
             AstNode::Block(stmts, span) => AstNode::Block(
                 stmts.into_iter().map(|s| self.resolve_node(s)).collect(),
@@ -1472,7 +1471,6 @@ impl Resolver {
             | AstNode::Break(_)
             | AstNode::Continue(_)
             | AstNode::Return(..)
-            | AstNode::Assert { .. }
             | AstNode::Debug { .. }
             | AstNode::Try(..) => Self::pipe_effect_rhs(right, input, span),
             _ => AstNode::Postfix {
@@ -1619,7 +1617,7 @@ fn expr_uses_vars(node: &AstNode, vars: &HashSet<&str>) -> bool {
             expr_uses_vars(count, vars) || expr_uses_vars(body, vars)
         }
         AstNode::Return(expr, _) => expr.as_ref().is_some_and(|e| expr_uses_vars(e, vars)),
-        AstNode::Assert { expr, .. } | AstNode::Debug { expr, .. } => expr_uses_vars(expr, vars),
+        AstNode::Debug { expr, .. } => expr_uses_vars(expr, vars),
         AstNode::Pause { expr, .. } => expr.as_ref().is_some_and(|expr| expr_uses_vars(expr, vars)),
         AstNode::Try(expr, _) => expr_uses_vars(expr, vars),
         AstNode::Block(items, _) | AstNode::BlockExpr(items, ..) => {
@@ -1679,8 +1677,7 @@ mod tests {
             }
             AstNode::Assignment { value, .. }
             | AstNode::OuterAssignment { value, .. }
-            | AstNode::Debug { expr: value, .. }
-            | AstNode::Assert { expr: value, .. } => contains_call_name(value, target),
+            | AstNode::Debug { expr: value, .. } => contains_call_name(value, target),
             AstNode::Pause { expr, .. } => expr
                 .as_ref()
                 .is_some_and(|expr| contains_call_name(expr, target)),

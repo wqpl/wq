@@ -1114,7 +1114,13 @@ impl<'a> Lexer<'a> {
                     let tok = match self.current_char {
                         Some('a') => {
                             self.advance();
-                            TokenType::AtAssert
+                            return Err(self.syntax_error_span(
+                                token_line,
+                                token_column,
+                                token_byte_start,
+                                self.byte_pos,
+                                "unknown @ sequence '@a'",
+                            ));
                         }
                         Some('b') => {
                             self.advance();
