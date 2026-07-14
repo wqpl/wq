@@ -141,4 +141,4 @@ Use:
   - `- Improved ...` for a user-facing refinement to existing behavior;
   - `- N/A` for refactors, tests, tooling, formatting, docs-only changes, internal cleanup, dependency changes, CI/build changes, or any change with no direct user-visible effect.
   - Do not write release notes such as "Improved internals," "Improved maintainability," or "Improved tests." If the user cannot directly observe the change in product behavior, output `- N/A`.
-- Format release notes exactly with a blank line after the heading, for example:
+- Format release notes exactly with a blank line after the heading
