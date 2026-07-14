@@ -38,6 +38,8 @@ pub struct Vm {
     pub(crate) global_slot_map: GlobalSlotMap,
     pub(crate) builtins: Builtins,
     pub(crate) builtins_preset: BuiltinPreset,
+    pub(crate) argv: Arc<[String]>,
+    pub(crate) halt_status: Option<i32>,
     /// Stack of local slot frames
     pub(crate) locals: Vec<Vec<Slot>>,
     /// Stack of capture vectors (per frame), for closures
@@ -210,6 +212,8 @@ impl Vm {
             global_slot_map: AHashMap::new(),
             builtins: Builtins::new(),
             builtins_preset: BuiltinPreset::DEFAULT,
+            argv: Arc::from([]),
+            halt_status: None,
             locals: Vec::new(),
             captures: Vec::new(),
             inline_cache: vec![InlineCache::default(); len],

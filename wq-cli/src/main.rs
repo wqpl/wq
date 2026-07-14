@@ -48,21 +48,27 @@ fn main() {
             format_script(&script, opts);
             0
         }
-        CliCommand::Exec(ExecSource::Inline(src)) => {
-            spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
-                exec::exec_cmd(&src, rtflags)
-            })
-        }
-        CliCommand::Exec(ExecSource::Stdin) => {
+        CliCommand::Exec {
+            source: ExecSource::Inline(src),
+            args,
+        } => spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
+            exec::exec_cmd(&src, args, rtflags)
+        }),
+        CliCommand::Exec {
+            source: ExecSource::Stdin,
+            args,
+        } => {
             let mut input = String::new();
             let _ = std::io::stdin().read_to_string(&mut input);
             spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
-                exec::exec_cmd(&input, rtflags)
+                exec::exec_cmd(&input, args, rtflags)
             })
         }
-        CliCommand::Script(path) => spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
-            exec::exec_script(&path, rtflags)
-        }),
+        CliCommand::Script { path, args } => {
+            spawn_wq_thread(rtflags.stack_size_mebibyte, move || {
+                exec::exec_script(&path, args, rtflags)
+            })
+        }
         CliCommand::Markdown { path, no_pager } => {
             note::run_markdown(&path, no_pager);
             0

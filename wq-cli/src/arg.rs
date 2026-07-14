@@ -68,12 +68,18 @@ pub enum ExecSource {
 #[derive(Debug, Clone)]
 pub enum CliCommand {
     Repl,
-    Script(PathBuf),
+    Script {
+        path: PathBuf,
+        args: Vec<String>,
+    },
     Markdown {
         path: PathBuf,
         no_pager: bool,
     },
-    Exec(ExecSource),
+    Exec {
+        source: ExecSource,
+        args: Vec<String>,
+    },
     Fmt {
         script: PathBuf,
         opts: FmtOpts,
@@ -134,6 +140,10 @@ struct CliArgs {
 
     /// Script or Markdown file to run (positional alternative to subcommands)
     script: Option<PathBuf>,
+
+    /// Arguments passed to the script after `--`
+    #[arg(last = true, value_name = "ARG")]
+    script_args: Vec<OsString>,
 }
 
 /// Global options applicable to most wq commands.
@@ -236,6 +246,9 @@ enum Commands {
     Exec {
         /// wq code to execute, or '-' to read from stdin
         code: Option<String>,
+        /// Arguments exposed to the code through argv[]
+        #[arg(last = true, value_name = "ARG")]
+        args: Vec<OsString>,
     },
     /// Show symbols exported by a wq script.
     ///
@@ -281,6 +294,24 @@ fn parse_fold_width(s: &str) -> Result<usize, String> {
         Ok(_) => Err("value must be at least 1".to_string()),
         Err(_) => Err(format!("invalid value: {s}")),
     }
+}
+
+fn forwarded_args(args: Vec<OsString>, silent: bool) -> Result<Vec<String>, i32> {
+    args.into_iter()
+        .enumerate()
+        .map(|(index, arg)| {
+            arg.into_string().map_err(|_| {
+                let err = CliArgs::command().error(
+                    clap::error::ErrorKind::InvalidUtf8,
+                    format!("script argument {} is not valid Unicode", index + 1),
+                );
+                if !silent {
+                    let _ = err.print();
+                }
+                2
+            })
+        })
+        .collect()
 }
 
 fn print_after_help() {
@@ -424,10 +455,14 @@ where
                     },
                 }
             }
-            Commands::Exec { code } => match code.as_deref() {
-                None | Some("-") => CliCommand::Exec(ExecSource::Stdin),
-                Some(s) => CliCommand::Exec(ExecSource::Inline(s.to_string())),
-            },
+            Commands::Exec { code, args } => {
+                let args = forwarded_args(args, silent)?;
+                let source = match code.as_deref() {
+                    None | Some("-") => ExecSource::Stdin,
+                    Some(s) => ExecSource::Inline(s.to_string()),
+                };
+                CliCommand::Exec { source, args }
+            }
             Commands::Symbols { script, name } => CliCommand::Symbols { script, name },
             Commands::Dap { script } => {
                 if rt != RuntimeFlags::new() {
@@ -455,11 +490,34 @@ where
         }
     } else if let Some(path) = cli.script {
         if path.extension().is_some_and(|e| e == "md") {
+            if !cli.script_args.is_empty() {
+                let err = CliArgs::command().error(
+                    clap::error::ErrorKind::InvalidValue,
+                    "arguments after `--` are only supported for wq scripts",
+                );
+                if !silent {
+                    let _ = err.print();
+                }
+                return Err(2);
+            }
             CliCommand::Markdown { path, no_pager }
         } else {
-            CliCommand::Script(path)
+            CliCommand::Script {
+                path,
+                args: forwarded_args(cli.script_args, silent)?,
+            }
         }
     } else {
+        if !cli.script_args.is_empty() {
+            let err = CliArgs::command().error(
+                clap::error::ErrorKind::InvalidValue,
+                "arguments after `--` require a script",
+            );
+            if !silent {
+                let _ = err.print();
+            }
+            return Err(2);
+        }
         CliCommand::Repl
     };
 
@@ -618,6 +676,12 @@ fn write_top_examples(out: &mut String) {
         out,
         "     {wq} {}",
         help_color("--no-pager notes.wq.md", WqAnsiColor::Blue)
+    );
+    let _ = writeln!(out, "  8. Pass arguments to a script:");
+    let _ = writeln!(
+        out,
+        "     {wq} {}",
+        help_color("script.wq -- --flag value", WqAnsiColor::Blue)
     );
 }
 
@@ -822,10 +886,28 @@ mod tests {
     }
 
     #[test]
-    fn script_and_extras_error() {
+    fn script_args_require_separator() {
         let (_, cmd) = ok(parse_args(v(&["main.wq"])));
-        assert!(matches!(cmd, CliCommand::Script(_)));
+        assert!(matches!(
+            cmd,
+            CliCommand::Script { ref args, .. } if args.is_empty()
+        ));
         assert_eq!(is_err(parse_args(v(&["main.wq", "extra", "stuff"]))), 2);
+
+        let (_, cmd) = ok(parse_args(v(&[
+            "main.wq",
+            "--",
+            "extra",
+            "--flag",
+            "two words",
+        ])));
+        match cmd {
+            CliCommand::Script { path, args } => {
+                assert_eq!(path, PathBuf::from("main.wq"));
+                assert_eq!(args, ["extra", "--flag", "two words"]);
+            }
+            _ => panic!("expected Script"),
+        }
     }
 
     #[test]
@@ -885,10 +967,31 @@ mod tests {
     #[test]
     fn exec_inline_stdin_and_extras() {
         let (_, cmd) = ok(parse_args(v(&["exec", "1+1"])));
-        assert!(matches!(cmd, CliCommand::Exec(ExecSource::Inline(_))));
+        assert!(matches!(
+            cmd,
+            CliCommand::Exec {
+                source: ExecSource::Inline(_),
+                ref args,
+            } if args.is_empty()
+        ));
         let (_, cmd) = ok(parse_args(v(&["exec", "-"])));
-        assert!(matches!(cmd, CliCommand::Exec(ExecSource::Stdin)));
+        assert!(matches!(
+            cmd,
+            CliCommand::Exec {
+                source: ExecSource::Stdin,
+                ref args,
+            } if args.is_empty()
+        ));
         assert_eq!(is_err(parse_args(v(&["exec", "1+1", "oops"]))), 2);
+
+        let (_, cmd) = ok(parse_args(v(&["exec", "argv[]", "--", "a", "-b"])));
+        match cmd {
+            CliCommand::Exec { source, args } => {
+                assert!(matches!(source, ExecSource::Inline(_)));
+                assert_eq!(args, ["a", "-b"]);
+            }
+            _ => panic!("expected Exec"),
+        }
     }
 
     #[test]
@@ -1121,7 +1224,13 @@ mod tests {
         let (rt, cmd) = ok(parse_args(v(&["-w", "exec", "1+1"])));
         assert!(rt.wqdb);
         assert!(rt.wqdb_cmds.is_empty());
-        assert!(matches!(cmd, CliCommand::Exec(ExecSource::Inline(_))));
+        assert!(matches!(
+            cmd,
+            CliCommand::Exec {
+                source: ExecSource::Inline(_),
+                ..
+            }
+        ));
 
         assert_eq!(is_err(parse_args(v(&["-w", "fmt", "f.wq"]))), 2);
         assert_eq!(is_err(parse_args(v(&["-w", "dap"]))), 2);

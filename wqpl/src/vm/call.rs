@@ -768,6 +768,14 @@ impl BuiltinContext for Vm {
         self.builtins.list_functions()
     }
 
+    fn argv(&self) -> &[String] {
+        &self.argv
+    }
+
+    fn request_halt(&mut self, status: i32) {
+        self.halt_status = Some(status);
+    }
+
     fn requires_callback_frames(&self) -> bool {
         self.wqdb.enabled
     }

@@ -75,6 +75,24 @@ const RAISE_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ErrorContains("stop here"),
 }];
 
+const ARGV_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Read forwarded script arguments",
+    code: "argv[]",
+    expectation: ExampleExpectation::NoRun("depends on the host invocation"),
+}];
+
+const ARGPARSE_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Parse a flag and positional argument",
+    code: r#"spec:(`name:"demo";`args:((`name:`quiet;`kind:`flag;`short:@u"q");(`name:`file;`kind:`positional;`required:T)));argparse[spec;("-q";"input.wq")][`kind]"#,
+    expectation: ExampleExpectation::ResultContains("`ok"),
+}];
+
+const CLIARGS_EXAMPLES: &[DocExample] = &[DocExample {
+    title: "Parse the current script invocation",
+    code: r#"cliargs (`name:"demo";`args:,(`name:`file;`kind:`positional;`required:T))"#,
+    expectation: ExampleExpectation::NoRun("depends on the host invocation and may halt"),
+}];
+
 const ECHO_EXAMPLES: &[DocExample] = &[DocExample {
     title: "Print values with a separator",
     code: "echo[\"red\";\"blue\";`sep:\", \"]",
@@ -206,6 +224,44 @@ pub(super) const RAISE: BuiltinDoc = BuiltinDoc {
     details: "`raise` converts its message to text and stops evaluation with a raise error. It is commonly used for explicit validation failures inside functions.",
     examples: RAISE_EXAMPLES,
     related: &["@t", "@r"],
+};
+
+pub(super) const ARGV: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Argv,
+    summary: "Return the arguments forwarded to the current wq invocation.",
+    details: "`argv[]` returns a list of strings containing only the arguments forwarded by the host. The native CLI requires an explicit separator, as in `wq script.wq -- one --flag`. It excludes the `wq` executable and script path. Loaded scripts share the same arguments. New embedded and interactive sessions default to an empty list, and embedders can set arguments through the session API.",
+    examples: ARGV_EXAMPLES,
+    related: &["argparse", "cliargs"],
+};
+
+pub(super) const ARGPARSE: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Argparse,
+    summary: "Parse a list of command-line argument strings from a declarative spec.",
+    details:
+"`argparse[spec;args]` parses explicit arguments without printing or halting.
+
+The spec is a dict with:
+
+- `name`: required program-name string.
+- `version`: optional version string.
+- `about`: optional description string.
+- `args`: list of argument descriptor dicts.
+
+Every descriptor requires a tag `name` and a tag `kind`. Supported kinds are `flag`, `count`, `option`, and `positional`. Option and positional descriptors may use a one-argument `parse` callable, `value_name`, `required`, `multiple`, and `choices`. All descriptors may use `default`, `help`, `hidden`, `conflicts`, and `requires`. Non-positional descriptors may use `short` and `long`; flags may also use `negatable`.
+
+If `long` is omitted for a non-positional argument, the argument name is used with underscores changed to hyphens. `flag` defaults to `F`, `count` to `0`, multiple arguments to an empty list, and other absent arguments to unit.
+
+The result is a dict with `kind` and `status`. Successful results have kind `ok`, status `0`, and a `value` dict containing `args` and `command`. Help and version requests have status `0` and plain `text`. User input failures have kind `error`, status `2`, plain `text`, and a structured `error` dict. Invalid specifications raise a domain error because they are program defects.",
+    examples: ARGPARSE_EXAMPLES,
+    related: &["argv", "cliargs", "dicts", "tag"],
+};
+
+pub(super) const CLIARGS: BuiltinDoc = BuiltinDoc {
+    builtin: BuiltinEnum::Cliargs,
+    summary: "Parse the current invocation and handle conventional CLI exits.",
+    details: "`cliargs[spec]` parses `argv[]` with the same specification accepted by `argparse`. A successful parse returns the value envelope containing `args` and `command`. Help and version requests print to stdout and halt evaluation with status `0`. User input errors print to stderr and halt with status `2`. These controlled halts are not runtime errors and cannot be caught by `@t`. Invalid specifications still raise ordinary domain errors.",
+    examples: CLIARGS_EXAMPLES,
+    related: &["argv", "argparse", "@t"],
 };
 
 pub(super) const ECHO: BuiltinDoc = BuiltinDoc {

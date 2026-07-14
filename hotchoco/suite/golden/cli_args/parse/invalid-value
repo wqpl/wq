@@ -1,0 +1,6 @@
+(`raw:("-m";"nope";"needle";"a.txt"))
+error: invalid value 'nope' for '--max-count': expected valid int literal
+
+Usage: rgrep [OPTIONS] <PATTERN> <PATHS>...
+
+For more information, try '--help'.

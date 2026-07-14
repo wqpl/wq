@@ -1,0 +1,14 @@
+spec:(
+  `name:"rgrep";
+  `version:"1.0";
+  `about:"search files";
+  `args:(
+    (`name:`ignore_case;`kind:`flag;`short:@u"i";`help:"ignore case");
+    (`name:`max_count;`kind:`option;`short:@u"m";`parse:int;`value_name:"N";`help:"stop after N matches");
+    (`name:`pattern;`kind:`positional;`required:T;`help:"pattern to find");
+    (`name:`paths;`kind:`positional;`required:T;`multiple:T;`help:"files to search")))
+
+echo (`raw:argv[])
+parsed:cliargs[spec]
+echo parsed
+echo "continued"

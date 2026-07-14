@@ -1,0 +1,14 @@
+(`raw:,"--help")
+Usage: rgrep [OPTIONS] <PATTERN> <PATHS>...
+
+search files
+
+Arguments:
+  <PATTERN>  pattern to find
+  <PATHS>...  files to search
+
+Options:
+  -i, --ignore-case  ignore case
+  -m, --max-count <N>  stop after N matches
+  -h, --help  Print help
+  -V, --version  Print version

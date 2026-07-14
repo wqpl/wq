@@ -79,6 +79,9 @@ impl VanillaInterpreter {
                 limit = instructions.len();
             }
             while vm.pc < limit {
+                if vm.halt_status.is_some() {
+                    break 'exec;
+                }
                 if Self::finish_try_boundary(vm) {
                     continue;
                 }

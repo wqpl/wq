@@ -94,6 +94,21 @@ impl Session {
         self.environment()
     }
 
+    /// Set the command-line arguments exposed to wq code through `argv[]`.
+    pub fn set_argv(&mut self, argv: Vec<String>) {
+        self.vm.argv = argv.into();
+    }
+
+    /// Return the status requested by a controlled `cliargs` halt.
+    pub fn halt_status(&self) -> Option<i32> {
+        self.vm.halt_status
+    }
+
+    /// Take the status requested by a controlled `cliargs` halt.
+    pub fn take_halt_status(&mut self) -> Option<i32> {
+        self.vm.halt_status.take()
+    }
+
     pub fn is_wqdb_enabled(&self) -> bool {
         self.vm.wqdb.enabled
     }

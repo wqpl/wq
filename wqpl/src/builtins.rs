@@ -1,4 +1,5 @@
 mod cas;
+mod cli;
 mod complex;
 mod core;
 mod dict;
@@ -342,6 +343,8 @@ impl From<Vec<Value>> for BuiltinFnArgs {
 pub trait BuiltinContext {
     fn call(&mut self, func: &Value, args: BuiltinFnArgs) -> WqResult<Value>;
     fn list_enabled_builtins(&self) -> Vec<String>;
+    fn argv(&self) -> &[String];
+    fn request_halt(&mut self, status: i32);
     fn requires_callback_frames(&self) -> bool {
         false
     }
@@ -977,6 +980,9 @@ declare_builtins! {
     (HEX, Hex, "hex", "hex[xs;prefix?]", sig!(arity!(1, 2)), plain(core::hex), builtin_metadata!(Core, PURE)),
     (HASH, Hash, "hash", "hash[x]", sig!(arity!(1)), plain(core::hash), builtin_metadata!(Core, PURE)),
     (RAISE, Raise, "raise", "raise[]; raise[msg]", sig!(arity!(0, 1)), plain(core::raise), builtin_metadata!(Core, PURE)),
+    (ARGV, Argv, "argv", "argv[]", sig!(arity!(0)), with_context(cli::argv), builtin_metadata!(Core, REQUIRED_CONTEXTUAL)),
+    (ARGPARSE, Argparse, "argparse", "argparse[spec;args]", sig!(arity!(2)), with_context(cli::argparse), builtin_metadata!(Core, PURE_CONTEXTUAL)),
+    (CLIARGS, Cliargs, "cliargs", "cliargs[spec]", sig!(arity!(1)), with_context(cli::cliargs), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
 
     (ECHO, Echo, "echo", "echo[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS), plain(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
     (E, E, "E", "E[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS, alias Echo), plain(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)), // alias of echo
@@ -1621,7 +1627,7 @@ mod tests {
             names,
             [
                 "#", "%", "*", "**", "+", ",", "-", "/", "/%", "/.", "<", "<=", "=", "=.", ">",
-                ">=", "^", "^.", "bfn", "fmt", "len", "~", "~.",
+                ">=", "^", "^.", "argv", "bfn", "fmt", "len", "~", "~.",
             ]
         );
     }
@@ -1639,6 +1645,9 @@ mod tests {
             (BuiltinEnum::Hex, "1 2"),
             (BuiltinEnum::Hash, "1"),
             (BuiltinEnum::Raise, "0 1"),
+            (BuiltinEnum::Argv, "0"),
+            (BuiltinEnum::Argparse, "2"),
+            (BuiltinEnum::Cliargs, "1"),
             (BuiltinEnum::Echo, "0.."),
             (BuiltinEnum::E, "0.."),
             (BuiltinEnum::Print, "0.."),

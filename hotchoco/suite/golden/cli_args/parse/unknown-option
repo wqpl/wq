@@ -1,0 +1,6 @@
+(`raw:,"--wat")
+error: unknown option '--wat'
+
+Usage: rgrep [OPTIONS] <PATTERN> <PATHS>...
+
+For more information, try '--help'.

@@ -1,0 +1,3 @@
+(`raw:("-i";"-m3";"needle";"a.txt";"b.txt"))
+(`args:(`ignore_case:T;`max_count:3;`pattern:"needle";`paths:("a.txt";"b.txt"));`command:())
+continued

@@ -1,3 +1,5 @@
+#[path = "cli/args.rs"]
+mod args;
 #[path = "cli/article_fences.rs"]
 mod article_fences;
 #[path = "cli/dap.rs"]

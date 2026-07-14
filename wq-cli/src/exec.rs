@@ -13,8 +13,9 @@ use crate::repl::input::RustylineInput;
 use crate::wqdb::enter_wqdb_after_err;
 use crate::{apply_builtins_flag, apply_interpreter_flag, wqdb_pause_handler};
 
-pub fn exec_script<P: AsRef<Path>>(filename: P, rtflags: RuntimeFlags) -> i32 {
+pub fn exec_script<P: AsRef<Path>>(filename: P, args: Vec<String>, rtflags: RuntimeFlags) -> i32 {
     let mut evaluator = Session::new();
+    evaluator.set_argv(args);
     evaluator.set_pause_callback(Some(wqdb_pause_handler));
     dbglog::set_debug_log_flags(rtflags.debug_flags);
     evaluator.set_bt_mode(rtflags.bt);
@@ -29,6 +30,9 @@ pub fn exec_script<P: AsRef<Path>>(filename: P, rtflags: RuntimeFlags) -> i32 {
     let loading = RefCell::new(HashSet::new());
     match load_script(&mut evaluator, filename, &loading, true) {
         Ok(report) => {
+            if let Some(status) = evaluator.take_halt_status() {
+                return status;
+            }
             if rtflags.print
                 && !rtflags.dry
                 && let Some(result) = report.result
@@ -53,8 +57,9 @@ pub fn exec_script<P: AsRef<Path>>(filename: P, rtflags: RuntimeFlags) -> i32 {
     }
 }
 
-pub fn exec_cmd(content: &str, rtflags: RuntimeFlags) -> i32 {
+pub fn exec_cmd(content: &str, args: Vec<String>, rtflags: RuntimeFlags) -> i32 {
     let mut session = Session::new();
+    session.set_argv(args);
     session.set_pause_callback(Some(wqdb_pause_handler));
     dbglog::set_debug_log_flags(rtflags.debug_flags);
     session.set_bt_mode(rtflags.bt);
@@ -70,6 +75,9 @@ pub fn exec_cmd(content: &str, rtflags: RuntimeFlags) -> i32 {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     match eval_inline_with_load(&mut session, content, &cwd, &loading, true) {
         Ok(report) => {
+            if let Some(status) = session.take_halt_status() {
+                return status;
+            }
             if rtflags.print
                 && !rtflags.dry
                 && let Some(result) = report.result

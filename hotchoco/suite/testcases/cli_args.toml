@@ -1,0 +1,30 @@
+name = "cli_args"
+source_glob = "hotchoco/cli_args/*.wq"
+exclude_marker = "//exclude"
+
+[[modes]]
+name = "success"
+flags = ["--", "-i", "-m3", "needle", "a.txt", "b.txt"]
+capture = "stdout+stderr"
+
+[[modes]]
+name = "help"
+flags = ["--", "--help"]
+capture = "stdout+stderr"
+
+[[modes]]
+name = "version"
+flags = ["--", "--version"]
+capture = "stdout+stderr"
+
+[[modes]]
+name = "unknown-option"
+flags = ["--", "--wat"]
+capture = "stdout+stderr"
+expected_exit_code = 2
+
+[[modes]]
+name = "invalid-value"
+flags = ["--", "-m", "nope", "needle", "a.txt"]
+capture = "stdout+stderr"
+expected_exit_code = 2

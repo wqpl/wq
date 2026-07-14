@@ -88,6 +88,9 @@ impl<'a> Loader<'a> {
         loading: &RefCell<HashSet<PathBuf>>,
     ) -> Result<(), LoadError> {
         for item in parse_script_items(content) {
+            if self.session.halt_status().is_some() {
+                break;
+            }
             match item {
                 ScriptItem::Shebang { .. } => {}
                 ScriptItem::Directive(directive) => {
