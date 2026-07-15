@@ -2,6 +2,7 @@ use std::fmt::{self, Write as _};
 use std::sync::Arc;
 
 use num_bigint::BigInt;
+use num_rational::BigRational;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use ordered_float::OrderedFloat;
 
@@ -32,20 +33,12 @@ impl AlgebraicBase {
 /// Stable identity for a selected real root of a field polynomial.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct RealRootIdentity {
-    lo: OrderedFloat<f64>,
-    hi: OrderedFloat<f64>,
+    index: usize,
 }
 
 impl RealRootIdentity {
-    fn from_interval(interval: (f64, f64)) -> Self {
-        Self {
-            lo: OrderedFloat(interval.0),
-            hi: OrderedFloat(interval.1),
-        }
-    }
-
-    fn interval(&self) -> (f64, f64) {
-        (*self.lo, *self.hi)
+    fn new(index: usize) -> Self {
+        Self { index }
     }
 }
 
@@ -100,11 +93,12 @@ impl std::hash::Hash for AlgebraicRoot {
 }
 
 impl AlgebraicRoot {
-    fn real_from_interval(interval: (f64, f64)) -> Self {
-        Self::Real {
-            identity: RealRootIdentity::from_interval(interval),
+    fn real_from_interval(poly: &[BigInt], interval: (f64, f64)) -> WqResult<Self> {
+        let index = selected_real_root_index(poly, interval)?;
+        Ok(Self::Real {
+            identity: RealRootIdentity::new(index),
             isolation: RealRootIsolation::from_interval(interval),
-        }
+        })
     }
 
     fn interval(&self) -> (f64, f64) {
@@ -113,14 +107,29 @@ impl AlgebraicRoot {
         }
     }
 
+    #[cfg(test)]
     fn validate(&self, poly: &[BigInt]) -> WqResult<()> {
         match self {
             Self::Real {
                 identity,
                 isolation,
             } => {
-                validate_real_interval(poly, identity.interval())?;
-                validate_real_interval(poly, isolation.interval())
+                let selected = selected_real_root_index(poly, isolation.interval())?;
+                if selected == identity.index {
+                    Ok(())
+                } else {
+                    Err(algebraic_err(
+                        "algebraic root isolation selects a different real root",
+                    ))
+                }
+            }
+        }
+    }
+
+    fn approximation(&self, poly: &[BigInt]) -> WqResult<f64> {
+        match self {
+            Self::Real { isolation, .. } => {
+                refine_real_root_approximation(poly, isolation.interval())
             }
         }
     }
@@ -128,8 +137,7 @@ impl AlgebraicRoot {
     fn push_canonical_key(&self, out: &mut String) {
         match self {
             Self::Real { identity, .. } => {
-                let (lo, hi) = identity.interval();
-                write!(out, "root:R:{:016x}:{:016x}", lo.to_bits(), hi.to_bits())
+                write!(out, "root:R:{}", identity.index)
                     .expect("writing to String should not fail");
             }
         }
@@ -138,9 +146,9 @@ impl AlgebraicRoot {
 
 #[cfg(test)]
 impl AlgebraicRoot {
-    fn real_with_isolation(identity: (f64, f64), isolation: (f64, f64)) -> Self {
+    fn real_with_isolation(identity: usize, isolation: (f64, f64)) -> Self {
         Self::Real {
-            identity: RealRootIdentity::from_interval(identity),
+            identity: RealRootIdentity::new(identity),
             isolation: RealRootIsolation::from_interval(isolation),
         }
     }
@@ -174,6 +182,7 @@ impl AlgebraicFieldPoly {
         self.as_integer().len().saturating_sub(1)
     }
 
+    #[cfg(test)]
     fn validate_invariants(&self) -> WqResult<()> {
         match self {
             Self::Integer(poly) => validate_normalized_field_poly(poly),
@@ -211,17 +220,8 @@ impl AlgebraicField {
         interval: (f64, f64),
     ) -> WqResult<Arc<Self>> {
         let poly = AlgebraicFieldPoly::new_integer(poly)?;
-        validate_real_interval(poly.as_integer(), interval)?;
-        let field = Arc::new(Self {
-            base,
-            poly,
-            root: AlgebraicRoot::real_from_interval(interval),
-        });
-        debug_assert!(
-            field.validate_invariants().is_ok(),
-            "constructed algebraic field violates invariants"
-        );
-        Ok(field)
+        let root = AlgebraicRoot::real_from_interval(poly.as_integer(), interval)?;
+        Ok(Arc::new(Self { base, poly, root }))
     }
 
     pub(crate) fn degree(&self) -> usize {
@@ -236,6 +236,11 @@ impl AlgebraicField {
         self.root.interval()
     }
 
+    pub(crate) fn generator_approximation(&self) -> WqResult<f64> {
+        self.root.approximation(self.poly())
+    }
+
+    #[cfg(test)]
     pub(crate) fn validate_invariants(&self) -> WqResult<()> {
         self.poly.validate_invariants()?;
         self.root.validate(self.poly())?;
@@ -299,10 +304,6 @@ impl AlgebraicData {
             field,
             coeffs: Arc::from(coeffs),
         };
-        debug_assert!(
-            data.validate_invariants().is_ok(),
-            "constructed algebraic data violates invariants"
-        );
         Ok(data)
     }
 
@@ -342,6 +343,7 @@ impl AlgebraicData {
         self.field.degree()
     }
 
+    #[cfg(test)]
     pub(crate) fn validate_invariants(&self) -> WqResult<()> {
         self.field.validate_invariants()?;
         if self.coeffs.is_empty() {
@@ -506,6 +508,7 @@ fn normalize_field_poly(mut poly: Vec<BigInt>) -> WqResult<Vec<BigInt>> {
     Ok(poly)
 }
 
+#[cfg(test)]
 fn validate_normalized_field_poly(poly: &[BigInt]) -> WqResult<()> {
     if poly.len() < 3 {
         return Err(algebraic_err(
@@ -534,15 +537,127 @@ fn validate_normalized_field_poly(poly: &[BigInt]) -> WqResult<()> {
     Ok(())
 }
 
-fn eval_field_poly_f64(poly: &[BigInt], x: f64) -> Option<f64> {
-    let mut acc = 0.0f64;
-    for coeff in poly.iter().rev() {
-        acc = acc.mul_add(x, coeff.to_f64()?);
+type RationalPoly = Vec<BigRational>;
+
+fn rational_poly_trim(poly: &mut RationalPoly) {
+    while poly.len() > 1 && poly.last().is_some_and(Zero::is_zero) {
+        poly.pop();
     }
-    Some(acc)
 }
 
-fn validate_real_interval(poly: &[BigInt], interval: (f64, f64)) -> WqResult<()> {
+fn rational_poly_derivative(poly: &[BigRational]) -> RationalPoly {
+    let mut derivative = poly
+        .iter()
+        .enumerate()
+        .skip(1)
+        .map(|(degree, coeff)| coeff * BigInt::from(degree))
+        .collect::<Vec<_>>();
+    if derivative.is_empty() {
+        derivative.push(BigRational::zero());
+    }
+    rational_poly_trim(&mut derivative);
+    derivative
+}
+
+fn rational_poly_div_rem(numer: &[BigRational], denom: &[BigRational]) -> RationalPoly {
+    let denom_degree = denom.len() - 1;
+    let denom_lead = denom.last().expect("non-empty polynomial");
+    let mut remainder = numer.to_vec();
+    rational_poly_trim(&mut remainder);
+
+    while remainder.len() >= denom.len() && !remainder.iter().all(Zero::is_zero) {
+        let shift = remainder.len() - denom.len();
+        let factor = remainder.last().expect("non-empty remainder") / denom_lead;
+        for (degree, coeff) in denom.iter().enumerate() {
+            remainder[degree + shift] -= &factor * coeff;
+        }
+        rational_poly_trim(&mut remainder);
+
+        debug_assert!(
+            remainder.iter().all(Zero::is_zero)
+                || remainder.len().saturating_sub(1) < denom_degree + shift
+        );
+    }
+
+    remainder
+}
+
+fn sturm_sequence(poly: &[BigInt]) -> Vec<RationalPoly> {
+    let first = poly
+        .iter()
+        .cloned()
+        .map(BigRational::from_integer)
+        .collect::<Vec<_>>();
+    let second = rational_poly_derivative(&first);
+    let mut sequence = vec![first, second];
+
+    loop {
+        let len = sequence.len();
+        let mut remainder = rational_poly_div_rem(&sequence[len - 2], &sequence[len - 1]);
+        if remainder.iter().all(Zero::is_zero) {
+            break;
+        }
+        for coeff in &mut remainder {
+            *coeff = -coeff.clone();
+        }
+        rational_poly_trim(&mut remainder);
+        sequence.push(remainder);
+    }
+
+    sequence
+}
+
+fn eval_rational_poly(poly: &[BigRational], x: &BigRational) -> BigRational {
+    poly.iter()
+        .rev()
+        .fold(BigRational::zero(), |acc, coeff| acc * x + coeff)
+}
+
+fn sign_variations(signs: impl IntoIterator<Item = i8>) -> usize {
+    let mut previous = 0i8;
+    let mut variations = 0usize;
+    for sign in signs {
+        if sign == 0 {
+            continue;
+        }
+        if previous != 0 && sign != previous {
+            variations += 1;
+        }
+        previous = sign;
+    }
+    variations
+}
+
+fn rational_sign(value: &BigRational) -> i8 {
+    if value.is_positive() {
+        1
+    } else if value.is_negative() {
+        -1
+    } else {
+        0
+    }
+}
+
+fn sturm_variations_at(sequence: &[RationalPoly], x: &BigRational) -> usize {
+    sign_variations(
+        sequence
+            .iter()
+            .map(|poly| rational_sign(&eval_rational_poly(poly, x))),
+    )
+}
+
+fn sturm_variations_at_negative_infinity(sequence: &[RationalPoly]) -> usize {
+    sign_variations(sequence.iter().map(|poly| {
+        let lead_sign = rational_sign(poly.last().expect("non-empty Sturm polynomial"));
+        if (poly.len() - 1).is_multiple_of(2) {
+            lead_sign
+        } else {
+            -lead_sign
+        }
+    }))
+}
+
+fn exact_interval(interval: (f64, f64)) -> WqResult<(BigRational, BigRational)> {
     let (lo, hi) = interval;
     if !lo.is_finite() || !hi.is_finite() || lo >= hi {
         return Err(algebraic_err(
@@ -550,26 +665,70 @@ fn validate_real_interval(poly: &[BigInt], interval: (f64, f64)) -> WqResult<()>
         ));
     }
 
-    let lo_value = eval_field_poly_f64(poly, lo).ok_or_else(|| {
-        algebraic_err("algebraic field polynomial is too large to validate interval")
-    })?;
-    let hi_value = eval_field_poly_f64(poly, hi).ok_or_else(|| {
-        algebraic_err("algebraic field polynomial is too large to validate interval")
-    })?;
-    if !lo_value.is_finite() || !hi_value.is_finite() {
-        return Err(algebraic_err(
-            "algebraic field polynomial produced a non-finite interval value",
-        ));
-    }
-    if lo_value.is_sign_positive() == hi_value.is_sign_positive()
-        && lo_value != 0.0
-        && hi_value != 0.0
+    let lo = BigRational::from_float(lo)
+        .ok_or_else(|| algebraic_err("algebraic root lower bound must be finite"))?;
+    let hi = BigRational::from_float(hi)
+        .ok_or_else(|| algebraic_err("algebraic root upper bound must be finite"))?;
+    Ok((lo, hi))
+}
+
+fn selected_real_root_index(poly: &[BigInt], interval: (f64, f64)) -> WqResult<usize> {
+    let (lo, hi) = exact_interval(interval)?;
+    let sequence = sturm_sequence(poly);
+
+    if eval_rational_poly(&sequence[0], &lo).is_zero()
+        || eval_rational_poly(&sequence[0], &hi).is_zero()
     {
         return Err(algebraic_err(
-            "algebraic root interval must bracket a real root",
+            "algebraic root interval endpoints must not be roots",
         ));
     }
-    Ok(())
+
+    let at_lo = sturm_variations_at(&sequence, &lo);
+    let at_hi = sturm_variations_at(&sequence, &hi);
+    let root_count = at_lo.saturating_sub(at_hi);
+    if root_count != 1 {
+        return Err(algebraic_err(
+            "algebraic root interval must contain exactly one distinct real root",
+        ));
+    }
+
+    Ok(sturm_variations_at_negative_infinity(&sequence).saturating_sub(at_lo))
+}
+
+pub(crate) fn validate_real_root_interval(poly: &[BigInt], interval: (f64, f64)) -> WqResult<()> {
+    selected_real_root_index(poly, interval).map(|_| ())
+}
+
+fn refine_real_root_approximation(poly: &[BigInt], interval: (f64, f64)) -> WqResult<f64> {
+    selected_real_root_index(poly, interval)?;
+    let sequence = sturm_sequence(poly);
+    let (mut lo, mut hi) = interval;
+
+    for _ in 0..80 {
+        let mid = lo + (hi - lo) * 0.5;
+        if mid == lo || mid == hi {
+            break;
+        }
+        let mid_exact = BigRational::from_float(mid)
+            .ok_or_else(|| algebraic_err("algebraic root approximation became non-finite"))?;
+        let value = eval_rational_poly(&sequence[0], &mid_exact);
+        if value.is_zero() {
+            return Ok(mid);
+        }
+        let lo_exact = BigRational::from_float(lo)
+            .ok_or_else(|| algebraic_err("algebraic root approximation became non-finite"))?;
+        if sturm_variations_at(&sequence, &lo_exact)
+            .saturating_sub(sturm_variations_at(&sequence, &mid_exact))
+            == 1
+        {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+
+    Ok(lo + (hi - lo) * 0.5)
 }
 
 fn validate_coeff_in_base(field: &AlgebraicField, coeff: &Value) -> WqResult<()> {
@@ -637,7 +796,7 @@ fn recognize_radical_name(poly: &[BigInt], interval: (f64, f64)) -> Option<Strin
         return None;
     }
 
-    // Golden ratio: x^2 - x - 1 = 0
+    // Golden-ratio conjugates: x^2 - x - 1 = 0
     if deg == 2
         && poly[0] == BigInt::from(-1)
         && poly[1] == BigInt::from(-1)
@@ -645,9 +804,9 @@ fn recognize_radical_name(poly: &[BigInt], interval: (f64, f64)) -> Option<Strin
     {
         let mid = (interval.0 + interval.1) * 0.5;
         return Some(if mid > 0.0 {
-            "phi".to_string()
+            "(1+5^(1/2))/2".to_string()
         } else {
-            "1-phi".to_string()
+            "(1-5^(1/2))/2".to_string()
         });
     }
 
@@ -663,8 +822,8 @@ fn recognize_radical_name(poly: &[BigInt], interval: (f64, f64)) -> Option<Strin
     if c0.is_zero() || cn.is_zero() {
         return None;
     }
-    // Need opposite signs for x^n = -c0/cn to have a positive real root.
-    if (c0.is_positive() && cn.is_positive()) || (c0.is_negative() && cn.is_negative()) {
+    let rhs_is_positive = c0.is_positive() != cn.is_positive();
+    if !rhs_is_positive && deg.is_multiple_of(2) {
         return None;
     }
 
@@ -681,8 +840,14 @@ fn recognize_radical_name(poly: &[BigInt], interval: (f64, f64)) -> Option<Strin
     };
 
     let radical = format!("{base}^(1/{deg})");
+    let selected_root_is_negative =
+        !rhs_is_positive || (deg.is_multiple_of(2) && (interval.0 + interval.1) * 0.5 < 0.0);
 
-    Some(radical)
+    Some(if selected_root_is_negative {
+        format!("-{radical}")
+    } else {
+        radical
+    })
 }
 
 /// Convert a minimal polynomial to a short human-readable string like
@@ -734,13 +899,13 @@ fn format_approx_f64(value: f64) -> String {
     format!("{value}")
 }
 
-fn has_top_level_additive_operator(text: &str) -> bool {
+fn has_top_level_infix_operator(text: &str) -> bool {
     let mut depth = 0usize;
     for (idx, ch) in text.char_indices() {
         match ch {
             '(' | '[' | '{' => depth += 1,
             ')' | ']' | '}' => depth = depth.saturating_sub(1),
-            '+' | '-' if depth == 0 && idx > 0 => return true,
+            '+' | '-' | '*' | '/' if depth == 0 && idx > 0 => return true,
             _ => {}
         }
     }
@@ -790,7 +955,7 @@ fn write_algebraic_with_generator_name<W: fmt::Write>(
     let name_needs_parens = name
         .chars()
         .any(|c| matches!(c, '+' | '-' | '*' | '/' | '^' | '(' | ')' | ' '));
-    let name_has_top_level_add = has_top_level_additive_operator(name);
+    let name_has_top_level_infix = has_top_level_infix_operator(name);
     let non_zero_count = a
         .coeffs
         .iter()
@@ -848,7 +1013,7 @@ fn write_algebraic_with_generator_name<W: fmt::Write>(
                     }
                 }
                 let wrap_name =
-                    name_has_top_level_add && (is_negative || !is_one || non_zero_count > 1);
+                    name_has_top_level_infix && (is_negative || !is_one || non_zero_count > 1);
                 if wrap_name {
                     write!(f, "({name})")?;
                 } else {
@@ -1074,8 +1239,12 @@ pub(crate) fn algebraic_div(a: &AlgebraicData, b: &AlgebraicData) -> WqResult<Va
         .map(|c| Value::from_bigint(c.clone()))
         .collect();
 
-    let egcd_result = poly_egcd(&b.coeffs, &min_poly);
-    let (_g, inv, _t) = egcd_result?;
+    let (gcd, inv, _t) = poly_egcd(&b.coeffs, &min_poly)?;
+    if crate::cas::poly_degree(&gcd) > 0 {
+        return Err(algebraic_err(
+            "algebraic divisor is not invertible; root polynomial is reducible",
+        ));
+    }
 
     let raw = crate::cas::poly_mul(&a.coeffs, &inv)?;
     let (_, rem) = crate::cas::poly_divide(&raw, &min_poly)?;
@@ -1582,7 +1751,7 @@ mod tests {
                 BigInt::zero(),
                 BigInt::from(2),
             ]),
-            root: AlgebraicRoot::real_from_interval((1.0, 2.0)),
+            root: AlgebraicRoot::real_with_isolation(1, (1.0, 2.0)),
         };
         assert!(non_primitive_field.validate_invariants().is_err());
 
@@ -1616,12 +1785,12 @@ mod tests {
         let coarse = AlgebraicField {
             base: AlgebraicBase::Rational,
             poly: poly.clone(),
-            root: AlgebraicRoot::real_with_isolation((1.0, 2.0), (1.0, 2.0)),
+            root: AlgebraicRoot::real_with_isolation(1, (1.0, 2.0)),
         };
         let refined = AlgebraicField {
             base: AlgebraicBase::Rational,
             poly,
-            root: AlgebraicRoot::real_with_isolation((1.0, 2.0), (1.4, 1.5)),
+            root: AlgebraicRoot::real_with_isolation(1, (1.4, 1.5)),
         };
 
         coarse
@@ -1639,6 +1808,35 @@ mod tests {
         let mut refined_key = String::new();
         refined.push_canonical_key(&mut refined_key);
         assert_eq!(coarse_key, refined_key);
+    }
+
+    #[test]
+    fn constructor_uses_selected_root_for_field_identity() {
+        let coarse = sqrt2_field((1.0, 2.0));
+        let refined = sqrt2_field((1.4, 1.5));
+
+        assert_eq!(coarse, refined);
+
+        let mut coarse_key = String::new();
+        coarse.push_canonical_key(&mut coarse_key);
+        let mut refined_key = String::new();
+        refined.push_canonical_key(&mut refined_key);
+        assert_eq!(coarse_key, refined_key);
+    }
+
+    #[test]
+    fn constructor_rejects_interval_containing_multiple_roots() {
+        let result = AlgebraicField::new_real_root(
+            vec![
+                BigInt::from(1),
+                BigInt::from(-3),
+                BigInt::zero(),
+                BigInt::one(),
+            ],
+            (-3.0, 3.0),
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]
@@ -1868,35 +2066,38 @@ mod tests {
     }
 
     #[test]
-    fn value_algebraic_display_phi() {
+    fn value_algebraic_display_positive_golden_ratio_root() {
         let phi_poly = vec![BigInt::from(-1), BigInt::from(-1), BigInt::from(1)];
         let a = algebraic_data(phi_poly, (1.0, 2.0), vec![Value::Int(0), Value::Int(1)]);
         let v = Value::Algebraic(Arc::new(a));
-        assert_eq!(v.to_string(), "phi");
+        assert_eq!(v.to_string(), "(1+5^(1/2))/2");
     }
 
     #[test]
-    fn value_algebraic_display_one_minus_phi() {
+    fn value_algebraic_display_negative_golden_ratio_root() {
         let phi_poly = vec![BigInt::from(-1), BigInt::from(-1), BigInt::from(1)];
         let a = algebraic_data(phi_poly, (-1.0, 0.0), vec![Value::Int(0), Value::Int(1)]);
         let v = Value::Algebraic(Arc::new(a));
-        assert_eq!(v.to_string(), "1-phi");
+        assert_eq!(v.to_string(), "(1-5^(1/2))/2");
     }
 
     #[test]
-    fn value_algebraic_display_one_minus_phi_as_term_is_grouped() {
+    fn value_algebraic_display_negative_golden_ratio_root_as_term_is_grouped() {
         let phi_poly = vec![BigInt::from(-1), BigInt::from(-1), BigInt::from(1)];
         let double = algebraic_data(
             phi_poly.clone(),
             (-1.0, 0.0),
             vec![Value::Int(0), Value::Int(2)],
         );
-        assert_eq!(Value::Algebraic(Arc::new(double)).to_string(), "2*(1-phi)");
+        assert_eq!(
+            Value::Algebraic(Arc::new(double)).to_string(),
+            "2*((1-5^(1/2))/2)"
+        );
 
         let shifted = algebraic_data(phi_poly, (-1.0, 0.0), vec![Value::Int(3), Value::Int(1)]);
         assert_eq!(
             Value::Algebraic(Arc::new(shifted)).to_string(),
-            "3 + (1-phi)",
+            "3 + ((1-5^(1/2))/2)",
         );
     }
 
@@ -1922,12 +2123,23 @@ mod tests {
     }
 
     #[test]
-    fn value_algebraic_display_one_minus_phi_in_cas_product_gets_parens() {
+    fn value_algebraic_display_golden_ratio_root_in_cas_product_gets_parens() {
         let phi_poly = vec![BigInt::from(-1), BigInt::from(-1), BigInt::from(1)];
         let a = algebraic_data(phi_poly, (-1.0, 0.0), vec![Value::Int(0), Value::Int(1)]);
         let alg = Value::Algebraic(Arc::new(a));
         let product = Value::from_cas_op(CasOp::Multiply, vec![alg, Value::from_cas_var("x")]);
-        assert_eq!(product.to_string(), "(1-phi)*x");
+        assert_eq!(product.to_string(), "((1-5^(1/2))/2)*x");
+    }
+
+    #[test]
+    fn value_algebraic_display_negative_selected_pure_power_root() {
+        let a = algebraic_data(
+            vec![BigInt::from(-2), BigInt::zero(), BigInt::one()],
+            (-2.0, -1.0),
+            vec![Value::Int(0), Value::Int(1)],
+        );
+
+        assert_eq!(Value::Algebraic(Arc::new(a)).to_string(), "-2^(1/2)");
     }
 
     #[test]
@@ -2129,6 +2341,25 @@ mod tests {
             Value::from_fraction_parts(BigInt::from(1), BigInt::from(3)),
         ]);
         assert_eq!(quot, expected);
+    }
+
+    #[test]
+    fn algebraic_div_rejects_noninvertible_element_from_reducible_polynomial() {
+        let field = AlgebraicField::new_real_root(
+            vec![
+                BigInt::from(6),
+                BigInt::from(-2),
+                BigInt::from(-3),
+                BigInt::one(),
+            ],
+            (1.0, 2.0),
+        )
+        .expect("interval selects sqrt2 from (x^2 - 2)(x - 3)");
+        let one = AlgebraicData::new(field.clone(), vec![Value::Int(1)]).expect("one");
+        let alpha_minus_three = AlgebraicData::new(field, vec![Value::Int(-3), Value::Int(1)])
+            .expect("alpha minus three");
+
+        assert!(algebraic_div(&one, &alpha_minus_three).is_err());
     }
 
     // -- P3: numeric_is_negative / poly_gcd with algebraic coefficients --

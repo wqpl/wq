@@ -1,12 +1,13 @@
 use num_bigint::BigInt;
+use num_rational::BigRational;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::quote::CasNamedArg;
 use super::{
     cas_err, infer_single_cas_var, normalize_root_objective_cas, numeric_mul, poly_degree,
-    poly_from_expr, poly_to_expr,
+    poly_divide, poly_from_expr, poly_to_expr,
 };
-use crate::value::algebraic::{AlgebraicData, AlgebraicField};
+use crate::value::algebraic::{AlgebraicData, AlgebraicField, validate_real_root_interval};
 use crate::value::{Value, WqResult};
 
 pub(crate) fn cas_root_expr(args: &[Value], named: &[CasNamedArg]) -> WqResult<Value> {
@@ -34,6 +35,10 @@ pub(crate) fn cas_root_expr(args: &[Value], named: &[CasNamedArg]) -> WqResult<V
         (lo, hi)
     };
 
+    let poly = match select_rational_factor(poly, interval)? {
+        RootSelection::Exact(value) => return Ok(value),
+        RootSelection::Polynomial(poly) => poly,
+    };
     let field = AlgebraicField::new_real_root(poly, interval)?;
     let normalized_poly = integer_poly_expr(field.poly(), &var)?;
     let (lo, hi) = field.interval();
@@ -55,8 +60,67 @@ fn root_value(poly_expr: &Value, interval: (f64, f64)) -> WqResult<Value> {
         return Err(cas_err("root expects a polynomial of degree at least 2"));
     }
     let poly = integer_poly_from_coeffs(&coeffs)?;
+    let poly = match select_rational_factor(poly, interval)? {
+        RootSelection::Exact(value) => return Ok(value),
+        RootSelection::Polynomial(poly) => poly,
+    };
     let field = AlgebraicField::new_real_root(poly, interval)?;
     AlgebraicData::generator(field)
+}
+
+enum RootSelection {
+    Exact(Value),
+    Polynomial(Vec<BigInt>),
+}
+
+fn rational_in_interval(value: &Value, interval: (f64, f64)) -> WqResult<bool> {
+    let Some((numer, denom)) = value.rational_parts() else {
+        return Err(cas_err(
+            "rational root finder returned a non-rational value",
+        ));
+    };
+    let value = BigRational::new(numer, denom);
+    let lo = BigRational::from_float(interval.0)
+        .ok_or_else(|| cas_err("root lower bound must be finite"))?;
+    let hi = BigRational::from_float(interval.1)
+        .ok_or_else(|| cas_err("root upper bound must be finite"))?;
+    Ok(lo < value && value < hi)
+}
+
+fn select_rational_factor(poly: Vec<BigInt>, interval: (f64, f64)) -> WqResult<RootSelection> {
+    validate_real_root_interval(&poly, interval)?;
+    let mut coeffs = poly
+        .iter()
+        .cloned()
+        .map(Value::from_bigint)
+        .collect::<Vec<_>>();
+
+    loop {
+        let degree = poly_degree(&coeffs);
+        if degree == 1 {
+            let root = coeffs[0].neg()?.divide(&coeffs[1])?;
+            if rational_in_interval(&root, interval)? {
+                return Ok(RootSelection::Exact(root));
+            }
+            return Err(cas_err("root factor normalization lost the selected root"));
+        }
+
+        let Some(root) = super::integrate::rational::find_rational_root_value(&coeffs) else {
+            return integer_poly_from_coeffs(&coeffs).map(RootSelection::Polynomial);
+        };
+        if rational_in_interval(&root, interval)? {
+            return Ok(RootSelection::Exact(root));
+        }
+
+        let factor = vec![root.neg()?, Value::Int(1)];
+        let (quotient, remainder) = poly_divide(&coeffs, &factor)?;
+        if !remainder.iter().all(super::numeric_is_zero) {
+            return Err(cas_err(
+                "rational root factor did not divide root polynomial",
+            ));
+        }
+        coeffs = quotient;
+    }
 }
 
 fn integer_poly_expr(poly: &[BigInt], var: &str) -> WqResult<Value> {
@@ -244,5 +308,23 @@ mod tests {
 
         assert!(matches!(value, Value::Algebraic(_)));
         assert_eq!(value.to_string(), "2^(1/2)");
+    }
+
+    #[test]
+    fn root_removes_unselected_rational_factor_before_field_construction() {
+        let placeholder = Value::from_cas_var("_");
+        let rational_factor = Value::from_cas_op(CasOp::Add, vec![placeholder, Value::Int(-3)]);
+        let polynomial = Value::from_cas_op(CasOp::Multiply, vec![sqrt2_poly(), rational_factor]);
+        let root =
+            cas_root_expr(&[polynomial, Value::Int(1), Value::Int(2)], &[]).expect("root node");
+        let value = resolve_cas_root(&root).expect("lowering").expect("value");
+        let denominator = value.subtract(&Value::Int(3)).expect("alpha minus three");
+        let quotient = Value::Int(1)
+            .divide(&denominator)
+            .expect("selected root field supports division");
+        let product = quotient.multiply(&denominator).expect("inverse product");
+
+        assert_eq!(value.to_string(), "2^(1/2)");
+        assert!(crate::cas::numeric_is_one(&product));
     }
 }

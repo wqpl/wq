@@ -138,6 +138,62 @@ pub(crate) enum CasFunction {
 }
 
 impl CasFunction {
+    pub(crate) fn valid_arities(self) -> &'static [usize] {
+        match self {
+            Self::En | Self::EllIk | Self::EllIe | Self::Log | Self::ArcTan2 => &[2],
+            Self::Integrate => &[1, 2, 4],
+            Self::Abs
+            | Self::Sgn
+            | Self::Sin
+            | Self::Cos
+            | Self::Tan
+            | Self::Sec
+            | Self::Csc
+            | Self::Cot
+            | Self::Erf
+            | Self::Erfc
+            | Self::Gamma
+            | Self::LnGamma
+            | Self::Si
+            | Self::Ci
+            | Self::Ei
+            | Self::EllPk
+            | Self::EllPe
+            | Self::Heaviside
+            | Self::Delta
+            | Self::Exp
+            | Self::Ln
+            | Self::Log2
+            | Self::Log10
+            | Self::Sqrt
+            | Self::ArcSin
+            | Self::ArcCos
+            | Self::ArcTan
+            | Self::Sinh
+            | Self::Cosh
+            | Self::Tanh
+            | Self::ArcSinh
+            | Self::ArcCosh
+            | Self::ArcTanh
+            | Self::Floor
+            | Self::Ceil
+            | Self::Round => &[1],
+        }
+    }
+
+    pub(crate) fn accepts_arity(self, arity: usize) -> bool {
+        self.valid_arities().contains(&arity)
+    }
+
+    pub(crate) fn arity_description(self) -> &'static str {
+        match self.valid_arities() {
+            [1] => "exactly 1 argument",
+            [2] => "exactly 2 arguments",
+            [1, 2, 4] => "1, 2, or 4 arguments",
+            _ => unreachable!("every CAS function has a documented signature"),
+        }
+    }
+
     pub(crate) fn from_name(name: &str) -> Option<Self> {
         match name {
             "abs" => Some(Self::Abs),
@@ -465,6 +521,36 @@ mod cas_tests {
             assert_eq!(function.name(), name);
         }
         assert_eq!(CasFunction::from_name("f"), None);
+    }
+
+    #[test]
+    fn cas_function_signatures_match_supported_calls() {
+        assert!(CasFunction::Sin.accepts_arity(1));
+        assert!(!CasFunction::Sin.accepts_arity(0));
+        assert!(CasFunction::Log.accepts_arity(2));
+        assert!(!CasFunction::Log.accepts_arity(1));
+        assert!(CasFunction::Integrate.accepts_arity(1));
+        assert!(CasFunction::Integrate.accepts_arity(2));
+        assert!(CasFunction::Integrate.accepts_arity(4));
+        assert!(!CasFunction::Integrate.accepts_arity(3));
+    }
+
+    #[test]
+    fn cas_call_constructor_rejects_wrong_function_arity() {
+        let x = Value::from_cas_var("x");
+        assert!(crate::cas::cas_call_expr(CasFunction::Sin, &[]).is_err());
+        assert!(crate::cas::cas_call_expr(CasFunction::Sin, &[x.clone(), x.clone()]).is_err());
+        assert!(crate::cas::cas_call_expr(CasFunction::Log, std::slice::from_ref(&x)).is_err());
+        assert!(
+            crate::cas::cas_call_expr(CasFunction::Integrate, &[x.clone(), x.clone(), x]).is_err()
+        );
+        assert!(
+            crate::cas::simplify_cas_value(&Value::from_cas_function(
+                CasFunction::ArcTan2,
+                vec![Value::Int(1)]
+            ))
+            .is_err()
+        );
     }
 
     #[test]

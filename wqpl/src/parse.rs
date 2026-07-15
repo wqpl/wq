@@ -4729,6 +4729,45 @@ mod symbolic_quote_tests {
     }
 
     #[test]
+    fn symbolic_quote_builds_reserved_predicate_call() {
+        let ast = parse_input("@s nonzero[x]").expect("reserved predicate should parse");
+        let AstNode::Literal(value, _) = ast else {
+            panic!("expected CAS literal, got {ast:?}");
+        };
+
+        assert_eq!(
+            value,
+            Value::from_cas_predicate(crate::value::cas::CasPredicate::NonZero(
+                Value::from_cas_var("x")
+            ))
+        );
+    }
+
+    #[test]
+    fn symbolic_quote_rejects_invalid_reserved_calls() {
+        for (input, expected) in [
+            ("@s sin[]", "sin expects exactly 1 argument"),
+            ("@s sin[x;y]", "sin expects exactly 1 argument"),
+            ("@s log[x]", "log expects exactly 2 arguments"),
+            ("@s arctan2[x]", "arctan2 expects exactly 2 arguments"),
+            ("@s floor[x;1]", "floor expects exactly 1 argument"),
+            ("@s sin[`x:y]", "sin does not accept named arguments"),
+            ("@s nonzero[x;y]", "nonzero expects exactly 1 argument"),
+        ] {
+            let ast = parse_input(input).expect("parser should recover with an error node");
+            let AstNode::Error(err, _) = ast else {
+                panic!("expected parser error node for {input}, got {ast:?}");
+            };
+            assert!(
+                err.msg
+                    .as_deref()
+                    .is_some_and(|message| message.contains(expected)),
+                "unexpected error for {input}: {err:?}",
+            );
+        }
+    }
+
+    #[test]
     fn symbolic_quote_limit_accepts_named_direction() {
         let ast =
             parse_input("@s limit[1/x;0;`d:@s+]").expect("named limit direction should parse");

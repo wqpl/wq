@@ -2191,6 +2191,14 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
 
                 if let Some((function, args)) = expr.cas_function_parts() {
                     let n = args.len();
+                    if !function.accepts_arity(n) {
+                        return Err(cas_err(format!(
+                            "malformed '{}': expected {}",
+                            function.name(),
+                            function.arity_description()
+                        ))
+                        .got1(&expr));
+                    }
                     stack.push(SimplifyFrame::Function { function, n });
                     for arg in args.iter().rev() {
                         stack.push(SimplifyFrame::Expr(arg.clone()));
@@ -2382,6 +2390,13 @@ pub(crate) fn cas_unary_expr(op: CasOp, arg: &Value) -> WqResult<Value> {
 }
 
 pub(crate) fn cas_call_expr(function: CasFunction, args: &[Value]) -> WqResult<Value> {
+    if !function.accepts_arity(args.len()) {
+        return Err(cas_err(format!(
+            "{} expects {}",
+            function.name(),
+            function.arity_description()
+        )));
+    }
     for arg in args {
         ensure_expr_arg(arg, function.name())?;
     }

@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use num_bigint::BigInt;
@@ -265,6 +266,19 @@ fn push_atom_key(value: &Value, out: &mut String) {
     }
 }
 
+fn has_top_level_infix_operator(text: &str) -> bool {
+    let mut depth = 0usize;
+    for (idx, ch) in text.char_indices() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            '+' | '-' | '*' | '/' if depth == 0 && idx > 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
 fn has_top_level_additive_operator(text: &str) -> bool {
     let mut depth = 0usize;
     for (idx, ch) in text.char_indices() {
@@ -272,6 +286,19 @@ fn has_top_level_additive_operator(text: &str) -> bool {
             '(' | '[' | '{' => depth += 1,
             ')' | ']' | '}' => depth = depth.saturating_sub(1),
             '+' | '-' if depth == 0 && idx > 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn has_top_level_division_operator(text: &str) -> bool {
+    let mut depth = 0usize;
+    for (idx, ch) in text.char_indices() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            '/' if depth == 0 && idx > 0 => return true,
             _ => {}
         }
     }
@@ -314,18 +341,28 @@ struct AlgebraicAliasCandidate {
 impl AlgebraicAliasEnv {
     fn from_values(values: &[&Value]) -> Self {
         let mut candidates = Vec::new();
+        let mut occupied_names = BTreeSet::new();
         for value in values {
             collect_algebraic_candidates(value, &mut candidates);
+            collect_symbolic_names(value, &mut occupied_names);
         }
 
         let mut aliases = Vec::new();
+        let mut next_alias = 1usize;
         for candidate in candidates {
             if candidate.count < 2 || !candidate.binding.starts_with("@s root[") {
                 continue;
             }
+            let name = loop {
+                let name = format!("ad{next_alias}");
+                next_alias += 1;
+                if occupied_names.insert(name.clone()) {
+                    break name;
+                }
+            };
             aliases.push(AlgebraicAlias {
                 key: candidate.key,
-                name: format!("ad{}", aliases.len() + 1),
+                name,
                 binding: candidate.binding,
             });
         }
@@ -353,6 +390,60 @@ impl AlgebraicAliasEnv {
             .collect::<Vec<_>>()
             .join(";");
         format!("({rendered})[{bindings}]")
+    }
+}
+
+fn collect_symbolic_names(value: &Value, names: &mut BTreeSet<String>) {
+    if let Some(name) = value.cas_var_name() {
+        names.insert(name.to_string());
+        return;
+    }
+    if let Some((_op, args)) = value.cas_op_parts() {
+        for arg in args {
+            collect_symbolic_names(arg, names);
+        }
+        return;
+    }
+    if let Some((_function, args)) = value.cas_function_parts() {
+        for arg in args {
+            collect_symbolic_names(arg, names);
+        }
+        return;
+    }
+    if let Some((name, args)) = value.cas_apply_parts() {
+        names.insert(name.to_string());
+        for arg in args {
+            collect_symbolic_names(arg, names);
+        }
+        return;
+    }
+    if let Some((_name, arg)) = value.cas_named_arg_parts() {
+        collect_symbolic_names(arg, names);
+        return;
+    }
+    if let Some((expr, var, point, _direction)) = value.cas_limit_parts() {
+        collect_symbolic_names(expr, names);
+        collect_symbolic_names(var, names);
+        collect_symbolic_names(point, names);
+        return;
+    }
+    if let Some((poly, _lo, _hi)) = value.cas_root_parts() {
+        collect_symbolic_names(poly, names);
+        return;
+    }
+    if let Some((lhs, rhs)) = value.cas_eq_parts() {
+        collect_symbolic_names(lhs, names);
+        collect_symbolic_names(rhs, names);
+        return;
+    }
+    if let Some(predicate) = value.cas_predicate() {
+        collect_symbolic_names(predicate.expr(), names);
+        return;
+    }
+    if let Value::List(items) = value {
+        for item in items.iter() {
+            collect_symbolic_names(item, names);
+        }
     }
 }
 
@@ -442,6 +533,8 @@ fn format_arg(value: &Value, parent_prec: u8, aliases: &AlgebraicAliasEnv) -> St
         precedence(value) < parent_prec
     } else {
         has_top_level_additive_operator(&rendered)
+            || matches!(value, Value::Algebraic(_)) && has_top_level_division_operator(&rendered)
+            || matches!(value, Value::Complex(_)) && has_top_level_infix_operator(&rendered)
     };
     if needs_parens {
         format!("({rendered})")
@@ -486,22 +579,16 @@ fn reciprocal_denominator(value: &Value) -> Option<Value> {
 
 fn format_power(base: &Value, exp: &Value, parent_prec: u8, aliases: &AlgebraicAliasEnv) -> String {
     let prec: u8 = 3;
-    let base_rendered = if base.cas_op_args(CasOp::Power).is_some() {
-        format!("({})", format_expr_with_aliases(base, 0, aliases))
-    } else if let Value::Algebraic(a) = base {
-        let non_zero: Vec<usize> = a
-            .coeffs
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| !numeric_is_zero(c))
-            .map(|(i, _)| i)
-            .collect();
-        let needs_paren = non_zero.len() > 1 || non_zero.iter().any(|&i| i >= 2);
-        if needs_paren {
-            format!("({})", format_expr_with_aliases(base, 0, aliases))
-        } else {
-            format_arg(base, prec, aliases)
-        }
+    let raw_base = format_expr_with_aliases(base, 0, aliases);
+    let base_needs_parens = base.cas_op_args(CasOp::Power).is_some()
+        || matches!(base, Value::Algebraic(_) | Value::Complex(_))
+        || base
+            .rational_parts()
+            .is_some_and(|(numer, denom)| numer.is_negative() || !denom.is_one())
+        || matches!(base, Value::Float(value) if value.is_sign_negative())
+        || has_top_level_infix_operator(&raw_base);
+    let base_rendered = if base_needs_parens {
+        format!("({raw_base})")
     } else {
         format_arg(base, prec, aliases)
     };
@@ -799,10 +886,10 @@ mod tests {
             vec![BigInt::from(-1), BigInt::from(-1), BigInt::from(1)],
             (-1.0, 0.0),
         )
-        .expect("valid phi conjugate field");
+        .expect("valid golden-ratio conjugate field");
         let value = AlgebraicData::value(field, vec![Value::Int(0), Value::Int(1)])
-            .expect("valid phi conjugate value");
-        assert_eq!(value.to_string(), "1-phi");
+            .expect("valid golden-ratio conjugate value");
+        assert_eq!(value.to_string(), "(1-5^(1/2))/2");
 
         let mut key = String::new();
         push_canonical_key(&value, &mut key);
@@ -811,9 +898,30 @@ mod tests {
             "expected structural algebraic key, got {key}",
         );
         assert!(
-            !key.contains("phi"),
+            !key.contains("5^(1/2)"),
             "canonical key should not depend on algebraic display text: {key}",
         );
+    }
+
+    #[test]
+    fn power_parenthesizes_non_atomic_numeric_bases() {
+        let x = Value::from_cas_var("x");
+        let cases = [
+            (Value::Int(-2), "(-2)^x"),
+            (
+                Value::from_fraction_parts(BigInt::from(2), BigInt::from(3)),
+                "(2/3)^x",
+            ),
+            (
+                Value::from_complex64(num_complex::Complex64::new(1.0, -2.0)),
+                "(1-2i)^x",
+            ),
+        ];
+
+        for (base, expected) in cases {
+            let power = Value::from_cas_op(CasOp::Power, vec![base, x.clone()]);
+            assert_eq!(format_cas_value(&power), expected);
+        }
     }
 
     #[test]
@@ -844,6 +952,38 @@ mod tests {
         assert_eq!(
             expr.to_string(),
             "(ad1*x + ad1^2)[`ad1:@s root[_^3-_-1;1;2]]"
+        );
+    }
+
+    #[test]
+    fn algebraic_display_binding_avoids_existing_variable_names() {
+        let field = AlgebraicField::new_real_root(
+            vec![
+                BigInt::from(-1),
+                BigInt::from(-1),
+                BigInt::from(0),
+                BigInt::from(1),
+            ],
+            (1.0, 2.0),
+        )
+        .expect("valid cubic field");
+        let alpha = AlgebraicData::value(field.clone(), vec![Value::Int(0), Value::Int(1)])
+            .expect("valid cubic generator");
+        let alpha_sq =
+            AlgebraicData::value(field, vec![Value::Int(0), Value::Int(0), Value::Int(1)])
+                .expect("valid squared cubic generator");
+        let expr = Value::from_cas_op(
+            CasOp::Add,
+            vec![
+                Value::from_cas_var("ad1"),
+                alpha_sq,
+                Value::from_cas_op(CasOp::Multiply, vec![alpha, Value::from_cas_var("x")]),
+            ],
+        );
+
+        assert_eq!(
+            expr.to_string(),
+            "(ad2*x + ad2^2 + ad1)[`ad2:@s root[_^3-_-1;1;2]]"
         );
     }
 

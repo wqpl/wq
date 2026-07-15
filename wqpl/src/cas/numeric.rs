@@ -277,8 +277,8 @@ fn eval_numeric_coeff_as_f64(coeff: &Value) -> WqResult<f64> {
     }
 }
 
-/// Evaluate a CAS expression to a single Float, approximating Algebraic
-/// values by the midpoint of their isolating interval.
+/// Evaluate a CAS expression to a single Float, refining Algebraic root
+/// isolations before evaluating their exact coefficient representation.
 ///
 /// Returns an error if the expression still contains symbolic variables.
 pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
@@ -289,8 +289,7 @@ pub(crate) fn eval_numeric_cas(expr: &Value) -> WqResult<Value> {
 
     // Algebraic numbers -> evaluate using coefficients and generator's approx.
     if let Value::Algebraic(a) = expr {
-        let interval = a.interval();
-        let alpha = (interval.0 + interval.1) * 0.5;
+        let alpha = a.field().generator_approximation()?;
         let mut result = 0.0f64;
         let mut alpha_pow = 1.0f64;
         for c in a.coeffs.iter() {
@@ -404,6 +403,7 @@ mod tests {
     use num_bigint::BigInt;
 
     use super::*;
+    use crate::value::algebraic::{AlgebraicData, AlgebraicField};
 
     #[test]
     fn cas_numeric_division_uses_exact_arithmetic() {
@@ -436,5 +436,20 @@ mod tests {
         );
 
         assert_eq!(eval_numeric_cas(&limit).unwrap(), Value::float(0.0));
+    }
+
+    #[test]
+    fn eval_numeric_cas_refines_algebraic_root_interval() {
+        let field = AlgebraicField::new_real_root(
+            vec![BigInt::from(-2), BigInt::from(0), BigInt::from(1)],
+            (1.0, 2.0),
+        )
+        .expect("sqrt2 field");
+        let sqrt2 = AlgebraicData::generator(field).expect("sqrt2 value");
+
+        let Value::Float(value) = eval_numeric_cas(&sqrt2).expect("numeric sqrt2") else {
+            unreachable!("numeric evaluation returns a float");
+        };
+        assert!((value.into_inner() - 2.0f64.sqrt()).abs() <= f64::EPSILON);
     }
 }

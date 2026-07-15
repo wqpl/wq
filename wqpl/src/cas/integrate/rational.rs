@@ -1482,7 +1482,7 @@ fn factor_by_radical_formula(poly: &[Value]) -> WqResult<Option<Vec<Vec<Value>>>
 }
 
 /// Find a rational root value of a polynomial using the Rational Root Theorem.
-pub(super) fn find_rational_root_value(poly: &[Value]) -> Option<Value> {
+pub(crate) fn find_rational_root_value(poly: &[Value]) -> Option<Value> {
     // Special case: if constant term is 0, x=0 is a root
     if poly.first().is_some_and(numeric_is_zero) {
         return Some(Value::Int(0));

@@ -1,12 +1,48 @@
 use super::limit::parse_limit_direction;
 use super::{cas_call_expr, cas_err, ensure_expr_arg, infer_single_cas_var};
-use crate::value::cas::CasFunction;
+use crate::value::cas::{CasFunction, CasPredicate};
 use crate::value::{Value, WqResult};
 
 pub(crate) type CasNamedArg = (String, Value);
 
 pub(crate) fn cas_special_call_name(name: &str) -> bool {
-    matches!(name, "limit" | "root")
+    matches!(
+        name,
+        "limit"
+            | "root"
+            | "zero"
+            | "nonzero"
+            | "positive"
+            | "negative"
+            | "nonnegative"
+            | "real"
+            | "integer"
+    )
+}
+
+fn cas_predicate_expr(
+    name: &str,
+    args: &[Value],
+    named: &[CasNamedArg],
+) -> WqResult<Option<Value>> {
+    let constructor: fn(Value) -> CasPredicate = match name {
+        "zero" => CasPredicate::Zero,
+        "nonzero" => CasPredicate::NonZero,
+        "positive" => CasPredicate::Positive,
+        "negative" => CasPredicate::Negative,
+        "nonnegative" => CasPredicate::NonNegative,
+        "real" => CasPredicate::Real,
+        "integer" => CasPredicate::Integer,
+        _ => return Ok(None),
+    };
+    if !named.is_empty() {
+        return Err(cas_err(format!("{name} does not accept named arguments")));
+    }
+    let [arg] = args else {
+        return Err(cas_err(format!("{name} expects exactly 1 argument")));
+    };
+    ensure_expr_arg(arg, name)?;
+    Ok(Some(Value::from_cas_predicate(constructor(arg.clone()))))
 }
 
 fn limit_direction(named: &[CasNamedArg]) -> WqResult<Option<super::limit::LimitDirection>> {
@@ -96,10 +132,16 @@ pub(crate) fn cas_symbolic_call_expr(
     if name == "root" {
         return super::root::cas_root_expr(args, named);
     }
-    let args = with_named_args(args, named);
-    if let Some(function) = CasFunction::from_name(name) {
-        return cas_call_expr(function, &args);
+    if let Some(predicate) = cas_predicate_expr(name, args, named)? {
+        return Ok(predicate);
     }
+    if let Some(function) = CasFunction::from_name(name) {
+        if !named.is_empty() {
+            return Err(cas_err(format!("{name} does not accept named arguments")));
+        }
+        return cas_call_expr(function, args);
+    }
+    let args = with_named_args(args, named);
     for arg in &args {
         ensure_expr_arg(arg, name)?;
     }
