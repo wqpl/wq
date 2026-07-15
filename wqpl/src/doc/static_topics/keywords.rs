@@ -54,41 +54,34 @@ const AT_SYMBOLIC_EXAMPLES: &[DocExample] = &[
     },
 ];
 
-const AT_SYMBOLIC_DETAILS: &str = concat!(
-    "Use `@s` once at the start of a CAS expression, then apply CAS builtins directly. ",
-    "Bare arithmetic without `@s` is normal evaluation. Single-variable CAS expressions ",
-    "can be called with one positional argument, while named arguments bind symbols by name. ",
-    "CAS-only special forms such as `root[...]` are recognized inside `@s` quoting and are ",
-    "not ordinary builtins. `root[poly;lo;hi]` requires finite bounds that strictly contain ",
-    "exactly one distinct real root; an endpoint cannot itself be a root. Use an irreducible ",
-    "polynomial for full exact field arithmetic. Rational factors outside the selected interval ",
-    "are removed, and division reports an error when an element has no inverse.\n\n",
-    "Reserved symbolic constants are `pi`, `e`, `inf` and its alias `oo`, `-inf` and its ",
-    "aliases `-oo` and `_oo`, and `undef`. Reserved predicate heads are `zero`, `nonzero`, ",
-    "`positive`, `negative`, `nonnegative`, `real`, and `integer`. Reserved special-form ",
-    "heads are `limit` and `root`.\n\n",
-    "Reserved unary function heads are `abs`, `sgn`, `sin`, `cos`, `tan`, `sec`, `csc`, ",
-    "`cot`, `erf`, `erfc`, `gamma`, `lngamma`, `si`, `ci`, `ei`, `ellpk`, `ellpe`, ",
-    "`heaviside`, `delta`, `exp`, `ln`, `log2`, `log10`, `sqrt`, `arcsin`, `arccos`, ",
-    "`arctan`, `sinh`, `cosh`, `tanh`, `arcsinh`, `arccosh`, `arctanh`, `floor`, `ceil`, ",
-    "and `round`. The binary function heads are `en`, `ellik`, `ellie`, `log`, and ",
-    "`arctan2`. `integrate` accepts one, two, or four arguments. These built-in function and ",
-    "predicate heads do not accept named arguments inside `@s`. Other identifiers remain ordinary symbolic variables, and other call heads remain uninterpreted ",
-    "symbolic applications."
-);
+const AT_SYMBOLIC_DETAILS: &str = "Use `@s` once at the start of a CAS expression, then apply CAS builtins directly.
+Bare arithmetic without `@s` is normal evaluation.
+Single-variable CAS expressions can be called with one positional argument, while named arguments bind symbols by name.
+CAS-only special forms such as `root[...]` are recognized inside `@s` quoting and are not ordinary builtins.
+`root[poly;lo;hi]` requires finite bounds that strictly contain exactly one distinct real root; an endpoint cannot itself be a root.
+Use an irreducible polynomial for full exact field arithmetic.
+Rational factors outside the selected interval are removed, and division reports an error when an element has no inverse.
 
-const AT_FSTRING_DETAILS: &str = concat!(
-    "`@f\"...{expr}...\"` is inline formatting. Braces contain wq expressions, ",
-    "and `{[spec]expr}` formats the expression with the same spec accepted by ",
-    "`fmt` placeholders. Dynamic width and precision use expressions inside ",
-    "the spec, such as `{[>{width}.2]value}`. Use doubled braces for literal ",
-    "braces.\n\n",
-    "Spec contents are `[fill][align][sign][#][0][width][.precision][type]`. ",
-    "Align is `<`, `>`, `^`, or `=`. Sign is `+`, `-`, or a space. ",
-    "`#` adds integer base prefixes and selects pretty debug with `?`; `0` ",
-    "is sign-aware zero padding. Type is `b`, `B`, `o`, `O`, `x`, `X`, ",
-    "`e`, `E`, `,`, `%`, or `?`. See `fmt` for the same spec in template form."
-);
+Reserved symbolic constants are `pi`, `e`, `inf` and its alias `oo`, `-inf` and its aliases `-oo` and `_oo`, and `undef`.
+Reserved predicates are `zero`, `nonzero`, `positive`, `negative`, `nonnegative`, `real`, and `integer`.
+Reserved special-forms are `limit` and `root`.
+
+Reserved unary functions are `abs`, `sgn`, `sin`, `cos`, `tan`, `sec`, `csc`, `cot`, `erf`, `erfc`, `gamma`, `lngamma`, `si`, `ci`, `ei`, `ellpk`, `ellpe`, `heaviside`, `delta`, `exp`, `ln`, `log2`, `log10`, `sqrt`, `arcsin`, `arccos`, `arctan`, `sinh`, `cosh`, `tanh`, `arcsinh`, `arccosh`, `arctanh`, `floor`, `ceil`, and `round`.
+The binary functions are `en`, `ellik`, `ellie`, `log`, and `arctan2`.
+`integrate` accepts one, two, or four arguments.
+These built-in functions and predicates do not accept named arguments inside `@s`.
+Other identifiers remain ordinary symbolic variables, and other call heads remain uninterpreted symbolic applications.";
+
+const AT_FSTRING_DETAILS: &str = "`@f\"...{expr}...\"` is inline formatting.
+Braces contain wq expressions, and `{[spec]expr}` formats the expression with the same spec accepted by `fmt` placeholders.
+Dynamic width and precision use expressions inside the spec, such as `{[>{width}.2]value}`.
+Use `{{` and `}}` for literal braces.
+
+Spec contents are `[fill][align][sign][#][0][width][.precision][type]`.
+Align is `<`, `>`, `^`, or `=`. Sign is `+`, `-`, or a space.
+`#` adds integer base prefixes and selects pretty debug with `?`; `0` is sign-aware zero padding.
+Type is `b`, `B`, `o`, `O`, `x`, `X`, `e`, `E`, `,`, `%`, or `?`.
+ee `fmt` for the same spec in template form.";
 
 const AT_FSTRING_EXAMPLES: &[DocExample] = &[
     DocExample {

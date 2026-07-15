@@ -43,27 +43,18 @@ const R_TRIM_EXAMPLES: &[DocExample] = &[DocExample {
     expectation: ExampleExpectation::ResultContains("\"  hi\""),
 }];
 
-const FMT_DETAILS: &str = concat!(
-    "`fmt[template;values...]` and `@f\"...\"` share one formatting system. ",
-    "In a `fmt` template, `{}` consumes the next value and writes its normal ",
-    "display form. `{[spec]}` consumes the next value and applies a spec. ",
-    "Spec contents are `[fill][align][sign][#][0][width][.precision][type]`.\n\n",
-    "- `fill` is one character used with `align`; `align` is `<`, `>`, `^`, ",
-    "or `=`. `=` pads after a sign or integer base prefix.\n",
-    "- `sign` is `+`, `-`, or a space. `#` adds `0x`, `0X`, `0b`, `0B`, ",
-    "`0o`, or `0O` for integer bases, and selects pretty debug with `?`.\n",
-    "- `0` is shorthand for sign-aware zero padding when no explicit alignment ",
-    "was set.\n",
-    "- `width` and `.precision` are digits. In `fmt`, dynamic `{}` width or ",
-    "precision consumes an extra value before the formatted value; in `@f`, ",
-    "dynamic `{expr}` width or precision evaluates that expression.\n",
-    "- `type` is `b`, `B`, `o`, `O`, `x`, `X`, `e`, `E`, `,`, `%`, or `?`. ",
-    "Use `,` for thousands separators, `%` for percentages, and `?` for debug ",
-    "output.\n\n",
-    "Use `{{` and `}}` for literal braces. `fmt` is best when the template and ",
-    "values are already separate; `@f` is best when the values are written inline ",
-    "as expressions."
-);
+const FMT_DETAILS: &str = "`fmt[template;values...]` and `@f\"...\"` share one formatting system.
+In a `fmt` template, `{}` consumes the next value and writes its normal display form.
+`{[spec]}` consumes the next value and applies a spec.
+Spec contents are `[fill][align][sign][#][0][width][.precision][type]`.
+
+- `fill` is one character used with `align`; `align` is `<`, `>`, `^`, or `=`. `=` pads after a sign or integer base prefix.
+- `sign` is `+`, `-`, or a space. `#` adds `0x`, `0X`, `0b`, `0B`, `0o`, or `0O` for integer bases, and selects pretty debug with `?`.
+- `0` is shorthand for sign-aware zero padding when no explicit alignment was set.
+- `width` and `.precision` are digits. In `fmt`, dynamic `{}` width or precision consumes an extra value before the formatted value; in `@f`, dynamic `{expr}` width or precision evaluates that expression.
+- `type` is `b`, `B`, `o`, `O`, `x`, `X`, `e`, `E`, `,`, `%`, or `?`. Use `,` for thousands separators, `%` for percentages, and `?` for debug output.
+
+Use `{{` and `}}` for literal braces.";
 
 const FMT_EXAMPLES: &[DocExample] = &[
     DocExample {
