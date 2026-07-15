@@ -62,9 +62,11 @@ CAS-only special forms such as `root[...]` are recognized inside `@s` quoting an
 Use an irreducible polynomial for full exact field arithmetic.
 Rational factors outside the selected interval are removed, and division reports an error when an element has no inverse.
 
+
 Reserved symbolic constants are `pi`, `e`, `inf` and its alias `oo`, `-inf` and its aliases `-oo` and `_oo`, and `undef`.
 Reserved predicates are `zero`, `nonzero`, `positive`, `negative`, `nonnegative`, `real`, and `integer`.
 Reserved special-forms are `limit` and `root`.
+
 
 Reserved unary functions are `abs`, `sgn`, `sin`, `cos`, `tan`, `sec`, `csc`, `cot`, `erf`, `erfc`, `gamma`, `lngamma`, `si`, `ci`, `ei`, `ellpk`, `ellpe`, `heaviside`, `delta`, `exp`, `ln`, `log2`, `log10`, `sqrt`, `arcsin`, `arccos`, `arctan`, `sinh`, `cosh`, `tanh`, `arcsinh`, `arccosh`, `arctanh`, `floor`, `ceil`, and `round`.
 The binary functions are `en`, `ellik`, `ellie`, `log`, and `arctan2`.
@@ -76,6 +78,7 @@ const AT_FSTRING_DETAILS: &str = "`@f\"...{expr}...\"` is inline formatting.
 Braces contain wq expressions, and `{[spec]expr}` formats the expression with the same spec accepted by `fmt` placeholders.
 Dynamic width and precision use expressions inside the spec, such as `{[>{width}.2]value}`.
 Use `{{` and `}}` for literal braces.
+
 
 Spec contents are `[fill][align][sign][#][0][width][.precision][type]`.
 Align is `<`, `>`, `^`, or `=`. Sign is `+`, `-`, or a space.
