@@ -426,13 +426,6 @@ impl WasmWqSession {
         Ok(())
     }
 
-    pub fn toggle_dry_mode(&self) -> Result<bool, JsValue> {
-        let mut session = self.try_session_mut()?;
-        let next = !session.dry_mode();
-        session.set_dry_mode(next);
-        Ok(next)
-    }
-
     pub fn reset_workspace(&self) -> Result<(), JsValue> {
         self.try_session_mut()?.reset_workspace();
         Ok(())
@@ -485,19 +478,6 @@ impl WasmWqSession {
     pub fn clear_bindings(&self) -> Result<(), JsValue> {
         self.try_session_mut()?.clear_bindings();
         Ok(())
-    }
-
-    /// Toggle boxed display of evaluation results. Returns the new state.
-    pub fn toggle_box_mode(&self) -> Result<bool, JsValue> {
-        self.ensure_session_idle()?;
-        let mut config = self.box_config.get();
-        config.toggle_box();
-        self.box_config.set(config);
-        Ok(config.boxed)
-    }
-
-    pub fn get_box_mode(&self) -> bool {
-        self.box_config.get().boxed
     }
 
     pub fn get_box_flags(&self) -> String {
@@ -1535,19 +1515,22 @@ mod tests {
         let session = WasmWqSession::new();
         assert_eq!(session.session.borrow().color_mode(), ColorMode::Always);
 
-        assert!(
-            !session
-                .toggle_box_mode()
-                .expect("box mode should toggle off")
-        );
+        session
+            .set_box_flags("0")
+            .expect("box flags should turn off");
+        assert_eq!(session.get_box_flags(), "");
         assert_eq!(session.session.borrow().color_mode(), ColorMode::Always);
 
-        assert!(
-            session
-                .toggle_box_mode()
-                .expect("box mode should toggle on")
-        );
+        session
+            .set_box_flags("box,axis,color")
+            .expect("box flags should restore defaults");
+        assert_eq!(session.get_box_flags(), "box,axis,color");
         assert_eq!(session.session.borrow().color_mode(), ColorMode::Always);
+
+        session
+            .set_box_flags("xray")
+            .expect("xray-only mode should be accepted");
+        assert_eq!(session.get_box_flags(), "xray");
 
         session
             .set_box_flags("0")

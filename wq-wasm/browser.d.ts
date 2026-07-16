@@ -43,7 +43,6 @@ export class WasmWqSession {
   clear_bindings(): void;
   eval_wq(src: string): RenderedValue;
   get_box_flags(): string;
-  get_box_mode(): boolean;
   get_box_summary(): string;
   get_builtins_preset(): string;
   get_debug_flags(): string;
@@ -67,6 +66,4 @@ export class WasmWqSession {
   ): void;
   set_stdout_callback(callback?: ((chunk: string) => void) | null): void;
   set_wqdb_mode(on: boolean): void;
-  toggle_box_mode(): boolean;
-  toggle_dry_mode(): boolean;
 }

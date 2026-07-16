@@ -821,7 +821,8 @@ async function handleReplCommand(code) {
         );
         return true;
       case "dry": {
-        const on = session.toggle_dry_mode();
+        const on = !session.get_dry_mode();
+        session.set_dry_mode(on);
         commandLine("dry", boolWord(on));
         return true;
       }
@@ -851,8 +852,11 @@ async function handleReplCommand(code) {
         append("session reset\n", "info");
         return true;
       case "box":
-        session.toggle_box_mode();
-        syncBoxControl();
+        setBoxFlags(
+          getBoxFlags().length
+            ? []
+            : BOX_FLAGS.filter((flag) => flag !== "xray"),
+        );
         commandLine("box", session.get_box_summary());
         return true;
       case "box-set":

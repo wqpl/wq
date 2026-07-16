@@ -778,7 +778,6 @@ async function runViz(instance) {
           renderer.appendStreamOutput(chunk, "error");
           instance.output.scrollTop = instance.output.scrollHeight;
         });
-        session.set_box_flags("0");
         session.eval_wq(instance.code);
       } finally {
         session.free();

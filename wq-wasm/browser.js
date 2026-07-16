@@ -94,10 +94,6 @@ export class WasmWqSession {
     return this.#call("get_box_flags");
   }
 
-  get_box_mode() {
-    return this.#call("get_box_mode");
-  }
-
   get_box_summary() {
     return this.#call("get_box_summary");
   }
@@ -180,14 +176,6 @@ export class WasmWqSession {
 
   set_wqdb_mode(on) {
     return this.#call("set_wqdb_mode", on);
-  }
-
-  toggle_box_mode() {
-    return this.#call("toggle_box_mode");
-  }
-
-  toggle_dry_mode() {
-    return this.#call("toggle_dry_mode");
   }
 }
 

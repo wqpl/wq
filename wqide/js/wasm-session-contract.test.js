@@ -26,8 +26,8 @@ test("session callback boundaries return structured diagnostics", async (t) => {
   const session = new WasmWqSession();
   try {
     let callbackError = null;
-    let toggleError = null;
-    const originalBoxMode = session.get_box_mode();
+    let setterError = null;
+    const originalBoxFlags = session.get_box_flags();
     session.set_stdout_callback(() => {
       try {
         session.get_debug_flags();
@@ -35,9 +35,9 @@ test("session callback boundaries return structured diagnostics", async (t) => {
         callbackError = error;
       }
       try {
-        session.toggle_box_mode();
+        session.set_box_flags("0");
       } catch (error) {
-        toggleError = error;
+        setterError = error;
       }
     });
 
@@ -58,8 +58,8 @@ test("session callback boundaries return structured diagnostics", async (t) => {
       stack: [],
       cause: null,
     });
-    assert.deepEqual(toggleError, callbackError);
-    assert.equal(session.get_box_mode(), originalBoxMode);
+    assert.deepEqual(setterError, callbackError);
+    assert.equal(session.get_box_flags(), originalBoxFlags);
 
     let streamedOutput = "";
     session.set_stdout_callback((chunk) => {
