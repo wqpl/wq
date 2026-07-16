@@ -27,6 +27,7 @@ use ahash::AHashMap;
 use smallvec::SmallVec;
 
 use crate::interpret::vanilla::Sv4;
+use crate::session::stdio::WqIoError;
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
 
@@ -347,6 +348,16 @@ pub trait BuiltinContext {
     fn list_enabled_builtins(&self) -> Vec<String>;
     fn argv(&self) -> &[String];
     fn request_halt(&mut self, status: i32);
+    fn read_line(&self, prompt: &str) -> Result<String, WqIoError>;
+    fn write_stdout(&self, text: &str) -> Result<(), WqIoError>;
+    fn write_stdout_line(&self, text: &str) -> Result<(), WqIoError>;
+    fn write_stderr_line(&self, text: &str) -> Result<(), WqIoError>;
+    fn stdout_terminal_size(&self) -> Option<(usize, usize)>;
+    fn color_mode(&self) -> crate::style::ColorMode;
+    fn debug_log_enabled(&self, _flag: u16) -> bool {
+        false
+    }
+    fn emit_debug_log_line(&self, _line: &str) {}
     fn requires_callback_frames(&self) -> bool {
         false
     }
@@ -988,10 +999,10 @@ declare_builtins! {
     (ARGPARSE, Argparse, "argparse", "argparse[spec;args]", sig!(arity!(2)), with_context(cli::argparse), builtin_metadata!(Core, PURE_CONTEXTUAL)),
     (CLIARGS, Cliargs, "cliargs", "cliargs[spec]", sig!(arity!(1)), with_context(cli::cliargs), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
 
-    (ECHO, Echo, "echo", "echo[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS), plain(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
-    (E, E, "E", "E[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS, alias Echo), plain(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)), // alias of echo
-    (PRINT, Print, "print", "print[value*]", sig!(arity!(0..)), plain(core::print), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
-    (INPUT, Input, "input", "input[prompt?]", sig!(arity!(0, 1)), plain(core::input), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
+    (ECHO, Echo, "echo", "echo[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS), with_context(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
+    (E, E, "E", "E[value*;`sep]", sig!(arity!(0..), named ECHO_NAMED_ARGS, alias Echo), with_context(core::echo), builtin_metadata!(Core, CONSTRAINED_EFFECT)), // alias of echo
+    (PRINT, Print, "print", "print[value*]", sig!(arity!(0..)), with_context(core::print), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
+    (INPUT, Input, "input", "input[prompt?]", sig!(arity!(0, 1)), with_context(core::input), builtin_metadata!(Core, CONSTRAINED_EFFECT)),
     #[cfg(not(target_arch = "wasm32"))]
     (EXEC, Exec, "exec", "exec[parts+;`stdin;`cwd;`env;`timeout;`check]", sig!(arity!(1..), named EXEC_NAMED_ARGS), plain(core::exec), builtin_metadata!(Exec, UNCONSTRAINED_EFFECT)),
 
@@ -1172,22 +1183,22 @@ declare_builtins! {
     (NONNEGATIVE, Nonnegative, "nonnegative", "nonnegative[expr]", sig!(arity!(1)), plain(cas::nonnegative), builtin_metadata!(Cas, PURE)),
     (REAL, Real, "real", "real[expr]", sig!(arity!(1)), plain(cas::real), builtin_metadata!(Cas, PURE)),
     (INTEGER, Integer, "integer", "integer[expr]", sig!(arity!(1)), plain(cas::integer), builtin_metadata!(Cas, PURE)),
-    (SIMPLIFY, Simplify, "simplify", "simplify[expr]", sig!(arity!(1)), plain(cas::simplify), builtin_metadata!(Cas, PURE)),
-    (REWRITE, Rewrite, "rewrite", "rewrite[expr]", sig!(arity!(1)), plain(cas::rewrite), builtin_metadata!(Cas, PURE)),
+    (SIMPLIFY, Simplify, "simplify", "simplify[expr]", sig!(arity!(1)), with_context(cas::simplify), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
+    (REWRITE, Rewrite, "rewrite", "rewrite[expr]", sig!(arity!(1)), with_context(cas::rewrite), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (NUMERIC, Numeric, "numeric", "numeric[expr], numeric[expr;`name:val...]", sig!(arity!(1), defer), plain(cas::numeric), builtin_metadata!(Cas, PURE)),
-    (DIFF, Diff, "diff", "diff[expr;var?]", sig!(arity!(1, 2)), plain(cas::diff), builtin_metadata!(Cas, PURE)),
-    (D, D, "D", "D[expr;var?]", sig!(arity!(1, 2), alias Diff), plain(cas::diff), builtin_metadata!(Cas, PURE)), // alias of diff
+    (DIFF, Diff, "diff", "diff[expr;var?]", sig!(arity!(1, 2)), with_context(cas::diff), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
+    (D, D, "D", "D[expr;var?]", sig!(arity!(1, 2), alias Diff), with_context(cas::diff), builtin_metadata!(Cas, PURE_CONTEXTUAL)), // alias of diff
     (SUBSTITUTE, Substitute, "substitute", "substitute[expr;eqs], substitute[expr;var;val], substitute[expr;`name:val...]", sig!(arity!(1, 2, 3), defer), plain(cas::substitute), builtin_metadata!(Cas, PURE)),
-    (EXPAND, Expand, "expand", "expand[expr]", sig!(arity!(1)), plain(cas::expand), builtin_metadata!(Cas, PURE)),
+    (EXPAND, Expand, "expand", "expand[expr]", sig!(arity!(1)), with_context(cas::expand), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (FACTOR_COMMON, FactorCommon, "factor_common", "factor_common[expr]", sig!(arity!(1)), plain(cas::factor_common), builtin_metadata!(Cas, PURE)),
     (FACTOR, Factor, "factor", "factor[expr], factor[expr;var], factor[expr;1], factor[expr;1;var]", sig!(arity!(1, 2, 3)), plain(cas::factor_poly), builtin_metadata!(Cas, PURE)),
-    (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", sig!(arity!(1, 2, 4)), plain(cas::integrate), builtin_metadata!(Cas, PURE)),
-    (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", sig!(arity!(1, 2, 4), alias Integrate), plain(cas::integrate), builtin_metadata!(Cas, PURE)), // alias of integrate
-    (LIMIT, Limit, "limit", "limit[expr;point;`d], limit[expr;var;point;`d]", sig!(arity!(2..), named LIMIT_NAMED_ARGS), plain(cas::limit), builtin_metadata!(Cas, PURE)),
+    (INTEGRATE, Integrate, "integrate", "integrate[expr], integrate[expr;var], integrate[expr;var;lower;upper]", sig!(arity!(1, 2, 4)), with_context(cas::integrate), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
+    (I, I, "I", "I[expr], I[expr;var], I[expr;var;lower;upper]", sig!(arity!(1, 2, 4), alias Integrate), with_context(cas::integrate), builtin_metadata!(Cas, PURE_CONTEXTUAL)), // alias of integrate
+    (LIMIT, Limit, "limit", "limit[expr;point;`d], limit[expr;var;point;`d]", sig!(arity!(2..), named LIMIT_NAMED_ARGS), with_context(cas::limit), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
     (SOLVE, Solve, "solve", "solve[expr;`assuming;`domain], solve[expr;var;`assuming;`domain], solve[eq;var;`assuming;`domain]", sig!(arity!(1, 2), named SOLVE_NAMED_ARGS), plain(cas::solve), builtin_metadata!(Cas, PURE)),
     (SOLVE_SYSTEM, SolveSystem, "solve_system", "solve_system[eqs;`assuming], solve_system[eqs;vars;`assuming]", sig!(arity!(1, 2), named SOLVE_SYSTEM_NAMED_ARGS), plain(cas::solve_system), builtin_metadata!(Cas, PURE)),
     (BRENT, Brent, "brent", "brent[expr;a;b], brent[expr;a;b;tol], brent[expr;a;b;tol;max_iter], brent[eq;a;b]", sig!(arity!(3, 4, 5)), plain(cas::brent), builtin_metadata!(Cas, PURE)),
-    (NEWTON, Newton, "newton", "newton[expr;x0], newton[expr;x0;tol], newton[expr;x0;tol;max_iter], newton[eq;x0]", sig!(arity!(2, 3, 4)), plain(cas::newton), builtin_metadata!(Cas, PURE)),
+    (NEWTON, Newton, "newton", "newton[expr;x0], newton[expr;x0;tol], newton[expr;x0;tol;max_iter], newton[eq;x0]", sig!(arity!(2, 3, 4)), with_context(cas::newton), builtin_metadata!(Cas, PURE_CONTEXTUAL)),
 
     // String =========================================================
     (STR, Str, "str", "str[x]", sig!(arity!(1)), plain(string::to_str), builtin_metadata!(Str, PURE)),
@@ -1210,7 +1221,7 @@ declare_builtins! {
     (DICT, Dict, "dict", "dict[x]", sig!(arity!(1)), plain(wqtype::to_dict), builtin_metadata!(Type, PURE)),
 
     // Visualization =========================================================
-    (SHOWTABLE, Showtable, "showtable", "showtable[table;`cols;`limit;`width;`style;`missing]", sig!(arity!(1), named SHOWTABLE_NAMED_ARGS), plain(viz::show_table), builtin_metadata!(Viz, CONSTRAINED_EFFECT)),
+    (SHOWTABLE, Showtable, "showtable", "showtable[table;`cols;`limit;`width;`style;`missing]", sig!(arity!(1), named SHOWTABLE_NAMED_ARGS), with_context(viz::show_table), builtin_metadata!(Viz, CONSTRAINED_EFFECT)),
     (ASCIIPLOT, Asciiplot, "asciiplot",
         concat!("asciiplot[data+;`size;`width;`height;`xlim;`ylim;",
             "`x;`y;`symbols;`labels;`mode;`axes;`color;`grid;",

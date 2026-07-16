@@ -1,5 +1,4 @@
-use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
-use crate::session::stdio::wqstderr_println;
+use crate::session::dbglog::DebugLogFlags;
 use crate::style::ColorMode;
 use crate::value::func::{
     CallableExpr, ClosureData, FunctionData, LiftedCallableData, UserFunctionShape,
@@ -12,12 +11,11 @@ use crate::wqdb::build::{
 };
 use crate::wqdb::data::{
     Backtrace, ChunkId, CodeLoc, DebugChunkSpec, DebugInfo, DebugLocalsFrame, DebugProvenance,
-    DebugStepHints,
 };
-use crate::wqdb::model::{BreakpointKind, StepGranularity, StepMode, SymbolTrackTarget};
+use crate::wqdb::model::{BreakpointKind, StepGranularity, SymbolTrackTarget};
 
 impl Vm {
-    pub fn set_bt_mode(&mut self, flag: bool) {
+    pub(crate) fn set_backtrace_enabled(&mut self, flag: bool) {
         self.bt_mode = flag;
     }
 
@@ -150,42 +148,38 @@ impl Vm {
 
     /// Prepare debug info for a top-level script run in the REPL.
     /// Creates a new source file and a script chunk and selects it as current.
-    pub fn script_prepare_debug(&mut self, virtual_path: &str, source: &str) {
+    pub(crate) fn script_prepare_debug(&mut self, virtual_path: &str, source: &str) {
         if !self.debug_artifacts_enabled() {
             return;
         }
         let file_id = self.debug_info.new_file(virtual_path, source);
         let len = self.instructions.len();
         let chunk = self.debug_info.new_chunk("<script>", file_id, len);
-        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-            eprintln!(
+        if self.debug_log.enabled(DebugLogFlags::WQDB) {
+            self.debug_log.emit_line(format!(
                 "[wqdb]: script_prepare_debug path={virtual_path} file_id={file_id} chunk={chunk:?} instructions={len}",
-            );
+            ));
         }
         self.current_chunk = chunk;
     }
 
-    pub fn set_debug_src_offset(&mut self, offs: usize) {
+    pub(crate) fn set_debug_src_offset(&mut self, offs: usize) {
         self.debug_src_offset = offs;
     }
 
-    pub fn debug_src_offset(&self) -> usize {
-        self.debug_src_offset
-    }
-
     #[inline]
-    pub fn clear_last_bt(&mut self) {
+    pub(crate) fn clear_last_bt(&mut self) {
         self.last_backtrace = None;
         self.last_locals_snapshot = None;
     }
 
     #[inline]
-    pub fn take_last_bt(&mut self) -> Option<Backtrace> {
+    pub(crate) fn take_last_bt(&mut self) -> Option<Backtrace> {
         self.last_backtrace.take()
     }
 
     #[inline]
-    pub fn capture_bt_if_empty(&mut self) {
+    pub(crate) fn capture_bt_if_empty(&mut self) {
         if !self.debug_artifacts_enabled() {
             return;
         }
@@ -246,86 +240,6 @@ impl Vm {
         frames
     }
 
-    fn next_stmt_in_chunk(&self, chunk: ChunkId, after_pc: usize) -> Option<CodeLoc> {
-        let meta = self.debug_info.chunk(chunk);
-        for pc in after_pc..meta.len {
-            if meta.line_table.is_stmt(pc) {
-                return Some(CodeLoc { chunk, pc });
-            }
-        }
-        None
-    }
-
-    fn current_stmt_hint(&self) -> Option<CodeLoc> {
-        let meta = self.debug_info.chunk(self.current_chunk);
-        meta.line_table
-            .stmt_start_pc(self.pc)
-            .or_else(|| meta.line_table.stmt_start_pc(self.pc.saturating_sub(1)))
-            .map(|pc| CodeLoc {
-                chunk: self.current_chunk,
-                pc,
-            })
-            .or_else(|| self.next_stmt_in_chunk(self.current_chunk, self.pc))
-            .or_else(|| self.next_stmt_in_chunk(self.current_chunk, self.pc.saturating_sub(1)))
-    }
-
-    fn previous_stmt_hint(&self, current: CodeLoc) -> Option<CodeLoc> {
-        let meta = self.debug_info.chunk(current.chunk);
-        for pc in (0..current.pc).rev() {
-            if meta.line_table.is_stmt(pc) {
-                return Some(CodeLoc {
-                    chunk: current.chunk,
-                    pc,
-                });
-            }
-        }
-        None
-    }
-
-    fn caller_resume_hint(&self) -> Option<CodeLoc> {
-        let caller = self.call_stack.last()?;
-        self.next_stmt_in_chunk(caller.chunk, caller.pc.saturating_add(1))
-    }
-
-    fn step_hints(&self) -> DebugStepHints {
-        let current = self.current_stmt_hint().unwrap_or(CodeLoc {
-            chunk: self.current_chunk,
-            pc: self.pc.saturating_sub(1),
-        });
-        let previous = self.previous_stmt_hint(current);
-        let next_same_frame = self.next_stmt_in_chunk(current.chunk, current.pc.saturating_add(1));
-        match self.wqdb.mode() {
-            StepMode::In => DebugStepHints {
-                previous,
-                step: next_same_frame,
-                next: next_same_frame,
-                finish: self.caller_resume_hint(),
-            },
-            StepMode::Over => DebugStepHints {
-                previous,
-                step: None,
-                next: if self.is_at_return() {
-                    self.caller_resume_hint()
-                } else {
-                    next_same_frame
-                },
-                finish: self.caller_resume_hint(),
-            },
-            StepMode::Out => DebugStepHints {
-                previous,
-                step: None,
-                next: next_same_frame,
-                finish: self.caller_resume_hint(),
-            },
-            StepMode::None => DebugStepHints {
-                previous,
-                step: next_same_frame,
-                next: next_same_frame,
-                finish: self.caller_resume_hint(),
-            },
-        }
-    }
-
     pub(crate) fn func_name_arc_for_chunk(&self, id: ChunkId) -> std::sync::Arc<str> {
         self.debug_info
             .chunk_opt(id)
@@ -333,7 +247,7 @@ impl Vm {
             .unwrap_or_else(|| std::sync::Arc::from("<?>"))
     }
 
-    pub fn func_name_for_chunk(&self, id: ChunkId) -> String {
+    pub(crate) fn func_name_for_chunk(&self, id: ChunkId) -> String {
         self.func_name_arc_for_chunk(id).to_string()
     }
 
@@ -468,8 +382,10 @@ impl Vm {
         }
 
         if let Some(id) = dbg_chunk {
-            if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-                eprintln!("[wqdb]: ensure_dbg_chunk reuse chunk={id:?} name={name}");
+            if self.debug_log.enabled(DebugLogFlags::WQDB) {
+                self.debug_log.emit_line(format!(
+                    "[wqdb]: ensure_dbg_chunk reuse chunk={id:?} name={name}"
+                ));
             }
             let (file_id, needs_rename, has_exact_spans, has_real_spans, has_local_names) = {
                 let meta = self.debug_info.chunk(id);
@@ -499,6 +415,7 @@ impl Vm {
                         pc_spans.as_ref(),
                         stmt_marks.as_ref(),
                         base_offs,
+                        Some(&self.debug_log),
                     )
                 };
                 self.debug_info
@@ -516,6 +433,7 @@ impl Vm {
                         file_id,
                         spans.as_ref(),
                         base_offs,
+                        Some(&self.debug_log),
                     )
                 };
                 self.debug_info
@@ -540,12 +458,12 @@ impl Vm {
             file_id,
             instructions.len(),
         );
-        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-            eprintln!(
+        if self.debug_log.enabled(DebugLogFlags::WQDB) {
+            self.debug_log.emit_line(format!(
                 "[wqdb]: ensure_dbg_chunk new name={name} file_id={file_id} instructions={} base_offset={}",
                 instructions.len(),
                 source_base_offset,
-            );
+            ));
         }
 
         let base_offs = source_base_offset;
@@ -559,6 +477,7 @@ impl Vm {
                     pc_spans.as_ref(),
                     stmt_marks.as_ref(),
                     base_offs,
+                    Some(&self.debug_log),
                 )
             };
             self.debug_info
@@ -567,14 +486,21 @@ impl Vm {
         } else if let Some(spans) = dbg_stmt_spans.as_ref() {
             let has_real = {
                 let table = &mut self.debug_info.chunk_mut(id).line_table;
-                apply_stmt_spans_exact_offs(table, instructions, file_id, spans.as_ref(), base_offs)
+                apply_stmt_spans_exact_offs(
+                    table,
+                    instructions,
+                    file_id,
+                    spans.as_ref(),
+                    base_offs,
+                    Some(&self.debug_log),
+                )
             };
             self.debug_info
                 .chunk_mut(id)
                 .note_debug_spans(false, has_real);
         } else {
             let table = &mut self.debug_info.chunk_mut(id).line_table;
-            mark_stmt_heuristic(table, instructions);
+            mark_stmt_heuristic(table, instructions, Some(&self.debug_log));
         }
 
         if let Some(names) = dbg_local_names.as_ref() {
@@ -586,7 +512,7 @@ impl Vm {
         Some(id)
     }
 
-    pub fn loc(&self) -> CodeLoc {
+    pub(crate) fn loc(&self) -> CodeLoc {
         if let Some(bt) = self.last_backtrace.as_ref()
             && let Some((loc, _)) = bt.first()
         {
@@ -607,11 +533,11 @@ impl Vm {
         self.call_stack.len().saturating_add(self.tail_call_depth)
     }
 
-    pub fn debug_info(&self) -> &DebugInfo {
+    pub(crate) fn debug_info(&self) -> &DebugInfo {
         &self.debug_info
     }
 
-    pub fn dbg_track_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
+    pub(crate) fn dbg_track_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
         let current_chunk = self.loc().chunk;
         if let Some(meta) = self.debug_info.chunk_opt(current_chunk)
             && let Some(names) = &meta.local_names
@@ -630,7 +556,7 @@ impl Vm {
         Ok(self.dbg_track_global_symbol(name))
     }
 
-    pub fn dbg_track_global_symbol(&mut self, name: &str) -> Option<String> {
+    pub(crate) fn dbg_track_global_symbol(&mut self, name: &str) -> Option<String> {
         let target = SymbolTrackTarget::Global {
             name: name.to_string(),
         };
@@ -639,7 +565,7 @@ impl Vm {
         added.then(|| format!("tracking #{} {label}", tracker.id))
     }
 
-    pub fn dbg_track_local_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
+    pub(crate) fn dbg_track_local_symbol(&mut self, name: &str) -> Result<Option<String>, String> {
         let current_chunk = self.loc().chunk;
         let meta = self.debug_info.chunk(current_chunk);
         let names = meta
@@ -660,7 +586,7 @@ impl Vm {
         Ok(added.then(|| format!("tracking #{} {label}", tracker.id)))
     }
 
-    pub fn dbg_track_capture_slot(&mut self, slot: u16) -> Option<String> {
+    pub(crate) fn dbg_track_capture_slot(&mut self, slot: u16) -> Option<String> {
         let current_chunk = self.loc().chunk;
         let target = SymbolTrackTarget::Capture {
             chunk: current_chunk,
@@ -677,7 +603,7 @@ impl Vm {
         added.then(|| format!("tracking #{} {label}", tracker.id))
     }
 
-    pub fn dbg_symbol_trackers(&self) -> Vec<(usize, bool, String)> {
+    pub(crate) fn dbg_symbol_trackers(&self) -> Vec<(usize, bool, String)> {
         self.wqdb
             .symbol_trackers()
             .iter()
@@ -691,17 +617,17 @@ impl Vm {
             .collect()
     }
 
-    pub fn dbg_remove_symbol_tracker(&mut self, id: usize) -> bool {
+    pub(crate) fn dbg_remove_symbol_tracker(&mut self, id: usize) -> bool {
         self.wqdb.remove_symbol_tracker(id)
     }
 
-    pub fn dbg_clear_symbol_trackers(&mut self) {
+    pub(crate) fn dbg_clear_symbol_trackers(&mut self) {
         self.wqdb.clear_symbol_trackers();
     }
 
     #[inline]
     pub(crate) fn symbol_trackers_enabled(&self) -> bool {
-        self.wqdb.enabled && self.wqdb.has_symbol_trackers()
+        self.wqdb.is_enabled() && self.wqdb.has_symbol_trackers()
     }
 
     pub(crate) fn note_global_symbol_write(
@@ -794,7 +720,7 @@ impl Vm {
         let old_text = Self::format_symbol_track_value(old.as_ref());
         let new_text = Self::format_symbol_track_value(Some(&new));
         for tracker in trackers {
-            wqstderr_println(format!(
+            self.debug_log.emit_line(format!(
                 "[wqdb:track #{}] {} {op} at {location}: {old_text} -> {new_text}",
                 tracker.id,
                 self.format_symbol_track_target(&tracker.target),
@@ -846,96 +772,65 @@ impl Vm {
         }
     }
 
-    pub fn dbg_continue(&mut self) {
+    pub(crate) fn dbg_continue(&mut self) {
         self.wqdb.clear_mode();
     }
 
-    pub fn dbg_step_granularity(&self) -> StepGranularity {
+    pub(crate) fn dbg_step_granularity(&self) -> StepGranularity {
         self.wqdb.granularity()
     }
 
-    pub fn dbg_set_step_granularity(&mut self, granularity: StepGranularity) {
+    pub(crate) fn dbg_set_step_granularity(&mut self, granularity: StepGranularity) {
         self.wqdb.set_granularity(granularity);
     }
 
-    pub fn dbg_step_in(&mut self) {
-        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-            eprintln!("[wqdb]: dbg_step_in called at PC {}", self.pc);
+    pub(crate) fn dbg_step_in(&mut self) {
+        if self.debug_log.enabled(DebugLogFlags::WQDB) {
+            self.debug_log
+                .emit_line(format!("[wqdb]: dbg_step_in called at PC {}", self.pc));
         }
         self.wqdb.req_in(self.call_depth());
-        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-            eprintln!("[wqdb]: step-in mode on, will pause at next statement");
+        if self.debug_log.enabled(DebugLogFlags::WQDB) {
+            self.debug_log
+                .emit_line("[wqdb]: step-in mode on, will pause at next statement");
         }
     }
 
-    pub fn dbg_step_over(&mut self) {
+    pub(crate) fn dbg_step_over(&mut self) {
         self.wqdb.req_over(self.call_depth());
     }
 
-    pub fn dbg_step_out(&mut self) {
+    pub(crate) fn dbg_step_out(&mut self) {
         self.wqdb.req_out(self.call_depth());
     }
 
-    pub fn dbg_set_break(&mut self, loc: CodeLoc) {
-        self.wqdb.ensure_breakpoint(loc, BreakpointKind::Persistent);
+    pub(crate) fn dbg_set_break(&mut self, loc: CodeLoc) -> usize {
+        self.wqdb
+            .ensure_breakpoint(loc, BreakpointKind::Persistent)
+            .id
     }
 
-    pub fn dbg_clear_break(&mut self, loc: CodeLoc) {
-        self.wqdb.breaks.remove(&loc);
+    pub(crate) fn dbg_clear_break(&mut self, loc: CodeLoc) {
+        self.wqdb.clear_breakpoint(loc);
     }
 
-    pub fn dbg_toggle_break_loc(&mut self, loc: CodeLoc) -> bool {
-        if let Some(bp) = self.wqdb.breaks.get_mut(&loc) {
-            bp.enabled = !bp.enabled;
-            bp.enabled
-        } else {
-            self.wqdb.ensure_breakpoint(loc, BreakpointKind::Persistent);
-            true
-        }
+    pub(crate) fn dbg_toggle_break_loc(&mut self, loc: CodeLoc) -> bool {
+        self.wqdb.toggle_breakpoint_at(loc)
     }
 
-    pub fn dbg_toggle_break_id(&mut self, id: usize) -> Option<bool> {
-        for bp in self.wqdb.breaks.values_mut() {
-            if bp.id == id {
-                bp.enabled = !bp.enabled;
-                return Some(bp.enabled);
-            }
-        }
-        None
+    pub(crate) fn dbg_toggle_break_id(&mut self, id: usize) -> Option<bool> {
+        self.wqdb.toggle_breakpoint_by_id(id)
     }
 
-    pub fn dbg_toggle_break_all(&mut self) -> bool {
-        let mut any_disabled = false;
-        for bp in self.wqdb.breaks.values() {
-            if !bp.enabled {
-                any_disabled = true;
-                break;
-            }
-        }
-        // if any is disabled, enable all. else disable all.
-        let new_state = any_disabled;
-        for bp in self.wqdb.breaks.values_mut() {
-            bp.enabled = new_state;
-        }
-        new_state
+    pub(crate) fn dbg_toggle_break_all(&mut self) -> bool {
+        self.wqdb.toggle_all_breakpoints()
     }
 
-    pub fn dbg_breakpoints(&self) -> Vec<(usize, bool, CodeLoc)> {
-        let mut bps: Vec<_> = self
-            .wqdb
-            .breaks
-            .iter()
-            .map(|(loc, bp)| (bp.id, bp.enabled, *loc))
-            .collect();
-        bps.sort_by_key(|(id, _, _)| *id);
-        bps
+    pub(crate) fn dbg_breakpoints(&self) -> Vec<(usize, bool, CodeLoc)> {
+        self.wqdb.breakpoints()
     }
 
-    // fn dbg_reset_breaks(&mut self) {
-    //     self.wqdb.breaks.clear();
-    // }
-
-    pub fn bt_frames(&self) -> Vec<(CodeLoc, std::sync::Arc<str>)> {
+    pub(crate) fn bt_frames(&self) -> Vec<(CodeLoc, std::sync::Arc<str>)> {
         // Prefer a captured backtrace snapshot if present (e.g., after a crash)
         if let Some(bt) = self.last_backtrace.as_ref() {
             return bt.clone();
@@ -992,7 +887,7 @@ impl Vm {
         v
     }
 
-    pub fn dbg_globals(&self) -> Vec<(String, Value)> {
+    pub(crate) fn dbg_globals(&self) -> Vec<(String, Value)> {
         self.global_slot_map
             .iter()
             .filter_map(|(name, slot)| {
@@ -1003,7 +898,7 @@ impl Vm {
             .collect()
     }
 
-    pub fn dbg_locals(&self) -> Vec<(usize, Value)> {
+    pub(crate) fn dbg_locals(&self) -> Vec<(usize, Value)> {
         if let Some(snapshot) = self.last_locals_snapshot.as_ref() {
             return snapshot
                 .first()
@@ -1021,32 +916,21 @@ impl Vm {
         }
     }
 
-    pub fn dbg_local_frames(&self) -> Vec<DebugLocalsFrame> {
+    pub(crate) fn dbg_local_frames(&self) -> Vec<DebugLocalsFrame> {
         self.last_locals_snapshot
             .clone()
             .unwrap_or_else(|| self.live_local_frames())
     }
 
-    pub fn dbg_step_hints(&self) -> DebugStepHints {
-        self.step_hints()
-    }
-
-    fn is_at_return(&self) -> bool {
-        if self.pc < self.instructions.len() {
-            matches!(
-                self.instructions[self.pc],
-                crate::vm::inst::Instruction::Return
-            )
-        } else {
-            false
-        }
-    }
-
-    pub fn dbg_ins_at(&self, pc: usize) -> Option<String> {
+    pub(crate) fn dbg_ins_at(&self, pc: usize) -> Option<String> {
         self.dbg_ins_at_with_color_mode(pc, ColorMode::Never)
     }
 
-    pub fn dbg_ins_at_with_color_mode(&self, pc: usize, color_mode: ColorMode) -> Option<String> {
+    pub(crate) fn dbg_ins_at_with_color_mode(
+        &self,
+        pc: usize,
+        color_mode: ColorMode,
+    ) -> Option<String> {
         let local_names = self
             .debug_info
             .chunk_opt(self.current_chunk)

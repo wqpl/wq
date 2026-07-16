@@ -1,14 +1,14 @@
 // Build outline from headings, scrollspy, copy-to-clipboard buttons after article content is injected.
 
-import {
-  eval_wq,
-  highlight_wq,
-  set_stdout_callback,
-  set_stdin_callback,
-  set_stderr_callback,
-} from "wq-wasm";
+import { WasmWqSession } from "wq-wasm";
 import { createOutputRenderer } from "./ansi.js";
-import { ensureWasm, queueEval, createOutputBar } from "./wq-shared.js";
+import {
+  ensureWasm,
+  getWqFrontend,
+  queueEval,
+  createOutputBar,
+  formatWqError,
+} from "./wq-shared.js";
 
 let __outlineObserver = null;
 let __outlineLockUntil = 0;
@@ -134,9 +134,10 @@ window.initTutorialUI = function initTutorialUI() {
   // Async highlight for wq code blocks
   (async () => {
     await ensureWasm();
+    const frontend = getWqFrontend();
     article.querySelectorAll("pre code.language-wq").forEach((codeEl) => {
       const raw = codeEl.textContent;
-      codeEl.innerHTML = highlight_wq(raw);
+      codeEl.innerHTML = frontend.highlight_wq(raw);
     });
   })();
 
@@ -243,27 +244,32 @@ window.initTutorialUI = function initTutorialUI() {
         try {
           await ensureWasm();
           const result = await queueEval(() => {
-            set_stdout_callback((chunk) => {
-              outputRenderer.appendStreamOutput(chunk);
-            });
-            set_stderr_callback((chunk) => {
-              outputRenderer.appendStreamOutput(chunk, "error");
-            });
-            const queue = [...stdinArr];
-            set_stdin_callback((_prompt) =>
-              queue.length ? String(queue.shift()) : null,
-            );
-            return eval_wq(code);
+            const session = new WasmWqSession();
+            try {
+              session.set_stdout_callback((chunk) => {
+                outputRenderer.appendStreamOutput(chunk);
+              });
+              session.set_stderr_callback((chunk) => {
+                outputRenderer.appendStreamOutput(chunk, "error");
+              });
+              const queue = [...stdinArr];
+              session.set_stdin_callback((_prompt) =>
+                queue.length ? String(queue.shift()) : null,
+              );
+              return session.eval_wq(code);
+            } finally {
+              session.free();
+            }
           });
           if (
-            result !== undefined &&
-            result !== null &&
-            String(result).length
+            result?.display !== undefined &&
+            result.display !== null &&
+            String(result.display).length
           ) {
             const needsNL =
               codeOut.textContent && !codeOut.textContent.endsWith("\n");
             outputRenderer.appendText(
-              (needsNL ? "\n" : "") + "\u{258D} " + String(result),
+              (needsNL ? "\n" : "") + "\u{258D} " + String(result.display),
             );
           }
         } catch (err) {
@@ -273,7 +279,7 @@ window.initTutorialUI = function initTutorialUI() {
           codeOut.appendChild(bar);
           const errorRenderer = createOutputRenderer(codeOut, bar);
           errorRenderer.appendOutput(
-            (err?.message ?? String(err)) + "\n",
+            formatWqError(err, { rendered: true }) + "\n",
             "error",
           );
         } finally {

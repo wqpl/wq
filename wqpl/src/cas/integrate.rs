@@ -1,11 +1,12 @@
 use num_bigint::BigInt;
 
-use crate::cas::limit::{LimitDirection, is_singular_substitution_value, limit_cas};
+use crate::cas::limit::{LimitDirection, is_singular_substitution_value, limit_cas_with_debug};
 use crate::cas::{
-    cas_add, cas_div, cas_err, cas_mul, cas_pow, cas_sub, contains_cas_var, eval_exact_numeric_div,
-    eval_numeric_binary, extract_linear_coefficients, numeric_is_negative, numeric_is_zero,
-    numeric_mul, poly_degree, poly_evaluate, poly_from_expr, rewrite_cas, simplify_cas_value,
-    solve_cas, substitute_cas, var_name_from_value, with_cas_div_cache,
+    CasDebug, cas_add, cas_div, cas_err, cas_mul, cas_pow, cas_sub, contains_cas_var,
+    eval_exact_numeric_div, eval_numeric_binary, extract_linear_coefficients, numeric_is_negative,
+    numeric_is_zero, numeric_mul, poly_degree, poly_evaluate, poly_from_expr,
+    rewrite_cas_with_debug, simplify_cas_value, solve_cas, substitute_cas, var_name_from_value,
+    with_cas_div_cache,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -22,20 +23,32 @@ pub(crate) mod rational;
 mod substitution;
 mod trig;
 
+#[cfg(test)]
 pub(crate) fn integrate_cas(expr: &Value, var: &Value) -> WqResult<Value> {
+    integrate_cas_with_debug(expr, var, CasDebug::disabled())
+}
+
+pub(crate) fn integrate_cas_with_debug(
+    expr: &Value,
+    var: &Value,
+    debug: CasDebug<'_>,
+) -> WqResult<Value> {
     with_cas_div_cache(|| {
         let var = var_name_from_value(var)?;
         let expr = simplify_cas_value(expr)?;
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] integrate enter: expr={} var={}",
             expr.format_cas().unwrap_or_else(|| expr.to_string()),
             var
         );
-        let result = rewrite_cas(&simplify_cas_value(&integrate_expr_with_depth(
-            &expr, &var, 0,
-        )?)?)?;
+        let result = rewrite_cas_with_debug(
+            &simplify_cas_value(&integrate_expr_with_depth(&expr, &var, 0, debug)?)?,
+            debug,
+        )?;
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] integrate exit: {}",
             result.format_cas().unwrap_or_else(|| result.to_string())
@@ -50,14 +63,25 @@ pub(crate) fn integrate_cas(expr: &Value, var: &Value) -> WqResult<Value> {
 ///
 /// When one of the bounds is `inf` or `-inf`, or a bound lies at a singularity
 /// of F, a one-sided limit is used to evaluate F at that bound.
+#[cfg(test)]
 pub(crate) fn definite_integrate_cas(
     expr: &Value,
     var: &Value,
     lower: &Value,
     upper: &Value,
 ) -> WqResult<Value> {
+    definite_integrate_cas_with_debug(expr, var, lower, upper, CasDebug::disabled())
+}
+
+pub(crate) fn definite_integrate_cas_with_debug(
+    expr: &Value,
+    var: &Value,
+    lower: &Value,
+    upper: &Value,
+    debug: CasDebug<'_>,
+) -> WqResult<Value> {
     let expr = simplify_cas_value(expr)?;
-    let antideriv = integrate_cas(&expr, var)?;
+    let antideriv = integrate_cas_with_debug(&expr, var, debug)?;
 
     // If the antiderivative is itself an unevaluated integral, bail.
     if let Some((name, _)) = antideriv.cas_function_parts()
@@ -66,7 +90,7 @@ pub(crate) fn definite_integrate_cas(
         return Ok(antideriv);
     }
 
-    evaluate_definite_segments(&expr, &antideriv, var, lower, upper)
+    evaluate_definite_segments(&expr, &antideriv, var, lower, upper, debug)
 }
 
 fn evaluate_definite_segments(
@@ -75,12 +99,13 @@ fn evaluate_definite_segments(
     var: &Value,
     lower: &Value,
     upper: &Value,
+    debug: CasDebug<'_>,
 ) -> WqResult<Value> {
     let Some(lower_key) = bound_order_key(lower) else {
-        return evaluate_segment(antideriv, var, lower, upper);
+        return evaluate_segment(antideriv, var, lower, upper, debug);
     };
     let Some(upper_key) = bound_order_key(upper) else {
-        return evaluate_segment(antideriv, var, lower, upper);
+        return evaluate_segment(antideriv, var, lower, upper, debug);
     };
     if lower_key == upper_key {
         return Ok(Value::Int(0));
@@ -105,7 +130,7 @@ fn evaluate_definite_segments(
 
     let mut segments = Vec::with_capacity(bounds.len().saturating_sub(1));
     for pair in bounds.windows(2) {
-        segments.push(evaluate_segment(antideriv, var, &pair[0], &pair[1])?);
+        segments.push(evaluate_segment(antideriv, var, &pair[0], &pair[1], debug)?);
     }
 
     let total = combine_segment_values(segments)?;
@@ -121,9 +146,22 @@ fn evaluate_segment(
     var: &Value,
     lower: &Value,
     upper: &Value,
+    debug: CasDebug<'_>,
 ) -> WqResult<Value> {
-    let f_upper = evaluate_at_bound(antideriv, var, upper, endpoint_direction(false, upper))?;
-    let f_lower = evaluate_at_bound(antideriv, var, lower, endpoint_direction(true, lower))?;
+    let f_upper = evaluate_at_bound(
+        antideriv,
+        var,
+        upper,
+        endpoint_direction(false, upper),
+        debug,
+    )?;
+    let f_lower = evaluate_at_bound(
+        antideriv,
+        var,
+        lower,
+        endpoint_direction(true, lower),
+        debug,
+    )?;
     if let Some(value) = subtract_endpoint_limits(&f_upper, &f_lower) {
         return Ok(value);
     }
@@ -173,6 +211,7 @@ fn evaluate_at_bound(
     var: &Value,
     bound: &Value,
     direction: Option<LimitDirection>,
+    debug: CasDebug<'_>,
 ) -> WqResult<Value> {
     // For infinity bounds, skip substitution.
     // Substituting inf produces expressions like inf^(-1) that aren't meaningful.
@@ -192,7 +231,7 @@ fn evaluate_at_bound(
             Err(_) => {}
         }
     }
-    limit_cas(antideriv, var, bound, direction)
+    limit_cas_with_debug(antideriv, var, bound, direction, debug)
 }
 
 fn bound_order_key(bound: &Value) -> Option<f64> {
@@ -357,7 +396,7 @@ fn negate_definite_value(value: Value) -> WqResult<Value> {
     }
 }
 
-type IntegrateStrategy = fn(&Value, &str) -> WqResult<Option<Value>>;
+type IntegrateStrategy = fn(&Value, &str, CasDebug<'_>) -> WqResult<Option<Value>>;
 
 // # Strategy ordering and recursion safety
 //
@@ -387,9 +426,15 @@ const STRATEGIES: &[(&str, IntegrateStrategy)] = &[
 
 pub(super) const MAX_DEPTH: usize = 20;
 
-pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -> WqResult<Value> {
+pub(super) fn integrate_expr_with_depth(
+    expr: &Value,
+    var: &str,
+    depth: usize,
+    debug: CasDebug<'_>,
+) -> WqResult<Value> {
     if depth >= MAX_DEPTH {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] integrate_expr_with_depth depth={} -> depth_exceeded",
             depth
@@ -397,6 +442,7 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
         return Err(cas_err("integration recursion depth exceeded"));
     }
     cas_trace_depth!(
+        debug,
         DebugLogFlags::CAS_VERBOSE,
         depth,
         "[cas-v] integrate_expr_with_depth enter depth={depth} expr={} var={var}",
@@ -406,6 +452,7 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
     if !expr.is_cas_expr() {
         let result = cas_mul(vec![expr.clone(), Value::from_cas_var(var)])?;
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] integrate_expr_with_depth exit depth={depth} -> numeric*var"
@@ -422,6 +469,7 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
             cas_mul(vec![expr.clone(), Value::from_cas_var(var)])?
         };
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] integrate_expr_with_depth exit depth={depth} -> variable_rule"
@@ -431,6 +479,7 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
     if !contains_cas_var(expr, var) {
         let result = cas_mul(vec![expr.clone(), Value::from_cas_var(var)])?;
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] integrate_expr_with_depth exit depth={depth} -> constant_wrt_var"
@@ -442,7 +491,7 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
             (CasOp::Add, args) => {
                 let mut terms = Vec::with_capacity(args.len());
                 for arg in args {
-                    terms.push(integrate_expr_with_depth(arg, var, depth + 1)?);
+                    terms.push(integrate_expr_with_depth(arg, var, depth + 1, debug)?);
                 }
                 cas_add(terms)?
             }
@@ -452,18 +501,19 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
                     0 => cas_mul(vec![coeff, Value::from_cas_var(var)]),
                     1 => cas_mul(vec![
                         coeff.clone(),
-                        integrate_expr_with_depth(&symbolic[0], var, depth + 1)?,
+                        integrate_expr_with_depth(&symbolic[0], var, depth + 1, debug)?,
                     ]),
-                    _ => try_strategies(expr, var, depth + 1),
+                    _ => try_strategies(expr, var, depth + 1, debug),
                 }?
             }
             (CasOp::Power, [base, exp]) if base.cas_var_name() == Some(var) => {
                 polynomial::integrate_power_rule(base, exp, var)?
             }
-            _ => try_strategies(expr, var, depth + 1)?,
+            _ => try_strategies(expr, var, depth + 1, debug)?,
         };
         let result = simplify_cas_value(&out)?;
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] integrate_expr_with_depth exit depth={depth} op={op} -> {}",
@@ -472,8 +522,9 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
         return Ok(result);
     }
     if expr.cas_function_parts().is_some() {
-        let result = try_strategies(expr, var, depth + 1)?;
+        let result = try_strategies(expr, var, depth + 1, debug)?;
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] integrate_expr_with_depth exit depth={depth} call -> {}",
@@ -490,24 +541,27 @@ pub(super) fn integrate_expr_with_depth(expr: &Value, var: &str, depth: usize) -
     Err(cas_err("expected symbolic expression").got1(expr))
 }
 
-fn try_strategies(expr: &Value, var: &str, depth: usize) -> WqResult<Value> {
+fn try_strategies(expr: &Value, var: &str, depth: usize, debug: CasDebug<'_>) -> WqResult<Value> {
     if depth >= MAX_DEPTH {
         return Err(cas_err("integration recursion depth exceeded"));
     }
     for (name, strategy) in STRATEGIES {
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] try_strategy {name} depth={depth} expr={}",
             expr.format_cas().unwrap_or_else(|| expr.to_string())
         );
-        if let Some(result) = strategy(expr, var)? {
+        if let Some(result) = strategy(expr, var, debug)? {
             cas_trace!(
+                debug,
                 DebugLogFlags::CAS,
                 "[cas] strategy {name} -> success: {}",
                 result.format_cas().unwrap_or_else(|| result.to_string())
             );
             cas_trace_depth!(
+                debug,
                 DebugLogFlags::CAS_VERBOSE,
                 depth,
                 "[cas-v] try_strategy {name} depth={depth} -> success: {}",
@@ -516,6 +570,7 @@ fn try_strategies(expr: &Value, var: &str, depth: usize) -> WqResult<Value> {
             return simplify_cas_value(&result);
         }
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] try_strategy {name} depth={depth} -> failed"
@@ -523,6 +578,7 @@ fn try_strategies(expr: &Value, var: &str, depth: usize) -> WqResult<Value> {
     }
     let formatted = expr.format_cas().unwrap_or_else(|| expr.to_string());
     cas_trace!(
+        debug,
         DebugLogFlags::CAS,
         "[cas] all strategies failed for: {formatted}"
     );
@@ -730,7 +786,11 @@ fn visit_cas_children<T>(expr: &Value, mut visit: impl FnMut(&Value) -> Option<T
     None
 }
 
-fn integrate_abs_polynomial(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+fn integrate_abs_polynomial(
+    expr: &Value,
+    var: &str,
+    _debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     let Some((CasFunction::Abs, [arg])) = expr.cas_function_parts() else {
         return Ok(None);
     };
@@ -772,7 +832,11 @@ fn integrate_abs_polynomial(expr: &Value, var: &str) -> WqResult<Option<Value>> 
     Ok(Some(simplify_cas_value(&cas_add(terms)?)?))
 }
 
-fn integrate_abs_affine_factor(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+fn integrate_abs_affine_factor(
+    expr: &Value,
+    var: &str,
+    debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     let Some(factors) = expr.cas_op_args(CasOp::Multiply) else {
         return Ok(None);
     };
@@ -804,7 +868,7 @@ fn integrate_abs_affine_factor(expr: &Value, var: &str) -> WqResult<Option<Value
         }
     }
     let signed_integrand = cas_mul(signed_factors)?;
-    let Ok(antideriv) = integrate_expr_with_depth(&signed_integrand, var, 0) else {
+    let Ok(antideriv) = integrate_expr_with_depth(&signed_integrand, var, 0, debug) else {
         return Ok(None);
     };
 

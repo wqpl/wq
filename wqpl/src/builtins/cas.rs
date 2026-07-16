@@ -1,14 +1,15 @@
 use crate::builtins::{
-    BuiltinEnum, BuiltinFnArgs, check_arity, check_arity_any_named, check_arity_named,
+    BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_arity_any_named,
+    check_arity_named,
 };
-use crate::cas::diff::diff_cas;
-use crate::cas::integrate::{definite_integrate_cas, integrate_cas};
-use crate::cas::limit::{limit_cas, parse_limit_direction};
+use crate::cas::diff::diff_cas_with_debug;
+use crate::cas::integrate::{definite_integrate_cas_with_debug, integrate_cas_with_debug};
+use crate::cas::limit::{limit_cas_with_debug, parse_limit_direction};
 use crate::cas::{
-    CasAssumptions, SolveDomain, eval_numeric_cas, expand_cas, factor_cas, infer_single_cas_var,
-    normalize_root_objective_cas, rewrite_cas, simplify_cas_value, solve_cas_with_options,
-    solve_system_cas_with_assumptions, solve_system_infer_cas_with_assumptions, substitute_cas,
-    substitute_cas_bindings,
+    CasAssumptions, CasDebug, SolveDomain, eval_numeric_cas, expand_cas_with_debug, factor_cas,
+    infer_single_cas_var, normalize_root_objective_cas, rewrite_cas_with_debug,
+    simplify_cas_value_with_debug, solve_cas_with_options, solve_system_cas_with_assumptions,
+    solve_system_infer_cas_with_assumptions, substitute_cas, substitute_cas_bindings,
 };
 use crate::value::cas::{CasOp, CasPredicate};
 use crate::value::{Value, WqResult};
@@ -69,14 +70,14 @@ pub(super) fn integer(args: BuiltinFnArgs) -> WqResult<Value> {
     predicate(args, BuiltinEnum::Integer, CasPredicate::Integer)
 }
 
-pub(super) fn simplify(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn simplify(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Simplify, [1], &args)?;
-    simplify_cas_value(&args[0])
+    simplify_cas_value_with_debug(&args[0], CasDebug::from_context(context))
 }
 
-pub(super) fn rewrite(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn rewrite(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Rewrite, [1], &args)?;
-    rewrite_cas(&args[0])
+    rewrite_cas_with_debug(&args[0], CasDebug::from_context(context))
 }
 
 pub(super) fn numeric(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -90,7 +91,7 @@ pub(super) fn numeric(args: BuiltinFnArgs) -> WqResult<Value> {
     eval_numeric_cas(&expr).map_err(|e| e.src(BuiltinEnum::Numeric))
 }
 
-pub(super) fn diff(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn diff(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Diff, [1, 2], &args)?;
     let n = args.len();
     let mut iter = args.into_iter();
@@ -101,7 +102,7 @@ pub(super) fn diff(args: BuiltinFnArgs) -> WqResult<Value> {
     } else {
         iter.next().unwrap()
     };
-    diff_cas(&expr, &var)
+    diff_cas_with_debug(&expr, &var, CasDebug::from_context(context))
 }
 
 pub(super) fn substitute(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -150,9 +151,9 @@ pub(super) fn substitute(args: BuiltinFnArgs) -> WqResult<Value> {
     substitute_cas_bindings(&result, &named).map_err(|e| e.src(BuiltinEnum::Substitute))
 }
 
-pub(super) fn expand(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn expand(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Expand, [1], &args)?;
-    expand_cas(&args[0])
+    expand_cas_with_debug(&args[0], CasDebug::from_context(context))
 }
 
 pub(super) fn factor_common(args: BuiltinFnArgs) -> WqResult<Value> {
@@ -160,10 +161,11 @@ pub(super) fn factor_common(args: BuiltinFnArgs) -> WqResult<Value> {
     factor_cas(&args[0])
 }
 
-pub(super) fn integrate(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn integrate(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Integrate, [1, 2, 4], &args)?;
+    let debug = CasDebug::from_context(context);
     if args.len() >= 4 {
-        return definite_integrate_cas(&args[0], &args[1], &args[2], &args[3]);
+        return definite_integrate_cas_with_debug(&args[0], &args[1], &args[2], &args[3], debug);
     }
     let n = args.len();
     let mut iter = args.into_iter();
@@ -174,7 +176,7 @@ pub(super) fn integrate(args: BuiltinFnArgs) -> WqResult<Value> {
     } else {
         iter.next().unwrap()
     };
-    integrate_cas(&expr, &var)
+    integrate_cas_with_debug(&expr, &var, debug)
 }
 
 fn inferred_limit_var(expr: &Value) -> WqResult<Value> {
@@ -202,11 +204,12 @@ fn required_limit_direction(value: &Value) -> WqResult<crate::cas::limit::LimitD
     })
 }
 
-pub(super) fn limit(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn limit(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     // Inferred form: expr, point.
     // Explicit forms: expr, var1, point1.
     // Additional args come in (var, point) pairs. Named `d is the final direction.
     let direction = args.named("d").map(required_limit_direction).transpose()?;
+    let debug = CasDebug::from_context(context);
     let argc = args.len();
     if argc < 2 {
         return Err(WqError::new(WqErrorType::Arity)
@@ -219,7 +222,7 @@ pub(super) fn limit(args: BuiltinFnArgs) -> WqResult<Value> {
     if argc == 2 {
         let point = iter.next().unwrap();
         let var = inferred_limit_var(&result)?;
-        return limit_cas(&result, &var, &point, direction);
+        return limit_cas_with_debug(&result, &var, &point, direction, debug);
     }
 
     let n = argc - 1;
@@ -235,7 +238,7 @@ pub(super) fn limit(args: BuiltinFnArgs) -> WqResult<Value> {
         let var = required_limit_var(iter.next().unwrap())?;
         let point = iter.next().unwrap();
         let dir = if i == n_pairs - 1 { direction } else { None };
-        result = limit_cas(&result, &var, &point, dir)?;
+        result = limit_cas_with_debug(&result, &var, &point, dir, debug)?;
     }
     Ok(result)
 }
@@ -464,11 +467,12 @@ pub(super) fn brent(args: BuiltinFnArgs) -> WqResult<Value> {
         .msg("brent did not converge within the iteration limit"))
 }
 
-pub(super) fn newton(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn newton(context: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Newton, [2, 3, 4], &args)?;
 
     let (expr, var) = parse_root_objective(&args[0], BuiltinEnum::Newton)?;
-    let deriv = diff_cas(&expr, &var).map_err(|e| e.src(BuiltinEnum::Newton))?;
+    let deriv = diff_cas_with_debug(&expr, &var, CasDebug::from_context(context))
+        .map_err(|e| e.src(BuiltinEnum::Newton))?;
     let mut x = args[1].as_f64().ok_or_else(|| {
         WqError::new(WqErrorType::Domain)
             .src(BuiltinEnum::Newton)
@@ -839,6 +843,7 @@ fn poly_to_expr_complex(coeffs: &[Value], var: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cas::simplify_cas_value;
     use crate::value::cas::CasFunction;
 
     #[test]

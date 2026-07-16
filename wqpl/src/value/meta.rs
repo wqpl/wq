@@ -100,7 +100,7 @@ impl Value {
             Value::String(s) => Some(vec![s.chars().count()]),
             v if v.is_atom() => Some(vec![]),
             _ => {
-                eprintln!("unexpected value at shape_vec {self:?}");
+                debug_assert!(false, "unexpected value in shape_uniform: {self:?}");
                 Some(vec![])
             }
         }
@@ -158,7 +158,7 @@ impl Value {
             Value::String(_) => 1,
             v if v.is_atom() => 0,
             _ => {
-                eprintln!("Unexpected value type in depth_of: {self:?}");
+                debug_assert!(false, "unexpected value in depth: {self:?}");
                 0
             }
         }

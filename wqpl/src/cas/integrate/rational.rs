@@ -239,7 +239,11 @@ pub(super) fn square_free_factor(poly: &[Value], _var: &str) -> WqResult<Vec<(Ve
 ///
 /// Returns `Some(result)` on success, `None` if the expression is not a
 /// rational function or the integration cannot be completed.
-pub(super) fn integrate_by_rational(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+pub(super) fn integrate_by_rational(
+    expr: &Value,
+    var: &str,
+    _debug: crate::cas::CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     let (mut numer, mut denom) = match extract_rational(expr, var)? {
         Some(pair) => pair,
         None => return Ok(None),
@@ -2511,7 +2515,9 @@ mod tests {
                 Value::Int(-1),
             ],
         );
-        let result = integrate_by_rational(&expr, "x").unwrap().unwrap();
+        let result = integrate_by_rational(&expr, "x", crate::cas::CasDebug::disabled())
+            .unwrap()
+            .unwrap();
         assert_eq!(result.to_string(), "arctan[x/2]/2");
     }
 
@@ -2654,7 +2660,6 @@ mod tests {
         match result {
             Ok(val) => {
                 let s = val.to_string();
-                eprintln!("RT result: {s}");
                 assert!(s.contains("ln"), "expected log terms: {s}");
             }
             Err(e) => {

@@ -1,53 +1,129 @@
-use std::cell::{Cell, RefCell};
-use std::fmt::Write as _;
+use std::cell::{Cell, Ref, RefCell, RefMut};
 
 #[cfg(target_arch = "wasm32")]
 use js_sys::Function;
+use js_sys::{Array, Object, Reflect};
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use web_sys::console;
-use wqpl::builtins::{BuiltinPreset, Builtins};
+use wqpl::builtins::BuiltinPreset;
+use wqpl::debugger::{DebugResume, Debugger, PauseEvent};
 use wqpl::display::{BoxPrintConfig, apply_box_spec, format_print_result, format_xray_info};
 use wqpl::doc::{self, DocKind, DocRenderTarget};
+use wqpl::frontend::{Frontend, SyntaxDisplayKind};
 use wqpl::highlight::{HighlightEvent, HighlightName, Highlighter};
 use wqpl::interpret::InterpreterKind;
 use wqpl::session::dbglog::DebugLogFlags;
 #[cfg(target_arch = "wasm32")]
-use wqpl::session::stdio::{
-    WqStderr, WqStdin, WqStdinError, WqStdout, set_wqstderr, set_wqstdin, set_wqstdout,
-};
-use wqpl::session::{Session, SyntaxDisplayKind};
-use wqpl::style::{self, ColorMode};
+use wqpl::session::stdio::{WqInput, WqIoError, WqOutput};
+use wqpl::session::{Session, SourceUnit};
+use wqpl::style::ColorMode;
 use wqpl::symbol::{DefKind, SymbolIndex, SymbolProvenanceKind, UseKind};
-use wqpl::value::{Value, WqResult};
-use wqpl::vm::Vm;
-use wqpl::wqerror::{WqError, WqErrorType};
+use wqpl::value::Value;
+#[cfg(test)]
+use wqpl::value::WqResult;
+use wqpl::wqerror::WqError;
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen(start)]
-pub fn main_js() {
-    // std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-    console::log_1(&"Hello from Rust!".into());
-    style::set_color_override(Some(true));
+#[wasm_bindgen(typescript_custom_section)]
+const TYPESCRIPT_API_TYPES: &str = r#"
+export type WqSpan = [number, number];
+
+export interface WqDiagnosticDataValue {
+    display: string;
+    type_name: string;
 }
+
+export interface WqStackFrame {
+    function: string;
+    path: string | null;
+    line: number | null;
+    column: number | null;
+    byte: number | null;
+}
+
+export interface WqDiagnostic {
+    version: 1;
+    kind: string;
+    message: string;
+    rendered: string;
+    source: string | null;
+    span: WqSpan | null;
+    path: string | null;
+    notes: string[];
+    data: Record<string, WqDiagnosticDataValue>;
+    stack: WqStackFrame[];
+    cause: WqDiagnostic | null;
+}
+
+export interface RenderedValue {
+    display: string;
+    is_cas: boolean;
+    type_name: string;
+    xray: string;
+}
+
+export interface GlobalBinding {
+    name: string;
+    display: string;
+    type_name: string;
+}
+
+export interface DocTopicInfo {
+    id: string;
+    title: string;
+    kind: "builtin" | "keyword" | "syntax" | "guide";
+    group: string;
+    summary: string;
+    usage: string | null;
+    aliases: string[];
+}
+
+export interface SymbolDefinition {
+    index: number;
+    name: string;
+    kind: string;
+    span: WqSpan | null;
+    name_span: WqSpan | null;
+    params: string[] | null;
+    parent: number | null;
+    provenance: string;
+    origin: string | null;
+    read_count: number;
+    write_count: number;
+    occurrence_count: number;
+    ref_capture_count: number;
+}
+
+export interface SymbolOccurrence {
+    span: WqSpan;
+    def: number;
+    kind: string;
+}
+
+export interface SymbolError {
+    span: WqSpan | null;
+    kind: string;
+    message: string;
+}
+
+export interface SymbolAnalysis {
+    defs: SymbolDefinition[];
+    occurrences: SymbolOccurrence[];
+    errors: SymbolError[];
+}
+"#;
 
 // JS stream adapters
 // ====================================================================================
 
 #[cfg(target_arch = "wasm32")]
-struct JsStdout {
-    cb: Function,
-}
-
-#[cfg(target_arch = "wasm32")]
-struct JsStderr {
+struct JsOutput {
     cb: Function,
 }
 
 #[cfg(target_arch = "wasm32")]
 struct JsStdin {
     cb: Function,
-    highlight: bool,
 }
 
 // Default console loggers used when no JS callback is provided
@@ -57,111 +133,114 @@ struct ConsoleStdout;
 struct ConsoleStderr;
 
 #[cfg(target_arch = "wasm32")]
-impl WqStdout for JsStdout {
-    fn print(&mut self, s: &str) {
-        let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(s));
-    }
-    fn println(&mut self, s: &str) {
-        let mut out = s.to_owned();
-        out.push('\n');
-        let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(&out));
+impl WqOutput for JsOutput {
+    fn write(&mut self, text: &str) -> Result<(), WqIoError> {
+        self.cb
+            .call1(&JsValue::NULL, &JsValue::from_str(text))
+            .map(|_| ())
+            .map_err(|error| WqIoError::Other(format!("{error:?}")))
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-impl WqStderr for JsStderr {
-    fn eprint(&mut self, s: &str) {
-        let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(s));
-    }
-    fn eprintln(&mut self, s: &str) {
-        let mut out = s.to_owned();
-        out.push('\n');
-        let _ = self.cb.call1(&JsValue::NULL, &JsValue::from_str(&out));
+impl WqOutput for ConsoleStdout {
+    fn write(&mut self, text: &str) -> Result<(), WqIoError> {
+        console::log_1(&text.into());
+        Ok(())
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-impl WqStdout for ConsoleStdout {
-    fn print(&mut self, s: &str) {
-        console::log_1(&s.into());
-    }
-    fn println(&mut self, s: &str) {
-        console::log_1(&format!("{s}\n").into());
+impl WqOutput for ConsoleStderr {
+    fn write(&mut self, text: &str) -> Result<(), WqIoError> {
+        console::error_1(&text.into());
+        Ok(())
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-impl WqStderr for ConsoleStderr {
-    fn eprint(&mut self, s: &str) {
-        console::error_1(&s.into());
-    }
-    fn eprintln(&mut self, s: &str) {
-        console::error_1(&format!("{s}\n").into());
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-impl WqStdin for JsStdin {
-    fn readline(&mut self, prompt: &str) -> Result<String, WqStdinError> {
+impl WqInput for JsStdin {
+    fn read_line(&mut self, prompt: &str) -> Result<String, WqIoError> {
         match self.cb.call1(&JsValue::NULL, &JsValue::from_str(prompt)) {
-            Ok(val) => {
-                if val.is_undefined() || val.is_null() {
-                    Err(WqStdinError::Eof)
-                } else {
-                    Ok(val.as_string().unwrap_or_default())
-                }
-            }
-            Err(e) => Err(WqStdinError::Other(format!("{e:?}"))),
+            Ok(val) if val.is_undefined() || val.is_null() => Err(WqIoError::Eof),
+            Ok(val) => val.as_string().ok_or_else(|| {
+                WqIoError::Other(
+                    "stdin callback must return a string, null, or undefined".to_string(),
+                )
+            }),
+            Err(error) => Err(WqIoError::Other(format!("{error:?}"))),
         }
     }
+}
 
-    fn add_history(&mut self, _line: &str) {}
+// wq frontend API
+// ====================================================================================
 
-    fn set_highlight(&mut self, on: bool) {
-        self.highlight = on;
+/// Reusable, evaluator-free language tooling configured with one builtin
+/// preset.
+#[wasm_bindgen]
+pub struct WasmFrontend {
+    frontend: Frontend,
+    preset: BuiltinPreset,
+}
+
+#[wasm_bindgen]
+impl WasmFrontend {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    fn highlight_enabled(&self) -> bool {
-        self.highlight
+    pub fn get_builtins_preset(&self) -> String {
+        self.preset.name().to_string()
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "string[]")]
+    pub fn builtin_preset_names(&self) -> Array {
+        strings_to_array(BuiltinPreset::names().iter().copied())
+    }
+
+    pub fn set_builtins_preset(&mut self, name: &str) -> Result<String, JsValue> {
+        let preset = parse_builtin_preset(name)?;
+        self.frontend = Frontend::with_preset(preset);
+        self.preset = preset;
+        Ok(preset.name().to_string())
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "string[]")]
+    pub fn builtin_names(&self) -> Array {
+        let names = builtin_name_data(&self.frontend);
+        strings_to_array(names.iter().map(String::as_str))
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "SymbolAnalysis")]
+    pub fn analyze_symbols(&self, src: &str) -> Object {
+        symbol_analysis_to_js(&symbol_analysis_data(&self.frontend, src))
+    }
+
+    pub fn get_wq_syntax_display(&self, src: &str, kind: &str) -> Result<String, JsValue> {
+        let kind = SyntaxDisplayKind::from_name(kind).ok_or_else(|| {
+            api_error_js(
+                "invalid-syntax-display-kind",
+                &format!("unknown syntax display kind '{kind}'; expected ast or cst"),
+            )
+        })?;
+        self.frontend
+            .format_syntax_display(src, kind, ColorMode::Always)
+            .map_err(|err| wq_error_js(&err, BoxPrintConfig::default()))
+    }
+
+    pub fn highlight_wq(&self, src: &str) -> String {
+        highlight_wq_data(&self.frontend, src)
     }
 }
 
-// Global std stream setters
-// ===============================================================
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn set_stdout_callback(cb: Option<Function>) {
-    match cb {
-        Some(f) => set_wqstdout(Some(Box::new(JsStdout { cb: f }))),
-        None => set_wqstdout(Some(Box::new(ConsoleStdout))),
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn set_stderr_callback(cb: Option<Function>) {
-    match cb {
-        Some(f) => set_wqstderr(Some(Box::new(JsStderr { cb: f }))),
-        None => set_wqstderr(Some(Box::new(ConsoleStderr))),
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn set_stdin_callback(cb: Option<Function>) {
-    match cb {
-        Some(f) => set_wqstdin(Box::new(JsStdin {
-            cb: f,
-            highlight: true,
-        })),
-        None => {
-            // Reset to no custom stdin; subsequent reads will error
-            // There's no setter to clear stdin, so set a reader that always EOFs.
-            set_wqstdin(Box::new(JsStdin {
-                cb: Function::new_no_args("return null;"),
-                highlight: true,
-            }));
+impl Default for WasmFrontend {
+    fn default() -> Self {
+        let preset = BuiltinPreset::DEFAULT;
+        Self {
+            frontend: Frontend::with_preset(preset),
+            preset,
         }
     }
 }
@@ -169,100 +248,104 @@ pub fn set_stdin_callback(cb: Option<Function>) {
 // wq Session API
 // ====================================================================================
 
-#[wasm_bindgen]
-pub struct EvalResult {
-    value: String,
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RenderedValueData {
+    display: String,
     is_cas: bool,
     type_name: String,
     xray: String,
 }
 
-#[wasm_bindgen]
-impl EvalResult {
-    #[wasm_bindgen(getter)]
-    pub fn value(&self) -> String {
-        self.value.clone()
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn is_cas(&self) -> bool {
-        self.is_cas
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn type_name(&self) -> String {
-        self.type_name.clone()
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn xray(&self) -> String {
-        self.xray.clone()
-    }
-}
-
-#[wasm_bindgen]
+/// Low-level wasm-bindgen session core.
+///
+/// Browser consumers should construct `WasmWqSession` from `browser.js`, which
+/// safely defers disposal requested from a synchronous runtime callback.
+#[wasm_bindgen(js_name = WasmWqSessionCore)]
 pub struct WasmWqSession {
     box_config: Cell<BoxPrintConfig>,
-    dry_mode: Cell<bool>,
     session: RefCell<Session>,
 }
 
-#[wasm_bindgen]
+impl WasmWqSession {
+    fn try_session(&self) -> Result<Ref<'_, Session>, JsValue> {
+        self.session
+            .try_borrow()
+            .map_err(|_| reentrant_session_error_js())
+    }
+
+    fn try_session_mut(&self) -> Result<RefMut<'_, Session>, JsValue> {
+        self.session
+            .try_borrow_mut()
+            .map_err(|_| reentrant_session_error_js())
+    }
+}
+
+#[wasm_bindgen(js_class = WasmWqSessionCore)]
 impl WasmWqSession {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmWqSession {
         let mut session = Session::new();
-        session.set_pause_callback(Some(wasm_wqdb_pause_handler));
+        session.set_pause_handler(wasm_wqdb_pause_handler);
+        session.set_color_mode(ColorMode::Always);
         WasmWqSession {
             box_config: Cell::new(BoxPrintConfig::default()),
-            dry_mode: Cell::new(false),
             session: RefCell::new(session),
         }
     }
 
-    /// Evaluate a source string and return the value's string form.
-    #[wasm_bindgen]
-    pub fn eval_wq(&self, src: &str) -> Result<String, JsValue> {
-        match eval_wq_script_value(self, src) {
-            Ok(v) => {
-                let config = self.box_config.get();
-                let s = format_print_result(&v, &config, config.color);
-                Ok(s)
-            }
-            Err(e) => {
-                if e.err_type.is_runtime() {
-                    self.session.borrow_mut().dbg_print_bt();
-                }
-                let config = self.box_config.get();
-                Err(JsValue::from_str(&format_wasm_error(&e, config)))
-            }
-        }
+    #[cfg(target_arch = "wasm32")]
+    pub fn set_stdout_callback(&self, callback: Option<Function>) -> Result<(), JsValue> {
+        let output: Box<dyn WqOutput> = match callback {
+            Some(callback) => Box::new(JsOutput { cb: callback }),
+            None => Box::new(ConsoleStdout),
+        };
+        self.try_session_mut()?.set_stdout(output);
+        Ok(())
     }
 
-    /// Evaluate a source string and return both the string form and whether it
-    /// is a CAS expression.
-    #[wasm_bindgen]
-    pub fn eval_wq_result(&self, src: &str) -> Result<EvalResult, JsValue> {
-        match eval_wq_script_value(self, src) {
-            Ok(v) => {
-                let is_cas = v.is_cas();
-                let config = self.box_config.get();
-                let s = format_print_result(&v, &config, config.color);
-                let type_name = v.type_name().to_string();
-                let xray = format_xray_info(&v, config.color);
-                Ok(EvalResult {
-                    value: s,
-                    is_cas,
-                    type_name,
-                    xray,
-                })
-            }
+    #[cfg(target_arch = "wasm32")]
+    pub fn set_stderr_callback(&self, callback: Option<Function>) -> Result<(), JsValue> {
+        let output: Box<dyn WqOutput> = match callback {
+            Some(callback) => Box::new(JsOutput { cb: callback }),
+            None => Box::new(ConsoleStderr),
+        };
+        self.try_session_mut()?.set_stderr(output);
+        Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn set_stdin_callback(&self, callback: Option<Function>) -> Result<(), JsValue> {
+        let mut session = self.try_session_mut()?;
+        if let Some(callback) = callback {
+            session.set_input(Box::new(JsStdin { cb: callback }));
+        } else {
+            session.clear_input();
+        }
+        Ok(())
+    }
+
+    /// Evaluate source and return its rendered value plus display metadata.
+    #[wasm_bindgen(unchecked_return_type = "RenderedValue")]
+    pub fn eval_wq(&self, src: &str) -> Result<JsValue, JsValue> {
+        let result = {
+            let mut session = self.try_session_mut()?;
+            session
+                .eval_script(SourceUnit::named("<wasm>", src))
+                .map(|value| render_value(&value, self.box_config.get()))
+        };
+        match result {
+            Ok(rendered) => Ok(rendered_value_to_js(&rendered).into()),
             Err(e) => {
-                if e.err_type.is_runtime() {
-                    self.session.borrow_mut().dbg_print_bt();
-                }
+                let stack = if e.err_type.is_runtime() {
+                    let mut session = self.try_session_mut()?;
+                    let stack = session_stack_data(&mut session);
+                    let _ = session.dbg_print_bt();
+                    stack
+                } else {
+                    Vec::new()
+                };
                 let config = self.box_config.get();
-                Err(JsValue::from_str(&format_wasm_error(&e, config)))
+                Err(wq_error_with_stack_js(&e, config, stack))
             }
         }
     }
@@ -271,224 +354,131 @@ impl WasmWqSession {
         let spec = if spec.trim() == "off" { "0" } else { spec };
         match DebugLogFlags::parse(spec) {
             Ok(flags) => {
-                wqpl::session::dbglog::set_debug_log_flags(flags);
+                self.try_session_mut()?.set_debug_flags(flags);
                 Ok(())
             }
-            Err(e) => Err(JsValue::from_str(&e)),
+            Err(e) => Err(api_error_js("invalid-debug-flags", &e)),
         }
     }
 
     pub fn apply_debug_flags(&self, spec: &str) -> Result<(), JsValue> {
-        let mut flags = wqpl::session::dbglog::get_debug_log_flags();
+        let mut session = self.try_session_mut()?;
+        let mut flags = session.debug_flags();
         match flags.apply_spec(spec) {
             Ok(()) => {
-                wqpl::session::dbglog::set_debug_log_flags(flags);
+                session.set_debug_flags(flags);
                 Ok(())
             }
-            Err(e) => Err(JsValue::from_str(&e)),
+            Err(e) => Err(api_error_js("invalid-debug-flags", &e)),
         }
     }
 
-    pub fn get_debug_flags(&self) -> String {
-        let flags = wqpl::session::dbglog::get_debug_log_flags();
+    pub fn get_debug_flags(&self) -> Result<String, JsValue> {
+        let flags = self.try_session()?.debug_flags();
         let names = flags.display_names();
         if names.is_empty() {
-            "off".to_string()
+            Ok("off".to_string())
         } else {
-            names.join(",")
+            Ok(names.join(","))
         }
     }
 
-    pub fn get_bt_mode(&self) -> bool {
-        self.session.borrow().get_bt_mode()
+    pub fn backtrace_enabled(&self) -> Result<bool, JsValue> {
+        Ok(self.try_session()?.backtrace_enabled())
     }
 
-    pub fn set_bt_mode(&self, on: bool) {
-        self.session.borrow_mut().set_bt_mode(on);
+    pub fn set_backtrace_enabled(&self, on: bool) -> Result<(), JsValue> {
+        self.try_session_mut()?.set_backtrace_enabled(on);
+        Ok(())
     }
 
-    pub fn get_wqdb_mode(&self) -> bool {
-        self.session.borrow().is_wqdb_enabled()
+    pub fn get_wqdb_mode(&self) -> Result<bool, JsValue> {
+        Ok(self.try_session()?.is_wqdb_enabled())
     }
 
-    pub fn set_wqdb_mode(&self, on: bool) {
-        self.session.borrow_mut().set_wqdb(on);
+    pub fn set_wqdb_mode(&self, on: bool) -> Result<(), JsValue> {
+        self.try_session_mut()?.set_wqdb(on);
+        Ok(())
     }
 
-    pub fn get_dry_mode(&self) -> bool {
-        self.dry_mode.get()
+    pub fn get_dry_mode(&self) -> Result<bool, JsValue> {
+        Ok(self.try_session()?.dry_mode())
     }
 
-    pub fn set_dry_mode(&self, on: bool) {
-        self.dry_mode.set(on);
-        self.session.borrow_mut().set_dry_mode(on);
+    pub fn set_dry_mode(&self, on: bool) -> Result<(), JsValue> {
+        self.try_session_mut()?.set_dry_mode(on);
+        Ok(())
     }
 
-    pub fn toggle_dry_mode(&self) -> bool {
-        let next = !self.dry_mode.get();
-        self.set_dry_mode(next);
-        next
+    pub fn toggle_dry_mode(&self) -> Result<bool, JsValue> {
+        let mut session = self.try_session_mut()?;
+        let next = !session.dry_mode();
+        session.set_dry_mode(next);
+        Ok(next)
     }
 
-    pub fn reset_session(&self) {
-        self.session.borrow_mut().reset_session();
+    pub fn reset_workspace(&self) -> Result<(), JsValue> {
+        self.try_session_mut()?.reset_workspace();
+        Ok(())
     }
 
-    pub fn get_interpreter_name(&self) -> String {
-        self.session.borrow().interpreter_name().to_string()
+    pub fn reset_execution_state(&self) -> Result<(), JsValue> {
+        self.try_session_mut()?.reset_execution_state();
+        Ok(())
     }
 
-    pub fn get_interpreter_names(&self) -> String {
-        InterpreterKind::names().join(", ")
+    pub fn get_interpreter_name(&self) -> Result<String, JsValue> {
+        Ok(self.try_session()?.interpreter_name().to_string())
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "string[]")]
+    pub fn interpreter_names(&self) -> Array {
+        strings_to_array(InterpreterKind::names().iter().copied())
     }
 
     pub fn set_interpreter_by_name(&self, name: &str) -> Result<String, JsValue> {
-        self.session
-            .borrow_mut()
+        self.try_session_mut()?
             .set_interpreter_by_name(name)
             .map(str::to_string)
-            .map_err(|err| JsValue::from_str(&err))
+            .map_err(|err| api_error_js("invalid-interpreter", &err))
     }
 
-    pub fn get_builtins_preset(&self) -> String {
-        self.session.borrow().builtins_preset().name().to_string()
+    pub fn get_builtins_preset(&self) -> Result<String, JsValue> {
+        Ok(self.try_session()?.builtins_preset().name().to_string())
     }
 
-    pub fn get_builtins_preset_names(&self) -> String {
-        BuiltinPreset::names().join(", ")
+    #[wasm_bindgen(unchecked_return_type = "string[]")]
+    pub fn builtin_preset_names(&self) -> Array {
+        strings_to_array(BuiltinPreset::names().iter().copied())
     }
 
     pub fn set_builtins_preset(&self, name: &str) -> Result<String, JsValue> {
-        let preset = BuiltinPreset::from_name(name).ok_or_else(|| {
-            JsValue::from_str(&format!(
-                "unknown bfn preset '{name}'\nAvailable: {}",
-                BuiltinPreset::names().join(", ")
-            ))
-        })?;
-        self.session.borrow_mut().set_builtins_preset(preset);
+        let preset = parse_builtin_preset(name)?;
+        self.try_session_mut()?.set_builtins_preset(preset);
         Ok(preset.name().to_string())
     }
 
-    pub fn get_env_table(&self) -> String {
-        let env = self.session.borrow().env_vars();
-        if env.is_empty() {
-            return "no global bindings".to_string();
-        }
-
-        let mut name_w = "name".len();
-        let mut value_w = "value".len();
-        let mut type_w = "type".len();
-        for (name, v) in &env {
-            name_w = name_w.max(name.len());
-            value_w = value_w.max(v.to_string().len());
-            type_w = type_w.max(v.type_name().len());
-        }
-
-        let mut out = String::new();
-        let _ = writeln!(
-            out,
-            "{:<name_w$}  {:<value_w$}  {:<type_w$}",
-            "name",
-            "value",
-            "type",
-            name_w = name_w,
-            value_w = value_w,
-            type_w = type_w
-        );
-        let _ = writeln!(
-            out,
-            "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
-            "",
-            "",
-            "",
-            name_w = name_w,
-            value_w = value_w,
-            type_w = type_w
-        );
-        for (name, v) in &env {
-            let _ = writeln!(
-                out,
-                "{:<name_w$}  {:<value_w$}  {:<type_w$}",
-                name,
-                v.to_string(),
-                v.type_name(),
-                name_w = name_w,
-                value_w = value_w,
-                type_w = type_w
-            );
-        }
-        if out.ends_with('\n') {
-            out.pop();
-        }
-        out
+    /// Return user-defined global bindings sorted by name.
+    #[wasm_bindgen(unchecked_return_type = "GlobalBinding[]")]
+    pub fn globals(&self) -> Result<Array, JsValue> {
+        let session = self.try_session()?;
+        Ok(globals_to_js(&global_binding_data(&session)))
     }
 
-    // ///Return a formatted view of user-defined global bindings.
-    // pub fn get_env(&self) -> String {
-    //     use std::fmt::Write as _;
-    //     let vm = self.vm.borrow();
-    //     if let Some(env) = vm.get_environment() {
-    //         let mut name_w = "name".len();
-    //         let mut value_w = "value".len();
-    //         let mut type_w = "type".len();
-    //         for (name, v) in env {
-    //             name_w = name_w.max(name.len());
-    //             value_w = value_w.max(v.to_string().len());
-    //             type_w = type_w.max(v.type_name().len());
-    //         }
-    //         let mut out = String::new();
-    //         let _ = writeln!(
-    //             out,
-    //             "{:<name_w$}  {:<value_w$}  {:<type_w$}",
-    //             "name",
-    //             "value",
-    //             "type",
-    //             name_w = name_w,
-    //             value_w = value_w,
-    //             type_w = type_w
-    //         );
-    //         let _ = writeln!(
-    //             out,
-    //             "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
-    //             "",
-    //             "",
-    //             "",
-    //             name_w = name_w,
-    //             value_w = value_w,
-    //             type_w = type_w
-    //         );
-    //         for (name, v) in env {
-    //             let _ = writeln!(
-    //                 out,
-    //                 "{:<name_w$}  {:<value_w$}  {:<type_w$}",
-    //                 name,
-    //                 v.to_string(),
-    //                 v.type_name(),
-    //                 name_w = name_w,
-    //                 value_w = value_w,
-    //                 type_w = type_w
-    //             );
-    //         }
-    //         if out.ends_with('\n') {
-    //             out.pop();
-    //         }
-    //         out
-    //     } else {
-    //         "no global bindings".to_string()
-    //     }
-    // }
-
     /// Clear user-defined bindings while preserving debug state.
-    pub fn clear_env(&self) {
-        self.session.borrow_mut().clear_environment();
+    pub fn clear_bindings(&self) -> Result<(), JsValue> {
+        self.try_session_mut()?.clear_bindings();
+        Ok(())
     }
 
     /// Toggle boxed display of evaluation results. Returns the new state.
-    pub fn toggle_box_mode(&self) -> bool {
+    pub fn toggle_box_mode(&self) -> Result<bool, JsValue> {
+        let mut session = self.try_session_mut()?;
         let mut config = self.box_config.get();
         config.toggle_box();
+        session.set_color_mode(wasm_color_mode(config));
         self.box_config.set(config);
-        config.boxed
+        Ok(config.boxed)
     }
 
     pub fn get_box_mode(&self) -> bool {
@@ -507,15 +497,19 @@ impl WasmWqSession {
         let spec = spec.trim();
         let mut config = BoxPrintConfig::off();
         if !spec.is_empty() && spec != "0" && spec != "off" {
-            apply_box_spec(&mut config, spec).map_err(|e| JsValue::from_str(&e))?;
+            apply_box_spec(&mut config, spec).map_err(|e| api_error_js("invalid-box-flags", &e))?;
         }
+        self.try_session_mut()?
+            .set_color_mode(wasm_color_mode(config));
         self.box_config.set(config);
         Ok(())
     }
 
     pub fn apply_box_flags(&self, spec: &str) -> Result<(), JsValue> {
         let mut config = self.box_config.get();
-        apply_box_spec(&mut config, spec).map_err(|e| JsValue::from_str(&e))?;
+        apply_box_spec(&mut config, spec).map_err(|e| api_error_js("invalid-box-flags", &e))?;
+        self.try_session_mut()?
+            .set_color_mode(wasm_color_mode(config));
         self.box_config.set(config);
         Ok(())
     }
@@ -527,62 +521,39 @@ impl Default for WasmWqSession {
     }
 }
 
+fn parse_builtin_preset(name: &str) -> Result<BuiltinPreset, JsValue> {
+    BuiltinPreset::from_name(name).ok_or_else(|| {
+        api_error_js(
+            "invalid-builtin-preset",
+            &format!(
+                "unknown bfn preset '{name}'\nAvailable: {}",
+                BuiltinPreset::names().join(", ")
+            ),
+        )
+    })
+}
+
+#[cfg(test)]
 fn eval_wq_script_value(session: &WasmWqSession, src: &str) -> WqResult<Value> {
-    let mut line_starts = Vec::with_capacity(128);
-    line_starts.push(0);
-    for (i, b) in src.as_bytes().iter().enumerate() {
-        if *b == b'\n' {
-            line_starts.push(i + 1);
-        }
+    session
+        .session
+        .borrow_mut()
+        .eval_script(SourceUnit::named("<wasm>", src))
+}
+
+fn render_value(value: &Value, config: BoxPrintConfig) -> RenderedValueData {
+    RenderedValueData {
+        display: format_print_result(value, &config, config.color),
+        is_cas: value.is_cas(),
+        type_name: value.type_name().to_string(),
+        xray: format_xray_info(value, config.color),
     }
-    if *line_starts.last().expect("line_starts is seeded") != src.len() {
-        line_starts.push(src.len());
-    }
+}
 
-    let mut buffer = String::new();
-    let mut buffer_has_code = false;
-    let mut consumed_bytes = 0usize;
-    let mut last_result = Value::unit();
-
-    for (i, raw_line) in src.lines().enumerate() {
-        let next_consumed = *line_starts.get(i + 1).unwrap_or(&src.len());
-        let trimmed_all = raw_line.trim();
-
-        buffer.push_str(raw_line);
-        buffer.push('\n');
-
-        if trimmed_all.is_empty() || trimmed_all.starts_with("//") {
-            continue;
-        }
-
-        buffer_has_code = true;
-        let result = {
-            let mut vm = session.session.borrow_mut();
-            vm.dbg_set_source("<wasm>", src);
-            vm.dbg_set_offset(consumed_bytes);
-            vm.eval_string(&buffer)
-        };
-
-        match result {
-            Ok(value) => {
-                last_result = value;
-                buffer.clear();
-                buffer_has_code = false;
-                consumed_bytes = next_consumed;
-            }
-            Err(err) if err.err_type == WqErrorType::Eof => {}
-            Err(err) => return Err(err),
-        }
-    }
-
-    if buffer_has_code || !buffer.trim().is_empty() {
-        let mut vm = session.session.borrow_mut();
-        vm.dbg_set_source("<wasm>", src);
-        vm.dbg_set_offset(consumed_bytes);
-        last_result = vm.eval_string(&buffer)?;
-    }
-
-    Ok(last_result)
+#[cfg(test)]
+fn eval_rendered_value(session: &WasmWqSession, src: &str) -> WqResult<RenderedValueData> {
+    let value = eval_wq_script_value(session, src)?;
+    Ok(render_value(&value, session.box_config.get()))
 }
 
 fn wasm_color_mode(config: BoxPrintConfig) -> ColorMode {
@@ -597,28 +568,302 @@ fn format_wasm_error(err: &WqError, config: BoxPrintConfig) -> String {
     err.render_with_color_mode(wasm_color_mode(config))
 }
 
-fn wasm_wqdb_pause_handler(host: &mut Vm) {
-    let loc = host.loc();
-    let name = host.func_name_for_chunk(loc.chunk);
-    wqpl::session::stdio::wqstderr_println(
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GlobalBindingData {
+    name: String,
+    display: String,
+    type_name: String,
+}
+
+const WQ_DIAGNOSTIC_VERSION: u8 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiagnosticValueData {
+    display: String,
+    type_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiagnosticStackFrameData {
+    function: String,
+    path: Option<String>,
+    line: Option<usize>,
+    column: Option<usize>,
+    byte: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiagnosticData {
+    version: u8,
+    kind: String,
+    message: String,
+    rendered: String,
+    source: Option<String>,
+    span: Option<(usize, usize)>,
+    path: Option<String>,
+    notes: Vec<String>,
+    data: Vec<(String, DiagnosticValueData)>,
+    stack: Vec<DiagnosticStackFrameData>,
+    cause: Option<Box<DiagnosticData>>,
+}
+
+fn global_binding_data(session: &Session) -> Vec<GlobalBindingData> {
+    let mut bindings = session
+        .bindings()
+        .into_iter()
+        .map(|(name, value)| GlobalBindingData {
+            name,
+            display: value.to_string(),
+            type_name: value.type_name().to_string(),
+        })
+        .collect::<Vec<_>>();
+    bindings.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
+    bindings
+}
+
+fn session_stack_data(session: &mut Session) -> Vec<DiagnosticStackFrameData> {
+    let debugger = session.debugger();
+    let frames = debugger.backtrace();
+    frames
+        .iter()
+        .map(|(location, function)| {
+            let source_location =
+                debugger
+                    .debug_info()
+                    .chunk_opt(location.chunk)
+                    .and_then(|chunk| {
+                        let span = chunk.line_table.context_span_at(location.pc);
+                        debugger.debug_info().file(span.file_id).map(|file| {
+                            let byte = clamp_byte_boundary(&file.text, span.start);
+                            let (line, column) = file.display_line_col(byte);
+                            (file.path.to_string(), line, column, byte)
+                        })
+                    });
+            let (path, line, column, byte) = source_location
+                .map_or((None, None, None, None), |(path, line, column, byte)| {
+                    (Some(path), Some(line), Some(column), Some(byte))
+                });
+            DiagnosticStackFrameData {
+                function: function.to_string(),
+                path,
+                line,
+                column,
+                byte,
+            }
+        })
+        .collect()
+}
+
+fn clamp_byte_boundary(source: &str, byte: usize) -> usize {
+    let mut byte = byte.min(source.len());
+    while !source.is_char_boundary(byte) {
+        byte = byte.saturating_sub(1);
+    }
+    byte
+}
+
+fn diagnostic_data(
+    err: &WqError,
+    config: BoxPrintConfig,
+    stack: Vec<DiagnosticStackFrameData>,
+) -> DiagnosticData {
+    DiagnosticData {
+        version: WQ_DIAGNOSTIC_VERSION,
+        kind: err.err_type.name().to_string(),
+        message: err
+            .msg
+            .clone()
+            .unwrap_or_else(|| err.err_type.name().to_string()),
+        rendered: format_wasm_error(err, config),
+        source: err.src.clone(),
+        span: err.span,
+        path: err.source_ctx.as_deref().map(|source| source.path.clone()),
+        notes: err.notes.clone(),
+        data: err
+            .data
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.to_string(),
+                    DiagnosticValueData {
+                        display: value.to_string(),
+                        type_name: value.type_name().to_string(),
+                    },
+                )
+            })
+            .collect(),
+        stack,
+        cause: None,
+    }
+}
+
+fn api_diagnostic_data(kind: &str, message: &str) -> DiagnosticData {
+    DiagnosticData {
+        version: WQ_DIAGNOSTIC_VERSION,
+        kind: kind.to_string(),
+        message: message.to_string(),
+        rendered: message.to_string(),
+        source: None,
+        span: None,
+        path: None,
+        notes: Vec::new(),
+        data: Vec::new(),
+        stack: Vec::new(),
+        cause: None,
+    }
+}
+
+fn set_js_property(object: &Object, key: &str, value: &JsValue) {
+    Reflect::set(object, &JsValue::from_str(key), value)
+        .expect("setting a property on a plain JavaScript object should succeed");
+}
+
+fn strings_to_array<'a>(values: impl IntoIterator<Item = &'a str>) -> Array {
+    let array = Array::new();
+    for value in values {
+        array.push(&JsValue::from_str(value));
+    }
+    array
+}
+
+fn optional_string_js(value: Option<&str>) -> JsValue {
+    value.map_or(JsValue::NULL, JsValue::from_str)
+}
+
+fn usize_js(value: usize) -> JsValue {
+    JsValue::from_f64(value as f64)
+}
+
+fn optional_usize_js(value: Option<usize>) -> JsValue {
+    value.map_or(JsValue::NULL, usize_js)
+}
+
+fn span_js(span: (usize, usize)) -> Array {
+    let value = Array::new_with_length(2);
+    value.set(0, usize_js(span.0));
+    value.set(1, usize_js(span.1));
+    value
+}
+
+fn optional_span_js(span: Option<(usize, usize)>) -> JsValue {
+    span.map_or(JsValue::NULL, |span| span_js(span).into())
+}
+
+fn globals_to_js(bindings: &[GlobalBindingData]) -> Array {
+    let result = Array::new();
+    for binding in bindings {
+        let object = Object::new();
+        set_js_property(&object, "name", &JsValue::from_str(&binding.name));
+        set_js_property(&object, "display", &JsValue::from_str(&binding.display));
+        set_js_property(&object, "type_name", &JsValue::from_str(&binding.type_name));
+        result.push(&object);
+    }
+    result
+}
+
+fn rendered_value_to_js(value: &RenderedValueData) -> Object {
+    let object = Object::new();
+    set_js_property(&object, "display", &JsValue::from_str(&value.display));
+    set_js_property(&object, "is_cas", &JsValue::from_bool(value.is_cas));
+    set_js_property(&object, "type_name", &JsValue::from_str(&value.type_name));
+    set_js_property(&object, "xray", &JsValue::from_str(&value.xray));
+    object
+}
+
+fn api_error_js(kind: &str, message: &str) -> JsValue {
+    diagnostic_to_js(&api_diagnostic_data(kind, message)).into()
+}
+
+fn reentrant_session_error_js() -> JsValue {
+    api_error_js(
+        "reentrant-session-access",
+        "session methods cannot be called reentrantly from an active session callback",
+    )
+}
+
+fn wq_error_js(err: &WqError, config: BoxPrintConfig) -> JsValue {
+    wq_error_with_stack_js(err, config, Vec::new())
+}
+
+fn wq_error_with_stack_js(
+    err: &WqError,
+    config: BoxPrintConfig,
+    stack: Vec<DiagnosticStackFrameData>,
+) -> JsValue {
+    diagnostic_to_js(&diagnostic_data(err, config, stack)).into()
+}
+
+fn diagnostic_to_js(diagnostic: &DiagnosticData) -> Object {
+    let object = Object::new();
+    set_js_property(
+        &object,
+        "version",
+        &usize_js(usize::from(diagnostic.version)),
+    );
+    set_js_property(&object, "kind", &JsValue::from_str(&diagnostic.kind));
+    set_js_property(&object, "message", &JsValue::from_str(&diagnostic.message));
+    set_js_property(
+        &object,
+        "rendered",
+        &JsValue::from_str(&diagnostic.rendered),
+    );
+    set_js_property(
+        &object,
+        "source",
+        &optional_string_js(diagnostic.source.as_deref()),
+    );
+    set_js_property(&object, "span", &optional_span_js(diagnostic.span));
+    set_js_property(
+        &object,
+        "path",
+        &optional_string_js(diagnostic.path.as_deref()),
+    );
+    let notes = strings_to_array(diagnostic.notes.iter().map(String::as_str));
+    set_js_property(&object, "notes", &notes);
+
+    let data = Object::new();
+    for (name, value) in &diagnostic.data {
+        let item = Object::new();
+        set_js_property(&item, "display", &JsValue::from_str(&value.display));
+        set_js_property(&item, "type_name", &JsValue::from_str(&value.type_name));
+        set_js_property(&data, name, &item);
+    }
+    set_js_property(&object, "data", &data);
+
+    let stack = Array::new();
+    for frame in &diagnostic.stack {
+        let item = Object::new();
+        set_js_property(&item, "function", &JsValue::from_str(&frame.function));
+        set_js_property(&item, "path", &optional_string_js(frame.path.as_deref()));
+        set_js_property(&item, "line", &optional_usize_js(frame.line));
+        set_js_property(&item, "column", &optional_usize_js(frame.column));
+        set_js_property(&item, "byte", &optional_usize_js(frame.byte));
+        stack.push(&item);
+    }
+    set_js_property(&object, "stack", &stack);
+
+    let cause = diagnostic
+        .cause
+        .as_deref()
+        .map_or(JsValue::NULL, |cause| diagnostic_to_js(cause).into());
+    set_js_property(&object, "cause", &cause);
+    object
+}
+
+fn wasm_wqdb_pause_handler(_event: PauseEvent, debugger: &mut Debugger<'_>) -> DebugResume {
+    let loc = debugger.location();
+    let name = debugger.function_name(loc.chunk);
+    let _ = debugger.write_stderr_line(
         "wqdb: paused; interactive browser debugger shell is not available, continuing",
     );
-    wqpl::session::stdio::wqstderr_println(wqpl::wqdb::format_frame(
-        host.debug_info(),
+    let _ = debugger.write_stderr_line(&wqpl::wqdb::format_frame(
+        debugger.debug_info(),
         loc,
         &name,
         true,
+        debugger.color_mode(),
     ));
-    host.dbg_continue();
-}
-
-// ===================== Convenience one-offs =====================
-
-/// Evaluate a string in a fresh VM and return the result as a string.
-#[wasm_bindgen]
-pub fn eval_wq(code: &str) -> Result<String, JsValue> {
-    let session = WasmWqSession::new();
-    session.eval_wq(code)
+    DebugResume::Continue
 }
 
 /// Version string for splash and title
@@ -627,110 +872,132 @@ pub fn get_wq_ver() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-// #[wasm_bindgen]
-// pub fn get_help_doc() -> String {
-//     include_str!("../d/refcard").to_string()
-// }
-
-/// Builtin function names (columns)
-#[wasm_bindgen]
-pub fn get_builtins() -> String {
-    let mut funcs = Builtins::new().list_functions();
-    funcs.sort();
-    col_wrap(&funcs, 6, 2)
-}
-
 #[wasm_bindgen]
 pub fn get_doc_markdown(query: &str) -> Result<String, JsValue> {
-    let topic = doc::resolve(query)
-        .ok_or_else(|| JsValue::from_str(&format!("unknown doc topic '{query}'")))?;
+    let topic = doc::resolve(query).ok_or_else(|| {
+        api_error_js("unknown-doc-topic", &format!("unknown doc topic '{query}'"))
+    })?;
     Ok(doc::render_markdown(&topic, DocRenderTarget::Web))
 }
 
-#[wasm_bindgen]
-pub fn get_doc_index_json() -> String {
-    let topics = doc::all_topics();
-    let mut out = String::from("[");
-    for (idx, topic) in topics.iter().enumerate() {
-        if idx > 0 {
-            out.push(',');
-        }
-        out.push('{');
-        push_json_field(&mut out, "id", &topic.id);
-        out.push(',');
-        push_json_field(&mut out, "title", &topic.title);
-        out.push(',');
-        push_json_field(&mut out, "kind", doc_kind_name(topic.kind));
-        out.push(',');
-        push_json_field(&mut out, "group", &topic.group);
-        out.push(',');
-        push_json_field(&mut out, "summary", &topic.summary);
-        out.push(',');
-        if let Some(builtin) = topic.builtin {
-            push_json_field(&mut out, "usage", builtin.usage());
-        } else {
-            push_json_field(&mut out, "usage", "");
-        }
-        out.push(',');
-        out.push_str("\"aliases\":[");
-        for (alias_idx, alias) in topic.aliases.iter().enumerate() {
-            if alias_idx > 0 {
-                out.push(',');
-            }
-            push_json_string(&mut out, alias);
-        }
-        out.push(']');
-        out.push('}');
+#[wasm_bindgen(unchecked_return_type = "DocTopicInfo[]")]
+pub fn doc_index() -> Array {
+    doc_index_to_js(&doc_index_data())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DocTopicData {
+    id: String,
+    title: String,
+    kind: &'static str,
+    group: String,
+    summary: String,
+    usage: Option<String>,
+    aliases: Vec<String>,
+}
+
+fn builtin_name_data(frontend: &Frontend) -> Vec<String> {
+    let mut names = frontend.builtins().list_functions();
+    names.sort();
+    names
+}
+
+fn doc_index_data() -> Vec<DocTopicData> {
+    doc::all_topics()
+        .into_iter()
+        .map(|topic| DocTopicData {
+            id: topic.id,
+            title: topic.title,
+            kind: doc_kind_name(topic.kind),
+            group: topic.group,
+            summary: topic.summary,
+            usage: topic.builtin.map(|builtin| builtin.usage().to_string()),
+            aliases: topic.aliases,
+        })
+        .collect()
+}
+
+fn doc_index_to_js(topics: &[DocTopicData]) -> Array {
+    let result = Array::new();
+    for topic in topics {
+        let object = Object::new();
+        set_js_property(&object, "id", &JsValue::from_str(&topic.id));
+        set_js_property(&object, "title", &JsValue::from_str(&topic.title));
+        set_js_property(&object, "kind", &JsValue::from_str(topic.kind));
+        set_js_property(&object, "group", &JsValue::from_str(&topic.group));
+        set_js_property(&object, "summary", &JsValue::from_str(&topic.summary));
+        set_js_property(
+            &object,
+            "usage",
+            &optional_string_js(topic.usage.as_deref()),
+        );
+        let aliases = strings_to_array(topic.aliases.iter().map(String::as_str));
+        set_js_property(&object, "aliases", &aliases);
+        result.push(&object);
     }
-    out.push(']');
-    out
+    result
 }
 
-#[wasm_bindgen]
-pub fn get_symbol_index_json(src: &str) -> String {
-    let session = Session::new();
-    match session.analyze_symbols(src) {
-        Ok(index) => symbol_index_json(&index),
-        Err(err) => symbol_error_json(&err),
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SymbolDefinitionData {
+    index: usize,
+    name: String,
+    kind: &'static str,
+    span: Option<(usize, usize)>,
+    name_span: Option<(usize, usize)>,
+    params: Option<Vec<String>>,
+    parent: Option<usize>,
+    provenance: &'static str,
+    origin: Option<String>,
+    read_count: usize,
+    write_count: usize,
+    occurrence_count: usize,
+    ref_capture_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SymbolOccurrenceData {
+    span: (usize, usize),
+    def: usize,
+    kind: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SymbolErrorData {
+    span: Option<(usize, usize)>,
+    kind: &'static str,
+    message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SymbolAnalysisData {
+    defs: Vec<SymbolDefinitionData>,
+    occurrences: Vec<SymbolOccurrenceData>,
+    errors: Vec<SymbolErrorData>,
+}
+
+fn symbol_analysis_data(frontend: &Frontend, src: &str) -> SymbolAnalysisData {
+    match frontend.analyze_symbols(src) {
+        Ok(index) => symbol_index_data(&index),
+        Err(err) => SymbolAnalysisData {
+            defs: Vec::new(),
+            occurrences: Vec::new(),
+            errors: vec![SymbolErrorData {
+                span: err.span,
+                kind: err.err_type.name(),
+                message: err.msg.unwrap_or_default(),
+            }],
+        },
     }
 }
 
-#[wasm_bindgen]
-pub fn get_wq_syntax_display(src: &str, kind: &str) -> Result<String, JsValue> {
-    let kind = SyntaxDisplayKind::from_name(kind).ok_or_else(|| {
-        JsValue::from_str(&format!(
-            "unknown syntax display kind '{kind}'; expected ast or cst"
-        ))
-    })?;
-    Session::new()
-        .format_syntax_display(src, kind, ColorMode::Auto)
-        .map_err(|err| JsValue::from_str(&format_wasm_error(&err, BoxPrintConfig::default())))
-}
-
-fn symbol_error_json(err: &wqpl::wqerror::WqError) -> String {
-    let mut out = String::from("{\"defs\":[],\"occurrences\":[],\"errors\":[{");
-    push_json_opt_span_field(&mut out, "span", err.span);
-    out.push(',');
-    push_json_field(&mut out, "kind", err.err_type.name());
-    out.push(',');
-    push_json_field(&mut out, "message", err.msg.as_deref().unwrap_or(""));
-    out.push_str("}]}");
-    out
-}
-
-fn symbol_index_json(index: &SymbolIndex) -> String {
+fn symbol_index_data(index: &SymbolIndex) -> SymbolAnalysisData {
     let occurrences = index.occurrences();
-    let mut out = String::from("{\"defs\":[");
-    let mut first_def = true;
+    let mut defs = Vec::new();
     for (def_idx, def) in index.defs.iter().enumerate() {
         if !is_user_symbol(def.kind, &def.name) {
             continue;
         }
-        if !first_def {
-            out.push(',');
-        }
-        first_def = false;
-
         let provenance = index.def_provenance(def_idx);
         let read_count = occurrences
             .iter()
@@ -745,52 +1012,27 @@ fn symbol_index_json(index: &SymbolIndex) -> String {
             .filter(|occurrence| occurrence.def_idx == def_idx)
             .count();
 
-        out.push('{');
-        push_json_usize_field(&mut out, "index", def_idx);
-        out.push(',');
-        push_json_field(&mut out, "name", &def.name);
-        out.push(',');
-        push_json_field(&mut out, "kind", def_kind_name(def.kind));
-        out.push(',');
-        push_json_opt_span_field(&mut out, "span", def.span);
-        out.push(',');
-        push_json_opt_span_field(&mut out, "name_span", def.name_span);
-        out.push(',');
-        push_json_params_field(&mut out, def.params.as_deref());
-        out.push(',');
-        push_json_opt_usize_field(&mut out, "parent", def.parent);
-        out.push(',');
-        push_json_field(
-            &mut out,
-            "provenance",
-            provenance
+        defs.push(SymbolDefinitionData {
+            index: def_idx,
+            name: def.name.clone(),
+            kind: def_kind_name(def.kind),
+            span: def.span,
+            name_span: def.name_span,
+            params: def.params.clone(),
+            parent: def.parent,
+            provenance: provenance
                 .as_ref()
                 .map(|p| provenance_kind_name(p.kind))
                 .unwrap_or("unknown"),
-        );
-        out.push(',');
-        push_json_opt_string_field(
-            &mut out,
-            "origin",
-            provenance.as_ref().and_then(|p| p.origin.as_deref()),
-        );
-        out.push(',');
-        push_json_usize_field(&mut out, "read_count", read_count);
-        out.push(',');
-        push_json_usize_field(&mut out, "write_count", write_count);
-        out.push(',');
-        push_json_usize_field(&mut out, "occurrence_count", occurrence_count);
-        out.push(',');
-        push_json_usize_field(
-            &mut out,
-            "ref_capture_count",
-            index.ref_capture_count(def_idx),
-        );
-        out.push('}');
+            origin: provenance.and_then(|p| p.origin.map(|origin| origin.to_string())),
+            read_count,
+            write_count,
+            occurrence_count,
+            ref_capture_count: index.ref_capture_count(def_idx),
+        });
     }
 
-    out.push_str("],\"occurrences\":[");
-    let mut first_occurrence = true;
+    let mut user_occurrences = Vec::new();
     for occurrence in &occurrences {
         let Some(def) = index.defs.get(occurrence.def_idx) else {
             continue;
@@ -798,35 +1040,76 @@ fn symbol_index_json(index: &SymbolIndex) -> String {
         if !is_user_symbol(def.kind, &def.name) {
             continue;
         }
-        if !first_occurrence {
-            out.push(',');
-        }
-        first_occurrence = false;
-
-        out.push('{');
-        push_json_span_field(&mut out, "span", occurrence.span);
-        out.push(',');
-        push_json_usize_field(&mut out, "def", occurrence.def_idx);
-        out.push(',');
-        push_json_field(&mut out, "kind", use_kind_name(occurrence.kind));
-        out.push('}');
+        user_occurrences.push(SymbolOccurrenceData {
+            span: occurrence.span,
+            def: occurrence.def_idx,
+            kind: use_kind_name(occurrence.kind),
+        });
     }
 
-    out.push_str("],\"errors\":[");
-    for (idx, (span, err)) in index.errors.iter().enumerate() {
-        if idx > 0 {
-            out.push(',');
-        }
-        out.push('{');
-        push_json_span_field(&mut out, "span", *span);
-        out.push(',');
-        push_json_field(&mut out, "kind", err.err_type.name());
-        out.push(',');
-        push_json_field(&mut out, "message", err.msg.as_deref().unwrap_or(""));
-        out.push('}');
+    let errors = index
+        .errors
+        .iter()
+        .map(|(span, err)| SymbolErrorData {
+            span: Some(*span),
+            kind: err.err_type.name(),
+            message: err.msg.clone().unwrap_or_default(),
+        })
+        .collect();
+
+    SymbolAnalysisData {
+        defs,
+        occurrences: user_occurrences,
+        errors,
     }
-    out.push_str("]}");
-    out
+}
+
+fn symbol_analysis_to_js(data: &SymbolAnalysisData) -> Object {
+    let object = Object::new();
+    let defs = Array::new();
+    for def in &data.defs {
+        let item = Object::new();
+        set_js_property(&item, "index", &usize_js(def.index));
+        set_js_property(&item, "name", &JsValue::from_str(&def.name));
+        set_js_property(&item, "kind", &JsValue::from_str(def.kind));
+        set_js_property(&item, "span", &optional_span_js(def.span));
+        set_js_property(&item, "name_span", &optional_span_js(def.name_span));
+        let params = def.params.as_ref().map_or(JsValue::NULL, |params| {
+            strings_to_array(params.iter().map(String::as_str)).into()
+        });
+        set_js_property(&item, "params", &params);
+        set_js_property(&item, "parent", &optional_usize_js(def.parent));
+        set_js_property(&item, "provenance", &JsValue::from_str(def.provenance));
+        set_js_property(&item, "origin", &optional_string_js(def.origin.as_deref()));
+        set_js_property(&item, "read_count", &usize_js(def.read_count));
+        set_js_property(&item, "write_count", &usize_js(def.write_count));
+        set_js_property(&item, "occurrence_count", &usize_js(def.occurrence_count));
+        set_js_property(&item, "ref_capture_count", &usize_js(def.ref_capture_count));
+        defs.push(&item);
+    }
+
+    let occurrences = Array::new();
+    for occurrence in &data.occurrences {
+        let item = Object::new();
+        set_js_property(&item, "span", &span_js(occurrence.span));
+        set_js_property(&item, "def", &usize_js(occurrence.def));
+        set_js_property(&item, "kind", &JsValue::from_str(occurrence.kind));
+        occurrences.push(&item);
+    }
+
+    let errors = Array::new();
+    for error in &data.errors {
+        let item = Object::new();
+        set_js_property(&item, "span", &optional_span_js(error.span));
+        set_js_property(&item, "kind", &JsValue::from_str(error.kind));
+        set_js_property(&item, "message", &JsValue::from_str(&error.message));
+        errors.push(&item);
+    }
+
+    set_js_property(&object, "defs", &defs);
+    set_js_property(&object, "occurrences", &occurrences);
+    set_js_property(&object, "errors", &errors);
+    object
 }
 
 fn is_user_symbol(kind: DefKind, name: &str) -> bool {
@@ -866,94 +1149,6 @@ fn provenance_kind_name(kind: SymbolProvenanceKind) -> &'static str {
     }
 }
 
-fn push_json_usize_field(out: &mut String, key: &str, value: usize) {
-    push_json_string(out, key);
-    out.push(':');
-    let _ = write!(out, "{value}");
-}
-
-fn push_json_opt_usize_field(out: &mut String, key: &str, value: Option<usize>) {
-    push_json_string(out, key);
-    out.push(':');
-    if let Some(value) = value {
-        let _ = write!(out, "{value}");
-    } else {
-        out.push_str("null");
-    }
-}
-
-fn push_json_span_field(out: &mut String, key: &str, span: (usize, usize)) {
-    push_json_string(out, key);
-    out.push(':');
-    push_json_span(out, span);
-}
-
-fn push_json_opt_span_field(out: &mut String, key: &str, span: Option<(usize, usize)>) {
-    push_json_string(out, key);
-    out.push(':');
-    if let Some(span) = span {
-        push_json_span(out, span);
-    } else {
-        out.push_str("null");
-    }
-}
-
-fn push_json_span(out: &mut String, span: (usize, usize)) {
-    let _ = write!(out, "[{},{}]", span.0, span.1);
-}
-
-fn push_json_params_field(out: &mut String, params: Option<&[String]>) {
-    push_json_string(out, "params");
-    out.push(':');
-    if let Some(params) = params {
-        out.push('[');
-        for (idx, param) in params.iter().enumerate() {
-            if idx > 0 {
-                out.push(',');
-            }
-            push_json_string(out, param);
-        }
-        out.push(']');
-    } else {
-        out.push_str("null");
-    }
-}
-
-fn push_json_opt_string_field(out: &mut String, key: &str, value: Option<&str>) {
-    push_json_string(out, key);
-    out.push(':');
-    if let Some(value) = value {
-        push_json_string(out, value);
-    } else {
-        out.push_str("null");
-    }
-}
-
-fn push_json_field(out: &mut String, key: &str, value: &str) {
-    push_json_string(out, key);
-    out.push(':');
-    push_json_string(out, value);
-}
-
-fn push_json_string(out: &mut String, value: &str) {
-    out.push('"');
-    for ch in value.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            ch if ch.is_control() => {
-                use std::fmt::Write as _;
-                write!(out, "\\u{:04x}", ch as u32).expect("writing to string should not fail");
-            }
-            ch => out.push(ch),
-        }
-    }
-    out.push('"');
-}
-
 fn doc_kind_name(kind: DocKind) -> &'static str {
     match kind {
         DocKind::Builtin => "builtin",
@@ -963,268 +1158,10 @@ fn doc_kind_name(kind: DocKind) -> &'static str {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
-
-    use wqpl::session::stdio::{WqStderr, set_wqstderr};
-
-    use super::*;
-
-    struct CapturedStderr {
-        out: Arc<Mutex<String>>,
-    }
-
-    impl WqStderr for CapturedStderr {
-        fn eprint(&mut self, s: &str) {
-            self.out
-                .lock()
-                .expect("stderr capture lock should not be poisoned")
-                .push_str(s);
-        }
-
-        fn eprintln(&mut self, s: &str) {
-            let mut out = self
-                .out
-                .lock()
-                .expect("stderr capture lock should not be poisoned");
-            out.push_str(s);
-            out.push('\n');
-        }
-    }
-
-    struct ResetStderr;
-
-    impl Drop for ResetStderr {
-        fn drop(&mut self) {
-            set_wqstderr(None);
-        }
-    }
-
-    #[test]
-    fn doc_exports_smoke() {
-        let index = get_doc_index_json();
-        assert!(index.contains("\"id\":\"builtin.map\""));
-        assert!(index.contains("\"usage\":\"map[xs;f;d?]\""));
-        assert!(index.contains("\"id\":\"at-return\""));
-
-        let markdown = get_doc_markdown("map").expect("map doc renders");
-        assert!(markdown.contains("map builtin"));
-        assert!(markdown.contains("map[xs;f;d?]"));
-    }
-
-    #[test]
-    fn symbol_index_json_exports_user_symbol_details() {
-        let json = get_symbol_index_json("g:1; f:{[x] y:x+g; y}; f[2]");
-
-        assert!(json.contains("\"name\":\"f\""));
-        assert!(json.contains("\"kind\":\"function\""));
-        assert!(json.contains("\"params\":[\"x\"]"));
-        assert!(json.contains("\"name\":\"y\""));
-        assert!(json.contains("\"provenance\":\"local\""));
-        assert!(json.contains("\"origin\":\"f\""));
-        assert!(json.contains("\"kind\":\"read\""));
-        assert!(json.contains("\"kind\":\"write\""));
-    }
-
-    #[test]
-    fn symbol_index_json_returns_structured_parse_errors() {
-        let json = get_symbol_index_json("a:1\nd:'{a}\nb:\"");
-
-        assert!(json.contains("\"defs\":[]"));
-        assert!(json.contains("\"kind\":\"eof\""));
-        assert!(json.contains("\"message\":\"string is not properly terminated\""));
-        assert!(
-            !json.contains('\u{1b}'),
-            "symbol JSON should not contain terminal escape sequences: {json:?}",
-        );
-    }
-
-    #[test]
-    fn syntax_display_export_returns_parse_trees_without_dry_output() {
-        let ast = get_wq_syntax_display("1+2", "ast").expect("AST display should parse");
-        assert!(ast.starts_with("AST @ fold - final\n"));
-        assert!(ast.contains("LIT[Int(3)]"));
-        assert!(!ast.contains("dry: skipped execution"));
-
-        let cst = get_wq_syntax_display("1+2", "cst").expect("CST display should parse");
-        assert!(cst.starts_with("CST\n"));
-        assert!(cst.contains("BINARY_EXPR"));
-        assert!(!cst.contains("dry: skipped execution"));
-    }
-
-    #[test]
-    fn wasm_error_formatting_follows_box_color_flag() {
-        let session = WasmWqSession::new();
-        let err = eval_wq_script_value(&session, "1+").expect_err("incomplete input should error");
-        let color_config = BoxPrintConfig::default();
-        let plain_config = BoxPrintConfig {
-            color: false,
-            ..BoxPrintConfig::default()
-        };
-
-        let colored = format_wasm_error(&err, color_config);
-        let plain = format_wasm_error(&err, plain_config);
-
-        assert!(colored.contains('\u{1b}'));
-        assert!(!plain.contains('\u{1b}'));
-    }
-
-    #[test]
-    fn wqdb_mode_reports_pause_and_continues() {
-        let captured = Arc::new(Mutex::new(String::new()));
-        let _reset = ResetStderr;
-        set_wqstderr(Some(Box::new(CapturedStderr {
-            out: captured.clone(),
-        })));
-
-        let session = WasmWqSession::new();
-        session.set_wqdb_mode(true);
-        let result = session
-            .eval_wq_result("1")
-            .expect("wqdb mode eval should continue");
-
-        assert_eq!(result.value(), "1");
-        let stderr = captured
-            .lock()
-            .expect("stderr capture lock should not be poisoned")
-            .clone();
-        assert!(stderr.contains("wqdb: paused"));
-        assert!(stderr.contains("interactive browser debugger shell is not available"));
-    }
-
-    #[test]
-    fn one_shot_eval_streams_multiline_cas_script() {
-        let result = eval_wq("expr:@s x^2+2*x+1\nexpr")
-            .expect("one-shot eval should run article-style scripts");
-
-        assert_eq!(result, "x^2 + 2*x + 1");
-    }
-
-    #[test]
-    fn one_shot_eval_accumulates_incomplete_blocks() {
-        let result = eval_wq("f:{[x]\n  x+1\n}\nf 2")
-            .expect("one-shot eval should accumulate incomplete blocks");
-
-        assert_eq!(result, "3");
-    }
-
-    #[test]
-    fn session_eval_result_streams_multiline_cas_script() {
-        let session = WasmWqSession::new();
-        let result = session
-            .eval_wq_result("expr:@s x^2+2*x+1\nexpr")
-            .expect("session eval result should run article-style scripts");
-
-        assert_eq!(result.value(), "x^2 + 2*x + 1");
-        assert!(result.is_cas());
-    }
-
-    #[test]
-    fn html_highlighter_uses_string_escape_class_only_for_valid_escapes() {
-        let html = highlight_wq(r#""a\nb \u{1f4a9}" "\u{d800}" "\q" @l"\n""#);
-
-        assert_eq!(html.matches("class=\"hl-string-escape\"").count(), 2);
-        assert!(html.contains("<span class=\"hl-string-escape\">\\n</span>"));
-        assert!(html.contains("<span class=\"hl-string-escape\">\\u{1f4a9}</span>"));
-    }
-
-    #[test]
-    fn html_highlighter_distinguishes_valid_and_invalid_unicode_scalars() {
-        let html = highlight_wq(r#""a" @u"a" @u"\n" @u"" @u"ab" @u"\q" @u"x"#);
-
-        assert!(html.contains("<span class=\"hl-string\">&quot;a&quot;</span>"));
-        assert!(html.contains("<span class=\"hl-character\">@u&quot;a&quot;</span>"));
-        assert!(html.contains("<span class=\"hl-string-escape\">\\n</span>"));
-        assert_eq!(html.matches("class=\"hl-character-invalid\"").count(), 4);
-    }
-
-    #[test]
-    fn html_highlighter_marks_invalid_strings() {
-        let html = highlight_wq(r#""ok" "\x" "\u{}z" @f"\x""#);
-
-        assert!(html.contains("<span class=\"hl-string\">&quot;ok&quot;</span>"));
-        assert_eq!(html.matches("class=\"hl-string-invalid\"").count(), 3);
-    }
-}
-
-// /// Error codes and names for quick reference
-// #[wasm_bindgen]
-// pub fn get_err_codes() -> String {
-//     let mut out = String::new();
-//     let all: &[(u16, &str)] = &[
-//         (WqErrorType::Vm.to_code(), WqErrorType::Vm.name()),
-//         (WqErrorType::Eof.to_code(), WqErrorType::Eof.name()),
-//         (WqErrorType::Syntax.to_code(), WqErrorType::Syntax.name()),
-//         (
-//             WqErrorType::NotBound.to_code(),
-//             WqErrorType::NotBound.name(),
-//         ),
-//         (WqErrorType::Index.to_code(), WqErrorType::Index.name()),
-//         (WqErrorType::Call.to_code(), WqErrorType::Call.name()),
-//         (WqErrorType::Arity.to_code(), WqErrorType::Arity.name()),
-//         (WqErrorType::Domain.to_code(), WqErrorType::Domain.name()),
-//         (WqErrorType::Length.to_code(), WqErrorType::Length.name()),
-//         (
-//             WqErrorType::NumericOverflow.to_code(),
-//             WqErrorType::NumericOverflow.name(),
-//         ),
-//         (WqErrorType::ZeroDiv.to_code(), WqErrorType::ZeroDiv.name()),
-//         (WqErrorType::Io.to_code(), WqErrorType::Io.name()),
-//         (WqErrorType::Encode.to_code(), WqErrorType::Encode.name()),
-//         (WqErrorType::Exec.to_code(), WqErrorType::Exec.name()),
-//         (WqErrorType::Raise.to_code(), WqErrorType::Raise.name()),
-//     ];
-//     // width calc
-//     let w_code = all
-//         .iter()
-//         .map(|(c, _)| c.to_string().len())
-//         .max()
-//         .unwrap_or(1);
-//     let w_name = all.iter().map(|(_, n)| n.len()).max().unwrap_or(1);
-//     out.push_str(&format!("{:<w_code$}  {:<w_name$}\n", "code", "name"));
-//     out.push_str(&format!("{:-<w_code$}  {:-<w_name$}\n", "", ""));
-//     for (code, name) in all {
-//         out.push_str(&format!("{code:<w_code$}  {name:<w_name$}\n"));
-//     }
-//     if out.ends_with('\n') {
-//         out.pop();
-//     }
-//     out
-// }
-
-fn col_wrap(items: &[String], columns: usize, gutter: usize) -> String {
-    if items.is_empty() {
-        return String::new();
-    }
-    let max_len = items.iter().map(|s| s.len()).max().unwrap_or(0);
-    let mut out = String::new();
-    for (i, name) in items.iter().enumerate() {
-        let _ = write!(&mut out, "{:<w$}", name, w = max_len + gutter);
-        if (i + 1) % columns == 0 {
-            out.push('\n');
-        }
-    }
-    if !out.ends_with('\n') {
-        out.push('\n');
-    }
-    if out.ends_with('\n') {
-        out.pop();
-    }
-    out
-}
-
-#[wasm_bindgen]
-pub fn set_ansi_styles_enabled(on: bool) {
-    style::set_color_override(Some(on));
-}
-
-/// Highlight wq source code and return HTML with CSS class names.
-#[wasm_bindgen]
-pub fn highlight_wq(src: &str) -> String {
+fn highlight_wq_data(frontend: &Frontend, src: &str) -> String {
     let highlighter = Highlighter::new();
     let semantic_spans = if src.contains('{') || src.contains('\'') {
-        Session::new()
+        frontend
             .analyze_symbols(src)
             .map(|index| index.semantic_highlight_spans())
             .unwrap_or_default()
@@ -1310,4 +1247,415 @@ fn escape_html(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use wqpl::session::stdio::{WqIoError, WqOutput};
+
+    use super::*;
+
+    fn default_frontend() -> Frontend {
+        Frontend::default()
+    }
+
+    struct CapturedOutput {
+        out: Arc<Mutex<String>>,
+    }
+
+    impl WqOutput for CapturedOutput {
+        fn write(&mut self, text: &str) -> Result<(), WqIoError> {
+            self.out
+                .lock()
+                .expect("stderr capture lock should not be poisoned")
+                .push_str(text);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn doc_exports_smoke() {
+        let topics = doc_index_data();
+        let map = topics
+            .iter()
+            .find(|topic| topic.id == "builtin.map")
+            .expect("map topic should be exported");
+        assert_eq!(map.usage.as_deref(), Some("map[xs;f;d?]"));
+        assert!(topics.iter().any(|topic| topic.id == "at-return"));
+
+        let markdown = get_doc_markdown("map").expect("map doc renders");
+        assert!(markdown.contains("map builtin"));
+        assert!(markdown.contains("map[xs;f;d?]"));
+    }
+
+    #[test]
+    fn symbol_analysis_exports_user_symbol_details() {
+        let frontend = default_frontend();
+        let analysis = symbol_analysis_data(&frontend, "g:1; f:{[x] y:x+g; y}; f[2]");
+
+        let function = analysis
+            .defs
+            .iter()
+            .find(|def| def.name == "f")
+            .expect("function definition should be exported");
+        assert_eq!(function.kind, "function");
+        assert_eq!(
+            function.params.as_deref(),
+            Some(["x".to_string()].as_slice())
+        );
+
+        let local = analysis
+            .defs
+            .iter()
+            .find(|def| def.name == "y")
+            .expect("local definition should be exported");
+        assert_eq!(local.provenance, "local");
+        assert_eq!(local.origin.as_deref(), Some("f"));
+        assert!(analysis.occurrences.iter().any(|item| item.kind == "read"));
+        assert!(analysis.occurrences.iter().any(|item| item.kind == "write"));
+    }
+
+    #[test]
+    fn symbol_analysis_returns_structured_parse_errors() {
+        let frontend = default_frontend();
+        let analysis = symbol_analysis_data(&frontend, "a:1\nd:'{a}\nb:\"");
+
+        assert!(analysis.defs.is_empty());
+        assert!(analysis.occurrences.is_empty());
+        assert_eq!(analysis.errors.len(), 1);
+        assert_eq!(analysis.errors[0].kind, "eof");
+        assert_eq!(
+            analysis.errors[0].message,
+            "string is not properly terminated"
+        );
+        assert!(!analysis.errors[0].message.contains('\u{1b}'));
+    }
+
+    #[test]
+    fn globals_are_sorted_structured_data() {
+        let session = WasmWqSession::new();
+        eval_wq_script_value(&session, "z:2;a:1").expect("bindings should evaluate");
+
+        let bindings = global_binding_data(&session.session.borrow());
+        let names = bindings
+            .iter()
+            .map(|binding| binding.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["a", "z"]);
+        assert_eq!(bindings[0].display, "1");
+        assert_eq!(bindings[0].type_name, "int");
+    }
+
+    #[test]
+    fn builtin_names_are_sorted_data() {
+        let frontend = default_frontend();
+        let names = builtin_name_data(&frontend);
+        assert!(names.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(names.iter().any(|name| name == "map"));
+    }
+
+    #[test]
+    fn reusable_frontend_replaces_its_builtin_configuration() {
+        let mut frontend = WasmFrontend::new();
+        assert_eq!(frontend.get_builtins_preset(), "all");
+        assert!(frontend.frontend.builtins().is_enabled_name("print"));
+
+        let selected = frontend
+            .set_builtins_preset("minimal")
+            .expect("minimal preset should be accepted");
+
+        assert_eq!(selected, "minimal");
+        assert_eq!(frontend.get_builtins_preset(), "minimal");
+        assert!(!frontend.frontend.builtins().is_enabled_name("print"));
+        assert!(
+            !builtin_name_data(&frontend.frontend)
+                .iter()
+                .any(|name| name == "print")
+        );
+    }
+
+    #[test]
+    fn sessions_keep_debug_flags_and_output_isolated() {
+        let first_output = Arc::new(Mutex::new(String::new()));
+        let second_output = Arc::new(Mutex::new(String::new()));
+        let first_diagnostics = Arc::new(Mutex::new(String::new()));
+        let second_diagnostics = Arc::new(Mutex::new(String::new()));
+        let first = WasmWqSession::new();
+        let second = WasmWqSession::new();
+        first
+            .session
+            .borrow_mut()
+            .set_stdout(Box::new(CapturedOutput {
+                out: Arc::clone(&first_output),
+            }));
+        second
+            .session
+            .borrow_mut()
+            .set_stdout(Box::new(CapturedOutput {
+                out: Arc::clone(&second_output),
+            }));
+        first
+            .session
+            .borrow_mut()
+            .set_stderr(Box::new(CapturedOutput {
+                out: Arc::clone(&first_diagnostics),
+            }));
+        second
+            .session
+            .borrow_mut()
+            .set_stderr(Box::new(CapturedOutput {
+                out: Arc::clone(&second_diagnostics),
+            }));
+
+        first
+            .set_debug_flags("ast")
+            .expect("first session should accept debug flags");
+        assert_eq!(
+            first.get_debug_flags().expect("session should be idle"),
+            "ast"
+        );
+        assert_eq!(
+            second.get_debug_flags().expect("session should be idle"),
+            "off"
+        );
+
+        eval_wq_script_value(&first, "echo \"first\"").expect("first output should succeed");
+        eval_wq_script_value(&second, "echo \"second\"").expect("second output should succeed");
+        assert_eq!(&*first_output.lock().expect("first output lock"), "first\n");
+        assert_eq!(
+            &*second_output.lock().expect("second output lock"),
+            "second\n"
+        );
+        assert!(
+            first_diagnostics
+                .lock()
+                .expect("first diagnostics lock")
+                .contains("AST @ fold - final")
+        );
+        assert!(
+            second_diagnostics
+                .lock()
+                .expect("second diagnostics lock")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn lifecycle_operations_have_explicit_scopes() {
+        let session = WasmWqSession::new();
+        eval_wq_script_value(&session, "a:1").expect("binding should evaluate");
+        session
+            .set_debug_flags("ast")
+            .expect("debug flags should be accepted");
+        session.set_dry_mode(false).expect("session should be idle");
+
+        session
+            .reset_execution_state()
+            .expect("session should be idle");
+        assert_eq!(global_binding_data(&session.session.borrow()).len(), 1);
+
+        session.reset_workspace().expect("session should be idle");
+        assert!(global_binding_data(&session.session.borrow()).is_empty());
+        assert_eq!(
+            session.get_debug_flags().expect("session should be idle"),
+            "ast"
+        );
+        assert!(!session.get_dry_mode().expect("session should be idle"));
+    }
+
+    #[test]
+    fn syntax_display_export_returns_parse_trees_without_dry_output() {
+        let frontend = WasmFrontend::new();
+        let ast = frontend
+            .get_wq_syntax_display("1+2", "ast")
+            .expect("AST display should parse");
+        assert!(ast.contains("AST @ fold - final"));
+        assert!(ast.contains("LIT[Int(3)]"));
+        assert!(ast.contains("\x1b["));
+        assert!(!ast.contains("dry: skipped execution"));
+
+        let cst = frontend
+            .get_wq_syntax_display("1+2", "cst")
+            .expect("CST display should parse");
+        assert!(cst.contains("CST"));
+        assert!(cst.contains("BINARY_EXPR"));
+        assert!(cst.contains("\x1b["));
+        assert!(!cst.contains("dry: skipped execution"));
+    }
+
+    #[test]
+    fn wasm_error_formatting_follows_box_color_flag() {
+        let session = WasmWqSession::new();
+        let err = eval_wq_script_value(&session, "1+").expect_err("incomplete input should error");
+        let color_config = BoxPrintConfig::default();
+        let plain_config = BoxPrintConfig {
+            color: false,
+            ..BoxPrintConfig::default()
+        };
+
+        let colored = format_wasm_error(&err, color_config);
+        let plain = format_wasm_error(&err, plain_config);
+
+        assert!(colored.contains('\u{1b}'));
+        assert!(!plain.contains('\u{1b}'));
+        assert_eq!(
+            err.source_ctx.as_deref().map(|source| source.path.as_str()),
+            Some("<wasm>")
+        );
+        assert_eq!(err.span, Some((1, 2)));
+    }
+
+    #[test]
+    fn toggling_box_mode_keeps_session_color_in_sync() {
+        let session = WasmWqSession::new();
+        assert_eq!(session.session.borrow().color_mode(), ColorMode::Always);
+
+        assert!(
+            !session
+                .toggle_box_mode()
+                .expect("box mode should toggle off")
+        );
+        assert_eq!(session.session.borrow().color_mode(), ColorMode::Never);
+
+        assert!(
+            session
+                .toggle_box_mode()
+                .expect("box mode should toggle on")
+        );
+        assert_eq!(session.session.borrow().color_mode(), ColorMode::Always);
+    }
+
+    #[test]
+    fn versioned_diagnostics_preserve_error_data_stack_and_cause() {
+        let session = WasmWqSession::new();
+        let err = eval_wq_script_value(&session, "f:{assert_eq[1;2]};f[]")
+            .expect_err("assertion should fail");
+        let stack = session_stack_data(&mut session.session.borrow_mut());
+        let diagnostic = diagnostic_data(&err, BoxPrintConfig::off(), stack);
+
+        assert_eq!(diagnostic.version, 1);
+        assert_eq!(diagnostic.kind, "assert");
+        assert_eq!(diagnostic.cause, None);
+        assert_eq!(
+            diagnostic
+                .data
+                .iter()
+                .find(|(name, _)| name == "actual")
+                .map(|(_, value)| (value.display.as_str(), value.type_name.as_str())),
+            Some(("1", "int"))
+        );
+        assert_eq!(
+            diagnostic
+                .data
+                .iter()
+                .find(|(name, _)| name == "expected")
+                .map(|(_, value)| (value.display.as_str(), value.type_name.as_str())),
+            Some(("2", "int"))
+        );
+        assert!(diagnostic.stack.iter().any(|frame| frame.function == "f"));
+        assert!(
+            diagnostic
+                .stack
+                .iter()
+                .filter_map(|frame| frame.path.as_deref())
+                .any(|path| path == "<wasm>")
+        );
+
+        let api = api_diagnostic_data("invalid-option", "bad option");
+        assert_eq!(api.version, 1);
+        assert!(api.data.is_empty());
+        assert!(api.stack.is_empty());
+        assert_eq!(api.cause, None);
+    }
+
+    #[test]
+    fn wasm_scripts_reject_loader_directives_with_scoped_diagnostics() {
+        let session = WasmWqSession::new();
+        let err = eval_wq_script_value(&session, "a:1\n\\l lib.wq\na")
+            .expect_err("host loader directives should not be evaluated as source");
+
+        assert_eq!(err.err_type.name(), "syntax");
+        assert_eq!(
+            err.msg.as_deref(),
+            Some("script directive requires a host loader")
+        );
+        assert_eq!(
+            err.source_ctx.as_deref().map(|source| source.path.as_str()),
+            Some("<wasm>")
+        );
+        assert_eq!(err.span, Some((4, 14)));
+    }
+
+    #[test]
+    fn wqdb_mode_reports_pause_and_continues() {
+        let captured = Arc::new(Mutex::new(String::new()));
+        let session = WasmWqSession::new();
+        session
+            .session
+            .borrow_mut()
+            .set_stderr(Box::new(CapturedOutput {
+                out: Arc::clone(&captured),
+            }));
+        session.set_wqdb_mode(true).expect("session should be idle");
+        let result = eval_rendered_value(&session, "1").expect("wqdb mode eval should continue");
+
+        assert_eq!(result.display, "1");
+        let stderr = captured
+            .lock()
+            .expect("stderr capture lock should not be poisoned")
+            .clone();
+        assert!(stderr.contains("wqdb: paused"));
+        assert!(stderr.contains("interactive browser debugger shell is not available"));
+    }
+
+    #[test]
+    fn session_eval_accumulates_incomplete_blocks() {
+        let session = WasmWqSession::new();
+        let result = eval_rendered_value(&session, "f:{[x]\n  x+1\n}\nf 2")
+            .expect("session eval should accumulate incomplete blocks");
+
+        assert_eq!(result.display, "3");
+    }
+
+    #[test]
+    fn session_eval_streams_multiline_cas_script() {
+        let session = WasmWqSession::new();
+        let result = eval_rendered_value(&session, "expr:@s x^2+2*x+1\nexpr")
+            .expect("session eval should run article-style scripts");
+
+        assert_eq!(result.display, "x^2 + 2*x + 1");
+        assert!(result.is_cas);
+    }
+
+    #[test]
+    fn html_highlighter_uses_string_escape_class_only_for_valid_escapes() {
+        let frontend = default_frontend();
+        let html = highlight_wq_data(&frontend, r#""a\nb \u{1f4a9}" "\u{d800}" "\q" @l"\n""#);
+
+        assert_eq!(html.matches("class=\"hl-string-escape\"").count(), 2);
+        assert!(html.contains("<span class=\"hl-string-escape\">\\n</span>"));
+        assert!(html.contains("<span class=\"hl-string-escape\">\\u{1f4a9}</span>"));
+    }
+
+    #[test]
+    fn html_highlighter_distinguishes_valid_and_invalid_unicode_scalars() {
+        let frontend = default_frontend();
+        let html = highlight_wq_data(&frontend, r#""a" @u"a" @u"\n" @u"" @u"ab" @u"\q" @u"x"#);
+
+        assert!(html.contains("<span class=\"hl-string\">&quot;a&quot;</span>"));
+        assert!(html.contains("<span class=\"hl-character\">@u&quot;a&quot;</span>"));
+        assert!(html.contains("<span class=\"hl-string-escape\">\\n</span>"));
+        assert_eq!(html.matches("class=\"hl-character-invalid\"").count(), 4);
+    }
+
+    #[test]
+    fn html_highlighter_marks_invalid_strings() {
+        let frontend = default_frontend();
+        let html = highlight_wq_data(&frontend, r#""ok" "\x" "\u{}z" @f"\x""#);
+
+        assert!(html.contains("<span class=\"hl-string\">&quot;ok&quot;</span>"));
+        assert_eq!(html.matches("class=\"hl-string-invalid\"").count(), 3);
+    }
 }

@@ -173,6 +173,40 @@ impl Token {
     }
 }
 
+/// Rebase a token produced from a source fragment into its containing source.
+///
+/// The lexer intentionally keeps parser-facing tokens local to the fragment.
+/// Tooling and diagnostics can clone those tokens and use this helper when
+/// they need stable file-wide character, line, column, and byte coordinates.
+pub(crate) fn rebase_token(token: &mut Token, full_source: &str, base_offset: usize) {
+    let prefix = &full_source[..base_offset];
+    let local_line = token.line;
+    token.position += prefix.chars().count();
+    token.line += prefix.bytes().filter(|byte| *byte == b'\n').count();
+    if local_line == 1 {
+        token.column += prefix
+            .rsplit('\n')
+            .next()
+            .expect("split always yields one segment")
+            .chars()
+            .count();
+    }
+    token.byte_start += base_offset;
+    token.byte_end += base_offset;
+    if let TokenType::FormatString(parts, open_quote, close_quote) = &mut token.token_type {
+        *open_quote += base_offset;
+        *close_quote += base_offset;
+        for part in parts {
+            match part {
+                FmtPart::Text { start, end, .. } | FmtPart::Expr { start, end, .. } => {
+                    *start += base_offset;
+                    *end += base_offset;
+                }
+            }
+        }
+    }
+}
+
 // impl fmt::Display for Token {
 //     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 //         write!(f, "{:?}@{}:{}", self.token_type, self.line, self.column)

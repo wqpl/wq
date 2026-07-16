@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 
 use crate::builtins::{BuiltinContext, BuiltinEnum, BuiltinFnArgs, Builtins};
 use crate::interpret::vanilla::Sv4;
-use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
+use crate::session::dbglog::DebugLogFlags;
 use crate::value::cell::ValueCell;
 use crate::value::func::{CallableExpr, LiftedCallableData};
 use crate::value::{Value, WqResult, eval_binary, eval_unary};
@@ -312,11 +312,11 @@ impl Vm {
                     id
                 } else {
                     let file_id = self.debug_info.chunk(self.current_chunk).file_id;
-                    if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-                        eprintln!(
+                    if self.debug_log.enabled(DebugLogFlags::WQDB) {
+                        self.debug_log.emit_line(format!(
                             "[wqdb]: call_function_with fallback new name={title} file_id={file_id} instructions={}",
                             instructions.len(),
-                        );
+                        ));
                     }
                     let id = self.debug_info.new_function_chunk(
                         Some(std::sync::Arc::from(title)),
@@ -325,7 +325,7 @@ impl Vm {
                     );
                     let table = &mut self.debug_info.chunk_mut(id).line_table;
                     // Heuristic stepping if no spans are attached to the callee.
-                    mark_stmt_heuristic(table, instructions.as_ref());
+                    mark_stmt_heuristic(table, instructions.as_ref(), Some(&self.debug_log));
                     id
                 }
             }
@@ -410,8 +410,8 @@ impl Vm {
         }
         let limit = self.instructions.len();
         let interpreter_kind = self.interpreter_kind;
-        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-            eprintln!(
+        if self.debug_log.enabled(DebugLogFlags::WQDB) {
+            self.debug_log.emit_line(format!(
                 "CALL enter chunk={:?} limit={} locals={} argc={} saved_pc={} interp_type={}",
                 self.current_chunk,
                 limit,
@@ -419,31 +419,36 @@ impl Vm {
                 argc,
                 saved_pc,
                 nested_interpreter_type_name(interpreter_kind)
-            );
+            ));
         }
         let execute_res = interpret_nested_with_kind(interpreter_kind, self, limit);
         self.returned = false;
         let res = match execute_res {
             Ok(value) => Ok(self.attach_provenance_to_returned_callable(value)),
             Err(e) => {
+                let e = crate::interpret::vanilla::debug::attach_pc_source_ctx(
+                    self,
+                    self.pc.saturating_sub(1),
+                    e,
+                );
                 self.capture_bt_if_empty();
                 Err(e)
             }
         };
-        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-            eprintln!(
+        if self.debug_log.enabled(DebugLogFlags::WQDB) {
+            self.debug_log.emit_line(format!(
                 "CALL after execute stack_len={} locals_depth={}",
                 self.stack.len(),
                 self.locals.len()
-            );
+            ));
         }
-        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-            eprintln!(
+        if self.debug_log.enabled(DebugLogFlags::WQDB) {
+            self.debug_log.emit_line(format!(
                 "CALL leave chunk={:?} pc={} result_ok={}",
                 self.current_chunk,
                 self.pc,
                 res.is_ok()
-            );
+            ));
         }
         self.current_closure_stack.pop();
         // Unwind
@@ -806,8 +811,40 @@ impl BuiltinContext for Vm {
         self.halt_status = Some(status);
     }
 
+    fn read_line(&self, prompt: &str) -> Result<String, crate::session::stdio::WqIoError> {
+        Vm::read_line(self, prompt)
+    }
+
+    fn write_stdout(&self, text: &str) -> Result<(), crate::session::stdio::WqIoError> {
+        Vm::write_stdout(self, text)
+    }
+
+    fn write_stdout_line(&self, text: &str) -> Result<(), crate::session::stdio::WqIoError> {
+        Vm::write_stdout_line(self, text)
+    }
+
+    fn write_stderr_line(&self, text: &str) -> Result<(), crate::session::stdio::WqIoError> {
+        Vm::write_stderr_line(self, text)
+    }
+
+    fn stdout_terminal_size(&self) -> Option<(usize, usize)> {
+        Vm::stdout_terminal_size(self)
+    }
+
+    fn color_mode(&self) -> crate::style::ColorMode {
+        self.stdout_color_mode()
+    }
+
+    fn debug_log_enabled(&self, flag: u16) -> bool {
+        self.debug_log.enabled(flag)
+    }
+
+    fn emit_debug_log_line(&self, line: &str) {
+        self.debug_log.emit_line(line);
+    }
+
     fn requires_callback_frames(&self) -> bool {
-        self.wqdb.enabled
+        self.wqdb.is_enabled()
     }
 }
 

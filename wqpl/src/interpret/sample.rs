@@ -1,12 +1,13 @@
 use std::cell::RefCell;
 use std::fmt::Write as _;
-use std::io::Write as _;
 
 use crate::interpret::vanilla::VanillaInterpreter;
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
+use crate::session::stdio::WqIoError;
 use crate::value::{Value, WqResult};
 use crate::vm::Vm;
 use crate::vm::inst::Instruction;
+use crate::wqerror::{WqError, WqErrorType};
 
 const WIDTH: usize = 48;
 const HEIGHT: usize = 14;
@@ -16,18 +17,31 @@ const CAT_STAR_CHARS: [char; 3] = ['*', '•', '+'];
 
 pub(crate) struct SampleInterpreter {
     art: RefCell<InstructionArt>,
+    io_error: RefCell<Option<WqIoError>>,
+    automatic: bool,
 }
 
 impl Default for SampleInterpreter {
     fn default() -> Self {
         Self {
-            art: RefCell::new(InstructionArt::auto()),
+            art: RefCell::new(InstructionArt::new(RenderMode::FinalOnly, false)),
+            io_error: RefCell::new(None),
+            automatic: true,
         }
     }
 }
 
 impl Interpreter for SampleInterpreter {
     fn interpret(&mut self, vm: &mut Vm, limit: usize) -> WqResult<Value> {
+        if self.automatic {
+            *self.art.get_mut() = InstructionArt::auto(
+                vm.stderr_is_terminal(),
+                vm.stderr_color_mode().should_colorize(),
+            );
+        } else {
+            self.art.get_mut().color = vm.stderr_color_mode().should_colorize();
+        }
+        *self.io_error.get_mut() = None;
         let mut delegate = VanillaInterpreter;
         let previous_interpreter = vm.interpreter_kind;
         vm.interpreter_kind = InterpreterKind::Vanilla;
@@ -35,15 +49,31 @@ impl Interpreter for SampleInterpreter {
         let result = delegate.interpret(vm, limit);
         vm.set_hooks(None);
         vm.interpreter_kind = previous_interpreter;
-        self.art.borrow_mut().finish();
-        result
+        if let Err(error) = self.art.get_mut().finish(vm) {
+            *self.io_error.get_mut() = Some(error);
+        }
+        match (result, self.io_error.get_mut().take()) {
+            (Err(error), _) => Err(error),
+            (Ok(_), Some(error)) => Err(sample_io_error(error)),
+            (Ok(value), None) => Ok(value),
+        }
     }
 }
 
 impl InterpreterHook for SampleInterpreter {
     fn before_instruction(&self, vm: &Vm, idx: usize, op: &Instruction) {
-        self.art.borrow_mut().observe(vm, idx, op);
+        if self.io_error.borrow().is_none()
+            && let Err(error) = self.art.borrow_mut().observe(vm, idx, op)
+        {
+            *self.io_error.borrow_mut() = Some(error);
+        }
     }
+}
+
+fn sample_io_error(error: WqIoError) -> WqError {
+    WqError::new(WqErrorType::Io)
+        .src("sample interpreter")
+        .attach_note(format!("host I/O error: {error}"))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,17 +133,19 @@ struct InstructionArt {
 }
 
 impl InstructionArt {
-    fn auto() -> Self {
+    fn auto(stderr_is_terminal: bool, color: bool) -> Self {
         let setting = std::env::var("WQ_SAMPLE_ART").ok();
-        let force = matches!(setting.as_deref(), Some("1" | "on" | "force" | "animate"));
-        let mode = match setting.as_deref() {
+        Self::configured(setting.as_deref(), stderr_is_terminal, color)
+    }
+
+    fn configured(setting: Option<&str>, stderr_is_terminal: bool, color: bool) -> Self {
+        let mode = match setting {
             Some("0" | "off" | "false" | "quiet") => RenderMode::Off,
             Some("static" | "final") => RenderMode::FinalOnly,
             Some("1" | "on" | "force" | "animate") => RenderMode::Animated,
-            _ if stderr_is_terminal() => RenderMode::Animated,
+            _ if stderr_is_terminal => RenderMode::Animated,
             _ => RenderMode::FinalOnly,
         };
-        let color = std::env::var_os("NO_COLOR").is_none() && (force || stderr_is_terminal());
         Self::new(mode, color)
     }
 
@@ -132,7 +164,7 @@ impl InstructionArt {
         }
     }
 
-    fn observe(&mut self, vm: &Vm, pc: usize, op: &Instruction) {
+    fn observe(&mut self, vm: &Vm, pc: usize, op: &Instruction) -> Result<(), WqIoError> {
         self.ops += 1;
         self.max_stack_len = self.max_stack_len.max(vm.stack.len());
         self.max_call_depth = self.max_call_depth.max(vm.locals.len());
@@ -141,7 +173,7 @@ impl InstructionArt {
         let signal = signal_for(op);
         self.last_label = signal.label;
         if self.mode == RenderMode::Off {
-            return;
+            return Ok(());
         }
 
         self.fade();
@@ -158,20 +190,20 @@ impl InstructionArt {
         if self.mode == RenderMode::Animated
             && (self.ops == 1 || self.ops.is_multiple_of(FRAME_INTERVAL))
         {
-            self.render();
+            self.render(vm)?;
         }
+        Ok(())
     }
 
-    fn finish(&mut self) {
+    fn finish(&mut self, vm: &Vm) -> Result<(), WqIoError> {
         if self.mode == RenderMode::Off || self.ops == 0 {
-            return;
+            return Ok(());
         }
-        self.render();
+        self.render(vm)?;
         if self.started {
-            let mut stderr = std::io::stderr().lock();
-            let _ = stderr.write_all(b"\x1b[?25h\n");
-            let _ = stderr.flush();
+            vm.write_stderr("\x1b[?25h\n")?;
         }
+        Ok(())
     }
 
     fn fade(&mut self) {
@@ -211,23 +243,22 @@ impl InstructionArt {
         }
     }
 
-    fn render(&mut self) {
+    fn render(&mut self, vm: &Vm) -> Result<(), WqIoError> {
         let frame = self.frame();
         let line_count = HEIGHT + 1;
-        let mut stderr = std::io::stderr().lock();
 
         if self.mode == RenderMode::Animated {
             if self.started {
-                let _ = write!(stderr, "\x1b[{line_count}F");
+                vm.write_stderr(&format!("\x1b[{line_count}F"))?;
             } else {
-                let _ = stderr.write_all(b"\x1b[?25l");
+                vm.write_stderr("\x1b[?25l")?;
                 self.started = true;
             }
         }
 
-        let _ = stderr.write_all(frame.as_bytes());
-        let _ = stderr.flush();
+        vm.write_stderr(&frame)?;
         self.frames += 1;
+        Ok(())
     }
 
     fn frame(&self) -> String {
@@ -561,28 +592,19 @@ fn hash_coord(seed: u64, len: usize) -> usize {
     usize::try_from(coord).expect("sampler coordinate fits in usize")
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn stderr_is_terminal() -> bool {
-    use std::io::IsTerminal as _;
-
-    std::io::stderr().is_terminal()
-}
-
-#[cfg(target_arch = "wasm32")]
-fn stderr_is_terminal() -> bool {
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ast::BinaryOperator;
+    use crate::session::stdio::WqOutput;
     use crate::vm::inst::Operand;
 
     impl SampleInterpreter {
         fn with_mode(mode: RenderMode) -> Self {
             Self {
                 art: RefCell::new(InstructionArt::new(mode, false)),
+                io_error: RefCell::new(None),
+                automatic: false,
             }
         }
     }
@@ -608,13 +630,53 @@ mod tests {
         assert_eq!(interpreter.art.borrow().last_label, "stack");
     }
 
+    struct FailingOutput;
+
+    impl WqOutput for FailingOutput {
+        fn write(&mut self, _text: &str) -> Result<(), WqIoError> {
+            Err(WqIoError::Other("closed sink".to_string()))
+        }
+    }
+
+    #[test]
+    fn sample_interpreter_propagates_session_output_errors() {
+        let insts = vec![Instruction::load_const(Value::Int(1)), Instruction::Return];
+        let len = insts.len();
+        let mut vm = Vm::new(insts);
+        vm.runtime_io.set_stderr(Box::new(FailingOutput));
+        let mut interpreter = SampleInterpreter::with_mode(RenderMode::FinalOnly);
+
+        let error = interpreter
+            .interpret(&mut vm, len)
+            .expect_err("sample renderer should propagate output failure");
+
+        assert_eq!(error.err_type, WqErrorType::Io);
+        assert!(error.to_string().contains("closed sink"));
+    }
+
+    #[test]
+    fn automatic_render_policy_uses_the_session_stderr_capability() {
+        assert_eq!(
+            InstructionArt::configured(None, false, false).mode,
+            RenderMode::FinalOnly
+        );
+        assert_eq!(
+            InstructionArt::configured(None, true, true).mode,
+            RenderMode::Animated
+        );
+        assert_eq!(
+            InstructionArt::configured(Some("force"), false, false).mode,
+            RenderMode::Animated
+        );
+    }
+
     #[test]
     fn binary_ops_paint_yellow_pixels() {
         let mut art = InstructionArt::new(RenderMode::FinalOnly, false);
         let vm = Vm::new(Vec::new());
         let op = Instruction::binary_op(BinaryOperator::Add, Operand::Stack, Operand::Stack);
 
-        art.observe(&vm, 7, &op);
+        art.observe(&vm, 7, &op).expect("render sample");
 
         assert_eq!(art.ops, 1);
         assert_eq!(art.last_label, "op");
@@ -639,8 +701,8 @@ mod tests {
         let mut b = InstructionArt::new(RenderMode::FinalOnly, false);
 
         for (idx, inst) in insts.iter().enumerate() {
-            a.observe(&vm, idx, inst);
-            b.observe(&vm, idx, inst);
+            a.observe(&vm, idx, inst).expect("render first sample");
+            b.observe(&vm, idx, inst).expect("render second sample");
         }
 
         assert_eq!(a.frame(), b.frame());
@@ -652,7 +714,7 @@ mod tests {
         let vm = Vm::new(Vec::new());
         let op = Instruction::binary_op(BinaryOperator::Add, Operand::Stack, Operand::Stack);
 
-        art.observe(&vm, 7, &op);
+        art.observe(&vm, 7, &op).expect("render sample");
         let frame = art.frame();
 
         assert!(!frame.contains("wq sample art"));

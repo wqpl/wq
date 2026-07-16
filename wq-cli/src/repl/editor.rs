@@ -9,13 +9,13 @@ use wq_rl::validate::{ValidationContext, ValidationResult, Validator};
 use wq_rl::{Context as RLContext, Helper};
 use wqpl::builtins::BuiltinPreset;
 use wqpl::doc::{self, DocKind};
+use wqpl::frontend::Frontend;
 use wqpl::highlight::{Highlighter, cursor_context_at};
 use wqpl::interpret::InterpreterKind;
-use wqpl::session::Session;
 use wqpl::session::dbglog::DEBUG_LOG_FLAG_NAMES;
-use wqpl::session::stdio::{WqGlobalHint, WqInputMode};
 
 use super::command::{self, ReplArgKind};
+use super::input::{WqGlobalHint, WqInputMode};
 use crate::load::embed::embedded_aliases;
 use crate::wqdb::editor as wqdb_editor;
 
@@ -71,6 +71,7 @@ impl RLHint for WqHint {
 }
 
 pub struct WqReplHighlighter {
+    frontend: Frontend,
     highlighter: Highlighter,
     path_completer: FilenameCompleter,
     enabled: bool,
@@ -95,6 +96,7 @@ impl WqReplHighlighter {
     pub fn new() -> Self {
         let (repl_names, repl_descs) = command::repl_hint_vectors();
         Self {
+            frontend: Frontend::default(),
             highlighter: Highlighter::new(),
             path_completer: FilenameCompleter::new(),
             enabled: true,
@@ -137,6 +139,11 @@ impl WqReplHighlighter {
     pub fn set_builtin_hints(&mut self, names: Vec<String>, usages: Vec<String>) {
         self.builtin_names = names;
         self.builtin_usages = usages;
+    }
+
+    pub fn set_builtins_preset(&mut self, preset: BuiltinPreset) {
+        self.frontend = Frontend::with_preset(preset);
+        self.highlighter = Highlighter::with_preset(preset);
     }
 
     pub fn set_global_hints(&mut self, hints: Vec<WqGlobalHint>) {
@@ -574,7 +581,7 @@ impl WqReplHighlighter {
         if !text.contains('{') && !text.contains('\'') {
             return Vec::new();
         }
-        Session::new()
+        self.frontend
             .analyze_symbols(text)
             .map(|index| index.semantic_highlight_spans())
             .unwrap_or_default()
@@ -789,7 +796,7 @@ impl Validator for WqReplHighlighter {
         if input.trim_start().starts_with('\\') {
             return Ok(ValidationResult::Valid(None));
         }
-        if Session::is_complete_input(input) {
+        if self.frontend.is_complete_input(input) {
             Ok(ValidationResult::Valid(None))
         } else {
             Ok(ValidationResult::Incomplete(Some("... ".to_string())))
@@ -933,6 +940,16 @@ mod tests {
 
         assert!(out.contains("\x1b[38;5;215mx"));
         assert_eq!(strip_ansi(&out), src);
+    }
+
+    #[test]
+    fn builtin_preset_updates_parsing_and_highlighting() {
+        let mut h = WqReplHighlighter::new();
+
+        h.set_builtins_preset(BuiltinPreset::Minimal);
+
+        assert!(!h.frontend.builtins().is_enabled_name("print"));
+        assert!(h.highlight_text("print[]").contains("\x1b[38;5;117mprint"));
     }
 
     #[test]

@@ -2,24 +2,25 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use wqpl::session::stdio::set_wqstdin;
-use wqpl::session::{Session, dbglog};
+use wqpl::session::Session;
 
 use crate::arg::RuntimeFlags;
 use crate::display::{format_print_result, format_xray_info};
 use crate::load::{eval_inline_with_load, load_script};
 use crate::msg::{print_dry_run_status, print_load_error};
 use crate::repl::input::RustylineInput;
-use crate::wqdb::enter_wqdb_after_err;
-use crate::{apply_builtins_flag, apply_interpreter_flag, apply_seed_flag, wqdb_pause_handler};
+use crate::wqdb::{enter_wqdb_after_err, wqdb_shell};
+use crate::{apply_builtins_flag, apply_interpreter_flag, apply_seed_flag};
 
 pub fn exec_script<P: AsRef<Path>>(filename: P, args: Vec<String>, rtflags: RuntimeFlags) -> i32 {
     let mut evaluator = Session::new();
     evaluator.set_argv(args);
-    evaluator.set_pause_callback(Some(wqdb_pause_handler));
-    dbglog::set_debug_log_flags(rtflags.debug_flags);
-    evaluator.set_bt_mode(rtflags.bt);
-    set_wqstdin(Box::new(RustylineInput::new().unwrap()));
+    evaluator.set_debug_flags(rtflags.debug_flags);
+    evaluator.set_backtrace_enabled(rtflags.bt);
+    let editor = RustylineInput::new().expect("debugger editor should initialize");
+    evaluator.set_input(Box::new(editor.clone()));
+    let debugger_editor = editor.clone();
+    evaluator.set_pause_handler(move |_event, debugger| wqdb_shell(debugger, &debugger_editor));
     evaluator.set_wqdb(rtflags.wqdb);
     if !rtflags.wqdb_cmds.is_empty() {
         evaluator.set_wqdb_batch_cmds(rtflags.wqdb_cmds.clone());
@@ -51,7 +52,7 @@ pub fn exec_script<P: AsRef<Path>>(filename: P, args: Vec<String>, rtflags: Runt
         Err(err) => {
             print_load_error(&err, &mut evaluator);
             if evaluator.is_wqdb_enabled() && err.is_runtime() {
-                enter_wqdb_after_err(&mut evaluator);
+                enter_wqdb_after_err(&mut evaluator, &editor);
             }
             1
         }
@@ -61,10 +62,12 @@ pub fn exec_script<P: AsRef<Path>>(filename: P, args: Vec<String>, rtflags: Runt
 pub fn exec_cmd(content: &str, args: Vec<String>, rtflags: RuntimeFlags) -> i32 {
     let mut session = Session::new();
     session.set_argv(args);
-    session.set_pause_callback(Some(wqdb_pause_handler));
-    dbglog::set_debug_log_flags(rtflags.debug_flags);
-    session.set_bt_mode(rtflags.bt);
-    set_wqstdin(Box::new(RustylineInput::new().unwrap()));
+    session.set_debug_flags(rtflags.debug_flags);
+    session.set_backtrace_enabled(rtflags.bt);
+    let editor = RustylineInput::new().expect("debugger editor should initialize");
+    session.set_input(Box::new(editor.clone()));
+    let debugger_editor = editor.clone();
+    session.set_pause_handler(move |_event, debugger| wqdb_shell(debugger, &debugger_editor));
     session.set_wqdb(rtflags.wqdb);
     if !rtflags.wqdb_cmds.is_empty() {
         session.set_wqdb_batch_cmds(rtflags.wqdb_cmds.clone());
@@ -97,7 +100,7 @@ pub fn exec_cmd(content: &str, args: Vec<String>, rtflags: RuntimeFlags) -> i32 
         Err(err) => {
             print_load_error(&err, &mut session);
             if session.is_wqdb_enabled() && err.is_runtime() {
-                enter_wqdb_after_err(&mut session);
+                enter_wqdb_after_err(&mut session, &editor);
             }
             1
         }

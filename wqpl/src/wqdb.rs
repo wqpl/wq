@@ -1,4 +1,4 @@
-pub mod build;
+pub(crate) mod build;
 pub mod data;
 pub mod model;
 
@@ -6,19 +6,21 @@ use std::collections::{HashMap, HashSet};
 
 use unicode_width::UnicodeWidthChar as _;
 
-use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
+use crate::debugger::PauseReason;
+use crate::session::dbglog::{DebugLog, DebugLogFlags};
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
-use crate::vm::Vm;
 use crate::wqdb::data::{CodeLoc, DebugInfo};
 use crate::wqdb::model::{
-    Breakpoint, BreakpointKind, StepGranularity, StepMode, StopHook, SymbolTrackTarget,
-    SymbolTracker,
+    Breakpoint, BreakpointKind, SourceBreakpoint, StepGranularity, StepMode, StopHook,
+    SymbolTrackTarget, SymbolTracker,
 };
 
-pub struct Wqdb {
-    pub enabled: bool,
-    pub breaks: HashMap<CodeLoc, Breakpoint>,
-    pub next_break_id: usize,
+pub(crate) struct Wqdb {
+    enabled: bool,
+    breaks: HashMap<CodeLoc, Breakpoint>,
+    source_breakpoints: HashMap<String, Vec<SourceBreakpoint>>,
+    resolved_source_breakpoints: Vec<SourceBreakpoint>,
+    next_break_id: usize,
     temps: HashSet<CodeLoc>,
     mode: StepMode,
     granularity: StepGranularity,
@@ -29,8 +31,7 @@ pub struct Wqdb {
     next_symbol_tracker_id: usize,
     stop_hooks: Vec<StopHook>,
     next_stop_hook_id: usize,
-    pub on_pause: Option<fn(&mut Vm)>,
-    pub batch_cmds: Vec<String>,
+    batch_cmds: Vec<String>,
 }
 
 impl Default for Wqdb {
@@ -38,6 +39,8 @@ impl Default for Wqdb {
         Self {
             enabled: false,
             breaks: HashMap::new(),
+            source_breakpoints: HashMap::new(),
+            resolved_source_breakpoints: Vec::new(),
             next_break_id: 1,
             temps: HashSet::new(),
             mode: StepMode::None,
@@ -49,29 +52,62 @@ impl Default for Wqdb {
             next_symbol_tracker_id: 1,
             stop_hooks: Vec::new(),
             next_stop_hook_id: 1,
-            on_pause: None,
             batch_cmds: Vec::new(),
         }
     }
 }
 
 impl Wqdb {
-    pub fn clear_mode(&mut self) {
+    pub(crate) fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub(crate) fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    pub(crate) fn replace_batch_commands(&mut self, commands: Vec<String>) {
+        self.batch_cmds = commands;
+    }
+
+    pub(crate) fn take_batch_commands(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.batch_cmds)
+    }
+
+    pub(crate) fn reset_execution_state(&mut self) {
+        let enabled = self.enabled;
+        let batch_cmds = std::mem::take(&mut self.batch_cmds);
+        *self = Self {
+            enabled,
+            batch_cmds,
+            ..Self::default()
+        };
+    }
+
+    pub(crate) fn clear_mode(&mut self) {
         self.mode = StepMode::None;
         self.current_pause = None;
     }
 
-    fn alloc_breakpoint(&mut self, kind: BreakpointKind) -> Breakpoint {
+    fn alloc_breakpoint_id(&mut self) -> usize {
         let id = self.next_break_id;
         self.next_break_id += 1;
+        id
+    }
+
+    fn alloc_breakpoint(&mut self, kind: BreakpointKind) -> Breakpoint {
         Breakpoint {
-            id,
+            id: self.alloc_breakpoint_id(),
             enabled: true,
             kind,
         }
     }
 
-    pub fn ensure_breakpoint(&mut self, loc: CodeLoc, kind: BreakpointKind) -> &mut Breakpoint {
+    pub(crate) fn ensure_breakpoint(
+        &mut self,
+        loc: CodeLoc,
+        kind: BreakpointKind,
+    ) -> &mut Breakpoint {
         if !self.breaks.contains_key(&loc) {
             let bp = self.alloc_breakpoint(kind);
             self.breaks.insert(loc, bp);
@@ -81,41 +117,184 @@ impl Wqdb {
             .expect("breakpoint must exist after insertion")
     }
 
-    pub fn pause_break_enabled(&mut self, loc: CodeLoc) -> bool {
-        self.ensure_breakpoint(loc, BreakpointKind::Pause).enabled
+    pub(crate) fn clear_breakpoint(&mut self, loc: CodeLoc) {
+        self.breaks.remove(&loc);
+    }
+
+    pub(crate) fn replace_source_breakpoints(
+        &mut self,
+        debug_info: &DebugInfo,
+        source_path: &str,
+        lines: &[usize],
+    ) -> Vec<SourceBreakpoint> {
+        if let Some(previous) = self.source_breakpoints.remove(source_path) {
+            let previous_ids = previous
+                .into_iter()
+                .map(|breakpoint| breakpoint.id)
+                .collect::<HashSet<_>>();
+            self.resolved_source_breakpoints
+                .retain(|breakpoint| !previous_ids.contains(&breakpoint.id));
+        }
+
+        let mut breakpoints = Vec::new();
+        for &requested_line in lines {
+            if breakpoints
+                .iter()
+                .any(|breakpoint: &SourceBreakpoint| breakpoint.requested_line == requested_line)
+            {
+                continue;
+            }
+            breakpoints.push(SourceBreakpoint {
+                id: self.alloc_breakpoint_id(),
+                source_path: source_path.to_string(),
+                requested_line,
+                location: None,
+            });
+        }
+        if !breakpoints.is_empty() {
+            self.source_breakpoints
+                .insert(source_path.to_string(), breakpoints);
+            self.resolve_source_breakpoints_inner(debug_info, false);
+        }
+
+        let Some(breakpoints) = self.source_breakpoints.get(source_path) else {
+            return Vec::new();
+        };
+        lines
+            .iter()
+            .filter_map(|line| {
+                breakpoints
+                    .iter()
+                    .find(|breakpoint| breakpoint.requested_line == *line)
+                    .cloned()
+            })
+            .collect()
+    }
+
+    pub(crate) fn resolve_source_breakpoints(&mut self, debug_info: &DebugInfo) {
+        self.resolve_source_breakpoints_inner(debug_info, true);
+    }
+
+    fn resolve_source_breakpoints_inner(&mut self, debug_info: &DebugInfo, notify: bool) {
+        let resolutions = self
+            .source_breakpoints
+            .values()
+            .flatten()
+            .filter(|breakpoint| breakpoint.location.is_none())
+            .filter_map(|breakpoint| {
+                resolve_source_line(
+                    debug_info,
+                    &breakpoint.source_path,
+                    breakpoint.requested_line,
+                )
+                .map(|location| (breakpoint.id, location))
+            })
+            .collect::<Vec<_>>();
+
+        for (id, location) in resolutions {
+            let Some(breakpoint) = self
+                .source_breakpoints
+                .values_mut()
+                .flatten()
+                .find(|breakpoint| breakpoint.id == id)
+            else {
+                continue;
+            };
+            breakpoint.location = Some(location);
+            if notify {
+                self.resolved_source_breakpoints.push(breakpoint.clone());
+            }
+        }
+    }
+
+    pub(crate) fn take_resolved_source_breakpoints(&mut self) -> Vec<SourceBreakpoint> {
+        std::mem::take(&mut self.resolved_source_breakpoints)
+    }
+
+    pub(crate) fn toggle_breakpoint_at(&mut self, loc: CodeLoc) -> bool {
+        if let Some(breakpoint) = self.breaks.get_mut(&loc) {
+            breakpoint.enabled = !breakpoint.enabled;
+            breakpoint.enabled
+        } else {
+            self.ensure_breakpoint(loc, BreakpointKind::Persistent);
+            true
+        }
+    }
+
+    pub(crate) fn toggle_breakpoint_by_id(&mut self, id: usize) -> Option<bool> {
+        let breakpoint = self
+            .breaks
+            .values_mut()
+            .find(|breakpoint| breakpoint.id == id)?;
+        breakpoint.enabled = !breakpoint.enabled;
+        Some(breakpoint.enabled)
+    }
+
+    pub(crate) fn toggle_all_breakpoints(&mut self) -> bool {
+        let new_state = self.breaks.values().any(|breakpoint| !breakpoint.enabled);
+        for breakpoint in self.breaks.values_mut() {
+            breakpoint.enabled = new_state;
+        }
+        new_state
+    }
+
+    pub(crate) fn breakpoints(&self) -> Vec<(usize, bool, CodeLoc)> {
+        let mut breakpoints = self
+            .breaks
+            .iter()
+            .map(|(location, breakpoint)| (breakpoint.id, breakpoint.enabled, *location))
+            .collect::<Vec<_>>();
+        breakpoints.sort_by_key(|(id, _, _)| *id);
+        breakpoints
+    }
+
+    pub(crate) fn explicit_pause_id(&mut self, loc: CodeLoc) -> Option<usize> {
+        let breakpoint = self.ensure_breakpoint(loc, BreakpointKind::Pause);
+        breakpoint.enabled.then_some(breakpoint.id)
     }
 
     #[inline]
-    pub fn should_pause_at(&self, di: &DebugInfo, here: CodeLoc, call_depth: usize) -> bool {
+    pub(crate) fn pause_reason_at(
+        &self,
+        di: &DebugInfo,
+        here: CodeLoc,
+        call_depth: usize,
+        debug_log: Option<&DebugLog>,
+    ) -> Option<PauseReason> {
         if !self.enabled {
-            return false;
+            return None;
         }
         if self.last_pause.is_none() && here.pc == 0 && call_depth == 0 {
-            return true;
+            return Some(PauseReason::Entry);
         }
-        if let Some(bp) = self.breaks.get(&here) {
-            if !bp.enabled {
-                return false;
-            }
-            if bp.kind == BreakpointKind::Pause {
-                return false;
-            }
-            if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-                eprintln!(
+        if let Some(bp) = self.breaks.get(&here)
+            && bp.enabled
+            && bp.kind != BreakpointKind::Pause
+        {
+            if let Some(debug_log) = debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB)) {
+                debug_log.emit_line(format!(
                     "[wqdb]: pausing at persistent breakpoint {}: chunk {:?} pc {}",
                     bp.id, here.chunk, here.pc
-                );
+                ));
             }
-            return true;
+            return Some(PauseReason::Breakpoint { id: bp.id });
+        }
+        if let Some(breakpoint) = self
+            .source_breakpoints
+            .values()
+            .flatten()
+            .find(|breakpoint| breakpoint.location == Some(here))
+        {
+            return Some(PauseReason::Breakpoint { id: breakpoint.id });
         }
         if self.temps.contains(&here) {
-            if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-                eprintln!(
+            if let Some(debug_log) = debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB)) {
+                debug_log.emit_line(format!(
                     "[wqdb]: pausing at temp breakpoint: chunk {:?} pc {}",
                     here.chunk, here.pc
-                );
+                ));
             }
-            return true;
+            return Some(PauseReason::TemporaryBreakpoint);
         }
         let meta = di.chunk(here.chunk);
         let is_stmt = meta.line_table.is_stmt(here.pc);
@@ -126,12 +305,13 @@ impl Wqdb {
             StepGranularity::Expr => is_stmt,
             StepGranularity::Inst => true,
         };
-        match self.mode {
+        let should_pause = match self.mode {
             StepMode::None => false,
             StepMode::In => is_step_point,
             StepMode::Over => call_depth <= self.base_depth && is_step_point,
             StepMode::Out => call_depth < self.base_depth && is_step_point,
-        }
+        };
+        should_pause.then_some(PauseReason::Step)
     }
 
     fn is_same_line_as_last_pause(&self, di: &DebugInfo, here: CodeLoc, call_depth: usize) -> bool {
@@ -170,7 +350,7 @@ impl Wqdb {
         Some((span.file_id, file.line_col(span.start).0))
     }
 
-    pub fn note_pause(&mut self, loc: CodeLoc) {
+    pub(crate) fn note_pause(&mut self, loc: CodeLoc) {
         self.last_pause = Some(loc);
         self.current_pause = Some(loc);
         self.temps.clear();
@@ -178,51 +358,50 @@ impl Wqdb {
         // transitions
     }
 
-    pub fn req_in(&mut self, depth: usize) {
+    pub(crate) fn req_in(&mut self, depth: usize) {
         self.mode = StepMode::In;
         self.base_depth = depth;
         self.current_pause = None;
     }
 
-    pub fn req_over(&mut self, depth: usize) {
+    pub(crate) fn req_over(&mut self, depth: usize) {
         self.mode = StepMode::Over;
         self.base_depth = depth;
         self.current_pause = None;
     }
 
-    pub fn req_out(&mut self, depth: usize) {
+    pub(crate) fn req_out(&mut self, depth: usize) {
         self.mode = StepMode::Out;
         self.base_depth = depth;
         self.current_pause = None;
     }
 
-    pub fn pause_loc(&self) -> Option<CodeLoc> {
+    pub(crate) fn pause_loc(&self) -> Option<CodeLoc> {
         self.current_pause
     }
 
-    pub fn add_temp_break(&mut self, loc: CodeLoc) {
-        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-            eprintln!(
+    pub(crate) fn add_temp_break(&mut self, loc: CodeLoc, debug_log: Option<&DebugLog>) {
+        if let Some(debug_log) = debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB)) {
+            debug_log.emit_line(format!(
                 "[wqdb]: adding temp break at chunk {:?} pc {}",
                 loc.chunk, loc.pc
-            );
+            ));
         }
         self.temps.insert(loc);
     }
 
-    pub fn mode(&self) -> StepMode {
-        self.mode
-    }
-
-    pub fn granularity(&self) -> StepGranularity {
+    pub(crate) fn granularity(&self) -> StepGranularity {
         self.granularity
     }
 
-    pub fn set_granularity(&mut self, granularity: StepGranularity) {
+    pub(crate) fn set_granularity(&mut self, granularity: StepGranularity) {
         self.granularity = granularity;
     }
 
-    pub fn ensure_symbol_tracker(&mut self, target: SymbolTrackTarget) -> (&SymbolTracker, bool) {
+    pub(crate) fn ensure_symbol_tracker(
+        &mut self,
+        target: SymbolTrackTarget,
+    ) -> (&SymbolTracker, bool) {
         if let Some(index) = self
             .symbol_trackers
             .iter()
@@ -245,26 +424,26 @@ impl Wqdb {
         )
     }
 
-    pub fn symbol_trackers(&self) -> &[SymbolTracker] {
+    pub(crate) fn symbol_trackers(&self) -> &[SymbolTracker] {
         &self.symbol_trackers
     }
 
     #[inline]
-    pub fn has_symbol_trackers(&self) -> bool {
+    pub(crate) fn has_symbol_trackers(&self) -> bool {
         self.symbol_trackers.iter().any(|tracker| tracker.enabled)
     }
 
-    pub fn remove_symbol_tracker(&mut self, id: usize) -> bool {
+    pub(crate) fn remove_symbol_tracker(&mut self, id: usize) -> bool {
         let old_len = self.symbol_trackers.len();
         self.symbol_trackers.retain(|tracker| tracker.id != id);
         self.symbol_trackers.len() != old_len
     }
 
-    pub fn clear_symbol_trackers(&mut self) {
+    pub(crate) fn clear_symbol_trackers(&mut self) {
         self.symbol_trackers.clear();
     }
 
-    pub fn add_stop_hook(&mut self, command: String) -> &StopHook {
+    pub(crate) fn add_stop_hook(&mut self, command: String) -> &StopHook {
         let id = self.next_stop_hook_id;
         self.next_stop_hook_id += 1;
         self.stop_hooks.push(StopHook {
@@ -275,11 +454,11 @@ impl Wqdb {
         self.stop_hooks.last().expect("stop hook was just inserted")
     }
 
-    pub fn stop_hooks(&self) -> &[StopHook] {
+    pub(crate) fn stop_hooks(&self) -> &[StopHook] {
         &self.stop_hooks
     }
 
-    pub fn stop_hook_commands(&self) -> Vec<(usize, String)> {
+    pub(crate) fn stop_hook_commands(&self) -> Vec<(usize, String)> {
         self.stop_hooks
             .iter()
             .filter(|hook| hook.enabled)
@@ -287,26 +466,33 @@ impl Wqdb {
             .collect()
     }
 
-    pub fn remove_stop_hook(&mut self, id: usize) -> bool {
+    pub(crate) fn remove_stop_hook(&mut self, id: usize) -> bool {
         let old_len = self.stop_hooks.len();
         self.stop_hooks.retain(|hook| hook.id != id);
         self.stop_hooks.len() != old_len
     }
 
-    pub fn clear_stop_hooks(&mut self) {
+    pub(crate) fn clear_stop_hooks(&mut self) {
         self.stop_hooks.clear();
     }
 }
 
-pub fn format_span_snippet(
-    sf: &crate::wqdb::data::SourceFile,
-    start_byte: usize,
-    end_byte: usize,
-) -> String {
-    format_span_snippet_with_color_mode(sf, start_byte, end_byte, ColorMode::Auto)
+fn resolve_source_line(
+    debug_info: &DebugInfo,
+    source_path: &str,
+    requested_line: usize,
+) -> Option<CodeLoc> {
+    let mut file_ids = debug_info.file_ids_by_path(source_path);
+    file_ids.sort_unstable();
+    file_ids.into_iter().find_map(|file_id| {
+        debug_info
+            .resolve_line(file_id, requested_line)
+            .first()
+            .copied()
+    })
 }
 
-pub fn format_span_snippet_with_color_mode(
+pub fn format_span_snippet(
     sf: &crate::wqdb::data::SourceFile,
     start_byte: usize,
     end_byte: usize,
@@ -372,11 +558,7 @@ fn terminal_text_width(text: &str, start_column: usize) -> usize {
     column - start_column
 }
 
-pub fn format_frame(di: &DebugInfo, loc: CodeLoc, name: &str, is_last: bool) -> String {
-    format_frame_with_color_mode(di, loc, name, is_last, ColorMode::Auto)
-}
-
-pub fn format_frame_with_color_mode(
+pub fn format_frame(
     di: &DebugInfo,
     loc: CodeLoc,
     name: &str,
@@ -600,8 +782,14 @@ mod tests {
         wqdb.note_pause(CodeLoc { chunk, pc: 0 });
         wqdb.req_in(0);
 
-        assert!(!wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 2 }, 0));
-        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 3 }, 0));
+        assert!(
+            wqdb.pause_reason_at(&di, CodeLoc { chunk, pc: 2 }, 0, None)
+                .is_none()
+        );
+        assert_eq!(
+            wqdb.pause_reason_at(&di, CodeLoc { chunk, pc: 3 }, 0, None),
+            Some(PauseReason::Step)
+        );
     }
 
     #[test]
@@ -615,7 +803,10 @@ mod tests {
         wqdb.note_pause(CodeLoc { chunk, pc: 0 });
         wqdb.req_in(0);
 
-        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 2 }, 1));
+        assert_eq!(
+            wqdb.pause_reason_at(&di, CodeLoc { chunk, pc: 2 }, 1, None),
+            Some(PauseReason::Step)
+        );
     }
 
     #[test]
@@ -628,9 +819,18 @@ mod tests {
         wqdb.note_pause(CodeLoc { chunk, pc: 0 });
         wqdb.req_in(0);
 
-        assert!(!wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 1 }, 0));
-        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 2 }, 0));
-        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 0 }, 0));
+        assert!(
+            wqdb.pause_reason_at(&di, CodeLoc { chunk, pc: 1 }, 0, None)
+                .is_none()
+        );
+        assert_eq!(
+            wqdb.pause_reason_at(&di, CodeLoc { chunk, pc: 2 }, 0, None),
+            Some(PauseReason::Step)
+        );
+        assert_eq!(
+            wqdb.pause_reason_at(&di, CodeLoc { chunk, pc: 0 }, 0, None),
+            Some(PauseReason::Step)
+        );
     }
 
     #[test]
@@ -644,7 +844,10 @@ mod tests {
         wqdb.note_pause(CodeLoc { chunk, pc: 0 });
         wqdb.req_in(0);
 
-        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 1 }, 0));
+        assert_eq!(
+            wqdb.pause_reason_at(&di, CodeLoc { chunk, pc: 1 }, 0, None),
+            Some(PauseReason::Step)
+        );
     }
 
     #[test]
@@ -658,8 +861,14 @@ mod tests {
         wqdb.note_pause(CodeLoc { chunk, pc: 0 });
         wqdb.req_over(0);
 
-        assert!(!wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 1 }, 1));
-        assert!(wqdb.should_pause_at(&di, CodeLoc { chunk, pc: 1 }, 0));
+        assert!(
+            wqdb.pause_reason_at(&di, CodeLoc { chunk, pc: 1 }, 1, None)
+                .is_none()
+        );
+        assert_eq!(
+            wqdb.pause_reason_at(&di, CodeLoc { chunk, pc: 1 }, 0, None),
+            Some(PauseReason::Step)
+        );
     }
 
     #[test]
@@ -679,17 +888,12 @@ mod tests {
                     end: 9,
                 }],
                 0,
+                None,
             );
             di.chunk_mut(chunk).note_debug_spans(spans.0, spans.1);
         }
 
-        let rendered = format_frame_with_color_mode(
-            &di,
-            CodeLoc { chunk, pc: 1 },
-            "a",
-            true,
-            ColorMode::Always,
-        );
+        let rendered = format_frame(&di, CodeLoc { chunk, pc: 1 }, "a", true, ColorMode::Always);
 
         assert!(rendered.contains("2 -> "), "frame was: {rendered}");
         assert!(rendered.contains("1/0"), "frame was: {rendered}");
@@ -700,7 +904,7 @@ mod tests {
     fn span_snippet_plain_underline_aligns_with_source() {
         let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "abc\n");
 
-        let rendered = format_span_snippet_with_color_mode(&source, 1, 2, ColorMode::Never);
+        let rendered = format_span_snippet(&source, 1, 2, ColorMode::Never);
 
         assert_eq!(rendered, "  1 -> abc\n        ~");
     }
@@ -709,7 +913,7 @@ mod tests {
     fn span_snippet_plain_underline_counts_unicode_columns() {
         let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "αβγ\n");
 
-        let rendered = format_span_snippet_with_color_mode(&source, 2, 4, ColorMode::Never);
+        let rendered = format_span_snippet(&source, 2, 4, ColorMode::Never);
 
         assert_eq!(rendered, "  1 -> αβγ\n        ~");
     }
@@ -718,7 +922,7 @@ mod tests {
     fn span_snippet_plain_underline_uses_terminal_width() {
         let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "界a\n");
 
-        let rendered = format_span_snippet_with_color_mode(&source, 3, 4, ColorMode::Never);
+        let rendered = format_span_snippet(&source, 3, 4, ColorMode::Never);
 
         assert_eq!(rendered, "  1 -> 界a\n         ~");
     }
@@ -727,7 +931,7 @@ mod tests {
     fn span_snippet_clamps_multiline_span_to_the_first_displayed_line() {
         let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "a:1\nb:2\n");
 
-        let rendered = format_span_snippet_with_color_mode(&source, 0, 7, ColorMode::Never);
+        let rendered = format_span_snippet(&source, 0, 7, ColorMode::Never);
 
         assert_eq!(rendered, "  1 -> a:1\n       ~~~");
     }
@@ -736,7 +940,7 @@ mod tests {
     fn span_snippet_plain_underline_expands_tabs_from_the_source_column() {
         let source = crate::wqdb::data::SourceFile::new(0, "wq[test]", "  \ta:1\n");
 
-        let rendered = format_span_snippet_with_color_mode(&source, 3, 6, ColorMode::Never);
+        let rendered = format_span_snippet(&source, 3, 6, ColorMode::Never);
 
         assert_eq!(rendered, "  1 ->   \ta:1\n                ~~~");
     }
@@ -798,11 +1002,94 @@ mod tests {
             ..Wqdb::default()
         };
 
-        wqdb.pause_break_enabled(loc);
-        assert!(!wqdb.should_pause_at(&di, loc, 0));
+        assert!(wqdb.explicit_pause_id(loc).is_some());
+        assert!(wqdb.pause_reason_at(&di, loc, 0, None).is_none());
 
         let persistent = CodeLoc { chunk, pc: 0 };
-        wqdb.ensure_breakpoint(persistent, BreakpointKind::Persistent);
-        assert!(wqdb.should_pause_at(&di, persistent, 1));
+        let id = wqdb
+            .ensure_breakpoint(persistent, BreakpointKind::Persistent)
+            .id;
+        assert_eq!(
+            wqdb.pause_reason_at(&di, persistent, 1, None),
+            Some(PauseReason::Breakpoint { id })
+        );
+    }
+
+    #[test]
+    fn temporary_breakpoint_wins_over_disabled_persistent_breakpoint_at_same_location() {
+        let location = CodeLoc {
+            chunk: ChunkId(2),
+            pc: 3,
+        };
+        let mut wqdb = Wqdb {
+            enabled: true,
+            ..Wqdb::default()
+        };
+        wqdb.ensure_breakpoint(location, BreakpointKind::Persistent);
+        assert!(!wqdb.toggle_breakpoint_at(location));
+        wqdb.add_temp_break(location, None);
+
+        assert_eq!(
+            wqdb.pause_reason_at(&DebugInfo::default(), location, 1, None),
+            Some(PauseReason::TemporaryBreakpoint)
+        );
+    }
+
+    #[test]
+    fn temporary_breakpoint_wins_over_pause_marker_at_same_location() {
+        let location = CodeLoc {
+            chunk: ChunkId(2),
+            pc: 3,
+        };
+        let mut wqdb = Wqdb {
+            enabled: true,
+            ..Wqdb::default()
+        };
+        assert!(wqdb.explicit_pause_id(location).is_some());
+        wqdb.add_temp_break(location, None);
+
+        assert_eq!(
+            wqdb.pause_reason_at(&DebugInfo::default(), location, 1, None),
+            Some(PauseReason::TemporaryBreakpoint)
+        );
+    }
+
+    #[test]
+    fn reset_execution_state_preserves_only_host_configuration() {
+        let loc = CodeLoc {
+            chunk: ChunkId(7),
+            pc: 11,
+        };
+        let mut wqdb = Wqdb {
+            enabled: true,
+            batch_cmds: vec!["where".to_string(), "continue".to_string()],
+            ..Wqdb::default()
+        };
+        wqdb.ensure_breakpoint(loc, BreakpointKind::Persistent);
+        wqdb.add_temp_break(loc, None);
+        wqdb.set_granularity(StepGranularity::Inst);
+        wqdb.req_over(4);
+        wqdb.note_pause(loc);
+        wqdb.ensure_symbol_tracker(SymbolTrackTarget::Global {
+            name: "value".to_string(),
+        });
+        wqdb.add_stop_hook("echo value".to_string());
+
+        wqdb.reset_execution_state();
+
+        assert!(wqdb.enabled);
+        assert_eq!(wqdb.batch_cmds, ["where", "continue"]);
+        assert!(wqdb.breaks.is_empty());
+        assert!(wqdb.temps.is_empty());
+        assert_eq!(wqdb.mode, StepMode::None);
+        assert_eq!(wqdb.granularity, StepGranularity::Expr);
+        assert_eq!(wqdb.base_depth, 0);
+        assert_eq!(wqdb.last_pause, None);
+        assert_eq!(wqdb.current_pause, None);
+        assert!(wqdb.symbol_trackers.is_empty());
+        assert_eq!(wqdb.next_symbol_tracker_id, 1);
+        assert!(wqdb.stop_hooks.is_empty());
+        assert_eq!(wqdb.next_stop_hook_id, 1);
+        assert_eq!(wqdb.next_break_id, 1);
     }
 }

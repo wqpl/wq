@@ -5,17 +5,22 @@
 //!   - int 1/sqrt(x^3 + a) dx  ->  first-kind elliptic integral
 
 use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_pow, expand_expr, numeric_div, numeric_is_one, numeric_is_zero,
-    numeric_mul, numeric_sub, poly_degree, poly_from_expr, simplify_cas_value,
+    CasDebug, cas_add, cas_div, cas_mul, cas_pow, expand_expr, numeric_div, numeric_is_one,
+    numeric_is_zero, numeric_mul, numeric_sub, poly_degree, poly_from_expr, simplify_cas_value,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 /// Strategy entry point: integrate elliptic integrals involving sqrt(cubic).
-pub(super) fn integrate_elliptic(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+pub(super) fn integrate_elliptic(
+    expr: &Value,
+    var: &str,
+    debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     let simplified = simplify_cas_value(expr)?;
     cas_trace!(
+        debug,
         DebugLogFlags::CAS,
         "[cas] elliptic enter: {}",
         simplified
@@ -27,12 +32,17 @@ pub(super) fn integrate_elliptic(expr: &Value, var: &str) -> WqResult<Option<Val
 
     if let Ok(Some(ref val)) = result {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] elliptic exit: {}",
             val.format_cas().unwrap_or_else(|| val.to_string())
         );
     } else {
-        cas_trace!(DebugLogFlags::CAS, "[cas] elliptic exit (not_elliptic)");
+        cas_trace!(
+            debug,
+            DebugLogFlags::CAS,
+            "[cas] elliptic exit (not_elliptic)"
+        );
     }
 
     result

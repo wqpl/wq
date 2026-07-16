@@ -1,10 +1,10 @@
 use num_bigint::BigInt;
 use num_traits::{Signed, Zero};
 
-use crate::cas::diff::diff_expr;
+use crate::cas::diff::diff_expr_with_debug;
 use crate::cas::{
-    cas_div, cas_product, contains_cas_var, numeric_is_negative, numeric_is_zero, poly_degree,
-    poly_from_expr, simplify_cas_value, substitute_cas,
+    CasDebug, cas_div, cas_product, contains_cas_var, numeric_is_negative, numeric_is_zero,
+    poly_degree, poly_from_expr, simplify_cas_value, substitute_cas,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -50,6 +50,16 @@ pub(crate) fn limit_cas(
     point: &Value,
     direction: Option<LimitDirection>,
 ) -> WqResult<Value> {
+    limit_cas_with_debug(expr, var, point, direction, CasDebug::disabled())
+}
+
+pub(crate) fn limit_cas_with_debug(
+    expr: &Value,
+    var: &Value,
+    point: &Value,
+    direction: Option<LimitDirection>,
+    debug: CasDebug<'_>,
+) -> WqResult<Value> {
     let expr = simplify_cas_value(expr)?;
     let point = canonical_limit_point(point);
     let dir_fmt = match direction {
@@ -58,14 +68,16 @@ pub(crate) fn limit_cas(
         None => "",
     };
     cas_trace!(
+        debug,
         DebugLogFlags::CAS,
         "[cas] limit enter: expr={} var={} point={} dir={dir_fmt}",
         expr.format_cas().unwrap_or_else(|| expr.to_string()),
         var.format_cas().unwrap_or_else(|| var.to_string()),
         point.format_cas().unwrap_or_else(|| point.to_string())
     );
-    let result = limit_cas_inner(&expr, var, &point, direction, 0)?;
+    let result = limit_cas_inner(&expr, var, &point, direction, 0, debug)?;
     cas_trace!(
+        debug,
         DebugLogFlags::CAS,
         "[cas] limit exit: {}",
         result.format_cas().unwrap_or_else(|| result.to_string())
@@ -91,8 +103,10 @@ fn limit_cas_inner(
     point: &Value,
     direction: Option<LimitDirection>,
     lhopital_depth: usize,
+    debug: CasDebug<'_>,
 ) -> WqResult<Value> {
     cas_trace_depth!(
+        debug,
         DebugLogFlags::CAS_VERBOSE,
         lhopital_depth,
         "[cas-v] limit_cas_inner enter lhopital_depth={lhopital_depth} expr={}",
@@ -103,6 +117,7 @@ fn limit_cas_inner(
         ($name:literal, $call:expr) => {
             if let Some(result) = $call? {
                 cas_trace_depth!(
+                    debug,
                     DebugLogFlags::CAS_VERBOSE,
                     lhopital_depth,
                     "[cas-v] limit_cas_inner strategy={} lhopital_depth={} -> success: {}",
@@ -113,6 +128,7 @@ fn limit_cas_inner(
                 return Ok(result);
             }
             cas_trace_depth!(
+                debug,
                 DebugLogFlags::CAS_VERBOSE,
                 lhopital_depth,
                 "[cas-v] limit_cas_inner strategy={} lhopital_depth={} -> failed",
@@ -131,11 +147,11 @@ fn limit_cas_inner(
     // inspect approach direction instead of using only their point value.
     try_strategy!(
         "finite_function",
-        try_finite_function_limit(expr, var, point, direction, lhopital_depth)
+        try_finite_function_limit(expr, var, point, direction, lhopital_depth, debug)
     );
     try_strategy!(
         "finite_power_domain",
-        try_finite_power_domain_limit(expr, var, point, direction, lhopital_depth)
+        try_finite_power_domain_limit(expr, var, point, direction, lhopital_depth, debug)
     );
 
     // Strategy 3: direct substitution.
@@ -144,7 +160,7 @@ fn limit_cas_inner(
     // Strategy 4: quotient composition when denominator has a non-zero limit.
     try_strategy!(
         "quotient",
-        try_quotient_limit(expr, var, point, direction, lhopital_depth)
+        try_quotient_limit(expr, var, point, direction, lhopital_depth, debug)
     );
 
     // Strategy 5: series expansion at point 0 (faster than L'Hopital).
@@ -156,10 +172,11 @@ fn limit_cas_inner(
     if lhopital_depth < MAX_LHOPITAL_DEPTH {
         try_strategy!(
             "lhopital",
-            try_lhopital(expr, var, point, direction, lhopital_depth)
+            try_lhopital(expr, var, point, direction, lhopital_depth, debug)
         );
     } else {
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             lhopital_depth,
             "[cas-v] limit_cas_inner strategy=lhopital lhopital_depth={lhopital_depth} -> skipped (max)"
@@ -172,12 +189,13 @@ fn limit_cas_inner(
     // Strategy 8: pole analysis: num/den where den->0, num->c!=0.
     try_strategy!(
         "pole",
-        try_pole_limit(expr, var, point, direction, lhopital_depth)
+        try_pole_limit(expr, var, point, direction, lhopital_depth, debug)
     );
 
     // Fallback: unevaluated limit node
     let fallback = Value::from_cas_limit(expr.clone(), var.clone(), point.clone(), direction);
     cas_trace_depth!(
+        debug,
         DebugLogFlags::CAS_VERBOSE,
         lhopital_depth,
         "[cas-v] limit_cas_inner exit lhopital_depth={lhopital_depth} -> unevaluated limit"
@@ -252,6 +270,7 @@ fn try_finite_function_limit(
     point: &Value,
     direction: Option<LimitDirection>,
     lhopital_depth: usize,
+    debug: CasDebug<'_>,
 ) -> WqResult<Option<Value>> {
     if matches!(
         point.cas_const(),
@@ -267,7 +286,7 @@ fn try_finite_function_limit(
         return Ok(None);
     };
 
-    let inner_limit = limit_cas_inner(arg, var, point, direction, lhopital_depth)?;
+    let inner_limit = limit_cas_inner(arg, var, point, direction, lhopital_depth, debug)?;
     match function {
         CasFunction::Abs => {
             if matches!(
@@ -338,6 +357,7 @@ fn try_finite_power_domain_limit(
     point: &Value,
     direction: Option<LimitDirection>,
     lhopital_depth: usize,
+    debug: CasDebug<'_>,
 ) -> WqResult<Option<Value>> {
     if matches!(
         point.cas_const(),
@@ -354,7 +374,7 @@ fn try_finite_power_domain_limit(
     if (&denom % BigInt::from(2)) != BigInt::zero() {
         return Ok(None);
     }
-    let base_limit = limit_cas_inner(base, var, point, direction, lhopital_depth)?;
+    let base_limit = limit_cas_inner(base, var, point, direction, lhopital_depth, debug)?;
     if !numeric_is_zero(&base_limit) {
         return Ok(None);
     }
@@ -407,14 +427,15 @@ fn try_quotient_limit(
     point: &Value,
     direction: Option<LimitDirection>,
     lhopital_depth: usize,
+    debug: CasDebug<'_>,
 ) -> WqResult<Option<Value>> {
     let Some((num, den)) = split_fraction(expr) else {
         return Ok(None);
     };
 
-    let den_limit = limit_cas_inner(&den, var, point, direction, lhopital_depth + 1)?;
+    let den_limit = limit_cas_inner(&den, var, point, direction, lhopital_depth + 1, debug)?;
     if den_limit.cas_const() == Some(CasConst::Undefined) {
-        let num_limit = limit_cas_inner(&num, var, point, direction, lhopital_depth + 1)?;
+        let num_limit = limit_cas_inner(&num, var, point, direction, lhopital_depth + 1, debug)?;
         if numeric_sign(&num_limit).is_some_and(|sign| sign != 0) {
             return Ok(Some(Value::from_cas_const(CasConst::Undefined)));
         }
@@ -425,7 +446,7 @@ fn try_quotient_limit(
         return Ok(None);
     }
 
-    let num_limit = limit_cas_inner(&num, var, point, direction, lhopital_depth + 1)?;
+    let num_limit = limit_cas_inner(&num, var, point, direction, lhopital_depth + 1, debug)?;
     if num_limit.cas_const() == Some(CasConst::Undefined) {
         return Ok(Some(num_limit));
     }
@@ -447,6 +468,7 @@ fn try_lhopital(
     point: &Value,
     direction: Option<LimitDirection>,
     depth: usize,
+    debug: CasDebug<'_>,
 ) -> WqResult<Option<Value>> {
     let var_name = var.cas_var_name().unwrap_or("x");
 
@@ -470,8 +492,8 @@ fn try_lhopital(
     }
 
     // Differentiate numerator and denominator.
-    let d_num = diff_expr(&num, var_name)?;
-    let d_den = diff_expr(&den, var_name)?;
+    let d_num = diff_expr_with_debug(&num, var_name, debug)?;
+    let d_den = diff_expr_with_debug(&den, var_name, debug)?;
 
     // Build the new quotient and recurse.
     let new_expr = simplify_cas_value(&Value::from_cas_op(CasOp::Divide, vec![d_num, d_den]))?;
@@ -482,6 +504,7 @@ fn try_lhopital(
         point,
         direction,
         depth + 1,
+        debug,
     )?))
 }
 
@@ -1395,6 +1418,7 @@ fn try_pole_limit(
     point: &Value,
     direction: Option<LimitDirection>,
     lhopital_depth: usize,
+    debug: CasDebug<'_>,
 ) -> WqResult<Option<Value>> {
     let (num, den) = match split_fraction(expr) {
         Some(pair) => pair,
@@ -1414,7 +1438,7 @@ fn try_pole_limit(
     }
 
     // Denominator must approach 0, not merely be 0 at the point.
-    let den_limit = limit_cas_inner(&den, var, point, direction, lhopital_depth + 1)?;
+    let den_limit = limit_cas_inner(&den, var, point, direction, lhopital_depth + 1, debug)?;
     if !numeric_is_zero(&den_limit) {
         return Ok(None);
     }

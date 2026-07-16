@@ -5,6 +5,7 @@ use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
 use crate::builtins::Builtins;
 use crate::interpret::vanilla::VanillaInterpreter;
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
+use crate::session::dbglog::DebugLog;
 use crate::style::{AnsiColor, ColorMode, TextStyle, paint};
 use crate::value::{Value, WqResult};
 use crate::vm::Vm;
@@ -66,58 +67,81 @@ impl Default for ProfilerInterpreter {
     }
 }
 
-impl Drop for ProfilerInterpreter {
-    fn drop(&mut self) {
-        let stats = self.stats.borrow();
+impl ProfilerInterpreter {
+    pub(crate) fn finish_report(&mut self, color_mode: ColorMode, debug_log: &DebugLog) {
+        let stats = std::mem::take(self.stats.get_mut());
         if stats.total_ops == 0 {
             return;
         }
 
-        eprintln!("{}", format_profile_title("\nPROFILE"));
-        eprintln!(
+        debug_log.emit_line(format_profile_title_with_color_mode(
+            "\nPROFILE",
+            color_mode,
+        ));
+        debug_log.emit_line(format!(
             "{}: inst={} | max-stack={} | final-stack={} | call-depth={}",
-            format_profile_header("Run"),
+            format_profile_header_with_color_mode("Run", color_mode),
             stats.total_ops,
             stats.max_stack_len,
             stats.final_stack_len,
             stats.max_call_depth
+        ));
+        emit_count_table(
+            "Top Inst Variants",
+            &stats.op_counts,
+            stats.total_ops,
+            12,
+            color_mode,
+            debug_log,
         );
-        print_count_table("Top Inst Variants", &stats.op_counts, stats.total_ops, 12);
-        print_count_table("Top Inst Forms", &stats.inst_counts, stats.total_ops, 16);
+        emit_count_table(
+            "Top Inst Forms",
+            &stats.inst_counts,
+            stats.total_ops,
+            16,
+            color_mode,
+            debug_log,
+        );
 
         let total_var_lookups = stats.load_var_cache_hits
             + stats.load_var_const_cache_hits
             + stats.load_var_cache_misses;
         if total_var_lookups > 0 {
             let total_hits = stats.load_var_cache_hits + stats.load_var_const_cache_hits;
-            eprintln!(
+            debug_log.emit_line(format!(
                 "Global cache: {} hits / {} misses ({:.2}%) {}",
                 total_hits,
                 stats.load_var_cache_misses,
                 pct(total_hits, total_var_lookups),
-                format_hit_miss_bar(total_hits, total_var_lookups, RATIO_BAR_WIDTH)
-            );
+                format_hit_miss_bar_with_color_mode(
+                    total_hits,
+                    total_var_lookups,
+                    RATIO_BAR_WIDTH,
+                    color_mode,
+                )
+            ));
             if stats.load_var_const_cache_hits > 0 {
-                eprintln!(
+                debug_log.emit_line(format!(
                     "const-value hits: {} | slot hits: {}",
                     stats.load_var_const_cache_hits, stats.load_var_cache_hits,
-                );
+                ));
             }
         }
 
         let total_user_calls = stats.call_user_cache_hits + stats.call_user_cache_misses;
         if total_user_calls > 0 {
-            eprintln!(
+            debug_log.emit_line(format!(
                 "Call cache: {} hits / {} misses ({:.2}%) {}",
                 stats.call_user_cache_hits,
                 stats.call_user_cache_misses,
                 pct(stats.call_user_cache_hits, total_user_calls),
-                format_hit_miss_bar(
+                format_hit_miss_bar_with_color_mode(
                     stats.call_user_cache_hits,
                     total_user_calls,
-                    RATIO_BAR_WIDTH
+                    RATIO_BAR_WIDTH,
+                    color_mode,
                 )
-            );
+            ));
         }
 
         let total_alloc_events = stats.list_alloc_events
@@ -131,45 +155,55 @@ impl Drop for ProfilerInterpreter {
             + stats.closure_capture_cells
             + stats.cat_alloc_items;
         if total_alloc_events > 0 {
-            eprintln!(
+            debug_log.emit_line(format!(
                 "{}: {} events, {} aggregate items",
-                format_profile_header("Instruction allocations"),
+                format_profile_header_with_color_mode("Instruction allocations", color_mode),
                 total_alloc_events,
                 total_alloc_units
-            );
-            print_alloc_line(
+            ));
+            emit_alloc_line(
                 "cat operands",
                 stats.cat_alloc_events,
                 stats.cat_alloc_items,
                 &stats.cat_alloc_lens,
+                color_mode,
+                debug_log,
             );
-            print_alloc_line(
+            emit_alloc_line(
                 "list",
                 stats.list_alloc_events,
                 stats.list_alloc_items,
                 &stats.list_alloc_lens,
+                color_mode,
+                debug_log,
             );
-            print_alloc_line(
+            emit_alloc_line(
                 "dict",
                 stats.dict_alloc_events,
                 stats.dict_alloc_items,
                 &stats.dict_alloc_lens,
+                color_mode,
+                debug_log,
             );
-            print_alloc_line(
+            emit_alloc_line(
                 "range",
                 stats.range_alloc_events,
                 stats.range_alloc_items,
                 &stats.range_alloc_lens,
+                color_mode,
+                debug_log,
             );
-            print_alloc_line(
+            emit_alloc_line(
                 "closure captures",
                 stats.closure_capture_alloc_events,
                 stats.closure_capture_cells,
                 &stats.closure_capture_lens,
+                color_mode,
+                debug_log,
             );
         }
 
-        print_sequence_outputs(&stats.sequence_outputs);
+        emit_sequence_outputs(&stats.sequence_outputs, color_mode, debug_log);
     }
 }
 
@@ -199,7 +233,7 @@ impl InterpreterHook for ProfilerInterpreter {
         stats.max_stack_len = stats.max_stack_len.max(vm.stack.len());
         stats.max_call_depth = stats.max_call_depth.max(call_depth);
 
-        fn colorize_number(n: usize, width: usize) -> String {
+        fn colorize_number(n: usize, width: usize, color_mode: ColorMode) -> String {
             let s = format!("{n:0width$}");
             let color = match n % 6 {
                 0 => return s,
@@ -209,16 +243,18 @@ impl InterpreterHook for ProfilerInterpreter {
                 4 => AnsiColor::Blue,
                 _ => AnsiColor::Magenta,
             };
-            paint(&s, TextStyle::new().fg(color), ColorMode::Auto)
+            paint(&s, TextStyle::new().fg(color), color_mode)
         }
 
         if self.trace {
-            let op_str = crate::vm::inst::InstPrettyDumper::new(true, true).highlight_inst(op);
-            eprintln!(
+            let color_mode = vm.stderr_color_mode();
+            let op_str = crate::vm::inst::InstPrettyDumper::new(true, color_mode.should_colorize())
+                .highlight_inst(op);
+            vm.debug_log.emit_line(format!(
                 "pc: {idx:04} | c-depth: {} | stack: {} | inst: {op_str:<25} ",
-                colorize_number(call_depth, 2),
-                colorize_number(vm.stack.len(), 1),
-            );
+                colorize_number(call_depth, 2, color_mode),
+                colorize_number(vm.stack.len(), 1, color_mode),
+            ));
         }
     }
 
@@ -339,7 +375,14 @@ fn pct(n: usize, d: usize) -> f64 {
     }
 }
 
-fn print_count_table(title: &str, counts: &HashMap<String, usize>, total: usize, limit: usize) {
+fn emit_count_table(
+    title: &str,
+    counts: &HashMap<String, usize>,
+    total: usize,
+    limit: usize,
+    color_mode: ColorMode,
+    debug_log: &DebugLog,
+) {
     if counts.is_empty() {
         return;
     }
@@ -347,34 +390,45 @@ fn print_count_table(title: &str, counts: &HashMap<String, usize>, total: usize,
     sorted.sort_by(|(a_name, a_count), (b_name, b_count)| {
         b_count.cmp(a_count).then_with(|| a_name.cmp(b_name))
     });
-    eprintln!("{}", format_profile_header(title));
+    debug_log.emit_line(format_profile_header_with_color_mode(title, color_mode));
     let max_count = sorted.first().map(|(_, count)| **count).unwrap_or(0);
     for (name, count) in sorted.into_iter().take(limit) {
-        eprintln!(
+        debug_log.emit_line(format!(
             "{:>6} {:>6.2}% {} {}",
             count,
             pct(*count, total),
-            format_count_bar(*count, max_count, COUNT_BAR_WIDTH),
+            format_count_bar_with_color_mode(*count, max_count, COUNT_BAR_WIDTH, color_mode),
             name
-        );
+        ));
     }
 }
 
-fn print_alloc_line(label: &str, events: usize, units: usize, lens: &BTreeMap<usize, usize>) {
+fn emit_alloc_line(
+    label: &str,
+    events: usize,
+    units: usize,
+    lens: &BTreeMap<usize, usize>,
+    color_mode: ColorMode,
+    debug_log: &DebugLog,
+) {
     if events == 0 {
         return;
     }
-    eprintln!(
+    debug_log.emit_line(format!(
         "  {:<16} {:>6} events | {:>8} items | avg {:>6.2} | {}",
         label,
         events,
         units,
         units as f64 / events as f64,
-        format_len_hist(lens, 5),
-    );
+        format_len_hist_with_color_mode(lens, 5, color_mode),
+    ));
 }
 
-fn print_sequence_outputs(outputs: &HashMap<String, SequenceOutputStats>) {
+fn emit_sequence_outputs(
+    outputs: &HashMap<String, SequenceOutputStats>,
+    color_mode: ColorMode,
+    debug_log: &DebugLog,
+) {
     if outputs.is_empty() {
         return;
     }
@@ -386,33 +440,24 @@ fn print_sequence_outputs(outputs: &HashMap<String, SequenceOutputStats>) {
             .then_with(|| a_name.cmp(b_name))
     });
 
-    eprintln!("{}", format_profile_header("Container-producing results"));
+    debug_log.emit_line(format_profile_header_with_color_mode(
+        "Container-producing results",
+        color_mode,
+    ));
     for (name, stats) in sorted.into_iter().take(16) {
-        eprintln!(
+        debug_log.emit_line(format!(
             "{:>6} events | {:>8} items | avg {:>6.2} | {:<34} | {}",
             stats.events,
             stats.items,
             stats.items as f64 / stats.events as f64,
             name,
-            format_len_hist(&stats.lens, 4),
-        );
+            format_len_hist_with_color_mode(&stats.lens, 4, color_mode),
+        ));
     }
-}
-
-fn format_len_hist(lens: &BTreeMap<usize, usize>, limit: usize) -> String {
-    format_len_hist_with_color_mode(lens, limit, ColorMode::Auto)
-}
-
-fn format_profile_title(text: &str) -> String {
-    format_profile_title_with_color_mode(text, ColorMode::Auto)
 }
 
 fn format_profile_title_with_color_mode(text: &str, color_mode: ColorMode) -> String {
     paint(text, TextStyle::new().bold().underline(), color_mode)
-}
-
-fn format_profile_header(text: &str) -> String {
-    format_profile_header_with_color_mode(text, ColorMode::Auto)
 }
 
 fn format_profile_header_with_color_mode(text: &str, color_mode: ColorMode) -> String {
@@ -445,10 +490,6 @@ fn format_len_hist_with_color_mode(
     format!("sizes {}", parts.join("  "))
 }
 
-fn format_count_bar(value: usize, max: usize, width: usize) -> String {
-    format_count_bar_with_color_mode(value, max, width, ColorMode::Auto)
-}
-
 fn format_count_bar_with_color_mode(
     value: usize,
     max: usize,
@@ -463,10 +504,6 @@ fn format_count_bar_with_color_mode(
         colorize_heat(&filled_bar, value, max, color_mode),
         paint(&" ".repeat(empty), TextStyle::new().dimmed(), color_mode)
     )
-}
-
-fn format_hit_miss_bar(hits: usize, total: usize, width: usize) -> String {
-    format_hit_miss_bar_with_color_mode(hits, total, width, ColorMode::Auto)
 }
 
 fn format_hit_miss_bar_with_color_mode(
@@ -733,7 +770,6 @@ mod tests {
         compiler.instructions.push(Instruction::Return);
         let mut vm = Vm::new(std::mem::take(&mut compiler.instructions));
         let mut profiler = ProfilerInterpreter::default();
-        profiler.trace = false;
         let limit = vm.instructions.len();
         let value = profiler.interpret(&mut vm, limit).expect("execute");
         (value, profiler)

@@ -1,10 +1,13 @@
 pub mod dbglog;
 pub mod stdio;
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::ast::AstNode;
 use crate::builtins::BuiltinPreset;
 use crate::compile::Compiler;
-use crate::cst::{GreenChild, GreenNode, GreenNodeBuilder, GreenToken, SyntaxKind};
+use crate::debugger::{DebugResume, Debugger, PauseEvent};
 use crate::interpret::InterpreterKind;
 use crate::interpret::profiler::ProfilerInterpreter;
 use crate::interpret::sample::SampleInterpreter;
@@ -12,12 +15,11 @@ use crate::interpret::vanilla::VanillaInterpreter;
 use crate::lex::Lexer;
 use crate::parse::resolve::Resolver;
 use crate::parse::{Parser, fold};
-use crate::script::{ScriptItem, ScriptSpan, might_have_script_meta, parse_script_items};
-use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
-use crate::session::stdio::wqstderr_println;
+use crate::script::{ScriptDirective, ScriptItem, ScriptSpan, parse_script_items};
+use crate::session::dbglog::DebugLogFlags;
+use crate::session::stdio::{WqInputHandle, WqIoError, WqOutputHandle};
 use crate::style::{ColorMode, TextStyle, paint};
-use crate::symbol::SymbolIndex;
-use crate::token::{FmtPart, Token, TokenType, fmt_tokens_table};
+use crate::token::{fmt_tokens_table, rebase_token};
 use crate::value::{Value, WqResult};
 use crate::vm::inst::{InstPrettyDumper, Instruction};
 use crate::vm::{GlobalMap, PreparedInstructions, Vm};
@@ -25,36 +27,190 @@ use crate::wqdb::build::{
     apply_stmt_debug_exact_offs, apply_stmt_spans_exact_offs, mark_stmt_heuristic,
     register_function_chunks,
 };
-use crate::wqdb::data::DebugInfo;
+use crate::wqdb::data::{ChunkId, DebugInfo};
 use crate::wqdb::{self};
 use crate::wqerror::{WqError, WqErrorType};
 
-fn debug_header(text: &str) -> String {
-    debug_header_with_color_mode(text, ColorMode::Auto)
+/// Snapshot of user-defined global bindings owned by a [`Session`].
+pub type Bindings = ahash::AHashMap<String, Value>;
+
+/// Thread-safe handle for requesting a controlled stop of a running session.
+#[derive(Clone, Debug)]
+pub struct SessionInterruptHandle {
+    requested: Arc<AtomicBool>,
+}
+
+impl SessionInterruptHandle {
+    /// Request that the session stop at the next instruction boundary.
+    pub fn interrupt(&self) {
+        self.requested.store(true, Ordering::Release);
+    }
 }
 
 fn debug_header_with_color_mode(text: &str, color_mode: ColorMode) -> String {
     paint(text, TextStyle::new().bold().underline(), color_mode)
 }
 
+/// Source code and its containing file context for one evaluation.
+///
+/// A source unit is immutable and scoped to a single [`Session::eval_source`]
+/// call. This prevents a file path or byte offset from leaking into a later
+/// evaluation on the same session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SyntaxDisplayKind {
-    Ast,
-    Cst,
+pub struct SourceUnit<'source> {
+    code: &'source str,
+    path: &'source str,
+    full_text: &'source str,
+    base_offset: usize,
 }
 
-impl SyntaxDisplayKind {
-    pub fn from_name(name: &str) -> Option<Self> {
-        let name = name.trim();
-        if name.eq_ignore_ascii_case("ast") {
-            Some(Self::Ast)
-        } else if name.eq_ignore_ascii_case("cst") {
-            Some(Self::Cst)
-        } else {
-            None
+impl<'source> SourceUnit<'source> {
+    /// Create an unnamed evaluator snippet.
+    pub fn snippet(code: &'source str) -> Self {
+        Self::named("<eval>", code)
+    }
+
+    /// Create a complete named source file.
+    pub fn named(path: &'source str, code: &'source str) -> Self {
+        Self {
+            code,
+            path,
+            full_text: code,
+            base_offset: 0,
+        }
+    }
+
+    /// Create a source fragment whose spans refer to `full_text`.
+    pub fn fragment(
+        path: &'source str,
+        full_text: &'source str,
+        span: ScriptSpan,
+    ) -> Result<Self, SourceUnitError> {
+        if span.start > span.end || span.end > full_text.len() {
+            return Err(SourceUnitError::OutOfBounds {
+                start: span.start,
+                end: span.end,
+                source_len: full_text.len(),
+            });
+        }
+        if !full_text.is_char_boundary(span.start) {
+            return Err(SourceUnitError::NotUtf8Boundary { index: span.start });
+        }
+        if !full_text.is_char_boundary(span.end) {
+            return Err(SourceUnitError::NotUtf8Boundary { index: span.end });
+        }
+        Ok(Self {
+            code: &full_text[span.as_range()],
+            path,
+            full_text,
+            base_offset: span.start,
+        })
+    }
+
+    pub fn code(self) -> &'source str {
+        self.code
+    }
+
+    pub fn path(self) -> &'source str {
+        self.path
+    }
+
+    pub fn full_text(self) -> &'source str {
+        self.full_text
+    }
+
+    pub fn base_offset(self) -> usize {
+        self.base_offset
+    }
+}
+
+/// Error returned by [`Session::eval_script_with`] while running code or a
+/// host-provided directive.
+#[derive(Debug)]
+pub enum ScriptRunError<DirectiveError> {
+    Evaluation(WqError),
+    Directive(DirectiveError),
+}
+
+impl<DirectiveError: std::fmt::Display> std::fmt::Display for ScriptRunError<DirectiveError> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Evaluation(error) => error.fmt(f),
+            Self::Directive(error) => error.fmt(f),
         }
     }
 }
+
+impl<DirectiveError> std::error::Error for ScriptRunError<DirectiveError>
+where
+    DirectiveError: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Evaluation(error) => Some(error),
+            Self::Directive(error) => Some(error),
+        }
+    }
+}
+
+fn rebase_script_span(span: ScriptSpan, base_offset: usize) -> ScriptSpan {
+    ScriptSpan {
+        start: span.start + base_offset,
+        end: span.end + base_offset,
+    }
+}
+
+fn rebase_script_directive(mut directive: ScriptDirective, base_offset: usize) -> ScriptDirective {
+    let span = match &mut directive {
+        ScriptDirective::PreludeAlias { span }
+        | ScriptDirective::LoadEmbeddedOrFile { span, .. }
+        | ScriptDirective::LoadPath { span, .. }
+        | ScriptDirective::Unknown { span, .. } => span,
+    };
+    *span = rebase_script_span(*span, base_offset);
+    directive
+}
+
+fn script_directive_requires_host(source: SourceUnit<'_>, directive: &ScriptDirective) -> WqError {
+    let span = rebase_script_span(directive.span(), source.base_offset);
+    WqError::new(WqErrorType::Syntax)
+        .src("script directive")
+        .msg("script directive requires a host loader")
+        .span(Some((span.start, span.end)))
+        .source_ctx(source.full_text, source.path)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceUnitError {
+    OutOfBounds {
+        start: usize,
+        end: usize,
+        source_len: usize,
+    },
+    NotUtf8Boundary {
+        index: usize,
+    },
+}
+
+impl std::fmt::Display for SourceUnitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OutOfBounds {
+                start,
+                end,
+                source_len,
+            } => write!(
+                f,
+                "source range {start}..{end} is outside source length {source_len}"
+            ),
+            Self::NotUtf8Boundary { index } => {
+                write!(f, "source range index {index} is not a UTF-8 boundary")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SourceUnitError {}
 
 pub struct Session {
     vm: Vm,
@@ -62,13 +218,6 @@ pub struct Session {
     dry_mode: bool,
     // Arm entering the wqdb on the next eval call
     wqdb_arm_next: bool,
-    // Optional debug source context for next eval (path, full_text)
-    dbg_source_ctx: Option<(String, String)>,
-    // Byte offset into dbg_source_ctx where current snippet starts
-    dbg_source_offs: usize,
-    // Backtrace mode (minimal debug mapping for errors)
-    bt_mode: bool,
-    interpreter: InterpreterKind,
     profiler: ProfilerInterpreter,
 }
 
@@ -76,22 +225,68 @@ impl Session {
     /// Create a new evaluator with an empty environment.
     pub fn new() -> Self {
         let mut vm = Vm::new(Vec::new());
-        vm.set_bt_mode(true);
+        vm.set_backtrace_enabled(true);
         Session {
             vm,
             // debug_flags: DebugFlags::empty(),
             dry_mode: false,
             wqdb_arm_next: false,
-            dbg_source_ctx: None,
-            dbg_source_offs: 0,
-            bt_mode: true,
-            interpreter: InterpreterKind::Vanilla,
             profiler: ProfilerInterpreter::default(),
         }
     }
 
-    pub fn env_vars(&self) -> GlobalMap {
-        self.environment()
+    /// Configure the input used by the `input` builtin for this session.
+    pub fn set_input(&mut self, input: WqInputHandle) {
+        self.vm.runtime_io.set_input(input);
+    }
+
+    /// Remove the configured program input from this session.
+    pub fn clear_input(&mut self) {
+        self.vm.runtime_io.clear_input();
+    }
+
+    /// Configure program stdout for this session.
+    pub fn set_stdout(&mut self, output: WqOutputHandle) {
+        self.vm.runtime_io.set_stdout(output);
+    }
+
+    /// Configure program stderr and evaluator diagnostics for this session.
+    pub fn set_stderr(&mut self, output: WqOutputHandle) {
+        self.vm.runtime_io.set_stderr(output);
+        self.vm
+            .debug_log
+            .set_output(self.vm.runtime_io.stderr_output());
+    }
+
+    pub fn debug_flags(&self) -> DebugLogFlags {
+        self.vm.debug_log.flags()
+    }
+
+    pub fn set_debug_flags(&mut self, flags: DebugLogFlags) {
+        self.vm.debug_log.set_flags(flags);
+    }
+
+    pub fn color_mode(&self) -> ColorMode {
+        self.vm.color_mode
+    }
+
+    /// Effective color mode for this session's configured stdout.
+    pub fn stdout_color_mode(&self) -> ColorMode {
+        self.vm.stdout_color_mode()
+    }
+
+    /// Effective color mode for this session's configured stderr.
+    pub fn stderr_color_mode(&self) -> ColorMode {
+        self.vm.stderr_color_mode()
+    }
+
+    pub fn set_color_mode(&mut self, color_mode: ColorMode) {
+        self.vm.color_mode = color_mode;
+    }
+
+    /// Return a snapshot of the current user-defined global bindings.
+    pub fn bindings(&self) -> Bindings {
+        self.vm.global_env()
     }
 
     /// Set the command-line arguments exposed to wq code through `argv[]`.
@@ -114,20 +309,57 @@ impl Session {
         self.vm.halt_status.take()
     }
 
-    pub fn is_wqdb_enabled(&self) -> bool {
-        self.vm.wqdb.enabled
+    /// Return a handle which can interrupt this session from another thread.
+    pub fn interrupt_handle(&self) -> SessionInterruptHandle {
+        SessionInterruptHandle {
+            requested: Arc::clone(&self.vm.interrupt_requested),
+        }
     }
 
-    pub fn reset_session(&mut self) {
+    pub fn is_wqdb_enabled(&self) -> bool {
+        self.vm.wqdb.is_enabled()
+    }
+
+    /// Clear compiled instructions, transient stacks, and diagnostics while
+    /// preserving host configuration and bindings.
+    ///
+    /// Debug metadata referenced by bound compiled functions is retained so
+    /// those functions remain callable after the reset. Breakpoints, stepping,
+    /// trackers, and other transient debugger state are cleared.
+    pub fn reset_execution_state(&mut self) {
+        self.vm
+            .reset_with_prepared_instructions(PreparedInstructions::new(Vec::new()));
+        self.vm.halt_status = None;
+        self.vm.interrupt_requested.store(false, Ordering::Release);
+        self.vm.wqdb.reset_execution_state();
+        self.vm.current_chunk = ChunkId(0);
+        self.vm.runtime_debug_info = false;
+        self.vm.debug_src_offset = 0;
+        self.vm.last_backtrace = None;
+        self.vm.last_locals_snapshot = None;
+        self.wqdb_arm_next = self.vm.wqdb.is_enabled();
+        self.profiler = ProfilerInterpreter::default();
+    }
+
+    /// Clear all user-defined global bindings without changing execution or
+    /// host configuration.
+    pub fn clear_bindings(&mut self) {
         self.vm.reset_globals();
+    }
+
+    /// Reset the interactive workspace while preserving host configuration.
+    ///
+    /// Input/output handles, debug flags, color mode, interpreter selection,
+    /// builtin preset, arguments, RNG state, and pause handler are retained.
+    pub fn reset_workspace(&mut self) {
+        self.reset_execution_state();
+        self.clear_bindings();
         self.vm.debug_info = DebugInfo::default();
-        let on_pause = self.vm.wqdb.on_pause;
-        self.vm.wqdb = wqdb::Wqdb::default();
-        self.vm.wqdb.on_pause = on_pause;
+        self.vm.current_chunk = ChunkId(0);
     }
 
     pub fn set_interpreter(&mut self, kind: InterpreterKind) {
-        self.interpreter = kind;
+        self.vm.interpreter_kind = kind;
     }
 
     pub fn set_interpreter_by_name(&mut self, name: &str) -> Result<&'static str, String> {
@@ -140,39 +372,53 @@ impl Session {
     }
 
     pub fn interpreter_name(&self) -> &'static str {
-        self.interpreter.name()
+        self.vm.interpreter_kind.name()
     }
 
     pub fn set_dry_mode(&mut self, flag: bool) {
         self.dry_mode = flag;
     }
 
-    pub fn get_bt_mode(&self) -> bool {
-        self.bt_mode
+    pub fn dry_mode(&self) -> bool {
+        self.dry_mode
     }
 
-    pub fn set_bt_mode(&mut self, flag: bool) {
-        self.bt_mode = flag;
-        self.vm.set_bt_mode(flag);
+    pub fn backtrace_enabled(&self) -> bool {
+        self.vm.bt_mode
+    }
+
+    pub fn set_backtrace_enabled(&mut self, flag: bool) {
+        self.vm.set_backtrace_enabled(flag);
     }
 
     pub fn set_wqdb(&mut self, flag: bool) {
-        self.vm.wqdb.enabled = flag;
-        if self.vm.wqdb.enabled {
+        self.vm.wqdb.set_enabled(flag);
+        if self.vm.wqdb.is_enabled() {
             self.wqdb_arm_next = true;
         } else {
+            self.wqdb_arm_next = false;
             self.vm.wqdb.clear_mode();
-            // Don't clear on_pause - keep the callback registered for
-            // re-enabling
         }
     }
 
-    pub fn set_pause_callback(&mut self, cb: Option<fn(&mut Vm)>) {
-        self.vm.wqdb.on_pause = cb;
+    /// Install a stateful handler that runs whenever execution pauses.
+    ///
+    /// The handler receives a constrained debugger facade and is retained by
+    /// this session across evaluations. Installing a new handler replaces the
+    /// previous one.
+    pub fn set_pause_handler<F>(&mut self, handler: F)
+    where
+        F: for<'vm> FnMut(PauseEvent, &mut Debugger<'vm>) -> DebugResume + 'static,
+    {
+        self.vm.set_pause_handler(handler);
+    }
+
+    pub fn clear_pause_handler(&mut self) {
+        self.vm.clear_pause_handler();
     }
 
     pub fn set_wqdb_batch_cmds(&mut self, cmds: Vec<String>) {
-        self.vm.wqdb.batch_cmds = cmds;
+        self.vm.wqdb.replace_batch_commands(cmds);
     }
 
     pub fn builtins(&self) -> &crate::builtins::Builtins {
@@ -188,54 +434,143 @@ impl Session {
         self.vm.builtins_preset = preset;
     }
 
-    /// Get mutable access to the VM for debugger integration
-    pub fn vm_mut(&mut self) -> &mut Vm {
-        &mut self.vm
+    pub fn debugger(&mut self) -> Debugger<'_> {
+        Debugger::new(&mut self.vm)
+    }
+
+    fn write_diagnostic(&self, text: impl AsRef<str>) -> WqResult<()> {
+        self.vm
+            .write_stderr_line(text.as_ref())
+            .map_err(|error| host_io_error("evaluator diagnostics", error))
     }
 
     /// Evaluate a string of source code and return the resulting value.
     pub fn eval_string(&mut self, input: &str) -> WqResult<Value> {
-        // If a wqdb entry was armed, record it for the upcoming run.
-        let mut lexer = if let Some((_, full_text)) = self.dbg_source_ctx.as_ref() {
-            Lexer::new(input).with_ctx(full_text, self.dbg_source_offs)
-        } else {
-            Lexer::new(input)
-        };
-        if let Some((path, _)) = self.dbg_source_ctx.as_ref() {
-            lexer.set_source_path(path.clone());
+        self.eval_source(SourceUnit::snippet(input))
+    }
+
+    /// Evaluate one explicitly scoped source unit.
+    pub fn eval_source(&mut self, source: SourceUnit<'_>) -> WqResult<Value> {
+        self.vm.debug_log.clear_error();
+        let result = self.eval_source_inner(source);
+        if let Some(error) = self.vm.debug_log.take_error() {
+            return Err(host_io_error("debug output", error));
         }
-        let tokens = lexer.tokenize()?;
-        if get_debug_log_flags().contains(DebugLogFlags::TOKEN) {
-            wqstderr_println(debug_header("TOKEN"));
-            wqstderr_println(fmt_tokens_table(&tokens));
-            wqstderr_println("");
+        result.map_err(|error| contextualize_source_error(error, source))
+    }
+
+    /// Evaluate a complete script using the core script-item pipeline.
+    ///
+    /// Shebangs are ignored and code regions are evaluated in order. Loader
+    /// directives require host-specific path and resource resolution, so this
+    /// method reports them explicitly instead of silently treating them as wq
+    /// code.
+    pub fn eval_script(&mut self, source: SourceUnit<'_>) -> WqResult<Value> {
+        let items = parse_script_items(source.code);
+        if let Some(directive) = items.iter().find_map(|item| match item {
+            ScriptItem::Directive(directive) => Some(directive),
+            ScriptItem::Shebang { .. } | ScriptItem::Code { .. } => None,
+        }) {
+            return Err(script_directive_requires_host(source, directive));
         }
 
-        // Use global debug source + offset when available to improve error spans
-        let builtins = self.vm.builtins.clone();
-        let mut parser = if let Some((_, full_text)) = self.dbg_source_ctx.as_ref() {
-            Parser::new_with_ctx(
-                tokens,
-                input.to_string(),
-                Some(full_text.clone()),
-                self.dbg_source_offs,
-                builtins.clone(),
-            )
-        } else {
-            Parser::new_with_builtins(tokens, input.to_string(), builtins.clone())
-        };
-        if let Some((path, _)) = self.dbg_source_ctx.as_ref() {
-            parser.set_source_path(path.clone());
+        match self.eval_script_items_with(source, items, |_, _| -> WqResult<Option<Value>> {
+            unreachable!("directives were rejected before evaluation")
+        }) {
+            Ok(value) => Ok(value.unwrap_or_else(Value::unit)),
+            Err(ScriptRunError::Evaluation(error) | ScriptRunError::Directive(error)) => Err(error),
         }
-        let dump_cst = get_debug_log_flags().contains(DebugLogFlags::CST);
+    }
+
+    /// Evaluate a script while delegating loader directives to the host.
+    ///
+    /// The session owns shebang handling, code-region source scoping, halt
+    /// behavior, and last-value selection. The host callback resolves only
+    /// directives and may recursively evaluate scripts with the same session.
+    /// Returning `Some(value)` makes that directive contribute to the script's
+    /// last value. An empty script returns `Ok(None)`.
+    pub fn eval_script_with<DirectiveError>(
+        &mut self,
+        source: SourceUnit<'_>,
+        mut handle_directive: impl FnMut(
+            &mut Session,
+            ScriptDirective,
+        ) -> Result<Option<Value>, DirectiveError>,
+    ) -> Result<Option<Value>, ScriptRunError<DirectiveError>> {
+        let items = parse_script_items(source.code);
+        self.eval_script_items_with(source, items, &mut handle_directive)
+    }
+
+    fn eval_script_items_with<DirectiveError>(
+        &mut self,
+        source: SourceUnit<'_>,
+        items: Vec<ScriptItem>,
+        mut handle_directive: impl FnMut(
+            &mut Session,
+            ScriptDirective,
+        ) -> Result<Option<Value>, DirectiveError>,
+    ) -> Result<Option<Value>, ScriptRunError<DirectiveError>> {
+        let mut last_value = None;
+        for item in items {
+            if self.halt_status().is_some() {
+                break;
+            }
+            match item {
+                ScriptItem::Shebang { .. } => {}
+                ScriptItem::Code { span } => {
+                    let absolute_span = rebase_script_span(span, source.base_offset);
+                    let fragment =
+                        SourceUnit::fragment(source.path, source.full_text, absolute_span)
+                            .expect("script parser should yield valid source spans");
+                    if !fragment.code.trim().is_empty() {
+                        last_value = Some(
+                            self.eval_source(fragment)
+                                .map_err(ScriptRunError::Evaluation)?,
+                        );
+                    }
+                }
+                ScriptItem::Directive(directive) => {
+                    let directive = rebase_script_directive(directive, source.base_offset);
+                    if let Some(value) =
+                        handle_directive(self, directive).map_err(ScriptRunError::Directive)?
+                    {
+                        last_value = Some(value);
+                    }
+                }
+            }
+        }
+        Ok(last_value)
+    }
+
+    fn eval_source_inner(&mut self, source: SourceUnit<'_>) -> WqResult<Value> {
+        let input = source.code;
+        // If a wqdb entry was armed, record it for the upcoming run.
+        let mut lexer = Lexer::new(input).with_ctx(source.full_text, source.base_offset);
+        lexer.set_source_path(source.path.to_string());
+        let tokens = lexer.tokenize()?;
+        if self.vm.debug_log.enabled(DebugLogFlags::TOKEN) {
+            let mut display_tokens = tokens.clone();
+            if source.base_offset != 0 {
+                for token in &mut display_tokens {
+                    rebase_token(token, source.full_text, source.base_offset);
+                }
+            }
+            self.write_diagnostic(debug_header_with_color_mode(
+                "TOKEN",
+                self.vm.stderr_color_mode(),
+            ))?;
+            self.write_diagnostic(fmt_tokens_table(&display_tokens))?;
+            self.write_diagnostic("")?;
+        }
+
+        let builtins = self.vm.builtins.clone();
+        let mut parser = Parser::new_with_builtins(tokens, input.to_string(), builtins.clone());
+        parser.set_source_path(source.path.to_string());
+        let dump_cst = self.vm.debug_log.enabled(DebugLogFlags::CST);
         if dump_cst {
             parser.enable_cst();
         }
-        let ast_src = self
-            .dbg_source_ctx
-            .as_ref()
-            .map(|(_, t)| t.as_str())
-            .unwrap_or(input);
+        let ast_src = source.full_text;
 
         let ast = parser.parse()?;
         if let Some(eof_err) = parser.eof_error() {
@@ -245,76 +580,88 @@ impl Session {
             let cst = parser
                 .take_cst()
                 .expect("enable_cst was just called, so take_cst yields Some");
-            wqstderr_println(debug_header("CST"));
-            wqstderr_println(crate::cst::SyntaxNode::new_root(cst).pretty_print());
-            wqstderr_println("");
+            self.write_diagnostic(debug_header_with_color_mode(
+                "CST",
+                self.vm.stderr_color_mode(),
+            ))?;
+            self.write_diagnostic(crate::cst::SyntaxNode::new_root(cst).pretty_print())?;
+            self.write_diagnostic("")?;
         }
 
-        let dump_ast = |s: &str, ast: &AstNode, flag: u16| {
-            if get_debug_log_flags().contains(flag) {
-                wqstderr_println(debug_header(s));
-                wqstderr_println(ast.sexpr_pretty_with_source(ast_src));
-                wqstderr_println("");
+        let dump_ast = |s: &str, ast: &AstNode, flag: u16| -> WqResult<()> {
+            if self.vm.debug_log.enabled(flag) {
+                let mut display_ast = ast.clone();
+                Parser::offset_spans(&mut display_ast, source.base_offset);
+                self.write_diagnostic(debug_header_with_color_mode(
+                    s,
+                    self.vm.stderr_color_mode(),
+                ))?;
+                self.write_diagnostic(display_ast.sexpr_pretty_with_source(ast_src))?;
+                self.write_diagnostic("")?;
             }
+            Ok(())
         };
 
-        dump_ast("AST - original", &ast, DebugLogFlags::AST_VERBOSE);
+        dump_ast("AST - original", &ast, DebugLogFlags::AST_VERBOSE)?;
 
         let env = self.environment();
         let mut resolver = Resolver::from_env(env.clone(), builtins.clone());
         let ast = resolver.resolve(ast);
-        dump_ast("AST @ resolve", &ast, DebugLogFlags::AST_VERBOSE);
+        dump_ast("AST @ resolve", &ast, DebugLogFlags::AST_VERBOSE)?;
 
         let ast = fold::fold(ast);
-        dump_ast("AST @ fold - final", &ast, DebugLogFlags::AST);
+        dump_ast("AST @ fold - final", &ast, DebugLogFlags::AST)?;
 
         let mut compiler = Compiler::new_with_builtins(builtins);
         compiler.set_fn_spans(parser.fn_body_spans_all().clone());
-        compiler.set_source(input.to_string());
-        if let Some((path, _)) = self.dbg_source_ctx.as_ref() {
-            compiler.set_source_path(path.clone());
-        }
+        compiler.set_source(source.full_text.to_string());
+        compiler.set_source_base_offset(source.base_offset);
+        compiler.set_source_path(source.path.to_string());
         compiler.set_stmt_spans(parser.stmt_spans_top().to_vec());
         compiler.compile(&ast)?;
         compiler.instructions.push(Instruction::Return);
 
-        let dump_inst = |s: &str, inst: &[Instruction], flag: u16| {
-            if get_debug_log_flags().contains(flag) {
-                wqstderr_println(debug_header(s));
-                let lines = InstPrettyDumper::new(true, true).with_pc().render(inst);
+        let dump_inst = |s: &str, inst: &[Instruction], flag: u16| -> WqResult<()> {
+            if self.vm.debug_log.enabled(flag) {
+                let color_mode = self.vm.stderr_color_mode();
+                self.write_diagnostic(debug_header_with_color_mode(s, color_mode))?;
+                let lines = InstPrettyDumper::new(true, color_mode.should_colorize())
+                    .with_pc()
+                    .render(inst);
                 for line in lines {
-                    wqstderr_println(line);
+                    self.write_diagnostic(line)?;
                 }
-                wqstderr_println("");
+                self.write_diagnostic("")?;
             }
+            Ok(())
         };
 
         dump_inst(
             "Inst - original",
             &compiler.instructions,
             DebugLogFlags::INST_VERBOSE,
-        );
+        )?;
 
         compiler.propagate_constants_with_globals(&env);
         dump_inst(
             "Inst @ constprop",
             &compiler.instructions,
             DebugLogFlags::INST_VERBOSE,
-        );
+        )?;
 
         compiler.rewrite_tail_calls();
         dump_inst(
             "Inst @ tailcall",
             &compiler.instructions,
             DebugLogFlags::INST_VERBOSE,
-        );
+        )?;
 
         compiler.fuse();
         dump_inst(
             "Inst @ fuse",
             &compiler.instructions,
             DebugLogFlags::INST_VERBOSE,
-        );
+        )?;
         let prepared_instructions = PreparedInstructions::with_owned_const_extraction(
             std::mem::take(&mut compiler.instructions),
         );
@@ -322,7 +669,7 @@ impl Session {
             "Inst @ owned consts - final",
             prepared_instructions.instructions(),
             DebugLogFlags::INST,
-        );
+        )?;
 
         if self.dry_mode {
             return Ok(Value::unit());
@@ -342,14 +689,9 @@ impl Session {
 
         if self.vm.debug_artifacts_enabled() || temp_wqdb_on {
             // Prepare debug mapping for this top-level script
-            let (src_path, src_text) = if let Some((p, t)) = self.dbg_source_ctx.as_ref() {
-                (p.clone(), t.clone())
-            } else {
-                ("<eval>".to_string(), input.to_string())
-            };
-            self.vm.script_prepare_debug(&src_path, &src_text);
+            self.vm.script_prepare_debug(source.path, source.full_text);
             // Set base offset into the source file for this snippet
-            self.vm.set_debug_src_offset(self.dbg_source_offs);
+            self.vm.set_debug_src_offset(source.base_offset);
             // Mark statements using a combination of parser spans and heuristics
             {
                 let chunk = self.vm.current_chunk_id();
@@ -367,21 +709,23 @@ impl Session {
                             file_id,
                             &pc_spans,
                             &compiler.dbg_stmt_marks,
-                            self.dbg_source_offs,
+                            source.base_offset,
+                            Some(&self.vm.debug_log),
                         );
                         self.vm
                             .debug_info
                             .chunk_mut(chunk)
                             .note_debug_spans(spans.0, spans.1);
                     } else {
-                        mark_stmt_heuristic(line_table, code);
+                        mark_stmt_heuristic(line_table, code, Some(&self.vm.debug_log));
                         // Overlay exact mapping for top-level spans across candidates
                         let has_real = apply_stmt_spans_exact_offs(
                             line_table,
                             code,
                             file_id,
                             parser.stmt_spans_top(),
-                            self.dbg_source_offs,
+                            source.base_offset,
+                            Some(&self.vm.debug_log),
                         );
                         self.vm
                             .debug_info
@@ -395,9 +739,11 @@ impl Session {
                     &mut self.vm.debug_info,
                     file_id,
                     instructions,
-                    self.dbg_source_offs,
+                    source.base_offset,
+                    Some(&self.vm.debug_log),
                 );
             }
+            self.vm.wqdb.resolve_source_breakpoints(&self.vm.debug_info);
         }
         // Drop AST and parser before execution to release Arc refs to
         // literal constants that would otherwise inflate strong counts
@@ -408,341 +754,57 @@ impl Session {
         // user continues, later streaming-loader chunks should not re-enter
         // the debugger unless a breakpoint, explicit @p, or step mode asks
         // for it.
-        // Note: on_pause callback must be set externally via set_pause_callback()
+        // A pause handler is configured independently through set_pause_handler().
         if temp_wqdb_on {
             self.vm.dbg_step_in();
         }
-        self.vm.interpreter_kind = self.interpreter;
-        let result = match self.interpreter {
+        let result = match self.vm.interpreter_kind {
             InterpreterKind::Sample => {
                 let mut sample = SampleInterpreter::default();
                 self.vm.run_with_interpreter(&mut sample)
             }
             InterpreterKind::Vanilla => self.vm.run_with_interpreter(&mut VanillaInterpreter),
-            InterpreterKind::Profiler => self.vm.run_with_interpreter(&mut self.profiler),
+            InterpreterKind::Profiler => {
+                let result = self.vm.run_with_interpreter(&mut self.profiler);
+                self.profiler
+                    .finish_report(self.vm.stderr_color_mode(), &self.vm.debug_log);
+                result
+            }
         };
-        if get_debug_log_flags().contains(DebugLogFlags::VALUE)
+        if self.vm.debug_log.enabled(DebugLogFlags::VALUE)
             && let Ok(v) = &result
         {
-            wqstderr_println(format!("{v:?}"));
+            self.write_diagnostic(format!("{v:?}"))?;
         }
         result
     }
 
-    /// Parse and analyze symbols in `input` without executing.
-    /// Returns a `SymbolIndex` that can be queried for definitions and uses.
-    pub fn analyze_symbols(&self, input: &str) -> WqResult<SymbolIndex> {
-        if might_have_script_meta(input) {
-            let items = parse_script_items(input);
-            if has_script_meta(&items) {
-                let (ast, eof_errors) = self.parse_script_ast(input, &items)?;
-                let ast = Resolver::with_builtins(self.vm.builtins.clone()).resolve(ast);
-                let mut index = SymbolIndex::analyze(&ast, &self.vm.builtins);
-                for eof_err in eof_errors {
-                    let span = eof_err.span.unwrap_or((input.len(), input.len()));
-                    index.errors.push((span, eof_err));
-                }
-                return Ok(index);
-            }
-        }
-
-        self.analyze_symbols_code(input)
-    }
-
-    fn analyze_symbols_code(&self, input: &str) -> WqResult<SymbolIndex> {
-        let tokens = Lexer::new(input).tokenize()?;
-        let mut parser =
-            Parser::new_with_builtins(tokens, input.to_string(), self.vm.builtins.clone());
-        let ast = parser.parse()?;
-        let ast = Resolver::with_builtins(self.vm.builtins.clone()).resolve(ast);
-        let mut index = SymbolIndex::analyze(&ast, &self.vm.builtins);
-        if let Some(eof_err) = parser.eof_error() {
-            let span = eof_err.span.unwrap_or((input.len(), input.len()));
-            index.errors.push((span, eof_err.clone()));
-        }
-        Ok(index)
-    }
-
-    /// Tokenize input with recovery, returning all tokens including error
-    /// tokens. Useful for diagnostics and completions on syntactically
-    /// broken code.
-    pub fn tokenize_recovery(&self, input: &str) -> Vec<crate::token::Token> {
-        if might_have_script_meta(input) {
-            let items = parse_script_items(input);
-            if has_script_meta(&items) {
-                let mut tokens = Vec::new();
-                for item in &items {
-                    let ScriptItem::Code { span } = item else {
-                        continue;
-                    };
-                    let mut lexer = Lexer::new(&input[span.as_range()]);
-                    let chunk_tokens = lexer.tokenize_recovery();
-                    for mut token in chunk_tokens {
-                        if matches!(token.token_type, TokenType::Eof) {
-                            continue;
-                        }
-                        offset_token(&mut token, span.start);
-                        tokens.push(token);
-                    }
-                }
-                tokens.push(eof_token_for(input));
-                return tokens;
-            }
-        }
-
-        crate::lex::Lexer::new(input).tokenize_recovery()
-    }
-
-    /// Parse `input` and return both the AST and the green CST.
-    ///
-    /// The CST round-trips byte-for-byte: `cst.text() == input` for any
-    /// input the lexer accepts. Parse errors are recovered into
-    /// [`crate::astnode::AstNode::Error`] in the AST and into
-    /// [`crate::cst::SyntaxKind::ErrorNode`] subtrees in the CST, so a
-    /// partial parse still yields a usable green tree.
-    ///
-    /// This is the entry point that the language server (and, eventually,
-    /// the formatter) uses for every document. Cost is the same as
-    /// [`Self::analyze_symbols`] plus one `Arc` clone of the lexer's token
-    /// stream.
-    pub fn parse_with_cst(
-        &self,
-        input: &str,
-    ) -> WqResult<(crate::ast::AstNode, crate::cst::GreenNode)> {
-        if might_have_script_meta(input) {
-            let items = parse_script_items(input);
-            if has_script_meta(&items) {
-                return self.parse_script_with_cst(input, &items);
-            }
-        }
-
-        let tokens = Lexer::new(input).tokenize()?;
-        let mut parser =
-            Parser::new_with_builtins(tokens, input.to_string(), self.vm.builtins.clone());
-        parser.enable_cst();
-        let ast = parser.parse()?;
-        let cst = parser
-            .take_cst()
-            .expect("enable_cst was just called, so take_cst yields Some");
-        Ok((ast, cst))
-    }
-
-    pub fn format_syntax_display(
-        &self,
-        input: &str,
-        kind: SyntaxDisplayKind,
-        color_mode: ColorMode,
-    ) -> WqResult<String> {
-        let (ast, cst) = self.parse_with_cst(input)?;
-        let (header, body) = match kind {
-            SyntaxDisplayKind::Ast => {
-                let env = self.environment();
-                let builtins = self.vm.builtins.clone();
-                let ast = Resolver::from_env(env, builtins).resolve(ast);
-                let ast = fold::fold(ast);
-                ("AST @ fold - final", ast.sexpr_pretty_with_source(input))
-            }
-            SyntaxDisplayKind::Cst => ("CST", crate::cst::SyntaxNode::new_root(cst).pretty_print()),
-        };
-
-        let mut out = debug_header_with_color_mode(header, color_mode);
-        out.push('\n');
-        out.push_str(&body);
-        Ok(out)
-    }
-
-    pub fn parse_with_cst_using_cache(
-        &self,
-        input: &str,
-        previous: &crate::cst::GreenNode,
-    ) -> WqResult<(crate::ast::AstNode, crate::cst::GreenNode)> {
-        if might_have_script_meta(input) {
-            let items = parse_script_items(input);
-            if has_script_meta(&items) {
-                return self.parse_script_with_cst(input, &items);
-            }
-        }
-
-        let previous_text = previous.text();
-        let (old_start, old_end, new_start, new_end) =
-            compute_dirty_byte_range(&previous_text, input);
-        let tokens = Lexer::new(input).tokenize()?;
-        let mut parser =
-            Parser::new_with_builtins(tokens, input.to_string(), self.vm.builtins.clone());
-        parser.enable_cst_with_cache(previous, old_start, old_end, new_start, new_end);
-        let ast = parser.parse()?;
-        let cst = parser
-            .take_cst()
-            .expect("enable_cst_with_cache was just called, so take_cst yields Some");
-        Ok((ast, cst))
-    }
-
-    fn parse_script_ast(
-        &self,
-        input: &str,
-        items: &[ScriptItem],
-    ) -> WqResult<(AstNode, Vec<WqError>)> {
-        let mut statements = Vec::new();
-        let mut eof_errors = Vec::new();
-        for item in items {
-            let ScriptItem::Code { span } = item else {
-                continue;
-            };
-            let (ast, eof_error) = self.parse_script_code_ast(input, *span)?;
-            push_script_ast(&mut statements, ast);
-            if let Some(eof_error) = eof_error {
-                eof_errors.push(eof_error);
-            }
-        }
-        Ok((script_ast_from_statements(statements), eof_errors))
-    }
-
-    fn parse_script_code_ast(
-        &self,
-        input: &str,
-        span: ScriptSpan,
-    ) -> WqResult<(AstNode, Option<WqError>)> {
-        let source = &input[span.as_range()];
-        let tokens = Lexer::new(source).with_ctx(input, span.start).tokenize()?;
-        let mut parser =
-            Parser::new_with_builtins(tokens, source.to_string(), self.vm.builtins.clone());
-        let mut ast = match parser.parse() {
-            Ok(ast) => ast,
-            Err(mut err) => {
-                offset_error_span(&mut err, span.start);
-                return Err(err);
-            }
-        };
-        Parser::offset_spans(&mut ast, span.start);
-        let eof_error = parser.eof_error().cloned().map(|mut err| {
-            offset_error_span(&mut err, span.start);
-            err
-        });
-        Ok((ast, eof_error))
-    }
-
-    fn parse_script_with_cst(
-        &self,
-        input: &str,
-        items: &[ScriptItem],
-    ) -> WqResult<(AstNode, GreenNode)> {
-        let mut builder = GreenNodeBuilder::new();
-        builder.start_node(SyntaxKind::Root);
-        let mut cursor = 0usize;
-        let mut statements = Vec::new();
-
-        for item in items {
-            let span = item.span();
-            if span.start > cursor {
-                push_script_trivia(&mut builder, &input[cursor..span.start]);
-            }
-
-            match item {
-                ScriptItem::Shebang { span } => {
-                    push_script_line_node(&mut builder, input, *span, SyntaxKind::Shebang);
-                }
-                ScriptItem::Directive(directive) => {
-                    push_script_line_node(
-                        &mut builder,
-                        input,
-                        directive.span(),
-                        SyntaxKind::ScriptDirective,
-                    );
-                }
-                ScriptItem::Code { span } => {
-                    let (ast, cst) = self.parse_script_code_cst(input, *span)?;
-                    push_script_ast(&mut statements, ast);
-                    append_root_children(&mut builder, &cst);
-                }
-            }
-
-            cursor = span.end;
-        }
-
-        if cursor < input.len() {
-            push_script_trivia(&mut builder, &input[cursor..]);
-        }
-
-        builder.finish_node();
-        Ok((script_ast_from_statements(statements), builder.finish()))
-    }
-
-    fn parse_script_code_cst(
-        &self,
-        input: &str,
-        span: ScriptSpan,
-    ) -> WqResult<(AstNode, GreenNode)> {
-        let source = &input[span.as_range()];
-        let tokens = Lexer::new(source).with_ctx(input, span.start).tokenize()?;
-        let mut parser =
-            Parser::new_with_builtins(tokens, source.to_string(), self.vm.builtins.clone());
-        parser.enable_cst();
-        let mut ast = match parser.parse() {
-            Ok(ast) => ast,
-            Err(mut err) => {
-                offset_error_span(&mut err, span.start);
-                return Err(err);
-            }
-        };
-        Parser::offset_spans(&mut ast, span.start);
-        let cst = parser
-            .take_cst()
-            .expect("enable_cst was just called, so take_cst yields Some");
-        Ok((ast, cst))
-    }
-
     /// Build a snapshot of the environment from slots.
-    pub fn environment(&self) -> GlobalMap {
+    fn environment(&self) -> GlobalMap {
         self.vm.global_env()
-    }
-
-    /// Clear all global bindings.
-    pub fn clear_environment(&mut self) {
-        self.vm.reset_globals();
-    }
-
-    /// Check whether `input` forms a syntactically complete wq snippet.
-    /// Returns `false` when the lexer or parser signals an EOF error,
-    /// indicating more input is expected.
-    pub fn is_complete_input(input: &str) -> bool {
-        let mut lexer = Lexer::new(input);
-        let tokens = match lexer.tokenize() {
-            Ok(t) => t,
-            Err(e) => return e.err_type != WqErrorType::Eof,
-        };
-        let mut parser = Parser::new(tokens, input.to_string());
-        match parser.parse() {
-            Ok(_) => parser.eof_error().is_none(),
-            Err(e) => e.err_type != WqErrorType::Eof,
-        }
     }
 
     /// Enter wqdb at the start of the next evaluation when it is enabled.
     pub fn arm_wqdb_next(&mut self) {
-        if self.vm.wqdb.enabled {
+        if self.vm.wqdb.is_enabled() {
             self.wqdb_arm_next = true;
         }
     }
 
-    pub fn dbg_set_source(&mut self, path: &str, full_text: &str) {
-        self.dbg_source_ctx = Some((path.to_string(), full_text.to_string()));
-    }
-
-    pub fn dbg_set_offset(&mut self, offset: usize) {
-        self.dbg_source_offs = offset;
-    }
-
-    pub fn dbg_print_bt(&mut self) {
+    pub fn dbg_print_bt(&mut self) -> Result<(), WqIoError> {
         // try captured (innermost) first; else fall back to asking live VM
         let frames = self
             .vm
             .take_last_bt()
             .unwrap_or_else(|| self.vm.bt_frames());
         let di = &self.vm.debug_info;
+        let color_mode = self.vm.stderr_color_mode();
         for (idx, (loc, name)) in frames.iter().enumerate() {
             let is_current = idx == 0;
-            wqstderr_println(wqdb::format_frame(di, *loc, name, is_current));
+            self.vm
+                .write_stderr_line(&wqdb::format_frame(di, *loc, name, is_current, color_mode))?;
         }
+        Ok(())
     }
 
     /// Assign a value to a global variable by name via the slot-based global
@@ -752,171 +814,36 @@ impl Session {
     }
 }
 
+fn host_io_error(source: &str, error: WqIoError) -> WqError {
+    WqError::new(WqErrorType::Io)
+        .src(source)
+        .attach_note(format!("host I/O error: {error}"))
+}
+
+fn contextualize_source_error(mut error: WqError, source: SourceUnit<'_>) -> WqError {
+    if let Some(context) = error.source_ctx.as_deref() {
+        if context.path == source.path && context.text == source.full_text {
+            return error;
+        }
+        if context.path != source.path || context.text != source.code {
+            return error;
+        }
+    }
+    if let Some((start, end)) = &mut error.span {
+        *start = start.saturating_add(source.base_offset);
+        *end = end.saturating_add(source.base_offset);
+    }
+    error.source_ctx = Some(Box::new(crate::wqerror::SourceCtx {
+        text: source.full_text.to_string(),
+        path: source.path.to_string(),
+    }));
+    error
+}
+
 impl Default for Session {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn has_script_meta(items: &[ScriptItem]) -> bool {
-    items
-        .iter()
-        .any(|item| matches!(item, ScriptItem::Shebang { .. } | ScriptItem::Directive(_)))
-}
-
-fn push_script_ast(statements: &mut Vec<AstNode>, ast: AstNode) {
-    match ast {
-        AstNode::Block(nodes, _) => statements.extend(nodes),
-        node => statements.push(node),
-    }
-}
-
-fn script_ast_from_statements(mut statements: Vec<AstNode>) -> AstNode {
-    if statements.len() == 1 {
-        statements.remove(0)
-    } else {
-        let span = ast_span_for_items(&statements);
-        AstNode::Block(statements, span)
-    }
-}
-
-fn ast_span_for_items(items: &[AstNode]) -> Option<(usize, usize)> {
-    match (
-        items.first().and_then(AstNode::span),
-        items.last().and_then(AstNode::span),
-    ) {
-        (Some((start, _)), Some((_, end))) => Some((start, end)),
-        (Some(span), None) | (None, Some(span)) => Some(span),
-        (None, None) => None,
-    }
-}
-
-fn push_script_line_node(
-    builder: &mut GreenNodeBuilder,
-    input: &str,
-    span: ScriptSpan,
-    kind: SyntaxKind,
-) {
-    let text = &input[span.as_range()];
-    let (line, newline) = text
-        .strip_suffix('\n')
-        .map_or((text, None), |line| (line, Some("\n")));
-    builder.start_node(kind);
-    if !line.is_empty() {
-        builder.token(SyntaxKind::ScriptLine, line);
-    }
-    builder.finish_node();
-    if let Some(newline) = newline {
-        builder.token(SyntaxKind::Newline, newline);
-    }
-}
-
-fn push_script_trivia(builder: &mut GreenNodeBuilder, text: &str) {
-    let mut line_start = 0usize;
-    for (idx, ch) in text.char_indices() {
-        if ch != '\n' {
-            continue;
-        }
-        push_script_trivia_line(builder, &text[line_start..idx]);
-        builder.token(SyntaxKind::Newline, "\n");
-        line_start = idx + ch.len_utf8();
-    }
-    if line_start < text.len() {
-        push_script_trivia_line(builder, &text[line_start..]);
-    }
-}
-
-fn push_script_trivia_line(builder: &mut GreenNodeBuilder, line: &str) {
-    let trimmed = line.trim_start_matches([' ', '\t', '\r']);
-    let leading_len = line.len() - trimmed.len();
-    let rest = &line[leading_len..];
-    if rest.starts_with("//") {
-        if leading_len > 0 {
-            builder.token(SyntaxKind::Whitespace, &line[..leading_len]);
-        }
-        builder.token(SyntaxKind::Comment, rest);
-    } else if !line.is_empty() {
-        builder.token(SyntaxKind::Whitespace, line);
-    }
-}
-
-fn append_root_children(builder: &mut GreenNodeBuilder, root: &GreenNode) {
-    for child in root.children() {
-        append_green_child(builder, child);
-    }
-}
-
-fn append_green_child(builder: &mut GreenNodeBuilder, child: &GreenChild) {
-    match child {
-        GreenChild::Node(node) => builder.append_node(node.clone()),
-        GreenChild::Token(token) => append_green_token(builder, token),
-    }
-}
-
-fn append_green_token(builder: &mut GreenNodeBuilder, token: &GreenToken) {
-    builder.token(token.kind(), token.text());
-}
-
-fn offset_error_span(err: &mut WqError, offset: usize) {
-    if let Some((start, end)) = &mut err.span {
-        *start += offset;
-        *end += offset;
-    }
-}
-
-fn offset_token(token: &mut Token, offset: usize) {
-    token.byte_start += offset;
-    token.byte_end += offset;
-    if let TokenType::FormatString(parts, open_quote, close_quote) = &mut token.token_type {
-        *open_quote += offset;
-        *close_quote += offset;
-        for part in parts {
-            match part {
-                FmtPart::Text { start, end, .. } | FmtPart::Expr { start, end, .. } => {
-                    *start += offset;
-                    *end += offset;
-                }
-            }
-        }
-    }
-}
-
-fn eof_token_for(input: &str) -> Token {
-    let line = input.bytes().filter(|b| *b == b'\n').count() + 1;
-    let column = input
-        .rsplit('\n')
-        .next()
-        .map_or(1, |line| line.chars().count() + 1);
-    Token::new(
-        TokenType::Eof,
-        input.chars().count() + 1,
-        line,
-        column,
-        input.len(),
-        input.len(),
-    )
-}
-
-fn compute_dirty_byte_range(old: &str, new: &str) -> (usize, usize, usize, usize) {
-    let old_bytes = old.as_bytes();
-    let new_bytes = new.as_bytes();
-
-    let mut prefix = 0usize;
-    while prefix < old_bytes.len()
-        && prefix < new_bytes.len()
-        && old_bytes[prefix] == new_bytes[prefix]
-    {
-        prefix += 1;
-    }
-
-    let mut old_end = old_bytes.len();
-    let mut new_end = new_bytes.len();
-    while old_end > prefix && new_end > prefix && old_bytes[old_end - 1] == new_bytes[new_end - 1] {
-        old_end -= 1;
-        new_end -= 1;
-    }
-
-    (prefix, old_end, prefix, new_end)
 }
 
 #[cfg(test)]
@@ -925,7 +852,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::cst::GreenChild;
+    use crate::debugger::{DebugResume, PauseReason};
 
     #[test]
     fn debug_header_renders_with_explicit_color_mode() {
@@ -940,45 +867,10 @@ mod tests {
     }
 
     #[test]
-    fn syntax_display_formats_folded_ast_without_running() {
-        let session = Session::new();
-        let before = session.environment();
-        let display = session
-            .format_syntax_display("x:1; x", SyntaxDisplayKind::Ast, ColorMode::Never)
-            .expect("AST display should parse");
-
-        assert!(display.starts_with("AST @ fold - final\n"));
-        assert!(display.contains("ASSIGN"));
-        assert_eq!(session.environment(), before);
-    }
-
-    #[test]
-    fn syntax_display_formats_cst_without_running() {
-        let session = Session::new();
-        let display = session
-            .format_syntax_display("1+2", SyntaxDisplayKind::Cst, ColorMode::Never)
-            .expect("CST display should parse");
-
-        assert!(display.starts_with("CST\n"));
-        assert!(display.contains("ROOT"));
-        assert!(display.contains("BINARY_EXPR"));
-    }
-
-    fn root_nodes(root: &crate::cst::GreenNode) -> Vec<crate::cst::GreenNode> {
-        root.children()
-            .iter()
-            .filter_map(|child| match child {
-                GreenChild::Node(node) => Some(node.clone()),
-                GreenChild::Token(_) => None,
-            })
-            .collect()
-    }
-
-    #[test]
     fn test_assign_global_new_var() {
         let mut session = Session::new();
         session.assign_global("x", Value::Int(42));
-        assert_eq!(session.env_vars().get("x"), Some(&Value::Int(42)));
+        assert_eq!(session.bindings().get("x"), Some(&Value::Int(42)));
     }
 
     #[test]
@@ -986,7 +878,7 @@ mod tests {
         let mut session = Session::new();
         session.assign_global("x", Value::Int(1));
         session.assign_global("x", Value::Int(2));
-        assert_eq!(session.env_vars().get("x"), Some(&Value::Int(2)));
+        assert_eq!(session.bindings().get("x"), Some(&Value::Int(2)));
     }
 
     #[test]
@@ -1256,16 +1148,16 @@ mod tests {
             .expect("symbolic assignment should bind before the next statement");
 
         assert_eq!(result.to_string(), "x^2 + 2*x + 1");
-        assert!(session.env_vars().contains_key("expr"));
+        assert!(session.bindings().contains_key("expr"));
     }
 
     #[test]
-    fn test_reset_session_clears_globals() {
+    fn reset_workspace_clears_globals() {
         let mut session = Session::new();
         session.eval_string("a:1").unwrap();
-        assert_eq!(session.env_vars().get("a"), Some(&Value::Int(1)));
-        session.reset_session();
-        assert!(session.env_vars().get("a").is_none());
+        assert_eq!(session.bindings().get("a"), Some(&Value::Int(1)));
+        session.reset_workspace();
+        assert!(session.bindings().get("a").is_none());
         // Accessing a after reset should error, not crash with invalid slot
         let result = session.eval_string("a");
         assert!(result.is_err());
@@ -1277,63 +1169,149 @@ mod tests {
     }
 
     #[test]
-    fn test_reset_session_preserves_on_pause() {
+    fn reset_workspace_preserves_pause_handler() {
+        let pauses = Arc::new(AtomicUsize::new(0));
+        let captured_pauses = Arc::clone(&pauses);
         let mut session = Session::new();
-        fn dummy_pause(_vm: &mut crate::vm::Vm) {}
-        session.set_pause_callback(Some(dummy_pause));
-        assert!(session.vm.wqdb.on_pause.is_some());
-        session.reset_session();
-        assert!(
-            session.vm.wqdb.on_pause.is_some(),
-            "on_pause callback should survive reset_session"
-        );
+        session.set_pause_handler(move |_, _| {
+            captured_pauses.fetch_add(1, Ordering::SeqCst);
+            DebugResume::Continue
+        });
+        session.reset_workspace();
+        session.set_wqdb(true);
+        session.eval_string("1").expect("evaluation after reset");
+
+        assert_eq!(pauses.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn wqdb_auto_entry_is_armed_once() {
-        static PAUSES: AtomicUsize = AtomicUsize::new(0);
-
-        fn count_pause(vm: &mut crate::vm::Vm) {
-            PAUSES.fetch_add(1, Ordering::SeqCst);
-            vm.dbg_continue();
-        }
-
-        PAUSES.store(0, Ordering::SeqCst);
+        let reasons = Arc::new(Mutex::new(Vec::new()));
+        let captured_reasons = Arc::clone(&reasons);
         let mut session = Session::new();
-        session.set_pause_callback(Some(count_pause));
+        session.set_pause_handler(move |event, _| {
+            captured_reasons
+                .lock()
+                .expect("pause reasons lock")
+                .push(event.reason);
+            DebugResume::Continue
+        });
         session.set_wqdb(true);
 
         session.eval_string("x:1").expect("first eval should run");
-        assert_eq!(PAUSES.load(Ordering::SeqCst), 1);
+        assert_eq!(reasons.lock().expect("pause reasons lock").len(), 1);
 
         session.eval_string("x+:1").expect("second eval should run");
-        assert_eq!(PAUSES.load(Ordering::SeqCst), 1);
+        assert_eq!(reasons.lock().expect("pause reasons lock").len(), 1);
 
         session
             .eval_string("@p x")
             .expect("explicit pause should run");
-        assert_eq!(PAUSES.load(Ordering::SeqCst), 2);
+        let reasons = reasons.lock().expect("pause reasons lock");
+        assert_eq!(reasons.len(), 2);
+        assert_eq!(reasons[0], PauseReason::Entry);
+        assert!(matches!(reasons[1], PauseReason::ExplicitPause { .. }));
+    }
+
+    #[test]
+    fn pending_source_breakpoint_resolves_in_a_later_script_region() {
+        let reasons = Arc::new(Mutex::new(Vec::new()));
+        let captured_reasons = Arc::clone(&reasons);
+        let resolved = Arc::new(AtomicUsize::new(0));
+        let captured_resolved = Arc::clone(&resolved);
+        let mut session = Session::new();
+        session.set_pause_handler(move |event, debugger| {
+            captured_reasons
+                .lock()
+                .expect("pause reasons lock")
+                .push(event.reason);
+            if event.reason == PauseReason::Entry {
+                let breakpoints = debugger.set_source_breakpoints("pending.wq", &[3]);
+                assert_eq!(breakpoints.len(), 1);
+                assert!(breakpoints[0].location.is_none());
+            } else if matches!(event.reason, PauseReason::Breakpoint { .. }) {
+                let breakpoints = debugger.take_resolved_source_breakpoints();
+                assert_eq!(breakpoints.len(), 1);
+                assert!(breakpoints[0].location.is_some());
+                captured_resolved.fetch_add(1, Ordering::SeqCst);
+            }
+            DebugResume::Continue
+        });
+        session.set_wqdb(true);
+
+        session
+            .eval_script_with(
+                SourceUnit::named("pending.wq", "first:1\n\\p\nsecond:2\n"),
+                |_, _| Ok::<_, ()>(None),
+            )
+            .expect("streamed script should evaluate");
+
+        let reasons = reasons.lock().expect("pause reasons lock");
+        assert_eq!(reasons.len(), 2);
+        assert_eq!(reasons[0], PauseReason::Entry);
+        assert!(matches!(reasons[1], PauseReason::Breakpoint { .. }));
+        assert_eq!(resolved.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn interrupt_handle_requests_a_controlled_halt() {
+        let mut session = Session::new();
+        session.interrupt_handle().interrupt();
+
+        session
+            .eval_string("W[true;0]")
+            .expect("an interrupted evaluation should halt cleanly");
+
+        assert_eq!(session.take_halt_status(), Some(0));
+        assert_eq!(
+            session
+                .eval_string("1")
+                .expect("a consumed interrupt should not affect the next evaluation"),
+            Value::Int(1)
+        );
+    }
+
+    #[test]
+    fn disabling_wqdb_cancels_pending_auto_entry() {
+        let pauses = Arc::new(AtomicUsize::new(0));
+        let captured_pauses = Arc::clone(&pauses);
+        let mut session = Session::new();
+        session.set_pause_handler(move |_, _| {
+            captured_pauses.fetch_add(1, Ordering::SeqCst);
+            DebugResume::Continue
+        });
+        session.set_backtrace_enabled(false);
+        session.set_wqdb(true);
+        session.set_wqdb(false);
+
+        session.eval_string("1").expect("evaluation should run");
+
+        assert_eq!(pauses.load(Ordering::SeqCst), 0);
+        assert!(
+            session
+                .vm
+                .debug_info
+                .chunk_opt(crate::wqdb::data::ChunkId(0))
+                .is_none()
+        );
     }
 
     #[test]
     fn enabled_wqdb_can_be_rearmed_for_another_eval() {
-        static PAUSES: AtomicUsize = AtomicUsize::new(0);
-
-        fn count_pause(vm: &mut crate::vm::Vm) {
-            PAUSES.fetch_add(1, Ordering::SeqCst);
-            vm.dbg_continue();
-        }
-
-        PAUSES.store(0, Ordering::SeqCst);
+        let pauses = Arc::new(AtomicUsize::new(0));
+        let captured_pauses = Arc::clone(&pauses);
         let mut session = Session::new();
-        session.set_pause_callback(Some(count_pause));
+        session.set_pause_handler(move |_, _| {
+            captured_pauses.fetch_add(1, Ordering::SeqCst);
+            DebugResume::Continue
+        });
         session.set_wqdb(true);
 
         session.eval_string("x:1").expect("first eval should run");
         session.arm_wqdb_next();
         session.eval_string("x+:1").expect("second eval should run");
 
-        assert_eq!(PAUSES.load(Ordering::SeqCst), 2);
+        assert_eq!(pauses.load(Ordering::SeqCst), 2);
     }
 
     #[test]
@@ -1387,27 +1365,24 @@ mod tests {
 
     #[test]
     fn wqdb_breakpoints_disable_pure_callback_fast_path() {
-        static PAUSES: AtomicUsize = AtomicUsize::new(0);
-
-        fn set_breakpoint_then_continue(vm: &mut crate::vm::Vm) {
-            let pause = PAUSES.fetch_add(1, Ordering::SeqCst);
+        let pauses = Arc::new(AtomicUsize::new(0));
+        let captured_pauses = Arc::clone(&pauses);
+        let mut session = Session::new();
+        session.set_pause_handler(move |_, debugger| {
+            let pause = captured_pauses.fetch_add(1, Ordering::SeqCst);
             if pause == 0 {
-                let chunk = vm
+                let chunk = debugger
                     .debug_info()
                     .function_chunk("f")
                     .expect("f function chunk");
-                let meta = vm.debug_info().chunk(chunk);
+                let meta = debugger.debug_info().chunk(chunk);
                 let pc = (0..meta.len)
                     .find(|pc| meta.line_table.is_stmt(*pc))
                     .unwrap_or(0);
-                vm.dbg_set_break(crate::wqdb::data::CodeLoc { chunk, pc });
+                debugger.set_breakpoint(crate::wqdb::data::CodeLoc { chunk, pc });
             }
-            vm.dbg_continue();
-        }
-
-        PAUSES.store(0, Ordering::SeqCst);
-        let mut session = Session::new();
-        session.set_pause_callback(Some(set_breakpoint_then_continue));
+            DebugResume::Continue
+        });
         session.set_wqdb(true);
 
         let result = session
@@ -1415,56 +1390,50 @@ mod tests {
             .expect("debugged map should evaluate");
 
         assert_eq!(result, Value::IntList(Arc::new(vec![2, 3])));
-        assert_eq!(PAUSES.load(Ordering::SeqCst), 3);
+        assert_eq!(pauses.load(Ordering::SeqCst), 3);
     }
 
     #[test]
     fn instruction_step_on_pause_instruction_does_not_stop_twice_at_that_pc() {
-        static PAUSES: AtomicUsize = AtomicUsize::new(0);
-
-        fn count_pause(vm: &mut crate::vm::Vm) {
-            let stop = PAUSES.fetch_add(1, Ordering::SeqCst) + 1;
-            if stop == 1 {
-                vm.dbg_set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
-                vm.dbg_step_in();
-            } else {
-                vm.dbg_continue();
-            }
-        }
-
-        PAUSES.store(0, Ordering::SeqCst);
+        let pauses = Arc::new(AtomicUsize::new(0));
+        let captured_pauses = Arc::clone(&pauses);
         let mut session = Session::new();
-        session.set_pause_callback(Some(count_pause));
+        session.set_pause_handler(move |_, debugger| {
+            let stop = captured_pauses.fetch_add(1, Ordering::SeqCst) + 1;
+            if stop == 1 {
+                debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+                DebugResume::StepIn
+            } else {
+                DebugResume::Continue
+            }
+        });
         session.set_wqdb(true);
 
         session
             .eval_string("@p 1")
             .expect("pause expression should run");
 
-        assert_eq!(PAUSES.load(Ordering::SeqCst), 2);
+        assert_eq!(pauses.load(Ordering::SeqCst), 2);
     }
 
     #[test]
     fn line_stepping_uses_compiled_lines_and_revisits_loop_lines() {
-        static LINES: Mutex<Vec<usize>> = Mutex::new(Vec::new());
-
-        fn step_by_line(vm: &mut crate::vm::Vm) {
-            let loc = vm.loc();
-            let meta = vm.debug_info().chunk(loc.chunk);
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let captured_lines = Arc::clone(&lines);
+        let mut session = Session::new();
+        session.set_pause_handler(move |_, debugger| {
+            let loc = debugger.location();
+            let meta = debugger.debug_info().chunk(loc.chunk);
             let span = meta.line_table.context_span_at(loc.pc);
-            if let Some(source) = vm.debug_info().file(span.file_id) {
-                LINES
+            if let Some(source) = debugger.debug_info().file(span.file_id) {
+                captured_lines
                     .lock()
                     .expect("line stops lock")
                     .push(source.line_col(span.start).0);
             }
-            vm.dbg_set_step_granularity(crate::wqdb::model::StepGranularity::Line);
-            vm.dbg_step_in();
-        }
-
-        LINES.lock().expect("line stops lock").clear();
-        let mut session = Session::new();
-        session.set_pause_callback(Some(step_by_line));
+            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Line);
+            DebugResume::StepIn
+        });
         session.set_wqdb(true);
 
         let result = session
@@ -1473,62 +1442,59 @@ mod tests {
 
         assert_eq!(result, Value::Int(2));
         assert_eq!(
-            *LINES.lock().expect("line stops lock"),
+            *lines.lock().expect("line stops lock"),
             vec![1, 2, 3, 2, 3, 2, 4]
         );
     }
 
     #[test]
     fn instruction_next_and_finish_cross_real_call_frames() {
-        static PHASE: AtomicUsize = AtomicUsize::new(0);
-        static TARGETS: Mutex<Vec<String>> = Mutex::new(Vec::new());
-
-        fn drive_calls(vm: &mut crate::vm::Vm) {
-            vm.dbg_set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
-            let loc = vm.loc();
-            let name = vm.func_name_for_chunk(loc.chunk);
-            let instruction = vm.dbg_ins_at(loc.pc).unwrap_or_default();
-            match PHASE.load(Ordering::SeqCst) {
+        let phase = Arc::new(AtomicUsize::new(0));
+        let targets = Arc::new(Mutex::new(Vec::new()));
+        let captured_phase = Arc::clone(&phase);
+        let captured_targets = Arc::clone(&targets);
+        let mut session = Session::new();
+        session.set_pause_handler(move |_, debugger| {
+            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+            let loc = debugger.location();
+            let name = debugger.function_name(loc.chunk);
+            let instruction = debugger.instruction_at(loc.pc).unwrap_or_default();
+            match captured_phase.load(Ordering::SeqCst) {
                 0 if name == "g" && instruction.starts_with("Postfix(1)") => {
-                    PHASE.store(1, Ordering::SeqCst);
-                    vm.dbg_step_over();
+                    captured_phase.store(1, Ordering::SeqCst);
+                    DebugResume::StepOver
                 }
                 1 => {
-                    TARGETS
+                    captured_targets
                         .lock()
                         .expect("call targets lock")
                         .push(format!("{name}:{instruction}"));
-                    PHASE.store(2, Ordering::SeqCst);
-                    vm.dbg_step_in();
+                    captured_phase.store(2, Ordering::SeqCst);
+                    DebugResume::StepIn
                 }
                 2 if name == "g" && instruction.starts_with("Postfix(1)") => {
-                    PHASE.store(3, Ordering::SeqCst);
-                    vm.dbg_step_in();
+                    captured_phase.store(3, Ordering::SeqCst);
+                    DebugResume::StepIn
                 }
                 3 => {
-                    TARGETS
+                    captured_targets
                         .lock()
                         .expect("call targets lock")
                         .push(format!("{name}:{instruction}"));
-                    PHASE.store(4, Ordering::SeqCst);
-                    vm.dbg_step_out();
+                    captured_phase.store(4, Ordering::SeqCst);
+                    DebugResume::StepOut
                 }
                 4 => {
-                    TARGETS
+                    captured_targets
                         .lock()
                         .expect("call targets lock")
                         .push(format!("{name}:{instruction}"));
-                    PHASE.store(5, Ordering::SeqCst);
-                    vm.dbg_continue();
+                    captured_phase.store(5, Ordering::SeqCst);
+                    DebugResume::Continue
                 }
-                _ => vm.dbg_step_in(),
+                _ => DebugResume::StepIn,
             }
-        }
-
-        PHASE.store(0, Ordering::SeqCst);
-        TARGETS.lock().expect("call targets lock").clear();
-        let mut session = Session::new();
-        session.set_pause_callback(Some(drive_calls));
+        });
         session.set_wqdb(true);
 
         let result = session
@@ -1536,8 +1502,8 @@ mod tests {
             .expect("call stepping program should run");
 
         assert_eq!(result, Value::Int(6));
-        assert_eq!(PHASE.load(Ordering::SeqCst), 5);
-        let targets = TARGETS.lock().expect("call targets lock");
+        assert_eq!(phase.load(Ordering::SeqCst), 5);
+        let targets = targets.lock().expect("call targets lock");
         assert!(targets[0].starts_with("g:StoreLocal"), "{targets:?}");
         assert!(targets[1].starts_with("f:BinaryOp"), "{targets:?}");
         assert!(targets[2].starts_with("g:StoreLocal"), "{targets:?}");
@@ -1545,32 +1511,30 @@ mod tests {
 
     #[test]
     fn instruction_next_steps_over_tail_called_frames() {
-        static PHASE: AtomicUsize = AtomicUsize::new(0);
-        static TARGET: Mutex<Option<String>> = Mutex::new(None);
-
-        fn drive_tail_call(vm: &mut crate::vm::Vm) {
-            vm.dbg_set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
-            let loc = vm.loc();
-            let name = vm.func_name_for_chunk(loc.chunk);
-            let instruction = vm.dbg_ins_at(loc.pc).unwrap_or_default();
-            if PHASE.load(Ordering::SeqCst) == 0 {
+        let phase = Arc::new(AtomicUsize::new(0));
+        let target = Arc::new(Mutex::new(None));
+        let captured_phase = Arc::clone(&phase);
+        let captured_target = Arc::clone(&target);
+        let mut session = Session::new();
+        session.set_pause_handler(move |_, debugger| {
+            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+            let loc = debugger.location();
+            let name = debugger.function_name(loc.chunk);
+            let instruction = debugger.instruction_at(loc.pc).unwrap_or_default();
+            if captured_phase.load(Ordering::SeqCst) == 0 {
                 if name == "g" && instruction.starts_with("TailPostfix(1)") {
-                    PHASE.store(1, Ordering::SeqCst);
-                    vm.dbg_step_over();
+                    captured_phase.store(1, Ordering::SeqCst);
+                    DebugResume::StepOver
                 } else {
-                    vm.dbg_step_in();
+                    DebugResume::StepIn
                 }
             } else {
-                *TARGET.lock().expect("tail target lock") = Some(format!("{name}:{instruction}"));
-                PHASE.store(2, Ordering::SeqCst);
-                vm.dbg_continue();
+                *captured_target.lock().expect("tail target lock") =
+                    Some(format!("{name}:{instruction}"));
+                captured_phase.store(2, Ordering::SeqCst);
+                DebugResume::Continue
             }
-        }
-
-        PHASE.store(0, Ordering::SeqCst);
-        *TARGET.lock().expect("tail target lock") = None;
-        let mut session = Session::new();
-        session.set_pause_callback(Some(drive_tail_call));
+        });
         session.set_wqdb(true);
 
         let result = session
@@ -1578,8 +1542,8 @@ mod tests {
             .expect("tail-call stepping program should run");
 
         assert_eq!(result, Value::Int(4));
-        assert_eq!(PHASE.load(Ordering::SeqCst), 2);
-        let target = TARGET
+        assert_eq!(phase.load(Ordering::SeqCst), 2);
+        let target = target
             .lock()
             .expect("tail target lock")
             .clone()
@@ -1589,38 +1553,34 @@ mod tests {
 
     #[test]
     fn instruction_next_steps_over_tail_calls_beyond_backtrace_capacity() {
-        static TAIL_CALLS: AtomicUsize = AtomicUsize::new(0);
-        static PHASE: AtomicUsize = AtomicUsize::new(0);
-        static TARGET: Mutex<Option<String>> = Mutex::new(None);
-
-        fn drive_deep_tail_calls(vm: &mut crate::vm::Vm) {
-            vm.dbg_set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
-            let loc = vm.loc();
-            let name = vm.func_name_for_chunk(loc.chunk);
-            let instruction = vm.dbg_ins_at(loc.pc).unwrap_or_default();
-            if PHASE.load(Ordering::SeqCst) == 0 {
+        let tail_calls = Arc::new(AtomicUsize::new(0));
+        let phase = Arc::new(AtomicUsize::new(0));
+        let target = Arc::new(Mutex::new(None));
+        let captured_tail_calls = Arc::clone(&tail_calls);
+        let captured_phase = Arc::clone(&phase);
+        let captured_target = Arc::clone(&target);
+        let mut session = Session::new();
+        session.set_pause_handler(move |_, debugger| {
+            debugger.set_step_granularity(crate::wqdb::model::StepGranularity::Inst);
+            let loc = debugger.location();
+            let name = debugger.function_name(loc.chunk);
+            let instruction = debugger.instruction_at(loc.pc).unwrap_or_default();
+            if captured_phase.load(Ordering::SeqCst) == 0 {
                 if name == "f" && instruction.starts_with("TailPostfix(1)") {
-                    let tail_call = TAIL_CALLS.fetch_add(1, Ordering::SeqCst) + 1;
+                    let tail_call = captured_tail_calls.fetch_add(1, Ordering::SeqCst) + 1;
                     if tail_call == 129 {
-                        PHASE.store(1, Ordering::SeqCst);
-                        vm.dbg_step_over();
-                        return;
+                        captured_phase.store(1, Ordering::SeqCst);
+                        return DebugResume::StepOver;
                     }
                 }
-                vm.dbg_step_in();
+                DebugResume::StepIn
             } else {
-                *TARGET.lock().expect("deep tail target lock") =
+                *captured_target.lock().expect("deep tail target lock") =
                     Some(format!("{name}:{instruction}"));
-                PHASE.store(2, Ordering::SeqCst);
-                vm.dbg_continue();
+                captured_phase.store(2, Ordering::SeqCst);
+                DebugResume::Continue
             }
-        }
-
-        TAIL_CALLS.store(0, Ordering::SeqCst);
-        PHASE.store(0, Ordering::SeqCst);
-        *TARGET.lock().expect("deep tail target lock") = None;
-        let mut session = Session::new();
-        session.set_pause_callback(Some(drive_deep_tail_calls));
+        });
         session.set_wqdb(true);
 
         let result = session
@@ -1628,8 +1588,9 @@ mod tests {
             .expect("deep tail-call stepping program should run");
 
         assert_eq!(result, Value::Int(0));
-        assert_eq!(PHASE.load(Ordering::SeqCst), 2);
-        let target = TARGET
+        assert_eq!(phase.load(Ordering::SeqCst), 2);
+        assert_eq!(tail_calls.load(Ordering::SeqCst), 129);
+        let target = target
             .lock()
             .expect("deep tail target lock")
             .clone()
@@ -1639,11 +1600,9 @@ mod tests {
 
     #[test]
     fn idle_pause_callback_does_not_prepare_debug_artifacts_when_bt_is_off() {
-        fn dummy_pause(_vm: &mut crate::vm::Vm) {}
-
         let mut session = Session::new();
-        session.set_pause_callback(Some(dummy_pause));
-        session.set_bt_mode(false);
+        session.set_pause_handler(|_, _| DebugResume::Continue);
+        session.set_backtrace_enabled(false);
         session.set_wqdb(false);
 
         let result = session
@@ -1652,24 +1611,25 @@ mod tests {
 
         assert_eq!(result, Value::Int(2));
         assert!(
-            session.vm.debug_info.by_name.is_empty(),
+            session
+                .vm
+                .debug_info
+                .chunk_opt(crate::wqdb::data::ChunkId(0))
+                .is_none(),
             "idle pause callback should not create debug chunks when bt and wqdb are off"
         );
     }
 
     #[test]
     fn pause_instruction_prepares_debug_artifacts_even_when_bt_is_off() {
-        static PAUSES: AtomicUsize = AtomicUsize::new(0);
-
-        fn count_pause(vm: &mut crate::vm::Vm) {
-            PAUSES.fetch_add(1, Ordering::SeqCst);
-            vm.dbg_continue();
-        }
-
-        PAUSES.store(0, Ordering::SeqCst);
+        let pauses = Arc::new(AtomicUsize::new(0));
+        let captured_pauses = Arc::clone(&pauses);
         let mut session = Session::new();
-        session.set_pause_callback(Some(count_pause));
-        session.set_bt_mode(false);
+        session.set_pause_handler(move |_, _| {
+            captured_pauses.fetch_add(1, Ordering::SeqCst);
+            DebugResume::Continue
+        });
+        session.set_backtrace_enabled(false);
         session.set_wqdb(false);
 
         let result = session
@@ -1677,9 +1637,13 @@ mod tests {
             .expect("explicit pause should run without bt");
 
         assert_eq!(result, Value::Int(1));
-        assert_eq!(PAUSES.load(Ordering::SeqCst), 1);
+        assert_eq!(pauses.load(Ordering::SeqCst), 1);
         assert!(
-            !session.vm.debug_info.by_name.is_empty(),
+            session
+                .vm
+                .debug_info
+                .chunk_opt(crate::wqdb::data::ChunkId(0))
+                .is_some(),
             "@p should still request debug artifacts for the pause callback"
         );
     }
@@ -1705,85 +1669,6 @@ mod tests {
             session.eval_string("1<\n  2<\n  3").unwrap(),
             Value::Bool(true)
         );
-    }
-
-    #[test]
-    fn symbols_handle_long_left_deep_binary_chain() {
-        let terms = std::iter::repeat_n("a", 512).collect::<Vec<_>>().join("+");
-        let code = format!("a:1\nb:2\nc:{terms}");
-        let session = Session::new();
-
-        let index = session
-            .analyze_symbols(&code)
-            .expect("long chain should produce symbols");
-        let a_def = index
-            .defs
-            .iter()
-            .position(|def| {
-                def.name == "a" && matches!(def.kind, crate::symbol::DefKind::Assignment)
-            })
-            .expect("a assignment should be defined");
-        let read_count = index
-            .occurrences()
-            .into_iter()
-            .filter(|occurrence| {
-                occurrence.def_idx == a_def
-                    && matches!(occurrence.kind, crate::symbol::UseKind::Read)
-            })
-            .count();
-
-        assert_eq!(read_count, 512);
-    }
-
-    #[test]
-    fn script_directive_cst_round_trips_with_meta_node() {
-        let session = Session::new();
-        let src = "a:1\n\\l ./lib.wq\nb:a\n";
-        let (_, green) = session.parse_with_cst(src).expect("script parse");
-
-        assert_eq!(green.text(), src);
-        assert!(green.children().iter().any(|child| {
-            matches!(
-                child,
-                GreenChild::Node(node) if node.kind() == crate::cst::SyntaxKind::ScriptDirective
-            )
-        }));
-    }
-
-    #[test]
-    fn tokenize_recovery_omits_script_directive_errors() {
-        let session = Session::new();
-        let tokens = session.tokenize_recovery("a:1\n\\l ./lib.wq\nb:2\n");
-
-        assert!(
-            !tokens
-                .iter()
-                .any(|token| matches!(token.token_type, crate::token::TokenType::Error)),
-            "directive path should not be lexed as wq code: {tokens:#?}",
-        );
-    }
-
-    #[test]
-    fn script_symbols_keep_offsets_after_directive() {
-        let session = Session::new();
-        let src = "a:1\n\\l ./lib.wq\nb:a\n";
-        let index = session
-            .analyze_symbols(src)
-            .expect("script symbols should analyze");
-        let def_idx = index
-            .defs
-            .iter()
-            .position(|def| {
-                def.name == "a" && matches!(def.kind, crate::symbol::DefKind::Assignment)
-            })
-            .expect("a assignment should be defined");
-        let use_start = src.rfind('a').expect("source contains a read");
-
-        assert!(index.occurrences().into_iter().any(|occurrence| {
-            occurrence.def_idx == def_idx
-                && occurrence.span == (use_start, use_start + 1)
-                && matches!(occurrence.kind, crate::symbol::UseKind::Read)
-        }));
     }
 
     #[test]
@@ -2132,44 +2017,5 @@ mod tests {
                 "{source} should preserve its result frame"
             );
         }
-    }
-
-    #[test]
-    fn test_cached_parse_reuses_unchanged_root_statements() {
-        let session = Session::new();
-        let src = "a:1\nb:2\nc:3\n";
-        let (_, first) = session.parse_with_cst(src).expect("initial parse");
-        let (_, second) = session
-            .parse_with_cst_using_cache(src, &first)
-            .expect("cached parse");
-
-        let first_nodes = root_nodes(&first);
-        let second_nodes = root_nodes(&second);
-        assert_eq!(first_nodes.len(), second_nodes.len());
-        assert!(
-            first_nodes
-                .iter()
-                .zip(second_nodes.iter())
-                .all(|(lhs, rhs)| lhs.ptr_eq(rhs)),
-            "expected unchanged root statements to be reused",
-        );
-    }
-
-    #[test]
-    fn test_cached_parse_reuses_unchanged_prefix_and_suffix_statements() {
-        let session = Session::new();
-        let old_src = "a:1\nb:2\nc:3\n";
-        let new_src = "a:1\nb:20\nc:3\n";
-        let (_, first) = session.parse_with_cst(old_src).expect("initial parse");
-        let (_, second) = session
-            .parse_with_cst_using_cache(new_src, &first)
-            .expect("cached parse");
-
-        let first_nodes = root_nodes(&first);
-        let second_nodes = root_nodes(&second);
-        assert_eq!(first_nodes.len(), second_nodes.len());
-        assert!(first_nodes[0].ptr_eq(&second_nodes[0]));
-        assert!(!first_nodes[1].ptr_eq(&second_nodes[1]));
-        assert!(first_nodes[2].ptr_eq(&second_nodes[2]));
     }
 }

@@ -1,4 +1,4 @@
-use crate::builtins::Builtins;
+use crate::builtins::{BuiltinPreset, Builtins};
 use crate::cas::cas_special_call_name;
 use crate::lex::Lexer;
 use crate::script::{ScriptItem, ScriptSpan, might_have_script_meta, parse_script_items};
@@ -255,9 +255,15 @@ impl Default for Highlighter {
 
 impl Highlighter {
     pub fn new() -> Self {
-        Self {
-            builtins: Builtins::new(),
-        }
+        Self::with_builtins(Builtins::new())
+    }
+
+    pub fn with_builtins(builtins: Builtins) -> Self {
+        Self { builtins }
+    }
+
+    pub fn with_preset(preset: BuiltinPreset) -> Self {
+        Self::with_builtins(Builtins::with_preset(preset))
     }
 
     /// Highlight a slice of wq source code.
@@ -932,7 +938,7 @@ impl Highlighter {
             TokenType::Tag(_) => Some(HighlightName::Tag),
 
             TokenType::Identifier(name) => {
-                if builtins.is_known_name(name) {
+                if builtins.is_enabled_name(name) {
                     Some(HighlightName::FunctionBuiltin)
                 } else {
                     Some(HighlightName::Variable)

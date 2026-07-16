@@ -1,32 +1,86 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+use std::cell::RefCell;
+use std::ops::{Deref, DerefMut};
+
+use wqpl::debugger::{DebugResume, Debugger};
 use wqpl::session::Session;
-use wqpl::session::stdio::{
-    WqInputMode, WqStdinError, wqstderr_println, wqstdin_readline, wqstdin_set_wqdb_function_hints,
-    wqstdin_with_input_mode,
-};
+use wqpl::session::stdio::WqIoError;
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::Excerpt;
-use wqpl::vm::Vm;
 use wqpl::wqdb::data::{CodeLoc, DebugInfo, DebugLocalsFrame, Span};
 use wqpl::wqdb::model::StepGranularity;
-use wqpl::wqdb::{format_frame, format_span_snippet_with_color_mode};
+use wqpl::wqdb::{format_frame, format_span_snippet};
 
 use crate::repl::InteractiveOutputSpacing;
+use crate::repl::input::{RustylineInput, WqInputMode};
 
 pub(crate) mod editor;
 
 /// Enter wqdb shell after a crash for inspection.
 /// Print a short notice, then reuse the interactive shell.
-pub fn enter_wqdb_after_err(s: &mut Session) {
-    let host = s.vm_mut();
-    wqstderr_println(format!(
-        "{}: {}",
-        wqdb_title("wqdb"),
-        wqdb_color("error occurred", AnsiColor::Red),
-    ));
-    print_crash_locals(host);
-    wqdb_shell(host);
+pub fn enter_wqdb_after_err(session: &mut Session, editor: &RustylineInput) {
+    let action = {
+        let mut debugger = session.debugger();
+        let mut host = WqdbHost::new(&mut debugger, editor);
+        host.write_line(format!(
+            "{}: {}",
+            wqdb_title("wqdb", host.color_mode()),
+            wqdb_color("error occurred", AnsiColor::Red, host.color_mode()),
+        ));
+        print_crash_locals(&mut host);
+        wqdb_shell_inner(&mut host)
+    };
+    session.debugger().apply_resume(action);
+}
+
+struct WqdbHost<'debugger, 'vm> {
+    debugger: &'debugger mut Debugger<'vm>,
+    editor: &'debugger RustylineInput,
+    output_error: RefCell<Option<WqIoError>>,
+}
+
+impl<'debugger, 'vm> WqdbHost<'debugger, 'vm> {
+    fn new(debugger: &'debugger mut Debugger<'vm>, editor: &'debugger RustylineInput) -> Self {
+        Self {
+            debugger,
+            editor,
+            output_error: RefCell::new(None),
+        }
+    }
+
+    fn write_line(&self, text: impl AsRef<str>) {
+        if self.output_error.borrow().is_some() {
+            return;
+        }
+        if let Err(error) = self.debugger.write_stderr_line(text.as_ref()) {
+            self.output_error.replace(Some(error));
+        }
+    }
+
+    fn output_failed(&self) -> bool {
+        self.output_error.borrow().is_some()
+    }
+}
+
+impl<'debugger, 'vm> Deref for WqdbHost<'debugger, 'vm> {
+    type Target = Debugger<'vm>;
+
+    fn deref(&self) -> &Self::Target {
+        self.debugger
+    }
+}
+
+impl DerefMut for WqdbHost<'_, '_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.debugger
+    }
+}
+
+macro_rules! wqdb_println {
+    ($host:expr, $text:expr) => {
+        $host.write_line($text)
+    };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,10 +256,10 @@ impl WqdbUsageArg {
         }
     }
 
-    fn styled(self) -> String {
+    fn styled(self, color_mode: ColorMode) -> String {
         match self {
-            Self::Required(name) => styled_required_arg(name),
-            Self::Optional(name) => styled_optional_arg(name),
+            Self::Required(name) => styled_required_arg(name, color_mode),
+            Self::Optional(name) => styled_optional_arg(name, color_mode),
         }
     }
 }
@@ -257,357 +311,411 @@ fn command_usage_plain(spec: &WqdbCommandSpec) -> String {
     usage
 }
 
-fn command_usage_styled(spec: &WqdbCommandSpec) -> String {
+fn command_usage_styled(spec: &WqdbCommandSpec, color_mode: ColorMode) -> String {
     let mut usage = String::new();
     for (idx, alias) in spec.aliases.iter().enumerate() {
         if idx > 0 {
-            usage.push_str(&format!(" {} ", styled_separator()));
+            usage.push_str(&format!(" {} ", styled_separator(color_mode)));
         }
-        usage.push_str(&styled_command(alias));
+        usage.push_str(&styled_command_with_color_mode(alias, color_mode));
     }
     for arg in spec.args {
         usage.push(' ');
-        usage.push_str(&arg.styled());
+        usage.push_str(&arg.styled(color_mode));
     }
     usage
-}
-
-fn styled_command(text: &str) -> String {
-    styled_command_with_color_mode(text, ColorMode::Auto)
 }
 
 fn styled_command_with_color_mode(text: &str, color_mode: ColorMode) -> String {
     wqdb_paint_with_color_mode(text, TextStyle::new().fg(AnsiColor::Green), color_mode)
 }
 
-fn styled_subcommand(text: &str) -> String {
-    wqdb_color(text, AnsiColor::BrightCyan)
+fn styled_subcommand(text: &str, color_mode: ColorMode) -> String {
+    wqdb_color(text, AnsiColor::BrightCyan, color_mode)
 }
 
-fn styled_flag(text: &str) -> String {
-    wqdb_color(text, AnsiColor::BrightMagenta)
+fn styled_flag(text: &str, color_mode: ColorMode) -> String {
+    wqdb_color(text, AnsiColor::BrightMagenta, color_mode)
 }
 
-fn styled_required_arg(name: &str) -> String {
+fn styled_required_arg(name: &str, color_mode: ColorMode) -> String {
     format!(
         "{}{}{}",
-        wqdb_dim("<"),
-        wqdb_color(name, AnsiColor::BrightYellow),
-        wqdb_dim(">")
+        wqdb_dim("<", color_mode),
+        wqdb_color(name, AnsiColor::BrightYellow, color_mode),
+        wqdb_dim(">", color_mode)
     )
 }
 
-fn styled_optional_arg(name: &str) -> String {
+fn styled_optional_arg(name: &str, color_mode: ColorMode) -> String {
     format!(
         "{}{}{}",
-        wqdb_dim("["),
-        wqdb_color(name, AnsiColor::BrightYellow),
-        wqdb_dim("]")
+        wqdb_dim("[", color_mode),
+        wqdb_color(name, AnsiColor::BrightYellow, color_mode),
+        wqdb_dim("]", color_mode)
     )
 }
 
-fn styled_separator() -> String {
-    wqdb_dim("|")
+fn styled_separator(color_mode: ColorMode) -> String {
+    wqdb_dim("|", color_mode)
 }
 
-fn wqdb_title(text: &str) -> String {
-    wqdb_paint(text, TextStyle::new().fg(AnsiColor::BrightMagenta).bold())
+fn wqdb_title(text: &str, color_mode: ColorMode) -> String {
+    wqdb_paint_with_color_mode(
+        text,
+        TextStyle::new().fg(AnsiColor::BrightMagenta).bold(),
+        color_mode,
+    )
 }
 
-fn wqdb_bold(text: &str) -> String {
-    wqdb_paint(text, TextStyle::new().bold())
+fn wqdb_bold(text: &str, color_mode: ColorMode) -> String {
+    wqdb_paint_with_color_mode(text, TextStyle::new().bold(), color_mode)
 }
 
-fn wqdb_header(text: &str) -> String {
-    wqdb_paint(text, TextStyle::new().bold().underline())
+fn wqdb_header(text: &str, color_mode: ColorMode) -> String {
+    wqdb_paint_with_color_mode(text, TextStyle::new().bold().underline(), color_mode)
 }
 
-fn wqdb_dim(text: &str) -> String {
-    wqdb_color(text, AnsiColor::BrightBlack)
+fn wqdb_dim(text: &str, color_mode: ColorMode) -> String {
+    wqdb_color(text, AnsiColor::BrightBlack, color_mode)
 }
 
-fn wqdb_color(text: &str, color: AnsiColor) -> String {
-    wqdb_paint(text, TextStyle::new().fg(color))
-}
-
-fn wqdb_paint(text: &str, style: TextStyle) -> String {
-    wqdb_paint_with_color_mode(text, style, ColorMode::Auto)
+fn wqdb_color(text: &str, color: AnsiColor, color_mode: ColorMode) -> String {
+    wqdb_paint_with_color_mode(text, TextStyle::new().fg(color), color_mode)
 }
 
 fn wqdb_paint_with_color_mode(text: &str, style: TextStyle, color_mode: ColorMode) -> String {
     paint(text, style, color_mode)
 }
 
-fn styled_track_command(scope: &str, arg: &str) -> String {
+fn styled_track_command(scope: &str, arg: &str, color_mode: ColorMode) -> String {
     format!(
         "{} {} {}",
-        styled_command("track"),
-        styled_subcommand(scope),
-        styled_required_arg(arg)
+        styled_command_with_color_mode("track", color_mode),
+        styled_subcommand(scope, color_mode),
+        styled_required_arg(arg, color_mode)
     )
 }
 
-fn styled_stop_hook_command(action: &str, suffix: Option<String>) -> String {
+fn styled_stop_hook_command(action: &str, suffix: Option<String>, color_mode: ColorMode) -> String {
     match suffix {
         Some(suffix) => format!(
             "{} {} {suffix}",
-            styled_command("stop-hook"),
-            styled_subcommand(action)
+            styled_command_with_color_mode("stop-hook", color_mode),
+            styled_subcommand(action, color_mode)
         ),
         None => format!(
             "{} {}",
-            styled_command("stop-hook"),
-            styled_subcommand(action)
+            styled_command_with_color_mode("stop-hook", color_mode),
+            styled_subcommand(action, color_mode)
         ),
     }
 }
 
-fn wqdb_help_row(spec: &WqdbCommandSpec, usage_width: usize) -> String {
-    let usage = command_usage_styled(spec);
+fn wqdb_help_row(spec: &WqdbCommandSpec, usage_width: usize, color_mode: ColorMode) -> String {
+    let usage = command_usage_styled(spec, color_mode);
     let padding = usage_width - command_usage_plain(spec).len();
     format!("  {usage}{:padding$}  {}", "", spec.summary)
 }
 
-fn print_wqdb_help() {
+fn print_wqdb_help(host: &WqdbHost<'_, '_>) {
+    let color_mode = host.color_mode();
     let usage_width = WQDB_COMMANDS
         .iter()
         .map(|spec| command_usage_plain(spec).len())
         .max()
         .unwrap_or(0);
-    wqstderr_println(format!(
-        "{} {}",
-        wqdb_title("wqdb"),
-        wqdb_dim("=======================================")
-    ));
+    wqdb_println!(
+        host,
+        format!(
+            "{} {}",
+            wqdb_title("wqdb", color_mode),
+            wqdb_dim("=======================================", color_mode)
+        )
+    );
     for spec in WQDB_COMMANDS {
-        wqstderr_println(wqdb_help_row(spec, usage_width));
+        wqdb_println!(host, wqdb_help_row(spec, usage_width, color_mode));
     }
-    wqstderr_println("");
-    wqstderr_println(wqdb_bold("stepping granularity"));
-    wqstderr_println(format!(
-        "  {}  {}",
-        styled_subcommand("line"),
-        wqdb_dim("pause once per source line")
-    ));
-    wqstderr_println(format!(
-        "  {}  {}",
-        styled_subcommand("expr"),
-        wqdb_dim("pause at each expression (default)")
-    ));
-    wqstderr_println(format!(
-        "  {}  {}",
-        styled_subcommand("inst"),
-        wqdb_dim("pause before every VM instruction")
-    ));
-    wqstderr_println("");
-    wqstderr_println(wqdb_bold("track scopes"));
+    wqdb_println!(host, "");
+    wqdb_println!(host, wqdb_bold("stepping granularity", color_mode));
+    wqdb_println!(
+        host,
+        format!(
+            "  {}  {}",
+            styled_subcommand("line", color_mode),
+            wqdb_dim("pause once per source line", color_mode)
+        )
+    );
+    wqdb_println!(
+        host,
+        format!(
+            "  {}  {}",
+            styled_subcommand("expr", color_mode),
+            wqdb_dim("pause at each expression (default)", color_mode)
+        )
+    );
+    wqdb_println!(
+        host,
+        format!(
+            "  {}  {}",
+            styled_subcommand("inst", color_mode),
+            wqdb_dim("pause before every VM instruction", color_mode)
+        )
+    );
+    wqdb_println!(host, "");
+    wqdb_println!(host, wqdb_bold("track scopes", color_mode));
     let track_name = format!(
         "{} {}",
-        styled_command("track"),
-        styled_required_arg("name")
+        styled_command_with_color_mode("track", color_mode),
+        styled_required_arg("name", color_mode)
     );
-    wqstderr_println(format!(
-        "  {} {}",
-        track_name,
-        wqdb_dim("resolves a current local by name, or a global if no local matches")
-    ));
-    wqstderr_println(format!(
-        "  {} {} {} {} {}",
-        styled_track_command("global", "name"),
-        styled_separator(),
-        styled_track_command("local", "name"),
-        styled_separator(),
-        styled_track_command("capture", "slot")
-    ));
-    wqstderr_println("");
-    wqstderr_println(wqdb_bold("stop hooks"));
-    wqstderr_println(format!(
-        "  {} {} {} {} {} {} {}",
-        styled_stop_hook_command(
-            "add",
-            Some(format!(
-                "{} {}",
-                styled_flag("-o"),
-                styled_required_arg("cmd")
-            )),
-        ),
-        styled_separator(),
-        styled_stop_hook_command("list", None),
-        styled_separator(),
-        styled_stop_hook_command("delete", Some(styled_required_arg("id|all"))),
-        styled_separator(),
-        styled_stop_hook_command("clear", None)
-    ));
-    wqstderr_println("");
-    wqstderr_println(wqdb_bold("batch commands"));
-    wqstderr_println(format!(
-        "  CLI {}{}{} commands run once at the first debugger stop.",
-        styled_flag("-o"),
-        wqdb_dim("/"),
-        styled_flag("--wqdb-cmd")
-    ));
-    wqstderr_println(format!(
-        "  Use {} for commands that should run every time execution stops.",
-        styled_stop_hook_command(
-            "add",
-            Some(format!(
-                "{} {}",
-                styled_flag("-o"),
-                styled_required_arg("cmd")
-            )),
+    wqdb_println!(
+        host,
+        format!(
+            "  {} {}",
+            track_name,
+            wqdb_dim(
+                "resolves a current local by name, or a global if no local matches",
+                color_mode,
+            )
         )
-    ));
+    );
+    wqdb_println!(
+        host,
+        format!(
+            "  {} {} {} {} {}",
+            styled_track_command("global", "name", color_mode),
+            styled_separator(color_mode),
+            styled_track_command("local", "name", color_mode),
+            styled_separator(color_mode),
+            styled_track_command("capture", "slot", color_mode)
+        )
+    );
+    wqdb_println!(host, "");
+    wqdb_println!(host, wqdb_bold("stop hooks", color_mode));
+    wqdb_println!(
+        host,
+        format!(
+            "  {} {} {} {} {} {} {}",
+            styled_stop_hook_command(
+                "add",
+                Some(format!(
+                    "{} {}",
+                    styled_flag("-o", color_mode),
+                    styled_required_arg("cmd", color_mode)
+                )),
+                color_mode,
+            ),
+            styled_separator(color_mode),
+            styled_stop_hook_command("list", None, color_mode),
+            styled_separator(color_mode),
+            styled_stop_hook_command(
+                "delete",
+                Some(styled_required_arg("id|all", color_mode)),
+                color_mode,
+            ),
+            styled_separator(color_mode),
+            styled_stop_hook_command("clear", None, color_mode)
+        )
+    );
+    wqdb_println!(host, "");
+    wqdb_println!(host, wqdb_bold("batch commands", color_mode));
+    wqdb_println!(
+        host,
+        format!(
+            "  CLI {}{}{} commands run once at the first debugger stop.",
+            styled_flag("-o", color_mode),
+            wqdb_dim("/", color_mode),
+            styled_flag("--wqdb-cmd", color_mode)
+        )
+    );
+    wqdb_println!(
+        host,
+        format!(
+            "  Use {} for commands that should run every time execution stops.",
+            styled_stop_hook_command(
+                "add",
+                Some(format!(
+                    "{} {}",
+                    styled_flag("-o", color_mode),
+                    styled_required_arg("cmd", color_mode)
+                )),
+                color_mode,
+            )
+        )
+    );
 }
 
-fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
+fn exec_single_wqdb_cmd(host: &mut WqdbHost<'_, '_>, cmd: &str) -> Option<DebugResume> {
     let mut it = cmd.split_whitespace();
-    let Some(name) = it.next() else {
-        return false;
-    };
+    let name = it.next()?;
     let Some(command) = WqdbCommand::parse(name) else {
-        wqstderr_println(format!("unknown wqdb command '{name}', type 'h' for help").as_str());
-        return false;
+        wqdb_println!(
+            host,
+            format!("unknown wqdb command '{name}', type 'h' for help")
+        );
+        return None;
     };
     match command {
-        WqdbCommand::Continue => {
-            host.dbg_continue();
-            true
-        }
-        WqdbCommand::StepIn => {
-            host.dbg_step_in();
-            true
-        }
-        WqdbCommand::StepOver => {
-            host.dbg_step_over();
-            true
-        }
-        WqdbCommand::Finish => {
-            host.dbg_step_out();
-            true
-        }
+        WqdbCommand::Continue => Some(DebugResume::Continue),
+        WqdbCommand::StepIn => Some(DebugResume::StepIn),
+        WqdbCommand::StepOver => Some(DebugResume::StepOver),
+        WqdbCommand::Finish => Some(DebugResume::StepOut),
         WqdbCommand::Granularity => {
             set_step_granularity(host, it.next());
-            false
+            None
         }
         WqdbCommand::BreakFunction => {
-            set_breakpoint_at_function(host, it.next(), it.next()).unwrap_or_else(wqstderr_println);
-            false
+            if let Err(error) = set_breakpoint_at_function(host, it.next(), it.next()) {
+                wqdb_println!(host, error);
+            }
+            None
         }
         WqdbCommand::BreakPc => {
-            set_breakpoint_at_pc(host, it.next()).unwrap_or_else(wqstderr_println);
-            false
+            if let Err(error) = set_breakpoint_at_pc(host, it.next()) {
+                wqdb_println!(host, error);
+            }
+            None
         }
         WqdbCommand::Track => {
-            track_symbol(host, it.next(), it.next()).unwrap_or_else(wqstderr_println);
-            false
+            if let Err(error) = track_symbol(host, it.next(), it.next()) {
+                wqdb_println!(host, error);
+            }
+            None
         }
         WqdbCommand::Tracks => {
             print_symbol_trackers(host);
-            false
+            None
         }
         WqdbCommand::Untrack => {
-            untrack_symbol(host, it.next()).unwrap_or_else(wqstderr_println);
-            false
+            if let Err(error) = untrack_symbol(host, it.next()) {
+                wqdb_println!(host, error);
+            }
+            None
         }
         WqdbCommand::StopHook => {
-            stop_hook_cmd(host, cmd).unwrap_or_else(wqstderr_println);
-            false
+            if let Err(error) = stop_hook_cmd(host, cmd) {
+                wqdb_println!(host, error);
+            }
+            None
         }
         WqdbCommand::Breakpoints => {
-            let bps = host.dbg_breakpoints();
+            let bps = host.breakpoints();
             if bps.is_empty() {
-                wqstderr_println("no breakpoints");
+                wqdb_println!(host, "no breakpoints");
             } else {
-                wqstderr_println(format!(
-                    "{:<4}  {:<3}  {:<30}  {}",
-                    "id", "en", "location", "function"
-                ));
-                wqstderr_println(format!("{:-<4}  {:-<3}  {:-<30}  {:-<20}", "", "", "", ""));
+                wqdb_println!(
+                    host,
+                    format!(
+                        "{:<4}  {:<3}  {:<30}  {}",
+                        "id", "en", "location", "function"
+                    )
+                );
+                wqdb_println!(
+                    host,
+                    format!("{:-<4}  {:-<3}  {:-<30}  {:-<20}", "", "", "", "")
+                );
             }
             for (id, en, b) in bps {
                 let meta = host.debug_info().chunk(b.chunk);
                 let en_str = if en { "y" } else { "n" };
-                wqstderr_println(format!(
-                    "{:<4}  {:<3}  {:<30}  {}",
-                    id,
-                    en_str,
-                    format_breakpoint_loc(host.debug_info(), b),
-                    meta.name
-                ));
+                wqdb_println!(
+                    host,
+                    format!(
+                        "{:<4}  {:<3}  {:<30}  {}",
+                        id,
+                        en_str,
+                        format_breakpoint_loc(host.debug_info(), b),
+                        meta.name
+                    )
+                );
             }
-            false
+            None
         }
         WqdbCommand::Backtrace => {
-            let frames = host.bt_frames();
+            let frames = host.backtrace();
             let di = host.debug_info();
             for (idx, (loc, name)) in frames.iter().enumerate() {
                 let is_current = idx == 0;
-                wqstderr_println(format_frame(di, *loc, name, is_current));
+                wqdb_println!(
+                    host,
+                    format_frame(di, *loc, name, is_current, host.color_mode())
+                );
             }
-            false
+            None
         }
         WqdbCommand::ResetBreakpoints => {
             if let Some(arg) = it.next() {
                 if let Ok(id) = arg.parse::<usize>() {
-                    if let Some(new_state) = host.dbg_toggle_break_id(id) {
-                        wqstderr_println(format!(
-                            "breakpoint {id} -> {}",
-                            if new_state { "enabled" } else { "disabled" }
-                        ));
+                    if let Some(new_state) = host.toggle_breakpoint_by_id(id) {
+                        wqdb_println!(
+                            host,
+                            format!(
+                                "breakpoint {id} -> {}",
+                                if new_state { "enabled" } else { "disabled" }
+                            )
+                        );
                     } else {
-                        let here = host.loc();
+                        let here = host.location();
                         let file_id = host.debug_info().chunk(here.chunk).file_id;
                         let locs = host.debug_info().resolve_line(file_id, id);
                         if locs.is_empty() {
-                            wqstderr_println(format!(
-                                "no statement at line {id}, nor a valid breakpoint id"
-                            ));
+                            wqdb_println!(
+                                host,
+                                format!("no statement at line {id}, nor a valid breakpoint id")
+                            );
                         } else {
                             let mut enabled_count = 0;
                             let mut disabled_count = 0;
                             for l in locs {
-                                if host.dbg_toggle_break_loc(l) {
+                                if host.toggle_breakpoint_at(l) {
                                     enabled_count += 1;
                                 } else {
                                     disabled_count += 1;
                                 }
                             }
-                            wqstderr_println(format!(
-                                "toggled {enabled_count} on, {disabled_count} off at line {id}"
-                            ));
+                            wqdb_println!(
+                                host,
+                                format!(
+                                    "toggled {enabled_count} on, {disabled_count} off at line {id}"
+                                )
+                            );
                         }
                     }
                 } else {
-                    wqstderr_println("invalid breakpoint id or line number");
+                    wqdb_println!(host, "invalid breakpoint id or line number");
                 }
             } else {
-                let new_state = host.dbg_toggle_break_all();
-                wqstderr_println(format!(
-                    "all breakpoints -> {}",
-                    if new_state { "enabled" } else { "disabled" }
-                ));
+                let new_state = host.toggle_all_breakpoints();
+                wqdb_println!(
+                    host,
+                    format!(
+                        "all breakpoints -> {}",
+                        if new_state { "enabled" } else { "disabled" }
+                    )
+                );
             }
-            false
+            None
         }
         WqdbCommand::Peek => {
             let n = it.next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(3);
             peek_context(host, n);
-            false
+            None
         }
         WqdbCommand::Instructions => {
             let n = it.next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(5);
             peek_instructions(host, n);
-            false
+            None
         }
         WqdbCommand::Locals => {
             print_locals(host);
-            false
+            None
         }
         WqdbCommand::Globals => {
-            let globals = host.dbg_globals();
+            let globals = host.globals();
             if globals.is_empty() {
-                wqstderr_println("no globals");
-                return false;
+                wqdb_println!(host, "no globals");
+                return None;
             }
             let mut name_w = "name".len();
             let mut value_w = "value".len();
@@ -617,80 +725,103 @@ fn exec_single_wqdb_cmd(host: &mut Vm, cmd: &str) -> bool {
                 value_w = value_w.max(v.to_string().len());
                 type_w = type_w.max(v.type_name().len());
             }
-            wqstderr_println(format!(
-                "{:<name_w$}  {:<value_w$}  {:<type_w$}",
-                "name",
-                "value",
-                "type",
-                name_w = name_w,
-                value_w = value_w,
-                type_w = type_w
-            ));
-            wqstderr_println(format!(
-                "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
-                "",
-                "",
-                "",
-                name_w = name_w,
-                value_w = value_w,
-                type_w = type_w
-            ));
-            for (name, v) in &globals {
-                wqstderr_println(format!(
+            wqdb_println!(
+                host,
+                format!(
                     "{:<name_w$}  {:<value_w$}  {:<type_w$}",
-                    name,
-                    v.excerpt(),
-                    v.type_name(),
+                    "name",
+                    "value",
+                    "type",
                     name_w = name_w,
                     value_w = value_w,
                     type_w = type_w
-                ));
+                )
+            );
+            wqdb_println!(
+                host,
+                format!(
+                    "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
+                    "",
+                    "",
+                    "",
+                    name_w = name_w,
+                    value_w = value_w,
+                    type_w = type_w
+                )
+            );
+            for (name, v) in &globals {
+                wqdb_println!(
+                    host,
+                    format!(
+                        "{:<name_w$}  {:<value_w$}  {:<type_w$}",
+                        name,
+                        v.excerpt(),
+                        v.type_name(),
+                        name_w = name_w,
+                        value_w = value_w,
+                        type_w = type_w
+                    )
+                );
             }
-            false
+            None
         }
         WqdbCommand::Help => {
-            print_wqdb_help();
-            false
+            print_wqdb_help(host);
+            None
         }
     }
 }
 
-fn set_step_granularity(host: &mut Vm, arg: Option<&str>) {
+fn set_step_granularity(host: &mut WqdbHost<'_, '_>, arg: Option<&str>) {
     let Some(arg) = arg else {
-        wqstderr_println(format!(
-            "stepping granularity: {}",
-            host.dbg_step_granularity().as_str()
-        ));
+        wqdb_println!(
+            host,
+            format!("stepping granularity: {}", host.step_granularity().as_str())
+        );
         return;
     };
     let Some(granularity) = StepGranularity::parse(arg) else {
-        wqstderr_println("usage: granularity [line|expr|inst]");
+        wqdb_println!(host, "usage: granularity [line|expr|inst]");
         return;
     };
-    host.dbg_set_step_granularity(granularity);
-    wqstderr_println(format!("stepping granularity -> {}", granularity.as_str()));
+    host.set_step_granularity(granularity);
+    wqdb_println!(
+        host,
+        format!("stepping granularity -> {}", granularity.as_str())
+    );
     print_stop_card(host);
-    print_stop_controls(granularity);
+    print_stop_controls(host, granularity);
 }
 
-pub fn wqdb_shell(host: &mut Vm) {
-    if !host.wqdb.batch_cmds.is_empty() {
-        let cmds = std::mem::take(&mut host.wqdb.batch_cmds);
-        let should_exit = exec_wqdb_cmds(host, &cmds);
-        if !should_exit {
-            host.dbg_continue();
+pub fn wqdb_shell(debugger: &mut Debugger<'_>, editor: &RustylineInput) -> DebugResume {
+    let mut host = WqdbHost::new(debugger, editor);
+    wqdb_shell_inner(&mut host)
+}
+
+fn wqdb_shell_inner(host: &mut WqdbHost<'_, '_>) -> DebugResume {
+    let cmds = host.take_batch_commands();
+    if !cmds.is_empty() {
+        let action = exec_wqdb_cmds(host, &cmds);
+        if host.output_failed() {
+            return DebugResume::Continue;
         }
-        return;
+        return action.unwrap_or(DebugResume::Continue);
     }
 
-    if exec_stop_hooks(host) {
-        return;
+    if let Some(action) = exec_stop_hooks(host) {
+        return action;
+    }
+    if host.output_failed() {
+        return DebugResume::Continue;
     }
 
     let mut dbg_line = 1usize;
     let mut output_spacing = InteractiveOutputSpacing::default();
     print_stop_card(host);
-    print_stop_controls(host.dbg_step_granularity());
+    print_stop_controls(host, host.step_granularity());
+    if host.output_failed() {
+        return DebugResume::Continue;
+    }
     output_spacing.after_output();
     loop {
         let mut function_names = host
@@ -699,59 +830,63 @@ pub fn wqdb_shell(host: &mut Vm) {
             .map(str::to_string)
             .collect::<Vec<_>>();
         function_names.sort();
-        wqstdin_set_wqdb_function_hints(function_names);
+        host.editor.set_wqdb_function_hints(function_names);
         if output_spacing.before_prompt() {
-            wqstderr_println("");
+            wqdb_println!(host, "");
+            if host.output_failed() {
+                return DebugResume::Continue;
+            }
         }
         #[cfg(not(target_os = "windows"))]
         let prompt =
-            wqdb_prompt_with_color_mode(host.dbg_step_granularity(), dbg_line, ColorMode::Auto);
+            wqdb_prompt_with_color_mode(host.step_granularity(), dbg_line, host.color_mode());
         #[cfg(target_os = "windows")]
         let prompt =
-            wqdb_prompt_with_color_mode(host.dbg_step_granularity(), dbg_line, ColorMode::Never);
+            wqdb_prompt_with_color_mode(host.step_granularity(), dbg_line, ColorMode::Never);
 
-        let res = wqstdin_with_input_mode(WqInputMode::Wqdb, || wqstdin_readline(&prompt));
+        let res = host
+            .editor
+            .with_input_mode(WqInputMode::Wqdb, || host.editor.read_line(&prompt));
         match res {
             Ok(line) => {
                 dbg_line += 1;
                 let s = line.trim();
                 if output_spacing.after_input(s) {
-                    wqstderr_println("");
+                    wqdb_println!(host, "");
                 }
                 if s.is_empty() {
                     continue;
                 }
-                if exec_single_wqdb_cmd(host, s) {
-                    break;
+                if let Some(action) = exec_single_wqdb_cmd(host, s) {
+                    return action;
+                }
+                if host.output_failed() {
+                    return DebugResume::Continue;
                 }
             }
-            Err(WqStdinError::Interrupted) => continue,
+            Err(WqIoError::Interrupted) => continue,
             Err(_) => {
-                host.dbg_continue();
-                break;
+                return DebugResume::Continue;
             }
         }
     }
 }
 
-fn exec_wqdb_cmds(host: &mut Vm, cmds: &[String]) -> bool {
-    let mut should_exit = false;
+fn exec_wqdb_cmds(host: &mut WqdbHost<'_, '_>, cmds: &[String]) -> Option<DebugResume> {
     for cmd in cmds {
         let trimmed = cmd.trim();
         if trimmed.is_empty() {
             continue;
         }
-        should_exit = exec_single_wqdb_cmd(host, trimmed);
-        if should_exit {
-            break;
+        if let Some(action) = exec_single_wqdb_cmd(host, trimmed) {
+            return Some(action);
         }
     }
-    should_exit
+    None
 }
 
-fn exec_stop_hooks(host: &mut Vm) -> bool {
+fn exec_stop_hooks(host: &mut WqdbHost<'_, '_>) -> Option<DebugResume> {
     let cmds: Vec<String> = host
-        .wqdb
         .stop_hook_commands()
         .into_iter()
         .map(|(_, cmd)| cmd)
@@ -759,14 +894,17 @@ fn exec_stop_hooks(host: &mut Vm) -> bool {
     exec_wqdb_cmds(host, &cmds)
 }
 
-fn set_breakpoint_at_pc(host: &mut Vm, pc_arg: Option<&str>) -> Result<(), &'static str> {
+fn set_breakpoint_at_pc(
+    host: &mut WqdbHost<'_, '_>,
+    pc_arg: Option<&str>,
+) -> Result<(), &'static str> {
     let Some(pc_arg) = pc_arg else {
         return Err("usage: b <pc>");
     };
     let Ok(pc) = pc_arg.parse::<usize>() else {
         return Err("usage: b <pc>");
     };
-    let loc = host.loc();
+    let loc = host.location();
     let (len, name) = {
         let meta = host.debug_info().chunk(loc.chunk);
         (meta.len, meta.name.to_string())
@@ -774,16 +912,16 @@ fn set_breakpoint_at_pc(host: &mut Vm, pc_arg: Option<&str>) -> Result<(), &'sta
     if pc >= len {
         return Err("pc out of range for current chunk");
     }
-    host.dbg_set_break(CodeLoc {
+    host.set_breakpoint(CodeLoc {
         chunk: loc.chunk,
         pc,
     });
-    wqstderr_println(format!("breakpoint set at {name} pc={pc}"));
+    wqdb_println!(host, format!("breakpoint set at {name} pc={pc}"));
     Ok(())
 }
 
 fn track_symbol(
-    host: &mut Vm,
+    host: &mut WqdbHost<'_, '_>,
     target_arg: Option<&str>,
     name_arg: Option<&str>,
 ) -> Result<(), String> {
@@ -792,64 +930,67 @@ fn track_symbol(
     };
     let msg = if let Some(name_arg) = name_arg {
         match TrackScope::parse(target_arg) {
-            Some(TrackScope::Global) => host.dbg_track_global_symbol(name_arg),
-            Some(TrackScope::Local) => host.dbg_track_local_symbol(name_arg)?,
+            Some(TrackScope::Global) => host.track_global_symbol(name_arg),
+            Some(TrackScope::Local) => host.track_local_symbol(name_arg)?,
             Some(TrackScope::Capture) => {
                 let slot = name_arg
                     .parse::<u16>()
                     .map_err(|_| "usage: track capture <slot>".to_string())?;
-                host.dbg_track_capture_slot(slot)
+                host.track_capture_slot(slot)
             }
             None => return Err("usage: track [global|local|capture] <name-or-slot>".to_string()),
         }
     } else {
-        host.dbg_track_symbol(target_arg)?
+        host.track_symbol(target_arg)?
     };
     if let Some(msg) = msg {
-        wqstderr_println(msg);
+        wqdb_println!(host, msg);
     }
     Ok(())
 }
 
-fn untrack_symbol(host: &mut Vm, arg: Option<&str>) -> Result<(), String> {
+fn untrack_symbol(host: &mut WqdbHost<'_, '_>, arg: Option<&str>) -> Result<(), String> {
     let Some(arg) = arg else {
         return Err("usage: untrack <id|all>".to_string());
     };
     if arg == "all" {
-        host.dbg_clear_symbol_trackers();
-        wqstderr_println("cleared symbol trackers");
+        host.clear_symbol_trackers();
+        wqdb_println!(host, "cleared symbol trackers");
         return Ok(());
     }
     let id = arg
         .parse::<usize>()
         .map_err(|_| "usage: untrack <id|all>".to_string())?;
-    if host.dbg_remove_symbol_tracker(id) {
-        wqstderr_println(format!("removed symbol tracker {id}"));
+    if host.remove_symbol_tracker(id) {
+        wqdb_println!(host, format!("removed symbol tracker {id}"));
     } else {
-        wqstderr_println(format!("symbol tracker {id} not found"));
+        wqdb_println!(host, format!("symbol tracker {id} not found"));
     }
     Ok(())
 }
 
-fn print_symbol_trackers(host: &Vm) {
-    let trackers = host.dbg_symbol_trackers();
+fn print_symbol_trackers(host: &WqdbHost<'_, '_>) {
+    let trackers = host.symbol_trackers();
     if trackers.is_empty() {
-        wqstderr_println("no symbol trackers");
+        wqdb_println!(host, "no symbol trackers");
         return;
     }
-    wqstderr_println(format!("{:<4}  {:<3}  target", "id", "en"));
-    wqstderr_println(format!("{:-<4}  {:-<3}  {:-<20}", "", "", ""));
+    wqdb_println!(host, format!("{:<4}  {:<3}  target", "id", "en"));
+    wqdb_println!(host, format!("{:-<4}  {:-<3}  {:-<20}", "", "", ""));
     for (id, enabled, target) in trackers {
-        wqstderr_println(format!(
-            "{:<4}  {:<3}  {}",
-            id,
-            if enabled { "y" } else { "n" },
-            target
-        ));
+        wqdb_println!(
+            host,
+            format!(
+                "{:<4}  {:<3}  {}",
+                id,
+                if enabled { "y" } else { "n" },
+                target
+            )
+        );
     }
 }
 
-fn stop_hook_cmd(host: &mut Vm, cmd: &str) -> Result<(), String> {
+fn stop_hook_cmd(host: &mut WqdbHost<'_, '_>, cmd: &str) -> Result<(), String> {
     let mut it = cmd.split_whitespace();
     let _ = it.next();
     let Some(action) = it.next().and_then(StopHookCommand::parse) else {
@@ -866,21 +1007,21 @@ fn stop_hook_cmd(host: &mut Vm, cmd: &str) -> Result<(), String> {
         }
         StopHookCommand::Delete => delete_stop_hook(host, it.next()),
         StopHookCommand::Clear => {
-            host.wqdb.clear_stop_hooks();
-            wqstderr_println("cleared stop hooks");
+            host.clear_stop_hooks();
+            wqdb_println!(host, "cleared stop hooks");
             Ok(())
         }
     }
 }
 
-fn add_stop_hook(host: &mut Vm, cmd: &str) -> Result<(), String> {
+fn add_stop_hook(host: &mut WqdbHost<'_, '_>, cmd: &str) -> Result<(), String> {
     let hook_cmd =
         command_after_option_o(cmd).ok_or_else(|| "usage: stop-hook add -o <cmd>".to_string())?;
     if hook_cmd.is_empty() {
         return Err("usage: stop-hook add -o <cmd>".to_string());
     }
-    let hook = host.wqdb.add_stop_hook(hook_cmd);
-    wqstderr_println(format!("stop hook #{} added", hook.id));
+    let hook = host.add_stop_hook(hook_cmd);
+    wqdb_println!(host, format!("stop hook #{} added", hook.id));
     Ok(())
 }
 
@@ -903,46 +1044,49 @@ fn command_after_option_o(cmd: &str) -> Option<String> {
     None
 }
 
-fn delete_stop_hook(host: &mut Vm, arg: Option<&str>) -> Result<(), String> {
+fn delete_stop_hook(host: &mut WqdbHost<'_, '_>, arg: Option<&str>) -> Result<(), String> {
     let Some(arg) = arg else {
         return Err("usage: stop-hook delete <id|all>".to_string());
     };
     if arg == "all" {
-        host.wqdb.clear_stop_hooks();
-        wqstderr_println("cleared stop hooks");
+        host.clear_stop_hooks();
+        wqdb_println!(host, "cleared stop hooks");
         return Ok(());
     }
     let id = arg
         .parse::<usize>()
         .map_err(|_| "usage: stop-hook delete <id|all>".to_string())?;
-    if host.wqdb.remove_stop_hook(id) {
-        wqstderr_println(format!("removed stop hook {id}"));
+    if host.remove_stop_hook(id) {
+        wqdb_println!(host, format!("removed stop hook {id}"));
     } else {
-        wqstderr_println(format!("stop hook {id} not found"));
+        wqdb_println!(host, format!("stop hook {id} not found"));
     }
     Ok(())
 }
 
-fn print_stop_hooks(host: &Vm) {
-    let hooks = host.wqdb.stop_hooks();
+fn print_stop_hooks(host: &WqdbHost<'_, '_>) {
+    let hooks = host.stop_hooks();
     if hooks.is_empty() {
-        wqstderr_println("no stop hooks");
+        wqdb_println!(host, "no stop hooks");
         return;
     }
-    wqstderr_println(format!("{:<4}  {:<3}  command", "id", "en"));
-    wqstderr_println(format!("{:-<4}  {:-<3}  {:-<20}", "", "", ""));
+    wqdb_println!(host, format!("{:<4}  {:<3}  command", "id", "en"));
+    wqdb_println!(host, format!("{:-<4}  {:-<3}  {:-<20}", "", "", ""));
     for hook in hooks {
-        wqstderr_println(format!(
-            "{:<4}  {:<3}  {}",
-            hook.id,
-            if hook.enabled { "y" } else { "n" },
-            hook.command
-        ));
+        wqdb_println!(
+            host,
+            format!(
+                "{:<4}  {:<3}  {}",
+                hook.id,
+                if hook.enabled { "y" } else { "n" },
+                hook.command
+            )
+        );
     }
 }
 
 fn set_breakpoint_at_function(
-    host: &mut Vm,
+    host: &mut WqdbHost<'_, '_>,
     name_arg: Option<&str>,
     pc_arg: Option<&str>,
 ) -> Result<(), String> {
@@ -970,8 +1114,8 @@ fn set_breakpoint_at_function(
             .find(|&p| meta.line_table.is_stmt(p))
             .unwrap_or(0)
     };
-    host.dbg_set_break(CodeLoc { chunk, pc });
-    wqstderr_println(format!("breakpoint set at {fname} pc={pc}"));
+    host.set_breakpoint(CodeLoc { chunk, pc });
+    wqdb_println!(host, format!("breakpoint set at {fname} pc={pc}"));
     Ok(())
 }
 
@@ -987,41 +1131,44 @@ fn format_breakpoint_loc(di: &DebugInfo, loc: CodeLoc) -> String {
     format!("pc {}", loc.pc)
 }
 
-fn print_crash_locals(host: &mut Vm) {
-    let frames = host.dbg_local_frames();
+fn print_crash_locals(host: &mut WqdbHost<'_, '_>) {
+    let frames = host.local_frames();
     if frames.is_empty() {
         return;
     }
-    wqstderr_println("locals before crash:");
+    wqdb_println!(host, "locals before crash:");
     for (idx, frame) in frames.iter().enumerate() {
         if idx > 0 {
-            wqstderr_println("");
+            wqdb_println!(host, "");
         }
         print_frame_locals(host, frame, true);
     }
 }
 
-fn print_locals(host: &mut Vm) {
-    let locals = host.dbg_locals();
+fn print_locals(host: &mut WqdbHost<'_, '_>) {
+    let locals = host.locals();
     if locals.is_empty() {
-        wqstderr_println("no locals");
+        wqdb_println!(host, "no locals");
         return;
     }
     let frame = DebugLocalsFrame {
-        loc: host.loc(),
-        name: std::sync::Arc::from(host.debug_info().chunk(host.loc().chunk).name.as_ref()),
+        loc: host.location(),
+        name: std::sync::Arc::from(host.debug_info().chunk(host.location().chunk).name.as_ref()),
         locals,
     };
     print_frame_locals(host, &frame, false);
 }
 
-fn print_frame_locals(host: &Vm, frame: &DebugLocalsFrame, include_header: bool) {
+fn print_frame_locals(host: &WqdbHost<'_, '_>, frame: &DebugLocalsFrame, include_header: bool) {
     let di = host.debug_info();
     if include_header {
-        wqstderr_println(format_loc_hint(di, frame.loc, Some(frame.name.as_ref())));
+        wqdb_println!(
+            host,
+            format_loc_hint(di, frame.loc, Some(frame.name.as_ref()))
+        );
     }
     if frame.locals.is_empty() {
-        wqstderr_println("no locals");
+        wqdb_println!(host, "no locals");
         return;
     }
     let meta = di.chunk(frame.loc.chunk);
@@ -1050,34 +1197,43 @@ fn print_frame_locals(host: &Vm, frame: &DebugLocalsFrame, include_header: bool)
         value_w = value_w.max(value.len());
         type_w = type_w.max(ty.len());
     }
-    wqstderr_println(format!(
-        "{:<name_w$}  {:<value_w$}  {:<type_w$}",
-        "name",
-        "value",
-        "type",
-        name_w = name_w,
-        value_w = value_w,
-        type_w = type_w
-    ));
-    wqstderr_println(format!(
-        "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
-        "",
-        "",
-        "",
-        name_w = name_w,
-        value_w = value_w,
-        type_w = type_w
-    ));
-    for (name, value, ty) in rows {
-        wqstderr_println(format!(
+    wqdb_println!(
+        host,
+        format!(
             "{:<name_w$}  {:<value_w$}  {:<type_w$}",
-            name,
-            value,
-            ty,
+            "name",
+            "value",
+            "type",
             name_w = name_w,
             value_w = value_w,
             type_w = type_w
-        ));
+        )
+    );
+    wqdb_println!(
+        host,
+        format!(
+            "{:-<name_w$}  {:-<value_w$}  {:-<type_w$}",
+            "",
+            "",
+            "",
+            name_w = name_w,
+            value_w = value_w,
+            type_w = type_w
+        )
+    );
+    for (name, value, ty) in rows {
+        wqdb_println!(
+            host,
+            format!(
+                "{:<name_w$}  {:<value_w$}  {:<type_w$}",
+                name,
+                value,
+                ty,
+                name_w = name_w,
+                value_w = value_w,
+                type_w = type_w
+            )
+        );
     }
 }
 
@@ -1216,8 +1372,7 @@ fn format_expr_stop_card_with_color_mode(
     );
     out.push('\n');
     out.push_str(
-        format_span_snippet_with_color_mode(source, span.start, span.end, color_mode)
-            .trim_end_matches('\n'),
+        format_span_snippet(source, span.start, span.end, color_mode).trim_end_matches('\n'),
     );
     if let Some(instruction) = instruction {
         out.push('\n');
@@ -1320,8 +1475,7 @@ fn format_inst_stop_card_with_color_mode(
         ));
         out.push('\n');
         out.push_str(
-            format_span_snippet_with_color_mode(source, span.start, span.end, color_mode)
-                .trim_end_matches('\n'),
+            format_span_snippet(source, span.start, span.end, color_mode).trim_end_matches('\n'),
         );
     } else {
         out.push_str("\n\n");
@@ -1334,12 +1488,12 @@ fn format_inst_stop_card_with_color_mode(
     out
 }
 
-fn render_stop_card_with_color_mode(host: &Vm, color_mode: ColorMode) -> String {
-    let loc = host.loc();
+fn render_stop_card_with_color_mode(host: &WqdbHost<'_, '_>, color_mode: ColorMode) -> String {
+    let loc = host.location();
     let di = host.debug_info();
     let meta = di.chunk(loc.chunk);
     let name = meta.name.as_ref();
-    match host.dbg_step_granularity() {
+    match host.step_granularity() {
         StepGranularity::Line => {
             format_line_stop_card_with_color_mode(di, loc, name, 2, color_mode)
         }
@@ -1347,7 +1501,7 @@ fn render_stop_card_with_color_mode(host: &Vm, color_mode: ColorMode) -> String 
             di,
             loc,
             name,
-            host.dbg_ins_at_with_color_mode(loc.pc, color_mode)
+            host.instruction_at_with_color_mode(loc.pc, color_mode)
                 .as_deref(),
             color_mode,
         ),
@@ -1356,7 +1510,7 @@ fn render_stop_card_with_color_mode(host: &Vm, color_mode: ColorMode) -> String 
             let end = loc.pc.saturating_add(3).min(meta.len.saturating_sub(1));
             let instructions = (start..=end)
                 .filter_map(|pc| {
-                    host.dbg_ins_at_with_color_mode(pc, color_mode)
+                    host.instruction_at_with_color_mode(pc, color_mode)
                         .map(|instruction| (pc, instruction))
                 })
                 .collect::<Vec<_>>();
@@ -1372,15 +1526,25 @@ fn render_stop_card_with_color_mode(host: &Vm, color_mode: ColorMode) -> String 
     }
 }
 
-fn print_stop_card(host: &Vm) {
-    wqstderr_println(render_stop_card_with_color_mode(host, ColorMode::Auto));
+fn print_stop_card(host: &WqdbHost<'_, '_>) {
+    wqdb_println!(
+        host,
+        render_stop_card_with_color_mode(host, host.color_mode())
+    );
 }
 
-fn print_stop_controls(granularity: StepGranularity) {
-    wqstderr_println(wqdb_dim(&format!(
-        "[n] next {} [s] step in [fin] step out [c] continue [g] <line|expr|inst>",
-        granularity.as_str()
-    )));
+fn print_stop_controls(host: &WqdbHost<'_, '_>, granularity: StepGranularity) {
+    wqdb_println!(
+        host,
+        wqdb_paint_with_color_mode(
+            &format!(
+                "[n] next {} [s] step in [fin] step out [c] continue [g] <line|expr|inst>",
+                granularity.as_str()
+            ),
+            TextStyle::new().dimmed(),
+            host.color_mode(),
+        )
+    );
 }
 
 fn format_loc_hint(di: &DebugInfo, loc: CodeLoc, name_hint: Option<&str>) -> String {
@@ -1400,9 +1564,9 @@ fn format_loc_hint(di: &DebugInfo, loc: CodeLoc, name_hint: Option<&str>) -> Str
     )
 }
 
-fn peek_context(host: &mut Vm, n: usize) {
+fn peek_context(host: &mut WqdbHost<'_, '_>, n: usize) {
     let di = host.debug_info();
-    let loc = host.loc();
+    let loc = host.location();
     let meta = di.chunk(loc.chunk);
     // Prefer a span for the next statement if current pc has no span yet
     let mut span = meta.line_table.context_span_at(loc.pc);
@@ -1422,46 +1586,51 @@ fn peek_context(host: &mut Vm, n: usize) {
         let hi_ln = if l + n <= total { l + n } else { total };
         for ln in lo_ln..=hi_ln {
             if ln == l {
-                wqstderr_println(wqdb_paint(
-                    &format!("{:>4} -> {}", ln, sf.line_text(ln)),
-                    TextStyle::new().fg(AnsiColor::Green).bold(),
-                ));
+                wqdb_println!(
+                    host,
+                    wqdb_paint_with_color_mode(
+                        &format!("{:>4} -> {}", ln, sf.line_text(ln)),
+                        TextStyle::new().fg(AnsiColor::Green).bold(),
+                        host.color_mode(),
+                    )
+                );
             } else {
-                wqstderr_println(format!("{:>4}    {}", ln, sf.line_text(ln)));
+                wqdb_println!(host, format!("{:>4}    {}", ln, sf.line_text(ln)));
             }
         }
     } else {
-        wqstderr_println("no source available");
+        wqdb_println!(host, "no source available");
     }
 }
 
-fn peek_instructions(host: &mut Vm, n: usize) {
+fn peek_instructions(host: &mut WqdbHost<'_, '_>, n: usize) {
     let di = host.debug_info();
-    let loc = host.loc();
+    let loc = host.location();
     let meta = di.chunk(loc.chunk);
     let len = meta.len;
     if len == 0 {
-        wqstderr_println("no instructions");
+        wqdb_println!(host, "no instructions");
         return;
     }
 
-    wqstderr_println(wqdb_header("INST"));
+    wqdb_println!(host, wqdb_header("INST", host.color_mode()));
 
     let start = loc.pc.saturating_sub(n);
     let end = (loc.pc + n).min(len.saturating_sub(1));
     for pc in start..=end {
         let text = host
-            .dbg_ins_at_with_color_mode(pc, ColorMode::Auto)
+            .instruction_at_with_color_mode(pc, host.color_mode())
             .unwrap_or_else(|| "<unavailable>".to_string());
         let prefix = if pc == loc.pc {
-            wqdb_paint(
+            wqdb_paint_with_color_mode(
                 &format!("{pc:>4} -> "),
                 TextStyle::new().fg(AnsiColor::Green).bold(),
+                host.color_mode(),
             )
         } else {
             format!("{pc:>4}    ")
         };
-        wqstderr_println(format!("{prefix}{text}"));
+        wqdb_println!(host, format!("{prefix}{text}"));
     }
 }
 
@@ -1563,7 +1732,7 @@ mod tests {
             .map(|spec| command_usage_plain(spec).len())
             .max()
             .expect("wqdb commands");
-        let row = wqdb_help_row(&WQDB_COMMANDS[0], usage_width);
+        let row = wqdb_help_row(&WQDB_COMMANDS[0], usage_width, ColorMode::Never);
 
         assert!(row.starts_with("  "));
     }

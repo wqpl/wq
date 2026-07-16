@@ -1,10 +1,9 @@
-use crate::builtins::{BuiltinEnum as BE, BuiltinFnArgs, check_arity_named};
-use crate::session::stdio::wqstdout_println;
+use crate::builtins::{BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_arity_named};
 use crate::value::display::{TableFormatOptions, TableStyle, format_table_value_with_options};
 use crate::value::{Value, WqResult, expected_string1};
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(crate) fn show_table(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(crate) fn show_table(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity_named(
         BE::Showtable,
         [1],
@@ -18,7 +17,11 @@ pub(crate) fn show_table(args: BuiltinFnArgs) -> WqResult<Value> {
             .msg(msg)
     })?;
     if let Some(table) = formatted {
-        wqstdout_println(table);
+        vm.write_stdout_line(&table).map_err(|error| {
+            WqError::new(WqErrorType::Io)
+                .src(BE::Showtable)
+                .attach_note(format!("host I/O error: {error}"))
+        })?;
         return Ok(Value::unit());
     }
     Err(WqError::new(WqErrorType::Domain).src(BE::Showtable).msg("invalid table, expected (a dict), (a list of dicts), (a dict of lists), or (a dict of dicts)"))

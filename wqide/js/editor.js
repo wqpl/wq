@@ -1,5 +1,3 @@
-import { highlight_wq } from "wq-wasm";
-
 function escapeEditorText(text) {
   return String(text)
     .replace(/&/g, "&amp;")
@@ -7,9 +5,10 @@ function escapeEditorText(text) {
     .replace(/>/g, "&gt;");
 }
 
-function renderHighlightedText(text) {
+function renderHighlightedText(frontend, text) {
+  if (!frontend) return escapeEditorText(text);
   try {
-    return highlight_wq(text);
+    return frontend.highlight_wq(text);
   } catch (err) {
     console.warn("[wqide] highlight failed; falling back to plain text", err);
     return escapeEditorText(text);
@@ -104,6 +103,7 @@ function dispatchEditorInput(el) {
 
 export function createWqEditor(textarea, options = {}) {
   const el = document.createElement("div");
+  const frontend = options.frontend || null;
   const multilineMode = options.multilineMode || "plain";
   const singleLineMode = multilineMode === "none";
   const normalizeValue = (text) => {
@@ -152,7 +152,7 @@ export function createWqEditor(textarea, options = {}) {
         ? selectionOffsets(el, value) || selection
         : selection;
 
-    el.innerHTML = value ? renderHighlightedText(value) : "";
+    el.innerHTML = value ? renderHighlightedText(frontend, value) : "";
     if (value.endsWith("\n")) {
       el.appendChild(document.createElement("br"));
     }

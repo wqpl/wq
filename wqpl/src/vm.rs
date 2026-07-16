@@ -10,11 +10,16 @@ pub(crate) mod trace;
 use std::collections::VecDeque;
 use std::ptr::NonNull;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use ahash::AHashMap;
 
 use crate::builtins::{BuiltinPreset, Builtins};
+use crate::debugger::PauseHandler;
 use crate::interpret::{Interpreter, InterpreterHook, InterpreterKind};
+use crate::session::dbglog::{DebugLog, DebugLogFlags};
+use crate::session::stdio::{RuntimeIo, WqIoError};
+use crate::style::ColorMode;
 use crate::value::cell::ValueCell;
 use crate::value::rng::RngState;
 use crate::value::{Value, WqResult};
@@ -26,10 +31,10 @@ use crate::wqdb::Wqdb;
 use crate::wqdb::data::{Backtrace, ChunkId, DebugInfo, DebugLocalsFrame};
 use crate::wqerror::{WqError, WqErrorType};
 
-pub type GlobalMap = AHashMap<String, Value>;
+pub(crate) type GlobalMap = crate::session::Bindings;
 pub type GlobalSlotMap = AHashMap<String, usize>;
 
-pub struct Vm {
+pub(crate) struct Vm {
     pub(crate) instructions: Arc<[Instruction]>,
     pub(crate) owned_consts: Vec<Option<Value>>,
     pub(crate) pc: usize,
@@ -42,6 +47,10 @@ pub struct Vm {
     pub(crate) default_rng: RngState,
     pub(crate) argv: Arc<[String]>,
     pub(crate) halt_status: Option<i32>,
+    pub(crate) interrupt_requested: Arc<AtomicBool>,
+    pub(crate) runtime_io: RuntimeIo,
+    pub(crate) debug_log: DebugLog,
+    pub(crate) color_mode: ColorMode,
     /// Stack of local slot frames
     pub(crate) locals: Vec<Vec<Slot>>,
     /// Stack of capture vectors (per frame), for closures
@@ -66,8 +75,9 @@ pub struct Vm {
     pub(crate) max_call_depth: usize,
 
     // Debugging
-    pub wqdb: Wqdb,
-    pub debug_info: DebugInfo,
+    pub(crate) wqdb: Wqdb,
+    pub(crate) debug_info: DebugInfo,
+    pub(crate) pause_handler: Option<Box<dyn PauseHandler>>,
     pub(crate) current_chunk: ChunkId,
     pub(crate) call_stack: Vec<Frame>,
     /// Lightweight backtrace mode: build minimal debug info for frames on error
@@ -205,6 +215,8 @@ impl Vm {
     pub(crate) fn from_prepared_instructions(prepared: PreparedInstructions) -> Self {
         let (instructions, owned_consts) = prepared.into_parts();
         let len = instructions.len();
+        let runtime_io = RuntimeIo::default();
+        let debug_log = DebugLog::new(DebugLogFlags::empty(), runtime_io.stderr_output());
         Vm {
             instructions: Arc::<[Instruction]>::from(instructions),
             owned_consts,
@@ -217,6 +229,10 @@ impl Vm {
             default_rng: RngState::from_entropy(),
             argv: Arc::from([]),
             halt_status: None,
+            interrupt_requested: Arc::new(AtomicBool::new(false)),
+            runtime_io,
+            debug_log,
+            color_mode: ColorMode::Auto,
             locals: Vec::new(),
             captures: Vec::new(),
             inline_cache: vec![InlineCache::default(); len],
@@ -230,6 +246,7 @@ impl Vm {
             max_call_depth: if cfg!(debug_assertions) { 64 } else { 1024 },
             wqdb: Wqdb::default(),
             debug_info: DebugInfo::default(),
+            pause_handler: None,
             current_chunk: ChunkId(0),
             call_stack: Vec::new(),
             bt_mode: false,
@@ -257,11 +274,13 @@ impl Vm {
         self.pc = 0;
         self.stack.clear();
         self.locals.clear();
+        self.captures.clear();
         self.inline_cache = vec![InlineCache::default(); self.instructions.len()];
         self.current_closure_stack.clear();
         self.hooks = None;
         self.try_stack.clear();
         self.returned = false;
+        self.pending_named_meta = None;
         // Ensure no stale frames leak
         self.call_stack.clear();
         self.tail_call_journal.clear();
@@ -280,7 +299,7 @@ impl Vm {
     }
 
     /// Build a snapshot of globals from slots.
-    pub fn global_env(&self) -> GlobalMap {
+    pub(crate) fn global_env(&self) -> GlobalMap {
         let mut map = GlobalMap::default();
         for (name, slot) in self.global_slot_map.iter() {
             if let Some(val) = self.global_slots.get(*slot) {
@@ -288,6 +307,44 @@ impl Vm {
             }
         }
         map
+    }
+
+    pub(crate) fn write_stdout(&self, text: &str) -> Result<(), WqIoError> {
+        self.runtime_io.write_stdout(text)
+    }
+
+    pub(crate) fn write_stdout_line(&self, text: &str) -> Result<(), WqIoError> {
+        self.runtime_io.write_stdout_line(text)
+    }
+
+    pub(crate) fn write_stderr(&self, text: &str) -> Result<(), WqIoError> {
+        self.runtime_io.write_stderr(text)
+    }
+
+    pub(crate) fn write_stderr_line(&self, text: &str) -> Result<(), WqIoError> {
+        self.runtime_io.write_stderr_line(text)
+    }
+
+    pub(crate) fn stdout_color_mode(&self) -> ColorMode {
+        self.color_mode
+            .resolve(self.runtime_io.stdout_is_terminal())
+    }
+
+    pub(crate) fn stdout_terminal_size(&self) -> Option<(usize, usize)> {
+        self.runtime_io.stdout_terminal_size()
+    }
+
+    pub(crate) fn stderr_color_mode(&self) -> ColorMode {
+        self.color_mode
+            .resolve(self.runtime_io.stderr_is_terminal())
+    }
+
+    pub(crate) fn stderr_is_terminal(&self) -> bool {
+        self.runtime_io.stderr_is_terminal()
+    }
+
+    pub(crate) fn read_line(&self, prompt: &str) -> Result<String, WqIoError> {
+        self.runtime_io.read_line(prompt)
     }
 }
 
@@ -297,7 +354,7 @@ impl Vm {
     //     self.run_with_interpreter(&mut interpreter)
     // }
 
-    pub fn run_with_interpreter<I: Interpreter + ?Sized>(
+    pub(crate) fn run_with_interpreter<I: Interpreter + ?Sized>(
         &mut self,
         interpreter: &mut I,
     ) -> WqResult<Value> {
@@ -313,7 +370,7 @@ impl Vm {
 impl Vm {
     #[inline]
     pub(crate) fn debug_mapping_enabled(&self) -> bool {
-        self.runtime_debug_info || self.wqdb.enabled || self.bt_mode
+        self.runtime_debug_info || self.wqdb.is_enabled() || self.bt_mode
     }
 
     #[inline]
@@ -329,8 +386,15 @@ impl Vm {
         self.debug_mapping_enabled()
     }
 
-    pub fn set_runtime_debug_info(&mut self, flag: bool) {
+    pub(crate) fn set_runtime_debug_info(&mut self, flag: bool) {
         self.runtime_debug_info = flag;
+    }
+
+    #[inline]
+    pub(crate) fn poll_interrupt(&mut self) {
+        if self.interrupt_requested.swap(false, Ordering::AcqRel) {
+            self.halt_status.get_or_insert(0);
+        }
     }
 
     #[inline]
@@ -339,7 +403,7 @@ impl Vm {
         self.tail_call_journal.push(frame);
     }
 
-    pub fn current_chunk_id(&self) -> ChunkId {
+    pub(crate) fn current_chunk_id(&self) -> ChunkId {
         self.current_chunk
     }
 
@@ -539,6 +603,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::debugger::DebugResume;
 
     #[test]
     fn new_keeps_constants_inline_by_default() {
@@ -548,6 +613,21 @@ mod tests {
 
         assert!(vm.owned_consts.is_empty());
         assert!(matches!(vm.instructions[0], Instruction::LoadConst(_)));
+    }
+
+    #[test]
+    fn prepared_instruction_reset_clears_transient_call_state() {
+        let mut vm = Vm::new(Vec::new());
+        vm.captures.push(Arc::<[ValueCell]>::from([]));
+        vm.pending_named_meta = Some(Arc::new(crate::vm::inst::NamedArgMeta {
+            pos_count: 0,
+            named: Box::new([]),
+        }));
+
+        vm.reset_with_prepared_instructions(PreparedInstructions::new(Vec::new()));
+
+        assert!(vm.captures.is_empty());
+        assert!(vm.pending_named_meta.is_none());
     }
 
     #[test]
@@ -565,13 +645,12 @@ mod tests {
     #[test]
     fn idle_pause_callback_does_not_enable_debug_artifacts() {
         let mut vm = Vm::new(Vec::new());
-        vm.set_bt_mode(false);
-        vm.wqdb.enabled = false;
+        vm.set_backtrace_enabled(false);
+        vm.wqdb.set_enabled(false);
         vm.runtime_debug_info = false;
         assert!(!vm.debug_artifacts_enabled());
 
-        fn dummy(_: &mut Vm) {}
-        vm.wqdb.on_pause = Some(dummy);
+        vm.set_pause_handler(|_, _| DebugResume::Continue);
         assert!(
             !vm.debug_artifacts_enabled(),
             "an installed pause callback is only a hook, not an active debug-artifact request"
@@ -581,13 +660,13 @@ mod tests {
     #[test]
     fn callable_provenance_stays_enabled_for_bt_mapping() {
         let mut vm = Vm::new(Vec::new());
-        vm.set_bt_mode(false);
-        vm.wqdb.enabled = false;
+        vm.set_backtrace_enabled(false);
+        vm.wqdb.set_enabled(false);
         vm.runtime_debug_info = false;
         assert!(!vm.debug_mapping_enabled());
         assert!(!vm.callable_provenance_enabled());
 
-        vm.set_bt_mode(true);
+        vm.set_backtrace_enabled(true);
         assert!(vm.debug_mapping_enabled());
         assert!(vm.callable_provenance_enabled());
     }
@@ -600,18 +679,18 @@ mod tests {
         vm.dbg_track_global_symbol("x");
         assert!(!vm.symbol_trackers_enabled());
 
-        vm.wqdb.enabled = true;
+        vm.wqdb.set_enabled(true);
         assert!(vm.symbol_trackers_enabled());
 
-        vm.wqdb.enabled = false;
+        vm.wqdb.set_enabled(false);
         assert!(!vm.symbol_trackers_enabled());
     }
 
     #[test]
     fn capture_backtrace_is_inert_when_debug_artifacts_are_disabled() {
         let mut vm = Vm::new(Vec::new());
-        vm.set_bt_mode(false);
-        vm.wqdb.enabled = false;
+        vm.set_backtrace_enabled(false);
+        vm.wqdb.set_enabled(false);
         vm.runtime_debug_info = false;
 
         vm.capture_bt_if_empty();

@@ -5,7 +5,6 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 
 use crate::builtins::{BuiltinContext, BuiltinFnArgs};
-use crate::session::stdio::{wqstderr_println, wqstdout_println};
 use crate::value::seq::ListStorageSeq;
 use crate::value::{Value, WqResult};
 use crate::wqerror::{WqError, WqErrorType};
@@ -126,21 +125,37 @@ pub(super) fn cliargs(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqRes
     match parse_args(vm, &spec, &argv)? {
         ParseOutcome::Ok(value) => Ok(value),
         ParseOutcome::Help => {
-            wqstdout_println(render_help(&spec));
+            write_stdout(vm, &render_help(&spec))?;
             vm.request_halt(0);
             Ok(Value::unit())
         }
         ParseOutcome::Version => {
-            wqstdout_println(render_version(&spec));
+            write_stdout(vm, &render_version(&spec))?;
             vm.request_halt(0);
             Ok(Value::unit())
         }
         ParseOutcome::Error(error) => {
-            wqstderr_println(render_usage_error(&spec, &error));
+            write_stderr(vm, &render_usage_error(&spec, &error))?;
             vm.request_halt(2);
             Ok(Value::unit())
         }
     }
+}
+
+fn write_stdout(vm: &dyn BuiltinContext, text: &str) -> WqResult<()> {
+    vm.write_stdout_line(text).map_err(|error| {
+        WqError::new(WqErrorType::Io)
+            .src("bfn 'cliargs'")
+            .attach_note(format!("host I/O error: {error}"))
+    })
+}
+
+fn write_stderr(vm: &dyn BuiltinContext, text: &str) -> WqResult<()> {
+    vm.write_stderr_line(text).map_err(|error| {
+        WqError::new(WqErrorType::Io)
+            .src("bfn 'cliargs'")
+            .attach_note(format!("host I/O error: {error}"))
+    })
 }
 
 fn parse_cli_spec(value: &Value) -> WqResult<CliSpec> {
@@ -1211,7 +1226,7 @@ r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
         help.eval_string(&format!("@t cliargs[{SPEC}];after:1"))
             .expect("help halts without an error");
         assert_eq!(help.halt_status(), Some(0));
-        assert!(!help.env_vars().contains_key("after"));
+        assert!(!help.bindings().contains_key("after"));
 
         let mut error = Session::new();
         error.set_argv(vec!["--wat".into()]);
@@ -1219,6 +1234,6 @@ r:argparse[spec;("-vvv";"-Done=1";"-D";"two=2";"--mode=fast";"file")];
             .eval_string(&format!("cliargs[{SPEC}];after:1"))
             .expect("usage errors halt without a runtime error");
         assert_eq!(error.halt_status(), Some(2));
-        assert!(!error.env_vars().contains_key("after"));
+        assert!(!error.bindings().contains_key("after"));
     }
 }

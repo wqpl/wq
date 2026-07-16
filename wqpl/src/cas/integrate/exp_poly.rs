@@ -10,7 +10,7 @@
 use num_bigint::BigInt;
 
 use crate::cas::{
-    cas_mul, cas_product, eval_exact_numeric_div, numeric_mul, numeric_sub, poly_degree,
+    CasDebug, cas_mul, cas_product, eval_exact_numeric_div, numeric_mul, numeric_sub, poly_degree,
     poly_from_expr, poly_to_expr, poly_trim, simplify_cas_value,
 };
 use crate::value::cas::{CasFunction, CasOp};
@@ -20,7 +20,11 @@ use crate::value::{Value, WqResult};
 ///
 /// Returns `Some(result)` on success, `None` if the expression is not a
 /// polynomial * exponential form.
-pub(super) fn integrate_exp_poly(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+pub(super) fn integrate_exp_poly(
+    expr: &Value,
+    var: &str,
+    _debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     let simplified = simplify_cas_value(expr)?;
 
     // Case 1: pure exp(k*x)

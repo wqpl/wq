@@ -18,31 +18,38 @@ use crate::builtins::{
     BuiltinContext, BuiltinEnum, BuiltinFnArgs, check_arity, check_arity_named, check_named_args,
     type_mismatch,
 };
-use crate::session::stdio::{
-    WqStdinError, wqstdin_readline, wqstdin_with_highlight_off, wqstdout_print, wqstdout_println,
-};
+use crate::session::stdio::WqIoError;
 use crate::value::{Excerpt, IntoWqValue, Value, WqResult, expected_string1, into_wq_string};
 use crate::wqerror::{WqError, WqErrorType};
 
-pub(super) fn print(args: BuiltinFnArgs) -> WqResult<Value> {
+fn host_io_error(builtin: BuiltinEnum, error: WqIoError) -> WqError {
+    WqError::new(WqErrorType::Io)
+        .src(builtin)
+        .attach_note(format!("host I/O error: {error}"))
+}
+
+pub(super) fn print(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     if args.is_empty() {
         return Ok(Value::unit());
     }
     for arg in args {
         if let Some(s) = arg.try_flatten_to_rust_string() {
-            wqstdout_print(s);
+            vm.write_stdout(&s)
+                .map_err(|error| host_io_error(BuiltinEnum::Print, error))?;
         } else {
-            wqstdout_print(arg.to_string());
+            vm.write_stdout(&arg.to_string())
+                .map_err(|error| host_io_error(BuiltinEnum::Print, error))?;
         }
     }
     Ok(Value::unit())
 }
 
-pub(super) fn echo(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn echo(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_named_args(&args, BuiltinEnum::Echo, super::ECHO_NAMED_ARGS)?;
 
     if args.is_empty() {
-        wqstdout_println("");
+        vm.write_stdout_line("")
+            .map_err(|error| host_io_error(BuiltinEnum::Echo, error))?;
         return Ok(Value::unit());
     }
 
@@ -63,20 +70,23 @@ pub(super) fn echo(args: BuiltinFnArgs) -> WqResult<Value> {
                 out.push_str(&arg.to_string());
             }
         }
-        wqstdout_println(out);
+        vm.write_stdout_line(&out)
+            .map_err(|error| host_io_error(BuiltinEnum::Echo, error))?;
     } else {
         for arg in args {
             if let Some(s) = arg.try_flatten_to_rust_string() {
-                wqstdout_println(s);
+                vm.write_stdout_line(&s)
+                    .map_err(|error| host_io_error(BuiltinEnum::Echo, error))?;
             } else {
-                wqstdout_println(arg.to_string());
+                vm.write_stdout_line(&arg.to_string())
+                    .map_err(|error| host_io_error(BuiltinEnum::Echo, error))?;
             }
         }
     }
     Ok(Value::unit())
 }
 
-pub(super) fn input(args: BuiltinFnArgs) -> WqResult<Value> {
+pub(super) fn input(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqResult<Value> {
     check_arity(BuiltinEnum::Input, [0, 1], &args)?;
     let prompt = if args.len() == 1 {
         args[0]
@@ -85,14 +95,10 @@ pub(super) fn input(args: BuiltinFnArgs) -> WqResult<Value> {
     } else {
         String::new()
     };
-    let res = wqstdin_with_highlight_off(|| wqstdin_readline(&prompt));
-    match res {
+    match vm.read_line(&prompt) {
         Ok(line) => Ok(into_wq_string(line)),
-        Err(WqStdinError::Eof) => Ok(Value::unit()),
-        Err(WqStdinError::Interrupted) => Ok(Value::unit()),
-        Err(WqStdinError::Other(e)) => Err(WqError::new(WqErrorType::Io)
-            .src(BuiltinEnum::Input)
-            .attach_note(format!("original error: {}", e))),
+        Err(WqIoError::Eof | WqIoError::Interrupted) => Ok(Value::unit()),
+        Err(error) => Err(host_io_error(BuiltinEnum::Input, error)),
     }
 }
 

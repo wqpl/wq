@@ -24,8 +24,6 @@ pub(crate) struct Lexer<'a> {
     line_start_byte_pos: usize,
     // Optional global source context for better error spans
     global_source: Option<&'a str>,
-    line_base: usize,
-    col_base: usize,
     base_offset: usize,
     // Optional source file path / label for error rendering
     source_path: Option<String>,
@@ -53,8 +51,6 @@ impl<'a> Lexer<'a> {
             byte_pos: 0,
             line_start_byte_pos: 0,
             global_source: None,
-            line_base: 0,
-            col_base: 0,
             base_offset: 0,
             source_path: None,
             recovery_mode: false,
@@ -66,22 +62,7 @@ impl<'a> Lexer<'a> {
     /// Provide a global source context and base byte offset for more accurate
     /// error spans - When lexing a snippet within a larger file
     pub(crate) fn with_ctx(mut self, global_source: &'a str, base_offset: usize) -> Self {
-        let base = base_offset.min(global_source.len());
-        let line_base = global_source[..base]
-            .bytes()
-            .filter(|b| *b == b'\n')
-            .count();
-        let col_base = if base == 0 {
-            0
-        } else {
-            match global_source[..base].rfind('\n') {
-                Some(i) => global_source[i + 1..base].chars().count(),
-                None => global_source[..base].chars().count(),
-            }
-        };
         self.global_source = Some(global_source);
-        self.line_base = line_base;
-        self.col_base = col_base;
         self.base_offset = base_offset;
         self
     }

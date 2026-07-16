@@ -1,24 +1,34 @@
 use super::{integrate_expr_with_depth, split_off_numeric};
-use crate::cas::diff::diff_expr;
-use crate::cas::{cas_div, cas_mul, cas_product, numeric_is_one, simplify_cas_value};
+use crate::cas::diff::diff_expr_with_debug;
+use crate::cas::{CasDebug, cas_div, cas_mul, cas_product, numeric_is_one, simplify_cas_value};
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
-pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+pub(super) fn integrate_by_substitution(
+    expr: &Value,
+    var: &str,
+    debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     cas_trace!(
+        debug,
         DebugLogFlags::CAS,
         "[cas] substitution enter: {}",
         expr.format_cas().unwrap_or_else(|| expr.to_string())
     );
     let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
-        cas_trace!(DebugLogFlags::CAS, "[cas] substitution exit (not_product)");
+        cas_trace!(
+            debug,
+            DebugLogFlags::CAS,
+            "[cas] substitution exit (not_product)"
+        );
         return Ok(None);
     };
     let (coeff, symbolic) = split_off_numeric(args);
 
     if symbolic.is_empty() {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] substitution exit (empty_symbolic)"
         );
@@ -60,7 +70,7 @@ pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Opt
             .map(|(_, f)| f.clone())
             .collect();
 
-        let du = diff_expr(u_expr, var)?;
+        let du = diff_expr_with_debug(u_expr, var, debug)?;
 
         let remaining_product = cas_product(remaining_factors.to_vec());
         let effective_du = if numeric_is_one(&coeff) {
@@ -86,7 +96,7 @@ pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Opt
             } else {
                 let f_of_u =
                     Value::from_cas_function(fname, vec![Value::from_cas_var("--cas-sub-u")]);
-                integrate_expr_with_depth(&f_of_u, "--cas-sub-u", 0)?
+                integrate_expr_with_depth(&f_of_u, "--cas-sub-u", 0, debug)?
             };
             // Substitute u back: F(u) -> F(g(x))
             let result = substitute_into_call(&integrated, "--cas-sub-u", u_expr)?;
@@ -99,7 +109,11 @@ pub(super) fn integrate_by_substitution(expr: &Value, var: &str) -> WqResult<Opt
         }
     }
 
-    cas_trace!(DebugLogFlags::CAS, "[cas] substitution exit (no_match)");
+    cas_trace!(
+        debug,
+        DebugLogFlags::CAS,
+        "[cas] substitution exit (no_match)"
+    );
     Ok(None)
 }
 

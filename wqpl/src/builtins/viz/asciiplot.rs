@@ -5,7 +5,6 @@ use num_traits::ToPrimitive;
 
 use crate::builtins::{BuiltinContext, BuiltinEnum as BE, BuiltinFnArgs, check_named_args};
 use crate::cas::{infer_single_cas_var, substitute_cas};
-use crate::session::stdio::wqstdout_println;
 use crate::style::{AnsiColor, ColorMode as StyleColorMode, TextStyle, paint};
 use crate::value::seq::ValueSeq;
 use crate::value::{Value, WqResult};
@@ -26,9 +25,7 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
     let _ = explicit_size;
     // Terminal auto-size: only when width/height/size not explicitly set
     #[cfg(not(target_arch = "wasm32"))]
-    if !explicit_size && let Some((term_w, term_h)) = terminal_size::terminal_size() {
-        let tw = usize::from(term_w.0);
-        let th = usize::from(term_h.0);
+    if !explicit_size && let Some((tw, th)) = vm.stdout_terminal_size() {
         opts.width = tw.saturating_sub(8).clamp(40, 200);
         opts.height = th.saturating_sub(6).clamp(10, 60);
     }
@@ -56,8 +53,12 @@ pub(crate) fn asciiplot(vm: &mut dyn BuiltinContext, args: BuiltinFnArgs) -> WqR
             label: config.label.clone(),
         });
     }
-    let rendered = render_ascii_plot(&all_series, &opts);
-    wqstdout_println(rendered);
+    let rendered = render_ascii_plot(&all_series, &opts, vm.color_mode());
+    vm.write_stdout_line(&rendered).map_err(|error| {
+        WqError::new(WqErrorType::Io)
+            .src(BE::Asciiplot)
+            .attach_note(format!("host I/O error: {error}"))
+    })?;
     Ok(Value::unit())
 }
 
@@ -1262,7 +1263,11 @@ fn pair_as_f64(value: &Value) -> Option<(f64, f64)> {
     numeric_pair(value)
 }
 
-fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
+fn render_ascii_plot(
+    series_list: &[PlotSeries],
+    opts: &PlotOptions,
+    color_mode: StyleColorMode,
+) -> String {
     let width = opts.width;
     let height = opts.height;
     let width = max(10, width);
@@ -1691,7 +1696,7 @@ fn render_ascii_plot(series_list: &[PlotSeries], opts: &PlotOptions) -> String {
             }
         }
         for cell in row {
-            line.push_str(&paint_char(cell.ch, cell.color));
+            line.push_str(&paint_char_with_color_mode(cell.ch, cell.color, color_mode));
         }
         if !opts.tick_labels && i == 0 {
             line.push(' ');
@@ -2104,10 +2109,6 @@ fn ansi_from_rgb_mask(mask: u8, bright: bool) -> AnsiColor {
     }
 }
 
-fn paint_char(ch: char, color: Option<AnsiColor>) -> String {
-    paint_char_with_color_mode(ch, color, StyleColorMode::Auto)
-}
-
 fn paint_char_with_color_mode(
     ch: char,
     color: Option<AnsiColor>,
@@ -2201,14 +2202,14 @@ fn nice_ticks(minv: f64, maxv: f64, target: usize) -> Vec<f64> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use indexmap::IndexMap;
     use smallvec::smallvec;
 
     use super::*;
     use crate::builtins::Builtins;
-    use crate::session::stdio::{WqStdout, set_wqstdout};
+    use crate::session::stdio::{WqIoError, WqOutput};
     use crate::value::cas::{CasFunction, CasOp};
     use crate::value::func::FunctionData;
     use crate::vm::Vm;
@@ -2216,10 +2217,54 @@ mod tests {
 
     struct SinkStdout;
 
-    impl WqStdout for SinkStdout {
-        fn print(&mut self, _s: &str) {}
+    impl WqOutput for SinkStdout {
+        fn write(&mut self, _text: &str) -> Result<(), WqIoError> {
+            Ok(())
+        }
+    }
 
-        fn println(&mut self, _s: &str) {}
+    struct CaptureStdout(Arc<Mutex<String>>);
+
+    impl WqOutput for CaptureStdout {
+        fn write(&mut self, text: &str) -> Result<(), WqIoError> {
+            self.0
+                .lock()
+                .expect("plot capture lock should not be poisoned")
+                .push_str(text);
+            Ok(())
+        }
+    }
+
+    fn render_with_session_color(color_mode: StyleColorMode) -> String {
+        let output = Arc::new(Mutex::new(String::new()));
+        let mut vm = Vm::new(Vec::new());
+        vm.color_mode = color_mode;
+        vm.runtime_io
+            .set_stdout(Box::new(CaptureStdout(Arc::clone(&output))));
+        asciiplot(
+            &mut vm,
+            BuiltinFnArgs::with_named(
+                smallvec![Value::IntList(Arc::new(vec![1, 2, 3]))],
+                vec![
+                    (
+                        Arc::from("size"),
+                        Value::List(Arc::new(vec![Value::Int(12), Value::Int(5)])),
+                    ),
+                    (Arc::from("color"), Value::Bool(true)),
+                ],
+            ),
+        )
+        .expect("asciiplot should render");
+        output
+            .lock()
+            .expect("plot capture lock should not be poisoned")
+            .clone()
+    }
+
+    #[test]
+    fn asciiplot_uses_the_session_stdout_color_mode() {
+        assert!(!render_with_session_color(StyleColorMode::Never).contains("\x1b["));
+        assert!(render_with_session_color(StyleColorMode::Always).contains("\x1b["));
     }
 
     fn make_fn(params: Option<&[&str]>, locals: u16, instructions: Vec<Instruction>) -> Value {
@@ -2696,7 +2741,7 @@ mod tests {
     fn asciiplot_accepts_single_cas_arg() {
         let expr = Value::from_cas_function(CasFunction::Sin, vec![Value::from_cas_var("x")]);
         let mut vm = Vm::new(vec![]);
-        set_wqstdout(Some(Box::new(SinkStdout)));
+        vm.runtime_io.set_stdout(Box::new(SinkStdout));
         let result = asciiplot(
             &mut vm,
             BuiltinFnArgs::with_named(
@@ -2711,7 +2756,6 @@ mod tests {
                 ],
             ),
         );
-        set_wqstdout(None);
         assert_eq!(result.unwrap(), Value::unit());
     }
 
@@ -2722,7 +2766,7 @@ mod tests {
 
         for mode in ["line", "scatter", "step", "bar", "area"] {
             let mut vm = Vm::new(vec![]);
-            set_wqstdout(Some(Box::new(SinkStdout)));
+            vm.runtime_io.set_stdout(Box::new(SinkStdout));
             let callable_result = asciiplot(
                 &mut vm,
                 BuiltinFnArgs::with_named(
@@ -2742,11 +2786,10 @@ mod tests {
                     ],
                 ),
             );
-            set_wqstdout(None);
             assert_eq!(callable_result.unwrap(), Value::unit());
 
             let mut vm = Vm::new(vec![]);
-            set_wqstdout(Some(Box::new(SinkStdout)));
+            vm.runtime_io.set_stdout(Box::new(SinkStdout));
             let cas_result = asciiplot(
                 &mut vm,
                 BuiltinFnArgs::with_named(
@@ -2766,7 +2809,6 @@ mod tests {
                     ],
                 ),
             );
-            set_wqstdout(None);
             assert_eq!(cas_result.unwrap(), Value::unit());
         }
     }
@@ -2797,7 +2839,7 @@ mod tests {
             },
         ];
 
-        let rendered = render_ascii_plot(&series, &opts);
+        let rendered = render_ascii_plot(&series, &opts, StyleColorMode::Never);
 
         assert!(rendered.contains("sine(s)"));
         assert!(rendered.contains("cosine(c)"));
@@ -2836,7 +2878,7 @@ mod tests {
             label: None,
         }];
 
-        let rendered = render_ascii_plot(&series, &opts);
+        let rendered = render_ascii_plot(&series, &opts, StyleColorMode::Never);
         let plotted_points = rendered.chars().filter(|&ch| ch == '*').count();
 
         assert_eq!(plotted_points, 3);
@@ -2871,7 +2913,7 @@ mod tests {
             },
         ];
 
-        let rendered = render_ascii_plot(&series, &opts);
+        let rendered = render_ascii_plot(&series, &opts, StyleColorMode::Never);
 
         assert!(rendered.contains(area_overlap_char(false)));
     }
@@ -2895,7 +2937,7 @@ mod tests {
             label: None,
         }];
 
-        let rendered = render_ascii_plot(&series, &opts);
+        let rendered = render_ascii_plot(&series, &opts, StyleColorMode::Never);
 
         assert!(rendered.contains('+'));
         assert!(rendered.contains('-'));
@@ -2926,7 +2968,7 @@ mod tests {
             label: None,
         }];
 
-        let rendered = render_ascii_plot(&series, &opts);
+        let rendered = render_ascii_plot(&series, &opts, StyleColorMode::Never);
 
         assert!(rendered.contains('┼'));
         assert!(rendered.contains('·'));
@@ -3063,7 +3105,7 @@ mod tests {
             label: None,
         }];
 
-        let rendered = render_ascii_plot(&series, &opts);
+        let rendered = render_ascii_plot(&series, &opts, StyleColorMode::Never);
         let plotted_points = rendered.chars().filter(|&ch| ch == '*').count();
 
         assert_eq!(plotted_points, 2);
@@ -3091,7 +3133,7 @@ mod tests {
             label: None,
         }];
 
-        let rendered = render_ascii_plot(&series, &opts);
+        let rendered = render_ascii_plot(&series, &opts, StyleColorMode::Never);
         let lines: Vec<&str> = rendered.lines().collect();
         let x_labels = lines[opts.height];
 

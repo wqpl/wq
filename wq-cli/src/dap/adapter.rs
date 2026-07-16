@@ -1,88 +1,104 @@
 use wq_dap::r#type::{
     Breakpoint, Scope, ScopePresentationhint, Source, StackFrame, Thread, Variable,
 };
+use wqpl::debugger::Debugger;
 use wqpl::value::Excerpt;
-use wqpl::vm::Vm;
 use wqpl::wqdb::data::{CodeLoc, DebugInfo};
+use wqpl::wqdb::model::SourceBreakpoint;
 
-/// Resolve source lines to CodeLoc breakpoints and set them on the VM.
-pub(crate) fn set_breakpoints(vm: &mut Vm, source_path: &str, lines: &[usize]) -> Vec<Breakpoint> {
-    // A single source file may be registered multiple times (different
-    // file_ids) because wq evaluates it in streaming chunks. Collect all
-    // matching file_ids so breakpoints anywhere in the file resolve.
-    let file_ids = vm.debug_info().file_ids_by_path(source_path);
+pub(crate) struct StackTracePage {
+    pub(crate) frames: Vec<StackFrame>,
+    pub(crate) total_frames: usize,
+}
 
-    let mut result = Vec::with_capacity(lines.len());
-    for &line in lines {
-        let mut resolved = None;
-        for &fid in &file_ids {
-            let locs = vm.debug_info().resolve_line(fid, line);
-            if let Some(&loc) = locs.first() {
-                vm.dbg_set_break(loc);
-                let (actual_line, actual_col) = if let Some(sf) = vm.debug_info().file(fid) {
-                    let meta = vm.debug_info().chunk(loc.chunk);
-                    let span = meta.line_table.span_at(loc.pc);
-                    if span.file_id != u32::MAX {
-                        let (l, c) = sf.line_col(span.start);
-                        (Some(l as i64), Some(c as i64))
-                    } else {
-                        (Some(line as i64), None)
-                    }
-                } else {
-                    (Some(line as i64), None)
-                };
-                resolved = Some((actual_line, actual_col));
-                break;
-            }
-        }
-        if let Some((actual_line, actual_col)) = resolved {
-            result.push(Breakpoint {
-                verified: true,
-                source: Some(Source {
-                    path: Some(source_path.to_string()),
-                    ..Default::default()
-                }),
-                line: actual_line,
-                column: actual_col,
-                ..Default::default()
-            });
-        } else {
-            // Unresolved breakpoint
-            result.push(Breakpoint {
-                verified: false,
-                message: Some(format!("no statement at line {line}")),
-                source: Some(Source {
-                    path: Some(source_path.to_string()),
-                    ..Default::default()
-                }),
-                line: Some(line as i64),
-                ..Default::default()
-            });
-        }
+/// Replace the source breakpoints tracked by the debuggee.
+pub(crate) fn set_breakpoints(
+    debugger: &mut Debugger<'_>,
+    source_path: &str,
+    lines: &[usize],
+) -> Vec<Breakpoint> {
+    debugger
+        .set_source_breakpoints(source_path, lines)
+        .iter()
+        .map(|breakpoint| build_source_breakpoint(debugger.debug_info(), breakpoint))
+        .collect()
+}
+
+pub(crate) fn build_source_breakpoint(
+    debug_info: &DebugInfo,
+    breakpoint: &SourceBreakpoint,
+) -> Breakpoint {
+    let source = Some(Source {
+        path: Some(breakpoint.source_path.clone()),
+        ..Default::default()
+    });
+    let Some(location) = breakpoint.location else {
+        return Breakpoint {
+            id: Some(breakpoint.id as i64),
+            verified: false,
+            message: Some(format!(
+                "line {} has not been compiled yet",
+                breakpoint.requested_line
+            )),
+            source,
+            line: Some(breakpoint.requested_line as i64),
+            ..Default::default()
+        };
+    };
+
+    let (line, column) = debug_info
+        .chunk_opt(location.chunk)
+        .and_then(|chunk| {
+            let span = chunk.line_table.span_at(location.pc);
+            debug_info.file(span.file_id).map(|file| {
+                let (line, column) = file.line_col(span.start);
+                (Some(line as i64), Some(column as i64))
+            })
+        })
+        .unwrap_or((Some(breakpoint.requested_line as i64), None));
+    Breakpoint {
+        id: Some(breakpoint.id as i64),
+        verified: true,
+        source,
+        line,
+        column,
+        ..Default::default()
     }
-    result
 }
 
 pub(crate) fn build_stack_trace(
-    vm: &Vm,
+    debugger: &Debugger<'_>,
     start_frame: Option<usize>,
     levels: Option<usize>,
-) -> Vec<StackFrame> {
-    let frames = vm.bt_frames();
-    let di = vm.debug_info();
-    let start = start_frame.unwrap_or(0);
-    let end = levels
-        .map(|l| start + l)
-        .unwrap_or(frames.len())
-        .min(frames.len());
-
-    frames
+) -> StackTracePage {
+    let frames = debugger.backtrace();
+    let di = debugger.debug_info();
+    let frames = frames
         .iter()
         .enumerate()
-        .skip(start)
-        .take(end.saturating_sub(start))
         .map(|(id, (loc, name))| loc_to_stack_frame(di, *loc, name.as_ref(), id))
-        .collect()
+        .collect();
+    paginate_stack_frames(frames, start_frame, levels)
+}
+
+fn paginate_stack_frames(
+    frames: Vec<StackFrame>,
+    start_frame: Option<usize>,
+    levels: Option<usize>,
+) -> StackTracePage {
+    let total_frames = frames.len();
+    let start = start_frame.unwrap_or(0).min(total_frames);
+    let available = total_frames - start;
+    let requested = levels.filter(|levels| *levels != 0).unwrap_or(available);
+    let frames = frames
+        .into_iter()
+        .skip(start)
+        .take(requested.min(available))
+        .collect();
+    StackTracePage {
+        frames,
+        total_frames,
+    }
 }
 
 fn loc_to_stack_frame(di: &DebugInfo, loc: CodeLoc, name: &str, id: usize) -> StackFrame {
@@ -132,8 +148,8 @@ fn loc_to_stack_frame(di: &DebugInfo, loc: CodeLoc, name: &str, id: usize) -> St
     }
 }
 
-pub(crate) fn build_scopes(vm: &Vm, frame_id: usize) -> Vec<Scope> {
-    let frames = vm.bt_frames();
+pub(crate) fn build_scopes(debugger: &Debugger<'_>, frame_id: usize) -> Vec<Scope> {
+    let frames = debugger.backtrace();
     if frame_id >= frames.len() {
         return Vec::new();
     }
@@ -171,9 +187,13 @@ pub(crate) fn build_scopes(vm: &Vm, frame_id: usize) -> Vec<Scope> {
     scopes
 }
 
-pub(crate) fn build_variables(vm: &Vm, variables_reference: usize) -> Vec<Variable> {
+pub(crate) fn build_variables(
+    debugger: &Debugger<'_>,
+    variables_reference: usize,
+) -> Vec<Variable> {
     if variables_reference == globals_ref() as usize {
-        vm.dbg_globals()
+        debugger
+            .globals()
             .into_iter()
             .map(|(name, value)| Variable {
                 name,
@@ -184,9 +204,9 @@ pub(crate) fn build_variables(vm: &Vm, variables_reference: usize) -> Vec<Variab
             })
             .collect()
     } else if let Some(frame_id) = decode_locals_ref(variables_reference) {
-        let all_frames = vm.dbg_local_frames();
+        let all_frames = debugger.local_frames();
         if let Some(frame) = all_frames.get(frame_id) {
-            let meta = vm.debug_info().chunk(frame.loc.chunk);
+            let meta = debugger.debug_info().chunk(frame.loc.chunk);
             frame
                 .locals
                 .iter()
@@ -237,5 +257,29 @@ fn decode_locals_ref(variables_reference: usize) -> Option<usize> {
         Some(variables_reference - 100)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stack_trace_pagination_keeps_the_full_available_frame_count() {
+        let frames = (0..3)
+            .map(|id| StackFrame {
+                id,
+                name: format!("frame-{id}"),
+                line: 1,
+                column: 1,
+                ..Default::default()
+            })
+            .collect();
+
+        let page = paginate_stack_frames(frames, Some(1), Some(1));
+
+        assert_eq!(page.frames.len(), 1);
+        assert_eq!(page.frames[0].id, 1);
+        assert_eq!(page.total_frames, 3);
     }
 }

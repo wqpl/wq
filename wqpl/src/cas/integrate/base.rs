@@ -2,14 +2,18 @@ use num_bigint::BigInt;
 use num_traits::One as _;
 
 use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_neg, cas_pow, cas_sub, contains_cas_var,
+    CasDebug, cas_add, cas_div, cas_mul, cas_neg, cas_pow, cas_sub, contains_cas_var,
     extract_linear_coefficients_with_params, numeric_add, numeric_is_negative, numeric_is_one,
     numeric_is_zero, numeric_mul, poly_degree, poly_from_expr, simplify_cas_value, substitute_expr,
 };
 use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
-pub(super) fn integrate_by_table(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+pub(super) fn integrate_by_table(
+    expr: &Value,
+    var: &str,
+    _debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     if let Some(result) = try_special_integral_quotient(expr, var)? {
         return Ok(Some(result));
     }

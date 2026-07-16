@@ -1146,12 +1146,6 @@ mod tests {
             .iter()
             .filter(|d| d.kind != DefKind::Builtin && !d.name.starts_with("--"))
             .collect();
-        for def in &user_defs {
-            eprintln!(
-                "def: name={:?} kind={:?} span={:?} name_span={:?}",
-                def.name, def.kind, def.span, def.name_span
-            );
-        }
         let a_def = user_defs
             .iter()
             .find(|d| d.name == "a")

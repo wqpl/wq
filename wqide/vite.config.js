@@ -6,7 +6,8 @@ import { viteStaticCopy } from "vite-plugin-static-copy";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const wqWasmPkgDir = resolve(rootDir, "../wq-wasm/pkg");
-const wqWasmEntry = resolve(wqWasmPkgDir, "wq_wasm.js");
+const wqWasmGeneratedEntry = resolve(wqWasmPkgDir, "wq_wasm.js");
+const wqWasmEntry = resolve(rootDir, "../wq-wasm/browser.js");
 const docsArticlesDir = resolve(rootDir, "../d/articles");
 const fsAllowList = [
   searchForWorkspaceRoot(rootDir),
@@ -14,7 +15,7 @@ const fsAllowList = [
   docsArticlesDir,
 ];
 
-if (!existsSync(wqWasmEntry)) {
+if (!existsSync(wqWasmGeneratedEntry)) {
   throw new Error(
     "Missing wq-wasm generated package. Run `npm run build:wasm` from wqide/.",
   );

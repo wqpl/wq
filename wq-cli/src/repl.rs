@@ -14,13 +14,9 @@ use terminal_size::{Width, terminal_size};
 use wqpl::builtins::{BuiltinPreset, Builtins};
 use wqpl::format::{FormatConfig, Formatter};
 use wqpl::interpret::InterpreterKind;
-use wqpl::session::Session;
-use wqpl::session::dbglog::{DebugLogFlags, get_debug_log_flags, set_debug_log_flags};
-use wqpl::session::stdio::{
-    WqGlobalHint, WqStdinError, set_wqstdin, wqstdin_add_history, wqstdin_highlight_enabled,
-    wqstdin_hints_enabled, wqstdin_readline, wqstdin_set_builtin_hints, wqstdin_set_global_hints,
-    wqstdin_set_highlight, wqstdin_set_hints_enabled, wqstdin_set_repl_hints,
-};
+use wqpl::session::dbglog::DebugLogFlags;
+use wqpl::session::stdio::WqIoError;
+use wqpl::session::{Session, SourceUnit};
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::value::{Excerpt, Value};
 use wqpl::{completion as wq_completion, doc};
@@ -34,9 +30,9 @@ use crate::msg::{
     system_msg_err as raw_system_msg_err, system_msg_out as raw_system_msg_out,
 };
 use crate::repl::editor::WqReplHighlighter;
-use crate::repl::input::RustylineInput;
-use crate::wqdb::enter_wqdb_after_err;
-use crate::{apply_builtins_flag, apply_interpreter_flag, apply_seed_flag, wqdb_pause_handler};
+use crate::repl::input::{RustylineInput, WqGlobalHint};
+use crate::wqdb::{enter_wqdb_after_err, wqdb_shell};
+use crate::{apply_builtins_flag, apply_interpreter_flag, apply_seed_flag};
 
 fn repl_color(text: &str, color: AnsiColor) -> String {
     repl_paint(text, TextStyle::new().fg(color))
@@ -208,22 +204,23 @@ impl InteractiveOutputSpacing {
 
 pub fn enter_repl(rtflags: RuntimeFlags) {
     let mut session = Session::new();
-    session.set_pause_callback(Some(wqdb_pause_handler));
+    let editor = RustylineInput::new().expect("REPL editor should initialize");
+    session.set_input(Box::new(editor.clone()));
+    let debugger_editor = editor.clone();
+    session.set_pause_handler(move |_event, debugger| wqdb_shell(debugger, &debugger_editor));
     let mut time_mode = false;
     let mut box_config = rtflags.box_print;
-    let mut dry_mode = rtflags.dry;
     let mut show_type = true;
     let mut fmt_state = ReplFmtState::default();
-    let highlighter = WqReplHighlighter::new();
-    set_debug_log_flags(rtflags.debug_flags);
-    session.set_bt_mode(rtflags.bt);
+    let mut highlighter = WqReplHighlighter::new();
+    session.set_debug_flags(rtflags.debug_flags);
+    session.set_backtrace_enabled(rtflags.bt);
     session.set_wqdb(rtflags.wqdb);
     apply_seed_flag(&mut session, &rtflags);
-    session.set_dry_mode(dry_mode);
+    session.set_dry_mode(rtflags.dry);
     apply_builtins_flag(&mut session, &rtflags);
     apply_interpreter_flag(&mut session, &rtflags);
-    set_wqstdin(Box::new(RustylineInput::new().unwrap()));
-    sync_builtin_hints(&session);
+    sync_builtin_state(&session, &editor, &mut highlighter);
 
     let mut line_number = 1;
     // one-time controls for next input
@@ -234,8 +231,8 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
     // Unified loader state for directive lines handled by load
     let repl_loading = RefCell::new(HashSet::new());
     print_repl_startup(&session, rtflags.stack_size_mebibyte);
-    sync_global_hints(&session);
-    sync_repl_hints();
+    sync_global_hints(&session, &editor);
+    sync_repl_hints(&editor);
     output_spacing.after_output();
 
     loop {
@@ -252,14 +249,14 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
             )
         };
 
-        match wqstdin_readline(&prompt) {
+        match editor.read_line(&prompt) {
             Ok(line) => {
                 let input = line.trim_end_matches('\r');
                 if output_spacing.after_input(input) {
                     println!();
                 }
                 if !input.is_empty() {
-                    wqstdin_add_history(input);
+                    editor.add_history(input);
                 }
                 // Handle repl commands
                 match ReplCommand::parse(input) {
@@ -272,12 +269,12 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         break;
                     }
                     ReplCommand::Highlight => {
-                        wqstdin_set_highlight(!wqstdin_highlight_enabled());
+                        editor.set_highlight(!editor.highlight_enabled());
                         continue;
                     }
                     ReplCommand::Hint => {
-                        let on = !wqstdin_hints_enabled();
-                        wqstdin_set_hints_enabled(on);
+                        let on = !editor.hints_enabled();
+                        editor.set_hints_enabled(on);
                         system_msg_out(format!("hint -> {}", repl_status(on)), MsgType::Info);
                         continue;
                     }
@@ -286,9 +283,9 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::Dry => {
-                        dry_mode = !dry_mode;
-                        session.set_dry_mode(dry_mode);
-                        system_msg_out(format!("dry -> {}", repl_status(dry_mode)), MsgType::Info);
+                        let enabled = !session.dry_mode();
+                        session.set_dry_mode(enabled);
+                        system_msg_out(format!("dry -> {}", repl_status(enabled)), MsgType::Info);
                         continue;
                     }
                     ReplCommand::Fmt(None) => {
@@ -316,7 +313,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                             match BuiltinPreset::from_name(&preset) {
                                 Some(preset) => {
                                     session.set_builtins_preset(preset);
-                                    sync_builtin_hints(&session);
+                                    sync_builtin_state(&session, &editor, &mut highlighter);
                                     system_msg_out(
                                         format!("bfn -> {}", preset.name()),
                                         MsgType::Info,
@@ -345,7 +342,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::Gb => {
-                        let env = session.env_vars();
+                        let env = session.bindings();
                         if env.is_empty() {
                             system_msg_out("no global bindings".to_string(), MsgType::Info);
                         } else {
@@ -391,8 +388,8 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::Reset => {
-                        session.reset_session();
-                        sync_global_hints(&session);
+                        session.reset_workspace();
+                        sync_global_hints(&session, &editor);
                         system_msg_out("session reset".to_string(), MsgType::Info);
                         continue;
                     }
@@ -417,8 +414,8 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::Backtrace => {
-                        let bt_mode = !session.get_bt_mode();
-                        session.set_bt_mode(bt_mode);
+                        let bt_mode = !session.backtrace_enabled();
+                        session.set_backtrace_enabled(bt_mode);
                         system_msg_out(
                             format!("backtrace -> {}", repl_status(bt_mode)),
                             MsgType::Info,
@@ -524,16 +521,16 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::DebugShow => {
-                        system_msg_out(debug_help_table(get_debug_log_flags()), MsgType::Info);
+                        system_msg_out(debug_help_table(session.debug_flags()), MsgType::Info);
                         continue;
                     }
                     ReplCommand::DebugToggle => {
-                        let next = if get_debug_log_flags().is_empty() {
+                        let next = if session.debug_flags().is_empty() {
                             DebugLogFlags::from_alias(1).expect("debug alias 1 exists")
                         } else {
                             DebugLogFlags::empty()
                         };
-                        set_debug_log_flags(next);
+                        session.set_debug_flags(next);
                         system_msg_out(
                             format!(
                                 "debug flags -> {}",
@@ -544,7 +541,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::DebugOneshot(rest) => {
-                        let mut flags = get_debug_log_flags();
+                        let mut flags = session.debug_flags();
                         match flags.apply_spec(&rest) {
                             Ok(()) => {
                                 oneshot_debug = Some(flags);
@@ -563,10 +560,10 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::DebugSet(rest) => {
-                        let mut flags = get_debug_log_flags();
+                        let mut flags = session.debug_flags();
                         match flags.apply_spec(&rest) {
                             Ok(()) => {
-                                set_debug_log_flags(flags);
+                                session.set_debug_flags(flags);
                                 system_msg_out(
                                     format!(
                                         "debug flags -> {}",
@@ -588,7 +585,10 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     //     continue;
                     // }
                     ReplCommand::DryQuery => {
-                        system_msg_out(format!("dry: {}", repl_status(dry_mode)), MsgType::Info);
+                        system_msg_out(
+                            format!("dry: {}", repl_status(session.dry_mode())),
+                            MsgType::Info,
+                        );
                         continue;
                     }
                     ReplCommand::BoxQuery => {
@@ -599,7 +599,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::BacktraceQuery => {
-                        let bt_mode = session.get_bt_mode();
+                        let bt_mode = session.backtrace_enabled();
                         system_msg_out(
                             format!("backtrace: {}", repl_status(bt_mode)),
                             MsgType::Info,
@@ -614,12 +614,12 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         continue;
                     }
                     ReplCommand::HighlightQuery => {
-                        let on = wqstdin_highlight_enabled();
+                        let on = editor.highlight_enabled();
                         system_msg_out(format!("highlight: {}", repl_status(on)), MsgType::Info);
                         continue;
                     }
                     ReplCommand::HintQuery => {
-                        let on = wqstdin_hints_enabled();
+                        let on = editor.hints_enabled();
                         system_msg_out(format!("hint: {}", repl_status(on)), MsgType::Info);
                         continue;
                     }
@@ -690,11 +690,11 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                         Ok(report) => {
                             print_load_report(&report);
                             maybe_dump_formatted_input(&fmt_state, &highlighter, input_for_eval);
-                            if dry_mode {
+                            if session.dry_mode() {
                                 print_dry_run_status();
                             }
                             if let Some(result) = report.result
-                                && !dry_mode
+                                && !session.dry_mode()
                             {
                                 let resstr = format_repl_result_with_type(
                                     &result,
@@ -708,7 +708,7 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                                     system_msg_out(info, MsgType::Info);
                                 }
                             }
-                            sync_global_hints(&session);
+                            sync_global_hints(&session, &editor);
                         }
                         Err(err) => {
                             print_load_error(&err, &mut session);
@@ -719,9 +719,9 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                 }
                 let src_eval = input_for_eval.trim();
                 // Prepare for one-time cmds
-                let prev_dbg_flags = get_debug_log_flags();
+                let prev_dbg_flags = session.debug_flags();
                 if let Some(flags) = oneshot_debug.take() {
-                    set_debug_log_flags(flags);
+                    session.set_debug_flags(flags);
                 }
                 if oneshot_wqdb {
                     session.set_wqdb(true);
@@ -730,13 +730,11 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
 
                 // Ensure interactive inputs map to a unique source label per iteration
                 let source_label = format!("wq[{}]", line_number);
-                session.dbg_set_source(&source_label, src_eval);
-                session.dbg_set_offset(0);
                 // Note whether wqdb was active for this evaluation (persistent or one-time)
                 let wqdb_active_for_eval = session.is_wqdb_enabled() || oneshot_wqdb;
 
                 let start_t = Instant::now();
-                let attempt = session.eval_string(src_eval);
+                let attempt = session.eval_source(SourceUnit::named(&source_label, src_eval));
                 let elapsed_t = start_t.elapsed();
 
                 // reset one-time cmds and wqdb
@@ -745,12 +743,12 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                     oneshot_wqdb = false;
                 }
                 // reset one-time dbg level
-                set_debug_log_flags(prev_dbg_flags);
+                session.set_debug_flags(prev_dbg_flags);
                 // handle eval result
                 match attempt {
                     Ok(result) => {
                         maybe_dump_formatted_input(&fmt_state, &highlighter, src_eval);
-                        if dry_mode {
+                        if session.dry_mode() {
                             print_dry_run_status();
                         } else {
                             let resstr = format_repl_result_with_type(
@@ -770,16 +768,16 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                             // reset one-time time mode
                             oneshot_time = false;
                         }
-                        sync_global_hints(&session);
+                        sync_global_hints(&session, &editor);
                     }
                     Err(error) => {
                         system_msg_err(format!("{error}"), MsgType::Error);
                         // Only show backtrace for runtime errors; skip for parse/EOF errors
-                        if session.get_bt_mode() && error.err_type.is_runtime() {
-                            session.dbg_print_bt();
+                        if session.backtrace_enabled() && error.err_type.is_runtime() {
+                            let _ = session.dbg_print_bt();
                         }
                         if wqdb_active_for_eval && error.err_type.is_runtime() {
-                            enter_wqdb_after_err(&mut session);
+                            enter_wqdb_after_err(&mut session, &editor);
                         }
                         if time_mode || oneshot_time {
                             system_msg_out(format!("time elapsed: {elapsed_t:?}"), MsgType::Info);
@@ -789,17 +787,17 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
                 }
                 line_number += 1;
             }
-            Err(WqStdinError::Eof) => {
+            Err(WqIoError::Eof) => {
                 break;
             }
-            Err(WqStdinError::Interrupted) => {
+            Err(WqIoError::Interrupted) => {
                 // Cancel one-time settings
                 oneshot_time = false;
                 oneshot_debug = None;
                 oneshot_wqdb = false;
                 continue;
             }
-            Err(WqStdinError::Other(error)) => {
+            Err(error) => {
                 system_msg_err(format!("Error reading input: {error}"), MsgType::Error);
                 break;
             }
@@ -807,7 +805,14 @@ pub fn enter_repl(rtflags: RuntimeFlags) {
     }
 }
 
-fn sync_builtin_hints(session: &Session) {
+fn sync_builtin_state(
+    session: &Session,
+    input: &RustylineInput,
+    result_highlighter: &mut WqReplHighlighter,
+) {
+    let preset = session.builtins_preset();
+    input.set_builtins_preset(preset);
+    result_highlighter.set_builtins_preset(preset);
     let candidates = wq_completion::builtin_completion_candidates(session.builtins(), false);
     let mut names = Vec::with_capacity(candidates.len());
     let mut usages = Vec::with_capacity(candidates.len());
@@ -815,11 +820,11 @@ fn sync_builtin_hints(session: &Session) {
         names.push(candidate.label);
         usages.push(candidate.detail.unwrap_or_default());
     }
-    wqstdin_set_builtin_hints(names, usages);
+    input.set_builtin_hints(names, usages);
 }
 
-fn sync_global_hints(session: &Session) {
-    let env = session.env_vars();
+fn sync_global_hints(session: &Session, input: &RustylineInput) {
+    let env = session.bindings();
     let hints = env
         .iter()
         .map(|(name, value)| WqGlobalHint {
@@ -828,12 +833,12 @@ fn sync_global_hints(session: &Session) {
             excerpt: value.excerpt(),
         })
         .collect();
-    wqstdin_set_global_hints(hints);
+    input.set_global_hints(hints);
 }
 
-fn sync_repl_hints() {
+fn sync_repl_hints(input: &RustylineInput) {
     let (names, descs) = command::repl_hint_vectors();
-    wqstdin_set_repl_hints(names, descs);
+    input.set_repl_hints(names, descs);
 }
 
 fn fold_home_dir(path: &std::path::Path) -> String {

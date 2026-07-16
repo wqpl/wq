@@ -4,9 +4,9 @@ use ahash::AHashMap;
 use num_bigint::BigInt;
 
 use crate::cas::{
-    cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_product, cas_sub, contains_cas_var,
-    numeric_is_one, numeric_is_zero, numeric_sub, rewrite_cas, rewrite_loop, simplify_cas_value,
-    var_name_from_value, with_cas_div_cache,
+    CasDebug, cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_product, cas_sub,
+    contains_cas_var, numeric_is_one, numeric_is_zero, numeric_sub, rewrite_cas_with_debug,
+    rewrite_loop_with_debug, simplify_cas_value, var_name_from_value, with_cas_div_cache,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -134,42 +134,63 @@ fn ellik_m_derivative(phi: &Value, m: &Value) -> WqResult<Value> {
     cas_sub(cas_sub(term_e, term_f)?, boundary)
 }
 
+#[cfg(test)]
 pub(crate) fn diff_cas(expr: &Value, var: &Value) -> WqResult<Value> {
+    diff_cas_with_debug(expr, var, CasDebug::disabled())
+}
+
+pub(crate) fn diff_cas_with_debug(
+    expr: &Value,
+    var: &Value,
+    debug: CasDebug<'_>,
+) -> WqResult<Value> {
     with_cas_div_cache(|| {
         let var = var_name_from_value(var)?;
         let expr = simplify_cas_value(expr)?;
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] diff enter: expr={} var={var}",
             fmt_cas(&expr)
         );
-        let mut current = diff_expr(&expr, &var)?;
+        let mut current = diff_expr_with_debug(&expr, &var, debug)?;
         // Apply tree rewrites (sgn/abs, -1 distribution) first, then simplify to
         // combine rational terms. The generalized quotient rule in diff_expr
         // already produces a single fraction for rational-exponential products,
         // avoiding the need to recombine fractions with different denominators.
-        rewrite_loop(&mut current)?;
+        rewrite_loop_with_debug(&mut current, debug)?;
         let result = simplify_cas_value(&current)?;
-        let result = rewrite_cas(&result)?;
-        cas_trace!(DebugLogFlags::CAS, "[cas] diff exit: {}", fmt_cas(&result));
+        let result = rewrite_cas_with_debug(&result, debug)?;
+        cas_trace!(
+            debug,
+            DebugLogFlags::CAS,
+            "[cas] diff exit: {}",
+            fmt_cas(&result)
+        );
         Ok(result)
     })
 }
 
-pub(super) fn diff_expr(expr: &Value, var: &str) -> WqResult<Value> {
+pub(super) fn diff_expr_with_debug(
+    expr: &Value,
+    var: &str,
+    debug: CasDebug<'_>,
+) -> WqResult<Value> {
     let _scope = DiffCacheScope::enter(var);
     if let Some(cached) = diff_cache_get(expr, var) {
         return Ok(cached);
     }
     cas_trace_depth!(
+        debug,
         DebugLogFlags::CAS_VERBOSE,
         0,
         "[cas-v] diff_expr enter: {} var={var}",
         fmt_cas(expr)
     );
-    let result = diff_expr_inner(expr, var);
+    let result = diff_expr_inner(expr, var, debug);
     if let Ok(ref val) = result {
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             0,
             "[cas-v] diff_expr exit: {} -> {}",
@@ -178,6 +199,7 @@ pub(super) fn diff_expr(expr: &Value, var: &str) -> WqResult<Value> {
         );
     } else {
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             0,
             "[cas-v] diff_expr exit: {} -> Err",
@@ -190,7 +212,8 @@ pub(super) fn diff_expr(expr: &Value, var: &str) -> WqResult<Value> {
     result
 }
 
-fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
+fn diff_expr_inner(expr: &Value, var: &str, debug: CasDebug<'_>) -> WqResult<Value> {
+    let diff_expr = |expr: &Value, var: &str| diff_expr_with_debug(expr, var, debug);
     if !expr.is_cas_expr() {
         return Ok(Value::Int(0));
     }
@@ -253,10 +276,13 @@ fn diff_expr_inner(expr: &Value, var: &str) -> WqResult<Value> {
 
                     let n_diff = diff_expr(&n, var)?;
                     let d_diff = diff_expr(&d, var)?;
-                    let num = rewrite_cas(&cas_sub(
-                        cas_mul(vec![n_diff, d.clone()])?,
-                        cas_mul(vec![n.clone(), d_diff])?,
-                    )?)?;
+                    let num = rewrite_cas_with_debug(
+                        &cas_sub(
+                            cas_mul(vec![n_diff, d.clone()])?,
+                            cas_mul(vec![n.clone(), d_diff])?,
+                        )?,
+                        debug,
+                    )?;
                     let denom_factor = Value::from_cas_op(CasOp::Power, vec![d, Value::Int(-2)]);
                     return cas_mul(vec![num, denom_factor]);
                 }

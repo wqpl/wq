@@ -1087,7 +1087,7 @@ impl<'de> Deserialize<'de> for Command {
                     }
                     "disconnect" => {
                         let args =
-                            arguments.ok_or_else(|| de::Error::missing_field("arguments"))?;
+                            arguments.unwrap_or_else(|| Value::Object(serde_json::Map::default()));
                         Ok(Command::Disconnect(
                             serde_json::from_value(args).map_err(de::Error::custom)?,
                         ))
@@ -1291,7 +1291,7 @@ impl<'de> Deserialize<'de> for Command {
                     }
                     "terminate" => {
                         let args =
-                            arguments.ok_or_else(|| de::Error::missing_field("arguments"))?;
+                            arguments.unwrap_or_else(|| Value::Object(serde_json::Map::default()));
                         Ok(Command::Terminate(
                             serde_json::from_value(args).map_err(de::Error::custom)?,
                         ))
@@ -1686,6 +1686,42 @@ mod tests {
             Command::ConfigurationDone => {}
             _ => panic!("Expected Command::ConfigurationDone"),
         }
+    }
+
+    #[test]
+    fn test_disconnect_without_args_uses_defaults() {
+        let request = json!(
+            {
+                "type": "request",
+                "seq": 2,
+                "command": "disconnect"
+            }
+        );
+
+        let deserialized: Request = serde_json::from_value(request).unwrap();
+        let Command::Disconnect(arguments) = deserialized.command else {
+            panic!("Expected Command::Disconnect");
+        };
+        assert!(arguments.restart.is_none());
+        assert!(arguments.terminate_debuggee.is_none());
+        assert!(arguments.suspend_debuggee.is_none());
+    }
+
+    #[test]
+    fn test_terminate_without_args_uses_defaults() {
+        let request = json!(
+            {
+                "type": "request",
+                "seq": 3,
+                "command": "terminate"
+            }
+        );
+
+        let deserialized: Request = serde_json::from_value(request).unwrap();
+        let Command::Terminate(arguments) = deserialized.command else {
+            panic!("Expected Command::Terminate");
+        };
+        assert!(arguments.restart.is_none());
     }
 
     #[test]

@@ -5,10 +5,10 @@ use num_bigint::BigInt;
 use smallvec::SmallVec;
 
 use crate::ast::BinaryOperator;
+use crate::debugger::{PauseEvent, PauseReason};
 use crate::interpret::{Interpreter, InterpreterHook, NO_OP_HOOK};
 use crate::range::{make_range, make_range_from_next, range_alloc_len};
-use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
-use crate::session::stdio::wqstderr_println;
+use crate::session::dbglog::DebugLogFlags;
 use crate::value::cmp::eval_cmp_chain;
 use crate::value::func::ClosureData;
 use crate::value::{Excerpt, Value, WqResult, eval_binary, eval_bool_op, eval_unary};
@@ -22,7 +22,7 @@ use crate::wqdb::data::{ChunkId, CodeLoc};
 use crate::wqerror::{WqError, WqErrorType};
 
 mod call;
-mod debug;
+pub(crate) mod debug;
 mod mutate;
 mod operand;
 mod target;
@@ -79,6 +79,7 @@ impl VanillaInterpreter {
                 limit = instructions.len();
             }
             while vm.pc < limit {
+                vm.poll_interrupt();
                 if vm.halt_status.is_some() {
                     break 'exec;
                 }
@@ -95,18 +96,24 @@ impl VanillaInterpreter {
                 {
                     record_trace_probe(vm, prev);
                 }
-                if vm.wqdb.enabled {
+                if vm.wqdb.is_enabled() {
                     let here = CodeLoc {
                         chunk: vm.current_chunk,
                         pc: vm.pc,
                     };
                     let depth = vm.call_depth();
-                    // wqdb on_pause hook
-                    if vm.wqdb.should_pause_at(&vm.debug_info, here, depth) {
-                        let cb = vm.wqdb.on_pause;
+                    if let Some(reason) =
+                        vm.wqdb
+                            .pause_reason_at(&vm.debug_info, here, depth, Some(&vm.debug_log))
+                    {
                         vm.wqdb.note_pause(here);
-                        if let Some(f) = cb {
-                            f(vm);
+                        vm.dispatch_pause(PauseEvent {
+                            location: here,
+                            reason,
+                        });
+                        vm.poll_interrupt();
+                        if vm.halt_status.is_some() {
+                            break 'exec;
                         }
                         paused_before_instruction = true;
                     }
@@ -1312,23 +1319,25 @@ impl VanillaInterpreter {
                         }
                         let records: Vec<TraceRecord> = vm.trace_buf.drain(base..).collect();
                         let value = vm.stack.last().ok_or_else(|| vm_err("missing @d value"))?;
-                        wqstderr_println(render_trace_line(vm, idx, value, &records));
+                        vm.debug_log
+                            .emit_line(render_trace_line(vm, idx, value, &records));
                     }
                     Instruction::Pause => {
                         let loc = CodeLoc {
                             chunk: vm.current_chunk_id(),
                             pc: idx,
                         };
-                        if !vm.wqdb.pause_break_enabled(loc) {
+                        let Some(id) = vm.wqdb.explicit_pause_id(loc) else {
                             continue;
-                        }
+                        };
                         if paused_before_instruction {
                             continue;
                         }
                         vm.wqdb.note_pause(loc);
-                        if let Some(f) = vm.wqdb.on_pause {
-                            f(vm);
-                        }
+                        vm.dispatch_pause(PauseEvent {
+                            location: loc,
+                            reason: PauseReason::ExplicitPause { id },
+                        });
                     }
                 }
             }
@@ -1455,8 +1464,9 @@ fn load_closure_debug_chunk(
             .chunk_opt(id)
             .is_some_and(|meta| meta.file_id == file_id && meta.len == payload.instructions.len())
     {
-        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-            eprintln!("[wqdb]: LoadClosure reuse chunk={id:?}");
+        if vm.debug_log.enabled(DebugLogFlags::WQDB) {
+            vm.debug_log
+                .emit_line(format!("[wqdb]: LoadClosure reuse chunk={id:?}"));
         }
         return Some(id);
     }
@@ -1465,12 +1475,12 @@ fn load_closure_debug_chunk(
     let id = vm
         .debug_info
         .new_function_chunk(None, file_id, instructions.len());
-    if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-        eprintln!(
+    if vm.debug_log.enabled(DebugLogFlags::WQDB) {
+        vm.debug_log.emit_line(format!(
             "[wqdb]: LoadClosure new chunk={id:?} file_id={file_id} instructions={} base_offset={}",
             instructions.len(),
             source_base_offset,
-        );
+        ));
     }
     if !payload.dbg_pc_spans.is_empty() && !payload.dbg_stmt_marks.is_empty() {
         let (has_exact, has_real) = {
@@ -1481,6 +1491,7 @@ fn load_closure_debug_chunk(
                 payload.dbg_pc_spans.as_ref(),
                 payload.dbg_stmt_marks.as_ref(),
                 source_base_offset,
+                Some(&vm.debug_log),
             )
         };
         vm.debug_info
@@ -1495,6 +1506,7 @@ fn load_closure_debug_chunk(
                 file_id,
                 payload.dbg_stmt_spans.as_ref(),
                 source_base_offset,
+                Some(&vm.debug_log),
             )
         };
         vm.debug_info
@@ -1502,7 +1514,7 @@ fn load_closure_debug_chunk(
             .note_debug_spans(false, has_real);
     } else {
         let table = &mut vm.debug_info.chunk_mut(id).line_table;
-        mark_stmt_heuristic(table, instructions.as_ref());
+        mark_stmt_heuristic(table, instructions.as_ref(), Some(&vm.debug_log));
     }
     if !payload.dbg_local_names.is_empty() {
         vm.debug_info.chunk_mut(id).local_names =
@@ -2751,7 +2763,7 @@ mod call_safety {
             Instruction::Return,
         ]);
         vm.locals.push(vec![Slot::Value(func)]);
-        vm.set_bt_mode(true);
+        vm.set_backtrace_enabled(true);
         let file = vm.debug_info.new_file("<test>", "f[]");
         vm.current_chunk = vm.debug_info.new_chunk("<test>", file, 3);
 
@@ -2861,7 +2873,7 @@ mod call_safety {
         ];
         let limit = instructions.len();
         let mut vm = Vm::new(instructions);
-        vm.set_bt_mode(true);
+        vm.set_backtrace_enabled(true);
         let file_id = vm.debug_info.new_file("<test>", "@t bad[]");
         vm.current_chunk = vm.debug_info.new_chunk("<test>", file_id, limit);
         vm.assign_global_and_slot("bad", bad);

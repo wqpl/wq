@@ -465,14 +465,6 @@ pub struct DebugLocalsFrame {
     pub locals: Vec<(usize, Value)>,
 }
 
-#[derive(Clone, Copy, Default)]
-pub struct DebugStepHints {
-    pub previous: Option<CodeLoc>,
-    pub step: Option<CodeLoc>,
-    pub next: Option<CodeLoc>,
-    pub finish: Option<CodeLoc>,
-}
-
 pub struct DebugChunkSpec<'a> {
     pub(crate) dbg_chunk: Option<ChunkId>,
     pub(crate) instructions: &'a [Instruction],

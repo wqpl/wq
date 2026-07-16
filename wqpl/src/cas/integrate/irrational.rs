@@ -13,10 +13,10 @@ use num_traits::ToPrimitive;
 use super::rational::find_rational_root_value;
 use super::trig::binomial_coeff;
 use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div, numeric_add,
-    numeric_div, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
-    poly_degree, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul, poly_to_expr,
-    poly_trim, simplify_cas_value, substitute_expr,
+    CasDebug, cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div,
+    expand_cas_with_debug, numeric_add, numeric_div, numeric_is_negative, numeric_is_one,
+    numeric_is_zero, numeric_mul, numeric_sub, poly_degree, poly_divide, poly_from_expr, poly_gcd,
+    poly_is_zero, poly_mul, poly_to_expr, poly_trim, simplify_cas_value, substitute_expr,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
@@ -39,12 +39,16 @@ impl Drop for ResetDepthOnDrop {
 }
 
 /// Strategy entry point: integrate irrational expressions with sqrt(quadratic).
-pub(super) fn integrate_irrational(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+pub(super) fn integrate_irrational(
+    expr: &Value,
+    var: &str,
+    debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     let simplified = simplify_cas_value(expr)?;
-    try_irrational(&simplified, var)
+    try_irrational(&simplified, var, debug)
 }
 
-fn try_irrational(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+fn try_irrational(expr: &Value, var: &str, debug: CasDebug<'_>) -> WqResult<Option<Value>> {
     // Case: sqrt(quad) = (quad)^(1/2)
     if let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts() {
         let half_pow = exp.exact_half();
@@ -115,23 +119,27 @@ fn try_irrational(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     }
 
     // Quartic reciprocal reduction to the cubic elliptic path.
-    if let Some(result) = try_quartic_inverse_reduction(expr, var)? {
+    if let Some(result) = try_quartic_inverse_reduction(expr, var, debug)? {
         return Ok(Some(result));
     }
 
     // Try square factor extraction for higher-degree polynomials under sqrt
-    if let Some(result) = try_sqrt_reduction(expr, var)? {
+    if let Some(result) = try_sqrt_reduction(expr, var, debug)? {
         return Ok(Some(result));
     }
 
     // Euler substitution for general sqrt(quadratic) cases.
-    try_euler_substitution(expr, var)
+    try_euler_substitution(expr, var, debug)
 }
 
 /// Reduce int dx/sqrt(P4(x)) to a cubic-root integral when P4 has a rational
 /// root r.  With x = r + 1/t, P4(x) = C3(t)/t^4 and dx/sqrt(P4(x)) =
 /// -dt/sqrt(C3(t)).
-fn try_quartic_inverse_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+fn try_quartic_inverse_reduction(
+    expr: &Value,
+    var: &str,
+    debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     let Some((CasOp::Power, [base, exp])) = expr.cas_op_parts() else {
         return Ok(None);
     };
@@ -157,7 +165,7 @@ fn try_quartic_inverse_reduction(expr: &Value, var: &str) -> WqResult<Option<Val
         transformed_base,
         Value::from_fraction_parts(BigInt::from(-1), BigInt::from(2)),
     )?;
-    let integrated = super::integrate_expr_with_depth(&transformed, t_var, 0)?;
+    let integrated = super::integrate_expr_with_depth(&transformed, t_var, 0, debug)?;
     let signed = cas_mul(vec![Value::Int(-1), integrated])?;
 
     let x_minus_root = cas_sub(Value::from_cas_var(var), root)?;
@@ -213,10 +221,11 @@ fn extract_square_factors(poly: &[Value], _var: &str) -> WqResult<(Vec<Value>, V
 /// Try to reduce a sqrt(cubic) or sqrt(quartic) by extracting square factors.
 /// If the polynomial under sqrt can be simplified, rebuild the expression
 /// and recurse into the integration pipeline.
-fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+fn try_sqrt_reduction(expr: &Value, var: &str, debug: CasDebug<'_>) -> WqResult<Option<Value>> {
     // Guard against infinite recursion
     let depth = SQRT_REDUCTION_DEPTH.get();
     cas_trace_depth!(
+        debug,
         DebugLogFlags::CAS_VERBOSE,
         depth,
         "[cas-v] sqrt_reduction enter depth={depth} expr={}",
@@ -224,6 +233,7 @@ fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     );
     if depth >= MAX_SQRT_REDUCTION_DEPTH {
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] sqrt_reduction exit depth={depth} -> max_depth_exceeded"
@@ -253,6 +263,7 @@ fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     // If no reduction happened, don't recurse
     if in_deg == deg {
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] sqrt_reduction exit depth={depth} -> no_reduction"
@@ -281,8 +292,9 @@ fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
     let simplified = simplify_cas_value(&simplified)?;
 
     // Recurse into the integration pipeline
-    let result = super::integrate_expr_with_depth(&simplified, var, 0)?;
+    let result = super::integrate_expr_with_depth(&simplified, var, 0, debug)?;
     cas_trace_depth!(
+        debug,
         DebugLogFlags::CAS_VERBOSE,
         depth,
         "[cas-v] sqrt_reduction exit depth={depth} -> {}",
@@ -295,8 +307,9 @@ fn try_sqrt_reduction(expr: &Value, var: &str) -> WqResult<Option<Value>> {
 // Euler substitution #1 (a > 0): sqrt(ax^2+bx+c) = sqrt(a)*x + t
 // ---------------------------------------------------------------------------
 
-fn try_euler_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+fn try_euler_substitution(expr: &Value, var: &str, debug: CasDebug<'_>) -> WqResult<Option<Value>> {
     cas_trace!(
+        debug,
         DebugLogFlags::CAS,
         "[cas] euler enter: {}",
         expr.format_cas().unwrap_or_else(|| expr.to_string())
@@ -318,7 +331,7 @@ fn try_euler_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
         && !numeric_is_zero(&a)
         && let Some(s) = sqrt_value(&a)
     {
-        return euler1_integrate(expr, &q, &a, &b, &c, &s, var).map(Some);
+        return euler1_integrate(expr, &q, &a, &b, &c, &s, var, debug).map(Some);
     }
 
     // Euler #2: c > 0
@@ -326,7 +339,7 @@ fn try_euler_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
         && !numeric_is_zero(&c)
         && let Some(s) = sqrt_value(&c)
     {
-        return euler2_integrate(expr, &q, &a, &b, &c, &s, var).map(Some);
+        return euler2_integrate(expr, &q, &a, &b, &c, &s, var, debug).map(Some);
     }
 
     // Euler #3: real roots (discriminant b^2-4ac > 0)
@@ -344,10 +357,10 @@ fn try_euler_substitution(expr: &Value, var: &str) -> WqResult<Option<Value>> {
         && !numeric_is_zero(&a)
         && let Some(s) = sqrt_value(&disc)
     {
-        return euler3_integrate(expr, &q, &a, &b, &c, &s, var).map(Some);
+        return euler3_integrate(expr, &q, &a, &b, &c, &s, var, debug).map(Some);
     }
 
-    cas_trace!(DebugLogFlags::CAS, "[cas] euler exit (no_match)");
+    cas_trace!(debug, DebugLogFlags::CAS, "[cas] euler exit (no_match)");
     Ok(None)
 }
 
@@ -411,6 +424,7 @@ fn euler1_integrate(
     c: &Value,
     s: &Value,
     var: &str,
+    debug: CasDebug<'_>,
 ) -> WqResult<Value> {
     // s = sqrt(a)
     // x = (t^2 - c) / (b - 2s*t)
@@ -440,7 +454,7 @@ fn euler1_integrate(
         cas_mul(vec![s.clone(), Value::from_cas_var(var)])?,
     )?)?;
 
-    euler_integrate_core(expr, &orig_sqrt, &x_t, &sqrt_t, &dx_dt, &t_back, var)
+    euler_integrate_core(expr, &orig_sqrt, &x_t, &sqrt_t, &dx_dt, &t_back, var, debug)
 }
 
 /// Euler #2 (c > 0): sqrt(ax^2+bx+c) = x*t + sqrt(c)
@@ -452,6 +466,7 @@ fn euler2_integrate(
     c: &Value,
     s: &Value,
     var: &str,
+    debug: CasDebug<'_>,
 ) -> WqResult<Value> {
     // s = sqrt(c)
     // x = (2s*t - b) / (a - t^2)
@@ -482,7 +497,7 @@ fn euler2_integrate(
         Value::from_cas_var(var),
     )?)?;
 
-    euler_integrate_core(expr, &orig_sqrt, &x_t, &sqrt_t, &dx_dt, &t_back, var)
+    euler_integrate_core(expr, &orig_sqrt, &x_t, &sqrt_t, &dx_dt, &t_back, var, debug)
 }
 
 /// Euler #3 (real roots alpha < beta): sqrt(a(x-alpha)(x-beta)) = t*(x-alpha)
@@ -494,6 +509,7 @@ fn euler3_integrate(
     c: &Value,
     sqrt_disc: &Value,
     var: &str,
+    debug: CasDebug<'_>,
 ) -> WqResult<Value> {
     // Discriminant delta = b^2-4ac > 0.  Roots: alpha = (-b-sqrt(delta))/(2a), beta
     // = (-b+sqrt(delta))/(2a)
@@ -540,7 +556,7 @@ fn euler3_integrate(
         cas_sub(Value::from_cas_var(var), alpha)?,
     )?)?;
 
-    euler_integrate_core(expr, &orig_sqrt, &x_t, &sqrt_t, &dx_dt, &t_back, var)
+    euler_integrate_core(expr, &orig_sqrt, &x_t, &sqrt_t, &dx_dt, &t_back, var, debug)
 }
 
 /// Build sqrt(ax^2+bx+c) as a CAS expression.
@@ -567,23 +583,30 @@ fn euler_integrate_core(
     dx_dt: &Value,
     t_back: &Value,
     var: &str,
+    debug: CasDebug<'_>,
 ) -> WqResult<Value> {
-    cas_trace!(DebugLogFlags::CAS, "[euler] expr={}", expr);
-    cas_trace!(DebugLogFlags::CAS, "[euler] orig_sqrt={}", orig_sqrt);
-    cas_trace!(DebugLogFlags::CAS, "[euler] x_t={}", x_t);
-    cas_trace!(DebugLogFlags::CAS, "[euler] sqrt_t={}", sqrt_t);
-    cas_trace!(DebugLogFlags::CAS, "[euler] dx_dt={}", dx_dt);
+    cas_trace!(debug, DebugLogFlags::CAS, "[euler] expr={}", expr);
+    cas_trace!(debug, DebugLogFlags::CAS, "[euler] orig_sqrt={}", orig_sqrt);
+    cas_trace!(debug, DebugLogFlags::CAS, "[euler] x_t={}", x_t);
+    cas_trace!(debug, DebugLogFlags::CAS, "[euler] sqrt_t={}", sqrt_t);
+    cas_trace!(debug, DebugLogFlags::CAS, "[euler] dx_dt={}", dx_dt);
 
     // Replace sqrt BEFORE variable substitution: after x->x_t the sqrt
     // argument changes and no longer matches orig_sqrt exactly.
     let integrand_t = replace_sqrt_in_expr(expr, orig_sqrt, sqrt_t);
     cas_trace!(
+        debug,
         DebugLogFlags::CAS,
         "[euler] after replace_sqrt: {}",
         integrand_t
     );
     let integrand_t = substitute_expr(&integrand_t, var, x_t)?;
-    cas_trace!(DebugLogFlags::CAS, "[euler] after sub x: {}", integrand_t);
+    cas_trace!(
+        debug,
+        DebugLogFlags::CAS,
+        "[euler] after sub x: {}",
+        integrand_t
+    );
 
     // Substitute sqrt_t with a plain variable _s so that powers cancel
     // naturally in cas_mul.  Also expand to distribute negative integer
@@ -593,16 +616,23 @@ fn euler_integrate_core(
     let s_var = Value::from_cas_var("--cas-sqrt-s");
     let integrand_s = replace_sqrt_in_expr(&integrand_t, sqrt_t, &s_var);
     let dx_dt_s = replace_sqrt_in_expr(dx_dt, sqrt_t, &s_var);
-    cas_trace!(DebugLogFlags::CAS, "[euler] integrand_s={}", integrand_s);
-    cas_trace!(DebugLogFlags::CAS, "[euler] dx_dt_s={}", dx_dt_s);
+    cas_trace!(
+        debug,
+        DebugLogFlags::CAS,
+        "[euler] integrand_s={}",
+        integrand_s
+    );
+    cas_trace!(debug, DebugLogFlags::CAS, "[euler] dx_dt_s={}", dx_dt_s);
     let integrand_t = simplify_cas_value(&cas_mul(vec![integrand_s, dx_dt_s])?)?;
     cas_trace!(
+        debug,
         DebugLogFlags::CAS,
         "[euler] after mul+simplify: {}",
         integrand_t
     );
-    let integrand_t = crate::cas::expand_cas(&integrand_t)?;
+    let integrand_t = expand_cas_with_debug(&integrand_t, debug)?;
     cas_trace!(
+        debug,
         DebugLogFlags::CAS,
         "[euler] after expand_cas: {}",
         integrand_t
@@ -611,7 +641,7 @@ fn euler_integrate_core(
     // GCD-based cancellation for common polynomial factors
     let integrand_t = cancel_rational_gcd(&integrand_t, "--cas-euler-t")?;
 
-    let integrated = super::rational::integrate_by_rational(&integrand_t, "--cas-euler-t")?;
+    let integrated = super::rational::integrate_by_rational(&integrand_t, "--cas-euler-t", debug)?;
     let integrated = integrated
         .ok_or_else(|| crate::cas::cas_err("Euler substitution produced non-rational integrand"))?;
 

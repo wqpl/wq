@@ -9,10 +9,6 @@ pub enum MsgType {
     Success,
 }
 
-fn format_msg(msg: impl Into<String>, msg_type: MsgType) -> String {
-    format_msg_with_color_mode(msg, msg_type, ColorMode::Auto)
-}
-
 fn format_msg_with_color_mode(
     msg: impl Into<String>,
     msg_type: MsgType,
@@ -45,41 +41,76 @@ fn format_msg_with_color_mode(
 }
 
 pub fn system_msg_out(msg: impl Into<String>, msg_type: MsgType) {
-    println!("{}", format_msg(msg, msg_type));
+    println!(
+        "{}",
+        format_msg_with_color_mode(msg, msg_type, process_stdout_color_mode())
+    );
 }
 
 pub fn system_msg_err(msg: impl Into<String>, msg_type: MsgType) {
-    eprintln!("{}", format_msg(msg, msg_type));
+    system_msg_err_with_color_mode(msg, msg_type, process_stderr_color_mode());
+}
+
+fn system_msg_err_with_color_mode(
+    msg: impl Into<String>,
+    msg_type: MsgType,
+    color_mode: ColorMode,
+) {
+    eprintln!("{}", format_msg_with_color_mode(msg, msg_type, color_mode));
+}
+
+fn process_stdout_color_mode() -> ColorMode {
+    use std::io::IsTerminal as _;
+
+    ColorMode::Auto.resolve(std::io::stdout().is_terminal())
+}
+
+fn process_stderr_color_mode() -> ColorMode {
+    use std::io::IsTerminal as _;
+
+    ColorMode::Auto.resolve(std::io::stderr().is_terminal())
 }
 
 pub fn print_load_error(err: &LoadError, session: &mut Session) {
+    let color_mode = session.stderr_color_mode();
     match &err.kind {
         LoadErrorKind::Cycle(path) => {
-            system_msg_err(
+            system_msg_err_with_color_mode(
                 format!("Cycle load, aborting: {}", path.display()),
                 MsgType::Error,
+                color_mode,
             );
         }
         LoadErrorKind::Io(path, e) => {
-            system_msg_err(
+            system_msg_err_with_color_mode(
                 format!("Cannot load {}: {}", path.display(), e),
                 MsgType::Error,
+                color_mode,
             );
         }
         LoadErrorKind::Eval(label, e) => {
-            system_msg_err(format!("Error at {label}\n{e}"), MsgType::Error);
-            if session.get_bt_mode() && e.err_type.is_runtime() {
-                session.dbg_print_bt();
+            system_msg_err_with_color_mode(
+                format!("Error at {label}\n{}", e.render_with_color_mode(color_mode)),
+                MsgType::Error,
+                color_mode,
+            );
+            if session.backtrace_enabled() && e.err_type.is_runtime() {
+                let _ = session.dbg_print_bt();
             }
         }
         LoadErrorKind::Directive(cmd) => {
-            system_msg_err(format!("Unknown directive: {cmd}"), MsgType::Error);
+            system_msg_err_with_color_mode(
+                format!("Unknown directive: {cmd}"),
+                MsgType::Error,
+                color_mode,
+            );
         }
     }
     if !err.stack.is_empty() {
-        system_msg_err(
+        system_msg_err_with_color_mode(
             format!("Import stack: {}", err.stack.join(" -> ")),
             MsgType::Info,
+            color_mode,
         );
     }
 }

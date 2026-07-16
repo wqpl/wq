@@ -68,6 +68,8 @@ pub(crate) struct Compiler {
     fn_spans_idx: usize,
     // Pretty error reporting: full source text of the script being compiled
     src_text: Option<String>,
+    // Pretty error reporting: byte offset of this compiler's source fragment
+    src_base_offset: usize,
     // Pretty error reporting: source file path / label
     src_path: Option<String>,
     // Pretty error reporting: current statement spans (byte offsets) and cursor
@@ -110,6 +112,7 @@ impl Compiler {
             fn_spans_stream: Vec::new(),
             fn_spans_idx: 0,
             src_text: None,
+            src_base_offset: 0,
             src_path: None,
             cur_stmt_spans: Vec::new(),
             cur_stmt_idx: 0,
@@ -983,6 +986,7 @@ impl Compiler {
                     // Propagate pretty error context to child compiler
                     if let Some(src) = &self.src_text {
                         c.set_source(src.clone());
+                        c.set_source_base_offset(self.src_base_offset);
                     }
                     if let Some(path) = &self.src_path {
                         c.set_source_path(path.clone());
@@ -1558,6 +1562,7 @@ impl Compiler {
                 // Propagate pretty error context to child compiler
                 if let Some(src) = &self.src_text {
                     c.set_source(src.clone());
+                    c.set_source_base_offset(self.src_base_offset);
                 }
                 if let Some(path) = &self.src_path {
                     c.set_source_path(path.clone());
@@ -2013,6 +2018,11 @@ impl Compiler {
     // Pretty error reporting API
     pub(crate) fn set_source(&mut self, src: String) {
         self.src_text = Some(src);
+        self.src_base_offset = 0;
+    }
+
+    pub(crate) fn set_source_base_offset(&mut self, base_offset: usize) {
+        self.src_base_offset = base_offset;
     }
 
     pub(crate) fn set_source_path(&mut self, path: String) {
@@ -2035,6 +2045,8 @@ impl Compiler {
                 .or_else(|| self.cur_stmt_spans.get(self.cur_stmt_idx).cloned()),
         ) {
             let path = self.src_path.clone().unwrap_or_else(|| "?".to_string());
+            let byte_start = byte_start.saturating_add(self.src_base_offset);
+            let byte_end = byte_end.saturating_add(self.src_base_offset);
             e = e
                 .span(Some((byte_start, byte_end)))
                 .source_ctx(src.clone(), path);

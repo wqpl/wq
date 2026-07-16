@@ -7,7 +7,7 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::rewrite::{is_provably_positive, push_flattened};
 use super::{
-    cas_err, cas_product, collect_single_poly_var, contains_cas_var, ensure_expr_arg,
+    CasDebug, cas_err, cas_product, collect_single_poly_var, contains_cas_var, ensure_expr_arg,
     eval_exact_numeric_div, eval_numeric_binary_gcd, eval_numeric_call, eval_numeric_cas,
     expand_expr, extract_algebraic_content, extract_linear_coefficients, factor_expr, numeric_add,
     numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_pow, poly_add,
@@ -125,13 +125,8 @@ pub(crate) fn cas_div(lhs: Value, rhs: Value) -> WqResult<Value> {
 
 fn cas_div_cached(lhs: Value, rhs: Value) -> WqResult<Value> {
     if let Some(cached) = cas_div_cache_get(&lhs, &rhs) {
-        cas_trace!(
-            DebugLogFlags::CAS_VERBOSE,
-            "[cas-v] cas_div cache hit: {lhs} / {rhs}"
-        );
         return Ok(cached);
     }
-    cas_trace!(DebugLogFlags::CAS, "[cas_div] {lhs} / {rhs}");
     let result = cas_div_uncached(lhs.clone(), rhs.clone())?;
     cas_div_cache_insert(lhs, rhs, result.clone());
     Ok(result)
@@ -2375,6 +2370,23 @@ pub(crate) fn simplify_cas_value(value: &Value) -> WqResult<Value> {
         .pop()
         .ok_or_else(|| cas_err("simplify: empty result stack"))?;
 
+    Ok(result)
+}
+
+pub(crate) fn simplify_cas_value_with_debug(value: &Value, debug: CasDebug<'_>) -> WqResult<Value> {
+    cas_trace!(
+        debug,
+        DebugLogFlags::CAS,
+        "[cas] simplify enter: {}",
+        value.format_cas().unwrap_or_else(|| value.to_string())
+    );
+    let result = simplify_cas_value(value)?;
+    cas_trace!(
+        debug,
+        DebugLogFlags::CAS,
+        "[cas] simplify exit: {}",
+        result.format_cas().unwrap_or_else(|| result.to_string())
+    );
     Ok(result)
 }
 

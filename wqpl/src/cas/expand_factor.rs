@@ -2,9 +2,9 @@ use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::{
-    cas_add, cas_err, cas_mul, cas_pow, eval_exact_numeric_div, numeric_add, numeric_is_negative,
-    numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub, simplify_cas_value,
-    split_mul_factor,
+    CasDebug, cas_add, cas_err, cas_mul, cas_pow, eval_exact_numeric_div, numeric_add,
+    numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
+    simplify_cas_value, split_mul_factor,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp, CasSymbol};
@@ -257,12 +257,17 @@ pub(super) fn split_off_results(results: &mut Vec<Value>, n: usize) -> WqResult<
     Ok(results.split_off(results.len().saturating_sub(n)))
 }
 
+#[cfg(test)]
 pub(crate) fn expand_cas(expr: &Value) -> WqResult<Value> {
-    cas_trace!(DebugLogFlags::CAS, "[expand_cas] in: {}", expr);
+    expand_cas_with_debug(expr, CasDebug::disabled())
+}
+
+pub(crate) fn expand_cas_with_debug(expr: &Value, debug: CasDebug<'_>) -> WqResult<Value> {
+    cas_trace!(debug, DebugLogFlags::CAS, "[expand_cas] in: {}", expr);
     let expr = simplify_cas_value(expr)?;
     let expanded = expand_expr(&expr)?;
     let result = simplify_cas_value(&expanded)?;
-    cas_trace!(DebugLogFlags::CAS, "[expand_cas] out: {}", result);
+    cas_trace!(debug, DebugLogFlags::CAS, "[expand_cas] out: {}", result);
     Ok(result)
 }
 

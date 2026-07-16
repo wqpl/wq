@@ -366,9 +366,11 @@ fn render_span_snippet(
 
 impl std::fmt::Display for WqError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.render_with_color_mode(ColorMode::Auto))
+        f.write_str(&self.render_with_color_mode(ColorMode::Never))
     }
 }
+
+impl std::error::Error for WqError {}
 
 impl WqError {
     pub fn render_with_color_mode(&self, color_mode: ColorMode) -> String {
@@ -436,6 +438,16 @@ mod tests {
         assert!(rendered.contains("at <test>:2:1"));
         assert!(rendered.contains("   2 -> 1+2"));
         assert!(rendered.contains("        ~"));
+        assert!(!rendered.contains("\x1b["));
+    }
+
+    #[test]
+    fn display_is_destination_independent_and_plain() {
+        let err = WqError::new(WqErrorType::Domain).msg("bad value");
+
+        let rendered = err.to_string();
+
+        assert_eq!(rendered, "domain: bad value");
         assert!(!rendered.contains("\x1b["));
     }
 

@@ -1,16 +1,9 @@
-import {
-  WasmWqSession,
-  set_stdout_callback,
-  set_stdin_callback,
-  set_stderr_callback,
-  highlight_wq,
-  get_symbol_index_json,
-  get_wq_syntax_display,
-} from "wq-wasm";
+import { WasmWqSession } from "wq-wasm";
 import { createOutputRenderer } from "./ansi.js";
 import { getPlaygroundExample } from "./playground-examples.js";
 import {
   ensureWasm,
+  getWqFrontend,
   DEBUG_FLAGS,
   BOX_FLAGS,
   parseDebugFlags,
@@ -26,6 +19,7 @@ import {
   positionRuntimePanel,
   alignTurnBody,
   escapeHtml,
+  formatWqError,
   queueEval,
   handleTabKey,
 } from "./wq-shared.js";
@@ -358,12 +352,13 @@ async function refreshSymbols(instance) {
   try {
     await ensureWasm();
     if (instance.symbolRefreshSeq !== seq) return;
-    const data = JSON.parse(get_symbol_index_json(code));
+    const data = instance.frontend.analyze_symbols(code);
     renderSymbolPanel(instance, data, code);
   } catch (err) {
     if (instance.symbolRefreshSeq !== seq) return;
-    renderEmptySymbols(instance, err?.message ?? String(err), true);
-    renderSymbolStatus(instance, err?.message ?? String(err), true);
+    const message = formatWqError(err);
+    renderEmptySymbols(instance, message, true);
+    renderSymbolStatus(instance, message, true);
   }
 }
 
@@ -422,7 +417,7 @@ async function refreshStructure(instance) {
     await ensureWasm();
     if (instance.structureRefreshSeq !== seq) return;
 
-    const text = get_wq_syntax_display(code, mode).trimEnd();
+    const text = instance.frontend.get_wq_syntax_display(code, mode).trimEnd();
 
     if (instance.structureRefreshSeq !== seq) return;
 
@@ -435,7 +430,7 @@ async function refreshStructure(instance) {
     renderStructureStatus(instance, "");
   } catch (err) {
     if (instance.structureRefreshSeq !== seq) return;
-    renderEmptyStructure(instance, err?.message ?? String(err), true);
+    renderEmptyStructure(instance, formatWqError(err), true);
   }
 }
 
@@ -493,34 +488,34 @@ async function doEval(instance) {
     const flags = instance.debugFlagsInput?.value || "0";
     const start = performance.now();
     const result = await queueEval(() => {
-      set_stdout_callback((chunk) => {
-        streamRenderer.appendStreamOutput(chunk);
-        instance.output.scrollTop = instance.output.scrollHeight;
-      });
-      set_stderr_callback((chunk) => {
-        streamRenderer.appendStreamOutput(chunk, "error");
-        instance.output.scrollTop = instance.output.scrollHeight;
-      });
-      const queue = [...stdinArr];
-      set_stdin_callback((_prompt) =>
-        queue.length ? String(queue.shift()) : null,
-      );
       const session = new WasmWqSession();
       try {
+        session.set_stdout_callback((chunk) => {
+          streamRenderer.appendStreamOutput(chunk);
+          instance.output.scrollTop = instance.output.scrollHeight;
+        });
+        session.set_stderr_callback((chunk) => {
+          streamRenderer.appendStreamOutput(chunk, "error");
+          instance.output.scrollTop = instance.output.scrollHeight;
+        });
+        const queue = [...stdinArr];
+        session.set_stdin_callback((_prompt) =>
+          queue.length ? String(queue.shift()) : null,
+        );
         applyBoxMode(session, instance);
         if (flags) {
           session.set_debug_flags(flags);
         }
-        return session.eval_wq_result(code);
+        return session.eval_wq(code);
       } finally {
         session.free();
       }
     });
     const end = performance.now();
     if (
-      result.value !== undefined &&
-      result.value !== null &&
-      String(result.value).length
+      result.display !== undefined &&
+      result.display !== null &&
+      String(result.display).length
     ) {
       // ensure a newline before the bar if stdout left content on the same line
       // if (instance.output.textContent && !instance.output.textContent.endsWith("\n")) {
@@ -532,7 +527,9 @@ async function doEval(instance) {
         bar.textContent = "\u258d ";
         instance.output.appendChild(bar);
         const casSpan = document.createElement("span");
-        casSpan.innerHTML = highlight_wq(alignTurnBody(result.value));
+        casSpan.innerHTML = instance.frontend.highlight_wq(
+          alignTurnBody(result.display),
+        );
         instance.output.appendChild(casSpan);
       } else {
         const bar = document.createElement("span");
@@ -540,7 +537,9 @@ async function doEval(instance) {
         bar.textContent = "\u258d ";
         instance.output.appendChild(bar);
         const resultRenderer = createOutputRenderer(instance.output, bar);
-        resultRenderer.appendOutput(alignTurnBody(String(result.value)) + "\n");
+        resultRenderer.appendOutput(
+          alignTurnBody(String(result.display)) + "\n",
+        );
       }
       if (readBoxFlags(instance).includes("xray") && result.xray) {
         const xrayBar = document.createElement("span");
@@ -571,7 +570,7 @@ async function doEval(instance) {
     instance.output.appendChild(bar);
     const errorRenderer = createOutputRenderer(instance.output, bar);
     errorRenderer.appendOutput(
-      alignTurnBody((err?.message ?? String(err)) + "\n"),
+      alignTurnBody(formatWqError(err, { rendered: true }) + "\n"),
       "error",
     );
     requestPanelHeightSync(instance);
@@ -594,24 +593,26 @@ async function runForPoster(instance) {
       ? instance.stdinInput.value.replace(/\\n/g, "\n").split(/\r?\n/)
       : [];
     await ensureWasm();
-    set_stdout_callback((chunk) => stdoutRenderer.appendStreamOutput(chunk));
-    set_stderr_callback((chunk) =>
-      stdoutRenderer.appendStreamOutput(chunk, "error"),
-    );
-    const queue = [...stdinArr];
-    set_stdin_callback((_prompt) =>
-      queue.length ? String(queue.shift()) : null,
-    );
     const flags = instance.debugFlagsInput?.value || "0";
     const session = new WasmWqSession();
     try {
+      session.set_stdout_callback((chunk) =>
+        stdoutRenderer.appendStreamOutput(chunk),
+      );
+      session.set_stderr_callback((chunk) =>
+        stdoutRenderer.appendStreamOutput(chunk, "error"),
+      );
+      const queue = [...stdinArr];
+      session.set_stdin_callback((_prompt) =>
+        queue.length ? String(queue.shift()) : null,
+      );
       applyBoxMode(session, instance);
       if (flags) session.set_debug_flags(flags);
-      const result = session.eval_wq_result(code);
+      const result = session.eval_wq(code);
       if (
-        result.value !== undefined &&
-        result.value !== null &&
-        String(result.value).length
+        result.display !== undefined &&
+        result.display !== null &&
+        String(result.display).length
       ) {
         if (result.is_cas) {
           const bar = document.createElement("span");
@@ -619,7 +620,9 @@ async function runForPoster(instance) {
           bar.textContent = "\u258d ";
           resultDiv.appendChild(bar);
           const casSpan = document.createElement("span");
-          casSpan.innerHTML = highlight_wq(alignTurnBody(result.value));
+          casSpan.innerHTML = instance.frontend.highlight_wq(
+            alignTurnBody(result.display),
+          );
           resultDiv.appendChild(casSpan);
         } else {
           const bar = document.createElement("span");
@@ -628,7 +631,7 @@ async function runForPoster(instance) {
           resultDiv.appendChild(bar);
           const resultRenderer = createOutputRenderer(resultDiv, bar);
           resultRenderer.appendOutput(
-            alignTurnBody(String(result.value)) + "\n",
+            alignTurnBody(String(result.display)) + "\n",
           );
         }
         if (readBoxFlags(instance).includes("xray") && result.xray) {
@@ -652,7 +655,7 @@ async function runForPoster(instance) {
     errorDiv.appendChild(bar);
     const errorRenderer = createOutputRenderer(errorDiv, bar);
     errorRenderer.appendOutput(
-      alignTurnBody((err?.message ?? String(err)) + "\n"),
+      alignTurnBody(formatWqError(err, { rendered: true }) + "\n"),
       "error",
     );
   }
@@ -776,7 +779,7 @@ async function makePoster(instance) {
   }
 
   const code = instance.ta.value;
-  const highlightedCode = highlight_wq(code);
+  const highlightedCode = instance.frontend.highlight_wq(code);
 
   let runSection = "";
   if (config.runCode && runOutput) {
@@ -824,8 +827,11 @@ async function makePoster(instance) {
 }
 
 export async function mountPlayground(root) {
+  await ensureWasm();
+  const frontend = getWqFrontend();
   const ta = createWqEditor(root.querySelector("textarea.editor-text"), {
     multilineMode: "plain",
+    frontend,
   });
   const gutter = root.querySelector(".gutter");
   const output = root.querySelector(".run-output-body");
@@ -853,6 +859,7 @@ export async function mountPlayground(root) {
   );
   const instance = {
     root,
+    frontend,
     ta,
     gutter,
     output,
@@ -900,8 +907,6 @@ export async function mountPlayground(root) {
     panelResizeObserver: null,
   };
   instances.set(root, instance);
-
-  await ensureWasm();
 
   ta.addEventListener("input", () => {
     refreshLines(instance);

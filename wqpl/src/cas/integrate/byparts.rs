@@ -4,9 +4,9 @@ use std::collections::HashSet;
 use num_bigint::BigInt;
 
 use super::{MAX_DEPTH, integrate_expr_with_depth, split_off_numeric};
-use crate::cas::diff::diff_expr;
+use crate::cas::diff::diff_expr_with_debug;
 use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, contains_cas_var,
+    CasDebug, cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, contains_cas_var,
     extract_linear_coefficients, numeric_is_one, numeric_is_zero, poly_derivative, poly_from_expr,
     poly_is_zero, poly_to_expr, simplify_cas_value,
 };
@@ -112,8 +112,13 @@ fn push_canonical_key(value: &Value, out: &mut String) {
     out.push_str(&value.to_string());
 }
 
-pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+pub(super) fn integrate_by_parts(
+    expr: &Value,
+    var: &str,
+    debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     cas_trace!(
+        debug,
         DebugLogFlags::CAS,
         "[cas] byparts enter: {}",
         expr.format_cas().unwrap_or_else(|| expr.to_string())
@@ -122,6 +127,7 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
     // 1. Try direct formula for exp*sin / exp*cos
     if let Some(result) = try_exp_trig_product(expr, var)? {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] byparts exit (exp_trig): {}",
             result.format_cas().unwrap_or_else(|| result.to_string())
@@ -132,6 +138,7 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
     // 2. Try tabular integration (polynomial * cyclic function)
     if let Some(result) = try_tabular(expr, var)? {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] byparts exit (tabular): {}",
             result.format_cas().unwrap_or_else(|| result.to_string())
@@ -140,16 +147,25 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
     }
 
     let Some((CasOp::Multiply, args)) = expr.cas_op_parts() else {
-        cas_trace!(DebugLogFlags::CAS, "[cas] byparts exit (not_product)");
+        cas_trace!(
+            debug,
+            DebugLogFlags::CAS,
+            "[cas] byparts exit (not_product)"
+        );
         return Ok(None);
     };
     let (_, symbolic) = split_off_numeric(args);
     if symbolic.len() < 2 {
-        cas_trace!(DebugLogFlags::CAS, "[cas] byparts exit (too_few_symbolic)");
+        cas_trace!(
+            debug,
+            DebugLogFlags::CAS,
+            "[cas] byparts exit (too_few_symbolic)"
+        );
         return Ok(None);
     }
     if has_trig_over_non_polynomial_factor(&symbolic, var) {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] byparts exit (trig_non_polynomial_mix)"
         );
@@ -163,6 +179,7 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
         None => {
             let nesting = BYPARTS_NESTING.with(|n| n.get());
             cas_trace!(
+                debug,
                 DebugLogFlags::CAS,
                 "[cas] byparts exit (cycle_guard blocked) nesting={nesting}"
             );
@@ -187,8 +204,9 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
     for (u, dv) in candidates {
         let nesting = BYPARTS_NESTING.with(|n| n.get());
         let depth = nesting + 1; // at least 1, increases with nesting
-        if let Ok(Some(result)) = try_parts(&u, &dv, var, depth) {
+        if let Ok(Some(result)) = try_parts(&u, &dv, var, depth, debug) {
             cas_trace!(
+                debug,
                 DebugLogFlags::CAS,
                 "[cas] byparts exit: {}",
                 result.format_cas().unwrap_or_else(|| result.to_string())
@@ -196,7 +214,11 @@ pub(super) fn integrate_by_parts(expr: &Value, var: &str) -> WqResult<Option<Val
             return Ok(Some(result));
         }
     }
-    cas_trace!(DebugLogFlags::CAS, "[cas] byparts exit (no_candidate)");
+    cas_trace!(
+        debug,
+        DebugLogFlags::CAS,
+        "[cas] byparts exit (no_candidate)"
+    );
     Ok(None)
 }
 
@@ -477,9 +499,16 @@ fn liate_rank(expr: &Value) -> i32 {
     0
 }
 
-fn try_parts(u: &Value, dv: &Value, var: &str, depth: usize) -> WqResult<Option<Value>> {
+fn try_parts(
+    u: &Value,
+    dv: &Value,
+    var: &str,
+    depth: usize,
+    debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     if depth >= MAX_DEPTH {
         cas_trace_depth!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             depth,
             "[cas-v] try_parts depth={depth} -> max_depth_exceeded",
@@ -487,16 +516,18 @@ fn try_parts(u: &Value, dv: &Value, var: &str, depth: usize) -> WqResult<Option<
         return Ok(None);
     }
     cas_trace_depth!(
+        debug,
         DebugLogFlags::CAS_VERBOSE,
         depth,
         "[cas-v] try_parts enter depth={depth} u={} dv={}",
         u.format_cas().unwrap_or_else(|| u.to_string()),
         dv.format_cas().unwrap_or_else(|| dv.to_string())
     );
-    let v = match integrate_expr_with_depth(dv, var, depth + 1) {
+    let v = match integrate_expr_with_depth(dv, var, depth + 1, debug) {
         Ok(v) => v,
         Err(_) => {
             cas_trace_depth!(
+                debug,
                 DebugLogFlags::CAS_VERBOSE,
                 depth,
                 "[cas-v] try_parts depth={depth} -> dv_integration_failed",
@@ -504,13 +535,14 @@ fn try_parts(u: &Value, dv: &Value, var: &str, depth: usize) -> WqResult<Option<
             return Ok(None);
         }
     };
-    let du = diff_expr(u, var)?;
+    let du = diff_expr_with_debug(u, var, debug)?;
 
     let vdu = cas_mul(vec![v.clone(), du])?;
-    let rest = match integrate_expr_with_depth(&vdu, var, depth + 1) {
+    let rest = match integrate_expr_with_depth(&vdu, var, depth + 1, debug) {
         Ok(r) => r,
         Err(_) => {
             cas_trace_depth!(
+                debug,
                 DebugLogFlags::CAS_VERBOSE,
                 depth,
                 "[cas-v] try_parts depth={depth} -> vdu_integration_failed",
@@ -522,6 +554,7 @@ fn try_parts(u: &Value, dv: &Value, var: &str, depth: usize) -> WqResult<Option<
     let uv = cas_mul(vec![u.clone(), v])?;
     let result = simplify_cas_value(&cas_sub(uv, rest)?)?;
     cas_trace_depth!(
+        debug,
         DebugLogFlags::CAS_VERBOSE,
         depth,
         "[cas-v] try_parts exit depth={depth} -> {}",

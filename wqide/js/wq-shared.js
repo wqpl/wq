@@ -1,17 +1,38 @@
-import init, { get_doc_index_json, get_doc_markdown, get_wq_ver } from "wq-wasm";
+import init, {
+  doc_index,
+  get_doc_markdown,
+  get_wq_ver,
+  WasmFrontend,
+} from "wq-wasm";
 
 // ========== WASM Initialization ==========
 
 let wasmInitPromise = null;
 let wqVersion = "";
+let defaultFrontend = null;
 
 export async function ensureWasm() {
   if (!wasmInitPromise) {
     wasmInitPromise = init().then(() => {
       wqVersion = get_wq_ver();
+      defaultFrontend = new WasmFrontend();
     });
   }
   return wasmInitPromise;
+}
+
+export function getWqFrontend() {
+  if (!defaultFrontend) {
+    throw new Error("wq WASM must be initialized before using its frontend");
+  }
+  return defaultFrontend;
+}
+
+export function createWqFrontend() {
+  if (!defaultFrontend) {
+    throw new Error("wq WASM must be initialized before creating a frontend");
+  }
+  return new WasmFrontend();
 }
 
 export function getWqVersion() {
@@ -25,7 +46,12 @@ export async function getDocMarkdown(query) {
 
 export async function getDocIndex() {
   await ensureWasm();
-  return JSON.parse(get_doc_index_json());
+  return Array.from(doc_index());
+}
+
+export function formatWqError(error, { rendered = false } = {}) {
+  const detail = rendered ? error?.rendered : error?.message;
+  return String(detail ?? error?.rendered ?? error?.message ?? error);
 }
 
 // ========== Debug Flags ==========

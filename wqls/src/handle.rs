@@ -8,9 +8,9 @@ use wqpl::builtins::Builtins;
 use wqpl::completion as wq_completion;
 use wqpl::cst::GreenNode;
 use wqpl::doc::{self, DocRenderTarget, DocTopic};
+use wqpl::frontend::Frontend;
 // use wqpl::format::{FormatConfig, Formatter};
 use wqpl::highlight::Highlighter;
-use wqpl::session::Session;
 use wqpl::symbol::{DefKind, SymbolDef, SymbolIndex, SymbolProvenance, SymbolProvenanceKind};
 use wqpl::wqerror::WqError;
 
@@ -24,6 +24,7 @@ struct DocumentSnapshot {
 
 pub struct Backend {
     client: Client,
+    frontend: Frontend,
     documents: Mutex<HashMap<Url, DocumentSnapshot>>,
 }
 
@@ -31,6 +32,7 @@ impl Backend {
     pub fn new(client: Client) -> Self {
         Self {
             client,
+            frontend: Frontend::default(),
             documents: Mutex::new(HashMap::new()),
         }
     }
@@ -68,22 +70,24 @@ impl Backend {
         previous: Option<&GreenNode>,
         use_cache: bool,
     ) -> Option<GreenNode> {
-        let session = Session::new();
         let parsed = if use_cache {
-            previous.and_then(|green| session.parse_with_cst_using_cache(content, green).ok())
+            previous.and_then(|green| {
+                self.frontend
+                    .parse_with_cst_using_cache(content, green)
+                    .ok()
+            })
         } else {
             None
         }
-        .or_else(|| session.parse_with_cst(content).ok());
+        .or_else(|| self.frontend.parse_with_cst(content).ok());
         parsed.map(|(_, green)| green)
     }
 
     fn compute_diagnostics(&self, content: &str) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
-        let session = Session::new();
 
         // Lexical diagnostics from recovery tokenization
-        let tokens = session.tokenize_recovery(content);
+        let tokens = self.frontend.tokenize_recovery(content);
         for tok in &tokens {
             if let wqpl::token::TokenType::Error = tok.token_type {
                 let start = byte_offset_to_position(content, tok.byte_start);
@@ -103,7 +107,7 @@ impl Backend {
         }
 
         // Parse errors from partial AST
-        match session.analyze_symbols(content) {
+        match self.frontend.analyze_symbols(content) {
             Ok(index) => {
                 for ((start_byte, end_byte), err) in &index.errors {
                     let start = byte_offset_to_position(content, *start_byte);
@@ -257,8 +261,7 @@ impl LanguageServer for Backend {
         tracing::debug!(%uri, "semantic_tokens_full");
         let content = self.get_document(uri)?;
         let highlighter = Highlighter::new();
-        let session = Session::new();
-        let symbol_index = session.analyze_symbols(&content).ok();
+        let symbol_index = self.frontend.analyze_symbols(&content).ok();
         let semantic_spans = symbol_index
             .as_ref()
             .map(|index| index.semantic_highlight_spans())
@@ -287,9 +290,8 @@ impl LanguageServer for Backend {
         let uri = &params.text_document.uri;
         tracing::debug!(%uri, "document_symbol");
         let content = self.get_document(uri)?;
-        let session = Session::new();
 
-        let symbols = match session.analyze_symbols(&content) {
+        let symbols = match self.frontend.analyze_symbols(&content) {
             Ok(index) => {
                 let valid_defs: Vec<_> = index
                     .defs
@@ -388,8 +390,7 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position_params.position;
         let byte_offset = position_to_byte_offset(&content, pos);
 
-        let session = Session::new();
-        if let Ok(index) = session.analyze_symbols(&content)
+        if let Ok(index) = self.frontend.analyze_symbols(&content)
             && let Some(result) = index.query_at(byte_offset)
             && let Some(span) = result.def_span
         {
@@ -411,8 +412,7 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position.position;
         let byte_offset = position_to_byte_offset(&content, pos);
 
-        let session = Session::new();
-        if let Ok(index) = session.analyze_symbols(&content)
+        if let Ok(index) = self.frontend.analyze_symbols(&content)
             && let Some(result) = index.query_at(byte_offset)
         {
             let mut locations = Vec::new();
@@ -459,15 +459,14 @@ impl LanguageServer for Backend {
     //     let content = self.get_document(uri)?;
 
     //     // Block formatting when there are lexical or parse errors in the
-    // document.     let session = Session::new();
-    //     let tokens = session.tokenize_recovery(&content);
+    // document.     let tokens = self.frontend.tokenize_recovery(&content);
     //     if tokens
     //         .iter()
     //         .any(|t| matches!(t.token_type, wqpl::token::TokenType::Error))
     //     {
     //         return Ok(None);
     //     }
-    //     if let Ok(index) = session.analyze_symbols(&content) {
+    //     if let Ok(index) = self.frontend.analyze_symbols(&content) {
     //         if !index.errors.is_empty() {
     //             return Ok(None);
     //         }
@@ -502,7 +501,6 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position_params.position;
         let byte_offset = position_to_byte_offset(&content, pos);
 
-        let session = Session::new();
         let mut name = None;
         let mut user_params = None;
         let mut ref_capture_at_cursor = false;
@@ -511,7 +509,7 @@ impl LanguageServer for Backend {
         let mut user_symbol_at_cursor = false;
 
         // Try symbol index first
-        if let Ok(index) = session.analyze_symbols(&content) {
+        if let Ok(index) = self.frontend.analyze_symbols(&content) {
             if let Some(result) = index.query_at(byte_offset) {
                 if index
                     .defs
@@ -592,7 +590,7 @@ impl LanguageServer for Backend {
                 text.push_str(&format!("\n\nprovenance: `{}`", provenance));
             }
 
-            let builtins = session.builtins();
+            let builtins = self.frontend.builtins();
             if !user_symbol_at_cursor
                 && builtins.is_known_name(&name)
                 && let Some(id) = builtins.get_id(&name)
@@ -631,8 +629,7 @@ impl LanguageServer for Backend {
         let byte_offset = position_to_byte_offset(&content, pos);
         let new_name = params.new_name;
 
-        let session = Session::new();
-        if let Ok(index) = session.analyze_symbols(&content)
+        if let Ok(index) = self.frontend.analyze_symbols(&content)
             && let Some(result) = index.query_at(byte_offset)
         {
             let mut edits = Vec::new();
@@ -680,8 +677,7 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position_params.position;
         let byte_offset = position_to_byte_offset(&content, pos);
 
-        let session = Session::new();
-        if let Ok(index) = session.analyze_symbols(&content)
+        if let Ok(index) = self.frontend.analyze_symbols(&content)
             && let Some(result) = index.query_at(byte_offset)
         {
             let mut highlights = Vec::new();
@@ -728,8 +724,7 @@ impl LanguageServer for Backend {
 
         let docs = self.documents.lock().expect("documents mutex poisoned");
         for (uri, doc) in docs.iter() {
-            let session = Session::new();
-            if let Ok(index) = session.analyze_symbols(&doc.text) {
+            if let Ok(index) = self.frontend.analyze_symbols(&doc.text) {
                 for (def_idx, def) in index.defs.iter().enumerate() {
                     if def.kind != DefKind::Builtin
                         // && !def.name.starts_with(PARSER_INTERNAL_PREFIX)
@@ -833,12 +828,15 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position.position;
         let byte_offset = position_to_byte_offset(&content, pos);
 
-        let session = Session::new();
-        if wq_completion::should_suppress_expression_completion(&session, &content, byte_offset) {
+        if wq_completion::should_suppress_expression_completion(
+            &self.frontend,
+            &content,
+            byte_offset,
+        ) {
             return Ok(None);
         }
 
-        let items = wq_completion::expression_completion_candidates(&session, &content)
+        let items = wq_completion::expression_completion_candidates(&self.frontend, &content)
             .into_iter()
             .map(completion_item_from_wq)
             .collect();
@@ -857,8 +855,7 @@ impl LanguageServer for Backend {
         let byte_offset = position_to_byte_offset(&content, pos);
 
         if let Some((name, active_param)) = find_call_context(&content, byte_offset) {
-            let session = Session::new();
-            let builtins = session.builtins();
+            let builtins = self.frontend.builtins();
             if builtins.is_known_name(name)
                 && let Some(id) = builtins.get_id(name)
             {
@@ -1332,8 +1329,11 @@ mod tests {
 
     #[test]
     fn builtin_completion_docs_use_catalog() {
-        let builtins = Session::new().builtins().clone();
-        let topic = builtins.doc_for_name("words").expect("words doc");
+        let frontend = Frontend::default();
+        let topic = frontend
+            .builtins()
+            .doc_for_name("words")
+            .expect("words doc");
         let rendered = doc::render_markdown(&topic, DocRenderTarget::Lsp);
         assert!(rendered.contains("words builtin"));
         assert!(rendered.contains("words[s]"));
@@ -1356,8 +1356,8 @@ mod tests {
 
     #[test]
     fn variable_token_infos_include_provenance() {
-        let session = Session::new();
-        let index = session
+        let frontend = Frontend::default();
+        let index = frontend
             .analyze_symbols("g:1; f:{[x] y:2; x+y+g}")
             .expect("symbol analysis");
         let infos = variable_token_infos(&index);

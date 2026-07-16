@@ -317,7 +317,10 @@ fn format_trace_node(vm: &Vm, rec: &TraceRecord, highlighter: &Highlighter) -> S
 
 /// Attach source context from the current PC to a `WqError`, if debug info is
 /// available.
-pub(super) fn attach_pc_source_ctx(vm: &Vm, pc: usize, err: WqError) -> WqError {
+pub(crate) fn attach_pc_source_ctx(vm: &Vm, pc: usize, err: WqError) -> WqError {
+    if err.source_ctx.is_some() {
+        return err;
+    }
     let chunk = vm.current_chunk;
     let meta = vm.debug_info.chunk(chunk);
     let span = meta.line_table.span_at(pc);

@@ -15,11 +15,13 @@ mod tests;
 mod value_ext;
 
 pub(crate) use assumption::CasAssumptions;
-pub(crate) use debug::cas_debug_enabled;
+pub(crate) use debug::CasDebug;
+#[cfg(test)]
+use expand_factor::expand_cas;
 use expand_factor::{
     eval_numeric_binary_gcd, expand_expr, extract_algebraic_content, factor_expr, split_off_results,
 };
-pub(crate) use expand_factor::{expand_cas, factor_cas};
+pub(crate) use expand_factor::{expand_cas_with_debug, factor_cas};
 use format::{format_cas_equation, format_cas_value, sort_canonical};
 pub(crate) use numeric::{
     cas_err, ensure_expr_arg, eval_exact_numeric_div, eval_numeric_binary, eval_numeric_cas,
@@ -36,17 +38,19 @@ pub(crate) use poly::{
 };
 pub(crate) use quote::{cas_special_call_name, cas_symbolic_call_expr};
 #[cfg(test)]
+use rewrite::rewrite_cas;
+#[cfg(test)]
 use rewrite::rewrite_expr;
 use rewrite::try_cancel_affine_over_factor;
 pub(crate) use rewrite::{
-    cas_product, contains_cas_var, infer_single_cas_var, normalize_root_objective_cas, rewrite_cas,
-    rewrite_loop,
+    cas_product, contains_cas_var, infer_single_cas_var, normalize_root_objective_cas,
+    rewrite_cas_with_debug, rewrite_loop_with_debug,
 };
 pub(crate) use root::resolve_cas_root;
 pub(crate) use simplify::{
     cas_add, cas_binary_expr, cas_call_expr, cas_div, cas_mul, cas_neg, cas_pow, cas_sub,
-    cas_unary_expr, extract_perfect_power_factor, simplify_cas_value, substitute_cas,
-    substitute_cas_bindings, with_cas_div_cache,
+    cas_unary_expr, extract_perfect_power_factor, simplify_cas_value,
+    simplify_cas_value_with_debug, substitute_cas, substitute_cas_bindings, with_cas_div_cache,
 };
 use simplify::{
     common_numeric_gcd, rebuild_scaled_term, split_add_term, split_mul_factor, substitute_expr,

@@ -2,12 +2,12 @@ use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::{
-    cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub, collect_single_poly_var,
-    common_numeric_gcd, eval_exact_numeric_div, eval_numeric_binary, expand_expr,
-    extract_perfect_power_factor, factor_expr, numeric_add, numeric_is_negative, numeric_is_one,
-    numeric_is_zero, numeric_mul, numeric_sub, poly_degree, poly_divide, poly_from_expr,
-    poly_is_zero, poly_to_expr, rebuild_scaled_term, simplify_cas_value, split_add_term,
-    square_free_factor, with_cas_div_cache,
+    CasDebug, cas_add, cas_div, cas_err, cas_mul, cas_neg, cas_pow, cas_sub,
+    collect_single_poly_var, common_numeric_gcd, eval_exact_numeric_div, eval_numeric_binary,
+    expand_expr, extract_perfect_power_factor, factor_expr, numeric_add, numeric_is_negative,
+    numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub, poly_degree, poly_divide,
+    poly_from_expr, poly_is_zero, poly_to_expr, rebuild_scaled_term, simplify_cas_value,
+    split_add_term, square_free_factor, with_cas_div_cache,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasConst, CasFunction, CasOp};
@@ -2048,28 +2048,32 @@ pub(super) fn rewrite_expr(value: &Value) -> WqResult<Value> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn rewrite_cas(expr: &Value) -> WqResult<Value> {
+    rewrite_cas_with_debug(expr, CasDebug::disabled())
+}
+
+pub(crate) fn rewrite_cas_with_debug(expr: &Value, debug: CasDebug<'_>) -> WqResult<Value> {
     with_cas_div_cache(|| {
         let mut current = simplify_cas_value(expr)?;
-        rewrite_loop(&mut current)?;
+        rewrite_loop_with_debug(&mut current, debug)?;
         Ok(current)
     })
 }
 
-/// Apply tree rewrites in a loop without an initial simplify pass.
-/// This allows callers to do rewrites first and simplify afterward, so that
-/// rational-term combination sees the already-rewritten expression.
-pub(crate) fn rewrite_loop(current: &mut Value) -> WqResult<()> {
+pub(crate) fn rewrite_loop_with_debug(current: &mut Value, debug: CasDebug<'_>) -> WqResult<()> {
     for i in 0..32 {
         let next = rewrite_expr(current)?;
         if next == *current {
             cas_trace!(
+                debug,
                 DebugLogFlags::CAS_VERBOSE,
                 "[cas-v] rewrite_loop converged at iteration={i}"
             );
             return Ok(());
         }
         cas_trace!(
+            debug,
             DebugLogFlags::CAS_VERBOSE,
             "[cas-v] rewrite_loop iteration={i} -> {}",
             next.format_cas().unwrap_or_else(|| next.to_string())
@@ -2077,6 +2081,7 @@ pub(crate) fn rewrite_loop(current: &mut Value) -> WqResult<()> {
         *current = next;
     }
     cas_trace!(
+        debug,
         DebugLogFlags::CAS_VERBOSE,
         "[cas-v] rewrite_loop reached max iterations (32) without convergence"
     );

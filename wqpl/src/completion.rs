@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::builtins::Builtins;
 use crate::doc::DocTopic;
+use crate::frontend::Frontend;
 use crate::highlight::cursor_context_at;
-use crate::session::Session;
 use crate::symbol::DefKind;
 use crate::token::{FmtPart, Token, TokenType};
 
@@ -60,12 +60,12 @@ impl CompletionCandidate {
 }
 
 pub fn expression_completion_candidates(
-    session: &Session,
+    frontend: &Frontend,
     content: &str,
 ) -> Vec<CompletionCandidate> {
     let mut seen = HashMap::new();
 
-    if let Ok(index) = session.analyze_symbols(content) {
+    if let Ok(index) = frontend.analyze_symbols(content) {
         for def in &index.defs {
             if def.kind == DefKind::Builtin {
                 continue;
@@ -75,13 +75,13 @@ pub fn expression_completion_candidates(
             seen.entry(def.name.clone()).or_insert(candidate);
         }
     } else {
-        for name in fallback_assignment_names(session, content) {
+        for name in fallback_assignment_names(frontend, content) {
             seen.entry(name.clone())
                 .or_insert_with(|| CompletionCandidate::new(name, CompletionKind::Assignment));
         }
     }
 
-    for candidate in builtin_completion_candidates(session.builtins(), true) {
+    for candidate in builtin_completion_candidates(frontend.builtins(), true) {
         seen.entry(candidate.label.clone()).or_insert(candidate);
     }
 
@@ -118,16 +118,16 @@ pub fn builtin_completion_candidates(
 }
 
 pub fn should_suppress_expression_completion(
-    session: &Session,
+    frontend: &Frontend,
     content: &str,
     byte_offset: usize,
 ) -> bool {
-    is_in_no_completion_zone(session, content, byte_offset)
-        || is_typing_non_ident(session, content, byte_offset)
+    is_in_no_completion_zone(frontend, content, byte_offset)
+        || is_typing_non_ident(frontend, content, byte_offset)
 }
 
-fn fallback_assignment_names(session: &Session, content: &str) -> Vec<String> {
-    let tokens = session.tokenize_recovery(content);
+fn fallback_assignment_names(frontend: &Frontend, content: &str) -> Vec<String> {
+    let tokens = frontend.tokenize_recovery(content);
     let mut names = Vec::new();
     for window in tokens.windows(2) {
         if let (
@@ -147,7 +147,7 @@ fn fallback_assignment_names(session: &Session, content: &str) -> Vec<String> {
     names
 }
 
-fn is_in_no_completion_zone(session: &Session, content: &str, byte_offset: usize) -> bool {
+fn is_in_no_completion_zone(frontend: &Frontend, content: &str, byte_offset: usize) -> bool {
     let clamped = byte_offset.min(content.len());
 
     let line_start = content[..clamped].rfind('\n').map(|i| i + 1).unwrap_or(0);
@@ -163,7 +163,7 @@ fn is_in_no_completion_zone(session: &Session, content: &str, byte_offset: usize
         return true;
     }
 
-    let tokens = session.tokenize_recovery(content);
+    let tokens = frontend.tokenize_recovery(content);
     let Some(tok) = tokens
         .iter()
         .find(|t| t.byte_start <= byte_offset && byte_offset < t.byte_end)
@@ -184,14 +184,14 @@ fn is_in_no_completion_zone(session: &Session, content: &str, byte_offset: usize
     }
 }
 
-fn is_typing_non_ident(session: &Session, content: &str, byte_offset: usize) -> bool {
+fn is_typing_non_ident(frontend: &Frontend, content: &str, byte_offset: usize) -> bool {
     if let Some(word) = extract_word_at(content, byte_offset)
         && word.chars().next().is_some_and(|c| c.is_numeric())
     {
         return true;
     }
 
-    let tokens = session.tokenize_recovery(content);
+    let tokens = frontend.tokenize_recovery(content);
     if let Some(tok) = tokens.iter().rev().find(|t| {
         t.byte_end <= byte_offset && !matches!(t.token_type, TokenType::Eof | TokenType::Newline)
     }) {
@@ -258,8 +258,8 @@ mod tests {
 
     #[test]
     fn expression_candidates_include_symbols_and_builtins() {
-        let session = Session::new();
-        let candidates = expression_completion_candidates(&session, "x:1; f:{[y] y+x}");
+        let frontend = Frontend::default();
+        let candidates = expression_completion_candidates(&frontend, "x:1; f:{[y] y+x}");
 
         assert!(
             candidates
@@ -278,34 +278,34 @@ mod tests {
 
     #[test]
     fn suppression_allows_format_string_exprs_only() {
-        let session = Session::new();
+        let frontend = Frontend::default();
         let text_src = "@f \"hello su\"";
         let text_pos = text_src.find("su").expect("text") + 2;
         let expr_src = "@f \"hello {su}\"";
         let expr_pos = expr_src.find("su").expect("expr") + 2;
 
         assert!(should_suppress_expression_completion(
-            &session, text_src, text_pos
+            &frontend, text_src, text_pos
         ));
         assert!(!should_suppress_expression_completion(
-            &session, expr_src, expr_pos
+            &frontend, expr_src, expr_pos
         ));
     }
 
     #[test]
     fn suppression_blocks_numeric_contexts() {
-        let session = Session::new();
+        let frontend = Frontend::default();
 
-        assert!(should_suppress_expression_completion(&session, "123", 3));
-        assert!(should_suppress_expression_completion(&session, "1 ", 2));
+        assert!(should_suppress_expression_completion(&frontend, "123", 3));
+        assert!(should_suppress_expression_completion(&frontend, "1 ", 2));
     }
 
     #[test]
     fn suppression_blocks_completion_inside_invalid_strings() {
-        let session = Session::new();
+        let frontend = Frontend::default();
         let src = r#""\u{}z""#;
         let pos = src.find('z').expect("invalid string contains z") + 1;
 
-        assert!(should_suppress_expression_completion(&session, src, pos));
+        assert!(should_suppress_expression_completion(&frontend, src, pos));
     }
 }

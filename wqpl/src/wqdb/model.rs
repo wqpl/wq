@@ -1,4 +1,4 @@
-use crate::wqdb::data::ChunkId;
+use crate::wqdb::data::{ChunkId, CodeLoc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BreakpointKind {
@@ -11,6 +11,16 @@ pub struct Breakpoint {
     pub id: usize,
     pub enabled: bool,
     pub kind: BreakpointKind,
+}
+
+/// A host-managed source-line breakpoint which may be requested before its
+/// source region has been compiled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceBreakpoint {
+    pub id: usize,
+    pub source_path: String,
+    pub requested_line: usize,
+    pub location: Option<CodeLoc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

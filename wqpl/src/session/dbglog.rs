@@ -1,4 +1,7 @@
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use super::stdio::{RuntimeOutput, WqIoError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DebugLogFlags {
@@ -28,14 +31,6 @@ impl DebugLogFlags {
         Self { bits: 0 }
     }
 
-    pub(crate) const fn from_bits(bits: u16) -> Self {
-        Self { bits }
-    }
-
-    pub(crate) const fn bits(self) -> u16 {
-        self.bits
-    }
-
     pub const fn is_empty(self) -> bool {
         self.bits == 0
     }
@@ -60,10 +55,6 @@ impl DebugLogFlags {
             self.bits &= !verbose;
         }
     }
-
-    // pub(crate) fn union(self, other: Self) -> Self {
-    //     Self::from_bits(self.bits | other.bits)
-    // }
 
     #[rustfmt::skip]
     pub fn from_alias(level: u8) -> Option<Self> {
@@ -204,18 +195,54 @@ const fn verbose_bit_for_base(bit: u16) -> Option<u16> {
     }
 }
 
-// pub(crate) fn is_known_debug_name(name: &str) -> bool {
-//     bit_for_name(name).is_some()
-// }
-
-static DEBUG_LOG_FLAGS: AtomicU16 = AtomicU16::new(0);
-
-pub fn set_debug_log_flags(flags: DebugLogFlags) {
-    DEBUG_LOG_FLAGS.store(flags.bits(), Ordering::Relaxed);
+#[derive(Clone)]
+pub(crate) struct DebugLog {
+    flags: DebugLogFlags,
+    output: RuntimeOutput,
+    error: Rc<RefCell<Option<WqIoError>>>,
 }
 
-pub fn get_debug_log_flags() -> DebugLogFlags {
-    DebugLogFlags::from_bits(DEBUG_LOG_FLAGS.load(Ordering::Relaxed))
+impl DebugLog {
+    pub(crate) fn new(flags: DebugLogFlags, output: RuntimeOutput) -> Self {
+        Self {
+            flags,
+            output,
+            error: Rc::new(RefCell::new(None)),
+        }
+    }
+
+    pub(crate) fn flags(&self) -> DebugLogFlags {
+        self.flags
+    }
+
+    pub(crate) fn set_flags(&mut self, flags: DebugLogFlags) {
+        self.flags = flags;
+    }
+
+    pub(crate) fn set_output(&mut self, output: RuntimeOutput) {
+        self.output = output;
+    }
+
+    pub(crate) fn enabled(&self, flag: u16) -> bool {
+        self.flags.contains(flag)
+    }
+
+    pub(crate) fn emit_line(&self, line: impl AsRef<str>) {
+        if self.error.borrow().is_some() {
+            return;
+        }
+        if let Err(output_error) = self.output.write_line(line.as_ref()) {
+            *self.error.borrow_mut() = Some(output_error);
+        }
+    }
+
+    pub(crate) fn clear_error(&self) {
+        self.error.borrow_mut().take();
+    }
+
+    pub(crate) fn take_error(&self) -> Option<WqIoError> {
+        self.error.borrow_mut().take()
+    }
 }
 
 #[cfg(test)]

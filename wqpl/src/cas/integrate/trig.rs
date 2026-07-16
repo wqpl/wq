@@ -11,20 +11,25 @@ use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_neg, cas_pow, cas_product, cas_sub, eval_exact_numeric_div,
-    numeric_add, numeric_is_zero, numeric_mul, numeric_sub, poly_trim, simplify_cas_value,
-    substitute_expr,
+    CasDebug, cas_add, cas_div, cas_mul, cas_neg, cas_pow, cas_product, cas_sub,
+    eval_exact_numeric_div, numeric_add, numeric_is_zero, numeric_mul, numeric_sub, poly_trim,
+    simplify_cas_value, substitute_expr,
 };
 use crate::session::dbglog::DebugLogFlags;
 use crate::value::cas::{CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 /// Strategy entry point: integrate trigonometric expressions.
-pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+pub(super) fn integrate_by_trig(
+    expr: &Value,
+    var: &str,
+    debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     if !contains_trig(expr) {
         return Ok(None);
     }
     cas_trace!(
+        debug,
         DebugLogFlags::CAS,
         "[cas] trig enter: {}",
         expr.format_cas().unwrap_or_else(|| expr.to_string())
@@ -32,6 +37,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
     let simplified = simplify_cas_value(expr)?;
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Sin, var)? {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (sin_power): {}",
             result.format_cas().unwrap_or_else(|| result.to_string())
@@ -40,6 +46,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
     }
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Cos, var)? {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (cos_power): {}",
             result.format_cas().unwrap_or_else(|| result.to_string())
@@ -48,6 +55,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
     }
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Tan, var)? {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (tan_power): {}",
             result.format_cas().unwrap_or_else(|| result.to_string())
@@ -56,6 +64,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
     }
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Sec, var)? {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (sec_power): {}",
             result.format_cas().unwrap_or_else(|| result.to_string())
@@ -64,6 +73,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
     }
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Csc, var)? {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (csc_power): {}",
             result.format_cas().unwrap_or_else(|| result.to_string())
@@ -72,6 +82,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
     }
     if let Some(result) = try_single_fn_power(&simplified, CasFunction::Cot, var)? {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (cot_power): {}",
             result.format_cas().unwrap_or_else(|| result.to_string())
@@ -80,6 +91,7 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
     }
     if let Some(result) = try_sin_cos_product(&simplified, var)? {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (sin_cos_product): {}",
             result.format_cas().unwrap_or_else(|| result.to_string())
@@ -88,13 +100,14 @@ pub(super) fn integrate_by_trig(expr: &Value, var: &str) -> WqResult<Option<Valu
     }
     if let Some(result) = try_product_to_sum(&simplified, var)? {
         cas_trace!(
+            debug,
             DebugLogFlags::CAS,
             "[cas] trig exit (product_to_sum): {}",
             result.format_cas().unwrap_or_else(|| result.to_string())
         );
         return Ok(Some(result));
     }
-    cas_trace!(DebugLogFlags::CAS, "[cas] trig exit (no_match)");
+    cas_trace!(debug, DebugLogFlags::CAS, "[cas] trig exit (no_match)");
     Ok(None)
 }
 

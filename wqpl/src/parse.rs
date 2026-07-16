@@ -85,17 +85,6 @@ pub(crate) struct Parser {
     current: usize,
     source: String,
     builtins: crate::builtins::Builtins,
-    // Optional global source context for accurate error locations when parsing a snippet within a
-    // larger file When present, errors will display using this source with line/column
-    // adjusted by `line_base`/`col_base`
-    global_source: Option<String>,
-    // Number of lines before the start of this snippet in the global source
-    line_base: usize,
-    // Column offset at the start of this snippet (usually 0 when starting at a line boundary).
-    // Applied only for tokens on the first line of the snippet.
-    col_base: usize,
-    // Base byte offset of the snippet within the global source
-    base_offset: usize,
     // Optional source file path / label for error rendering
     source_path: Option<String>,
     // Byte spans for statements parsed at the current (top-level) scope
@@ -158,10 +147,6 @@ impl Parser {
             stmt_spans: Vec::new(),
             fn_spans: Vec::new(),
             fn_span_stack: Vec::new(),
-            global_source: None,
-            line_base: 0,
-            col_base: 0,
-            base_offset: 0,
             source_path: None,
             bracket_depth: 0,
             eof_error: None,
@@ -175,39 +160,6 @@ impl Parser {
 
     pub(crate) fn set_source_path(&mut self, path: String) {
         self.source_path = Some(path);
-    }
-
-    pub(crate) fn new_with_ctx(
-        tokens: Vec<Token>,
-        source: String,
-        global_source: Option<String>,
-        base_offset: usize,
-        builtins: crate::builtins::Builtins,
-    ) -> Self {
-        let mut p = Parser::new_with_builtins(tokens, source, builtins);
-        p.apply_ctx(global_source, base_offset);
-        p
-    }
-
-    fn apply_ctx(&mut self, global_source: Option<String>, base_offset: usize) {
-        if let Some(gs) = &global_source {
-            let base = base_offset.min(gs.len());
-            // Count lines before the offset in the global source
-            let line_base = gs[..base].bytes().filter(|b| *b == b'\n').count();
-            // Column offset at the snippet start (chars since last newline)
-            let col_base = if base == 0 {
-                0
-            } else {
-                match gs[..base].rfind('\n') {
-                    Some(i) => gs[i + 1..base].chars().count(),
-                    None => gs[..base].chars().count(),
-                }
-            };
-            self.global_source = global_source;
-            self.line_base = line_base;
-            self.col_base = col_base;
-            self.base_offset = base_offset;
-        }
     }
 
     // helpers ====================================================================================
@@ -737,37 +689,23 @@ impl Parser {
 
     fn syntax_err(&self, token: &Token, msg: impl Into<String>) -> WqError {
         let msg = msg.into();
-        let (text, abs_start, abs_end) = if let Some(gs) = &self.global_source {
-            let start = token.byte_start + self.base_offset;
-            let end = token.byte_end + self.base_offset;
-            (gs.clone(), start, end)
-        } else {
-            (self.source.clone(), token.byte_start, token.byte_end)
-        };
         let path = self.source_path.as_deref().unwrap_or("?");
         WqError::new(WqErrorType::Syntax)
             .src("parser")
             .msg(msg)
-            .span(Some((abs_start, abs_end)))
-            .source_ctx(text, path)
+            .span(Some((token.byte_start, token.byte_end)))
+            .source_ctx(self.source.clone(), path)
     }
 
     fn eof_error_here(&self, msg: impl Into<String>) -> WqError {
         let msg = msg.into();
         if let Some(tok) = self.current_token() {
-            let (text, abs_start, abs_end) = if let Some(gs) = &self.global_source {
-                let start = tok.byte_start + self.base_offset;
-                let end = tok.byte_end + self.base_offset;
-                (gs.clone(), start, end)
-            } else {
-                (self.source.clone(), tok.byte_start, tok.byte_end)
-            };
             let path = self.source_path.as_deref().unwrap_or("?");
             WqError::new(WqErrorType::Eof)
                 .src("parser")
                 .msg(msg)
-                .span(Some((abs_start, abs_end)))
-                .source_ctx(text, path)
+                .span(Some((tok.byte_start, tok.byte_end)))
+                .source_ctx(self.source.clone(), path)
         } else {
             WqError::new(WqErrorType::Eof).src("parser").msg(msg)
         }
@@ -3401,15 +3339,11 @@ impl Parser {
     }
 
     fn fstring_source_ctx(&self) -> &str {
-        self.global_source.as_deref().unwrap_or(&self.source)
+        &self.source
     }
 
     fn fstring_source_offset(&self, offset: usize) -> usize {
-        if self.global_source.is_some() {
-            self.base_offset + offset
-        } else {
-            offset
-        }
+        offset
     }
 
     fn attach_fstring_source_ctx(&self, err: &mut WqError) {
@@ -3420,17 +3354,7 @@ impl Parser {
         }));
     }
 
-    fn recontextualize_fstring_error_node(&self, err: &mut WqError, span: &mut AstSpan) {
-        if self.global_source.is_some() {
-            if let Some((start, end)) = span {
-                *start += self.base_offset;
-                *end += self.base_offset;
-            }
-            if let Some((start, end)) = &mut err.span {
-                *start += self.base_offset;
-                *end += self.base_offset;
-            }
-        }
+    fn recontextualize_fstring_error_node(&self, err: &mut WqError, _span: &mut AstSpan) {
         self.attach_fstring_source_ctx(err);
     }
 
@@ -3673,25 +3597,11 @@ impl Parser {
 
         let source_span = |span: Option<(usize, usize)>| {
             if let Some((s, e)) = span {
-                if let Some(gs) = &self.global_source {
-                    (
-                        gs.clone(),
-                        Some((s + self.base_offset, e + self.base_offset)),
-                    )
-                } else {
-                    (self.source.clone(), Some((s, e)))
-                }
+                (self.source.clone(), Some((s, e)))
             } else {
                 let s = start.byte_start;
                 let e = start.byte_end;
-                if let Some(gs) = &self.global_source {
-                    (
-                        gs.clone(),
-                        Some((s + self.base_offset, e + self.base_offset)),
-                    )
-                } else {
-                    (self.source.clone(), Some((s, e)))
-                }
+                (self.source.clone(), Some((s, e)))
             }
         };
         let mk_err = |span: Option<(usize, usize)>, msg: String| {

@@ -1,9 +1,4 @@
-import {
-  WasmWqSession,
-  set_stdout_callback,
-  set_stderr_callback,
-  highlight_wq,
-} from "wq-wasm";
+import { WasmWqSession } from "wq-wasm";
 import { createOutputRenderer } from "./ansi.js";
 import { createWqEditor } from "./editor.js";
 import { named, plotSeriesArg, wqString } from "./viz-codegen.js";
@@ -11,7 +6,9 @@ import { DEFAULT_STATE, PRESETS } from "./viz-presets.js";
 import {
   alignTurnBody,
   ensureWasm,
+  getWqFrontend,
   escapeHtml,
+  formatWqError,
   queueEval,
 } from "./wq-shared.js";
 
@@ -486,7 +483,10 @@ function makeSeriesTextField(instance, row, idx, key, labelText, options = {}) {
     input.value = row[key] || "";
     field.append(label, input);
 
-    const editor = createWqEditor(input, { multilineMode: "plain" });
+    const editor = createWqEditor(input, {
+      multilineMode: "plain",
+      frontend: instance.frontend,
+    });
     editor.addEventListener("input", () => {
       instance.state.series[idx][key] = editor.value;
       updateView(instance);
@@ -678,7 +678,7 @@ function renderCode(instance) {
   instance.code = buildCode(instance.state);
   if (!instance.codeEl) return;
   try {
-    instance.codeEl.innerHTML = highlight_wq(instance.code);
+    instance.codeEl.innerHTML = instance.frontend.highlight_wq(instance.code);
   } catch (_err) {
     instance.codeEl.innerHTML = escapeHtml(instance.code);
   }
@@ -768,18 +768,18 @@ async function runViz(instance) {
   try {
     await ensureWasm();
     await queueEval(() => {
-      set_stdout_callback((chunk) => {
-        renderer.appendStreamOutput(chunk);
-        instance.output.scrollTop = instance.output.scrollHeight;
-      });
-      set_stderr_callback((chunk) => {
-        renderer.appendStreamOutput(chunk, "error");
-        instance.output.scrollTop = instance.output.scrollHeight;
-      });
       const session = new WasmWqSession();
       try {
+        session.set_stdout_callback((chunk) => {
+          renderer.appendStreamOutput(chunk);
+          instance.output.scrollTop = instance.output.scrollHeight;
+        });
+        session.set_stderr_callback((chunk) => {
+          renderer.appendStreamOutput(chunk, "error");
+          instance.output.scrollTop = instance.output.scrollHeight;
+        });
         session.set_box_flags("0");
-        session.eval_wq_result(instance.code).free();
+        session.eval_wq(instance.code);
       } finally {
         session.free();
       }
@@ -792,7 +792,7 @@ async function runViz(instance) {
     instance.output.appendChild(bar);
     const errorRenderer = createOutputRenderer(instance.output, bar);
     errorRenderer.appendOutput(
-      alignTurnBody((err?.message ?? String(err)) + "\n"),
+      alignTurnBody(formatWqError(err, { rendered: true }) + "\n"),
       "error",
     );
     setStatus(instance, "error", "error");
@@ -838,6 +838,7 @@ export async function mountViz(root) {
   await ensureWasm();
   const instance = {
     root,
+    frontend: getWqFrontend(),
     state: stateForPreset("trig"),
     code: "",
     autoTimer: 0,

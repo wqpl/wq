@@ -1,14 +1,8 @@
-import {
-  WasmWqSession,
-  get_builtins,
-  set_stdout_callback,
-  set_stderr_callback,
-  set_stdin_callback,
-  highlight_wq,
-} from "wq-wasm";
+import { WasmWqSession } from "wq-wasm";
 import { createOutputRenderer } from "./ansi.js";
 import {
   ensureWasm,
+  createWqFrontend,
   getWqVersion,
   getDocMarkdown,
   DEBUG_FLAGS,
@@ -30,11 +24,13 @@ import {
   handleTabKey,
   fallbackCopyText,
   queueEval,
+  formatWqError,
 } from "./wq-shared.js";
 import { createWqEditor } from "./editor.js";
-import { countGlobalsTableRows, normalizeGlobalsTable } from "./repl-globals.js";
+import { formatGlobalsTable, formatNameColumns } from "./repl-globals.js";
 
 let session = null;
+let frontend = null;
 let stdinQueue = [];
 let history = [];
 let histIndex = -1;
@@ -222,7 +218,7 @@ function createTurn(kind, label, body, msgType = null) {
     content.appendChild(prompt);
     const codeSpan = document.createElement("span");
     codeSpan.className = "repl-input-code";
-    codeSpan.innerHTML = highlight_wq(body || "");
+    codeSpan.innerHTML = frontend.highlight_wq(body || "");
     content.appendChild(codeSpan);
   } else {
     const bar = document.createElement("span");
@@ -408,9 +404,14 @@ function append(chunk, msgType = "info", options = {}) {
 }
 
 function bindRuntimeCallbacks() {
-  set_stdout_callback((chunk) => append(chunk, "info", { backend: true }));
-  set_stderr_callback((chunk) => append(chunk, "error", { backend: true }));
-  set_stdin_callback((p) => {
+  const target = ensureSession();
+  target.set_stdout_callback((chunk) =>
+    append(chunk, "info", { backend: true }),
+  );
+  target.set_stderr_callback((chunk) =>
+    append(chunk, "error", { backend: true }),
+  );
+  target.set_stdin_callback((p) => {
     if (stdinQueue.length > 0) return String(stdinQueue.shift());
     const msg = typeof p === "string" ? p : "stdin:";
     const ans = window.prompt(msg || "stdin:");
@@ -422,6 +423,7 @@ function bindRuntimeCallbacks() {
 function ensureSession() {
   if (!session) {
     session = new WasmWqSession();
+    frontend.set_builtins_preset(session.get_builtins_preset());
   }
   return session;
 }
@@ -435,12 +437,14 @@ function autoSizeComposer() {
 function syncGlobalsPanel() {
   if (!ui?.globalsBody) return;
   let table = "no global bindings";
+  let count = 0;
   try {
-    table = normalizeGlobalsTable(ensureSession().get_env_table());
+    const globals = Array.from(ensureSession().globals());
+    table = formatGlobalsTable(globals);
+    count = globals.length;
   } catch (err) {
-    table = err?.message ?? String(err);
+    table = formatWqError(err);
   }
-  const count = countGlobalsTableRows(table);
   ui.globalsBody.textContent = table;
   ui.globalsCount.textContent = String(count);
   ui.globalsPanel?.classList.toggle("empty", count === 0);
@@ -521,7 +525,9 @@ async function copyCurrentFlow() {
 }
 
 function resetSession() {
+  const oldSession = session;
   session = null;
+  oldSession?.free();
   stdinQueue = [];
   // Keep history across resets
   pendingBuffer = "";
@@ -763,20 +769,21 @@ async function handleReplCommand(code) {
         return true;
       case "bfn":
         append(
-          `Current: ${session.get_builtins_preset()}\nAvailable: ${session.get_builtins_preset_names()}\n\n${get_builtins()}\n`,
+          `Current: ${session.get_builtins_preset()}\nAvailable: ${Array.from(session.builtin_preset_names()).join(", ")}\n\n${formatNameColumns(frontend.builtin_names())}\n`,
           "info",
         );
         return true;
       case "bfn-set": {
         const selected = session.set_builtins_preset(command.arg);
+        frontend.set_builtins_preset(selected);
         commandLine("bfn", selected);
         return true;
       }
       case "gb":
-        append(`${session.get_env_table()}\n`, "info");
+        append(`${formatGlobalsTable(session.globals())}\n`, "info");
         return true;
       case "reset":
-        session.reset_session();
+        session.reset_workspace();
         append("session reset\n", "info");
         return true;
       case "box":
@@ -793,13 +800,13 @@ async function handleReplCommand(code) {
         statusLine("box", session.get_box_summary());
         return true;
       case "backtrace": {
-        const on = !session.get_bt_mode();
-        session.set_bt_mode(on);
+        const on = !session.backtrace_enabled();
+        session.set_backtrace_enabled(on);
         commandLine("backtrace", boolWord(on));
         return true;
       }
       case "backtrace-query":
-        statusLine("backtrace", boolWord(session.get_bt_mode()));
+        statusLine("backtrace", boolWord(session.backtrace_enabled()));
         return true;
       case "xray": {
         const flags = getBoxFlags();
@@ -814,7 +821,7 @@ async function handleReplCommand(code) {
         return true;
       case "interpreter":
         append(
-          `Current: ${session.get_interpreter_name()}\nAvailable: ${session.get_interpreter_names()}\n`,
+          `Current: ${session.get_interpreter_name()}\nAvailable: ${Array.from(session.interpreter_names()).join(", ")}\n`,
           "info",
         );
         return true;
@@ -898,7 +905,7 @@ async function handleReplCommand(code) {
         return false;
     }
   } catch (err) {
-    append(`${err?.message ?? String(err)}\n`, "error");
+    append(`${formatWqError(err)}\n`, "error");
     return true;
   }
 }
@@ -942,7 +949,7 @@ async function doEval({ recordHistory = true } = {}) {
         session.set_wqdb_mode(true);
       }
       try {
-        return session.eval_wq_result(code);
+        return session.eval_wq(code);
       } finally {
         if (prevDebug !== null) {
           session.set_debug_flags(prevDebug);
@@ -956,21 +963,21 @@ async function doEval({ recordHistory = true } = {}) {
     if (dryMode) {
       append("dry run: skipped\n", "info");
     } else if (
-      result.value !== undefined &&
-      result.value !== null &&
-      String(result.value).length
+      result.display !== undefined &&
+      result.display !== null &&
+      String(result.display).length
     ) {
       if (result.is_cas) {
         const content = createTurn("output", "", "", "success");
         const casSpan = document.createElement("span");
-        casSpan.innerHTML = highlight_wq(alignTurnBody(result.value));
+        casSpan.innerHTML = frontend.highlight_wq(alignTurnBody(result.display));
         content.appendChild(casSpan);
         if (showType && result.type_name) {
           content.appendChild(document.createTextNode(`\n${result.type_name}`));
         }
       } else {
         const valueText =
-          alignTurnBody(String(result.value)) +
+          alignTurnBody(String(result.display)) +
           (showType && result.type_name ? `\n${result.type_name}` : "") +
           "\n";
         createTurn(
@@ -999,7 +1006,7 @@ async function doEval({ recordHistory = true } = {}) {
     createTurn(
       "system",
       "",
-      alignTurnBody((err?.message ?? String(err)) + "\n"),
+      alignTurnBody(formatWqError(err, { rendered: true }) + "\n"),
       "error",
     );
   } finally {
@@ -1125,9 +1132,11 @@ function toggleHistorySearch() {
 
 export async function mountRepl(root) {
   await ensureWasm();
+  frontend = createWqFrontend();
   ui = {
     codeEl: createWqEditor(root.querySelector("#code"), {
       multilineMode: "shift",
+      frontend,
     }),
     term: root.querySelector("#term"),
     composerForm: root.querySelector("#composerForm"),

@@ -1286,11 +1286,11 @@ mod tests {
     use super::super::render::render;
     use super::*;
     use crate::cst::SyntaxNode;
-    use crate::session::Session;
+    use crate::frontend::Frontend;
 
     fn fmt(src: &str, width: usize) -> String {
-        let s = Session::new();
-        let (_, green) = s.parse_with_cst(src).expect("parse");
+        let frontend = Frontend::default();
+        let (_, green) = frontend.parse_with_cst(src).expect("parse");
         let root = SyntaxNode::new_root(green);
         let cfg = FormatConfig {
             max_width: width,
@@ -1505,8 +1505,8 @@ mod tests {
             oneline: true,
             ..FormatConfig::default()
         };
-        let s = Session::new();
-        let (_, g) = s.parse_with_cst("{[x;y]x+y}").unwrap();
+        let frontend = Frontend::default();
+        let (_, g) = frontend.parse_with_cst("{[x;y]x+y}").unwrap();
         let root = SyntaxNode::new_root(g);
         let doc = lower(&root, &cfg);
         assert_eq!(render(&doc, 80), "{[x;y]x+y}");
@@ -1533,8 +1533,8 @@ mod tests {
             oneline: true,
             ..FormatConfig::default()
         };
-        let s = Session::new();
-        let (_, g) = s.parse_with_cst("$[c;t;f]").unwrap();
+        let frontend = Frontend::default();
+        let (_, g) = frontend.parse_with_cst("$[c;t;f]").unwrap();
         let root = SyntaxNode::new_root(g);
         let doc = lower(&root, &cfg);
         assert_eq!(render(&doc, 80), "$[c;t;f]");

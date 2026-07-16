@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use wqpl::session::Session;
+use wqpl::frontend::Frontend;
 use wqpl::style::{AnsiColor, ColorMode, TextStyle, paint};
 use wqpl::symbol::UseKind;
 
@@ -14,8 +14,8 @@ pub fn run_symbols<P: AsRef<Path>>(path: P, name: &str) {
         }
     };
 
-    let session = Session::new();
-    let index = match session.analyze_symbols(&content) {
+    let frontend = Frontend::default();
+    let index = match frontend.analyze_symbols(&content) {
         Ok(idx) => idx,
         Err(err) => {
             eprintln!("Parse error: {err}");

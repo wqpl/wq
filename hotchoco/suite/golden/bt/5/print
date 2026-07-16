@@ -1,6 +1,9 @@
 ▍ Error at <TEST_PATH>
   zero-div: cannot divide by 0
   - from binary operator /
+  - at <TEST_PATH>
+       1 -> b:{c:{1/0}}
+                  ~~~
 * at <fn>, <TEST_PATH>
 |    1 -> b:{c:{1/0}}
 |               ~~~

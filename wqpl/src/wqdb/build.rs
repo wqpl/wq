@@ -3,17 +3,21 @@
 // apply_stmt_debug_exact_offs
 // register_function_chunks
 
-use crate::session::dbglog::{DebugLogFlags, get_debug_log_flags};
+use crate::session::dbglog::{DebugLog, DebugLogFlags};
 use crate::vm::inst::{ClosurePayload, DebugStmtMark, Instruction};
 use crate::wqdb::data::{ChunkId, DebugInfo, LineTable, Span};
 
-pub(crate) fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::inst::Instruction]) {
+pub(crate) fn mark_stmt_heuristic(
+    table: &mut LineTable,
+    code: &[crate::vm::inst::Instruction],
+    debug_log: Option<&DebugLog>,
+) {
     use crate::vm::inst::Instruction::*;
-    if get_debug_log_flags().contains(DebugLogFlags::WQDB_VERBOSE) {
-        eprintln!(
+    if let Some(debug_log) = debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB_VERBOSE)) {
+        debug_log.emit_line(format!(
             "[wqdb]: mark_stmt_heuristic called with {} instructions",
             code.len()
-        );
+        ));
     }
     for (pc, op) in code.iter().enumerate() {
         let is_stmt = matches!(
@@ -65,8 +69,10 @@ pub(crate) fn mark_stmt_heuristic(table: &mut LineTable, code: &[crate::vm::inst
                 | LoadClosure { .. }
         );
         if is_stmt {
-            if get_debug_log_flags().contains(DebugLogFlags::WQDB_VERBOSE) {
-                eprintln!("[wqdb]: marking PC {pc} as statement: {op:?}");
+            if let Some(debug_log) =
+                debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB_VERBOSE))
+            {
+                debug_log.emit_line(format!("[wqdb]: marking PC {pc} as statement: {op:?}"));
             }
             table.mark_stmt(pc, Span::NONE);
         }
@@ -82,29 +88,30 @@ fn apply_stmt_spans_exact(
     code: &[crate::vm::inst::Instruction],
     file_id: u32,
     spans: &[(usize, usize)],
+    debug_log: Option<&DebugLog>,
 ) -> bool {
     // Normalize spans: sort by start ascending and deduplicate
     let mut spans_sorted: Vec<(usize, usize)> = spans.to_vec();
     spans_sorted.sort_by_key(|(s, _)| *s);
     spans_sorted.dedup();
-    if get_debug_log_flags().contains(DebugLogFlags::WQDB_VERBOSE) {
-        eprintln!(
+    if let Some(debug_log) = debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB_VERBOSE)) {
+        debug_log.emit_line(format!(
             "[wqdb]: apply_stmt_spans_exact called with {} instructions, {} spans ({} unique, sorted)",
             code.len(),
             spans.len(),
             spans_sorted.len(),
-        );
-        eprintln!("[wqdb]: spans(sorted) = {spans_sorted:?}");
+        ));
+        debug_log.emit_line(format!("[wqdb]: spans(sorted) = {spans_sorted:?}"));
     }
     if spans_sorted.is_empty() || spans_sorted.len() * 10 < code.len() {
-        if get_debug_log_flags().contains(DebugLogFlags::WQDB_VERBOSE) {
-            eprintln!(
+        if let Some(debug_log) = debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB_VERBOSE)) {
+            debug_log.emit_line(format!(
                 "[wqdb]: using heuristic fallback (spans.len() * 10 = {} < code.len() = {})",
                 spans_sorted.len() * 10,
                 code.len()
-            );
+            ));
         }
-        mark_stmt_heuristic(table, code);
+        mark_stmt_heuristic(table, code, debug_log);
         let mut cand: Vec<usize> = Vec::new();
         for pc in 0..code.len() {
             if table.is_stmt(pc) {
@@ -126,10 +133,10 @@ fn apply_stmt_spans_exact(
         }
         return false;
     }
-    if get_debug_log_flags().contains(DebugLogFlags::WQDB_VERBOSE) {
-        eprintln!("[wqdb]: proceeding with exact span mapping (overlay mode)");
+    if let Some(debug_log) = debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB_VERBOSE)) {
+        debug_log.emit_line("[wqdb]: proceeding with exact span mapping (overlay mode)");
     }
-    mark_stmt_heuristic(table, code);
+    mark_stmt_heuristic(table, code, debug_log);
     let len = code.len();
     let mut cand: Vec<usize> = Vec::new();
     for pc in 0..len {
@@ -150,10 +157,12 @@ fn apply_stmt_spans_exact(
                 let container = spans_for_map.remove(0);
                 spans_for_map.push(container);
                 has_container = true;
-                if get_debug_log_flags().contains(DebugLogFlags::WQDB_VERBOSE) {
-                    eprintln!(
+                if let Some(debug_log) =
+                    debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB_VERBOSE))
+                {
+                    debug_log.emit_line(format!(
                         "[wqdb]: detected container span; remapped to end: {spans_for_map:?}"
-                    );
+                    ));
                 }
             }
         }
@@ -242,38 +251,40 @@ pub(crate) fn apply_stmt_spans_exact_offs(
     file_id: u32,
     spans: &[(usize, usize)],
     base_offset: usize,
+    debug_log: Option<&DebugLog>,
 ) -> bool {
-    if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-        eprintln!(
+    if let Some(debug_log) = debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB)) {
+        debug_log.emit_line(format!(
             "[wqdb]: apply_stmt_spans_exact_offs spans={} file_id={} base_offset={} instructions={}",
             spans.len(),
             file_id,
             base_offset,
             code.len(),
-        );
+        ));
     }
     let shifted: Vec<(usize, usize)> = spans
         .iter()
         .map(|(s, e)| (s.saturating_add(base_offset), e.saturating_add(base_offset)))
         .collect();
-    apply_stmt_spans_exact(table, code, file_id, &shifted)
+    apply_stmt_spans_exact(table, code, file_id, &shifted, debug_log)
 }
 
-pub fn apply_stmt_debug_exact_offs(
+pub(crate) fn apply_stmt_debug_exact_offs(
     table: &mut LineTable,
     file_id: u32,
     pc_spans: &[Option<(usize, usize)>],
     stmt_marks: &[DebugStmtMark],
     base_offset: usize,
+    debug_log: Option<&DebugLog>,
 ) -> (bool, bool) {
-    if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-        eprintln!(
+    if let Some(debug_log) = debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB)) {
+        debug_log.emit_line(format!(
             "[wqdb]: apply_stmt_debug_exact_offs pcs={} marks={} file_id={} base_offset={}",
             pc_spans.len(),
             stmt_marks.len(),
             file_id,
             base_offset,
-        );
+        ));
     }
     let mut has_exact = false;
     table.ensure(pc_spans.len());
@@ -307,16 +318,17 @@ fn register_closure_payload_chunk(
     payload: &mut ClosurePayload,
     name: Option<std::sync::Arc<str>>,
     base_offset: usize,
+    debug_log: Option<&DebugLog>,
 ) -> ChunkId {
     let chunk = di.new_function_chunk(name.clone(), file_id, payload.instructions.len());
-    if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-        eprintln!(
+    if let Some(debug_log) = debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB)) {
+        debug_log.emit_line(format!(
             "[wqdb]: register_function_chunks new chunk={chunk:?} name={} file_id={} instructions={} base_offset={}",
             di.chunk(chunk).name,
             file_id,
             payload.instructions.len(),
             base_offset,
-        );
+        ));
     }
     if !payload.dbg_pc_spans.is_empty() && !payload.dbg_stmt_marks.is_empty() {
         let (has_exact, has_real) = {
@@ -327,6 +339,7 @@ fn register_closure_payload_chunk(
                 payload.dbg_pc_spans.as_ref(),
                 payload.dbg_stmt_marks.as_ref(),
                 base_offset,
+                debug_log,
             )
         };
         di.chunk_mut(chunk).note_debug_spans(has_exact, has_real);
@@ -339,12 +352,13 @@ fn register_closure_payload_chunk(
                 file_id,
                 payload.dbg_stmt_spans.as_ref(),
                 base_offset,
+                debug_log,
             )
         };
         di.chunk_mut(chunk).note_debug_spans(false, has_real);
     } else {
         let table = &mut di.chunk_mut(chunk).line_table;
-        mark_stmt_heuristic(table, payload.instructions.as_ref());
+        mark_stmt_heuristic(table, payload.instructions.as_ref(), debug_log);
     }
     if !payload.dbg_local_names.is_empty() {
         di.chunk_mut(chunk).local_names = Some(payload.dbg_local_names.iter().cloned().collect());
@@ -364,6 +378,7 @@ pub(crate) fn register_function_chunks(
     file_id: u32,
     code: &mut [Instruction],
     base_offset: usize,
+    debug_log: Option<&DebugLog>,
 ) {
     use crate::value::Value;
     use crate::vm::inst::Instruction::*;
@@ -390,14 +405,16 @@ pub(crate) fn register_function_chunks(
                             file_id,
                             f_mut.instructions.len(),
                         );
-                        if get_debug_log_flags().contains(DebugLogFlags::WQDB) {
-                            eprintln!(
+                        if let Some(debug_log) =
+                            debug_log.filter(|log| log.enabled(DebugLogFlags::WQDB))
+                        {
+                            debug_log.emit_line(format!(
                                 "[wqdb]: register_function_chunks new chunk={chunk:?} name={} file_id={} instructions={} base_offset={}",
                                 di.chunk(chunk).name,
                                 file_id,
                                 f_mut.instructions.len(),
                                 base_offset,
-                            );
+                            ));
                         }
                         if let (Some(pc_spans), Some(stmt_marks)) =
                             (&f_mut.dbg_pc_spans, &f_mut.dbg_stmt_marks)
@@ -410,6 +427,7 @@ pub(crate) fn register_function_chunks(
                                     pc_spans.as_ref(),
                                     stmt_marks.as_ref(),
                                     base_offset,
+                                    debug_log,
                                 )
                             };
                             di.chunk_mut(chunk).note_debug_spans(has_exact, has_real);
@@ -422,12 +440,13 @@ pub(crate) fn register_function_chunks(
                                     file_id,
                                     spans.as_ref(),
                                     base_offset,
+                                    debug_log,
                                 )
                             };
                             di.chunk_mut(chunk).note_debug_spans(false, has_real);
                         } else {
                             let table = &mut di.chunk_mut(chunk).line_table;
-                            mark_stmt_heuristic(table, &f_mut.instructions);
+                            mark_stmt_heuristic(table, &f_mut.instructions, debug_log);
                         }
                         if let Some(names) = &f_mut.dbg_local_names {
                             di.chunk_mut(chunk).local_names = Some(names.iter().cloned().collect());
@@ -435,7 +454,7 @@ pub(crate) fn register_function_chunks(
                         f_mut.dbg_chunk = Some(chunk);
                         // Recurse into nested functions
                         let nested = std::sync::Arc::make_mut(&mut f_mut.instructions);
-                        register_function_chunks(di, file_id, nested, base_offset);
+                        register_function_chunks(di, file_id, nested, base_offset, debug_log);
                     }
                 }
                 LoadClosure(payload) => {
@@ -446,10 +465,11 @@ pub(crate) fn register_function_chunks(
                             payload,
                             next_name,
                             base_offset,
+                            debug_log,
                         );
                     }
                     let nested = std::sync::Arc::make_mut(&mut payload.instructions);
-                    register_function_chunks(di, file_id, nested, base_offset);
+                    register_function_chunks(di, file_id, nested, base_offset, debug_log);
                 }
                 _ => {}
             }
@@ -485,7 +505,7 @@ mod tests {
         let file_id = di.new_file("<test>", "");
         let mut code = vec![Instruction::LoadClosure(Box::new(empty_payload()))];
 
-        register_function_chunks(&mut di, file_id, &mut code, 0);
+        register_function_chunks(&mut di, file_id, &mut code, 0, None);
 
         let Instruction::LoadClosure(payload) = &code[0] else {
             panic!("expected closure payload");
@@ -493,7 +513,7 @@ mod tests {
         assert_eq!(payload.dbg_chunk, Some(ChunkId(0)));
         assert_eq!(di.chunk(ChunkId(0)).len, 1);
 
-        register_function_chunks(&mut di, file_id, &mut code, 0);
+        register_function_chunks(&mut di, file_id, &mut code, 0, None);
 
         let Instruction::LoadClosure(payload) = &code[0] else {
             panic!("expected closure payload");

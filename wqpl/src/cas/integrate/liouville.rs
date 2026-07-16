@@ -12,16 +12,20 @@ use num_traits::ToPrimitive as _;
 use super::byparts::try_extract_exp_arg;
 use super::unsupported_symbolic_integral_error;
 use crate::cas::{
-    cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div, numeric_add,
-    numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub, poly_degree,
-    poly_derivative, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul, poly_sub,
-    poly_to_expr, poly_trim, simplify_cas_value,
+    CasDebug, cas_add, cas_div, cas_mul, cas_pow, cas_product, cas_sub, eval_exact_numeric_div,
+    numeric_add, numeric_is_negative, numeric_is_one, numeric_is_zero, numeric_mul, numeric_sub,
+    poly_degree, poly_derivative, poly_divide, poly_from_expr, poly_gcd, poly_is_zero, poly_mul,
+    poly_sub, poly_to_expr, poly_trim, simplify_cas_value,
 };
 use crate::value::cas::{CasConst, CasFunction, CasOp};
 use crate::value::{Value, WqResult};
 
 /// Strategy entry point: integrate f(x)*e^(g(x)) via Liouville's principle.
-pub(super) fn integrate_liouville(expr: &Value, var: &str) -> WqResult<Option<Value>> {
+pub(super) fn integrate_liouville(
+    expr: &Value,
+    var: &str,
+    _debug: CasDebug<'_>,
+) -> WqResult<Option<Value>> {
     let simplified = simplify_cas_value(expr)?;
 
     // Case: pure exp(g(x)) / e^(g(x))
@@ -908,7 +912,9 @@ mod tests {
             vec![f_expr, call(CasFunction::Exp, vec![g_expr])],
         );
 
-        let result = super::integrate_liouville(&expr, "x").unwrap().unwrap();
+        let result = super::integrate_liouville(&expr, "x", CasDebug::disabled())
+            .unwrap()
+            .unwrap();
         // Should be x^2*e^(x^3/3), equiv to (x^2)*exp(x^3/3)
         let s = result.to_string();
         assert!(s.contains("x^2"), "expected x^2 in result: {s}");
@@ -967,7 +973,7 @@ mod tests {
             vec![Value::Int(2), Value::from_cas_var("x")],
         );
         let expr = op(CasOp::Multiply, vec![f, call(CasFunction::Exp, vec![g])]);
-        let result = super::integrate_liouville(&expr, "x");
+        let result = super::integrate_liouville(&expr, "x", CasDebug::disabled());
         // Should return Ei(2x) or fall through gracefully
         let _ = result;
     }
@@ -998,7 +1004,7 @@ mod tests {
         let g = op(CasOp::Power, vec![x, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
-        let result = super::integrate_liouville(&integrand, "x")
+        let result = super::integrate_liouville(&integrand, "x", CasDebug::disabled())
             .unwrap()
             .unwrap();
         let s = simplify_cas_value(&result).unwrap().to_string();
@@ -1049,7 +1055,7 @@ mod tests {
         );
         let integrand = build_integrand(f, g);
 
-        let result = super::integrate_liouville(&integrand, "x")
+        let result = super::integrate_liouville(&integrand, "x", CasDebug::disabled())
             .unwrap()
             .unwrap();
         let s = simplify_cas_value(&result).unwrap().to_string();
@@ -1098,7 +1104,7 @@ mod tests {
         let g = op(CasOp::Power, vec![xv, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
-        let result = super::integrate_liouville(&integrand, "x")
+        let result = super::integrate_liouville(&integrand, "x", CasDebug::disabled())
             .unwrap()
             .unwrap();
         let s = simplify_cas_value(&result).unwrap().to_string();
@@ -1139,7 +1145,7 @@ mod tests {
         let g = op(CasOp::Power, vec![xv, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
-        let result = super::integrate_liouville(&integrand, "x")
+        let result = super::integrate_liouville(&integrand, "x", CasDebug::disabled())
             .unwrap()
             .unwrap();
         let s = simplify_cas_value(&result).unwrap().to_string();
@@ -1166,7 +1172,7 @@ mod tests {
         let g = op(CasOp::Power, vec![x, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
-        let result = super::integrate_liouville(&integrand, "x");
+        let result = super::integrate_liouville(&integrand, "x", CasDebug::disabled());
         assert!(
             matches!(result, Ok(None)),
             "int e^(x^2)/x^2 dx should not be elementary, got: {result:?}"
@@ -1181,7 +1187,7 @@ mod tests {
         let g = op(CasOp::Power, vec![x, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
-        let result = super::integrate_liouville(&integrand, "x")
+        let result = super::integrate_liouville(&integrand, "x", CasDebug::disabled())
             .unwrap()
             .unwrap();
         let s = simplify_cas_value(&result).unwrap().to_string();
@@ -1198,7 +1204,7 @@ mod tests {
         let g = op(CasOp::Power, vec![x, Value::Int(3)]);
         let integrand = build_integrand(f, g);
 
-        let result = super::integrate_liouville(&integrand, "x")
+        let result = super::integrate_liouville(&integrand, "x", CasDebug::disabled())
             .unwrap()
             .unwrap();
         let s = simplify_cas_value(&result).unwrap().to_string();
@@ -1242,7 +1248,7 @@ mod tests {
         let g = op(CasOp::Power, vec![xv, Value::Int(2)]);
         let integrand = build_integrand(f, g);
 
-        let result = super::integrate_liouville(&integrand, "x")
+        let result = super::integrate_liouville(&integrand, "x", CasDebug::disabled())
             .unwrap()
             .unwrap();
         let s = simplify_cas_value(&result).unwrap().to_string();

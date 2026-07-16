@@ -1,6 +1,6 @@
-pub mod profiler;
-pub mod sample;
-pub mod vanilla;
+pub(crate) mod profiler;
+pub(crate) mod sample;
+pub(crate) mod vanilla;
 
 use crate::ast::{BinaryOperator, BoolOperator, UnaryOperator};
 use crate::value::{Value, WqResult};
@@ -12,7 +12,7 @@ use crate::vm::inst::Instruction;
 /// An interpreter is responsible for executing instructions from the VM's
 /// current instruction set, updating the VM's state (stack, pc, locals, etc.)
 /// accordingly.
-pub trait Interpreter {
+pub(crate) trait Interpreter {
     /// Execute instructions until the PC reaches the limit.
     ///
     /// The interpreter is free to execute fewer instructions if a return or
