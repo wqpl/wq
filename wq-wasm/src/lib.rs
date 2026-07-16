@@ -227,7 +227,7 @@ impl WasmFrontend {
         })?;
         self.frontend
             .format_syntax_display(src, kind, ColorMode::Always)
-            .map_err(|err| wq_error_js(&err, BoxPrintConfig::default()))
+            .map_err(|err| wq_error_js(&err, ColorMode::Always))
     }
 
     pub fn highlight_wq(&self, src: &str) -> String {
@@ -278,6 +278,11 @@ impl WasmWqSession {
             .try_borrow_mut()
             .map_err(|_| reentrant_session_error_js())
     }
+
+    fn ensure_session_idle(&self) -> Result<(), JsValue> {
+        drop(self.try_session()?);
+        Ok(())
+    }
 }
 
 #[wasm_bindgen(js_class = WasmWqSessionCore)]
@@ -327,11 +332,13 @@ impl WasmWqSession {
     /// Evaluate source and return its rendered value plus display metadata.
     #[wasm_bindgen(unchecked_return_type = "RenderedValue")]
     pub fn eval_wq(&self, src: &str) -> Result<JsValue, JsValue> {
-        let result = {
+        let (result, color_mode) = {
             let mut session = self.try_session_mut()?;
-            session
+            let color_mode = session.stderr_color_mode();
+            let result = session
                 .eval_script(SourceUnit::named("<wasm>", src))
-                .map(|value| render_value(&value, self.box_config.get()))
+                .map(|value| render_value(&value, self.box_config.get()));
+            (result, color_mode)
         };
         match result {
             Ok(rendered) => Ok(rendered_value_to_js(&rendered).into()),
@@ -344,10 +351,19 @@ impl WasmWqSession {
                 } else {
                     Vec::new()
                 };
-                let config = self.box_config.get();
-                Err(wq_error_with_stack_js(&e, config, stack))
+                Err(wq_error_with_stack_js(&e, color_mode, stack))
             }
         }
+    }
+
+    /// Configure ANSI styling for runtime output and diagnostics.
+    pub fn set_ansi_styles_enabled(&self, on: bool) -> Result<(), JsValue> {
+        self.try_session_mut()?.set_color_mode(if on {
+            ColorMode::Always
+        } else {
+            ColorMode::Never
+        });
+        Ok(())
     }
 
     pub fn set_debug_flags(&self, spec: &str) -> Result<(), JsValue> {
@@ -473,10 +489,9 @@ impl WasmWqSession {
 
     /// Toggle boxed display of evaluation results. Returns the new state.
     pub fn toggle_box_mode(&self) -> Result<bool, JsValue> {
-        let mut session = self.try_session_mut()?;
+        self.ensure_session_idle()?;
         let mut config = self.box_config.get();
         config.toggle_box();
-        session.set_color_mode(wasm_color_mode(config));
         self.box_config.set(config);
         Ok(config.boxed)
     }
@@ -499,8 +514,7 @@ impl WasmWqSession {
         if !spec.is_empty() && spec != "0" && spec != "off" {
             apply_box_spec(&mut config, spec).map_err(|e| api_error_js("invalid-box-flags", &e))?;
         }
-        self.try_session_mut()?
-            .set_color_mode(wasm_color_mode(config));
+        self.ensure_session_idle()?;
         self.box_config.set(config);
         Ok(())
     }
@@ -508,8 +522,7 @@ impl WasmWqSession {
     pub fn apply_box_flags(&self, spec: &str) -> Result<(), JsValue> {
         let mut config = self.box_config.get();
         apply_box_spec(&mut config, spec).map_err(|e| api_error_js("invalid-box-flags", &e))?;
-        self.try_session_mut()?
-            .set_color_mode(wasm_color_mode(config));
+        self.ensure_session_idle()?;
         self.box_config.set(config);
         Ok(())
     }
@@ -556,16 +569,8 @@ fn eval_rendered_value(session: &WasmWqSession, src: &str) -> WqResult<RenderedV
     Ok(render_value(&value, session.box_config.get()))
 }
 
-fn wasm_color_mode(config: BoxPrintConfig) -> ColorMode {
-    if config.color {
-        ColorMode::Always
-    } else {
-        ColorMode::Never
-    }
-}
-
-fn format_wasm_error(err: &WqError, config: BoxPrintConfig) -> String {
-    err.render_with_color_mode(wasm_color_mode(config))
+fn format_wasm_error(err: &WqError, color_mode: ColorMode) -> String {
+    err.render_with_color_mode(color_mode)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -664,7 +669,7 @@ fn clamp_byte_boundary(source: &str, byte: usize) -> usize {
 
 fn diagnostic_data(
     err: &WqError,
-    config: BoxPrintConfig,
+    color_mode: ColorMode,
     stack: Vec<DiagnosticStackFrameData>,
 ) -> DiagnosticData {
     DiagnosticData {
@@ -674,7 +679,7 @@ fn diagnostic_data(
             .msg
             .clone()
             .unwrap_or_else(|| err.err_type.name().to_string()),
-        rendered: format_wasm_error(err, config),
+        rendered: format_wasm_error(err, color_mode),
         source: err.src.clone(),
         span: err.span,
         path: err.source_ctx.as_deref().map(|source| source.path.clone()),
@@ -781,16 +786,16 @@ fn reentrant_session_error_js() -> JsValue {
     )
 }
 
-fn wq_error_js(err: &WqError, config: BoxPrintConfig) -> JsValue {
-    wq_error_with_stack_js(err, config, Vec::new())
+fn wq_error_js(err: &WqError, color_mode: ColorMode) -> JsValue {
+    wq_error_with_stack_js(err, color_mode, Vec::new())
 }
 
 fn wq_error_with_stack_js(
     err: &WqError,
-    config: BoxPrintConfig,
+    color_mode: ColorMode,
     stack: Vec<DiagnosticStackFrameData>,
 ) -> JsValue {
-    diagnostic_to_js(&diagnostic_data(err, config, stack)).into()
+    diagnostic_to_js(&diagnostic_data(err, color_mode, stack)).into()
 }
 
 fn diagnostic_to_js(diagnostic: &DiagnosticData) -> Object {
@@ -1486,17 +1491,12 @@ mod tests {
     }
 
     #[test]
-    fn wasm_error_formatting_follows_box_color_flag() {
+    fn wasm_error_formatting_follows_general_color_mode() {
         let session = WasmWqSession::new();
         let err = eval_wq_script_value(&session, "1+").expect_err("incomplete input should error");
-        let color_config = BoxPrintConfig::default();
-        let plain_config = BoxPrintConfig {
-            color: false,
-            ..BoxPrintConfig::default()
-        };
 
-        let colored = format_wasm_error(&err, color_config);
-        let plain = format_wasm_error(&err, plain_config);
+        let colored = format_wasm_error(&err, ColorMode::Always);
+        let plain = format_wasm_error(&err, ColorMode::Never);
 
         assert!(colored.contains('\u{1b}'));
         assert!(!plain.contains('\u{1b}'));
@@ -1508,7 +1508,30 @@ mod tests {
     }
 
     #[test]
-    fn toggling_box_mode_keeps_session_color_in_sync() {
+    fn ansi_styles_and_box_color_are_independent() {
+        let session = WasmWqSession::new();
+
+        session
+            .set_ansi_styles_enabled(false)
+            .expect("ANSI styles should turn off");
+        session
+            .set_box_flags("box,axis,color")
+            .expect("box color should turn on");
+        assert_eq!(session.session.borrow().color_mode(), ColorMode::Never);
+        assert!(session.box_config.get().color);
+
+        session
+            .set_ansi_styles_enabled(true)
+            .expect("ANSI styles should turn on");
+        session
+            .apply_box_flags("-color")
+            .expect("box color should turn off");
+        assert_eq!(session.session.borrow().color_mode(), ColorMode::Always);
+        assert!(!session.box_config.get().color);
+    }
+
+    #[test]
+    fn box_settings_preserve_session_color_mode() {
         let session = WasmWqSession::new();
         assert_eq!(session.session.borrow().color_mode(), ColorMode::Always);
 
@@ -1517,7 +1540,7 @@ mod tests {
                 .toggle_box_mode()
                 .expect("box mode should toggle off")
         );
-        assert_eq!(session.session.borrow().color_mode(), ColorMode::Never);
+        assert_eq!(session.session.borrow().color_mode(), ColorMode::Always);
 
         assert!(
             session
@@ -1525,6 +1548,48 @@ mod tests {
                 .expect("box mode should toggle on")
         );
         assert_eq!(session.session.borrow().color_mode(), ColorMode::Always);
+
+        session
+            .set_box_flags("0")
+            .expect("box flags should turn off");
+        assert_eq!(session.session.borrow().color_mode(), ColorMode::Always);
+
+        session
+            .set_box_flags("box,axis,color")
+            .expect("box flags should restore defaults");
+        session
+            .apply_box_flags("-color")
+            .expect("box color should turn off");
+        assert_eq!(session.session.borrow().color_mode(), ColorMode::Always);
+    }
+
+    #[test]
+    fn box_off_preserves_streamed_asciiplot_colors() {
+        let captured = Arc::new(Mutex::new(String::new()));
+        let session = WasmWqSession::new();
+        session
+            .session
+            .borrow_mut()
+            .set_stdout(Box::new(CapturedOutput {
+                out: Arc::clone(&captured),
+            }));
+        session
+            .set_box_flags("0")
+            .expect("box flags should turn off");
+
+        let result = eval_rendered_value(
+            &session,
+            "asciiplot[(1;2;3);(3;2;1);`size:(12;5);`color:(\"red\";\"blue\")]",
+        )
+        .expect("asciiplot should render");
+
+        assert_eq!(result.display, "()");
+        assert!(
+            captured
+                .lock()
+                .expect("stdout capture lock should not be poisoned")
+                .contains("\x1b[")
+        );
     }
 
     #[test]
@@ -1533,7 +1598,7 @@ mod tests {
         let err = eval_wq_script_value(&session, "f:{assert_eq[1;2]};f[]")
             .expect_err("assertion should fail");
         let stack = session_stack_data(&mut session.session.borrow_mut());
-        let diagnostic = diagnostic_data(&err, BoxPrintConfig::off(), stack);
+        let diagnostic = diagnostic_data(&err, ColorMode::Never, stack);
 
         assert_eq!(diagnostic.version, 1);
         assert_eq!(diagnostic.kind, "assert");

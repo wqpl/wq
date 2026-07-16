@@ -138,6 +138,10 @@ export class WasmWqSession {
     return this.#call("reset_workspace");
   }
 
+  set_ansi_styles_enabled(on) {
+    return this.#call("set_ansi_styles_enabled", on);
+  }
+
   set_backtrace_enabled(on) {
     return this.#call("set_backtrace_enabled", on);
   }

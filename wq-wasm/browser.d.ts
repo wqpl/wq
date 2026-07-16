@@ -54,6 +54,7 @@ export class WasmWqSession {
   interpreter_names(): string[];
   reset_execution_state(): void;
   reset_workspace(): void;
+  set_ansi_styles_enabled(on: boolean): void;
   set_backtrace_enabled(on: boolean): void;
   set_box_flags(spec: string): void;
   set_builtins_preset(name: string): string;

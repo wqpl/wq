@@ -61,6 +61,24 @@ test("session callback boundaries return structured diagnostics", async (t) => {
     assert.deepEqual(toggleError, callbackError);
     assert.equal(session.get_box_mode(), originalBoxMode);
 
+    let streamedOutput = "";
+    session.set_stdout_callback((chunk) => {
+      streamedOutput += chunk;
+    });
+    session.set_box_flags("0");
+    session.eval_wq(
+      'asciiplot[(1;2;3);(3;2;1);`size:(12;5);`color:("red";"blue")]',
+    );
+    assert.match(streamedOutput, /\x1b\[/);
+
+    session.set_ansi_styles_enabled(false);
+    streamedOutput = "";
+    session.eval_wq(
+      'asciiplot[(1;2;3);(3;2;1);`size:(12;5);`color:("red";"blue")]',
+    );
+    assert.doesNotMatch(streamedOutput, /\x1b\[/);
+    session.set_ansi_styles_enabled(true);
+
     assert.throws(
       () => session.eval_wq("f:{assert_eq[1;2]};f[]"),
       (error) => {
