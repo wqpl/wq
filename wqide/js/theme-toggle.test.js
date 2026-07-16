@@ -36,3 +36,24 @@ test("midnight stars use quiet layers without flashing sparkles", () => {
   assert.doesNotMatch(appSource, /theme-star-sparkles/);
   assert.doesNotMatch(styles, /steps\(/);
 });
+
+test("welcome links use a quiet theme-aware hover border", () => {
+  assert.equal(
+    styles.match(/--welcome-link-border-hover:/g)?.length,
+    2,
+  );
+  assert.equal(styles.match(/--welcome-link-bg-hover:/g)?.length, 2);
+  assert.match(
+    cssRule(".article-link:hover"),
+    /border-color:\s*var\(--welcome-link-border-hover\);/,
+  );
+  assert.match(
+    cssRule(".article-link:hover"),
+    /background:\s*var\(--welcome-link-bg-hover\);/,
+  );
+  assert.match(
+    cssRule(':root[data-theme="midnight"]'),
+    /--welcome-link-bg:\s*rgba\(7, 9, 17, 0\.76\);/,
+  );
+  assert.doesNotMatch(styles, /--welcome-link-hover:\s*#54eaf5;/);
+});

@@ -1,7 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatGlobalsTable, formatNameColumns } from "./repl-globals.js";
+import {
+  formatGlobalBindings,
+  formatGlobalsTable,
+  formatNameColumns,
+} from "./repl-globals.js";
+
+test("formats structured globals for the panel", () => {
+  assert.deepEqual(
+    formatGlobalBindings([
+      { name: "answer", display: "42", type_name: "int" },
+      { name: "lines", display: "a\nb", type_name: "list" },
+    ]),
+    [
+      { name: "answer", value: "42", type: "int" },
+      { name: "lines", value: "a\\nb", type: "list" },
+    ],
+  );
+  assert.deepEqual(formatGlobalBindings(null), []);
+});
 
 test("formats empty structured globals", () => {
   assert.equal(formatGlobalsTable([]), "no global bindings");

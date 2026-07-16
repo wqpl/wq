@@ -27,7 +27,11 @@ import {
   formatWqError,
 } from "./wq-shared.js";
 import { createWqEditor } from "./editor.js";
-import { formatGlobalsTable, formatNameColumns } from "./repl-globals.js";
+import {
+  formatGlobalBindings,
+  formatGlobalsTable,
+  formatNameColumns,
+} from "./repl-globals.js";
 
 let session = null;
 let frontend = null;
@@ -434,20 +438,80 @@ function autoSizeComposer() {
   ui.codeEl.style.height = `${nextHeight}px`;
 }
 
+function renderEmptyGlobals() {
+  const empty = document.createElement("div");
+  empty.className = "globals-panel-empty";
+
+  const title = document.createElement("strong");
+  title.textContent = "No global bindings";
+  const detail = document.createElement("span");
+  detail.textContent = "Assignments from the REPL will appear here.";
+
+  empty.append(title, detail);
+  ui.globalsBody.replaceChildren(empty);
+}
+
+function renderGlobalBindings(globals) {
+  const list = document.createElement("dl");
+  list.className = "globals-list";
+
+  for (const binding of formatGlobalBindings(globals)) {
+    const item = document.createElement("div");
+    item.className = "global-binding";
+
+    const heading = document.createElement("div");
+    heading.className = "global-binding-head";
+
+    const name = document.createElement("dt");
+    name.className = "global-binding-name";
+    const nameCode = document.createElement("code");
+    nameCode.textContent = binding.name;
+    name.append(nameCode);
+
+    const type = document.createElement("dd");
+    type.className = "global-binding-type";
+    type.textContent = binding.type;
+
+    const value = document.createElement("dd");
+    value.className = "global-binding-value";
+    const valueCode = document.createElement("code");
+    valueCode.textContent = binding.value;
+    value.append(valueCode);
+
+    heading.append(name, type);
+    item.append(heading, value);
+    list.append(item);
+  }
+
+  ui.globalsBody.replaceChildren(list);
+}
+
 function syncGlobalsPanel() {
   if (!ui?.globalsBody) return;
-  let table = "no global bindings";
   let count = 0;
+  let state = "empty";
   try {
     const globals = Array.from(ensureSession().globals());
-    table = formatGlobalsTable(globals);
     count = globals.length;
+    state = count === 0 ? "empty" : "ready";
+    if (count === 0) {
+      renderEmptyGlobals();
+    } else {
+      renderGlobalBindings(globals);
+    }
   } catch (err) {
-    table = formatWqError(err);
+    state = "error";
+    const error = document.createElement("p");
+    error.className = "globals-panel-error";
+    error.textContent = formatWqError(err);
+    ui.globalsBody.replaceChildren(error);
   }
-  ui.globalsBody.textContent = table;
   ui.globalsCount.textContent = String(count);
-  ui.globalsPanel?.classList.toggle("empty", count === 0);
+  ui.globalsCount.setAttribute(
+    "aria-label",
+    `${count} global binding${count === 1 ? "" : "s"}`,
+  );
+  ui.globalsPanel.dataset.state = state;
 }
 
 function setButtonStatus(btn, label) {

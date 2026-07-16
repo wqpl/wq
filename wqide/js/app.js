@@ -1334,10 +1334,10 @@ const REPL_HTML = html`
             </button>
           </div>
         </div>
-        <pre
+        <div
           id="globalsBody"
           class="globals-panel-body"
-          aria-live="polite"></pre>
+          aria-live="polite"></div>
       </aside>
     </div>
   </main>

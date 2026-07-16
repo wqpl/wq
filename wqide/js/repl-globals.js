@@ -6,11 +6,19 @@ function tableCell(value) {
     .replaceAll("\n", "\\n");
 }
 
+export function formatGlobalBindings(globals) {
+  return Array.from(globals || [], (binding) => ({
+    name: tableCell(binding?.name),
+    value: tableCell(binding?.display),
+    type: tableCell(binding?.type_name),
+  }));
+}
+
 export function formatGlobalsTable(globals) {
-  const rows = Array.from(globals || [], (binding) => [
-    tableCell(binding?.name),
-    tableCell(binding?.display),
-    tableCell(binding?.type_name),
+  const rows = formatGlobalBindings(globals).map(({ name, value, type }) => [
+    name,
+    value,
+    type,
   ]);
   if (!rows.length) return EMPTY_GLOBALS_TEXT;
 
